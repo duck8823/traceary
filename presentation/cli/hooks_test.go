@@ -244,6 +244,22 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	})
 	t.Cleanup(cli.ResetUserHomeDirFunc)
 
+	t.Run("fails closed for Grok until native runtime support lands", func(t *testing.T) {
+		rootCmd := newTestRootCLI().Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{
+			"hooks", "install",
+			"--client", "grok",
+			"--project-dir", projectDir,
+			"--traceary-bin", "traceary",
+		})
+		err := rootCmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), "native runtime support") {
+			t.Fatalf("Execute() error = %v, want fail-closed native runtime support error", err)
+		}
+	})
+
 	t.Run("installs Claude settings to standard path", func(t *testing.T) {
 		rootCmd := newTestRootCLI().Command()
 		stdout := &bytes.Buffer{}
