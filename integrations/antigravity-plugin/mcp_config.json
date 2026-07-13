@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "traceary": {
+      "command": "traceary",
+      "args": [
+        "mcp-server"
+      ]
+    }
+  }
+}

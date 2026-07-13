@@ -53,7 +53,7 @@
 ### `compact_summary`
 
 - ホスト側で context window が圧縮されたときに発行。
-- Claude Code (`PostCompact`) は digest 本文を生成する。Gemini CLI (`PreCompress`) は marker のみ — Gemini に post-compress 側の event がないため。Codex 0.125 は compact hook 自体を公開していない（upstream `openai/codex#16098`）。
+- Claude Code (`PostCompact`) は digest 本文を生成する。Gemini CLI (`PreCompress`) は marker のみ — Gemini に post-compress 側の event がないため。Codex CLI 0.144.1 は `PreCompact` / `PostCompact` を公開するが、payload は `trigger` のみで圧縮後サマリー本文を含まない。Traceary はサマリー本文と偽らず、phase 別 marker として記録する。
 - L2 で、`SessionStart` matcher `compact` 経由のセッション再開時に `sessions.summary` の seed として使う。
 
 ### `session_ended`
@@ -68,9 +68,9 @@ Antigravity は Gemini CLI に代わる Traceary 連携ホストです。v0.21.1
 
 - `session_started` — `PreInvocation` から（Antigravity に `SessionStart` はない）。`conversationId` をキーに冪等。
 - `command_executed` — `PostToolUse`（`run_command` のみ）から。直前の `PreToolUse` が同一 `stepIdx` で保存した args と突き合わせる。
-- `transcript` — `Stop` から `transcriptPath` を best-effort で読む。`Stop` は execution 単位の turn 境界であり session 終了ではない (#1170) ため、`session_ended` は発行しない。`Stop` が発火するのは interactive 実行のみで、headless `agy --print` は `Stop`（その他の finalization hook も含む）を発行しないため、print 実行では session start + `run_command` audit のみが記録され、`transcript` event も turn 境界も記録されない。詳細は [capture matrix](../integrations/antigravity.ja.md) と `antigravity-capture-levels` doctor チェックを参照。
+- `transcript` — `Stop` から `transcriptPath` を best-effort で読む。`Stop` は execution 単位の turn 境界であり session 終了ではない (#1170) ため、`session_ended` は発行しない。現在の interactive と headless `agy --print` は `transcriptPath` 付き Stop を発行し、実行時の欠落は `antigravity-event-coverage` が報告する。詳細は [capture matrix](../integrations/antigravity.ja.md) を参照。
 
-Antigravity からは `prompt` / `compact_summary` / `session_ended` イベントは発行されません。上記の Gemini CLI hook カバレッジはレガシー互換パスを示します。
+`prompt` は Stop 時に `transcriptPath` の最新 explicit user-input 行から復元します。直接の prompt hook field はありません。Antigravity から `compact_summary` / `session_ended` イベントは発行されません。上記の Gemini CLI hook カバレッジはレガシー互換パスを示します。
 
 完全な契約と制限は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 
