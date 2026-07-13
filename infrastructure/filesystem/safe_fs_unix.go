@@ -3,6 +3,8 @@
 package filesystem
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -13,6 +15,72 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/xerrors"
 )
+
+func safeWriteFileAtomic(absPath string, data []byte, fallbackPerm os.FileMode) (retErr error) {
+	cleaned := filepath.Clean(absPath)
+	dir := filepath.Dir(cleaned)
+	base := filepath.Base(cleaned)
+	parentFD, err := descendToDir(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(parentFD) }()
+
+	perm := fallbackPerm.Perm()
+	existingFD, err := unix.Openat(parentFD, base, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err == nil {
+		var stat unix.Stat_t
+		if statErr := unix.Fstat(existingFD, &stat); statErr != nil {
+			_ = unix.Close(existingFD)
+			return xerrors.Errorf("failed to stat %s: %w", absPath, statErr)
+		}
+		perm = os.FileMode(stat.Mode).Perm()
+		_ = unix.Close(existingFD)
+	} else if !errors.Is(err, unix.ENOENT) {
+		if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.EMLINK) {
+			return xerrors.Errorf("refusing to replace symbolic link: %s", absPath)
+		}
+		return xerrors.Errorf("failed to inspect %s: %w", absPath, err)
+	}
+
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		return xerrors.Errorf("failed to generate temporary filename: %w", err)
+	}
+	tempName := "." + base + ".tmp-" + hex.EncodeToString(random)
+	tempFD, err := unix.Openat(parentFD, tempName, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, uint32(perm))
+	if err != nil {
+		return xerrors.Errorf("failed to create temporary file for %s: %w", absPath, err)
+	}
+	temp := os.NewFile(uintptr(tempFD), filepath.Join(dir, tempName))
+	tempPresent := true
+	defer func() {
+		_ = temp.Close()
+		if tempPresent {
+			_ = unix.Unlinkat(parentFD, tempName, 0)
+		}
+	}()
+	if err := temp.Chmod(perm); err != nil {
+		return xerrors.Errorf("failed to preserve permissions for %s: %w", absPath, err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		return xerrors.Errorf("failed to write temporary file for %s: %w", absPath, err)
+	}
+	if err := temp.Sync(); err != nil {
+		return xerrors.Errorf("failed to sync temporary file for %s: %w", absPath, err)
+	}
+	if err := temp.Close(); err != nil {
+		return xerrors.Errorf("failed to close temporary file for %s: %w", absPath, err)
+	}
+	if err := unix.Renameat(parentFD, tempName, parentFD, base); err != nil {
+		return xerrors.Errorf("failed to atomically replace %s: %w", absPath, err)
+	}
+	tempPresent = false
+	if err := unix.Fsync(parentFD); err != nil {
+		return xerrors.Errorf("failed to sync parent directory for %s: %w", absPath, err)
+	}
+	return nil
+}
 
 // descendToDir opens the directory at absPath using an fd-pinned walk.
 // Each intermediate component is opened with O_NOFOLLOW so an attacker

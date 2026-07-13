@@ -10,24 +10,41 @@ import (
 // hook install (merge-only mode). The four slices are disjoint.
 //
 // AddedEvents     : events that had no Traceary-managed commands before
-//                   but now do (new hook coverage).
+//
+//	but now do (new hook coverage).
+//
 // RefreshedEvents : events whose Traceary-managed commands were replaced
-//                   with the current release's set (upgrade, binary
-//                   rename, or command drift).
+//
+//	with the current release's set (upgrade, binary
+//	rename, or command drift).
+//
 // PreservedEvents : events whose normalized command set matched; the
-//                   merged output is byte-identical for these events,
-//                   which is what makes --upgrade idempotent.
+//
+//	merged output is byte-identical for these events,
+//	which is what makes --upgrade idempotent.
+//
 // RemovedEvents   : events present only in the existing config that held
-//                   Traceary-managed commands for an event the current
-//                   release no longer emits (e.g. a hook retired between
-//                   releases). Those stale commands are stripped during
-//                   the merge so the upgrade leaves the Traceary footprint
-//                   consistent with the running binary.
+//
+//	Traceary-managed commands for an event the current
+//	release no longer emits (e.g. a hook retired between
+//	releases). Those stale commands are stripped during
+//	the merge so the upgrade leaves the Traceary footprint
+//	consistent with the running binary.
 type HookUpgradeDiff struct {
 	AddedEvents     []string
 	RefreshedEvents []string
 	PreservedEvents []string
 	RemovedEvents   []string
+}
+
+// HookManagedEntry identifies one Traceary-owned command in a host hook
+// configuration. Doctor uses this operator-facing identity when it needs to
+// explain which manual entries are safe to remove.
+type HookManagedEntry struct {
+	Event      string
+	Matcher    string
+	Name       string
+	ManagedKey string
 }
 
 // HooksOrchestrator is the application-level entrypoint for hook generation
@@ -88,6 +105,15 @@ type HooksOrchestrator interface {
 		outputPath types.Optional[string],
 		matcherPreset string,
 	) (string, HookUpgradeDiff, error)
+
+	// RemoveManaged removes only Traceary-owned commands from an existing hook
+	// configuration. When dryRun is true it returns the entries that would be
+	// removed without writing. Unrelated hooks and top-level fields are kept.
+	RemoveManaged(
+		ctx context.Context,
+		outputPath string,
+		dryRun bool,
+	) ([]HookManagedEntry, error)
 
 	// SupportedClients returns the canonical list of supported client
 	// identifiers (e.g. "claude", "codex", "gemini").

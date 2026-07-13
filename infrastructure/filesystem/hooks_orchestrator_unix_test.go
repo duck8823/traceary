@@ -135,3 +135,31 @@ func TestHooksOrchestrator_InstallForceRefusesSymlink(t *testing.T) {
 		t.Fatalf("victim content = %q, want untouched", got)
 	}
 }
+
+func TestHooksOrchestrator_RemoveManagedWriteFailurePreservesOriginal(t *testing.T) {
+	t.Parallel()
+
+	homeDir := t.TempDir()
+	orchestrator := newTestOrchestrator(homeDir)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hooks.json")
+	original := []byte(`{"hooks":{"Stop":[{"hooks":[{"name":"traceary-transcript","type":"command","command":"'traceary' 'hook' 'transcript' 'codex'"}]}]}}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("Chmod(read-only) error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	if _, err := orchestrator.RemoveManaged(context.Background(), path, false); err == nil {
+		t.Fatalf("RemoveManaged() error = nil, want temporary-file creation failure")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("hooks.json changed after failed atomic write\ngot:  %s\nwant: %s", got, original)
+	}
+}

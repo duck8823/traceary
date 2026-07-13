@@ -390,6 +390,7 @@ func writeCodexDuplicateAuditHook(t *testing.T, home string) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	content := `{
+	"custom": {"keep": true},
   "hooks": {
     "SessionStart": [
       {"hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'start'"}]}
@@ -404,10 +405,10 @@ func writeCodexDuplicateAuditHook(t *testing.T, home string) {
       ]}
     ],
     "PostToolUse": [
-      {"matcher": "", "hooks": [
+      {"matcher": "", "matcherExtension": {"keep": true}, "hooks": [
         {"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"},
         {"name": "traceary-audit", "type": "command", "command": "'traceary' 'hook' 'audit' 'codex'"},
-        {"name": "user-audit", "type": "command", "command": "echo user-hook"}
+        {"name": "user-audit", "type": "command", "command": "echo user-hook", "futureCommandField": {"keep": true}}
       ]}
     ]
   }

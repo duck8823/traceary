@@ -143,6 +143,34 @@ func (o *HooksOrchestrator) UpgradeWithMatcher(
 	}, nil
 }
 
+// RemoveManaged removes the Traceary-owned subset of an existing hook file.
+// The safe filesystem helpers reject symlink traversal on Unix, matching hook
+// installation's write guarantees.
+func (o *HooksOrchestrator) RemoveManaged(
+	_ context.Context,
+	outputPath string,
+	dryRun bool,
+) ([]application.HookManagedEntry, error) {
+	if !filepath.IsAbs(outputPath) {
+		return nil, xerrors.Errorf("hook configuration path must be absolute: %s", outputPath)
+	}
+	content, err := safeReadFile(outputPath)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read hook configuration: %w", err)
+	}
+	filtered, removed, err := removeTracearyManagedHooks(content)
+	if err != nil {
+		return nil, err
+	}
+	if dryRun || len(removed) == 0 {
+		return removed, nil
+	}
+	if err := safeWriteFileAtomic(outputPath, append(filtered, '\n'), 0o644); err != nil {
+		return nil, xerrors.Errorf("failed to write hook configuration: %w", err)
+	}
+	return removed, nil
+}
+
 // installWithDiff is the shared implementation for InstallWithMatcher and
 // UpgradeWithMatcher. The diff is empty when force overwrites the file
 // (no merge performed) or when no existing file was present.
