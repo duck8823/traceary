@@ -39,7 +39,9 @@ type codexHookListMetadata struct {
 
 type codexHooksListResponse struct {
 	Data []struct {
-		Hooks []codexHookListMetadata `json:"hooks"`
+		Hooks    []codexHookListMetadata `json:"hooks"`
+		Warnings []string                `json:"warnings"`
+		Errors   []string                `json:"errors"`
 	} `json:"data"`
 }
 
@@ -153,6 +155,10 @@ func classifyCodexPluginHookTrust(pluginKey string, response codexHooksListRespo
 	result := codexPluginHookTrustResult{PluginKey: pluginKey, Status: codexPluginHookTrustUndetectable}
 	var matched []codexHookListMetadata
 	for _, entry := range response.Data {
+		if len(entry.Warnings) > 0 || len(entry.Errors) > 0 {
+			result.Reason = "Codex reported hook discovery warnings or errors"
+			return result
+		}
 		for _, hook := range entry.Hooks {
 			if hook.PluginID == pluginKey {
 				matched = append(matched, hook)
@@ -220,10 +226,17 @@ func codexPluginHookTrustCheck(result codexPluginHookTrustResult) doctorCheck {
 		if reason == "" {
 			reason = "effective hook state was not returned"
 		}
-		return doctorCheck{Name: name, Status: doctorStatusSkip, Message: localizef(
-			"could not verify effective Traceary plugin hook trust via Codex app-server (%s); this is not a pass, so inspect `/hooks` manually: %s",
-			"Codex app-server で Traceary plugin hook の有効な trust 状態を確認できませんでした (%s)。pass ではないため、`/hooks` で手動確認してください: %s",
-			reason, result.PluginKey,
-		)}
+		return doctorCheck{
+			Name: name, Status: doctorStatusWarn, FixCommand: "codex",
+			Hint: Localize(
+				"start Codex in this project and inspect `/hooks` manually",
+				"この project で Codex を起動し、`/hooks` を手動確認してください",
+			),
+			Message: localizef(
+				"could not verify effective Traceary plugin hook trust via Codex app-server (%s); this is not a pass, so inspect `/hooks` manually: %s",
+				"Codex app-server で Traceary plugin hook の有効な trust 状態を確認できませんでした (%s)。pass ではないため、`/hooks` で手動確認してください: %s",
+				reason, result.PluginKey,
+			),
+		}
 	}
 }

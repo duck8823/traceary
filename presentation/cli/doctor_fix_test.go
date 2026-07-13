@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,7 +195,9 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
 		setDoctorFixHome(t, homeDir)
-		setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+		binDir := filepath.Join(t.TempDir(), "bin")
+		setTracearyPathToCurrentExecutableAt(t, binDir)
+		writeTrustedCodexAppServer(t, binDir, projectDir, "traceary@local-traceary-plugins")
 		writeCodexDuplicateAuditHook(t, homeDir)
 		writeCodexPluginHookFeature(t, homeDir, "true")
 
@@ -286,6 +289,31 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 			t.Fatalf("manual fallback hooks were removed while plugin_hooks was unspecified:\n%s", content)
 		}
 	})
+}
+
+func writeTrustedCodexAppServer(t *testing.T, binDir, projectDir, pluginKey string) {
+	t.Helper()
+	script := `#!/usr/bin/python3
+import json
+import sys
+
+initialize = json.loads(sys.stdin.readline())
+assert initialize["id"] == 0 and initialize["method"] == "initialize"
+print(json.dumps({"id": 0, "result": {"userAgent": "synthetic"}}), flush=True)
+
+hooks_list = json.loads(sys.stdin.readline())
+assert hooks_list["id"] == 1 and hooks_list["method"] == "hooks/list"
+assert hooks_list["params"]["cwds"] == [` + fmt.Sprintf("%q", projectDir) + `]
+print(json.dumps({"id": 1, "result": {"data": [{
+    "cwd": ` + fmt.Sprintf("%q", projectDir) + `,
+    "hooks": [{"pluginId": ` + fmt.Sprintf("%q", pluginKey) + `, "enabled": True, "trustStatus": "trusted"}],
+    "warnings": [],
+    "errors": []
+}]}}), flush=True)
+`
+	if err := os.WriteFile(filepath.Join(binDir, "codex"), []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile(codex) error = %v", err)
+	}
 }
 
 func writeCodexPluginHookFeature(t *testing.T, homeDir, value string) {

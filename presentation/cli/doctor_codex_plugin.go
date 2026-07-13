@@ -25,8 +25,8 @@ func codexPluginManagedHooksCheck(state codexPluginHookFallbackState, hooksPath 
 		Name:   "codex-config",
 		Status: doctorStatusPass,
 		Message: localizef(
-			"codex plugin %q has confirmed plugin-managed hooks (`[features].plugin_hooks = true`); no manual Traceary entries are required in %s",
-			"codex plugin %q では plugin-managed hook が有効です (`[features].plugin_hooks = true`)。%s に手動 Traceary エントリは不要です",
+			"codex plugin %q has confirmed active plugin-managed hooks; no manual Traceary entries are required in %s",
+			"codex plugin %q では plugin-managed hook が有効であることを確認済みです。%s に手動 Traceary エントリは不要です",
 			pluginKey,
 			hooksPath,
 		),

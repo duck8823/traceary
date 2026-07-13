@@ -12,11 +12,25 @@ import (
 func TestProbeCodexPluginHookTrustUsesHooksList(t *testing.T) {
 	binDir := t.TempDir()
 	codexPath := filepath.Join(binDir, "codex")
-	script := `#!/bin/sh
-read -r initialize
-printf '%s\n' '{"id":0,"result":{"userAgent":"synthetic"}}'
-read -r hooks_list
-printf '%s\n' '{"id":1,"result":{"data":[{"cwd":"/tmp/project","hooks":[{"pluginId":"traceary@market","enabled":true,"trustStatus":"trusted"}]}]}}'
+	script := `#!/usr/bin/python3
+import json
+import sys
+
+initialize = json.loads(sys.stdin.readline())
+assert initialize["id"] == 0
+assert initialize["method"] == "initialize"
+print(json.dumps({"id": 0, "result": {"userAgent": "synthetic"}}), flush=True)
+
+hooks_list = json.loads(sys.stdin.readline())
+assert hooks_list["id"] == 1
+assert hooks_list["method"] == "hooks/list"
+assert hooks_list["params"]["cwds"] == ["/tmp/project"]
+print(json.dumps({"id": 1, "result": {"data": [{
+    "cwd": "/tmp/project",
+    "hooks": [{"pluginId": "traceary@market", "enabled": True, "trustStatus": "trusted"}],
+    "warnings": [],
+    "errors": []
+}]}}), flush=True)
 `
 	if err := os.WriteFile(codexPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -95,6 +109,18 @@ func TestClassifyCodexPluginHookTrust(t *testing.T) {
 			wantStatus: codexPluginHookTrustUndetectable,
 			wantCount:  1,
 		},
+		{
+			name:       "partial load warning prevents trusted result",
+			hooksJSON:  `{"data":[{"hooks":[{"pluginId":"traceary@market","enabled":true,"trustStatus":"trusted"}],"warnings":["synthetic warning"]}]}`,
+			wantStatus: codexPluginHookTrustUndetectable,
+			wantCount:  0,
+		},
+		{
+			name:       "partial load error prevents trusted result",
+			hooksJSON:  `{"data":[{"hooks":[{"pluginId":"traceary@market","enabled":true,"trustStatus":"trusted"}],"errors":["synthetic error"]}]}`,
+			wantStatus: codexPluginHookTrustUndetectable,
+			wantCount:  0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -123,7 +149,7 @@ func TestCodexPluginHookTrustCheck(t *testing.T) {
 		{name: "untrusted", status: codexPluginHookTrustUntrusted, wantDoctor: doctorStatusWarn, wantMessage: "untrusted", wantFix: "codex"},
 		{name: "modified", status: codexPluginHookTrustModified, wantDoctor: doctorStatusWarn, wantMessage: "modified", wantFix: "codex"},
 		{name: "disabled", status: codexPluginHookTrustDisabled, wantDoctor: doctorStatusWarn, wantMessage: "disabled", wantFix: "codex"},
-		{name: "undetectable", status: codexPluginHookTrustUndetectable, wantDoctor: doctorStatusSkip, wantMessage: "not a pass"},
+		{name: "undetectable", status: codexPluginHookTrustUndetectable, wantDoctor: doctorStatusWarn, wantMessage: "not a pass", wantFix: "codex"},
 	}
 
 	for _, tt := range tests {
