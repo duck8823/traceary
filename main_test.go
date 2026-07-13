@@ -11,6 +11,27 @@ import (
 	"golang.org/x/xerrors"
 )
 
+func TestIsHookCommandArgs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "direct hook command", args: []string{"traceary", "hook", "prompt", "claude"}, want: true},
+		{name: "global flag before hook", args: []string{"traceary", "--config", "config.json", "hook", "prompt", "claude"}, want: true},
+		{name: "ordinary command", args: []string{"traceary", "doctor", "--client", "claude"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isHookCommandArgs(tt.args); got != tt.want {
+				t.Fatalf("isHookCommandArgs(%q) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWriteCLIError(t *testing.T) {
 	t.Parallel()
 

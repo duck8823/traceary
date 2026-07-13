@@ -54,8 +54,8 @@ func (c *RootCLI) newHookAntigravityEventCommand(
 		Hidden: true,
 		Args:   noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runHookBestEffort("antigravity "+event, func() error {
-				return run(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), dbPath)
+			return c.runHookDurably(cmd.Context(), "antigravity "+event, hookInvocationSpec{Command: "antigravity", Client: antigravityHookClient, Action: event, DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				return run(cmd.Context(), cmd.OutOrStdout(), input, dbPath)
 			})
 		},
 	}
@@ -229,10 +229,14 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 
 	// Transcript first so the turn's transcript event is recorded before any
 	// turn-boundary side effects, keeping the event order chronological.
-	if err := c.runHookTranscript(ctx, bytes.NewReader(normalized), antigravityHookClient, dbPath); err != nil {
-		slog.Debug("antigravity stop transcript failed", "session_id", sessionID, "error", err)
+	transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), antigravityHookClient, dbPath)
+	if transcriptErr != nil {
+		slog.Debug("antigravity stop transcript failed", "session_id", sessionID, "error", transcriptErr)
 	}
-	return c.runHookSession(ctx, nil, bytes.NewReader(normalized), antigravityHookClient, "stop", dbPath)
+	if err := c.runHookSession(ctx, nil, bytes.NewReader(normalized), antigravityHookClient, "stop", dbPath); err != nil {
+		return err
+	}
+	return transcriptErr
 }
 
 // antigravityNormalizeOptions carries the resolved values used to build a

@@ -198,6 +198,12 @@ traceary hooks install --client codex --upgrade
 
 その場合はファイルを自分で確認し、本当に置き換えてよいときだけ `--force` を使ってください。
 
+### timeout kill 時の保全
+
+すべての非公開 `traceary hook ...` entrypoint は、SQLite に触れる前に host payload を `~/.config/traceary/hooks/spool/` 配下の mode `0600` record へ保存します。record は atomic に公開され、hook operation が成功した後だけ削除されます。SIGTERM は command context を cancel します。host が競合中または低速な hook を kill しても、先に公開した record が残るため event は黙って消えません。`traceary doctor` は残存 record と読めない record を `hook-spool` check で報告します。残存 record は payload を確認し、対応する command を再実行してから削除してください。経過時間だけでは自動削除しません。
+
+SQLite が writer 競合を待つのは最大1秒です。packaged host hook の budget は必ずこの待機時間を上回る必要があります。Gemini の生成・同梱 hook timeout は10秒で、DB attempt が失敗して spool record を保持したまま host deadline より前に制御を戻せます。この関係は意図的です: `SQLite busy_timeout < host hook timeout`。
+
 ## トラブルシュート
 
 hooks やローカル SQLite ストアの挙動がおかしいときは `traceary doctor --client <claude|codex|gemini>` を実行してください。

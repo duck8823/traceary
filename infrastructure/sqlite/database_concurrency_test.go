@@ -2,11 +2,14 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
@@ -76,6 +79,43 @@ func TestDatabase_ConcurrentWritersAndReaders_NoSQLITE_BUSY(t *testing.T) {
 
 	for err := range errCh {
 		t.Error(err)
+	}
+}
+
+func TestDatabase_ContendedHookWriteFailsBeforeHostBudget(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	eventDS, _, storeManager := newFullDatasources(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	locker, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := locker.Close(); err != nil {
+			t.Errorf("locker.Close() error = %v", err)
+		}
+	})
+	if _, err := locker.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatalf("BEGIN IMMEDIATE error = %v", err)
+	}
+	defer func() { _, _ = locker.ExecContext(ctx, "ROLLBACK") }()
+
+	started := time.Now()
+	err = eventDS.Save(ctx, newConcurrencyTestEvent(t, "contended-event", "contended-session", time.Now().UTC()))
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("Save() error = nil, want SQLITE_BUSY")
+	}
+	if elapsed >= 5*time.Second {
+		t.Fatalf("contended Save() elapsed = %s, must return before 5s host budget", elapsed)
+	}
+	if elapsed < 800*time.Millisecond {
+		t.Fatalf("contended Save() elapsed = %s, busy timeout did not apply", elapsed)
 	}
 }
 

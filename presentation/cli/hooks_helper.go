@@ -140,8 +140,10 @@ func runHooksHelperBuildFailureOutput(input io.Reader, output io.Writer) error {
 }
 
 func readHookPayload(input io.Reader) ([]byte, error) {
-	if envValue, ok := lookupHookEnv("TRACEARY_HOOK_INPUT"); ok {
-		return []byte(envValue), nil
+	if _, explicit := input.(*explicitHookPayloadReader); !explicit {
+		if envValue, ok := lookupHookEnv("TRACEARY_HOOK_INPUT"); ok {
+			return []byte(envValue), nil
+		}
 	}
 	if input == nil {
 		return nil, nil

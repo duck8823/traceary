@@ -295,6 +295,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Status:  doctorStatusPass,
 		Message: localizef("resolved project directory: %s", "解決した project directory: %s", resolvedProjectDir),
 	})
+	report.Checks = append(report.Checks, inspectHookSpoolDiagnostics(resolvedClients))
 
 	for _, targetClient := range resolvedClients {
 		if targetClient == "antigravity" {

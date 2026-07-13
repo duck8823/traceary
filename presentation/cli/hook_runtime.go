@@ -78,8 +78,8 @@ func (c *RootCLI) newHookSessionCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHookBestEffort("session", func() error {
-				return c.runHookSession(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), args[0], args[1], dbPath)
+			return c.runHookDurably(cmd.Context(), "session", hookInvocationSpec{Command: "session", Client: args[0], Action: args[1], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				return c.runHookSession(cmd.Context(), cmd.OutOrStdout(), input, args[0], args[1], dbPath)
 			})
 		},
 	}
@@ -97,8 +97,8 @@ func (c *RootCLI) newHookAuditCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHookBestEffort("audit", func() error {
-				return c.runHookAudit(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			return c.runHookDurably(cmd.Context(), "audit", hookInvocationSpec{Command: "audit", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				return c.runHookAudit(cmd.Context(), input, args[0], dbPath)
 			})
 		},
 	}
@@ -116,8 +116,8 @@ func (c *RootCLI) newHookCompactCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHookBestEffort("compact", func() error {
-				return c.runHookCompact(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), args[0], args[1], dbPath)
+			return c.runHookDurably(cmd.Context(), "compact", hookInvocationSpec{Command: "compact", Client: args[0], Action: args[1], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				return c.runHookCompact(cmd.Context(), cmd.OutOrStdout(), input, args[0], args[1], dbPath)
 			})
 		},
 	}
@@ -135,8 +135,8 @@ func (c *RootCLI) newHookSubagentStartCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHookBestEffort("subagent-start", func() error {
-				return c.runHookSubagentStart(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			return c.runHookDurably(cmd.Context(), "subagent-start", hookInvocationSpec{Command: "subagent-start", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				return c.runHookSubagentStart(cmd.Context(), input, args[0], dbPath)
 			})
 		},
 	}
@@ -154,8 +154,8 @@ func (c *RootCLI) newHookSubagentStopCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHookBestEffort("subagent-stop", func() error {
-				return c.runHookSubagentStop(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			return c.runHookDurably(cmd.Context(), "subagent-stop", hookInvocationSpec{Command: "subagent-stop", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				return c.runHookSubagentStop(cmd.Context(), input, args[0], dbPath)
 			})
 		},
 	}
@@ -173,8 +173,8 @@ func (c *RootCLI) newHookPromptCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHookBestEffort("prompt", func() error {
-				return c.runHookPrompt(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			return c.runHookDurably(cmd.Context(), "prompt", hookInvocationSpec{Command: "prompt", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				return c.runHookPrompt(cmd.Context(), input, args[0], dbPath)
 			})
 		},
 	}
@@ -192,8 +192,8 @@ func (c *RootCLI) newHookTranscriptCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHookBestEffort("transcript", func() error {
-				return c.runHookTranscript(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			return c.runHookDurably(cmd.Context(), "transcript", hookInvocationSpec{Command: "transcript", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				return c.runHookTranscript(cmd.Context(), input, args[0], dbPath)
 			})
 		},
 	}
