@@ -39,6 +39,7 @@ type RootCLI struct {
 	readPresets                map[string]presentation.ReadPreset
 	defaultReadColor           string
 	hookMemoryExtractLauncher  func(string) error
+	hookMemoryBeforeJobRemoval func()
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -184,6 +185,12 @@ func WithDefaultReadColor(value string) RootCLIOption {
 // tests; production callers use the default process launcher.
 func WithHookMemoryExtractLauncher(launcher func(string) error) RootCLIOption {
 	return func(c *RootCLI) { c.hookMemoryExtractLauncher = launcher }
+}
+
+// WithHookMemoryBeforeJobRemoval installs a deterministic synchronization
+// point for queue race tests. Production callers must leave it unset.
+func WithHookMemoryBeforeJobRemoval(hook func()) RootCLIOption {
+	return func(c *RootCLI) { c.hookMemoryBeforeJobRemoval = hook }
 }
 
 // WithDatabasePathSetter injects a callback invoked by every subcommand

@@ -935,6 +935,68 @@ func TestRootCLI_HookMemoryExtractWorkerHandsOffRerunAtRunLimit(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookMemoryExtractWorkerHandsOffRerunPublishedBeforeRemoval(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "completion-race-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-completion-race-key"), []byte("completion-race-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-completion-race-key-repo"), []byte("traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	var jobPath string
+	queueCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+		cli.WithHookMemoryExtractLauncher(func(path string) error {
+			jobPath = path
+			return nil
+		}),
+	).Command()
+	queueCmd.SetOut(&bytes.Buffer{})
+	queueCmd.SetErr(&bytes.Buffer{})
+	queueCmd.SetIn(strings.NewReader(`{"session_id":"completion-race-session"}`))
+	queueCmd.SetArgs([]string{"hook", "session", "codex", "stop"})
+	if err := queueCmd.Execute(); err != nil {
+		t.Fatalf("queue Execute() error = %v", err)
+	}
+
+	var handedOffPath string
+	workerCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+		cli.WithHookMemoryBeforeJobRemoval(func() {
+			if err := os.WriteFile(jobPath+".rerun", []byte(time.Now().UTC().Format(time.RFC3339Nano)+"\n"), 0o600); err != nil {
+				t.Fatalf("WriteFile(rerun marker) error = %v", err)
+			}
+		}),
+		cli.WithHookMemoryExtractLauncher(func(path string) error {
+			handedOffPath = path
+			return nil
+		}),
+	).Command()
+	workerCmd.SetOut(&bytes.Buffer{})
+	workerCmd.SetErr(&bytes.Buffer{})
+	workerCmd.SetArgs([]string{"hook", "memory-extract-worker", "--job", jobPath})
+	if err := workerCmd.Execute(); err != nil {
+		t.Fatalf("worker Execute() error = %v", err)
+	}
+	if handedOffPath != jobPath {
+		t.Fatalf("handoff path = %q, want %q", handedOffPath, jobPath)
+	}
+	if _, err := os.Stat(jobPath); err != nil {
+		t.Fatalf("completion-race job must be recreated: %v", err)
+	}
+}
+
 func TestRootCLI_HookMemoryExtractWorkerRejectsJobOutsideQueue(t *testing.T) {
 	homeDir := t.TempDir()
 	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })

@@ -130,8 +130,27 @@ func enqueueHookMemoryExtract(request hookMemoryExtractRequest, requestedAt time
 	if !locked {
 		// The worker may already have read the current job. A separate rerun
 		// marker preserves a boundary that arrives while extraction is active.
-		if err := os.WriteFile(jobPath+".rerun", []byte(requestedAt.Format(time.RFC3339Nano)+"\n"), 0o600); err != nil {
+		if err := publishHookMemoryExtractRerun(jobPath+".rerun", requestedAt); err != nil {
 			return "", xerrors.Errorf("failed to mark memory extraction rerun: %w", err)
+		}
+		// Cover the completion race where the worker removed the job between
+		// our failed lock attempt and rerun publication. The worker also checks
+		// the marker after removal; either side may recreate the same job, and
+		// the atomic rename keeps the result readable.
+		if _, statErr := os.Stat(jobPath); errors.Is(statErr, os.ErrNotExist) {
+			job := hookMemoryExtractJob{
+				SchemaVersion:  hookMemoryExtractJobSchemaVersion,
+				SessionID:      request.SessionID,
+				Workspace:      request.Workspace,
+				DBPath:         strings.TrimSpace(request.DBPath),
+				SourceBoundary: strings.TrimSpace(request.SourceBoundary),
+				RequestedAt:    readHookMemoryExtractRerunTime(jobPath+".rerun", requestedAt),
+			}
+			if err := writeHookMemoryExtractJob(jobPath, job); err != nil {
+				return "", err
+			}
+		} else if statErr != nil {
+			return "", xerrors.Errorf("failed to inspect contended memory extraction job: %w", statErr)
 		}
 		return jobPath, nil
 	}
@@ -177,7 +196,7 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 	}
 	queueDir, err := hookMemoryExtractQueueDir()
 	if err != nil {
-		return err
+		return xerrors.Errorf("failed to create memory extraction rerun marker: %w", err)
 	}
 	insideQueue, err := filepath.Rel(queueDir, resolvedJobPath)
 	if err != nil || insideQueue == "." || filepath.Dir(insideQueue) != "." || filepath.IsAbs(insideQueue) {
@@ -244,8 +263,11 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 			return c.failHookMemoryExtractJob(resolvedJobPath, job, extractErr)
 		}
 		if _, rerunErr := os.Stat(resolvedJobPath + ".rerun"); rerunErr == nil {
+			rerunRequestedAt := readHookMemoryExtractRerunTime(resolvedJobPath+".rerun", job.RequestedAt)
 			_ = os.Remove(resolvedJobPath + ".rerun")
-			job.RequestedAt = time.Now().UTC()
+			if rerunRequestedAt.Before(job.RequestedAt) {
+				job.RequestedAt = rerunRequestedAt
+			}
 			job.LastError = ""
 			if writeErr := writeHookMemoryExtractJob(resolvedJobPath, job); writeErr != nil {
 				return writeErr
@@ -264,8 +286,28 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 		} else if !os.IsNotExist(rerunErr) {
 			return xerrors.Errorf("failed to inspect memory extraction rerun marker: %w", rerunErr)
 		}
+		if c.hookMemoryBeforeJobRemoval != nil {
+			c.hookMemoryBeforeJobRemoval()
+		}
 		if removeErr := os.Remove(resolvedJobPath); removeErr != nil && !os.IsNotExist(removeErr) {
 			return xerrors.Errorf("failed to clear memory extraction job: %w", removeErr)
+		}
+		if _, rerunErr := os.Stat(resolvedJobPath + ".rerun"); rerunErr == nil {
+			job.RequestedAt = readHookMemoryExtractRerunTime(resolvedJobPath+".rerun", job.RequestedAt)
+			_ = os.Remove(resolvedJobPath + ".rerun")
+			if writeErr := writeHookMemoryExtractJob(resolvedJobPath, job); writeErr != nil {
+				return writeErr
+			}
+			if unlockErr := jobLock.Unlock(); unlockErr != nil {
+				return xerrors.Errorf("failed to release memory extraction job after completion race: %w", unlockErr)
+			}
+			lockHeld = false
+			if launchErr := c.launchHookMemoryExtractWorker(resolvedJobPath); launchErr != nil {
+				return xerrors.Errorf("failed to hand off raced memory extraction job: %w", launchErr)
+			}
+			return nil
+		} else if !os.IsNotExist(rerunErr) {
+			return xerrors.Errorf("failed to inspect post-completion memory extraction rerun marker: %w", rerunErr)
 		}
 		return nil
 	}
@@ -327,6 +369,43 @@ func writeHookMemoryExtractJob(path string, job hookMemoryExtractJob) error {
 		return xerrors.Errorf("failed to publish memory extraction job: %w", err)
 	}
 	return nil
+}
+
+func publishHookMemoryExtractRerun(path string, requestedAt time.Time) error {
+	marker, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("failed to create memory extraction rerun marker: %w", err)
+	}
+	if _, err := marker.WriteString(requestedAt.Format(time.RFC3339Nano) + "\n"); err != nil {
+		_ = marker.Close()
+		return xerrors.Errorf("failed to write memory extraction rerun marker: %w", err)
+	}
+	if err := marker.Sync(); err != nil {
+		_ = marker.Close()
+		return xerrors.Errorf("failed to sync memory extraction rerun marker: %w", err)
+	}
+	if err := marker.Close(); err != nil {
+		return xerrors.Errorf("failed to close memory extraction rerun marker: %w", err)
+	}
+	return nil
+}
+
+func readHookMemoryExtractRerunTime(path string, fallback time.Time) time.Time {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fallback
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(data)))
+	if err != nil {
+		return fallback
+	}
+	if parsed.Before(fallback) {
+		return parsed
+	}
+	return fallback
 }
 
 func launchDetachedHookMemoryExtractWorker(jobPath string) error {

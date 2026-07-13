@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
+
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -108,5 +110,36 @@ func TestEnqueueHookMemoryExtractPreservesOldestRequestTime(t *testing.T) {
 	}
 	if !job.RequestedAt.Equal(first) {
 		t.Fatalf("requested_at = %s, want oldest %s", job.RequestedAt, first)
+	}
+}
+
+func TestEnqueueHookMemoryExtractPreservesOldestContendedRerunTime(t *testing.T) {
+	t.Setenv(hookStateDirEnvKey, t.TempDir())
+	request := hookMemoryExtractRequest{
+		SessionID:      types.SessionID("contended-session"),
+		Workspace:      types.Workspace("traceary"),
+		DBPath:         filepath.Join(t.TempDir(), "traceary.db"),
+		SourceBoundary: "turn_boundary",
+	}
+	first := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
+	path, err := enqueueHookMemoryExtract(request, first)
+	if err != nil {
+		t.Fatalf("first enqueueHookMemoryExtract() error = %v", err)
+	}
+	jobLock := flock.New(path + ".lock")
+	if err := jobLock.Lock(); err != nil {
+		t.Fatalf("Lock() error = %v", err)
+	}
+	t.Cleanup(func() { _ = jobLock.Unlock() })
+	oldestRerun := first.Add(time.Minute)
+	if _, err := enqueueHookMemoryExtract(request, oldestRerun); err != nil {
+		t.Fatalf("contended enqueueHookMemoryExtract() error = %v", err)
+	}
+	if _, err := enqueueHookMemoryExtract(request, oldestRerun.Add(time.Minute)); err != nil {
+		t.Fatalf("second contended enqueueHookMemoryExtract() error = %v", err)
+	}
+	got := readHookMemoryExtractRerunTime(path+".rerun", oldestRerun.Add(time.Hour))
+	if !got.Equal(oldestRerun) {
+		t.Fatalf("rerun requested_at = %s, want oldest %s", got, oldestRerun)
 	}
 }
