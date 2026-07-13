@@ -16,8 +16,8 @@ import (
 )
 
 var hooksClientFlagUsage = Localize(
-	"target client (claude|codex|gemini|antigravity; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli)",
-	"対象クライアント (claude|codex|gemini|antigravity; alias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli)",
+	"target client (claude|codex|gemini|antigravity|grok; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli)",
+	"対象クライアント (claude|codex|gemini|antigravity|grok; alias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli)",
 )
 
 func (c *RootCLI) newHooksCommand() *cobra.Command {
@@ -46,11 +46,11 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	)
 
 	installCmd := &cobra.Command{
-		Use:   "install --client <claude|codex|gemini>",
+		Use:   "install --client <claude|codex|gemini|antigravity|grok>",
 		Short: Localize("Write hook configuration examples to the standard config path", "標準の設定パスへ hook 設定例を書き出す"),
 		Long: Localize(
-			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini, antigravity.\nAliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli.\nUse --global to write to the user-level config (~/.claude/settings.json for Claude, ~/.gemini/settings.json for Gemini, ~/.gemini/config/hooks.json for Antigravity; Antigravity's workspace path is .agents/hooks.json). Codex hooks are already user-level, so --global is a no-op there.\nUse --upgrade for a non-destructive migration: only Traceary-managed entries are replaced, user-added entries are preserved, and a summary of added / refreshed / unchanged events is printed. Re-running --upgrade on an already up-to-date config is a no-op.",
-			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini, antigravity。\nalias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli。\n--global を指定すると user-level 設定に書き込みます (Claude は ~/.claude/settings.json、Gemini は ~/.gemini/settings.json、Antigravity は ~/.gemini/config/hooks.json; Antigravity の workspace パスは .agents/hooks.json)。Codex の hook は元から user-level なため --global は効果ありません。\n--upgrade を指定すると非破壊マイグレーションになります (Traceary 管理分のみ置換、ユーザー追加の hook は保持、追加 / 更新 / 変更なしの内訳を表示)。既に最新の設定に対して再実行しても no-op です。",
+			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini, antigravity, grok.\nAliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli.\nGrok is recognized as a native client identity, but hook installation remains unavailable until native runtime support is implemented. `hooks print --client grok` exposes the currently empty boundary.\nUse --global to write to the user-level config (~/.claude/settings.json for Claude, ~/.gemini/settings.json for Gemini, ~/.gemini/config/hooks.json for Antigravity; Antigravity's workspace path is .agents/hooks.json). Codex hooks are already user-level, so --global is a no-op there.\nUse --upgrade for a non-destructive migration: only Traceary-managed entries are replaced, user-added entries are preserved, and a summary of added / refreshed / unchanged events is printed. Re-running --upgrade on an already up-to-date config is a no-op.",
+			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini, antigravity, grok。\nalias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli。\nGrok は native client 識別子として認識されますが、native runtime 対応が実装されるまで hook のインストールは利用できません。`hooks print --client grok` は現時点の空の境界を表示します。\n--global を指定すると user-level 設定に書き込みます (Claude は ~/.claude/settings.json、Gemini は ~/.gemini/settings.json、Antigravity は ~/.gemini/config/hooks.json; Antigravity の workspace パスは .agents/hooks.json)。Codex の hook は元から user-level なため --global は効果ありません。\n--upgrade を指定すると非破壊マイグレーションになります (Traceary 管理分のみ置換、ユーザー追加の hook は保持、追加 / 更新 / 変更なしの内訳を表示)。既に最新の設定に対して再実行しても no-op です。",
 		),
 		Example: strings.Join([]string{
 			"  traceary hooks install --client claude --project-dir .",
@@ -92,11 +92,11 @@ func (c *RootCLI) newHooksPrintCommand() *cobra.Command {
 	)
 
 	printCmd := &cobra.Command{
-		Use:   "print --client <claude|codex|gemini>",
+		Use:   "print --client <claude|codex|gemini|antigravity|grok>",
 		Short: Localize("Print hook configuration examples for the current environment", "現在の環境向けの hook 設定例を出力する"),
 		Long: Localize(
-			"Print generated hook configuration for a supported client.\nSupported clients: claude, codex, gemini, antigravity.\nAliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli.\nWhen --traceary-bin is omitted, generated hooks call `traceary` from PATH.",
-			"対応 client 向けの生成済み hook 設定を出力します。\n対応 client: claude, codex, gemini, antigravity。\nalias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli。\n--traceary-bin を省略した場合、生成される hook は PATH 上の `traceary` を呼びます。",
+			"Print generated hook configuration for a supported client.\nSupported clients: claude, codex, gemini, antigravity, grok.\nAliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli.\nWhen --traceary-bin is omitted, generated hooks call `traceary` from PATH.",
+			"対応 client 向けの生成済み hook 設定を出力します。\n対応 client: claude, codex, gemini, antigravity, grok。\nalias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli。\n--traceary-bin を省略した場合、生成される hook は PATH 上の `traceary` を呼びます。",
 		),
 		Example: strings.Join([]string{
 			"  traceary hooks print --client claude",
@@ -400,8 +400,8 @@ func requireHooksClient(client string) error {
 
 	return xerrors.Errorf(
 		Localize(
-			"--client is required (supported: claude, codex, gemini, antigravity; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli)",
-			"--client は必須です (対応 client: claude, codex, gemini, antigravity; alias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli)",
+			"--client is required (supported: claude, codex, gemini, antigravity, grok; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli)",
+			"--client は必須です (対応 client: claude, codex, gemini, antigravity, grok; alias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli)",
 		),
 	)
 }

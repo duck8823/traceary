@@ -25,6 +25,9 @@ var hooksClientAliases = map[string]string{
 	"antigravity":     "antigravity",
 	"agy":             "antigravity",
 	"antigravity-cli": "antigravity",
+	"grok":            "grok",
+	"grok-build":      "grok",
+	"grok-cli":        "grok",
 }
 
 // rawHookDocumentHandler is the optional interface a client handler implements
@@ -36,6 +39,14 @@ var hooksClientAliases = map[string]string{
 type rawHookDocumentHandler interface {
 	renderDocument(tracearyBin string) ([]byte, error)
 	mergeDocument(existing []byte, tracearyBin string) ([]byte, hookMergeDiff, error)
+}
+
+// hookInstallValidator is implemented by handlers whose client identity and
+// printable boundary are available before hook installation is supported.
+// Validation runs before resolving an explicit output path so callers cannot
+// bypass a fail-closed handler with --output, --force, or --upgrade.
+type hookInstallValidator interface {
+	validateInstall() error
 }
 
 // HooksOrchestrator implements application.HooksOrchestrator using filesystem
@@ -187,6 +198,11 @@ func (o *HooksOrchestrator) installWithDiff(
 	if err != nil {
 		return "", hookMergeDiff{}, err
 	}
+	if validator, ok := handler.(hookInstallValidator); ok {
+		if err := validator.validateInstall(); err != nil {
+			return "", hookMergeDiff{}, err
+		}
+	}
 
 	resolvedOutputPath, err := resolveInstallOutputPath(handler, projectDir, outputPath)
 	if err != nil {
@@ -327,7 +343,7 @@ func normalizeHooksClient(handlers map[string]application.HooksClientHandler, cl
 	}
 
 	return "", xerrors.Errorf(
-		"unsupported client: %s (valid values: claude, codex, gemini, antigravity; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli)",
+		"unsupported client: %s (valid values: claude, codex, gemini, antigravity, grok; aliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli)",
 		client,
 	)
 }

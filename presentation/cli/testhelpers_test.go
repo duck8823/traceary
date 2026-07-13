@@ -25,6 +25,7 @@ func newTestHooksOptions() []cli.RootCLIOption {
 			"codex":       filesystem.NewCodexHooksHandlerWithHomeDirFunc(homeDirFunc),
 			"gemini":      filesystem.NewGeminiHooksHandler(),
 			"antigravity": filesystem.NewAntigravityHooksHandler(),
+			"grok":        filesystem.NewGrokHooksHandler(),
 		})),
 		cli.WithHooksInspector(filesystem.NewHooksInspector()),
 		cli.WithPluginCacheInspector(filesystem.NewPluginCacheInspector()),
