@@ -95,8 +95,37 @@ func recordHookSessionActivity(sessionID types.SessionID) error {
 	}
 	digest := sha256.Sum256([]byte(sessionID))
 	path := filepath.Join(activityDir, hex.EncodeToString(digest[:])+".lease")
-	if err := os.WriteFile(path, []byte(sessionID), 0o600); err != nil {
+	if err := writeHookSessionActivityLease(activityDir, path, []byte(sessionID)); err != nil {
 		return xerrors.Errorf("failed to write hook session activity lease: %w", err)
+	}
+	return nil
+}
+
+// writeHookSessionActivityLease publishes a complete lease with a
+// same-directory atomic rename. os.WriteFile truncates an existing lease
+// before writing, which lets a concurrent GC scan observe an empty session ID
+// and close a session that is actively refreshing its lease.
+func writeHookSessionActivityLease(activityDir, path string, data []byte) error {
+	tmp, err := os.CreateTemp(activityDir, ".activity-lease-*")
+	if err != nil {
+		return xerrors.Errorf("create temporary activity lease: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return xerrors.Errorf("set temporary activity lease permissions: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return xerrors.Errorf("write temporary activity lease: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return xerrors.Errorf("close temporary activity lease: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return xerrors.Errorf("publish activity lease: %w", err)
 	}
 	return nil
 }
