@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,6 +122,188 @@ func TestRootCLI_HookSessionCommand_StartRecordsSessionAndState(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(string(workspaceValue)), "github.com/duck8823/traceary"; got != want {
 		t.Fatalf("workspace state = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_StartRunsRateLimitedSessionGC(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-key")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_DB_PATH", filepath.Join(t.TempDir(), "traceary.db"))
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	storeStub := &storeManagementUsecaseStub{}
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		types.EventID("evt-gc-start"),
+		types.EventKindSessionStarted,
+		types.Client("hook"),
+		types.Agent("codex"),
+		types.SessionID("gc-session"),
+		types.Workspace("github.com/duck8823/traceary"),
+		"session started",
+		time.Now(),
+	)}
+	runStart := func() {
+		t.Helper()
+		cmd := newTestRootCLI(cli.WithStoreManagement(storeStub), cli.WithSession(sessionStub)).Command()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetIn(strings.NewReader(`{"session_id":"gc-session"}`))
+		cmd.SetArgs([]string{"hook", "session", "codex", "start"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute(session start) error = %v", err)
+		}
+	}
+
+	runStart()
+	runStart()
+	if got, want := len(storeStub.staleCalls), 1; got != want {
+		t.Fatalf("CloseStaleSessions calls within rate window = %d, want %d", got, want)
+	}
+	if call := storeStub.staleCalls[0]; call.staleAfter != 24*time.Hour || call.dryRun {
+		t.Fatalf("CloseStaleSessions call = %+v, want 24h non-dry-run", call)
+	} else if !slices.Contains(call.protectedSessionIDs, types.SessionID("gc-session")) {
+		t.Fatalf("protected session IDs = %q, want gc-session", call.protectedSessionIDs)
+	}
+	markers, err := filepath.Glob(filepath.Join(os.Getenv("TRACEARY_HOOK_STATE_DIR"), "session-gc", "*.stamp"))
+	if err != nil || len(markers) != 1 {
+		t.Fatalf("session GC markers = %v, err = %v, want one", markers, err)
+	}
+	old := time.Now().Add(-7 * time.Hour)
+	if err := os.Chtimes(markers[0], old, old); err != nil {
+		t.Fatalf("Chtimes(marker) error = %v", err)
+	}
+	runStart()
+	if got, want := len(storeStub.staleCalls), 2; got != want {
+		t.Fatalf("CloseStaleSessions calls after rate window = %d, want %d", got, want)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_ConcurrentStartsRunOneSessionGC(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-concurrent-key")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_DB_PATH", filepath.Join(t.TempDir(), "traceary.db"))
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	storeStub := &storeManagementUsecaseStub{staleDelay: 50 * time.Millisecond}
+	const invocations = 8
+	start := make(chan struct{})
+	errs := make(chan error, invocations)
+	var wg sync.WaitGroup
+	for i := range invocations {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			sessionID := fmt.Sprintf("gc-concurrent-%d", i)
+			sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+				types.EventID("evt-"+sessionID),
+				types.EventKindSessionStarted,
+				types.Client("hook"),
+				types.Agent("codex"),
+				types.SessionID(sessionID),
+				types.Workspace("github.com/duck8823/traceary"),
+				"session started",
+				time.Now(),
+			)}
+			cmd := newTestRootCLI(cli.WithStoreManagement(storeStub), cli.WithSession(sessionStub)).Command()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetIn(strings.NewReader(fmt.Sprintf(`{"session_id":%q}`, sessionID)))
+			cmd.SetArgs([]string{"hook", "session", "codex", "start"})
+			errs <- cmd.Execute()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent session start error = %v", err)
+		}
+	}
+	storeStub.staleMu.Lock()
+	defer storeStub.staleMu.Unlock()
+	if got := len(storeStub.staleCalls); got != 1 {
+		t.Fatalf("CloseStaleSessions concurrent calls = %d, want 1", got)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_StartConvergesStaleStoreWithoutClosingRecentActivity(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-integration-key")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	t.Setenv("TRACEARY_DB_PATH", dbPath)
+
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeDS := sqliteinfra.NewStoreManagementDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(storeDS)
+	if err := storeUC.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	now := time.Now().UTC()
+	for _, sessionID := range []string{"idle-old", "active-old"} {
+		if _, err := sqlDB.Exec(`INSERT INTO sessions(session_id, started_at) VALUES (?, ?)`, sessionID, now.Add(-48*time.Hour).Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("insert %s: %v", sessionID, err)
+		}
+	}
+	if _, err := sqlDB.Exec(`INSERT INTO events(id, kind, client, agent, session_id, workspace, body, source_hook, created_at) VALUES ('recent-event', 'note', 'hook', 'codex', 'active-old', '', '', '', ?)`, now.Add(-time.Hour).Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("insert recent event: %v", err)
+	}
+
+	sessionUC := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+	cmd := newTestRootCLI(cli.WithStoreManagement(storeUC), cli.WithSession(sessionUC), cli.WithDatabasePathSetter(db.SetPath)).Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetIn(strings.NewReader(`{"session_id":"new-session"}`))
+	cmd.SetArgs([]string{"hook", "session", "codex", "start"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(session start) error = %v", err)
+	}
+	for _, tc := range []struct {
+		sessionID  string
+		wantClosed bool
+	}{
+		{sessionID: "idle-old", wantClosed: true},
+		{sessionID: "active-old", wantClosed: false},
+		{sessionID: "new-session", wantClosed: false},
+	} {
+		var endedAt sql.NullString
+		if err := sqlDB.QueryRow(`SELECT ended_at FROM sessions WHERE session_id = ?`, tc.sessionID).Scan(&endedAt); err != nil {
+			t.Fatalf("select %s ended_at: %v", tc.sessionID, err)
+		}
+		if endedAt.Valid != tc.wantClosed {
+			t.Fatalf("%s closed = %v, want %v", tc.sessionID, endedAt.Valid, tc.wantClosed)
+		}
+	}
+}
+
+func TestRootCLI_HookSessionCommand_StartRetriesSessionGCAfterFailure(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-retry-key")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_DB_PATH", filepath.Join(t.TempDir(), "traceary.db"))
+
+	storeStub := &storeManagementUsecaseStub{staleErr: errors.New("busy")}
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(types.EventID("evt-gc-retry"), types.EventKindSessionStarted, types.Client("hook"), types.Agent("codex"), types.SessionID("gc-retry-session"), "", "session started", time.Now())}
+	for range 2 {
+		cmd := newTestRootCLI(cli.WithStoreManagement(storeStub), cli.WithSession(sessionStub)).Command()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetIn(strings.NewReader(`{"session_id":"gc-retry-session"}`))
+		cmd.SetArgs([]string{"hook", "session", "codex", "start"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("session start must ignore opportunistic GC failure: %v", err)
+		}
+	}
+	if got, want := len(storeStub.staleCalls), 2; got != want {
+		t.Fatalf("CloseStaleSessions retry calls = %d, want %d", got, want)
 	}
 }
 

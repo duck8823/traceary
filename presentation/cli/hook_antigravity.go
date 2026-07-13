@@ -88,6 +88,12 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 	if sessionID == "" {
 		return nil
 	}
+	// Register activity before database work and GC lease competition. Routing
+	// state is long-lived for Antigravity, so a separate short lease is the
+	// source of truth for automatic-GC protection.
+	if err := recordHookSessionActivity(sessionID); err != nil {
+		slog.Debug("antigravity session activity registration failed", "error", err)
+	}
 
 	// Idempotent: if the persisted hook state already points at this
 	// conversation, the session is started — just refresh workspace state.
@@ -142,6 +148,7 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 			return err
 		}
 	}
+	c.runOpportunisticSessionGC(ctx, resolvedDBPath, sessionID)
 	return nil
 }
 

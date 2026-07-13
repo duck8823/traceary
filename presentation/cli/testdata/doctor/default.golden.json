@@ -49,7 +49,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Database",
-      "message": "no active sessions older than 24h0m0s",
+      "message": "no active sessions idle for more than 24h0m0s",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -219,7 +219,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Database",
-          "message": "no active sessions older than 24h0m0s",
+          "message": "no active sessions idle for more than 24h0m0s",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false

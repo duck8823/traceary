@@ -36,7 +36,7 @@ func (c *RootCLI) newSessionGCCommand() *cobra.Command {
 				return xerrors.Errorf("--stale-after must be greater than 0")
 			}
 
-			result, err := c.storeManagement.CloseStaleSessions(ctx, staleAfter, dryRun)
+			result, err := c.storeManagement.CloseStaleSessions(ctx, staleAfter, dryRun, nil)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to close stale sessions", "stale セッションの終了に失敗しました"), err)
 			}
@@ -62,7 +62,7 @@ func (c *RootCLI) newSessionGCCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().DurationVar(&staleAfter, "stale-after", 24*time.Hour, Localize("close sessions older than this duration", "この期間より古いセッションを終了する"))
+	cmd.Flags().DurationVar(&staleAfter, "stale-after", 24*time.Hour, Localize("close sessions with no activity for this duration", "この期間活動のないセッションを終了する"))
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("print stale sessions without closing", "終了せずに stale セッションを表示する"))
 
 	return cmd

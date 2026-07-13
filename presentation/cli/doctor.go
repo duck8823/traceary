@@ -386,7 +386,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 }
 
 // inspectStaleActiveSessions reports how many unended sessions are
-// older than the default stale threshold (24h). Stale active sessions
+// idle beyond the default stale threshold (24h), using each session
+// latest event as activity. Stale active sessions
 // silently shadow host context retrieval (top default view, session
 // handoff implicit selection, MCP session_status), so doctor surfaces a
 // count plus the actionable cleanup command. The check uses
@@ -401,7 +402,7 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 			Message: localizef("store management usecase is not configured", "ストア管理ユースケースが設定されていません"),
 		}
 	}
-	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, true)
+	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, true, nil)
 	if err != nil {
 		return doctorCheck{
 			Name:    checkName,
@@ -415,8 +416,8 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 			Name:   checkName,
 			Status: doctorStatusPass,
 			Message: localizef(
-				"no active sessions older than %s",
-				"%s を超える active session はありません",
+				"no active sessions idle for more than %s",
+				"%s を超えて活動のない active session はありません",
 				defaultActiveSessionStaleAfter,
 			),
 		}
@@ -426,13 +427,13 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 		Name:   checkName,
 		Status: doctorStatusWarn,
 		Hint: Localize(
-			"preview the cleanup with `traceary session gc --stale-after 24h --dry-run`, then drop --dry-run to close them",
-			"`traceary session gc --stale-after 24h --dry-run` で確認後、--dry-run を外して終了処理を実行してください",
+			"normal hook starts retry activity-aware cleanup automatically; preview immediately with `traceary session gc --stale-after 24h --dry-run`, then drop --dry-run to close them",
+			"通常の hook start 後に activity-aware cleanup が自動再試行されます。すぐ確認する場合は `traceary session gc --stale-after 24h --dry-run` を実行し、終了処理には --dry-run を外してください",
 		),
 		FixCommand: fixCommand,
 		Message: localizef(
-			"%d active session(s) older than %s; they shadow the default host context retrieval. Close them with `%s` (use --dry-run first to preview).",
-			"%d 件の active session が %s を超えており、host context 取得の既定動作を阻害します。`%s` で終了処理を実行できます (まず --dry-run でプレビュー推奨)。",
+			"%d active session(s) have no activity within %s; they shadow the default host context retrieval. Normal hook starts clean them automatically, or run `%s` (use --dry-run first to preview).",
+			"%d 件の active session は %s の間活動がなく、host context 取得の既定動作を阻害します。通常の hook start 後に自動 cleanup されます。手動では `%s` を実行できます (まず --dry-run でプレビュー推奨)。",
 			count,
 			defaultActiveSessionStaleAfter,
 			fixCommand,
