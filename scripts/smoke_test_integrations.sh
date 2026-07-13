@@ -92,11 +92,37 @@ run_codex() {
   echo 'ok: codex runtime probe completed'
 }
 
+run_grok() {
+  command -v grok >/dev/null 2>&1 || {
+    echo "skip: grok not found" >&2
+    return 0
+  }
+
+  local tmp_home
+  tmp_home="$(mktemp -d)"
+  HOME="${tmp_home}" grok plugin validate "${ROOT_DIR}/integrations/grok-plugin"
+  HOME="${tmp_home}" grok plugin install --trust "${ROOT_DIR}/integrations/grok-plugin"
+  local list_output details_output inspect_output tmp_cwd
+  list_output="$(HOME="${tmp_home}" grok plugin list --json)"
+  details_output="$(HOME="${tmp_home}" grok plugin details traceary)"
+  tmp_cwd="$(mktemp -d)"
+  inspect_output="$(HOME="${tmp_home}" grok --cwd "${tmp_cwd}" inspect --json)"
+  [[ "${list_output}" == *'"name":"traceary"'* || "${list_output}" == *'"name": "traceary"'* ]]
+  [[ "${details_output}" == *traceary* ]]
+  [[ "${details_output}" == *traceary-session-history* ]]
+  [[ "${inspect_output}" == *'"plugin_name": "traceary"'* ]]
+  [[ "${inspect_output}" == *'"mcpServers": 1'* ]]
+  HOME="${tmp_home}" grok plugin uninstall traceary
+  rm -rf "${tmp_home}" "${tmp_cwd}"
+  echo 'ok: grok plugin validation, install, inventory, and uninstall passed'
+}
+
 case "${TARGET}" in
   all)
     run_claude
     run_codex
     run_gemini
+    run_grok
     ;;
   claude)
     run_claude
@@ -107,8 +133,11 @@ case "${TARGET}" in
   gemini)
     run_gemini
     ;;
+  grok)
+    run_grok
+    ;;
   *)
-    echo "usage: $0 [all|claude|codex|gemini]" >&2
+    echo "usage: $0 [all|claude|codex|gemini|grok]" >&2
     exit 64
     ;;
 esac

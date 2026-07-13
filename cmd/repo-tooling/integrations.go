@@ -76,10 +76,72 @@ func verifyIntegrations(root string, runCLISmoke bool) error {
 	if err := checkGemini(root, version); err != nil {
 		return err
 	}
+	if err := checkGrok(root, version); err != nil {
+		return err
+	}
 	if err := checkAntigravity(root); err != nil {
 		return err
 	}
 	return checkDocs(root)
+}
+
+func checkGrok(root, version string) error {
+	var manifest struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := readJSON(root, "integrations/grok-plugin/plugin.json", &manifest); err != nil {
+		return err
+	}
+	if manifest.Name != "traceary" {
+		return xerrors.Errorf("unexpected Grok plugin name")
+	}
+	if manifest.Version != version {
+		return xerrors.Errorf("grok plugin version must track v%s", version)
+	}
+
+	var mcp struct {
+		Traceary struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"traceary"`
+	}
+	if err := readJSON(root, "integrations/grok-plugin/.mcp.json", &mcp); err != nil {
+		return err
+	}
+	if mcp.Traceary.Command != "traceary" || !equalStrings(mcp.Traceary.Args, []string{"mcp-server"}) {
+		return xerrors.Errorf("grok plugin must expose traceary mcp-server")
+	}
+
+	hooksPath := "integrations/grok-plugin/hooks/hooks.json"
+	hooks, raw, err := readHookFile(root, hooksPath)
+	if err != nil {
+		return err
+	}
+	if err := checkNoDuplicateTracearyHookEntries(hooksPath, hooks); err != nil {
+		return err
+	}
+	for event, action := range map[string]string{
+		"SessionStart": "session-start", "UserPromptSubmit": "user-prompt-submit",
+		"PreToolUse": "pre-tool-use", "PostToolUse": "post-tool-use", "Stop": "stop",
+		"PreCompact": "pre-compact", "PostCompact": "post-compact",
+	} {
+		if _, ok := hooks.Hooks[event]; !ok {
+			return xerrors.Errorf("grok hooks must include %s", event)
+		}
+		if !strings.Contains(raw, "${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh") || !strings.Contains(raw, `\"`+action+`\"`) {
+			return xerrors.Errorf("grok %s hook must use the plugin-root wrapper action %s", event, action)
+		}
+	}
+	if err := requireExists(root, "integrations/grok-plugin/scripts/traceary-grok.sh", "missing Grok hook wrapper"); err != nil {
+		return err
+	}
+	for _, skill := range []string{"traceary-session-history", "traceary-memory-review", "traceary-memory-remember"} {
+		if err := requireExists(root, "integrations/grok-plugin/skills/"+skill+"/SKILL.md", "missing Grok "+skill+" skill"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func readVersion(root string) (string, error) {

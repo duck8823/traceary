@@ -1,0 +1,12 @@
+{
+  "description": "Native Traceary lifecycle hooks for Grok Build.",
+  "hooks": {
+    "SessionStart": [{"hooks": [{"name": "traceary-session-start", "type": "command", "command": "\"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh\" \"session-start\"", "timeout": 5}]}],
+    "UserPromptSubmit": [{"hooks": [{"name": "traceary-prompt", "type": "command", "command": "\"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh\" \"user-prompt-submit\"", "timeout": 5}]}],
+    "PreToolUse": [{"hooks": [{"name": "traceary-tool-pre", "type": "command", "command": "\"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh\" \"pre-tool-use\"", "timeout": 5}]}],
+    "PostToolUse": [{"hooks": [{"name": "traceary-audit", "type": "command", "command": "\"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh\" \"post-tool-use\"", "timeout": 5}]}],
+    "Stop": [{"hooks": [{"name": "traceary-stop", "type": "command", "command": "\"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh\" \"stop\"", "timeout": 5}]}],
+    "PreCompact": [{"hooks": [{"name": "traceary-compact-pre", "type": "command", "command": "\"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh\" \"pre-compact\"", "timeout": 5}]}],
+    "PostCompact": [{"hooks": [{"name": "traceary-compact-post", "type": "command", "command": "\"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh\" \"post-compact\"", "timeout": 5}]}]
+  }
+}
