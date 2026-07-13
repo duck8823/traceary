@@ -1,0 +1,18 @@
+{
+  "hookEventName": "post_tool_use",
+  "sessionId": "019f0000-0000-7000-8000-000000000003",
+  "cwd": "/workspace/traceary-contract-probe",
+  "workspaceRoot": "/workspace/traceary-contract-probe",
+  "timestamp": "2026-07-14T00:02:03Z",
+  "transcriptPath": "/workspace/.grok/sessions/contract-probe/events.jsonl",
+  "toolName": "read_file",
+  "toolUseId": "tool-contract-probe-3",
+  "toolInput": {"target_file": "DENIED.txt"},
+  "toolInputTruncated": false,
+  "toolResult": {
+    "type": "ReadFile",
+    "PermissionDenied": "Permission denied: /workspace/traceary-contract-probe/DENIED.txt"
+  },
+  "toolResultTruncated": false,
+  "isBackgrounded": false
+}
