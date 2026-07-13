@@ -142,6 +142,7 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 			return err
 		}
 	}
+	c.runOpportunisticSessionGC(ctx, resolvedDBPath)
 	return nil
 }
 
