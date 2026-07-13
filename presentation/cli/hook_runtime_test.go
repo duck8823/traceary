@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/spf13/cobra"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
@@ -1973,6 +1974,49 @@ func TestRootCLI_HookSubagentStartCommand_UsesCodexAgentFields(t *testing.T) {
 	}
 	if got, want := sessionStub.startChildCall.agent, types.Agent("codex/reviewer"); got != want {
 		t.Fatalf("StartChild agent = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSubagentCommands_CorrelateCodexAgentID(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-lifecycle-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-lifecycle-key"), []byte("codex-parent"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-lifecycle-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+	sessionStub := &sessionUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+	newCommand := func(payload string, args ...string) *cobra.Command {
+		cmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub), cli.WithEvent(eventStub)).Command()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetIn(strings.NewReader(payload))
+		cmd.SetArgs(args)
+		return cmd
+	}
+	payload := `{"session_id":"codex-parent","agent_id":"019-agent","agent_type":"reviewer"}`
+	if err := newCommand(payload, "hook", "subagent-start", "codex").Execute(); err != nil {
+		t.Fatalf("Execute(subagent-start) error = %v", err)
+	}
+	if err := newCommand(payload, "hook", "subagent-stop", "codex").Execute(); err != nil {
+		t.Fatalf("Execute(subagent-stop) error = %v", err)
+	}
+	if got, want := sessionStub.endCall.sessionID, types.SessionID("codex-parent:sub:agent-019-agent"); got != want {
+		t.Fatalf("End child sessionID = %q, want %q", got, want)
+	}
+	activePath := filepath.Join(stateDir, "active-subagents", "codex-codex-parent")
+	if data, err := os.ReadFile(activePath); err == nil && strings.Contains(string(data), "agent-019-agent") {
+		t.Fatalf("active state still contains stopped Codex agent: %s", data)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadFile(active state) error = %v", err)
 	}
 }
 

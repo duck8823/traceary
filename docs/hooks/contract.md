@@ -55,7 +55,7 @@ This document defines the hook capability tiers across AI agent clients.
 
 All tiers:
 - Session start persists the resolved workspace to the state file; audit reads the workspace from state
-- Agent type resolution: `agent_type` field → hierarchical agent name (Claude only)
+- Agent type resolution: `agent_type` field → hierarchical agent name (Claude and Codex subagent hooks)
 - Exit code extraction from `tool_response.exitCode` when a host provides it. In practice none of the current hosts populate this field in the post-tool payload, so failure is detected structurally instead (see the failure-flag rows above and the fallback table below) rather than from an exit code.
 - MCP tool name fallback: `tool_input.command` → `tool_name`
 

@@ -55,7 +55,7 @@
 
 全レベル共通:
 - セッション開始時に解決した workspace を state ファイルに保存し、audit はそこから workspace を読み取る
-- エージェントタイプ解決: `agent_type` フィールド → 階層的エージェント名（Claude のみ）
+- エージェントタイプ解決: `agent_type` フィールド → 階層的エージェント名（Claude および Codex の subagent hook）
 - host が提供する場合は `tool_response.exitCode` から exit code を抽出。ただし現行のどの host も post-tool payload にこのフィールドを出さないため、実際には exit code ではなく構造的に失敗を検出する（上記の失敗フラグ行と下記 fallback 表を参照）
 - MCP ツール名 fallback: `tool_input.command` → `tool_name`
 
