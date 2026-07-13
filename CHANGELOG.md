@@ -12,7 +12,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Native Grok identity and core runtime (#1274, #1275)** — `grok` is a canonical Traceary host with native hook entrypoints for session, prompt, tool audit, and Stop. Stop transcript capture reads the host-provided `updates.jsonl` path and uses a durable detached retry job when Grok appends the final message after hooks finish.
 - **Grok compact lifecycle markers (#1276)** — `PreCompact` and `PostCompact` record distinct phase markers from the verified `source` field. Missing source data is stored as unavailable; no summary body or synthetic subagent relationship is claimed.
 - **Native Grok plugin (#1277)** — the repository package contains the exact seven verified hooks, one local Traceary MCP server, and the three shared memory/session skills, with deterministic structural and isolated-install smoke validation.
-- **Grok doctor checks (#1278)** — `traceary doctor --client grok` verifies the CLI, plugin enablement and version parity, project-hook trust, the exact installed hook contract, MCP/skill inventory, and recent event coverage without exposing private paths or transcript bodies.
+- **Grok doctor checks (#1278)** — `traceary doctor --client grok` verifies the CLI, plugin enablement and version parity, project-hook trust, the exact installed hook contract, MCP/skill inventory, and recent event coverage without exposing Grok inspect-derived hook target paths or transcript bodies.
 
 ### Documentation
 - **Install and dogfood guide (#1279)** — bilingual Grok Build documentation covers installation, updates, trust, troubleshooting, the supported coverage matrix, and minimized dogfood evidence.

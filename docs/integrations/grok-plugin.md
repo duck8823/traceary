@@ -46,10 +46,9 @@ cd traceary
 ```
 
 The installer runs `grok plugin install --trust`. Review the checked-out
-package before running it: trust allows the seven packaged command hooks to
-invoke the local `traceary` executable. It does not grant Traceary access to
-Grok credentials or browser state; the packaged hook commands only invoke the
-documented Traceary hook entrypoints.
+package before running it because trusted command hooks execute locally. The
+current package invokes only the documented Traceary hook entrypoints and does
+not read or transmit Grok credentials or browser state.
 
 3. Verify the effective installation from the project that Grok will open.
 
@@ -89,9 +88,9 @@ CLI, check out the matching tag and rerun the installer:
 
 ```sh
 brew upgrade traceary
-git -C traceary fetch --tags
-git -C traceary checkout v0.23.0 # replace with the installed Traceary version
-./traceary/scripts/install-grok-plugin.sh
+git fetch --tags
+git checkout v0.23.0 # replace with the installed Traceary version
+./scripts/install-grok-plugin.sh
 traceary doctor --client grok --project-dir . --json
 ```
 
@@ -147,6 +146,25 @@ go run ./cmd/repo-tooling integrations verify
 
 The smoke test uses a temporary home, validates and installs the package,
 checks the plugin/MCP/skill inventory with `grok inspect`, then uninstalls it.
+
+## v0.23.0 dogfood result
+
+Verified 2026-07-14 against Grok Build 0.2.99:
+
+- a sanitized live core run recorded one native `agent=grok` session with
+  `session_started`, `prompt`, `command_executed`, and `transcript`; the
+  transcript retry queue and hook spool were empty after completion
+- nine sanitized fixtures cover the five core routes, missing/denied
+  `PostToolUse` result variants, and compact pre/post markers
+- an isolated temporary-home install, inspect, doctor, and uninstall passed;
+  all seven `grok-*` checks reported `pass`
+- no raw prompt, transcript, credential, private hook target path, or temporary
+  workspace path is committed as dogfood evidence
+- the subagent probe was not run because the external-agent policy gate denied
+  it; subagent correlation remains unavailable rather than simulated
+
+The minimized execution record is attached to
+[Issue #1279](https://github.com/duck8823/traceary/issues/1279#issuecomment-4961391647).
 
 ## Official references
 

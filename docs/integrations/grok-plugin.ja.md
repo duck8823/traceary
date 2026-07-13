@@ -46,11 +46,10 @@ cd traceary
 ./scripts/install-grok-plugin.sh
 ```
 
-installer は `grok plugin install --trust` を実行します。実行前に取得した
-パッケージを確認してください。この trust により、同梱した7件の command hook が
-ローカルの `traceary` を呼び出せるようになります。Traceary に Grok の認証情報、
-ブラウザ状態へのアクセスを許可するものではなく、同梱 hook command は文書化された
-Traceary hook entrypoint だけを呼び出します。
+installer は `grok plugin install --trust` を実行します。信頼した command hook は
+ローカルで実行されるため、実行前に取得したパッケージを確認してください。現行の
+パッケージは文書化された Traceary hook entrypoint だけを呼び出し、Grok の認証情報や
+ブラウザ状態を読み取ったり送信したりしません。
 
 3. Grok で開くプロジェクトから、有効な導入状態を確認します。
 
@@ -89,9 +88,9 @@ tag を取得して installer を再実行します。
 
 ```sh
 brew upgrade traceary
-git -C traceary fetch --tags
-git -C traceary checkout v0.23.0 # 導入済みTracearyのバージョンに置き換える
-./traceary/scripts/install-grok-plugin.sh
+git fetch --tags
+git checkout v0.23.0 # 導入済みTracearyのバージョンに置き換える
+./scripts/install-grok-plugin.sh
 traceary doctor --client grok --project-dir . --json
 ```
 
@@ -146,6 +145,25 @@ go run ./cmd/repo-tooling integrations verify
 
 smoke test は一時 home を使ってパッケージを検証・導入し、`grok inspect` で
 plugin / MCP / skill の内容を確認してから削除します。
+
+## v0.23.0 dogfood 結果
+
+2026-07-14 に Grok Build 0.2.99 で確認しました。
+
+- 機密情報を除いた live core 実行で、native の `agent=grok` セッション1件に
+  `session_started`、`prompt`、`command_executed`、`transcript` を記録し、完了後の
+  transcript retry queue と hook spool は空になった
+- 機密情報を除いた fixture 9件で、core route 5件、`PostToolUse` のファイル不在・拒否
+  result variant、compact 前後の marker をカバーした
+- 隔離した一時 home で install、inspect、doctor、uninstall が成功し、7件すべての
+  `grok-*` check が `pass` になった
+- 生の prompt、transcript、credential、hook target の private path、一時 workspace path を
+  dogfood 証拠として commit していない
+- external-agent policy gate が拒否したため subagent probe は実行せず、subagent の関連付けは
+  推測で生成せず利用不可のままとした
+
+最小化した実行記録は
+[Issue #1279](https://github.com/duck8823/traceary/issues/1279#issuecomment-4961391647)に添付しています。
 
 ## 公式資料
 
