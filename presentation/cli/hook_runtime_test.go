@@ -12,11 +12,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/spf13/cobra"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
@@ -119,6 +122,188 @@ func TestRootCLI_HookSessionCommand_StartRecordsSessionAndState(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(string(workspaceValue)), "github.com/duck8823/traceary"; got != want {
 		t.Fatalf("workspace state = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_StartRunsRateLimitedSessionGC(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-key")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_DB_PATH", filepath.Join(t.TempDir(), "traceary.db"))
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	storeStub := &storeManagementUsecaseStub{}
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		types.EventID("evt-gc-start"),
+		types.EventKindSessionStarted,
+		types.Client("hook"),
+		types.Agent("codex"),
+		types.SessionID("gc-session"),
+		types.Workspace("github.com/duck8823/traceary"),
+		"session started",
+		time.Now(),
+	)}
+	runStart := func() {
+		t.Helper()
+		cmd := newTestRootCLI(cli.WithStoreManagement(storeStub), cli.WithSession(sessionStub)).Command()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetIn(strings.NewReader(`{"session_id":"gc-session"}`))
+		cmd.SetArgs([]string{"hook", "session", "codex", "start"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute(session start) error = %v", err)
+		}
+	}
+
+	runStart()
+	runStart()
+	if got, want := len(storeStub.staleCalls), 1; got != want {
+		t.Fatalf("CloseStaleSessions calls within rate window = %d, want %d", got, want)
+	}
+	if call := storeStub.staleCalls[0]; call.staleAfter != 24*time.Hour || call.dryRun {
+		t.Fatalf("CloseStaleSessions call = %+v, want 24h non-dry-run", call)
+	} else if !slices.Contains(call.protectedSessionIDs, types.SessionID("gc-session")) {
+		t.Fatalf("protected session IDs = %q, want gc-session", call.protectedSessionIDs)
+	}
+	markers, err := filepath.Glob(filepath.Join(os.Getenv("TRACEARY_HOOK_STATE_DIR"), "session-gc", "*.stamp"))
+	if err != nil || len(markers) != 1 {
+		t.Fatalf("session GC markers = %v, err = %v, want one", markers, err)
+	}
+	old := time.Now().Add(-7 * time.Hour)
+	if err := os.Chtimes(markers[0], old, old); err != nil {
+		t.Fatalf("Chtimes(marker) error = %v", err)
+	}
+	runStart()
+	if got, want := len(storeStub.staleCalls), 2; got != want {
+		t.Fatalf("CloseStaleSessions calls after rate window = %d, want %d", got, want)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_ConcurrentStartsRunOneSessionGC(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-concurrent-key")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_DB_PATH", filepath.Join(t.TempDir(), "traceary.db"))
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	storeStub := &storeManagementUsecaseStub{staleDelay: 50 * time.Millisecond}
+	const invocations = 8
+	start := make(chan struct{})
+	errs := make(chan error, invocations)
+	var wg sync.WaitGroup
+	for i := range invocations {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			sessionID := fmt.Sprintf("gc-concurrent-%d", i)
+			sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+				types.EventID("evt-"+sessionID),
+				types.EventKindSessionStarted,
+				types.Client("hook"),
+				types.Agent("codex"),
+				types.SessionID(sessionID),
+				types.Workspace("github.com/duck8823/traceary"),
+				"session started",
+				time.Now(),
+			)}
+			cmd := newTestRootCLI(cli.WithStoreManagement(storeStub), cli.WithSession(sessionStub)).Command()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetIn(strings.NewReader(fmt.Sprintf(`{"session_id":%q}`, sessionID)))
+			cmd.SetArgs([]string{"hook", "session", "codex", "start"})
+			errs <- cmd.Execute()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent session start error = %v", err)
+		}
+	}
+	storeStub.staleMu.Lock()
+	defer storeStub.staleMu.Unlock()
+	if got := len(storeStub.staleCalls); got != 1 {
+		t.Fatalf("CloseStaleSessions concurrent calls = %d, want 1", got)
+	}
+}
+
+func TestRootCLI_HookSessionCommand_StartConvergesStaleStoreWithoutClosingRecentActivity(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-integration-key")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	t.Setenv("TRACEARY_DB_PATH", dbPath)
+
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeDS := sqliteinfra.NewStoreManagementDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(storeDS)
+	if err := storeUC.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	now := time.Now().UTC()
+	for _, sessionID := range []string{"idle-old", "active-old"} {
+		if _, err := sqlDB.Exec(`INSERT INTO sessions(session_id, started_at) VALUES (?, ?)`, sessionID, now.Add(-48*time.Hour).Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("insert %s: %v", sessionID, err)
+		}
+	}
+	if _, err := sqlDB.Exec(`INSERT INTO events(id, kind, client, agent, session_id, workspace, body, source_hook, created_at) VALUES ('recent-event', 'note', 'hook', 'codex', 'active-old', '', '', '', ?)`, now.Add(-time.Hour).Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("insert recent event: %v", err)
+	}
+
+	sessionUC := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+	cmd := newTestRootCLI(cli.WithStoreManagement(storeUC), cli.WithSession(sessionUC), cli.WithDatabasePathSetter(db.SetPath)).Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetIn(strings.NewReader(`{"session_id":"new-session"}`))
+	cmd.SetArgs([]string{"hook", "session", "codex", "start"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(session start) error = %v", err)
+	}
+	for _, tc := range []struct {
+		sessionID  string
+		wantClosed bool
+	}{
+		{sessionID: "idle-old", wantClosed: true},
+		{sessionID: "active-old", wantClosed: false},
+		{sessionID: "new-session", wantClosed: false},
+	} {
+		var endedAt sql.NullString
+		if err := sqlDB.QueryRow(`SELECT ended_at FROM sessions WHERE session_id = ?`, tc.sessionID).Scan(&endedAt); err != nil {
+			t.Fatalf("select %s ended_at: %v", tc.sessionID, err)
+		}
+		if endedAt.Valid != tc.wantClosed {
+			t.Fatalf("%s closed = %v, want %v", tc.sessionID, endedAt.Valid, tc.wantClosed)
+		}
+	}
+}
+
+func TestRootCLI_HookSessionCommand_StartRetriesSessionGCAfterFailure(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-retry-key")
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_DB_PATH", filepath.Join(t.TempDir(), "traceary.db"))
+
+	storeStub := &storeManagementUsecaseStub{staleErr: errors.New("busy")}
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(types.EventID("evt-gc-retry"), types.EventKindSessionStarted, types.Client("hook"), types.Agent("codex"), types.SessionID("gc-retry-session"), "", "session started", time.Now())}
+	for range 2 {
+		cmd := newTestRootCLI(cli.WithStoreManagement(storeStub), cli.WithSession(sessionStub)).Command()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetIn(strings.NewReader(`{"session_id":"gc-retry-session"}`))
+		cmd.SetArgs([]string{"hook", "session", "codex", "start"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("session start must ignore opportunistic GC failure: %v", err)
+		}
+	}
+	if got, want := len(storeStub.staleCalls), 2; got != want {
+		t.Fatalf("CloseStaleSessions retry calls = %d, want %d", got, want)
 	}
 }
 
@@ -1693,6 +1878,41 @@ func TestRootCLI_HookCompactCommand_RecordsPreCompactSnapshot(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookCompactCommand_RecordsCodexPostCompactMarker(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key"), []byte("codex-compact-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+	eventStub := &eventUsecaseStub{logEvent: model.EventOf(types.EventID("evt-codex-post-compact"), types.EventKindCompactSummary, types.Client("hook"), types.Agent("codex"), types.SessionID("codex-compact-session"), types.Workspace("github.com/duck8823/traceary"), "auto", time.Now())}
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(eventStub)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"codex-compact-session","trigger":"auto"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "codex", "post-compact"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(post-compact) error = %v", err)
+	}
+	if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+		t.Fatalf("post-compact log kind = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.message, "auto"; got != want {
+		t.Fatalf("post-compact log message = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.sourceHook, "post_compact"; got != want {
+		t.Fatalf("post-compact source_hook = %q, want %q", got, want)
+	}
+}
+
 func TestRootCLI_HookCompactCommand_PreCompactSyncsSessionSummaryWhenEmpty(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 
@@ -1903,6 +2123,84 @@ func TestRootCLI_HookSubagentStartCommand_CreatesChildAndActiveState(t *testing.
 	stateJSON := string(data)
 	if !strings.Contains(stateJSON, `"toolu_1"`) || !strings.Contains(stateJSON, `"child_session_id":"parent-session:sub:toolu_1"`) {
 		t.Fatalf("active child state = %s, want JSON entry for toolu_1", stateJSON)
+	}
+}
+
+func TestRootCLI_HookSubagentStartCommand_UsesCodexAgentFields(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-start-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-start-key"), []byte("codex-parent"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-start-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+	sessionStub := &sessionUsecaseStub{}
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"agent_id":"019-agent","agent_type":"reviewer"}`))
+	rootCmd.SetArgs([]string{"hook", "subagent-start", "codex"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(subagent-start) error = %v", err)
+	}
+	if got, want := sessionStub.startChildCall.parent, types.SessionID("codex-parent"); got != want {
+		t.Fatalf("StartChild parent = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.startChildCall.childID, types.SessionID("codex-parent:sub:agent-019-agent"); got != want {
+		t.Fatalf("StartChild childID = %q, want %q", got, want)
+	}
+	if got, want := sessionStub.startChildCall.agent, types.Agent("codex/reviewer"); got != want {
+		t.Fatalf("StartChild agent = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookSubagentCommands_CorrelateCodexAgentID(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-lifecycle-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-lifecycle-key"), []byte("codex-parent"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-codex-lifecycle-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+	sessionStub := &sessionUsecaseStub{}
+	eventStub := &eventUsecaseStub{}
+	newCommand := func(payload string, args ...string) *cobra.Command {
+		cmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub), cli.WithEvent(eventStub)).Command()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetIn(strings.NewReader(payload))
+		cmd.SetArgs(args)
+		return cmd
+	}
+	payload := `{"session_id":"codex-parent","agent_id":"019-agent","agent_type":"reviewer"}`
+	if err := newCommand(payload, "hook", "subagent-start", "codex").Execute(); err != nil {
+		t.Fatalf("Execute(subagent-start) error = %v", err)
+	}
+	if err := newCommand(payload, "hook", "subagent-stop", "codex").Execute(); err != nil {
+		t.Fatalf("Execute(subagent-stop) error = %v", err)
+	}
+	if got, want := sessionStub.endCall.sessionID, types.SessionID("codex-parent:sub:agent-019-agent"); got != want {
+		t.Fatalf("End child sessionID = %q, want %q", got, want)
+	}
+	activePath := filepath.Join(stateDir, "active-subagents", "codex-codex-parent")
+	if data, err := os.ReadFile(activePath); err == nil && strings.Contains(string(data), "agent-019-agent") {
+		t.Fatalf("active state still contains stopped Codex agent: %s", data)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadFile(active state) error = %v", err)
 	}
 }
 

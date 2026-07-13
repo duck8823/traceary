@@ -309,11 +309,12 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			// carries the actionable install message when no route is healthy.
 			report.Checks = append(report.Checks, inspectAntigravityCapability())
 			report.Checks = append(report.Checks, c.inspectAntigravityHookRoutes(resolvedProjectDir)...)
-			// Capture levels are a host-mode trait reported separately from route
-			// install health above, so doctor does not imply full transcript
-			// capture just because the hooks are installed (headless agy --print
-			// emits no Stop, so its final turn is unavailable).
+			report.Checks = append(report.Checks, c.inspectAntigravityMCPRegistration())
+			// Configured capture levels and observed event coverage are reported
+			// separately from route health. A valid hooks file does not prove that
+			// transcriptPath was readable or events reached the database.
 			report.Checks = append(report.Checks, buildAntigravityCaptureLevelsCheck())
+			report.Checks = append(report.Checks, c.inspectAntigravityEventCoverage(ctx, resolvedProjectDir, input.coverageThreshold))
 			continue
 		}
 
@@ -327,7 +328,19 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 
-		check := c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+		var check doctorCheck
+		if targetClient == "codex" {
+			pluginState := c.detectCodexPluginHookFallback()
+			if pluginState.PluginEnabled {
+				trust := codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey)
+				report.Checks = append(report.Checks, codexPluginHookTrustCheck(trust))
+				check = c.inspectCodexConfigWithHookTrust(ctx, outputPath, resolvedProjectDir, trust)
+			} else {
+				check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+			}
+		} else {
+			check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
+		}
 		c.attachDoctorConfigFix(&check, targetClient, outputPath, resolvedProjectDir)
 		report.Checks = append(report.Checks, check)
 		if targetClient == "gemini" || targetClient == "claude" {
@@ -373,7 +386,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 }
 
 // inspectStaleActiveSessions reports how many unended sessions are
-// older than the default stale threshold (24h). Stale active sessions
+// idle beyond the default stale threshold (24h), using each session
+// latest event as activity. Stale active sessions
 // silently shadow host context retrieval (top default view, session
 // handoff implicit selection, MCP session_status), so doctor surfaces a
 // count plus the actionable cleanup command. The check uses
@@ -388,7 +402,7 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 			Message: localizef("store management usecase is not configured", "ストア管理ユースケースが設定されていません"),
 		}
 	}
-	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, true)
+	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, true, nil)
 	if err != nil {
 		return doctorCheck{
 			Name:    checkName,
@@ -402,8 +416,8 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 			Name:   checkName,
 			Status: doctorStatusPass,
 			Message: localizef(
-				"no active sessions older than %s",
-				"%s を超える active session はありません",
+				"no active sessions idle for more than %s",
+				"%s を超えて活動のない active session はありません",
 				defaultActiveSessionStaleAfter,
 			),
 		}
@@ -413,13 +427,13 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 		Name:   checkName,
 		Status: doctorStatusWarn,
 		Hint: Localize(
-			"preview the cleanup with `traceary session gc --stale-after 24h --dry-run`, then drop --dry-run to close them",
-			"`traceary session gc --stale-after 24h --dry-run` で確認後、--dry-run を外して終了処理を実行してください",
+			"normal hook starts retry activity-aware cleanup automatically; preview immediately with `traceary session gc --stale-after 24h --dry-run`, then drop --dry-run to close them",
+			"通常の hook start 後に activity-aware cleanup が自動再試行されます。すぐ確認する場合は `traceary session gc --stale-after 24h --dry-run` を実行し、終了処理には --dry-run を外してください",
 		),
 		FixCommand: fixCommand,
 		Message: localizef(
-			"%d active session(s) older than %s; they shadow the default host context retrieval. Close them with `%s` (use --dry-run first to preview).",
-			"%d 件の active session が %s を超えており、host context 取得の既定動作を阻害します。`%s` で終了処理を実行できます (まず --dry-run でプレビュー推奨)。",
+			"%d active session(s) have no activity within %s; they shadow the default host context retrieval. Normal hook starts clean them automatically, or run `%s` (use --dry-run first to preview).",
+			"%d 件の active session は %s の間活動がなく、host context 取得の既定動作を阻害します。通常の hook start 後に自動 cleanup されます。手動では `%s` を実行できます (まず --dry-run でプレビュー推奨)。",
 			count,
 			defaultActiveSessionStaleAfter,
 			fixCommand,
@@ -1153,8 +1167,8 @@ func inspectHostCapabilityGaps(client, configPath string) []doctorCheck {
 			Name:   "codex-host-capabilities",
 			Status: doctorStatusPass,
 			Message: localizef(
-				"codex host: memory features ship behind a per-install feature flag in %s; consult the Codex release notes for the exact flag name and your enablement state. Traceary's `memory import codex` works regardless of the flag state",
-				"codex ホスト: memory 機能は per-install な feature flag (%s) の背後にあります。flag 名と有効化状態の確認方法は Codex のリリースノートを参照してください。Traceary は flag 状態に関わらず `memory import codex` で取り込み可能です",
+				"codex host: Codex CLI 0.144.1 compact and subagent hooks are wired (PreCompact / PostCompact markers and SubagentStart / SubagentStop child sessions). Memory features still depend on the per-install feature flag in %s; Traceary's `memory import codex` works regardless of that flag",
+				"codex ホスト: Codex CLI 0.144.1 の compact / subagent hook を配線済みです (PreCompact / PostCompact marker、SubagentStart / SubagentStop child session)。memory 機能は引き続き per-install feature flag (%s) に依存しますが、Traceary の `memory import codex` は flag 状態に関わらず動作します",
 				codexConfigPath,
 			),
 		}}
@@ -1286,7 +1300,7 @@ func (c *RootCLI) inspectClaudeOrConfigFile(ctx context.Context, client, outputP
 		if configCheck.Status == doctorStatusFail {
 			return configCheck
 		}
-		if c.claudeConfigHasTracearyHooks(outputPath) {
+		if c.configHasTracearyHooks(outputPath) {
 			return doctorCheck{
 				Name:   "claude-config",
 				Status: doctorStatusWarn,
@@ -1489,12 +1503,12 @@ func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
 	}
 }
 
-// claudeConfigHasTracearyHooks returns true iff the Claude settings file
-// at outputPath is a valid JSON object with a hooks field that contains
-// at least one Traceary-managed hook entry. Missing files, unreadable
-// files, and malformed JSON all return false so the plugin-detection
-// branch interprets them as "no Traceary hook registered here".
-func (c *RootCLI) claudeConfigHasTracearyHooks(outputPath string) bool {
+// configHasTracearyHooks returns true iff the host hook file at outputPath is
+// a valid JSON object with a hooks field that contains at least one
+// Traceary-managed hook entry. Missing files, unreadable files, and malformed
+// JSON all return false so host-specific plugin detection can interpret them
+// as "no manual Traceary hook registered here".
+func (c *RootCLI) configHasTracearyHooks(outputPath string) bool {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		return false
@@ -1506,17 +1520,10 @@ func (c *RootCLI) claudeConfigHasTracearyHooks(outputPath string) bool {
 	return hasTracearyHook
 }
 
-func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, outputPath string, projectDir string) doctorCheck {
+func (c *RootCLI) inspectDoctorConfigFile(_ context.Context, client string, outputPath string, projectDir string) doctorCheck {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if client == "codex" {
-				if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-					return codexPluginManagedHooksCheck(state, outputPath)
-				} else if state.PluginEnabled {
-					return codexPluginHookFallbackCheck(state, outputPath, localizef("does not exist", "が存在しません"))
-				}
-			}
 			return doctorCheck{
 				Name:   client + "-config",
 				Status: doctorStatusWarn,
@@ -1554,13 +1561,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 	}
 
 	if !hasHooksField {
-		if client == "codex" {
-			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-				return codexPluginManagedHooksCheck(state, outputPath)
-			} else if state.PluginEnabled {
-				return codexPluginHookFallbackCheck(state, outputPath, localizef("has no hooks field", "には hooks フィールドがありません"))
-			}
-		}
 		return doctorCheck{
 			Name:   client + "-config",
 			Status: doctorStatusWarn,
@@ -1575,11 +1575,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 	}
 
 	if hasTracearyManagedHook {
-		if client == "codex" {
-			if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-				return c.codexDuplicateRegistrationCheck(ctx, state, outputPath)
-			}
-		}
 		duplicates, duplicateErr := c.hooksInspector.DuplicateManagedHooks(content)
 		if duplicateErr != nil {
 			return doctorCheck{
@@ -1622,14 +1617,6 @@ func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, ou
 			Name:    client + "-config",
 			Status:  doctorStatusPass,
 			Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
-		}
-	}
-
-	if client == "codex" {
-		if state := c.detectCodexPluginHookFallback(); state.pluginHooksConfirmedActive() {
-			return codexPluginManagedHooksCheck(state, outputPath)
-		} else if state.PluginEnabled {
-			return codexPluginHookFallbackCheck(state, outputPath, localizef("has hook entries but none are Traceary-managed", "には hook エントリはありますが Traceary 管理のものがありません"))
 		}
 	}
 
@@ -1724,7 +1711,7 @@ func formatHookDuplicateSummary(duplicates []application.HookDuplicate) string {
 // codexManagedEvents is the canonical list of hook events Traceary installs
 // into Codex CLI. Doctor uses this to flag a partial install that predates
 // the v0.7 UserPromptSubmit rollout.
-var codexManagedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "PostToolUse"}
+var codexManagedEvents = []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"}
 
 // codexManagedEventKeys maps each expected Codex event to the stable managed
 // key the Traceary hook runtime installs for it. The key is reused as the
@@ -1734,9 +1721,26 @@ var codexManagedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "P
 // "codex".
 var codexManagedEventKeys = map[string][]string{
 	"SessionStart":     []string{"traceary-session.sh:codex:start"},
+	"SubagentStart":    []string{"traceary-subagent-start.sh:codex"},
+	"SubagentStop":     []string{"traceary-subagent-stop.sh:codex"},
+	"PreCompact":       []string{"traceary-compact.sh:codex:pre-compact"},
+	"PostCompact":      []string{"traceary-compact.sh:codex:post-compact"},
 	"UserPromptSubmit": []string{"traceary-prompt.sh:codex"},
 	"Stop":             []string{"traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
 	"PostToolUse":      []string{"traceary-audit.sh:codex"},
+}
+
+// expectedCodexPluginHookCount returns the number of command hooks in the
+// current packaged Codex contract. Codex app-server currently exposes plugin
+// identity and trust state per command, but not the event or command identity,
+// so exact cardinality is the fail-closed completeness boundary available to
+// doctor before it permits removal of the manual fallback.
+func expectedCodexPluginHookCount() int {
+	count := 0
+	for _, keys := range codexManagedEventKeys {
+		count += len(keys)
+	}
+	return count
 }
 
 // missingTracearyManagedCodexEvents returns the subset of Traceary-managed

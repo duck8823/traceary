@@ -64,7 +64,7 @@ It does **not** launch the third-party client or prove that every hook event fir
 ### Session end is best-effort for some clients
 
 - Claude Code: dedicated `SessionEnd` is supported in the documented integration
-- Codex CLI: no host session-end signal — `Stop` is a per-response turn boundary (#1170), so a Codex session ends only via MCP `manage_session` or stale GC (`traceary session gc`)
+- Codex CLI: no host session-end signal — `Stop` is a per-response turn boundary (#1170), so a Codex session ends via MCP `manage_session` or activity-aware stale GC (automatic after normal hook starts, with `traceary session gc` available manually)
 - Gemini CLI: `SessionEnd` is also treated as best-effort
 
 If session-end fidelity matters, prefer the client integrations that expose an explicit end hook.

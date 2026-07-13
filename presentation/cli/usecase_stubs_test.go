@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -11,6 +12,17 @@ import (
 )
 
 // eventUsecaseStub implements usecase.EventUsecase for testing.
+type eventLogCall struct {
+	message    string
+	kind       types.EventKind
+	client     types.Client
+	agent      types.Agent
+	sessionID  types.SessionID
+	workspace  types.Workspace
+	logCfg     apptypes.LogRedaction
+	sourceHook string
+}
+
 type eventUsecaseStub struct {
 	logEvent         *model.Event
 	logErr           error
@@ -30,16 +42,8 @@ type eventUsecaseStub struct {
 	listCriteria     apptypes.EventListCriteria
 	timelineCriteria apptypes.TimelineCriteria
 
-	logCall struct {
-		message    string
-		kind       types.EventKind
-		client     types.Client
-		agent      types.Agent
-		sessionID  types.SessionID
-		workspace  types.Workspace
-		logCfg     apptypes.LogRedaction
-		sourceHook string
-	}
+	logCall   eventLogCall
+	logCalls  []eventLogCall
 	auditCall struct {
 		command   string
 		input     string
@@ -63,6 +67,7 @@ func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.E
 	s.logCall.workspace = workspace
 	s.logCall.logCfg = logCfg
 	s.logCall.sourceHook = apptypes.SourceHookFromContext(ctx)
+	s.logCalls = append(s.logCalls, s.logCall)
 	return s.logEvent, s.logErr
 }
 func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
@@ -546,6 +551,8 @@ func (s *memoryUsecaseStub) ActivationStatus(_ context.Context, criteria apptype
 
 // storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.
 type storeManagementUsecaseStub struct {
+	staleMu         sync.Mutex
+	staleDelay      time.Duration
 	initCalled      bool
 	initErr         error
 	createBackupErr error
@@ -561,12 +568,15 @@ type storeManagementUsecaseStub struct {
 	staleResult     apptypes.CloseStaleSessionsResult
 	staleErr        error
 	staleCalls      []struct {
-		staleAfter time.Duration
-		dryRun     bool
+		staleAfter          time.Duration
+		dryRun              bool
+		protectedSessionIDs []types.SessionID
 	}
 }
 
 func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
+	s.staleMu.Lock()
+	defer s.staleMu.Unlock()
 	s.initCalled = true
 	return s.initErr
 }
@@ -587,10 +597,16 @@ func (s *storeManagementUsecaseStub) RestoreContentEventDedupeRun(_ context.Cont
 	s.restoreRunIDs = append(s.restoreRunIDs, runID)
 	return s.restoreResult, s.restoreRunErr
 }
-func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool) (apptypes.CloseStaleSessionsResult, error) {
+func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool, protectedSessionIDs []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
+	s.staleMu.Lock()
 	s.staleCalls = append(s.staleCalls, struct {
-		staleAfter time.Duration
-		dryRun     bool
-	}{staleAfter: staleAfter, dryRun: dryRun})
+		staleAfter          time.Duration
+		dryRun              bool
+		protectedSessionIDs []types.SessionID
+	}{staleAfter: staleAfter, dryRun: dryRun, protectedSessionIDs: append([]types.SessionID(nil), protectedSessionIDs...)})
+	s.staleMu.Unlock()
+	if s.staleDelay > 0 {
+		time.Sleep(s.staleDelay)
+	}
 	return s.staleResult, s.staleErr
 }

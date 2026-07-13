@@ -89,7 +89,7 @@ func (tailStoreManagementStub) RestoreBackup(context.Context, string, bool) erro
 func (tailStoreManagementStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (apptypes.CollectGarbageResult, error) {
 	return apptypes.CollectGarbageResult{}, nil
 }
-func (tailStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool) (apptypes.CloseStaleSessionsResult, error) {
+func (tailStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
 func (tailStoreManagementStub) DedupeContentEvents(context.Context, apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
