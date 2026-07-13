@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -103,7 +102,7 @@ func probeCodexPluginHookTrust(ctx context.Context, projectDir, pluginKey string
 			continue
 		}
 		if string(envelope.ID) == "0" {
-			if len(envelope.Error) > 0 {
+			if jsonRPCErrorPresent(envelope.Error) {
 				break
 			}
 			initialized = true
@@ -123,27 +122,31 @@ func probeCodexPluginHookTrust(ctx context.Context, projectDir, pluginKey string
 		if err := json.Unmarshal(scanner.Bytes(), &envelope); err != nil || string(envelope.ID) != "1" {
 			continue
 		}
-		if len(envelope.Error) == 0 {
+		if !jsonRPCErrorPresent(envelope.Error) {
 			hooksResponse = &envelope.Result
 		}
 		break
 	}
 	_ = stdin.Close()
-	if err := cmd.Wait(); err != nil && hooksResponse == nil {
-		result.Reason = "Codex app-server could not inspect hook trust"
-		return result
-	}
+	waitErr := cmd.Wait()
 	if hooksResponse == nil {
 		if probeCtx.Err() != nil {
 			result.Reason = "Codex app-server hook inspection timed out"
-		} else if err := scanner.Err(); err != nil && err != io.EOF {
+		} else if err := scanner.Err(); err != nil {
 			result.Reason = "Codex app-server hook response was unreadable"
+		} else if waitErr != nil {
+			result.Reason = "Codex app-server could not inspect hook trust"
 		} else {
 			result.Reason = "Codex app-server returned no hook trust result"
 		}
 		return result
 	}
 	return classifyCodexPluginHookTrust(pluginKey, *hooksResponse)
+}
+
+func jsonRPCErrorPresent(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed != "null"
 }
 
 func classifyCodexPluginHookTrust(pluginKey string, response codexHooksListResponse) codexPluginHookTrustResult {

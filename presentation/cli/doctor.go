@@ -330,7 +330,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		var check doctorCheck
 		if targetClient == "codex" {
 			pluginState := c.detectCodexPluginHookFallback()
-			if pluginState.PluginEnabled && pluginState.PluginHooksFeature == nil {
+			if pluginState.PluginEnabled {
 				trust := codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey)
 				report.Checks = append(report.Checks, codexPluginHookTrustCheck(trust))
 				check = c.inspectCodexConfigWithHookTrust(ctx, outputPath, resolvedProjectDir, trust)
@@ -1298,7 +1298,7 @@ func (c *RootCLI) inspectClaudeOrConfigFile(ctx context.Context, client, outputP
 		if configCheck.Status == doctorStatusFail {
 			return configCheck
 		}
-		if c.claudeConfigHasTracearyHooks(outputPath) {
+		if c.configHasTracearyHooks(outputPath) {
 			return doctorCheck{
 				Name:   "claude-config",
 				Status: doctorStatusWarn,
@@ -1501,12 +1501,12 @@ func (c *RootCLI) inspectGlobalConfigForClient(client string) *doctorCheck {
 	}
 }
 
-// claudeConfigHasTracearyHooks returns true iff the Claude settings file
-// at outputPath is a valid JSON object with a hooks field that contains
-// at least one Traceary-managed hook entry. Missing files, unreadable
-// files, and malformed JSON all return false so the plugin-detection
-// branch interprets them as "no Traceary hook registered here".
-func (c *RootCLI) claudeConfigHasTracearyHooks(outputPath string) bool {
+// configHasTracearyHooks returns true iff the host hook file at outputPath is
+// a valid JSON object with a hooks field that contains at least one
+// Traceary-managed hook entry. Missing files, unreadable files, and malformed
+// JSON all return false so host-specific plugin detection can interpret them
+// as "no manual Traceary hook registered here".
+func (c *RootCLI) configHasTracearyHooks(outputPath string) bool {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		return false

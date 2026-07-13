@@ -188,14 +188,14 @@ func (c *RootCLI) inspectCodexConfigWithHookTrust(
 		state := c.detectCodexPluginHookFallback()
 		confirmed := true
 		state.PluginHooksFeature = &confirmed
-		if c.claudeConfigHasTracearyHooks(outputPath) {
+		if c.configHasTracearyHooks(outputPath) {
 			return c.codexDuplicateRegistrationCheck(ctx, state, outputPath)
 		}
 		return codexPluginManagedHooksCheck(state, outputPath)
 	case codexPluginHookTrustUntrusted, codexPluginHookTrustModified, codexPluginHookTrustDisabled:
 		// A healthy manual registration remains a valid compatibility path,
 		// but it does not make the separate plugin trust warning disappear.
-		if c.claudeConfigHasTracearyHooks(outputPath) {
+		if c.configHasTracearyHooks(outputPath) {
 			return configCheck
 		}
 		return doctorCheck{

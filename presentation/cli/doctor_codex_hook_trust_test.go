@@ -29,6 +29,25 @@ printf '%s\n' '{"id":1,"result":{"data":[{"cwd":"/tmp/project","hooks":[{"plugin
 	}
 }
 
+func TestJSONRPCErrorPresent(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{name: "absent", raw: "", want: false},
+		{name: "null", raw: "null", want: false},
+		{name: "error object", raw: `{"code":-32600}`, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := jsonRPCErrorPresent(json.RawMessage(tt.raw)); got != tt.want {
+				t.Fatalf("jsonRPCErrorPresent(%q) = %v, want %v", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClassifyCodexPluginHookTrust(t *testing.T) {
 	tests := []struct {
 		name       string
