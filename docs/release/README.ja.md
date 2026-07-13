@@ -122,11 +122,11 @@ GoReleaser workflow が artifact の公開を自動化しますが、maintainer 
 4. **cockpit を dogfood する。** `traceary tui` を変更する release では、tag 前に `go test ./presentation/cli -run 'TestCockpitDogfood'` を実行し、80x24 smoke を含む [`cockpit dogfood checklist`](../operations/cockpit-dogfood.ja.md) を完了します。
 5. **landing page をプレビューする。** `python3 -m http.server --directory docs/landing 8000` を起動して `http://localhost:8000/` を開き、hero の version eyebrow と brew install の terminal アニメーションが新バージョンになっているかを確認します。`Pages` workflow は GitHub Release の publish 時に自動再 deploy するため、ここが本番反映前の最後のチェックポイントです。
 6. **release-preparation PR を開く。** `maintenance/release-vX.Y.Z` ブランチを作成し、changelog と bump を commit・push して `main` 向けに PR を開きます。**`Closes #<parent>` は書かない**でください。親 release issue は release workflow が閉じるため、release-prep PR からは閉じません。
-7. **レビュー + merge。** release-prep PR も通常の PR と同じレビューゲートを通します。v0.21.1 のゲートは **Claude レビュー + ローカル dogfood + tests/CI** です。
-   - Gemini レビューは release gate の対象外です。Traceary の Gemini CLI 連携は、継続対象の有料 / enterprise tier 向け maintenance mode であり、Google host の主要経路は Antigravity です。
-   - Codex の実装・レビューは、ローカルポリシーやユーザー指示で無効化されている場合は**不要**です。Codex が有効かつ利用可能な場合にのみ Codex app review を取得します。
-   - 最新 head に対する Claude レビューを取得し、ローカル dogfood と `go test ./...` / `golangci-lint` / CI が green であることを確認してから merge commit でマージします。
-   - Antigravity は v0.21.1 以降サポート対象であり、`integrations/antigravity-plugin/` を同梱します。doctor は `antigravity-capability` と `antigravity-config` を報告します（上記「ネイティブ連携パッケージ」を参照）。
+7. **レビュー + merge。** release-prep PR も通常の PR と同じレビューゲートを通します。利用可能な場合の独立 AI レビュー、ローカル dogfood、test、lint、CI が必要です。
+   - 最新 head に対する独立レビューを取得し、レビューした AI と検証証拠を記録します。ローカルポリシーで無効な engine へ置き換えてはいけません。
+   - すべての指摘を分類します。release blocker、security、data loss、contract に関する指摘は、merge 前に修正するか、証拠付きで明示的に覆す必要があります。
+   - integration package を変更した release では、該当 host の smoke test を再実行します。`go test ./...`、`go tool golangci-lint run`、CI が green であることを確認してから merge commit でマージします。
+   - Antigravity と Grok Build は release と連動する package を同梱するため、変更した場合は package manifest と host 固有の doctor/smoke 経路を検証します。
 8. **tag を打って push する。** release-prep PR が merge されたら、`git checkout main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z` を実行します。`v*` tag が `.github/workflows/release.yml` を起動します。
 9. **release workflow を監視する。** tag run に対して `gh run watch` を実行し、成功後に `gh release view vX.Y.Z` で公開を確認します。GitHub Release が publish されると `.github/workflows/pages.yml` も発火し、`docs/landing/` を GitHub Pages に再 deploy します。その run が成功し、`https://duck8823.github.io/traceary/`（CNAME 経由で `https://duck8823.net/traceary/`）が新バージョンを反映していることを確認してください。
 10. **Homebrew formula PR を確認する。** release workflow が `maintenance/homebrew-vX.Y.Z` PR を開いて auto-merge を有効化します。実際に merge されたか確認し、`brew update && brew upgrade traceary && traceary -v` で新バージョンを確かめます。
