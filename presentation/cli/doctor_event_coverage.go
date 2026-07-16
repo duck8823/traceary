@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/duck8823/traceary/application"
+	"github.com/duck8823/traceary/application/hostcoverage"
 	apptypes "github.com/duck8823/traceary/application/types"
 	appusecase "github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
@@ -21,6 +22,20 @@ func (c *RootCLI) inspectClientEventCoverage(ctx context.Context, client, output
 			Name:    checkName,
 			Status:  doctorStatusSkip,
 			Message: localizef("event usecase is not configured", "event usecase が設定されていません"),
+		}
+	}
+
+	// Skip ratio judgment for hosts that the matrix does not promise prompt /
+	// transcript enrichment for (keeps doctor aligned with hostcoverage).
+	if matrix, err := hostcoverage.Load(); err == nil && !matrix.ExpectsSessionEnrichment(client) {
+		return doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"host coverage matrix does not require prompt/transcript enrichment for %s; event-coverage ratio is not judged",
+				"host coverage matrix は %s に prompt/transcript enrichment を要求しないため、event-coverage ratio は判定しません",
+				client,
+			),
 		}
 	}
 

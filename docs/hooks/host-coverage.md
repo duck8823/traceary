@@ -16,6 +16,8 @@ Legend:
 
 ## Lifecycle event → host hook matrix
 
+<!-- host-coverage-matrix:begin -->
+<!-- DO NOT EDIT: generated from application/hostcoverage/matrix.json via `go run ./cmd/repo-tooling docs generate-host-coverage`. -->
 | Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.144.1 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Antigravity (`antigravity-plugin`) | Grok Build 0.2.99 | Verification |
 |---|---|---|---|---|---|---|
 | `session_started` | ● `SessionStart` | ● `SessionStart` | ● `SessionStart` | ● `PreInvocation` (idempotent, keyed by `conversationId`; Antigravity has no `SessionStart`) | ● `SessionStart` (native `agent=grok`) | `traceary list events --kind session_started --limit 5` |
@@ -24,6 +26,7 @@ Legend:
 | `transcript` | ● `Stop` | ● `Stop` (`last_assistant_message`) | ● `AfterAgent` | ● `Stop` (`transcriptPath`, best-effort lenient JSONL scan) | ● `Stop` (best-effort current-prompt message chunks from `updates.jsonl`; no model field) | `traceary list events --kind transcript --limit 5` |
 | `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` resume) | ● `PreCompact` + `PostCompact` markers (`trigger` only; Codex exposes no compacted summary body) | ● `PreCompress` (marker only — Gemini exposes no post-compress hook with the resulting summary) | ✕ no documented compact hook | ● `PreCompact` + `PostCompact` (native live-observed markers from `source`; no summary body) | `traceary list events --kind compact_summary --limit 5` |
 | `session_ended` | ● `SessionEnd` | ✕ no host session-end signal — Codex `Stop` is a per-response turn boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC | ● `SessionEnd` | ✕ no host session-end signal — Antigravity `Stop` is a per-execution boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC | ○ documented `SessionEnd`, but not emitted by headless completion, TUI `/quit`, or TUI `/new` probes | `traceary list events --kind session_ended --limit 5` |
+<!-- host-coverage-matrix:end -->
 
 > **Antigravity headless `agy --print`:** the current CLI emits `PreInvocation`, `PreToolUse`/`PostToolUse` when needed, and `Stop` with `transcriptPath`. Traceary recovers prompt and transcript at Stop. `antigravity-event-coverage` detects runtime gaps from database evidence. Hook events are stored with `client=hook`, `agent=antigravity`, so verify them with `traceary list --agent antigravity`.
 
@@ -58,11 +61,16 @@ This list excludes hooks that already appear in the lifecycle matrix above.
 
 ## Maintenance
 
-This matrix is a manually curated snapshot. To refresh:
+The lifecycle matrix table above is generated from the machine-readable source
+[`application/hostcoverage/matrix.json`](../../application/hostcoverage/matrix.json).
+Doctor host-capability and event-coverage expectations load the same embedded matrix.
+
+To refresh:
 
 1. Bump or re-install the host CLI you want to re-check.
-2. Diff the host's hook reference against the table above.
-3. For each `●` cell, run the verification command and confirm a recent row exists in `~/.config/traceary/traceary.db`.
-4. Update the **Last verified** date at the top of this page.
+2. Update `application/hostcoverage/matrix.json` (status, bilingual summaries, `last_verified`).
+3. Run `go run ./cmd/repo-tooling docs generate-host-coverage` to rewrite the marked table sections.
+4. For each `●` cell, run the verification command and confirm a recent row exists in `~/.config/traceary/traceary.db`.
+5. Run `go run ./cmd/repo-tooling docs verify-host-coverage` (also enforced in CI).
 
 A daily drift check is wired through `/schedule` (see #814).

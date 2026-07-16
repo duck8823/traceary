@@ -96,9 +96,47 @@ func newDocsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	generateHostCoverageCmd := &cobra.Command{
+		Use:   "generate-host-coverage",
+		Short: "Regenerate the host-coverage matrix tables from application/hostcoverage/matrix.json",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			root, err := findRepoRoot()
+			if err != nil {
+				return err
+			}
+			if err := generateHostCoverageDocs(root); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "ok: regenerated host-coverage matrix tables from application/hostcoverage/matrix.json"); err != nil {
+				return xerrors.Errorf("failed to write generate result: %w", err)
+			}
+			return nil
+		},
+	}
+	verifyHostCoverageCmd := &cobra.Command{
+		Use:   "verify-host-coverage",
+		Short: "Verify host-coverage.md tables match application/hostcoverage/matrix.json",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			root, err := findRepoRoot()
+			if err != nil {
+				return err
+			}
+			if err := verifyHostCoverageDocs(root); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "ok: host-coverage matrix tables match application/hostcoverage/matrix.json"); err != nil {
+				return xerrors.Errorf("failed to write verify result: %w", err)
+			}
+			return nil
+		},
+	}
 	cmd.AddCommand(verifyI18n)
 	cmd.AddCommand(verifyLandingCmd)
 	cmd.AddCommand(verifyAntigravityCmd)
+	cmd.AddCommand(generateHostCoverageCmd)
+	cmd.AddCommand(verifyHostCoverageCmd)
 	return cmd
 }
 

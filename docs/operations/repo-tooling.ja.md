@@ -54,6 +54,8 @@ maintainer-only の repository automation は性質が異なります。
 
 - `go run ./cmd/repo-tooling integrations verify`
 - `go run ./cmd/repo-tooling docs verify-i18n`
+- `go run ./cmd/repo-tooling docs verify-host-coverage`
+- `go run ./cmd/repo-tooling docs generate-host-coverage`
 - `go run ./cmd/repo-tooling docs verify-antigravity-status`
 - `go run ./cmd/repo-tooling release verify-changelog`
 - `go run ./cmd/repo-tooling release bump-version --version X.Y.Z`

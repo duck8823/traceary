@@ -16,6 +16,8 @@
 
 ## ライフサイクルイベント → ホスト hook マトリクス
 
+<!-- host-coverage-matrix:begin -->
+<!-- DO NOT EDIT: generated from application/hostcoverage/matrix.json via `go run ./cmd/repo-tooling docs generate-host-coverage`. -->
 | Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.144.1 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Antigravity (`antigravity-plugin`) | Grok Build 0.2.99 | 確認方法 |
 |---|---|---|---|---|---|---|
 | `session_started` | ● `SessionStart` | ● `SessionStart` | ● `SessionStart` | ● `PreInvocation`（`conversationId` を key にした冪等開始。Antigravity に `SessionStart` はない） | ● `SessionStart`（native の `agent=grok`） | `traceary list events --kind session_started --limit 5` |
@@ -24,6 +26,7 @@
 | `transcript` | ● `Stop` | ● `Stop` (`last_assistant_message`) | ● `AfterAgent` | ● `Stop`（`transcriptPath`、best-effort な寛容 JSONL 走査） | ● `Stop`（`updates.jsonl` から現在の prompt の message chunk を best-effort 取得。model field はない） | `traceary list events --kind transcript --limit 5` |
 | `compact_summary` | ● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` で resume) | ● `PreCompact` + `PostCompact` marker（`trigger` のみ。Codex は圧縮後サマリー本文を公開しない） | ● `PreCompress` (marker のみ — Gemini に post-compress 側 hook はない) | ✕ 文書化された compact hook なし | ● `PreCompact` + `PostCompact`（native で live 確認済みの `source` marker。summary 本文なし） | `traceary list events --kind compact_summary --limit 5` |
 | `session_ended` | ● `SessionEnd` | ✕ host のセッション終了信号なし — Codex `Stop` は応答ごとの turn 境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由 | ● `SessionEnd` | ✕ host のセッション終了信号なし — Antigravity `Stop` は execution 単位の境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由 | ○ `SessionEnd` は文書化済みだが、headless 完了・TUI `/quit`・TUI `/new` の probe では未発火 | `traceary list events --kind session_ended --limit 5` |
+<!-- host-coverage-matrix:end -->
 
 > **Antigravity headless `agy --print`:** 現行 CLI は `PreInvocation`、必要に応じて `PreToolUse`/`PostToolUse`、および `transcriptPath` 付き `Stop` を発行します。Traceary は Stop で prompt と transcript を復元します。実行時の欠落は `antigravity-event-coverage` が DB 証拠から検出します。hook event は `client=hook`, `agent=antigravity` で記録されるため、`traceary list --agent antigravity` で確認してください。
 
@@ -58,11 +61,16 @@
 
 ## 更新方法
 
-このマトリクスは手書きのスナップショット。更新手順:
+上のライフサイクルマトリクス表は機械可読な正本
+[`application/hostcoverage/matrix.json`](../../application/hostcoverage/matrix.json)
+から生成されます。doctor の host-capability / event-coverage 期待値も同じ embedded matrix を読みます。
+
+更新手順:
 
 1. 確認したい host CLI をバンプ／再インストール。
-2. ホスト側 hook reference と上の表を diff。
-3. `●` セルごとに「確認方法」コマンドを実行し、`~/.config/traceary/traceary.db` に新しい行があることを確認。
-4. ページ冒頭の **最終確認日** を更新。
+2. `application/hostcoverage/matrix.json` を更新（status、日英 summary、`last_verified`）。
+3. `go run ./cmd/repo-tooling docs generate-host-coverage` で marker 付き表セクションを再生成。
+4. `●` セルごとに「確認方法」コマンドを実行し、`~/.config/traceary/traceary.db` に新しい行があることを確認。
+5. `go run ./cmd/repo-tooling docs verify-host-coverage` を実行（CI でも強制）。
 
 `/schedule` 経由の日次 drift check は #814 で配線する。

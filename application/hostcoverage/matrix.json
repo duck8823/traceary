@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "last_verified": "2026-07-16",
+  "notes": {
+    "en": "Last verified: 2026-07-16 (Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).",
+    "ja": "最終確認日: 2026-07-16（Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。"
+  },
+  "lifecycle_events": [
+    {
+      "id": "session_started",
+      "verification": {
+        "en": "`traceary list events --kind session_started --limit 5`",
+        "ja": "`traceary list events --kind session_started --limit 5`"
+      }
+    },
+    {
+      "id": "prompt",
+      "verification": {
+        "en": "`traceary list events --kind prompt --limit 5`",
+        "ja": "`traceary list events --kind prompt --limit 5`"
+      }
+    },
+    {
+      "id": "command_executed",
+      "verification": {
+        "en": "`traceary list events --kind command_executed --limit 5`",
+        "ja": "`traceary list events --kind command_executed --limit 5`"
+      }
+    },
+    {
+      "id": "transcript",
+      "verification": {
+        "en": "`traceary list events --kind transcript --limit 5`",
+        "ja": "`traceary list events --kind transcript --limit 5`"
+      }
+    },
+    {
+      "id": "compact_summary",
+      "verification": {
+        "en": "`traceary list events --kind compact_summary --limit 5`",
+        "ja": "`traceary list events --kind compact_summary --limit 5`"
+      }
+    },
+    {
+      "id": "session_ended",
+      "verification": {
+        "en": "`traceary list events --kind session_ended --limit 5`",
+        "ja": "`traceary list events --kind session_ended --limit 5`"
+      }
+    }
+  ],
+  "hosts": [
+    {
+      "id": "claude",
+      "package": "claude-plugin",
+      "label": {
+        "en": "Claude Code (`claude-plugin`)",
+        "ja": "Claude Code (`claude-plugin`)"
+      },
+      "doctor_client": "claude",
+      "expects_session_enrichment": true,
+      "events": {
+        "session_started": {
+          "status": "wired",
+          "summary": {
+            "en": "● `SessionStart`",
+            "ja": "● `SessionStart`"
+          }
+        },
+        "prompt": {
+          "status": "wired",
+          "summary": {
+            "en": "● `UserPromptSubmit`",
+            "ja": "● `UserPromptSubmit`"
+          }
+        },
+        "command_executed": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PostToolUse` + `PostToolUseFailure` (Bash, `mcp__.*`, built-in tool matcher)",
+            "ja": "● `PostToolUse` + `PostToolUseFailure` (Bash, `mcp__.*`, built-in tool matcher)"
+          }
+        },
+        "transcript": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop`",
+            "ja": "● `Stop`"
+          }
+        },
+        "compact_summary": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` resume)",
+            "ja": "● `PostCompact` (+ `PreCompact` marker, `SessionStart matcher=compact` で resume)"
+          }
+        },
+        "session_ended": {
+          "status": "wired",
+          "summary": {
+            "en": "● `SessionEnd`",
+            "ja": "● `SessionEnd`"
+          }
+        }
+      }
+    },
+    {
+      "id": "codex",
+      "package": "plugins/traceary",
+      "label": {
+        "en": "Codex CLI 0.144.1 (`plugins/traceary`)",
+        "ja": "Codex CLI 0.144.1 (`plugins/traceary`)"
+      },
+      "doctor_client": "codex",
+      "expects_session_enrichment": true,
+      "events": {
+        "session_started": {
+          "status": "wired",
+          "summary": {
+            "en": "● `SessionStart`",
+            "ja": "● `SessionStart`"
+          }
+        },
+        "prompt": {
+          "status": "wired",
+          "summary": {
+            "en": "● `UserPromptSubmit`",
+            "ja": "● `UserPromptSubmit`"
+          }
+        },
+        "command_executed": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PostToolUse`",
+            "ja": "● `PostToolUse`"
+          }
+        },
+        "transcript": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop` (`last_assistant_message`)",
+            "ja": "● `Stop` (`last_assistant_message`)"
+          }
+        },
+        "compact_summary": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PreCompact` + `PostCompact` markers (`trigger` only; Codex exposes no compacted summary body)",
+            "ja": "● `PreCompact` + `PostCompact` marker（`trigger` のみ。Codex は圧縮後サマリー本文を公開しない）"
+          }
+        },
+        "session_ended": {
+          "status": "unsupported",
+          "summary": {
+            "en": "✕ no host session-end signal — Codex `Stop` is a per-response turn boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC",
+            "ja": "✕ host のセッション終了信号なし — Codex `Stop` は応答ごとの turn 境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由"
+          }
+        }
+      }
+    },
+    {
+      "id": "gemini",
+      "package": "gemini-extension",
+      "label": {
+        "en": "Gemini CLI (`gemini-extension`)",
+        "ja": "Gemini CLI (`gemini-extension`)"
+      },
+      "doctor_client": "gemini",
+      "expects_session_enrichment": true,
+      "events": {
+        "session_started": {
+          "status": "wired",
+          "summary": {
+            "en": "● `SessionStart`",
+            "ja": "● `SessionStart`"
+          }
+        },
+        "prompt": {
+          "status": "wired",
+          "summary": {
+            "en": "● `BeforeAgent`",
+            "ja": "● `BeforeAgent`"
+          }
+        },
+        "command_executed": {
+          "status": "wired",
+          "summary": {
+            "en": "● `AfterTool`",
+            "ja": "● `AfterTool`"
+          }
+        },
+        "transcript": {
+          "status": "wired",
+          "summary": {
+            "en": "● `AfterAgent`",
+            "ja": "● `AfterAgent`"
+          }
+        },
+        "compact_summary": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PreCompress` (marker only — Gemini exposes no post-compress hook with the resulting summary)",
+            "ja": "● `PreCompress` (marker のみ — Gemini に post-compress 側 hook はない)"
+          }
+        },
+        "session_ended": {
+          "status": "wired",
+          "summary": {
+            "en": "● `SessionEnd`",
+            "ja": "● `SessionEnd`"
+          }
+        }
+      }
+    },
+    {
+      "id": "antigravity",
+      "package": "antigravity-plugin",
+      "label": {
+        "en": "Antigravity (`antigravity-plugin`)",
+        "ja": "Antigravity (`antigravity-plugin`)"
+      },
+      "doctor_client": "antigravity",
+      "expects_session_enrichment": true,
+      "events": {
+        "session_started": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PreInvocation` (idempotent, keyed by `conversationId`; Antigravity has no `SessionStart`)",
+            "ja": "● `PreInvocation`（`conversationId` を key にした冪等開始。Antigravity に `SessionStart` はない）"
+          }
+        },
+        "prompt": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop` (no direct prompt field; recovered from the latest `USER_INPUT` / `USER_EXPLICIT` row at `transcriptPath`)",
+            "ja": "● `Stop`（直接の prompt field は無い。`transcriptPath` の最新 `USER_INPUT` / `USER_EXPLICIT` 行から復元）"
+          }
+        },
+        "command_executed": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PreToolUse` + `PostToolUse` (`run_command`; command args paired across the two events by `conversationId + stepIdx`)",
+            "ja": "● `PreToolUse` + `PostToolUse`（`run_command`。command args は `conversationId + stepIdx` で 2 event をまたいで突き合わせ）"
+          }
+        },
+        "transcript": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop` (`transcriptPath`, best-effort lenient JSONL scan)",
+            "ja": "● `Stop`（`transcriptPath`、best-effort な寛容 JSONL 走査）"
+          }
+        },
+        "compact_summary": {
+          "status": "unsupported",
+          "summary": {
+            "en": "✕ no documented compact hook",
+            "ja": "✕ 文書化された compact hook なし"
+          }
+        },
+        "session_ended": {
+          "status": "unsupported",
+          "summary": {
+            "en": "✕ no host session-end signal — Antigravity `Stop` is a per-execution boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC",
+            "ja": "✕ host のセッション終了信号なし — Antigravity `Stop` は execution 単位の境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由"
+          }
+        }
+      }
+    },
+    {
+      "id": "grok",
+      "package": "grok-plugin",
+      "label": {
+        "en": "Grok Build 0.2.99",
+        "ja": "Grok Build 0.2.99"
+      },
+      "doctor_client": "grok",
+      "expects_session_enrichment": true,
+      "events": {
+        "session_started": {
+          "status": "wired",
+          "summary": {
+            "en": "● `SessionStart` (native `agent=grok`)",
+            "ja": "● `SessionStart`（native の `agent=grok`）"
+          }
+        },
+        "prompt": {
+          "status": "wired",
+          "summary": {
+            "en": "● `UserPromptSubmit` (`prompt`; native `agent=grok`)",
+            "ja": "● `UserPromptSubmit`（`prompt`、native の `agent=grok`）"
+          }
+        },
+        "command_executed": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PreToolUse` validation + `PostToolUse` completed audit (input/result are co-located; missing/denied reads are failed result variants)",
+            "ja": "● `PreToolUse` の検証 + `PostToolUse` の完了監査（input/result は同一 payload。missing/denied read は失敗 result variant）"
+          }
+        },
+        "transcript": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop` (best-effort current-prompt message chunks from `updates.jsonl`; no model field)",
+            "ja": "● `Stop`（`updates.jsonl` から現在の prompt の message chunk を best-effort 取得。model field はない）"
+          }
+        },
+        "compact_summary": {
+          "status": "wired",
+          "summary": {
+            "en": "● `PreCompact` + `PostCompact` (native live-observed markers from `source`; no summary body)",
+            "ja": "● `PreCompact` + `PostCompact`（native で live 確認済みの `source` marker。summary 本文なし）"
+          }
+        },
+        "session_ended": {
+          "status": "available",
+          "summary": {
+            "en": "○ documented `SessionEnd`, but not emitted by headless completion, TUI `/quit`, or TUI `/new` probes",
+            "ja": "○ `SessionEnd` は文書化済みだが、headless 完了・TUI `/quit`・TUI `/new` の probe では未発火"
+          }
+        }
+      }
+    }
+  ]
+}
