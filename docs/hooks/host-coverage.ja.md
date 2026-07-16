@@ -10,7 +10,7 @@
 - `○` ホスト側に hook はあるが Traceary 未配線
 - `✕` ホスト自体が公開していない
 
-**最終確認日: 2026-07-14（Grok Build 0.2.99 の live payload、Antigravity CLI 1.1.1 と現行公式 hook contract を確認。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。** Traceary 統合パッケージのバンプ、もしくは host CLI のリリースで hook surface が変化したときに更新する。
+**最終確認日: 2026-07-16（Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。** Traceary 統合パッケージのバンプ、もしくは host CLI のリリースで hook surface が変化したときに更新する。
 
 > **v0.21.1 注記:** このマトリクスに掲載されている Gemini CLI の hook カバレッジは**レガシー互換のみ**です。Gemini CLI はレガシーの Google AI エージェントホストであり、後継は Antigravity（`/Applications/Antigravity.app`）です。**v0.21.1 以降、Antigravity はサポート対象の hook client** であり、文書化された公開 hook surface に対する packaged plugin（`integrations/antigravity-plugin/`）を提供します。[Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 
@@ -27,7 +27,7 @@
 
 > **Antigravity headless `agy --print`:** 現行 CLI は `PreInvocation`、必要に応じて `PreToolUse`/`PostToolUse`、および `transcriptPath` 付き `Stop` を発行します。Traceary は Stop で prompt と transcript を復元します。実行時の欠落は `antigravity-event-coverage` が DB 証拠から検出します。hook event は `client=hook`, `agent=antigravity` で記録されるため、`traceary list --agent antigravity` で確認してください。
 
-> **Grok Build 0.2.99 contract:** sanitized な空 workspace で `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop`、`PreCompact`、`PostCompact` を live capture しました。`PostToolUseFailure`、`PermissionDenied`、`SessionEnd` は文書化されていますが、対応する failure / denial / end probe では発火せず、`FileNotFound` と `PermissionDenied` は `PostToolUse.toolResult` の variant として返りました。`StopFailure` は意図的に API error を起こしておらず、Grok subagent は外部 agent policy gate に従って無効のままです。そのため Traceary は未観測 event を v0.23 の対応対象として主張しません。field 単位の証拠は [`host-contract.json`](./host-contract.json) にあります。
+> **Grok Build contract（fixture 0.2.99、再 probe 0.2.101 / 2026-07-16）:** sanitized な空 workspace で `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop`、`PreCompact`、`PostCompact` を live capture しました。0.2.101 再 probe でも standalone な `PostToolUseFailure` / `PermissionDenied` / `SessionEnd` は発火せず、missing-file Read は `PostToolUse` 配下の `FileNotFound` でした。subagent 起動は `spawn_subagent` tool と tool audit のみで、`SubagentStart` / `SubagentStop` hook payload も parent/child identity も観測されませんでした。Traceary は未観測 hook を合成しません。field 単位の証拠は [`host-contract.json`](./host-contract.json) にあります。
 
 > **Grok native runtime:** `traceary hooks install --client grok` は `.grok/hooks/traceary.json`（`--global` では `~/.grok/hooks/traceary.json`）へ書き込みます。core と compact event は `client=hook`、`agent=grok` で保存します。`Stop` は turn 境界のままです。subagent capture は parent/child identifier payload を検証するまで利用不可です。
 
@@ -44,8 +44,8 @@
 | Codex CLI | `PreToolUse`, `PermissionRequest` | ○ 利用可 | 未配線 |
 | Gemini CLI | `BeforeTool`, `BeforeToolSelection`, `BeforeModel`, `AfterModel`, `Notification` | ○ 利用可 | 未配線 |
 | Antigravity | `run_command` 以外の tool に対する `PreToolUse` | ○ 利用可 | audit 対象は `run_command` のみ |
-| Grok Build | `PostToolUseFailure`, `PermissionDenied`, `SessionEnd`, `StopFailure` | ○ 文書化済み、0.2.99 live 未確認 | live payload を確認するまで Traceary では利用不可。tool denial は現状 `PostToolUse` で到達 |
-| Grok Build | `SubagentStart`, `SubagentStop` | ○ 文書化済み、policy gate により probe 保留 | parent/child field contract は未確定 |
+| Grok Build | `PostToolUseFailure`, `PermissionDenied`, `SessionEnd`, `StopFailure` | ○ 文書化済み、0.2.99 および再 probe 0.2.101 でも live 未確認 | live payload を確認するまで Traceary では利用不可。missing-file と tool denial は現状 `PostToolUse` で到達 |
+| Grok Build | `SubagentStart`, `SubagentStop` | ○ 文書化済み、0.2.101 で live 未発火 | 利用不可。spawn は `spawn_subagent` tool audit のみで parent/child hook payload なし（#1299） |
 | Grok Build | `Notification` | ○ 文書化済み、未検証 | Traceary lifecycle event への対応付けがなく、利用不可 |
 
 ## ホスト別参照
