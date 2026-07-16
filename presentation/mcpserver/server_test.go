@@ -1569,6 +1569,9 @@ ALTER TABLE sessions ADD COLUMN spawn_order INTEGER;
 CREATE INDEX IF NOT EXISTS idx_sessions_parent_spawn_order
     ON sessions(parent_session_id, spawn_order);`),
 		},
+		"000020_add_session_model.sql": {
+			Data: []byte(`ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT '';`),
+		},
 		"000008_create_memories.sql": {
 			Data: []byte(`
 CREATE TABLE memories (

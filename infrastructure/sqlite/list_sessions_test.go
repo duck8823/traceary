@@ -99,6 +99,9 @@ CREATE INDEX IF NOT EXISTS idx_sessions_parent_spawn_order
 			Data: []byte(`CREATE INDEX IF NOT EXISTS idx_events_session_created_at_id_desc
 ON events(session_id, created_at DESC, id DESC);`),
 		},
+		"000020_add_session_model.sql": {
+			Data: []byte(`ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT '';`),
+		},
 	}
 }
 

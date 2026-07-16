@@ -7,6 +7,10 @@ import (
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
+// SessionModel is a host-reported model identifier attached to a SessionSummary.
+// Empty means the host did not report a model.
+type SessionModel string
+
 // SessionSummary holds aggregated information about a single session.
 type SessionSummary struct {
 	sessionID          domtypes.SessionID
@@ -20,6 +24,7 @@ type SessionSummary struct {
 	agents             []string
 	label              string
 	summary            string
+	model              string
 	parentSessionID    domtypes.SessionID
 	spawnEventID       domtypes.EventID
 	subagentKind       string
@@ -66,6 +71,7 @@ func SessionSummaryOf(
 		latestEventKind    domtypes.EventKind
 		latestEventMessage string
 		client             domtypes.Client
+		modelName          string
 	)
 	for _, metadata := range spawnMetadata {
 		switch value := metadata.(type) {
@@ -73,6 +79,8 @@ func SessionSummaryOf(
 			client = value
 		case domtypes.EventID:
 			spawnEventID = value
+		case SessionModel:
+			modelName = string(value)
 		case string:
 			subagentKind = value
 		case domtypes.Optional[int]:
@@ -97,6 +105,7 @@ func SessionSummaryOf(
 		agents:             slices.Clone(agents),
 		label:              label,
 		summary:            summary,
+		model:              modelName,
 		parentSessionID:    parentSessionID,
 		spawnEventID:       spawnEventID,
 		subagentKind:       subagentKind,
@@ -140,6 +149,9 @@ func (s SessionSummary) Label() string { return s.label }
 
 // Summary returns the session summary text.
 func (s SessionSummary) Summary() string { return s.summary }
+
+// Model returns the host-reported model identifier, or empty when unavailable.
+func (s SessionSummary) Model() string { return s.model }
 
 // ParentSessionID returns the parent session ID.
 func (s SessionSummary) ParentSessionID() domtypes.SessionID { return s.parentSessionID }

@@ -452,6 +452,19 @@ func (s *sessionRepositoryStub) UpdateSummaryIfEmpty(_ context.Context, sessionI
 	return true, nil
 }
 
+func (s *sessionRepositoryStub) UpdateModelIfEmpty(_ context.Context, _ types.SessionID, modelName string) (bool, error) {
+	if strings.TrimSpace(modelName) == "" {
+		return false, nil
+	}
+	if s.session != nil && s.session.Model() != "" {
+		return false, nil
+	}
+	if s.session != nil {
+		s.session.SetModel(modelName)
+	}
+	return true, nil
+}
+
 func mustTime(t *testing.T) time.Time {
 	t.Helper()
 

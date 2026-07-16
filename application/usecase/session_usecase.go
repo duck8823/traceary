@@ -53,6 +53,11 @@ type SessionUsecase interface {
 	// Returns true when a row was actually updated.
 	SetSummaryIfEmpty(ctx context.Context, sessionID types.SessionID, summary string) (bool, error)
 
+	// SetModelIfEmpty stores a host-reported model identifier when the session
+	// row still has an empty model. Empty input is a no-op. Never fabricates
+	// a model value.
+	SetModelIfEmpty(ctx context.Context, sessionID types.SessionID, model string) (bool, error)
+
 	// Handoff returns the legacy session handoff summary shape used by older CLI
 	// and MCP callers.
 	//

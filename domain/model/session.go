@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"github.com/duck8823/traceary/domain/types"
@@ -16,6 +17,9 @@ type Session struct {
 	workspace       types.Workspace
 	label           string
 	summary         string
+	// model is the host-reported model identifier when present. Empty means
+	// the host did not report a model; Traceary never fabricates one.
+	model           string
 	parentSessionID types.SessionID
 	spawnEventID    types.EventID
 	subagentKind    string
@@ -59,6 +63,9 @@ func NewChildSession(
 }
 
 // SessionOf restores a Session from persisted data.
+// spawnMetadata may include: EventID spawnEventID, string subagentKind,
+// Optional[int] spawnOrder, and optionally a trailing string model when the
+// caller places model as the 4th optional value.
 func SessionOf(
 	sessionID types.SessionID,
 	startedAt time.Time,
@@ -75,6 +82,7 @@ func SessionOf(
 		spawnEventID types.EventID
 		subagentKind string
 		spawnOrder   types.Optional[int]
+		modelName    string
 	)
 	if len(spawnMetadata) >= 1 {
 		if value, ok := spawnMetadata[0].(types.EventID); ok {
@@ -91,6 +99,11 @@ func SessionOf(
 			spawnOrder = value
 		}
 	}
+	if len(spawnMetadata) >= 4 {
+		if value, ok := spawnMetadata[3].(string); ok {
+			modelName = value
+		}
+	}
 	return &Session{
 		sessionID:       sessionID,
 		startedAt:       startedAt,
@@ -100,6 +113,7 @@ func SessionOf(
 		workspace:       workspace,
 		label:           label,
 		summary:         summary,
+		model:           modelName,
 		parentSessionID: parentSessionID,
 		spawnEventID:    spawnEventID,
 		subagentKind:    subagentKind,
@@ -144,6 +158,26 @@ func (s *Session) SetLabel(label string) { s.label = label }
 
 // Summary returns the session summary text.
 func (s *Session) Summary() string { return s.summary }
+
+// Model returns the host-reported model identifier, or empty when unavailable.
+func (s *Session) Model() string {
+	if s == nil {
+		return ""
+	}
+	return s.model
+}
+
+// SetModel stores a host-reported model identifier. Empty input is ignored so
+// callers can pass through missing host fields without clearing an existing
+// value; use SetModelOnlyIfEmpty on the repository for persistence guards.
+func (s *Session) SetModel(model string) {
+	if s == nil {
+		return
+	}
+	if trimmed := strings.TrimSpace(model); trimmed != "" {
+		s.model = trimmed
+	}
+}
 
 // ParentSessionID returns the parent session ID, or empty if top-level.
 func (s *Session) ParentSessionID() types.SessionID { return s.parentSessionID }
