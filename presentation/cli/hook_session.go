@@ -83,6 +83,13 @@ func (c *RootCLI) runHookSession(
 		if err != nil {
 			return xerrors.Errorf("failed to record hook session start: %w", err)
 		}
+		// Host-reported model is optional. Claude may omit it; Gemini/Antigravity
+		// never send it. Empty degrades to no model (never fabricated).
+		if modelName := strings.TrimSpace(hookPayloadString(payload, "model", "")); modelName != "" {
+			if _, err := c.session.SetModelIfEmpty(ctx, event.SessionID(), modelName); err != nil {
+				slog.Debug("failed to attach host-reported session model", "error", err, "session_id", event.SessionID().String())
+			}
+		}
 		if err := writeHookSessionState(client, event.SessionID()); err != nil {
 			return err
 		}

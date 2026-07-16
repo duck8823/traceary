@@ -70,6 +70,7 @@ SELECT
   COALESCE(s.spawn_event_id, '') AS spawn_event_id,
   s.subagent_kind,
   s.spawn_order,
+  COALESCE(s.model, '') AS model,
   COALESCE(latest.latest_event_kind, '') AS latest_event_kind,
   COALESCE(latest.latest_event_id, '') AS latest_event_id,
   COALESCE(latest.latest_event_body, '') AS latest_event_body

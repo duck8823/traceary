@@ -29,6 +29,9 @@ var updateSessionEndQuery string
 //go:embed sql/update_session_summary_if_empty.sql
 var updateSessionSummaryIfEmptyQuery string
 
+//go:embed sql/update_session_model_if_empty.sql
+var updateSessionModelIfEmptyQuery string
+
 //go:embed sql/select_session_by_id.sql
 var selectSessionByIDQuery string
 
@@ -183,6 +186,7 @@ func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *mod
 		spawnEventID,
 		session.SubagentKind(),
 		spawnOrder,
+		session.Model(),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID().String() != "" {
@@ -291,6 +295,7 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		spawnEventIDValue    string
 		subagentKindValue    string
 		spawnOrderValue      sql.NullInt64
+		modelValue           string
 	)
 
 	if err := row.Scan(
@@ -306,6 +311,7 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		&spawnEventIDValue,
 		&subagentKindValue,
 		&spawnOrderValue,
+		&modelValue,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return types.None[*model.Session](), nil
@@ -348,6 +354,7 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		types.EventID(spawnEventIDValue),
 		subagentKindValue,
 		optionalIntFromNullInt64(spawnOrderValue),
+		modelValue,
 	)), nil
 }
 
@@ -453,6 +460,37 @@ func (d *SessionDatasource) UpdateSummaryIfEmpty(ctx context.Context, sessionID 
 	res, err := db.ExecContext(ctx, updateSessionSummaryIfEmptyQuery, summary, sessionID.String())
 	if err != nil {
 		return false, xerrors.Errorf("failed to update session summary: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, xerrors.Errorf("failed to read rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// UpdateModelIfEmpty writes model into sessions.model when empty.
+func (d *SessionDatasource) UpdateModelIfEmpty(ctx context.Context, sessionID types.SessionID, modelName string) (bool, error) {
+	if strings.TrimSpace(sessionID.String()) == "" {
+		return false, xerrors.Errorf("session ID must not be empty")
+	}
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return false, nil
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to open DB for session model update: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	res, err := db.ExecContext(ctx, updateSessionModelIfEmptyQuery, modelName, sessionID.String(), modelName)
+	if err != nil {
+		return false, xerrors.Errorf("failed to update session model: %w", err)
 	}
 	rows, err := res.RowsAffected()
 	if err != nil {
@@ -683,6 +721,7 @@ func scanSessionSummary(row interface {
 		spawnEventID       string
 		subagentKind       string
 		spawnOrder         sql.NullInt64
+		modelName          string
 		latestEventKindStr string
 		latestEventID      string
 		latestEventRawBody string
@@ -704,6 +743,7 @@ func scanSessionSummary(row interface {
 		&spawnEventID,
 		&subagentKind,
 		&spawnOrder,
+		&modelName,
 		&latestEventKindStr,
 		&latestEventID,
 		&latestEventRawBody,
@@ -763,6 +803,7 @@ func scanSessionSummary(row interface {
 		types.EventID(spawnEventID),
 		subagentKind,
 		optionalIntFromNullInt64(spawnOrder),
+		apptypes.SessionModel(modelName),
 		latestEventAt,
 		apptypes.SessionSummaryLatestEventOf(types.EventID(latestEventID), types.EventKind(latestEventKindStr), apptypes.ExtractPlainBody(latestEventRawBody)),
 	), nil

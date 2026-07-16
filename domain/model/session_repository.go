@@ -26,4 +26,8 @@ type SessionRepository interface {
 	// existing value is NULL or empty, leaving manually authored summaries
 	// untouched. Returns true when a row was updated.
 	UpdateSummaryIfEmpty(ctx context.Context, sessionID types.SessionID, summary string) (bool, error)
+	// UpdateModelIfEmpty writes model into sessions.model when the existing
+	// value is empty. Host-reported values are never overwritten. Returns true
+	// when a row was updated.
+	UpdateModelIfEmpty(ctx context.Context, sessionID types.SessionID, model string) (bool, error)
 }

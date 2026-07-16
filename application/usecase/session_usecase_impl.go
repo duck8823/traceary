@@ -239,6 +239,28 @@ func (u *sessionUsecase) SetSummaryIfEmpty(ctx context.Context, sessionID types.
 	return updated, nil
 }
 
+func (u *sessionUsecase) SetModelIfEmpty(ctx context.Context, sessionID types.SessionID, modelName string) (bool, error) {
+	trimmedSessionID := strings.TrimSpace(sessionID.String())
+	if trimmedSessionID == "" {
+		return false, xerrors.Errorf("session ID must not be empty")
+	}
+	if strings.TrimSpace(modelName) == "" {
+		return false, nil
+	}
+	if u.sessionRepo == nil {
+		return false, xerrors.Errorf("session repository is not configured")
+	}
+	resolvedSessionID, err := types.SessionIDFrom(trimmedSessionID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to resolve session ID: %w", err)
+	}
+	updated, err := u.sessionRepo.UpdateModelIfEmpty(ctx, resolvedSessionID, modelName)
+	if err != nil {
+		return false, xerrors.Errorf("failed to update session model: %w", err)
+	}
+	return updated, nil
+}
+
 func (u *sessionUsecase) List(ctx context.Context, criteria apptypes.SessionListCriteria) ([]apptypes.SessionSummary, error) {
 	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")

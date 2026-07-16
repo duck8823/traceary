@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -128,6 +129,7 @@ type sessionUsecaseStub struct {
 	handoffErr      error
 	setSummaryErr   error
 	setSummaryCalls map[types.SessionID]string
+	setModelCalls   map[types.SessionID]string
 
 	startCall struct {
 		client          types.Client
@@ -252,6 +254,17 @@ func (s *sessionUsecaseStub) SetSummaryIfEmpty(_ context.Context, sessionID type
 		s.setSummaryCalls = make(map[types.SessionID]string)
 	}
 	s.setSummaryCalls[sessionID] = summary
+	return true, nil
+}
+
+func (s *sessionUsecaseStub) SetModelIfEmpty(_ context.Context, sessionID types.SessionID, modelName string) (bool, error) {
+	if s.setModelCalls == nil {
+		s.setModelCalls = make(map[types.SessionID]string)
+	}
+	if strings.TrimSpace(modelName) == "" {
+		return false, nil
+	}
+	s.setModelCalls[sessionID] = modelName
 	return true, nil
 }
 

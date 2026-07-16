@@ -166,6 +166,7 @@ func writeSessionSummariesJSON(output io.Writer, summaries []apptypes.SessionSum
 			Workspace:       string(s.Workspace()),
 			Label:           s.Label(),
 			Summary:         s.Summary(),
+			Model:           s.Model(),
 			ParentSessionID: string(s.ParentSessionID()),
 			SpawnEventID:    s.SpawnEventID().String(),
 			SubagentKind:    s.SubagentKind(),

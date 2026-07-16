@@ -283,6 +283,7 @@ type sessionSummaryOutput struct {
 	Workspace       string   `json:"workspace,omitempty"`
 	Label           string   `json:"label,omitempty"`
 	Summary         string   `json:"summary,omitempty"`
+	Model           string   `json:"model,omitempty"`
 	ParentSessionID string   `json:"parent_session_id,omitempty"`
 	SpawnEventID    string   `json:"spawn_event_id,omitempty"`
 	SubagentKind    string   `json:"subagent_kind,omitempty"`
