@@ -45,7 +45,7 @@ func TestWriteTopSnapshotJSON_TruncatesLargeRecentCommandBody(t *testing.T) {
 	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
 		RecentCommands: []*model.Event{ev},
 		Now:            createdAt,
-	}); err != nil {
+	}, topSnapshotProfileOperator); err != nil {
 		t.Fatalf("writeTopSnapshotJSON: %v", err)
 	}
 
@@ -86,9 +86,9 @@ func TestWriteTopSnapshotJSON_RecognizesBrokenPipeWriter(t *testing.T) {
 
 	err := writeTopSnapshotJSON(brokenPipeWriter{}, topDataSnapshot{
 		Now: time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
-	})
+	}, topSnapshotProfileOperator)
 	if err == nil {
-		t.Fatal("writeTopSnapshotJSON() error = nil, want broken pipe")
+		t.Fatal("writeTopSnapshotJSON(, topSnapshotProfileOperator) error = nil, want broken pipe")
 	}
 	if !IsBrokenPipeError(err) {
 		t.Fatalf("IsBrokenPipeError(%v) = false, want true", err)
@@ -111,7 +111,7 @@ func TestWriteTopSnapshotJSON_LeavesSmallBodiesUntouched(t *testing.T) {
 	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
 		RecentCommands: []*model.Event{ev},
 		Now:            createdAt,
-	}); err != nil {
+	}, topSnapshotProfileOperator); err != nil {
 		t.Fatalf("writeTopSnapshotJSON: %v", err)
 	}
 
@@ -143,7 +143,7 @@ func TestWriteTopSnapshotJSON_BoundaryLengthIsNotTruncated(t *testing.T) {
 	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
 		RecentCommands: []*model.Event{ev},
 		Now:            createdAt,
-	}); err != nil {
+	}, topSnapshotProfileOperator); err != nil {
 		t.Fatalf("writeTopSnapshotJSON: %v", err)
 	}
 
@@ -166,7 +166,7 @@ func TestWriteTopSnapshotJSON_TruncatesRecentFailures(t *testing.T) {
 	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
 		Failures: []*model.Event{ev},
 		Now:      createdAt,
-	}); err != nil {
+	}, topSnapshotProfileOperator); err != nil {
 		t.Fatalf("writeTopSnapshotJSON: %v", err)
 	}
 
@@ -222,7 +222,7 @@ func TestWriteTopSnapshotJSON_TruncatesLatestEventMessage(t *testing.T) {
 	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
 		Sessions: []*sessionNode{node},
 		Now:      createdAt,
-	}); err != nil {
+	}, topSnapshotProfileOperator); err != nil {
 		t.Fatalf("writeTopSnapshotJSON: %v", err)
 	}
 
@@ -277,7 +277,7 @@ func TestWriteTopSnapshotJSON_LeavesSmallLatestEventMessageUntouched(t *testing.
 	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
 		Sessions: []*sessionNode{node},
 		Now:      createdAt,
-	}); err != nil {
+	}, topSnapshotProfileOperator); err != nil {
 		t.Fatalf("writeTopSnapshotJSON: %v", err)
 	}
 	out := buf.String()
@@ -314,7 +314,7 @@ func TestWriteTopSnapshotJSON_LargePayloadSamplesAreMetadataOnly(t *testing.T) {
 			),
 		},
 		Now: createdAt,
-	}); err != nil {
+	}, topSnapshotProfileOperator); err != nil {
 		t.Fatalf("writeTopSnapshotJSON: %v", err)
 	}
 
@@ -380,5 +380,101 @@ func TestWriteTopSnapshotTextEvents_TruncatesLongBody(t *testing.T) {
 	}
 	if strings.Contains(out, huge) {
 		t.Fatalf("text snapshot row leaked the full body: %q", out)
+	}
+}
+
+func TestWriteTopSnapshotJSON_AIProfileOmitsBodiesAndCandidateFacts(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
+	huge := strings.Repeat("x", apptypes.DefaultTopSnapshotBodyLimit+80)
+	cmd := newTopSnapshotEvent("evt-ai-cmd", huge, createdAt)
+	fail := newTopSnapshotEvent("evt-ai-fail", huge, createdAt)
+	node := newTopSnapshotSessionNode("sess-ai", "evt-latest", huge, createdAt)
+
+	var buf bytes.Buffer
+	if err := writeTopSnapshotJSON(&buf, topDataSnapshot{
+		Sessions:       []*sessionNode{node},
+		Failures:       []*model.Event{fail},
+		RecentCommands: []*model.Event{cmd},
+		Now:            createdAt,
+		Reliability: topReliabilityMetrics{
+			CandidateMemoryCount: 12,
+		},
+	}, topSnapshotProfileAI); err != nil {
+		t.Fatalf("writeTopSnapshotJSON(ai): %v", err)
+	}
+
+	var payload struct {
+		Profile        string `json:"profile"`
+		Sessions       []struct {
+			LatestEventMessage string `json:"latest_event_message"`
+			LatestEventID      string `json:"latest_event_id"`
+		} `json:"sessions"`
+		Failures []struct {
+			Message   string `json:"message"`
+			EventID   string `json:"event_id"`
+			Truncated bool   `json:"truncated"`
+		} `json:"failures"`
+		RecentCommands []struct {
+			Message string `json:"message"`
+			EventID string `json:"event_id"`
+		} `json:"recent_commands"`
+		Candidates struct {
+			Count int                      `json:"count"`
+			Items []map[string]interface{} `json:"items"`
+		} `json:"candidates"`
+		StaleMemories struct {
+			Items []map[string]interface{} `json:"items"`
+		} `json:"stale_memories"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal: %v\n%s", err, buf.String())
+	}
+	if payload.Profile != topSnapshotProfileAI {
+		t.Fatalf("profile = %q, want %q", payload.Profile, topSnapshotProfileAI)
+	}
+	if len(payload.Sessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(payload.Sessions))
+	}
+	if !strings.Contains(payload.Sessions[0].LatestEventMessage, "traceary show ") {
+		t.Fatalf("latest_event_message = %q, want retrieval hint", payload.Sessions[0].LatestEventMessage)
+	}
+	if strings.Contains(payload.Sessions[0].LatestEventMessage, "xxx") {
+		t.Fatalf("latest_event_message still contains body: %q", payload.Sessions[0].LatestEventMessage)
+	}
+	if len(payload.Failures) != 1 || !strings.HasPrefix(payload.Failures[0].Message, "traceary show ") {
+		t.Fatalf("failures = %+v, want retrieval hint", payload.Failures)
+	}
+	if len(payload.RecentCommands) != 1 || !strings.HasPrefix(payload.RecentCommands[0].Message, "traceary show ") {
+		t.Fatalf("recent_commands = %+v, want retrieval hint", payload.RecentCommands)
+	}
+	if payload.Candidates.Count != 12 {
+		t.Fatalf("candidates.count = %d, want 12 from reliability metrics", payload.Candidates.Count)
+	}
+	if len(payload.Candidates.Items) != 0 {
+		t.Fatalf("candidates.items length = %d, want 0", len(payload.Candidates.Items))
+	}
+	if len(payload.StaleMemories.Items) != 0 {
+		t.Fatalf("stale_memories.items length = %d, want 0", len(payload.StaleMemories.Items))
+	}
+	// AI payload must stay well under the huge body size.
+	if len(buf.Bytes()) > 4000 {
+		t.Fatalf("AI snapshot size = %d bytes, want bounded envelope", len(buf.Bytes()))
+	}
+}
+
+func TestNormalizeTopSnapshotProfile(t *testing.T) {
+	t.Parallel()
+	got, err := normalizeTopSnapshotProfile("AI")
+	if err != nil || got != topSnapshotProfileAI {
+		t.Fatalf("normalize AI = %q, %v", got, err)
+	}
+	got, err = normalizeTopSnapshotProfile("")
+	if err != nil || got != topSnapshotProfileOperator {
+		t.Fatalf("normalize empty = %q, %v", got, err)
+	}
+	if _, err := normalizeTopSnapshotProfile("debug"); err == nil {
+		t.Fatal("normalize debug error = nil, want error")
 	}
 }

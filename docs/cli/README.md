@@ -747,6 +747,24 @@ Launch a live multi-pane dashboard that splits the workspace view into five pane
 
 Snapshot output mirrors the dashboard panes so non-interactive consumers (pipes, CI, scripts) see the same data the live view shows. The text snapshot starts with a `RELIABILITY` section, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; empty panes print a stable empty-state line so headers always render. The JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys; each session node keeps the same fields earlier releases emitted. `reliability.memory` additionally carries a `candidate_hygiene` object (`stale_count`, `duplicate_count`, `fragment_like_count`, `extracted_hidden_count`, `likely_actionable_count`) summarising the hygiene composition of the scanned candidate window: the four flag counts are independent diagnostic dimensions and may overlap, `likely_actionable_count` is the complement (candidates flagged by none), and — like `accepted_count` / `candidate_count` — they reflect the scanned sample when `scan_limit_reached` is true. `duplicate_count` counts exact duplicates only (same scope, memory type, and fact, matching the extraction dedupe key); similarity duplicates stay in `traceary memory admin hygiene scan`. Per-pane row caps follow the dashboard defaults (50 failures, 50 recent commands, 25 candidates, 25 stale memories); the session pane keeps using `--limit`.
 
+### Operator vs AI-safe JSON profiles
+
+`--snapshot --json` defaults to the full **operator** envelope (dashboard panes with truncated bodies). For agent resume / handoff, prefer:
+
+```sh
+traceary sessions --snapshot --json --profile ai
+```
+
+The `ai` profile keeps a bounded envelope:
+
+- `profile: "ai"` in the JSON payload
+- session identity + `latest_event_id` with retrieval hints (`traceary show <event_id>`) instead of large latest-event bodies
+- small failure / recent-command samples as ID + kind + retrieval hints (no raw bodies)
+- memory candidate / stale counts and reliability hygiene without candidate fact arrays
+- tighter session / pane caps (does not change the default operator profile)
+
+Use the operator snapshot for humans, dashboards, and full-fidelity scripts. Use `--profile ai` when an agent should decide next steps without re-amplifying large command bodies or inbox facts.
+
 Example snapshot:
 
 ```sh

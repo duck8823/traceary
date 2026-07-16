@@ -739,6 +739,24 @@ session end 境界を記録し、生成された event ID を出力します。
 
 snapshot 出力は dashboard の各ペインに合わせて拡張されており、パイプ / CI / スクリプト経由の利用者も live view と同じデータを取得できます。テキスト snapshot は先頭の `RELIABILITY` セクションに続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)` の各セクションに分かれ、空のペインも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。JSON snapshot は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope オブジェクトでラップされています。`reliability.memory` には scan した candidate window の hygiene 構成をまとめた `candidate_hygiene` オブジェクト (`stale_count` / `duplicate_count` / `fragment_like_count` / `extracted_hidden_count` / `likely_actionable_count`) も含まれます。4 つの flag count は独立した診断軸で重複し得ます。`likely_actionable_count` はそのいずれにも該当しない候補の補集合です。`accepted_count` / `candidate_count` と同様に `scan_limit_reached` が true のときは scan したサンプルを反映します。`duplicate_count` は完全一致 (同一 scope・memory type・fact。extraction の dedupe key に一致) のみで、類似 duplicate は `traceary memory admin hygiene scan` が担当します。各ペインの行上限は dashboard と揃えており (failures 50 / recent commands 50 / candidates 25 / stale memories 25)、session ペインは引き続き `--limit` を使用します。
 
+### operator と AI-safe な JSON profile
+
+`--snapshot --json` の既定はフルの **operator** envelope（dashboard 各ペイン + body の truncate）です。agent の resume / handoff では次を使ってください:
+
+```sh
+traceary sessions --snapshot --json --profile ai
+```
+
+`ai` profile は bound された envelope を返します:
+
+- JSON に `profile: "ai"`
+- session の identity と `latest_event_id`、および retrieval hint（`traceary show <event_id>`）。大きい latest-event body は載せない
+- failure / recent-command は ID + kind + retrieval hint の小さなサンプル（raw body なし）
+- memory candidate / stale の件数と reliability hygiene のみ（candidate fact 配列なし）
+- session / 各ペインの上限をより厳しくする（既定の operator profile は変更しない）
+
+人間・dashboard・完全な script には operator snapshot を、agent が次の一手を決めるときは `--profile ai` を使います。
+
 snapshot 例:
 
 ```sh
