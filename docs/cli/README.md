@@ -69,6 +69,8 @@ Useful flags:
 
 Command-audit input/output payloads are truncated before persistence when they exceed the resolved limit. The resolved limit is `--max-*-bytes` flag, then `TRACEARY_MAX_AUDIT_*_BYTES`, then `audit.max_*_bytes` in `~/.config/traceary/config.json`, then the built-in default. Truncated payloads preserve head and tail context and include structured `input_truncated` / `output_truncated` metadata plus an `original_bytes` marker; omitted bytes are not recoverable through `traceary show` or MCP `full_body=true`.
 
+On **read surfaces** (`sessions --snapshot --json`, list-style recent-command panes), large host-tool payloads (`Edit` / `Write` / `Read` / shell) are projected into a tool-aware compact summary (tool name, path when present, rune counts, content hash, head/tail, and a `traceary show <event_id>` retrieval hint). This is a presentation-time projection only: raw persistence and `traceary show` remain full-fidelity.
+
 Command strings also pass through the built-in best-effort secret redactors before storage. `input_redacted` / `output_redacted` only report input/output payload redaction; they do not expose a separate command-redaction flag.
 
 Session resolution follows the same rules as `traceary log`.
