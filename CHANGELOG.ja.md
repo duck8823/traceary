@@ -5,6 +5,22 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.26.0] - 2026-07-16
+
+### Added
+- **sensitive-path audit 分類 (#1257)** — command audit を dotenv / SSH / cloud credential / browser profile / 鍵材料の intent として分類します（secret redaction と host capture coverage とは別 claim）。`traceary list --sensitive`、`show --json` の `command_audit.sensitive`、doctor の `sensitive-access-audit` で表示し、blocking はしません。
+- **host 申告 session model (#1265)** — additive な `sessions.model` に host が渡した opaque な model 文字列を保存します（Claude/Codex hook）。host が省略したら空。捏造しません。sessions JSON は `model,omitempty`。
+- **Markdown replay (#1262)** — `traceary replay --format markdown` が GitHub 表示可能な digest を書き出します（本文は truncate + fence 安全化）。既定 HTML は変更なし。
+- **期間指定 retrospective report (#1263)** — `traceary report` が `[from,to)`（既定は直近7日）の sessions / capture coverage / failures / failure_loops / top_commands を集約します。成功時 exit code は 0。
+
+### Documentation
+- **OTel GenAI export 決定 (#1258)** — conventions が experimental な間のネットワーク export は no-go。local-first 既定を維持（`docs/research/otel-genai-export.ja.md`）。
+- **次ホスト評価 (#1256)** — Copilot CLI を第一候補、opencode は二次ウォッチ。このリリースでは host package なし（`docs/research/next-host-evaluation.ja.md`）。
+
+### Notes
+- v0.26.0 の SQLite migration は additive な `sessions.model` のみ。
+- 新しい MCP tool なし。既定のネットワーク telemetry なし。
+
 ## [v0.25.0] - 2026-07-16
 
 ### Fixed
