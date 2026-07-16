@@ -82,7 +82,60 @@ func verifyIntegrations(root string, runCLISmoke bool) error {
 	if err := checkAntigravity(root); err != nil {
 		return err
 	}
+	if err := checkRememberSkillContract(root); err != nil {
+		return err
+	}
 	return checkDocs(root)
+}
+
+// rememberSkillPaths are the packaged copies of the shared
+// traceary-memory-remember skill. They must stay byte-identical and must not
+// reintroduce the accepted-status contradiction for explicit remember.
+var rememberSkillPaths = []string{
+	"integrations/claude-plugin/skills/traceary-memory-remember/SKILL.md",
+	"plugins/traceary/skills/traceary-memory-remember/SKILL.md",
+	"integrations/gemini-extension/skills/traceary-memory-remember/SKILL.md",
+	"integrations/antigravity-plugin/skills/traceary-memory-remember/SKILL.md",
+	"integrations/grok-plugin/skills/traceary-memory-remember/SKILL.md",
+}
+
+// checkRememberSkillContract enforces the explicit-remember product contract:
+// agent skills write review-inbox candidates (status=candidate via
+// action=propose) and never auto-accept. Host package copies must stay
+// synchronized so a single package cannot reintroduce status=accepted wording.
+func checkRememberSkillContract(root string) error {
+	var reference []byte
+	for i, rel := range rememberSkillPaths {
+		path := filepath.Join(root, rel)
+		data, err := os.ReadFile(path) // #nosec G304 -- fixed package path under repo root
+		if err != nil {
+			return xerrors.Errorf("missing remember skill: %s: %w", rel, err)
+		}
+		body := string(data)
+		if !strings.Contains(body, "status=candidate") && !strings.Contains(body, "`status=candidate`") {
+			return xerrors.Errorf("%s must state that explicit remember lands as status=candidate", rel)
+		}
+		if !strings.Contains(body, `action="propose"`) && !strings.Contains(body, `"action": "propose"`) {
+			return xerrors.Errorf("%s must instruct manage_memory action=propose for the agent skill path", rel)
+		}
+		// Reject the old contradiction: procedure claimed action=remember →
+		// accepted while the frontmatter promised candidate / never auto-accepted.
+		if strings.Contains(body, "status=accepted") {
+			return xerrors.Errorf("%s must not claim status=accepted for the agent remember skill path", rel)
+		}
+		// JSON example must not invoke action=remember (immediate accept).
+		if strings.Contains(body, `"action": "remember"`) {
+			return xerrors.Errorf("%s must not call manage_memory action=remember from the agent skill path", rel)
+		}
+		if i == 0 {
+			reference = data
+			continue
+		}
+		if string(data) != string(reference) {
+			return xerrors.Errorf("remember skill copies diverged: %s does not match %s", rel, rememberSkillPaths[0])
+		}
+	}
+	return nil
 }
 
 func checkGrok(root, version string) error {
