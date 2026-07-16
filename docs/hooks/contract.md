@@ -4,7 +4,7 @@
 
 This document defines the hook capability tiers across AI agent clients.
 
-The versioned, machine-readable live contract for Grok Build 0.2.99 is [`host-contract.json`](./host-contract.json). It separates upstream-documented hooks from live-observed payloads and requires a sanitized fixture before Traceary classifies an event as `supported` or `best_effort`. The native runtime is wired for the supported session, prompt, tool, Stop, and compact events. Subagent enrichment remains unavailable until a parent/child identifier payload is verified.
+The versioned, machine-readable live contract for Grok Build (fixtures from 0.2.99; re-verified on 0.2.101) is [`host-contract.json`](./host-contract.json). It separates upstream-documented hooks from live-observed payloads and requires a sanitized fixture before Traceary classifies an event as `supported` or `best_effort`. The native runtime is wired for the supported session, prompt, tool, Stop, and compact events. Subagent enrichment remains unavailable: 0.2.101 still did not emit `SubagentStart`/`SubagentStop` hooks (spawn used the `spawn_subagent` tool only).
 
 ## Capability Tiers
 

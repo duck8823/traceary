@@ -4,7 +4,7 @@
 
 このページでは、AI エージェントごとに hook でどこまで自動記録できるかを整理しています。
 
-Grok Build 0.2.99 の versioned かつ機械可読な live contract は [`host-contract.json`](./host-contract.json) にあります。upstream で文書化された hook と live で観測した payload を分離し、sanitized fixture がある event だけを `supported` または `best_effort` と分類します。session、prompt、tool、Stop、compact の対応済み event は native runtime に配線済みです。subagent の補足は parent/child identifier payload を検証するまで利用不可です。
+Grok Build の versioned かつ機械可読な live contract（fixture は 0.2.99、再検証は 0.2.101）は [`host-contract.json`](./host-contract.json) にあります。upstream で文書化された hook と live で観測した payload を分離し、sanitized fixture がある event だけを `supported` または `best_effort` と分類します。session、prompt、tool、Stop、compact の対応済み event は native runtime に配線済みです。subagent の補足は利用不可のままです（0.2.101 でも `SubagentStart` / `SubagentStop` は未観測で、spawn は `spawn_subagent` tool のみ）。
 
 ## 対応レベル
 

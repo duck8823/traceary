@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
-  "last_verified": "2026-07-14",
+  "last_verified": "2026-07-16",
   "hosts": {
     "grok": {
-      "host_version": "0.2.99",
-      "host_build": "b1b49ccb71a7",
+      "host_version": "0.2.101",
+      "host_build": "5bc4b5dfadcf",
+      "host_version_fixtures": "0.2.99",
       "official_contract": "https://docs.x.ai/build/features/hooks",
-      "verification_method": "Live hooks captured from sanitized empty workspaces; raw payloads remained outside the repository.",
+      "verification_method": "Live hooks captured from sanitized empty workspaces; raw payloads remained outside the repository. Re-probed on 2026-07-16 with Grok Build 0.2.101 for unobserved lifecycle hooks and subagent identity (#1299, #1300).",
       "field_availability": {
         "session_id": "present on every observed event",
         "cwd": "present on every observed event",
@@ -17,7 +18,7 @@
         "tool_result": "present on PostToolUse; failed and denied reads are nested result variants",
         "failure_details": "no top-level failure field observed; FileNotFound and PermissionDenied are nested PostToolUse result variants",
         "compact_summary": "unavailable; compact hooks expose source and transcriptPath only",
-        "subagent_parent_id": "unavailable because subagent hooks were not live-probed under the external-agent policy gate"
+        "subagent_parent_id": "unavailable: Grok Build 0.2.101 still did not emit SubagentStart/SubagentStop hooks; subagents appear as spawn_subagent tool audits without a dedicated parent/child hook payload"
       },
       "events": {
         "SessionStart": {
@@ -67,7 +68,7 @@
           "traceary_support": "unavailable",
           "traceary_event": null,
           "fixture": null,
-          "note": "Not emitted by missing-file or sandbox-denied read probes in 0.2.99; those failures arrived through PostToolUse."
+          "note": "Not emitted by missing-file probes on 0.2.99 or re-probe 0.2.101 (2026-07-16); FileNotFound arrived through PostToolUse.toolResult instead."
         },
         "PermissionDenied": {
           "documented": true,
@@ -76,7 +77,7 @@
           "traceary_support": "unavailable",
           "traceary_event": null,
           "fixture": null,
-          "note": "A kernel-sandbox denied read emitted PostToolUse with a PermissionDenied result variant instead."
+          "note": "Standalone PermissionDenied hook still not observed on 0.2.101 re-probe; denials arrive as nested PostToolUse result variants when present."
         },
         "Stop": {
           "documented": true,
@@ -99,20 +100,20 @@
         "SubagentStart": {
           "documented": true,
           "observed": false,
-          "verification": "not_probed_policy_gate",
+          "verification": "live_not_emitted",
           "traceary_support": "unavailable",
           "traceary_event": null,
           "fixture": null,
-          "note": "External Grok subagents remained disabled; no parent/child field contract is claimed."
+          "note": "2026-07-16 re-probe (Grok 0.2.101, plan mode): spawning a subagent used the spawn_subagent tool and produced PostToolUse audits only. No SubagentStart hook payload was delivered, so no parent/child identity contract is claimed and Traceary does not synthesize one."
         },
         "SubagentStop": {
           "documented": true,
           "observed": false,
-          "verification": "not_probed_policy_gate",
+          "verification": "live_not_emitted",
           "traceary_support": "unavailable",
           "traceary_event": null,
           "fixture": null,
-          "note": "External Grok subagents remained disabled; no parent/child field contract is claimed."
+          "note": "2026-07-16 re-probe: no SubagentStop hook observed after spawn_subagent tool use. Parent/child enrichment remains unavailable."
         },
         "Notification": {
           "documented": true,
@@ -148,7 +149,7 @@
           "traceary_support": "unavailable",
           "traceary_event": null,
           "fixture": null,
-          "note": "Not emitted on headless completion, TUI /quit, or TUI /new in 0.2.99."
+          "note": "Not emitted on headless print completion in 0.2.99 or re-probe 0.2.101 (2026-07-16); Stop remains a turn boundary."
         }
       }
     }

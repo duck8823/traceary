@@ -10,7 +10,7 @@ Legend:
 - `○` available in the host but not wired by Traceary yet
 - `✕` not exposed by this host
 
-**Last verified: 2026-07-14 (Grok Build 0.2.99 live payloads; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).** Refresh this page when bumping Traceary integration packages or when a host CLI release changes its hook surface.
+**Last verified: 2026-07-16 (Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).** Refresh this page when bumping Traceary integration packages or when a host CLI release changes its hook surface.
 
 > **v0.21.1 note:** Gemini CLI hook coverage in this matrix is **legacy compatibility only**. Gemini CLI is the legacy Google AI agent host; Antigravity (`/Applications/Antigravity.app`) is the active successor. As of **v0.21.1, Antigravity is a supported hook client** with a packaged plugin against the documented public hook surface (`integrations/antigravity-plugin/`). See the [Antigravity hooks and plugin guide](../integrations/antigravity.md).
 
@@ -27,9 +27,9 @@ Legend:
 
 > **Antigravity headless `agy --print`:** the current CLI emits `PreInvocation`, `PreToolUse`/`PostToolUse` when needed, and `Stop` with `transcriptPath`. Traceary recovers prompt and transcript at Stop. `antigravity-event-coverage` detects runtime gaps from database evidence. Hook events are stored with `client=hook`, `agent=antigravity`, so verify them with `traceary list --agent antigravity`.
 
-> **Grok Build 0.2.99 contract:** `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `PreCompact`, and `PostCompact` were captured live in sanitized empty workspaces. `PostToolUseFailure`, `PermissionDenied`, and `SessionEnd` were documented but did not fire in the corresponding failure/denial/end probes; Grok returned `FileNotFound` and `PermissionDenied` as nested `PostToolUse.toolResult` variants. `StopFailure` was not intentionally induced, and Grok subagents remained disabled by the external-agent policy gate. Traceary therefore makes no v0.23 support claim for those unobserved events. The field-level evidence is in [`host-contract.json`](./host-contract.json).
+> **Grok Build contract (fixtures 0.2.99; re-probed 0.2.101 on 2026-07-16):** `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `PreCompact`, and `PostCompact` were captured live in sanitized empty workspaces. Re-probe on 0.2.101 still did not emit standalone `PostToolUseFailure`, `PermissionDenied`, or `SessionEnd`; a missing-file Read returned `FileNotFound` nested under `PostToolUse`. Spawning a subagent used the `spawn_subagent` tool and produced tool audits only — no `SubagentStart`/`SubagentStop` hook payloads and no parent/child identity contract. Traceary does not synthesize those unobserved hooks. Field-level evidence is in [`host-contract.json`](./host-contract.json).
 
-> **Grok native runtime:** `traceary hooks install --client grok` writes `.grok/hooks/traceary.json` (or `~/.grok/hooks/traceary.json` with `--global`). Core and compact events are stored with `client=hook`, `agent=grok`. `Stop` remains a turn boundary. Subagent capture remains unavailable until its parent/child identifier payload is verified.
+> **Grok native runtime:** `traceary hooks install --client grok` writes `.grok/hooks/traceary.json` (or `~/.grok/hooks/traceary.json` with `--global`). Core and compact events are stored with `client=hook`, `agent=grok`. `Stop` remains a turn boundary. Subagent capture remains unavailable (no dedicated parent/child hook payload observed on 0.2.101).
 
 ### Other host hooks Traceary does not wire today
 
