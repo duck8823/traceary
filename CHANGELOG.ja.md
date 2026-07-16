@@ -5,6 +5,22 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.24.0] - 2026-07-16
+
+### Fixed
+- **Antigravity の空 `workspacePaths` (#1308)** — `agy` 1.1.x が untrusted / headless 実行などで `workspacePaths: []` のまま hook を発行しても、`hooks.json` ディレクトリではなく host process の cwd 連鎖から project workspace を復元します。既定の workspace filter でも event が見えるようになります。doctor は `~/.gemini/config/plugins/traceary` と `~/.gemini/antigravity-cli/plugins/traceary` の両方で version / MCP 登録を検査します。
+- **Claude print mode の transcript (#1307)** — `claude -p` の Stop は JSONL flush と競合し、`transcript_path` に assistant 行がまだ無いことがあります。Stop payload の `last_assistant_message` にフォールバックし、空の場合は成功 transcript を捏造しません。
+- **remember skill の candidate 契約 (#1288)** — Claude / Codex / Gemini / Antigravity / Grok の `traceary-memory-remember` は `manage_memory action=propose` を使い、明示 remember を `status=candidate`（never auto-accepted）に揃えます。package 間コピーは同一で、`accepted` 矛盾が戻ると `integrations verify` が失敗します。
+
+### Added
+- **AI-safe sessions snapshot profile (#1245)** — `traceary sessions --snapshot --json --profile ai` が agent resume 向けに bound した envelope（retrieval hint、件数 / hygiene、大きい body や candidate fact 配列なし）を返します。既定の operator snapshot JSON は変更しません。
+- **tool-aware audit compact summary (#1243)** — list / snapshot の read 面で大きい `Edit` / `Write` / `Read` / shell audit body を path・size・hash・head/tail と `traceary show` hint の summary に投影します。永続化と `traceary show` はフル fidelity のままです。
+- **retry-loop doctor diagnostics (#1244)** — `traceary doctor` が recent failed command audit を workspace / agent / command / error class（EISDIR、missing path、oversized file、sandbox bypass 等）でまとめ、sample event ID と preflight hint を出す読み取り専用 `retry-loops` check を追加しました。
+
+### Notes
+- v0.24.0 に破壊的な SQLite migration はなく、新しい MCP tool もありません。
+- **明示的に延期（#1310 に記録）:** #1264 memory inbox decay/restore と #1309 archive-before-GC は High-risk の multi-PR トラックのまま v0.25.0 計画に送ります。archive/GC の自動実行は導入時も fail-closed / opt-in です。このタグでそれらの機能を出荷したとは扱わないでください。
+
 ## [v0.23.0] - 2026-07-14
 
 ### Added

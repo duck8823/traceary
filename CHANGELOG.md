@@ -5,6 +5,22 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.24.0] - 2026-07-16
+
+### Fixed
+- **Antigravity empty `workspacePaths` (#1308)** — when `agy` 1.1.x fires hooks with empty `workspacePaths` (common on untrusted/headless runs), Traceary recovers the project workspace from the host process cwd chain instead of the `hooks.json` directory. Events stay visible under the default workspace filter. Doctor also inspects both `~/.gemini/config/plugins/traceary` and `~/.gemini/antigravity-cli/plugins/traceary` for version and MCP registration.
+- **Claude print-mode transcripts (#1307)** — `claude -p` Stop can race the JSONL flush so `transcript_path` has no assistant row yet. Transcript capture falls back to `last_assistant_message` on the Stop payload without fabricating replies when that field is empty.
+- **Remember skill candidate contract (#1288)** — agent `traceary-memory-remember` skills across Claude/Codex/Gemini/Antigravity/Grok now use `manage_memory action=propose` so explicit remember lands as `status=candidate` (never auto-accepted). Package copies stay identical; `integrations verify` fails if the accepted-status contradiction returns.
+
+### Added
+- **AI-safe sessions snapshot profile (#1245)** — `traceary sessions --snapshot --json --profile ai` emits a bounded agent-resume envelope (retrieval hints, counts/hygiene, no large bodies or candidate fact arrays). Default operator snapshot JSON is unchanged.
+- **Tool-aware audit compact summaries (#1243)** — on list/snapshot read surfaces, large `Edit`/`Write`/`Read`/shell audit bodies project to path/size/hash/head-tail summaries with a `traceary show` retrieval hint. Persistence and `traceary show` remain full-fidelity.
+- **Retry-loop doctor diagnostics (#1244)** — `traceary doctor` includes a read-only `retry-loops` check that clusters recent failed command audits by workspace, agent, command, and error class (EISDIR, missing path, oversized file, sandbox bypass) and reports sample event IDs with preflight hints.
+
+### Notes
+- v0.24.0 has no destructive SQLite migration and adds no MCP tools.
+- **Deferred (explicit on #1310):** #1264 memory inbox decay/restore and #1309 archive-before-GC remain High-risk multi-PR tracks and are planned for v0.25.0. Automatic archive/GC stays fail-closed / opt-in when that work lands. Do not treat this tag as shipping those features.
+
 ## [v0.23.0] - 2026-07-14
 
 ### Added

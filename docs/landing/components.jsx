@@ -6,7 +6,7 @@ function HeroTerminal() {
   // Version markers are release-prep controlled; bottle file count/size are illustrative until release artifacts are published.
   const lines = [
     { type: 'cmd', text: 'brew install traceary' },
-    { type: 'out', text: '==> Installing traceary from duck8823/traceary\n==> Pouring traceary--0.23.0.arm64_sequoia.bottle.tar.gz\n🍺  /opt/homebrew/Cellar/traceary/0.23.0: 12 files, 18.4MB' },
+    { type: 'out', text: '==> Installing traceary from duck8823/traceary\n==> Pouring traceary--0.24.0.arm64_sequoia.bottle.tar.gz\n🍺  /opt/homebrew/Cellar/traceary/0.24.0: 12 files, 18.4MB' },
     { type: 'cmd', text: 'traceary sessions --snapshot' },
     { type: 'out', html: true, text:
       '<span class="kind">RELIABILITY:</span>\n- stale_active_sessions=0 hint="ok"\n\n<span class="kind">ACTIVE SESSIONS:</span>\n' +
