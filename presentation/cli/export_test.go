@@ -79,6 +79,33 @@ func ResetAntigravityPendingNowFunc() {
 	antigravityPendingNowFunc = time.Now
 }
 
+// SetAntigravityProcessCwdFunc replaces the process-cwd lookup used when
+// Antigravity payloads omit workspacePaths.
+func SetAntigravityProcessCwdFunc(f func(int) (string, error)) {
+	antigravityProcessCwdFunc = f
+}
+
+// ResetAntigravityProcessCwdFunc restores the default process-cwd lookup.
+func ResetAntigravityProcessCwdFunc() {
+	antigravityProcessCwdFunc = defaultAntigravityProcessCwd
+}
+
+// SetAntigravityParentPIDFunc replaces the parent-PID seed used for workspace
+// fallback discovery.
+func SetAntigravityParentPIDFunc(f func() int) {
+	antigravityParentPIDFunc = f
+}
+
+// ResetAntigravityParentPIDFunc restores the default parent-PID seed.
+func ResetAntigravityParentPIDFunc() {
+	antigravityParentPIDFunc = os.Getppid
+}
+
+// AntigravityWorkspaceCwd exposes antigravityWorkspaceCwd for tests.
+func AntigravityWorkspaceCwd(payload []byte) string {
+	return antigravityWorkspaceCwd(payload)
+}
+
 // AntigravityPendingCommandPath exposes the resolved pending-state file path for
 // a conversation/step pair so tests can age or inspect it directly.
 func AntigravityPendingCommandPath(conversationID, stepIdx string) (string, error) {

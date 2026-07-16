@@ -42,6 +42,8 @@ packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-
 
 2026-07-13 に `agy` 1.1.1 と現行の公式 hook contract で再確認しました。公開 payload は prompt 本文を直接持ちませんが、すべての hook が `transcriptPath` を受け取ります。Traceary は Stop 時にそのファイルから最新の明示 user input と model response を読み取ります。hook 設定が健全でも file の読み取りや event 永続化までは証明できないため、`antigravity-event-coverage` が recent DB 証拠を検査し、transcript coverage が設定 threshold を下回ると警告します。
 
+`workspacePaths` が空のとき（`agy` 1.1.x の untrusted や一部 headless 実行で観測）は、hook プロセスの cwd（`hooks.json` があるディレクトリ）ではなく、Antigravity host プロセスの cwd 連鎖から project workspace を復元します。この fallback がないと、hook 自体は成功していても empty workspace で保存され、既定の `traceary list` workspace filter では見えません。
+
 > 記録された event の確認方法: hook 由来の Antigravity event は `client=hook`,
 > `agent=antigravity` で保存されます。`traceary list --agent antigravity` で読み取って
 > ください。`traceary list --client antigravity` ではこれらの event は 0 件になります。

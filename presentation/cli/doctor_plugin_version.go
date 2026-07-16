@@ -45,6 +45,11 @@ func (c *RootCLI) detectPluginInstalls() []doctorPluginInstall {
 		}
 	}
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".codex", "plugins", "cache", "*", "traceary", "*", ".codex-plugin", "plugin.json"), "codex", "reinstall plugin to align")...)
+	// Antigravity can materialize the packaged plugin under either the CLI
+	// import root or the shared Gemini config plugins root. Prefer whichever
+	// copy is present; when both exist, doctor reports each install so a
+	// stale partial copy under antigravity-cli is still visible.
+	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "config", "plugins", "traceary", "plugin.json"), "antigravity", "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin")...)
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary", "plugin.json"), "antigravity", "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin")...)
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "extensions", "traceary", "gemini-extension.json"), "gemini", "gemini extensions update traceary")...)
 	return installs
