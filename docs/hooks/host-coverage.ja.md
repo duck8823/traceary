@@ -44,8 +44,8 @@
 | Codex CLI | `PreToolUse`, `PermissionRequest` | ○ 利用可 | 未配線 |
 | Gemini CLI | `BeforeTool`, `BeforeToolSelection`, `BeforeModel`, `AfterModel`, `Notification` | ○ 利用可 | 未配線 |
 | Antigravity | `run_command` 以外の tool に対する `PreToolUse` | ○ 利用可 | audit 対象は `run_command` のみ |
-| Grok Build | `PostToolUseFailure`, `PermissionDenied`, `SessionEnd`, `StopFailure` | ○ 文書化済み、0.2.99 live 未確認 | live payload を確認するまで Traceary では利用不可。tool denial は現状 `PostToolUse` で到達 |
-| Grok Build | `SubagentStart`, `SubagentStop` | ○ 文書化済み、policy gate により probe 保留 | parent/child field contract は未確定 |
+| Grok Build | `PostToolUseFailure`, `PermissionDenied`, `SessionEnd`, `StopFailure` | ○ 文書化済み、0.2.99 および再 probe 0.2.101 でも live 未確認 | live payload を確認するまで Traceary では利用不可。missing-file と tool denial は現状 `PostToolUse` で到達 |
+| Grok Build | `SubagentStart`, `SubagentStop` | ○ 文書化済み、0.2.101 で live 未発火 | 利用不可。spawn は `spawn_subagent` tool audit のみで parent/child hook payload なし（#1299） |
 | Grok Build | `Notification` | ○ 文書化済み、未検証 | Traceary lifecycle event への対応付けがなく、利用不可 |
 
 ## ホスト別参照

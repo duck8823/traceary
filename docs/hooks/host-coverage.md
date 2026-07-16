@@ -44,8 +44,8 @@ This list excludes hooks that already appear in the lifecycle matrix above.
 | Codex CLI | `PreToolUse`, `PermissionRequest` | ○ available | not wired |
 | Gemini CLI | `BeforeTool`, `BeforeToolSelection`, `BeforeModel`, `AfterModel`, `Notification` | ○ available | not wired |
 | Antigravity | `PreToolUse` for non-`run_command` tools | ○ available | only `run_command` is audited |
-| Grok Build | `PostToolUseFailure`, `PermissionDenied`, `SessionEnd`, `StopFailure` | ○ documented, not live-confirmed on 0.2.99 | unavailable to Traceary until a live payload is observed; tool denial currently arrives through `PostToolUse` |
-| Grok Build | `SubagentStart`, `SubagentStop` | ○ documented, policy-gated probe pending | no parent/child field contract is claimed |
+| Grok Build | `PostToolUseFailure`, `PermissionDenied`, `SessionEnd`, `StopFailure` | ○ documented, not live-confirmed on 0.2.99 or re-probe 0.2.101 | unavailable to Traceary until a live payload is observed; missing-file and tool denial currently arrive through `PostToolUse` |
+| Grok Build | `SubagentStart`, `SubagentStop` | ○ documented, not live-emitted on 0.2.101 | unavailable; spawn uses `spawn_subagent` tool audits only — no parent/child hook payload (#1299) |
 | Grok Build | `Notification` | ○ documented, not probed | no Traceary lifecycle mapping; unavailable |
 
 ## Per-host references

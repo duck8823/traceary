@@ -1,5 +1,7 @@
 # Design note: Grok subagent parent/child hook contract (#1299)
 
+[日本語](./1299-grok-subagent-parent-child.ja.md)
+
 Status: closed as unavailable (live re-probe 2026-07-16)
 Risk: Medium (host contract / docs only; no runtime change)
 
