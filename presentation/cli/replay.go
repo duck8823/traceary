@@ -64,7 +64,8 @@ func (c *RootCLI) newReplayCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.outputPath, "out", "", Localize("destination HTML path (required)", "書き出す HTML のパス (必須)"))
+	cmd.Flags().StringVar(&input.outputPath, "out", "", Localize("destination path (required)", "書き出し先パス (必須)"))
+	cmd.Flags().StringVar(&input.format, "format", "html", Localize("output format: html (default) or markdown", "出力形式: html（既定）または markdown"))
 	cmd.Flags().IntVar(&input.sessions, "sessions", 10, Localize("maximum number of recent sessions to include", "含める直近セッション数"))
 	cmd.Flags().IntVar(&input.eventsPerSession, "events-per-session", 20, Localize("maximum number of events to include per session", "1 セッションに含める最大イベント数"))
 	cmd.Flags().IntVar(&input.memories, "memories", 20, Localize("maximum number of accepted memories to include", "含める accepted memory の最大数"))
@@ -77,6 +78,7 @@ func (c *RootCLI) newReplayCommand() *cobra.Command {
 type replayCommandInput struct {
 	dbPath           string
 	outputPath       string
+	format           string
 	sessions         int
 	eventsPerSession int
 	memories         int
@@ -97,6 +99,16 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 	if input.sessions <= 0 || input.eventsPerSession <= 0 {
 		return xerrors.New(Localize("--sessions and --events-per-session must be positive", "--sessions と --events-per-session は 1 以上である必要があります"))
 	}
+	format := strings.ToLower(strings.TrimSpace(input.format))
+	if format == "" {
+		format = "html"
+	}
+	if format != "html" && format != "markdown" && format != "md" {
+		return xerrors.New(Localize("--format must be html or markdown", "--format は html または markdown である必要があります"))
+	}
+	if format == "md" {
+		format = "markdown"
+	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
@@ -116,15 +128,27 @@ func (c *RootCLI) runReplay(ctx context.Context, output io.Writer, input replayC
 	}
 	data := replayDataFromBundle(bundle, input.dbPath)
 
-	if err := writeReplayHTML(input.outputPath, data); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to write replay HTML", "replay HTML の書き出しに失敗しました"), err)
-	}
-
-	if _, err := fmt.Fprintf(output, Localize(
-		"Wrote replay HTML: %s (%d sessions, %d events total, %d memories, %d timeline blocks, %d failure hotspots)\n",
-		"replay HTML を書き出しました: %s (sessions=%d, events=%d, memories=%d, timeline=%d, hotspots=%d)\n",
-	), input.outputPath, len(data.Sessions), totalEventCount(data.Sessions), len(data.Memories), len(data.TimelineBlocks), len(data.FailureHotspots)); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print replay summary", "replay 概要の出力に失敗しました"), err)
+	switch format {
+	case "markdown":
+		if err := writeReplayMarkdown(input.outputPath, data); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to write replay Markdown", "replay Markdown の書き出しに失敗しました"), err)
+		}
+		if _, err := fmt.Fprintf(output, Localize(
+			"Wrote replay Markdown: %s (%d sessions, %d events total, %d memories, %d timeline blocks, %d failure hotspots)\n",
+			"replay Markdown を書き出しました: %s (sessions=%d, events=%d, memories=%d, timeline=%d, hotspots=%d)\n",
+		), input.outputPath, len(data.Sessions), totalEventCount(data.Sessions), len(data.Memories), len(data.TimelineBlocks), len(data.FailureHotspots)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print replay summary", "replay 概要の出力に失敗しました"), err)
+		}
+	default:
+		if err := writeReplayHTML(input.outputPath, data); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to write replay HTML", "replay HTML の書き出しに失敗しました"), err)
+		}
+		if _, err := fmt.Fprintf(output, Localize(
+			"Wrote replay HTML: %s (%d sessions, %d events total, %d memories, %d timeline blocks, %d failure hotspots)\n",
+			"replay HTML を書き出しました: %s (sessions=%d, events=%d, memories=%d, timeline=%d, hotspots=%d)\n",
+		), input.outputPath, len(data.Sessions), totalEventCount(data.Sessions), len(data.Memories), len(data.TimelineBlocks), len(data.FailureHotspots)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print replay summary", "replay 概要の出力に失敗しました"), err)
+		}
 	}
 	return nil
 }
@@ -378,6 +402,162 @@ func writeReplayHTML(outputPath string, data replayData) error {
 	}
 	cleanup = false
 	return nil
+}
+
+// writeReplayMarkdown writes a GitHub-renderable Markdown replay. Bodies are
+// plain text, truncated, and fenced so raw HTML/script payloads are not
+// embedded by default.
+func writeReplayMarkdown(outputPath string, data replayData) error {
+	absPath, err := filepath.Abs(outputPath)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve output path", "出力パスの解決に失敗しました"), err)
+	}
+	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to create output directory", "出力ディレクトリの作成に失敗しました"), err)
+	}
+	if info, err := os.Lstat(absPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return xerrors.New(Localizef(
+				"refusing to write replay Markdown through a symlink: %s",
+				"symlink 経由の書き込みを拒否しました: %s",
+				absPath,
+			))
+		}
+	} else if !os.IsNotExist(err) {
+		return xerrors.Errorf("%s: %w", Localize("failed to inspect replay output path", "replay 出力パスの確認に失敗しました"), err)
+	}
+
+	var b strings.Builder
+	b.WriteString("# Traceary replay\n\n")
+	fmt.Fprintf(&b, "- Generated at: `%s`\n", data.GeneratedAt.UTC().Format(time.RFC3339))
+	if data.DBPath != "" {
+		fmt.Fprintf(&b, "- DB: `%s`\n", markdownInlineCode(data.DBPath))
+	}
+	fmt.Fprintf(&b, "- Sessions: %d\n", len(data.Sessions))
+	fmt.Fprintf(&b, "- Memories: %d\n", len(data.Memories))
+	fmt.Fprintf(&b, "- Timeline blocks: %d\n", len(data.TimelineBlocks))
+	fmt.Fprintf(&b, "- Failure hotspots: %d\n\n", len(data.FailureHotspots))
+	b.WriteString("> Bodies are truncated plain text for safe GitHub rendering. Use `traceary show <event_id>` for full-fidelity detail.\n\n")
+
+	if len(data.FailureHotspots) > 0 {
+		b.WriteString("## Failure hotspots\n\n")
+		b.WriteString("| Command | Workspace | Count | Last occurred |\n|---|---|---:|---|\n")
+		for _, h := range data.FailureHotspots {
+			fmt.Fprintf(&b, "| `%s` | `%s` | %d | `%s` |\n",
+				markdownInlineCode(h.Command), markdownInlineCode(h.Workspace), h.Count, h.LastOccurredAt)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(data.TimelineBlocks) > 0 {
+		b.WriteString("## Timeline\n\n")
+		for _, block := range data.TimelineBlocks {
+			fmt.Fprintf(&b, "### %s → %s (%s, %d events)\n\n", block.Start, block.End, block.Duration, block.EventCount)
+			if block.Agents != "" {
+				fmt.Fprintf(&b, "- Agents: %s\n", block.Agents)
+			}
+			for _, ws := range block.Workspaces {
+				fmt.Fprintf(&b, "- `%s` (%d): %s\n", markdownInlineCode(ws.Workspace), ws.EventCount, markdownEscape(ws.Activity))
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("## Sessions\n\n")
+	for _, session := range data.Sessions {
+		title := session.SessionID
+		if session.Label != "" {
+			title = session.Label + " (" + session.SessionID + ")"
+		}
+		fmt.Fprintf(&b, "### %s\n\n", markdownEscape(title))
+		fmt.Fprintf(&b, "- Workspace: `%s`\n", markdownInlineCode(session.Workspace))
+		fmt.Fprintf(&b, "- Status: %s\n", markdownEscape(session.Status))
+		fmt.Fprintf(&b, "- Agents: %s\n", markdownEscape(session.Agents))
+		fmt.Fprintf(&b, "- Started: `%s`\n", session.StartedAt.UTC().Format(time.RFC3339))
+		fmt.Fprintf(&b, "- Ended: %s\n\n", markdownEscape(session.EndedAt))
+		if len(session.Events) == 0 {
+			b.WriteString("_No events in window._\n\n")
+			continue
+		}
+		for _, event := range session.Events {
+			fmt.Fprintf(&b, "#### `%s` · %s · `%s`\n\n",
+				event.EventID, markdownEscape(event.Kind), event.CreatedAt.UTC().Format(time.RFC3339))
+			body := truncateReplayMarkdownBody(event.Body, 400)
+			b.WriteString("```text\n")
+			b.WriteString(sanitizeReplayMarkdownBody(body))
+			b.WriteString("\n```\n\n")
+		}
+	}
+
+	if len(data.Memories) > 0 {
+		b.WriteString("## Memories\n\n")
+		for _, memory := range data.Memories {
+			fmt.Fprintf(&b, "- `%s` (%s/%s): %s\n",
+				markdownInlineCode(memory.MemoryID),
+				markdownEscape(memory.Type),
+				markdownEscape(memory.Status),
+				markdownEscape(truncateReplayMarkdownBody(memory.Fact, 200)),
+			)
+		}
+		b.WriteString("\n")
+	}
+
+	tmpFile, err := os.CreateTemp(filepath.Dir(absPath), ".traceary-replay-*.md.tmp")
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to create replay temp file", "replay 一時ファイルの作成に失敗しました"), err)
+	}
+	tmpPath := tmpFile.Name()
+	cleanup := true
+	defer func() {
+		_ = tmpFile.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmpFile.WriteString(b.String()); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to write replay Markdown", "replay Markdown の書き出しに失敗しました"), err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to sync replay temp file", "replay 一時ファイルの fsync に失敗しました"), err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to close replay temp file", "replay 一時ファイルの close に失敗しました"), err)
+	}
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to set replay file permissions", "replay ファイルの permission 設定に失敗しました"), err)
+	}
+	if err := os.Rename(tmpPath, absPath); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to place replay Markdown", "replay Markdown の配置に失敗しました"), err)
+	}
+	cleanup = false
+	return nil
+}
+
+func truncateReplayMarkdownBody(s string, maxRunes int) string {
+	runes := []rune(s)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "…"
+}
+
+func sanitizeReplayMarkdownBody(s string) string {
+	// Fence-safe: break triple-backtick sequences so user content cannot
+	// escape the text code fence.
+	return strings.ReplaceAll(s, "```", "``\u200b`")
+}
+
+func markdownEscape(s string) string {
+	replacer := strings.NewReplacer(
+		"|", "\\|",
+		"\n", " ",
+		"\r", " ",
+	)
+	return replacer.Replace(s)
+}
+
+func markdownInlineCode(s string) string {
+	return strings.ReplaceAll(s, "`", "'")
 }
 
 // formatOptionalInstant renders an Optional[time.Time] as RFC3339 or
