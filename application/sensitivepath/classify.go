@@ -125,7 +125,9 @@ type rule struct {
 }
 
 var defaultRules = []rule{
-	{class: ClassDotenv, pattern: regexp.MustCompile(`(?i)(?:^|[\s"'` + "`" + `=])(\.?env(?:\.[A-Za-z0-9_.-]+)?|\.env)(?:$|[\s"'` + "`" + `])`)},
+	// Require the leading dot so bare "env" / "env vars" shell boilerplate
+	// never matches. Covers ".env", ".env.local", "path/to/.env.production".
+	{class: ClassDotenv, pattern: regexp.MustCompile(`(?i)(?:^|[\s"'` + "`" + `=/])\.env(?:\.[A-Za-z0-9_.-]+)?(?:$|[\s"'` + "`" + `])`)},
 	{class: ClassDotenv, pattern: regexp.MustCompile(`(?i)\.env(?:\.[A-Za-z0-9_.-]+)?`)},
 	{class: ClassSSHKey, pattern: regexp.MustCompile(`(?i)(?:^|[\s"'` + "`" + `])(?:~|/Users/[^/\s]+|/home/[^/\s]+)?/\.ssh(?:/|$)`)},
 	{class: ClassSSHKey, pattern: regexp.MustCompile(`(?i)\bid_(?:rsa|ed25519|ecdsa|dsa)\b`)},

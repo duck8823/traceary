@@ -147,3 +147,66 @@ func TestRootCLI_Replay_WritesMarkdownOnSuccess(t *testing.T) {
 		t.Errorf("stdout = %q, want markdown success line", stdout.String())
 	}
 }
+
+func TestRootCLI_Replay_MarkdownTruncatesTimelineActivity(t *testing.T) {
+	t.Parallel()
+
+	// Multi-kilobyte prompt-style summary must not be embedded raw in replay
+	// Markdown (same bound as timeline: timelineSummaryMaxRune = 72).
+	huge := strings.Repeat("PROMPT-BODY-", 5000) // ~60KB, well over 72 runes
+	marker := "UNIQUE_REPLAY_MARKER_SHOULD_NOT_APPEAR_IN_FULL"
+	huge = marker + huge
+	block := apptypes.TimelineBlockOf(
+		time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 4, 21, 12, 30, 0, 0, time.UTC),
+		3,
+		[]string{"codex"},
+		[]apptypes.TimelineWorkspaceBreakdown{
+			apptypes.TimelineWorkspaceBreakdownOf(
+				"duck8823/traceary",
+				3,
+				[]string{"prompt"},
+				[]string{"codex"},
+				huge,
+				apptypes.TimelineSummarySourcePrompt,
+			),
+		},
+	)
+	bundle := apptypes.ReplayBundleOf(
+		time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC),
+		nil,
+		nil,
+		[]apptypes.TimelineBlock{block},
+		nil,
+	)
+	outPath := filepath.Join(t.TempDir(), "replay.md")
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithReplay(&replayUsecaseStub{bundle: bundle}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"replay", "--format", "markdown", "--out", outPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read markdown: %v", err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "# Traceary replay") {
+		t.Fatalf("missing title")
+	}
+	if strings.Contains(text, huge) {
+		t.Fatalf("markdown embedded full timeline activity (%d bytes)", len(huge))
+	}
+	// Truncated activity may keep a short prefix of the marker, but not the full multi-KB body.
+	if len(text) > 200_000 {
+		t.Fatalf("markdown too large (%d bytes); expected bounded digest", len(text))
+	}
+	// The unbounded PROMPT-BODY repetition must not appear hundreds of times.
+	if strings.Count(text, "PROMPT-BODY-") > 5 {
+		t.Fatalf("timeline activity not truncated: PROMPT-BODY- count=%d", strings.Count(text, "PROMPT-BODY-"))
+	}
+}
