@@ -92,6 +92,43 @@ func TestClassify_NoMatch(t *testing.T) {
 	}
 }
 
+func TestClassify_DoesNotMatchBareEnvOrShellBoilerplate(t *testing.T) {
+	t.Parallel()
+
+	// Host shell boilerplate often says "cwd, env vars" without any dotenv path.
+	// Matching bare "env" flooded list --sensitive / command_audit.sensitive.
+	cases := []string{
+		"Shell state (cwd, env vars) persists for subsequent calls",
+		"export PATH=$PATH:/usr/local/bin",
+		"printenv HOME",
+		"env | sort",
+		"echo env",
+	}
+	for _, cmd := range cases {
+		got := sensitivepath.Classify(sensitivepath.Input{Command: cmd})
+		if got.Matched {
+			t.Fatalf("Command %q matched sensitive class %q path %q; want no match", cmd, got.Class, got.MatchedPath)
+		}
+	}
+}
+
+func TestClassify_StillMatchesDotenvPaths(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		"cat .env",
+		"cat .env.local",
+		"Read path/to/.env.production",
+		`{"file_path":"/Users/me/project/.env"}`,
+	}
+	for _, cmd := range cases {
+		got := sensitivepath.Classify(sensitivepath.Input{Command: cmd, ToolName: "Read"})
+		if !got.Matched || got.Class != sensitivepath.ClassDotenv {
+			t.Fatalf("Command %q got %#v, want dotenv match", cmd, got)
+		}
+	}
+}
+
 func TestClassifyCommandBody_ParsesAuditShape(t *testing.T) {
 	t.Parallel()
 

@@ -283,10 +283,9 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 		end := block.BlockEnd().UTC()
 		workspaces := make([]replayTimelineWorkspace, 0, len(block.WorkspaceBreakdown()))
 		for _, ws := range block.WorkspaceBreakdown() {
-			activity := strings.TrimSpace(ws.Summary())
-			if activity == "" {
-				activity = formatKindCounts(computeKindCounts(ws.Kinds()))
-			}
+			// Same bounded activity projection as `traceary timeline` so
+			// replay never embeds multi‑MB prompt/transcript raw bodies.
+			activity := workspaceActivityText(ws)
 			workspaces = append(workspaces, replayTimelineWorkspace{
 				Workspace:  ws.Workspace(),
 				EventCount: ws.EventCount(),
