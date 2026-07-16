@@ -69,6 +69,8 @@ session 解決ルール:
 
 command audit の input/output payload は、解決後の上限を超えると保存前に切り詰められます。上限の優先順位は `--max-*-bytes` flag、`TRACEARY_MAX_AUDIT_*_BYTES`、`~/.config/traceary/config.json` の `audit.max_*_bytes`、組み込み既定値です。切り詰め後も head / tail の文脈、構造化された `input_truncated` / `output_truncated` metadata、`original_bytes` marker は残ります。省略された byte は `traceary show` や MCP `full_body=true` でも復元できません。
 
+**read 面**（`sessions --snapshot --json`、list 系の recent-command ペイン）では、大きい host-tool payload（`Edit` / `Write` / `Read` / shell）を tool-aware な compact summary（tool 名、path、rune 数、content hash、head/tail、`traceary show <event_id>` の retrieval hint）に投影します。これは presentation 時の投影のみで、永続化された raw 本体と `traceary show` はフル fidelity のままです。
+
 command string も、保存前に組み込みの best-effort secret redactor を通ります。`input_redacted` / `output_redacted` は input/output payload の redaction だけを表し、command redaction 専用 flag はまだ出しません。
 
 session 解決ルールは `traceary log` と同じです。

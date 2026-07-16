@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"io"
+	"unicode/utf8"
 
 	"golang.org/x/xerrors"
 
@@ -65,6 +66,17 @@ func newEventOutput(e *model.Event) event {
 // through newEventOutput so the full body remains retrievable.
 func newTruncatedEventOutput(e *model.Event, limit int) event {
 	base := newEventOutput(e)
+	// Prefer tool-aware compact projection for large host-tool payloads so
+	// list/snapshot surfaces keep auditability (path, hashes, sizes) without
+	// re-emitting full Edit/Write/Read bodies. Full body remains available via
+	// `traceary show` (newEventOutput).
+	if summary, ok := summarizeToolAwareCommandBody(base.Message, base.EventID); ok {
+		base.Message = summary
+		base.Truncated = true
+		base.MessageLength = utf8.RuneCountInString(apptypes.ExtractPlainBody(e.Body()))
+		base.MessageBytes = len(e.Body())
+		return base
+	}
 	result := apptypes.TruncateCommandPayload(base.Message, limit)
 	base.Message = result.Body
 	if result.Truncated {
