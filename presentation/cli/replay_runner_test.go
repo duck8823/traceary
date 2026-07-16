@@ -113,3 +113,37 @@ func TestRootCLI_Replay_WritesHTMLOnSuccess(t *testing.T) {
 		t.Errorf("stdout = %q, want success summary line", stdout.String())
 	}
 }
+
+func TestRootCLI_Replay_WritesMarkdownOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	outPath := filepath.Join(t.TempDir(), "replay.md")
+	bundle := apptypes.ReplayBundleOf(time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC), nil, nil, nil, nil)
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithReplay(&replayUsecaseStub{bundle: bundle}),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"replay",
+		"--format", "markdown",
+		"--out", outPath,
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read markdown: %v", err)
+	}
+	if !strings.Contains(string(body), "# Traceary replay") {
+		t.Fatalf("markdown missing title: %s", body)
+	}
+	if !strings.Contains(stdout.String(), "Markdown") && !strings.Contains(stdout.String(), "markdown") {
+		t.Errorf("stdout = %q, want markdown success line", stdout.String())
+	}
+}
