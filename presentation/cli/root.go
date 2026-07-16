@@ -280,6 +280,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newDoctorCommand())
 	rootCmd.AddCommand(c.newMCPServerCommand())
 	rootCmd.AddCommand(c.newReplayCommand())
+	rootCmd.AddCommand(c.newReportCommand())
 	rootCmd.AddCommand(c.newBundleCommand())
 
 	// v0.9.0 grouped namespaces — store administration and
