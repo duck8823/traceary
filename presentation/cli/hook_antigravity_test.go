@@ -443,3 +443,84 @@ func TestRootCLI_HookAntigravityStopOutputContract(t *testing.T) {
 		t.Fatalf("Stop output = %q, want {\"decision\":\"\"}", out)
 	}
 }
+
+func TestRootCLI_HookAntigravityPreInvocationEmptyWorkspacePathsUsesParentCwd(t *testing.T) {
+	// Live agy 1.1.x payloads can emit workspacePaths:[] while still firing
+	// PreInvocation. Recover the project from the host process cwd chain.
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	projectDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(projectDir, ".git"), 0o755); err != nil {
+		t.Fatalf("Mkdir(.git) error = %v", err)
+	}
+	// Seed git metadata so detectRepoContextFromDir can produce a stable local
+	// workspace identity from the recovered cwd.
+	if err := os.WriteFile(filepath.Join(projectDir, ".git", "config"), []byte("[core]\n\trepositoryformatversion = 0\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(git config) error = %v", err)
+	}
+
+	cli.SetAntigravityParentPIDFunc(func() int { return 4242 })
+	t.Cleanup(cli.ResetAntigravityParentPIDFunc)
+	cli.SetAntigravityProcessCwdFunc(func(pid int) (string, error) {
+		if pid == 4242 {
+			return projectDir, nil
+		}
+		return "", os.ErrNotExist
+	})
+	t.Cleanup(cli.ResetAntigravityProcessCwdFunc)
+
+	out, _, sessionStub := runAntigravityHook(t, "pre-invocation",
+		`{"conversationId":"conv-empty-ws","workspacePaths":[]}`)
+	if out != "{}" {
+		t.Fatalf("PreInvocation output = %q, want {}", out)
+	}
+	if got, want := sessionStub.startCall.sessionID, types.SessionID("conv-empty-ws"); got != want {
+		t.Fatalf("session start sessionID = %q, want %q", got, want)
+	}
+	if sessionStub.startCall.workspace == "" {
+		t.Fatalf("session start workspace is empty; parent cwd fallback did not bind a workspace")
+	}
+}
+
+func TestAntigravityWorkspaceCwdPrefersPayloadThenParent(t *testing.T) {
+	if got := cli.AntigravityWorkspaceCwd([]byte(`{"workspacePaths":["/from-payload"]}`)); got != "/from-payload" {
+		t.Fatalf("payload path = %q, want /from-payload", got)
+	}
+
+	cli.SetAntigravityParentPIDFunc(func() int { return 99 })
+	t.Cleanup(cli.ResetAntigravityParentPIDFunc)
+	cli.SetAntigravityProcessCwdFunc(func(pid int) (string, error) {
+		if pid == 99 {
+			return "/recovered/project", nil
+		}
+		return "", os.ErrNotExist
+	})
+	t.Cleanup(cli.ResetAntigravityProcessCwdFunc)
+
+	if got := cli.AntigravityWorkspaceCwd([]byte(`{"workspacePaths":[]}`)); got != "/recovered/project" {
+		t.Fatalf("empty workspacePaths fallback = %q, want /recovered/project", got)
+	}
+	if got := cli.AntigravityWorkspaceCwd([]byte(`{}`)); got != "/recovered/project" {
+		t.Fatalf("missing workspacePaths fallback = %q, want /recovered/project", got)
+	}
+}
+
+func TestIsAntigravityNonWorkspaceCwd(t *testing.T) {
+	// Exercise through AntigravityWorkspaceCwd by feeding a config-dir parent
+	// cwd and ensuring it is rejected when no payload path is present.
+	cli.SetAntigravityParentPIDFunc(func() int { return 77 })
+	t.Cleanup(cli.ResetAntigravityParentPIDFunc)
+	cli.SetAntigravityProcessCwdFunc(func(pid int) (string, error) {
+		if pid == 77 {
+			return filepath.Join("/Users/me", ".gemini", "config", "plugins", "traceary"), nil
+		}
+		return "", os.ErrNotExist
+	})
+	t.Cleanup(cli.ResetAntigravityProcessCwdFunc)
+	if got := cli.AntigravityWorkspaceCwd([]byte(`{"workspacePaths":[]}`)); got != "" {
+		t.Fatalf("config plugin cwd should be rejected, got %q", got)
+	}
+}

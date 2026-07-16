@@ -42,6 +42,8 @@ Current Antigravity hooks expose the same lifecycle signals in headless and inte
 
 This was re-verified on 2026-07-13 against `agy` 1.1.1 and the current official hook contract. The public payload does not carry prompt text directly, but every hook receives `transcriptPath`; Traceary reads the latest explicit user input and model response from that file at Stop. A healthy hook configuration still does not prove that files were readable or events persisted, so `antigravity-event-coverage` checks recent database evidence and warns when transcript coverage falls below the configured threshold.
 
+When `workspacePaths` is empty (observed on `agy` 1.1.x for some untrusted or headless runs), Traceary recovers the project workspace from the Antigravity host process cwd chain instead of the hook process cwd (which is the `hooks.json` directory). Without that fallback, events would be stored with an empty workspace and would not appear under the default `traceary list` workspace filter even though hooks delivered successfully.
+
 > Inspecting recorded events: hook-originated Antigravity events are stored with
 > `client=hook` and `agent=antigravity`. Use `traceary list --agent antigravity`
 > to read them. `traceary list --client antigravity` returns no rows for these

@@ -9,7 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -308,11 +311,34 @@ func normalizeAntigravityPayload(opts antigravityNormalizeOptions) []byte {
 	return encoded
 }
 
-// antigravityWorkspaceCwd returns the first workspace path from the payload, if
-// any, used as the cwd for workspace detection. Antigravity exposes
-// workspacePaths (an array of absolute mounted workspace roots) rather than a
-// single cwd on common-field payloads.
+// antigravityWorkspaceCwd returns a filesystem path used as the cwd for
+// workspace detection.
+//
+// Antigravity exposes workspacePaths (an array of absolute mounted workspace
+// roots) rather than a single cwd on common-field payloads. Current CLI
+// versions (agy 1.1.x) still fire hooks when workspacePaths is empty — for
+// example in untrusted workspaces or some headless print-mode paths — while
+// setting the hook process working directory to the hooks.json directory
+// (~/.gemini/config or a plugin package dir). Relying only on the hook process
+// cwd therefore loses the real project and records events with an empty
+// workspace, which then disappear from default `traceary list` / doctor
+// workspace filters.
+//
+// Resolution order:
+//  1. First non-empty entry in payload workspacePaths
+//  2. Parent-process cwd chain (skip Antigravity/Gemini config dirs; prefer a
+//     path that looks like a git work tree)
+//  3. Empty string (caller treats this as "no workspace")
 func antigravityWorkspaceCwd(payload []byte) string {
+	if path := firstAntigravityWorkspacePath(payload); path != "" {
+		return path
+	}
+	return resolveAntigravityFallbackWorkspaceCwd()
+}
+
+// firstAntigravityWorkspacePath returns the first non-empty workspacePaths
+// entry from an Antigravity hook payload.
+func firstAntigravityWorkspacePath(payload []byte) string {
 	value, ok := lookupHookPayloadValue(payload, "workspacePaths")
 	if !ok || value == nil {
 		return ""
@@ -323,10 +349,122 @@ func antigravityWorkspaceCwd(payload []byte) string {
 	}
 	for _, entry := range paths {
 		if path, ok := entry.(string); ok && strings.TrimSpace(path) != "" {
-			return path
+			return strings.TrimSpace(path)
 		}
 	}
 	return ""
+}
+
+// antigravityProcessCwdFunc resolves the current working directory of a process
+// by PID. Tests replace it so host process lookups stay deterministic.
+var antigravityProcessCwdFunc = defaultAntigravityProcessCwd
+
+// antigravityParentPIDFunc returns the parent PID of the current process. Tests
+// can override it without depending on real process topology.
+var antigravityParentPIDFunc = os.Getppid
+
+// resolveAntigravityFallbackWorkspaceCwd walks the parent process chain and
+// returns the first cwd that looks like a user workspace rather than an
+// Antigravity/Gemini configuration directory.
+func resolveAntigravityFallbackWorkspaceCwd() string {
+	const maxParents = 8
+	pid := antigravityParentPIDFunc()
+	var candidates []string
+	seen := map[int]struct{}{}
+	for i := 0; i < maxParents && pid > 1; i++ {
+		if _, ok := seen[pid]; ok {
+			break
+		}
+		seen[pid] = struct{}{}
+		cwd, err := antigravityProcessCwdFunc(pid)
+		if err == nil {
+			cwd = strings.TrimSpace(cwd)
+			if cwd != "" && !isAntigravityNonWorkspaceCwd(cwd) {
+				candidates = append(candidates, cwd)
+			}
+		}
+		parent, err := antigravityLookupParentPID(pid)
+		if err != nil || parent <= 1 || parent == pid {
+			break
+		}
+		pid = parent
+	}
+	for _, candidate := range candidates {
+		if looksLikeGitWorkTree(candidate) {
+			return candidate
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
+// isAntigravityNonWorkspaceCwd reports directories that Antigravity uses as
+// hook process cwd (config roots / plugin package dirs) rather than the user's
+// project workspace.
+func isAntigravityNonWorkspaceCwd(path string) bool {
+	cleaned := filepath.Clean(path)
+	base := filepath.Base(cleaned)
+	if base == "hooks" || base == "plugins" || base == "traceary" || base == "config" {
+		// Only reject when the path is clearly under a Gemini/Antigravity tree.
+		lower := strings.ToLower(cleaned)
+		if strings.Contains(lower, string(filepath.Separator)+".gemini"+string(filepath.Separator)) ||
+			strings.Contains(lower, string(filepath.Separator)+"antigravity-cli"+string(filepath.Separator)) ||
+			strings.HasSuffix(lower, string(filepath.Separator)+".gemini") {
+			return true
+		}
+	}
+	lower := strings.ToLower(cleaned)
+	markers := []string{
+		string(filepath.Separator) + ".gemini" + string(filepath.Separator) + "config",
+		string(filepath.Separator) + ".gemini" + string(filepath.Separator) + "antigravity-cli" + string(filepath.Separator) + "plugins",
+		string(filepath.Separator) + ".gemini" + string(filepath.Separator) + "config" + string(filepath.Separator) + "plugins",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeGitWorkTree(path string) bool {
+	info, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil && (info.IsDir() || info.Mode().IsRegular())
+}
+
+// defaultAntigravityProcessCwd resolves a process cwd on the current OS.
+func defaultAntigravityProcessCwd(pid int) (string, error) {
+	if pid <= 0 {
+		return "", xerrors.Errorf("invalid pid %d", pid)
+	}
+	if runtime.GOOS == "linux" {
+		target, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "cwd"))
+		if err != nil {
+			return "", xerrors.Errorf("read process cwd for pid %d: %w", pid, err)
+		}
+		return target, nil
+	}
+	// macOS and other BSDs: lsof reports the cwd as an "n<path>" field.
+	output, err := exec.Command("lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
+	if err != nil {
+		return "", xerrors.Errorf("lsof process cwd for pid %d: %w", pid, err)
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.HasPrefix(line, "n") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "n")), nil
+		}
+	}
+	return "", xerrors.Errorf("cwd not found for pid %d", pid)
+}
+
+func antigravityLookupParentPID(pid int) (int, error) {
+	info, err := hookParentProcessLookup(pid)
+	if err != nil {
+		return 0, err
+	}
+	return info.parentPID, nil
 }
 
 func firstNonEmpty(values ...string) string {
