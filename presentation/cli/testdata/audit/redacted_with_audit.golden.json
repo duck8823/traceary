@@ -15,6 +15,14 @@
     "output": "Authorization: Bearer [REDACTED]",
     "input_truncated": false,
     "output_truncated": true,
-    "exit_code": 1
+    "exit_code": 1,
+    "sensitive": {
+      "matched": false,
+      "coverage": "partial",
+      "redaction": "applied",
+      "intent_only": false,
+      "summary": "no sensitive path pattern matched",
+      "coverage_gap": "stdout_truncated"
+    }
   }
 }

@@ -27,15 +27,30 @@ type event struct {
 
 // commandAudit is the JSON shape of a command audit in CLI output.
 type commandAudit struct {
-	Command             string `json:"command"`
-	Input               string `json:"input"`
-	Output              string `json:"output"`
-	InputTruncated      bool   `json:"input_truncated"`
-	OutputTruncated     bool   `json:"output_truncated"`
-	InputOriginalBytes  int    `json:"input_original_bytes,omitempty"`
-	OutputOriginalBytes int    `json:"output_original_bytes,omitempty"`
-	ExitCode            *int   `json:"exit_code,omitempty"`
-	Failed              bool   `json:"failed,omitempty"`
+	Command             string                    `json:"command"`
+	Input               string                    `json:"input"`
+	Output              string                    `json:"output"`
+	InputTruncated      bool                      `json:"input_truncated"`
+	OutputTruncated     bool                      `json:"output_truncated"`
+	InputOriginalBytes  int                       `json:"input_original_bytes,omitempty"`
+	OutputOriginalBytes int                       `json:"output_original_bytes,omitempty"`
+	ExitCode            *int                      `json:"exit_code,omitempty"`
+	Failed              bool                      `json:"failed,omitempty"`
+	Sensitive           *sensitiveClassification  `json:"sensitive,omitempty"`
+}
+
+// sensitiveClassification is the separable sensitive-path claim (not redaction).
+type sensitiveClassification struct {
+	Matched     bool   `json:"matched"`
+	Class       string `json:"class,omitempty"`
+	Operation   string `json:"operation,omitempty"`
+	Evidence    string `json:"evidence,omitempty"`
+	Coverage    string `json:"coverage,omitempty"`
+	Redaction   string `json:"redaction,omitempty"`
+	MatchedPath string `json:"matched_path,omitempty"`
+	IntentOnly  bool   `json:"intent_only"`
+	Summary     string `json:"summary,omitempty"`
+	CoverageGap string `json:"coverage_gap,omitempty"`
 }
 
 // eventDetails is the JSON shape of an event-with-audit pair in CLI output.

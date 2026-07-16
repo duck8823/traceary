@@ -128,6 +128,10 @@ type listCommandInput struct {
 	to              string
 	until           string
 	failuresOnly    bool
+	// sensitiveOnly keeps command_executed events whose bodies match the
+	// sensitive-path classifier (compute-on-read; independent of redaction).
+	// When set, kind defaults to command_executed if unset.
+	sensitiveOnly   bool
 	sourceHook      string
 	asJSON          bool
 	wide            bool

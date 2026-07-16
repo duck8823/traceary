@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -205,6 +206,58 @@ func TestRootCLI_ListCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
+		}
+	})
+
+	t.Run("--sensitive keeps only sensitive command audits", func(t *testing.T) {
+		t.Parallel()
+
+		agent, err := types.AgentFrom("codex")
+		if err != nil {
+			t.Fatalf("AgentFrom() error = %v", err)
+		}
+		sessionID, err := types.SessionIDFrom("session-1")
+		if err != nil {
+			t.Fatalf("SessionIDFrom() error = %v", err)
+		}
+		mk := func(id, body string) *model.Event {
+			t.Helper()
+			eventID, err := types.EventIDFrom(id)
+			if err != nil {
+				t.Fatalf("EventIDFrom(%s) error = %v", id, err)
+			}
+			return model.EventOf(
+				eventID,
+				types.EventKindCommandExecuted,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				body,
+				time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
+			)
+		}
+		listStub := &eventUsecaseStub{listEvents: []*model.Event{
+			mk("event-sensitive", "cat .env\n\nINPUT:\n\n\nOUTPUT:\n"),
+			mk("event-normal", "go test ./...\n\nINPUT:\n\n\nOUTPUT:\nok"),
+		}}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(listStub),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--sensitive", "--json"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !strings.Contains(stdout.String(), "event-sensitive") {
+			t.Fatalf("stdout missing sensitive event: %s", stdout.String())
+		}
+		if strings.Contains(stdout.String(), "event-normal") {
+			t.Fatalf("stdout should filter ordinary audit: %s", stdout.String())
 		}
 	})
 }

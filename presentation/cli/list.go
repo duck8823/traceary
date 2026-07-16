@@ -8,32 +8,35 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/sensitivepath"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 func (c *RootCLI) newListCommand() *cobra.Command {
 	var (
-		dbPath       string
-		limit        int
-		offset       int
-		kind         string
-		client       string
-		agent        string
-		sessionID    string
-		repo         string
-		from         string
-		since        string
-		to           string
-		until        string
-		failuresOnly bool
-		sourceHook   string
-		asJSON       bool
-		wide         bool
-		utc          bool
-		fields       []string
-		preset       string
-		color        string
+		dbPath        string
+		limit         int
+		offset        int
+		kind          string
+		client        string
+		agent         string
+		sessionID     string
+		repo          string
+		from          string
+		since         string
+		to            string
+		until         string
+		failuresOnly  bool
+		sensitiveOnly bool
+		sourceHook    string
+		asJSON        bool
+		wide          bool
+		utc           bool
+		fields        []string
+		preset        string
+		color         string
 	)
 
 	listCmd := &cobra.Command{
@@ -55,6 +58,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 				to:              to,
 				until:           until,
 				failuresOnly:    failuresOnly,
+				sensitiveOnly:   sensitiveOnly,
 				sourceHook:      sourceHook,
 				sourceHookSet:   cmd.Flags().Changed("source-hook"),
 				asJSON:          asJSON,
@@ -78,6 +82,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("number of events to display", "表示件数"))
 	listCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of events to skip before listing", "一覧表示前にスキップする件数"))
+	listCmd.Flags().BoolVar(&sensitiveOnly, "sensitive", false, Localize("list only command audits that match sensitive-path patterns (compute-on-read; not redaction)", "sensitive-path パターンに一致した command audit のみ一覧する（compute-on-read。redaction とは別）"))
 	listCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)"))
 	listCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
@@ -117,6 +122,10 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		return err
 	}
 	applyReadPresetToListInput(&input, preset)
+	if input.sensitiveOnly && strings.TrimSpace(input.kind) == "" {
+		input.kind = "command_executed"
+		input.kindSet = true
+	}
 	resolvedKind, err := resolveListKind(input.kind)
 	if err != nil {
 		return err
@@ -157,7 +166,19 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	criteria := apptypes.NewEventListCriteriaBuilder(input.limit).
+	fetchLimit := input.limit
+	if input.sensitiveOnly {
+		// Over-fetch so compute-on-read filtering still returns up to --limit
+		// matches without requiring a SQL-side index for this claim.
+		fetchLimit = input.limit * 20
+		if fetchLimit < 100 {
+			fetchLimit = 100
+		}
+		if fetchLimit > 2000 {
+			fetchLimit = 2000
+		}
+	}
+	criteria := apptypes.NewEventListCriteriaBuilder(fetchLimit).
 		Offset(input.offset).
 		Kind(types.EventKind(resolvedKind)).
 		Client(types.Client(strings.TrimSpace(input.client))).
@@ -172,6 +193,9 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 	events, err := c.event.List(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
+	}
+	if input.sensitiveOnly {
+		events = filterSensitiveCommandEvents(events, input.limit)
 	}
 	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
 	if err != nil {
@@ -208,4 +232,24 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 // search accept the same kind values and aliases (e.g. "audit").
 func resolveListKind(value string) (string, error) {
 	return validateSearchKind(value)
+}
+
+func filterSensitiveCommandEvents(events []*model.Event, limit int) []*model.Event {
+	if limit <= 0 {
+		limit = 20
+	}
+	out := make([]*model.Event, 0, limit)
+	for _, event := range events {
+		if event == nil || event.Kind() != types.EventKindCommandExecuted {
+			continue
+		}
+		if !sensitivepath.ClassifyCommandBody(event.Body(), nil).Matched {
+			continue
+		}
+		out = append(out, event)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }

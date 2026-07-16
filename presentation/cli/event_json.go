@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/sensitivepath"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 )
@@ -96,7 +97,7 @@ func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 	if ec, ok := audit.ExitCode().Value(); ok {
 		exitCode = &ec
 	}
-	return &commandAudit{
+	out := &commandAudit{
 		Command:             audit.Command(),
 		Input:               audit.Input(),
 		Output:              audit.Output(),
@@ -107,6 +108,30 @@ func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 		ExitCode:            exitCode,
 		Failed:              audit.Failed(),
 	}
+	classification := sensitivepath.Classify(sensitivepath.Input{
+		Command:         audit.Command(),
+		Input:           audit.Input(),
+		Output:          audit.Output(),
+		InputTruncated:  audit.InputTruncated(),
+		OutputTruncated: audit.OutputTruncated(),
+		InputRedacted:   audit.InputRedacted(),
+		OutputRedacted:  audit.OutputRedacted(),
+	})
+	if classification.Matched || classification.Coverage != sensitivepath.CoverageComplete {
+		out.Sensitive = &sensitiveClassification{
+			Matched:     classification.Matched,
+			Class:       string(classification.Class),
+			Operation:   string(classification.Operation),
+			Evidence:    string(classification.Evidence),
+			Coverage:    string(classification.Coverage),
+			Redaction:   string(classification.Redaction),
+			MatchedPath: classification.MatchedPath,
+			IntentOnly:  classification.IntentOnly,
+			Summary:     classification.Summary,
+			CoverageGap: classification.CoverageGap,
+		}
+	}
+	return out
 }
 
 func writeJSON(output io.Writer, value any) error {
