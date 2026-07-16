@@ -3202,9 +3202,108 @@ func TestRootCLI_HookTranscriptCommand_SkipsWhenTranscriptPathMissing(t *testing
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	// No transcript_path → no event recorded, no failure.
+	// No transcript_path and no last_assistant_message → no event recorded, no failure.
 	if eventStub.logCall.message != "" {
 		t.Fatalf("logCall.message = %q, want empty when transcript_path missing", eventStub.logCall.message)
+	}
+}
+
+// TestRootCLI_HookTranscriptCommand_ClaudeFallsBackToLastAssistantMessage
+// pins the print-mode race fix (#1307): Stop can fire before the JSONL
+// assistant row is flushed. Prefer last_assistant_message when the file
+// has no usable blocks so non-interactive claude -p still records one
+// transcript.
+func TestRootCLI_HookTranscriptCommand_ClaudeFallsBackToLastAssistantMessage(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key-transcript-print-race")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript-print-race"), []byte("print-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-transcript-print-race-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	// Empty / incomplete JSONL: only a user turn, no assistant row yet.
+	transcriptPath := filepath.Join(t.TempDir(), "race-transcript.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(`{"type":"user","message":{"role":"user","content":"say PASS"}}`+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(transcript) error = %v", err)
+	}
+
+	storeStub := &storeManagementUsecaseStub{}
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-print-transcript"),
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("print-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"PASS",
+			time.Now(),
+		),
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeStub),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	payload := `{"session_id":"print-session","transcript_path":"` + transcriptPath + `","last_assistant_message":"PASS"}`
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := eventStub.logCall.kind, types.EventKindTranscript; got != want {
+		t.Fatalf("transcript log kind = %q, want %q", got, want)
+	}
+	gotBlocks := apptypes.ParseEventBodyBlocks(eventStub.logCall.message)
+	wantBlocks := []apptypes.EventBodyBlock{
+		{Type: apptypes.EventBodyBlockTypeText, Text: "PASS"},
+	}
+	if diff := cmp.Diff(wantBlocks, gotBlocks); diff != "" {
+		t.Fatalf("transcript blocks mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestRootCLI_HookTranscriptCommand_ClaudeDoesNotFabricateFromEmptyLastMessage
+// ensures error/quota exits that supply blank last_assistant_message and an
+// incomplete JSONL do not invent a successful transcript.
+func TestRootCLI_HookTranscriptCommand_ClaudeDoesNotFabricateFromEmptyLastMessage(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	transcriptPath := filepath.Join(t.TempDir(), "empty-race.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(transcript) error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	payload := `{"session_id":"empty-session","transcript_path":"` + transcriptPath + `","last_assistant_message":""}`
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if eventStub.logCall.message != "" {
+		t.Fatalf("logCall.message = %q, want empty when last_assistant_message is blank", eventStub.logCall.message)
 	}
 }
 
