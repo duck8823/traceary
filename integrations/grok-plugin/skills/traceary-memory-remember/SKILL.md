@@ -8,6 +8,12 @@ version: 1.0.0
 
 Use this skill **only** when the operator explicitly asks Traceary to remember a specific durable fact. Generic note-taking, status updates, or session summaries do not belong here — those go to `traceary-memory-review`.
 
+## Canonical contract
+
+Explicit remember requests land as **`status=candidate`** in the review inbox. They are **never auto-accepted**. Durable L3 memory grows only through a later accept step (`traceary-memory-review` or an explicit operator accept).
+
+Use MCP `manage_memory` with **`action="propose"`** for this skill. Do not call `action="remember"` from the agent skill path — that CLI/MCP path accepts immediately and bypasses inbox review.
+
 ## Workflow
 
 1. **Confirm scope**. Pick exactly one of:
@@ -36,25 +42,23 @@ Use this skill **only** when the operator explicitly asks Traceary to remember a
    | `file` | `docs/architecture/redaction.md` |
    | `issue` | `#462` |
    | `pr` | `#468` |
-4. **Call `manage_memory`**:
-   - For an explicit "remember this now" verb, use `action="remember"`. The memory lands at `status=accepted` because the user's direct ask **is** the acceptance signal.
-   - If you are unsure whether the user wants the fact made permanent right now, use `action="propose"` instead. That lands at `status=candidate` and the operator can review it later via `traceary-memory-review`.
+4. **Call `manage_memory` with `action="propose"`** so the row lands at `status=candidate`:
 
    ```
    manage_memory({
-     "action": "remember",
+     "action": "propose",
      "type": "constraint",
      "workspace": "<current workspace>",
      "fact": "<short, durable statement>",
      "evidence_refs": [{"kind": "session", "value": "<current session id>"}]
    })
    ```
-5. **Inform the operator** which path was used (`accepted` for `remember`, `candidate` for `propose`) and how to undo: `manage_memory({"action": "reject", "ids": ["<id>"]})`.
+5. **Inform the operator** that a **candidate** was written for review (`status=candidate`), and how to review or undo: `traceary-memory-review`, or `manage_memory({"action": "accept"|"reject", "ids": ["<id>"]})`.
 
 ## Guardrails
 
 - **Explicit ask only.** Do not use this skill on hints, hedges, or generic chat. The trigger requires a direct verb ("remember", "save", "覚えておいて", "メモして").
-- **Match the action to the certainty.** A direct "remember X" → `action="remember"` (status=accepted, the explicit verb is the consent). Anything weaker → `action="propose"` (status=candidate) and let `traceary-memory-review` handle acceptance.
+- **Candidate only.** Every write from this skill is `action="propose"` → `status=candidate`. Never auto-accept; never call `action="remember"` from this skill.
 - **One scope only.** Send exactly one of `workspace`, `agent`, `session_family`. Sending more than one is a contract violation.
 - **No secrets.** Traceary redacts on write, but do not pass secret-shaped values into `fact` or `evidence_refs.value` — keep secrets in tool I/O where redaction is exhaustive.
 - **Do not duplicate.** If `query_memory(action="retrieve", workspace=..., query=...)` already returns the same fact, ask the operator before proposing again.
