@@ -149,7 +149,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "MCP",
-      "message": "codex host: Codex CLI 0.144.1 compact and subagent hooks are wired (PreCompact / PostCompact markers and SubagentStart / SubagentStop child sessions). Memory features still depend on the per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; Traceary's `memory import codex` works regardless of that flag",
+      "message": "codex host: matrix-wired lifecycle coverage is command_executed, compact_summary, prompt, session_started, transcript. Compact and subagent hooks are part of the managed set; memory features still depend on the per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml (Traceary's `memory import codex` works regardless). hooks config context: /tmp/traceary-json-golden-home/.codex/hooks.json",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -288,7 +288,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "MCP",
-          "message": "codex host: Codex CLI 0.144.1 compact and subagent hooks are wired (PreCompact / PostCompact markers and SubagentStart / SubagentStop child sessions). Memory features still depend on the per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml; Traceary's `memory import codex` works regardless of that flag",
+          "message": "codex host: matrix-wired lifecycle coverage is command_executed, compact_summary, prompt, session_started, transcript. Compact and subagent hooks are part of the managed set; memory features still depend on the per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml (Traceary's `memory import codex` works regardless). hooks config context: /tmp/traceary-json-golden-home/.codex/hooks.json",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false

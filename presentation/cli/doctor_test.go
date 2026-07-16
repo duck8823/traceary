@@ -128,8 +128,8 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 		if msg := gotMessages["gemini-compact-coverage"]; !strings.Contains(msg, "no post-compress hook") || !strings.Contains(msg, "PreCompress") {
 			t.Fatalf("gemini-compact-coverage message should explain the missing post-compress hook, got: %q", msg)
 		}
-		if msg := gotMessages["gemini-host-capabilities"]; !strings.Contains(msg, "BeforeAgent") || !strings.Contains(msg, "PreCompress") {
-			t.Fatalf("gemini-host-capabilities message should list the wired BeforeAgent / PreCompress hooks, got: %q", msg)
+		if msg := gotMessages["gemini-host-capabilities"]; !strings.Contains(msg, "prompt") || !strings.Contains(msg, "compact_summary") {
+			t.Fatalf("gemini-host-capabilities message should list matrix-wired lifecycle events including prompt and compact_summary, got: %q", msg)
 		}
 	})
 

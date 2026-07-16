@@ -30,6 +30,9 @@ jobs:
       - name: Verify Antigravity current-state wording
         run: go run ./cmd/repo-tooling docs verify-antigravity-status
 
+      - name: Verify host-coverage matrix tables
+        run: go run ./cmd/repo-tooling docs verify-host-coverage
+
       - name: Verify removed-alias examples
         run: python3 scripts/verify_docs_no_removed_aliases.py
 
