@@ -443,8 +443,8 @@ func writeReplayMarkdown(outputPath string, data replayData) error {
 		b.WriteString("## Failure hotspots\n\n")
 		b.WriteString("| Command | Workspace | Count | Last occurred |\n|---|---|---:|---|\n")
 		for _, h := range data.FailureHotspots {
-			b.WriteString(fmt.Sprintf("| `%s` | `%s` | %d | `%s` |\n",
-				markdownInlineCode(h.Command), markdownInlineCode(h.Workspace), h.Count, h.LastOccurredAt))
+			fmt.Fprintf(&b, "| `%s` | `%s` | %d | `%s` |\n",
+				markdownInlineCode(h.Command), markdownInlineCode(h.Workspace), h.Count, h.LastOccurredAt)
 		}
 		b.WriteString("\n")
 	}
@@ -480,8 +480,8 @@ func writeReplayMarkdown(outputPath string, data replayData) error {
 			continue
 		}
 		for _, event := range session.Events {
-			b.WriteString(fmt.Sprintf("#### `%s` · %s · `%s`\n\n",
-				event.EventID, markdownEscape(event.Kind), event.CreatedAt.UTC().Format(time.RFC3339)))
+			fmt.Fprintf(&b, "#### `%s` · %s · `%s`\n\n",
+				event.EventID, markdownEscape(event.Kind), event.CreatedAt.UTC().Format(time.RFC3339))
 			body := truncateReplayMarkdownBody(event.Body, 400)
 			b.WriteString("```text\n")
 			b.WriteString(sanitizeReplayMarkdownBody(body))
@@ -492,12 +492,12 @@ func writeReplayMarkdown(outputPath string, data replayData) error {
 	if len(data.Memories) > 0 {
 		b.WriteString("## Memories\n\n")
 		for _, memory := range data.Memories {
-			b.WriteString(fmt.Sprintf("- `%s` (%s/%s): %s\n",
+			fmt.Fprintf(&b, "- `%s` (%s/%s): %s\n",
 				markdownInlineCode(memory.MemoryID),
 				markdownEscape(memory.Type),
 				markdownEscape(memory.Status),
 				markdownEscape(truncateReplayMarkdownBody(memory.Fact, 200)),
-			))
+			)
 		}
 		b.WriteString("\n")
 	}
