@@ -52,30 +52,19 @@ run_gemini() {
 }
 
 run_codex() {
-  # The repo-tooling verifier owns both the install-removal assertion
-  # (v0.14.0) and the uninstall-removal assertion (v0.15.0); see
-  # cmd/repo-tooling/integrations.go (checkCodexRemovedCommands). The
-  # shell side adds quick CLI-level guards so regressions that
-  # re-register either of the retired commands would surface here too.
+  # The repo-tooling verifier owns the v0.25.0 assertion that the entire
+  # `integration` subtree is gone (checkCodexRemovedCommands). The shell
+  # side adds a quick CLI-level guard so re-registration surfaces here too.
   (cd "${ROOT_DIR}" && go run ./cmd/repo-tooling integrations verify)
-  local install_output
-  if install_output="$(TRACEARY_LANG=en go run . integration codex install 2>&1)"; then
-    echo "error: 'go run . integration codex install' unexpectedly succeeded after v0.14.0 removal" >&2
-    echo "${install_output}" >&2
+  local integration_output
+  if integration_output="$(TRACEARY_LANG=en go run . integration codex install 2>&1)"; then
+    echo "error: 'go run . integration codex install' unexpectedly succeeded after v0.25.0 removal" >&2
+    echo "${integration_output}" >&2
     return 1
   fi
-  if [[ "${install_output}" != *"v0.14.0"* || "${install_output}" != *"/plugins"* ]]; then
-    echo "error: install removal hint missing replacement details: ${install_output}" >&2
-    return 1
-  fi
-  local uninstall_output
-  if uninstall_output="$(TRACEARY_LANG=en go run . integration codex uninstall 2>&1)"; then
-    echo "error: 'go run . integration codex uninstall' unexpectedly succeeded after v0.15.0 removal" >&2
-    echo "${uninstall_output}" >&2
-    return 1
-  fi
-  if [[ "${uninstall_output}" != *"v0.15.0"* || "${uninstall_output}" != *"/plugins"* ]]; then
-    echo "error: uninstall removal hint missing replacement details: ${uninstall_output}" >&2
+  # Expect Cobra unknown-command style failure (no migration stubs remain).
+  if ! printf '%s' "${integration_output}" | grep -Eqi 'unknown|invalid|不明|未知'; then
+    echo "error: integration subtree removal must fail as unknown command: ${integration_output}" >&2
     return 1
   fi
   if [[ "${TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE:-0}" != "1" ]]; then

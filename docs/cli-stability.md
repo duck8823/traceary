@@ -67,7 +67,7 @@ Admin commands in v0.15:
 
 These commands are hidden from `traceary --help`. In v0.15 the hidden surface has two groups:
 
-- **Migration-error stubs for removed names** — the retired `integration codex install` / `integration codex uninstall` paths register hidden stubs that return targeted non-zero migration errors. They are not working aliases: they do not preserve legacy flags, do not execute the old behavior, and exist only so old invocations receive a concrete replacement instead of Cobra's generic unknown-command output. The former top-level aliases removed in v0.14.0 and the flat memory aliases removed in v0.15.0 no longer register stubs as of v0.20.0. The removed top-level names (`traceary init`, etc.) return Cobra's unknown-command error; the removed `traceary memory <verb>` paths are no longer registered subcommands and, as of v0.20.0 (#1142), return an `unknown subcommand` error with a non-zero exit, the same as any other unrecognized subcommand. See the historical removal log below.
+- **Removed names (no stubs)** — retired paths such as the former top-level aliases (v0.14.0), flat memory aliases (v0.15.0), and the entire `traceary integration` subtree (removed in v0.25.0, #1266) no longer register migration stubs. They return Cobra's unknown-command / unknown-subcommand error with a non-zero exit. See the historical removal log below.
 - **Hook runtime entrypoints** — internal commands called by packaged Traceary hook scripts.
 
 Hidden runtime entrypoints called by packaged Traceary hook scripts (registered with `Hidden: true`, no stderr deprecation notice):
@@ -87,7 +87,7 @@ Historical removal log:
 - Removed in v0.14.0 after earlier deprecation: `traceary init` → `traceary store init`, `traceary backup` → `traceary store backup ...`, `traceary gc` → `traceary store gc`, `traceary handoff` → `traceary session handoff`, `traceary compact-summary` → `traceary session handoff --compact-only`, and the retired `traceary integration codex install` helper → Codex official `/plugins` flow.
 - Removed in v0.15.0 after the v0.14 compatibility window: `traceary memory accept`, `traceary memory reject`, `traceary memory remember`, `traceary memory propose`, `traceary memory distill`, `traceary memory extract`, `traceary memory supersede`, `traceary memory expire`, `traceary memory set-validity`, `traceary memory import codex`, `traceary memory import instructions`, `traceary memory export`, `traceary memory activate`, `traceary memory hygiene scan`, `traceary memory hygiene apply`, `traceary memory graph add`, and `traceary memory graph list`. Use the canonical `memory inbox` / `memory store` / `memory admin` paths documented in the CLI reference.
 - Removed in v0.15.0 after the v0.14 cleanup-only window: `traceary integration codex uninstall` → Codex official `/plugins` flow plus manual cleanup steps in `docs/integrations/codex-plugin.md`.
-- Hidden in v0.20.0 and scheduled for removal in v0.21.0: the `traceary integration` command subtree (the `integration` parent and the `codex` group). Its only children are the hidden migration stubs above, so the parents no longer appear in `traceary --help`; the stubs still return their migration error until the v0.21.0 removal.
+- Hidden in v0.20.0 and fully removed in v0.25.0 (#1266): the `traceary integration` command subtree (the `integration` parent, the `codex` group, and the former migration stubs for install/uninstall). Invocations now fail as unknown commands; use Codex CLI's official `/plugins` flow.
 
 ## Deprecation notice expectations
 

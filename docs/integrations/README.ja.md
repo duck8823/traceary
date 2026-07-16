@@ -28,7 +28,7 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 | Host | Package root | 実際の配置先 |
 | --- | --- | --- |
 | Claude Code | `integrations/claude-plugin/` | `.claude-plugin/marketplace.json` を基点にした Claude marketplace |
-| Codex | `plugins/traceary/` | Codex CLI 公式の `/plugins` flow を使い、リポジトリ内の marketplace `.agents/plugins/marketplace.json` から install。plugin manifest で同梱 `hooks.json` を参照するため session / prompt / audit hook が自動配線される。`traceary integration codex install` helper は v0.14.0 で、cleanup 専用 `traceary integration codex uninstall` は v0.15.0 で廃止。いずれも非表示の stub になり、Codex 公式の `/plugins` flow と [docs/integrations/codex-plugin.ja.md](./codex-plugin.ja.md) の手動 cleanup 手順を案内するのみ。 |
+| Codex | `plugins/traceary/` | Codex CLI 公式の `/plugins` flow を使い、リポジトリ内の marketplace `.agents/plugins/marketplace.json` から install。plugin manifest で同梱 `hooks.json` を参照するため session / prompt / audit hook が自動配線される。旧 `traceary integration` コマンドツリー（codex install/uninstall stub 含む）は v0.25.0 で完全削除 (#1266)。Codex 公式の `/plugins` flow と [docs/integrations/codex-plugin.ja.md](./codex-plugin.ja.md) の手動 cleanup 手順を使う。 |
 | Gemini CLI | `integrations/gemini-extension/` | `gemini-extension.json` を root にした Gemini extension archive — v0.21.0 以降は**レガシー互換のみ**。アクティブな委譲パスではない |
 | Antigravity | `integrations/antigravity-plugin/` | v0.21.1 でサポート。hook の直接設定は `<project>/.agents/hooks.json` または `~/.gemini/config/hooks.json` を対象とします。同梱 plugin は version 付き manifest、Traceary MCP server、共有の memory/session skill 3 件を追加します。`traceary doctor --client antigravity --json` で hook 経路、MCP 登録、plugin version の一致を確認できます。 |
 | Grok Build | `integrations/grok-plugin/` | v0.23.0 でサポート。ネイティブ plugin は実環境で検証した lifecycle hook 7件、Traceary MCP server 1件、共有の memory/session skill 3件を同梱します。`scripts/install-grok-plugin.sh` で導入し、`traceary doctor --client grok --json` で hook 契約、trust、パッケージ内容、バージョン一致を確認します。 |
@@ -53,5 +53,5 @@ smoke test では、各 host の導入経路に合わせて次を確認します
 
 - Claude Code: marketplace validate と一時 home での install
 - Gemini CLI: `TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE=1` を設定したときだけ、認証済み CLI で extension validate と一時 home での link を確認
-- Codex: plugin manifest の構造検証（`hooks: "./hooks.json"` / commands / skills）と、`traceary integration codex install`（v0.14.0 廃止）/ `traceary integration codex uninstall`（v0.15.0 廃止）の retired-stub probe（移行ヒントが古くならないように smoke で固定）
+- Codex: plugin manifest の構造検証（`hooks: "./hooks.json"` / commands / skills）と、削除済み `traceary integration` サブツリーが unknown command として失敗することの probe（v0.25.0, #1266）
 - Grok Build: ネイティブパッケージの検証と、一時 home での導入・内容確認・削除
