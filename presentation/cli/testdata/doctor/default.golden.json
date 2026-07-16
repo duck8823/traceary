@@ -75,6 +75,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "retry-loops",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Hooks",
+      "message": "event usecase is not configured",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "project-dir",
       "status": "pass",
       "severity": "PASS",
@@ -289,6 +299,16 @@
       "name": "Hooks",
       "checks": [
         {
+          "name": "retry-loops",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Hooks",
+          "message": "event usecase is not configured",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "hook-spool",
           "status": "pass",
           "severity": "PASS",
@@ -332,7 +352,7 @@
     }
   ],
   "summary": {
-    "pass": 13,
+    "pass": 14,
     "warn": 2,
     "fail": 0
   },

@@ -279,6 +279,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx, input.strict))
 		report.Checks = append(report.Checks, c.inspectContentEventReliability(ctx, input.strict))
+		report.Checks = append(report.Checks, c.inspectRetryLoops(ctx))
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)
