@@ -1246,16 +1246,31 @@ func transcriptExtractorFor(client string) (transcriptExtractor, bool) {
 	}
 }
 
-// extractClaudeTranscript resolves the Claude Code transcript_path
-// pointer and reads the final assistant turn from the JSONL file,
-// preserving thinking / text block structure so downstream readers
-// can split reasoning from rendered reply.
+// extractClaudeTranscript resolves the Claude Code assistant turn for
+// a Stop (or SessionEnd) hook payload.
+//
+// Preferred path: read the host `transcript_path` JSONL and keep the
+// last assistant turn's thinking/text blocks.
+//
+// Fallback: Claude Code 2.1.x print-mode Stop payloads often race the
+// JSONL flush — `transcript_path` is present but the assistant row is
+// not on disk yet, while `last_assistant_message` already carries the
+// final rendered reply. When the file yields no blocks, use that field
+// (same shape as Codex) so non-interactive sessions still record one
+// transcript event. Empty last_assistant_message (quota/error exits)
+// remains a soft skip so we never invent a successful reply.
 func extractClaudeTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
 	transcriptPath := hookPayloadString(payload, "transcript_path", "")
-	if transcriptPath == "" {
+	if transcriptPath != "" {
+		if blocks, ok := readLastAssistantTranscriptBlocks(transcriptPath); ok && len(blocks) > 0 {
+			return blocks, true
+		}
+	}
+	text := strings.TrimSpace(hookPayloadString(payload, "last_assistant_message", ""))
+	if text == "" {
 		return nil, false
 	}
-	return readLastAssistantTranscriptBlocks(transcriptPath)
+	return []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: text}}, true
 }
 
 // extractCodexTranscript reads Codex CLI's `last_assistant_message`
