@@ -188,7 +188,15 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"    \"input\": \"stdin\",\n" +
 			"    \"output\": \"stdout\",\n" +
 			"    \"input_truncated\": true,\n" +
-			"    \"output_truncated\": false\n" +
+			"    \"output_truncated\": false,\n" +
+			"    \"sensitive\": {\n" +
+			"      \"matched\": false,\n" +
+			"      \"coverage\": \"partial\",\n" +
+			"      \"redaction\": \"unknown\",\n" +
+			"      \"intent_only\": false,\n" +
+			"      \"summary\": \"no sensitive path pattern matched\",\n" +
+			"      \"coverage_gap\": \"stdout_truncated\"\n" +
+			"    }\n" +
 			"  }\n" +
 			"}\n"
 		if diff := cmp.Diff(want, stdout.String()); diff != "" {

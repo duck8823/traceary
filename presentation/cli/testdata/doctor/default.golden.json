@@ -78,7 +78,17 @@
       "name": "retry-loops",
       "status": "skip",
       "severity": "PASS",
-      "section": "Hooks",
+      "section": "Database",
+      "message": "event usecase is not configured",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
+      "name": "sensitive-access-audit",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Database",
       "message": "event usecase is not configured",
       "hint": "",
       "fix_command": "",
@@ -263,6 +273,26 @@
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
+        },
+        {
+          "name": "retry-loops",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "event usecase is not configured",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
+          "name": "sensitive-access-audit",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "event usecase is not configured",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
         }
       ]
     },
@@ -298,16 +328,6 @@
     {
       "name": "Hooks",
       "checks": [
-        {
-          "name": "retry-loops",
-          "status": "skip",
-          "severity": "PASS",
-          "section": "Hooks",
-          "message": "event usecase is not configured",
-          "hint": "",
-          "fix_command": "",
-          "auto_fix_available": false
-        },
         {
           "name": "hook-spool",
           "status": "pass",
@@ -352,7 +372,7 @@
     }
   ],
   "summary": {
-    "pass": 14,
+    "pass": 15,
     "warn": 2,
     "fail": 0
   },
