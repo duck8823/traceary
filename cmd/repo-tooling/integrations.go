@@ -12,20 +12,59 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// canonical hook sources that must be copied verbatim into every packaged
-// integration's scripts directory.
-var integrationHookSources = []string{
-	"scripts/hooks/common.sh",
-	"scripts/hooks/traceary-session.sh",
-	"scripts/hooks/traceary-audit.sh",
+// integrationHookCopy describes one canonical scripts/hooks/*.sh source and the
+// packaged destinations that must stay byte-identical to it. Host packages only
+// receive the wrappers they still ship; Antigravity calls the Go runtime
+// directly and is intentionally absent here.
+type integrationHookCopy struct {
+	source   string
+	packages []string
 }
 
-// packaged integration scripts directories that must hold copies of the
-// canonical hook sources.
-var integrationHookPackages = []string{
+// sharedCompatibilityPackages are the host packages that still ship the common
+// compatibility shell wrappers (session/audit + common helpers).
+var sharedCompatibilityPackages = []string{
 	"integrations/claude-plugin/scripts",
 	"plugins/traceary/scripts",
 	"integrations/gemini-extension/scripts",
+}
+
+// integrationHookCopies is the single-source membership matrix for packaged
+// hook shell wrappers. Edit scripts/hooks/, then run
+// `go run ./cmd/repo-tooling integrations sync-hooks` (or hand-copy) so each
+// destination stays byte-identical; integrations verify fails on drift.
+var integrationHookCopies = []integrationHookCopy{
+	{
+		source:   "scripts/hooks/common.sh",
+		packages: sharedCompatibilityPackages,
+	},
+	{
+		source:   "scripts/hooks/traceary-session.sh",
+		packages: sharedCompatibilityPackages,
+	},
+	{
+		source:   "scripts/hooks/traceary-audit.sh",
+		packages: sharedCompatibilityPackages,
+	},
+	{
+		source: "scripts/hooks/traceary-prompt.sh",
+		packages: []string{
+			"integrations/claude-plugin/scripts",
+			"integrations/gemini-extension/scripts",
+		},
+	},
+	{
+		source: "scripts/hooks/traceary-compact.sh",
+		packages: []string{
+			"integrations/claude-plugin/scripts",
+		},
+	},
+	{
+		source: "scripts/hooks/traceary-grok.sh",
+		packages: []string{
+			"integrations/grok-plugin/scripts",
+		},
+	},
 }
 
 func newIntegrationsCommand() *cobra.Command {
@@ -51,7 +90,27 @@ func newIntegrationsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	syncHooks := &cobra.Command{
+		Use:   "sync-hooks",
+		Short: "Copy canonical scripts/hooks/*.sh into packaged integration scripts directories",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			root, err := findRepoRoot()
+			if err != nil {
+				return err
+			}
+			n, err := syncHookCopies(root)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "ok: synchronized %d packaged hook script copies from scripts/hooks/\n", n); err != nil {
+				return xerrors.Errorf("failed to write sync result: %w", err)
+			}
+			return nil
+		},
+	}
 	cmd.AddCommand(verify)
+	cmd.AddCommand(syncHooks)
 	return cmd
 }
 
@@ -237,24 +296,59 @@ func readVersion(root string) (string, error) {
 }
 
 func checkHooksAreCopied(root string) error {
-	for _, source := range integrationHookSources {
-		sourceText, err := os.ReadFile(filepath.Join(root, source))
+	for _, copy := range integrationHookCopies {
+		sourceText, err := os.ReadFile(filepath.Join(root, copy.source)) // #nosec G304 -- fixed package path under repo root
 		if err != nil {
-			return xerrors.Errorf("missing canonical hook source: %s", source)
+			return xerrors.Errorf("missing canonical hook source: %s", copy.source)
 		}
-		name := filepath.Base(source)
-		for _, pkg := range integrationHookPackages {
+		name := filepath.Base(copy.source)
+		for _, pkg := range copy.packages {
 			target := filepath.Join(pkg, name)
-			targetText, err := os.ReadFile(filepath.Join(root, target))
+			targetText, err := os.ReadFile(filepath.Join(root, target)) // #nosec G304 -- fixed package path under repo root
 			if err != nil {
 				return xerrors.Errorf("missing packaged hook script: %s", target)
 			}
 			if string(targetText) != string(sourceText) {
-				return xerrors.Errorf("packaged hook script drifted from canonical source: %s", target)
+				return xerrors.Errorf("packaged hook script drifted from canonical source: %s (expected byte-identical to %s)", target, copy.source)
 			}
 		}
 	}
 	return nil
+}
+
+// syncHookCopies overwrites each packaged destination with the canonical
+// scripts/hooks source. Returns the number of files written.
+func syncHookCopies(root string) (int, error) {
+	written := 0
+	for _, copy := range integrationHookCopies {
+		sourcePath := filepath.Join(root, copy.source)
+		sourceText, err := os.ReadFile(sourcePath) // #nosec G304 -- fixed package path under repo root
+		if err != nil {
+			return written, xerrors.Errorf("missing canonical hook source: %s: %w", copy.source, err)
+		}
+		name := filepath.Base(copy.source)
+		info, err := os.Stat(sourcePath)
+		if err != nil {
+			return written, xerrors.Errorf("stat canonical hook source: %s: %w", copy.source, err)
+		}
+		mode := info.Mode()
+		if mode&0o111 == 0 {
+			// Canonical sources should stay executable; force +x on copies.
+			mode |= 0o111
+		}
+		for _, pkg := range copy.packages {
+			targetDir := filepath.Join(root, pkg)
+			if err := os.MkdirAll(targetDir, 0o755); err != nil {
+				return written, xerrors.Errorf("create package scripts dir %s: %w", pkg, err)
+			}
+			target := filepath.Join(targetDir, name)
+			if err := os.WriteFile(target, sourceText, mode.Perm()); err != nil {
+				return written, xerrors.Errorf("write packaged hook script %s: %w", filepath.Join(pkg, name), err)
+			}
+			written++
+		}
+	}
+	return written, nil
 }
 
 func checkClaude(root, version string) error {
