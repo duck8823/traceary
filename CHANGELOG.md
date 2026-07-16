@@ -5,6 +5,12 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.26.1] - 2026-07-16
+
+### Fixed
+- **Dotenv false positives** — sensitive-path classification requires a leading `.` (`.env` / `.env.*`); bare `env` and shell “env vars” boilerplate no longer flood `list --sensitive`.
+- **Replay timeline bloat** — timeline activity in HTML/Markdown replay uses the same 72-rune bounded projection as `traceary timeline`, so multi-MB prompt/transcript summaries are not embedded raw.
+
 ## [v0.26.0] - 2026-07-16
 
 ### Added

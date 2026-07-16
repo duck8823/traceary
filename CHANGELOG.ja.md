@@ -5,6 +5,12 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.26.1] - 2026-07-16
+
+### Fixed
+- **dotenv の誤検出** — sensitive-path は先頭の `.` を要求（`.env` / `.env.*`）。bare な `env` や shell の “env vars” 定型句で `list --sensitive` が溢れない。
+- **replay timeline の肥大化** — HTML/Markdown replay の timeline activity は `traceary timeline` と同じ 72 rune 上限を使い、数 MB の prompt/transcript 本文を生埋め込みしない。
+
 ## [v0.26.0] - 2026-07-16
 
 ### Added
