@@ -5,6 +5,24 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.25.0] - 2026-07-16
+
+### Fixed
+- **Retired `integration` command stubs (#1266)** — the leftover `traceary integration` subtree promised for removal after v0.20.x is gone. Unknown-command behavior is enforced in tests and the integrations verifier.
+
+### Changed
+- **Doctor and hook_runtime file splits (#1259)** — oversized `doctor.go` / `hook_runtime.go` hotspots are split along existing responsibilities without intentional behavior change, reducing change amplification for host work.
+- **Single-source packaged hook scripts (#1260)** — `scripts/hooks/*.sh` is the canonical source for compatibility wrappers (including prompt, compact, and Grok). Package membership is explicit; `integrations sync-hooks` rewrites copies and `integrations verify` fails on drift.
+- **Host coverage matrix source (#1261)** — `application/hostcoverage/matrix.json` is the machine-readable source for the lifecycle × host matrix. Bilingual docs tables are generated/verified from it, and doctor host-capability messages plus event-coverage enrichment expectations load the same embedded matrix.
+
+### Documentation
+- **Grok 0.2.101 re-probe (#1299, #1300)** — live re-probes still do not emit standalone `PostToolUseFailure` / `PermissionDenied` / `SessionEnd`, and subagent spawn uses the `spawn_subagent` tool only (no `SubagentStart`/`SubagentStop` parent/child hook contract). Coverage stays versioned in `docs/hooks/host-contract.json` with an explicit unavailable design note.
+
+### Notes
+- v0.25.0 has no destructive SQLite migration and adds no MCP tools.
+- **Deferred (explicit on #1312):** #1301 public Grok marketplace publication. Local-source install remains supported via `scripts/install-grok-plugin.sh` + `traceary doctor --client grok` from a matching release tag.
+- Memory inbox decay/restore (#1264) and archive-before-GC (#1309) remain outside this release (tracked under later milestones).
+
 ## [v0.24.0] - 2026-07-16
 
 ### Fixed
@@ -19,7 +37,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ### Notes
 - v0.24.0 has no destructive SQLite migration and adds no MCP tools.
-- **Deferred (explicit on #1310):** #1264 memory inbox decay/restore and #1309 archive-before-GC remain High-risk multi-PR tracks and are planned for v0.25.0. Automatic archive/GC stays fail-closed / opt-in when that work lands. Do not treat this tag as shipping those features.
+- **Deferred (explicit on #1310):** #1264 memory inbox decay/restore and #1309 archive-before-GC remain High-risk multi-PR tracks (later milestones; not shipped in v0.25.0). Automatic archive/GC stays fail-closed / opt-in when that work lands. Do not treat this tag as shipping those features.
 
 ## [v0.23.0] - 2026-07-14
 
