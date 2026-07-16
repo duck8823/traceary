@@ -120,9 +120,7 @@ go run ./cmd/repo-tooling integrations verify
 
 ## 旧 install/uninstall の削除 (v0.14.0, v0.15.0)
 
-`traceary integration codex install` は **v0.14.0** で削除されました (#920)。実行可能な install path としては機能しません。新規 install は上記の公式 `/plugins` flow を使ってください。旧コマンドを実行すると、v0.14.0 での削除と Codex 公式の `/plugins` flow を案内する usage error を返して終了します。
-
-`traceary integration codex uninstall` は **v0.15.0** で削除されました (#957)。install / uninstall いずれも hidden な stub 扱いとなり、実行すると Codex 公式の `/plugins` flow を案内する usage error で非ゼロ終了します。`traceary integration codex --help` にも uninstall は表示されません。
+`traceary integration codex install` は **v0.14.0** で削除されました (#920)。`traceary integration codex uninstall` は **v0.15.0** で削除されました (#957)。`traceary integration` コマンドツリー全体は **v0.25.0 で完全削除** されました (#1266)。呼び出しは unknown command として失敗します。新規 install / uninstall は上記の Codex 公式 `/plugins` flow を使ってください。
 
 ### 旧 install を残した環境向けの手動 cleanup
 

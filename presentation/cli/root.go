@@ -277,7 +277,6 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newTimelineCommand())
 	rootCmd.AddCommand(c.newCompletionCommand(rootCmd))
 	rootCmd.AddCommand(c.newHooksCommand())
-	rootCmd.AddCommand(c.newIntegrationCommand())
 	rootCmd.AddCommand(c.newDoctorCommand())
 	rootCmd.AddCommand(c.newMCPServerCommand())
 	rootCmd.AddCommand(c.newReplayCommand())

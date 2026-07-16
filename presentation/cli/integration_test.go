@@ -6,96 +6,55 @@ import (
 	"testing"
 )
 
-// TestRootCLI_IntegrationCodexInstallCommand_RemovedReportsReplacement
-// confirms that the legacy `traceary integration codex install` command
-// is no longer a working install path: it must exit with an error that
-// names the v0.14.0 removal and points at the Codex official `/plugins`
-// flow as the supported replacement (#920).
-func TestRootCLI_IntegrationCodexInstallCommand_RemovedReportsReplacement(t *testing.T) {
+// TestRootCLI_IntegrationSubtreeRemoved confirms the entire
+// `traceary integration` command tree was deleted in v0.25.0 (#1266).
+// Legacy invocations must fail as unknown commands (no migration stubs).
+func TestRootCLI_IntegrationSubtreeRemoved(t *testing.T) {
 	t.Parallel()
 
-	rootCmd := newTestRootCLI().Command()
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{
-		"integration",
-		"codex",
-		"install",
-		"--repo-root", "/tmp/traceary",
-		"--codex-home", "/tmp/.codex",
-		"--marketplace-root", "/tmp/agents/plugins",
-		"--traceary-bin", "/tmp/bin/traceary",
-	})
-
-	err := rootCmd.Execute()
-	if err == nil {
-		t.Fatalf("Execute() error = nil, want removed-install error")
-	}
-	msg := err.Error()
-	for _, want := range []string{"v0.14.0", "/plugins", "Traceary Plugins", "codex-plugin.md"} {
-		if !strings.Contains(msg, want) {
-			t.Fatalf("error %q missing %q", msg, want)
-		}
+	for _, args := range [][]string{
+		{"integration"},
+		{"integration", "codex", "install"},
+		{"integration", "codex", "uninstall"},
+	} {
+		args := args
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+			rootCmd := newTestRootCLI().Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(args)
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want unknown-command error after v0.25.0 removal", args)
+			}
+			msg := strings.ToLower(err.Error())
+			// Cobra unknown command / unknown subcommand wording.
+			if !strings.Contains(msg, "unknown") && !strings.Contains(msg, "invalid") && !strings.Contains(msg, "not found") {
+				// Also accept Japanese localization of unknown errors.
+				if !strings.Contains(err.Error(), "不明") && !strings.Contains(err.Error(), "未知") {
+					t.Fatalf("Execute(%v) error = %q, want unknown-command style failure", args, err)
+				}
+			}
+		})
 	}
 }
 
-// TestRootCLI_IntegrationCodexUninstallCommand_RemovedReportsReplacement
-// confirms that the cleanup-only `traceary integration codex uninstall`
-// command was removed in v0.15.0 and now exits with a usage error that
-// names the v0.15.0 removal and points at Codex's official `/plugins`
-// flow plus the manual cleanup steps documented in
-// docs/integrations/codex-plugin.md (#957).
-func TestRootCLI_IntegrationCodexUninstallCommand_RemovedReportsReplacement(t *testing.T) {
-	t.Parallel()
-
-	rootCmd := newTestRootCLI().Command()
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{
-		"integration",
-		"codex",
-		"uninstall",
-		"--codex-home", "/tmp/.codex",
-		"--marketplace-root", "/tmp/agents/plugins",
-	})
-
-	err := rootCmd.Execute()
-	if err == nil {
-		t.Fatalf("Execute() error = nil, want removed-uninstall error")
-	}
-	msg := err.Error()
-	for _, want := range []string{"v0.15.0", "/plugins", "codex-plugin.md"} {
-		if !strings.Contains(msg, want) {
-			t.Fatalf("error %q missing %q", msg, want)
-		}
-	}
-}
-
-// TestRootCLI_IntegrationCodexCommandsHiddenFromHelp confirms that the
-// `traceary integration codex --help` output advertises neither the
-// retired `install` command nor the retired `uninstall` command, so the
-// legacy surface is invisible from default help output (#920, #957).
-func TestRootCLI_IntegrationCodexCommandsHiddenFromHelp(t *testing.T) {
+// TestRootCLI_HelpDoesNotListIntegration confirms the removed subtree
+// is invisible from top-level help.
+func TestRootCLI_HelpDoesNotListIntegration(t *testing.T) {
 	t.Parallel()
 
 	rootCmd := newTestRootCLI().Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"integration", "codex", "--help"})
+	rootCmd.SetArgs([]string{"--help"})
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute(integration codex --help) error = %v", err)
+		t.Fatalf("Execute(--help) error = %v", err)
 	}
-
 	help := stdout.String()
-	available := extractAvailableCommandsBlock(help)
-	for _, hidden := range []string{"install", "uninstall"} {
-		if strings.Contains(available, hidden) {
-			t.Fatalf("traceary integration codex --help still advertises %q:\n%s", hidden, available)
-		}
+	if strings.Contains(extractAvailableCommandsBlock(help), "integration") {
+		t.Fatalf("traceary --help still lists integration:\n%s", help)
 	}
 }

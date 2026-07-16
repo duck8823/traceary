@@ -131,9 +131,7 @@ go run ./cmd/repo-tooling integrations verify
 
 ## Legacy install/uninstall removal (v0.14.0, v0.15.0)
 
-`traceary integration codex install` was retired in **v0.14.0** (#920) and is no longer a working install path. New installs must use the official `/plugins` flow documented above. Invoking the legacy command exits with a usage error that names the v0.14.0 removal and points at the Codex `/plugins` flow.
-
-`traceary integration codex uninstall` was retired in **v0.15.0** (#957). Both the install and uninstall surfaces are now hidden stubs that exit non-zero with a usage error pointing at Codex's official `/plugins` flow as the supported install/uninstall path. The retired uninstall command no longer appears in `traceary integration codex --help`.
+`traceary integration codex install` was retired in **v0.14.0** (#920). `traceary integration codex uninstall` was retired in **v0.15.0** (#957). The entire `traceary integration` command tree was **fully removed in v0.25.0** (#1266); invocations fail as unknown commands. New installs and uninstalls must use the official Codex `/plugins` flow documented above.
 
 ### Manual cleanup for legacy installs
 

@@ -458,39 +458,27 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 	return checkCodexRemovedCommands(root)
 }
 
-// checkCodexRemovedCommands smokes the hidden install/uninstall stubs that
-// v0.14.0 (#920) and v0.15.0 (#957) retired: both must exit non-zero and point
-// at Codex's official /plugins flow.
+// checkCodexRemovedCommands asserts the entire `integration` command tree was
+// deleted in v0.25.0 (#1266). Legacy install/uninstall paths must fail as
+// unknown commands (no migration stubs remain).
 func checkCodexRemovedCommands(root string) error {
-	install, err := runTraceary(root, "integration", "codex", "install")
-	if err != nil {
-		return err
-	}
-	if install.exitCode == 0 {
-		return xerrors.Errorf("codex install command must exit non-zero after v0.14.0 removal")
-	}
-	if !strings.Contains(install.output, "v0.14.0") {
-		return xerrors.Errorf("codex install removal message must name v0.14.0")
-	}
-	if !strings.Contains(install.output, "/plugins") {
-		return xerrors.Errorf("codex install removal message must point at the Codex /plugins flow")
-	}
-
-	uninstall, err := runTraceary(root, "integration", "codex", "uninstall")
-	if err != nil {
-		return err
-	}
-	if uninstall.exitCode == 0 {
-		return xerrors.Errorf("codex uninstall command must exit non-zero after v0.15.0 removal")
-	}
-	if !strings.Contains(uninstall.output, "v0.15.0") {
-		return xerrors.Errorf("codex uninstall removal message must name v0.15.0")
-	}
-	if !strings.Contains(uninstall.output, "/plugins") {
-		return xerrors.Errorf("codex uninstall removal message must point at the Codex /plugins flow")
-	}
-	if !strings.Contains(uninstall.output, "codex-plugin.md") {
-		return xerrors.Errorf("codex uninstall removal message must reference the manual cleanup guide")
+	for _, args := range [][]string{
+		{"integration"},
+		{"integration", "codex", "install"},
+		{"integration", "codex", "uninstall"},
+	} {
+		result, err := runTraceary(root, args...)
+		if err != nil {
+			return err
+		}
+		if result.exitCode == 0 {
+			return xerrors.Errorf("%q must exit non-zero after v0.25.0 integration subtree removal", strings.Join(args, " "))
+		}
+		lower := strings.ToLower(result.output)
+		if !strings.Contains(lower, "unknown") && !strings.Contains(lower, "invalid") &&
+			!strings.Contains(result.output, "不明") && !strings.Contains(result.output, "未知") {
+			return xerrors.Errorf("%q must fail as unknown command after v0.25.0 removal; got: %s", strings.Join(args, " "), result.output)
+		}
 	}
 	return nil
 }

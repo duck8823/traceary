@@ -67,7 +67,7 @@ v0.15 の admin コマンド：
 
 これらは `traceary --help` から非表示です。v0.15 の hidden surface は 2 種類あります。
 
-- **削除済み名向けの migration-error stub** — 廃止済みの `integration codex install` / `integration codex uninstall` は、具体的な置き換え先を返す hidden stub として登録されています。これは動作する alias ではありません。legacy flag を保持せず、旧挙動も実行せず、古い呼び出しに Cobra の generic unknown-command ではなく具体的な migration error を返すためだけに存在します。v0.14.0 で削除された旧 top-level alias と v0.15.0 で削除された flat memory alias は v0.20.0 時点で stub を登録しなくなりました。削除された top-level 名（`traceary init` など）は Cobra の unknown-command エラーになり、削除された `traceary memory <verb>` 系は登録済みサブコマンドではなくなったため、v0.20.0 以降（#1142）は他の未知サブコマンドと同様に `unknown subcommand` エラー（非ゼロ終了）になります。詳細は下の Historical removal log を参照してください。
+- **削除済み名（stub なし）** — 旧 top-level alias（v0.14.0）、flat memory alias（v0.15.0）、および `traceary integration` サブツリー全体（v0.25.0 で完全削除、#1266）は migration stub を登録しません。Cobra の unknown-command / unknown-subcommand エラーで非ゼロ終了します。詳細は下の Historical removal log を参照してください。
 - **hook runtime 入口** — 同梱の Traceary hook スクリプトから呼び出される内部コマンドです。
 
 同梱の Traceary hook スクリプトから呼び出される hidden ランタイム入口（`Hidden: true` で登録、stderr 非推奨通知は出さない）：
@@ -87,7 +87,7 @@ v0.15 の admin コマンド：
 - v0.14.0 で削除: `traceary init` → `traceary store init`、`traceary backup` → `traceary store backup ...`、`traceary gc` → `traceary store gc`、`traceary handoff` → `traceary session handoff`、`traceary compact-summary` → `traceary session handoff --compact-only`、廃止済み `traceary integration codex install` helper → Codex 公式 `/plugins` flow。
 - v0.15.0 で削除: `traceary memory accept`、`traceary memory reject`、`traceary memory remember`、`traceary memory propose`、`traceary memory distill`、`traceary memory extract`、`traceary memory supersede`、`traceary memory expire`、`traceary memory set-validity`、`traceary memory import codex`、`traceary memory import instructions`、`traceary memory export`、`traceary memory activate`、`traceary memory hygiene scan`、`traceary memory hygiene apply`、`traceary memory graph add`、`traceary memory graph list`。canonical な `memory inbox` / `memory store` / `memory admin` path を CLI リファレンスに従って使ってください。
 - v0.15.0 で削除: `traceary integration codex uninstall` → Codex 公式 `/plugins` flow と `docs/integrations/codex-plugin.md` の手動 cleanup 手順。
-- v0.20.0 で非表示化・v0.21.0 で削除予定: `traceary integration` コマンド subtree（`integration` 親と `codex` group）。子は上記の hidden migration stub のみのため、親は `traceary --help` に表示されなくなりました。stub は v0.21.0 の削除まで migration error を返し続けます。
+- v0.20.0 で非表示化・v0.25.0 で完全削除 (#1266): `traceary integration` コマンド subtree（`integration` 親、`codex` group、および install/uninstall の旧 migration stub）。呼び出しは unknown command として失敗します。Codex CLI 公式の `/plugins` flow を使ってください。
 
 ## 非推奨通知の出し方
 
