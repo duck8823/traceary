@@ -53,6 +53,7 @@ maintainer-only の repository automation は性質が異なります。
 最終的には、次のような subcommand に寄せます。
 
 - `go run ./cmd/repo-tooling integrations verify`
+- `go run ./cmd/repo-tooling integrations sync-hooks`
 - `go run ./cmd/repo-tooling docs verify-i18n`
 - `go run ./cmd/repo-tooling docs verify-antigravity-status`
 - `go run ./cmd/repo-tooling release verify-changelog`

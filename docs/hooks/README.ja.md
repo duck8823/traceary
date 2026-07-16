@@ -14,11 +14,13 @@ host ごとのネイティブ連携パッケージを使いたい場合は、ま
 
 ## 含まれるファイル
 
-- `scripts/hooks/*.sh`: `traceary hook ...` へ委譲する互換ラッパー
+- `scripts/hooks/*.sh`: **canonical** な互換ラッパー（`traceary hook ...` へ委譲）
 - `examples/hooks/claude.settings.json`: Claude Code の設定例
 - `examples/hooks/codex.hooks.json`: Codex CLI の設定例
 - `examples/hooks/gemini.settings.json`: Gemini CLI の設定例
 - `integrations/` と `plugins/` の配布パッケージには、bundle 形式の都合で必要な wrapper copy も含まれます
+
+編集は `scripts/hooks/` のみ行い、続けて `go run ./cmd/repo-tooling integrations sync-hooks` を実行して Claude / Codex / Gemini / Grok パッケージのコピーをバイト一致に保ちます。コピーがドリフトすると `integrations verify`（CI）が失敗します。
 
 新しく生成する hook 設定では、`~/.config/traceary/hook-scripts` へ portable script をインストールしません。新しい runtime 経路を使うには、hook 設定を再生成するか、配布済み integration package を使ってください。
 

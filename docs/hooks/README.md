@@ -14,11 +14,13 @@ If you want host-native packages instead of manual hook wiring, start with the [
 
 ## Files
 
-- `scripts/hooks/*.sh`: compatibility wrappers that delegate to `traceary hook ...`
+- `scripts/hooks/*.sh`: **canonical** compatibility wrappers that delegate to `traceary hook ...`
 - `examples/hooks/claude.settings.json`: Claude Code example
 - `examples/hooks/codex.hooks.json`: Codex CLI example
 - `examples/hooks/gemini.settings.json`: Gemini CLI example
 - packaged host integrations under `integrations/` and `plugins/` ship matching wrapper copies when the bundle format still expects script assets
+
+Edit only `scripts/hooks/`, then run `go run ./cmd/repo-tooling integrations sync-hooks` so Claude / Codex / Gemini / Grok package copies stay byte-identical. `integrations verify` (CI) fails when a packaged copy drifts.
 
 Traceary no longer installs portable hook-script copies under `~/.config/traceary/hook-scripts` for generated configs. Regenerate the hook config, or use a packaged integration, when you want the runtime entrypoint to stay `traceary hook ...`.
 

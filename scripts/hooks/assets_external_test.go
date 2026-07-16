@@ -25,6 +25,7 @@ func TestAssets_returnsAllCanonicalScripts(t *testing.T) {
 		"traceary-audit.sh":   false,
 		"traceary-compact.sh": false,
 		"traceary-prompt.sh":  false,
+		"traceary-grok.sh":    false,
 	}
 
 	for _, asset := range assets {
@@ -40,8 +41,9 @@ func TestAssets_returnsAllCanonicalScripts(t *testing.T) {
 			t.Errorf("asset %q contains CRLF line endings", asset.Name())
 		}
 
-		if !strings.HasPrefix(asset.Content(), "#!/bin/bash") {
-			t.Errorf("asset %q does not start with shebang", asset.Name())
+		// Shared wrappers use bash; the Grok host entrypoint is POSIX sh.
+		if !strings.HasPrefix(asset.Content(), "#!/bin/bash") && !strings.HasPrefix(asset.Content(), "#!/bin/sh") {
+			t.Errorf("asset %q does not start with a shell shebang", asset.Name())
 		}
 	}
 
