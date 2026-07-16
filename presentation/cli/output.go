@@ -83,6 +83,10 @@ type sessionTreeNode struct {
 // that already destructure `sessions[*]` keep working — only the
 // outer wrapping is new.
 type topSnapshotPayload struct {
+	// Profile names the JSON projection. Omitted for the default operator
+	// envelope so existing consumers keep an unchanged shape; set to "ai"
+	// for the bounded agent-resume projection.
+	Profile        string                 `json:"profile,omitempty"`
 	Sessions       []*topSnapshotNode     `json:"sessions"`
 	Failures       []event                `json:"failures"`
 	RecentCommands []event                `json:"recent_commands"`

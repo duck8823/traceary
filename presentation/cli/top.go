@@ -35,6 +35,23 @@ const shortTopSessionIDLength = 12
 
 var topNowFunc = time.Now
 
+// topSnapshotProfile values control the JSON projection for
+// `sessions --snapshot --json` / `top --snapshot --json`.
+const (
+	topSnapshotProfileOperator = "operator"
+	topSnapshotProfileAI       = "ai"
+)
+
+// AI-safe pane caps keep the agent-resume envelope small. The operator
+// snapshot keeps the larger dashboard pane limits.
+const (
+	topAIPaneFailureLimit       = 5
+	topAIPaneRecentCommandLimit = 5
+	topAIPaneCandidateLimit     = 0 // counts only; no candidate facts
+	topAIPaneStaleMemoryLimit   = 0
+	topAISessionSampleLimit     = 20
+)
+
 type topCommandOptions struct {
 	dbPath     string
 	workspace  string
@@ -43,6 +60,7 @@ type topCommandOptions struct {
 	idle       time.Duration
 	snapshot   bool
 	asJSON     bool
+	profile    string
 	limit      int
 	staleAfter time.Duration
 	allowStale bool
@@ -98,6 +116,15 @@ func bindTopFlags(cmd *cobra.Command, opts *topCommandOptions) {
 	cmd.Flags().DurationVar(&opts.idle, "idle", 10*time.Minute, Localize("dim sessions whose latest activity is older than this duration", "最新 activity がこの duration より古い session を dim 表示する"))
 	cmd.Flags().BoolVar(&opts.snapshot, "snapshot", false, Localize("print one snapshot and exit", "一回限りの snapshot を出力して終了する"))
 	cmd.Flags().BoolVar(&opts.asJSON, "json", false, Localize("print JSON output with --snapshot", "--snapshot と併用して JSON 形式で出力する"))
+	cmd.Flags().StringVar(
+		&opts.profile,
+		"profile",
+		topSnapshotProfileOperator,
+		Localize(
+			"snapshot JSON profile: operator (default full dashboard envelope) or ai (bounded agent-resume envelope)",
+			"snapshot JSON の profile: operator（既定のフル dashboard envelope）または ai（AI resume 向けに bound した envelope）",
+		),
+	)
 	cmd.Flags().IntVar(&opts.limit, "limit", defaultTopLimit, Localize("maximum number of sessions to load", "読み込む最大セッション数"))
 	cmd.Flags().DurationVar(
 		&opts.staleAfter,
@@ -117,6 +144,25 @@ func bindTopFlags(cmd *cobra.Command, opts *topCommandOptions) {
 			"stale な active session も含めて表示し、JSON snapshot に is_stale メタデータを出力する",
 		),
 	)
+}
+
+// normalizeTopSnapshotProfile returns the canonical profile name or an error
+// when the value is not supported.
+func normalizeTopSnapshotProfile(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", topSnapshotProfileOperator:
+		return topSnapshotProfileOperator, nil
+	case topSnapshotProfileAI:
+		return topSnapshotProfileAI, nil
+	default:
+		return "", xerrors.Errorf(
+			"%s",
+			Localize(
+				"--profile must be operator or ai",
+				"--profile は operator または ai でなければなりません",
+			),
+		)
+	}
 }
 
 func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandOptions) error {
@@ -143,18 +189,42 @@ func (c *RootCLI) runTopNamed(ctx context.Context, output io.Writer, opts topCom
 		return xerrors.Errorf("%s", Localize("idle must be >= 0", "idle は 0 以上でなければなりません"))
 	}
 
+	profile, err := normalizeTopSnapshotProfile(opts.profile)
+	if err != nil {
+		return err
+	}
+	opts.profile = profile
+
 	if opts.snapshot {
 		snap, err := c.loadTopSnapshot(ctx, opts)
 		if err != nil {
 			return err
 		}
 		if opts.asJSON {
-			return writeTopSnapshotJSON(output, snap)
+			return writeTopSnapshotJSON(output, snap, opts.profile)
+		}
+		if opts.profile == topSnapshotProfileAI {
+			return xerrors.Errorf(
+				"%s",
+				Localize(
+					"--profile ai requires --snapshot --json",
+					"--profile ai には --snapshot --json が必要です",
+				),
+			)
 		}
 		return writeTopSnapshotText(output, snap, opts.idle, snap.Now)
 	}
 	if opts.asJSON {
 		return xerrors.Errorf("%s", Localize("--json requires --snapshot", "--json には --snapshot が必要です"))
+	}
+	if opts.profile == topSnapshotProfileAI {
+		return xerrors.Errorf(
+			"%s",
+			Localize(
+				"--profile ai requires --snapshot --json",
+				"--profile ai には --snapshot --json が必要です",
+			),
+		)
 	}
 	return c.runTopTUI(ctx, output, opts, commandName)
 }
@@ -163,17 +233,32 @@ func (c *RootCLI) runTopNamed(ctx context.Context, output io.Writer, opts topCom
 // using the same per-pane caps the live dashboard applies. The session pane
 // reuses the operator-controlled --limit flag; the secondary panes
 // intentionally use the small dashboard caps so the script-friendly snapshot
-// does not balloon under a noisy workspace.
+// does not balloon under a noisy workspace. The ai profile uses tighter
+// pane caps so agent-resume payloads stay bounded.
 func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (topDataSnapshot, error) {
+	sessionLimit := opts.limit
+	failureLimit := topPaneFailureLimit
+	commandLimit := topPaneRecentCommandLimit
+	candidateLimit := topPaneCandidateLimit
+	staleLimit := topPaneStaleMemoryLimit
+	if opts.profile == topSnapshotProfileAI {
+		if sessionLimit > topAISessionSampleLimit {
+			sessionLimit = topAISessionSampleLimit
+		}
+		failureLimit = topAIPaneFailureLimit
+		commandLimit = topAIPaneRecentCommandLimit
+		candidateLimit = topAIPaneCandidateLimit
+		staleLimit = topAIPaneStaleMemoryLimit
+	}
 	criteria := topDataCriteria{
 		Workspace:          opts.workspace,
 		Client:             opts.client,
 		Agent:              opts.agent,
-		SessionLimit:       opts.limit,
-		FailureLimit:       topPaneFailureLimit,
-		RecentCommandLimit: topPaneRecentCommandLimit,
-		CandidateLimit:     topPaneCandidateLimit,
-		StaleMemoryLimit:   topPaneStaleMemoryLimit,
+		SessionLimit:       sessionLimit,
+		FailureLimit:       failureLimit,
+		RecentCommandLimit: commandLimit,
+		CandidateLimit:     candidateLimit,
+		StaleMemoryLimit:   staleLimit,
 		StaleAfter:         opts.staleAfter,
 		AllowStale:         opts.allowStale,
 		Now:                topNowFunc(),

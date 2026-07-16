@@ -522,8 +522,8 @@ func TestWriteTopSnapshotJSON_EmitsStaleActiveMetadata(t *testing.T) {
 		StaleAfter: 24 * time.Hour,
 		AllowStale: true,
 		Now:        now,
-	}); err != nil {
-		t.Fatalf("writeTopSnapshotJSON() error = %v", err)
+	}, topSnapshotProfileOperator); err != nil {
+		t.Fatalf("writeTopSnapshotJSON(, topSnapshotProfileOperator) error = %v", err)
 	}
 
 	var payload struct {
@@ -1233,8 +1233,8 @@ func TestWriteTopSnapshotJSON_EmitsReliabilityShape(t *testing.T) {
 				BodyLimitRunes:     apptypes.DefaultTopSnapshotBodyLimit,
 			},
 		},
-	}); err != nil {
-		t.Fatalf("writeTopSnapshotJSON() error = %v", err)
+	}, topSnapshotProfileOperator); err != nil {
+		t.Fatalf("writeTopSnapshotJSON(, topSnapshotProfileOperator) error = %v", err)
 	}
 
 	var payload struct {

@@ -2,9 +2,11 @@ package cli
 
 import (
 	"io"
+	"strings"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 )
 
 // writeTopSnapshotJSON renders the top dashboard snapshot as the
@@ -13,7 +15,19 @@ import (
 // shape; `failures`, `recent_commands`, `candidates`, and `stale_memories`
 // mirror the new dashboard panes so a script that consumes the snapshot has
 // the same data the live dashboard renders.
-func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
+//
+// profile selects the projection:
+//   - operator (default): full dashboard envelope (unchanged shape)
+//   - ai: bounded agent-resume envelope — counts/health + event IDs and
+//     retrieval hints instead of large bodies and memory candidate facts
+func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot, profile string) error {
+	if profile == topSnapshotProfileAI {
+		return writeTopSnapshotJSONAI(output, snap)
+	}
+	return writeTopSnapshotJSONOperator(output, snap)
+}
+
+func writeTopSnapshotJSONOperator(output io.Writer, snap topDataSnapshot) error {
 	staleCtx := snapshotStaleContext{
 		staleAfter: snap.StaleAfter,
 		now:        snap.Now,
@@ -68,6 +82,93 @@ func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot) error {
 		Reliability: topSnapshotReliabilityFromMetrics(snap.Reliability),
 	}
 	return writeJSON(output, payload)
+}
+
+// writeTopSnapshotJSONAI projects a bounded agent-resume envelope. It keeps
+// session identity + retrieval hints, small failure/command samples without
+// bodies, and memory counts/hygiene without candidate facts. Full detail stays
+// available via `traceary show <event_id>` and operator snapshot mode.
+func writeTopSnapshotJSONAI(output io.Writer, snap topDataSnapshot) error {
+	staleCtx := snapshotStaleContext{
+		staleAfter: snap.StaleAfter,
+		now:        snap.Now,
+	}
+	if staleCtx.now.IsZero() {
+		staleCtx.now = time.Now()
+	}
+	sessions := make([]*topSnapshotNode, 0, len(snap.Sessions))
+	for _, root := range snap.Sessions {
+		node := topSnapshotNodeFromSessionNode(root, 0, staleCtx)
+		stripTopSnapshotBodiesForAI(node)
+		sessions = append(sessions, node)
+	}
+
+	failures := make([]event, 0, len(snap.Failures))
+	for _, ev := range snap.Failures {
+		failures = append(failures, newAISafeEventHint(ev))
+	}
+	commands := make([]event, 0, len(snap.RecentCommands))
+	for _, ev := range snap.RecentCommands {
+		commands = append(commands, newAISafeEventHint(ev))
+	}
+
+	reliability := topSnapshotReliabilityFromMetrics(snap.Reliability)
+	// Reliability already carries candidate hygiene and counts; omit item arrays.
+	payload := topSnapshotPayload{
+		Profile:        topSnapshotProfileAI,
+		Sessions:       sessions,
+		Failures:       failures,
+		RecentCommands: commands,
+		Candidates: topSnapshotCandidates{
+			Count:               reliability.Memory.CandidateCount,
+			RememberIntentCount: snap.RememberIntentCandidateCount,
+			Items:               []memorySummaryOutput{},
+		},
+		StaleMemories: topSnapshotStale{
+			Count: snap.StaleMemories.Count(),
+			Items: []staleMemoryOutput{},
+		},
+		Reliability: reliability,
+	}
+	return writeJSON(output, payload)
+}
+
+// stripTopSnapshotBodiesForAI removes latest-event message bodies from the
+// session tree while preserving IDs so agents can `traceary show` on demand.
+func stripTopSnapshotBodiesForAI(node *topSnapshotNode) {
+	if node == nil {
+		return
+	}
+	if node.LatestEventID != "" {
+		node.LatestEventMessage = largePayloadRetrievalHint(node.LatestEventID)
+	} else {
+		node.LatestEventMessage = ""
+	}
+	node.LatestEventMessageTruncated = false
+	node.LatestEventMessageLength = 0
+	node.LatestEventMessageBytes = 0
+	for _, child := range node.Children {
+		stripTopSnapshotBodiesForAI(child)
+	}
+}
+
+// newAISafeEventHint keeps identity + kind metadata and replaces the body with
+// an explicit detail-read retrieval hint.
+func newAISafeEventHint(ev *model.Event) event {
+	if ev == nil {
+		return event{}
+	}
+	out := newEventOutput(ev)
+	id := strings.TrimSpace(out.EventID)
+	if id != "" {
+		out.Message = largePayloadRetrievalHint(id)
+	} else {
+		out.Message = ""
+	}
+	out.Truncated = false
+	out.MessageLength = 0
+	out.MessageBytes = 0
+	return out
 }
 
 func topSnapshotReliabilityFromMetrics(metrics topReliabilityMetrics) topSnapshotReliability {
