@@ -5,6 +5,22 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.26.0] - 2026-07-16
+
+### Added
+- **Sensitive-path audit classification (#1257)** — command audits are classified for dotenv / SSH / cloud credential / browser profile / key material intent as a claim separate from secret redaction and host capture coverage. `traceary list --sensitive`, `show --json` `command_audit.sensitive`, and doctor `sensitive-access-audit` surface matches without blocking.
+- **Host-reported session model (#1265)** — additive `sessions.model` stores opaque host-provided model strings when present (Claude/Codex hooks). Empty when the host omits model; never fabricated. JSON sessions include `model,omitempty`.
+- **Markdown replay (#1262)** — `traceary replay --format markdown` writes a GitHub-renderable digest with truncated, fence-safe plain bodies. Default HTML path is unchanged.
+- **Period-scoped retrospective report (#1263)** — `traceary report` aggregates sessions, capture coverage, failures, failure_loops, and top commands over `[from,to)` (default last 7 days). Exit code stays 0 on successful reads.
+
+### Documentation
+- **OTel GenAI export decision (#1258)** — documented no-go for network GenAI export while conventions remain experimental; local-first default retained (`docs/research/otel-genai-export.md`).
+- **Next-host evaluation (#1256)** — Copilot CLI preferred candidate; opencode secondary watch; no host package in this release (`docs/research/next-host-evaluation.md`).
+
+### Notes
+- v0.26.0 has no destructive SQLite migration beyond additive `sessions.model`.
+- No MCP tools added. No default network telemetry.
+
 ## [v0.25.0] - 2026-07-16
 
 ### Fixed
