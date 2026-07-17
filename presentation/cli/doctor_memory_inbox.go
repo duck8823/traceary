@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 
+	"golang.org/x/xerrors"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
@@ -66,7 +68,7 @@ func (c *RootCLI) inspectMemoryInboxSaturation(ctx context.Context) doctorCheck 
 				Dedupe:    true,
 			})
 			if err != nil {
-				return "", err
+				return "", xerrors.Errorf("%s: %w", Localize("memory decay fix failed", "memory decay の自動修正に失敗しました"), err)
 			}
 			return localizef(
 				"memory decay applied: expired=%d superseded=%d remaining=%d",
