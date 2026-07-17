@@ -120,12 +120,12 @@ func (c *RootCLI) runMemoryDecay(ctx context.Context, output io.Writer, input me
 	_, err = fmt.Fprintf(output, "memory decay (%s): scanned=%d expired=%d superseded=%d remaining=%d older_than=%s\n",
 		mode, result.Scanned, len(result.ExpiredIDs), len(result.SupersededIDs), result.RemainingAfter, result.OlderThan)
 	if err != nil {
-		return err
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory decay summary", "memory decay サマリの出力に失敗しました"), err)
 	}
 	if len(result.ExpiredIDs) > 0 && len(result.ExpiredIDs) <= 20 {
 		for _, id := range result.ExpiredIDs {
 			if _, err := fmt.Fprintf(output, "  expire %s\n", id); err != nil {
-				return err
+				return xerrors.Errorf("%s: %w", Localize("failed to print memory decay id", "memory decay id の出力に失敗しました"), err)
 			}
 		}
 	}
@@ -159,7 +159,7 @@ func (c *RootCLI) runMemoryInboxRestore(ctx context.Context, output io.Writer, i
 			Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusExpired}).
 			Build())
 		if err != nil {
-			return err
+			return xerrors.Errorf("%s: %w", Localize("failed to list expired memories", "expired メモリの一覧取得に失敗しました"), err)
 		}
 		for _, s := range summaries {
 			if exp, ok := s.ExpiresAt().Value(); ok && !exp.Before(t) {
@@ -175,7 +175,7 @@ func (c *RootCLI) runMemoryInboxRestore(ctx context.Context, output io.Writer, i
 	for _, raw := range ids {
 		mid, err := domtypes.MemoryIDFrom(strings.TrimSpace(raw))
 		if err != nil {
-			return err
+			return xerrors.Errorf("%s: %w", Localize("invalid memory id", "不正な memory id です"), err)
 		}
 		if _, err := c.memory.Restore(ctx, mid); err != nil {
 			return xerrors.Errorf("restore %s: %w", mid, err)
@@ -185,8 +185,13 @@ func (c *RootCLI) runMemoryInboxRestore(ctx context.Context, output io.Writer, i
 	if input.asJSON {
 		enc := json.NewEncoder(output)
 		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any{"restored": restored})
+		if err := enc.Encode(map[string]any{"restored": restored}); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to encode restore result", "restore 結果の JSON 出力に失敗しました"), err)
+		}
+		return nil
 	}
-	_, err = fmt.Fprintf(output, "restored %d memory candidate(s)\n", len(restored))
-	return err
+	if _, err = fmt.Fprintf(output, "restored %d memory candidate(s)\n", len(restored)); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print restore summary", "restore サマリの出力に失敗しました"), err)
+	}
+	return nil
 }
