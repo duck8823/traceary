@@ -363,6 +363,44 @@ func (m *Memory) Expire(expiresAt time.Time) error {
 	return nil
 }
 
+// EligibleForDecay reports whether this memory may be auto-expired under the
+// given policy at now. Only candidates with an allowed auto-source whose
+// updated_at is strictly older than the policy threshold are eligible.
+// Accepted, rejected, superseded, and expired memories never decay.
+func (m *Memory) EligibleForDecay(policy types.MemoryDecayPolicy, now time.Time) bool {
+	if m.status != types.MemoryStatusCandidate {
+		return false
+	}
+	if !policy.AllowsSource(m.source) {
+		return false
+	}
+	cutoff := now.UTC().Add(-policy.OlderThan())
+	return m.updatedAt.UTC().Before(cutoff)
+}
+
+// MarkCandidateSupersededByDuplicate transitions a candidate to superseded
+// after an exact-duplicate collapse kept a newer representative row.
+func (m *Memory) MarkCandidateSupersededByDuplicate() error {
+	if m.status != types.MemoryStatusCandidate {
+		return ErrInvalidMemoryState
+	}
+	m.status = types.MemoryStatusSuperseded
+	m.updatedAt = m.now()
+	return nil
+}
+
+// RestoreToCandidate transitions an expired memory back to candidate and
+// clears the lifecycle expiresAt stamp so it re-enters the review inbox.
+func (m *Memory) RestoreToCandidate() error {
+	if m.status != types.MemoryStatusExpired {
+		return ErrInvalidMemoryState
+	}
+	m.status = types.MemoryStatusCandidate
+	m.expiresAt = types.None[time.Time]()
+	m.updatedAt = m.now()
+	return nil
+}
+
 func (m *Memory) now() time.Time {
 	return clockOrSystem(m.clock).Now()
 }

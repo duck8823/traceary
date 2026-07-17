@@ -334,3 +334,101 @@ func TestMemory_AttachRefsCandidateOnly(t *testing.T) {
 		t.Fatalf("AttachRefs() on accepted memory error = %v, want ErrInvalidMemoryState", err)
 	}
 }
+
+func TestMemory_EligibleForDecay(t *testing.T) {
+	t.Parallel()
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)
+	policy, err := types.MemoryDecayPolicyOf(30*24*time.Hour, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("returns true for extracted candidate older than threshold", func(t *testing.T) {
+		t.Parallel()
+		m := mustCandidate(t, types.MemorySourceExtracted, old)
+		if !m.EligibleForDecay(policy, now) {
+			t.Fatal("want eligible")
+		}
+	})
+	t.Run("returns false for remember-intent and manual sources regardless of age", func(t *testing.T) {
+		t.Parallel()
+		for _, src := range []types.MemorySource{types.MemorySourceRememberIntent, types.MemorySourceManual} {
+			m := mustCandidate(t, src, old)
+			if m.EligibleForDecay(policy, now) {
+				t.Fatalf("source %s must not be eligible", src)
+			}
+		}
+	})
+	t.Run("returns false for accepted memory", func(t *testing.T) {
+		t.Parallel()
+		m := mustCandidate(t, types.MemorySourceExtracted, old)
+		if err := m.Accept(types.ConfidenceHigh); err != nil {
+			t.Fatal(err)
+		}
+		if m.EligibleForDecay(policy, now) {
+			t.Fatal("accepted must not decay")
+		}
+	})
+}
+
+func TestMemory_MarkCandidateSupersededByDuplicate(t *testing.T) {
+	t.Parallel()
+	m := mustCandidate(t, types.MemorySourceExtracted, time.Now().UTC())
+	if err := m.MarkCandidateSupersededByDuplicate(); err != nil {
+		t.Fatal(err)
+	}
+	if m.Status() != types.MemoryStatusSuperseded {
+		t.Fatalf("status = %s", m.Status())
+	}
+	accepted := mustCandidate(t, types.MemorySourceExtracted, time.Now().UTC())
+	_ = accepted.Accept(types.ConfidenceHigh)
+	if err := accepted.MarkCandidateSupersededByDuplicate(); !errors.Is(err, model.ErrInvalidMemoryState) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestMemory_RestoreToCandidate(t *testing.T) {
+	t.Parallel()
+	m := mustCandidate(t, types.MemorySourceExtracted, time.Now().UTC())
+	if err := m.Expire(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RestoreToCandidate(); err != nil {
+		t.Fatal(err)
+	}
+	if m.Status() != types.MemoryStatusCandidate {
+		t.Fatalf("status = %s", m.Status())
+	}
+	if _, ok := m.ExpiresAt().Value(); ok {
+		t.Fatal("expiresAt must be cleared")
+	}
+	if err := m.RestoreToCandidate(); !errors.Is(err, model.ErrInvalidMemoryState) {
+		t.Fatalf("restore non-expired err = %v", err)
+	}
+	rejected := mustCandidate(t, types.MemorySourceExtracted, time.Now().UTC())
+	_ = rejected.Reject()
+	if err := rejected.RestoreToCandidate(); !errors.Is(err, model.ErrInvalidMemoryState) {
+		t.Fatalf("restore rejected err = %v", err)
+	}
+}
+
+func mustCandidate(t *testing.T, source types.MemorySource, at time.Time) *model.Memory {
+	t.Helper()
+	id, _ := types.MemoryIDFrom("mem-decay-" + string(source) + at.Format("150405.000"))
+	m, err := model.NewMemoryCandidateWithClock(
+		id,
+		types.MemoryTypeDecision,
+		types.WorkspaceScopeOf(types.Workspace("github.com/duck8823/traceary")),
+		"fact for decay tests",
+		source,
+		nil,
+		nil,
+		types.None[types.MemoryID](),
+		fakeClock{now: at},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
