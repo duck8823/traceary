@@ -4,6 +4,12 @@
 
 Traceary supports three public CLI installation paths and release-coupled agent packages.
 
+## After upgrading the binary
+
+Host plugins are **not** upgraded by Homebrew or `go install`. Follow the bilingual checklist:
+
+- [Post-upgrade plugin refresh](./post-upgrade-plugins.md)
+
 ## Install
 
 ### `go install`
