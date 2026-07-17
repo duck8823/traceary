@@ -226,6 +226,7 @@ func (c *RootCLI) runHookSession(
 		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
 			SessionID: sessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "session_end",
 		})
+		c.runHookMemoryDecayBestEffort(ctx, resolvedDBPath)
 		return nil
 	case "stop":
 		// Codex fires Stop after every assistant response, not when the
@@ -276,6 +277,8 @@ func (c *RootCLI) runHookSession(
 		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
 			SessionID: sessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "turn_boundary",
 		})
+		// Turn-boundary extraction only; decay is reserved for true session-end
+		// and subagent-stop so multi-turn hosts are not taxed every Stop.
 		return nil
 	default:
 		return xerrors.Errorf("unsupported hook session action: %s", action)
