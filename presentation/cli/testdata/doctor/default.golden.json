@@ -135,6 +135,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "memory-inbox-saturation",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Hooks",
+      "message": "memory usecase is not configured",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "hook-grok-transcript",
       "status": "pass",
       "severity": "PASS",
@@ -369,6 +379,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "memory-inbox-saturation",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Hooks",
+          "message": "memory usecase is not configured",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "hook-grok-transcript",
           "status": "pass",
           "severity": "PASS",
@@ -392,7 +412,7 @@
     }
   ],
   "summary": {
-    "pass": 16,
+    "pass": 17,
     "warn": 2,
     "fail": 0
   },

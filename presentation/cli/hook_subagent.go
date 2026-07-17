@@ -210,6 +210,7 @@ func (c *RootCLI) runHookSubagentStop(
 		if memoryExtractRequest != nil {
 			c.scheduleHookMemoryExtract(*memoryExtractRequest)
 		}
+		c.runHookMemoryDecayBestEffort(ctx, resolvedDBPath)
 		return nil
 	}
 	subagentType := hookPayloadString(payload, "subagent_type", "")
@@ -220,5 +221,6 @@ func (c *RootCLI) runHookSubagentStop(
 	if memoryExtractRequest != nil {
 		c.scheduleHookMemoryExtract(*memoryExtractRequest)
 	}
+	c.runHookMemoryDecayBestEffort(ctx, resolvedDBPath)
 	return nil
 }
