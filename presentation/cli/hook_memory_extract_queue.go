@@ -27,6 +27,17 @@ const (
 	hookMemoryExtractJobSchemaVersion = 1
 	hookMemoryExtractMaxRunsPerWorker = 2
 	hookMemoryExtractErrorLimit       = 1024
+	// hookMemoryExtractMaxAttempts is the total attempt ceiling across workers.
+	// Jobs that hit the ceiling become terminal and stop being relaunched.
+	hookMemoryExtractMaxAttempts = 5
+	// hookMemoryExtractTerminalRetention is how long a terminally failed job
+	// remains visible to doctor before opportunistic GC removes it.
+	hookMemoryExtractTerminalRetention = 24 * time.Hour
+	// hookMemoryExtractDrainBatchLimit caps how many other-session jobs a
+	// later hook may launch or GC so drain cannot thrash the host.
+	hookMemoryExtractDrainBatchLimit = 3
+	// hookMemoryExtractDoctorFixLimit is the larger batch used by doctor --fix.
+	hookMemoryExtractDoctorFixLimit = 50
 )
 
 type hookMemoryExtractRequest struct {
@@ -69,15 +80,22 @@ func (c *RootCLI) scheduleHookMemoryExtract(request hookMemoryExtractRequest) {
 	if c.memory == nil {
 		return
 	}
-	jobPath, err := enqueueHookMemoryExtract(request, time.Now().UTC())
+	now := time.Now().UTC()
+	jobPath, err := enqueueHookMemoryExtract(request, now)
 	if err != nil {
 		slog.Debug("hook memory extraction enqueue failed", "session_id", request.SessionID, "source_boundary", request.SourceBoundary, "error", err)
 		return
 	}
 	if err := c.launchHookMemoryExtractWorker(jobPath); err != nil {
-		// The durable job remains pending. A later hook invocation can launch
-		// another worker, and doctor surfaces the backlog in the meantime.
+		// The durable job remains pending. Opportunistic queue drain (below)
+		// and doctor --fix can relaunch it; doctor surfaces the backlog.
 		slog.Debug("hook memory extraction worker launch failed", "job", jobPath, "error", err)
+	}
+	// Queue-wide drain: retry/GC jobs for *other* sessions. Ended sessions
+	// never re-hit scheduleHookMemoryExtract, so this is the recovery path.
+	// Skip the job we just launched to avoid a double worker start.
+	if launched, removed := c.drainHookMemoryExtractQueue(now, hookMemoryExtractDrainBatchLimit, jobPath); launched > 0 || removed > 0 {
+		slog.Debug("hook memory extraction queue drain", "launched", launched, "removed", removed)
 	}
 }
 
@@ -184,12 +202,6 @@ func enqueueHookMemoryExtract(request hookMemoryExtractRequest, requestedAt time
 }
 
 func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string) error {
-	if c.storeManagement == nil {
-		return xerrors.Errorf("initialize store usecase is not configured")
-	}
-	if c.memory == nil {
-		return xerrors.Errorf("memory usecase is not configured")
-	}
 	resolvedJobPath, err := filepath.Abs(strings.TrimSpace(jobPath))
 	if err != nil {
 		return xerrors.Errorf("failed to resolve memory extraction job path: %w", err)
@@ -239,6 +251,16 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 		}
 		if readErr != nil {
 			return readErr
+		}
+		if hookMemoryExtractJobIsTerminal(job) {
+			// Already exhausted the attempt ceiling; leave for retention GC.
+			return nil
+		}
+		if c.storeManagement == nil {
+			return xerrors.Errorf("initialize store usecase is not configured")
+		}
+		if c.memory == nil {
+			return xerrors.Errorf("memory usecase is not configured")
 		}
 		attemptedAt := time.Now().UTC()
 		job.Attempts++
@@ -499,7 +521,75 @@ func scanHookMemoryExtractJobs() ([]hookMemoryExtractJob, []string, error) {
 	return jobs, unreadable, nil
 }
 
-func inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck {
+func hookMemoryExtractJobIsTerminal(job hookMemoryExtractJob) bool {
+	return job.Attempts >= hookMemoryExtractMaxAttempts
+}
+
+func hookMemoryExtractJobReadyForGC(job hookMemoryExtractJob, now time.Time) bool {
+	if !hookMemoryExtractJobIsTerminal(job) {
+		return false
+	}
+	if job.LastAttemptAt == nil {
+		return true
+	}
+	return !job.LastAttemptAt.Add(hookMemoryExtractTerminalRetention).After(now)
+}
+
+// drainHookMemoryExtractQueue relaunches pending jobs (oldest first) and
+// garbage-collects terminally failed jobs past the retention window. It never
+// re-extracts inline: each relaunch goes through the detached worker so host
+// hook budgets stay small. skipPaths are ignored (e.g. a job just launched by
+// scheduleHookMemoryExtract). Returns launch and remove counts.
+func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPaths ...string) (launched, removed int) {
+	if limit <= 0 {
+		return 0, 0
+	}
+	skip := make(map[string]struct{}, len(skipPaths))
+	for _, p := range skipPaths {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			skip[trimmed] = struct{}{}
+		}
+	}
+	jobs, _, err := scanHookMemoryExtractJobs()
+	if err != nil || len(jobs) == 0 {
+		return 0, 0
+	}
+	// scan already returns oldest first.
+	for _, job := range jobs {
+		if launched+removed >= limit {
+			break
+		}
+		if strings.TrimSpace(job.Path) == "" {
+			continue
+		}
+		if _, ok := skip[job.Path]; ok {
+			continue
+		}
+		if hookMemoryExtractJobReadyForGC(job, now) {
+			if err := os.Remove(job.Path); err != nil && !os.IsNotExist(err) {
+				slog.Debug("hook memory extraction terminal GC failed", "job", job.Path, "error", err)
+				continue
+			}
+			// Best-effort cleanup of sidecar files.
+			_ = os.Remove(job.Path + ".lock")
+			_ = os.Remove(job.Path + ".rerun")
+			removed++
+			continue
+		}
+		if hookMemoryExtractJobIsTerminal(job) {
+			// Still within retention; leave visible for doctor.
+			continue
+		}
+		if err := c.launchHookMemoryExtractWorker(job.Path); err != nil {
+			slog.Debug("hook memory extraction drain launch failed", "job", job.Path, "error", err)
+			continue
+		}
+		launched++
+	}
+	return launched, removed
+}
+
+func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck {
 	const name = "hook-memory-extract"
 	jobs, unreadable, err := scanHookMemoryExtractJobs()
 	if err != nil {
@@ -509,6 +599,7 @@ func inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck {
 		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending hook memory extraction jobs found", "未処理の hook memory extraction job はありません")}
 	}
 	failed := 0
+	terminal := 0
 	oldestAge := time.Duration(0)
 	if len(jobs) > 0 {
 		oldestAge = now.Sub(jobs[0].RequestedAt)
@@ -520,16 +611,35 @@ func inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck {
 		if job.Attempts > 0 {
 			failed++
 		}
+		if hookMemoryExtractJobIsTerminal(job) {
+			terminal++
+		}
 	}
 	return doctorCheck{
 		Name:   name,
 		Status: doctorStatusWarn,
 		Message: localizef(
-			"found %d pending memory extraction job(s), %d previously failed job(s), and %d unreadable job(s); oldest age %s",
-			"未処理の memory extraction job が %d 件、以前失敗した job が %d 件、読めない job が %d 件あります。最古 age %s",
-			len(jobs), failed, len(unreadable), oldestAge.Round(time.Second),
+			"found %d pending memory extraction job(s), %d previously failed job(s), %d terminal job(s), and %d unreadable job(s); oldest age %s",
+			"未処理の memory extraction job が %d 件、以前失敗した job が %d 件、terminal job が %d 件、読めない job が %d 件あります。最古 age %s",
+			len(jobs), failed, terminal, len(unreadable), oldestAge.Round(time.Second),
 		),
-		Hint: Localize("a later hook retries pending jobs automatically; run doctor again after the next hook and inspect debug logs if failures remain", "次の hook が未処理 job を自動再試行します。次の hook 後に doctor を再実行し、失敗が残る場合は debug log を確認してください"),
+		Hint: Localize(
+			"later hooks drain a bounded oldest-first batch across sessions (not only the same session key). Terminal jobs (attempts exhausted) are GC'd after retention. Run `traceary doctor --fix` to force a larger drain, or inspect debug logs if failures remain.",
+			"後続 hook は同一 session に限らず oldest-first の bounded batch で queue 全体を drain します。terminal job（試行上限到達）は retention 後に GC されます。大きめに drain するには `traceary doctor --fix` を使い、失敗が残る場合は debug log を確認してください。",
+		),
+		FixCommand:       "traceary doctor --fix",
+		AutoFixAvailable: true,
+		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
+			pending, _, err := scanHookMemoryExtractJobs()
+			if err != nil {
+				return "", err
+			}
+			if dryRun {
+				return localizef("would drain/GC up to %d pending memory extraction job(s)", "未処理 memory extraction job 最大 %d 件を drain/GC します", min(len(pending), hookMemoryExtractDoctorFixLimit)), nil
+			}
+			launched, removed := c.drainHookMemoryExtractQueue(time.Now().UTC(), hookMemoryExtractDoctorFixLimit)
+			return localizef("drained memory extraction queue: launched=%d removed=%d", "memory extraction queue を drain しました: launched=%d removed=%d", launched, removed), nil
+		},
 	}
 }
 
