@@ -36,31 +36,55 @@ brew tap duck8823/traceary https://github.com/duck8823/traceary
 brew install traceary
 ```
 
-2. CLI と同じ Traceary リリースを取得し、ネイティブパッケージを導入します。
-   installer はパッケージを検証し、既存の `traceary` plugin を置き換えた後、
-   導入済みの内容を表示します。
+### A. Public marketplace（掲載後の推奨）
+
+[xAI Plugin Marketplace](https://github.com/xai-org/plugin-marketplace) に
+Traceary が載っている場合、本リポジトリを clone せず Grok Build から導入できます。
 
 ```sh
-git clone --branch v0.23.0 --depth 1 https://github.com/duck8823/traceary.git
+# Grok の plugin UI / marketplace install 後:
+traceary doctor --client grok --project-dir . --json
+```
+
+カタログ投稿用メタデータ:
+
+- テンプレート: [`integrations/grok-plugin/marketplace-entry.json`](../../integrations/grok-plugin/marketplace-entry.json)
+- commit pin: `./scripts/generate-grok-marketplace-entry.sh [git-ref]`
+- 手順: [Grok marketplace 投稿](./grok-marketplace-submission.ja.md)
+
+### B. ローカル導入（決定的 fallback）
+
+matching release tag から常に利用できます。installer は検証・置換・inventory 表示を行います。
+
+```sh
+git clone --branch v0.27.0 --depth 1 https://github.com/duck8823/traceary.git
 cd traceary
 ./scripts/install-grok-plugin.sh
 ```
 
 installer は `grok plugin install --trust` を実行します。信頼した command hook は
-ローカルで実行されるため、実行前に取得したパッケージを確認してください。現行の
-パッケージは文書化された Traceary hook entrypoint だけを呼び出し、Grok の認証情報や
-ブラウザ状態を読み取ったり送信したりしません。
+ローカルで実行されるため、実行前にパッケージを確認してください。現行パッケージは
+文書化された Traceary hook entrypoint のみを呼び出し、Grok の認証情報やブラウザ状態を
+読み取ったり送信したりしません。
 
-3. Grok で開くプロジェクトから、有効な導入状態を確認します。
+### clean-home 検証
+
+```sh
+./scripts/verify-grok-plugin-clean-home.sh
+```
+
+一時 `HOME` で validate → install → details → reinstall → uninstall を行い、
+operator の credentials / browser state には触れません。
+
+### Doctor
 
 ```sh
 traceary doctor --client grok --project-dir . --json
 ```
 
 正常な導入では `grok-cli`、`grok-plugin`、`grok-hook-trust`、`grok-hooks`、
-`grok-mcp`、`grok-skills` が `pass` になります。別の
-`grok-event-coverage` check は直近のデータベース証拠を評価します。直近の
-セッションが3件未満の場合は、誤って成功とせず「まだ判定しない」と報告します。
+`grok-mcp`、`grok-skills` が `pass` になります。`grok-event-coverage` は直近 DB
+証拠を評価し、セッションが3件未満なら誤 pass せず「まだ判定しない」と報告します。
 
 ## プロジェクト hook と trust
 
