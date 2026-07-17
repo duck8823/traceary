@@ -1518,6 +1518,9 @@ func TestRootCLI_DoctorStaleActiveSessions(t *testing.T) {
 		if check.Section != "Database" {
 			t.Fatalf("section = %q, want Database", check.Section)
 		}
+		if !check.AutoFixAvailable {
+			t.Fatalf("AutoFixAvailable = false, want true for doctor --fix")
+		}
 		if !initStub.staleCalls[0].dryRun {
 			t.Fatalf("CloseStaleSessions dryRun = false, want true (doctor must never mutate)")
 		}
