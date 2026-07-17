@@ -329,13 +329,13 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 	stale := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339Nano)
 	fresh := now.Add(-3 * 24 * time.Hour).Format(time.RFC3339Nano)
 
-	// Stale candidates from extraction: should be auto-deleted.
+	// Stale candidates from extraction: decay to expired (rows remain).
 	insertRetentionMemoryWithSource(t, db, "extracted-stale", "candidate", "extracted", "", stale)
 	insertRetentionMemoryWithSource(t, db, "hidden-stale", "candidate", "extracted-hidden", "", stale)
 	insertRetentionMemoryWithSource(t, db, "compact-summary-stale", "candidate", "compact-summary", "", stale)
-	// Fresh extracted candidate: keep.
+	// Fresh extracted candidate: keep as candidate.
 	insertRetentionMemoryWithSource(t, db, "extracted-fresh", "candidate", "extracted", "", fresh)
-	// Manual / imported candidates do not auto-expire on this short window.
+	// Manual / imported candidates do not auto-decay on this short window.
 	insertRetentionMemoryWithSource(t, db, "manual-old", "candidate", "manual", "", stale)
 	insertRetentionMemoryWithSource(t, db, "imported-old", "candidate", "imported", "", stale)
 	// Accepted extraction is curated and survives gc unless it is
@@ -344,7 +344,7 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 
 	// Use a `before` cutoff far in the past so the operator-controlled
 	// retention does not delete anything; only the 14-day extracted
-	// auto-expire should fire.
+	// auto-decay should fire (status update, not hard delete).
 	deletedCount, err := storeManager.CollectGarbage(
 		context.Background(),
 		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -358,11 +358,24 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 	assertRetentionIDs(t, db, "memories", "id", []string{
+		"compact-summary-stale",
 		"extracted-accepted",
 		"extracted-fresh",
+		"extracted-stale",
+		"hidden-stale",
 		"imported-old",
 		"manual-old",
 	})
+	// Decayed rows must be expired, not deleted.
+	for _, id := range []string{"extracted-stale", "hidden-stale", "compact-summary-stale"} {
+		var status string
+		if err := db.QueryRow(`SELECT status FROM memories WHERE id = ?`, id).Scan(&status); err != nil {
+			t.Fatalf("status %s: %v", id, err)
+		}
+		if status != "expired" {
+			t.Fatalf("%s status = %q, want expired", id, status)
+		}
+	}
 	assertNoForeignKeyViolations(t, db)
 }
 
@@ -394,14 +407,22 @@ func TestDatasource_CollectGarbage_clearsSupersedesRefBeforeDeletingStaleExtract
 	); err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	assertRetentionIDs(t, db, "memories", "id", []string{"manual-pointer"})
+	// Candidate is decayed to expired (still present); supersedes ref cleared.
+	assertRetentionIDs(t, db, "memories", "id", []string{"manual-pointer", "stale-compact"})
 	assertNoForeignKeyViolations(t, db)
 	var supersedes sql.NullString
 	if err := db.QueryRow(`SELECT supersedes_memory_id FROM memories WHERE id = 'manual-pointer'`).Scan(&supersedes); err != nil {
 		t.Fatalf("query supersedes_memory_id: %v", err)
 	}
 	if supersedes.Valid {
-		t.Fatalf("supersedes_memory_id = %q, want NULL after deleting referenced extracted candidate", supersedes.String)
+		t.Fatalf("supersedes_memory_id = %q, want NULL after decaying referenced extracted candidate", supersedes.String)
+	}
+	var status string
+	if err := db.QueryRow(`SELECT status FROM memories WHERE id = 'stale-compact'`).Scan(&status); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status != "expired" {
+		t.Fatalf("stale-compact status = %q, want expired", status)
 	}
 }
 
