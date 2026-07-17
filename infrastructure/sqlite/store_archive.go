@@ -336,14 +336,30 @@ func queryArchiveMapsIn(ctx context.Context, db *sql.DB, queryFmt string, ids []
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	placeholders := make([]string, len(ids))
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args[i] = id
+	// Stay under SQLite's bind-variable limit (dogfood #1386: large event
+	// sets for command_audits blew up unchunked IN lists).
+	const chunk = 400
+	var out []map[string]any
+	for start := 0; start < len(ids); start += chunk {
+		end := start + chunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		part := ids[start:end]
+		placeholders := make([]string, len(part))
+		args := make([]any, len(part))
+		for i, id := range part {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		query := fmt.Sprintf(queryFmt, strings.Join(placeholders, ","))
+		rows, err := queryArchiveMaps(ctx, db, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
 	}
-	query := fmt.Sprintf(queryFmt, strings.Join(placeholders, ","))
-	return queryArchiveMaps(ctx, db, query, args...)
+	return out, nil
 }
 
 func scanArchiveMaps(rows *sql.Rows) ([]map[string]any, error) {
