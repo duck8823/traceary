@@ -18,7 +18,12 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const hookSpoolSchemaVersion = 1
+const (
+	hookSpoolSchemaVersion = 1
+	// hookSpoolReplayBatchLimit caps opportunistic drain work per hook
+	// invocation so replay cannot exhaust the host timeout budget.
+	hookSpoolReplayBatchLimit = 5
+)
 
 type hookInvocationSpec struct {
 	Command string
@@ -54,6 +59,13 @@ func (c *RootCLI) runHookDurably(
 	run func(io.Reader) error,
 ) error {
 	return runHookBestEffort(name, func() error {
+		// Drain a bounded batch of older timeout-killed records before this
+		// invocation's own work. Failures stay on disk for later retries.
+		if ctx.Err() == nil {
+			if replayed, failed := c.drainHookSpoolRecords(ctx, hookSpoolReplayBatchLimit); replayed > 0 || failed > 0 {
+				slog.Debug("hook spool drain", "replayed", replayed, "failed", failed)
+			}
+		}
 		payload, err := readHookPayload(input)
 		if err != nil {
 			return err
@@ -86,6 +98,112 @@ func (c *RootCLI) runHookDurably(
 		}
 		return nil
 	})
+}
+
+// drainHookSpoolRecords replays up to limit pending spool records (oldest
+// first). A record is removed only after replay returns nil. Returns counts
+// of successful replays and retained failures.
+func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replayed, failed int) {
+	if limit <= 0 {
+		return 0, 0
+	}
+	records, _, err := scanHookSpoolRecords(nil)
+	if err != nil || len(records) == 0 {
+		return 0, 0
+	}
+	// scanHookSpoolRecords returns newest first; drain oldest first.
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].CreatedAt.Before(records[j].CreatedAt)
+	})
+	for i, record := range records {
+		if i >= limit {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			break
+		}
+		if strings.TrimSpace(record.Path) == "" {
+			failed++
+			continue
+		}
+		if err := c.replayHookSpoolRecord(ctx, record); err != nil {
+			failed++
+			slog.Debug("hook spool replay failed", "path", record.Path, "command", record.Command, "client", record.Client, "error", err)
+			continue
+		}
+		if err := os.Remove(record.Path); err != nil && !os.IsNotExist(err) {
+			failed++
+			slog.Debug("hook spool clear failed after replay", "path", record.Path, "error", err)
+			continue
+		}
+		replayed++
+	}
+	return replayed, failed
+}
+
+func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRecord) error {
+	input := newExplicitHookPayloadReader([]byte(record.Payload))
+	dbPath := record.DBPath
+	client := record.Client
+	action := record.Action
+	switch strings.TrimSpace(record.Command) {
+	case "session":
+		return c.runHookSession(ctx, io.Discard, input, client, action, dbPath)
+	case "audit":
+		return c.runHookAudit(ctx, input, client, dbPath)
+	case "compact":
+		return c.runHookCompact(ctx, io.Discard, input, client, action, dbPath)
+	case "subagent-start":
+		return c.runHookSubagentStart(ctx, input, client, dbPath)
+	case "subagent-stop":
+		return c.runHookSubagentStop(ctx, input, client, dbPath)
+	case "prompt":
+		return c.runHookPrompt(ctx, input, client, dbPath)
+	case "transcript":
+		return c.runHookTranscript(ctx, input, client, dbPath)
+	case "antigravity":
+		return c.replayAntigravitySpoolRecord(ctx, input, action, dbPath)
+	case "grok":
+		return c.replayGrokSpoolRecord(ctx, input, action, dbPath)
+	default:
+		return xerrors.Errorf("unsupported hook spool command: %s", record.Command)
+	}
+}
+
+func (c *RootCLI) replayAntigravitySpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
+	switch strings.TrimSpace(action) {
+	case "pre-invocation":
+		return c.runHookAntigravityPreInvocation(ctx, io.Discard, input, dbPath)
+	case "pre-tool-use":
+		return c.runHookAntigravityPreToolUse(ctx, io.Discard, input, dbPath)
+	case "post-tool-use":
+		return c.runHookAntigravityPostToolUse(ctx, io.Discard, input, dbPath)
+	case "stop":
+		return c.runHookAntigravityStop(ctx, io.Discard, input, dbPath)
+	default:
+		return xerrors.Errorf("unsupported antigravity spool action: %s", action)
+	}
+}
+
+func (c *RootCLI) replayGrokSpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
+	switch strings.TrimSpace(action) {
+	case "session-start":
+		return c.runHookGrokSessionStart(ctx, input, dbPath)
+	case "user-prompt-submit":
+		return c.runHookGrokUserPromptSubmit(ctx, input, dbPath)
+	case "pre-tool-use":
+		return c.runHookGrokPreToolUse(ctx, input, dbPath)
+	case "post-tool-use":
+		return c.runHookGrokPostToolUse(ctx, input, dbPath)
+	case "stop":
+		return c.runHookGrokStop(ctx, input, dbPath)
+	case "pre-compact":
+		return c.runHookGrokPreCompact(ctx, input, dbPath)
+	case "post-compact":
+		return c.runHookGrokPostCompact(ctx, input, dbPath)
+	default:
+		return xerrors.Errorf("unsupported grok spool action: %s", action)
+	}
 }
 
 func persistHookSpoolRecord(record hookSpoolRecord) (string, error) {
@@ -172,7 +290,7 @@ func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error)
 	return records, unreadable, nil
 }
 
-func inspectHookSpoolDiagnostics(clients []string) doctorCheck {
+func (c *RootCLI) inspectHookSpoolDiagnostics(clients []string) doctorCheck {
 	const name = "hook-spool"
 	records, unreadable, err := scanHookSpoolRecords(clients)
 	if err != nil {
@@ -193,6 +311,31 @@ func inspectHookSpoolDiagnostics(clients []string) doctorCheck {
 			"未処理の hook spool record が %d 件、読めない record が %d 件あります。latest %s",
 			len(records), len(unreadable), latest,
 		),
-		Hint: Localize("the host interrupted or Traceary failed before commit; inspect the preserved payload and retry the matching hook command before removing the record", "host が中断したか commit 前に Traceary が失敗しました。保存された payload を確認し、対応する hook command を再実行してから record を削除してください"),
+		Hint: Localize(
+			"records are drained automatically on later hook invocations (bounded batch). Run `traceary doctor --fix` to force a larger drain, or inspect payloads under the hook spool directory before manual removal.",
+			"record は後続 hook 呼び出し時に bounded batch で自動 drain されます。`traceary doctor --fix` で大きめに drain するか、手動削除前に spool ディレクトリの payload を確認してください。",
+		),
+		FixCommand:       "traceary doctor --fix",
+		AutoFixAvailable: true,
+		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
+			pending, _, err := scanHookSpoolRecords(nil)
+			if err != nil {
+				return "", err
+			}
+			if dryRun {
+				return localizef("would drain up to %d pending hook spool record(s)", "未処理 hook spool record 最大 %d 件を drain します", min(len(pending), 200)), nil
+			}
+			// Force path: allow a larger batch than the per-hook opportunistic drain.
+			limit := len(pending)
+			if limit > 200 {
+				limit = 200
+			}
+			replayed, failed := c.drainHookSpoolRecords(ctx, limit)
+			remaining := len(pending) - replayed
+			if remaining < 0 {
+				remaining = 0
+			}
+			return localizef("drained hook spool: replayed=%d failed=%d remaining_estimate=%d", "hook spool を drain しました: replayed=%d failed=%d remaining_estimate=%d", replayed, failed, remaining), nil
+		},
 	}
 }
