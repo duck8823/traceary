@@ -5,6 +5,11 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [Unreleased]
+
+### Changed
+- **store gc の古い extracted candidate を hard DELETE ではなく decay に変更 (#1368)** — `store gc --target memories`（および `all`）は、14 日窓を超えた未レビューの `extracted` / `extracted-hidden` / `compact-summary` candidate を即削除しません。`status=expired` へ遷移し、keep-days の物理 GC まで restore 可能です。
+
 ## [v0.27.0] - 2026-07-17
 
 ### Fixed

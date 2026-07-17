@@ -43,9 +43,10 @@ var clearStaleExtractedCandidateSupersedesRefsQuery string
 // extracted-hidden, compact-summary)`. The default operator-controlled cutoff
 // (`--keep-days`) protects long-lived facts; this shorter window
 // applies only to auto-extracted candidates that were never reviewed.
-// Untouched extracted candidates older than this are deleted on the
-// next gc pass that targets `memories` or `all`. Tracked under
-// v0.11.0 sub-issue #832.
+// Untouched extracted candidates older than this are decayed to
+// status=expired (not hard-deleted) on the next gc pass that targets
+// `memories` or `all`, so operators can restore until keep-days GC.
+// Tracked under #1368 / v0.11.0 sub-issue #832.
 const staleExtractedCandidateRetention = 14 * 24 * time.Hour
 
 //go:embed sql/delete_old_memory_edges.sql
@@ -198,7 +199,9 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 	return nil
 }
 
-// CollectGarbage deletes store records older than the given time for the selected target.
+// CollectGarbage removes or decays store records older than the given time for
+// the selected target. Stale auto-extracted memory candidates are transitioned
+// to expired (counted in the return value) rather than hard-deleted.
 func (d *StoreManagementDatasource) CollectGarbage(
 	ctx context.Context,
 	before time.Time,
@@ -289,21 +292,19 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 			return 0, xerrors.Errorf("failed to delete old memories: %w", err)
 		}
 		total += count
-		// Auto-expire stale auto-extracted candidates that the operator
-		// never reviewed. The retention window is shorter than the
-		// operator-controlled cutoff because these rows are best-effort
-		// signal, not curated facts. See #810/#832.
+		// Decay (not hard-delete) stale auto-extracted candidates the
+		// operator never reviewed. Rows stay restorable as expired until
+		// keep-days physical GC. See #1368 / #810/#832.
 		extractedCutoff := formatTimestamp(time.Now().Add(-staleExtractedCandidateRetention))
-		// Clear supersedes_memory_id references that point at stale
-		// extracted candidates first so the subsequent delete cannot
-		// trip a foreign-key constraint when an unusual operator
-		// graph references one of these candidates.
+		// Clear supersedes_memory_id references that point at candidates
+		// about to leave the candidate status first so unusual operator
+		// graphs cannot trip a foreign-key constraint.
 		if _, err := tx.ExecContext(ctx, clearStaleExtractedCandidateSupersedesRefsQuery, extractedCutoff); err != nil {
 			return 0, xerrors.Errorf("failed to clear stale extracted candidate supersedes references: %w", err)
 		}
 		extractedCount, err := execRowsAffected(ctx, tx, deleteStaleExtractedCandidatesQuery, extractedCutoff)
 		if err != nil {
-			return 0, xerrors.Errorf("failed to delete stale extracted candidates: %w", err)
+			return 0, xerrors.Errorf("failed to decay stale extracted candidates: %w", err)
 		}
 		total += extractedCount
 	}
