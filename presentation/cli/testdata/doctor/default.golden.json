@@ -65,6 +65,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "archive-retention",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Database",
+      "message": "automatic archive-before-GC is disabled (retention.mode=disabled); manual path: traceary store archive create",
+      "hint": "opt in via config.json retention.mode=archive_then_gc (passphrase via env name only)",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "audit-reliability",
       "status": "skip",
       "severity": "PASS",
@@ -275,6 +285,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "archive-retention",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "automatic archive-before-GC is disabled (retention.mode=disabled); manual path: traceary store archive create",
+          "hint": "opt in via config.json retention.mode=archive_then_gc (passphrase via env name only)",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "audit-reliability",
           "status": "skip",
           "severity": "PASS",
@@ -412,7 +432,7 @@
     }
   ],
   "summary": {
-    "pass": 17,
+    "pass": 18,
     "warn": 2,
     "fail": 0
   },
