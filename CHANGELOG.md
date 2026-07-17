@@ -9,6 +9,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ### Added
 - **Manual archive-before-GC (#1371)** — `traceary store archive create|verify|restore` exports GC-eligible cold rows to a versioned package (gzip tar + manifest digests, optional passphrase via env), verifies integrity, and can `--delete-after-verify` only the exact archived identities. Restore is primary-key idempotent.
+- **Grok marketplace publication package (#1301)** — marketplace catalog entry template + generator, clean-home install/update/uninstall smoke, and bilingual submission/install docs; local-source install remains the deterministic fallback.
 
 ### Fixed
 - **Stale-active-sessions backlog under opportunistic GC (#1363)** — session GC no longer races the hook soft deadline (detached 30s timeout), runs on session end as well as start, interval tightened to 1h, and `doctor --fix` can apply `session gc`.

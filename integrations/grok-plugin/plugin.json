@@ -5,5 +5,14 @@
   "author": {
     "name": "Shunsuke Maeda",
     "email": "duck8823@gmail.com"
-  }
+  },
+  "homepage": "https://github.com/duck8823/traceary",
+  "keywords": [
+    "traceary",
+    "session",
+    "audit",
+    "memory",
+    "mcp",
+    "local-first"
+  ]
 }

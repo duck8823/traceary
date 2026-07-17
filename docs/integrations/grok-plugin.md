@@ -35,12 +35,33 @@ brew tap duck8823/traceary https://github.com/duck8823/traceary
 brew install traceary
 ```
 
-2. Check out the same Traceary release as the installed CLI, then install the
-   native package. The installer validates the package, replaces an existing
-   `traceary` plugin, and prints the installed inventory.
+### A. Public marketplace (preferred when listed)
+
+When Traceary is present in the [xAI Plugin Marketplace](https://github.com/xai-org/plugin-marketplace)
+catalog, install from Grok Build without cloning this repository:
 
 ```sh
-git clone --branch v0.23.0 --depth 1 https://github.com/duck8823/traceary.git
+# Browse / install via Grok's plugin UI, or the host's marketplace install path.
+# After install, confirm inventory and version parity:
+traceary doctor --client grok --project-dir . --json
+```
+
+Catalog contribution metadata lives in-repo:
+
+- Template: [`integrations/grok-plugin/marketplace-entry.json`](../../integrations/grok-plugin/marketplace-entry.json)
+- Pin current commit: `./scripts/generate-grok-marketplace-entry.sh [git-ref]`
+- Submission steps: [Grok marketplace submission](./grok-marketplace-submission.md)
+
+Remote source shape (SHA must be a full 40-char commit of this repository; package path is `integrations/grok-plugin`).
+
+### B. Local-source install (deterministic fallback)
+
+Always available from a matching Traceary release tag. The installer validates
+the package, replaces an existing `traceary` plugin, and prints the installed
+inventory.
+
+```sh
+git clone --branch v0.27.0 --depth 1 https://github.com/duck8823/traceary.git
 cd traceary
 ./scripts/install-grok-plugin.sh
 ```
@@ -50,7 +71,16 @@ package before running it because trusted command hooks execute locally. The
 current package invokes only the documented Traceary hook entrypoints and does
 not read or transmit Grok credentials or browser state.
 
-3. Verify the effective installation from the project that Grok will open.
+### Clean-home verification
+
+```sh
+./scripts/verify-grok-plugin-clean-home.sh
+```
+
+Uses a temporary `HOME`, runs validate → install → details → reinstall → uninstall,
+and never touches operator credentials or browser state.
+
+### Doctor
 
 ```sh
 traceary doctor --client grok --project-dir . --json
