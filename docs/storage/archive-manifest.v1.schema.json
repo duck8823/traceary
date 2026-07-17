@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/duck8823/traceary/docs/storage/archive-manifest.v1.schema.json",
+  "title": "Traceary store archive manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "format",
+    "created_at",
+    "tool_version",
+    "plan",
+    "tables",
+    "totals",
+    "payload_sha256",
+    "encryption"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "format": {
+      "type": "string",
+      "const": "traceary.store.archive"
+    },
+    "created_at": {
+      "type": "string",
+      "description": "RFC3339Nano UTC timestamp when the archive was sealed."
+    },
+    "tool_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Traceary version string that produced the archive."
+    },
+    "source_db_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string" },
+        "page_count": { "type": "integer", "minimum": 0 },
+        "schema_user_version": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "keep_days", "cutoff", "dry_run"],
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": ["events", "sessions", "memories", "memory_edges", "all"]
+        },
+        "keep_days": { "type": "integer", "minimum": 1 },
+        "cutoff": {
+          "type": "string",
+          "description": "RFC3339Nano UTC lower bound used for eligibility (rows strictly older)."
+        },
+        "dry_run": { "type": "boolean" }
+      }
+    },
+    "tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "primary_key",
+          "row_count",
+          "ndjson_sha256",
+          "row_ids_sha256",
+          "compressed_bytes",
+          "uncompressed_bytes"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "events",
+              "command_audits",
+              "sessions",
+              "memories",
+              "memory_evidence_refs",
+              "memory_artifact_refs",
+              "memory_edges"
+            ]
+          },
+          "primary_key": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1
+          },
+          "row_count": { "type": "integer", "minimum": 0 },
+          "ndjson_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "row_ids_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "compressed_bytes": { "type": "integer", "minimum": 0 },
+          "uncompressed_bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rows", "compressed_bytes", "uncompressed_bytes"],
+      "properties": {
+        "rows": { "type": "integer", "minimum": 0 },
+        "compressed_bytes": { "type": "integer", "minimum": 0 },
+        "uncompressed_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "payload_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "encryption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["none", "xchacha20poly1305-argon2id"]
+        },
+        "kdf": { "type": "string", "const": "argon2id" },
+        "kdf_params": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "time": { "type": "integer", "minimum": 1 },
+            "memory_kib": { "type": "integer", "minimum": 1 },
+            "threads": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    }
+  }
+}
