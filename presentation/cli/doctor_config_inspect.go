@@ -473,7 +473,7 @@ func (c *RootCLI) configHasTracearyHooks(outputPath string) bool {
 	return hasTracearyHook
 }
 
-func (c *RootCLI) inspectDoctorConfigFile(_ context.Context, client string, outputPath string, projectDir string) doctorCheck {
+func (c *RootCLI) inspectDoctorConfigFile(ctx context.Context, client string, outputPath string, projectDir string) doctorCheck {
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -566,11 +566,15 @@ func (c *RootCLI) inspectDoctorConfigFile(_ context.Context, client string, outp
 				return missingClientHookCoverageCheck(client, client+"-config", outputPath, projectDir, missing, true)
 			}
 		}
-		return doctorCheck{
+		pass := doctorCheck{
 			Name:    client + "-config",
 			Status:  doctorStatusPass,
 			Message: localizef("%s config contains Traceary-managed hooks: %s", "%s の設定には Traceary 管理下の hook があります: %s", client, outputPath),
 		}
+		// Catch generation drift (e.g. timeout 5000 vs packaged 10000) that
+		// still has complete event coverage — the class of silent failure
+		// behind gemini-event-coverage drops on stale managed configs.
+		return c.attachManagedGenerationCheck(ctx, pass, client, content, outputPath, projectDir)
 	}
 
 	return doctorCheck{
