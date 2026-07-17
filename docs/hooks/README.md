@@ -206,7 +206,9 @@ In those cases, inspect the file yourself and only rerun with `--force` when rep
 
 ### Timeout-kill preservation
 
-Every hidden `traceary hook ...` entrypoint writes the exact host payload to a mode-`0600` record under `~/.config/traceary/hooks/spool/` before it touches SQLite. The record is atomically published and removed only after the hook operation returns successfully. SIGTERM cancels the command context; if the host kills a contended or slow hook, the already-published record remains available instead of the event disappearing silently. `traceary doctor` reports retained or unreadable records through the `hook-spool` check. Inspect the payload and retry the matching command before removing a retained record; Traceary does not delete it based on age alone.
+Every hidden `traceary hook ...` entrypoint writes the exact host payload to a mode-`0600` record under `~/.config/traceary/hooks/spool/` before it touches SQLite. The record is atomically published and removed only after the hook operation returns successfully. SIGTERM cancels the command context; if the host kills a contended or slow hook, the already-published record remains available instead of the event disappearing silently.
+
+Later hook invocations drain a bounded batch of pending spool records (oldest first) before their own work, replaying only commands Traceary still understands and deleting a record only after replay returns successfully. `traceary doctor` reports retained or unreadable records through the `hook-spool` check; `traceary doctor --fix` forces a larger drain when you want to clear a backlog outside a live host timeout. Inspect payloads under the spool directory before manual removal; Traceary does not delete records based on age alone.
 
 SQLite waits at most 1 second for a busy writer. Every packaged host hook budget must exceed that wait. Gemini's generated and packaged hook timeout is 10 seconds, leaving time for the DB attempt to fail and the spool record to remain durable before the host deadline. This relationship is intentional: `SQLite busy_timeout < host hook timeout`.
 
