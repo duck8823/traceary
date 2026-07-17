@@ -160,7 +160,7 @@ Target policies:
 
 - `events`: delete rows where `events.created_at < cutoff`; linked `command_audits` cascade via foreign keys.
 - `sessions`: delete ended sessions where `COALESCE(ended_at, started_at) < cutoff` and no surviving events reference the session. Active sessions (`ended_at IS NULL`) are always protected.
-- `memories`: delete only `expired` or `superseded` memories where `updated_at < cutoff`. `accepted`, manually-added `candidate`, and other statuses are kept indefinitely unless their status changes. **Exception:** auto-extracted candidates (`source IN (extracted, extracted-hidden)`) older than 14 days are also deleted in this pass — these rows are best-effort signal, not curated facts, and short retention keeps the inbox honest. Evidence/artifact refs cascade; `supersedes_memory_id` pointers to deleted rows are cleared first to preserve FK integrity.
+- `memories`: physically delete `expired`, `superseded`, or `rejected` memories where `updated_at < cutoff`. `accepted` and `candidate` rows are not age-deleted. **Exception:** unreviewed auto-extracted candidates (`source IN (extracted, extracted-hidden, compact-summary)`) older than 14 days are **decayed to `expired`** (not hard-deleted) so they remain restorable until keep-days GC (#1368). Evidence/artifact refs cascade on physical delete; `supersedes_memory_id` pointers to deleted or about-to-decay rows are cleared first.
 - `memory_edges`: delete closed edges where `valid_to < cutoff`; edges also cascade automatically when either endpoint memory is deleted.
 - `all`: apply the policies in dependency order: events, sessions, memories, then memory_edges.
 
@@ -169,6 +169,7 @@ Practical implications:
 - `gc` is opt-in; Traceary does not delete history automatically in the background
 - use `--target events` for legacy event-only cleanup
 - if you care about long-term audit history, take a backup before an aggressive cleanup
+- for cold-row export with **verify-before-delete**, see [Archive-before-GC](./archive-before-gc.md) (#1309); full-file backup remains [Backup guide](../backup/README.md)
 
 ## Reversible historical content dedupe
 

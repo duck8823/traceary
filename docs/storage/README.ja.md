@@ -159,7 +159,7 @@ target ごとの policy:
 
 - `events`: `events.created_at < cutoff` の row を削除します。紐づく `command_audits` は foreign key により cascade されます。
 - `sessions`: `COALESCE(ended_at, started_at) < cutoff` かつ surviving event から参照されていない終了済み session を削除します。active session (`ended_at IS NULL`) は常に保護されます。
-- `memories`: `updated_at < cutoff` の `expired` / `superseded` memory だけを削除します。`accepted`、手動追加された `candidate`、その他の status は status が変わらない限り無期限に保持します。**例外:** auto-extracted candidate (`source IN (extracted, extracted-hidden)`) は 14 日以上経過したものを同じ pass で削除します — これらは best-effort signal で curated fact ではないため、短い retention で inbox を整理します。evidence/artifact ref は cascade され、削除対象を指す `supersedes_memory_id` は FK 整合性維持のため事前に NULL へ更新されます。
+- `memories`: `updated_at < cutoff` の `expired` / `superseded` / `rejected` memory を物理削除します。`accepted` と `candidate` は age 削除しません。**例外:** 未レビューの auto-extracted candidate (`source IN (extracted, extracted-hidden, compact-summary)`) は 14 日超で **hard delete ではなく `expired` へ decay** し、keep-days の物理 GC まで restore 可能です（#1368）。物理削除時は evidence/artifact ref が cascade され、削除または decay 直前の行を指す `supersedes_memory_id` は先に NULL へ更新されます。
 - `memory_edges`: `valid_to < cutoff` の終了済み edge を削除します。endpoint の memory が削除される場合も edge は自動 cascade されます。
 - `all`: events、sessions、memories、memory_edges の順に依存関係を保って適用します。
 
@@ -168,6 +168,7 @@ target ごとの policy:
 - `gc` は opt-in であり、Traceary が background で自動削除することはありません
 - 従来どおり event だけを掃除したい場合は `--target events` を使ってください
 - 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
+- cold 行の export と **verify-before-delete** は [Archive-before-GC](./archive-before-gc.ja.md)（#1309）を参照。フルファイル backup は [バックアップガイド](../backup/README.ja.md)
 
 ## 履歴 content の可逆的な dedupe
 
