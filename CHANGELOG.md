@@ -5,6 +5,21 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.27.0] - 2026-07-17
+
+### Fixed
+- **Hook spool replay (#1342, #1353, #1355)** — timeout-killed hooks leave durable spool records; later hooks and `traceary doctor --fix` drain a bounded oldest-first batch. Session start and subagent start/stop treat already-recorded boundaries as success so partial commits clear the backlog.
+- **Memory-extract queue drain (#1343)** — pending extraction jobs are relaunched across sessions (not only the same session key), capped by total attempts, and terminal jobs are GC'd after retention.
+- **Stale managed hook generation (#1345)** — doctor compares installed Traceary-managed hook timeouts to the current generation and can refresh via `doctor --fix` (classic Gemini `timeout: 5000` vs packaged `10000` class).
+
+### Changed
+- **Hook soft deadline (#1344)** — host-facing hook processes default to an 8s soft deadline (below packaged 10s host budgets; override with `TRACEARY_HOOK_SOFT_DEADLINE`). Detached workers stay signal-only. Doctor reports `store-size` WARN above ~1 GiB.
+- **Memory/bundle file splits (#1346)** — behavior-preserving extraction of hotspot files under the 800-line guidance before lifecycle work.
+
+### Notes
+- v0.27.0 has no destructive SQLite migration and adds no MCP tools.
+- **Deferred to v0.28.0 (explicit on #1341):** #1264 memory inbox decay/restore, #1309 archive-before-GC, #1301 public Grok marketplace. Local Grok install remains supported from a matching release tag.
+
 ## [v0.26.1] - 2026-07-16
 
 ### Fixed
