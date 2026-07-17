@@ -278,7 +278,7 @@ func TestDatasource_CollectGarbageAll_deletesEventsThenEmptySessions(t *testing.
 	assertNoForeignKeyViolations(t, db)
 }
 
-func TestDatasource_CollectGarbage_deletesOnlyExpiredAndSupersededMemoriesWithCascade(t *testing.T) {
+func TestDatasource_CollectGarbage_deletesOnlyExpiredSupersededAndRejectedMemoriesWithCascade(t *testing.T) {
 	t.Parallel()
 
 	dbPath, storeManager := prepareRetentionFixture(t)
@@ -290,6 +290,7 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredAndSupersededMemoriesWithCa
 	insertRetentionMemory(t, db, "mem-accepted-old", "accepted", "mem-superseded-old", "2026-04-01T00:00:00Z")
 	insertRetentionMemory(t, db, "mem-proposed-old", "proposed", "", "2026-04-01T00:00:00Z")
 	insertRetentionMemory(t, db, "mem-rejected-old", "rejected", "", "2026-04-01T00:00:00Z")
+	insertRetentionMemory(t, db, "mem-rejected-recent", "rejected", "", "2026-04-08T00:00:00Z")
 	insertRetentionMemory(t, db, "mem-expired-recent", "expired", "", "2026-04-08T00:00:00Z")
 	execRetentionSQL(t, db, `INSERT INTO memory_evidence_refs (memory_id, ordinal, ref_kind, ref_value) VALUES ('mem-expired-old', 0, 'event', 'event-1')`)
 	execRetentionSQL(t, db, `INSERT INTO memory_artifact_refs (memory_id, ordinal, ref_kind, ref_value) VALUES ('mem-superseded-old', 0, 'file', 'README.md')`)
@@ -301,10 +302,11 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredAndSupersededMemoriesWithCa
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(2, deletedCount); diff != "" {
+	// expired-old, superseded-old, rejected-old (rejected-recent and accepted/proposed stay)
+	if diff := cmp.Diff(3, deletedCount); diff != "" {
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
-	assertRetentionIDs(t, db, "memories", "id", []string{"mem-accepted-old", "mem-expired-recent", "mem-proposed-old", "mem-rejected-old"})
+	assertRetentionIDs(t, db, "memories", "id", []string{"mem-accepted-old", "mem-expired-recent", "mem-proposed-old", "mem-rejected-recent"})
 	assertRetentionIDs(t, db, "memory_edges", "id", nil)
 	assertRetentionIDs(t, db, "memory_evidence_refs", "memory_id", nil)
 	assertRetentionIDs(t, db, "memory_artifact_refs", "memory_id", nil)

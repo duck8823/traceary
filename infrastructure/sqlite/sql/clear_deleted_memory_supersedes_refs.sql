@@ -3,6 +3,6 @@ UPDATE memories
  WHERE supersedes_memory_id IN (
        SELECT id
          FROM memories
-        WHERE status IN ('expired', 'superseded')
+        WHERE status IN ('expired', 'superseded', 'rejected')
           AND updated_at < ?
  )
