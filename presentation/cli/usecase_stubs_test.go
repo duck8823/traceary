@@ -616,6 +616,15 @@ func (s *storeManagementUsecaseStub) RestoreContentEventDedupeRun(_ context.Cont
 	s.restoreRunIDs = append(s.restoreRunIDs, runID)
 	return s.restoreResult, s.restoreRunErr
 }
+func (s *storeManagementUsecaseStub) CreateStoreArchive(_ context.Context, _ apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
+	return apptypes.StoreArchiveResult{}, nil
+}
+func (s *storeManagementUsecaseStub) VerifyStoreArchive(_ context.Context, _ string, _ []byte) error {
+	return nil
+}
+func (s *storeManagementUsecaseStub) RestoreStoreArchive(_ context.Context, _ string, _ []byte, _ bool) (apptypes.StoreArchiveRestoreResult, error) {
+	return apptypes.StoreArchiveRestoreResult{}, nil
+}
 func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool, protectedSessionIDs []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	s.staleMu.Lock()
 	s.staleCalls = append(s.staleCalls, struct {

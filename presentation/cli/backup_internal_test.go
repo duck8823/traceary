@@ -91,6 +91,15 @@ func (s *restoreStoreBackupUsecaseForTest) DedupeContentEvents(_ context.Context
 func (s *restoreStoreBackupUsecaseForTest) RestoreContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupeRestoreResult, error) {
 	return apptypes.ContentEventDedupeRestoreResult{}, nil
 }
+func (s *restoreStoreBackupUsecaseForTest) CreateStoreArchive(_ context.Context, _ apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
+	return apptypes.StoreArchiveResult{}, nil
+}
+func (s *restoreStoreBackupUsecaseForTest) VerifyStoreArchive(_ context.Context, _ string, _ []byte) error {
+	return nil
+}
+func (s *restoreStoreBackupUsecaseForTest) RestoreStoreArchive(_ context.Context, _ string, _ []byte, _ bool) (apptypes.StoreArchiveRestoreResult, error) {
+	return apptypes.StoreArchiveRestoreResult{}, nil
+}
 
 func TestRunBackupRestore_InteractiveConfirmation(t *testing.T) {
 	t.Parallel()

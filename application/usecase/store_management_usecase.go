@@ -33,4 +33,12 @@ type StoreManagementUsecase interface {
 	// RestoreContentEventDedupeRun reverses a quarantine run, moving its rows
 	// back into events.
 	RestoreContentEventDedupeRun(ctx context.Context, runID string) (apptypes.ContentEventDedupeRestoreResult, error)
+
+	// CreateStoreArchive exports GC-eligible rows to a versioned archive package.
+	// When DeleteAfterVerify is set, verifies the package then deletes exact IDs.
+	CreateStoreArchive(ctx context.Context, params apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error)
+	// VerifyStoreArchive checks package integrity (and decryptability when sealed).
+	VerifyStoreArchive(ctx context.Context, path string, passphrase []byte) error
+	// RestoreStoreArchive imports archived rows idempotently by primary key.
+	RestoreStoreArchive(ctx context.Context, path string, passphrase []byte, dryRun bool) (apptypes.StoreArchiveRestoreResult, error)
 }
