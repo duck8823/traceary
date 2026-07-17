@@ -5,6 +5,21 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.27.0] - 2026-07-17
+
+### Fixed
+- **hook spool replay (#1342, #1353, #1355)** — timeout-kill された hook は durable spool record を残し、後続 hook と `traceary doctor --fix` が oldest-first の bounded batch で drain します。session start / subagent start/stop は既に記録済みの境界を success 扱いし、部分 commit 後の backlog を解消します。
+- **memory-extract queue drain (#1343)** — 未処理 extraction job を session key に限らず relaunch し、総試行上限と terminal GC（retention 後）で収束します。
+- **stale managed hook generation (#1345)** — doctor がインストール済み Traceary 管理 hook の timeout を現行 generation と比較し、`doctor --fix` で refresh できます（典型: Gemini `timeout: 5000` vs パッケージ `10000`）。
+
+### Changed
+- **hook soft deadline (#1344)** — host 向け hook は既定 8s の soft deadline（パッケージ 10s budget 未満。`TRACEARY_HOOK_SOFT_DEADLINE` で上書き）。detached worker は signal のみ。doctor は ~1 GiB 超で `store-size` WARN。
+- **memory/bundle ファイル分割 (#1346)** — lifecycle 作業前の 800 行目安に沿った behavior-preserving 分割。
+
+### Notes
+- v0.27.0 に破壊的 SQLite migration はなく、新しい MCP tool もありません。
+- **v0.28.0 へ defer（#1341 で明示）:** #1264 memory inbox decay/restore、#1309 archive-before-GC、#1301 Grok public marketplace。ローカル Grok インストールは matching release tag から継続サポート。
+
 ## [v0.26.1] - 2026-07-16
 
 ### Fixed
