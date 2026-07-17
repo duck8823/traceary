@@ -126,6 +126,13 @@ type MemoryUsecase interface {
 	// ImportInstructions proposes candidate memories from host instruction files.
 	ImportInstructions(ctx context.Context, criteria apptypes.MemoryBridgeImportCriteria) (apptypes.MemoryBridgeImportResult, error)
 
+	// Decay expires eligible auto-extracted candidates (dry-run by default)
+	// and optionally collapses exact duplicate candidates. Never auto-accepts.
+	Decay(ctx context.Context, criteria apptypes.MemoryDecayCriteria) (apptypes.MemoryDecayResult, error)
+
+	// Restore returns an expired memory to candidate status for re-review.
+	Restore(ctx context.Context, memoryID domtypes.MemoryID) (apptypes.MemoryDetails, error)
+
 	// Hygiene
 
 	// Scan surfaces suggestions for accepted durable memories that need attention.
