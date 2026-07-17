@@ -31,7 +31,7 @@ func (u *memoryUsecase) Decay(ctx context.Context, criteria apptypes.MemoryDecay
 	}
 	policy, err := domtypes.MemoryDecayPolicyOf(olderThan, nil)
 	if err != nil {
-		return apptypes.MemoryDecayResult{}, err
+		return apptypes.MemoryDecayResult{}, xerrors.Errorf("invalid memory decay policy: %w", err)
 	}
 	limit := criteria.Limit
 	if limit <= 0 {
@@ -171,7 +171,7 @@ func (u *memoryUsecase) supersedeCandidateDuplicate(ctx context.Context, memoryI
 		return err
 	}
 	if err := memory.MarkCandidateSupersededByDuplicate(); err != nil {
-		return err
+		return xerrors.Errorf("failed to mark candidate superseded by duplicate: %w", err)
 	}
 	if err := u.memoryRepo.Save(ctx, memory); err != nil {
 		return xerrors.Errorf("failed to save superseded duplicate: %w", err)
