@@ -12,6 +12,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ### Fixed
 - **Stale-active-sessions backlog under opportunistic GC (#1363)** — session GC no longer races the hook soft deadline (detached 30s timeout), runs on session end as well as start, interval tightened to 1h, and `doctor --fix` can apply `session gc`.
+- **Host plugin version drift after binary upgrade (#1361)** — clearer per-host refresh hints, post-upgrade checklist docs, Grok install path detection, and Antigravity dual-path incomplete-twin soft-skip when another path already matches.
 
 ### Changed
 - **Stale extracted candidates decay instead of hard DELETE in store gc (#1368)** — `store gc --target memories` (and `all`) no longer hard-deletes unreviewed `extracted` / `extracted-hidden` / `compact-summary` candidates after the 14-day window. Those rows transition to `status=expired` so they remain restorable until keep-days physical GC.

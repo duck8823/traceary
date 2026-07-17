@@ -165,6 +165,42 @@ func TestInspectPluginVersionReleaseTaggedBuildMatch(t *testing.T) {
 	}
 }
 
+func TestCoalesceAntigravityPluginVersionChecks_skipsIncompleteTwin(t *testing.T) {
+	t.Parallel()
+	checks := []doctorCheck{
+		{
+			Name:    "antigravity-plugin-version",
+			Status:  doctorStatusPass,
+			Message: "antigravity plugin version matches running traceary version 0.28.0 (healthy)",
+		},
+		{
+			Name:    "antigravity-plugin-version",
+			Status:  doctorStatusWarn,
+			Message: "antigravity plugin manifest has no version: /tmp/broken/plugin.json",
+			Hint:    "reinstall plugin to align",
+			FixCommand: "agy plugin install",
+		},
+		{
+			Name:   "codex-plugin-version",
+			Status: doctorStatusWarn,
+			Message: "codex plugin version 0.24.0 does not match",
+		},
+	}
+	got := coalesceAntigravityPluginVersionChecks(checks, "0.28.0")
+	if got[0].Status != doctorStatusPass {
+		t.Fatalf("healthy path status = %q", got[0].Status)
+	}
+	if got[1].Status != doctorStatusSkip {
+		t.Fatalf("incomplete twin status = %q, want skip", got[1].Status)
+	}
+	if got[1].FixCommand != "" {
+		t.Fatalf("skip twin should clear FixCommand, got %q", got[1].FixCommand)
+	}
+	if got[2].Status != doctorStatusWarn {
+		t.Fatalf("non-antigravity check mutated: %+v", got[2])
+	}
+}
+
 func TestDetectPluginInstallsIncludesAntigravityManifest(t *testing.T) {
 	home := t.TempDir()
 	SetUserHomeDirFunc(func() (string, error) { return home, nil })

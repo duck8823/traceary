@@ -28,7 +28,7 @@ func (c *RootCLI) inspectPluginVersionChecks(currentVersion string) []doctorChec
 	for _, install := range c.detectPluginInstalls() {
 		checks = append(checks, inspectPluginVersion(install, currentVersion))
 	}
-	return checks
+	return coalesceAntigravityPluginVersionChecks(checks, currentVersion)
 }
 
 func (c *RootCLI) detectPluginInstalls() []doctorPluginInstall {
@@ -44,15 +44,70 @@ func (c *RootCLI) detectPluginInstalls() []doctorPluginInstall {
 			installs = append(installs, doctorPluginInstall{Client: "claude", ManifestPath: status.MarketplacePath, UpdateHint: "claude plugins update " + detection.PluginKey})
 		}
 	}
-	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".codex", "plugins", "cache", "*", "traceary", "*", ".codex-plugin", "plugin.json"), "codex", "reinstall plugin to align")...)
+	installs = append(installs, detectManifestInstalls(
+		filepath.Join(home, ".codex", "plugins", "cache", "*", "traceary", "*", ".codex-plugin", "plugin.json"),
+		"codex",
+		"reinstall the Traceary Codex plugin from a matching release tag (see docs/release/post-upgrade-plugins.md)",
+	)...)
 	// Antigravity can materialize the packaged plugin under either the CLI
 	// import root or the shared Gemini config plugins root. Prefer whichever
 	// copy is present; when both exist, doctor reports each install so a
-	// stale partial copy under antigravity-cli is still visible.
-	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "config", "plugins", "traceary", "plugin.json"), "antigravity", "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin")...)
-	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary", "plugin.json"), "antigravity", "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin")...)
+	// stale partial copy under antigravity-cli is still visible, then
+	// coalesceAntigravityPluginVersionChecks softens a missing-version twin
+	// when the other path already matches the running binary.
+	agyHint := "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin"
+	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "config", "plugins", "traceary", "plugin.json"), "antigravity", agyHint)...)
+	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary", "plugin.json"), "antigravity", agyHint)...)
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "extensions", "traceary", "gemini-extension.json"), "gemini", "gemini extensions update traceary")...)
+	installs = append(installs, detectManifestInstalls(
+		filepath.Join(home, ".grok", "plugins", "traceary", "plugin.json"),
+		"grok",
+		"./scripts/install-grok-plugin.sh  # from a matching release tag checkout",
+	)...)
 	return installs
+}
+
+// coalesceAntigravityPluginVersionChecks avoids permanent WARN noise when one
+// Antigravity install path is healthy/matching while a twin path is incomplete
+// (missing version) or only a leftover shell of an old import.
+func coalesceAntigravityPluginVersionChecks(checks []doctorCheck, currentVersion string) []doctorCheck {
+	current := normalizeDoctorVersion(currentVersion)
+	if current == "" || isDevBuild(currentVersion) {
+		return checks
+	}
+	hasMatching := false
+	for _, check := range checks {
+		if check.Name != "antigravity-plugin-version" {
+			continue
+		}
+		if check.Status == doctorStatusPass {
+			hasMatching = true
+			break
+		}
+	}
+	if !hasMatching {
+		return checks
+	}
+	out := make([]doctorCheck, 0, len(checks))
+	for _, check := range checks {
+		if check.Name == "antigravity-plugin-version" &&
+			check.Status == doctorStatusWarn &&
+			(strings.Contains(check.Message, "has no version") || strings.Contains(check.Message, "version がありません")) {
+			check.Status = doctorStatusSkip
+			check.Hint = Localize(
+				"another Antigravity plugin path already matches the running binary; remove or reinstall this incomplete install if it is unused",
+				"別の Antigravity plugin path が実行中 binary と一致しています。未使用ならこの不完全な install を削除するか再インストールしてください",
+			)
+			check.FixCommand = ""
+			check.Message = localizef(
+				"antigravity plugin path is incomplete but a healthy install already matches Traceary %s; skipped permanent WARN",
+				"antigravity plugin path は不完全ですが、健全な install が既に Traceary %s と一致しているため恒久 WARN を skip しました",
+				current,
+			)
+		}
+		out = append(out, check)
+	}
+	return out
 }
 
 func (c *RootCLI) pluginCacheStatusForDetection(home, pluginKey string) pluginVersionCacheStatus {
