@@ -16,7 +16,16 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-const hookSessionGCInterval = 6 * time.Hour
+// hookSessionGCInterval bounds how often a shared DB runs opportunistic GC.
+// Kept well under the doctor stale threshold (24h) so multi-agent dogfood
+// cannot accumulate hundreds of idle active sessions for a full workday.
+const hookSessionGCInterval = 1 * time.Hour
+
+// hookSessionGCTimeout is independent of the host soft-deadline budget. Large
+// backlogs must not race the ~8s hook soft deadline (#1344); cancellation there
+// left markers unwritten and the backlog permanently uncleared (#1363).
+const hookSessionGCTimeout = 30 * time.Second
+
 const hookSessionActivityLeaseTTL = time.Minute
 const hookSessionActivityLeasePruneTTL = 5 * time.Minute
 
@@ -69,7 +78,11 @@ func (c *RootCLI) runOpportunisticSessionGC(ctx context.Context, dbPath string, 
 	}
 	protectedSessionIDs = append(protectedSessionIDs, currentSessionID)
 
-	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, false, protectedSessionIDs)
+	// Detach from the hook soft-deadline so a large close batch can finish.
+	gcCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), hookSessionGCTimeout)
+	defer cancel()
+
+	result, err := c.storeManagement.CloseStaleSessions(gcCtx, defaultActiveSessionStaleAfter, false, protectedSessionIDs)
 	if err != nil {
 		slog.Debug("opportunistic session GC failed", "error", err)
 		return

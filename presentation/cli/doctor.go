@@ -430,13 +430,32 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 		Name:   checkName,
 		Status: doctorStatusWarn,
 		Hint: Localize(
-			"normal hook starts retry activity-aware cleanup automatically; preview immediately with `traceary session gc --stale-after 24h --dry-run`, then drop --dry-run to close them",
-			"通常の hook start 後に activity-aware cleanup が自動再試行されます。すぐ確認する場合は `traceary session gc --stale-after 24h --dry-run` を実行し、終了処理には --dry-run を外してください",
+			"preview with `traceary session gc --stale-after 24h --dry-run`, apply via `traceary doctor --fix` or drop --dry-run; opportunistic hook GC also drains on session start (detached from soft deadline)",
+			"`traceary session gc --stale-after 24h --dry-run` でプレビューし、`traceary doctor --fix` または --dry-run なしで適用。hook の session start でも soft deadline から切り離して drain します",
 		),
-		FixCommand: fixCommand,
+		FixCommand:       fixCommand,
+		AutoFixAvailable: true,
+		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
+			result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, dryRun, nil)
+			if err != nil {
+				return "", xerrors.Errorf("%s: %w", Localize("stale session cleanup failed", "stale session の cleanup に失敗しました"), err)
+			}
+			if dryRun {
+				return localizef(
+					"would close %d stale active session(s)",
+					"%d 件の stale active session を終了します",
+					result.ClosedCount(),
+				), nil
+			}
+			return localizef(
+				"closed %d stale active session(s)",
+				"%d 件の stale active session を終了しました",
+				result.ClosedCount(),
+			), nil
+		},
 		Message: localizef(
-			"%d active session(s) have no activity within %s; they shadow the default host context retrieval. Normal hook starts clean them automatically, or run `%s` (use --dry-run first to preview).",
-			"%d 件の active session は %s の間活動がなく、host context 取得の既定動作を阻害します。通常の hook start 後に自動 cleanup されます。手動では `%s` を実行できます (まず --dry-run でプレビュー推奨)。",
+			"%d active session(s) have no activity within %s; they shadow the default host context retrieval. Run `%s` (or `traceary doctor --fix`); hook starts also drain with a dedicated timeout.",
+			"%d 件の active session は %s の間活動がなく、host context 取得の既定動作を阻害します。`%s`（または `traceary doctor --fix`）を実行してください。hook start でも専用 timeout で drain します。",
 			count,
 			defaultActiveSessionStaleAfter,
 			fixCommand,

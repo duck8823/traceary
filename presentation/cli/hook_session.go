@@ -227,6 +227,9 @@ func (c *RootCLI) runHookSession(
 			SessionID: sessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "session_end",
 		})
 		c.runHookMemoryDecayBestEffort(ctx, resolvedDBPath)
+		// Drain stale active sessions after the session ends so multi-agent
+		// dogfood does not depend only on the next session start (#1363).
+		c.runOpportunisticSessionGC(ctx, resolvedDBPath, sessionID)
 		return nil
 	case "stop":
 		// Codex fires Stop after every assistant response, not when the
