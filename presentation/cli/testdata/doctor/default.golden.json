@@ -15,6 +15,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "store-size",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Hooks",
+      "message": "SQLite store file does not exist yet (no size budget concern)",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "path",
       "status": "pass",
       "severity": "PASS",
@@ -329,6 +339,16 @@
       "name": "Hooks",
       "checks": [
         {
+          "name": "store-size",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Hooks",
+          "message": "SQLite store file does not exist yet (no size budget concern)",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "hook-spool",
           "status": "pass",
           "severity": "PASS",
@@ -372,7 +392,7 @@
     }
   ],
   "summary": {
-    "pass": 15,
+    "pass": 16,
     "warn": 2,
     "fail": 0
   },

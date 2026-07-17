@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/xerrors"
@@ -29,6 +30,69 @@ func TestIsHookCommandArgs(t *testing.T) {
 				t.Fatalf("isHookCommandArgs(%q) = %v, want %v", tt.args, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsDetachedHookWorkerArgs(t *testing.T) {
+	t.Parallel()
+	if !isDetachedHookWorkerArgs([]string{"traceary", "hook", "memory-extract-worker", "--job", "x"}) {
+		t.Fatal("memory-extract-worker should be detached")
+	}
+	if !isDetachedHookWorkerArgs([]string{"traceary", "hook", "grok-transcript-worker", "--job", "x"}) {
+		t.Fatal("grok-transcript-worker should be detached")
+	}
+	if isDetachedHookWorkerArgs([]string{"traceary", "hook", "prompt", "claude"}) {
+		t.Fatal("prompt must not be treated as detached worker")
+	}
+}
+
+func TestResolveHookSoftDeadline(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		t.Setenv(hookSoftDeadlineEnvKey, "")
+		_ = os.Unsetenv(hookSoftDeadlineEnvKey)
+		if got := resolveHookSoftDeadline(); got != defaultHookSoftDeadline {
+			t.Fatalf("got %v, want %v", got, defaultHookSoftDeadline)
+		}
+	})
+	t.Run("off", func(t *testing.T) {
+		t.Setenv(hookSoftDeadlineEnvKey, "off")
+		if got := resolveHookSoftDeadline(); got != 0 {
+			t.Fatalf("got %v, want 0", got)
+		}
+	})
+	t.Run("duration", func(t *testing.T) {
+		t.Setenv(hookSoftDeadlineEnvKey, "4s")
+		if got := resolveHookSoftDeadline(); got != 4*time.Second {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("seconds number", func(t *testing.T) {
+		t.Setenv(hookSoftDeadlineEnvKey, "6")
+		if got := resolveHookSoftDeadline(); got != 6*time.Second {
+			t.Fatalf("got %v", got)
+		}
+	})
+}
+
+func TestCommandContext_AppliesSoftDeadlineToHooks(t *testing.T) {
+	t.Setenv(hookSoftDeadlineEnvKey, "50ms")
+	ctx, cancel := commandContext([]string{"traceary", "hook", "prompt", "claude"})
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("hook context must have a soft deadline")
+	}
+	if remaining := time.Until(deadline); remaining > 200*time.Millisecond || remaining < 0 {
+		t.Fatalf("deadline remaining = %v", remaining)
+	}
+}
+
+func TestCommandContext_DetachedWorkerHasNoSoftDeadline(t *testing.T) {
+	t.Setenv(hookSoftDeadlineEnvKey, "50ms")
+	ctx, cancel := commandContext([]string{"traceary", "hook", "memory-extract-worker", "--job", "x"})
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("detached worker must not receive host soft deadline")
 	}
 }
 

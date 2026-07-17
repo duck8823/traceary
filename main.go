@@ -15,8 +15,10 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -236,16 +238,74 @@ func run() error {
 	return nil
 }
 
+// defaultHookSoftDeadline is slightly below the smallest packaged host hook
+// budget (10s for codex/claude/gemini). Canceling ourselves first keeps the
+// spool / fail-soft path deterministic instead of racing a mid-commit host kill.
+const defaultHookSoftDeadline = 8 * time.Second
+
+// hookSoftDeadlineEnvKey overrides the soft deadline (Go duration, e.g. "8s").
+// Empty / invalid / non-positive values disable the soft deadline (signal-only).
+const hookSoftDeadlineEnvKey = "TRACEARY_HOOK_SOFT_DEADLINE"
+
 func commandContext(args []string) (context.Context, context.CancelFunc) {
 	if isHookCommandArgs(args) {
-		return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		// Detached workers are not bound by host hook budgets; keep signal-only.
+		if isDetachedHookWorkerArgs(args) {
+			return ctx, stopSignals
+		}
+		if deadline := resolveHookSoftDeadline(); deadline > 0 {
+			timedCtx, cancelTimeout := context.WithTimeout(ctx, deadline)
+			return timedCtx, func() {
+				cancelTimeout()
+				stopSignals()
+			}
+		}
+		return ctx, stopSignals
 	}
 	return context.WithCancel(context.Background())
+}
+
+func resolveHookSoftDeadline() time.Duration {
+	raw, ok := os.LookupEnv(hookSoftDeadlineEnvKey)
+	if !ok {
+		return defaultHookSoftDeadline
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "0" || strings.EqualFold(raw, "off") || strings.EqualFold(raw, "none") {
+		return 0
+	}
+	// Accept Go durations ("8s") and plain seconds ("8") for operator convenience.
+	if d, err := time.ParseDuration(raw); err == nil {
+		if d <= 0 {
+			return 0
+		}
+		return d
+	}
+	if secs, err := strconv.ParseFloat(raw, 64); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs * float64(time.Second))
+	}
+	return defaultHookSoftDeadline
 }
 
 func isHookCommandArgs(args []string) bool {
 	for _, arg := range args[1:] {
 		if arg == "hook" {
+			return true
+		}
+	}
+	return false
+}
+
+// isDetachedHookWorkerArgs reports hidden workers that run outside host
+// timeout budgets (memory-extract / grok-transcript).
+func isDetachedHookWorkerArgs(args []string) bool {
+	for _, arg := range args[1:] {
+		switch arg {
+		case "memory-extract-worker", "grok-transcript-worker":
 			return true
 		}
 	}

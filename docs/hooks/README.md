@@ -212,6 +212,8 @@ Later hook invocations drain a bounded batch of pending spool records (oldest fi
 
 SQLite waits at most 1 second for a busy writer. Every packaged host hook budget must exceed that wait. Gemini's generated and packaged hook timeout is 10 seconds, leaving time for the DB attempt to fail and the spool record to remain durable before the host deadline. This relationship is intentional: `SQLite busy_timeout < host hook timeout`.
 
+Host-facing hook processes also apply an internal soft deadline (default **8s**, override with `TRACEARY_HOOK_SOFT_DEADLINE`, disable with `0`/`off`) slightly below the packaged 10s host budgets. Canceling ourselves first keeps spool retention deterministic on multi-GB stores whose cold open already costs several seconds. Detached workers (`memory-extract-worker`, `grok-transcript-worker`) are not soft-deadline bound. `traceary doctor` reports a `store-size` WARN when the live SQLite file exceeds ~1 GiB.
+
 ### Memory extraction queue
 
 Session-end, turn-boundary, and subagent-stop hooks commit their primary event first, then enqueue memory auto-extraction under `~/.config/traceary/hooks/memory-extract/`. Jobs contain extraction criteria and operational metadata only, use mode `0600`, and coalesce repeated requests for the same database, session, and workspace. A detached internal worker calls the existing extractor after the host hook returns; success removes the job, while a failed or interrupted worker leaves it available for retry. Extraction therefore no longer consumes the host hook timeout or delays the primary event commit.
