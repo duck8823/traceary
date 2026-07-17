@@ -5,7 +5,7 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
-## [Unreleased]
+## [v0.28.0] - 2026-07-17
 
 ### Added
 - **Archive-before-GC dogfood decision log (#1373)** — multi-GB store copy exercise (dry-run/apply/verify), keep automatic mode disabled by default, and record #1386 follow-up disposition.
@@ -20,6 +20,11 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ### Changed
 - **Stale extracted candidates decay instead of hard DELETE in store gc (#1368)** — `store gc --target memories` (and `all`) no longer hard-deletes unreviewed `extracted` / `extracted-hidden` / `compact-summary` candidates after the 14-day window. Those rows transition to `status=expired` so they remain restorable until keep-days physical GC.
 - **Rejected memories honor store gc keep-days (#1369)** — `store gc --target memories` (and `all`) now physically deletes `status=rejected` rows older than `--keep-days`, same as `expired`/`superseded`. Accepted and candidate rows stay untouched. Dry-run continues to report the candidate count.
+
+### Notes
+- v0.28.0 has no destructive SQLite migration and adds no MCP tools.
+- Automatic archive-then-gc is **opt-in** (`retention.mode` default `disabled`).
+- Grok public marketplace listing follows `docs/integrations/grok-marketplace-submission.md` (pin release-tag SHA in xai-org/plugin-marketplace); local-source install remains supported.
 
 ## [v0.27.0] - 2026-07-17
 
