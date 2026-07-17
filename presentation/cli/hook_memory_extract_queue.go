@@ -629,7 +629,7 @@ func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck
 		),
 		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,
-		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
+		FixFunc: func(_ context.Context, dryRun bool) (string, error) {
 			pending, _, err := scanHookMemoryExtractJobs()
 			if err != nil {
 				return "", err
