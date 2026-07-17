@@ -477,6 +477,12 @@ func (s *memoryUsecaseStub) Expire(_ context.Context, memoryID types.MemoryID, e
 	s.expireCallCount++
 	return s.expireDetails, s.expireErr
 }
+func (s *memoryUsecaseStub) Decay(_ context.Context, _ apptypes.MemoryDecayCriteria) (apptypes.MemoryDecayResult, error) {
+	return apptypes.MemoryDecayResult{}, nil
+}
+func (s *memoryUsecaseStub) Restore(_ context.Context, _ types.MemoryID) (apptypes.MemoryDetails, error) {
+	return apptypes.MemoryDetails{}, nil
+}
 
 func (s *memoryUsecaseStub) SetValidity(_ context.Context, memoryID types.MemoryID, validFrom types.Optional[time.Time], validTo types.Optional[time.Time], clearTo bool) (apptypes.MemoryDetails, error) {
 	s.setValidityCall.memoryID = memoryID
