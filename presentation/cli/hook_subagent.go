@@ -2,13 +2,17 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"time"
 
+	"log/slog"
+
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -75,7 +79,11 @@ func (c *RootCLI) runHookSubagentStart(
 
 	childSessionID := synthesizeHookChildSessionID(parentSessionID, toolUseID)
 	if _, err := c.session.StartChild(ctx, parentSessionID, childSessionID, agent, workspace, types.EventID(toolUseID), "task", time.Now()); err != nil {
-		return xerrors.Errorf("failed to record subagent start: %w", err)
+		if !errors.Is(err, model.ErrInvalidSessionState) {
+			return xerrors.Errorf("failed to record subagent start: %w", err)
+		}
+		// Child row already committed (timeout-killed start or re-fire).
+		slog.Debug("hook subagent start already recorded; treating as success", "client", client, "child_session_id", childSessionID)
 	}
 	if err := writeHookActiveSubagentState(client, parentSessionID, toolUseID, childSessionID); err != nil {
 		return err
@@ -167,12 +175,20 @@ func (c *RootCLI) runHookSubagentStop(
 		if !childWasActive {
 			childAgent := resolveHookSubagentAgentOrDefault(client, payload, agent)
 			if _, startErr := c.session.StartChild(ctx, parentSessionID, childSessionID, childAgent, workspace, types.EventID(toolUseID), "task", time.Now()); startErr != nil {
-				return xerrors.Errorf("failed to synthesize missing subagent start: %w", startErr)
+				if !errors.Is(startErr, model.ErrInvalidSessionState) {
+					return xerrors.Errorf("failed to synthesize missing subagent start: %w", startErr)
+				}
+				// Child already exists — continue to End for stop boundary.
+				slog.Debug("hook subagent synthesize start already recorded; treating as success", "client", client, "child_session_id", childSessionID)
 			}
 			lazySynthesizedChild = true
 		}
 		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
-			return xerrors.Errorf("failed to end subagent session: %w", err)
+			if !errors.Is(err, model.ErrInvalidSessionState) {
+				return xerrors.Errorf("failed to end subagent session: %w", err)
+			}
+			// Already ended before the kill — stop boundary is durable.
+			slog.Debug("hook subagent stop already recorded; treating as success", "client", client, "child_session_id", childSessionID)
 		}
 		request := hookMemoryExtractRequest{
 			SessionID: childSessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "subagent_stop",
