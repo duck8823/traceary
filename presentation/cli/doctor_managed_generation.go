@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/xerrors"
+
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -24,7 +26,7 @@ func managedHookTimeouts(content []byte, extractKey func(name, command string) s
 		} `json:"hooks"`
 	}
 	if err := json.Unmarshal(content, &root); err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to decode hooks document for generation drift: %w", err)
 	}
 	out := map[string]int{}
 	for _, matchers := range root.Hooks {
@@ -122,11 +124,11 @@ func (c *RootCLI) attachManagedGenerationCheck(ctx context.Context, check doctor
 			return localizef("would refresh stale Traceary-managed hooks in %s", "%s の古い Traceary 管理 hook を更新します", outputPath), nil
 		}
 		if c.hooksOrchestrator == nil {
-			return "", fmt.Errorf("hooks orchestrator is not configured")
+			return "", xerrors.New("hooks orchestrator is not configured")
 		}
 		_, _, err := c.hooksOrchestrator.UpgradeWithMatcher(ctx, client, "traceary", projectDir, types.Some(outputPath), "")
 		if err != nil {
-			return "", err
+			return "", xerrors.Errorf("failed to refresh stale managed hooks: %w", err)
 		}
 		return localizef("refreshed Traceary-managed hooks in %s", "%s の Traceary 管理 hook を更新しました", outputPath), nil
 	}
