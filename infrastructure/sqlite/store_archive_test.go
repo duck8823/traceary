@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -97,3 +98,57 @@ VALUES ('new-e1', 'note', 'cli', 'manual', 's1', '', 'body', '2099-01-01T00:00:0
 	}
 }
 
+
+func TestStoreArchive_listsLargeCommandAuditSetsWithoutVariableLimit(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "traceary.db")
+	storeManager := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	conn, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// >400 events with audits forces chunked IN lists (#1386).
+	const n = 450
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("old-e-%04d", i)
+		_, err = conn.Exec(`INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+VALUES (?, 'note', 'cli', 'manual', 's1', '', 'body', '2020-01-01T00:00:00Z', '')`, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = conn.Exec(`INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code, failed)
+VALUES (?, 'echo', '', '', 0, 0, 0, 0)`, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sut := usecase.NewStoreManagementUsecase(storeManager)
+	result, err := sut.CreateStoreArchive(context.Background(), apptypes.StoreArchiveCreateParams{
+		Before: time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
+		Target: apptypes.GarbageCollectionTargetEvents,
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TotalRows < n {
+		t.Fatalf("TotalRows = %d, want >= %d", result.TotalRows, n)
+	}
+	var audits int
+	for _, table := range result.Tables {
+		if table.Name == "command_audits" {
+			audits = table.RowCount
+		}
+	}
+	if audits != n {
+		t.Fatalf("command_audits = %d, want %d", audits, n)
+	}
+}
