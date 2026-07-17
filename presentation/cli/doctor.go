@@ -287,7 +287,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Message: localizef("resolved project directory: %s", "解決した project directory: %s", resolvedProjectDir),
 	})
 	report.Checks = append(report.Checks, c.inspectHookSpoolDiagnostics(resolvedClients))
-	report.Checks = append(report.Checks, inspectHookMemoryExtractDiagnostics(time.Now().UTC()))
+	report.Checks = append(report.Checks, c.inspectHookMemoryExtractDiagnostics(time.Now().UTC()))
 	report.Checks = append(report.Checks, inspectHookGrokTranscriptDiagnostics(time.Now().UTC()))
 
 	for _, targetClient := range resolvedClients {

@@ -218,7 +218,7 @@ Host-facing hook processes also apply an internal soft deadline (default **8s**,
 
 Session-end, turn-boundary, and subagent-stop hooks commit their primary event first, then enqueue memory auto-extraction under `~/.config/traceary/hooks/memory-extract/`. Jobs contain extraction criteria and operational metadata only, use mode `0600`, and coalesce repeated requests for the same database, session, and workspace. A detached internal worker calls the existing extractor after the host hook returns; success removes the job, while a failed or interrupted worker leaves it available for retry. Extraction therefore no longer consumes the host hook timeout or delays the primary event commit.
 
-`traceary doctor` reports the pending count, previously failed count, unreadable count, and oldest age through `hook-memory-extract`. It never prints extracted content or the stored criteria. A later matching hook request launches the worker again; persistent warnings should be investigated through debug logs.
+`traceary doctor` reports the pending count, previously failed count, terminal (attempt-cap exhausted) count, unreadable count, and oldest age through `hook-memory-extract`. It never prints extracted content or the stored criteria. Later hooks drain a bounded oldest-first batch across sessions (not only the same session key), and `traceary doctor --fix` forces a larger drain. Jobs that exhaust the total attempt ceiling become terminal and are garbage-collected after a retention window; persistent non-terminal failures should be investigated through debug logs.
 
 ## Troubleshooting
 
