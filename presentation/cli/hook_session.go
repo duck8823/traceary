@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -81,6 +83,21 @@ func (c *RootCLI) runHookSession(
 		}
 		event, err := c.session.Start(ctx, types.Client("hook"), agent, sessionID, workspace, parentSessionID)
 		if err != nil {
+			// Spool replay (and hosts that re-fire SessionStart) often hit a
+			// session that already committed before the kill. Treat "already
+			// exists" as an idempotent success so the spool record can drain.
+			if sessionID != "" && errors.Is(err, model.ErrInvalidSessionState) {
+				slog.Debug("hook session start already recorded; treating as success", "client", client, "session_id", sessionID)
+				if err := writeHookSessionState(client, sessionID); err != nil {
+					return err
+				}
+				if output != nil {
+					if _, err := fmt.Fprintln(output, sessionID); err != nil {
+						return xerrors.Errorf("failed to print session ID: %w", err)
+					}
+				}
+				return nil
+			}
 			return xerrors.Errorf("failed to record hook session start: %w", err)
 		}
 		// Host-reported model is optional. Claude may omit it; Gemini/Antigravity
