@@ -98,6 +98,15 @@ func (tailStoreManagementStub) DedupeContentEvents(context.Context, apptypes.Con
 func (tailStoreManagementStub) RestoreContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupeRestoreResult, error) {
 	return apptypes.ContentEventDedupeRestoreResult{}, nil
 }
+func (tailStoreManagementStub) CreateStoreArchive(context.Context, apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
+	return apptypes.StoreArchiveResult{}, nil
+}
+func (tailStoreManagementStub) VerifyStoreArchive(context.Context, string, []byte) error {
+	return nil
+}
+func (tailStoreManagementStub) RestoreStoreArchive(context.Context, string, []byte, bool) (apptypes.StoreArchiveRestoreResult, error) {
+	return apptypes.StoreArchiveRestoreResult{}, nil
+}
 
 type fakeTailTicker struct {
 	ch chan time.Time

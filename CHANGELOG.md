@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Added
+- **Manual archive-before-GC (#1371)** — `traceary store archive create|verify|restore` exports GC-eligible cold rows to a versioned package (gzip tar + manifest digests, optional passphrase via env), verifies integrity, and can `--delete-after-verify` only the exact archived identities. Restore is primary-key idempotent.
+
 ### Changed
 - **Stale extracted candidates decay instead of hard DELETE in store gc (#1368)** — `store gc --target memories` (and `all`) no longer hard-deletes unreviewed `extracted` / `extracted-hidden` / `compact-summary` candidates after the 14-day window. Those rows transition to `status=expired` so they remain restorable until keep-days physical GC.
 - **Rejected memories honor store gc keep-days (#1369)** — `store gc --target memories` (and `all`) now physically deletes `status=rejected` rows older than `--keep-days`, same as `expired`/`superseded`. Accepted and candidate rows stay untouched. Dry-run continues to report the candidate count.

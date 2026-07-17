@@ -364,6 +364,15 @@ func (s *spoolStoreManagementStub) DedupeContentEvents(context.Context, apptypes
 func (s *spoolStoreManagementStub) RestoreContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupeRestoreResult, error) {
 	return apptypes.ContentEventDedupeRestoreResult{}, nil
 }
+func (s *spoolStoreManagementStub) CreateStoreArchive(context.Context, apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
+	return apptypes.StoreArchiveResult{}, nil
+}
+func (s *spoolStoreManagementStub) VerifyStoreArchive(context.Context, string, []byte) error {
+	return nil
+}
+func (s *spoolStoreManagementStub) RestoreStoreArchive(context.Context, string, []byte, bool) (apptypes.StoreArchiveRestoreResult, error) {
+	return apptypes.StoreArchiveRestoreResult{}, nil
+}
 
 type spoolEventUsecaseStub struct {
 	logCalls    int
