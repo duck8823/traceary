@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/duck8823/traceary/application/redaction"
 	"golang.org/x/xerrors"
@@ -13,10 +14,11 @@ import (
 // configFile mirrors the on-disk JSON layout. It is intentionally unexported
 // because callers receive the loaded values through Config.
 type configFile struct {
-	Audit  auditSection  `json:"audit"`
-	UI     uiSection     `json:"ui"`
-	Redact redactSection `json:"redact"`
-	Read   readSection   `json:"read"`
+	Audit     auditSection     `json:"audit"`
+	UI        uiSection        `json:"ui"`
+	Redact    redactSection    `json:"redact"`
+	Read      readSection      `json:"read"`
+	Retention retentionSection `json:"retention"`
 }
 
 type auditSection struct {
@@ -37,6 +39,21 @@ type readSection struct {
 	Fields  []string                 `json:"fields"`
 	Presets map[string]readPresetDoc `json:"presets"`
 	Color   string                   `json:"color"`
+}
+
+// retentionSection configures optional archive-before-GC automation (#1372).
+// Default mode is disabled (fail-closed): operators must opt into archive_then_gc.
+type retentionSection struct {
+	Mode          string                    `json:"mode"`
+	ArchiveThenGC retentionArchiveThenGCDoc `json:"archive_then_gc"`
+}
+
+type retentionArchiveThenGCDoc struct {
+	Interval      string `json:"interval"`
+	KeepDays      int    `json:"keep_days"`
+	Target        string `json:"target"`
+	OutputDir     string `json:"output_dir"`
+	PassphraseEnv string `json:"passphrase_env"`
 }
 
 // readPresetDoc mirrors a user-defined read preset entry in config.json. The
@@ -92,6 +109,32 @@ type Config struct {
 	// read commands. Empty string means "fall back to auto". The runtime
 	// validates the value when a command is about to render text.
 	ReadColor string
+	// Retention holds opt-in archive-before-GC automation. Zero Mode means
+	// disabled (same as explicit "disabled").
+	Retention RetentionConfig
+}
+
+// RetentionModeDisabled is the fail-closed default for automatic archive-then-gc.
+const RetentionModeDisabled = "disabled"
+
+// RetentionModeArchiveThenGC opts into opportunistic archive-before-GC (#1372).
+const RetentionModeArchiveThenGC = "archive_then_gc"
+
+// RetentionConfig is the runtime view of config.json retention.
+type RetentionConfig struct {
+	// Mode is "disabled" (default) or "archive_then_gc".
+	Mode string
+	// Interval between automatic archive-then-gc attempts (e.g. "168h").
+	Interval string
+	// KeepDays matches store gc --keep-days when positive; zero means default 90.
+	KeepDays int
+	// Target is events|sessions|memories|memory_edges|all; empty means all.
+	Target string
+	// OutputDir stores archive packages; empty means ~/.config/traceary/archives.
+	OutputDir string
+	// PassphraseEnv is the name of an env var holding an optional passphrase.
+	// Secrets are never stored in config or SQLite.
+	PassphraseEnv string
 }
 
 // ReadPreset is the runtime-facing view of a user-defined preset loaded from
@@ -132,6 +175,22 @@ func LoadConfig() Config {
 		ReadFields:            file.Read.Fields,
 		ReadPresets:           toReadPresetMap(file.Read.Presets),
 		ReadColor:             file.Read.Color,
+		Retention:             toRetentionConfig(file.Retention),
+	}
+}
+
+func toRetentionConfig(raw retentionSection) RetentionConfig {
+	mode := strings.TrimSpace(raw.Mode)
+	if mode == "" {
+		mode = RetentionModeDisabled
+	}
+	return RetentionConfig{
+		Mode:          mode,
+		Interval:      strings.TrimSpace(raw.ArchiveThenGC.Interval),
+		KeepDays:      raw.ArchiveThenGC.KeepDays,
+		Target:        strings.TrimSpace(raw.ArchiveThenGC.Target),
+		OutputDir:     strings.TrimSpace(raw.ArchiveThenGC.OutputDir),
+		PassphraseEnv: strings.TrimSpace(raw.ArchiveThenGC.PassphraseEnv),
 	}
 }
 

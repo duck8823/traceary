@@ -200,7 +200,7 @@ Acceptance for benchmarks in #1371 PR body (not a hard CI gate): document number
 | Delete exact IDs | Archive then delete | ID-list DELETE in tx | — |
 | Restore skip | Double restore | Insert-or-skip | — |
 
-## Config sketch (#1372 only; defaults fail-closed)
+## Config (shipped in #1372; defaults fail-closed)
 
 ```json
 {
@@ -217,9 +217,10 @@ Acceptance for benchmarks in #1371 PR body (not a hard CI gate): document number
 }
 ```
 
-- `mode` default `disabled`.
-- Never store passphrase material in config or SQLite.
-- Doctor surfaces last success/failure, next eligibility, counts/bytes; never secrets.
+- `mode` default `disabled`. Set `archive_then_gc` to enable opportunistic runs on session start/end (detached timeout, per-DB lease).
+- Never store passphrase material in config or SQLite — only the **env var name**.
+- Doctor check `archive-retention` surfaces last success/failure, next eligibility, counts/bytes; never secrets.
+- Missing passphrase env when configured → WARN + fail-closed (no delete).
 
 ## Risks / rollback
 

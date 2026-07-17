@@ -127,6 +127,7 @@ func (c *RootCLI) runHookSession(
 			return err
 		}
 		c.runOpportunisticSessionGC(ctx, resolvedDBPath, event.SessionID())
+		c.runOpportunisticArchiveThenGC(ctx, resolvedDBPath)
 		if output != nil {
 			if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
 				return xerrors.Errorf("failed to print session ID: %w", err)
@@ -230,6 +231,7 @@ func (c *RootCLI) runHookSession(
 		// Drain stale active sessions after the session ends so multi-agent
 		// dogfood does not depend only on the next session start (#1363).
 		c.runOpportunisticSessionGC(ctx, resolvedDBPath, sessionID)
+		c.runOpportunisticArchiveThenGC(ctx, resolvedDBPath)
 		return nil
 	case "stop":
 		// Codex fires Stop after every assistant response, not when the
