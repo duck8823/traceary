@@ -11,6 +11,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Archive-before-GC dogfood decision log (#1373)** — multi-GB store copy exercise (dry-run/apply/verify), keep automatic mode disabled by default, and record #1386 follow-up disposition.
 - **Manual archive-before-GC (#1371)** — `traceary store archive create|verify|restore` exports GC-eligible cold rows to a versioned package (gzip tar + manifest digests, optional passphrase via env), verifies integrity, and can `--delete-after-verify` only the exact archived identities. Restore is primary-key idempotent.
 - **Grok marketplace publication package (#1301)** — marketplace catalog entry template + generator, clean-home install/update/uninstall smoke, and bilingual submission/install docs; local-source install remains the deterministic fallback.
+- **Opt-in automatic archive-then-gc (#1372)** — `config.json` `retention.mode=archive_then_gc` (default `disabled`) runs opportunistic archive+delete-after-verify on session start/end with per-DB lease, interval marker, passphrase via env name only, and doctor `archive-retention` status (no secrets).
 
 ### Fixed
 - **Stale-active-sessions backlog under opportunistic GC (#1363)** — session GC no longer races the hook soft deadline (detached 30s timeout), runs on session end as well as start, interval tightened to 1h, and `doctor --fix` can apply `session gc`.

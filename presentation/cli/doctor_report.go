@@ -138,7 +138,7 @@ func buildDoctorSections(checks []doctorCheck) []doctorSection {
 
 func doctorSectionNameForCheck(name string) string {
 	switch {
-	case name == "db-path" || name == "db-write" || name == "stale-active-sessions" || name == "audit-reliability" || name == "content-event-reliability" || name == "sensitive-access-audit" || name == "retry-loops":
+	case name == "db-path" || name == "db-write" || name == "stale-active-sessions" || name == "archive-retention" || name == "audit-reliability" || name == "content-event-reliability" || name == "sensitive-access-audit" || name == "retry-loops":
 		return "Database"
 	case name == "config" || name == "project-dir" || name == "version" || name == "path":
 		return "Environment"
