@@ -207,10 +207,6 @@ func checkRememberSkillContract(root string) error {
 // sharedSkillPaths groups the packaged copies of each shared skill across
 // hosts. Copies of a skill must stay byte-identical so a single host cannot
 // drift; the first path in each group is the reference document.
-//
-// The Claude copy of traceary-session-history intentionally uses older,
-// Claude-specific wording and is excluded from that skill's parity group;
-// all other hosts share one text.
 var sharedSkillPaths = map[string][]string{
 	"traceary-memory-review": {
 		"integrations/claude-plugin/skills/traceary-memory-review/SKILL.md",
@@ -221,10 +217,11 @@ var sharedSkillPaths = map[string][]string{
 		"integrations/kimi-plugin/skills/traceary-memory-review/SKILL.md",
 	},
 	"traceary-session-history": {
-		"integrations/grok-plugin/skills/traceary-session-history/SKILL.md",
+		"integrations/claude-plugin/skills/traceary-session-history/SKILL.md",
 		"plugins/traceary/skills/traceary-session-history/SKILL.md",
 		"integrations/gemini-extension/skills/traceary-session-history/SKILL.md",
 		"integrations/antigravity-plugin/skills/traceary-session-history/SKILL.md",
+		"integrations/grok-plugin/skills/traceary-session-history/SKILL.md",
 		"integrations/kimi-plugin/skills/traceary-session-history/SKILL.md",
 	},
 }
