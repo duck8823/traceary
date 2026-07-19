@@ -1,7 +1,180 @@
 {
   "schema_version": 1,
-  "last_verified": "2026-07-16",
+  "last_verified": "2026-07-19",
   "hosts": {
+    "kimi": {
+      "host_version": "0.27.0",
+      "host_version_fixtures": "0.27.0",
+      "official_contract": "https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html",
+      "verification_method": "Live hooks captured on 2026-07-19 from a sanitized empty workspace via temporary [[hooks]] rules in ~/.kimi-code/config.toml (backup restored afterwards); raw payloads remained outside the repository.",
+      "field_availability": {
+        "session_id": "present on every observed event; resume keeps the same session_id",
+        "cwd": "present on every observed event",
+        "workspace_root": "unavailable; derive the workspace from cwd",
+        "transcript_path": "unavailable on every observed hook payload; ~/.kimi-code/session_index.jsonl maps sessionId to sessionDir, whose agents/main/wire.jsonl carries content.part think/text blocks as a best-effort transcript side channel",
+        "model": "unavailable on every observed hook payload",
+        "tool_input": "present on PreToolUse, PostToolUse, and PostToolUseFailure",
+        "tool_result": "present on PostToolUse as the tool_output string",
+        "failure_details": "PostToolUseFailure carries an error object {code, message, retryable}; a non-zero shell exit is reported this way",
+        "compact_summary": "unknown; compact hooks were documented but not live-observed",
+        "subagent_parent_id": "no dedicated field; the Agent tool's Pre/PostToolUse tool_call_id correlates parent and child, and Agent PostToolUse tool_output begins with an agent_id line"
+      },
+      "events": {
+        "SessionStart": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "session_started",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/session_start.json",
+          "variant_fixtures": [
+            "presentation/cli/testdata/kimi_hooks/v0.27.0/session_start_resume.json"
+          ],
+          "note": "source=startup|resume; resume re-fires with the same session_id (idempotent start required); no model field"
+        },
+        "UserPromptSubmit": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "prompt",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/user_prompt_submit.json",
+          "note": "prompt is a content-block array [{type,text}], not a plain string"
+        },
+        "PreToolUse": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "command_executed",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/pre_tool_use.json",
+          "variant_fixtures": [
+            "presentation/cli/testdata/kimi_hooks/v0.27.0/pre_tool_use_agent.json"
+          ],
+          "note": "tool_name, tool_input, and tool_call_id correlate with PostToolUse; Agent calls carry tool_input.subagent_type"
+        },
+        "PostToolUse": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "command_executed",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/post_tool_use.json",
+          "variant_fixtures": [
+            "presentation/cli/testdata/kimi_hooks/v0.27.0/post_tool_use_agent.json"
+          ],
+          "note": "tool_output is a plain string; Agent tool_output starts with an agent_id line"
+        },
+        "PostToolUseFailure": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "command_executed",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/post_tool_use_failure.json",
+          "note": "error is an object {code, message, retryable}; a non-zero shell exit arrives here, not in PostToolUse"
+        },
+        "Stop": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "best_effort",
+          "traceary_event": "transcript",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/stop.json",
+          "note": "Only stop_hook_active is present; transcript text must come from the session wire.jsonl side channel"
+        },
+        "SessionEnd": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "supported",
+          "traceary_event": "session_ended",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/session_end.json",
+          "note": "reason=exit on print-mode close; unlike Grok Build, Kimi Code emits a true session-end signal"
+        },
+        "SubagentStart": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "best_effort",
+          "traceary_event": "command_executed",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/subagent_start.json",
+          "note": "agent_name and a plain-string prompt; no parent id field (use the Agent tool_call_id correlation)"
+        },
+        "SubagentStop": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "best_effort",
+          "traceary_event": "transcript",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/subagent_stop.json",
+          "note": "agent_name and the subagent's full response string"
+        },
+        "Notification": {
+          "documented": true,
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/notification.json",
+          "note": "task.completed notifications fire with title/body/source_kind; no Traceary lifecycle mapping planned"
+        },
+        "PreCompact": {
+          "documented": true,
+          "observed": false,
+          "verification": "not_safely_triggered",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "matcher=manual|auto; print mode cannot drive a manual compact cheaply, so no payload contract is claimed"
+        },
+        "PostCompact": {
+          "documented": true,
+          "observed": false,
+          "verification": "not_safely_triggered",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "same probe limitation as PreCompact"
+        },
+        "Interrupt": {
+          "documented": true,
+          "observed": false,
+          "verification": "not_safely_triggered",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "interactive Esc only; not exercised by the headless probe"
+        },
+        "StopFailure": {
+          "documented": true,
+          "observed": false,
+          "verification": "not_safely_triggered",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "no API failure was intentionally induced in the live probe"
+        },
+        "PermissionRequest": {
+          "documented": true,
+          "observed": false,
+          "verification": "live_not_emitted",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "print mode auto-approves, so no approval wait occurred"
+        },
+        "PermissionResult": {
+          "documented": true,
+          "observed": false,
+          "verification": "live_not_emitted",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "same probe limitation as PermissionRequest"
+        }
+      }
+    },
     "grok": {
       "host_version": "0.2.101",
       "host_build": "5bc4b5dfadcf",

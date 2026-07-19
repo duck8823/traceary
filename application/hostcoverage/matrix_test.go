@@ -53,3 +53,28 @@ func TestLoad_GrokSessionEndedIsAvailableNotWired(t *testing.T) {
 		t.Fatalf("grok session_ended status = %q, want available", cell.Status)
 	}
 }
+
+func TestLoad_KimiIsProbedButNotWired(t *testing.T) {
+	t.Parallel()
+
+	m, err := hostcoverage.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	host, ok := m.HostByDoctorClient("kimi")
+	if !ok {
+		t.Fatal("missing kimi host")
+	}
+	if len(m.WiredLifecycleEvents("kimi")) != 0 {
+		t.Fatal("kimi must not report wired lifecycle events before capture lands")
+	}
+	for id, cell := range host.Events {
+		if cell.Status != hostcoverage.StatusAvailable {
+			t.Fatalf("kimi %s status = %q, want available (probed, not wired)", id, cell.Status)
+		}
+	}
+	if m.ExpectsSessionEnrichment("kimi") {
+		t.Fatal("kimi must not expect session enrichment before capture lands")
+	}
+}
+

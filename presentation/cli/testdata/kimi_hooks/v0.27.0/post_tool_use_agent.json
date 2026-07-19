@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "session_00000000-0000-4000-8000-000000000001",
+  "cwd": "/workspace/kimi-contract-probe",
+  "tool_name": "Agent",
+  "tool_input": {
+    "subagent_type": "explore",
+    "prompt": "List files in the current workspace.",
+    "description": "List files in workspace"
+  },
+  "tool_call_id": "tool_0000000000000000000000AA",
+  "tool_output": "agent_id: agent-0\nactual_subagent_type: explore\nstatus: completed\n\n[summary]\nThe workspace directory is empty.\n"
+}

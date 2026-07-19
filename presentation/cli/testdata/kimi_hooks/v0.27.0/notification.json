@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "Notification",
+  "session_id": "session_00000000-0000-4000-8000-000000000001",
+  "cwd": "/workspace/kimi-contract-probe",
+  "sink": "context",
+  "notification_type": "task.completed",
+  "title": "Background process completed",
+  "severity": "info",
+  "source_kind": "background_task",
+  "body": "Background sleep probe completed.",
+  "source_id": "bash-00000000"
+}

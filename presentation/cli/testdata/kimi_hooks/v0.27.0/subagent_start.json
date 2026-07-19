@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "SubagentStart",
+  "session_id": "session_00000000-0000-4000-8000-000000000001",
+  "cwd": "/workspace/kimi-contract-probe",
+  "agent_name": "explore",
+  "prompt": "List files in the current workspace."
+}
