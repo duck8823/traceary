@@ -138,10 +138,16 @@ func verifyIntegrations(root string, runCLISmoke bool) error {
 	if err := checkGrok(root, version); err != nil {
 		return err
 	}
+	if err := checkKimi(root, version); err != nil {
+		return err
+	}
 	if err := checkAntigravity(root); err != nil {
 		return err
 	}
 	if err := checkRememberSkillContract(root); err != nil {
+		return err
+	}
+	if err := checkSharedSkillParity(root); err != nil {
 		return err
 	}
 	return checkDocs(root)
@@ -156,6 +162,7 @@ var rememberSkillPaths = []string{
 	"integrations/gemini-extension/skills/traceary-memory-remember/SKILL.md",
 	"integrations/antigravity-plugin/skills/traceary-memory-remember/SKILL.md",
 	"integrations/grok-plugin/skills/traceary-memory-remember/SKILL.md",
+	"integrations/kimi-plugin/skills/traceary-memory-remember/SKILL.md",
 }
 
 // checkRememberSkillContract enforces the explicit-remember product contract:
@@ -192,6 +199,53 @@ func checkRememberSkillContract(root string) error {
 		}
 		if string(data) != string(reference) {
 			return xerrors.Errorf("remember skill copies diverged: %s does not match %s", rel, rememberSkillPaths[0])
+		}
+	}
+	return nil
+}
+
+// sharedSkillPaths groups the packaged copies of each shared skill across
+// hosts. Copies of a skill must stay byte-identical so a single host cannot
+// drift; the first path in each group is the reference document.
+//
+// The Claude copy of traceary-session-history intentionally uses older,
+// Claude-specific wording and is excluded from that skill's parity group;
+// all other hosts share one text.
+var sharedSkillPaths = map[string][]string{
+	"traceary-memory-review": {
+		"integrations/claude-plugin/skills/traceary-memory-review/SKILL.md",
+		"plugins/traceary/skills/traceary-memory-review/SKILL.md",
+		"integrations/gemini-extension/skills/traceary-memory-review/SKILL.md",
+		"integrations/antigravity-plugin/skills/traceary-memory-review/SKILL.md",
+		"integrations/grok-plugin/skills/traceary-memory-review/SKILL.md",
+		"integrations/kimi-plugin/skills/traceary-memory-review/SKILL.md",
+	},
+	"traceary-session-history": {
+		"integrations/grok-plugin/skills/traceary-session-history/SKILL.md",
+		"plugins/traceary/skills/traceary-session-history/SKILL.md",
+		"integrations/gemini-extension/skills/traceary-session-history/SKILL.md",
+		"integrations/antigravity-plugin/skills/traceary-session-history/SKILL.md",
+		"integrations/kimi-plugin/skills/traceary-session-history/SKILL.md",
+	},
+}
+
+// checkSharedSkillParity enforces byte-identity of the shared skill copies
+// across every host package.
+func checkSharedSkillParity(root string) error {
+	for skill, paths := range sharedSkillPaths {
+		var reference []byte
+		for i, rel := range paths {
+			data, err := os.ReadFile(filepath.Join(root, rel)) // #nosec G304 -- fixed package path under repo root
+			if err != nil {
+				return xerrors.Errorf("missing shared %s skill: %s: %w", skill, rel, err)
+			}
+			if i == 0 {
+				reference = data
+				continue
+			}
+			if string(data) != string(reference) {
+				return xerrors.Errorf("shared %s skill copies diverged: %s does not match %s", skill, rel, paths[0])
+			}
 		}
 	}
 	return nil
@@ -254,6 +308,96 @@ func checkGrok(root, version string) error {
 	}
 	for _, skill := range expectedSkills {
 		if err := requireExists(root, "integrations/grok-plugin/skills/"+skill+"/SKILL.md", "missing Grok "+skill+" skill"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkKimi(root, version string) error {
+	var manifest struct {
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+		Homepage    string `json:"homepage"`
+		Interface   struct {
+			DisplayName string `json:"displayName"`
+		} `json:"interface"`
+		Skills     []string `json:"skills"`
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+		Hooks []struct {
+			Event   string `json:"event"`
+			Matcher string `json:"matcher"`
+			Command string `json:"command"`
+			Timeout int    `json:"timeout"`
+		} `json:"hooks"`
+	}
+	if err := readJSON(root, "integrations/kimi-plugin/kimi.plugin.json", &manifest); err != nil {
+		return err
+	}
+	if manifest.Name != "traceary" {
+		return xerrors.Errorf("unexpected Kimi plugin name")
+	}
+	if manifest.Version != version {
+		return xerrors.Errorf("kimi plugin version must track v%s", version)
+	}
+	if strings.TrimSpace(manifest.Description) == "" || strings.TrimSpace(manifest.Homepage) == "" || strings.TrimSpace(manifest.Interface.DisplayName) == "" {
+		return xerrors.Errorf("kimi plugin must declare description, homepage, and interface.displayName")
+	}
+	if !equalStrings(manifest.Skills, []string{"./skills/"}) {
+		return xerrors.Errorf("kimi plugin skills field must be exactly [\"./skills/\"], got %v", manifest.Skills)
+	}
+	server, ok := manifest.MCPServers["traceary"]
+	if len(manifest.MCPServers) != 1 || !ok || server.Command != "traceary" || !equalStrings(server.Args, []string{"mcp-server"}) {
+		return xerrors.Errorf("kimi plugin must expose the traceary mcp-server")
+	}
+
+	// The manifest hook rules must stay in lockstep with the verified
+	// TOML plan (infrastructure/filesystem/kimi_hooks_handler.go).
+	expectedHooks := []struct {
+		event, matcher, action string
+	}{
+		{"SessionStart", "", "session-start"},
+		{"SessionEnd", "", "session-end"},
+		{"UserPromptSubmit", "", "user-prompt-submit"},
+		{"PreToolUse", "Agent", "pre-tool-use"},
+		{"PostToolUse", "", "post-tool-use"},
+		{"PostToolUseFailure", "", "post-tool-use-failure"},
+		{"Stop", "", "stop"},
+		{"SubagentStop", "", "subagent-stop"},
+		{"PreCompact", "", "pre-compact"},
+		{"PostCompact", "", "post-compact"},
+	}
+	if len(manifest.Hooks) != len(expectedHooks) {
+		return xerrors.Errorf("kimi plugin must declare exactly %d verified hook rules, got %d", len(expectedHooks), len(manifest.Hooks))
+	}
+	for i, want := range expectedHooks {
+		hook := manifest.Hooks[i]
+		expectedCommand := "traceary hook kimi " + want.action
+		if hook.Event != want.event || hook.Matcher != want.matcher || hook.Command != expectedCommand || hook.Timeout != 5 {
+			return xerrors.Errorf("kimi plugin hook rule %d (%s) drifted from the verified Kimi contract", i, want.event)
+		}
+	}
+
+	expectedSkills := []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history"}
+	entries, err := os.ReadDir(filepath.Join(root, "integrations/kimi-plugin/skills"))
+	if err != nil {
+		return xerrors.Errorf("failed to read Kimi skills: %w", err)
+	}
+	actualSkills := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			actualSkills = append(actualSkills, entry.Name())
+		}
+	}
+	if !equalStrings(actualSkills, expectedSkills) {
+		return xerrors.Errorf("kimi plugin skills must be exactly %v, got %v", expectedSkills, actualSkills)
+	}
+	for _, skill := range expectedSkills {
+		if err := requireExists(root, "integrations/kimi-plugin/skills/"+skill+"/SKILL.md", "missing Kimi "+skill+" skill"); err != nil {
 			return err
 		}
 	}

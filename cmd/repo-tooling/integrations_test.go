@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -333,4 +335,172 @@ func writeHookTree(t *testing.T, root string) {
 	if n == 0 {
 		t.Fatal("seed syncHookCopies wrote 0 files")
 	}
+}
+
+// TestInstallKimiPluginScript exercises scripts/install-kimi-plugin.sh in a
+// sandboxed KIMI_CODE_HOME with stub kimi/traceary binaries on PATH.
+func TestInstallKimiPluginScript(t *testing.T) {
+	t.Parallel()
+
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Fatalf("findRepoRoot() error = %v", err)
+	}
+	scriptPath := filepath.Join(repoRoot, "scripts", "install-kimi-plugin.sh")
+
+	newStubBin := func(t *testing.T) string {
+		t.Helper()
+		binDir := t.TempDir()
+		for _, name := range []string{"kimi", "traceary"} {
+			stub := filepath.Join(binDir, name)
+			if err := os.WriteFile(stub, []byte("#!/bin/bash\nexit 0\n"), 0o755); err != nil {
+				t.Fatalf("write stub %s: %v", name, err)
+			}
+		}
+		return binDir
+	}
+
+	runScript := func(t *testing.T, kimiHome string, extraEnv ...string) (string, error) {
+		t.Helper()
+		cmd := exec.Command("bash", scriptPath) // #nosec G204 -- test invokes the repository install script
+		cmd.Env = append(os.Environ(),
+			"KIMI_CODE_HOME="+kimiHome,
+			"PATH="+newStubBin(t)+string(os.PathListSeparator)+os.Getenv("PATH"),
+		)
+		cmd.Env = append(cmd.Env, extraEnv...)
+		output, err := cmd.CombinedOutput()
+		return string(output), err
+	}
+
+	readRecord := func(t *testing.T, kimiHome string) map[string]any {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(kimiHome, "plugins", "installed.json"))
+		if err != nil {
+			t.Fatalf("read installed.json: %v", err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Fatalf("decode installed.json: %v", err)
+		}
+		plugins, ok := parsed["plugins"].([]any)
+		if !ok || len(plugins) != 1 {
+			t.Fatalf("installed.json plugins = %v, want exactly one entry", parsed["plugins"])
+		}
+		entry, ok := plugins[0].(map[string]any)
+		if !ok {
+			t.Fatalf("installed.json entry is not an object: %v", plugins[0])
+		}
+		return entry
+	}
+
+	t.Run("fresh install writes the managed copy and record", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("install script failed: %v\n%s", err, output)
+		}
+		managedPath := filepath.Join(kimiHome, "plugins", "managed", "traceary")
+		if _, err := os.Stat(filepath.Join(managedPath, "kimi.plugin.json")); err != nil {
+			t.Fatalf("managed manifest missing: %v", err)
+		}
+		linkTarget, err := os.Readlink(managedPath)
+		if err != nil {
+			t.Fatalf("managed path is not a generation symlink: %v", err)
+		}
+		if !strings.Contains(linkTarget, ".traceary-gen-") {
+			t.Fatalf("managed symlink target = %q, want a .traceary-gen-* generation dir", linkTarget)
+		}
+		entry := readRecord(t, kimiHome)
+		if entry["id"] != "traceary" || entry["enabled"] != true || entry["state"] != "ok" {
+			t.Fatalf("record = %v, want enabled traceary entry", entry)
+		}
+	})
+
+	t.Run("reinstall preserves user-controlled fields", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("first install failed: %v\n%s", err, output)
+		}
+		// Simulate the user disabling the plugin via /plugins.
+		recordPath := filepath.Join(kimiHome, "plugins", "installed.json")
+		data, err := os.ReadFile(recordPath)
+		if err != nil {
+			t.Fatalf("read record: %v", err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Fatalf("decode record: %v", err)
+		}
+		entry := parsed["plugins"].([]any)[0].(map[string]any)
+		entry["enabled"] = false
+		entry["custom_note"] = "keep me"
+		updated, err := json.Marshal(parsed)
+		if err != nil {
+			t.Fatalf("encode record: %v", err)
+		}
+		if err := os.WriteFile(recordPath, updated, 0o600); err != nil {
+			t.Fatalf("write record: %v", err)
+		}
+
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("reinstall failed: %v\n%s", err, output)
+		}
+		entry = readRecord(t, kimiHome)
+		if entry["enabled"] != false {
+			t.Fatalf("reinstall reset enabled to %v, want preserved false", entry["enabled"])
+		}
+		if entry["custom_note"] != "keep me" {
+			t.Fatalf("reinstall dropped unknown field: %v", entry)
+		}
+	})
+
+	t.Run("empty installed.json starts fresh", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(kimiHome, "plugins"), 0o755); err != nil {
+			t.Fatalf("mkdir plugins: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(kimiHome, "plugins", "installed.json"), nil, 0o600); err != nil {
+			t.Fatalf("seed empty installed.json: %v", err)
+		}
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("install with empty installed.json failed: %v\n%s", err, output)
+		}
+		if entry := readRecord(t, kimiHome); entry["id"] != "traceary" {
+			t.Fatalf("record = %v, want traceary entry", entry)
+		}
+	})
+
+	t.Run("corrupt installed.json is backed up and replaced", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(kimiHome, "plugins"), 0o755); err != nil {
+			t.Fatalf("mkdir plugins: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(kimiHome, "plugins", "installed.json"), []byte("{not json"), 0o600); err != nil {
+			t.Fatalf("seed corrupt installed.json: %v", err)
+		}
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("install with corrupt installed.json failed: %v\n%s", err, output)
+		}
+		if _, err := os.Stat(filepath.Join(kimiHome, "plugins", "installed.json.traceary-backup")); err != nil {
+			t.Fatalf("corrupt record was not backed up: %v", err)
+		}
+		if entry := readRecord(t, kimiHome); entry["id"] != "traceary" {
+			t.Fatalf("record = %v, want traceary entry", entry)
+		}
+	})
+
+	t.Run("installed.json with non-object entries is rebuilt", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(kimiHome, "plugins"), 0o755); err != nil {
+			t.Fatalf("mkdir plugins: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(kimiHome, "plugins", "installed.json"), []byte(`{"plugins":[null,"bogus"]}`), 0o600); err != nil {
+			t.Fatalf("seed installed.json with non-object entries: %v", err)
+		}
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("install with non-object entries failed: %v\n%s", err, output)
+		}
+		if entry := readRecord(t, kimiHome); entry["id"] != "traceary" {
+			t.Fatalf("record = %v, want traceary entry", entry)
+		}
+	})
 }

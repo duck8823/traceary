@@ -1,6 +1,9 @@
 package filesystem
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,6 +70,45 @@ func TestKimiHooksHandler_RendersTOMLHookRules(t *testing.T) {
 	}
 	if !strings.Contains(text, "timeout = 5") {
 		t.Error("rendered document missing per-hook timeout")
+	}
+}
+
+func TestKimiHooksHandler_PlanMatchesPackagedManifest(t *testing.T) {
+	t.Parallel()
+
+	// The packaged kimi.plugin.json hooks must stay in lockstep with the
+	// handler plan so the TOML print path and the plugin distribution path
+	// can never drift apart.
+	manifestBytes, err := os.ReadFile(filepath.Join("..", "..", "integrations", "kimi-plugin", "kimi.plugin.json"))
+	if err != nil {
+		t.Fatalf("read packaged Kimi manifest: %v", err)
+	}
+	var manifest struct {
+		Hooks []struct {
+			Event   string `json:"event"`
+			Matcher string `json:"matcher"`
+			Command string `json:"command"`
+			Timeout int    `json:"timeout"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode packaged Kimi manifest: %v", err)
+	}
+	if len(manifest.Hooks) != len(kimiHookPlan) {
+		t.Fatalf("packaged manifest declares %d hook rules, want %d from the handler plan", len(manifest.Hooks), len(kimiHookPlan))
+	}
+	for i, rule := range kimiHookPlan {
+		hook := manifest.Hooks[i]
+		if hook.Event != rule.event || hook.Matcher != rule.matcher {
+			t.Errorf("rule %d: manifest = (%q, %q), want plan (%q, %q)", i, hook.Event, hook.Matcher, rule.event, rule.matcher)
+		}
+		wantCommand := "traceary hook kimi " + rule.action
+		if hook.Command != wantCommand {
+			t.Errorf("rule %d (%s): manifest command = %q, want %q", i, rule.event, hook.Command, wantCommand)
+		}
+		if hook.Timeout != kimiHookTimeoutSeconds {
+			t.Errorf("rule %d (%s): manifest timeout = %d, want %d", i, rule.event, hook.Timeout, kimiHookTimeoutSeconds)
+		}
 	}
 }
 
