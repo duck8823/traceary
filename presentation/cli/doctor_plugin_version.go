@@ -64,6 +64,11 @@ func (c *RootCLI) detectPluginInstalls() []doctorPluginInstall {
 		"grok",
 		"./scripts/install-grok-plugin.sh  # from a matching release tag checkout",
 	)...)
+	installs = append(installs, detectManifestInstalls(
+		filepath.Join(home, ".kimi-code", "plugins", "managed", "traceary", "kimi.plugin.json"),
+		"kimi",
+		"./scripts/install-kimi-plugin.sh  # from a matching release tag checkout",
+	)...)
 	return installs
 }
 

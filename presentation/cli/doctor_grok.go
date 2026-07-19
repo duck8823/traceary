@@ -20,7 +20,11 @@ var (
 )
 
 var grokVersionPattern = regexp.MustCompile(`grok\s+([^\s]+)`)
-var grokTracearyVersionPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+
+// releaseTracearyVersionPattern matches released Traceary versions so
+// plugin/binary parity checks can skip development builds. Shared by the
+// host plugin checks (grok, kimi).
+var releaseTracearyVersionPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
 
 type grokDoctorState struct {
 	CLIAvailable    bool
@@ -180,7 +184,7 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 	if !state.PluginEnabled {
 		pluginStatus, pluginMessage = doctorStatusWarn, Localize("native Traceary Grok plugin is installed but disabled", "native Traceary Grok plugin はインストール済みですが無効です")
 		pluginHint = "grok plugin enable traceary"
-	} else if grokTracearyVersionPattern.MatchString(tracearyVersion) && strings.TrimPrefix(state.PluginVersion, "v") != strings.TrimPrefix(tracearyVersion, "v") {
+	} else if releaseTracearyVersionPattern.MatchString(tracearyVersion) && strings.TrimPrefix(state.PluginVersion, "v") != strings.TrimPrefix(tracearyVersion, "v") {
 		pluginStatus = doctorStatusWarn
 		pluginMessage = localizef("native Traceary Grok plugin version %s does not match Traceary %s", "native Traceary Grok plugin version %s は Traceary %s と一致しません", state.PluginVersion, tracearyVersion)
 		pluginHint = "grok plugin update traceary"
