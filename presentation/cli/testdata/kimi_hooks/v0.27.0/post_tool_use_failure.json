@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "PostToolUseFailure",
+  "session_id": "session_00000000-0000-4000-8000-000000000001",
+  "cwd": "/workspace/kimi-contract-probe",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "ls /nonexistent-dir"
+  },
+  "tool_call_id": "tool_0000000000000000000000AA",
+  "error": {
+    "code": "internal",
+    "message": "ls: /nonexistent-dir: No such file or directory\nCommand failed with exit code: 1.",
+    "retryable": false
+  }
+}

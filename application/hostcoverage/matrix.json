@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "last_verified": "2026-07-16",
+  "last_verified": "2026-07-19",
   "notes": {
-    "en": "Last verified: 2026-07-16 (Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).",
-    "ja": "最終確認日: 2026-07-16（Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。"
+    "en": "Last verified: 2026-07-19 (Kimi Code 0.27.0 live hook probe; no Traceary wiring yet — see docs/hooks/host-contract.json. Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).",
+    "ja": "最終確認日: 2026-07-19（Kimi Code 0.27.0 の live hook probe。Traceary 側の配線は未実施 — docs/hooks/host-contract.json 参照。Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。"
   },
   "lifecycle_events": [
     {
@@ -262,6 +262,60 @@
           "summary": {
             "en": "✕ no host session-end signal — Antigravity `Stop` is a per-execution boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC",
             "ja": "✕ host のセッション終了信号なし — Antigravity `Stop` は execution 単位の境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由"
+          }
+        }
+      }
+    },
+    {
+      "id": "kimi",
+      "package": "kimi-plugin",
+      "label": {
+        "en": "Kimi Code 0.27.0 (contract probed; not wired yet)",
+        "ja": "Kimi Code 0.27.0（contract probe 済み・未配線）"
+      },
+      "doctor_client": "kimi",
+      "expects_session_enrichment": false,
+      "events": {
+        "session_started": {
+          "status": "available",
+          "summary": {
+            "en": "○ `SessionStart` (`source` = startup|resume; resume re-fires with the same session_id)",
+            "ja": "○ `SessionStart`（`source` = startup|resume。resume は同一 session_id で再発火）"
+          }
+        },
+        "prompt": {
+          "status": "available",
+          "summary": {
+            "en": "○ `UserPromptSubmit` (`prompt` is a content-block array, not a plain string)",
+            "ja": "○ `UserPromptSubmit`（`prompt` は文字列ではなく content block 配列）"
+          }
+        },
+        "command_executed": {
+          "status": "available",
+          "summary": {
+            "en": "○ `PreToolUse` + `PostToolUse` (`tool_output` string) + `PostToolUseFailure` (`error` object with code/message/retryable)",
+            "ja": "○ `PreToolUse` + `PostToolUse`（`tool_output` 文字列）+ `PostToolUseFailure`（`error` は code/message/retryable を持つ object）"
+          }
+        },
+        "transcript": {
+          "status": "available",
+          "summary": {
+            "en": "○ `Stop` carries no transcript fields; `session_index.jsonl` → session `wire.jsonl` `content.part` blocks are a best-effort side channel",
+            "ja": "○ `Stop` には transcript 情報がない。`session_index.jsonl` → session の `wire.jsonl` の `content.part` block が best-effort の側路"
+          }
+        },
+        "compact_summary": {
+          "status": "available",
+          "summary": {
+            "en": "○ `PreCompact` / `PostCompact` documented, but not live-observed in the 0.27.0 probe; payload contract unclaimed",
+            "ja": "○ `PreCompact` / `PostCompact` は文書化済みだが 0.27.0 の probe では未観測。payload 契約は未確認"
+          }
+        },
+        "session_ended": {
+          "status": "available",
+          "summary": {
+            "en": "○ `SessionEnd` (`reason` = exit; observed on print-mode close)",
+            "ja": "○ `SessionEnd`（`reason` = exit。print mode 終了時に観測）"
           }
         }
       }
