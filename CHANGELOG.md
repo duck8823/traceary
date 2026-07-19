@@ -8,7 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [v0.29.0] - 2026-07-20
 
 ### Added
-- **First-class Kimi Code integration (#1393)** — native support for Kimi Code CLI (live-verified against 0.27.0) as a Traceary host, delivered as the `integrations/kimi-plugin/` package: one `kimi.plugin.json` manifest declaring ten lifecycle hooks, the Traceary MCP server, and the three shared memory/session skills. Install with `scripts/install-kimi-plugin.sh` (mirrors the official local install: generation-dir staging, atomic symlink flip, and `installed.json` upsert that preserves your `enabled` state), then verify with `traceary doctor --client kimi`.
+- **First-class Kimi Code integration (#1393)** — native support for Kimi Code CLI (live-verified against 0.27.0) as a Traceary host, delivered as the `integrations/kimi-plugin/` package: one `kimi.plugin.json` manifest declaring ten lifecycle hook rules, the Traceary MCP server, and the three shared memory/session skills. Install with `scripts/install-kimi-plugin.sh` (mirrors the official local install: generation-dir staging, atomic symlink flip, and `installed.json` upsert that preserves your `enabled` state), then verify with `traceary doctor --client kimi`.
 - **Kimi hook contract and sanitized fixtures (#1394)** — live-probed payload contract for SessionStart/End, UserPromptSubmit, Pre/PostToolUse, PostToolUseFailure, Stop, SubagentStart/Stop, Notification, and (auto-triggered) PreCompact/PostCompact, committed as sanitized fixtures with a fixture-validating contract test.
 - **Kimi session, prompt, tool, and transcript capture (#1396)** — the hidden `traceary hook kimi` adapter normalizes the snake_case payload into the shared hook runtime (content-block prompt flattened to text, `tool_output` → audit output, `error{code,message,retryable}` → failure signal with a message→code→unknown fallback). The assistant transcript is recovered best-effort from the session wire log (`session_index.jsonl` → `agents/main/wire.jsonl` `content.part` think/text blocks), with the read confined to the Kimi home sessions root after symlink resolution.
 - **Kimi compact and subagent lifecycle events (#1397)** — `PreCompact`/`PostCompact` markers (`trigger`, no summary body) and subagent parent/child attribution from the Agent tool's `PreToolUse` (correlating `tool_call_id`) plus `SubagentStop` (latest-active-child fallback, same semantics as Claude).
@@ -16,12 +16,12 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Bilingual Kimi guide and dogfood evidence (#1400)** — install/coverage/troubleshooting docs, README host table row (Full capture tier), and live dogfood (plugin-installed hooks recording session/prompt/audit/transcript/session end, plus MCP answers from a live session).
 
 ### Fixed
-- **Claude session-history skill unified with the shared text (#1416)** — the Claude copy had drifted in wording while the other five hosts converged; all six host packages are now byte-identical under the shared-skill parity check.
+- **Claude session-history skill unified with the shared text (#1412)** — the Claude copy had drifted in wording while the other five hosts converged; all six host packages are now byte-identical under the shared-skill parity check.
 
 ### Documentation
-- **Missing Grok row in the README host table (#1413)** — backfilled to match the published host-coverage matrix.
-- **Host coverage matrix status semantics (#1414)** — `wired` / `available` / `unsupported` are now documented (wiring state, not host capability), including the relationship to the host-contract vocabulary.
-- **Kimi install script swap-path tests (#1415)** — direct-copy migration, generation flip + prune, and temp-link hygiene pinned by sandboxed behavior tests.
+- **Missing Grok row in the README host table (#1409)** — backfilled to match the published host-coverage matrix.
+- **Host coverage matrix status semantics (#1410)** — `wired` / `available` / `unsupported` are now documented (wiring state, not host capability), including the relationship to the host-contract vocabulary.
+- **Kimi install script swap-path tests (#1411)** — direct-copy migration, generation flip + prune, and temp-link hygiene pinned by sandboxed behavior tests.
 
 ### Notes
 - v0.29.0 has no destructive SQLite migration and adds no MCP tools.
