@@ -503,4 +503,82 @@ func TestInstallKimiPluginScript(t *testing.T) {
 			t.Fatalf("record = %v, want traceary entry", entry)
 		}
 	})
+
+	t.Run("direct-copy managed dir migrates to the symlink layout", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		managedDir := filepath.Join(kimiHome, "plugins", "managed", "traceary")
+		if err := os.MkdirAll(managedDir, 0o755); err != nil {
+			t.Fatalf("seed direct-copy managed dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(managedDir, "stale-marker.txt"), []byte("old"), 0o600); err != nil {
+			t.Fatalf("seed stale marker: %v", err)
+		}
+
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("install over a direct-copy dir failed: %v\n%s", err, output)
+		}
+		linkTarget, err := os.Readlink(managedDir)
+		if err != nil {
+			t.Fatalf("managed path is not a generation symlink after migration: %v", err)
+		}
+		if !strings.Contains(linkTarget, ".traceary-gen-") {
+			t.Fatalf("managed symlink target = %q, want a .traceary-gen-* dir", linkTarget)
+		}
+		if _, err := os.Stat(filepath.Join(managedDir, "kimi.plugin.json")); err != nil {
+			t.Fatalf("migrated install lost the manifest: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(managedDir, "stale-marker.txt")); !os.IsNotExist(err) {
+			t.Fatalf("stale direct-copy content survived the migration")
+		}
+		if _, err := os.Stat(managedDir + ".traceary-backup"); !os.IsNotExist(err) {
+			t.Fatalf("migration backup was not cleaned up")
+		}
+	})
+
+	t.Run("reinstall flips the symlink and prunes old generations", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("first install failed: %v\n%s", err, output)
+		}
+		managedDir := filepath.Join(kimiHome, "plugins", "managed", "traceary")
+		firstTarget, err := os.Readlink(managedDir)
+		if err != nil {
+			t.Fatalf("first install did not produce a symlink: %v", err)
+		}
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("reinstall failed: %v\n%s", err, output)
+		}
+		secondTarget, err := os.Readlink(managedDir)
+		if err != nil {
+			t.Fatalf("reinstall did not keep a symlink: %v", err)
+		}
+		if firstTarget == secondTarget {
+			t.Fatal("reinstall did not flip to a new generation")
+		}
+		if _, err := os.Stat(firstTarget); !os.IsNotExist(err) {
+			t.Fatalf("superseded generation %s was not pruned", firstTarget)
+		}
+		if _, err := os.Stat(filepath.Join(secondTarget, "kimi.plugin.json")); err != nil {
+			t.Fatalf("new generation is missing the manifest: %v", err)
+		}
+	})
+
+	t.Run("no temporary link names leak after installs", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		for i := 0; i < 2; i++ {
+			if output, err := runScript(t, kimiHome); err != nil {
+				t.Fatalf("install %d failed: %v\n%s", i, err, output)
+			}
+		}
+		matches, err := filepath.Glob(filepath.Join(kimiHome, "plugins", "managed", "*.traceary-tmp-*"))
+		if err != nil {
+			t.Fatalf("glob temp links: %v", err)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("temporary link names leaked: %v", matches)
+		}
+		if entry := readRecord(t, kimiHome); entry["id"] != "traceary" {
+			t.Fatalf("record = %v, want traceary entry", entry)
+		}
+	})
 }
