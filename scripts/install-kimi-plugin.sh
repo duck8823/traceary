@@ -57,7 +57,10 @@ PY
 # Stage the new package as a unique generation directory and flip the
 # managed symlink with a single rename, so the managed path never points at
 # a missing or half-copied package. Kimi Code resolves the symlink
-# (verified against 0.27.0).
+# (verified against 0.27.0). A pre-0.29 direct-copy managed directory is
+# migrated by moving it aside first — that one-time path cannot be a single
+# rename (a symlink cannot atomically replace a non-empty directory), so
+# run the first install after upgrading while Kimi Code is not running.
 MANAGED_ROOT="${KIMI_HOME}/plugins/managed"
 mkdir -p "${MANAGED_ROOT}"
 GEN_DIR="$(mktemp -d "${MANAGED_ROOT}/.traceary-gen-XXXXXXXX")"
@@ -68,7 +71,7 @@ import shutil
 import sys
 
 managed_dir, gen_dir = sys.argv[1], sys.argv[2]
-tmp_link = managed_dir + ".traceary-tmp"
+tmp_link = "{}.traceary-tmp-{}".format(managed_dir, os.getpid())
 if os.path.lexists(tmp_link):
     os.unlink(tmp_link)
 os.symlink(gen_dir, tmp_link)
@@ -82,6 +85,7 @@ try:
     else:
         # One-time migration from a direct-copy install: move the real
         # directory aside (single rename), flip the symlink, then clean up.
+        # Not a single atomic swap by construction — see the header comment.
         os.replace(managed_dir, backup_dir)
         try:
             os.replace(tmp_link, managed_dir)
