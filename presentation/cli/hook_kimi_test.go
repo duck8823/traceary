@@ -246,6 +246,38 @@ func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 		}
 	})
 
+	t.Run("skips transcript when the wire log itself is a symlink escape", func(t *testing.T) {
+		// The session dir is legitimate, but agents/main/wire.jsonl points
+		// outside the sessions root — containment must hold for the final
+		// resolved file, not just the directory.
+		outsideFile := filepath.Join(t.TempDir(), "wire.jsonl")
+		if err := os.WriteFile(outsideFile, []byte(`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"escaped"}}}`+"\n"), 0o600); err != nil {
+			t.Fatalf("write outside wire log: %v", err)
+		}
+		kimiHome := filepath.Join(homeDir, ".kimi-code")
+		sessionDir := filepath.Join(kimiHome, "sessions", "wd_probe_000000000000", "session_00000000-0000-4000-8000-000000000001")
+		if err := os.MkdirAll(filepath.Join(sessionDir, "agents", "main"), 0o755); err != nil {
+			t.Fatalf("mkdir wire log dir: %v", err)
+		}
+		wirePath := filepath.Join(sessionDir, "agents", "main", "wire.jsonl")
+		if err := os.Remove(wirePath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("remove pre-seeded wire log: %v", err)
+		}
+		if err := os.Symlink(outsideFile, wirePath); err != nil {
+			t.Fatalf("symlink wire log: %v", err)
+		}
+		writeKimiSessionIndex(t, homeDir, "session_00000000-0000-4000-8000-000000000001", sessionDir)
+
+		stdout, eventStub, _ := runKimiHook(t, "stop", readKimiFixture(t, "stop.json"), nil, nil)
+
+		if stdout != "" {
+			t.Fatalf("Stop output = %q, want empty passive-hook output", stdout)
+		}
+		if eventStub.logCall.kind != "" {
+			t.Fatalf("Stop with a symlink-escaped wire log recorded %q, want silent skip", eventStub.logCall.kind)
+		}
+	})
+
 	t.Run("skips transcript silently when the session index has no entry", func(t *testing.T) {
 		payload := strings.Replace(readKimiFixture(t, "stop.json"), "session_00000000-0000-4000-8000-000000000001", "session_99999999-9999-4999-8999-999999999999", 1)
 

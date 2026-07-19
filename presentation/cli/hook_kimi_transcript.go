@@ -68,36 +68,41 @@ func extractKimiTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
 	if sessionDir == "" {
 		return nil, false
 	}
-	sessionDir = containKimiSessionDir(sessionDir)
+	sessionDir = containKimiSessionsPath(sessionDir)
 	if sessionDir == "" {
 		return nil, false
 	}
-	return readKimiWireTranscriptBlocks(filepath.Join(sessionDir, "agents", "main", "wire.jsonl"))
+	wirePath := containKimiSessionsPath(filepath.Join(sessionDir, "agents", "main", "wire.jsonl"))
+	if wirePath == "" {
+		return nil, false
+	}
+	return readKimiWireTranscriptBlocks(wirePath)
 }
 
-// containKimiSessionDir confines the index-supplied session directory to the
-// Kimi home sessions root. A tampered index could otherwise point the reader
-// at an arbitrary path and have its contents recorded as a transcript.
-// Symlinks are resolved on both sides before the containment check; any
-// failure is a soft skip.
-func containKimiSessionDir(sessionDir string) string {
+// containKimiSessionsPath confines an index-supplied path to the Kimi home
+// sessions root. A tampered index could otherwise point the reader at an
+// arbitrary path and have its contents recorded as a transcript. Symlinks
+// are resolved on both the root and the candidate before the containment
+// check — including the final wire.jsonl, so a symlinked agents/main entry
+// cannot escape either. Any failure is a soft skip.
+func containKimiSessionsPath(path string) string {
 	sessionsRoot := filepath.Join(kimiCodeHome(), "sessions")
 	resolvedRoot, err := filepath.EvalSymlinks(sessionsRoot)
 	if err != nil {
 		slog.Debug("failed to resolve Kimi sessions root", "path", sessionsRoot, "error", err)
 		return ""
 	}
-	resolvedDir, err := filepath.EvalSymlinks(filepath.Clean(sessionDir))
+	resolvedPath, err := filepath.EvalSymlinks(filepath.Clean(path))
 	if err != nil {
-		slog.Debug("failed to resolve Kimi session dir", "path", sessionDir, "error", err)
+		slog.Debug("failed to resolve Kimi session path", "path", path, "error", err)
 		return ""
 	}
-	rel, err := filepath.Rel(resolvedRoot, resolvedDir)
+	rel, err := filepath.Rel(resolvedRoot, resolvedPath)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		slog.Debug("Kimi session dir escapes the sessions root", "session_dir", sessionDir, "root", resolvedRoot)
+		slog.Debug("Kimi session path escapes the sessions root", "path", path, "root", resolvedRoot)
 		return ""
 	}
-	return resolvedDir
+	return resolvedPath
 }
 
 // lookupKimiSessionDir resolves a session_id to its on-disk session
