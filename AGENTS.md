@@ -21,6 +21,9 @@ Local-first CLI and MCP server for recording AI agent work logs, session boundar
 | `presentation/mcpserver/` | MCP server (stdio) |
 | `integrations/claude-plugin/` | Claude Code plugin package |
 | `integrations/gemini-extension/` | Gemini CLI extension package |
+| `integrations/antigravity-plugin/` | Antigravity plugin package |
+| `integrations/grok-plugin/` | Grok Build plugin package |
+| `integrations/kimi-plugin/` | Kimi Code plugin package |
 | `plugins/traceary/` | Codex plugin package |
 | `schema/sqlite/migrations/` | SQL migration files |
 

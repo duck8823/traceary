@@ -78,6 +78,16 @@ codex   # then, inside Codex: /plugins -> Traceary Plugins -> Traceary
 
 The `traceary integration codex install` helper was retired in v0.14.0 and the cleanup-only `traceary integration codex uninstall` surface was removed in v0.15.0. Use Codex CLI's official `/plugins` flow shown above for install / uninstall. See the [Codex plugin guide](./docs/integrations/codex-plugin.md) for migration details and manual cleanup steps for legacy installs.
 
+**Kimi Code** ([guide](./docs/integrations/kimi.md))
+
+```sh
+git clone https://github.com/duck8823/traceary ~/src/traceary
+cd ~/src/traceary
+./scripts/install-kimi-plugin.sh
+```
+
+Or install with Kimi Code's official `/plugins install <path-or-url>` flow, then verify with `traceary doctor --client kimi`.
+
 **Google agent hosts:** install the **Antigravity** plugin unless your organization still uses Gemini CLI through Gemini Code Assist Standard/Enterprise or a paid Gemini or Gemini Enterprise Agent Platform API key. Google stopped serving Gemini CLI to free and Google AI Pro/Ultra users on 2026-06-18 and directs them to Antigravity. Traceary therefore maintains the Gemini extension for those enterprise and paid-API installations, but does not recommend it for new free/Pro/Ultra setups. See [Google's transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
 
 For Antigravity, the quickest route is to install Traceary's hooks directly with `traceary hooks install --client antigravity`. The [Antigravity hooks and plugin guide](./docs/integrations/antigravity.md) distinguishes that route from installing the packaged plugin through `agy plugin install`. Existing supported Gemini CLI installations can continue with the [Gemini extension maintenance guide](./docs/integrations/gemini-extension.md), which includes the migration path.
@@ -218,6 +228,7 @@ The query surface is shared: once Traceary is installed, every host can use the 
 |---|---|---|---|---|---|
 | Claude Code | Full | Bash + MCP + failure hooks | Yes | Yes | Full |
 | Codex | Full (`SessionStart` + `Stop`) | Tool hooks | Yes | No | Partial |
+| Kimi Code | Full (`SessionStart` + `SessionEnd`) | Tool hooks + failure hooks | Yes | Markers (no summary body) | Full |
 | Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic (legacy) |
 | Antigravity | Full (`PreInvocation` start; `Stop` turn boundary) | `run_command` hooks (`PreToolUse` + `PostToolUse` paired) | No | No | Partial |
 

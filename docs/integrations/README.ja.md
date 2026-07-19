@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity / Grok Build 向けにネイティブ連携パッケージを用意しています。
+Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity / Grok Build / Kimi Code 向けにネイティブ連携パッケージを用意しています。
 
 > **v0.21.1 注記:** Gemini CLI はレガシーの Google AI エージェントホストです。**Antigravity**（`/Applications/Antigravity.app`）が後継ホストです。v0.21.1 以降、Traceary は Antigravity を実際の hook client としてサポートし、文書化された公開 hook surface に対する packaged plugin を提供します。詳細は [Antigravity hooks / plugin ガイド](./antigravity.ja.md) を参照してください。
 
@@ -32,6 +32,7 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 | Gemini CLI | `integrations/gemini-extension/` | `gemini-extension.json` を root にした Gemini extension archive — v0.21.0 以降は**レガシー互換のみ**。アクティブな委譲パスではない |
 | Antigravity | `integrations/antigravity-plugin/` | v0.21.1 でサポート。hook の直接設定は `<project>/.agents/hooks.json` または `~/.gemini/config/hooks.json` を対象とします。同梱 plugin は version 付き manifest、Traceary MCP server、共有の memory/session skill 3 件を追加します。`traceary doctor --client antigravity --json` で hook 経路、MCP 登録、plugin version の一致を確認できます。 |
 | Grok Build | `integrations/grok-plugin/` | v0.23.0 でサポート。ネイティブ plugin は実環境で検証した lifecycle hook 7件、Traceary MCP server 1件、共有の memory/session skill 3件を同梱します。`scripts/install-grok-plugin.sh` で導入し、`traceary doctor --client grok --json` で hook 契約、trust、パッケージ内容、バージョン一致を確認します。 |
+| Kimi Code | `integrations/kimi-plugin/` | v0.29.0 でサポート。ネイティブ plugin は 1 つの `kimi.plugin.json` manifest に、実環境で検証した lifecycle hook 10 件（session / prompt / tool audit（失敗含む）/ transcript / compact marker / subagent）、Traceary MCP server 1 件、共有の memory/session skill 3 件を宣言します。`scripts/install-kimi-plugin.sh` で導入し、`traceary doctor --client kimi --json` で確認します。 |
 
 ## host 別ガイド
 
@@ -40,6 +41,7 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 - [Gemini CLI extension（レガシー）](./gemini-extension.ja.md)
 - [Antigravity hooks / plugin](./antigravity.ja.md)
 - [Grok Build plugin](./grok-plugin.ja.md)
+- [Kimi Code plugin](./kimi.ja.md)
 - [Anthropic native memory tool (experimental)](./anthropic-memory-tool.ja.md)
 
 ## 検証と smoke test
