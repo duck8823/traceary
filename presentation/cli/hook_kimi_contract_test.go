@@ -39,6 +39,21 @@ func TestKimiHostContract(t *testing.T) {
 		t.Fatalf("decode Kimi host contract: %v", err)
 	}
 
+	// The contract must cover every documented Kimi Code hook event so a
+	// dropped entry cannot silently shrink the verified surface.
+	documentedEvents := []string{
+		"SessionStart", "SessionEnd", "UserPromptSubmit",
+		"PreToolUse", "PostToolUse", "PostToolUseFailure",
+		"Stop", "StopFailure", "SubagentStart", "SubagentStop",
+		"Interrupt", "PreCompact", "PostCompact",
+		"PermissionRequest", "PermissionResult", "Notification",
+	}
+	for _, name := range documentedEvents {
+		if _, ok := contract.Hosts.Kimi.Events[name]; !ok {
+			t.Errorf("documented Kimi event %s is missing from the host contract", name)
+		}
+	}
+
 	expectedHookNames := map[string]string{
 		"SessionStart":       "SessionStart",
 		"UserPromptSubmit":   "UserPromptSubmit",
@@ -98,6 +113,21 @@ func TestKimiHostContract(t *testing.T) {
 	}
 
 	fixtureDirectory := filepath.Join(repositoryRoot, "presentation", "cli", "testdata", "kimi_hooks", "v0.27.0")
+
+	// SessionStart variants must pin the observed startup/resume source values
+	// and the resume semantics of re-firing with the same session_id.
+	startupPayload := readKimiFixturePayload(t, fixtureDirectory, "session_start.json")
+	resumePayload := readKimiFixturePayload(t, fixtureDirectory, "session_start_resume.json")
+	if startupPayload["source"] != "startup" {
+		t.Errorf("session_start.json source = %v, want startup", startupPayload["source"])
+	}
+	if resumePayload["source"] != "resume" {
+		t.Errorf("session_start_resume.json source = %v, want resume", resumePayload["source"])
+	}
+	if startupPayload["session_id"] != resumePayload["session_id"] {
+		t.Error("SessionStart variants must share the same session_id (resume re-fires with the same id)")
+	}
+
 	fixtures, err := filepath.Glob(filepath.Join(fixtureDirectory, "*.json"))
 	if err != nil {
 		t.Fatalf("list Kimi fixtures: %v", err)
@@ -118,12 +148,25 @@ func TestKimiHostContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read Kimi fixture %s: %v", fixture, err)
 		}
-		for _, privateValue := range []string{"/Users/", "/private/tmp/", "duck8823"} {
+		for _, privateValue := range []string{"/Users/", "/private/tmp/", "/home/", "duck8823"} {
 			if strings.Contains(string(fixtureBytes), privateValue) {
 				t.Errorf("Kimi fixture %s contains private value %q", fixture, privateValue)
 			}
 		}
 	}
+}
+
+func readKimiFixturePayload(t *testing.T, fixtureDirectory, name string) map[string]any {
+	t.Helper()
+	fixtureBytes, err := os.ReadFile(filepath.Join(fixtureDirectory, name))
+	if err != nil {
+		t.Fatalf("read Kimi fixture %s: %v", name, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(fixtureBytes, &payload); err != nil {
+		t.Fatalf("decode Kimi fixture %s: %v", name, err)
+	}
+	return payload
 }
 
 func validateKimiFixture(t *testing.T, repositoryRoot, fixturePath, expectedHookName string) {
@@ -180,7 +223,9 @@ func validateKimiFixture(t *testing.T, repositoryRoot, fixturePath, expectedHook
 		if expectedHookName == "PostToolUseFailure" {
 			requireObjectField(t, payload, "error")
 			errorValue, _ := payload["error"].(map[string]any)
+			requireStringField(t, errorValue, "code")
 			requireStringField(t, errorValue, "message")
+			requireBoolField(t, errorValue, "retryable")
 		}
 	case "Stop":
 		requireBoolField(t, payload, "stop_hook_active")
@@ -198,6 +243,8 @@ func validateKimiFixture(t *testing.T, repositoryRoot, fixturePath, expectedHook
 	case "Notification":
 		requireStringField(t, payload, "notification_type")
 		requireStringField(t, payload, "source_kind")
+		requireStringField(t, payload, "title")
+		requireStringField(t, payload, "body")
 	default:
 		t.Fatalf("unsupported fixture hook_event_name %q", expectedHookName)
 	}
