@@ -14,11 +14,11 @@ Legend:
 
 The statuses describe **Traceary's wiring state**, not the host's capability:
 
-- **wired** — the packaged Traceary integration captures this lifecycle event today, verified against the live host contract (payload probed and fixtures committed). Wired events are the only capture guarantee; see `traceary list events --kind <event>` in the Verification column.
+- **wired** — the packaged Traceary integration captures this lifecycle event today. By convention, wired cells are backed by a live-verified host contract (payload probed, fixtures committed), though the matrix itself only asserts the wiring. Wired events are the ones you can expect in the Traceary DB for that host; see `traceary list events --kind <event>` in the Verification column.
 - **available** — the host exposes a hook or signal for this event, but Traceary does not wire it (yet). This is **not** a capture claim: the event will not appear in the Traceary DB for that host. Examples: Grok `SessionEnd` (documented but not emitted in probes), Kimi `PreCompact`/`PostCompact` before v0.29.0.
 - **unsupported** — the host does not expose a usable signal for this event (e.g. Codex/Antigravity session end; they end via MCP `manage_session` or stale GC instead).
 
-Mapping to the machine-readable [host contract](./host-contract.json): contract events classified `supported` / `best_effort` with live fixtures back the **wired** cells; events the host documents or emits without Traceary wiring back the **available** cells; `unavailable` events back the **unsupported** cells. The matrix itself lives in `application/hostcoverage/matrix.json` and this table is generated from it — do not edit the generated block below.
+Relationship to the machine-readable [host contract](./host-contract.json): contract events classified `supported` / `best_effort` with live fixtures back the **wired** cells; events the host documents or emits but Traceary does not wire (contract `unavailable` with a host-side signal, e.g. Grok `SessionEnd`) back the **available** cells; events with no usable host signal back the **unsupported** cells. The matrix itself lives in `application/hostcoverage/matrix.json` and this table is generated from it — do not edit the generated block below.
 
 **Last verified: 2026-07-19 (Kimi Code 0.27.0 live hook probe and integration (#1393); Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).** Refresh this page when bumping Traceary integration packages or when a host CLI release changes its hook surface.
 
