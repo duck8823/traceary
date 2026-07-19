@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +21,7 @@ var (
 
 // kimiExpectedHooks mirrors the verified hook plan (10 rules) the packaged
 // plugin and the TOML print path declare. The doctor check validates the
-// installed managed copy against it.
+// installed managed copy against it, order-independently.
 var kimiExpectedHooks = []struct {
 	event   string
 	matcher string
@@ -38,16 +39,22 @@ var kimiExpectedHooks = []struct {
 	{"PostCompact", "", "post-compact"},
 }
 
+// kimiExpectedSkills are the three shared skills every host package ships.
+var kimiExpectedSkills = []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history"}
+
 type kimiDoctorState struct {
 	CLIAvailable    bool
 	HostVersion     string
 	PluginInstalled bool
 	PluginEnabled   bool
-	PluginVersion   string
-	NativeHooks     bool
-	PluginMCP       bool
-	UserMCP         bool
-	Skills          int
+	// PluginRecordKnown is false when the install record cannot be read or
+	// parsed, so the enabled state is undetermined rather than "disabled".
+	PluginRecordKnown bool
+	PluginVersion     string
+	NativeHooks       bool
+	PluginMCP         bool
+	UserMCP           bool
+	Skills            int
 }
 
 type kimiPluginManifest struct {
@@ -62,6 +69,17 @@ type kimiPluginManifest struct {
 		Command string `json:"command"`
 		Timeout int    `json:"timeout"`
 	} `json:"hooks"`
+}
+
+// kimiProbeError renders a path-free probe error. Filesystem errors carry
+// the failing path inside *os.PathError, and doctor messages must never
+// expose home-directory layouts.
+func kimiProbeError(operation string, err error) error {
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		return xerrors.Errorf("%s: %s", operation, pathErr.Err)
+	}
+	return xerrors.Errorf("%s: %v", operation, err)
 }
 
 // probeKimiDoctorState inspects the local Kimi Code installation. Kimi Code
@@ -85,21 +103,19 @@ func probeKimiDoctorState(ctx context.Context, projectDir string) (kimiDoctorSta
 	manifestBytes, err := os.ReadFile(manifestPath) // #nosec G304 -- fixed path under the Kimi home
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return state, xerrors.Errorf("failed to read Kimi plugin manifest: %w", err)
+			return state, kimiProbeError("failed to read the Kimi plugin manifest", err)
 		}
 	} else {
 		state.PluginInstalled = true
 		var manifest kimiPluginManifest
 		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-			return state, xerrors.Errorf("failed to decode Kimi plugin manifest: %w", err)
+			return state, kimiProbeError("failed to parse the Kimi plugin manifest", err)
 		}
 		state.PluginVersion = manifest.Version
 		state.NativeHooks = kimiManifestHasVerifiedHooks(manifest)
-		if server, ok := manifest.MCPServers["traceary"]; ok && server.Command == "traceary" {
-			state.PluginMCP = true
-		}
+		state.PluginMCP = kimiServerDeclaresTraceary(manifest.MCPServers)
 		state.Skills = countKimiPluginSkills(kimiHome)
-		state.PluginEnabled = kimiPluginRecordEnabled(kimiHome)
+		state.PluginEnabled, state.PluginRecordKnown = kimiPluginRecordEnabled(kimiHome)
 	}
 	state.UserMCP = kimiMCPJSONRegisters(kimiHome, projectDir)
 	return state, nil
@@ -117,13 +133,24 @@ func kimiDoctorCodeHome() string {
 }
 
 func kimiManifestHasVerifiedHooks(manifest kimiPluginManifest) bool {
-	if len(manifest.Hooks) != len(kimiExpectedHooks) {
-		return false
+	type rule struct {
+		event   string
+		matcher string
+		command string
 	}
-	for i, want := range kimiExpectedHooks {
-		hook := manifest.Hooks[i]
-		if hook.Event != want.event || hook.Matcher != want.matcher ||
-			hook.Command != "traceary hook kimi "+want.action || hook.Timeout != 5 {
+	counts := map[rule]int{}
+	for _, want := range kimiExpectedHooks {
+		counts[rule{want.event, want.matcher, "traceary hook kimi " + want.action}]++
+	}
+	for _, hook := range manifest.Hooks {
+		key := rule{hook.Event, hook.Matcher, hook.Command}
+		if _, ok := counts[key]; !ok || hook.Timeout != 5 {
+			return false
+		}
+		counts[key]--
+	}
+	for _, remaining := range counts {
+		if remaining != 0 {
 			return false
 		}
 	}
@@ -131,16 +158,9 @@ func kimiManifestHasVerifiedHooks(manifest kimiPluginManifest) bool {
 }
 
 func countKimiPluginSkills(kimiHome string) int {
-	entries, err := os.ReadDir(filepath.Join(kimiHome, "plugins", "managed", "traceary", "skills"))
-	if err != nil {
-		return 0
-	}
 	count := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if info, err := os.Stat(filepath.Join(kimiHome, "plugins", "managed", "traceary", "skills", entry.Name(), "SKILL.md")); err == nil && info.Mode().IsRegular() {
+	for _, skill := range kimiExpectedSkills {
+		if info, err := os.Stat(filepath.Join(kimiHome, "plugins", "managed", "traceary", "skills", skill, "SKILL.md")); err == nil && info.Mode().IsRegular() {
 			count++
 		}
 	}
@@ -148,12 +168,12 @@ func countKimiPluginSkills(kimiHome string) int {
 }
 
 // kimiPluginRecordEnabled reads the install record: enabled=true and
-// state=ok. A missing record means the plugin is not activated (mirroring the
-// official installer behavior).
-func kimiPluginRecordEnabled(kimiHome string) bool {
+// state=ok. known=false means the record is missing or unreadable, so the
+// enabled state cannot be determined.
+func kimiPluginRecordEnabled(kimiHome string) (enabled, known bool) {
 	data, err := os.ReadFile(filepath.Join(kimiHome, "plugins", "installed.json")) // #nosec G304 -- fixed path under the Kimi home
 	if err != nil {
-		return false
+		return false, false
 	}
 	var record struct {
 		Plugins []struct {
@@ -163,19 +183,32 @@ func kimiPluginRecordEnabled(kimiHome string) bool {
 		} `json:"plugins"`
 	}
 	if json.Unmarshal(data, &record) != nil {
-		return false
+		return false, false
 	}
 	for _, entry := range record.Plugins {
 		if entry.ID == "traceary" {
-			return entry.Enabled && entry.State == "ok"
+			return entry.Enabled && entry.State == "ok", true
 		}
 	}
-	return false
+	return false, true
+}
+
+// kimiServerDeclaresTraceary validates a traceary MCP server declaration:
+// the command must be traceary launching mcp-server.
+func kimiServerDeclaresTraceary(servers map[string]struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+}) bool {
+	server, ok := servers["traceary"]
+	if !ok {
+		return false
+	}
+	return server.Command == "traceary" && len(server.Args) == 1 && server.Args[0] == "mcp-server"
 }
 
 // kimiMCPJSONRegisters checks the user-level and project-level mcp.json
-// files for a traceary server entry (the plugin-declared server is checked
-// separately from the manifest).
+// files for a valid traceary server declaration (the plugin-declared server
+// is checked separately from the manifest).
 func kimiMCPJSONRegisters(kimiHome, projectDir string) bool {
 	candidates := []string{filepath.Join(kimiHome, "mcp.json")}
 	if projectDir != "" {
@@ -187,12 +220,15 @@ func kimiMCPJSONRegisters(kimiHome, projectDir string) bool {
 			continue
 		}
 		var doc struct {
-			MCPServers map[string]json.RawMessage `json:"mcpServers"`
+			MCPServers map[string]struct {
+				Command string   `json:"command"`
+				Args    []string `json:"args"`
+			} `json:"mcpServers"`
 		}
 		if json.Unmarshal(data, &doc) != nil {
 			continue
 		}
-		if _, ok := doc.MCPServers["traceary"]; ok {
+		if kimiServerDeclaresTraceary(doc.MCPServers) {
 			return true
 		}
 	}
@@ -211,10 +247,16 @@ func buildKimiDoctorChecks(state kimiDoctorState, tracearyVersion string) []doct
 	pluginStatus := doctorStatusPass
 	pluginMessage := localizef("native Traceary Kimi plugin %s is installed and enabled", "native Traceary Kimi plugin %s はインストール済みで有効です", state.PluginVersion)
 	pluginHint := ""
-	if !state.PluginEnabled {
-		pluginStatus, pluginMessage = doctorStatusWarn, Localize("native Traceary Kimi plugin is installed but not enabled", "native Traceary Kimi plugin はインストール済みですが有効ではありません")
-		pluginHint = "enable the plugin with /plugins, or reinstall with scripts/install-kimi-plugin.sh"
-	} else if grokTracearyVersionPattern.MatchString(tracearyVersion) && strings.TrimPrefix(state.PluginVersion, "v") != strings.TrimPrefix(tracearyVersion, "v") {
+	switch {
+	case !state.PluginRecordKnown:
+		pluginStatus = doctorStatusWarn
+		pluginMessage = Localize("native Traceary Kimi plugin is installed, but its activation record cannot be confirmed", "native Traceary Kimi plugin はインストール済みですが、有効化の記録を確認できません")
+		pluginHint = Localize("reinstall the native Traceary Kimi plugin with scripts/install-kimi-plugin.sh", "scripts/install-kimi-plugin.sh で native Traceary Kimi plugin を再インストールしてください")
+	case !state.PluginEnabled:
+		pluginStatus = doctorStatusWarn
+		pluginMessage = Localize("native Traceary Kimi plugin is installed but not enabled", "native Traceary Kimi plugin はインストール済みですが有効ではありません")
+		pluginHint = Localize("enable the plugin with /plugins, or reinstall with scripts/install-kimi-plugin.sh", "/plugins で有効化するか、scripts/install-kimi-plugin.sh で再インストールしてください")
+	case releaseTracearyVersionPattern.MatchString(tracearyVersion) && strings.TrimPrefix(state.PluginVersion, "v") != strings.TrimPrefix(tracearyVersion, "v"):
 		pluginStatus = doctorStatusWarn
 		pluginMessage = localizef("native Traceary Kimi plugin version %s does not match Traceary %s", "native Traceary Kimi plugin version %s は Traceary %s と一致しません", state.PluginVersion, tracearyVersion)
 		pluginHint = "./scripts/install-kimi-plugin.sh  # from a matching release tag checkout"
@@ -237,16 +279,16 @@ func buildKimiDoctorChecks(state kimiDoctorState, tracearyVersion string) []doct
 		} else {
 			mcpStatus = doctorStatusWarn
 			mcpMessage = Localize("no traceary MCP server registration found in the Kimi plugin or mcp.json", "Kimi plugin と mcp.json のどちらにも traceary MCP server の登録がありません")
-			mcpHint = "reinstall the native Traceary Kimi plugin"
+			mcpHint = Localize("reinstall the native Traceary Kimi plugin", "native Traceary Kimi plugin を再インストールしてください")
 		}
 	}
 	checks = append(checks, doctorCheck{Name: "kimi-mcp", Status: mcpStatus, Message: mcpMessage, Hint: mcpHint})
 
 	skillStatus := doctorStatusPass
 	skillMessage := Localize("native Kimi plugin exposes all three Traceary skills", "native Kimi plugin は Traceary skill を3件すべて公開しています")
-	if state.Skills != 3 {
+	if state.Skills != len(kimiExpectedSkills) {
 		skillStatus = doctorStatusWarn
-		skillMessage = localizef("native Kimi plugin exposes %d Traceary skills; expected 3", "native Kimi plugin の Traceary skill は %d 件です。3件必要です", state.Skills)
+		skillMessage = localizef("native Kimi plugin exposes %d Traceary skills; expected %d", "native Kimi plugin の Traceary skill は %d 件です。%d 件必要です", state.Skills, len(kimiExpectedSkills))
 	}
 	checks = append(checks, doctorCheck{Name: "kimi-skills", Status: skillStatus, Message: skillMessage, Hint: Localize("reinstall the native Traceary Kimi plugin", "native Traceary Kimi plugin を再インストールしてください")})
 	return checks

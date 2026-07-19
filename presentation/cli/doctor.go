@@ -299,7 +299,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			// plugin state is probed directly from the Kimi home instead.
 			state, probeErr := probeKimiDoctorState(ctx, resolvedProjectDir)
 			if probeErr != nil {
-				report.Checks = append(report.Checks, doctorCheck{Name: "kimi-inspect", Status: doctorStatusWarn, Message: localizef("failed to inspect Kimi installation: %v", "Kimi installation の検査に失敗しました: %v", probeErr)})
+				// probeKimiDoctorState renders path-free errors only; keep the
+				// remediation generic rather than echoing host internals.
+				report.Checks = append(report.Checks, doctorCheck{Name: "kimi-inspect", Status: doctorStatusWarn, Message: localizef("failed to inspect the Kimi plugin installation: %v", "Kimi plugin の導入状態を検査できませんでした: %v", probeErr), Hint: Localize("reinstall the native Traceary Kimi plugin with scripts/install-kimi-plugin.sh, then rerun doctor", "scripts/install-kimi-plugin.sh で native Traceary Kimi plugin を再インストールしてから doctor を再実行してください")})
 			} else {
 				report.Checks = append(report.Checks, buildKimiDoctorChecks(state, input.currentVersion)...)
 			}
