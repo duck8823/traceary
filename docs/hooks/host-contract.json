@@ -108,7 +108,7 @@
           "traceary_support": "best_effort",
           "traceary_event": "transcript",
           "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/subagent_stop.json",
-          "note": "agent_name and the subagent's full response string"
+          "note": "agent_name and the subagent's full response string. No tool_use_id, so the stop boundary resolves the latest active child of the parent; parallel subagents under one parent share this fallback and can be misattributed (same accepted limitation as Claude)"
         },
         "Notification": {
           "documented": true,
