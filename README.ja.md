@@ -80,12 +80,12 @@ codex   # Codex 内で /plugins を開き、Traceary Plugins から Traceary を
 **Kimi Code** ([ガイド](./docs/integrations/kimi.ja.md))
 
 ```sh
-git clone https://github.com/duck8823/traceary ~/src/traceary
+git clone --depth 1 --branch v0.29.0 https://github.com/duck8823/traceary ~/src/traceary
 cd ~/src/traceary
 ./scripts/install-kimi-plugin.sh
 ```
 
-または Kimi Code 公式の `/plugins install <path-or-url>` flow で導入し、`traceary doctor --client kimi` で確認してください。
+Traceary CLI と一致する release tag を指定してください。Kimi Code 公式の `/plugins install <path-or-url>` flow でも `integrations/kimi-plugin/` を指定すれば導入できます。`traceary doctor --client kimi` で確認してください。
 
 **Google のエージェントホスト:** 組織で Gemini Code Assist Standard/Enterprise、または有料の Gemini API キーか Gemini Enterprise Agent Platform API キー経由の Gemini CLI を使用している場合を除き、**Antigravity** プラグインを導入してください。Google は 2026-06-18 に無料版および Google AI Pro/Ultra 向け Gemini CLI の提供を終了し、Antigravity への移行を案内しています。このため、Traceary は企業契約および対象の有料 API 利用者向けに Gemini 拡張機能の保守を続けますが、無料版・Pro・Ultra の新規環境には推奨しません。詳細は [Google の移行告知](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) を参照してください。
 

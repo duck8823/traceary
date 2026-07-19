@@ -21,7 +21,7 @@ The package targets the live-verified Kimi Code 0.27.0 contract
 | `PreToolUse` (`matcher = "Agent"`) | Starts the correlated child session for a subagent |
 | `PostToolUse` | Records one completed command audit (`tool_output` captured) |
 | `PostToolUseFailure` | Records the failed audit with the flattened `error{code,message,retryable}` detail |
-| `Stop` | Records the assistant transcript best-effort from the session wire log (`session_index.jsonl` → `agents/main/wire.jsonl`); it is a turn boundary, not a session end |
+| `Stop` | Records the assistant transcript best-effort from the main agent's session wire log (Kimi's own `~/.kimi-code/session_index.jsonl` → the session's `agents/main/wire.jsonl`); it is a turn boundary, not a session end |
 | `SubagentStop` | Ends the active child session (latest-active fallback, same semantics as Claude) |
 | `PreCompact` / `PostCompact` | Records compact markers (`trigger` = auto/manual); Kimi exposes token counts but no summary body |
 
@@ -42,9 +42,12 @@ brew tap duck8823/traceary https://github.com/duck8823/traceary
 brew install traceary
 ```
 
-2. From a matching Traceary release tag checkout, install the plugin:
+2. From a matching Traceary release tag checkout, install the plugin (pin the
+   tag that matches your Traceary CLI so the packaged hooks stay compatible):
 
 ```sh
+git clone --depth 1 --branch v0.29.0 https://github.com/duck8823/traceary
+cd traceary
 ./scripts/install-kimi-plugin.sh
 ```
 
@@ -54,7 +57,9 @@ generation directory under `~/.kimi-code/plugins/managed/`, flips the
 record while preserving your `enabled` state. Re-running is idempotent.
 
 Alternatively, use Kimi Code's official flow: `/plugins install <path-or-url>`
-inside Kimi Code, pointing at `integrations/kimi-plugin/` or this repository.
+inside Kimi Code, pointing at the `integrations/kimi-plugin/` directory of a
+matching tag checkout (the manifest lives in that subdirectory, not at the
+repository root).
 
 3. Start a new session (or `/plugins reload`), then verify:
 
@@ -84,8 +89,9 @@ Traceary does not merge TOML into your config.
   `PATH`. Make sure the kimi-aware Traceary binary (v0.29.0+) comes first on
   `PATH`; `traceary doctor` reports PATH mismatches.
 - **No transcript events**: transcripts are recovered best-effort from the
-  session wire log. Older sessions without a `session_index.jsonl` entry are
-  skipped silently by design.
+  main agent's wire log, located through Kimi Code's own
+  `~/.kimi-code/session_index.jsonl`. Older sessions without an index entry
+  are skipped silently by design.
 - **Plugin shows as installed but hooks do not fire**: check
   `~/.kimi-code/plugins/installed.json` has the `traceary` entry with
   `"enabled": true` and `"state": "ok"`, then `/plugins reload`.

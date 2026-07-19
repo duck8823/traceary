@@ -81,12 +81,12 @@ The `traceary integration codex install` helper was retired in v0.14.0 and the c
 **Kimi Code** ([guide](./docs/integrations/kimi.md))
 
 ```sh
-git clone https://github.com/duck8823/traceary ~/src/traceary
+git clone --depth 1 --branch v0.29.0 https://github.com/duck8823/traceary ~/src/traceary
 cd ~/src/traceary
 ./scripts/install-kimi-plugin.sh
 ```
 
-Or install with Kimi Code's official `/plugins install <path-or-url>` flow, then verify with `traceary doctor --client kimi`.
+Pin the release tag matching your Traceary CLI. Kimi Code's official `/plugins install <path-or-url>` flow also works when pointed at `integrations/kimi-plugin/`. Verify with `traceary doctor --client kimi`.
 
 **Google agent hosts:** install the **Antigravity** plugin unless your organization still uses Gemini CLI through Gemini Code Assist Standard/Enterprise or a paid Gemini or Gemini Enterprise Agent Platform API key. Google stopped serving Gemini CLI to free and Google AI Pro/Ultra users on 2026-06-18 and directs them to Antigravity. Traceary therefore maintains the Gemini extension for those enterprise and paid-API installations, but does not recommend it for new free/Pro/Ultra setups. See [Google's transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
 
