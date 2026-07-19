@@ -137,11 +137,9 @@ func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 	})
 
 	t.Run("records transcript from the session wire log on Stop", func(t *testing.T) {
-		writeKimiSessionWireLog(t, homeDir, "session_00000000-0000-4000-8000-000000000001", []string{
-			`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
-			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"think","think":"thinking about the probe"}},"time":1784466739000}`,
-			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"pong"}},"time":1784466740000}`,
-		})
+		// wire_main.jsonl is a sanitized capture of a real 0.27.0 wire log:
+		// two turns, the last carrying a think and a text content.part row.
+		seedKimiSessionFromFixture(t, homeDir, "session_00000000-0000-4000-8000-000000000001", "wire_main.jsonl")
 
 		stdout, eventStub, _ := runKimiHook(t, "stop", readKimiFixture(t, "stop.json"), nil, nil)
 
@@ -151,11 +149,100 @@ func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 		if got, want := eventStub.logCall.kind, types.EventKindTranscript; got != want {
 			t.Fatalf("transcript kind = %q, want %q", got, want)
 		}
-		if !strings.Contains(eventStub.logCall.message, "pong") {
+		if !strings.Contains(eventStub.logCall.message, "done") {
 			t.Fatalf("transcript body = %q, want the wire log text block", eventStub.logCall.message)
 		}
-		if !strings.Contains(eventStub.logCall.message, "thinking about the probe") {
+		if !strings.Contains(eventStub.logCall.message, "thinking about the failing command") {
 			t.Fatalf("transcript body = %q, want the wire log thinking block", eventStub.logCall.message)
+		}
+	})
+
+	t.Run("tolerates numeric turnId in wire log rows", func(t *testing.T) {
+		seedKimiSession(t, homeDir, "session_00000000-0000-4000-8000-000000000001", []string{
+			`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":0,"part":{"type":"text","text":"pong"}},"time":1784466740000}`,
+		})
+
+		stdout, eventStub, _ := runKimiHook(t, "stop", readKimiFixture(t, "stop.json"), nil, nil)
+
+		if stdout != "" {
+			t.Fatalf("Stop output = %q, want empty passive-hook output", stdout)
+		}
+		if !strings.Contains(eventStub.logCall.message, "pong") {
+			t.Fatalf("transcript body = %q, want the numeric-turn wire text block", eventStub.logCall.message)
+		}
+	})
+
+	t.Run("keeps failure marker when the error object has no message", func(t *testing.T) {
+		for _, tc := range []struct {
+			name        string
+			errorJSON   string
+			wantContain string
+		}{
+			{name: "code only", errorJSON: `{"code":"internal","retryable":false}`, wantContain: "internal"},
+			{name: "blank message", errorJSON: `{"code":"io","message":"  ","retryable":true}`, wantContain: "io"},
+			{name: "empty object", errorJSON: `{}`, wantContain: "unknown error"},
+			{name: "null error", errorJSON: `null`, wantContain: "unknown error"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				payload := `{"hook_event_name":"PostToolUseFailure","session_id":"session_00000000-0000-4000-8000-000000000001","cwd":"/workspace/kimi-contract-probe","tool_name":"Bash","tool_input":{"command":"ls /nonexistent-dir"},"tool_call_id":"tool_1","error":` + tc.errorJSON + `}`
+
+				stdout, eventStub, _ := runKimiHook(t, "post-tool-use-failure", payload, nil, nil)
+
+				if stdout != "" {
+					t.Fatalf("PostToolUseFailure output = %q, want empty passive-hook output", stdout)
+				}
+				if !eventStub.auditCall.failed {
+					t.Fatal("failure without a message must still be flagged failed")
+				}
+				if !strings.Contains(eventStub.auditCall.output, tc.wantContain) {
+					t.Fatalf("audit output = %q, want fallback marker containing %q", eventStub.auditCall.output, tc.wantContain)
+				}
+			})
+		}
+	})
+
+	t.Run("skips transcript when the session dir escapes the sessions root", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			sessionDir string
+		}{
+			{name: "absolute outside path", sessionDir: t.TempDir()},
+			{name: "dot-dot traversal", sessionDir: filepath.Join(homeDir, ".kimi-code", "sessions", "..", "..")},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				writeKimiSessionIndex(t, homeDir, "session_00000000-0000-4000-8000-000000000001", tc.sessionDir)
+
+				stdout, eventStub, _ := runKimiHook(t, "stop", readKimiFixture(t, "stop.json"), nil, nil)
+
+				if stdout != "" {
+					t.Fatalf("Stop output = %q, want empty passive-hook output", stdout)
+				}
+				if eventStub.logCall.kind != "" {
+					t.Fatalf("Stop with an escaping session dir recorded %q, want silent skip", eventStub.logCall.kind)
+				}
+			})
+		}
+	})
+
+	t.Run("skips transcript when the session dir is a symlink escape", func(t *testing.T) {
+		outside := t.TempDir()
+		link := filepath.Join(homeDir, ".kimi-code", "sessions", "wd_evil_000000000000", "session_00000000-0000-4000-8000-000000000001")
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			t.Fatalf("mkdir symlink parent: %v", err)
+		}
+		if err := os.Symlink(outside, link); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		writeKimiSessionIndex(t, homeDir, "session_00000000-0000-4000-8000-000000000001", link)
+
+		stdout, eventStub, _ := runKimiHook(t, "stop", readKimiFixture(t, "stop.json"), nil, nil)
+
+		if stdout != "" {
+			t.Fatalf("Stop output = %q, want empty passive-hook output", stdout)
+		}
+		if eventStub.logCall.kind != "" {
+			t.Fatalf("Stop with a symlink-escaped session dir recorded %q, want silent skip", eventStub.logCall.kind)
 		}
 	})
 
@@ -227,9 +314,9 @@ func readKimiFixture(t *testing.T, name string) string {
 	return string(payload)
 }
 
-// writeKimiSessionWireLog seeds a fake Kimi home with a session index entry
-// and a wire log for the session, exercising the transcript side channel.
-func writeKimiSessionWireLog(t *testing.T, homeDir, sessionID string, wireRows []string) {
+// seedKimiSession seeds a fake Kimi home with a session index entry and a
+// wire log for the session, exercising the transcript side channel.
+func seedKimiSession(t *testing.T, homeDir, sessionID string, wireRows []string) {
 	t.Helper()
 	kimiHome := filepath.Join(homeDir, ".kimi-code")
 	sessionDir := filepath.Join(kimiHome, "sessions", "wd_probe_000000000000", sessionID)
@@ -238,6 +325,28 @@ func writeKimiSessionWireLog(t *testing.T, homeDir, sessionID string, wireRows [
 	}
 	if err := os.WriteFile(filepath.Join(sessionDir, "agents", "main", "wire.jsonl"), []byte(strings.Join(wireRows, "\n")+"\n"), 0o600); err != nil {
 		t.Fatalf("write wire log: %v", err)
+	}
+	writeKimiSessionIndex(t, homeDir, sessionID, sessionDir)
+}
+
+// seedKimiSessionFromFixture seeds the fake Kimi home by copying a sanitized
+// wire log fixture captured from a real Kimi Code session.
+func seedKimiSessionFromFixture(t *testing.T, homeDir, sessionID, fixtureName string) {
+	t.Helper()
+	wireBytes, err := os.ReadFile(filepath.Join("testdata", "kimi_hooks", "v0.27.0", fixtureName))
+	if err != nil {
+		t.Fatalf("read wire fixture %s: %v", fixtureName, err)
+	}
+	seedKimiSession(t, homeDir, sessionID, strings.Split(strings.TrimRight(string(wireBytes), "\n"), "\n"))
+}
+
+// writeKimiSessionIndex writes the session index entry (and guarantees the
+// sessions root exists for containment checks).
+func writeKimiSessionIndex(t *testing.T, homeDir, sessionID, sessionDir string) {
+	t.Helper()
+	kimiHome := filepath.Join(homeDir, ".kimi-code")
+	if err := os.MkdirAll(filepath.Join(kimiHome, "sessions"), 0o755); err != nil {
+		t.Fatalf("mkdir sessions root: %v", err)
 	}
 	index := `{"sessionId":"` + sessionID + `","sessionDir":"` + sessionDir + `","workDir":"/workspace/kimi-contract-probe"}` + "\n"
 	if err := os.WriteFile(filepath.Join(kimiHome, "session_index.jsonl"), []byte(index), 0o600); err != nil {

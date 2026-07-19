@@ -3,6 +3,8 @@ package filesystem
 import (
 	"strings"
 	"testing"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestKimiHooksHandler_ExposesFailClosedBoundary(t *testing.T) {
@@ -35,9 +37,11 @@ func TestKimiHooksHandler_RendersTOMLHookRules(t *testing.T) {
 
 	// Every rendered rule targets the Kimi TOML [[hooks]] array with the
 	// contract-verified event set and the hidden runtime entrypoints.
+	// PreToolUse is deliberately not wired (PostToolUse carries input and
+	// output, so a pre-hook would be a no-op spawn per tool call).
 	expectedEvents := []string{
 		"SessionStart", "SessionEnd", "UserPromptSubmit",
-		"PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop",
+		"PostToolUse", "PostToolUseFailure", "Stop",
 	}
 	if got := strings.Count(text, "[[hooks]]"); got != len(expectedEvents) {
 		t.Fatalf("rendered [[hooks]] rule count = %d, want %d", got, len(expectedEvents))
@@ -49,7 +53,7 @@ func TestKimiHooksHandler_RendersTOMLHookRules(t *testing.T) {
 	}
 	for _, action := range []string{
 		"session-start", "session-end", "user-prompt-submit",
-		"pre-tool-use", "post-tool-use", "post-tool-use-failure", "stop",
+		"post-tool-use", "post-tool-use-failure", "stop",
 	} {
 		if !strings.Contains(text, "'traceary' 'hook' 'kimi' '"+action+"'") {
 			t.Errorf("rendered document missing runtime command for action %q", action)
@@ -57,5 +61,37 @@ func TestKimiHooksHandler_RendersTOMLHookRules(t *testing.T) {
 	}
 	if !strings.Contains(text, "timeout = 5") {
 		t.Error("rendered document missing per-hook timeout")
+	}
+}
+
+func TestKimiHooksHandler_RenderedTOMLParses(t *testing.T) {
+	t.Parallel()
+
+	handler := NewKimiHooksHandler()
+	document, err := handler.renderDocument("/tmp/traceary bin/traceary")
+	if err != nil {
+		t.Fatalf("renderDocument() error = %v", err)
+	}
+
+	var parsed struct {
+		Hooks []struct {
+			Event   string `toml:"event"`
+			Command string `toml:"command"`
+			Timeout int    `toml:"timeout"`
+		} `toml:"hooks"`
+	}
+	if err := toml.Unmarshal(document, &parsed); err != nil {
+		t.Fatalf("rendered document is not valid TOML: %v\n%s", err, document)
+	}
+	if len(parsed.Hooks) != 6 {
+		t.Fatalf("parsed hook rules = %d, want 6", len(parsed.Hooks))
+	}
+	for _, hook := range parsed.Hooks {
+		if !strings.Contains(hook.Command, "'/tmp/traceary bin/traceary' 'hook' 'kimi' '") {
+			t.Errorf("parsed command %q lost the quoted traceary bin path", hook.Command)
+		}
+		if hook.Timeout != 5 {
+			t.Errorf("parsed timeout = %d, want 5", hook.Timeout)
+		}
 	}
 }

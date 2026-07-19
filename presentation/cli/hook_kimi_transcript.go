@@ -32,18 +32,26 @@ type kimiSessionIndexEntry struct {
 
 // kimiWireRow is the envelope of one wire.jsonl row. Only the
 // context.append_loop_event rows wrapping content.part events carry
-// assistant content.
+// assistant content. turnId arrives as a JSON string in 0.27.0 but is kept
+// as RawMessage so a numeric shape cannot drop the whole row.
 type kimiWireRow struct {
 	Type  string `json:"type"`
 	Event struct {
-		Type string `json:"type"`
-		Turn string `json:"turnId"`
+		Type string          `json:"type"`
+		Turn json.RawMessage `json:"turnId"`
 		Part struct {
 			Type  string `json:"type"`
 			Text  string `json:"text"`
 			Think string `json:"think"`
 		} `json:"part"`
 	} `json:"event"`
+}
+
+// kimiWireTurnID normalizes the turnId raw value (string or number) to a
+// plain string for grouping.
+func kimiWireTurnID(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	return strings.Trim(trimmed, `"`)
 }
 
 // extractKimiTranscript resolves the assistant turn for a Kimi Stop payload
@@ -60,7 +68,36 @@ func extractKimiTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
 	if sessionDir == "" {
 		return nil, false
 	}
+	sessionDir = containKimiSessionDir(sessionDir)
+	if sessionDir == "" {
+		return nil, false
+	}
 	return readKimiWireTranscriptBlocks(filepath.Join(sessionDir, "agents", "main", "wire.jsonl"))
+}
+
+// containKimiSessionDir confines the index-supplied session directory to the
+// Kimi home sessions root. A tampered index could otherwise point the reader
+// at an arbitrary path and have its contents recorded as a transcript.
+// Symlinks are resolved on both sides before the containment check; any
+// failure is a soft skip.
+func containKimiSessionDir(sessionDir string) string {
+	sessionsRoot := filepath.Join(kimiCodeHome(), "sessions")
+	resolvedRoot, err := filepath.EvalSymlinks(sessionsRoot)
+	if err != nil {
+		slog.Debug("failed to resolve Kimi sessions root", "path", sessionsRoot, "error", err)
+		return ""
+	}
+	resolvedDir, err := filepath.EvalSymlinks(filepath.Clean(sessionDir))
+	if err != nil {
+		slog.Debug("failed to resolve Kimi session dir", "path", sessionDir, "error", err)
+		return ""
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedDir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		slog.Debug("Kimi session dir escapes the sessions root", "session_dir", sessionDir, "root", resolvedRoot)
+		return ""
+	}
+	return resolvedDir
 }
 
 // lookupKimiSessionDir resolves a session_id to its on-disk session
@@ -127,7 +164,7 @@ func readKimiWireTranscriptBlocks(path string) ([]apptypes.EventBodyBlock, bool)
 		default:
 			continue
 		}
-		turn := row.Event.Turn
+		turn := kimiWireTurnID(row.Event.Turn)
 		blocksByTurn[turn] = append(blocksByTurn[turn], block)
 		lastTurn = turn
 	}

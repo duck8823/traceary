@@ -74,6 +74,9 @@ func (c *RootCLI) runHookKimiSessionEnd(ctx context.Context, input io.Reader, db
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(hookPayloadString(normalized, "session_id", "")) == "" {
+		return nil
+	}
 	return c.runHookSession(ctx, nil, bytes.NewReader(normalized), kimiHookClient, "end", dbPath)
 }
 
@@ -182,18 +185,29 @@ func copyKimiHookField(target map[string]any, targetName string, source map[stri
 }
 
 // kimiErrorMessage flattens Kimi's PostToolUseFailure error object
-// {code, message, retryable} into the shared string failure signal. A plain
-// string error passes through for forward compatibility.
+// {code, message, retryable} into the shared string failure signal. The
+// message is preferred; a missing/blank message falls back to the code, and
+// a shapeless error still yields a fixed marker so a failure event can never
+// degrade into a silent success. code/retryable are otherwise intentionally
+// dropped — the shared signal has no structured fields for them.
 func kimiErrorMessage(value any) string {
 	if message, ok := value.(string); ok {
-		return strings.TrimSpace(message)
+		if trimmed := strings.TrimSpace(message); trimmed != "" {
+			return trimmed
+		}
+		return "unknown error"
 	}
 	object, ok := value.(map[string]any)
 	if !ok {
-		return ""
+		return "unknown error"
 	}
-	message, _ := object["message"].(string)
-	return strings.TrimSpace(message)
+	if message, _ := object["message"].(string); strings.TrimSpace(message) != "" {
+		return strings.TrimSpace(message)
+	}
+	if code, _ := object["code"].(string); strings.TrimSpace(code) != "" {
+		return "kimi tool error: " + strings.TrimSpace(code)
+	}
+	return "unknown error"
 }
 
 // flattenKimiPrompt renders Kimi's UserPromptSubmit prompt — a content-block

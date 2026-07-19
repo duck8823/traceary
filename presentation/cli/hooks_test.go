@@ -227,10 +227,13 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 				t.Fatalf("Execute() error = %v", err)
 			}
 			text := stdout.String()
-			for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"} {
+			for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure", "Stop"} {
 				if !strings.Contains(text, `event = "`+event+`"`) {
 					t.Errorf("Kimi TOML missing event %q:\n%s", event, text)
 				}
+			}
+			if strings.Contains(text, "PreToolUse") {
+				t.Errorf("Kimi TOML must not wire the no-op PreToolUse boundary:\n%s", text)
 			}
 			if !strings.Contains(text, "'hook' 'kimi' 'session-start'") {
 				t.Errorf("Kimi TOML missing runtime command:\n%s", text)

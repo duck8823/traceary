@@ -65,13 +65,15 @@ type kimiHookRule struct {
 
 // kimiHookPlan lists the Kimi Code events wired to Traceary runtime
 // entrypoints, limited to the events with live payload evidence in the host
-// contract (docs/hooks/host-contract.json). PreToolUse is a validation-only
-// boundary because PostToolUse already carries both input and output.
+// contract (docs/hooks/host-contract.json). PreToolUse is deliberately not
+// wired: Kimi's PostToolUse already carries both input and output, so a
+// pre-hook would only spawn a no-op process per tool call. The
+// `hook kimi pre-tool-use` entrypoint remains available for the subagent
+// correlation wiring (Agent matcher) in the follow-up issue.
 var kimiHookPlan = []kimiHookRule{
 	{event: "SessionStart", action: "session-start", comment: "session boundary (start)"},
 	{event: "SessionEnd", action: "session-end", comment: "session boundary (end)"},
 	{event: "UserPromptSubmit", action: "user-prompt-submit", comment: "prompt"},
-	{event: "PreToolUse", action: "pre-tool-use", comment: "validation-only boundary (no duplicate audit)"},
 	{event: "PostToolUse", action: "post-tool-use", comment: "tool audit"},
 	{event: "PostToolUseFailure", action: "post-tool-use-failure", comment: "tool audit (failure)"},
 	{event: "Stop", action: "stop", comment: "assistant transcript (best-effort wire log side channel)"},
@@ -87,10 +89,35 @@ func (h *KimiHooksHandler) renderDocument(tracearyBin string) ([]byte, error) {
 	b.WriteString("# which declares the same hooks in its kimi.plugin.json manifest).\n")
 	for _, rule := range kimiHookPlan {
 		command := newHookRuntimeCommand(tracearyBin, "hook", "kimi", rule.action)
-		fmt.Fprintf(&b, "\n# %s\n[[hooks]]\nevent = %q\ncommand = %q\ntimeout = %d\n",
-			rule.comment, rule.event, command, kimiHookTimeoutSeconds)
+		fmt.Fprintf(&b, "\n# %s\n[[hooks]]\nevent = %s\ncommand = %s\ntimeout = %d\n",
+			rule.comment, tomlBasicString(rule.event), tomlBasicString(command), kimiHookTimeoutSeconds)
 	}
 	return []byte(b.String()), nil
+}
+
+// tomlBasicString encodes a value as a TOML basic string. The hook command
+// vocabulary (printable characters, spaces, single quotes) needs only
+// quote/backslash escaping; control characters would make the document
+// invalid TOML, so they are defensively replaced with a space.
+func tomlBasicString(value string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				b.WriteByte(' ')
+				continue
+			}
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // mergeDocument is unreachable: validateInstall fails closed before the

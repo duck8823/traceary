@@ -1,0 +1,14 @@
+{"type": "metadata", "protocol_version": "1.4", "created_at": 1784466738324}
+{"type": "config.update", "profileName": "agent", "systemPrompt": "<redacted system prompt>"}
+{"type": "config.update", "profileName": "agent", "systemPrompt": "<redacted system prompt>"}
+{"type": "turn.prompt", "prompt": [{"type": "text", "text": "<redacted prompt>"}], "time": 1784466739000}
+{"type": "context.append_loop_event", "event": {"type": "step.begin", "uuid": "00000000-0000-4000-8000-000000000004", "turnId": "0", "step": 1}, "time": 1784466740000}
+{"type": "context.append_loop_event", "event": {"type": "content.part", "uuid": "00000000-0000-4000-8000-000000000001", "turnId": "0", "step": 1, "stepUuid": "00000000-0000-4000-8000-000000000002", "part": {"type": "think", "think": "thinking about the failing command"}}}
+{"type": "context.append_loop_event", "event": {"type": "tool.call", "uuid": "00000000-0000-4000-8000-000000000003", "turnId": "0", "step": 1, "toolName": "Bash", "toolCallId": "tool_0000000000000000000000AA", "input": {"command": "ls /nonexistent-dir"}}, "time": 1784466740000}
+{"type": "context.append_loop_event", "event": {"type": "step.end", "uuid": "00000000-0000-4000-8000-000000000004", "turnId": "0", "step": 1}, "time": 1784466740000}
+{"type": "usage.record", "model": "kimi-code/k3", "usage": {"inputOther": 0, "output": 0}, "usageScope": "turn", "time": 1784466740000}
+{"type": "context.append_loop_event", "event": {"type": "step.begin", "uuid": "00000000-0000-4000-8000-000000000004", "turnId": "0", "step": 2}, "time": 1784466740000}
+{"type": "context.append_loop_event", "event": {"type": "content.part", "uuid": "00000000-0000-4000-8000-000000000001", "turnId": "0", "step": 2, "stepUuid": "00000000-0000-4000-8000-000000000002", "part": {"type": "think", "think": "thinking about the failing command"}}}
+{"type": "context.append_loop_event", "event": {"type": "content.part", "uuid": "00000000-0000-4000-8000-000000000001", "turnId": "0", "step": 2, "stepUuid": "00000000-0000-4000-8000-000000000002", "part": {"type": "text", "text": "done"}}}
+{"type": "context.append_loop_event", "event": {"type": "step.end", "uuid": "00000000-0000-4000-8000-000000000004", "turnId": "0", "step": 2}, "time": 1784466740000}
+{"type": "usage.record", "model": "kimi-code/k3", "usage": {"inputOther": 0, "output": 0}, "usageScope": "turn", "time": 1784466740000}
