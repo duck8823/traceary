@@ -398,8 +398,16 @@ func TestInstallKimiPluginScript(t *testing.T) {
 		if output, err := runScript(t, kimiHome); err != nil {
 			t.Fatalf("install script failed: %v\n%s", err, output)
 		}
-		if _, err := os.Stat(filepath.Join(kimiHome, "plugins", "managed", "traceary", "kimi.plugin.json")); err != nil {
+		managedPath := filepath.Join(kimiHome, "plugins", "managed", "traceary")
+		if _, err := os.Stat(filepath.Join(managedPath, "kimi.plugin.json")); err != nil {
 			t.Fatalf("managed manifest missing: %v", err)
+		}
+		linkTarget, err := os.Readlink(managedPath)
+		if err != nil {
+			t.Fatalf("managed path is not a generation symlink: %v", err)
+		}
+		if !strings.Contains(linkTarget, ".traceary-gen-") {
+			t.Fatalf("managed symlink target = %q, want a .traceary-gen-* generation dir", linkTarget)
 		}
 		entry := readRecord(t, kimiHome)
 		if entry["id"] != "traceary" || entry["enabled"] != true || entry["state"] != "ok" {

@@ -4,10 +4,11 @@
 # Kimi Code loads managed plugins from $KIMI_CODE_HOME/plugins/managed/<id>/
 # (default ~/.kimi-code) and tracks them in $KIMI_CODE_HOME/plugins/
 # installed.json. This script mirrors the official local-install behavior
-# (schema verified against Kimi Code 0.27.0): the package is staged and
-# swapped into the managed copy, and the install record is upserted while
-# preserving user-controlled fields (enabled/state and unknown keys) from a
-# previous install. Re-running is idempotent.
+# (schema verified against Kimi Code 0.27.0): the package is staged as a
+# generation directory and the managed symlink is flipped with a single
+# atomic rename, then the install record is upserted while preserving
+# user-controlled fields (enabled/state and unknown keys) from a previous
+# install. Re-running is idempotent.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,25 +54,42 @@ if installed_path.exists() and installed_path.stat().st_size > 0:
         print(f"warning: installed.json is invalid ({exc}); backed up to {backup} and starting fresh", file=sys.stderr)
 PY
 
-# Stage the new package and swap it in with rollback on failure, keeping
-# the previous install intact until the new copy is fully in place.
-STAGING_DIR="${KIMI_HOME}/plugins/managed/.traceary-staging"
-BACKUP_DIR="${KIMI_HOME}/plugins/managed/.traceary-previous"
-rm -rf "${STAGING_DIR}" "${BACKUP_DIR}"
-mkdir -p "${KIMI_HOME}/plugins/managed"
-cp -R "${PLUGIN_DIR}" "${STAGING_DIR}"
-if [ -d "${MANAGED_DIR}" ]; then
-  mv "${MANAGED_DIR}" "${BACKUP_DIR}"
-fi
-if ! mv "${STAGING_DIR}" "${MANAGED_DIR}"; then
-  rm -rf "${MANAGED_DIR}"
-  if [ -d "${BACKUP_DIR}" ]; then
-    mv "${BACKUP_DIR}" "${MANAGED_DIR}"
-  fi
-  echo "error: failed to swap in the new package; previous install restored" >&2
-  exit 1
-fi
-rm -rf "${BACKUP_DIR}"
+# Stage the new package as a generation directory and flip the managed
+# symlink with a single rename, so the managed path never points at a
+# missing or half-copied package. Kimi Code resolves the symlink (verified
+# against 0.27.0).
+MANAGED_ROOT="${KIMI_HOME}/plugins/managed"
+GEN_DIR="${MANAGED_ROOT}/.traceary-gen-$(date +%Y%m%d%H%M%S)"
+rm -rf "${GEN_DIR}"
+mkdir -p "${MANAGED_ROOT}"
+cp -R "${PLUGIN_DIR}" "${GEN_DIR}"
+python3 - "${MANAGED_DIR}" "${GEN_DIR}" <<'PY'
+import os
+import shutil
+import sys
+
+managed_dir, gen_dir = sys.argv[1], sys.argv[2]
+tmp_link = managed_dir + ".traceary-tmp"
+if os.path.lexists(tmp_link):
+    os.unlink(tmp_link)
+os.symlink(gen_dir, tmp_link)
+if os.path.islink(managed_dir) or not os.path.exists(managed_dir):
+    # Single rename: the managed path flips to the new generation atomically.
+    os.replace(tmp_link, managed_dir)
+else:
+    # One-time migration from a direct-copy install: remove the real
+    # directory first, then flip.
+    os.unlink(tmp_link)
+    shutil.rmtree(managed_dir)
+    os.symlink(gen_dir, managed_dir)
+PY
+
+# Prune superseded generations (the current one stays linked).
+for old in "${MANAGED_ROOT}"/.traceary-gen-*; do
+  [ -e "${old}" ] || continue
+  [ "${old}" = "${GEN_DIR}" ] && continue
+  rm -rf "${old}"
+done
 
 python3 - "${INSTALLED_JSON}" "${MANAGED_DIR}" <<'PY'
 import json
