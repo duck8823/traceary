@@ -19,6 +19,7 @@ func TestClientFrom(t *testing.T) {
 		{name: "hook client", input: "hook", want: "hook"},
 		{name: "mcp client", input: "mcp", want: "mcp"},
 		{name: "grok client", input: "grok", want: "grok"},
+		{name: "kimi client", input: "kimi", want: "kimi"},
 		{name: "trims whitespace", input: "  cli  ", want: "cli"},
 		{name: "accepts arbitrary channel name", input: "custom-plugin", want: "custom-plugin"},
 		{name: "empty string returns error", input: "", wantErr: true},
