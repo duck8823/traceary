@@ -479,4 +479,20 @@ func TestInstallKimiPluginScript(t *testing.T) {
 			t.Fatalf("record = %v, want traceary entry", entry)
 		}
 	})
+
+	t.Run("installed.json with non-object entries is rebuilt", func(t *testing.T) {
+		kimiHome := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(kimiHome, "plugins"), 0o755); err != nil {
+			t.Fatalf("mkdir plugins: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(kimiHome, "plugins", "installed.json"), []byte(`{"plugins":[null,"bogus"]}`), 0o600); err != nil {
+			t.Fatalf("seed installed.json with non-object entries: %v", err)
+		}
+		if output, err := runScript(t, kimiHome); err != nil {
+			t.Fatalf("install with non-object entries failed: %v\n%s", err, output)
+		}
+		if entry := readRecord(t, kimiHome); entry["id"] != "traceary" {
+			t.Fatalf("record = %v, want traceary entry", entry)
+		}
+	})
 }

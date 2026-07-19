@@ -30,7 +30,9 @@ command -v python3 >/dev/null 2>&1 || {
 }
 
 # Validate or initialize the install record BEFORE touching the managed
-# copy, so a corrupt file cannot leave a half-updated install behind.
+# copy, so a corrupt file cannot leave a half-updated install behind. Every
+# entry must be an object with an id, or the merge below would fail after
+# the swap.
 python3 - "${INSTALLED_JSON}" <<'PY'
 import json
 import pathlib
@@ -43,20 +45,33 @@ if installed_path.exists() and installed_path.stat().st_size > 0:
         data = json.loads(installed_path.read_text())
         if not isinstance(data, dict) or not isinstance(data.get("plugins"), list):
             raise ValueError("installed.json is not a valid InstalledFile object")
+        if any(not isinstance(entry, dict) or "id" not in entry for entry in data["plugins"]):
+            raise ValueError("installed.json contains a plugin entry without an id")
     except (ValueError, json.JSONDecodeError) as exc:
         backup = installed_path.with_suffix(".json.traceary-backup")
         shutil.copy2(installed_path, backup)
         print(f"warning: installed.json is invalid ({exc}); backed up to {backup} and starting fresh", file=sys.stderr)
 PY
 
-# Stage the new package and swap it in atomically, keeping the previous
-# install intact until the copy succeeds.
+# Stage the new package and swap it in with rollback on failure, keeping
+# the previous install intact until the new copy is fully in place.
 STAGING_DIR="${KIMI_HOME}/plugins/managed/.traceary-staging"
-rm -rf "${STAGING_DIR}"
+BACKUP_DIR="${KIMI_HOME}/plugins/managed/.traceary-previous"
+rm -rf "${STAGING_DIR}" "${BACKUP_DIR}"
 mkdir -p "${KIMI_HOME}/plugins/managed"
 cp -R "${PLUGIN_DIR}" "${STAGING_DIR}"
-rm -rf "${MANAGED_DIR}"
-mv "${STAGING_DIR}" "${MANAGED_DIR}"
+if [ -d "${MANAGED_DIR}" ]; then
+  mv "${MANAGED_DIR}" "${BACKUP_DIR}"
+fi
+if ! mv "${STAGING_DIR}" "${MANAGED_DIR}"; then
+  rm -rf "${MANAGED_DIR}"
+  if [ -d "${BACKUP_DIR}" ]; then
+    mv "${BACKUP_DIR}" "${MANAGED_DIR}"
+  fi
+  echo "error: failed to swap in the new package; previous install restored" >&2
+  exit 1
+fi
+rm -rf "${BACKUP_DIR}"
 
 python3 - "${INSTALLED_JSON}" "${MANAGED_DIR}" <<'PY'
 import json
@@ -80,6 +95,8 @@ if installed_path.exists() and installed_path.stat().st_size > 0:
 plugins = []
 preserved = {}
 for entry in data.get("plugins", []):
+    if not isinstance(entry, dict):
+        continue
     if entry.get("id") == "traceary":
         preserved = entry
     else:
