@@ -1,14 +1,29 @@
 package filesystem
 
 import (
+	"fmt"
+	"strings"
+
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/model"
 )
 
+// kimiHookTimeoutSeconds is the per-hook timeout written into the generated
+// Kimi Code [[hooks]] rules. Kimi's default is 30s; Traceary's runtime
+// entrypoints are fail-soft and quick, so 5s keeps a slow disk from stalling
+// the host loop while leaving ample headroom (matching the Grok contract).
+const kimiHookTimeoutSeconds = 5
+
 // KimiHooksHandler is the client-specific boundary for Kimi Code hooks.
-// Native event mapping and installation remain disabled until capture wiring
-// is implemented by the dependent runtime issue.
+//
+// Kimi Code reads hooks from [[hooks]] rules in ~/.kimi-code/config.toml
+// (TOML), which is incompatible with the shared {"hooks": {...}} JSON
+// document, so this handler renders its own TOML document via the
+// rawHookDocumentHandler interface for `hooks print`. Installation stays
+// fail-closed: the Traceary Kimi plugin (kimi.plugin.json, which declares
+// hooks in JSON) is the distribution path, and `hooks install` does not
+// merge TOML into the user's config.toml.
 type KimiHooksHandler struct{}
 
 // NewKimiHooksHandler constructs the Kimi hook boundary.
@@ -17,23 +32,97 @@ func NewKimiHooksHandler() *KimiHooksHandler { return &KimiHooksHandler{} }
 // Name returns the canonical client identifier.
 func (h *KimiHooksHandler) Name() string { return "kimi" }
 
-// Build returns an empty, deterministic hook document. This deliberately
-// reaches a registered Kimi boundary without claiming that capture is wired;
-// the actual capture wiring lands in the dependent runtime issue.
+// Build satisfies application.HooksClientHandler. Kimi's document is rendered
+// by renderDocument (TOML is incompatible with the shared model.Hooks
+// marshaller), so this returns an empty aggregate and is never used for Kimi
+// generation.
 func (h *KimiHooksHandler) Build(_ string) model.Hooks {
-	return model.HooksOf([]string{}, map[string][]model.HookEntry{})
+	return model.HooksOf(nil, nil)
 }
 
-// DefaultInstallPath fails closed until native runtime support is
-// implemented; the Traceary Kimi plugin will be the distribution path.
+// DefaultInstallPath fails closed: Traceary does not merge hooks into the
+// user's config.toml. The Traceary Kimi plugin is the distribution path.
 func (h *KimiHooksHandler) DefaultInstallPath(_ string) (string, error) {
 	return "", kimiInstallUnavailableError()
 }
 
+// validateInstall keeps every install path (default, --output, --force,
+// --upgrade) fail-closed until TOML merge support is a deliberate feature.
 func (h *KimiHooksHandler) validateInstall() error {
 	return kimiInstallUnavailableError()
 }
 
 func kimiInstallUnavailableError() error {
-	return xerrors.Errorf("kimi hook installation is not available until native runtime support is implemented; the Traceary Kimi plugin (kimi.plugin.json) will be the distribution path")
+	return xerrors.Errorf("kimi hook installation is not available: the Traceary Kimi plugin (kimi.plugin.json) is the distribution path, or append `traceary hooks print --client kimi` output to ~/.kimi-code/config.toml manually")
+}
+
+// kimiHookRule is one [[hooks]] rule in the rendered TOML document.
+type kimiHookRule struct {
+	event   string
+	action  string
+	comment string
+}
+
+// kimiHookPlan lists the Kimi Code events wired to Traceary runtime
+// entrypoints, limited to the events with live payload evidence in the host
+// contract (docs/hooks/host-contract.json). PreToolUse is deliberately not
+// wired: Kimi's PostToolUse already carries both input and output, so a
+// pre-hook would only spawn a no-op process per tool call. The
+// `hook kimi pre-tool-use` entrypoint remains available for the subagent
+// correlation wiring (Agent matcher) in the follow-up issue.
+var kimiHookPlan = []kimiHookRule{
+	{event: "SessionStart", action: "session-start", comment: "session boundary (start)"},
+	{event: "SessionEnd", action: "session-end", comment: "session boundary (end)"},
+	{event: "UserPromptSubmit", action: "user-prompt-submit", comment: "prompt"},
+	{event: "PostToolUse", action: "post-tool-use", comment: "tool audit"},
+	{event: "PostToolUseFailure", action: "post-tool-use-failure", comment: "tool audit (failure)"},
+	{event: "Stop", action: "stop", comment: "assistant transcript (best-effort wire log side channel)"},
+}
+
+// renderDocument renders a fresh TOML document of [[hooks]] rules containing
+// only the Traceary entries, suitable for appending to
+// ~/.kimi-code/config.toml.
+func (h *KimiHooksHandler) renderDocument(tracearyBin string) ([]byte, error) {
+	var b strings.Builder
+	b.WriteString("# Traceary session and shell-audit hooks for Kimi Code.\n")
+	b.WriteString("# Append to ~/.kimi-code/config.toml (or install the Traceary Kimi plugin,\n")
+	b.WriteString("# which declares the same hooks in its kimi.plugin.json manifest).\n")
+	for _, rule := range kimiHookPlan {
+		command := newHookRuntimeCommand(tracearyBin, "hook", "kimi", rule.action)
+		fmt.Fprintf(&b, "\n# %s\n[[hooks]]\nevent = %s\ncommand = %s\ntimeout = %d\n",
+			rule.comment, tomlBasicString(rule.event), tomlBasicString(command), kimiHookTimeoutSeconds)
+	}
+	return []byte(b.String()), nil
+}
+
+// tomlBasicString encodes a value as a TOML basic string. The hook command
+// vocabulary (printable characters, spaces, single quotes) needs only
+// quote/backslash escaping; control characters would make the document
+// invalid TOML, so they are defensively replaced with a space.
+func tomlBasicString(value string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				b.WriteByte(' ')
+				continue
+			}
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// mergeDocument is unreachable: validateInstall fails closed before the
+// orchestrator attempts a merge. It exists to satisfy the
+// rawHookDocumentHandler interface contract.
+func (h *KimiHooksHandler) mergeDocument(_ []byte, _ string) ([]byte, hookMergeDiff, error) {
+	return nil, hookMergeDiff{}, kimiInstallUnavailableError()
 }

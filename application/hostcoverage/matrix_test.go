@@ -54,7 +54,7 @@ func TestLoad_GrokSessionEndedIsAvailableNotWired(t *testing.T) {
 	}
 }
 
-func TestLoad_KimiIsProbedButNotWired(t *testing.T) {
+func TestLoad_KimiCoreEventsAreWired(t *testing.T) {
 	t.Parallel()
 
 	m, err := hostcoverage.Load()
@@ -65,16 +65,18 @@ func TestLoad_KimiIsProbedButNotWired(t *testing.T) {
 	if !ok {
 		t.Fatal("missing kimi host")
 	}
-	if len(m.WiredLifecycleEvents("kimi")) != 0 {
-		t.Fatal("kimi must not report wired lifecycle events before capture lands")
-	}
-	for id, cell := range host.Events {
-		if cell.Status != hostcoverage.StatusAvailable {
-			t.Fatalf("kimi %s status = %q, want available (probed, not wired)", id, cell.Status)
+	for _, id := range []string{"session_started", "prompt", "command_executed", "transcript", "session_ended"} {
+		if cell := host.Events[id]; cell.Status != hostcoverage.StatusWired {
+			t.Fatalf("kimi %s status = %q, want wired", id, cell.Status)
 		}
 	}
-	if m.ExpectsSessionEnrichment("kimi") {
-		t.Fatal("kimi must not expect session enrichment before capture lands")
+	// Compact hooks are documented but were not live-observed in the 0.27.0
+	// probe, so the cell stays available rather than wired.
+	if cell := host.Events["compact_summary"]; cell.Status != hostcoverage.StatusAvailable {
+		t.Fatalf("kimi compact_summary status = %q, want available", cell.Status)
+	}
+	if !m.ExpectsSessionEnrichment("kimi") {
+		t.Fatal("kimi should expect session enrichment once core capture is wired")
 	}
 }
 
