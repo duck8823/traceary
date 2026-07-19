@@ -293,6 +293,19 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	report.Checks = append(report.Checks, inspectHookGrokTranscriptDiagnostics(time.Now().UTC()))
 
 	for _, targetClient := range resolvedClients {
+		if targetClient == "kimi" {
+			// Kimi has no hook install path (the plugin is the distribution
+			// path), so the shared ResolveInstallPath would fail closed; the
+			// plugin state is probed directly from the Kimi home instead.
+			state, probeErr := probeKimiDoctorState(ctx, resolvedProjectDir)
+			if probeErr != nil {
+				report.Checks = append(report.Checks, doctorCheck{Name: "kimi-inspect", Status: doctorStatusWarn, Message: localizef("failed to inspect Kimi installation: %v", "Kimi installation の検査に失敗しました: %v", probeErr)})
+			} else {
+				report.Checks = append(report.Checks, buildKimiDoctorChecks(state, input.currentVersion)...)
+			}
+			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, "", resolvedProjectDir, input.coverageThreshold))
+			continue
+		}
 		if targetClient == "antigravity" {
 			// Antigravity supports three independent hook install routes
 			// (workspace .agents/hooks.json, user-level
