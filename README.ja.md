@@ -77,6 +77,16 @@ codex   # Codex 内で /plugins を開き、Traceary Plugins から Traceary を
 
 `traceary integration codex install` ヘルパーは v0.14.0 で廃止され、cleanup 専用 `traceary integration codex uninstall` surface は v0.15.0 で削除されました。install / uninstall は上記の Codex CLI 公式 `/plugins` flow を使ってください。移行方法と旧 install を残した環境の手動 cleanup 手順は [Codex plugin ガイド](./docs/integrations/codex-plugin.ja.md) を参照してください。
 
+**Kimi Code** ([ガイド](./docs/integrations/kimi.ja.md))
+
+```sh
+git clone --depth 1 --branch v0.29.0 https://github.com/duck8823/traceary ~/src/traceary
+cd ~/src/traceary
+./scripts/install-kimi-plugin.sh
+```
+
+Traceary CLI と一致する release tag を指定してください。Kimi Code 公式の `/plugins install <path-or-url>` flow でも `integrations/kimi-plugin/` を指定すれば導入できます。`traceary doctor --client kimi` で確認してください。
+
 **Google のエージェントホスト:** 組織で Gemini Code Assist Standard/Enterprise、または有料の Gemini API キーか Gemini Enterprise Agent Platform API キー経由の Gemini CLI を使用している場合を除き、**Antigravity** プラグインを導入してください。Google は 2026-06-18 に無料版および Google AI Pro/Ultra 向け Gemini CLI の提供を終了し、Antigravity への移行を案内しています。このため、Traceary は企業契約および対象の有料 API 利用者向けに Gemini 拡張機能の保守を続けますが、無料版・Pro・Ultra の新規環境には推奨しません。詳細は [Google の移行告知](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) を参照してください。
 
 Antigravity へ最短で導入するには、`traceary hooks install --client antigravity` で Traceary の hook を直接設定します。[Antigravity hooks / plugin ガイド](./docs/integrations/antigravity.ja.md) では、この直接設定と `agy plugin install` による packaged plugin の導入を区別して説明しています。サポート対象の Gemini CLI を既に使用している場合は、移行手順を含む [Gemini 拡張機能の保守ガイド](./docs/integrations/gemini-extension.ja.md) を参照してください。
@@ -215,6 +225,7 @@ $ traceary timeline --limit 2
 |---|---|---|---|---|---|
 | Claude Code | 完全対応 | Bash + MCP + failure hook | あり | あり | Full |
 | Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | あり | なし | Partial |
+| Kimi Code | 完全対応（`SessionStart` + `SessionEnd`） | tool hook + failure hook | あり | marker（summary 本文なし） | Full |
 | Gemini CLI | 完全対応（`SessionStart` + `SessionEnd`） | tool hook | なし | なし | Basic（レガシー） |
 | Antigravity | 完全対応（`PreInvocation` 開始 / `Stop` turn 境界） | `run_command` hook（`PreToolUse` + `PostToolUse` を突き合わせ） | なし | なし | Partial |
 
