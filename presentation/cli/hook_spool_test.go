@@ -235,6 +235,42 @@ func TestDrainHookSpoolRecords_StopsOnCancelledContext(t *testing.T) {
 	}
 }
 
+func TestDrainHookSpoolRecords_ReplaysKimiRecordThroughAdapter(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	// A timeout-killed Kimi UserPromptSubmit record: the payload keeps the
+	// host's content-block prompt shape and must be normalized on replay.
+	record := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "kimi",
+		Client:        "kimi",
+		Action:        "user-prompt-submit",
+		Payload:       `{"hook_event_name":"UserPromptSubmit","session_id":"session_kimi-spool","cwd":"/tmp","prompt":[{"type":"text","text":"recover kimi"}]}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}
+	path, err := persistHookSpoolRecord(record)
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 1 || failed != 0 {
+		t.Fatalf("kimi replay: replayed=%d failed=%d want 1/0", replayed, failed)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("successful kimi replay must remove spool, stat err=%v", err)
+	}
+	if eventStub.logCalls != 1 || eventStub.lastMessage != "recover kimi" {
+		t.Fatalf("kimi replay log calls=%d message=%q, want flattened prompt", eventStub.logCalls, eventStub.lastMessage)
+	}
+}
+
 func TestInspectHookSpoolDiagnostics_FixFuncDrains(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)

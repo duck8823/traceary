@@ -165,6 +165,8 @@ func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRec
 		return c.replayAntigravitySpoolRecord(ctx, input, action, dbPath)
 	case "grok":
 		return c.replayGrokSpoolRecord(ctx, input, action, dbPath)
+	case "kimi":
+		return c.replayKimiSpoolRecord(ctx, input, action, dbPath)
 	default:
 		return xerrors.Errorf("unsupported hook spool command: %s", record.Command)
 	}
@@ -203,6 +205,27 @@ func (c *RootCLI) replayGrokSpoolRecord(ctx context.Context, input io.Reader, ac
 		return c.runHookGrokPostCompact(ctx, input, dbPath)
 	default:
 		return xerrors.Errorf("unsupported grok spool action: %s", action)
+	}
+}
+
+func (c *RootCLI) replayKimiSpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
+	switch strings.TrimSpace(action) {
+	case "session-start":
+		return c.runHookKimiSessionStart(ctx, input, dbPath)
+	case "session-end":
+		return c.runHookKimiSessionEnd(ctx, input, dbPath)
+	case "user-prompt-submit":
+		return c.runHookKimiUserPromptSubmit(ctx, input, dbPath)
+	case "pre-tool-use":
+		return c.runHookKimiPreToolUse(ctx, input, dbPath)
+	case "post-tool-use":
+		return c.runHookKimiPostToolUse(ctx, input, dbPath)
+	case "post-tool-use-failure":
+		return c.runHookKimiPostToolUseFailure(ctx, input, dbPath)
+	case "stop":
+		return c.runHookKimiStop(ctx, input, dbPath)
+	default:
+		return xerrors.Errorf("unsupported kimi spool action: %s", action)
 	}
 }
 

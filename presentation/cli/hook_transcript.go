@@ -35,6 +35,8 @@ func transcriptExtractorFor(client string) (transcriptExtractor, bool) {
 		return extractAntigravityTranscript, true
 	case "grok":
 		return extractGrokTranscript, true
+	case "kimi":
+		return extractKimiTranscript, true
 	default:
 		return nil, false
 	}

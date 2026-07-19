@@ -217,7 +217,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 	}
 
 	for _, client := range []string{"kimi", "kimi-code", "kimi-cli"} {
-		t.Run("reaches empty Kimi boundary with "+client, func(t *testing.T) {
+		t.Run("renders Kimi TOML hook rules with "+client, func(t *testing.T) {
 			rootCmd := newTestRootCLI().Command()
 			stdout := &bytes.Buffer{}
 			rootCmd.SetOut(stdout)
@@ -226,12 +226,14 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			if err := rootCmd.Execute(); err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
-			var settings printedHooksSettings
-			if err := json.Unmarshal(stdout.Bytes(), &settings); err != nil {
-				t.Fatalf("json.Unmarshal() error = %v\n%s", err, stdout.Bytes())
+			text := stdout.String()
+			for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"} {
+				if !strings.Contains(text, `event = "`+event+`"`) {
+					t.Errorf("Kimi TOML missing event %q:\n%s", event, text)
+				}
 			}
-			if len(settings.Hooks) != 0 {
-				t.Fatalf("Kimi hooks = %v, want empty boundary before runtime support", settings.Hooks)
+			if !strings.Contains(text, "'hook' 'kimi' 'session-start'") {
+				t.Errorf("Kimi TOML missing runtime command:\n%s", text)
 			}
 		})
 	}
@@ -327,10 +329,10 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 				seedOutput     bool
 				wantErrContent string
 			}{
-				{name: "default path", wantErrContent: "native runtime support"},
-				{name: "explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json")}, wantErrContent: "native runtime support"},
-				{name: "force with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--force"}, seedOutput: true, wantErrContent: "native runtime support"},
-				{name: "upgrade with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--upgrade"}, seedOutput: true, wantErrContent: "native runtime support"},
+				{name: "default path", wantErrContent: "not available"},
+				{name: "explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json")}, wantErrContent: "not available"},
+				{name: "force with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--force"}, seedOutput: true, wantErrContent: "not available"},
+				{name: "upgrade with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--upgrade"}, seedOutput: true, wantErrContent: "not available"},
 				{name: "global", extraArgs: []string{"--global"}, wantErrContent: "--global is not supported"},
 				{name: "global with force", extraArgs: []string{"--global", "--force"}, wantErrContent: "--global is not supported"},
 			} {

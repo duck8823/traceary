@@ -270,38 +270,38 @@
       "id": "kimi",
       "package": "kimi-plugin",
       "label": {
-        "en": "Kimi Code 0.27.0 (contract probed; not wired yet)",
-        "ja": "Kimi Code 0.27.0（contract probe 済み・未配線）"
+        "en": "Kimi Code 0.27.0 (`kimi-plugin`)",
+        "ja": "Kimi Code 0.27.0 (`kimi-plugin`)"
       },
       "doctor_client": "kimi",
-      "expects_session_enrichment": false,
+      "expects_session_enrichment": true,
       "events": {
         "session_started": {
-          "status": "available",
+          "status": "wired",
           "summary": {
-            "en": "○ `SessionStart` (`source` = startup|resume; resume re-fires with the same session_id)",
-            "ja": "○ `SessionStart`（`source` = startup|resume。resume は同一 session_id で再発火）"
+            "en": "● `SessionStart` (`source` = startup|resume; resume re-fires with the same session_id, recorded idempotently)",
+            "ja": "● `SessionStart`（`source` = startup|resume。resume は同一 session_id で再発火し、冪等に記録）"
           }
         },
         "prompt": {
-          "status": "available",
+          "status": "wired",
           "summary": {
-            "en": "○ `UserPromptSubmit` (`prompt` is a content-block array, not a plain string)",
-            "ja": "○ `UserPromptSubmit`（`prompt` は文字列ではなく content block 配列）"
+            "en": "● `UserPromptSubmit` (`prompt` content-block array flattened to text)",
+            "ja": "● `UserPromptSubmit`（`prompt` の content block 配列をテキスト化）"
           }
         },
         "command_executed": {
-          "status": "available",
+          "status": "wired",
           "summary": {
-            "en": "○ `PreToolUse` + `PostToolUse` (`tool_output` string) + `PostToolUseFailure` (`error` object with code/message/retryable)",
-            "ja": "○ `PreToolUse` + `PostToolUse`（`tool_output` 文字列）+ `PostToolUseFailure`（`error` は code/message/retryable を持つ object）"
+            "en": "● `PostToolUse` (`tool_output` string) + `PostToolUseFailure` (`error` object flattened; `PreToolUse` is validation-only)",
+            "ja": "● `PostToolUse`（`tool_output` 文字列）+ `PostToolUseFailure`（`error` object を平坦化。`PreToolUse` は検証のみで記録しない）"
           }
         },
         "transcript": {
-          "status": "available",
+          "status": "wired",
           "summary": {
-            "en": "○ `Stop` carries no transcript fields; `session_index.jsonl` → session `wire.jsonl` `content.part` blocks are a best-effort side channel",
-            "ja": "○ `Stop` には transcript 情報がない。`session_index.jsonl` → session の `wire.jsonl` の `content.part` block が best-effort の側路"
+            "en": "● `Stop` (best-effort: `session_index.jsonl` → session `wire.jsonl` last-turn `content.part` think/text blocks)",
+            "ja": "● `Stop`（best-effort: `session_index.jsonl` → session の `wire.jsonl` 最終ターンの `content.part` think/text block）"
           }
         },
         "compact_summary": {
@@ -312,10 +312,10 @@
           }
         },
         "session_ended": {
-          "status": "available",
+          "status": "wired",
           "summary": {
-            "en": "○ `SessionEnd` (`reason` = exit; observed on print-mode close)",
-            "ja": "○ `SessionEnd`（`reason` = exit。print mode 終了時に観測）"
+            "en": "● `SessionEnd` (`reason` = exit)",
+            "ja": "● `SessionEnd`（`reason` = exit）"
           }
         }
       }
