@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "PostCompact",
+  "session_id": "session_00000000-0000-4000-8000-000000000001",
+  "cwd": "/workspace/kimi-contract-probe",
+  "trigger": "auto",
+  "estimated_token_count": 486
+}

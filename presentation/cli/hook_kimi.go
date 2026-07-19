@@ -30,6 +30,9 @@ func (c *RootCLI) newHookKimiCommand() *cobra.Command {
 	cmd.AddCommand(c.newHookKimiEventCommand("post-tool-use", c.runHookKimiPostToolUse))
 	cmd.AddCommand(c.newHookKimiEventCommand("post-tool-use-failure", c.runHookKimiPostToolUseFailure))
 	cmd.AddCommand(c.newHookKimiEventCommand("stop", c.runHookKimiStop))
+	cmd.AddCommand(c.newHookKimiEventCommand("pre-compact", c.runHookKimiPreCompact))
+	cmd.AddCommand(c.newHookKimiEventCommand("post-compact", c.runHookKimiPostCompact))
+	cmd.AddCommand(c.newHookKimiEventCommand("subagent-stop", c.runHookKimiSubagentStop))
 	return cmd
 }
 
@@ -88,13 +91,50 @@ func (c *RootCLI) runHookKimiUserPromptSubmit(ctx context.Context, input io.Read
 	return c.runHookPrompt(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
 }
 
-// PreToolUse is intentionally a validation-only boundary. Kimi's verified
-// PostToolUse payload already carries both input and output, so recording
-// here would duplicate the completed audit. Exit 0 with no stdout is
-// fail-open.
-func (c *RootCLI) runHookKimiPreToolUse(_ context.Context, input io.Reader, _ string) error {
-	_, err := normalizeKimiHookPayload(input)
-	return err
+// PreToolUse is a subagent-start boundary for Agent tool calls and a
+// validation-only boundary for everything else. Kimi's PostToolUse already
+// carries both input and output, so recording a general pre-tool audit here
+// would duplicate the completed audit; only Agent calls carry the
+// correlating tool_call_id + tool_input.subagent_type the subagent
+// parent/child attribution needs.
+func (c *RootCLI) runHookKimiPreToolUse(ctx context.Context, input io.Reader, dbPath string) error {
+	normalized, err := normalizeKimiHookPayload(input)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(hookPayloadString(normalized, "tool_name", "")) != "Agent" {
+		return nil
+	}
+	return c.runHookSubagentStart(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
+}
+
+// Kimi's SubagentStop carries agent_name and the subagent response but no
+// tool_use_id, so the shared subagent-stop path falls back to the latest
+// active child of the parent session (same semantics as Claude).
+func (c *RootCLI) runHookKimiSubagentStop(ctx context.Context, input io.Reader, dbPath string) error {
+	normalized, err := normalizeKimiHookPayload(input)
+	if err != nil {
+		return err
+	}
+	return c.runHookSubagentStop(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
+}
+
+// Kimi's compact hooks expose trigger and token counts but no summary body,
+// so the shared compact path records markers only (mirroring Grok).
+func (c *RootCLI) runHookKimiPreCompact(ctx context.Context, input io.Reader, dbPath string) error {
+	normalized, err := normalizeKimiHookPayload(input)
+	if err != nil {
+		return err
+	}
+	return c.runHookCompact(ctx, nil, bytes.NewReader(normalized), kimiHookClient, "pre-compact", dbPath)
+}
+
+func (c *RootCLI) runHookKimiPostCompact(ctx context.Context, input io.Reader, dbPath string) error {
+	normalized, err := normalizeKimiHookPayload(input)
+	if err != nil {
+		return err
+	}
+	return c.runHookCompact(ctx, nil, bytes.NewReader(normalized), kimiHookClient, "post-compact", dbPath)
 }
 
 func (c *RootCLI) runHookKimiPostToolUse(ctx context.Context, input io.Reader, dbPath string) error {
@@ -130,6 +170,7 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 //
 //   - tool_call_id → tool_use_id (shared tool correlation field)
 //   - tool_output  → tool_response (shared audit output field)
+//   - agent_name   → subagent_type (shared subagent label field)
 //   - error{code,message,retryable} → error (string; shared failure signal)
 //   - prompt content-block array → prompt (plain text, joined)
 //
@@ -155,6 +196,8 @@ func normalizeKimiHookPayload(input io.Reader) ([]byte, error) {
 	copyKimiHookField(normalized, "tool_input", source, "tool_input")
 	copyKimiHookField(normalized, "tool_use_id", source, "tool_call_id")
 	copyKimiHookField(normalized, "tool_response", source, "tool_output")
+	copyKimiHookField(normalized, "trigger", source, "trigger")
+	copyKimiHookField(normalized, "subagent_type", source, "agent_name")
 	if errorValue, ok := source["error"]; ok {
 		if message := kimiErrorMessage(errorValue); message != "" {
 			normalized["error"] = message

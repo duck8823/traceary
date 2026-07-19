@@ -305,10 +305,10 @@
           }
         },
         "compact_summary": {
-          "status": "available",
+          "status": "wired",
           "summary": {
-            "en": "○ `PreCompact` / `PostCompact` documented, but not live-observed in the 0.27.0 probe; payload contract unclaimed",
-            "ja": "○ `PreCompact` / `PostCompact` は文書化済みだが 0.27.0 の probe では未観測。payload 契約は未確認"
+            "en": "● `PreCompact` + `PostCompact` (`trigger` = auto|manual marker with token counts; no summary body)",
+            "ja": "● `PreCompact` + `PostCompact`（`trigger` = auto|manual の marker と token 数。summary 本文なし）"
           }
         },
         "session_ended": {
