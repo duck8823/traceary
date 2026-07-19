@@ -147,6 +147,9 @@ func verifyIntegrations(root string, runCLISmoke bool) error {
 	if err := checkRememberSkillContract(root); err != nil {
 		return err
 	}
+	if err := checkSharedSkillParity(root); err != nil {
+		return err
+	}
 	return checkDocs(root)
 }
 
@@ -196,6 +199,53 @@ func checkRememberSkillContract(root string) error {
 		}
 		if string(data) != string(reference) {
 			return xerrors.Errorf("remember skill copies diverged: %s does not match %s", rel, rememberSkillPaths[0])
+		}
+	}
+	return nil
+}
+
+// sharedSkillPaths groups the packaged copies of each shared skill across
+// hosts. Copies of a skill must stay byte-identical so a single host cannot
+// drift; the first path in each group is the reference document.
+//
+// The Claude copy of traceary-session-history intentionally uses older,
+// Claude-specific wording and is excluded from that skill's parity group;
+// all other hosts share one text.
+var sharedSkillPaths = map[string][]string{
+	"traceary-memory-review": {
+		"integrations/claude-plugin/skills/traceary-memory-review/SKILL.md",
+		"plugins/traceary/skills/traceary-memory-review/SKILL.md",
+		"integrations/gemini-extension/skills/traceary-memory-review/SKILL.md",
+		"integrations/antigravity-plugin/skills/traceary-memory-review/SKILL.md",
+		"integrations/grok-plugin/skills/traceary-memory-review/SKILL.md",
+		"integrations/kimi-plugin/skills/traceary-memory-review/SKILL.md",
+	},
+	"traceary-session-history": {
+		"integrations/grok-plugin/skills/traceary-session-history/SKILL.md",
+		"plugins/traceary/skills/traceary-session-history/SKILL.md",
+		"integrations/gemini-extension/skills/traceary-session-history/SKILL.md",
+		"integrations/antigravity-plugin/skills/traceary-session-history/SKILL.md",
+		"integrations/kimi-plugin/skills/traceary-session-history/SKILL.md",
+	},
+}
+
+// checkSharedSkillParity enforces byte-identity of the shared skill copies
+// across every host package.
+func checkSharedSkillParity(root string) error {
+	for skill, paths := range sharedSkillPaths {
+		var reference []byte
+		for i, rel := range paths {
+			data, err := os.ReadFile(filepath.Join(root, rel)) // #nosec G304 -- fixed package path under repo root
+			if err != nil {
+				return xerrors.Errorf("missing shared %s skill: %s: %w", skill, rel, err)
+			}
+			if i == 0 {
+				reference = data
+				continue
+			}
+			if string(data) != string(reference) {
+				return xerrors.Errorf("shared %s skill copies diverged: %s does not match %s", skill, rel, paths[0])
+			}
 		}
 	}
 	return nil
@@ -266,8 +316,13 @@ func checkGrok(root, version string) error {
 
 func checkKimi(root, version string) error {
 	var manifest struct {
-		Name       string   `json:"name"`
-		Version    string   `json:"version"`
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+		Homepage    string `json:"homepage"`
+		Interface   struct {
+			DisplayName string `json:"displayName"`
+		} `json:"interface"`
 		Skills     []string `json:"skills"`
 		MCPServers map[string]struct {
 			Command string   `json:"command"`
@@ -288,6 +343,12 @@ func checkKimi(root, version string) error {
 	}
 	if manifest.Version != version {
 		return xerrors.Errorf("kimi plugin version must track v%s", version)
+	}
+	if strings.TrimSpace(manifest.Description) == "" || strings.TrimSpace(manifest.Homepage) == "" || strings.TrimSpace(manifest.Interface.DisplayName) == "" {
+		return xerrors.Errorf("kimi plugin must declare description, homepage, and interface.displayName")
+	}
+	if !equalStrings(manifest.Skills, []string{"./skills/"}) {
+		return xerrors.Errorf("kimi plugin skills field must be exactly [\"./skills/\"], got %v", manifest.Skills)
 	}
 	server, ok := manifest.MCPServers["traceary"]
 	if len(manifest.MCPServers) != 1 || !ok || server.Command != "traceary" || !equalStrings(server.Args, []string{"mcp-server"}) {
