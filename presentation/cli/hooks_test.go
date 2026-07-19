@@ -216,6 +216,26 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		})
 	}
 
+	for _, client := range []string{"kimi", "kimi-code", "kimi-cli"} {
+		t.Run("reaches empty Kimi boundary with "+client, func(t *testing.T) {
+			rootCmd := newTestRootCLI().Command()
+			stdout := &bytes.Buffer{}
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{"hooks", "print", "--client", client, "--traceary-bin", tracearyBin})
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			var settings printedHooksSettings
+			if err := json.Unmarshal(stdout.Bytes(), &settings); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v\n%s", err, stdout.Bytes())
+			}
+			if len(settings.Hooks) != 0 {
+				t.Fatalf("Kimi hooks = %v, want empty boundary before runtime support", settings.Hooks)
+			}
+		})
+	}
+
 	t.Run("uses stable command name when traceary-bin is not specified", func(t *testing.T) {
 		settings := executeHooksPrintWithoutTracearyBin(t, "claude")
 		if diff := cmp.Diff(`'traceary' 'hook' 'session' 'claude' 'start'`, settings.Hooks["SessionStart"][0].Hooks[0].Command); diff != "" {
@@ -296,6 +316,66 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 					t.Fatal("installed Grok hooks missing SessionStart")
 				}
 			})
+		}
+	})
+
+	t.Run("fails closed for Kimi until native runtime support lands", func(t *testing.T) {
+		for _, client := range []string{"kimi", "kimi-code", "kimi-cli"} {
+			for _, tc := range []struct {
+				name           string
+				extraArgs      []string
+				seedOutput     bool
+				wantErrContent string
+			}{
+				{name: "default path", wantErrContent: "native runtime support"},
+				{name: "explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json")}, wantErrContent: "native runtime support"},
+				{name: "force with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--force"}, seedOutput: true, wantErrContent: "native runtime support"},
+				{name: "upgrade with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--upgrade"}, seedOutput: true, wantErrContent: "native runtime support"},
+				{name: "global", extraArgs: []string{"--global"}, wantErrContent: "--global is not supported"},
+				{name: "global with force", extraArgs: []string{"--global", "--force"}, wantErrContent: "--global is not supported"},
+			} {
+				t.Run(client+"/"+tc.name, func(t *testing.T) {
+					args := []string{
+						"hooks", "install",
+						"--client", client,
+						"--project-dir", projectDir,
+						"--traceary-bin", "traceary",
+					}
+					args = append(args, tc.extraArgs...)
+					var outputPath string
+					for i, arg := range args {
+						if arg == "--output" {
+							outputPath = args[i+1]
+						}
+					}
+					const original = `{"user":"content"}`
+					if tc.seedOutput {
+						if err := os.WriteFile(outputPath, []byte(original), 0o600); err != nil {
+							t.Fatalf("seed output: %v", err)
+						}
+					}
+
+					rootCmd := newTestRootCLI().Command()
+					rootCmd.SetOut(&bytes.Buffer{})
+					rootCmd.SetErr(&bytes.Buffer{})
+					rootCmd.SetArgs(args)
+					err := rootCmd.Execute()
+					if err == nil || !strings.Contains(err.Error(), tc.wantErrContent) {
+						t.Fatalf("Execute() error = %v, want fail-closed error containing %q", err, tc.wantErrContent)
+					}
+					if outputPath == "" {
+						return
+					}
+					content, readErr := os.ReadFile(outputPath)
+					if tc.seedOutput {
+						if readErr != nil || string(content) != original {
+							t.Fatalf("output after failed install = %q, %v; want unchanged", content, readErr)
+						}
+					} else if !os.IsNotExist(readErr) {
+						t.Fatalf("output created after failed install: content=%q, error=%v", content, readErr)
+					}
+				})
+			}
 		}
 	})
 

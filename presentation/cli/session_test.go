@@ -112,6 +112,50 @@ func TestRootCLI_SessionStartCommand_AcceptsAndSerializesGrokClient(t *testing.T
 	}
 }
 
+func TestRootCLI_SessionStartCommand_AcceptsAndSerializesKimiClient(t *testing.T) {
+	t.Parallel()
+
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		types.EventID("event-kimi"),
+		types.EventKindSessionStarted,
+		types.Client("kimi"),
+		types.Agent("kimi"),
+		types.SessionID("session-kimi"),
+		types.Workspace("duck8823/traceary"),
+		"session started",
+		time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC),
+	)}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session", "start", "--json",
+		"--db-path", "/tmp/test-traceary.db",
+		"--client", "kimi",
+		"--agent", "kimi",
+		"--workspace", "duck8823/traceary",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := sessionStub.startCall.client; got != "kimi" {
+		t.Fatalf("Start client = %q, want kimi", got)
+	}
+	var output struct {
+		Client string `json:"client"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\n%s", err, stdout.Bytes())
+	}
+	if output.Client != "kimi" {
+		t.Fatalf("JSON client = %q, want kimi", output.Client)
+	}
+}
+
 func TestRootCLI_SessionStartCommand_NoParentStaysParentless(t *testing.T) {
 	t.Parallel()
 

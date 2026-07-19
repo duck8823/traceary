@@ -197,6 +197,7 @@ func run() error {
 		"gemini":      filesystem.NewGeminiHooksHandler(),
 		"antigravity": filesystem.NewAntigravityHooksHandler(),
 		"grok":        filesystem.NewGrokHooksHandler(),
+		"kimi":        filesystem.NewKimiHooksHandler(),
 	})
 	hooksInspector := filesystem.NewHooksInspector()
 	pluginCacheInspector := filesystem.NewPluginCacheInspector()

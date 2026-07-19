@@ -26,6 +26,7 @@ func newTestHooksOptions() []cli.RootCLIOption {
 			"gemini":      filesystem.NewGeminiHooksHandler(),
 			"antigravity": filesystem.NewAntigravityHooksHandler(),
 			"grok":        filesystem.NewGrokHooksHandler(),
+			"kimi":        filesystem.NewKimiHooksHandler(),
 		})),
 		cli.WithHooksInspector(filesystem.NewHooksInspector()),
 		cli.WithPluginCacheInspector(filesystem.NewPluginCacheInspector()),
