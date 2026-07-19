@@ -54,15 +54,14 @@ if installed_path.exists() and installed_path.stat().st_size > 0:
         print(f"warning: installed.json is invalid ({exc}); backed up to {backup} and starting fresh", file=sys.stderr)
 PY
 
-# Stage the new package as a generation directory and flip the managed
-# symlink with a single rename, so the managed path never points at a
-# missing or half-copied package. Kimi Code resolves the symlink (verified
-# against 0.27.0).
+# Stage the new package as a unique generation directory and flip the
+# managed symlink with a single rename, so the managed path never points at
+# a missing or half-copied package. Kimi Code resolves the symlink
+# (verified against 0.27.0).
 MANAGED_ROOT="${KIMI_HOME}/plugins/managed"
-GEN_DIR="${MANAGED_ROOT}/.traceary-gen-$(date +%Y%m%d%H%M%S)"
-rm -rf "${GEN_DIR}"
 mkdir -p "${MANAGED_ROOT}"
-cp -R "${PLUGIN_DIR}" "${GEN_DIR}"
+GEN_DIR="$(mktemp -d "${MANAGED_ROOT}/.traceary-gen-XXXXXXXX")"
+cp -R "${PLUGIN_DIR}/." "${GEN_DIR}/"
 python3 - "${MANAGED_DIR}" "${GEN_DIR}" <<'PY'
 import os
 import shutil
@@ -73,15 +72,27 @@ tmp_link = managed_dir + ".traceary-tmp"
 if os.path.lexists(tmp_link):
     os.unlink(tmp_link)
 os.symlink(gen_dir, tmp_link)
-if os.path.islink(managed_dir) or not os.path.exists(managed_dir):
-    # Single rename: the managed path flips to the new generation atomically.
-    os.replace(tmp_link, managed_dir)
-else:
-    # One-time migration from a direct-copy install: remove the real
-    # directory first, then flip.
-    os.unlink(tmp_link)
-    shutil.rmtree(managed_dir)
-    os.symlink(gen_dir, managed_dir)
+backup_dir = managed_dir + ".traceary-backup"
+try:
+    if os.path.lexists(backup_dir):
+        shutil.rmtree(backup_dir)
+    if os.path.islink(managed_dir) or not os.path.lexists(managed_dir):
+        # Single rename: the managed path flips to the new generation atomically.
+        os.replace(tmp_link, managed_dir)
+    else:
+        # One-time migration from a direct-copy install: move the real
+        # directory aside (single rename), flip the symlink, then clean up.
+        os.replace(managed_dir, backup_dir)
+        try:
+            os.replace(tmp_link, managed_dir)
+        except BaseException:
+            os.replace(backup_dir, managed_dir)
+            raise
+        shutil.rmtree(backup_dir)
+except BaseException:
+    if os.path.lexists(tmp_link):
+        os.unlink(tmp_link)
+    raise
 PY
 
 # Prune superseded generations (the current one stays linked).
