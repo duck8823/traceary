@@ -29,6 +29,7 @@ var bumpManifests = []string{
 	"integrations/antigravity-plugin/plugin.json",
 	"integrations/gemini-extension/gemini-extension.json",
 	"integrations/grok-plugin/plugin.json",
+	"integrations/kimi-plugin/kimi.plugin.json",
 	"plugins/traceary/.codex-plugin/plugin.json",
 }
 

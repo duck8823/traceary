@@ -19,6 +19,7 @@ PLUGIN_MANIFESTS = [
     ROOT / 'integrations' / 'antigravity-plugin' / 'plugin.json',
     ROOT / 'integrations' / 'gemini-extension' / 'gemini-extension.json',
     ROOT / 'integrations' / 'grok-plugin' / 'plugin.json',
+    ROOT / 'integrations' / 'kimi-plugin' / 'kimi.plugin.json',
     ROOT / 'plugins' / 'traceary' / '.codex-plugin' / 'plugin.json',
 ]
 

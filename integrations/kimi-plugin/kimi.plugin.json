@@ -1,0 +1,82 @@
+{
+  "name": "traceary",
+  "version": "0.28.0",
+  "description": "Local-first Traceary integration for Kimi Code with MCP tools and native session, audit, transcript, compact, and subagent hooks.",
+  "homepage": "https://github.com/duck8823/traceary",
+  "keywords": [
+    "traceary",
+    "session",
+    "audit",
+    "memory",
+    "mcp",
+    "local-first"
+  ],
+  "interface": {
+    "displayName": "Traceary",
+    "shortDescription": "Local-first work logs, shell audits, and durable memory for Kimi Code sessions."
+  },
+  "skills": [
+    "./skills/"
+  ],
+  "mcpServers": {
+    "traceary": {
+      "command": "traceary",
+      "args": [
+        "mcp-server"
+      ]
+    }
+  },
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "traceary hook kimi session-start",
+      "timeout": 5
+    },
+    {
+      "event": "SessionEnd",
+      "command": "traceary hook kimi session-end",
+      "timeout": 5
+    },
+    {
+      "event": "UserPromptSubmit",
+      "command": "traceary hook kimi user-prompt-submit",
+      "timeout": 5
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Agent",
+      "command": "traceary hook kimi pre-tool-use",
+      "timeout": 5
+    },
+    {
+      "event": "PostToolUse",
+      "command": "traceary hook kimi post-tool-use",
+      "timeout": 5
+    },
+    {
+      "event": "PostToolUseFailure",
+      "command": "traceary hook kimi post-tool-use-failure",
+      "timeout": 5
+    },
+    {
+      "event": "Stop",
+      "command": "traceary hook kimi stop",
+      "timeout": 5
+    },
+    {
+      "event": "SubagentStop",
+      "command": "traceary hook kimi subagent-stop",
+      "timeout": 5
+    },
+    {
+      "event": "PreCompact",
+      "command": "traceary hook kimi pre-compact",
+      "timeout": 5
+    },
+    {
+      "event": "PostCompact",
+      "command": "traceary hook kimi post-compact",
+      "timeout": 5
+    }
+  ]
+}
