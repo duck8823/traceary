@@ -322,14 +322,17 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 	t.Run("fails closed for Kimi until native runtime support lands", func(t *testing.T) {
 		for _, client := range []string{"kimi", "kimi-code", "kimi-cli"} {
 			for _, tc := range []struct {
-				name       string
-				extraArgs  []string
-				seedOutput bool
+				name           string
+				extraArgs      []string
+				seedOutput     bool
+				wantErrContent string
 			}{
-				{name: "default path"},
-				{name: "explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json")}},
-				{name: "force with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--force"}, seedOutput: true},
-				{name: "upgrade with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--upgrade"}, seedOutput: true},
+				{name: "default path", wantErrContent: "native runtime support"},
+				{name: "explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json")}, wantErrContent: "native runtime support"},
+				{name: "force with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--force"}, seedOutput: true, wantErrContent: "native runtime support"},
+				{name: "upgrade with explicit output", extraArgs: []string{"--output", filepath.Join(t.TempDir(), "hooks.json"), "--upgrade"}, seedOutput: true, wantErrContent: "native runtime support"},
+				{name: "global", extraArgs: []string{"--global"}, wantErrContent: "--global is not supported"},
+				{name: "global with force", extraArgs: []string{"--global", "--force"}, wantErrContent: "--global is not supported"},
 			} {
 				t.Run(client+"/"+tc.name, func(t *testing.T) {
 					args := []string{
@@ -357,8 +360,8 @@ func TestRootCLI_HooksInstallCommand(t *testing.T) {
 					rootCmd.SetErr(&bytes.Buffer{})
 					rootCmd.SetArgs(args)
 					err := rootCmd.Execute()
-					if err == nil || !strings.Contains(err.Error(), "native runtime support") {
-						t.Fatalf("Execute() error = %v, want fail-closed native runtime support error", err)
+					if err == nil || !strings.Contains(err.Error(), tc.wantErrContent) {
+						t.Fatalf("Execute() error = %v, want fail-closed error containing %q", err, tc.wantErrContent)
 					}
 					if outputPath == "" {
 						return
