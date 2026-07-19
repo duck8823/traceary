@@ -226,6 +226,7 @@ $ traceary timeline --limit 2
 | Claude Code | 完全対応 | Bash + MCP + failure hook | あり | あり | Full |
 | Codex | 完全対応（`SessionStart` + `Stop`） | tool hook | あり | なし | Partial |
 | Kimi Code | 完全対応（`SessionStart` + `SessionEnd`） | tool hook + failure hook | あり | marker（summary 本文なし） | Full |
+| Grok Build | 一部対応（`SessionStart`。`SessionEnd` は文書化済みだが未発火） | tool hook（失敗を含む result variant） | あり | marker（summary 本文なし） | Partial |
 | Gemini CLI | 完全対応（`SessionStart` + `SessionEnd`） | tool hook | なし | なし | Basic（レガシー） |
 | Antigravity | 完全対応（`PreInvocation` 開始 / `Stop` turn 境界） | `run_command` hook（`PreToolUse` + `PostToolUse` を突き合わせ） | なし | なし | Partial |
 

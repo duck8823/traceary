@@ -229,6 +229,7 @@ The query surface is shared: once Traceary is installed, every host can use the 
 | Claude Code | Full | Bash + MCP + failure hooks | Yes | Yes | Full |
 | Codex | Full (`SessionStart` + `Stop`) | Tool hooks | Yes | No | Partial |
 | Kimi Code | Full (`SessionStart` + `SessionEnd`) | Tool hooks + failure hooks | Yes | Markers (no summary body) | Full |
+| Grok Build | Partial (`SessionStart`; `SessionEnd` documented but not emitted) | Tool hooks (result variants incl. failures) | Yes | Markers (no summary body) | Partial |
 | Gemini CLI | Full (`SessionStart` + `SessionEnd`) | Tool hooks | No | No | Basic (legacy) |
 | Antigravity | Full (`PreInvocation` start; `Stop` turn boundary) | `run_command` hooks (`PreToolUse` + `PostToolUse` paired) | No | No | Partial |
 
