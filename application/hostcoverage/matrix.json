@@ -305,10 +305,10 @@
           }
         },
         "compact_summary": {
-          "status": "available",
+          "status": "wired",
           "summary": {
-            "en": "○ `PreCompact` / `PostCompact` documented, but not live-observed in the 0.27.0 probe; payload contract unclaimed",
-            "ja": "○ `PreCompact` / `PostCompact` は文書化済みだが 0.27.0 の probe では未観測。payload 契約は未確認"
+            "en": "● `PreCompact` + `PostCompact` (recorded as `trigger` markers — auto observed live, manual not yet probed; payload token counts are not persisted)",
+            "ja": "● `PreCompact` + `PostCompact`（`trigger` の marker として記録。auto は live 観測済み、manual は未 probe。payload の token 数は保存しない）"
           }
         },
         "session_ended": {

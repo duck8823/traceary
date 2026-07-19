@@ -291,6 +291,219 @@ func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 		}
 	})
 
+	t.Run("records compact markers with the trigger body", func(t *testing.T) {
+		stdout, eventStub, _ := runKimiHook(t, "pre-compact", readKimiFixture(t, "pre_compact.json"), nil, nil)
+
+		if stdout != "" {
+			t.Fatalf("PreCompact output = %q, want empty passive-hook output", stdout)
+		}
+		if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+			t.Fatalf("pre-compact kind = %q, want %q", got, want)
+		}
+		if got, want := eventStub.logCall.message, "auto"; got != want {
+			t.Fatalf("pre-compact body = %q, want %q", got, want)
+		}
+		if got, want := eventStub.logCall.sourceHook, "pre_compact"; got != want {
+			t.Fatalf("pre-compact source hook = %q, want %q", got, want)
+		}
+
+		stdout, eventStub, _ = runKimiHook(t, "post-compact", readKimiFixture(t, "post_compact.json"), nil, nil)
+
+		if stdout != "" {
+			t.Fatalf("PostCompact output = %q, want empty passive-hook output", stdout)
+		}
+		if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+			t.Fatalf("post-compact kind = %q, want %q", got, want)
+		}
+		if got, want := eventStub.logCall.message, "auto"; got != want {
+			t.Fatalf("post-compact body = %q, want %q", got, want)
+		}
+		if got, want := eventStub.logCall.sourceHook, "post_compact"; got != want {
+			t.Fatalf("post-compact source hook = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("attributes subagent start from the Agent tool and end from SubagentStop", func(t *testing.T) {
+		sessionStub := &sessionUsecaseStub{}
+
+		stdout, _, gotSession := runKimiHook(t, "pre-tool-use", readKimiFixture(t, "pre_tool_use_agent.json"), nil, sessionStub)
+
+		if stdout != "" {
+			t.Fatalf("PreToolUse(Agent) output = %q, want empty passive-hook output", stdout)
+		}
+		if got, want := gotSession.startChildCall.parent, types.SessionID("session_00000000-0000-4000-8000-000000000001"); got != want {
+			t.Fatalf("subagent parent = %q, want %q", got, want)
+		}
+		wantChild := types.SessionID("session_00000000-0000-4000-8000-000000000001:sub:tool_0000000000000000000000AA")
+		if got := gotSession.startChildCall.childID; got != wantChild {
+			t.Fatalf("subagent child = %q, want %q", got, wantChild)
+		}
+		if got, want := gotSession.startChildCall.agent, types.Agent("kimi/explore"); got != want {
+			t.Fatalf("subagent agent = %q, want %q", got, want)
+		}
+
+		stdout, _, gotSession = runKimiHook(t, "subagent-stop", readKimiFixture(t, "subagent_stop.json"), nil, sessionStub)
+
+		if stdout != "" {
+			t.Fatalf("SubagentStop output = %q, want empty passive-hook output", stdout)
+		}
+		if got := gotSession.endCall.sessionID; got != wantChild {
+			t.Fatalf("subagent-stop ended session = %q, want the active child %q", got, wantChild)
+		}
+	})
+
+	t.Run("ignores non-Agent PreToolUse calls for subagent attribution", func(t *testing.T) {
+		sessionStub := &sessionUsecaseStub{}
+
+		stdout, _, gotSession := runKimiHook(t, "pre-tool-use", readKimiFixture(t, "pre_tool_use.json"), nil, sessionStub)
+
+		if stdout != "" {
+			t.Fatalf("PreToolUse(Bash) output = %q, want empty passive-hook output", stdout)
+		}
+		if gotSession.startChildCall.childID != "" {
+			t.Fatalf("PreToolUse(Bash) attributed a child %q, want no subagent start", gotSession.startChildCall.childID)
+		}
+	})
+
+	t.Run("keeps SubagentStop without an active child fail open", func(t *testing.T) {
+		sessionStub := &sessionUsecaseStub{}
+
+		stdout, _, gotSession := runKimiHook(t, "subagent-stop", readKimiFixture(t, "subagent_stop.json"), nil, sessionStub)
+
+		if stdout != "" {
+			t.Fatalf("SubagentStop output = %q, want empty passive-hook output", stdout)
+		}
+		if gotSession.endCall.sessionID != "" {
+			t.Fatalf("SubagentStop without an active child ended %q, want no-op", gotSession.endCall.sessionID)
+		}
+	})
+
+	t.Run("handles compact payload variants", func(t *testing.T) {
+		for _, tc := range []struct {
+			name     string
+			event    string
+			payload  string
+			wantBody string
+		}{
+			{name: "missing trigger falls back to generic marker", event: "post-compact", payload: `{"hook_event_name":"PostCompact","session_id":"session_00000000-0000-4000-8000-000000000001","cwd":"/workspace/kimi-contract-probe"}`, wantBody: "compact triggered"},
+			{name: "manual trigger passes through", event: "post-compact", payload: `{"hook_event_name":"PostCompact","session_id":"session_00000000-0000-4000-8000-000000000001","cwd":"/workspace/kimi-contract-probe","trigger":"manual","estimated_token_count":42}`, wantBody: "manual"},
+			{name: "numeric token count without trigger", event: "pre-compact", payload: `{"hook_event_name":"PreCompact","session_id":"session_00000000-0000-4000-8000-000000000001","cwd":"/workspace/kimi-contract-probe","token_count":636}`, wantBody: ""},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				stdout, eventStub, _ := runKimiHook(t, tc.event, tc.payload, nil, nil)
+
+				if stdout != "" {
+					t.Fatalf("%s output = %q, want empty passive-hook output", tc.event, stdout)
+				}
+				if tc.wantBody == "" {
+					return
+				}
+				if got := eventStub.logCall.message; got != tc.wantBody {
+					t.Fatalf("%s body = %q, want %q", tc.event, got, tc.wantBody)
+				}
+			})
+		}
+	})
+
+	t.Run("handles Agent PreToolUse payload variants", func(t *testing.T) {
+		for _, tc := range []struct {
+			name        string
+			payload     string
+			wantChildID types.SessionID
+			wantAgent   types.Agent
+		}{
+			{
+				name:        "missing tool_call_id does not start a child",
+				payload:     `{"hook_event_name":"PreToolUse","session_id":"session_00000000-0000-4000-8000-000000000001","cwd":"/workspace/kimi-contract-probe","tool_name":"Agent","tool_input":{"subagent_type":"explore","prompt":"p"}}`,
+				wantChildID: "",
+			},
+			{
+				name:        "missing subagent_type defaults to task",
+				payload:     `{"hook_event_name":"PreToolUse","session_id":"session_22222222-2222-4222-8222-222222222222","cwd":"/workspace/kimi-contract-probe","tool_name":"Agent","tool_call_id":"tool_variant_1","tool_input":{"prompt":"p"}}`,
+				wantChildID: "session_22222222-2222-4222-8222-222222222222:sub:tool_variant_1",
+				wantAgent:   "kimi/task",
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				sessionStub := &sessionUsecaseStub{}
+
+				stdout, _, gotSession := runKimiHook(t, "pre-tool-use", tc.payload, nil, sessionStub)
+
+				if stdout != "" {
+					t.Fatalf("PreToolUse(Agent) output = %q, want empty passive-hook output", stdout)
+				}
+				if got := gotSession.startChildCall.childID; got != tc.wantChildID {
+					t.Fatalf("child = %q, want %q", got, tc.wantChildID)
+				}
+				if tc.wantAgent != "" {
+					if got := gotSession.startChildCall.agent; got != tc.wantAgent {
+						t.Fatalf("agent = %q, want %q", got, tc.wantAgent)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("SubagentStop ends the latest active child when multiple are active", func(t *testing.T) {
+		t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-multi-active")
+		sessionStub := &sessionUsecaseStub{}
+		// Use a distinct parent session id so the leftover active child does
+		// not leak into sibling subtests that share the fixture parent id.
+		parentID := "session_11111111-1111-4111-8111-111111111111"
+		withParent := func(name string) string {
+			return strings.Replace(readKimiFixture(t, name), "session_00000000-0000-4000-8000-000000000001", parentID, 1)
+		}
+		older := strings.Replace(withParent("pre_tool_use_agent.json"), "tool_0000000000000000000000AA", "tool_older", 1)
+		latest := strings.Replace(withParent("pre_tool_use_agent.json"), "tool_0000000000000000000000AA", "tool_latest", 1)
+
+		_, _, sessionStub = runKimiHook(t, "pre-tool-use", older, nil, sessionStub)
+		_, _, sessionStub = runKimiHook(t, "pre-tool-use", latest, nil, sessionStub)
+
+		stdout, _, gotSession := runKimiHook(t, "subagent-stop", withParent("subagent_stop.json"), nil, sessionStub)
+
+		if stdout != "" {
+			t.Fatalf("SubagentStop output = %q, want empty passive-hook output", stdout)
+		}
+		// Pins the documented latest-active-child fallback semantics for
+		// parallel subagents under one parent (same as Claude).
+		wantLatest := types.SessionID(parentID + ":sub:tool_latest")
+		if got := gotSession.endCall.sessionID; got != wantLatest {
+			t.Fatalf("SubagentStop ended %q, want the latest active child %q", got, wantLatest)
+		}
+	})
+
+	t.Run("keeps a repeated SubagentStop idempotent", func(t *testing.T) {
+		t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-repeated-stop")
+		sessionStub := &sessionUsecaseStub{}
+
+		_, _, sessionStub = runKimiHook(t, "pre-tool-use", readKimiFixture(t, "pre_tool_use_agent.json"), nil, sessionStub)
+		_, _, sessionStub = runKimiHook(t, "subagent-stop", readKimiFixture(t, "subagent_stop.json"), nil, sessionStub)
+		if sessionStub.endCall.sessionID == "" {
+			t.Fatal("first SubagentStop must end the active child")
+		}
+		sessionStub.endCall.sessionID = ""
+
+		stdout, _, gotSession := runKimiHook(t, "subagent-stop", readKimiFixture(t, "subagent_stop.json"), nil, sessionStub)
+
+		if stdout != "" {
+			t.Fatalf("repeated SubagentStop output = %q, want empty passive-hook output", stdout)
+		}
+		if gotSession.endCall.sessionID != "" {
+			t.Fatalf("repeated SubagentStop ended %q, want no duplicate end", gotSession.endCall.sessionID)
+		}
+	})
+
+	t.Run("keeps malformed compact payloads fail open", func(t *testing.T) {
+		stdout, eventStub, _ := runKimiHook(t, "post-compact", "not json", nil, nil)
+
+		if stdout != "" {
+			t.Fatalf("malformed PostCompact output = %q, want empty fail-open output", stdout)
+		}
+		if eventStub.logCall.kind != "" {
+			t.Fatalf("malformed PostCompact recorded %q, want fail-open skip", eventStub.logCall.kind)
+		}
+	})
+
 	t.Run("keeps malformed payloads fail open", func(t *testing.T) {
 		stdout, eventStub, _ := runKimiHook(t, "post-tool-use", "not json", nil, nil)
 

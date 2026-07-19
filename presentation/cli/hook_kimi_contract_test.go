@@ -65,6 +65,8 @@ func TestKimiHostContract(t *testing.T) {
 		"SubagentStart":      "SubagentStart",
 		"SubagentStop":       "SubagentStop",
 		"Notification":       "Notification",
+		"PreCompact":         "PreCompact",
+		"PostCompact":        "PostCompact",
 	}
 	referencedFixtures := make(map[string]struct{})
 
@@ -234,6 +236,22 @@ func validateKimiFixture(t *testing.T, repositoryRoot, fixturePath, expectedHook
 		}
 	case "SessionEnd":
 		requireStringField(t, payload, "reason")
+	case "PreCompact":
+		requireStringField(t, payload, "trigger")
+		if _, ok := payload["token_count"].(float64); !ok {
+			t.Errorf("token_count must be a number, got %s", describeValue(payload["token_count"]))
+		}
+		if _, exists := payload["compact_summary"]; exists {
+			t.Error("compact fixture must preserve observed absence of a summary body")
+		}
+	case "PostCompact":
+		requireStringField(t, payload, "trigger")
+		if _, ok := payload["estimated_token_count"].(float64); !ok {
+			t.Errorf("estimated_token_count must be a number, got %s", describeValue(payload["estimated_token_count"]))
+		}
+		if _, exists := payload["compact_summary"]; exists {
+			t.Error("compact fixture must preserve observed absence of a summary body")
+		}
 	case "SubagentStart":
 		requireStringField(t, payload, "agent_name")
 		requireStringField(t, payload, "prompt")

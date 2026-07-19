@@ -224,6 +224,12 @@ func (c *RootCLI) replayKimiSpoolRecord(ctx context.Context, input io.Reader, ac
 		return c.runHookKimiPostToolUseFailure(ctx, input, dbPath)
 	case "stop":
 		return c.runHookKimiStop(ctx, input, dbPath)
+	case "subagent-stop":
+		return c.runHookKimiSubagentStop(ctx, input, dbPath)
+	case "pre-compact":
+		return c.runHookKimiPreCompact(ctx, input, dbPath)
+	case "post-compact":
+		return c.runHookKimiPostCompact(ctx, input, dbPath)
 	default:
 		return xerrors.Errorf("unsupported kimi spool action: %s", action)
 	}

@@ -16,7 +16,7 @@
         "tool_input": "present on PreToolUse, PostToolUse, and PostToolUseFailure",
         "tool_result": "present on PostToolUse as the tool_output string",
         "failure_details": "PostToolUseFailure carries an error object {code, message, retryable}; a non-zero shell exit is reported this way",
-        "compact_summary": "unknown; compact hooks were documented but not live-observed",
+        "compact_summary": "unavailable as a body; compact hooks expose trigger and token counts only (auto trigger live-observed 2026-07-19; manual /compact not probed)",
         "subagent_parent_id": "no dedicated field; the Agent tool's Pre/PostToolUse tool_call_id correlates parent and child, and Agent PostToolUse tool_output begins with an agent_id line"
       },
       "events": {
@@ -96,10 +96,10 @@
           "documented": true,
           "observed": true,
           "verification": "live_observed",
-          "traceary_support": "best_effort",
-          "traceary_event": "command_executed",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
           "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/subagent_start.json",
-          "note": "agent_name and a plain-string prompt; no parent id field (use the Agent tool_call_id correlation)"
+          "note": "agent_name and a plain-string prompt but no correlation ids; subagent start is captured from PreToolUse(Agent), which carries the correlating tool_call_id instead"
         },
         "SubagentStop": {
           "documented": true,
@@ -108,7 +108,7 @@
           "traceary_support": "best_effort",
           "traceary_event": "transcript",
           "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/subagent_stop.json",
-          "note": "agent_name and the subagent's full response string"
+          "note": "agent_name and the subagent's full response string. No tool_use_id, so the stop boundary resolves the latest active child of the parent; parallel subagents under one parent share this fallback and can be misattributed (same accepted limitation as Claude)"
         },
         "Notification": {
           "documented": true,
@@ -121,21 +121,21 @@
         },
         "PreCompact": {
           "documented": true,
-          "observed": false,
-          "verification": "not_safely_triggered",
-          "traceary_support": "unavailable",
-          "traceary_event": null,
-          "fixture": null,
-          "note": "matcher=manual|auto; print mode cannot drive a manual compact cheaply, so no payload contract is claimed"
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "best_effort",
+          "traceary_event": "compact_summary",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/pre_compact.json",
+          "note": "trigger=auto with token_count; no summary body is exposed. Manual /compact was not probed (TUI-only)"
         },
         "PostCompact": {
           "documented": true,
-          "observed": false,
-          "verification": "not_safely_triggered",
-          "traceary_support": "unavailable",
-          "traceary_event": null,
-          "fixture": null,
-          "note": "same probe limitation as PreCompact"
+          "observed": true,
+          "verification": "live_observed",
+          "traceary_support": "best_effort",
+          "traceary_event": "compact_summary",
+          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/post_compact.json",
+          "note": "trigger=auto with estimated_token_count; no summary body is exposed. Manual /compact was not probed (TUI-only)"
         },
         "Interrupt": {
           "documented": true,

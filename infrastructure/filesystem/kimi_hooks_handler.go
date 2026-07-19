@@ -56,27 +56,34 @@ func kimiInstallUnavailableError() error {
 	return xerrors.Errorf("kimi hook installation is not available: the Traceary Kimi plugin (kimi.plugin.json) is the distribution path, or append `traceary hooks print --client kimi` output to ~/.kimi-code/config.toml manually")
 }
 
-// kimiHookRule is one [[hooks]] rule in the rendered TOML document.
+// kimiHookRule is one [[hooks]] rule in the rendered TOML document. matcher
+// is optional and limits the rule to matching tool names (Kimi Code treats
+// it as a regular expression on the event target).
 type kimiHookRule struct {
 	event   string
+	matcher string
 	action  string
 	comment string
 }
 
 // kimiHookPlan lists the Kimi Code events wired to Traceary runtime
 // entrypoints, limited to the events with live payload evidence in the host
-// contract (docs/hooks/host-contract.json). PreToolUse is deliberately not
-// wired: Kimi's PostToolUse already carries both input and output, so a
-// pre-hook would only spawn a no-op process per tool call. The
-// `hook kimi pre-tool-use` entrypoint remains available for the subagent
-// correlation wiring (Agent matcher) in the follow-up issue.
+// contract (docs/hooks/host-contract.json). A general PreToolUse hook is
+// deliberately not wired: Kimi's PostToolUse already carries both input and
+// output, so a pre-hook would only spawn a no-op process per tool call. The
+// Agent-matched PreToolUse rule feeds subagent parent/child attribution via
+// the correlating tool_call_id.
 var kimiHookPlan = []kimiHookRule{
 	{event: "SessionStart", action: "session-start", comment: "session boundary (start)"},
 	{event: "SessionEnd", action: "session-end", comment: "session boundary (end)"},
 	{event: "UserPromptSubmit", action: "user-prompt-submit", comment: "prompt"},
+	{event: "PreToolUse", matcher: "Agent", action: "pre-tool-use", comment: "subagent start (Agent tool correlation)"},
 	{event: "PostToolUse", action: "post-tool-use", comment: "tool audit"},
 	{event: "PostToolUseFailure", action: "post-tool-use-failure", comment: "tool audit (failure)"},
 	{event: "Stop", action: "stop", comment: "assistant transcript (best-effort wire log side channel)"},
+	{event: "SubagentStop", action: "subagent-stop", comment: "subagent boundary (end)"},
+	{event: "PreCompact", action: "pre-compact", comment: "compact marker (trigger only, no summary body)"},
+	{event: "PostCompact", action: "post-compact", comment: "compact marker (trigger only, no summary body)"},
 }
 
 // renderDocument renders a fresh TOML document of [[hooks]] rules containing
@@ -89,8 +96,11 @@ func (h *KimiHooksHandler) renderDocument(tracearyBin string) ([]byte, error) {
 	b.WriteString("# which declares the same hooks in its kimi.plugin.json manifest).\n")
 	for _, rule := range kimiHookPlan {
 		command := newHookRuntimeCommand(tracearyBin, "hook", "kimi", rule.action)
-		fmt.Fprintf(&b, "\n# %s\n[[hooks]]\nevent = %s\ncommand = %s\ntimeout = %d\n",
-			rule.comment, tomlBasicString(rule.event), tomlBasicString(command), kimiHookTimeoutSeconds)
+		fmt.Fprintf(&b, "\n# %s\n[[hooks]]\nevent = %s\n", rule.comment, tomlBasicString(rule.event))
+		if rule.matcher != "" {
+			fmt.Fprintf(&b, "matcher = %s\n", tomlBasicString(rule.matcher))
+		}
+		fmt.Fprintf(&b, "command = %s\ntimeout = %d\n", tomlBasicString(command), kimiHookTimeoutSeconds)
 	}
 	return []byte(b.String()), nil
 }
