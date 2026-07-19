@@ -5,6 +5,29 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.29.0] - 2026-07-20
+
+### Added
+- **Kimi Code を first-class サポート (#1393)** — Kimi Code CLI（0.27.0 で live 検証）を Traceary のホストとしてネイティブ対応。`integrations/kimi-plugin/` パッケージとして提供し、1 つの `kimi.plugin.json` manifest に 10 個の lifecycle hook、Traceary MCP server、3 つの共有 memory/session skill を宣言。`scripts/install-kimi-plugin.sh` でインストールし（公式の local install を再現: generation dir へのステージ、atomic な symlink 切替、`enabled` 状態を保持した `installed.json` 更新）、`traceary doctor --client kimi` で確認できます。
+- **Kimi hook contract と sanitize 済み fixture (#1394)** — SessionStart/End、UserPromptSubmit、Pre/PostToolUse、PostToolUseFailure、Stop、SubagentStart/Stop、Notification、（auto trigger の）PreCompact/PostCompact の payload contract を live probe し、sanitize 済み fixture と fixture を検証する contract test としてコミット。
+- **Kimi の session / prompt / tool / transcript 記録 (#1396)** — 非公開の `traceary hook kimi` アダプタが snake_case payload を共有 hook runtime に正規化（content block の prompt をテキスト化、`tool_output` を audit 出力へ、`error{code,message,retryable}` を message→code→unknown の fallback 付きの失敗シグナルへ）。assistant の transcript は session wire log（`session_index.jsonl` → `agents/main/wire.jsonl` の `content.part` think/text block）から best-effort で復元し、読み取りは symlink 解決後に Kimi home の sessions root 配下に限定。
+- **Kimi の compact / subagent ライフサイクル (#1397)** — `PreCompact`/`PostCompact` の marker（`trigger`。summary 本文なし）と、Agent tool の `PreToolUse`（`tool_call_id` で相関）+ `SubagentStop`（latest-active-child fallback。Claude と同一 semantics）による subagent の親子紐付け。
+- **Kimi の doctor チェック (#1399)** — `traceary doctor --client kimi`（opt-in）が CLI 検出、plugin の install/enable/version 一致、検証済み 10 ルールに対する hook coverage、MCP 登録（plugin 宣言または `mcp.json`）、skill 一覧を報告。probe エラーが private path を露出しないことも保証。
+- **日英の Kimi ガイドと dogfood 証跡 (#1400)** — install / coverage / トラブルシューティングのドキュメント、README の host テーブルへの行追加（Full capture tier）、および live dogfood（plugin 経由で session/prompt/audit/transcript/session end を記録し、live session から MCP 応答）。
+
+### Fixed
+- **Claude 版 session-history skill を共通文言に統一 (#1416)** — 他の 5 ホストが 1 つの文言に揃う間に Claude 版が drift していました。共有 skill parity check の下、全 6 ホストのパッケージが byte 一致になりました。
+
+### Documentation
+- **README の host テーブルに欠けていた Grok 行を追加 (#1413)** — 公開済みの host-coverage matrix と一致する内容で補完。
+- **host coverage matrix の status 意味を明文化 (#1414)** — `wired` / `available` / `unsupported` を文書化（ホストの能力ではなく配線状態）、host-contract の語彙との関係も併記。
+- **Kimi install script の swap 経路テスト (#1415)** — direct-copy からの移行、generation flip + prune、一時 link のクリーンアップを sandbox 化した振る舞いテストで固定。
+
+### Notes
+- v0.29.0 に破壊的な SQLite migration はなく、MCP ツールの追加もありません。
+- Kimi Code の hook は plugin manifest 経由でのみ配布されます。`traceary hooks install --client kimi` は意図的に fail-closed（`~/.kimi-code/config.toml` への TOML マージは行いません）で、`traceary hooks print --client kimi` が手動設定用の TOML rule を出力します。
+- Kimi 公式 marketplace への提出はこのリリースのスコープ外です。
+
 ## [v0.28.0] - 2026-07-17
 
 ### Added
