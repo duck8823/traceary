@@ -11,13 +11,13 @@ Use the packaged `traceary` MCP server as the default read path when the user as
 ## Preferred tools
 
 - `session_status(action="latest")`: most recent session metadata for the current workspace
-- `session_status(action="active")`: only when the user is asking about the still-open session
-- `list_events`: recent history without a keyword filter
+- `session_status(action="active")`: only when the question is specifically about an open session
+- `list_events`: quick recent history without a keyword query
 - `search`: keyword-driven lookups
 - `get_context`: summarize the lead-up around an event
 
 ## Guardrails
 
-- Prefer the read tools above before suggesting direct SQLite inspection.
-- Do not call `record_event(type="log")` or `record_event(type="audit")` unless the user explicitly wants to record a new event.
-- Hooks already capture session boundaries and shell command audits, so avoid duplicating those writes manually.
+- Prefer MCP reads before direct SQLite inspection.
+- Use `record_event(type="log")` / `record_event(type="audit")` only when the user explicitly wants to record something.
+- Automatic hooks already cover session boundaries and shell command audits.
