@@ -10,7 +10,17 @@
 - `○` ホスト側に hook はあるが Traceary 未配線
 - `✕` ホスト自体が公開していない
 
-**最終確認日: 2026-07-16（Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。** Traceary 統合パッケージのバンプ、もしくは host CLI のリリースで hook surface が変化したときに更新する。
+### ステータスの意味
+
+ステータスはホストの能力ではなく、**Traceary 側の配線状態**を表します。
+
+- **wired** — Traceary のパッケージ統合がこの lifecycle event を今日記録できる。live host contract（payload probe 済み、fixture コミット済み）で検証されたものだけが記録の保証対象です。Verification 列の `traceary list events --kind <event>` で確認できます。
+- **available** — ホストはこのイベントの hook や signal を公開していますが、Traceary は（まだ）配線していません。これは記録の保証では**ありません**。その host では該当イベントが Traceary DB に現れません。例: Grok の `SessionEnd`（文書化済みだが probe では未発火）、v0.29.0 以前の Kimi `PreCompact`/`PostCompact`。
+- **unsupported** — ホストがこのイベントの利用可能な signal を公開していません（例: Codex/Antigravity の session end。代わりに MCP `manage_session` または stale GC で終了します）。
+
+機械可読な [host contract](./host-contract.json) との対応: contract で `supported` / `best_effort`（live fixture あり）に分類されるイベントが **wired** セルの根拠になり、ホストが文書化・発火するが Traceary 未配線のイベントが **available** セルの、`unavailable` のイベントが **unsupported** セルの根拠になります。matrix 本体は `application/hostcoverage/matrix.json` にあり、この表はそこから生成されます — 下の生成ブロックは編集しないでください。
+
+**最終確認日: 2026-07-19（Kimi Code 0.27.0 の live hook probe と統合 (#1393)。Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。** Traceary 統合パッケージのバンプ、もしくは host CLI のリリースで hook surface が変化したときに更新する。
 
 > **v0.21.1 注記:** このマトリクスに掲載されている Gemini CLI の hook カバレッジは**レガシー互換のみ**です。Gemini CLI はレガシーの Google AI エージェントホストであり、後継は Antigravity（`/Applications/Antigravity.app`）です。**v0.21.1 以降、Antigravity はサポート対象の hook client** であり、文書化された公開 hook surface に対する packaged plugin（`integrations/antigravity-plugin/`）を提供します。[Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 
