@@ -9,8 +9,12 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 func TestDatasource_Initialize_appliesMigrationsInVersionOrder(t *testing.T) {
@@ -538,6 +542,77 @@ func TestDatasource_Initialize_BackfillsWorkspaceObservationsInBoundedBatches(t 
 		t.Fatalf("Initialize(idempotent catch-up) error = %v", err)
 	}
 	assertWorkspaceObservationMigrationCounts(t, dbPath, 1005, 1005)
+}
+
+func TestDatasource_Initialize_CatchUpFailureDoesNotBlockRuntimeIngest(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	migrations := onDiskSQLiteMigrations(t)
+	store := newStoreManagementDatasource(t, dbPath, migrations)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(schema) error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO sessions (session_id, started_at, client, agent, workspace)
+		VALUES ('session-gap', '2026-07-22T00:00:00Z', 'hook', 'codex', '/repo');
+		INSERT INTO events (id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+		VALUES ('historical-gap', 'prompt', 'hook', 'codex', 'session-gap', '/repo', 'historical', '2026-07-22T00:00:00Z', 'user_prompt_submit');
+		CREATE TRIGGER fail_workspace_backfill
+		BEFORE INSERT ON session_workspace_observations
+		WHEN NEW.observation_origin = 'backfill'
+		BEGIN
+			SELECT RAISE(ABORT, 'forced backfill failure');
+		END;`); err != nil {
+		t.Fatalf("seed catch-up failure: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close setup DB: %v", err)
+	}
+
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(catch-up failure) error = %v, want diagnostic-only success", err)
+	}
+
+	eventDS, _ := newEventDatasource(t, dbPath, migrations)
+	runtimeEvent := model.EventOfWithSourceHook(
+		types.EventID("runtime-after-gap"),
+		types.EventKindPrompt,
+		types.Client("hook"),
+		types.Agent("codex"),
+		types.SessionID("session-gap"),
+		types.Workspace("/repo"),
+		"runtime ingest",
+		time.Date(2026, 7, 22, 0, 1, 0, 0, time.UTC),
+		"user_prompt_submit",
+	)
+	if err := eventDS.Save(ctx, runtimeEvent); err != nil {
+		t.Fatalf("Save(runtime event) error = %v", err)
+	}
+	assertSQLiteCount(t, dbPath, "events", 2)
+	assertSQLiteCount(t, dbPath, "session_workspace_observations", 1)
+	assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "observation_origin = 'backfill'", 0)
+
+	db, err = sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open(recovery) error = %v", err)
+	}
+	if _, err := db.Exec(`DROP TRIGGER fail_workspace_backfill`); err != nil {
+		t.Fatalf("drop failure trigger: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close recovery DB: %v", err)
+	}
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(retry catch-up) error = %v", err)
+	}
+	assertSQLiteCount(t, dbPath, "events", 2)
+	assertSQLiteCount(t, dbPath, "session_workspace_observations", 2)
+	assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "observation_origin = 'backfill'", 1)
 }
 
 func assertWorkspaceObservationMigrationCounts(t *testing.T, dbPath string, wantEvents, wantObservations int) {

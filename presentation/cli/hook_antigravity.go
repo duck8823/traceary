@@ -110,7 +110,7 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 		cwd:       antigravityWorkspaceCwd(payload),
 		eventID:   "conversation:" + sessionID.String(),
 	})
-	ctx = withResolvedHookDelivery(ctx, normalized)
+	ctx = withResolvedHookDelivery(ctx, normalized, "antigravity")
 
 	resolvedDBPath, err := resolveDBPath(dbPath)
 	if err != nil {

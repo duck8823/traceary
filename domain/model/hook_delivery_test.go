@@ -45,6 +45,35 @@ func TestNewHookDeliveryEvidence_IncludesAdditionalSemanticFields(t *testing.T) 
 	}
 }
 
+func TestNewHookDeliveryEvidence_LengthPrefixesSemanticFields(t *testing.T) {
+	event := deliveryEvent(t, "/repo")
+	left, err := model.NewHookDeliveryEvidence(event, "tool-1", "/repo", "a\x00b", "c")
+	if err != nil {
+		t.Fatalf("NewHookDeliveryEvidence(left) error = %v", err)
+	}
+	right, err := model.NewHookDeliveryEvidence(event, "tool-1", "/repo", "a", "b", "c")
+	if err != nil {
+		t.Fatalf("NewHookDeliveryEvidence(right) error = %v", err)
+	}
+	if left.DeliveryFingerprint() == right.DeliveryFingerprint() {
+		t.Fatal("delivery fingerprint allowed delimiter ambiguity")
+	}
+}
+
+func TestNewHookDeliveryEvidence_PreservesRawWorkspace(t *testing.T) {
+	event := deliveryEvent(t, "/repo/with-space ")
+	evidence, err := model.NewHookDeliveryEvidence(event, "tool-1", " /repo/with-space ")
+	if err != nil {
+		t.Fatalf("NewHookDeliveryEvidence() error = %v", err)
+	}
+	if evidence.RawWorkspace() != " /repo/with-space " {
+		t.Fatalf("RawWorkspace() = %q, want exact host evidence", evidence.RawWorkspace())
+	}
+	if got := model.WorkspaceAttributionFingerprint(event.Workspace(), "/repo/with-space"); got == evidence.AttributionFingerprint() {
+		t.Fatal("attribution fingerprint ignored raw workspace bytes")
+	}
+}
+
 func TestClassifyWorkspaceRelationship(t *testing.T) {
 	tests := []struct {
 		name      string

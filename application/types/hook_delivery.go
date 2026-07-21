@@ -16,11 +16,12 @@ type HookDeliveryInput struct {
 	rawWorkspace string
 }
 
-// HookDeliveryInputOf creates normalized hook delivery input.
+// HookDeliveryInputOf normalizes the delivery ID while preserving raw host
+// workspace evidence byte-for-byte.
 func HookDeliveryInputOf(nativeID, rawWorkspace string) HookDeliveryInput {
 	return HookDeliveryInput{
 		nativeID:     strings.TrimSpace(nativeID),
-		rawWorkspace: strings.TrimSpace(rawWorkspace),
+		rawWorkspace: rawWorkspace,
 	}
 }
 

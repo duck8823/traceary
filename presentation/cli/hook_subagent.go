@@ -38,7 +38,7 @@ func (c *RootCLI) runHookSubagentStart(
 	if err != nil {
 		return err
 	}
-	ctx = withResolvedHookDelivery(ctx, payload)
+	ctx = withResolvedHookDelivery(ctx, payload, client)
 	parentSessionID, err := resolveHookSubagentStartParentSessionID(payload, client)
 	if err != nil {
 		return err
@@ -116,7 +116,7 @@ func (c *RootCLI) runHookSubagentStop(
 	if err != nil {
 		return err
 	}
-	ctx = withResolvedHookDelivery(ctx, payload)
+	ctx = withResolvedHookDelivery(ctx, payload, client)
 	resolvedDBPath, err := resolveDBPath(dbPath)
 	if err != nil {
 		return xerrors.Errorf("failed to resolve DB path: %w", err)

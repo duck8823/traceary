@@ -22,6 +22,7 @@ func TestCrossHostHookFixturesExposeStableDeliveryIdentity(t *testing.T) {
 	tests := []struct {
 		name       string
 		normalized func() []byte
+		client     string
 		sourceHook string
 		want       string
 	}{
@@ -30,6 +31,7 @@ func TestCrossHostHookFixturesExposeStableDeliveryIdentity(t *testing.T) {
 			normalized: func() []byte {
 				return []byte(`{"session_id":"codex-session","event_id":"codex-event-1","cwd":"/repo"}`)
 			},
+			client:     "codex",
 			sourceHook: "stop",
 			want:       "event_id:codex-event-1",
 		},
@@ -38,6 +40,7 @@ func TestCrossHostHookFixturesExposeStableDeliveryIdentity(t *testing.T) {
 			normalized: func() []byte {
 				return []byte(`{"session_id":"claude-session","tool_use_id":"toolu_1","cwd":"/repo"}`)
 			},
+			client:     "claude",
 			sourceHook: "post_tool_use",
 			want:       "tool_use_id:toolu_1",
 		},
@@ -50,6 +53,7 @@ func TestCrossHostHookFixturesExposeStableDeliveryIdentity(t *testing.T) {
 				}
 				return payload
 			},
+			client:     "grok",
 			sourceHook: "post_tool_use",
 			want:       "tool_use_id:tool-contract-probe-1",
 		},
@@ -62,6 +66,7 @@ func TestCrossHostHookFixturesExposeStableDeliveryIdentity(t *testing.T) {
 				}
 				return payload
 			},
+			client:     "kimi",
 			sourceHook: "post_tool_use",
 			want:       "tool_use_id:tool_0000000000000000000000AA",
 		},
@@ -74,6 +79,7 @@ func TestCrossHostHookFixturesExposeStableDeliveryIdentity(t *testing.T) {
 					toolUseID: "step:7",
 				})
 			},
+			client:     "antigravity",
 			sourceHook: "post_tool_use",
 			want:       "tool_use_id:step:7",
 		},
@@ -83,10 +89,10 @@ func TestCrossHostHookFixturesExposeStableDeliveryIdentity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			first := tt.normalized()
 			second := tt.normalized()
-			if got := resolveHookDeliveryNativeID(first, tt.sourceHook); got != tt.want {
+			if got := resolveHookDeliveryNativeID(first, tt.client, tt.sourceHook); got != tt.want {
 				t.Fatalf("resolveHookDeliveryNativeID() = %q, want %q", got, tt.want)
 			}
-			if left, right := resolveHookDeliveryNativeID(first, tt.sourceHook), resolveHookDeliveryNativeID(second, tt.sourceHook); left != right {
+			if left, right := resolveHookDeliveryNativeID(first, tt.client, tt.sourceHook), resolveHookDeliveryNativeID(second, tt.client, tt.sourceHook); left != right {
 				t.Fatalf("fixture replay identity changed: %q != %q", left, right)
 			}
 		})
@@ -96,15 +102,23 @@ func TestCrossHostHookFixturesExposeStableDeliveryIdentity(t *testing.T) {
 func TestGeminiHookWithoutProvenNativeIDStaysDistinct(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"session_id":"gemini-session","tool_name":"run_shell_command","cwd":"/repo"}`)
-	if got := resolveHookDeliveryNativeID(payload, "after_tool"); got != "" {
+	if got := resolveHookDeliveryNativeID(payload, "gemini", "after_tool"); got != "" {
 		t.Fatalf("resolveHookDeliveryNativeID() = %q, want empty for Gemini payload without a proven native ID", got)
+	}
+}
+
+func TestGeminiHookRejectsUnprovenLookalikeIDs(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{"session_id":"gemini-session","event_id":"looks-stable","tool_use_id":"also-looks-stable"}`)
+	if got := resolveHookDeliveryNativeID(payload, "gemini", "after_tool"); got != "" {
+		t.Fatalf("resolveHookDeliveryNativeID() = %q, want empty for unproven Gemini fields", got)
 	}
 }
 
 func TestResolveHookDeliveryNativeID_NeverFallsBackToContent(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"prompt":"same prompt","cwd":"/repo"}`)
-	if got := resolveHookDeliveryNativeID(payload, "user_prompt_submit"); got != "" {
+	if got := resolveHookDeliveryNativeID(payload, "codex", "user_prompt_submit"); got != "" {
 		t.Fatalf("resolveHookDeliveryNativeID() = %q, want empty without host-native evidence", got)
 	}
 }

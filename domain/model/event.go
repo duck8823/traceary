@@ -128,7 +128,7 @@ func (e *Event) SourceHook() string { return e.sourceHook }
 
 // SetRawWorkspace retains unnormalized host workspace evidence without
 // changing the event's effective workspace.
-func (e *Event) SetRawWorkspace(value string) { e.rawWorkspace = strings.TrimSpace(value) }
+func (e *Event) SetRawWorkspace(value string) { e.rawWorkspace = value }
 
 // RawWorkspace returns unnormalized host workspace evidence.
 func (e *Event) RawWorkspace() string { return e.rawWorkspace }

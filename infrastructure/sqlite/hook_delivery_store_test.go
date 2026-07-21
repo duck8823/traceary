@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -121,6 +122,78 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
 	})
 
+	t.Run("concurrent spool replay converges after retry", func(t *testing.T) {
+		t.Parallel()
+		dbPath, eventDS := newHookDeliveryTestStore(t)
+		const attempts = 8
+		events := make([]*model.Event, attempts)
+		for i := range events {
+			events[i] = hookDeliveryTestEvent(t, "event-replay-"+string(rune('a'+i)), "session-replay", "/repo", "/repo", "same body", "event_id:spooled-delivery")
+		}
+
+		errs := make([]error, attempts)
+		var wg sync.WaitGroup
+		wg.Add(attempts)
+		for i, event := range events {
+			go func(index int, candidate *model.Event) {
+				defer wg.Done()
+				errs[index] = eventDS.Save(context.Background(), candidate)
+			}(i, event)
+		}
+		wg.Wait()
+
+		succeeded := 0
+		for i, err := range errs {
+			if err == nil {
+				succeeded++
+				continue
+			}
+			if retryErr := eventDS.Save(context.Background(), events[i]); retryErr != nil {
+				t.Fatalf("Save(retry %d) error = %v (initial error: %v)", i, retryErr, err)
+			}
+		}
+		if succeeded == 0 {
+			t.Fatal("all concurrent delivery attempts failed before spool retry")
+		}
+		assertSQLiteCount(t, dbPath, "events", 1)
+		assertSQLiteCount(t, dbPath, "hook_deliveries", 1)
+		assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "delivery_record_id IS NOT NULL", 1)
+	})
+
+	t.Run("concurrent identity conflict converges after retry", func(t *testing.T) {
+		t.Parallel()
+		dbPath, eventDS := newHookDeliveryTestStore(t)
+		events := []*model.Event{
+			hookDeliveryTestEvent(t, "event-conflict-a", "session-conflict", "/repo", "/repo", "first body", "event_id:reused-delivery"),
+			hookDeliveryTestEvent(t, "event-conflict-b", "session-conflict", "/repo", "/repo", "changed body", "event_id:reused-delivery"),
+		}
+		errs := make([]error, len(events))
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(len(events))
+		for i, event := range events {
+			go func(index int, candidate *model.Event) {
+				defer wg.Done()
+				<-start
+				errs[index] = eventDS.Save(context.Background(), candidate)
+			}(i, event)
+		}
+		close(start)
+		wg.Wait()
+
+		for i, err := range errs {
+			if err != nil {
+				if retryErr := eventDS.Save(context.Background(), events[i]); retryErr != nil {
+					t.Fatalf("Save(retry %d) error = %v (initial error: %v)", i, retryErr, err)
+				}
+			}
+		}
+		assertSQLiteCount(t, dbPath, "events", 2)
+		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'accepted'", 1)
+		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'conflict'", 1)
+	})
+
 	t.Run("reviewed alias is diagnostic and never rewrites canonical workspace", func(t *testing.T) {
 		t.Parallel()
 		dbPath, eventDS := newHookDeliveryTestStore(t)
@@ -192,6 +265,39 @@ func TestSessionDatasource_HookBoundaryRedeliveryIsIdempotent(t *testing.T) {
 	assertSQLiteCount(t, dbPath, "events", 2)
 	assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
 	assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "delivery_record_id IS NOT NULL", 2)
+}
+
+func TestSessionDatasource_HookBoundaryWithoutNativeIDUsesLifecycleGuard(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessions := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+	startCtx := apptypes.WithSourceHook(ctx, "session_start")
+	startCtx = apptypes.WithHookDelivery(startCtx, apptypes.HookDeliveryInputOf("", "/repo"))
+	if _, err := sessions.Start(startCtx, types.Client("hook"), types.Agent("gemini"), types.SessionID("session-no-id"), types.Workspace("/repo"), ""); err != nil {
+		t.Fatalf("Start(first) error = %v", err)
+	}
+	if _, err := sessions.Start(startCtx, types.Client("hook"), types.Agent("gemini"), types.SessionID("session-no-id"), types.Workspace("/repo"), ""); err == nil {
+		t.Fatal("Start(retry) error = nil, want lifecycle rejection without stable delivery ID")
+	}
+
+	endCtx := apptypes.WithSourceHook(ctx, "session_end")
+	endCtx = apptypes.WithHookDelivery(endCtx, apptypes.HookDeliveryInputOf("", "/repo"))
+	if _, err := sessions.End(endCtx, types.Client("hook"), types.Agent("gemini"), types.SessionID("session-no-id"), types.Workspace("/repo"), "done"); err != nil {
+		t.Fatalf("End(first) error = %v", err)
+	}
+	if _, err := sessions.End(endCtx, types.Client("hook"), types.Agent("gemini"), types.SessionID("session-no-id"), types.Workspace("/repo"), "done"); err == nil {
+		t.Fatal("End(retry) error = nil, want lifecycle rejection without stable delivery ID")
+	}
+
+	assertSQLiteCount(t, dbPath, "sessions", 1)
+	assertSQLiteCount(t, dbPath, "events", 2)
+	assertSQLiteCount(t, dbPath, "hook_deliveries", 0)
 }
 
 func TestEventDatasource_HookAuditUsesFullSemanticDeliveryFingerprint(t *testing.T) {

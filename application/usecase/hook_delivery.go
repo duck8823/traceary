@@ -10,6 +10,11 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
+func hasStableHookDelivery(ctx context.Context) bool {
+	input, ok := apptypes.HookDeliveryFromContext(ctx)
+	return ok && input.NativeID() != ""
+}
+
 func attachHookDelivery(ctx context.Context, event *model.Event, semanticFields ...string) error {
 	input, ok := apptypes.HookDeliveryFromContext(ctx)
 	if !ok || event == nil {

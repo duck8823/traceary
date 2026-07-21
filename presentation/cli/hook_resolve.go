@@ -154,15 +154,15 @@ func resolveHookToolUseID(payload []byte) string {
 // withResolvedHookDelivery carries only host-native identity evidence into the
 // usecase. It never falls back to prompt/command/body equality: equal content
 // without one of these proven identifiers remains a legitimate distinct event.
-func withResolvedHookDelivery(ctx context.Context, payload []byte) context.Context {
+func withResolvedHookDelivery(ctx context.Context, payload []byte, client string) context.Context {
 	sourceHook := apptypes.SourceHookFromContext(ctx)
-	nativeID := resolveHookDeliveryNativeID(payload, sourceHook)
+	nativeID := resolveHookDeliveryNativeID(payload, client, sourceHook)
 	rawWorkspace := hookPayloadString(payload, "cwd", "")
 	return apptypes.WithHookDelivery(ctx, apptypes.HookDeliveryInputOf(nativeID, rawWorkspace))
 }
 
-func resolveHookDeliveryNativeID(payload []byte, sourceHook string) string {
-	for _, path := range []string{"tool_use_id", "prompt_id", "event_id"} {
+func resolveHookDeliveryNativeID(payload []byte, client, sourceHook string) string {
+	for _, path := range provenHookDeliveryIDFields(strings.ToLower(strings.TrimSpace(client))) {
 		if value := strings.TrimSpace(hookPayloadString(payload, path, "")); value != "" {
 			return path + ":" + value
 		}
@@ -174,6 +174,26 @@ func resolveHookDeliveryNativeID(payload []byte, sourceHook string) string {
 		}
 	}
 	return ""
+}
+
+func provenHookDeliveryIDFields(client string) []string {
+	// This allowlist is intentionally narrower than the shared normalized JSON
+	// shape. A lookalike field from another host is not delivery evidence until
+	// that host's contract and fixtures prove its stability.
+	switch client {
+	case "codex":
+		return []string{"event_id"}
+	case "claude":
+		return []string{"tool_use_id"}
+	case "antigravity":
+		return []string{"tool_use_id", "prompt_id", "event_id"}
+	case "grok":
+		return []string{"tool_use_id", "prompt_id"}
+	case "kimi":
+		return []string{"tool_use_id"}
+	default:
+		return nil
+	}
 }
 
 func resolveHookWorkspace(ctx context.Context, payload []byte, client string, preferState bool) (types.Workspace, error) {

@@ -7,7 +7,7 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-func TestHookDeliveryContext_RoundTripsNormalizedInput(t *testing.T) {
+func TestHookDeliveryContext_NormalizesIdentityAndPreservesRawWorkspace(t *testing.T) {
 	input := apptypes.HookDeliveryInputOf(" native-1 ", " /repo/a ")
 	ctx := apptypes.WithHookDelivery(context.Background(), input)
 
@@ -18,8 +18,8 @@ func TestHookDeliveryContext_RoundTripsNormalizedInput(t *testing.T) {
 	if got.NativeID() != "native-1" {
 		t.Fatalf("NativeID() = %q, want native-1", got.NativeID())
 	}
-	if got.RawWorkspace() != "/repo/a" {
-		t.Fatalf("RawWorkspace() = %q, want /repo/a", got.RawWorkspace())
+	if got.RawWorkspace() != " /repo/a " {
+		t.Fatalf("RawWorkspace() = %q, want exact host evidence", got.RawWorkspace())
 	}
 }
 

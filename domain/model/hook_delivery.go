@@ -2,6 +2,7 @@ package model
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"strings"
 
@@ -47,13 +48,12 @@ func NewHookDeliveryEvidence(event *Event, nativeID, rawWorkspace string, semant
 	}
 	deliveryFields = append(deliveryFields, semanticFields...)
 	deliveryFingerprint := digestFields(deliveryFields...)
-	trimmedRawWorkspace := strings.TrimSpace(rawWorkspace)
-	attributionFingerprint := digestFields(event.Workspace().String(), trimmedRawWorkspace)
+	attributionFingerprint := digestFields(event.Workspace().String(), rawWorkspace)
 	return HookDeliveryEvidence{
 		reportedID:             reportedID,
 		deliveryFingerprint:    deliveryFingerprint,
 		attributionFingerprint: attributionFingerprint,
-		rawWorkspace:           trimmedRawWorkspace,
+		rawWorkspace:           rawWorkspace,
 	}, nil
 }
 
@@ -87,8 +87,10 @@ func rootAgentName(value string) string {
 
 func digestFields(values ...string) string {
 	h := sha256.New()
+	var length [8]byte
 	for _, value := range values {
-		_, _ = h.Write([]byte{0})
+		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+		_, _ = h.Write(length[:])
 		_, _ = h.Write([]byte(value))
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -97,7 +99,7 @@ func digestFields(values ...string) string {
 // WorkspaceAttributionFingerprint returns a stable digest for normalized and
 // raw workspace evidence. It is safe to persist because it contains no body.
 func WorkspaceAttributionFingerprint(workspace types.Workspace, rawWorkspace string) string {
-	return digestFields(workspace.String(), strings.TrimSpace(rawWorkspace))
+	return digestFields(workspace.String(), rawWorkspace)
 }
 
 // WorkspaceRelationship classifies effective attribution relative to the

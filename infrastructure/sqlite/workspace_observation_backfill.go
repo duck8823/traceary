@@ -91,7 +91,7 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 			if isSQLiteUniqueOrPKConflict(err) {
 				continue
 			}
-			return xerrors.Errorf("failed to insert backfill workspace observation: %w", err)
+			return xerrors.Errorf("failed to insert backfill workspace observation for event %s: %w", row.eventID, err)
 		}
 	}
 

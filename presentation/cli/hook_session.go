@@ -53,7 +53,7 @@ func (c *RootCLI) runHookSession(
 	if err != nil {
 		return err
 	}
-	ctx = withResolvedHookDelivery(ctx, payload)
+	ctx = withResolvedHookDelivery(ctx, payload, client)
 
 	switch action {
 	case "start":
