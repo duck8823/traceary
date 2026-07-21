@@ -41,6 +41,8 @@ type eventUsecaseStub struct {
 	timelineBlocks   []apptypes.TimelineBlock
 	timelineErr      error
 	listCriteria     apptypes.EventListCriteria
+	listCalls        int
+	searchCalls      int
 	timelineCriteria apptypes.TimelineCriteria
 
 	logCall   eventLogCall
@@ -85,11 +87,40 @@ func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, audi
 	return s.auditEvent, s.auditAudit, s.auditErr
 }
 func (s *eventUsecaseStub) Search(_ context.Context, _ apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	s.searchCalls++
 	return s.searchEvents, s.searchErr
 }
 func (s *eventUsecaseStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
+	s.listCalls++
 	s.listCriteria = criteria
 	return s.listEvents, s.listErr
+}
+
+type eventMetadataUsecaseStub struct {
+	listMetadata    []apptypes.EventMetadata
+	searchMetadata  []apptypes.EventMetadata
+	contextMetadata []apptypes.EventMetadata
+	listErr         error
+	searchErr       error
+	contextErr      error
+	listCalls       int
+	searchCalls     int
+	contextCalls    int
+}
+
+func (s *eventMetadataUsecaseStub) List(_ context.Context, _ apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
+	s.listCalls++
+	return s.listMetadata, s.listErr
+}
+
+func (s *eventMetadataUsecaseStub) Search(_ context.Context, _ apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
+	s.searchCalls++
+	return s.searchMetadata, s.searchErr
+}
+
+func (s *eventMetadataUsecaseStub) Context(_ context.Context, _ apptypes.EventContextCriteria) ([]apptypes.EventMetadata, error) {
+	s.contextCalls++
+	return s.contextMetadata, s.contextErr
 }
 func (s *eventUsecaseStub) ListWindow(_ context.Context, _ apptypes.EventListCriteria) ([]*model.Event, error) {
 	return s.listEvents, s.listErr

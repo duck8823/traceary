@@ -16,6 +16,7 @@ import (
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
 	event                      usecase.EventUsecase
+	eventMetadata              usecase.EventMetadataUsecase
 	session                    usecase.SessionUsecase
 	memory                     usecase.MemoryUsecase
 	memoryEdge                 usecase.MemoryEdgeUsecase
@@ -56,6 +57,11 @@ type RootCLIOption func(*RootCLI)
 // WithEvent injects the EventUsecase used by event-producing commands.
 func WithEvent(event usecase.EventUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.event = event }
+}
+
+// WithEventMetadata injects body-free event reads used by metadata projections.
+func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.eventMetadata = eventMetadata }
 }
 
 // WithSession injects the SessionUsecase used by session-related commands.

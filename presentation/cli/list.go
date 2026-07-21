@@ -190,16 +190,29 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		From(fromTime).
 		To(toTime).
 		Build()
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
+	if err != nil {
+		return err
+	}
+	if input.asJSON && input.fieldsSet && !readFieldsContain(resolvedFields, readFieldMessage) && !input.sensitiveOnly {
+		if c.eventMetadata == nil {
+			return xerrors.New(Localize("event metadata query service is not configured", "イベントメタデータクエリサービスが設定されていません"))
+		}
+		metadata, err := c.eventMetadata.List(ctx, criteria)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to list event metadata", "イベントメタデータ一覧の取得に失敗しました"), err)
+		}
+		if err := writeEventMetadataJSONFields(output, metadata, resolvedFields); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print event list", "一覧出力に失敗しました"), err)
+		}
+		return nil
+	}
 	events, err := c.event.List(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
 	}
 	if input.sensitiveOnly {
 		events = filterSensitiveCommandEvents(events, input.limit)
-	}
-	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
-	if err != nil {
-		return err
 	}
 	colorMode, err := resolveColorMode(
 		input.color,
@@ -221,7 +234,7 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		targetWidth:  terminalWidthOf(output),
 	}
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
-	if err := writeEventsByFormat(output, events, input.asJSON, textOpts, extrasFor); err != nil {
+	if err := writeEventsByFormat(output, events, input.asJSON, input.fieldsSet, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print event list", "一覧出力に失敗しました"), err)
 	}
 

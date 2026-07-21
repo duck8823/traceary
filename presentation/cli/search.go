@@ -177,15 +177,28 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		Offset(input.offset).
 		FailuresOnly(input.failuresOnly).
 		Build()
+	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
+	if err != nil {
+		return err
+	}
+	if input.asJSON && input.fieldsSet && !readFieldsContain(resolvedFields, readFieldMessage) {
+		if c.eventMetadata == nil {
+			return xerrors.New(Localize("event metadata query service is not configured", "イベントメタデータクエリサービスが設定されていません"))
+		}
+		metadata, err := c.eventMetadata.Search(ctx, criteria)
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to search event metadata", "イベントメタデータの検索に失敗しました"), err)
+		}
+		if err := writeEventMetadataJSONFields(output, metadata, resolvedFields); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
+		}
+		return nil
+	}
 	events, err := c.event.Search(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
 	}
 
-	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
-	if err != nil {
-		return err
-	}
 	color, err := resolveColorMode(
 		input.color,
 		input.colorSet,
@@ -206,7 +219,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		targetWidth:  terminalWidthOf(output),
 	}
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
-	if err := writeEventsByFormat(output, events, input.asJSON, textOpts, extrasFor); err != nil {
+	if err := writeEventsByFormat(output, events, input.asJSON, input.fieldsSet, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
 

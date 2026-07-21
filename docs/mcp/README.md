@@ -16,9 +16,9 @@ Traceary exposes exactly 8 MCP tools — frozen since v0.10.0 and enforced by a 
 | `manage_session` | `start`, `end` | write |
 | `session_status` | `active`, `latest`, `handoff`, `tree` | read |
 | `record_event` | `type="log"` or `type="audit"` | write |
-| `list_events` | event listing; bodies are truncated by default to 500 runes (override with `body_limit` or `full_body=true`) | read |
-| `search` | literal-text event search; bodies are truncated by default to 500 runes (override with `body_limit` or `full_body=true`) | read |
-| `get_context` | recent-context read; bodies are truncated by default to 500 runes (override with `body_limit` or `full_body=true`) | read |
+| `list_events` | event listing; bodies are truncated by default to 500 runes; use `projection=metadata` to omit body fields, `body_limit=0` / `full_body=true` for the full stored body | read |
+| `search` | literal-text event search with the same `metadata` / bounded / full projection controls as `list_events` | read |
+| `get_context` | recent-context read with the same `metadata` / bounded / full projection controls as `list_events` | read |
 
 `manage_memory.ids` accepts either a single string or an array of strings for accept/reject flows. `record_event` returns one uniform shape for both `type="log"` and `type="audit"`.
 
