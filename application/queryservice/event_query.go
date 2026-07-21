@@ -27,3 +27,20 @@ type EventQueryService interface {
 	// ListTimelineBlocks returns work blocks separated by idle gaps.
 	ListTimelineBlocks(ctx context.Context, workspace types.Workspace, from, to time.Time, gapSeconds, limit int) ([]apptypes.TimelineBlock, error)
 }
+
+// EventMetadataQueryService provides body-free event inspection operations.
+// It is separate from EventQueryService so consumers cannot accidentally
+// request a partial domain Event through an include-body flag.
+type EventMetadataQueryService interface {
+	// ListRecentMetadata returns body-free events in descending time order.
+	ListRecentMetadata(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error)
+	// ListWindowMetadata returns every matching body-free event under one
+	// read snapshot. criteria.Limit() controls the internal page size.
+	ListWindowMetadata(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error)
+	// SearchMetadata searches event and command content in SQLite but returns
+	// only body-free event metadata to the caller.
+	SearchMetadata(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error)
+	// GetContextMetadata returns body-free context membership in descending
+	// time order.
+	GetContextMetadata(ctx context.Context, criteria apptypes.EventContextCriteria) ([]apptypes.EventMetadata, error)
+}
