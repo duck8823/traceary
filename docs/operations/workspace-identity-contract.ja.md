@@ -76,6 +76,9 @@ session start は、次の順に最初の利用可能な値を選びます。
 冪等な start retry が異なる workspace を送る場合があります。
 retry は保存済み canonical workspace を維持し、新しい値を canonical 値との関係が分類された observation として記録します。
 #1435 の cross-host delivery identity によって retry だと確定した場合は、新しい論理 `session_started` event を追加しません。
+workspace などの attribution field は delivery fingerprint から除外します。
+そのため、retry で attribution が変わっても、一つの論理 start を identity conflict にはしません。
+新しい attribution fingerprint である場合だけ、追加の supplemental observation を記録します。
 
 child session は、child start の明示的な証拠から自身の canonical workspace を選びます。
 child start に workspace の証拠がない場合だけ、parent canonical workspace を継承します。
@@ -144,9 +147,10 @@ SessionWorkspaceAttribution {
 host adapter が session start と event recording 用のより小さい command を作る場合も、選択順と unknown 値の契約は観測可能にします。
 
 生の workspace attribution は、best-effort の診断情報ではなく必須の provenance です。
-observation がある場合、persistence は event と workspace observation を同じ transaction で commit します。
+workspace を持つ event を作る成功経路では、必ず event と primary workspace observation を同じ transaction で commit します。
 schema、I/O、constraint の実エラーでは、完全な provenance があるように見える event を残さず transaction を失敗させます。
-delivery identity が完全に一致する retry は冪等な成功として扱い、transaction を失敗させず、二つ目の event または observation も追加しません。
+delivery identity が完全に一致する retry は冪等な成功として扱い、transaction を失敗させず、二つ目の event は追加しません。
+attribution が同じ場合は observation も追加せず、attribution fingerprint が新しい場合だけ一つの supplemental observation を追加します。
 
 relationship の分類と集計 report は派生診断です。
 任意の証拠が malformed で分類できない場合は、生の observation を維持し、`unknown` と `diagnostic_reason` を記録します。
@@ -168,17 +172,36 @@ CREATE TABLE session_workspace_aliases (
     PRIMARY KEY (session_id, alias_workspace)
 );
 
+CREATE TABLE hook_deliveries (
+    delivery_record_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    reported_delivery_id TEXT NOT NULL,
+    delivery_fingerprint TEXT NOT NULL,
+    identity_status TEXT NOT NULL
+        CHECK (identity_status IN ('accepted', 'conflict')),
+    observed_event_id TEXT NOT NULL,
+    accepted_at TEXT NOT NULL,
+    source_client TEXT NOT NULL DEFAULT '',
+    source_hook TEXT NOT NULL DEFAULT '',
+    UNIQUE (session_id, reported_delivery_id, delivery_fingerprint)
+);
+
+CREATE UNIQUE INDEX idx_hook_deliveries_accepted_identity
+    ON hook_deliveries(session_id, reported_delivery_id)
+    WHERE identity_status = 'accepted';
+
 CREATE TABLE session_workspace_observations (
     observation_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
     workspace TEXT NOT NULL,
     raw_workspace TEXT,
+    observation_kind TEXT NOT NULL
+        CHECK (observation_kind IN ('primary', 'supplemental', 'backfill')),
     observed_relationship TEXT NOT NULL
         CHECK (observed_relationship IN ('exact', 'descendant', 'ancestor', 'explicit_alias', 'conflict', 'unknown')),
     observed_event_id TEXT,
-    reported_delivery_id TEXT,
-    accepted_delivery_id TEXT,
-    delivery_fingerprint TEXT,
+    delivery_record_id TEXT,
+    attribution_fingerprint TEXT NOT NULL,
     diagnostic_reason TEXT NOT NULL DEFAULT '',
     observed_at TEXT NOT NULL,
     source_client TEXT NOT NULL DEFAULT '',
@@ -188,13 +211,14 @@ CREATE TABLE session_workspace_observations (
 CREATE INDEX idx_session_workspace_observations_relationship
     ON session_workspace_observations(observed_relationship, observed_at DESC, session_id);
 
-CREATE UNIQUE INDEX idx_session_workspace_observations_delivery
-    ON session_workspace_observations(session_id, accepted_delivery_id)
-    WHERE accepted_delivery_id IS NOT NULL AND accepted_delivery_id <> '';
+CREATE UNIQUE INDEX idx_session_workspace_observations_delivery_attribution
+    ON session_workspace_observations(delivery_record_id, attribution_fingerprint)
+    WHERE delivery_record_id IS NOT NULL AND delivery_record_id <> '';
 
-CREATE UNIQUE INDEX idx_session_workspace_observations_event
+CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
     ON session_workspace_observations(observed_event_id)
-    WHERE observed_event_id IS NOT NULL AND observed_event_id <> '';
+    WHERE observation_kind = 'primary'
+      AND observed_event_id IS NOT NULL AND observed_event_id <> '';
 ```
 
 これらの table は attribution metadata だけを保存します。
@@ -205,39 +229,46 @@ alias は一つの session に限定し、reviewer と timestamp を持つ revie
 alias を追加しても過去の `observed_relationship` は書き換えません。
 report は ingest 時に観測した relationship と、review 済み alias を join して求めた現在の relationship を両方表示できます。
 
-`observed_event_id` は外部キーではなく、immutable な provenance 値です。
-event を削除または archive しても append-only observation は変更せず、report は left join で現在の event の有無を確認します。
+両方の provenance table にある `observed_event_id` は外部キーではなく、immutable な値です。
+event を削除または archive しても append-only の delivery または workspace provenance は変更せず、report は left join で現在の event の有無を確認します。
 
-runtime の observation ID は、利用できる場合に #1435 が定義する安定した delivery identity から作り、それ以外は domain が生成します。
-受理する delivery identity の namespace は `<client>:<hook-kind>:<native-session-id>:<native-delivery-id>`、または同等の型付き表現とします。
+受理する reported delivery identity の namespace は `<client>:<hook-kind>:<native-session-id>:<native-delivery-id>`、または同等の型付き表現とします。
 host adapter は一つの論理 delivery に対して値を安定させ、hook kind または session ID をまたいで native ID を再利用してはいけません。
-host が安定した native ID を提供しない場合は `accepted_delivery_id` を空にし、本文が同じ delivery も別の正当な event として扱います。
+host が安定した native ID を提供しない場合は `hook_deliveries` row を作らず、本文が同じ delivery も別の正当な event として扱います。
 
-application は host が送った identity を `reported_delivery_id`、検証済み identity を `accepted_delivery_id`、正規化した delivery envelope の digest を `delivery_fingerprint` に保存します。
-fingerprint は identity collision の検出目的で本文 digest を含められますが、本文の一致だけを identity または deduplication の証拠にしません。
-受理済み identity の unique collision では、repository が既存の fingerprint と安定した attribution field を比較します。
+delivery fingerprint は、hook kind と本文がある場合の digest を含む、正規化した semantic delivery envelope を対象にします。
+retry で正当に改善できる workspace などの attribution field は除外します。
+本文の一致は安定した reported identity の検証にだけ使い、本文だけを identity または deduplication の証拠にしません。
+別の attribution fingerprint は、正規化した workspace、生の workspace、その他の安定した attribution input を対象にします。
 
-- 完全一致なら冪等な成功として event と observation を追加しない。
-- 不一致なら host identity conflict として、新しい正当な event と observation を維持する。この observation は `accepted_delivery_id` を空にし、生の `reported_delivery_id` を残し、`diagnostic_reason=delivery_identity_conflict` を記録する。
+repository は reported identity を次の順に処理します。
 
-この collision 処理が application の冪等性を実現します。
-unique index だけを冪等性の仕組みにはしません。
-event index は保存済み event ごとの attribution observation を一つに制限し、別の正当な delivery は統合しません。
+1. `(session_id, reported_delivery_id, delivery_fingerprint)` が既に存在する場合は、同じ論理 delivery とする。event は追加せず、`(delivery_record_id, attribution_fingerprint)` が新しい場合だけ supplemental observation を追加する。それ以外は完全に冪等な成功を返す。
+2. reported identity の accepted row がない場合は、`accepted` delivery row、event、一つの `primary` observation を atomic に追加する。
+3. 別の delivery fingerprint を持つ accepted row がある場合は、新しい fingerprint を key に `conflict` delivery row、新しい正当な event、primary observation を atomic に追加し、`diagnostic_reason=delivery_identity_conflict` を記録する。
+
+delivery table の triple uniqueness により、保存済み conflict delivery の retry は手順 1 で解決し、event を増幅させません。
+partial accepted-identity index は最初に受理した fingerprint を識別します。
+冪等性はこの index だけではなく、application の比較と完全な ledger で実現します。
+primary-event index は保存済み event ごとに primary attribution を一つに制限し、supplemental observation は同じ event に対する改善済み retry attribution を維持できます。
 observation の `session_id` は意図的に外部キーにしません。
 historical event と direct event write は materialize された `sessions` row がない session ID を持つ可能性があり、migration はその row を維持する必要があるためです。
 該当する observation は session row が作られるまで `unknown` とし、review 済み alias の追加には外部キーによって実在する session を要求します。
 
 schema migration は、短い transaction で additive table と index だけを作成します。
 schema transaction を保持したまま全 event を scan しません。
-その後、再開可能な catch-up worker が、安定した `(created_at, id)` の keyset pagination と `backfill:<event-id>` observation に対する `INSERT ... ON CONFLICT DO NOTHING` を使い、write transaction ごとに最大 1,000 event を処理します。
+その後、再開可能な catch-up worker が、安定した `(created_at, id)` の keyset pagination と `backfill:<event-id>` observation に対する `INSERT ... ON CONFLICT DO NOTHING` を使い、primary observation がない event を write transaction ごとに最大 1,000 件処理します。
 batch size は migration test と制約のある環境向けに変更可能にします。
+database initialization は schema transaction の完了後、catch-up が全件を補完する前でも成功できます。
+catch-up は上限付き batch の間で処理を譲り、coverage が未完了でも通常の ingest を妨げません。
+未完了状態は diagnostics にだけ表示します。
 
 catch-up は次の処理を行います。
 
 1. すべての `sessions` row と `events` row を変更しない。
-2. 既存 event ごとに一つの observation を追加し、`observation_id` には `backfill:<event_id>` を使う。
+2. primary observation がない event ごとに一つの backfill observation を追加し、`observation_id` には `backfill:<event_id>` を使う。primary-event unique key または backfill ID が既に存在する場合は、冪等な補完済み結果とする。
 3. event timestamp と event ID を `observed_at` と `observed_event_id` に設定する。
-4. 過去 row は値を保持していないため、delivery identity、fingerprint、`raw_workspace` は unknown のままにする。
+4. 過去 row は安定した delivery identity を保持していないため delivery-ledger row を作らず、`raw_workspace` は unknown のままにする。
 5. `sessions.workspace` と比較し、exact と local path の ancestor/descendant rule だけで分類する。
 6. 既知の不一致 pair は `conflict` とし、session row またはいずれかの workspace が不明な場合だけ `unknown` にする。
 7. alias row を自動作成せず、本文の一致を alias または delivery の証拠にしない。
@@ -247,14 +278,17 @@ upgrade 後の初期化では毎回、observation が欠けている event の c
 これにより以前の binary へ rollback している間に追加された event も、次の upgrade で補完します。
 diagnostics は catch-up coverage を表示し、欠落件数が 0 になるまで historical measurement が完了したとは表示しません。
 
-実装では、空 workspace、materialize された session row がない event、複数 effective workspace にまたがる session、Windows path、exact redelivery の identity 比較、identity conflict、review 済み alias、event 削除後も不変な observed event ID、上限付き batch commit、中断した catch-up、migration 後の冪等な再 open をテストします。
+実装では、空 workspace、materialize された session row がない event、複数 effective workspace にまたがる session、Windows path、exact redelivery の identity 比較、変更された retry attribution、identity-conflict delivery の再送、review 済み alias、event 削除後も不変な observed event ID、上限付き batch commit、中断した catch-up、migration 後の冪等な再 open をテストします。
 
 ### Rollback
 
-rollback では backup を取得し、以前の binary を deploy して additive observation table と alias table を無視するか削除します。
+通常の rollback では以前の binary を deploy し、additive delivery table、observation table、alias table は維持したまま無視します。
 以前の binary は変更されていない `sessions.workspace` と `events.workspace` を読み書きできます。
 down migration は workspace column を書き換えず、event を削除しません。
 以前の binary が書いた event には一時的な observation の欠落が生じますが、再 upgrade 後の catch-up で補完します。
+runtime だけが持つ生 attribution と delivery provenance は event から再構築できないため、additive table の削除は rollback 操作に含めません。
+将来これらを破棄する場合は、rollback 中の event と export 済み provenance の両方を維持する、別途 review した export-and-merge migration を必要とします。
+database backup の restore だけでは不十分です。
 
 migration が既存 row 数または ID を変えた場合、通常の event ingest を妨げた場合、既定 workspace filter の結果を広げた場合、dogfooding で既知 pair の 5% を超える conflict が見つかり host fixture で説明できない場合は rollback します。
 
@@ -284,7 +318,7 @@ v0.30 の handoff resolver は、任意の session ID `S`、要求 workspace `W`
 
 1. `S`、canonical workspace が `W` と完全一致、`active_only` を条件に session を問い合わせ、`started_at DESC, session_id DESC` の先頭 row を選ぶ。
 2. 完全一致がなく、`W` が絶対 local path の場合だけ、最も近い parent から filesystem root まで ancestor をたどる。
-3. 各 ancestor について、`started_at DESC, session_id DESC` の candidate session を 50 件ずつ調べ、candidate と同じ session ID かつ effective workspace が `W` と完全一致する event を一つ以上持つ最初の candidate を選ぶ。
+3. 各 ancestor `A` について、canonical workspace が `A` と完全一致する session だけを `started_at DESC, session_id DESC` で 50 件ずつ調べ、candidate と同じ session ID かつ effective workspace が `W` と完全一致する event を一つ以上持つ最初の candidate を選ぶ。
 4. `S` を指定した場合と `active_only` は fallback 中も filter として維持する。remote identity では ancestor fallback を行わない。
 5. 条件を満たす candidate がなければ、matching session なしを返す。
 

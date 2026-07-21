@@ -76,6 +76,8 @@ The start path selects the first available value in this order:
 An idempotent start retry may supply a different workspace.
 The retry retains the stored canonical workspace and records the new value as an observation classified against the canonical value.
 It must not append another logical `session_started` event once cross-host delivery identity from #1435 proves the delivery is a retry.
+Workspace and other attribution fields are excluded from the delivery fingerprint, so a changed retry attribution cannot turn one logical start into an identity conflict.
+The new attribution gets its own supplemental observation only when its attribution fingerprint is new.
 
 A child session selects its own canonical workspace from explicit child-start evidence.
 When the child start carries no workspace evidence, it inherits the parent canonical workspace.
@@ -144,8 +146,9 @@ This is a conceptual interface, not a required Go DTO name.
 Host adapters may construct smaller commands for session start and event recording as long as the selection order and unknown-value contract remain observable.
 
 Raw workspace attribution is required provenance, not a best-effort diagnostic.
-Persistence commits an event and its workspace observation atomically when an observation is present; a genuine schema, I/O, or constraint failure fails that transaction rather than leaving an event with falsely complete provenance.
-An exact delivery-identity retry is an idempotent success and does not fail the transaction or add a second event or observation.
+Every successful path that creates a workspace-bearing event atomically commits that event and its primary workspace observation; a genuine schema, I/O, or constraint failure fails that transaction rather than leaving an event with falsely complete provenance.
+An exact delivery-identity retry is an idempotent success and never adds a second event.
+It adds no observation when attribution is unchanged, and adds one supplemental observation when the attribution fingerprint is new.
 
 Relationship classification and aggregate reports are derived diagnostics.
 Malformed optional evidence records `unknown` plus a `diagnostic_reason` while retaining the raw observation; it does not reject an otherwise valid event.
@@ -166,17 +169,36 @@ CREATE TABLE session_workspace_aliases (
     PRIMARY KEY (session_id, alias_workspace)
 );
 
+CREATE TABLE hook_deliveries (
+    delivery_record_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    reported_delivery_id TEXT NOT NULL,
+    delivery_fingerprint TEXT NOT NULL,
+    identity_status TEXT NOT NULL
+        CHECK (identity_status IN ('accepted', 'conflict')),
+    observed_event_id TEXT NOT NULL,
+    accepted_at TEXT NOT NULL,
+    source_client TEXT NOT NULL DEFAULT '',
+    source_hook TEXT NOT NULL DEFAULT '',
+    UNIQUE (session_id, reported_delivery_id, delivery_fingerprint)
+);
+
+CREATE UNIQUE INDEX idx_hook_deliveries_accepted_identity
+    ON hook_deliveries(session_id, reported_delivery_id)
+    WHERE identity_status = 'accepted';
+
 CREATE TABLE session_workspace_observations (
     observation_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
     workspace TEXT NOT NULL,
     raw_workspace TEXT,
+    observation_kind TEXT NOT NULL
+        CHECK (observation_kind IN ('primary', 'supplemental', 'backfill')),
     observed_relationship TEXT NOT NULL
         CHECK (observed_relationship IN ('exact', 'descendant', 'ancestor', 'explicit_alias', 'conflict', 'unknown')),
     observed_event_id TEXT,
-    reported_delivery_id TEXT,
-    accepted_delivery_id TEXT,
-    delivery_fingerprint TEXT,
+    delivery_record_id TEXT,
+    attribution_fingerprint TEXT NOT NULL,
     diagnostic_reason TEXT NOT NULL DEFAULT '',
     observed_at TEXT NOT NULL,
     source_client TEXT NOT NULL DEFAULT '',
@@ -186,13 +208,14 @@ CREATE TABLE session_workspace_observations (
 CREATE INDEX idx_session_workspace_observations_relationship
     ON session_workspace_observations(observed_relationship, observed_at DESC, session_id);
 
-CREATE UNIQUE INDEX idx_session_workspace_observations_delivery
-    ON session_workspace_observations(session_id, accepted_delivery_id)
-    WHERE accepted_delivery_id IS NOT NULL AND accepted_delivery_id <> '';
+CREATE UNIQUE INDEX idx_session_workspace_observations_delivery_attribution
+    ON session_workspace_observations(delivery_record_id, attribution_fingerprint)
+    WHERE delivery_record_id IS NOT NULL AND delivery_record_id <> '';
 
-CREATE UNIQUE INDEX idx_session_workspace_observations_event
+CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
     ON session_workspace_observations(observed_event_id)
-    WHERE observed_event_id IS NOT NULL AND observed_event_id <> '';
+    WHERE observation_kind = 'primary'
+      AND observed_event_id IS NOT NULL AND observed_event_id <> '';
 ```
 
 The tables store attribution metadata only.
@@ -203,37 +226,42 @@ An alias is scoped to one session and requires a reviewed operation with reviewe
 Adding an alias does not rewrite historical `observed_relationship` values.
 Reports may expose both the relationship observed at ingestion and the current relationship derived by joining reviewed aliases.
 
-`observed_event_id` is an immutable provenance value rather than a foreign key.
-Deleting or archiving an event therefore cannot mutate an append-only observation; reports discover current event availability through a left join.
+`observed_event_id` in both provenance tables is an immutable value rather than a foreign key.
+Deleting or archiving an event therefore cannot mutate append-only delivery or workspace provenance; reports discover current event availability through a left join.
 
-Runtime observation IDs come from the stable delivery identity defined by #1435 when available, with a domain-generated ID otherwise.
-An accepted delivery identity has the namespace `<client>:<hook-kind>:<native-session-id>:<native-delivery-id>` (or an equivalent typed representation).
+An accepted reported delivery identity has the namespace `<client>:<hook-kind>:<native-session-id>:<native-delivery-id>` (or an equivalent typed representation).
 Host adapters must keep it stable for one logical delivery and must not reuse a native ID across hook kinds or session IDs.
-When a host provides no stable native ID, `accepted_delivery_id` remains absent and repeated equal bodies remain distinct legitimate deliveries.
+When a host provides no stable native ID, no `hook_deliveries` row is created and repeated equal bodies remain distinct legitimate deliveries.
 
-The application stores the host-provided identity in `reported_delivery_id`, the validated identity in `accepted_delivery_id`, and a digest of the normalized delivery envelope in `delivery_fingerprint`.
-The fingerprint may include a body digest to detect identity collisions, but body equality is never identity or deduplication evidence.
-On an accepted-identity unique collision, the repository compares the existing fingerprint and stable attribution fields:
+The delivery fingerprint covers the normalized semantic delivery envelope, including hook kind and a body digest when present, but excludes workspace and other attribution fields that may legitimately improve on retry.
+Body equality is only used to validate a stable reported identity; it is never sufficient identity or deduplication evidence by itself.
+The separate attribution fingerprint covers normalized workspace, raw workspace, and other stable attribution inputs.
 
-- an exact match is an idempotent success and creates no event or observation;
-- a mismatch is a host identity conflict, so the new legitimate event and observation are preserved with `accepted_delivery_id` absent, the raw `reported_delivery_id` retained, and `diagnostic_reason=delivery_identity_conflict`.
+The repository handles a reported identity in this order:
 
-This collision handling is application behavior; the unique index alone is not the idempotency mechanism.
-The event index permits at most one attribution observation per persisted event without merging legitimate deliveries.
+1. If `(session_id, reported_delivery_id, delivery_fingerprint)` already exists, it is the same logical delivery. Do not add an event. Insert a supplemental observation only when `(delivery_record_id, attribution_fingerprint)` is new; otherwise return an exact idempotent success.
+2. If the reported identity has no accepted row, atomically insert an `accepted` delivery row, the event, and one `primary` observation.
+3. If an accepted row exists with another delivery fingerprint, atomically insert a `conflict` delivery row keyed by the new fingerprint, preserve the new legitimate event and primary observation, and record `diagnostic_reason=delivery_identity_conflict`.
+
+The delivery table's triple uniqueness makes a retry of an already recorded conflict resolve through step 1, so it cannot amplify events.
+The partial accepted-identity index identifies the first accepted fingerprint; the application comparison and full ledger, not that index alone, implement idempotency.
+The primary-event index permits one primary attribution per persisted event, while supplemental observations may retain improved retry attribution for that same event.
 The observation `session_id` is deliberately not a foreign key: historical and direct event writes can contain a session ID without a materialized `sessions` row, and migration must preserve those rows.
 Such observations classify as `unknown` until a session row exists; reviewed aliases still require an existing session through their foreign key.
 
 The schema migration only creates the additive tables and indexes in a short transaction.
 It does not scan all events while holding the schema transaction.
-After that transaction, a resumable catch-up worker processes at most 1,000 events per write transaction, using stable `(created_at, id)` keyset pagination and `INSERT ... ON CONFLICT DO NOTHING` for `backfill:<event-id>` observations.
+After that transaction, a resumable catch-up worker processes at most 1,000 events without a primary observation per write transaction, using stable `(created_at, id)` keyset pagination and `INSERT ... ON CONFLICT DO NOTHING` for `backfill:<event-id>` observations.
 The batch size is configurable for migration tests and constrained environments.
+Database initialization may succeed after the schema transaction and before catch-up reaches full coverage.
+Catch-up yields between bounded batches; incomplete coverage never blocks normal ingestion and is exposed only as incomplete diagnostics.
 
 Catch-up performs the following work:
 
 1. keep every `sessions` and `events` row unchanged;
-2. insert one observation per existing event, using `backfill:<event_id>` as `observation_id`;
+2. insert one backfill observation for each event that has no primary observation, using `backfill:<event_id>` as `observation_id`; an existing primary-event unique key or backfill ID is an idempotent already-complete result;
 3. keep the event timestamp and event ID as `observed_at` and `observed_event_id`;
-4. leave delivery identity, fingerprint, and `raw_workspace` unknown because historical rows do not preserve them;
+4. create no delivery-ledger row and leave `raw_workspace` unknown because historical rows do not preserve stable delivery identity;
 5. classify against `sessions.workspace` using only exact and local ancestor/descendant rules;
 6. classify a known nonmatching pair as `conflict`, and use `unknown` only when the session row or either workspace value is unavailable;
 7. create no alias rows automatically and never use equal bodies as alias or delivery evidence.
@@ -242,14 +270,16 @@ The backfill source client/hook fields come from each event when available.
 Every upgraded initialization resumes catch-up for missing observations, so events written during a rollback to an older binary are filled on the next upgrade.
 Diagnostics expose catch-up coverage and never claim complete historical measurement until the missing count reaches zero.
 
-The implementation must include migration tests for empty workspaces, events without materialized session rows, sessions spanning multiple effective workspaces, Windows paths, exact-redelivery identity comparison, identity conflicts, reviewed aliases, immutable observed event IDs after event deletion, bounded batch commits, interrupted catch-up, and idempotent re-open after migration.
+The implementation must include migration tests for empty workspaces, events without materialized session rows, sessions spanning multiple effective workspaces, Windows paths, exact-redelivery identity comparison, changed retry attribution, repeated identity-conflict delivery, reviewed aliases, immutable observed event IDs after event deletion, bounded batch commits, interrupted catch-up, and idempotent re-open after migration.
 
 ### Rollback
 
-Rollback means deploying the previous binary and ignoring or dropping the additive observation and alias tables after taking a backup.
+Normal rollback means deploying the previous binary and retaining but ignoring the additive delivery, observation, and alias tables.
 The previous binary continues to read and write the unchanged `sessions.workspace` and `events.workspace` columns.
 No down migration may rewrite either workspace column or delete events.
 Events written by the previous binary create a temporary observation gap; resumable catch-up fills that gap after re-upgrade.
+Dropping the additive tables is not a rollback operation because runtime-only raw attribution and delivery provenance cannot be reconstructed from events.
+Any later destructive retirement requires a separately reviewed export-and-merge migration that preserves both rollback-period events and the exported provenance; restoring a database backup alone is insufficient.
 
 Rollback is required if the migration changes existing row counts or IDs, blocks normal event ingestion, widens default workspace filters, or classifies more than 5% of sampled known pairs as conflicts during dogfooding without an explained host fixture.
 
@@ -279,7 +309,7 @@ The v0.30 handoff resolver keeps the following precise contract for optional ses
 
 1. Query canonical sessions by `S`, exact `W`, and `active_only`, ordered by `started_at DESC, session_id DESC`; the first row wins.
 2. Only when that query is empty and `W` is an absolute local path, visit its ancestors from closest parent to filesystem root.
-3. For each ancestor, visit candidate sessions in `started_at DESC, session_id DESC` pages of 50 and select the first candidate whose event history contains at least one event with session ID equal to the candidate and effective workspace exactly equal to `W`.
+3. For each ancestor `A`, visit only sessions whose canonical workspace is exactly `A`, in `started_at DESC, session_id DESC` pages of 50, and select the first candidate whose event history contains at least one event with session ID equal to the candidate and effective workspace exactly equal to `W`.
 4. `S`, when present, and `active_only` remain filters during fallback. Remote identities never use ancestor fallback.
 5. If no candidate qualifies, return no matching session.
 
