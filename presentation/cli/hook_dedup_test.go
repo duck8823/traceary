@@ -16,14 +16,14 @@ import (
 	cli "github.com/duck8823/traceary/presentation/cli"
 )
 
-// TestRootCLI_HookContent_SuppressesDuplicateCodexWriteWithinWindow drives the
+// TestRootCLI_HookContent_SuppressesExactCodexRedelivery drives the
 // real `hook prompt codex` / `hook transcript codex` commands end-to-end against
 // a temp SQLite DB, reproducing the #1167 bug: a host re-firing the same hook in
 // immediate succession recorded duplicate rows. After the fix, the second
 // identical fire is suppressed, while a distinct body is preserved. It also
 // asserts the persisted client/source_hook the hook stamps — the exact inputs
 // the datasource eligibility gate keys on.
-func TestRootCLI_HookContent_SuppressesDuplicateCodexWriteWithinWindow(t *testing.T) {
+func TestRootCLI_HookContent_SuppressesExactCodexRedelivery(t *testing.T) {
 	tests := []struct {
 		name         string
 		subcommand   string
@@ -39,8 +39,8 @@ func TestRootCLI_HookContent_SuppressesDuplicateCodexWriteWithinWindow(t *testin
 			kind:         "prompt",
 			sourceHook:   "user_prompt_submit",
 			sessionID:    "codex-e2e-prompt",
-			payloadSame:  `{"prompt":"summarize the diff and run the tests","session_id":"codex-e2e-prompt","cwd":"/tmp"}`,
-			payloadOther: `{"prompt":"now open a draft PR","session_id":"codex-e2e-prompt","cwd":"/tmp"}`,
+			payloadSame:  `{"prompt":"summarize the diff and run the tests","event_id":"prompt-delivery-1","session_id":"codex-e2e-prompt","cwd":"/tmp"}`,
+			payloadOther: `{"prompt":"now open a draft PR","event_id":"prompt-delivery-2","session_id":"codex-e2e-prompt","cwd":"/tmp"}`,
 		},
 		{
 			name:         "transcript",
@@ -48,8 +48,8 @@ func TestRootCLI_HookContent_SuppressesDuplicateCodexWriteWithinWindow(t *testin
 			kind:         "transcript",
 			sourceHook:   "stop",
 			sessionID:    "codex-e2e-transcript",
-			payloadSame:  `{"last_assistant_message":"I ran the tests and they pass.","session_id":"codex-e2e-transcript","cwd":"/tmp"}`,
-			payloadOther: `{"last_assistant_message":"I opened the draft PR.","session_id":"codex-e2e-transcript","cwd":"/tmp"}`,
+			payloadSame:  `{"last_assistant_message":"I ran the tests and they pass.","event_id":"transcript-delivery-1","session_id":"codex-e2e-transcript","cwd":"/tmp"}`,
+			payloadOther: `{"last_assistant_message":"I opened the draft PR.","event_id":"transcript-delivery-2","session_id":"codex-e2e-transcript","cwd":"/tmp"}`,
 		},
 	}
 

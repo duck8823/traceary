@@ -676,7 +676,7 @@ func TestRootCLI_HookSessionCommand_EndWritesCancellationDiagnosticBeforeWorkspa
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetIn(strings.NewReader(`{"cwd":"/tmp/project"}`))
+	rootCmd.SetIn(strings.NewReader(`{}`))
 	rootCmd.SetArgs([]string{"hook", "session", "claude", "end"})
 
 	if err := rootCmd.Execute(); err != nil {
@@ -3571,7 +3571,7 @@ func TestRootCLI_HookTranscriptCommand_UnknownClient(t *testing.T) {
 	}
 }
 
-func TestRootCLI_HookPromptCommand_PrefersPersistedWorkspaceOverEnvOverride(t *testing.T) {
+func TestRootCLI_HookPromptCommand_PrefersExplicitWorkspaceOverPersistedState(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 	t.Setenv("TRACEARY_WORKSPACE", "env/workspace")
 
@@ -3616,7 +3616,7 @@ func TestRootCLI_HookPromptCommand_PrefersPersistedWorkspaceOverEnvOverride(t *t
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if got, want := eventStub.logCall.workspace, types.Workspace("state/workspace"); got != want {
+	if got, want := eventStub.logCall.workspace, types.Workspace("env/workspace"); got != want {
 		t.Fatalf("prompt log workspace = %q, want %q", got, want)
 	}
 }

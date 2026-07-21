@@ -108,7 +108,9 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 	normalized := normalizeAntigravityPayload(antigravityNormalizeOptions{
 		sessionID: sessionID.String(),
 		cwd:       antigravityWorkspaceCwd(payload),
+		eventID:   "conversation:" + sessionID.String(),
 	})
+	ctx = withResolvedHookDelivery(ctx, normalized)
 
 	resolvedDBPath, err := resolveDBPath(dbPath)
 	if err != nil {
@@ -128,16 +130,18 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 		return xerrors.Errorf("failed to resolve antigravity agent: %w", err)
 	}
 
-	if existingState != sessionID {
-		if _, err := c.session.Start(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil {
-			// PreInvocation re-fires for the same conversation after the
-			// session row already exists; treat that as a no-op refresh
-			// instead of an error so the session/workspace state still
-			// gets (re)written below.
-			if !errors.Is(err, model.ErrInvalidSessionState) {
-				return xerrors.Errorf("failed to record antigravity session start: %w", err)
-			}
+	// Always pass a re-fire through the delivery ledger. Besides suppressing
+	// the boundary event, this lets a changed cwd become one supplemental
+	// observation without changing the session's canonical workspace.
+	if _, err := c.session.Start(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil {
+		// A pre-v0.30 session has no delivery ledger row. Keep the historical
+		// invalid-state compatibility path so upgrading cannot break its next
+		// PreInvocation.
+		if !errors.Is(err, model.ErrInvalidSessionState) {
+			return xerrors.Errorf("failed to record antigravity session start: %w", err)
 		}
+	}
+	if existingState != sessionID {
 		if err := writeHookSessionState(antigravityHookClient, sessionID); err != nil {
 			return err
 		}
@@ -146,8 +150,12 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 		}
 	}
 
-	if workspace != "" {
-		if err := writeHookWorkspaceState(antigravityHookClient, workspace); err != nil {
+	canonicalWorkspace, err := c.canonicalHookSessionWorkspace(ctx, sessionID, workspace)
+	if err != nil {
+		return err
+	}
+	if canonicalWorkspace != "" {
+		if err := writeHookWorkspaceState(antigravityHookClient, canonicalWorkspace); err != nil {
 			return err
 		}
 	}
@@ -208,6 +216,7 @@ func (c *RootCLI) runHookAntigravityPostToolUse(ctx context.Context, output io.W
 	normalized := normalizeAntigravityPayload(antigravityNormalizeOptions{
 		sessionID:   conversationID,
 		cwd:         firstNonEmpty(pending.Cwd, antigravityWorkspaceCwd(payload)),
+		toolUseID:   "step:" + stepIdx,
 		toolName:    "run_command",
 		toolCommand: pending.Command,
 		errMessage:  hookPayloadString(payload, "error", ""),
@@ -240,6 +249,7 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 		promptText:       turn.Prompt,
 		transcriptBlocks: turn.Blocks,
 		turnResolved:     turnState != antigravityTurnSchemaAbsent,
+		promptID:         turn.StepID,
 	})
 
 	// Antigravity exposes no direct prompt field on PreInvocation. Recover the
@@ -268,6 +278,9 @@ type antigravityNormalizeOptions struct {
 	promptText       string
 	transcriptBlocks []apptypes.EventBodyBlock
 	turnResolved     bool
+	eventID          string
+	promptID         string
+	toolUseID        string
 	toolName         string
 	toolCommand      string
 	errMessage       string
@@ -294,6 +307,15 @@ func normalizeAntigravityPayload(opts antigravityNormalizeOptions) []byte {
 	if opts.turnResolved {
 		normalized["antigravity_turn_resolved"] = true
 		normalized["antigravity_transcript_blocks"] = opts.transcriptBlocks
+	}
+	if opts.eventID != "" {
+		normalized["event_id"] = opts.eventID
+	}
+	if opts.promptID != "" {
+		normalized["prompt_id"] = opts.promptID
+	}
+	if opts.toolUseID != "" {
+		normalized["tool_use_id"] = opts.toolUseID
 	}
 	if opts.toolName != "" {
 		normalized["tool_name"] = opts.toolName
@@ -662,14 +684,15 @@ func readLastAssistantTranscriptBlocksLenient(path string) ([]apptypes.EventBody
 // antigravityTranscriptLine is a lenient view over a JSONL transcript row. It
 // accepts both the nested Claude-style envelope and a flat role/content shape.
 type antigravityTranscriptLine struct {
-	Type     string                        `json:"type"`
-	Source   string                        `json:"source"`
-	Status   string                        `json:"status"`
-	Role     string                        `json:"role"`
-	Text     string                        `json:"text"`
-	Thinking string                        `json:"thinking"`
-	Content  json.RawMessage               `json:"content"`
-	Message  *antigravityTranscriptMessage `json:"message"`
+	Type      string                        `json:"type"`
+	Source    string                        `json:"source"`
+	Status    string                        `json:"status"`
+	Role      string                        `json:"role"`
+	Text      string                        `json:"text"`
+	Thinking  string                        `json:"thinking"`
+	Content   json.RawMessage               `json:"content"`
+	Message   *antigravityTranscriptMessage `json:"message"`
+	StepIndex json.RawMessage               `json:"step_index"`
 }
 
 // antigravityCompletedTurn keeps a prompt and assistant response from the same
@@ -678,6 +701,7 @@ type antigravityTranscriptLine struct {
 type antigravityCompletedTurn struct {
 	Prompt string
 	Blocks []apptypes.EventBodyBlock
+	StepID string
 }
 
 type antigravityTurnScanState uint8
@@ -727,7 +751,7 @@ func readLastAntigravityCompletedTurn(path string) (antigravityCompletedTurn, an
 			continue
 		}
 		if blocks := entry.blocks(); len(blocks) > 0 {
-			candidate = antigravityCompletedTurn{Prompt: latestPrompt, Blocks: blocks}
+			candidate = antigravityCompletedTurn{Prompt: latestPrompt, Blocks: blocks, StepID: antigravityStepID(entry.StepIndex)}
 			turnGeneration = latestGeneration
 		}
 	}
@@ -741,6 +765,14 @@ func readLastAntigravityCompletedTurn(path string) (antigravityCompletedTurn, an
 		return antigravityCompletedTurn{}, antigravityTurnIncomplete
 	}
 	return candidate, antigravityTurnComplete
+}
+
+func antigravityStepID(raw json.RawMessage) string {
+	value := strings.TrimSpace(string(raw))
+	if value == "" || value == "null" {
+		return ""
+	}
+	return "step:" + strings.Trim(value, `"`)
 }
 
 func (l antigravityTranscriptLine) isCurrentSchemaRow() bool {

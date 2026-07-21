@@ -53,6 +53,7 @@ func (c *RootCLI) runHookSession(
 	if err != nil {
 		return err
 	}
+	ctx = withResolvedHookDelivery(ctx, payload)
 
 	switch action {
 	case "start":
@@ -119,8 +120,12 @@ func (c *RootCLI) runHookSession(
 		if err := clearHookSessionEndMarker(client, event.SessionID()); err != nil {
 			return err
 		}
-		if workspace != "" {
-			if err := writeHookWorkspaceState(client, workspace); err != nil {
+		canonicalWorkspace, err := c.canonicalHookSessionWorkspace(ctx, event.SessionID(), workspace)
+		if err != nil {
+			return err
+		}
+		if canonicalWorkspace != "" {
+			if err := writeHookWorkspaceState(client, canonicalWorkspace); err != nil {
 				return err
 			}
 		} else if err := clearHookWorkspaceState(client); err != nil {

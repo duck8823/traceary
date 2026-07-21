@@ -151,24 +151,44 @@ func resolveHookToolUseID(payload []byte) string {
 	return ""
 }
 
-func resolveHookWorkspace(ctx context.Context, payload []byte, client string, preferState bool) (types.Workspace, error) {
-	if preferState {
-		// Once a session has started, subsequent hook events should stay bound to
-		// the persisted workspace so audit/prompt/end events do not drift when the
-		// current cwd or explicit override changes mid-session.
-		workspace, err := readHookWorkspaceState(client)
-		if err != nil {
-			return "", err
-		}
-		if workspace != "" {
-			return workspace, nil
+// withResolvedHookDelivery carries only host-native identity evidence into the
+// usecase. It never falls back to prompt/command/body equality: equal content
+// without one of these proven identifiers remains a legitimate distinct event.
+func withResolvedHookDelivery(ctx context.Context, payload []byte) context.Context {
+	sourceHook := apptypes.SourceHookFromContext(ctx)
+	nativeID := resolveHookDeliveryNativeID(payload, sourceHook)
+	rawWorkspace := hookPayloadString(payload, "cwd", "")
+	return apptypes.WithHookDelivery(ctx, apptypes.HookDeliveryInputOf(nativeID, rawWorkspace))
+}
+
+func resolveHookDeliveryNativeID(payload []byte, sourceHook string) string {
+	for _, path := range []string{"tool_use_id", "prompt_id", "event_id"} {
+		if value := strings.TrimSpace(hookPayloadString(payload, path, "")); value != "" {
+			return path + ":" + value
 		}
 	}
+	switch strings.TrimSpace(sourceHook) {
+	case "session_start", "session_end":
+		if sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", "")); sessionID != "" {
+			return "session_id:" + sessionID
+		}
+	}
+	return ""
+}
+
+func resolveHookWorkspace(ctx context.Context, payload []byte, client string, preferState bool) (types.Workspace, error) {
 	if explicit := strings.TrimSpace(os.Getenv("TRACEARY_WORKSPACE")); explicit != "" {
 		return types.Workspace(explicit), nil
 	}
 
-	return resolveHookWorkspaceFromPayload(ctx, payload)
+	workspace, err := resolveHookWorkspaceFromPayload(ctx, payload)
+	if err != nil || workspace != "" || !preferState {
+		return workspace, err
+	}
+
+	// A persisted workspace is a fallback for payloads without event-local
+	// evidence. It is not allowed to overwrite an explicit cwd observation.
+	return readHookWorkspaceState(client)
 }
 
 func resolveHookWorkspaceForAudit(ctx context.Context, payload []byte, client string) (types.Workspace, error) {
@@ -201,6 +221,22 @@ func resolveHookWorkspaceFromPayload(ctx context.Context, payload []byte) (types
 	}
 
 	return types.Workspace(normalizeLocalWorkContextPath(cwd)), nil
+}
+
+func (c *RootCLI) canonicalHookSessionWorkspace(ctx context.Context, sessionID types.SessionID, fallback types.Workspace) (types.Workspace, error) {
+	if c.session == nil || sessionID == "" {
+		return fallback, nil
+	}
+	summaries, err := c.session.List(ctx, apptypes.NewSessionListCriteriaBuilder(1).
+		SessionID(sessionID).
+		Build())
+	if err != nil {
+		return "", xerrors.Errorf("failed to reload canonical session workspace: %w", err)
+	}
+	if len(summaries) == 1 && summaries[0].Workspace() != "" {
+		return summaries[0].Workspace(), nil
+	}
+	return fallback, nil
 }
 
 func hookPayloadString(payload []byte, path string, defaultValue string) string {
