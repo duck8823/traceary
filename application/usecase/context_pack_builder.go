@@ -122,6 +122,10 @@ func (b *contextPackBuilder) loadRecentCommands(ctx context.Context, session app
 	items := make([]apptypes.RecentCommandSummary, 0, len(previews))
 	for _, preview := range previews {
 		summary := summarizeCommand(preview.Body())
+		// A handoff summary is intentionally lossy: paragraph selection and
+		// whitespace normalization also mean the response does not contain the
+		// persisted body verbatim. Report that conservatively as response
+		// truncation, in addition to the bounded SQL prefix case.
 		responseTruncated := preview.StoredBytes() > len(preview.Body()) ||
 			(strings.TrimSpace(preview.Body()) != "" && summary != preview.Body())
 		extent, err := apptypes.EventBodyExtentOf(
