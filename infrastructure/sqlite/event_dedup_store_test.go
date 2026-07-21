@@ -1,13 +1,9 @@
 package sqlite_test
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"log/slog"
 	"path/filepath"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -94,12 +90,9 @@ func eventRowExists(t *testing.T, dbPath, id string) bool {
 	return count > 0
 }
 
-// TestDatasource_Save_SkipsDuplicateHookContentEventsWithinWindow covers the
-// prompt and transcript duplicate windows separately (#1167 criteria 1, 2, 4).
-// For each kind: the original is kept, an identical body within the window is
-// suppressed, a different body within the window is kept, and an identical body
-// outside the window is kept.
-func TestDatasource_Save_SkipsDuplicateHookContentEventsWithinWindow(t *testing.T) {
+// Equal bodies are not proof of hook redelivery. Without host-native delivery
+// evidence every write remains a distinct logical event, regardless of timing.
+func TestDatasource_Save_PreservesEqualHookContentWithoutDeliveryIdentity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -128,11 +121,11 @@ func TestDatasource_Save_SkipsDuplicateHookContentEventsWithinWindow(t *testing.
 			saveDedupTestEvent(ctx, t, sut, "event-different-body", tt.kind, "hook", tt.sourceHook, "different body", base.Add(time.Second))
 			saveDedupTestEvent(ctx, t, sut, "event-later-rerun", tt.kind, "hook", tt.sourceHook, "same body", base.Add(10*time.Second))
 
-			if diff := cmp.Diff(3, countEventsByKind(t, dbPath, tt.kind)); diff != "" {
+			if diff := cmp.Diff(4, countEventsByKind(t, dbPath, tt.kind)); diff != "" {
 				t.Fatalf("persisted %s event count mismatch (-want +got):\n%s", tt.name, diff)
 			}
-			if eventRowExists(t, dbPath, "event-duplicate") {
-				t.Fatalf("duplicate %s within window was persisted, want suppressed", tt.name)
+			if !eventRowExists(t, dbPath, "event-duplicate") {
+				t.Fatalf("equal-body %s without delivery identity was suppressed", tt.name)
 			}
 			if !eventRowExists(t, dbPath, "event-different-body") {
 				t.Fatalf("different-body %s within window was suppressed, want persisted", tt.name)
@@ -144,12 +137,7 @@ func TestDatasource_Save_SkipsDuplicateHookContentEventsWithinWindow(t *testing.
 	}
 }
 
-// TestDatasource_Save_SuppressesDuplicateAcrossFractionalSecondBoundary is a
-// regression test for the variable-width RFC3339Nano comparison bug: a plain
-// TEXT range over created_at sorts "…00.5Z" before "…00Z", so a genuine
-// duplicate 1.5s apart could slip through (and a row just outside 2s could be
-// wrongly suppressed). The fix compares parsed timestamps in Go.
-func TestDatasource_Save_SuppressesDuplicateAcrossFractionalSecondBoundary(t *testing.T) {
+func TestDatasource_Save_DoesNotInferDeliveryIdentityFromFractionalTimestamps(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -159,17 +147,13 @@ func TestDatasource_Save_SuppressesDuplicateAcrossFractionalSecondBoundary(t *te
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
-	// Original at .5s (variable-width "…00.5Z"); duplicate at a whole second
-	// 1.5s later ("…02Z"). Lexically "…00.5Z" < "…02Z" but also "…00.5Z" < the
-	// naive lower bound "…00Z", so the buggy TEXT range missed it. 1.5s <= 2s,
-	// so it must be suppressed.
 	original := time.Date(2026, 5, 31, 1, 0, 0, 500_000_000, time.UTC)
 	duplicate := time.Date(2026, 5, 31, 1, 0, 2, 0, time.UTC)
 	saveDedupTestEvent(ctx, t, sut, "frac-original", types.EventKindPrompt, "hook", "user_prompt_submit", "same body", original)
 	saveDedupTestEvent(ctx, t, sut, "frac-duplicate", types.EventKindPrompt, "hook", "user_prompt_submit", "same body", duplicate)
 
-	if diff := cmp.Diff(1, countEventsByKind(t, dbPath, types.EventKindPrompt)); diff != "" {
-		t.Fatalf("fractional-boundary duplicate not suppressed (-want +got):\n%s", diff)
+	if diff := cmp.Diff(2, countEventsByKind(t, dbPath, types.EventKindPrompt)); diff != "" {
+		t.Fatalf("equal content without identity was suppressed (-want +got):\n%s", diff)
 	}
 
 	// A row 2.5s after the original is outside the window and must be kept,
@@ -177,8 +161,8 @@ func TestDatasource_Save_SuppressesDuplicateAcrossFractionalSecondBoundary(t *te
 	outside := time.Date(2026, 5, 31, 1, 0, 3, 0, time.UTC)
 	saveDedupTestEvent(ctx, t, sut, "frac-outside", types.EventKindPrompt, "hook", "user_prompt_submit", "same body", outside)
 
-	if diff := cmp.Diff(2, countEventsByKind(t, dbPath, types.EventKindPrompt)); diff != "" {
-		t.Fatalf("out-of-window row across fractional boundary was suppressed (-want +got):\n%s", diff)
+	if diff := cmp.Diff(3, countEventsByKind(t, dbPath, types.EventKindPrompt)); diff != "" {
+		t.Fatalf("later equal-content row was suppressed (-want +got):\n%s", diff)
 	}
 }
 
@@ -248,50 +232,5 @@ func TestDatasource_Save_DoesNotDeduplicateAcrossKinds(t *testing.T) {
 	}
 	if diff := cmp.Diff(1, countEventsByKind(t, dbPath, types.EventKindTranscript)); diff != "" {
 		t.Fatalf("transcript count mismatch (-want +got):\n%s", diff)
-	}
-}
-
-// lockedBuffer is a concurrency-safe io.Writer for capturing slog output.
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	//nolint:wrapcheck // io.Writer contract: forward the underlying writer's result verbatim.
-	return b.buf.Write(p)
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
-
-// TestDatasource_Save_LogsSuppressedDuplicateHookContentEvent verifies the
-// suppression is observable via debug output (#1167 criterion 3). It swaps the
-// global slog default, so it must run in the sequential (non-parallel) phase to
-// avoid interleaving with other tests' debug logs.
-func TestDatasource_Save_LogsSuppressedDuplicateHookContentEvent(t *testing.T) {
-	buf := &lockedBuffer{}
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-	if err := storeManager.Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-
-	base := time.Date(2026, 5, 31, 1, 0, 0, 0, time.UTC)
-	saveDedupTestEvent(ctx, t, sut, "log-original", types.EventKindPrompt, "hook", "user_prompt_submit", "same body", base)
-	saveDedupTestEvent(ctx, t, sut, "log-duplicate", types.EventKindPrompt, "hook", "user_prompt_submit", "same body", base.Add(time.Second))
-
-	if !strings.Contains(buf.String(), "suppressed duplicate hook content event within window") {
-		t.Fatalf("expected suppression debug log, got:\n%s", buf.String())
 	}
 }

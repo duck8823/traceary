@@ -99,6 +99,9 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 		return nil, xerrors.Errorf("failed to build log event: %w", err)
 	}
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
+	if err := attachHookDelivery(ctx, event); err != nil {
+		return nil, xerrors.Errorf("failed to attach log delivery evidence: %w", err)
+	}
 	if err := u.eventRepo.Save(ctx, event); err != nil {
 		return nil, xerrors.Errorf("failed to save log event: %w", err)
 	}
@@ -178,6 +181,9 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 		return nil, nil, xerrors.Errorf("failed to build audit event: %w", err)
 	}
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
+	if err := attachHookDelivery(ctx, event, commandAuditDeliveryFields(commandAudit)...); err != nil {
+		return nil, nil, xerrors.Errorf("failed to attach audit delivery evidence: %w", err)
+	}
 
 	if err := u.eventRepo.SaveWithAudit(ctx, event, commandAudit); err != nil {
 		return nil, nil, xerrors.Errorf("failed to save audit event: %w", err)

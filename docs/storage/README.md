@@ -173,7 +173,7 @@ Practical implications:
 
 ## Reversible historical content dedupe
 
-**Requirement.** Early hook firings could write the same prompt/transcript twice. The current write path already suppresses fresh duplicates within a short window (`isDedupEligibleHookContentEvent`), so this never grows from new writes — but historical rows remain and inflate `doctor`'s `content-event-reliability` warning and context size. Cleanup must be **explicit and reversible**: ordinary upgrade/migration must never move, delete, or rewrite `events` rows, and nothing may be hard-deleted without a recoverable trail (#1227).
+**Requirement.** Early hook firings could write the same prompt/transcript twice. Current hook writes suppress only exact redeliveries backed by a stable host-native delivery ID; equal content without that evidence remains a legitimate distinct event. Historical heuristic duplicate groups remain and inflate `doctor`'s `content-event-reliability` warning and context size. Cleanup must be **explicit and reversible**: ordinary upgrade/migration must never move, delete, or rewrite `events` rows, and nothing may be hard-deleted without a recoverable trail (#1227).
 
 **Command.** `traceary store dedupe content-events`
 

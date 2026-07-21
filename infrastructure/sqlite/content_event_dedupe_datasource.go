@@ -49,10 +49,9 @@ type dedupeCandidateRow struct {
 // content-event-reliability doctor diagnostic — kind, client, agent, session_id,
 // workspace, source_hook, and the whitespace-trimmed body — so the maintenance
 // command and the diagnostic agree on what counts as a duplicate. This is
-// deliberately NOT the same identity as the write-side guard
-// (isDedupEligibleHookContentEvent / hookContentEventDuplicateExists), which
-// compares the exact body without trimming; docs/changelog call out that the
-// reversible dedupe identity follows the diagnostic, not the write-side guard.
+// deliberately NOT a runtime delivery identity: current writes require a
+// stable host-native ID and never infer redelivery from body equality. The
+// reversible maintenance identity follows the heuristic diagnostic instead.
 type dedupeGroupKey struct {
 	kind       string
 	client     string

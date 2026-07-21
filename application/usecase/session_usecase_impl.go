@@ -58,7 +58,8 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 	// When the caller provided an explicit session ID, the session must not
 	// already exist; otherwise the start would silently no-op the session row
 	// while still appending a session_started event.
-	if !generated {
+	_, hasHookDelivery := apptypes.HookDeliveryFromContext(ctx)
+	if !generated && !hasHookDelivery {
 		existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to check existing session: %w", err)
@@ -132,7 +133,8 @@ func (u *sessionUsecase) StartChild(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to check existing child session: %w", err)
 	}
-	if _, ok := existingChild.Value(); ok {
+	_, hasHookDelivery := apptypes.HookDeliveryFromContext(ctx)
+	if _, ok := existingChild.Value(); ok && !hasHookDelivery {
 		return nil, xerrors.Errorf("cannot start child session %s: %w", resolvedChildID, model.ErrInvalidSessionState)
 	}
 
@@ -182,7 +184,14 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	}
 
 	if err := existingSession.End(event.CreatedAt(), summary); err != nil {
-		return nil, xerrors.Errorf("failed to end session: %w", err)
+		// A host retry can arrive after the boundary transaction committed but
+		// before hook state or spool cleanup. Let the repository compare stable
+		// delivery evidence: an exact retry short-circuits before updating the
+		// already-ended aggregate, while a different delivery still rolls back
+		// with ErrInvalidSessionState.
+		if _, hasHookDelivery := apptypes.HookDeliveryFromContext(ctx); !hasHookDelivery {
+			return nil, xerrors.Errorf("failed to end session: %w", err)
+		}
 	}
 	if err := u.sessionRepo.SaveBoundary(ctx, existingSession, event); err != nil {
 		return nil, xerrors.Errorf("failed to save session end: %w", err)
@@ -413,6 +422,9 @@ func (u *sessionUsecase) buildBoundaryEvent(
 		return nil, xerrors.Errorf("failed to build session boundary event: %w", err)
 	}
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
+	if err := attachHookDelivery(ctx, event); err != nil {
+		return nil, err
+	}
 	return event, nil
 }
 
@@ -431,6 +443,9 @@ func (u *sessionUsecase) buildBoundaryEventAt(
 	}
 	event := model.EventOf(eventID, kind, client, agent, sessionID, workspace, sessionBoundaryBody(kind), createdAt)
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
+	if err := attachHookDelivery(ctx, event); err != nil {
+		return nil, err
+	}
 	return event, nil
 }
 

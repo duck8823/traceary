@@ -134,7 +134,7 @@ SELECT e.kind, a.command_text, a.input_truncated, a.output_truncated
 	}
 }
 
-func TestDatasource_SaveWithAudit_SkipsDuplicateHookAuditsWithinWindow(t *testing.T) {
+func TestDatasource_SaveWithAudit_PreservesEqualAuditsWithoutDeliveryIdentity(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -194,7 +194,7 @@ func TestDatasource_SaveWithAudit_SkipsDuplicateHookAuditsWithinWindow(t *testin
 	if err := db.QueryRow(`SELECT COUNT(*) FROM command_audits`).Scan(&count); err != nil {
 		t.Fatalf("command audit count query error = %v", err)
 	}
-	if diff := cmp.Diff(3, count); diff != "" {
+	if diff := cmp.Diff(4, count); diff != "" {
 		t.Fatalf("command audit count mismatch (-want +got):\n%s", diff)
 	}
 
@@ -202,7 +202,7 @@ func TestDatasource_SaveWithAudit_SkipsDuplicateHookAuditsWithinWindow(t *testin
 	if err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE id = 'event-duplicate'`).Scan(&duplicateRows); err != nil {
 		t.Fatalf("duplicate event count query error = %v", err)
 	}
-	if diff := cmp.Diff(0, duplicateRows); diff != "" {
+	if diff := cmp.Diff(1, duplicateRows); diff != "" {
 		t.Fatalf("duplicate event persisted mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -460,7 +460,7 @@ CREATE TABLE command_audits (
 	}
 }
 
-func TestDatasource_SaveWithAudit_SuppressesDuplicateAcrossFractionalSecondBoundary(t *testing.T) {
+func TestDatasource_SaveWithAudit_DoesNotInferIdentityFromFractionalTimestamps(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -516,13 +516,13 @@ func TestDatasource_SaveWithAudit_SuppressesDuplicateAcrossFractionalSecondBound
 	save("event-1", base)
 	save("event-2", base.Add(1500*time.Millisecond))
 
-	if diff := cmp.Diff(1, countAudits()); diff != "" {
+	if diff := cmp.Diff(2, countAudits()); diff != "" {
 		t.Errorf("command_audits count after duplicate mismatch (-want +got):\n%s", diff)
 	}
 
 	save("event-3", base.Add(2500*time.Millisecond))
 
-	if diff := cmp.Diff(2, countAudits()); diff != "" {
+	if diff := cmp.Diff(3, countAudits()); diff != "" {
 		t.Errorf("command_audits count after distinct entry mismatch (-want +got):\n%s", diff)
 	}
 }

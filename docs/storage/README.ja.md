@@ -172,7 +172,7 @@ target ごとの policy:
 
 ## 履歴 content の可逆的な dedupe
 
-**要件。** 初期の hook 発火で、同じ prompt/transcript が二重に書き込まれることがありました。現在の write path は短い window 内の新規 duplicate をすでに抑止している（`isDedupEligibleHookContentEvent`）ため、新しい書き込みでこれが増えることはありません。しかし履歴上の行は残り、`doctor` の `content-event-reliability` 警告や context size を膨らませます。クリーンアップは **明示的かつ可逆** でなければなりません。通常の upgrade/migration が `events` 行を移動・削除・書き換えることは決してなく、復元可能な証跡なしに hard delete することもありません（#1227）。
+**要件。** 初期の hook 発火で、同じ prompt/transcript が二重に書き込まれることがありました。現在の hook 書き込みが抑止するのは、ホスト由来の安定した delivery ID で証明できる完全な再送だけです。その証拠がない同一内容は正当な別イベントとして保持します。履歴上の推定 duplicate group は残り、`doctor` の `content-event-reliability` 警告や context size を膨らませます。クリーンアップは **明示的かつ可逆** でなければなりません。通常の upgrade/migration が `events` 行を移動・削除・書き換えることは決してなく、復元可能な証跡なしに hard delete することもありません（#1227）。
 
 **コマンド。** `traceary store dedupe content-events`
 

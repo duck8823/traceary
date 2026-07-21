@@ -105,41 +105,12 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 		}
 	}()
 
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return xerrors.Errorf("failed to begin session boundary transaction: %w", err)
-	}
-	defer func() {
-		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-			slog.Debug("failed to rollback transaction", "error", err)
+	return saveEventTransaction(ctx, db, event, nil, func(ctx context.Context, tx *sql.Tx) error {
+		if err := saveSessionBoundary(ctx, tx, session); err != nil {
+			return xerrors.Errorf("failed to save session: %w", err)
 		}
-	}()
-
-	if _, err := tx.ExecContext(
-		ctx,
-		insertEventQuery,
-		event.EventID().String(),
-		event.Kind().String(),
-		event.Client().String(),
-		event.Agent().String(),
-		event.SessionID().String(),
-		event.Workspace().String(),
-		event.Body(),
-		formatTimestamp(event.CreatedAt()),
-		nullableString(event.SourceHook()),
-	); err != nil {
-		return xerrors.Errorf("failed to insert boundary event: %w", err)
-	}
-
-	if err := saveSessionBoundary(ctx, tx, session); err != nil {
-		return xerrors.Errorf("failed to save session: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return xerrors.Errorf("failed to commit session boundary transaction: %w", err)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // sqlExecer abstracts *sql.DB and *sql.Tx so the helpers below can run in
