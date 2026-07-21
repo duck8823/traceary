@@ -158,9 +158,9 @@ func readFieldsFlagUsage() string {
 
 // resolveReadFieldsForCommand applies the precedence rules and enforces the
 // --wide vs --fields mutual exclusion for read commands. When the command is
-// rendering --wide or --json output, the config-backed default and the
-// preset fields are skipped so a broken setting does not block paths that
-// would not consume it anyway.
+// rendering --wide output, or JSON output without explicit --fields, the
+// config-backed default and preset fields are skipped so a broken text-only
+// setting does not block paths that would not consume it.
 //
 // Precedence (compact text rendering only): explicit --fields > preset
 // fields > config.read.fields > built-in default.
@@ -171,11 +171,14 @@ func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet boo
 			"--fields は --wide と併用できません (wide モードは従来の 7 カラム形式を維持します)",
 		))
 	}
-	if wide || asJSON {
+	if wide {
 		return append([]readFieldID(nil), defaultReadFields...), nil
 	}
 	if explicitSet {
 		return parseReadFields(explicit)
+	}
+	if asJSON {
+		return append([]readFieldID(nil), defaultReadFields...), nil
 	}
 	if len(presetFields) > 0 {
 		return append([]readFieldID(nil), presetFields...), nil

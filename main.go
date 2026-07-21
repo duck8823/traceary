@@ -160,6 +160,7 @@ func run() error {
 	defaultReadColor := cfg.ReadColor
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
+	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	codexMemorySource := filesystem.NewCodexMemorySource()
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns, usecase.MemoryUsecaseDependencies{
@@ -186,6 +187,7 @@ func run() error {
 		memoryUsecase,
 		contextUsecase,
 		storeManagementUsecase,
+		mcpserver.WithEventMetadata(eventMetadataUsecase),
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)
@@ -205,6 +207,7 @@ func run() error {
 
 	rootCmd := cli.NewRootCLI(
 		cli.WithEvent(eventUsecase),
+		cli.WithEventMetadata(eventMetadataUsecase),
 		cli.WithSession(sessionUsecase),
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),

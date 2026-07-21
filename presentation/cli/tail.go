@@ -109,19 +109,21 @@ func (c *tailCursor) Advance(events []*model.Event) {
 }
 
 type tailEventWriter struct {
-	output      io.Writer
-	asJSON      bool
-	textOpts    eventTextFormatOptions
-	extrasFor   compactExtrasResolver
-	headerWrote bool
+	output             io.Writer
+	asJSON             bool
+	jsonFieldsExplicit bool
+	textOpts           eventTextFormatOptions
+	extrasFor          compactExtrasResolver
+	headerWrote        bool
 }
 
-func newTailEventWriter(output io.Writer, asJSON bool, textOpts eventTextFormatOptions, extrasFor compactExtrasResolver) *tailEventWriter {
+func newTailEventWriter(output io.Writer, asJSON bool, jsonFieldsExplicit bool, textOpts eventTextFormatOptions, extrasFor compactExtrasResolver) *tailEventWriter {
 	return &tailEventWriter{
-		output:    output,
-		asJSON:    asJSON,
-		textOpts:  textOpts,
-		extrasFor: extrasFor,
+		output:             output,
+		asJSON:             asJSON,
+		jsonFieldsExplicit: jsonFieldsExplicit,
+		textOpts:           textOpts,
+		extrasFor:          extrasFor,
 	}
 }
 
@@ -147,7 +149,7 @@ func (w *tailEventWriter) Write(events []*model.Event) error {
 	}
 	for _, event := range events {
 		if w.asJSON {
-			if err := writeEventNDJSON(w.output, event); err != nil {
+			if err := writeEventNDJSON(w.output, event, w.textOpts.fields, w.jsonFieldsExplicit, w.extrasFor); err != nil {
 				return err
 			}
 			continue
@@ -170,8 +172,16 @@ func (w *tailEventWriter) Write(events []*model.Event) error {
 	return nil
 }
 
-func writeEventNDJSON(output io.Writer, event *model.Event) error {
-	encoded, err := json.Marshal(newEventOutput(event))
+func writeEventNDJSON(output io.Writer, event *model.Event, fields []readFieldID, fieldsExplicit bool, extrasFor compactExtrasResolver) error {
+	var value any = newEventOutput(event)
+	if fieldsExplicit {
+		extras := compactRowExtras{}
+		if extrasFor != nil {
+			extras = extrasFor(event)
+		}
+		value = newEventFieldsOutput(event, fields, extras)
+	}
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to encode JSON", "JSON 変換に失敗しました"), err)
 	}
@@ -321,7 +331,7 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 		targetWidth:  terminalWidthOf(output),
 	}
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
-	writer := newTailEventWriter(output, input.asJSON, textOpts, extrasFor)
+	writer := newTailEventWriter(output, input.asJSON, input.fieldsSet, textOpts, extrasFor)
 	cursor := newTailCursor(input.resolvedNowFunc()().UTC())
 	if input.limit > 0 {
 		initialCriteria := apptypes.NewEventListCriteriaBuilder(input.limit).

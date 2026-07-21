@@ -21,6 +21,92 @@ func writeEventsJSON(output io.Writer, events []*model.Event) error {
 	return writeJSON(output, serializedEvents)
 }
 
+func writeEventsJSONFields(output io.Writer, events []*model.Event, fields []readFieldID, extrasFor compactExtrasResolver) error {
+	serializedEvents := make([]map[string]any, 0, len(events))
+	for _, event := range events {
+		extras := compactRowExtras{}
+		if extrasFor != nil {
+			extras = extrasFor(event)
+		}
+		serializedEvents = append(serializedEvents, newEventFieldsOutput(event, fields, extras))
+	}
+	return writeJSON(output, serializedEvents)
+}
+
+func writeEventMetadataJSONFields(output io.Writer, metadata []apptypes.EventMetadata, fields []readFieldID) error {
+	serializedEvents := make([]map[string]any, 0, len(metadata))
+	for _, event := range metadata {
+		serializedEvents = append(serializedEvents, newEventMetadataFieldsOutput(event, fields))
+	}
+	return writeJSON(output, serializedEvents)
+}
+
+func newEventFieldsOutput(event *model.Event, fields []readFieldID, extras compactRowExtras) map[string]any {
+	result := make(map[string]any, len(fields))
+	for _, field := range fields {
+		switch field {
+		case readFieldTS:
+			result["created_at"] = formatJSONTime(event.CreatedAt())
+		case readFieldKind:
+			result["kind"] = event.Kind().String()
+		case readFieldSession:
+			result["session_id"] = event.SessionID().String()
+		case readFieldWorkspace:
+			result["workspace"] = event.Workspace().String()
+		case readFieldClient:
+			result["client"] = event.Client().String()
+		case readFieldAgent:
+			result["agent"] = event.Agent().String()
+		case readFieldMessage:
+			result["message"] = apptypes.ExtractPlainBody(event.Body())
+		case readFieldExitCode:
+			if value, ok := extras.exitCode.Value(); ok {
+				result["exit_code"] = value
+			} else {
+				result["exit_code"] = nil
+			}
+		case readFieldEventID:
+			result["event_id"] = event.EventID().String()
+		case readFieldSourceHook:
+			result["source_hook"] = event.SourceHook()
+		}
+	}
+	return result
+}
+
+func newEventMetadataFieldsOutput(event apptypes.EventMetadata, fields []readFieldID) map[string]any {
+	result := make(map[string]any, len(fields))
+	for _, field := range fields {
+		switch field {
+		case readFieldTS:
+			result["created_at"] = formatJSONTime(event.CreatedAt())
+		case readFieldKind:
+			result["kind"] = event.Kind().String()
+		case readFieldSession:
+			result["session_id"] = event.SessionID().String()
+		case readFieldWorkspace:
+			result["workspace"] = event.Workspace().String()
+		case readFieldClient:
+			result["client"] = event.Client().String()
+		case readFieldAgent:
+			result["agent"] = event.Agent().String()
+		case readFieldExitCode:
+			if audit, ok := event.CommandAudit().Value(); ok {
+				if value, present := audit.ExitCode().Value(); present {
+					result["exit_code"] = value
+					break
+				}
+			}
+			result["exit_code"] = nil
+		case readFieldEventID:
+			result["event_id"] = event.EventID().String()
+		case readFieldSourceHook:
+			result["source_hook"] = event.SourceHook()
+		}
+	}
+	return result
+}
+
 func writeEventDetailsJSON(output io.Writer, details apptypes.EventDetails) error {
 	serializedDetails := eventDetails{
 		Event: newEventOutput(details.Event()),

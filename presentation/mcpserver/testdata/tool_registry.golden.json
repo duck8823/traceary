@@ -10,7 +10,10 @@
       "properties": {
         "body_limit": {
           "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
-          "type": "integer"
+          "type": [
+            "null",
+            "integer"
+          ]
         },
         "full_body": {
           "description": "return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion",
@@ -19,6 +22,10 @@
         "limit": {
           "description": "result limit (default: 20)",
           "type": "integer"
+        },
+        "projection": {
+          "description": "event projection: metadata omits body fields, bounded returns a limited body, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
+          "type": "string"
         },
         "session_id": {
           "description": "session identifier filter",
@@ -47,7 +54,10 @@
         },
         "body_limit": {
           "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
-          "type": "integer"
+          "type": [
+            "null",
+            "integer"
+          ]
         },
         "client": {
           "description": "filter by client",
@@ -72,6 +82,10 @@
         "offset": {
           "description": "offset from the newest result (default: 0)",
           "type": "integer"
+        },
+        "projection": {
+          "description": "event projection: metadata omits body fields, bounded returns a limited body, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
+          "type": "string"
         },
         "session_id": {
           "description": "filter by session ID",
@@ -516,7 +530,10 @@
       "properties": {
         "body_limit": {
           "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
-          "type": "integer"
+          "type": [
+            "null",
+            "integer"
+          ]
         },
         "from": {
           "description": "start time (YYYY-MM-DD or RFC3339)",
@@ -529,6 +546,10 @@
         "limit": {
           "description": "result limit (default: 20)",
           "type": "integer"
+        },
+        "projection": {
+          "description": "event projection: metadata omits body fields, bounded returns a limited body, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
+          "type": "string"
         },
         "query": {
           "description": "literal search text; boolean-looking OR is treated as text, not any-match syntax",

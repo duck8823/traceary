@@ -36,6 +36,7 @@ type Server struct {
 	auditMaxInputBytes    int
 	auditMaxOutputBytes   int
 	event                 usecase.EventUsecase
+	eventMetadata         usecase.EventMetadataUsecase
 	session               usecase.SessionUsecase
 	memory                usecase.MemoryUsecase
 	context               usecase.ContextUsecase
@@ -54,6 +55,7 @@ func NewServer(
 	memory usecase.MemoryUsecase,
 	contextUsecase usecase.ContextUsecase,
 	storeManagement usecase.StoreManagementUsecase,
+	opts ...ServerOption,
 ) (*Server, error) {
 	if event == nil {
 		return nil, xerrors.Errorf("event usecase is not configured")
@@ -76,7 +78,7 @@ func NewServer(
 		trimmedVersion = defaultServerVersion
 	}
 
-	return &Server{
+	result := &Server{
 		serverName:            defaultServerName,
 		serverVersion:         trimmedVersion,
 		extraRedactPatterns:   extraRedactPatterns,
@@ -88,7 +90,19 @@ func NewServer(
 		memory:                memory,
 		context:               contextUsecase,
 		storeManagement:       storeManagement,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(result)
+	}
+	return result, nil
+}
+
+// ServerOption configures optional MCP server dependencies.
+type ServerOption func(*Server)
+
+// WithEventMetadata configures body-free event reads for metadata projections.
+func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) ServerOption {
+	return func(server *Server) { server.eventMetadata = eventMetadata }
 }
 
 // Build creates an MCP server backed by an initialized store. The DB
@@ -539,6 +553,10 @@ func (s *Server) activeSession() mcp.ToolHandlerFor[sessionLookupInput, sessionE
 
 func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input listEventsInput) (*mcp.CallToolResult, eventsOutput, error) {
+		projection, bodyLimit, err := resolveEventProjection(input.Projection, input.BodyLimit, input.FullBody)
+		if err != nil {
+			return nil, eventsOutput{}, err
+		}
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to parse from: %w", err)
@@ -559,12 +577,23 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			From(from).
 			To(to).
 			Build()
+		if projection == apptypes.EventProjectionMetadata {
+			if s.eventMetadata == nil {
+				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
+			}
+			metadata, err := s.eventMetadata.List(ctx, criteria)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to list event metadata: %w", err)
+			}
+			return nil, eventsOutput{Events: convertEventMetadata(metadata)}, nil
+		}
+
 		events, err := s.event.List(ctx, criteria)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
 		}
 
-		return nil, eventsOutput{Events: convertEventsWithBodyLimit(events, resolveBodyLimit(input.BodyLimit, input.FullBody))}, nil
+		return nil, eventsOutput{Events: convertEventsWithBodyLimit(events, bodyLimit)}, nil
 	}
 }
 
@@ -574,6 +603,50 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 // body_limit falls back to defaultListEventBodyLimit. The default
 // keeps multi-hundred-line command audits from dominating listings
 // (#799). Callers that want full content pass full_body=true.
+func resolveEventProjection(rawProjection string, bodyLimit *int, fullBody bool) (apptypes.EventProjection, int, error) {
+	projection, err := apptypes.EventProjectionFrom(rawProjection)
+	if err != nil {
+		return apptypes.EventProjectionLegacy, 0, xerrors.Errorf("failed to resolve event projection: %w", err)
+	}
+	if bodyLimit != nil && *bodyLimit < 0 {
+		return projection, 0, xerrors.Errorf("body_limit must be greater than or equal to 0")
+	}
+	switch projection {
+	case apptypes.EventProjectionMetadata:
+		if fullBody || (bodyLimit != nil && *bodyLimit > 0) {
+			return projection, 0, xerrors.Errorf("projection=metadata cannot be combined with full_body=true or a positive body_limit")
+		}
+		return projection, 0, nil
+	case apptypes.EventProjectionBounded:
+		if fullBody || (bodyLimit != nil && *bodyLimit <= 0) {
+			return projection, 0, xerrors.Errorf("projection=bounded requires a positive body_limit when supplied and cannot be combined with full_body=true")
+		}
+		if bodyLimit != nil {
+			return projection, *bodyLimit, nil
+		}
+		return projection, defaultListEventBodyLimit, nil
+	case apptypes.EventProjectionFull:
+		if bodyLimit != nil && *bodyLimit > 0 {
+			return projection, 0, xerrors.Errorf("projection=full cannot be combined with a positive body_limit")
+		}
+		return projection, 0, nil
+	case apptypes.EventProjectionLegacy:
+		if fullBody || (bodyLimit != nil && *bodyLimit <= 0) {
+			return apptypes.EventProjectionFull, 0, nil
+		}
+		if bodyLimit != nil {
+			return apptypes.EventProjectionBounded, *bodyLimit, nil
+		}
+		return apptypes.EventProjectionBounded, defaultListEventBodyLimit, nil
+	default:
+		return apptypes.EventProjectionLegacy, 0, xerrors.Errorf("unsupported event projection %q", projection)
+	}
+}
+
+// resolveBodyLimit preserves the pre-v0.30 helper contract for callers that
+// cannot represent whether zero was omitted. New MCP handlers use
+// resolveEventProjection with a pointer so an explicit body_limit=0 remains
+// distinguishable from an omitted body_limit.
 func resolveBodyLimit(bodyLimit int, fullBody bool) int {
 	if fullBody {
 		return 0
@@ -619,6 +692,10 @@ func validateActiveSession(event *model.Event, input sessionLookupInput) error {
 
 func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, eventsOutput, error) {
+		projection, bodyLimit, err := resolveEventProjection(input.Projection, input.BodyLimit, input.FullBody)
+		if err != nil {
+			return nil, eventsOutput{}, err
+		}
 		from, err := parseFlexibleTime(input.From, false)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to parse from: %w", err)
@@ -634,6 +711,17 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			From(from).
 			To(to).
 			Build()
+		if projection == apptypes.EventProjectionMetadata {
+			if s.eventMetadata == nil {
+				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
+			}
+			metadata, err := s.eventMetadata.Search(ctx, criteria)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to search event metadata: %w", err)
+			}
+			return nil, eventsOutput{Events: convertEventMetadata(metadata)}, nil
+		}
+
 		events, err := s.event.Search(ctx, criteria)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to search events: %w", err)
@@ -643,16 +731,31 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		// not re-exposed through this surface — #682 strips thinking
 		// from the LIKE match, but the envelope is still attached to
 		// the returned event and body_blocks would bypass the gate.
-		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, resolveBodyLimit(input.BodyLimit, input.FullBody))}, nil
+		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, bodyLimit)}, nil
 	}
 }
 
 func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, input getContextInput) (*mcp.CallToolResult, eventsOutput, error) {
+		projection, bodyLimit, err := resolveEventProjection(input.Projection, input.BodyLimit, input.FullBody)
+		if err != nil {
+			return nil, eventsOutput{}, err
+		}
 		criteria := apptypes.NewEventContextCriteriaBuilder(resolveLimit(input.Limit, defaultContextLimit)).
 			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
 			SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
 			Build()
+		if projection == apptypes.EventProjectionMetadata {
+			if s.eventMetadata == nil {
+				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
+			}
+			metadata, err := s.eventMetadata.Context(ctx, criteria)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to get context metadata: %w", err)
+			}
+			return nil, eventsOutput{Events: convertEventMetadata(metadata)}, nil
+		}
+
 		events, err := s.event.Context(ctx, criteria)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to get context: %w", err)
@@ -661,7 +764,7 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 		// get_context also omits body_blocks for the same reason as
 		// search: the canonical envelope would re-expose thinking
 		// block text that other surfaces already strip.
-		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, resolveBodyLimit(input.BodyLimit, input.FullBody))}, nil
+		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, bodyLimit)}, nil
 	}
 }
 
@@ -1793,7 +1896,7 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 			Agent:         event.Agent().String(),
 			SessionID:     event.SessionID().String(),
 			Workspace:     event.Workspace().String(),
-			Body:          result.Body,
+			Body:          stringPointer(result.Body),
 			BodyBlocks:    blocks,
 			BodyTruncated: result.Truncated,
 			BodyLength:    fullLen,
@@ -1804,6 +1907,45 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 
 	return outputs
 }
+
+func convertEventMetadata(metadata []apptypes.EventMetadata) []eventOutput {
+	outputs := make([]eventOutput, 0, len(metadata))
+	for _, event := range metadata {
+		extent := event.BodyExtent()
+		output := eventOutput{
+			EventID:              event.EventID().String(),
+			Kind:                 event.Kind().String(),
+			Client:               event.Client().String(),
+			Agent:                event.Agent().String(),
+			SessionID:            event.SessionID().String(),
+			Workspace:            event.Workspace().String(),
+			SourceHook:           event.SourceHook(),
+			CreatedAt:            event.CreatedAt().UTC().Format(time.RFC3339Nano),
+			BodyOriginalBytes:    optionalPointer(extent.OriginalBytes()),
+			BodyStoredBytes:      intPointer(extent.StoredBytes()),
+			BodyIngestTruncated:  optionalPointer(extent.IngestTruncated()),
+			BodyStorageTruncated: optionalPointer(extent.StorageTruncated()),
+		}
+		if audit, ok := event.CommandAudit().Value(); ok {
+			output.ExitCode = optionalPointer(audit.ExitCode())
+			output.Failed = audit.Failed()
+		}
+		outputs = append(outputs, output)
+	}
+	return outputs
+}
+
+func optionalPointer[T any](value types.Optional[T]) *T {
+	resolved, ok := value.Value()
+	if !ok {
+		return nil
+	}
+	return &resolved
+}
+
+func stringPointer(value string) *string { return &value }
+
+func intPointer(value int) *int { return &value }
 
 func boolPtr(value bool) *bool {
 	return &value

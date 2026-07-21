@@ -24,10 +24,14 @@ func writeEventsByFormat(
 	output io.Writer,
 	events []*model.Event,
 	asJSON bool,
+	jsonFieldsExplicit bool,
 	textOpts eventTextFormatOptions,
 	extrasFor compactExtrasResolver,
 ) error {
 	if asJSON {
+		if jsonFieldsExplicit {
+			return writeEventsJSONFields(output, events, textOpts.fields, extrasFor)
+		}
 		return writeEventsJSON(output, events)
 	}
 

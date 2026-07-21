@@ -25,9 +25,13 @@ var ConvertEventsWithBodyLimit = func(events []*model.Event, bodyLimit int) []Ev
 	out := convertEventsWithBodyLimit(events, bodyLimit)
 	exposed := make([]EventOutput, len(out))
 	for i, e := range out {
+		body := ""
+		if e.Body != nil {
+			body = *e.Body
+		}
 		exposed[i] = EventOutput{
 			EventID:       e.EventID,
-			Body:          e.Body,
+			Body:          body,
 			BodyTruncated: e.BodyTruncated,
 			BodyLength:    e.BodyLength,
 		}
