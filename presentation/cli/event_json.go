@@ -91,13 +91,12 @@ func newEventMetadataFieldsOutput(event apptypes.EventMetadata, fields []readFie
 		case readFieldAgent:
 			result["agent"] = event.Agent().String()
 		case readFieldExitCode:
+			result["exit_code"] = nil
 			if audit, ok := event.CommandAudit().Value(); ok {
 				if value, present := audit.ExitCode().Value(); present {
 					result["exit_code"] = value
-					break
 				}
 			}
-			result["exit_code"] = nil
 		case readFieldEventID:
 			result["event_id"] = event.EventID().String()
 		case readFieldSourceHook:

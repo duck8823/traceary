@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,10 +90,42 @@ func TestListEvents_MetadataProjectionOmitsBodyAndFullQuery(t *testing.T) {
 	}
 }
 
+func TestSearchAndContext_MetadataProjectionUseBodyFreeQueries(t *testing.T) {
+	t.Parallel()
+
+	metadata := newMCPMetadataFixture(t)
+	full := &projectionEventUsecaseStub{}
+	metadataUsecase := &projectionMetadataUsecaseStub{
+		search:  []apptypes.EventMetadata{metadata},
+		context: []apptypes.EventMetadata{metadata},
+	}
+	server := &Server{event: full, eventMetadata: metadataUsecase}
+
+	_, searchOutput, err := server.search()(context.Background(), nil, searchInput{Projection: "metadata", Query: "needle"})
+	if err != nil {
+		t.Fatalf("search() error = %v", err)
+	}
+	_, contextOutput, err := server.getContext()(context.Background(), nil, getContextInput{Projection: "metadata", SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("getContext() error = %v", err)
+	}
+	if full.searchCalls != 0 || full.contextCalls != 0 {
+		t.Fatalf("full calls: search=%d context=%d, want 0", full.searchCalls, full.contextCalls)
+	}
+	if metadataUsecase.searchCalls != 1 || metadataUsecase.contextCalls != 1 {
+		t.Fatalf("metadata calls: search=%d context=%d, want 1 each", metadataUsecase.searchCalls, metadataUsecase.contextCalls)
+	}
+	for name, events := range map[string][]eventOutput{"search": searchOutput.Events, "context": contextOutput.Events} {
+		if len(events) != 1 || events[0].Body != nil || len(events[0].BodyBlocks) != 0 {
+			t.Fatalf("%s metadata output = %+v", name, events)
+		}
+	}
+}
+
 func TestListEvents_LegacyBodyControlsRemainCompatible(t *testing.T) {
 	t.Parallel()
 
-	body := "stored body"
+	body := strings.Repeat("stored-body-", 100)
 	event := model.EventOf(
 		types.EventID("event-full"), types.EventKindNote, types.Client("hook"), types.Agent("codex"),
 		types.SessionID("session-1"), types.Workspace("duck8823/traceary"), body,
@@ -100,10 +133,12 @@ func TestListEvents_LegacyBodyControlsRemainCompatible(t *testing.T) {
 	)
 	zero := 0
 	for _, tt := range []struct {
-		name      string
-		bodyLimit *int
-		fullBody  bool
+		name          string
+		bodyLimit     *int
+		fullBody      bool
+		wantTruncated bool
 	}{
+		{name: "omitted body limit is bounded", wantTruncated: true},
 		{name: "explicit body_limit zero", bodyLimit: &zero},
 		{name: "full_body true", fullBody: true},
 	} {
@@ -115,19 +150,27 @@ func TestListEvents_LegacyBodyControlsRemainCompatible(t *testing.T) {
 			if err != nil {
 				t.Fatalf("listEvents() error = %v", err)
 			}
-			if len(output.Events) != 1 || output.Events[0].Body == nil || *output.Events[0].Body != body {
+			if len(output.Events) != 1 || output.Events[0].Body == nil {
 				t.Fatalf("listEvents() output = %+v", output.Events)
 			}
-			if output.Events[0].BodyTruncated {
-				t.Fatal("full stored body was marked response-truncated")
+			if output.Events[0].BodyTruncated != tt.wantTruncated {
+				t.Fatalf("BodyTruncated = %v, want %v", output.Events[0].BodyTruncated, tt.wantTruncated)
+			}
+			if !tt.wantTruncated && *output.Events[0].Body != body {
+				t.Fatalf("full body length = %d, want %d", len(*output.Events[0].Body), len(body))
+			}
+			if tt.wantTruncated && len([]rune(*output.Events[0].Body)) > defaultListEventBodyLimit+1 {
+				t.Fatalf("bounded body runes = %d, want <= %d", len([]rune(*output.Events[0].Body)), defaultListEventBodyLimit+1)
 			}
 		})
 	}
 }
 
 type projectionEventUsecaseStub struct {
-	listCalls int
-	list      []*model.Event
+	listCalls    int
+	searchCalls  int
+	contextCalls int
+	list         []*model.Event
 }
 
 func (*projectionEventUsecaseStub) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace, apptypes.LogRedaction) (*model.Event, error) {
@@ -136,7 +179,8 @@ func (*projectionEventUsecaseStub) Log(context.Context, string, types.EventKind,
 func (*projectionEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	return nil, nil, nil
 }
-func (*projectionEventUsecaseStub) Search(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error) {
+func (s *projectionEventUsecaseStub) Search(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	s.searchCalls++
 	return nil, nil
 }
 func (s *projectionEventUsecaseStub) List(context.Context, apptypes.EventListCriteria) ([]*model.Event, error) {
@@ -149,7 +193,8 @@ func (*projectionEventUsecaseStub) ListWindow(context.Context, apptypes.EventLis
 func (*projectionEventUsecaseStub) Show(context.Context, types.EventID) (apptypes.EventDetails, error) {
 	return apptypes.EventDetails{}, nil
 }
-func (*projectionEventUsecaseStub) Context(context.Context, apptypes.EventContextCriteria) ([]*model.Event, error) {
+func (s *projectionEventUsecaseStub) Context(context.Context, apptypes.EventContextCriteria) ([]*model.Event, error) {
+	s.contextCalls++
 	return nil, nil
 }
 func (*projectionEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
@@ -157,19 +202,25 @@ func (*projectionEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCr
 }
 
 type projectionMetadataUsecaseStub struct {
-	list      []apptypes.EventMetadata
-	listCalls int
+	list         []apptypes.EventMetadata
+	search       []apptypes.EventMetadata
+	context      []apptypes.EventMetadata
+	listCalls    int
+	searchCalls  int
+	contextCalls int
 }
 
 func (s *projectionMetadataUsecaseStub) List(context.Context, apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
 	s.listCalls++
 	return s.list, nil
 }
-func (*projectionMetadataUsecaseStub) Search(context.Context, apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	return nil, nil
+func (s *projectionMetadataUsecaseStub) Search(context.Context, apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
+	s.searchCalls++
+	return s.search, nil
 }
-func (*projectionMetadataUsecaseStub) Context(context.Context, apptypes.EventContextCriteria) ([]apptypes.EventMetadata, error) {
-	return nil, nil
+func (s *projectionMetadataUsecaseStub) Context(context.Context, apptypes.EventContextCriteria) ([]apptypes.EventMetadata, error) {
+	s.contextCalls++
+	return s.context, nil
 }
 
 func newMCPMetadataFixture(t *testing.T) apptypes.EventMetadata {
