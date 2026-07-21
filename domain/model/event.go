@@ -11,15 +11,17 @@ import (
 
 // Event is the smallest recorded unit in Traceary history.
 type Event struct {
-	eventID    types.EventID
-	kind       types.EventKind
-	client     types.Client
-	agent      types.Agent
-	sessionID  types.SessionID
-	workspace  types.Workspace
-	body       string
-	createdAt  time.Time
-	sourceHook string
+	eventID          types.EventID
+	kind             types.EventKind
+	client           types.Client
+	agent            types.Agent
+	sessionID        types.SessionID
+	workspace        types.Workspace
+	body             string
+	createdAt        time.Time
+	sourceHook       string
+	rawWorkspace     string
+	deliveryEvidence types.Optional[HookDeliveryEvidence]
 }
 
 // NewEvent creates a new Event.
@@ -124,6 +126,13 @@ func (e *Event) SetSourceHook(name string) {
 // source_hook column migration.
 func (e *Event) SourceHook() string { return e.sourceHook }
 
+// SetRawWorkspace retains unnormalized host workspace evidence without
+// changing the event's effective workspace.
+func (e *Event) SetRawWorkspace(value string) { e.rawWorkspace = strings.TrimSpace(value) }
+
+// RawWorkspace returns unnormalized host workspace evidence.
+func (e *Event) RawWorkspace() string { return e.rawWorkspace }
+
 // EventID returns the event ID.
 func (e *Event) EventID() types.EventID { return e.eventID }
 
@@ -147,3 +156,14 @@ func (e *Event) Body() string { return e.body }
 
 // CreatedAt returns the event creation time.
 func (e *Event) CreatedAt() time.Time { return e.createdAt }
+
+// SetDeliveryEvidence attaches validated hook delivery identity before
+// persistence. The evidence never changes the event's immutable workspace.
+func (e *Event) SetDeliveryEvidence(evidence HookDeliveryEvidence) {
+	e.deliveryEvidence = types.Some(evidence)
+}
+
+// DeliveryEvidence returns optional stable hook delivery evidence.
+func (e *Event) DeliveryEvidence() types.Optional[HookDeliveryEvidence] {
+	return e.deliveryEvidence
+}

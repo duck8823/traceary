@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -478,5 +479,88 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 	}
 	if *endedAt != "2026-04-10T13:00:00Z" {
 		t.Errorf("ended_at = %q, want 2026-04-10T13:00:00Z", *endedAt)
+	}
+}
+
+func TestDatasource_Initialize_BackfillsWorkspaceObservationsInBoundedBatches(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	migrationDir := onDiskSQLiteMigrationDir(t)
+	oldStore := newStoreManagementDatasource(t, dbPath, migrationsBeforeVersion(t, migrationDir, 22))
+	if err := oldStore.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-22) error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sessions (session_id, started_at, client, agent, workspace)
+		VALUES ('session-backfill', '2026-07-22T00:00:00Z', 'hook', 'codex', '/repo')`); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	for i := 0; i < 1005; i++ {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO events (id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+			VALUES (?, 'prompt', 'hook', 'codex', 'session-backfill', '/repo', 'historical', ?, 'user_prompt_submit')`,
+			fmt.Sprintf("historical-%04d", i),
+			fmt.Sprintf("2026-07-22T00:%02d:%02dZ", (i/60)%60, i%60),
+		); err != nil {
+			t.Fatalf("insert historical event %d: %v", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	store := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(first catch-up) error = %v", err)
+	}
+	assertWorkspaceObservationMigrationCounts(t, dbPath, 1005, 1000)
+
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(second catch-up) error = %v", err)
+	}
+	assertWorkspaceObservationMigrationCounts(t, dbPath, 1005, 1005)
+
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(idempotent catch-up) error = %v", err)
+	}
+	assertWorkspaceObservationMigrationCounts(t, dbPath, 1005, 1005)
+}
+
+func assertWorkspaceObservationMigrationCounts(t *testing.T, dbPath string, wantEvents, wantObservations int) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var events, observations, backfill, exact int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&events); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations`).Scan(&observations); err != nil {
+		t.Fatalf("count observations: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations WHERE observation_origin = 'backfill'`).Scan(&backfill); err != nil {
+		t.Fatalf("count backfill observations: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations WHERE observed_relationship = 'exact'`).Scan(&exact); err != nil {
+		t.Fatalf("count exact observations: %v", err)
+	}
+	if events != wantEvents || observations != wantObservations || backfill != wantObservations || exact != wantObservations {
+		t.Fatalf("counts = events:%d observations:%d backfill:%d exact:%d, want %d/%d/%d/%d", events, observations, backfill, exact, wantEvents, wantObservations, wantObservations, wantObservations)
 	}
 }

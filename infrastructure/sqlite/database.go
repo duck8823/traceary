@@ -178,6 +178,9 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 	if err := d.migrate(ctx, db); err != nil {
 		return xerrors.Errorf("failed to run SQLite migrations: %w", err)
 	}
+	if err := catchUpWorkspaceObservations(ctx, db, workspaceObservationCatchUpBatchSize); err != nil {
+		return xerrors.Errorf("failed to catch up workspace observations: %w", err)
+	}
 
 	return nil
 }
