@@ -108,8 +108,8 @@ The following order produces one classification:
 1. `unknown`: either value is empty;
 2. `exact`: normalized values are identical;
 3. `explicit_alias`: an operator-reviewed alias links the values;
-4. `descendant`: the effective local path is below the canonical local path;
-5. `ancestor`: the effective local path contains the canonical local path;
+4. `descendant`: both values are absolute local paths and the effective path is below the canonical path;
+5. `ancestor`: both values are absolute local paths and the effective path contains the canonical path;
 6. `conflict`: both values are known and none of the preceding relations apply.
 
 Remote identifiers only become aliases through an explicit reviewed record.
@@ -143,9 +143,13 @@ SessionWorkspaceAttribution {
 This is a conceptual interface, not a required Go DTO name.
 Host adapters may construct smaller commands for session start and event recording as long as the selection order and unknown-value contract remain observable.
 
-Persistence commits the event and its workspace observation atomically when an observation is present.
-A diagnostic write failure must fail that transaction rather than leave an event with falsely complete provenance.
-Classification failure caused by malformed optional evidence may fall back to `unknown`, but it must retain the raw observation and a diagnostic reason.
+Raw workspace attribution is required provenance, not a best-effort diagnostic.
+Persistence commits an event and its workspace observation atomically when an observation is present; a genuine schema, I/O, or constraint failure fails that transaction rather than leaving an event with falsely complete provenance.
+An exact delivery-identity retry is an idempotent success and does not fail the transaction or add a second event or observation.
+
+Relationship classification and aggregate reports are derived diagnostics.
+Malformed optional evidence records `unknown` plus a `diagnostic_reason` while retaining the raw observation; it does not reject an otherwise valid event.
+Failure to update a secondary aggregate report must not block primary event and raw-provenance persistence.
 
 ## Additive migration and backfill
 
@@ -169,8 +173,11 @@ CREATE TABLE session_workspace_observations (
     raw_workspace TEXT,
     observed_relationship TEXT NOT NULL
         CHECK (observed_relationship IN ('exact', 'descendant', 'ancestor', 'explicit_alias', 'conflict', 'unknown')),
-    event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
-    delivery_id TEXT,
+    observed_event_id TEXT,
+    reported_delivery_id TEXT,
+    accepted_delivery_id TEXT,
+    delivery_fingerprint TEXT,
+    diagnostic_reason TEXT NOT NULL DEFAULT '',
     observed_at TEXT NOT NULL,
     source_client TEXT NOT NULL DEFAULT '',
     source_hook TEXT NOT NULL DEFAULT ''
@@ -180,12 +187,12 @@ CREATE INDEX idx_session_workspace_observations_relationship
     ON session_workspace_observations(observed_relationship, observed_at DESC, session_id);
 
 CREATE UNIQUE INDEX idx_session_workspace_observations_delivery
-    ON session_workspace_observations(session_id, delivery_id)
-    WHERE delivery_id IS NOT NULL AND delivery_id <> '';
+    ON session_workspace_observations(session_id, accepted_delivery_id)
+    WHERE accepted_delivery_id IS NOT NULL AND accepted_delivery_id <> '';
 
 CREATE UNIQUE INDEX idx_session_workspace_observations_event
-    ON session_workspace_observations(event_id)
-    WHERE event_id IS NOT NULL AND event_id <> '';
+    ON session_workspace_observations(observed_event_id)
+    WHERE observed_event_id IS NOT NULL AND observed_event_id <> '';
 ```
 
 The tables store attribution metadata only.
@@ -196,30 +203,53 @@ An alias is scoped to one session and requires a reviewed operation with reviewe
 Adding an alias does not rewrite historical `observed_relationship` values.
 Reports may expose both the relationship observed at ingestion and the current relationship derived by joining reviewed aliases.
 
+`observed_event_id` is an immutable provenance value rather than a foreign key.
+Deleting or archiving an event therefore cannot mutate an append-only observation; reports discover current event availability through a left join.
+
 Runtime observation IDs come from the stable delivery identity defined by #1435 when available, with a domain-generated ID otherwise.
-The partial unique indexes make an exact redelivery idempotent and permit at most one attribution observation per persisted event without merging legitimate deliveries that lack the same delivery ID.
+An accepted delivery identity has the namespace `<client>:<hook-kind>:<native-session-id>:<native-delivery-id>` (or an equivalent typed representation).
+Host adapters must keep it stable for one logical delivery and must not reuse a native ID across hook kinds or session IDs.
+When a host provides no stable native ID, `accepted_delivery_id` remains absent and repeated equal bodies remain distinct legitimate deliveries.
+
+The application stores the host-provided identity in `reported_delivery_id`, the validated identity in `accepted_delivery_id`, and a digest of the normalized delivery envelope in `delivery_fingerprint`.
+The fingerprint may include a body digest to detect identity collisions, but body equality is never identity or deduplication evidence.
+On an accepted-identity unique collision, the repository compares the existing fingerprint and stable attribution fields:
+
+- an exact match is an idempotent success and creates no event or observation;
+- a mismatch is a host identity conflict, so the new legitimate event and observation are preserved with `accepted_delivery_id` absent, the raw `reported_delivery_id` retained, and `diagnostic_reason=delivery_identity_conflict`.
+
+This collision handling is application behavior; the unique index alone is not the idempotency mechanism.
+The event index permits at most one attribution observation per persisted event without merging legitimate deliveries.
 The observation `session_id` is deliberately not a foreign key: historical and direct event writes can contain a session ID without a materialized `sessions` row, and migration must preserve those rows.
 Such observations classify as `unknown` until a session row exists; reviewed aliases still require an existing session through their foreign key.
 
-Backfill runs in the schema transaction:
+The schema migration only creates the additive tables and indexes in a short transaction.
+It does not scan all events while holding the schema transaction.
+After that transaction, a resumable catch-up worker processes at most 1,000 events per write transaction, using stable `(created_at, id)` keyset pagination and `INSERT ... ON CONFLICT DO NOTHING` for `backfill:<event-id>` observations.
+The batch size is configurable for migration tests and constrained environments.
+
+Catch-up performs the following work:
 
 1. keep every `sessions` and `events` row unchanged;
 2. insert one observation per existing event, using `backfill:<event_id>` as `observation_id`;
-3. keep the event timestamp and event ID as `observed_at` and `event_id`;
-4. leave `delivery_id` and `raw_workspace` unknown because historical rows do not preserve them;
+3. keep the event timestamp and event ID as `observed_at` and `observed_event_id`;
+4. leave delivery identity, fingerprint, and `raw_workspace` unknown because historical rows do not preserve them;
 5. classify against `sessions.workspace` using only exact and local ancestor/descendant rules;
-6. use `unknown` when the session row or either workspace value is unavailable;
+6. classify a known nonmatching pair as `conflict`, and use `unknown` only when the session row or either workspace value is unavailable;
 7. create no alias rows automatically and never use equal bodies as alias or delivery evidence.
 
 The backfill source client/hook fields come from each event when available.
+Every upgraded initialization resumes catch-up for missing observations, so events written during a rollback to an older binary are filled on the next upgrade.
+Diagnostics expose catch-up coverage and never claim complete historical measurement until the missing count reaches zero.
 
-The implementation must include migration tests for empty workspaces, events without materialized session rows, sessions spanning multiple effective workspaces, Windows paths, exact-redelivery uniqueness, reviewed aliases, deleted-event `SET NULL` behavior, and idempotent re-open after migration.
+The implementation must include migration tests for empty workspaces, events without materialized session rows, sessions spanning multiple effective workspaces, Windows paths, exact-redelivery identity comparison, identity conflicts, reviewed aliases, immutable observed event IDs after event deletion, bounded batch commits, interrupted catch-up, and idempotent re-open after migration.
 
 ### Rollback
 
 Rollback means deploying the previous binary and ignoring or dropping the additive observation and alias tables after taking a backup.
 The previous binary continues to read and write the unchanged `sessions.workspace` and `events.workspace` columns.
 No down migration may rewrite either workspace column or delete events.
+Events written by the previous binary create a temporary observation gap; resumable catch-up fills that gap after re-upgrade.
 
 Rollback is required if the migration changes existing row counts or IDs, blocks normal event ingestion, widens default workspace filters, or classifies more than 5% of sampled known pairs as conflicts during dogfooding without an explained host fixture.
 
@@ -242,6 +272,23 @@ No new selector changes the v0.30 default.
 
 Additive output fields may expose `canonical_workspace`, `effective_workspace`, and relationship facts after their producer and fixtures are implemented.
 Unknown facts are omitted or rendered as `unknown`; they are not serialized as false equivalence.
+
+### Handoff and context-pack result membership
+
+The v0.30 handoff resolver keeps the following precise contract for optional session ID `S`, requested workspace `W`, and `active_only`:
+
+1. Query canonical sessions by `S`, exact `W`, and `active_only`, ordered by `started_at DESC, session_id DESC`; the first row wins.
+2. Only when that query is empty and `W` is an absolute local path, visit its ancestors from closest parent to filesystem root.
+3. For each ancestor, visit candidate sessions in `started_at DESC, session_id DESC` pages of 50 and select the first candidate whose event history contains at least one event with session ID equal to the candidate and effective workspace exactly equal to `W`.
+4. `S`, when present, and `active_only` remain filters during fallback. Remote identities never use ancestor fallback.
+5. If no candidate qualifies, return no matching session.
+
+An exact canonical match therefore wins over a newer ancestor session with effective-workspace evidence.
+The selected session ID determines the handoff session metadata, recent command items, compact summary, and other event sections; those sections may contain events from every effective workspace in that session and are not re-filtered to `W`.
+Memory candidates use deduplicated scopes in this order: selected canonical workspace, requested `W` when different, selected session family, then each valid selected-session agent.
+The context pack exposes the selected canonical workspace and retains `W` as the requested-workspace match note.
+
+Integration tests must lock the selected session ID, candidate ordering, event-section membership, memory-scope ordering, exact-over-fallback precedence, session-ID and active filters, no-match behavior, and the absence of remote fallback.
 
 ## Cross-host fixtures
 
@@ -283,8 +330,8 @@ They must not assert private helper call order or require a specific host adapte
 This design issue ships only this contract.
 Production changes remain split by the existing issue hierarchy:
 
-1. **#1435 ingest identity and host attribution**: add red tests for immutable canonical selection, event-local effective selection, and cross-host delivery retries; implement domain/application attribution; adapt hosts; keep default queries unchanged.
-2. **#1429 diagnostics and measurement**: add the observation-table migration and backfill; expose conflict/alias diagnostics and dry-run historical analysis; dogfood copied local data.
+1. **#1435 schema-first ingest identity and host attribution**: first add the additive schema, then red tests for immutable canonical selection, event-local effective selection, exact-retry comparison, identity conflict preservation, and cross-host delivery retries; implement domain/application attribution, atomic event/observation writes, resumable catch-up, and host adapters while keeping default queries unchanged.
+2. **#1429 diagnostics and measurement**: expose conflict/alias diagnostics, catch-up coverage, and dry-run historical analysis, then dogfood copied local data. It consumes the observation schema from #1435 rather than introducing that schema after runtime writers.
 3. **release QA #1437**: run all host fixtures, migration-copy tests, filter compatibility tests, and sampled conflict review before v0.30.0.
 
 For each behavior, the red test should assert the stored canonical/effective values or public result membership.
@@ -294,7 +341,7 @@ Refactoring then introduces explicit vocabulary and removes host handlers that d
 ## Structure review checkpoint
 
 The design is rejected if a hook handler owns canonical/effective precedence, if a use case switches behavior through multiple booleans, if SQLite DTOs leak into domain rules, or if tests pin private call order.
-The design is also rejected if session canonical workspace changes as a side effect of event recording or if diagnostic classification can block the primary event before raw evidence is retained.
+The design is also rejected if session canonical workspace changes as a side effect of event recording, if derived classification rejects an otherwise valid event, or if event persistence can claim complete provenance without atomically retaining the required raw attribution.
 
 The implementation should prefer one attribution decision owner, small host adapters, and repository transactions with visible failure contracts.
 Aliases require an explicit reviewed operation; no host adapter may create them heuristically.
