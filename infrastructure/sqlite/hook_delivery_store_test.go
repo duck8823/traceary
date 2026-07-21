@@ -77,6 +77,13 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		if supplementalRelationship != "unknown" {
 			t.Fatalf("supplemental relationship = %q, want unknown without canonical session", supplementalRelationship)
 		}
+		var supplementalRaw string
+		if err := db.QueryRow(`SELECT raw_workspace FROM session_workspace_observations WHERE observation_kind = 'supplemental'`).Scan(&supplementalRaw); err != nil {
+			t.Fatalf("read supplemental raw workspace: %v", err)
+		}
+		if supplementalRaw != "/repo/sub" {
+			t.Fatalf("supplemental raw workspace = %q, want retained host evidence", supplementalRaw)
+		}
 	})
 
 	t.Run("reused native ID with changed semantics is explicit conflict", func(t *testing.T) {

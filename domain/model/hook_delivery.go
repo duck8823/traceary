@@ -171,5 +171,10 @@ func normalizeAbsoluteWorkspacePath(value string) (string, bool) {
 	} else if isUNCAbsolute {
 		prefix = "//"
 	}
+	if isWindowsDriveAbsolute || isUNCAbsolute {
+		for i := range cleaned {
+			cleaned[i] = strings.ToLower(cleaned[i])
+		}
+	}
 	return strings.TrimSuffix(prefix+strings.Join(cleaned, "/"), "/"), true
 }

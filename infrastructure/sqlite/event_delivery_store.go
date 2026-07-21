@@ -254,9 +254,6 @@ func insertWorkspaceObservation(
 		return err
 	}
 	rawWorkspace := event.RawWorkspace()
-	if rawWorkspace == event.Workspace().String() {
-		rawWorkspace = ""
-	}
 	observationID := "event:" + observedEventID
 	if evidence, ok := event.DeliveryEvidence().Value(); ok {
 		observationID = evidence.ObservationID()

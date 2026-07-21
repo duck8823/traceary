@@ -58,6 +58,8 @@ func TestClassifyWorkspaceRelationship(t *testing.T) {
 		{name: "descendant", canonical: "/repo", effective: "/repo/sub", want: model.WorkspaceRelationshipDescendant},
 		{name: "ancestor", canonical: "/repo/sub", effective: "/repo", want: model.WorkspaceRelationshipAncestor},
 		{name: "windows descendant", canonical: `C:\repo`, effective: `C:\repo\sub`, want: model.WorkspaceRelationshipDescendant},
+		{name: "windows case insensitive", canonical: `C:\Repo`, effective: `c:\repo\Sub`, want: model.WorkspaceRelationshipDescendant},
+		{name: "UNC case insensitive", canonical: `\\Server\Share\Repo`, effective: `\\server\share\repo`, want: model.WorkspaceRelationshipExact},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
