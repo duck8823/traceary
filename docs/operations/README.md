@@ -123,3 +123,4 @@ Possible but not actively tuned:
 - Python dependency plan: [`./python-dependencies.md`](./python-dependencies.md)
 - Repository tooling plan: [`./repo-tooling.md`](./repo-tooling.md)
 - Memory command surface plan: [`./memory-command-surface.md`](./memory-command-surface.md)
+- Workspace identity contract: [`./workspace-identity-contract.md`](./workspace-identity-contract.md)
