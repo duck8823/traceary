@@ -109,6 +109,7 @@ keep additive compatibility keys:
 | response truncated | `truncated` | `body_truncated` | existing keys remain aliases of one canonical fact |
 | original rune count before response truncation | `message_length` | `body_length` | both remain rune counts and are emitted only when currently required for compatibility |
 | original/stored/returned byte extent | `body_original_bytes`, `body_stored_bytes`, `body_returned_bytes` | same names | new additive keys use explicit byte units |
+| pre-response plain-text projection bytes | legacy `message_bytes` | no current equivalent | v0.30.0 makes this consistently mean the byte length of `ExtractPlainBody` before response summarization/truncation; it is not raw stored-body extent |
 | ingestion/storage truncation | `body_ingest_truncated`, `body_storage_truncated` | same names | new additive provenance facts; unknown remains null/absent |
 
 The v0.30.0 implementation does not silently reinterpret the units of
@@ -153,6 +154,8 @@ projection mode it retains its full-body meaning.
 - Selecting no body/message field routes to the metadata query.
 - Selecting compact audit metadata such as `exit_code` uses a body-free
   `command_audits` join/read model and never calls the full detail path per row.
+- Failure-color/highlight resolution uses the same joined `failed` metadata;
+  `hydrateForColor` must not retain the per-row full-detail fallback.
 - Metadata JSON uses a dedicated body-free output DTO so absent body keys cannot
   be confused with an intentionally empty stored body.
 - `--wide` and explicit full-detail surfaces keep their existing content
@@ -167,6 +170,13 @@ surfaces remain explicit full-stored-body reads. A surface that cannot expose
 the shared provenance in v0.30.0 must be listed as a known compatibility gap,
 not given a third meaning for truncation.
 
+The existing MCP handoff `recent_commands` field is a `[]string` and cannot
+carry per-item provenance. It is therefore a known v0.29 compatibility gap.
+v0.30.0 keeps that field as a legacy mirror and adds structured sibling items
+with event identity, response truncation, rune length, and byte extent; new
+consumers use the structured sibling. This work is tracked as a separate
+sub-issue so the general list projection does not silently change handoff.
+
 ## Behavior tests
 
 | Behavior | Given | When | Then | Level |
@@ -174,11 +184,11 @@ not given a third meaning for truncation.
 | Metadata does not hydrate body | two rows with identical metadata and radically different bodies | metadata list runs | returned values and allocated response size are body-size independent | SQLite integration |
 | SQL omits body columns | a metadata projection | query is prepared/executed | result scanner has no body/body-block destination | SQLite integration |
 | Membership is projection-independent | one fixed snapshot/filter | metadata and full lists run | event IDs and order match | query-service integration |
-| Legacy MCP default is bounded | projection omitted | `list_events` runs | body is capped at 500 runes as before | MCP behavior |
+| Legacy MCP default is bounded | projection omitted | `list_events` runs | body is capped at 500 runes as before | MCP regression |
 | Legacy full body remains full stored body | `body_limit=0` or `full_body=true` | MCP list runs | stored body is returned without response truncation | MCP regression |
 | Contradictory MCP options fail closed | `projection=metadata` and `full_body=true` | validation runs | request fails without querying | MCP behavior |
 | JSON fields control serialization | CLI JSON selects metadata fields | list runs | message/body keys are absent | CLI behavior |
-| Audit metadata stays body-free | CLI metadata fields include `exit_code` | list runs | one metadata query returns exit code without selecting event body or command input/output | CLI/SQLite integration |
+| Audit metadata stays body-free | CLI metadata fields include `exit_code` or failure coloring is enabled | list runs | one metadata query returns exit code/failed without selecting event body or command input/output | CLI/SQLite integration |
 | Full detail remains explicit | an event has a large stored body | `traceary show` runs | full stored body is returned | CLI regression |
 | Unknown is not zero | a historical row lacks original extent | metadata serializes | original size/provenance is null or absent | migration behavior |
 | Self-inspection is bounded | 10,000 events contain large bodies | metadata-only list/context runs | output and Go-side allocations remain bounded by row metadata, not body size | end-to-end regression |
@@ -191,7 +201,7 @@ call order.
 | Slice | Red | Green | Refactor target |
 |---|---|---|---|
 | #1428 metadata query | failing SQLite tests prove body columns are not scanned and membership matches full reads | add metadata read model, schema facts, migration, and dedicated SELECT lists | share filter/snapshot construction without sharing scanners |
-| #1433 CLI JSON | failing test shows `--fields` still emits `message` and `exit_code` triggers detail hydration | map resolved fields to a metadata query, optional audit-metadata join, and dedicated body-free serializer | one projection resolver for list/tail-compatible paths; remove N+1 extras hydration |
+| #1433 CLI JSON | failing test shows `--fields` still emits `message`; `exit_code` and failure coloring trigger detail hydration; `message_bytes` changes meaning across paths | map resolved fields to a metadata query, optional audit-metadata join, dedicated body-free serializer, and consistent pre-response plain-text byte count | one projection resolver for list/tail-compatible paths; remove both N+1 extras hydration paths |
 | #1433 MCP | failing compatibility and contradiction tests | add explicit projection mapping and metadata output | share application projection types, not presentation DTOs |
 | #1433 scale regression | 10,000-row fixture grows with body size | route to metadata SQL and body-free serializer | keep benchmark/fixture deterministic and private-data free |
 
@@ -218,5 +228,8 @@ call order.
 - **Contract drift:** CLI and MCP may have different DTOs, but projection
   semantics and truncation vocabulary have one application owner. The mapping
   table above is the compatibility source of truth.
+- **Version-name ambiguity:** `body_metadata_version` is an internal ingest
+  extraction version, not a public projection selector; serializers do not
+  expose it unless a later schema contract explicitly requires that fact.
 
 Implementation of #1428 starts only after this note is reviewed and merged.
