@@ -19,10 +19,18 @@ type ContextPack struct {
 	agents               []string
 	workingState         WorkingState
 	recentCommands       []string
+	recentCommandItems   []RecentCommandSummary
 	memories             []MemorySummary
 	memoryNeedsReview    []MemorySummary
 	acceptedMemoryCount  int
 	candidateMemoryCount int
+}
+
+// WithRecentCommandItems returns a copy with structured recent-command
+// projections. The legacy RecentCommands list remains unchanged.
+func (c ContextPack) WithRecentCommandItems(items []RecentCommandSummary) ContextPack {
+	c.recentCommandItems = slices.Clone(items)
+	return c
 }
 
 // ContextPackOf creates a ContextPack.
@@ -106,6 +114,11 @@ func (c ContextPack) WorkingState() WorkingState { return c.workingState }
 
 // RecentCommands returns recent command summaries.
 func (c ContextPack) RecentCommands() []string { return slices.Clone(c.recentCommands) }
+
+// RecentCommandItems returns structured recent-command projections.
+func (c ContextPack) RecentCommandItems() []RecentCommandSummary {
+	return slices.Clone(c.recentCommandItems)
+}
 
 // Memories returns accepted durable memories relevant to the pack.
 func (c ContextPack) Memories() []MemorySummary { return slices.Clone(c.memories) }

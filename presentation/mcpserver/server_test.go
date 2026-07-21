@@ -753,7 +753,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 			Name: "record_event",
 			Arguments: map[string]any{
 				"type":       "audit",
-				"command":    "go test ./...",
+				"command":    "go test ./... " + strings.Repeat("x", 100),
 				"agent":      "claude",
 				"session_id": sessionID,
 				"workspace":  "github.com/duck8823/traceary",
@@ -801,7 +801,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 			t.Fatalf("CallTool(session_handoff) error = %v", err)
 		}
 		if handoffResult.IsError {
-			t.Fatalf("CallTool(session_handoff) returned tool error")
+			t.Fatalf("CallTool(session_handoff) returned tool error: %#v / %#v", handoffResult, handoffResult.Content[0])
 		}
 		handoffPayload := decodeJSONPayload(t, handoffResult)
 		workingState, ok := handoffPayload["working_state"].(map[string]any)
@@ -879,6 +879,32 @@ func TestServer_BuildAndTools(t *testing.T) {
 		recentCommands, ok := packPayload["recent_commands"].([]any)
 		if !ok || len(recentCommands) != 1 {
 			t.Fatalf("recent_commands = %T len=%d, want 1", packPayload["recent_commands"], len(recentCommands))
+		}
+		recentCommandItems, ok := packPayload["recent_command_items"].([]any)
+		if !ok || len(recentCommandItems) != 1 {
+			t.Fatalf("recent_command_items = %T len=%d, want 1", packPayload["recent_command_items"], len(recentCommandItems))
+		}
+		commandItem, ok := recentCommandItems[0].(map[string]any)
+		if !ok {
+			t.Fatalf("recent_command_items[0] = %T, want map[string]any", recentCommandItems[0])
+		}
+		if commandItem["summary"] != recentCommands[0] {
+			t.Fatalf("structured summary = %v, legacy summary = %v", commandItem["summary"], recentCommands[0])
+		}
+		if commandItem["event_id"] == "" || commandItem["retrieval_hint"] == "" {
+			t.Fatalf("recent_command_items[0] lacks identity/detail hint: %v", commandItem)
+		}
+		if returned, ok := commandItem["body_returned_bytes"].(float64); !ok || returned <= 0 {
+			t.Fatalf("body_returned_bytes = %v, want positive number", commandItem["body_returned_bytes"])
+		}
+		if stored, ok := commandItem["body_stored_bytes"].(float64); !ok || stored <= commandItem["body_returned_bytes"].(float64) {
+			t.Fatalf("body_stored_bytes = %v, want greater than returned bytes", commandItem["body_stored_bytes"])
+		}
+		if truncated, ok := commandItem["body_response_truncated"].(bool); !ok || !truncated {
+			t.Fatalf("body_response_truncated = %v, want true", commandItem["body_response_truncated"])
+		}
+		if _, exists := commandItem["body_original_bytes"]; exists {
+			t.Fatalf("unknown body_original_bytes must be omitted: %v", commandItem)
 		}
 		if _, exists := packPayload["memory_needs_review"]; exists {
 			t.Fatalf("default memory_pack must omit memory_needs_review unless include_candidates=true: %v", packPayload["memory_needs_review"])
@@ -1040,6 +1066,12 @@ func TestServer_BuildAndTools(t *testing.T) {
 			recentCommands, ok := recentCommandsValue.([]any)
 			if !ok || len(recentCommands) != 0 {
 				t.Fatalf("recent_commands = %T len=%d, want omitted or empty []any", recentCommandsValue, len(recentCommands))
+			}
+		}
+		if recentItemsValue, exists := packPayload["recent_command_items"]; exists {
+			recentItems, ok := recentItemsValue.([]any)
+			if !ok || len(recentItems) != 0 {
+				t.Fatalf("recent_command_items = %T len=%d, want omitted or empty []any", recentItemsValue, len(recentItems))
 			}
 		}
 		if memoriesValue, exists := packPayload["memories"]; exists {
@@ -1571,6 +1603,21 @@ CREATE INDEX IF NOT EXISTS idx_sessions_parent_spawn_order
 		},
 		"000020_add_session_model.sql": {
 			Data: []byte(`ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT '';`),
+		},
+		"000021_add_event_body_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN body_original_bytes INTEGER CHECK (body_original_bytes IS NULL OR body_original_bytes >= 0);
+ALTER TABLE events ADD COLUMN body_stored_bytes INTEGER CHECK (body_stored_bytes IS NULL OR body_stored_bytes >= 0);
+ALTER TABLE events ADD COLUMN body_ingest_truncated INTEGER CHECK (body_ingest_truncated IS NULL OR body_ingest_truncated IN (0, 1));
+ALTER TABLE events ADD COLUMN body_storage_truncated INTEGER CHECK (body_storage_truncated IS NULL OR body_storage_truncated IN (0, 1));
+ALTER TABLE events ADD COLUMN body_metadata_version INTEGER CHECK (body_metadata_version IS NULL OR body_metadata_version >= 0);
+UPDATE events SET body_stored_bytes = length(CAST(body AS BLOB)) WHERE body_stored_bytes IS NULL;
+CREATE TRIGGER events_body_metadata_after_insert AFTER INSERT ON events FOR EACH ROW BEGIN
+    UPDATE events SET body_stored_bytes = length(CAST(NEW.body AS BLOB)) WHERE id = NEW.id;
+END;
+CREATE TRIGGER events_body_metadata_after_body_update AFTER UPDATE OF body ON events FOR EACH ROW BEGIN
+    UPDATE events SET body_stored_bytes = length(CAST(NEW.body AS BLOB)) WHERE id = NEW.id;
+END;`),
 		},
 		"000008_create_memories.sql": {
 			Data: []byte(`

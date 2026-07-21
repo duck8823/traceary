@@ -78,10 +78,24 @@ type sessionHandoffOutput struct {
 	Summary               string                `json:"summary,omitempty" jsonschema:"legacy compatibility mirror of working_state.combined_summary"`
 	WorkingState          workingStateOutput    `json:"working_state"`
 	RecentCommands        []string              `json:"recent_commands,omitempty"`
+	RecentCommandItems    []recentCommandOutput `json:"recent_command_items,omitempty" jsonschema:"structured body-safe recent commands with extent and truncation provenance"`
 	Memories              []memorySummaryOutput `json:"memories,omitempty"`
 	MemoryNeedsReview     []memorySummaryOutput `json:"memory_needs_review,omitempty" jsonschema:"candidate memories included only when include_candidates is true; review before trusting"`
 	AcceptedMemoryCount   int                   `json:"accepted_memory_count" jsonschema:"number of accepted memories loaded into trusted context"`
 	CandidateMemoryCount  int                   `json:"candidate_memory_count" jsonschema:"number of candidate memories observed under the context-pack limit"`
+}
+
+type recentCommandOutput struct {
+	EventID               string `json:"event_id" jsonschema:"event identity for explicit detail retrieval"`
+	Summary               string `json:"summary" jsonschema:"body-safe single-line command summary"`
+	BodyOriginalBytes     *int   `json:"body_original_bytes,omitempty" jsonschema:"original payload bytes when known"`
+	BodyStoredBytes       int    `json:"body_stored_bytes" jsonschema:"persisted payload bytes"`
+	BodyReturnedBytes     int    `json:"body_returned_bytes" jsonschema:"summary bytes returned by this response"`
+	BodyResponseTruncated bool   `json:"body_response_truncated" jsonschema:"whether this response omitted persisted body content"`
+	BodyIngestTruncated   *bool  `json:"body_ingest_truncated,omitempty" jsonschema:"whether ingestion truncated the original payload when known"`
+	BodyStorageTruncated  *bool  `json:"body_storage_truncated,omitempty" jsonschema:"whether storage policy truncated the ingested payload when known"`
+	CreatedAt             string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
+	RetrievalHint         string `json:"retrieval_hint" jsonschema:"explicit command for retrieving full stored event detail"`
 }
 
 // sessionLineageOutput is the MCP output for session_status action=lineage.

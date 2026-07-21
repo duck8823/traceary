@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -142,6 +143,52 @@ type eventQueryServiceStub struct {
 	listRecentLimitByKind      map[types.EventKind]int
 	listRecentWorkspace        types.Workspace
 	listRecentWorkspaceByKind  map[types.EventKind]types.Workspace
+}
+
+func (s *eventQueryServiceStub) ListRecentCommandPreviews(
+	_ context.Context,
+	_ types.SessionID,
+	limit, bodyRuneLimit int,
+) ([]apptypes.EventBodyPreview, error) {
+	s.listRecentCalls++
+	s.listRecentLimit = limit
+	if s.listRecentCallsByKind == nil {
+		s.listRecentCallsByKind = make(map[types.EventKind]int)
+	}
+	if s.listRecentLimitByKind == nil {
+		s.listRecentLimitByKind = make(map[types.EventKind]int)
+	}
+	s.listRecentCallsByKind[types.EventKindCommandExecuted]++
+	s.listRecentLimitByKind[types.EventKindCommandExecuted] = limit
+	if err := s.listRecentErrByKind[types.EventKindCommandExecuted]; err != nil {
+		return nil, err
+	}
+	if s.listRecentErr != nil {
+		return nil, s.listRecentErr
+	}
+	events := s.listRecentResultByKind[types.EventKindCommandExecuted]
+	if events == nil {
+		events = s.listRecentResult
+	}
+	if limit < len(events) {
+		events = events[:limit]
+	}
+	previews := make([]apptypes.EventBodyPreview, 0, len(events))
+	for _, event := range events {
+		bodyRunes := []rune(event.Body())
+		if len(bodyRunes) > bodyRuneLimit {
+			bodyRunes = bodyRunes[:bodyRuneLimit]
+		}
+		preview, err := apptypes.EventBodyPreviewOf(
+			event.EventID(), string(bodyRunes), len(event.Body()), types.Some(len(event.Body())),
+			types.Some(false), types.Some(false), event.CreatedAt(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create command preview: %w", err)
+		}
+		previews = append(previews, preview)
+	}
+	return previews, nil
 }
 
 // eventEvidenceKey lets tests stub ListRecent results that depend on the

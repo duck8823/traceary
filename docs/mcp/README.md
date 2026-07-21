@@ -26,6 +26,8 @@ Traceary exposes exactly 8 MCP tools — frozen since v0.10.0 and enforced by a 
 
 `session_status(action="active", ...)` treats a session that received events after its end marker as still active, matching the CLI `sessions --snapshot` `ended_with_late_events` rule. A lone `session_ended` followed by later prompts or audits does not exclude the session from the active result.
 
+`session_status(action="handoff", ...)` and `query_memory(action="pack", ...)` preserve the legacy `recent_commands` string array and also return `recent_command_items`. The structured sibling includes `event_id`, a body-safe `summary`, returned/stored/original byte extent, ingestion/storage/response truncation facts, and a `retrieval_hint`. Unknown historical facts are omitted. Full stored content requires explicit `traceary show <event-id>` or event-detail retrieval; handoff itself reads only a bounded body prefix.
+
 ### Search query semantics
 
 `search.query` is a literal text query, not a boolean query language. A string such as `failure OR timeout` is not interpreted as an any-match expression for `failure` or `timeout`; treat it as one search string. For multi-term inspection, issue multiple narrower `search` calls or save CLI JSON output to a local file and aggregate it with local tools such as `jq`.

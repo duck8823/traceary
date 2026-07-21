@@ -16,8 +16,11 @@ import (
 type contextPackBuilder struct {
 	sessionQuery queryservice.SessionQueryService
 	eventQuery   queryservice.EventQueryService
+	previewQuery queryservice.EventPreviewQueryService
 	memoryQuery  queryservice.MemoryQueryService
 }
+
+const contextPackCommandPreviewRuneLimit = 4096
 
 func newContextPackBuilder(
 	sessionQuery queryservice.SessionQueryService,
@@ -30,10 +33,14 @@ func newContextPackBuilder(
 	if eventQuery == nil {
 		return nil, xerrors.Errorf("event query service is not configured")
 	}
-
+	previewQuery, ok := eventQuery.(queryservice.EventPreviewQueryService)
+	if !ok {
+		return nil, xerrors.Errorf("event preview query service is not configured")
+	}
 	return &contextPackBuilder{
 		sessionQuery: sessionQuery,
 		eventQuery:   eventQuery,
+		previewQuery: previewQuery,
 		memoryQuery:  memoryQuery,
 	}, nil
 }
@@ -63,7 +70,7 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 	if !criteria.AllowStale() && criteria.StaleAfter() > 0 && isStaleActiveSession(session, criteria.StaleAfter(), time.Now()) {
 		return domtypes.None[apptypes.ContextPack](), nil
 	}
-	recentCommands, err := b.loadRecentCommands(ctx, session, criteria.RecentCommandsLimit())
+	recentCommands, recentCommandItems, err := b.loadRecentCommands(ctx, session, criteria.RecentCommandsLimit())
 	if err != nil {
 		return domtypes.None[apptypes.ContextPack](), err
 	}
@@ -96,40 +103,44 @@ func (b *contextPackBuilder) Build(ctx context.Context, criteria apptypes.Contex
 		recentCommands,
 		memories.trusted,
 	).
+		WithRecentCommandItems(recentCommandItems).
 		WithRequestedWorkspace(criteria.Workspace()).
 		WithMemoryNeedsReview(memories.needsReview, memories.candidateCount).
 		WithMemoryCounts(memories.acceptedCount, memories.candidateCount)
 	return domtypes.Some(pack), nil
 }
 
-func (b *contextPackBuilder) loadRecentCommands(ctx context.Context, session apptypes.SessionSummary, limit int) ([]string, error) {
+func (b *contextPackBuilder) loadRecentCommands(ctx context.Context, session apptypes.SessionSummary, limit int) ([]string, []apptypes.RecentCommandSummary, error) {
 	if limit == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
-
-	events, err := b.eventQuery.ListRecent(
-		ctx,
-		limit,
-		0,
-		domtypes.EventKindCommandExecuted,
-		domtypes.Client(""),
-		domtypes.Agent(""),
-		session.SessionID(),
-		domtypes.Workspace(""),
-		false,
-		time.Time{},
-		time.Time{},
-		"",
-	)
+	previews, err := b.previewQuery.ListRecentCommandPreviews(ctx, session.SessionID(), limit, contextPackCommandPreviewRuneLimit)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to list recent command events for context pack: %w", err)
+		return nil, nil, xerrors.Errorf("failed to list recent command previews for context pack: %w", err)
 	}
-
-	recentCommands := make([]string, 0, len(events))
-	for _, event := range events {
-		recentCommands = append(recentCommands, summarizeCommand(event.Body()))
+	commands := make([]string, 0, len(previews))
+	items := make([]apptypes.RecentCommandSummary, 0, len(previews))
+	for _, preview := range previews {
+		summary := summarizeCommand(preview.Body())
+		responseTruncated := preview.StoredBytes() > len(preview.Body()) ||
+			(strings.TrimSpace(preview.Body()) != "" && summary != preview.Body())
+		extent, err := apptypes.EventBodyExtentOf(
+			preview.OriginalBytes(), preview.StoredBytes(), preview.IngestTruncated(),
+			preview.StorageTruncated(), domtypes.None[int](),
+		)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("failed to build recent command extent: %w", err)
+		}
+		item, err := apptypes.RecentCommandSummaryOf(
+			preview.EventID(), summary, responseTruncated, extent, preview.CreatedAt(),
+		)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("failed to build recent command summary: %w", err)
+		}
+		commands = append(commands, summary)
+		items = append(items, item)
 	}
-	return recentCommands, nil
+	return commands, items, nil
 }
 
 func (b *contextPackBuilder) loadCompactSummary(ctx context.Context, session apptypes.SessionSummary) (string, error) {

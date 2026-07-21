@@ -266,6 +266,31 @@ func writeHandoffText(output io.Writer, result types.Optional[apptypes.ContextPa
 			return xerrors.Errorf("failed to print empty recent-commands item: %w", err)
 		}
 	}
+	if _, err := fmt.Fprintln(output, "RECENT_COMMAND_ITEMS:"); err != nil {
+		return xerrors.Errorf("failed to print structured recent-commands heading: %w", err)
+	}
+	for _, item := range pack.RecentCommandItems() {
+		extent := item.BodyExtent()
+		original := "unknown"
+		if value, ok := extent.OriginalBytes().Value(); ok {
+			original = fmt.Sprintf("%d", value)
+		}
+		ingestTruncated := formatOptionalBool(extent.IngestTruncated())
+		storageTruncated := formatOptionalBool(extent.StorageTruncated())
+		if _, err := fmt.Fprintf(
+			output,
+			"- event_id=%s summary=%q returned_bytes=%d stored_bytes=%d original_bytes=%s response_truncated=%t ingest_truncated=%s storage_truncated=%s detail=%q\n",
+			item.EventID(), item.Summary(), item.ReturnedBytes(), extent.StoredBytes(), original,
+			item.ResponseTruncated(), ingestTruncated, storageTruncated, "traceary show "+item.EventID().String(),
+		); err != nil {
+			return xerrors.Errorf("failed to print structured recent command: %w", err)
+		}
+	}
+	if len(pack.RecentCommandItems()) == 0 {
+		if _, err := fmt.Fprintln(output, "-"); err != nil {
+			return xerrors.Errorf("failed to print empty structured recent-command item: %w", err)
+		}
+	}
 	if _, err := fmt.Fprintf(
 		output,
 		"MEMORY_COUNTS: accepted=%d candidate=%d\n",
@@ -327,4 +352,12 @@ func writeHandoffText(output io.Writer, result types.Optional[apptypes.ContextPa
 	}
 
 	return nil
+}
+
+func formatOptionalBool(value types.Optional[bool]) string {
+	v, ok := value.Value()
+	if !ok {
+		return "unknown"
+	}
+	return fmt.Sprintf("%t", v)
 }

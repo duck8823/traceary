@@ -11,6 +11,8 @@ WORKING_STATE:
 - compact_summary: -
 RECENT_COMMANDS:
 -
+RECENT_COMMAND_ITEMS:
+-
 MEMORY_COUNTS: accepted=0 candidate=0
 MEMORIES:
 -
