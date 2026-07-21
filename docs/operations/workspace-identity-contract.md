@@ -98,6 +98,7 @@ The first available event-local value wins:
 Host adapters normalize their payload into this decision input.
 The application rule does not inspect host JSON field names.
 The selected effective workspace is stored on the event and never copied back into the session row.
+Once inserted, that event workspace is immutable; retry attribution is retained only through supplemental observations and never rewrites the original event.
 
 Boundary events use the session canonical workspace unless the host provides an unambiguous boundary-local workspace.
 In either case the session row remains unchanged.
@@ -193,7 +194,9 @@ CREATE TABLE session_workspace_observations (
     workspace TEXT NOT NULL,
     raw_workspace TEXT,
     observation_kind TEXT NOT NULL
-        CHECK (observation_kind IN ('primary', 'supplemental', 'backfill')),
+        CHECK (observation_kind IN ('primary', 'supplemental')),
+    observation_origin TEXT NOT NULL
+        CHECK (observation_origin IN ('runtime', 'backfill')),
     observed_relationship TEXT NOT NULL
         CHECK (observed_relationship IN ('exact', 'descendant', 'ancestor', 'explicit_alias', 'conflict', 'unknown')),
     observed_event_id TEXT,
@@ -246,6 +249,16 @@ The repository handles a reported identity in this order:
 The delivery table's triple uniqueness makes a retry of an already recorded conflict resolve through step 1, so it cannot amplify events.
 The partial accepted-identity index identifies the first accepted fingerprint; the application comparison and full ledger, not that index alone, implement idempotency.
 The primary-event index permits one primary attribution per persisted event, while supplemental observations may retain improved retry attribution for that same event.
+
+Concurrent delivery handling is also part of the repository contract.
+If an accepted-identity or triple-identity unique collision occurs after the initial lookup, the repository rolls back that attempted write, reloads the append-only ledger in a new transaction, and performs the decision once more:
+
+- the same fingerprint follows step 1 as an idempotent success;
+- a different fingerprint follows step 3 and preserves one conflict event;
+- a triple-identity collision while inserting that conflict reloads the now-existing conflict row and follows step 1.
+
+Each named collision permits one constraint-driven reload; a delivery can therefore re-enter the decision at most twice (once after an accepted-identity race and once after a conflict-triple race), never in an unbounded retry loop.
+Only the two named identity uniqueness conflicts take this branch; busy timeouts, check violations, schema errors, and I/O failures remain genuine transaction failures.
 The observation `session_id` is deliberately not a foreign key: historical and direct event writes can contain a session ID without a materialized `sessions` row, and migration must preserve those rows.
 Such observations classify as `unknown` until a session row exists; reviewed aliases still require an existing session through their foreign key.
 
@@ -259,7 +272,7 @@ Catch-up yields between bounded batches; incomplete coverage never blocks normal
 Catch-up performs the following work:
 
 1. keep every `sessions` and `events` row unchanged;
-2. insert one backfill observation for each event that has no primary observation, using `backfill:<event_id>` as `observation_id`; an existing primary-event unique key or backfill ID is an idempotent already-complete result;
+2. insert one primary observation with `observation_origin=backfill` for each event that has no primary observation, using `backfill:<event_id>` as `observation_id`; an existing primary observation or backfill ID is an idempotent already-complete result;
 3. keep the event timestamp and event ID as `observed_at` and `observed_event_id`;
 4. create no delivery-ledger row and leave `raw_workspace` unknown because historical rows do not preserve stable delivery identity;
 5. classify against `sessions.workspace` using only exact and local ancestor/descendant rules;
