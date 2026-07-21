@@ -228,6 +228,8 @@ replay HTML は sessions / timeline blocks / failure hotspots / durable memories
 
 session metadata、recent commands、compact summary、accepted durable memories から組み立てた handoff summary を表示します。`--compact-only` を付けると、prompt injection 向けの短い summary を出力します。`--compact-only` 指定時は `--recent` 未指定なら 3 に自動設定されます。
 
+構造化テキストは互換用の `RECENT_COMMANDS` 文字列一覧を維持し、兄弟セクション `RECENT_COMMAND_ITEMS` を追加します。各項目は event ID、応答・保存・元データの byte 数、応答時の切り詰め有無、明示的な詳細取得コマンド `traceary show <event-id>` を示します。handoff は本文の上限付き先頭部分だけを読み、command payload 全文をメモリに展開しません。
+
 主な flag:
 
 - `--session-id`

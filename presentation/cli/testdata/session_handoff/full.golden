@@ -12,6 +12,8 @@ WORKING_STATE:
 RECENT_COMMANDS:
 - go test ./...
 - go tool golangci-lint run
+RECENT_COMMAND_ITEMS:
+- event_id=event-command-golden summary="go test ./..." returned_bytes=13 stored_bytes=80 original_bytes=80 response_truncated=true ingest_truncated=false storage_truncated=false detail="traceary show event-command-golden"
 MEMORY_COUNTS: accepted=1 candidate=1
 MEMORIES:
 - [decision][workspace:duck8823/traceary] Keep handoff format stable for downstream parsers

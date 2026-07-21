@@ -57,6 +57,16 @@ func TestSessionHandoff_TextGoldens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MemorySummaryOf(candidate) error = %v", err)
 	}
+	extent, err := apptypes.EventBodyExtentOf(types.Some(80), 80, types.Some(false), types.Some(false), types.None[int]())
+	if err != nil {
+		t.Fatalf("EventBodyExtentOf() error = %v", err)
+	}
+	commandItem, err := apptypes.RecentCommandSummaryOf(
+		types.EventID("event-command-golden"), "go test ./...", true, extent, fixedAt,
+	)
+	if err != nil {
+		t.Fatalf("RecentCommandSummaryOf() error = %v", err)
+	}
 	fullPack := apptypes.ContextPackOf(
 		types.SessionID("session-handoff-golden"),
 		types.Workspace("duck8823/traceary"),
@@ -72,6 +82,7 @@ func TestSessionHandoff_TextGoldens(t *testing.T) {
 		[]string{"go test ./...", "go tool golangci-lint run"},
 		[]apptypes.MemorySummary{acceptedSummary},
 	).
+		WithRecentCommandItems([]apptypes.RecentCommandSummary{commandItem}).
 		WithMemoryNeedsReview([]apptypes.MemorySummary{candidateSummary}, 1).
 		WithMemoryCounts(1, 1)
 

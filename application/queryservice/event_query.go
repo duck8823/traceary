@@ -44,3 +44,9 @@ type EventMetadataQueryService interface {
 	// time order.
 	GetContextMetadata(ctx context.Context, criteria apptypes.EventContextCriteria) ([]apptypes.EventMetadata, error)
 }
+
+// EventPreviewQueryService provides bounded content reads for summary
+// surfaces without materializing full stored event bodies.
+type EventPreviewQueryService interface {
+	ListRecentCommandPreviews(ctx context.Context, sessionID types.SessionID, limit, bodyRuneLimit int) ([]apptypes.EventBodyPreview, error)
+}

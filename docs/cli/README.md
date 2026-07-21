@@ -228,6 +228,8 @@ Useful flags:
 
 Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories. Pass `--compact-only` to emit the short prompt-injection summary form. `--compact-only` defaults `--recent` to 3 when the flag is not set.
 
+The structured text keeps the legacy `RECENT_COMMANDS` string list and adds a sibling `RECENT_COMMAND_ITEMS` section. Each item identifies its event, reports returned/stored/original byte extent and response truncation, and includes the explicit `traceary show <event-id>` detail command. Handoff reads only a bounded body prefix; it does not hydrate full command payloads.
+
 Useful flags:
 
 - `--session-id`

@@ -1380,6 +1380,7 @@ func newContextPackOutput(pack apptypes.ContextPack) sessionHandoffOutput {
 		Summary:              pack.WorkingState().CombinedSummary(),
 		WorkingState:         newWorkingStateOutput(pack.WorkingState()),
 		RecentCommands:       pack.RecentCommands(),
+		RecentCommandItems:   convertRecentCommandSummaries(pack.RecentCommandItems()),
 		Memories:             convertMemorySummaries(pack.Memories()),
 		MemoryNeedsReview:    convertMemorySummaries(pack.MemoryNeedsReview()),
 		AcceptedMemoryCount:  pack.AcceptedMemoryCount(),
@@ -1392,6 +1393,42 @@ func newContextPackOutput(pack apptypes.ContextPack) sessionHandoffOutput {
 			" (requested " + pack.RequestedWorkspace().String() + ")"
 	}
 	return out
+}
+
+func convertRecentCommandSummaries(items []apptypes.RecentCommandSummary) []recentCommandOutput {
+	result := make([]recentCommandOutput, 0, len(items))
+	for _, item := range items {
+		extent := item.BodyExtent()
+		result = append(result, recentCommandOutput{
+			EventID:               item.EventID().String(),
+			Summary:               item.Summary(),
+			BodyOriginalBytes:     optionalIntPointer(extent.OriginalBytes()),
+			BodyStoredBytes:       extent.StoredBytes(),
+			BodyReturnedBytes:     item.ReturnedBytes(),
+			BodyResponseTruncated: item.ResponseTruncated(),
+			BodyIngestTruncated:   optionalBoolPointer(extent.IngestTruncated()),
+			BodyStorageTruncated:  optionalBoolPointer(extent.StorageTruncated()),
+			CreatedAt:             item.CreatedAt().Format(time.RFC3339Nano),
+			RetrievalHint:         "traceary show " + item.EventID().String(),
+		})
+	}
+	return result
+}
+
+func optionalIntPointer(value types.Optional[int]) *int {
+	v, ok := value.Value()
+	if !ok {
+		return nil
+	}
+	return &v
+}
+
+func optionalBoolPointer(value types.Optional[bool]) *bool {
+	v, ok := value.Value()
+	if !ok {
+		return nil
+	}
+	return &v
 }
 
 func newWorkingStateOutput(state apptypes.WorkingState) workingStateOutput {
