@@ -71,6 +71,9 @@ func TestEventMetadataQuery_ListRecentDoesNotHydrateBody(t *testing.T) {
 }
 
 func TestEventMetadataQuery_AllocationDoesNotScaleWithStoredBody(t *testing.T) {
+	// Repeating the query reduces one-off allocator noise. The 512 KiB margin is
+	// deliberately far below the 8 MiB body, so accidentally hydrating the body
+	// still fails while normal SQLite/Go bookkeeping variance is tolerated.
 	const iterations = 8
 	measure := func(name, body string) uint64 {
 		t.Helper()
@@ -108,6 +111,99 @@ func TestEventMetadataQuery_AllocationDoesNotScaleWithStoredBody(t *testing.T) {
 	const allowedDelta = 512 * 1024
 	if largeAlloc > smallAlloc+allowedDelta {
 		t.Fatalf("metadata allocation scaled with body: small=%d large=%d delta=%d (allowed %d)", smallAlloc, largeAlloc, largeAlloc-smallAlloc, allowedDelta)
+	}
+}
+
+func TestEventMetadataQuery_ListRecentPreservesFullQueryMembership(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	base := time.Date(2026, 7, 22, 1, 30, 0, 0, time.UTC)
+	newEvent := func(id string, kind types.EventKind, client, agent, session, workspace string, createdAt time.Time) *model.Event {
+		t.Helper()
+		return model.EventOf(
+			mustEventIDForSQLite(t, id),
+			kind,
+			types.Client(client),
+			mustAgentForSQLite(t, agent),
+			mustSessionIDForSQLite(t, session),
+			types.Workspace(workspace),
+			"body for "+id,
+			createdAt,
+		)
+	}
+
+	event1 := newEvent("event-1", types.EventKindNote, "cli", "codex", "session-1", "ws-1", base)
+	event2 := newEvent("event-2", types.EventKindPrompt, "hook", "claude", "session-2", "ws-2", base.Add(time.Second))
+	event2.SetSourceHook("stop")
+	event3 := newEvent("event-3", types.EventKindNote, "hook", "codex", "session-1", "ws-2", base.Add(2*time.Second))
+	event3.SetSourceHook("stop")
+	for _, event := range []*model.Event{event1, event2, event3} {
+		if err := sut.Save(context.Background(), event); err != nil {
+			t.Fatalf("Save(%s) error = %v", event.EventID(), err)
+		}
+	}
+	event4, audit := newSearchAuditFixture(t, "event-4", "ws-1", base.Add(3*time.Second))
+	audit.SetExitCode(types.Some(1))
+	audit.SetFailed(true)
+	if err := sut.SaveWithAudit(context.Background(), event4, audit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		criteria apptypes.EventListCriteria
+	}{
+		{name: "all", criteria: apptypes.NewEventListCriteriaBuilder(10).Build()},
+		{name: "kind", criteria: apptypes.NewEventListCriteriaBuilder(10).Kind(types.EventKindPrompt).Build()},
+		{name: "client", criteria: apptypes.NewEventListCriteriaBuilder(10).Client(types.Client("hook")).Build()},
+		{name: "agent", criteria: apptypes.NewEventListCriteriaBuilder(10).Agent(types.Agent("claude")).Build()},
+		{name: "session", criteria: apptypes.NewEventListCriteriaBuilder(10).SessionID(types.SessionID("session-2")).Build()},
+		{name: "workspace", criteria: apptypes.NewEventListCriteriaBuilder(10).Workspace(types.Workspace("ws-1")).Build()},
+		{name: "time range", criteria: apptypes.NewEventListCriteriaBuilder(10).From(base.Add(time.Second)).To(base.Add(3 * time.Second)).Build()},
+		{name: "source hook", criteria: apptypes.NewEventListCriteriaBuilder(10).SourceHook("stop").Build()},
+		{name: "failures only", criteria: apptypes.NewEventListCriteriaBuilder(10).FailuresOnly(true).Build()},
+		{name: "offset", criteria: apptypes.NewEventListCriteriaBuilder(2).Offset(1).Build()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metadata, err := sut.ListRecentMetadata(context.Background(), tt.criteria)
+			if err != nil {
+				t.Fatalf("ListRecentMetadata() error = %v", err)
+			}
+			full, err := sut.ListRecent(
+				context.Background(),
+				tt.criteria.Limit(),
+				tt.criteria.Offset(),
+				tt.criteria.Kind(),
+				tt.criteria.Client(),
+				tt.criteria.Agent(),
+				tt.criteria.SessionID(),
+				tt.criteria.Workspace(),
+				tt.criteria.FailuresOnly(),
+				tt.criteria.From(),
+				tt.criteria.To(),
+				tt.criteria.SourceHook(),
+			)
+			if err != nil {
+				t.Fatalf("ListRecent() error = %v", err)
+			}
+			fullIDs := make([]string, 0, len(full))
+			for _, event := range full {
+				fullIDs = append(fullIDs, event.EventID().String())
+			}
+			if len(fullIDs) == 0 {
+				t.Fatal("test filter returned no fixtures")
+			}
+			if diff := cmp.Diff(fullIDs, metadataIDs(metadata)); diff != "" {
+				t.Fatalf("metadata/full membership mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
@@ -219,6 +315,10 @@ func TestEventMetadataQuery_SearchAndContextPreserveOrdering(t *testing.T) {
 	contextCriteria := apptypes.NewEventContextCriteriaBuilder(10).
 		Workspace(types.Workspace("duck8823/traceary")).
 		SessionID(types.SessionID("session-1")).
+		// Full GetContext historically ignores these fields. Metadata retrieval
+		// must preserve that membership contract until both APIs change together.
+		Client(types.Client("nonexistent")).
+		Agent(types.Agent("nonexistent")).
 		Build()
 	contextEvents, err := sut.GetContextMetadata(context.Background(), contextCriteria)
 	if err != nil {
@@ -368,6 +468,25 @@ CREATE TABLE events (
 	}
 	if storedBytes != len("updated") {
 		t.Fatalf("updated body_stored_bytes = %d, want %d", storedBytes, len("updated"))
+	}
+
+	if _, err := db.Exec(`INSERT INTO events(id, kind, client, agent, session_id, workspace, body, body_stored_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, "event-explicit-bytes", "note", "cli", "codex", "session-1", "ws", "exact", 999, time.Now().UTC().Add(2*time.Second).Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("insert with caller-supplied stored bytes: %v", err)
+	}
+	if err := db.QueryRow(`SELECT body_stored_bytes FROM events WHERE id = ?`, "event-explicit-bytes").Scan(&storedBytes); err != nil {
+		t.Fatalf("query recomputed stored bytes: %v", err)
+	}
+	if storedBytes != len("exact") {
+		t.Fatalf("recomputed body_stored_bytes = %d, want %d", storedBytes, len("exact"))
+	}
+
+	for name, statement := range map[string]string{
+		"negative stored bytes": `UPDATE events SET body_stored_bytes = -1 WHERE id = 'event-utf8'`,
+		"invalid truncation":    `UPDATE events SET body_ingest_truncated = 2 WHERE id = 'event-utf8'`,
+	} {
+		if _, err := db.Exec(statement); err == nil {
+			t.Fatalf("%s unexpectedly satisfied metadata constraints", name)
+		}
 	}
 }
 

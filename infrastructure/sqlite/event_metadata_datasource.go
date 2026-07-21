@@ -193,8 +193,6 @@ func (d *EventDatasource) GetContextMetadata(
 
 	workspace := strings.TrimSpace(criteria.Workspace().String())
 	sessionID := strings.TrimSpace(criteria.SessionID().String())
-	client := strings.TrimSpace(criteria.Client().String())
-	agent := strings.TrimSpace(criteria.Agent().String())
 	rows, err := db.QueryContext(
 		ctx,
 		getContextEventMetadataQuery,
@@ -202,10 +200,6 @@ func (d *EventDatasource) GetContextMetadata(
 		workspace,
 		sessionID,
 		sessionID,
-		client,
-		client,
-		agent,
-		agent,
 		criteria.Limit(),
 	)
 	if err != nil {

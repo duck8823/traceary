@@ -7,6 +7,7 @@ import (
 )
 
 var metadataSelectListPattern = regexp.MustCompile(`(?is)\bselect\b(.*?)\bfrom\b`)
+var bodyBearingColumnPattern = regexp.MustCompile(`(?i)\b(?:e\.)?body\b|\bbody_blocks\b|\bcommand_text\b|\binput_text\b|\boutput_text\b`)
 
 func TestMetadataQueries_DoNotSelectBodyColumns(t *testing.T) {
 	t.Parallel()
@@ -28,10 +29,8 @@ func TestMetadataQueries_DoNotSelectBodyColumns(t *testing.T) {
 			}
 			for _, match := range selectLists {
 				selectList := match[1]
-				for _, forbidden := range []string{"e.body,", "e.body ", "body_blocks", "command_text", "input_text", "output_text"} {
-					if strings.Contains(selectList, forbidden) {
-						t.Fatalf("SELECT list contains body-bearing column %q: %s", forbidden, selectList)
-					}
+				if forbidden := bodyBearingColumnPattern.FindString(selectList); forbidden != "" {
+					t.Fatalf("SELECT list contains body-bearing column %q: %s", forbidden, selectList)
 				}
 			}
 		})
