@@ -5,6 +5,8 @@
 This guide documents the practical runtime assumptions behind Traceary's local SQLite store and generated hook scripts.
 It is intentionally candid about what Traceary assumes today, what is merely best-effort, and where users may still need manual overrides.
 
+The v0.31 retention release decision and copied-store recovery evidence are recorded in [v0.31 retention copied-store dogfood](./retention-dogfood-v0.31.md).
+
 ## SQLite concurrency model
 
 Traceary relies on SQLite itself for cross-process coordination.

@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"time"
 
@@ -15,10 +16,90 @@ import (
 
 const fileRetentionPlanSchemaVersion = "file-retention-plan/v1"
 
+// FileRetentionCapacityInspector provides read-only operational capacity evidence.
+type FileRetentionCapacityInspector interface {
+	InspectCapacity(ctx context.Context, request apptypes.FileRetentionCapacityRequest) ([]apptypes.FileRetentionCapacityStatus, error)
+}
+
 // FileRetentionUsecase plans and explicitly applies local archive/backup limits.
 type FileRetentionUsecase interface {
+	FileRetentionCapacityInspector
 	CreatePlan(ctx context.Context, request apptypes.FileRetentionPlanRequest, now time.Time) ([]byte, error)
 	Apply(ctx context.Context, encodedPlan []byte, confirmedPlanID string, now time.Time) (apptypes.FileRetentionApplyResult, error)
+}
+
+func (usecase *fileRetentionUsecase) InspectCapacity(ctx context.Context, request apptypes.FileRetentionCapacityRequest) ([]apptypes.FileRetentionCapacityStatus, error) {
+	if usecase.inventory == nil {
+		return nil, xerrors.New("file retention inventory is not configured")
+	}
+	if request.DatabasePath == "" || len(request.Classes) == 0 {
+		return nil, xerrors.New("file retention database and at least one class are required")
+	}
+	statuses := make([]apptypes.FileRetentionCapacityStatus, 0, len(request.Classes))
+	for _, classRequest := range request.Classes {
+		if classRequest.DatabasePath != "" && classRequest.DatabasePath != request.DatabasePath {
+			return nil, xerrors.Errorf("%s capacity database path does not match the request", classRequest.Class)
+		}
+		snapshot, err := usecase.inventory.InspectFileRetention(ctx, apptypes.FileRetentionInventoryRequest{
+			Class: classRequest.Class, Root: classRequest.Root, DatabasePath: request.DatabasePath,
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("inspect %s retention capacity: %w", classRequest.Class, err)
+		}
+		statuses = append(statuses, summarizeFileRetentionCapacity(snapshot))
+	}
+	return statuses, nil
+}
+
+func summarizeFileRetentionCapacity(snapshot apptypes.FileRetentionInventorySnapshot) apptypes.FileRetentionCapacityStatus {
+	status := apptypes.FileRetentionCapacityStatus{
+		Class: snapshot.Class, Root: snapshot.Root, FileCount: len(snapshot.Entries), AllocatedKnown: true,
+	}
+	for _, entry := range snapshot.Entries {
+		if total, ok := addNonNegativeInt64(status.LogicalBytes, entry.LogicalBytes); ok && !status.LogicalOverflow {
+			status.LogicalBytes = total
+		} else {
+			status.LogicalOverflow = true
+		}
+		if entry.AllocatedKnown {
+			if total, ok := addNonNegativeInt64(status.AllocatedBytes, entry.AllocatedBytes); ok && !status.AllocatedOverflow {
+				status.AllocatedBytes = total
+			} else {
+				status.AllocatedOverflow = true
+			}
+		} else {
+			status.AllocatedKnown = false
+		}
+		if entry.Verified {
+			status.VerifiedCount++
+		} else {
+			status.UnverifiedCount++
+		}
+		if entry.BlockingReason != "" {
+			status.BlockingCount++
+		}
+	}
+	if len(snapshot.Entries) == 0 {
+		status.State = "empty"
+		return status
+	}
+	floorIndex := newestVerifiedCurrentGeneration(snapshot.Entries, snapshot.LiveGeneration)
+	if floorIndex >= 0 {
+		status.FloorRelativePath = snapshot.Entries[floorIndex].RelativePath
+	}
+	if floorIndex >= 0 && status.BlockingCount == 0 && status.AllocatedKnown && !status.LogicalOverflow && !status.AllocatedOverflow {
+		status.State = "ready"
+	} else {
+		status.State = "indeterminate"
+	}
+	return status
+}
+
+func addNonNegativeInt64(left, right int64) (int64, bool) {
+	if left < 0 || right < 0 || left > math.MaxInt64-right {
+		return 0, false
+	}
+	return left + right, true
 }
 
 type fileRetentionUsecase struct {

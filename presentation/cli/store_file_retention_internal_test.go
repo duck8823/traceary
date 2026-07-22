@@ -87,10 +87,19 @@ func TestFileRetentionClassRequestsRejectsRootWithoutCeiling(t *testing.T) {
 type fileRetentionUsecaseStub struct {
 	plan        []byte
 	result      apptypes.FileRetentionApplyResult
+	statuses    []apptypes.FileRetentionCapacityStatus
 	request     apptypes.FileRetentionPlanRequest
+	statusReq   apptypes.FileRetentionCapacityRequest
 	confirmedID string
 	createCalls int
 	applyCalls  int
+	statusCalls int
+}
+
+func (stub *fileRetentionUsecaseStub) InspectCapacity(_ context.Context, request apptypes.FileRetentionCapacityRequest) ([]apptypes.FileRetentionCapacityStatus, error) {
+	stub.statusCalls++
+	stub.statusReq = request
+	return stub.statuses, nil
 }
 
 func (stub *fileRetentionUsecaseStub) CreatePlan(_ context.Context, request apptypes.FileRetentionPlanRequest, _ time.Time) ([]byte, error) {

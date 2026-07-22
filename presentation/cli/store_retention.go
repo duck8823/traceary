@@ -28,9 +28,8 @@ type storeRetentionExecutionInput struct {
 
 func (c *RootCLI) newStoreRetentionCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:    "retention",
-		Short:  Localize("Plan and apply opt-in raw-body retention", "opt-in の本文保持ポリシーを計画・適用する"),
-		Hidden: true,
+		Use:   "retention",
+		Short: Localize("Plan and apply opt-in raw-body retention", "opt-in の本文保持ポリシーを計画・適用する"),
 	}
 	command.AddCommand(c.newStoreRetentionPlanCommand())
 	command.AddCommand(c.newStoreRetentionApplyCommand())
