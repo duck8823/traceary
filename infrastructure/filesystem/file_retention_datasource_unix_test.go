@@ -352,6 +352,34 @@ func TestFileRetentionRetryDoesNotTreatNameInspectionErrorAsAbsence(t *testing.T
 	if result.DeletedCount != 1 || result.ConflictedCount != 0 {
 		t.Fatalf("Apply(retry) result = %#v", result)
 	}
+	journalData, err = os.ReadFile(filepath.Join(root, fileRetentionJournalName(plan.PlanID, candidate.Identity)))
+	if err != nil {
+		t.Fatalf("ReadFile(committed journal) error = %v", err)
+	}
+	if err := json.Unmarshal(journalData, &journal); err != nil || journal.State != "committed" {
+		t.Fatalf("committed journal = %#v, error = %v", journal, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, tombstone)); !os.IsNotExist(err) {
+		t.Fatalf("tombstone after converged retry error = %v, want absent", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, candidate.RelativePath)); !os.IsNotExist(err) {
+		t.Fatalf("original after converged retry error = %v, want absent", err)
+	}
+	ledgerData, err := os.ReadFile(filepath.Join(root, fileRetentionLedgerName))
+	if err != nil {
+		t.Fatalf("ReadFile(ledger) error = %v", err)
+	}
+	var ledger fileRetentionLedger
+	if err := json.Unmarshal(ledgerData, &ledger); err != nil || len(ledger.Entries) != 1 || ledger.Entries[0].Identity != candidate.Identity {
+		t.Fatalf("converged ledger = %#v, error = %v", ledger, err)
+	}
+	idempotent, err := workflow.Apply(context.Background(), planBytes, plan.PlanID, now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("Apply(idempotent retry) error = %v", err)
+	}
+	if idempotent.AlreadyCommitted != 1 || idempotent.DeletedCount != 0 || idempotent.ConflictedCount != 0 {
+		t.Fatalf("Apply(idempotent retry) result = %#v", idempotent)
+	}
 }
 
 func TestFileRetentionApplyRejectsGroupWritableRoot(t *testing.T) {
