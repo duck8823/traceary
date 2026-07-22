@@ -34,8 +34,12 @@ func (c *RootCLI) inspectFileRetentionCapacity(ctx context.Context, dbPath, arch
 			DatabasePath: dbPath,
 			Classes:      []apptypes.FileRetentionInventoryRequest{{Class: request.class, Root: root}},
 		})
-		if err != nil || len(statuses) != 1 {
+		if err != nil {
 			checks = append(checks, doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("failed to inspect %s capacity: %v", "%s capacity の確認に失敗しました: %v", request.class, err), Hint: fileRetentionCapacityHint(request.class, root)})
+			continue
+		}
+		if len(statuses) != 1 {
+			checks = append(checks, doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("failed to inspect %s capacity: expected one status, got %d", "%s capacity の確認に失敗しました: status は1件の想定ですが %d 件でした", request.class, len(statuses)), Hint: fileRetentionCapacityHint(request.class, root)})
 			continue
 		}
 		checks = append(checks, fileRetentionCapacityDoctorCheck(name, statuses[0]))
