@@ -41,6 +41,35 @@ func TestUsageObservation_ReconcileFinalizesPendingOnce(t *testing.T) {
 	}
 }
 
+func TestUsageObservationDescriptorRunIdentityIsExplicitAndSemantic(t *testing.T) {
+	t.Parallel()
+	id, _ := types.UsageObservationIDFrom("usage-run")
+	sessionID, _ := types.SessionIDFrom("session-1")
+	source, _ := types.UsageSourceOf("codex", "local", "1", "", "")
+	runIdentity, _ := types.RunIdentityFrom("codex", "run-1")
+	descriptor, err := model.NewUsageObservationDescriptorWithRunIdentity(id, sessionID, source, types.UsageScopeCall, types.UsageAccountingAdditive, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC), runIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, present := descriptor.RunIdentity().Value()
+	if !present || stored != runIdentity {
+		t.Fatalf("run identity = %#v, present=%v", stored, present)
+	}
+	legacy, err := model.NewUsageObservationDescriptor(id, sessionID, source, types.UsageScopeCall, types.UsageAccountingAdditive, time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyObservation, _ := model.NewPendingUsageObservation(legacy)
+	runObservation, _ := model.NewPendingUsageObservation(descriptor)
+	if _, err := legacyObservation.Reconcile(runObservation); !errors.Is(err, model.ErrConflictingUsageObservation) {
+		t.Fatalf("run attribution conflict error = %v", err)
+	}
+	otherHost, _ := types.RunIdentityFrom("claude", "run-1")
+	if _, err := model.NewUsageObservationDescriptorWithRunIdentity(id, sessionID, source, types.UsageScopeCall, types.UsageAccountingAdditive, time.Now(), otherHost); err == nil {
+		t.Fatal("cross-host attribution accepted")
+	}
+}
+
 func TestUsageObservation_ReconcileRejectsConflictingTerminalData(t *testing.T) {
 	t.Parallel()
 

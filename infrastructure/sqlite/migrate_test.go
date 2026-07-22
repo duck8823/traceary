@@ -15,6 +15,7 @@ import (
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestDatasource_Initialize_appliesMigrationsInVersionOrder(t *testing.T) {
@@ -70,7 +71,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	tables := []string{"events", "command_audits", "sessions", "usage_observations", "schema_migrations"}
+	tables := []string{"events", "command_audits", "sessions", "usage_observations", "run_lineages", "usage_observation_runs", "schema_migrations"}
 	for _, table := range tables {
 		var count int
 		if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count); err != nil {
@@ -138,6 +139,48 @@ func TestMigrations_usageObservationsAreAdditiveAndPreserveExistingRows(t *testi
 	}
 	if label != "keep-label" || summary != "keep-summary" || body != "keep-body" {
 		t.Fatalf("existing rows changed: label=%q summary=%q body=%q", label, summary, body)
+	}
+}
+
+func TestMigrations_RunLineageIsAdditiveAndPreservesV27Usage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	preV028 := onDiskSQLiteMigrationsBefore(t, 28)
+	if err := newStoreManagementDatasource(t, dbPath, preV028).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-v028): %v", err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO usage_observations (
+observation_id, session_id, host, source_name, source_version, scope, accounting, status, observed_at,
+input_state, cached_input_state, cache_write_input_state, output_state, reasoning_output_state, total_state, cost_state
+) VALUES ('legacy-v27', 'external-session', 'codex', 'legacy', '27', 'call', 'additive', 'pending', '2026-07-23T10:00:00Z',
+'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown')`)
+	if err != nil {
+		t.Fatalf("insert v27 usage: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(v28): %v", err)
+	}
+	id, _ := types.UsageObservationIDFrom("legacy-v27")
+	restored, err := sqlite.NewUsageObservationDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))).FindByID(ctx, id)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	observation, present := restored.Value()
+	if !present {
+		t.Fatal("legacy usage missing")
+	}
+	if _, present := observation.Descriptor().RunIdentity().Value(); present {
+		t.Fatal("legacy usage fabricated run identity")
 	}
 }
 

@@ -14,15 +14,18 @@ import (
 )
 
 const selectUsageObservation = `
-SELECT observation_id, session_id, host, source_name, source_version, provider, model,
+SELECT observation.observation_id, session_id, observation.host, source_name, source_version, provider, model,
        scope, accounting, status, observed_at, finalized_at, terminal_code,
        input_state, input_tokens, cached_input_state, cached_input_tokens,
        cache_write_input_state, cache_write_input_tokens, output_state, output_tokens,
        reasoning_output_state, reasoning_output_tokens, total_state, total_tokens,
        cost_state, cost_amount_micros, cost_currency, cost_origin, price_table_version,
-       snapshot_series, snapshot_revision, supersedes_id
-  FROM usage_observations
- WHERE observation_id = ?`
+       observation.snapshot_series, observation.snapshot_revision, observation.supersedes_id,
+       attribution.run_host, attribution.run_id
+  FROM usage_observations AS observation
+  LEFT JOIN usage_observation_runs AS attribution
+    ON attribution.observation_id = observation.observation_id
+ WHERE observation.observation_id = ?`
 
 // UsageObservationDatasource persists usage observations with serialized
 // write transitions and immutable snapshot chains.
@@ -155,7 +158,7 @@ func findUsageObservation(
 	queryer usageQueryer,
 	observationID types.UsageObservationID,
 ) (types.Optional[*model.UsageObservation], error) {
-	observation, err := scanUsageObservation(queryer.QueryRowContext(ctx, selectUsageObservation, observationID.String()))
+	observation, err := scanUsageObservation(queryer.QueryRowContext(ctx, selectUsageObservation, observationID.String()), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return types.None[*model.UsageObservation](), nil
 	}
@@ -200,7 +203,7 @@ SELECT COUNT(*), COALESCE(MAX(candidate.observation_id), '')
 	return value, nil
 }
 
-func scanUsageObservation(row usageRowScanner) (*model.UsageObservation, error) {
+func scanUsageObservation(row usageRowScanner, includesRunIdentity bool) (*model.UsageObservation, error) {
 	var (
 		observationID, sessionID, host, sourceName, sourceVersion string
 		provider, modelName, finalizedAt, terminalCode            sql.NullString
@@ -214,8 +217,9 @@ func scanUsageObservation(row usageRowScanner) (*model.UsageObservation, error) 
 		costCurrency, costOrigin, priceTableVersion               sql.NullString
 		snapshotSeries, supersedesID                              sql.NullString
 		snapshotRevision                                          sql.NullInt64
+		runHost, runID                                            sql.NullString
 	)
-	if err := row.Scan(
+	destinations := []any{
 		&observationID, &sessionID, &host, &sourceName, &sourceVersion, &provider, &modelName,
 		&scope, &accounting, &status, &observedAt, &finalizedAt, &terminalCode,
 		&inputState, &inputTokens, &cachedInputState, &cachedInputTokens,
@@ -223,7 +227,11 @@ func scanUsageObservation(row usageRowScanner) (*model.UsageObservation, error) 
 		&reasoningOutputState, &reasoningOutputTokens, &totalState, &totalTokens,
 		&costState, &costAmount, &costCurrency, &costOrigin, &priceTableVersion,
 		&snapshotSeries, &snapshotRevision, &supersedesID,
-	); err != nil {
+	}
+	if includesRunIdentity {
+		destinations = append(destinations, &runHost, &runID)
+	}
+	if err := row.Scan(destinations...); err != nil {
 		return nil, xerrors.Errorf("failed to scan usage observation row: %w", err)
 	}
 
@@ -269,7 +277,18 @@ func scanUsageObservation(row usageRowScanner) (*model.UsageObservation, error) 
 			id, sid, source, snapshotSeries.String, snapshotRevision.Int64, predecessor, observedTime,
 		)
 	} else {
-		descriptor, err = model.NewUsageObservationDescriptor(id, sid, source, resolvedScope, resolvedAccounting, observedTime)
+		if runHost.Valid != runID.Valid {
+			return nil, xerrors.Errorf("usage run attribution is incomplete")
+		}
+		if runHost.Valid {
+			runIdentity, identityErr := types.RunIdentityFrom(runHost.String, runID.String)
+			if identityErr != nil {
+				return nil, xerrors.Errorf("failed to restore usage run identity: %w", identityErr)
+			}
+			descriptor, err = model.NewUsageObservationDescriptorWithRunIdentity(id, sid, source, resolvedScope, resolvedAccounting, observedTime, runIdentity)
+		} else {
+			descriptor, err = model.NewUsageObservationDescriptor(id, sid, source, resolvedScope, resolvedAccounting, observedTime)
+		}
 	}
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore usage observation descriptor: %w", err)
@@ -361,6 +380,14 @@ INSERT INTO usage_observations (
 	args := usageObservationArgs(observation)
 	if _, err := exec.ExecContext(ctx, query, args...); err != nil {
 		return xerrors.Errorf("failed to insert usage observation: %w", err)
+	}
+	if runIdentity, present := observation.Descriptor().RunIdentity().Value(); present {
+		if _, err := exec.ExecContext(ctx,
+			"INSERT INTO usage_observation_runs (observation_id, run_host, run_id) VALUES (?, ?, ?)",
+			observation.Descriptor().ObservationID().String(), runIdentity.Host(), runIdentity.RunID(),
+		); err != nil {
+			return xerrors.Errorf("failed to insert usage run attribution: %w", err)
+		}
 	}
 	return nil
 }

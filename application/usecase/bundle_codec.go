@@ -20,6 +20,7 @@ import (
 	"io"
 	"sort"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -71,6 +72,31 @@ func encodeSessionsNDJSON(sessions []*model.Session) (*bytes.Buffer, error) {
 		if err := enc.Encode(row); err != nil {
 			return nil, xerrors.Errorf("encode session: %w", err)
 		}
+	}
+	return buf, nil
+}
+
+func encodeRunLineagesNDJSON(lineages []*model.RunLineage) (*bytes.Buffer, error) {
+	rows := make([]bundleRow, 0, len(lineages))
+	for _, lineage := range lineages {
+		if lineage == nil {
+			return nil, xerrors.Errorf("encode run lineage: lineage must not be nil")
+		}
+		rows = append(rows, bundleRunLineageRowFromModel(lineage))
+	}
+	sorted, err := sortBundleRunLineageRows(rows)
+	if err != nil {
+		return nil, xerrors.Errorf("sort run lineages: %w", err)
+	}
+	buf := &bytes.Buffer{}
+	encoder := json.NewEncoder(buf)
+	for _, row := range sorted {
+		if err := encoder.Encode(row); err != nil {
+			return nil, xerrors.Errorf("encode run lineage: %w", err)
+		}
+	}
+	if !utf8.Valid(buf.Bytes()) {
+		return nil, xerrors.Errorf("encoded run lineages contain invalid UTF-8")
 	}
 	return buf, nil
 }
@@ -243,6 +269,79 @@ func filterUsageObservationsForBundleExport(
 		}
 	}
 	return filtered
+}
+
+func filterRunLineagesForBundleExport(
+	lineages []*model.RunLineage,
+	observations []*model.UsageObservation,
+	opts BundleExportOptions,
+) ([]*model.RunLineage, error) {
+	byIdentity := make(map[types.RunIdentity]*model.RunLineage, len(lineages))
+	for _, lineage := range lineages {
+		if lineage == nil {
+			return nil, xerrors.Errorf("run lineage must not be nil")
+		}
+		if _, exists := byIdentity[lineage.Identity()]; exists {
+			return nil, xerrors.Errorf("duplicate run lineage identity")
+		}
+		byIdentity[lineage.Identity()] = lineage
+	}
+	selected := make(map[types.RunIdentity]bool, len(lineages))
+	filtered := !opts.Since.IsZero() || !opts.Until.IsZero() || opts.Workspace.String() != ""
+	if !filtered {
+		for identity := range byIdentity {
+			selected[identity] = true
+		}
+	} else {
+		for _, observation := range observations {
+			if observation == nil {
+				continue
+			}
+			if identity, present := observation.Descriptor().RunIdentity().Value(); present {
+				selected[identity] = true
+			}
+		}
+	}
+	state := make(map[types.RunIdentity]uint8, len(lineages))
+	result := make([]*model.RunLineage, 0, len(selected))
+	var visit func(types.RunIdentity) error
+	visit = func(identity types.RunIdentity) error {
+		switch state[identity] {
+		case 1:
+			return xerrors.Errorf("run lineage graph contains a cycle")
+		case 2:
+			return nil
+		}
+		lineage, exists := byIdentity[identity]
+		if !exists {
+			return xerrors.Errorf("referenced run lineage %s/%s is missing", identity.Host(), identity.RunID())
+		}
+		state[identity] = 1
+		if parent, present := lineage.Parent().Value(); present {
+			if err := visit(parent); err != nil {
+				return err
+			}
+		}
+		state[identity] = 2
+		result = append(result, lineage)
+		return nil
+	}
+	identities := make([]types.RunIdentity, 0, len(selected))
+	for identity := range selected {
+		identities = append(identities, identity)
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		if identities[i].Host() != identities[j].Host() {
+			return identities[i].Host() < identities[j].Host()
+		}
+		return identities[i].RunID() < identities[j].RunID()
+	})
+	for _, identity := range identities {
+		if err := visit(identity); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 func encodeMemoriesNDJSON(memories []apptypes.MemoryDetails) (*bytes.Buffer, error) {

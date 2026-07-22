@@ -151,6 +151,7 @@ Current non-goals:
 - migrations are embedded in the binary from `schema/sqlite/migrations`
 - store initialization runs before normal command execution, so upgrades apply migrations automatically
 - backup restore copies the SQLite file first and then reruns store initialization so newer migrations can be applied
+- migration `000028` adds immutable `run_lineages` and `usage_observation_runs` tables without rewriting v27 usage rows; missing attribution remains unknown
 
 Traceary does not promise backward compatibility for arbitrary manual schema edits.
 If you need a portable copy, use `traceary store backup create` instead of editing the DB directly.

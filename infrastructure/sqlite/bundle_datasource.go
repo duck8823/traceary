@@ -241,15 +241,18 @@ func (d *BundleDatasource) ListBundleUsageObservations(ctx context.Context) ([]*
 		}
 	}()
 	rows, err := db.QueryContext(ctx, `
-SELECT observation_id, session_id, host, source_name, source_version, provider, model,
+SELECT observation.observation_id, session_id, observation.host, source_name, source_version, provider, model,
        scope, accounting, status, observed_at, finalized_at, terminal_code,
        input_state, input_tokens, cached_input_state, cached_input_tokens,
        cache_write_input_state, cache_write_input_tokens, output_state, output_tokens,
        reasoning_output_state, reasoning_output_tokens, total_state, total_tokens,
        cost_state, cost_amount_micros, cost_currency, cost_origin, price_table_version,
-       snapshot_series, snapshot_revision, supersedes_id
-  FROM usage_observations
- ORDER BY COALESCE(snapshot_series, ''), COALESCE(snapshot_revision, 0), observation_id`)
+       snapshot_series, snapshot_revision, supersedes_id,
+       attribution.run_host, attribution.run_id
+  FROM usage_observations AS observation
+  LEFT JOIN usage_observation_runs AS attribution
+    ON attribution.observation_id = observation.observation_id
+ ORDER BY COALESCE(snapshot_series, ''), COALESCE(snapshot_revision, 0), observation.observation_id`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query usage observations for bundle export: %w", err)
 	}
@@ -260,7 +263,7 @@ SELECT observation_id, session_id, host, source_name, source_version, provider, 
 	}()
 	observations := []*model.UsageObservation{}
 	for rows.Next() {
-		observation, err := scanUsageObservation(rows)
+		observation, err := scanUsageObservation(rows, true)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan bundle usage observation row: %w", err)
 		}
@@ -270,6 +273,46 @@ SELECT observation_id, session_id, host, source_name, source_version, provider, 
 		return nil, xerrors.Errorf("failed to iterate bundle usage observation rows: %w", err)
 	}
 	return observations, nil
+}
+
+// ListBundleRunLineages returns every immutable lineage fact. The usecase
+// validates and orders the complete graph before encoding it.
+func (d *BundleDatasource) ListBundleRunLineages(ctx context.Context) ([]*model.RunLineage, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for bundle run lineage export: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+	rows, err := db.QueryContext(ctx, `
+SELECT host, run_id, parent_host, parent_run_id, session_id,
+       batch_id, ticket_ref, repository, pull_request_number, head_sha,
+       packet_sha256, packet_bytes, tool_output_bytes
+  FROM run_lineages
+ ORDER BY host, run_id`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query run lineages for bundle export: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+	lineages := []*model.RunLineage{}
+	for rows.Next() {
+		lineage, err := scanRunLineage(rows)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to scan bundle run lineage row: %w", err)
+		}
+		lineages = append(lineages, lineage)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate bundle run lineage rows: %w", err)
+	}
+	return lineages, nil
 }
 
 // BeginBundleImport starts the transaction shared by every table
@@ -293,6 +336,28 @@ func (d *BundleDatasource) BeginBundleImport(ctx context.Context) (usecase.Bundl
 type bundleImportTx struct {
 	db *sql.DB
 	tx *sql.Tx
+}
+
+// ImportRunLineage preserves immutable lineage under every bundle conflict
+// policy: exact replay skips, while any semantic conflict fails the transaction.
+func (t *bundleImportTx) ImportRunLineage(ctx context.Context, lineage *model.RunLineage) (bool, error) {
+	if lineage == nil {
+		return false, model.ErrInvalidRunLineage
+	}
+	current, err := findRunLineage(ctx, t.tx, lineage.Identity())
+	if err != nil {
+		return false, xerrors.Errorf("failed to inspect run lineage conflict: %w", err)
+	}
+	if existing, present := current.Value(); present {
+		if _, err := existing.Reconcile(lineage); err != nil {
+			return false, xerrors.Errorf("failed to reconcile imported run lineage: %w", err)
+		}
+		return false, nil
+	}
+	if err := insertRunLineage(ctx, t.tx, lineage); err != nil {
+		return false, xerrors.Errorf("failed to import run lineage: %w", model.ErrInvalidRunLineage)
+	}
+	return true, nil
 }
 
 // ImportUsageObservation converges exact replays and pending-to-finalized
@@ -340,6 +405,9 @@ func (t *bundleImportTx) ImportUsageObservation(
 		if !errors.Is(reconcileErr, model.ErrConflictingUsageObservation) {
 			return false, xerrors.Errorf("failed to reconcile usage observation: %w", reconcileErr)
 		}
+		if !sameOptionalRunIdentity(existing.Descriptor().RunIdentity(), observation.Descriptor().RunIdentity()) {
+			return false, xerrors.Errorf("usage run attribution conflict is not policy-overridable: %w", reconcileErr)
+		}
 		switch policy {
 		case usecase.BundleConflictSkip:
 			return false, nil
@@ -369,6 +437,12 @@ func (t *bundleImportTx) ImportUsageObservation(
 		return false, xerrors.Errorf("failed to import usage observation: %w", err)
 	}
 	return true, nil
+}
+
+func sameOptionalRunIdentity(left, right types.Optional[types.RunIdentity]) bool {
+	leftValue, leftPresent := left.Value()
+	rightValue, rightPresent := right.Value()
+	return leftPresent == rightPresent && (!leftPresent || leftValue == rightValue)
 }
 
 // ImportSession inserts or replaces the session according to policy. Missing

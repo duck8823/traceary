@@ -151,6 +151,7 @@ Durable memory に紐づく artifact ref です。
 - migration は `schema/sqlite/migrations` からバイナリに埋め込みます
 - 通常コマンドの実行前に store initialization が走るため、upgrade 時も migration は自動適用されます
 - backup restore では、まず SQLite file をコピーし、その後に store initialization を再実行して newer migration を適用します
+- migration `000028` は不変な `run_lineages` と `usage_observation_runs` table を追加します。v27 usage row は書き換えず、attribution 欠落は unknown のままです
 
 任意の手動 schema edit との後方互換は保証しません。持ち運べるコピーが必要な場合は、DB を直接編集する代わりに `traceary store backup create` を使ってください。
 

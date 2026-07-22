@@ -9,5 +9,9 @@
   "memories_skipped": 0,
   "memory_edges_imported": 0,
   "memory_edges_skipped": 0,
+  "run_lineages_imported": 0,
+  "run_lineages_skipped": 0,
+  "usage_observations_imported": 0,
+  "usage_observations_skipped": 0,
   "bundle_schema_version": 12
 }

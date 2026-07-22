@@ -164,6 +164,8 @@ type BundleImportResult struct {
 	// observations restored vs retained as exact or policy-selected duplicates.
 	UsageObservationsImported int
 	UsageObservationsSkipped  int
+	RunLineagesImported       int
+	RunLineagesSkipped        int
 	// BundleSchemaVersion is the schema_migrations version the
 	// archive carried at Export time.
 	BundleSchemaVersion int
@@ -234,6 +236,8 @@ type BundleEventRepository interface {
 	ListBundleMemoryEdges(ctx context.Context) ([]*model.MemoryEdge, error)
 	// ListBundleUsageObservations returns all provider-neutral usage evidence.
 	ListBundleUsageObservations(ctx context.Context) ([]*model.UsageObservation, error)
+	// ListBundleRunLineages returns every immutable run lineage fact.
+	ListBundleRunLineages(ctx context.Context) ([]*model.RunLineage, error)
 	// BeginBundleImport starts the single transaction used by all table
 	// importers in registry order.
 	BeginBundleImport(ctx context.Context) (BundleImportTransaction, error)
@@ -250,6 +254,7 @@ type BundleImportTransaction interface {
 	MemoryEdgeExists(ctx context.Context, edgeID types.MemoryEdgeID) (bool, error)
 	ImportMemoryEdge(ctx context.Context, edge *model.MemoryEdge, policy BundleConflictPolicy) (bool, error)
 	ImportUsageObservation(ctx context.Context, observation *model.UsageObservation, policy BundleConflictPolicy) (bool, error)
+	ImportRunLineage(ctx context.Context, lineage *model.RunLineage) (bool, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
 }
@@ -318,6 +323,14 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		return xerrors.Errorf("failed to list usage observations for bundle: %w", err)
 	}
 	usageObservations = filterUsageObservationsForBundleExport(usageObservations, sessions, opts)
+	runLineages, err := u.repository.ListBundleRunLineages(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to list run lineages for bundle: %w", err)
+	}
+	runLineages, err = filterRunLineagesForBundleExport(runLineages, usageObservations, opts)
+	if err != nil {
+		return xerrors.Errorf("failed to select run lineages for bundle: %w", err)
+	}
 
 	registry := u.bundleTableRegistry()
 	sessionsImporter := registry["sessions"]
@@ -351,6 +364,11 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	usageObservationsBuf, err := usageObservationsImporter.Export(ctx, bundleExportInputRows{UsageObservations: usageObservations})
 	if err != nil {
 		return xerrors.Errorf("failed to encode usage observations: %w", err)
+	}
+	runLineagesImporter := registry["run_lineages"]
+	runLineagesBuf, err := runLineagesImporter.Export(ctx, bundleExportInputRows{RunLineages: runLineages})
+	if err != nil {
+		return xerrors.Errorf("failed to encode run lineages: %w", err)
 	}
 
 	manifest := bundleManifest{
@@ -406,6 +424,12 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 				RowCount:  len(usageObservations),
 				Checksum:  hashSHA256(usageObservationsBuf.Bytes()),
 			},
+			"run_lineages": {
+				TableName: "run_lineages",
+				File:      runLineagesImporter.FileName(),
+				RowCount:  len(runLineages),
+				Checksum:  hashSHA256(runLineagesBuf.Bytes()),
+			},
 		},
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -421,6 +445,7 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		"memories.ndjson":           memoriesBuf.Bytes(),
 		"memory_edges.ndjson":       memoryEdgesBuf.Bytes(),
 		"usage_observations.ndjson": usageObservationsBuf.Bytes(),
+		"run_lineages.ndjson":       runLineagesBuf.Bytes(),
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to build tar.gz: %w", err)
@@ -550,6 +575,9 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		case "usage_observations":
 			result.UsageObservationsImported += imported
 			result.UsageObservationsSkipped += skipped
+		case "run_lineages":
+			result.RunLineagesImported += imported
+			result.RunLineagesSkipped += skipped
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -570,6 +598,7 @@ type bundleExportInputRows struct {
 	Memories          []apptypes.MemoryDetails
 	MemoryEdges       []*model.MemoryEdge
 	UsageObservations []*model.UsageObservation
+	RunLineages       []*model.RunLineage
 }
 
 type bundleImportPolicy struct {

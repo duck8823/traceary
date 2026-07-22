@@ -10,11 +10,13 @@
 package usecase
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"unicode/utf8"
 
 	"golang.org/x/xerrors"
 )
@@ -26,6 +28,7 @@ func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
 	memories := bundleMemoriesTable{}
 	memoryEdges := bundleMemoryEdgesTable{}
 	usageObservations := bundleUsageObservationsTable{}
+	runLineages := bundleRunLineagesTable{}
 	return map[string]bundleTableImporter{
 		sessions.Name():          sessions,
 		events.Name():            events,
@@ -33,11 +36,63 @@ func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
 		memories.Name():          memories,
 		memoryEdges.Name():       memoryEdges,
 		usageObservations.Name(): usageObservations,
+		runLineages.Name():       runLineages,
 	}
 }
 
 func bundleTableImportOrder() []string {
-	return []string{"sessions", "usage_observations", "events", "command_audits", "memories", "memory_edges"}
+	return []string{"sessions", "run_lineages", "usage_observations", "events", "command_audits", "memories", "memory_edges"}
+}
+
+type bundleRunLineagesTable struct{}
+
+func (bundleRunLineagesTable) Name() string     { return "run_lineages" }
+func (bundleRunLineagesTable) FileName() string { return "run_lineages.ndjson" }
+func (bundleRunLineagesTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
+	return encodeRunLineagesNDJSON(input.RunLineages)
+}
+func (bundleRunLineagesTable) Decode(r io.Reader) ([]bundleRow, error) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	rows := []bundleRow{}
+	for scanner.Scan() {
+		line := append([]byte(nil), scanner.Bytes()...)
+		if !utf8.Valid(line) {
+			return nil, xerrors.Errorf("run lineage row contains invalid UTF-8")
+		}
+		var row bundleRunLineageRow
+		if err := json.Unmarshal(line, &row); err != nil {
+			return nil, xerrors.Errorf("run lineage row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, xerrors.Errorf("scan run lineage rows: %w", err)
+	}
+	return rows, nil
+}
+func (bundleRunLineagesTable) Apply(ctx context.Context, tx BundleImportTransaction, rows []bundleRow, _ bundleImportPolicy) (int, int, error) {
+	sorted, err := sortBundleRunLineageRows(rows)
+	if err != nil {
+		return 0, 0, err
+	}
+	imported, skipped := 0, 0
+	for _, row := range sorted {
+		lineage, err := row.toRunLineage()
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("restore run lineage: %w", err)
+		}
+		didImport, err := tx.ImportRunLineage(ctx, lineage)
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("run lineage %s/%s: %w", lineage.Identity().Host(), lineage.Identity().RunID(), err)
+		}
+		if didImport {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+	return imported, skipped, nil
 }
 
 type bundleUsageObservationsTable struct{}
@@ -51,14 +106,22 @@ func (bundleUsageObservationsTable) Export(_ context.Context, input bundleExport
 }
 
 func (bundleUsageObservationsTable) Decode(r io.Reader) ([]bundleRow, error) {
-	decoder := json.NewDecoder(r)
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 1024), 4*1024*1024)
 	rows := []bundleRow{}
-	for decoder.More() {
+	for scanner.Scan() {
+		line := append([]byte(nil), scanner.Bytes()...)
+		if !utf8.Valid(line) {
+			return nil, xerrors.Errorf("usage observation row contains invalid UTF-8")
+		}
 		var row bundleUsageObservationRow
-		if err := decoder.Decode(&row); err != nil {
+		if err := json.Unmarshal(line, &row); err != nil {
 			return nil, xerrors.Errorf("usage observation row: %w", err)
 		}
 		rows = append(rows, row)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, xerrors.Errorf("scan usage observation rows: %w", err)
 	}
 	return rows, nil
 }
