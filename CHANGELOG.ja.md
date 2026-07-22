@@ -5,6 +5,25 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.31.0] - 2026-07-22
+
+### Added
+- **payload class 別 retention 契約 (#1446)** — destructive executor より先に、版付き plan schema と日英の安全設計で、厳密な候補 identity、recovery 証拠、期限、確認、crash recovery、rollback を定義しました。
+- **復元可能な raw-body retention (#1444)** — 明示的な `store retention plan|apply|restore` で、event/session/source metadata を保持したまま、対象となる prompt、transcript、command-audit の body を prune できます。plan は厳密 identity と検証済み recovery archive を固定し、apply/restore は transaction、確認、冪等性、中断後再開を備えます。
+- **archive / SQLite backup の容量 retention (#1443)** — 明示的な `store retention files plan|apply` で、期間・件数・割り当て byte 上限を class ごとに独立して適用します。executor は現在の store に一致する検証済み recovery floor を保護し、不完全な証拠を拒否し、inventory 全体を再検証し、root 内に閉じた lock/journal/ledger と race-safe tombstone を使います。
+
+### Changed
+- **読み取り専用 retention readiness と release dogfood (#1445)** — opt-in の doctor/status check が、plan を作成・適用せず body と archive/backup の容量を報告します。copied-store drill で誤 confirmation、exact apply、retry 収束、archive/backup restore、代表 metadata/full-body read、SQLite integrity を確認しました。
+- **read surface の body availability (#1444)** — CLI/MCP projection は空 content を捏造せず、構造化 availability metadata で保持済み body と意図的に利用不可の body を区別します。
+
+### Fixed
+- **unsafe retention root の readiness (#1486)** — doctor が descriptor に基づく `apply_root` の所有者・mode 証拠を報告し、group/other-writable、非所有、未対応、不明の root を警告します。exact apply は同じ fail-closed 判定を再利用し、手動実行のままです。
+
+### Notes
+- migration `000026` は追加のみで rollback 互換です。通常の upgrade では body prune や file 削除を行いません。
+- v0.31 の raw-body / file-capacity plan/apply/restore は明示的・手動・opt-in であり、install、update、hook、doctor、通常の read command はこれらの plan を適用しません。既存の automatic archive-before-GC は `retention.mode=archive_then_gc` による別の opt-in 機能で、既定値は `disabled` のままです。SQLite compaction も別操作のままです。
+- MCP tool の追加はありません。release QA と recovery 証拠は `docs/operations/retention-dogfood-v0.31.ja.md` に記録しています。
+
 ## [v0.30.0] - 2026-07-22
 
 ### Added

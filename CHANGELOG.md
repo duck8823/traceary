@@ -5,6 +5,25 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.31.0] - 2026-07-22
+
+### Added
+- **Payload-class retention contract (#1446)** — a versioned plan schema and bilingual safety design define exact candidate identity, recovery evidence, expiry, confirmation, crash recovery, and rollback before any destructive executor runs.
+- **Recoverable raw-body retention (#1444)** — explicit `store retention plan|apply|restore` commands can prune eligible prompt, transcript, and command-audit bodies while preserving event/session/source metadata. Plans bind exact identities and a verified recovery archive; apply and restore are transactional, confirmation-gated, idempotent, and interruption-recoverable.
+- **Archive and SQLite-backup capacity retention (#1443)** — explicit `store retention files plan|apply` commands enforce independent age, count, and allocated-byte ceilings. The executor protects a verified current-store recovery floor, rejects incomplete evidence, revalidates the full inventory, and uses root-confined locks, journals, ledgers, and race-safe tombstones.
+
+### Changed
+- **Read-only retention readiness and release dogfood (#1445)** — opt-in doctor/status checks report body and archive/backup capacity without creating or applying a plan. Copied-store drills cover wrong confirmation, exact apply, retry convergence, archive and backup restore, representative metadata/full-body reads, and SQLite integrity.
+- **Body availability on read surfaces (#1444)** — CLI and MCP projections distinguish retained bodies from intentionally unavailable bodies through structured availability metadata instead of fabricating empty content.
+
+### Fixed
+- **Unsafe retention-root readiness (#1486)** — doctor now reports descriptor-bound `apply_root` ownership and mode evidence and warns for group/other-writable, non-owned, unsupported, or unknown roots. Exact apply reuses the same fail-closed decision and remains manual.
+
+### Notes
+- Migration `000026` is additive and rollback-compatible; ordinary upgrade does not prune bodies or delete files.
+- The v0.31 raw-body and file-capacity plan/apply/restore workflows are explicit, manual, and opt-in; no install, update, hook, doctor, or ordinary read command applies those plans. The pre-existing automatic archive-before-GC path remains separately opt-in through `retention.mode=archive_then_gc`, with `disabled` as its default. SQLite compaction remains a separate operation.
+- No MCP tools are added. Release QA and recovery evidence are recorded in `docs/operations/retention-dogfood-v0.31.md`.
+
 ## [v0.30.0] - 2026-07-22
 
 ### Added

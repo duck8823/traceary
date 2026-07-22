@@ -98,7 +98,7 @@ The docs job now checks out the full git history so the tag coverage check can c
 
 - `.claude-plugin/marketplace.json` exists and points to `./integrations/claude-plugin`
 - `.agents/plugins/marketplace.json` exists and points to `./plugins/traceary`
-- `integrations/claude-plugin/.claude-plugin/plugin.json`, `integrations/antigravity-plugin/plugin.json`, `integrations/gemini-extension/gemini-extension.json`, `integrations/grok-plugin/plugin.json`, and `plugins/traceary/.codex-plugin/plugin.json` all have a `version` equal to the root `VERSION` file
+- `integrations/claude-plugin/.claude-plugin/plugin.json`, `integrations/antigravity-plugin/plugin.json`, `integrations/gemini-extension/gemini-extension.json`, `integrations/grok-plugin/plugin.json`, `integrations/kimi-plugin/kimi.plugin.json`, and `plugins/traceary/.codex-plugin/plugin.json` all have a `version` equal to the root `VERSION` file
 
 If it fails, run `make release/bump VERSION=X.Y.Z` for the intended release or update `VERSION` and the affected manifest together. The check runs in CI, in `.github/workflows/release.yml` before GoReleaser, and from `make release/bump`.
 
