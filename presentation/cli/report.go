@@ -30,6 +30,7 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 		to        string
 		until     string
 		client    string
+		timezone  string
 		limit     int
 		asJSON    bool
 	)
@@ -46,6 +47,7 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 				to:        to,
 				until:     until,
 				client:    client,
+				timezone:  timezone,
 				limit:     limit,
 				asJSON:    asJSON,
 			})
@@ -58,6 +60,7 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&to, "to", "", Localize("period end (exclusive)", "期間終了（exclusive）"))
 	cmd.Flags().StringVar(&until, "until", "", Localize("alias for --to", "--to の alias"))
 	cmd.Flags().StringVar(&client, "client", "", Localize("optional client filter", "任意の client フィルタ"))
+	cmd.Flags().StringVar(&timezone, "timezone", "UTC", Localize("IANA timezone for date-only bounds (default: UTC)", "日付のみの境界に使う IANA タイムゾーン（既定: UTC）"))
 	cmd.Flags().IntVar(&limit, "limit", 5000, Localize("maximum events to scan for aggregation", "集計に使う event の最大件数"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("emit JSON", "JSON で出力する"))
 	cmd.AddCommand(c.newWorkspaceIdentityReportCommand())
@@ -72,6 +75,7 @@ type reportCommandInput struct {
 	to        string
 	until     string
 	client    string
+	timezone  string
 	limit     int
 	asJSON    bool
 }
@@ -90,8 +94,17 @@ type reportEnvelope struct {
 }
 
 type reportPeriod struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	// From and To preserve the pre-v0.30 effective-bound JSON fields.
+	From                   string `json:"from"`
+	To                     string `json:"to"`
+	RequestedFrom          string `json:"requested_from"`
+	RequestedTo            string `json:"requested_to"`
+	EffectiveFromInclusive string `json:"effective_from_inclusive"`
+	EffectiveToExclusive   string `json:"effective_to_exclusive"`
+	Timezone               string `json:"timezone"`
+	SnapshotAt             string `json:"snapshot_at"`
+	FromDateOnly           bool   `json:"from_date_only"`
+	ToDateOnly             bool   `json:"to_date_only"`
 }
 
 type reportSessionRow struct {
@@ -159,33 +172,22 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 	if err != nil {
 		return err
 	}
-	// Default period: last 7 days when --from omitted.
+	snapshotAt := time.Now().UTC()
+	// Default period: last 7 days when --from omitted. Derive both bounds
+	// from the same snapshot so every query sees one stable window.
 	if strings.TrimSpace(fromValue) == "" && strings.TrimSpace(toValue) == "" {
-		now := time.Now().UTC()
-		fromValue = now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
-		toValue = now.Format(time.RFC3339)
+		fromValue = snapshotAt.Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
+		toValue = snapshotAt.Format(time.RFC3339Nano)
 	} else if strings.TrimSpace(fromValue) == "" {
 		// If only --to is set, still require an explicit from for clarity.
 		return xerrors.New(Localize("--from is required when --to is set (or omit both for last 7 days)", "--to 指定時は --from が必要です（両方省略で直近7日）"))
-	} else if strings.TrimSpace(toValue) == "" {
-		toValue = time.Now().UTC().Format(time.RFC3339)
 	}
-
-	fromRaw, err := parseFlexibleTime(fromValue, false)
+	interval, err := apptypes.RequestedIntervalFrom(fromValue, toValue, input.timezone, snapshotAt)
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve report interval", "report 期間の解決に失敗しました"), err)
 	}
-	toRaw, err := parseFlexibleTime(toValue, false)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
-	}
-	if !fromRaw.IsZero() && !toRaw.IsZero() && !fromRaw.Before(toRaw) {
-		return xerrors.New(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
-	}
-	toExclusive, err := parseFlexibleTime(toValue, true)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
-	}
+	fromInclusive := interval.EffectiveFromInclusive()
+	toExclusive := interval.EffectiveToExclusive()
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
@@ -202,7 +204,7 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 	sessionCriteria := apptypes.NewSessionListCriteriaBuilder(input.limit).
 		Workspace(ws).
 		Client(types.Client(clientFilter)).
-		From(types.Some(fromRaw)).
+		From(types.Some(fromInclusive)).
 		To(types.Some(toExclusive)).
 		Build()
 	sessions, err := c.session.List(ctx, sessionCriteria)
@@ -213,7 +215,7 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 	eventCriteria := apptypes.NewEventListCriteriaBuilder(input.limit).
 		Workspace(ws).
 		Client(types.Client(clientFilter)).
-		From(fromRaw).
+		From(fromInclusive).
 		To(toExclusive).
 		Build()
 	events, err := c.event.ListWindow(ctx, eventCriteria)
@@ -229,7 +231,7 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 		return xerrors.Errorf("%s: %w", Localize("failed to summarize command audits for report", "report 用 command audit の集計に失敗しました"), err)
 	}
 
-	envelope := buildReportEnvelope(fromRaw, toExclusive, ws.String(), clientFilter, sessions, events, commandSummary)
+	envelope := buildReportEnvelope(interval, ws.String(), clientFilter, sessions, events, commandSummary)
 	if input.asJSON {
 		enc := json.NewEncoder(output)
 		enc.SetIndent("", "  ")
@@ -242,7 +244,7 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 }
 
 func buildReportEnvelope(
-	from, to time.Time,
+	interval apptypes.RequestedInterval,
 	workspace, clientFilter string,
 	sessions []apptypes.SessionSummary,
 	events []*model.Event,
@@ -322,8 +324,16 @@ func buildReportEnvelope(
 
 	return reportEnvelope{
 		Period: reportPeriod{
-			From: from.UTC().Format(time.RFC3339),
-			To:   to.UTC().Format(time.RFC3339),
+			From:                   formatReportTime(interval.EffectiveFromInclusive()),
+			To:                     formatReportTime(interval.EffectiveToExclusive()),
+			RequestedFrom:          interval.RequestedFrom(),
+			RequestedTo:            interval.RequestedTo(),
+			EffectiveFromInclusive: formatReportTime(interval.EffectiveFromInclusive()),
+			EffectiveToExclusive:   formatReportTime(interval.EffectiveToExclusive()),
+			Timezone:               interval.Timezone(),
+			SnapshotAt:             formatReportTime(interval.SnapshotAt()),
+			FromDateOnly:           interval.FromIsDateOnly(),
+			ToDateOnly:             interval.ToIsDateOnly(),
 		},
 		Workspace:        workspace,
 		ClientFilter:     clientFilter,
@@ -337,9 +347,26 @@ func buildReportEnvelope(
 	}
 }
 
+func formatReportTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
 func writeReportText(output io.Writer, report reportEnvelope) error {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Traceary report\nPeriod: %s → %s (exclusive end)\n", report.Period.From, report.Period.To)
+	b.WriteString("Traceary report\n")
+	requestedTo := report.Period.RequestedTo
+	if requestedTo == "" {
+		requestedTo = report.Period.SnapshotAt
+	}
+	if report.Period.ToDateOnly {
+		fmt.Fprintf(&b, "Period: %s → %s (inclusive calendar end; timezone=%s)\n", report.Period.RequestedFrom, requestedTo, report.Period.Timezone)
+	} else {
+		fmt.Fprintf(&b, "Period: %s → %s (exclusive instant; timezone=%s)\n", report.Period.RequestedFrom, requestedTo, report.Period.Timezone)
+	}
+	fmt.Fprintf(&b, "Effective interval: %s → %s (exclusive end; snapshot=%s)\n", report.Period.EffectiveFromInclusive, report.Period.EffectiveToExclusive, report.Period.SnapshotAt)
 	if report.Workspace != "" {
 		fmt.Fprintf(&b, "Workspace: %s\n", report.Workspace)
 	}

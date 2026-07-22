@@ -574,14 +574,11 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		from, err := parseFlexibleTime(input.From, false)
+		interval, err := apptypes.RequestedIntervalFrom(input.From, input.To, input.Timezone, time.Now().UTC())
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to parse from: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve time interval: %w", err)
 		}
-		to, err := parseFlexibleTime(input.To, true)
-		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to parse to: %w", err)
-		}
+		intervalMetadata := newIntervalOutput(interval)
 
 		criteria := apptypes.NewEventListCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
 			Offset(resolveOffset(input.Offset)).
@@ -591,8 +588,8 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
 			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
 			SourceHook(strings.TrimSpace(input.SourceHook)).
-			From(from).
-			To(to).
+			From(interval.EffectiveFromInclusive()).
+			To(interval.EffectiveToExclusive()).
 			Build()
 		if projection == apptypes.EventProjectionMetadata {
 			if s.eventMetadata == nil {
@@ -602,7 +599,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			if err != nil {
 				return nil, eventsOutput{}, xerrors.Errorf("failed to list event metadata: %w", err)
 			}
-			return nil, eventsOutput{Events: convertEventMetadata(metadata)}, nil
+			return nil, eventsOutput{Events: convertEventMetadata(metadata), Interval: &intervalMetadata}, nil
 		}
 
 		events, err := s.event.List(ctx, criteria)
@@ -610,7 +607,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
 		}
 
-		return nil, eventsOutput{Events: convertEventsWithBodyLimit(events, bodyLimit)}, nil
+		return nil, eventsOutput{Events: convertEventsWithBodyLimit(events, bodyLimit), Interval: &intervalMetadata}, nil
 	}
 }
 
@@ -713,20 +710,17 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		from, err := parseFlexibleTime(input.From, false)
+		interval, err := apptypes.RequestedIntervalFrom(input.From, input.To, input.Timezone, time.Now().UTC())
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to parse from: %w", err)
+			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve time interval: %w", err)
 		}
-		to, err := parseFlexibleTime(input.To, true)
-		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to parse to: %w", err)
-		}
+		intervalMetadata := newIntervalOutput(interval)
 		limit := resolveLimit(input.Limit, defaultSearchLimit)
 		criteria := apptypes.NewEventSearchCriteriaBuilder(limit).
 			Query(strings.TrimSpace(input.Query)).
 			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
-			From(from).
-			To(to).
+			From(interval.EffectiveFromInclusive()).
+			To(interval.EffectiveToExclusive()).
 			Build()
 		if projection == apptypes.EventProjectionMetadata {
 			if s.eventMetadata == nil {
@@ -736,7 +730,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			if err != nil {
 				return nil, eventsOutput{}, xerrors.Errorf("failed to search event metadata: %w", err)
 			}
-			return nil, eventsOutput{Events: convertEventMetadata(metadata)}, nil
+			return nil, eventsOutput{Events: convertEventMetadata(metadata), Interval: &intervalMetadata}, nil
 		}
 
 		events, err := s.event.Search(ctx, criteria)
@@ -748,7 +742,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		// not re-exposed through this surface — #682 strips thinking
 		// from the LIKE match, but the envelope is still attached to
 		// the returned event and body_blocks would bypass the gate.
-		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, bodyLimit)}, nil
+		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, bodyLimit), Interval: &intervalMetadata}, nil
 	}
 }
 
@@ -1858,20 +1852,36 @@ func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {
 	if trimmedValue == "" {
 		return time.Time{}, nil
 	}
-
-	if parsedTime, err := time.Parse(time.RFC3339, trimmedValue); err == nil {
-		return parsedTime.UTC(), nil
+	from, to := trimmedValue, ""
+	if endExclusive {
+		from, to = "", trimmedValue
 	}
-
-	parsedDate, err := time.Parse("2006-01-02", trimmedValue)
+	interval, err := apptypes.RequestedIntervalFrom(from, to, "UTC", time.Time{})
 	if err != nil {
 		return time.Time{}, xerrors.Errorf("time must be RFC3339 or YYYY-MM-DD: %w", err)
 	}
 	if endExclusive {
-		return parsedDate.AddDate(0, 0, 1), nil
+		return interval.EffectiveToExclusive(), nil
 	}
+	return interval.EffectiveFromInclusive(), nil
+}
 
-	return parsedDate, nil
+func newIntervalOutput(interval apptypes.RequestedInterval) intervalOutput {
+	return intervalOutput{
+		RequestedFrom:          interval.RequestedFrom(),
+		RequestedTo:            interval.RequestedTo(),
+		EffectiveFromInclusive: formatOptionalRFC3339(interval.EffectiveFromInclusive()),
+		EffectiveToExclusive:   formatOptionalRFC3339(interval.EffectiveToExclusive()),
+		Timezone:               interval.Timezone(),
+		SnapshotAt:             formatOptionalRFC3339(interval.SnapshotAt()),
+	}
+}
+
+func formatOptionalRFC3339(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 // parseFlexibleTimeOptional returns None when the input is empty and

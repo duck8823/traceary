@@ -76,16 +76,18 @@ func TestListEvents_MetadataProjectionOmitsBodyAndFullQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	var document map[string][]map[string]any
+	var document struct {
+		Events []map[string]any `json:"events"`
+	}
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	for _, forbidden := range []string{"body", "body_blocks", "body_truncated", "body_length"} {
-		if _, ok := document["events"][0][forbidden]; ok {
+		if _, ok := document.Events[0][forbidden]; ok {
 			t.Fatalf("metadata output serialized %q: %s", forbidden, encoded)
 		}
 	}
-	if document["events"][0]["body_stored_bytes"] != float64(8*1024*1024) {
+	if document.Events[0]["body_stored_bytes"] != float64(8*1024*1024) {
 		t.Fatalf("metadata output = %s", encoded)
 	}
 }
@@ -119,6 +121,55 @@ func TestSearchAndContext_MetadataProjectionUseBodyFreeQueries(t *testing.T) {
 		if len(events) != 1 || events[0].Body != nil || len(events[0].BodyBlocks) != 0 {
 			t.Fatalf("%s metadata output = %+v", name, events)
 		}
+	}
+}
+
+func TestListEventsAndSearchShareRequestedIntervalSemantics(t *testing.T) {
+	t.Parallel()
+
+	wantFrom := time.Date(2026, 3, 8, 5, 0, 0, 0, time.UTC)
+	wantTo := time.Date(2026, 3, 9, 4, 0, 0, 0, time.UTC)
+
+	t.Run("list events", func(t *testing.T) {
+		t.Parallel()
+		events := &projectionEventUsecaseStub{}
+		server := &Server{event: events}
+		_, output, err := server.listEvents()(context.Background(), nil, listEventsInput{
+			From: "2026-03-08", To: "2026-03-08", Timezone: "America/New_York",
+		})
+		if err != nil {
+			t.Fatalf("listEvents() error = %v", err)
+		}
+		assertMCPInterval(t, events.listCriteria.From(), events.listCriteria.To(), output.Interval, wantFrom, wantTo)
+	})
+
+	t.Run("search", func(t *testing.T) {
+		t.Parallel()
+		events := &projectionEventUsecaseStub{}
+		server := &Server{event: events}
+		_, output, err := server.search()(context.Background(), nil, searchInput{
+			Query: "needle", From: "2026-03-08", To: "2026-03-08", Timezone: "America/New_York",
+		})
+		if err != nil {
+			t.Fatalf("search() error = %v", err)
+		}
+		assertMCPInterval(t, events.searchCriteria.From(), events.searchCriteria.To(), output.Interval, wantFrom, wantTo)
+	})
+}
+
+func assertMCPInterval(t *testing.T, gotFrom, gotTo time.Time, metadata *intervalOutput, wantFrom, wantTo time.Time) {
+	t.Helper()
+	if !gotFrom.Equal(wantFrom) || !gotTo.Equal(wantTo) {
+		t.Fatalf("criteria interval = [%s, %s), want [%s, %s)", gotFrom, gotTo, wantFrom, wantTo)
+	}
+	if metadata == nil {
+		t.Fatal("interval metadata = nil")
+	}
+	if metadata.RequestedFrom != "2026-03-08" || metadata.RequestedTo != "2026-03-08" || metadata.Timezone != "America/New_York" {
+		t.Fatalf("interval metadata = %+v", metadata)
+	}
+	if metadata.EffectiveFromInclusive != wantFrom.Format(time.RFC3339Nano) || metadata.EffectiveToExclusive != wantTo.Format(time.RFC3339Nano) || metadata.SnapshotAt == "" {
+		t.Fatalf("interval metadata = %+v", metadata)
 	}
 }
 
@@ -167,10 +218,12 @@ func TestListEvents_LegacyBodyControlsRemainCompatible(t *testing.T) {
 }
 
 type projectionEventUsecaseStub struct {
-	listCalls    int
-	searchCalls  int
-	contextCalls int
-	list         []*model.Event
+	listCalls      int
+	searchCalls    int
+	contextCalls   int
+	list           []*model.Event
+	listCriteria   apptypes.EventListCriteria
+	searchCriteria apptypes.EventSearchCriteria
 }
 
 func (*projectionEventUsecaseStub) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace, apptypes.LogRedaction) (*model.Event, error) {
@@ -179,12 +232,14 @@ func (*projectionEventUsecaseStub) Log(context.Context, string, types.EventKind,
 func (*projectionEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	return nil, nil, nil
 }
-func (s *projectionEventUsecaseStub) Search(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error) {
+func (s *projectionEventUsecaseStub) Search(_ context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	s.searchCalls++
+	s.searchCriteria = criteria
 	return nil, nil
 }
-func (s *projectionEventUsecaseStub) List(context.Context, apptypes.EventListCriteria) ([]*model.Event, error) {
+func (s *projectionEventUsecaseStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
 	s.listCalls++
+	s.listCriteria = criteria
 	return s.list, nil
 }
 func (*projectionEventUsecaseStub) ListWindow(context.Context, apptypes.EventListCriteria) ([]*model.Event, error) {

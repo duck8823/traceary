@@ -6,6 +6,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -19,11 +20,11 @@ func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {
 		return time.Time{}, nil
 	}
 
-	if parsedTime, err := time.Parse(time.RFC3339, trimmedValue); err == nil {
-		return parsedTime.UTC(), nil
+	from, to := trimmedValue, ""
+	if endExclusive {
+		from, to = "", trimmedValue
 	}
-
-	parsedDate, err := time.Parse("2006-01-02", trimmedValue)
+	interval, err := apptypes.RequestedIntervalFrom(from, to, "UTC", time.Time{})
 	if err != nil {
 		return time.Time{}, xerrors.Errorf(
 			"%s: %w",
@@ -32,10 +33,10 @@ func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {
 		)
 	}
 	if endExclusive {
-		return parsedDate.AddDate(0, 0, 1), nil
+		return interval.EffectiveToExclusive(), nil
 	}
 
-	return parsedDate, nil
+	return interval.EffectiveFromInclusive(), nil
 }
 
 // parseFlexibleTimeOptional parses a date/time string into an Optional[time.Time].

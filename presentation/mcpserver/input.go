@@ -123,6 +123,7 @@ type listEventsInput struct {
 	Workspace  string `json:"workspace,omitempty" jsonschema:"filter by work context"`
 	From       string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To         string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
+	Timezone   string `json:"timezone,omitempty" jsonschema:"IANA timezone for date-only bounds (default: UTC)"`
 	SourceHook string `json:"source_hook,omitempty" jsonschema:"filter by hook identifier that produced the event (stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)"`
 	Projection string `json:"projection,omitempty" jsonschema:"event projection: metadata omits body fields, bounded returns a limited body, full returns the full stored body; omitted preserves body_limit/full_body compatibility"`
 	BodyLimit  *int   `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
@@ -135,6 +136,7 @@ type searchInput struct {
 	Workspace  string `json:"workspace,omitempty" jsonschema:"work context filter"`
 	From       string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To         string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
+	Timezone   string `json:"timezone,omitempty" jsonschema:"IANA timezone for date-only bounds (default: UTC)"`
 	Limit      int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
 	Projection string `json:"projection,omitempty" jsonschema:"event projection: metadata omits body fields, bounded returns a limited body, full returns the full stored body; omitted preserves body_limit/full_body compatibility"`
 	BodyLimit  *int   `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
