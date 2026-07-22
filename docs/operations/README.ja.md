@@ -5,6 +5,8 @@
 このガイドでは、Traceary のローカル SQLite store と generated hook script が実行時に置いている前提を明文化します。
 何を保証しているのか、どこが best-effort なのか、どこで手動 override が必要になりうるのかを率直に説明します。
 
+v0.31 retention の release 判断と copied-store recovery の証拠は [v0.31 retention copied-store dogfooding](./retention-dogfood-v0.31.ja.md) に記録しています。
+
 ## SQLite の concurrency model
 
 Traceary は、process 間調停を SQLite 自身に委ねています。

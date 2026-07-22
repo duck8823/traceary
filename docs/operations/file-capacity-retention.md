@@ -20,7 +20,7 @@ New SQLite backups also receive a digest-bound reserved retention manifest. A le
 
 ## Plan
 
-The commands are hidden while v0.31 dogfooding is in progress.
+The commands are public in v0.31 after copied-store dogfooding, but remain manual and opt-in. No install, update, hook, or `doctor` invocation applies a plan.
 
 ```sh
 traceary store retention files plan \

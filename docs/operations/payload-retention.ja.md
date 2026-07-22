@@ -2,7 +2,7 @@
 
 [English](./payload-retention.md)
 
-Status: Issue #1446 の v0.31.0 design checkpoint。この文書は #1444、#1443、#1445 の契約を定義するだけで、削除を有効にしません。
+Status: Issue #1446、#1444、#1443、#1445 の v0.31.0 contract。copied-store の [dogfooding と recovery 証拠](./retention-dogfood-v0.31.ja.md) に基づいて手動 command を公開し、automatic retention は既定無効のままにします。
 
 ## 要求要約
 

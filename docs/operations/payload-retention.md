@@ -2,7 +2,7 @@
 
 [日本語](./payload-retention.ja.md)
 
-Status: v0.31.0 design checkpoint for Issue #1446. This document defines the contract for #1444, #1443, and #1445; it does not enable deletion.
+Status: v0.31.0 contract for Issues #1446, #1444, #1443, and #1445. The copied-store [dogfood and recovery evidence](./retention-dogfood-v0.31.md) authorizes the public manual commands; automatic retention remains disabled by default.
 
 ## Requirement summary
 
