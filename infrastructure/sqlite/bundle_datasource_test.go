@@ -58,6 +58,30 @@ func TestBundleDatasource_ImportSessionRejectsConflictingTerminalReplace(t *test
 		t.Fatalf("Commit(idempotent) error = %v", err)
 	}
 
+	modeConflict, err := model.NewSessionWithRuntimeMode(types.SessionID("bundle-terminal"), startedAt, types.Client("hook"), agent, types.Workspace("workspace"), types.RuntimeModeInteractive)
+	if err != nil {
+		t.Fatalf("NewSessionWithRuntimeMode(mode conflict) error = %v", err)
+	}
+	if _, err := modeConflict.Terminate(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "mode conflict"); err != nil {
+		t.Fatalf("Terminate(mode conflict) error = %v", err)
+	}
+	modeConflictTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatalf("BeginBundleImport(mode conflict) error = %v", err)
+	}
+	_, err = modeConflictTx.ImportSession(ctx, modeConflict, usecase.BundleConflictReplace, usecase.BundleMissingParentReject)
+	if err == nil || !errors.Is(err, model.ErrConflictingTerminalState) {
+		_ = modeConflictTx.Rollback(ctx)
+		t.Fatalf("ImportSession(mode conflict) error = %v, want ErrConflictingTerminalState", err)
+	}
+	if !strings.Contains(err.Error(), `mode="one_shot"`) || !strings.Contains(err.Error(), `mode="interactive"`) {
+		_ = modeConflictTx.Rollback(ctx)
+		t.Fatalf("ImportSession(mode conflict) error lacks diagnostic modes: %v", err)
+	}
+	if err := modeConflictTx.Rollback(ctx); err != nil {
+		t.Fatalf("Rollback(mode conflict) error = %v", err)
+	}
+
 	conflictTx, err := bundles.BeginBundleImport(ctx)
 	if err != nil {
 		t.Fatalf("BeginBundleImport(conflict) error = %v", err)

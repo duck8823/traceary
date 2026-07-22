@@ -14,3 +14,21 @@ UPDATE sessions
    SET terminal_reason = 'legacy_unknown'
  WHERE ended_at IS NOT NULL
    AND terminal_reason = '';
+
+-- Older binaries end sessions by setting ended_at without a terminal reason,
+-- so ended rows with an empty reason must remain writable. No supported writer
+-- should, however, attach a terminal reason to an active session because the
+-- current domain model intentionally refuses to restore that state.
+CREATE TRIGGER sessions_reject_active_terminal_reason_insert
+BEFORE INSERT ON sessions
+WHEN NEW.ended_at IS NULL AND NEW.terminal_reason <> ''
+BEGIN
+    SELECT RAISE(ABORT, 'active session cannot have a terminal reason');
+END;
+
+CREATE TRIGGER sessions_reject_active_terminal_reason_update
+BEFORE UPDATE OF ended_at, terminal_reason ON sessions
+WHEN NEW.ended_at IS NULL AND NEW.terminal_reason <> ''
+BEGIN
+    SELECT RAISE(ABORT, 'active session cannot have a terminal reason');
+END;

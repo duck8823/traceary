@@ -574,10 +574,11 @@ ON CONFLICT(session_id) DO UPDATE SET
   spawn_event_id = excluded.spawn_event_id,
   subagent_kind = excluded.subagent_kind,
   spawn_order = excluded.spawn_order,
-  runtime_mode = excluded.runtime_mode,
+  runtime_mode = CASE WHEN sessions.ended_at IS NULL THEN excluded.runtime_mode ELSE sessions.runtime_mode END,
   terminal_reason = CASE WHEN sessions.ended_at IS NULL THEN excluded.terminal_reason ELSE sessions.terminal_reason END
 WHERE sessions.ended_at IS NULL
    OR (excluded.ended_at IS NOT NULL
+	   AND sessions.runtime_mode = excluded.runtime_mode
        AND COALESCE(NULLIF(sessions.terminal_reason, ''), 'legacy_unknown') = excluded.terminal_reason)`,
 		session.SessionID().String(),
 		formatTimestamp(session.StartedAt()),
@@ -605,15 +606,17 @@ WHERE sessions.ended_at IS NULL
 		return xerrors.Errorf("failed to inspect imported session %s: %w", session.SessionID(), err)
 	}
 	if rowsAffected == 0 {
-		var currentReason string
-		if err := t.tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(terminal_reason, ''), 'legacy_unknown') FROM sessions WHERE session_id = ?`, session.SessionID().String()).Scan(&currentReason); err != nil {
+		var currentReason, currentMode string
+		if err := t.tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(terminal_reason, ''), 'legacy_unknown'), runtime_mode FROM sessions WHERE session_id = ?`, session.SessionID().String()).Scan(&currentReason, &currentMode); err != nil {
 			return xerrors.Errorf("failed to inspect conflicting session %s: %w", session.SessionID(), err)
 		}
 		return xerrors.Errorf(
-			"session %s terminal reason %q conflicts with imported reason %q: %w",
+			"session %s lifecycle state reason=%q mode=%q conflicts with imported reason=%q mode=%q: %w",
 			session.SessionID(),
 			currentReason,
+			currentMode,
 			terminalReasonString(session),
+			session.RuntimeMode(),
 			model.ErrConflictingTerminalState,
 		)
 	}

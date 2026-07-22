@@ -117,6 +117,7 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 // either a standalone operation or an existing transaction.
 type sqlExecer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // insertSessionRowIfMissing inserts the immutable session row if it does
@@ -197,9 +198,11 @@ func saveSessionLabel(ctx context.Context, exec sqlExecer, session *model.Sessio
 // for the same session_id has already committed, so the caller's
 // transaction must roll back to avoid duplicate session_started events.
 // On end, a guarded UPDATE writes ended_at + summary only when ended_at
-// IS NULL; zero rows affected means the session was already ended and we
-// return ErrInvalidSessionState so the caller's transaction rolls back
-// (including the boundary event).
+// IS NULL. Exact hook redelivery is short-circuited by saveEventTransaction
+// before this helper runs. Reaching a zero-row update therefore means a new
+// delivery raced with, or followed, an already committed terminal state; the
+// stored and proposed reasons are compared for diagnostic errors while the
+// caller's transaction (including the new boundary event) rolls back.
 func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Session) error {
 	inserted, err := insertSessionRowIfMissing(ctx, exec, session)
 	if err != nil {
@@ -239,7 +242,29 @@ func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Ses
 		return xerrors.Errorf("failed to check rows affected: %w", err)
 	}
 	if updated == 0 {
-		return xerrors.Errorf("cannot end session %s: %w", session.SessionID(), model.ErrInvalidSessionState)
+		var currentReason string
+		if err := exec.QueryRowContext(
+			ctx,
+			`SELECT COALESCE(NULLIF(terminal_reason, ''), 'legacy_unknown') FROM sessions WHERE session_id = ?`,
+			session.SessionID().String(),
+		).Scan(&currentReason); err != nil {
+			return xerrors.Errorf("failed to inspect terminal state for session %s: %w", session.SessionID(), err)
+		}
+		if currentReason != terminalReason.String() {
+			return xerrors.Errorf(
+				"session %s terminal reason %q conflicts with proposed reason %q: %w",
+				session.SessionID(),
+				currentReason,
+				terminalReason,
+				model.ErrConflictingTerminalState,
+			)
+		}
+		return xerrors.Errorf(
+			"session %s already ended with terminal reason %q under a different delivery: %w",
+			session.SessionID(),
+			currentReason,
+			model.ErrInvalidSessionState,
+		)
 	}
 	return nil
 }

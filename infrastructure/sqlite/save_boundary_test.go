@@ -160,8 +160,8 @@ func TestSessionDatasource_SaveBoundary_ConflictingTerminalReasonFailsClosed(t *
 	if _, err := stale.Terminate(startedAt.Add(2*time.Minute), types.TerminalReasonFailure, "conflict"); err != nil {
 		t.Fatalf("Terminate(stale) error = %v", err)
 	}
-	if err := ds.SaveSessionBoundaryForTest(ctx, stale); err == nil || !errors.Is(err, model.ErrInvalidSessionState) {
-		t.Fatalf("SaveSessionBoundaryForTest(conflict) error = %v, want ErrInvalidSessionState", err)
+	if err := ds.SaveSessionBoundaryForTest(ctx, stale); err == nil || !errors.Is(err, model.ErrConflictingTerminalState) {
+		t.Fatalf("SaveSessionBoundaryForTest(conflict) error = %v, want ErrConflictingTerminalState", err)
 	}
 
 	stored, err := ds.FindByID(ctx, sessionID)
@@ -592,8 +592,10 @@ func TestSessionDatasource_SaveBoundary_EndPreservesLabel(t *testing.T) {
 }
 
 // TestSessionDatasource_SaveBoundary_DuplicateEndRejected asserts that a
-// second session end on the same aggregate surfaces as
+// second session end under a different delivery surfaces as
 // model.ErrInvalidSessionState rather than silently overwriting ended_at.
+// Exact hook redelivery is handled before this persistence callback; see
+// TestSessionDatasource_HookBoundaryRedeliveryIsIdempotent.
 func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	t.Parallel()
 

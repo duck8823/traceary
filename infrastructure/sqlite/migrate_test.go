@@ -199,6 +199,15 @@ func TestMigrations_sessionLifecycleStatePreservesLegacyRows(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, terminal_reason) VALUES ('invalid-reason', '2026-07-22T12:00:00Z', 'unknown')`); err == nil {
 		t.Fatal("invalid terminal_reason insert succeeded")
 	}
+	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, terminal_reason) VALUES ('invalid-active-reason', '2026-07-22T12:00:00Z', 'success')`); err == nil {
+		t.Fatal("active session with terminal reason insert succeeded")
+	}
+	if _, err := db.Exec(`UPDATE sessions SET ended_at = NULL, terminal_reason = 'failure' WHERE session_id = 'legacy-ended'`); err == nil {
+		t.Fatal("active session with terminal reason update succeeded")
+	}
+	if _, err := db.Exec(`UPDATE sessions SET ended_at = '2026-07-22T12:30:00Z', terminal_reason = '' WHERE session_id = 'legacy-active'`); err != nil {
+		t.Fatalf("legacy-compatible end without terminal reason failed: %v", err)
+	}
 	assertMigrationApplied(t, db, 24)
 }
 
