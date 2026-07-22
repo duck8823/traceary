@@ -130,6 +130,44 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("reports body unavailable by retention", func(t *testing.T) {
+		t.Parallel()
+
+		eventDetails, err := apptypes.EventDetailsOf(
+			model.EventOfWithBodyAvailabilityAndSourceHook(
+				eventID,
+				types.EventKindNote,
+				"cli",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"",
+				types.BodyAvailabilityUnavailableRetention,
+				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
+				"",
+			),
+			types.None[*model.CommandAudit](),
+		)
+		if err != nil {
+			t.Fatalf("EventDetailsOf() error = %v", err)
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "--json", "event-1"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !bytes.Contains(stdout.Bytes(), []byte(`"body_unavailable_reason": "retention"`)) || !bytes.Contains(stdout.Bytes(), []byte(`"message": ""`)) {
+			t.Fatalf("stdout does not report retention unavailability: %s", stdout)
+		}
+	})
+
 	t.Run("displays event details in JSON format", func(t *testing.T) {
 		t.Parallel()
 

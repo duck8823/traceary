@@ -393,6 +393,7 @@ CREATE TABLE events (
     session_id TEXT NOT NULL,
     workspace TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     source_hook TEXT,
     created_at TEXT NOT NULL
 );`)},

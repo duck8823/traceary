@@ -43,6 +43,7 @@ func listSessionsTestMigrations() fstest.MapFS {
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),

@@ -28,6 +28,7 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),
@@ -123,6 +124,7 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),
@@ -200,6 +202,7 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),
@@ -275,6 +278,7 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),
@@ -353,6 +357,7 @@ CREATE TABLE events (
     client TEXT NOT NULL DEFAULT '',
     workspace TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     source_hook TEXT,
     created_at TEXT NOT NULL
 );
@@ -530,6 +535,7 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),
@@ -639,6 +645,7 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),
@@ -691,6 +698,7 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),
@@ -766,6 +774,7 @@ CREATE TABLE events (
     agent TEXT NOT NULL,
     session_id TEXT NOT NULL,
     body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
     source_hook TEXT
 );`),
@@ -831,5 +840,49 @@ CREATE TABLE command_audits (
 	// DESC order: got[0] = after, got[1] = at
 	if got[0].EventID().String() != "event-after" || got[1].EventID().String() != "event-at-boundary" {
 		t.Fatalf("got = %q/%q, want event-after/event-at-boundary", got[0].EventID(), got[1].EventID())
+	}
+}
+
+func TestDatasource_ListRecent_DoesNotInferRetentionFromBodyMarker(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	event := newEventForSQLiteTest(
+		t,
+		"event-marker-literal",
+		"cli",
+		"codex",
+		"session-marker",
+		"ws",
+		types.EventBodyUnavailableRetentionMarker,
+		time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(context.Background(), event); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	events, err := sut.ListRecent(context.Background(), 10, 0, "", "", "", "", "", false, time.Time{}, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("ListRecent() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("len(events) = %d, want 1", len(events))
+	}
+	if got := events[0].Body(); got != types.EventBodyUnavailableRetentionMarker {
+		t.Fatalf("Body() = %q, want literal compatibility marker", got)
+	}
+	if got := events[0].BodyAvailability(); got != types.BodyAvailabilityAvailable {
+		t.Fatalf("BodyAvailability() = %s, want available", got)
+	}
+	matches, err := sut.Search(context.Background(), types.EventBodyUnavailableRetentionMarker, "", "", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
+	if err != nil {
+		t.Fatalf("Search(marker literal) error = %v", err)
+	}
+	if len(matches) != 1 || matches[0].EventID().String() != "event-marker-literal" {
+		t.Fatalf("Search(marker literal) = %+v, want the available literal-body event", matches)
 	}
 }

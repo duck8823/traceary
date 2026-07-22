@@ -11,18 +11,19 @@ import "time"
 // detail lookups (`traceary show`) that bypass truncation never emit
 // these keys.
 type event struct {
-	EventID       string `json:"event_id"`
-	Kind          string `json:"kind"`
-	Client        string `json:"client"`
-	Agent         string `json:"agent"`
-	SessionID     string `json:"session_id"`
-	Workspace     string `json:"workspace"`
-	Message       string `json:"message"`
-	SourceHook    string `json:"source_hook,omitempty"`
-	CreatedAt     string `json:"created_at"`
-	Truncated     bool   `json:"truncated,omitempty"`
-	MessageLength int    `json:"message_length,omitempty"`
-	MessageBytes  int    `json:"message_bytes,omitempty"`
+	EventID               string `json:"event_id"`
+	Kind                  string `json:"kind"`
+	Client                string `json:"client"`
+	Agent                 string `json:"agent"`
+	SessionID             string `json:"session_id"`
+	Workspace             string `json:"workspace"`
+	Message               string `json:"message"`
+	BodyUnavailableReason string `json:"body_unavailable_reason,omitempty"`
+	SourceHook            string `json:"source_hook,omitempty"`
+	CreatedAt             string `json:"created_at"`
+	Truncated             bool   `json:"truncated,omitempty"`
+	MessageLength         int    `json:"message_length,omitempty"`
+	MessageBytes          int    `json:"message_bytes,omitempty"`
 }
 
 // commandAudit is the JSON shape of a command audit in CLI output.

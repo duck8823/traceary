@@ -9,7 +9,6 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
-	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -91,7 +90,7 @@ func formatEventWideRow(event *model.Event, opts eventTextFormatOptions) string 
 		event.SessionID().String(),
 		formatOptionalColumn(event.Workspace().String()),
 		formatOptionalColumn(event.SourceHook()),
-		truncateMessage(apptypes.ExtractPlainBody(event.Body())),
+		truncateMessage(eventBodyForDisplay(event)),
 	}, "\t")
 }
 
@@ -131,7 +130,7 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 
 	messageIsLast := messageIndex == len(fields)-1
 	if !messageIsLast {
-		tokens[messageIndex] = truncateNormalized(apptypes.ExtractPlainBody(event.Body()), messageColumnMaxWidth)
+		tokens[messageIndex] = truncateNormalized(eventBodyForDisplay(event), messageColumnMaxWidth)
 		return strings.Join(tokens, sep)
 	}
 
@@ -164,7 +163,7 @@ func formatEventCompactRow(event *model.Event, opts eventTextFormatOptions, extr
 			remaining = messageMinWidth
 		}
 	}
-	plain := prefix + truncateNormalized(apptypes.ExtractPlainBody(event.Body()), remaining)
+	plain := prefix + truncateNormalized(eventBodyForDisplay(event), remaining)
 	if opts.hardTargetWidth && targetWidth > 0 && runeLen(plain) > targetWidth {
 		plain = truncateNormalized(plain, targetWidth)
 	}

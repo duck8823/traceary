@@ -6,7 +6,7 @@
 -- search surface). Strip thinking before matching: when body parses as
 -- a canonical envelope, match only the joined text-block content;
 -- otherwise keep the raw body (legacy plain text, non-envelope JSON).
-SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.source_hook, e.created_at
+SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at
   FROM events e
   LEFT JOIN command_audits a ON a.event_id = e.id
  WHERE (? = '' OR
@@ -23,7 +23,10 @@ SELECT DISTINCT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.bo
                         FROM json_each(json_extract(e.body, '$.blocks'))
                        WHERE json_extract(value, '$.type') = 'text'),
                      '')
-              ELSE e.body
+              ELSE CASE
+                     WHEN e.body_availability = 'unavailable_retention' THEN ''
+                     ELSE e.body
+                   END
          END) LIKE ? ESCAPE '\' OR
         COALESCE(a.command_text, '') LIKE ? ESCAPE '\' OR
         COALESCE(a.input_text, '') LIKE ? ESCAPE '\' OR

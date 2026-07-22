@@ -8,7 +8,7 @@
 -- `select_recent_events_by_source_hook_with_legacy.sql` instead so
 -- pre-#672 rows that lack source_hook but carry the `[phase:*]` body
 -- prefix stay reachable. See #683.
-SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.source_hook, e.created_at
+SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at
   FROM events e
   LEFT JOIN command_audits ca ON ca.event_id = e.id
  WHERE e.source_hook = ?

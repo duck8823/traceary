@@ -1,7 +1,7 @@
 -- No source_hook filter. When a source_hook filter is set, the Go datasource
 -- dispatches to select_recent_events_by_source_hook.sql so hook-specific
 -- predicates stay isolated from the general recent-events path. See #683.
-SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.source_hook, e.created_at
+SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at
   FROM events e
   LEFT JOIN command_audits ca ON ca.event_id = e.id
  WHERE (? = '' OR e.kind = ?)

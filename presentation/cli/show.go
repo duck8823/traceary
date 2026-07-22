@@ -9,6 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -74,7 +75,7 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 		formatOptionalColumn(event.Workspace().String()),
 		formatOptionalColumn(event.SourceHook()),
 		event.CreatedAt().UTC().Format("2006-01-02T15:04:05Z07:00"),
-		apptypes.ExtractPlainBody(event.Body()),
+		eventBodyForDisplay(event),
 	); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print event fields", "イベント共通項目の出力に失敗しました"), err)
 	}
@@ -104,4 +105,11 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 	}
 
 	return nil
+}
+
+func eventBodyForDisplay(event *model.Event) string {
+	if event.BodyAvailability().IsAvailable() {
+		return apptypes.ExtractPlainBody(event.Body())
+	}
+	return Localize("[body unavailable: retention]", "[本文は保持ポリシーにより利用できません]")
 }

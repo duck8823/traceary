@@ -665,15 +665,16 @@ func scanEvent(rowScanner interface {
 	Scan(dest ...any) error
 }) (*model.Event, error) {
 	var (
-		eventIDValue    string
-		eventKindValue  string
-		clientValue     string
-		agentValue      string
-		sessionIDValue  string
-		repoValue       string
-		bodyValue       string
-		sourceHookValue sql.NullString
-		createdAtValue  string
+		eventIDValue          string
+		eventKindValue        string
+		clientValue           string
+		agentValue            string
+		sessionIDValue        string
+		repoValue             string
+		bodyValue             string
+		bodyAvailabilityValue string
+		sourceHookValue       sql.NullString
+		createdAtValue        string
 	)
 
 	if err := rowScanner.Scan(
@@ -684,6 +685,7 @@ func scanEvent(rowScanner interface {
 		&sessionIDValue,
 		&repoValue,
 		&bodyValue,
+		&bodyAvailabilityValue,
 		&sourceHookValue,
 		&createdAtValue,
 	); err != nil {
@@ -698,6 +700,7 @@ func scanEvent(rowScanner interface {
 		sessionIDValue,
 		repoValue,
 		bodyValue,
+		bodyAvailabilityValue,
 		sourceHookValue.String,
 		createdAtValue,
 	)
@@ -723,15 +726,16 @@ func scanEventWithAudit(
 	failureReasonValue *sql.NullString,
 ) (*model.Event, error) {
 	var (
-		eventIDValue    string
-		eventKindValue  string
-		clientValue     string
-		agentValue      string
-		sessionIDValue  string
-		repoValue       string
-		bodyValue       string
-		sourceHookValue sql.NullString
-		createdAtValue  string
+		eventIDValue          string
+		eventKindValue        string
+		clientValue           string
+		agentValue            string
+		sessionIDValue        string
+		repoValue             string
+		bodyValue             string
+		bodyAvailabilityValue string
+		sourceHookValue       sql.NullString
+		createdAtValue        string
 	)
 
 	if err := rowScanner.Scan(
@@ -742,6 +746,7 @@ func scanEventWithAudit(
 		&sessionIDValue,
 		&repoValue,
 		&bodyValue,
+		&bodyAvailabilityValue,
 		&sourceHookValue,
 		&createdAtValue,
 		commandTextValue,
@@ -768,6 +773,7 @@ func scanEventWithAudit(
 		sessionIDValue,
 		repoValue,
 		bodyValue,
+		bodyAvailabilityValue,
 		sourceHookValue.String,
 		createdAtValue,
 	)
@@ -781,6 +787,7 @@ func restoreEvent(
 	sessionIDValue string,
 	repoValue string,
 	bodyValue string,
+	bodyAvailabilityValue string,
 	sourceHookValue string,
 	createdAtValue string,
 ) (*model.Event, error) {
@@ -804,8 +811,15 @@ func restoreEvent(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore created_at: %w", err)
 	}
+	bodyAvailability, err := types.BodyAvailabilityFrom(bodyAvailabilityValue)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to restore body availability: %w", err)
+	}
+	if bodyAvailability == types.BodyAvailabilityUnavailableRetention {
+		bodyValue = ""
+	}
 
-	return model.EventOfWithSourceHook(
+	return model.EventOfWithBodyAvailabilityAndSourceHook(
 		eventID,
 		eventKind,
 		types.Client(clientValue),
@@ -813,6 +827,7 @@ func restoreEvent(
 		sessionID,
 		types.Workspace(repoValue),
 		bodyValue,
+		bodyAvailability,
 		createdAt,
 		sourceHookValue,
 	), nil

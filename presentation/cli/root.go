@@ -27,6 +27,7 @@ type RootCLI struct {
 	context                    usecase.ContextUsecase
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
+	rawBodyRetention           usecase.RawBodyRetentionUsecase
 	workspaceIdentity          usecase.WorkspaceIdentityUsecase
 	mcpServerRunner            MCPServerRunner
 	hooksOrchestrator          application.HooksOrchestrator
@@ -121,6 +122,11 @@ func WithReplay(replay usecase.ReplayUsecase) RootCLIOption {
 // backup, gc, and doctor commands.
 func WithStoreManagement(storeManagement usecase.StoreManagementUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.storeManagement = storeManagement }
+}
+
+// WithRawBodyRetention injects the opt-in reviewed raw-body retention workflow.
+func WithRawBodyRetention(retention usecase.RawBodyRetentionUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.rawBodyRetention = retention }
 }
 
 // WithWorkspaceIdentity injects body-free identity reporting and reviewed aliases.

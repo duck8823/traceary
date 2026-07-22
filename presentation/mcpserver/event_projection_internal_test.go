@@ -55,6 +55,31 @@ func TestResolveEventProjection(t *testing.T) {
 	}
 }
 
+func TestConvertEvents_reportsRetentionUnavailableBody(t *testing.T) {
+	t.Parallel()
+
+	eventID, err := types.EventIDFrom("retained-event")
+	if err != nil {
+		t.Fatalf("EventIDFrom() error = %v", err)
+	}
+	agent, err := types.AgentFrom("codex")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	sessionID, err := types.SessionIDFrom("session-1")
+	if err != nil {
+		t.Fatalf("SessionIDFrom() error = %v", err)
+	}
+	event := model.EventOfWithBodyAvailabilityAndSourceHook(
+		eventID, types.EventKindNote, "cli", agent, sessionID, "repo", "",
+		types.BodyAvailabilityUnavailableRetention, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), "",
+	)
+	output := convertEventsWithBodyLimit([]*model.Event{event}, 100)
+	if len(output) != 1 || output[0].Body != nil || output[0].BodyUnavailableReason != "retention" {
+		t.Fatalf("retention output = %+v", output)
+	}
+}
+
 func TestListEvents_MetadataProjectionOmitsBodyAndFullQuery(t *testing.T) {
 	t.Parallel()
 
