@@ -129,7 +129,7 @@ func (tx *fakeBundleTx) ImportUsageObservation(_ context.Context, observation *m
 		if policy == usecase.BundleConflictSkip {
 			return false, nil
 		}
-		return false, err
+		return false, xerrors.Errorf("usage observation conflict: %w", err)
 	}
 	tx.usageObservations[id] = observation
 	return true, nil

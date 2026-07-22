@@ -338,7 +338,7 @@ func (t *bundleImportTx) ImportUsageObservation(
 			return false, nil
 		}
 		if !errors.Is(reconcileErr, model.ErrConflictingUsageObservation) {
-			return false, reconcileErr
+			return false, xerrors.Errorf("failed to reconcile usage observation: %w", reconcileErr)
 		}
 		switch policy {
 		case usecase.BundleConflictSkip:
@@ -346,7 +346,7 @@ func (t *bundleImportTx) ImportUsageObservation(
 		case usecase.BundleConflictReplace:
 			return false, xerrors.Errorf("usage observation replacement is unsafe for immutable accounting evidence: %w", reconcileErr)
 		default:
-			return false, reconcileErr
+			return false, xerrors.Errorf("usage observation conflict: %w", reconcileErr)
 		}
 	}
 
