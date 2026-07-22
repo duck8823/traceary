@@ -25,7 +25,7 @@ Traceary exposes 9 MCP tools, enforced by a golden snapshot (`presentation/mcpse
 
 `list_events` and `search` accept an explicit `timezone` for date-only `from` / `to` values (default: UTC). Date-only `to` includes the requested calendar day; RFC3339 `to` is an exact exclusive instant. Both tools return an additive `interval` object with requested bounds, effective half-open UTC bounds, timezone, and the single request snapshot used when `to` is omitted.
 
-`get_report` shares the CLI `traceary report --json` response schema. Its `page_size` changes only internal body-free SQLite paging; full aggregation remains the default. A positive `result_cap` explicitly requests a per-source partial aggregate. Partial output includes observed counts/ranges and `truncation_reason=result_cap`, and omits percentages whose denominator is incomplete.
+`get_report` shares the CLI `traceary report --json` response schema. Its `page_size` accepts 1 through 100,000 and changes only internal body-free SQLite paging; full aggregation remains the default. A positive `result_cap` explicitly requests a per-source partial aggregate. Partial output includes observed counts/ranges and `truncation_reason=result_cap`, and omits percentages whose denominator is incomplete.
 
 `session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` using the same node array shape as `traceary session tree --json`; `depth` is optional and `0` returns only the root.
 

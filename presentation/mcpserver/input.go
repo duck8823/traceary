@@ -7,7 +7,7 @@ type getReportInput struct {
 	From      string `json:"from,omitempty" jsonschema:"inclusive period start (RFC3339 or YYYY-MM-DD)"`
 	To        string `json:"to,omitempty" jsonschema:"exclusive RFC3339 instant or inclusive calendar date"`
 	Timezone  string `json:"timezone,omitempty" jsonschema:"IANA timezone for date-only bounds (default: UTC); Local is rejected"`
-	PageSize  *int   `json:"page_size,omitempty" jsonschema:"internal database page size; default 5000 and does not cap aggregate results"`
+	PageSize  *int   `json:"page_size,omitempty" jsonschema:"internal database page size; default 5000, maximum 100000, and does not cap aggregate results"`
 	ResultCap *int   `json:"result_cap,omitempty" jsonschema:"maximum rows per aggregate source; omit or set 0 for complete aggregation"`
 }
 

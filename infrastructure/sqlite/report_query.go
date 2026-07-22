@@ -38,6 +38,9 @@ func (d *ReportDatasource) LoadReportWindow(ctx context.Context, criteria apptyp
 	if criteria.PageSize() <= 0 {
 		return apptypes.ReportWindow{}, xerrors.New("page size must be greater than or equal to 1")
 	}
+	if criteria.PageSize() > apptypes.MaxReportPageSize {
+		return apptypes.ReportWindow{}, xerrors.Errorf("page size must be less than or equal to %d", apptypes.MaxReportPageSize)
+	}
 	if criteria.ResultCap() < 0 {
 		return apptypes.ReportWindow{}, xerrors.New("result cap must be greater than or equal to 0")
 	}

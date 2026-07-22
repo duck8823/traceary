@@ -118,6 +118,21 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("get_report rejects page size above the shared maximum", func(t *testing.T) {
+		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "get_report",
+			Arguments: map[string]any{
+				"page_size": apptypes.MaxReportPageSize + 1,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(get_report) error = %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("CallTool(get_report) IsError = false, want true")
+		}
+	})
+
 	t.Run("add_log with kind saves event with specified kind", func(t *testing.T) {
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "record_event",
