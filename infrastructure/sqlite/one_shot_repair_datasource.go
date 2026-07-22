@@ -81,15 +81,25 @@ type oneShotRepairRecord struct {
 
 // PreviewOneShotSessions evaluates every evidence entry in a read-only transaction.
 func (d *StoreManagementDatasource) PreviewOneShotSessions(ctx context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error) {
-	return d.repairOneShotSessions(ctx, params, false)
+	return d.repairOneShotSessions(ctx, params, false, nil)
 }
 
 // ApplyOneShotSessions evaluates and commits all eligible transitions in one transaction.
 func (d *StoreManagementDatasource) ApplyOneShotSessions(ctx context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error) {
-	return d.repairOneShotSessions(ctx, params, true)
+	return d.repairOneShotSessions(ctx, params, true, nil)
 }
 
-func (d *StoreManagementDatasource) repairOneShotSessions(ctx context.Context, params apptypes.OneShotRepairParams, apply bool) (apptypes.OneShotRepairResult, error) {
+// oneShotRepairBeforeApply is a private deterministic observer seam used to
+// prove behavior when another connection commits after inspection. Production
+// preview and apply entry points always pass nil.
+type oneShotRepairBeforeApply func(context.Context) error
+
+func (d *StoreManagementDatasource) repairOneShotSessions(
+	ctx context.Context,
+	params apptypes.OneShotRepairParams,
+	apply bool,
+	beforeApply oneShotRepairBeforeApply,
+) (apptypes.OneShotRepairResult, error) {
 	var db *sql.DB
 	var err error
 	if apply {
@@ -124,6 +134,11 @@ func (d *StoreManagementDatasource) repairOneShotSessions(ctx context.Context, p
 			return apptypes.OneShotRepairResult{}, err
 		}
 		records = append(records, record)
+	}
+	if apply && beforeApply != nil {
+		if err := beforeApply(ctx); err != nil {
+			return apptypes.OneShotRepairResult{}, xerrors.Errorf("one-shot repair before-apply observer failed: %w", err)
+		}
 	}
 
 	if apply {

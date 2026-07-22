@@ -84,3 +84,5 @@ traceary store backup restore \
 ```
 
 復元はストア全体の snapshot を置き換えるため、backup 後に記録された event も削除される。maintenance window で実施し、適用時の JSON は監査記録として保持する。
+
+activity と終了 writer の並行動作に関する release QA は、[v0.30.0 完結型セッション修復の並行書き込み dogfood](../release/v0.30.0-one-shot-repair-concurrency-dogfood.ja.md) に記録している。
