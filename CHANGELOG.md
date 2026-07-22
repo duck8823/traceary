@@ -21,7 +21,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ### Notes
 - Migration `000026` is additive and rollback-compatible; ordinary upgrade does not prune bodies or delete files.
-- Every retention mutation is explicit, manual, and opt-in. No install, update, hook, doctor, or ordinary read command applies a retention plan, and SQLite compaction remains a separate operation.
+- The v0.31 raw-body and file-capacity plan/apply/restore workflows are explicit, manual, and opt-in; no install, update, hook, doctor, or ordinary read command applies those plans. The pre-existing automatic archive-before-GC path remains separately opt-in through `retention.mode=archive_then_gc`, with `disabled` as its default. SQLite compaction remains a separate operation.
 - No MCP tools are added. Release QA and recovery evidence are recorded in `docs/operations/retention-dogfood-v0.31.md`.
 
 ## [v0.30.0] - 2026-07-22
