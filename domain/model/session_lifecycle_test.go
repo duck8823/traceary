@@ -140,6 +140,15 @@ func TestSessionTerminateRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestSessionFinalizeOneShotRejectsInteractiveMode(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Now().Add(-time.Minute)
+	session := model.NewSession("interactive", startedAt, "cli", "codex", "workspace")
+	if _, err := session.FinalizeOneShot(time.Now(), types.TerminalReasonSuccess, "done"); !errors.Is(err, model.ErrInvalidSessionState) {
+		t.Fatalf("FinalizeOneShot() error = %v, want ErrInvalidSessionState", err)
+	}
+}
+
 func TestNewSessionWithRuntimeModeAndParent(t *testing.T) {
 	t.Parallel()
 

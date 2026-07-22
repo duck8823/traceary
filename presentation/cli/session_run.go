@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,6 +20,7 @@ const (
 	oneShotTimeoutExitCode = 124
 	oneShotStartExitCode   = 127
 	oneShotStreamExitCode  = 74
+	oneShotFinalizeTimeout = 5 * time.Second
 )
 
 type oneShotExitError struct {
@@ -97,7 +97,9 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 
 	reason, exitCode, runErr := runOneShotProcess(ctx, stdin, stdout, stderr, command, input.timeout, oneShotProcessEnvironment(resolvedDBPath, startEvent.SessionID(), types.SessionID(strings.TrimSpace(input.parentSessionID))))
 	summary := "one-shot process finished: " + reason.String()
-	if _, _, finalizeErr := c.session.FinalizeOneShot(ctx, client, agent, startEvent.SessionID(), workspace, reason, summary); finalizeErr != nil {
+	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), oneShotFinalizeTimeout)
+	defer cancelFinalize()
+	if _, _, finalizeErr := c.session.FinalizeOneShot(finalizeCtx, client, agent, startEvent.SessionID(), workspace, reason, summary); finalizeErr != nil {
 		if exitCode == 0 {
 			exitCode = 1
 		}
@@ -122,17 +124,21 @@ func runOneShotProcess(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 	child.Stdout = stdout
 	child.Stderr = stderr
 	child.Env = env
+	configureOneShotProcess(child)
 	err := child.Run()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return types.TerminalReasonTimeout, oneShotTimeoutExitCode, xerrors.Errorf("one-shot process deadline: %w", runCtx.Err())
+	}
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		return types.TerminalReasonAbortedStream, oneShotStreamExitCode, xerrors.Errorf("one-shot process canceled: %w", runCtx.Err())
 	}
 	if err == nil {
 		return types.TerminalReasonSuccess, 0, nil
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-			return types.TerminalReasonSignal, 128 + int(status.Signal()), xerrors.Errorf("one-shot process terminated by signal: %w", err)
+		if exitCode, signaled := oneShotSignalExitCode(exitErr); signaled {
+			return types.TerminalReasonSignal, exitCode, xerrors.Errorf("one-shot process terminated by signal: %w", err)
 		}
 		return types.TerminalReasonFailure, exitErr.ExitCode(), err
 	}

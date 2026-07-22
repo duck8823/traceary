@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -137,16 +138,12 @@ func (u *sessionUsecase) FinalizeOneShot(
 	if !ok {
 		return "", nil, xerrors.Errorf("cannot finalize session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
 	}
-	if session.RuntimeMode() != types.RuntimeModeOneShot {
-		return "", nil, xerrors.Errorf("cannot synthetically finalize %s session %s: %w", session.RuntimeMode(), resolvedSessionID, model.ErrInvalidSessionState)
-	}
-
 	resolvedClient, resolvedAgent, resolvedWorkspace := inheritAttribution(client, agent, workspace, session)
 	if _, err := types.AgentFrom(resolvedAgent.String()); err != nil {
 		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
 	}
 	if endedAt, ended := session.EndedAt().Value(); ended {
-		transition, err := session.Terminate(endedAt, validatedReason, summary)
+		transition, err := session.FinalizeOneShot(endedAt, validatedReason, summary)
 		if err != nil {
 			return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
 		}
@@ -165,14 +162,43 @@ func (u *sessionUsecase) FinalizeOneShot(
 	if err != nil {
 		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
 	}
-	transition, err := session.Terminate(event.CreatedAt(), validatedReason, summary)
+	transition, err := session.FinalizeOneShot(event.CreatedAt(), validatedReason, summary)
 	if err != nil {
 		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
 	}
 	if err := u.sessionRepo.SaveBoundary(ctx, session, event); err != nil {
+		if errors.Is(err, model.ErrInvalidSessionState) {
+			transition, reconcileErr := u.reconcileOneShotTerminalState(ctx, resolvedSessionID, validatedReason)
+			if reconcileErr == nil {
+				return transition, nil, nil
+			}
+			return "", nil, reconcileErr
+		}
 		return "", nil, xerrors.Errorf("failed to save one-shot finalization: %w", err)
 	}
 	return transition, event, nil
+}
+
+func (u *sessionUsecase) reconcileOneShotTerminalState(ctx context.Context, sessionID types.SessionID, proposed types.TerminalReason) (model.SessionTerminalTransition, error) {
+	latest, err := u.sessionRepo.FindByID(ctx, sessionID)
+	if err != nil {
+		return "", xerrors.Errorf("failed to reconcile one-shot finalization: %w", err)
+	}
+	session, ok := latest.Value()
+	if !ok {
+		return "", xerrors.Errorf("one-shot session disappeared during finalization: %w", model.ErrInvalidSessionState)
+	}
+	current, terminal := session.TerminalReason().Value()
+	if !terminal {
+		return "", xerrors.Errorf("one-shot session remained active after terminal conflict: %w", model.ErrInvalidSessionState)
+	}
+	if current == proposed {
+		return model.SessionTerminalTransitionAlreadyApplied, nil
+	}
+	return "", xerrors.Errorf(
+		"session %s terminal reason %q conflicts with proposed reason %q: %w",
+		sessionID, current, proposed, model.ErrConflictingTerminalState,
+	)
 }
 
 func (u *sessionUsecase) StartChild(

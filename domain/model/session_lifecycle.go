@@ -78,3 +78,13 @@ func (s *Session) Terminate(
 	s.summary = summary
 	return SessionTerminalTransitionApplied, nil
 }
+
+// FinalizeOneShot applies a terminal transition only to an explicitly
+// supervised one-shot session. Other runtime modes require their own
+// authoritative lifecycle signal and must never be synthesized here.
+func (s *Session) FinalizeOneShot(endedAt time.Time, reason types.TerminalReason, summary string) (SessionTerminalTransition, error) {
+	if s == nil || s.runtimeMode != types.RuntimeModeOneShot {
+		return SessionTerminalTransition(""), ErrInvalidSessionState
+	}
+	return s.Terminate(endedAt, reason, summary)
+}

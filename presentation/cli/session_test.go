@@ -71,6 +71,31 @@ func TestRootCLI_SessionRunCommand_FinalizesAuthoritativeOutcomes(t *testing.T) 
 	}
 }
 
+func TestRootCLI_SessionRunCommand_FinalizesAfterParentCancellation(t *testing.T) {
+	t.Parallel()
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-cancel", types.EventKindSessionStarted, "cli", "codex", "one-shot-cancel", "duck8823/traceary", "session started", time.Now(),
+	)}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "run", "--db-path", filepath.Join(t.TempDir(), "traceary.db"), "--", "sh", "-c", "sleep 10"})
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(20*time.Millisecond, cancel)
+
+	err := rootCmd.ExecuteContext(ctx)
+	var exitCoder interface{ ExitCode() int }
+	if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != 74 {
+		t.Fatalf("ExecuteContext() error = %v, want exit code 74", err)
+	}
+	if sessionStub.finalizeReason != types.TerminalReasonAbortedStream {
+		t.Fatalf("FinalizeOneShot reason = %q, want aborted_stream", sessionStub.finalizeReason)
+	}
+	if sessionStub.finalizeContextErr != nil {
+		t.Fatalf("FinalizeOneShot context error = %v, want independent finalization context", sessionStub.finalizeContextErr)
+	}
+}
+
 func TestRootCLI_SessionStartCommand(t *testing.T) {
 	t.Parallel()
 

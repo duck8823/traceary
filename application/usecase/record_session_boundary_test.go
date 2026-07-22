@@ -126,6 +126,48 @@ func TestSessionUsecase_FinalizeOneShot_IsIdempotentAndRejectsConflicts(t *testi
 			t.Fatalf("FinalizeOneShot() error = %v, want ErrInvalidSessionState", err)
 		}
 	})
+
+	t.Run("concurrent same reason reconciles as already applied", func(t *testing.T) {
+		sessionStub := &sessionRepositoryStub{session: newOneShot(t)}
+		sessionStub.saveBoundaryHook = func(_ *model.Session, _ *model.Event) error {
+			stored, err := model.SessionFromSnapshot(model.SessionSnapshot{
+				SessionID: "one-shot", StartedAt: startedAt, EndedAt: types.Some(startedAt.Add(time.Minute)),
+				Client: "cli", Agent: "codex", Workspace: "duck8823/traceary", RuntimeMode: types.RuntimeModeOneShot,
+				TerminalReason: types.Some(types.TerminalReasonSuccess),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessionStub.session = stored
+			return model.ErrInvalidSessionState
+		}
+		sut := usecase.NewSessionUsecase(nil, sessionStub, nil, nil)
+		transition, event, err := sut.FinalizeOneShot(context.Background(), "cli", "codex", "one-shot", "duck8823/traceary", types.TerminalReasonSuccess, "done")
+		if err != nil || transition != model.SessionTerminalTransitionAlreadyApplied || event != nil {
+			t.Fatalf("FinalizeOneShot() = (%q, %v, %v), want already_applied/nil/nil", transition, event, err)
+		}
+	})
+
+	t.Run("concurrent different reason reconciles as conflict", func(t *testing.T) {
+		sessionStub := &sessionRepositoryStub{session: newOneShot(t)}
+		sessionStub.saveBoundaryHook = func(_ *model.Session, _ *model.Event) error {
+			stored, err := model.SessionFromSnapshot(model.SessionSnapshot{
+				SessionID: "one-shot", StartedAt: startedAt, EndedAt: types.Some(startedAt.Add(time.Minute)),
+				Client: "cli", Agent: "codex", Workspace: "duck8823/traceary", RuntimeMode: types.RuntimeModeOneShot,
+				TerminalReason: types.Some(types.TerminalReasonSuccess),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessionStub.session = stored
+			return model.ErrConflictingTerminalState
+		}
+		sut := usecase.NewSessionUsecase(nil, sessionStub, nil, nil)
+		_, _, err := sut.FinalizeOneShot(context.Background(), "cli", "codex", "one-shot", "duck8823/traceary", types.TerminalReasonFailure, "failed")
+		if !errors.Is(err, model.ErrConflictingTerminalState) {
+			t.Fatalf("FinalizeOneShot() error = %v, want ErrConflictingTerminalState", err)
+		}
+	})
 }
 
 func TestSessionUsecase_StartRejectsSelfParent(t *testing.T) {
@@ -459,6 +501,7 @@ type sessionRepositoryStub struct {
 	savedBoundary      *model.Session
 	savedEvent         *model.Event
 	saveBoundaryErr    error
+	saveBoundaryHook   func(*model.Session, *model.Event) error
 	nextChildOrder     int
 	nextChildOrderErr  error
 	updateSummaryErr   error
@@ -507,6 +550,9 @@ func (s *sessionRepositoryStub) SaveBoundary(_ context.Context, session *model.S
 	s.saveBoundaryCalled = true
 	s.savedBoundary = session
 	s.savedEvent = event
+	if s.saveBoundaryHook != nil {
+		return s.saveBoundaryHook(session, event)
+	}
 	return s.saveBoundaryErr
 }
 

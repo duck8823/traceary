@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -13,6 +14,21 @@ type alwaysFailWriter struct{}
 
 func (alwaysFailWriter) Write([]byte) (int, error) {
 	return 0, errors.New("simulated broken output stream")
+}
+
+func TestRunOneShotProcess_TimeoutKillsProcessGroupPromptly(t *testing.T) {
+	startedAt := time.Now()
+	reason, exitCode, err := runOneShotProcess(
+		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
+		[]string{"sh", "-c", "(sleep 10) & wait"}, 20*time.Millisecond,
+		oneShotProcessEnvironment("/tmp/test.db", "session", ""),
+	)
+	if err == nil || reason != types.TerminalReasonTimeout || exitCode != oneShotTimeoutExitCode {
+		t.Fatalf("runOneShotProcess() = (%q, %d, %v), want timeout/%d/error", reason, exitCode, err, oneShotTimeoutExitCode)
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("timeout process group took %s, want <= 1s", elapsed)
+	}
 }
 
 func TestRunOneShotProcess_ClassifiesAbortedStream(t *testing.T) {

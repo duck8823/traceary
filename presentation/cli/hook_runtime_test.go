@@ -154,6 +154,9 @@ func TestRootCLI_HookSessionCommand_OneShotWrapperOverridesHostIdentity(t *testi
 	if got := sessionStub.startCall.runtimeMode; got != types.RuntimeModeOneShot {
 		t.Fatalf("StartWithRuntimeMode runtime mode = %q, want one_shot", got)
 	}
+	if got := sessionStub.startCall.parentSessionID; got != "" {
+		t.Fatalf("StartWithRuntimeMode parent session ID = %q, want empty", got)
+	}
 }
 
 func TestRootCLI_HookSessionCommand_StartRunsRateLimitedSessionGC(t *testing.T) {

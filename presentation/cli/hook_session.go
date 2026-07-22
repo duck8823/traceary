@@ -80,7 +80,7 @@ func (c *RootCLI) runHookSession(
 			runtimeMode = types.RuntimeModeOneShot
 		}
 		parentSessionID := types.SessionID(strings.TrimSpace(os.Getenv("TRACEARY_PARENT_SESSION_ID")))
-		if parentSessionID == "" {
+		if parentSessionID == "" && runtimeMode != types.RuntimeModeOneShot {
 			inferredParentSessionID, inferErr := c.inferHookParentSessionID(ctx, payload, client, agent, workspace)
 			if inferErr != nil {
 				return inferErr
