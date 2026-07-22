@@ -1075,6 +1075,79 @@ func TestBundleUsecase_ImportRejectsInvalidUTF8RunIdentityBeforeReplacement(t *t
 	}
 }
 
+func TestBundleUsecase_ImportRejectsUnpairedJSONSurrogateBeforeReplacement(t *testing.T) {
+	t.Parallel()
+	line := []byte("{\"host\":\"codex\",\"run_id\":\"\\ud800\"}\n")
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{"run_lineages.ndjson": line}, map[string]any{
+		"run_lineages": map[string]any{"table_name": "run_lineages", "file": "run_lineages.ndjson", "row_count": 1, "checksum": hashForTest(line)},
+	})
+	in := filepath.Join(t.TempDir(), "invalid-surrogate.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 28}, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err == nil || !strings.Contains(err.Error(), "invalid Unicode") {
+		t.Fatalf("Import error = %v", err)
+	}
+}
+
+func TestBundleUsecase_ImportRejectsSnapshotRunAttribution(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	out := filepath.Join(t.TempDir(), "snapshot.tbun")
+	repo := &fakeBundleRepo{schema: 28, exportUsageObservations: []*model.UsageObservation{mustBundleUsageSnapshot(t, "snapshot-1", "session-1", 1, "", ts)}}
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, repo, nil).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatal(err)
+	}
+	files := openTestBundle(t, out, []byte("pass1"))
+	var row map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(files["usage_observations.ndjson"]), &row); err != nil {
+		t.Fatal(err)
+	}
+	row["run_host"], row["run_id"] = "codex", "run-1"
+	usage, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage = append(usage, '\n')
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{"usage_observations.ndjson": usage}, map[string]any{
+		"usage_observations": map[string]any{"table_name": "usage_observations", "file": "usage_observations.ndjson", "row_count": 1, "checksum": hashForTest(usage)},
+	})
+	in := filepath.Join(t.TempDir(), "snapshot-with-run.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 28}, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err == nil || !strings.Contains(err.Error(), "not allowed for a session snapshot") {
+		t.Fatalf("Import error = %v", err)
+	}
+}
+
+func TestBundleUsecase_ImportRequiresUsageRunInsideBundle(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	run := mustBundleRunLineage(t, "codex", "already-local", types.None[types.RunIdentity](), types.None[int64]())
+	usageObservation := mustBundleRunUsage(t, "usage-incomplete-bundle", "session-1", run.Identity(), ts)
+	out := filepath.Join(t.TempDir(), "complete.tbun")
+	exportRepo := &fakeBundleRepo{schema: 28, exportRunLineages: []*model.RunLineage{run}, exportUsageObservations: []*model.UsageObservation{usageObservation}}
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, nil).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatal(err)
+	}
+	usage := openTestBundle(t, out, []byte("pass1"))["usage_observations.ndjson"]
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{"usage_observations.ndjson": usage}, map[string]any{
+		"usage_observations": map[string]any{"table_name": "usage_observations", "file": "usage_observations.ndjson", "row_count": 1, "checksum": hashForTest(usage)},
+	})
+	in := filepath.Join(t.TempDir(), "incomplete.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination := &fakeBundleRepo{schema: 28, runLineages: map[types.RunIdentity]*model.RunLineage{run.Identity(): run}}
+	_, err := usecase.NewBundleUsecase(fakeEventQuery{}, destination, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err == nil || !strings.Contains(err.Error(), "missing from bundle") {
+		t.Fatalf("Import error = %v", err)
+	}
+}
+
 func mustBundleRunLineage(t *testing.T, host, runID string, parent types.Optional[types.RunIdentity], toolBytes types.Optional[int64]) *model.RunLineage {
 	t.Helper()
 	identity, err := types.RunIdentityFrom(host, runID)
@@ -1345,14 +1418,14 @@ func TestBundleUsecase_OrphanMemoryEdgeConflictErrorRollsBackBeforeSkip(t *testi
 	}
 }
 
-func TestBundleUsecase_ManifestV2FiveTableSpecDocReachable(t *testing.T) {
+func TestBundleUsecase_ManifestV2SevenTableSpecDocReachable(t *testing.T) {
 	t.Parallel()
 	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "operations", "cross-machine-handoff.md"))
 	if err != nil {
 		t.Fatalf("ReadFile(cross-machine-handoff.md): %v", err)
 	}
 	text := string(content)
-	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "command_audits.ndjson", "memories.ndjson", "memory_edges.ndjson", "Conflict matrix", "Five-table inclusion rules"} {
+	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "command_audits.ndjson", "memories.ndjson", "memory_edges.ndjson", "run_lineages.ndjson", "usage_observations.ndjson", "Conflict matrix", "Seven-table inclusion rules"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("doc missing %q", want)
 		}

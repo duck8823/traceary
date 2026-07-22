@@ -165,41 +165,41 @@ type bundleCommandAuditRow struct {
 }
 
 type bundleUsageObservationRow struct {
-	ObservationID         string `json:"observation_id"`
-	SessionID             string `json:"session_id"`
-	Host                  string `json:"host"`
-	SourceName            string `json:"source_name"`
-	SourceVersion         string `json:"source_version"`
-	Provider              string `json:"provider,omitempty"`
-	Model                 string `json:"model,omitempty"`
-	Scope                 string `json:"scope"`
-	Accounting            string `json:"accounting"`
-	Status                string `json:"status"`
-	ObservedAt            string `json:"observed_at"`
-	FinalizedAt           string `json:"finalized_at,omitempty"`
-	TerminalCode          string `json:"terminal_code,omitempty"`
-	InputState            string `json:"input_state"`
-	InputTokens           *int64 `json:"input_tokens,omitempty"`
-	CachedInputState      string `json:"cached_input_state"`
-	CachedInputTokens     *int64 `json:"cached_input_tokens,omitempty"`
-	CacheWriteInputState  string `json:"cache_write_input_state"`
-	CacheWriteInputTokens *int64 `json:"cache_write_input_tokens,omitempty"`
-	OutputState           string `json:"output_state"`
-	OutputTokens          *int64 `json:"output_tokens,omitempty"`
-	ReasoningOutputState  string `json:"reasoning_output_state"`
-	ReasoningOutputTokens *int64 `json:"reasoning_output_tokens,omitempty"`
-	TotalState            string `json:"total_state"`
-	TotalTokens           *int64 `json:"total_tokens,omitempty"`
-	CostState             string `json:"cost_state"`
-	CostAmountMicros      *int64 `json:"cost_amount_micros,omitempty"`
-	CostCurrency          string `json:"cost_currency,omitempty"`
-	CostOrigin            string `json:"cost_origin,omitempty"`
-	PriceTableVersion     string `json:"price_table_version,omitempty"`
-	SnapshotSeries        string `json:"snapshot_series,omitempty"`
-	SnapshotRevision      *int64 `json:"snapshot_revision,omitempty"`
-	SupersedesID          string `json:"supersedes_id,omitempty"`
-	RunHost               string `json:"run_host,omitempty"`
-	RunID                 string `json:"run_id,omitempty"`
+	ObservationID         string  `json:"observation_id"`
+	SessionID             string  `json:"session_id"`
+	Host                  string  `json:"host"`
+	SourceName            string  `json:"source_name"`
+	SourceVersion         string  `json:"source_version"`
+	Provider              string  `json:"provider,omitempty"`
+	Model                 string  `json:"model,omitempty"`
+	Scope                 string  `json:"scope"`
+	Accounting            string  `json:"accounting"`
+	Status                string  `json:"status"`
+	ObservedAt            string  `json:"observed_at"`
+	FinalizedAt           string  `json:"finalized_at,omitempty"`
+	TerminalCode          string  `json:"terminal_code,omitempty"`
+	InputState            string  `json:"input_state"`
+	InputTokens           *int64  `json:"input_tokens,omitempty"`
+	CachedInputState      string  `json:"cached_input_state"`
+	CachedInputTokens     *int64  `json:"cached_input_tokens,omitempty"`
+	CacheWriteInputState  string  `json:"cache_write_input_state"`
+	CacheWriteInputTokens *int64  `json:"cache_write_input_tokens,omitempty"`
+	OutputState           string  `json:"output_state"`
+	OutputTokens          *int64  `json:"output_tokens,omitempty"`
+	ReasoningOutputState  string  `json:"reasoning_output_state"`
+	ReasoningOutputTokens *int64  `json:"reasoning_output_tokens,omitempty"`
+	TotalState            string  `json:"total_state"`
+	TotalTokens           *int64  `json:"total_tokens,omitempty"`
+	CostState             string  `json:"cost_state"`
+	CostAmountMicros      *int64  `json:"cost_amount_micros,omitempty"`
+	CostCurrency          string  `json:"cost_currency,omitempty"`
+	CostOrigin            string  `json:"cost_origin,omitempty"`
+	PriceTableVersion     string  `json:"price_table_version,omitempty"`
+	SnapshotSeries        string  `json:"snapshot_series,omitempty"`
+	SnapshotRevision      *int64  `json:"snapshot_revision,omitempty"`
+	SupersedesID          string  `json:"supersedes_id,omitempty"`
+	RunHost               *string `json:"run_host,omitempty"`
+	RunID                 *string `json:"run_id,omitempty"`
 }
 
 func bundleUsageObservationRowFromModel(observation *model.UsageObservation) bundleUsageObservationRow {
@@ -239,8 +239,8 @@ func bundleUsageObservationRowFromModel(observation *model.UsageObservation) bun
 		row.SupersedesID = value.String()
 	}
 	if value, present := descriptor.RunIdentity().Value(); present {
-		row.RunHost = value.Host()
-		row.RunID = value.RunID()
+		host, runID := value.Host(), value.RunID()
+		row.RunHost, row.RunID = &host, &runID
 	}
 	return row
 }
@@ -279,6 +279,9 @@ func (r bundleUsageObservationRow) toUsageObservation() (*model.UsageObservation
 	}
 	var descriptor model.UsageObservationDescriptor
 	if scope == types.UsageScopeSessionSnapshot {
+		if r.RunHost != nil || r.RunID != nil {
+			return nil, xerrors.Errorf("run identity is not allowed for a session snapshot")
+		}
 		if r.SnapshotRevision == nil {
 			return nil, xerrors.Errorf("snapshot_revision is required for a session snapshot")
 		}
@@ -291,12 +294,12 @@ func (r bundleUsageObservationRow) toUsageObservation() (*model.UsageObservation
 			predecessor = types.Some(value)
 		}
 		descriptor, err = model.NewUsageSnapshotDescriptor(id, sessionID, source, r.SnapshotSeries, *r.SnapshotRevision, predecessor, observedAt)
-	} else if r.RunHost == "" && r.RunID == "" {
+	} else if r.RunHost == nil && r.RunID == nil {
 		descriptor, err = model.NewUsageObservationDescriptor(id, sessionID, source, scope, accounting, observedAt)
-	} else if r.RunHost == "" || r.RunID == "" {
+	} else if r.RunHost == nil || r.RunID == nil {
 		return nil, xerrors.Errorf("run identity is incomplete")
 	} else {
-		runIdentity, identityErr := types.RunIdentityFrom(r.RunHost, r.RunID)
+		runIdentity, identityErr := types.RunIdentityFrom(*r.RunHost, *r.RunID)
 		if identityErr != nil {
 			return nil, xerrors.Errorf("run identity: %w", identityErr)
 		}

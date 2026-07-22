@@ -16,10 +16,51 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strconv"
 	"unicode/utf8"
 
 	"golang.org/x/xerrors"
 )
+
+func validateStrictJSONUnicode(line []byte) error {
+	inString := false
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case '"':
+			inString = !inString
+		case '\\':
+			if !inString || i+1 >= len(line) {
+				continue
+			}
+			i++
+			if line[i] != 'u' {
+				continue
+			}
+			if i+4 >= len(line) {
+				return xerrors.Errorf("incomplete Unicode escape")
+			}
+			value, err := strconv.ParseUint(string(line[i+1:i+5]), 16, 16)
+			if err != nil {
+				return xerrors.Errorf("invalid Unicode escape")
+			}
+			i += 4
+			switch {
+			case value >= 0xD800 && value <= 0xDBFF:
+				if i+6 >= len(line) || line[i+1] != '\\' || line[i+2] != 'u' {
+					return xerrors.Errorf("unpaired high surrogate")
+				}
+				low, err := strconv.ParseUint(string(line[i+3:i+7]), 16, 16)
+				if err != nil || low < 0xDC00 || low > 0xDFFF {
+					return xerrors.Errorf("unpaired high surrogate")
+				}
+				i += 6
+			case value >= 0xDC00 && value <= 0xDFFF:
+				return xerrors.Errorf("unpaired low surrogate")
+			}
+		}
+	}
+	return nil
+}
 
 func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
 	sessions := bundleSessionsTable{}
@@ -59,6 +100,9 @@ func (bundleRunLineagesTable) Decode(r io.Reader) ([]bundleRow, error) {
 		line := append([]byte(nil), scanner.Bytes()...)
 		if !utf8.Valid(line) {
 			return nil, xerrors.Errorf("run lineage row contains invalid UTF-8")
+		}
+		if err := validateStrictJSONUnicode(line); err != nil {
+			return nil, xerrors.Errorf("run lineage row contains invalid Unicode: %w", err)
 		}
 		var row bundleRunLineageRow
 		if err := json.Unmarshal(line, &row); err != nil {
@@ -113,6 +157,9 @@ func (bundleUsageObservationsTable) Decode(r io.Reader) ([]bundleRow, error) {
 		line := append([]byte(nil), scanner.Bytes()...)
 		if !utf8.Valid(line) {
 			return nil, xerrors.Errorf("usage observation row contains invalid UTF-8")
+		}
+		if err := validateStrictJSONUnicode(line); err != nil {
+			return nil, xerrors.Errorf("usage observation row contains invalid Unicode: %w", err)
 		}
 		var row bundleUsageObservationRow
 		if err := json.Unmarshal(line, &row); err != nil {

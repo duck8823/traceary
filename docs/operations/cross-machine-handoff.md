@@ -95,20 +95,24 @@ The import command also accepts `--missing-parent {reject,skip,backfill}` to con
 }
 ```
 
-Import verifies every registered file checksum before opening the write transaction, rejects unregistered payload files, and applies supported tables in dependency order across the current five-table portability surface:
+Import verifies every registered file checksum before opening the write transaction, rejects unregistered payload files, and applies supported tables in dependency order across the current seven-table portability surface:
 
 1. `sessions.ndjson`
-2. `events.ndjson`
-3. `command_audits.ndjson`
-4. `memories.ndjson`
-5. `memory_edges.ndjson`
+2. `run_lineages.ndjson`
+3. `usage_observations.ndjson`
+4. `events.ndjson`
+5. `command_audits.ndjson`
+6. `memories.ndjson`
+7. `memory_edges.ndjson`
 
-### Five-table inclusion rules
+### Seven-table inclusion rules
 
 | Table | Current writer | Import requirement |
 |---|---:|---|
 | `events` / `events.ndjson` | Included | Independent rows; idempotent by `events.id`. |
 | `sessions` / `sessions.ndjson` | Included | Imported first so owning sessions exist before events; `--missing-parent` controls a session whose parent session is absent in the destination. |
+| `run_lineages` / `run_lineages.ndjson` | Included | Imported ancestor-first. Every parent and every run referenced by usage must be present in the bundle itself. |
+| `usage_observations` / `usage_observations.ndjson` | Included | Imported after run lineage. Run-scoped rows retain their body-free run identity; session snapshots cannot carry run attribution. |
 | `command_audits` / `command_audits.ndjson` | Included | Filtered to the exported events; idempotent by `event_id`. |
 | `memories` / `memories.ndjson` | Included | Imported before `memory_edges`; new rows enter `candidate` status unless already present. |
 | `memory_edges` / `memory_edges.ndjson` | Included | Imported after memories; both endpoints must exist in the destination DB. Existing edge IDs are skipped under default `--on-conflict=skip`. |

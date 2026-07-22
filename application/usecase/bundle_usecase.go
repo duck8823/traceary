@@ -526,6 +526,27 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 	}
 
 	result := BundleImportResult{BundleSchemaVersion: manifest.BundleSchemaVersion}
+	decodedTables := make(map[string][]bundleRow, len(tableEntries))
+	for _, entry := range tableEntries {
+		importer, ok := registry[entry.TableName]
+		if !ok {
+			continue
+		}
+		rows, err := importer.Decode(bytes.NewReader(files[entry.File]))
+		if err != nil {
+			return result, xerrors.Errorf("failed to decode %s rows: %w", entry.TableName, err)
+		}
+		if entry.RowCount >= 0 && len(rows) != entry.RowCount {
+			return result, xerrors.Errorf(
+				"bundle table %s row count mismatch (manifest=%d, decoded=%d)",
+				entry.TableName, entry.RowCount, len(rows),
+			)
+		}
+		decodedTables[entry.TableName] = rows
+	}
+	if err := validateBundleRunClosure(decodedTables); err != nil {
+		return result, err
+	}
 	tx, err := u.repository.BeginBundleImport(ctx)
 	if err != nil {
 		return result, xerrors.Errorf("failed to begin bundle import transaction: %w", err)
@@ -541,17 +562,7 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		if !ok {
 			continue
 		}
-		raw := files[entry.File]
-		rows, err := importer.Decode(bytes.NewReader(raw))
-		if err != nil {
-			return result, xerrors.Errorf("failed to decode %s rows: %w", entry.TableName, err)
-		}
-		if entry.RowCount >= 0 && len(rows) != entry.RowCount {
-			return result, xerrors.Errorf(
-				"bundle table %s row count mismatch (manifest=%d, decoded=%d)",
-				entry.TableName, entry.RowCount, len(rows),
-			)
-		}
+		rows := decodedTables[entry.TableName]
 		imported, skipped, err := importer.Apply(ctx, tx, rows, bundleImportPolicy{OnConflict: onConflict, MissingParent: missingParent, OrphanEdges: orphanEdges})
 		if err != nil {
 			return result, xerrors.Errorf("failed to import %s: %w", entry.TableName, err)
@@ -585,6 +596,39 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 	}
 	committed = true
 	return result, nil
+}
+
+func validateBundleRunClosure(decodedTables map[string][]bundleRow) error {
+	runRows, err := sortBundleRunLineageRows(decodedTables["run_lineages"])
+	if err != nil {
+		return xerrors.Errorf("invalid run lineage closure: %w", err)
+	}
+	available := make(map[types.RunIdentity]struct{}, len(runRows))
+	for _, row := range runRows {
+		lineage, err := row.toRunLineage()
+		if err != nil {
+			return xerrors.Errorf("invalid run lineage closure: %w", err)
+		}
+		available[lineage.Identity()] = struct{}{}
+	}
+	for _, generic := range decodedTables["usage_observations"] {
+		row, ok := generic.(bundleUsageObservationRow)
+		if !ok {
+			return xerrors.Errorf("unexpected usage_observations row type %T", generic)
+		}
+		observation, err := row.toUsageObservation()
+		if err != nil {
+			return xerrors.Errorf("invalid usage observation: %w", err)
+		}
+		identity, present := observation.Descriptor().RunIdentity().Value()
+		if !present {
+			continue
+		}
+		if _, exists := available[identity]; !exists {
+			return xerrors.Errorf("usage observation %s references run identity missing from bundle", observation.Descriptor().ObservationID())
+		}
+	}
+	return nil
 }
 
 // ---- Table registry + NDJSON row + tar.gz + AEAD helpers ----
