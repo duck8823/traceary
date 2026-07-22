@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -304,6 +305,66 @@ func TestFileRetentionInventoryRejectsPathReplacementAfterOpen(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("snapshot = %#v, want changed_during_inventory blocker", snapshot)
+	}
+}
+
+func TestFileRetentionRetryDoesNotTreatNameInspectionErrorAsAbsence(t *testing.T) {
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	root, planBytes, plan, datasource, workflow := newFileRetentionBackupPlanFixture(t, now)
+	candidate := plan.CanonicalPayload.Classes[0].Candidates[0]
+	tombstone := fileRetentionTombstoneName(plan.PlanID, candidate.Identity)
+	injectedCrash := errors.New("injected crash before tombstone unlink")
+	datasource.afterBoundary = func(boundary string) error {
+		if boundary == "journal-unlink_tombstone_intent" {
+			datasource.afterBoundary = nil
+			return injectedCrash
+		}
+		return nil
+	}
+	if _, err := workflow.Apply(context.Background(), planBytes, plan.PlanID, now); !errors.Is(err, injectedCrash) {
+		t.Fatalf("Apply(crash) error = %v, want injected", err)
+	}
+	datasource.inspectName = func(_ int, name string) (bool, error) {
+		if name == tombstone {
+			return false, unix.EIO
+		}
+		return false, fmt.Errorf("unexpected inspected name %s", name)
+	}
+	if _, err := workflow.Apply(context.Background(), planBytes, plan.PlanID, now.Add(2*time.Minute)); !errors.Is(err, unix.EIO) {
+		t.Fatalf("Apply(name inspection error) = %v, want EIO", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, tombstone)); err != nil {
+		t.Fatalf("tombstone changed after inspection error: %v", err)
+	}
+	journalData, err := os.ReadFile(filepath.Join(root, fileRetentionJournalName(plan.PlanID, candidate.Identity)))
+	if err != nil {
+		t.Fatalf("ReadFile(journal) error = %v", err)
+	}
+	var journal fileRetentionJournal
+	if err := json.Unmarshal(journalData, &journal); err != nil || journal.State != "unlink_tombstone_intent" {
+		t.Fatalf("journal after inspection error = %#v, error = %v", journal, err)
+	}
+	datasource.inspectName = nil
+	result, err := workflow.Apply(context.Background(), planBytes, plan.PlanID, now.Add(4*time.Minute))
+	if err != nil {
+		t.Fatalf("Apply(retry) error = %v", err)
+	}
+	if result.DeletedCount != 1 || result.ConflictedCount != 0 {
+		t.Fatalf("Apply(retry) result = %#v", result)
+	}
+}
+
+func TestFileRetentionApplyRejectsGroupWritableRoot(t *testing.T) {
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	root, planBytes, plan, _, workflow := newFileRetentionBackupPlanFixture(t, now)
+	if err := os.Chmod(root, 0o770); err != nil {
+		t.Fatalf("Chmod(root) error = %v", err)
+	}
+	if _, err := workflow.Apply(context.Background(), planBytes, plan.PlanID, now); err == nil || !strings.Contains(err.Error(), "without group/other write access") {
+		t.Fatalf("Apply(group-writable root) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "old.db")); err != nil {
+		t.Fatalf("candidate changed after unsafe-root rejection: %v", err)
 	}
 }
 

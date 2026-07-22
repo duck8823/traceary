@@ -43,6 +43,7 @@ const (
 // FileRetentionDatasource provides fd-confined inventory and crash-retryable deletion.
 type FileRetentionDatasource struct {
 	afterBoundary func(string) error
+	inspectName   func(int, string) (bool, error)
 }
 
 // NewFileRetentionDatasource creates the local archive/backup adapter.
@@ -548,6 +549,9 @@ func (datasource *FileRetentionDatasource) applyFileRetentionClass(ctx context.C
 	if fileRetentionRootIdentity(rootStat) != classPlan.RootIdentity {
 		return result, xerrors.New("file retention root identity changed")
 	}
+	if rootStat.Uid != uint32(os.Geteuid()) || rootStat.Mode&0o022 != 0 {
+		return result, xerrors.New("file retention apply requires a caller-owned root without group/other write access")
+	}
 	lockFD, err := openAndLockFileRetentionRoot(rootFD, rootStat)
 	if err != nil {
 		return result, err
@@ -723,7 +727,11 @@ func (datasource *FileRetentionDatasource) resumeFileRetentionCandidate(
 			if err := datasource.verifyFileRetentionPlanSnapshot(ctx, plan, classPlan, *ledger, *journal, true); err != nil {
 				return err
 			}
-			if fileRetentionNameExists(rootFD, journal.TombstonePath) {
+			tombstoneExists, err := datasource.fileRetentionNameExists(rootFD, journal.TombstonePath)
+			if err != nil {
+				return err
+			}
+			if tombstoneExists {
 				entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
 				if err := verifyFileRetentionNameAt(rootFD, rootStat, classPlan, candidate, journal.TombstonePath); err != nil {
 					return err
@@ -755,7 +763,7 @@ func (datasource *FileRetentionDatasource) resumeFileRetentionCandidate(
 			if err := datasource.verifyFileRetentionPlanSnapshot(ctx, plan, classPlan, *ledger, *journal, true); err != nil {
 				return err
 			}
-			if err := moveAndUnlinkFileRetentionMetadata(rootFD, rootStat, entry, journal.TombstonePath+".metadata"); err != nil {
+			if err := datasource.moveAndUnlinkFileRetentionMetadata(rootFD, rootStat, entry, journal.TombstonePath+".metadata"); err != nil {
 				return err
 			}
 			if err := datasource.boundary("metadata-unlinked"); err != nil {
@@ -1019,9 +1027,19 @@ func requireFileRetentionNameAbsent(rootFD int, name string) error {
 	return xerrors.Errorf("file retention original %s was replaced after tombstone move", name)
 }
 
-func fileRetentionNameExists(rootFD int, name string) bool {
+func (datasource *FileRetentionDatasource) fileRetentionNameExists(rootFD int, name string) (bool, error) {
+	if datasource.inspectName != nil {
+		return datasource.inspectName(rootFD, name)
+	}
 	var stat unix.Stat_t
-	return unix.Fstatat(rootFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW) == nil
+	err := unix.Fstatat(rootFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW)
+	if errors.Is(err, unix.ENOENT) {
+		return false, nil
+	}
+	if err != nil {
+		return false, xerrors.Errorf("inspect file retention name %s: %w", name, err)
+	}
+	return true, nil
 }
 
 func unlinkFileRetentionName(rootFD int, name string) error {
@@ -1034,13 +1052,17 @@ func unlinkFileRetentionName(rootFD int, name string) error {
 	return nil
 }
 
-func moveAndUnlinkFileRetentionMetadata(rootFD int, rootStat unix.Stat_t, entry apptypes.FileRetentionInventoryPlan, tombstone string) error {
+func (datasource *FileRetentionDatasource) moveAndUnlinkFileRetentionMetadata(rootFD int, rootStat unix.Stat_t, entry apptypes.FileRetentionInventoryPlan, tombstone string) error {
 	if entry.MetadataRelativePath == "" || entry.MetadataSHA256 == "" {
 		return xerrors.New("file retention metadata identity is missing")
 	}
 	var tombstoneStat unix.Stat_t
 	if err := unix.Fstatat(rootFD, tombstone, &tombstoneStat, unix.AT_SYMLINK_NOFOLLOW); errors.Is(err, unix.ENOENT) {
-		if !fileRetentionNameExists(rootFD, entry.MetadataRelativePath) {
+		metadataExists, existsErr := datasource.fileRetentionNameExists(rootFD, entry.MetadataRelativePath)
+		if existsErr != nil {
+			return existsErr
+		}
+		if !metadataExists {
 			return nil
 		}
 		if err := verifyFileRetentionMetadataAt(rootFD, rootStat, entry); err != nil {
@@ -1056,6 +1078,13 @@ func moveAndUnlinkFileRetentionMetadata(rootFD int, rootStat unix.Stat_t, entry 
 		return xerrors.Errorf("inspect file retention metadata tombstone: %w", err)
 	}
 	if err := verifyFileRetentionMetadataNameAt(rootFD, rootStat, entry.MetadataSHA256, tombstone); err != nil {
+		restoreErr := renameFileRetentionNoReplace(rootFD, tombstone, entry.MetadataRelativePath)
+		if restoreErr == nil {
+			restoreErr = unix.Fsync(rootFD)
+		}
+		if restoreErr != nil {
+			return xerrors.Errorf("verify moved file retention metadata: %v; preserve unexpected metadata at %s: %w", err, tombstone, restoreErr)
+		}
 		return err
 	}
 	return unlinkFileRetentionName(rootFD, tombstone)
