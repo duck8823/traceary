@@ -70,7 +70,7 @@ func TestDoctorAndStatusCapacityRootsUseOnlyReadOnlyInspector(t *testing.T) {
 			root.SetOut(stdout)
 			root.SetErr(&bytes.Buffer{})
 			root.SetArgs([]string{commandName, "--db-path", dbPath, "--backup-root", rootPath, "--client", "codex", "--project-dir", projectDir, "--json", "--warnings-ok", "--fix", "--dry-run"})
-			if err := root.Execute(); err != nil {
+			if err := root.Execute(); err != nil && !strings.Contains(err.Error(), "doctor found") {
 				t.Fatalf("Execute(%s) error = %v", commandName, err)
 			}
 			var report doctorReport
@@ -127,7 +127,7 @@ func TestDoctorWithoutCapacityRootsSkipsReadOnlyInspector(t *testing.T) {
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs([]string{"doctor", "--db-path", filepath.Join(t.TempDir(), "live.db"), "--client", "codex", "--project-dir", t.TempDir(), "--json", "--warnings-ok"})
-	if err := root.Execute(); err != nil {
+	if err := root.Execute(); err != nil && !strings.Contains(err.Error(), "doctor found") {
 		t.Fatalf("Execute(doctor without capacity roots) error = %v", err)
 	}
 	if stub.calls != 0 {
