@@ -337,6 +337,19 @@ func TestBundleDatasource_UsageObservationsPreserveSnapshotChainAndRejectReplace
 	if err := missingTx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
+
+	missingWithHeadTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingWithHead := makeSnapshot("usage-missing-predecessor-with-head", 3, "absent-from-existing-series", 30)
+	if imported, err := missingWithHeadTx.ImportUsageObservation(ctx, missingWithHead, usecase.BundleConflictSkip); err == nil || imported {
+		_ = missingWithHeadTx.Rollback(ctx)
+		t.Fatalf("missing predecessor with destination head import = %t/%v, want fail closed", imported, err)
+	}
+	if err := missingWithHeadTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestBundleDatasource_LaterTableFailureRollsBackImportedUsageObservation(t *testing.T) {
