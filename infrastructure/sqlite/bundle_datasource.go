@@ -120,7 +120,7 @@ func (d *BundleDatasource) ListBundleCommandAudits(ctx context.Context) ([]*mode
 		}
 	}()
 	rows, err := db.QueryContext(ctx, `
-SELECT event_id, command_text, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed
+SELECT event_id, command_text, command_wrapper, command_name, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed, failure_reason
 FROM command_audits
 ORDER BY event_id`)
 	if err != nil {
@@ -367,10 +367,12 @@ func (t *bundleImportTx) ImportCommandAudit(ctx context.Context, audit *model.Co
 	}
 	query := insertCommandAuditQuery
 	if policy == usecase.BundleConflictReplace {
-		query = `INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		query = `INSERT INTO command_audits(event_id, command_text, command_wrapper, command_name, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed, failure_reason)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(event_id) DO UPDATE SET
   command_text = excluded.command_text,
+  command_wrapper = excluded.command_wrapper,
+  command_name = excluded.command_name,
   input_text = excluded.input_text,
   output_text = excluded.output_text,
   input_truncated = excluded.input_truncated,
@@ -378,17 +380,24 @@ ON CONFLICT(event_id) DO UPDATE SET
   input_original_bytes = excluded.input_original_bytes,
   output_original_bytes = excluded.output_original_bytes,
   exit_code = excluded.exit_code,
-  failed = excluded.failed`
+  failed = excluded.failed,
+  failure_reason = excluded.failure_reason`
 	}
 	var exitCodeSQL *int
 	if exitCode, ok := audit.ExitCode().Value(); ok {
 		exitCodeSQL = &exitCode
+	}
+	var wrapper string
+	if value, ok := audit.CommandIdentity().Wrapper().Value(); ok {
+		wrapper = value.String()
 	}
 	_, err = t.tx.ExecContext(
 		ctx,
 		query,
 		audit.EventID().String(),
 		audit.Command(),
+		wrapper,
+		audit.CommandIdentity().Command().String(),
 		audit.Input(),
 		audit.Output(),
 		audit.InputTruncated(),
@@ -397,6 +406,7 @@ ON CONFLICT(event_id) DO UPDATE SET
 		audit.OutputOriginalBytes(),
 		exitCodeSQL,
 		audit.Failed(),
+		audit.FailureReason().String(),
 	)
 	if err == nil {
 		return true, nil
@@ -776,6 +786,8 @@ func scanBundleCommandAudit(row interface {
 	var (
 		eventID         string
 		commandText     string
+		commandWrapper  string
+		commandName     string
 		inputText       string
 		outputText      string
 		inputTruncated  bool
@@ -784,10 +796,13 @@ func scanBundleCommandAudit(row interface {
 		outputOriginal  int
 		exitCode        sql.NullInt64
 		failed          sql.NullBool
+		failureReason   string
 	)
 	if err := row.Scan(
 		&eventID,
 		&commandText,
+		&commandWrapper,
+		&commandName,
 		&inputText,
 		&outputText,
 		&inputTruncated,
@@ -796,20 +811,25 @@ func scanBundleCommandAudit(row interface {
 		&outputOriginal,
 		&exitCode,
 		&failed,
+		&failureReason,
 	); err != nil {
 		return nil, xerrors.Errorf("scan command audit: %w", err)
 	}
-	audit := model.CommandAuditOf(
-		types.EventID(eventID),
-		commandText,
-		inputText,
-		outputText,
-		inputTruncated,
-		outputTruncated,
-		optionalIntFromNullInt64(exitCode),
-		failed.Bool,
-	)
-	audit.SetOriginalPayloadBytes(inputOriginal, outputOriginal)
+	wrapper := types.None[types.CommandName]()
+	if commandWrapper != "" {
+		wrapper = types.Some(types.CommandName(commandWrapper))
+	}
+	audit, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
+		EventID: types.EventID(eventID), Command: commandText, Wrapper: wrapper,
+		CommandName: types.CommandName(commandName), Input: inputText, Output: outputText,
+		InputTruncated: inputTruncated, OutputTruncated: outputTruncated,
+		InputOriginalBytes: inputOriginal, OutputOriginalBytes: outputOriginal,
+		ExitCode: optionalIntFromNullInt64(exitCode), Failed: failed.Bool,
+		FailureReason: types.CommandFailureReason(failureReason),
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("restore command audit: %w", err)
+	}
 	return audit, nil
 }
 

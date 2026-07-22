@@ -163,6 +163,7 @@ func run() error {
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
+	reportCommandUsecase := usecase.NewReportCommandUsecase(eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	codexMemorySource := filesystem.NewCodexMemorySource()
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns, usecase.MemoryUsecaseDependencies{
@@ -212,6 +213,7 @@ func run() error {
 	rootCmd := cli.NewRootCLI(
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
+		cli.WithReportCommand(reportCommandUsecase),
 		cli.WithSession(sessionUsecase),
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),

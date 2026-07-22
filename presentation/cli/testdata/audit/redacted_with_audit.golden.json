@@ -11,11 +11,13 @@
   },
   "command_audit": {
     "command": "curl https://example.test",
+    "command_name": "unknown",
     "input": "{\"access_token\":\"[REDACTED]\"}",
     "output": "Authorization: Bearer [REDACTED]",
     "input_truncated": false,
     "output_truncated": true,
     "exit_code": 1,
+    "failure_reason": "unknown",
     "sensitive": {
       "matched": false,
       "coverage": "partial",

@@ -1656,42 +1656,63 @@ func TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload(t *testing.T) {
 		client     string
 		payload    string
 		wantFailed bool
+		wantReason types.CommandFailureReason
 	}{
 		{
 			name:       "claude post-tool-use failure with top-level error",
 			client:     "claude",
 			payload:    `{"tool_input":{"command":"go test ./..."},"error":"Exit code 7\nFAIL","is_interrupt":false}`,
 			wantFailed: true,
+			wantReason: types.CommandFailureReasonHostError,
 		},
 		{
 			name:       "claude success payload is not flagged",
 			client:     "claude",
 			payload:    `{"tool_input":{"command":"go test ./..."},"tool_response":{"interrupted":false,"stdout":"ok","stderr":""}}`,
 			wantFailed: false,
+			wantReason: types.CommandFailureReasonUnknown,
 		},
 		{
 			name:       "gemini spawn error in tool_response.error",
 			client:     "gemini",
 			payload:    `{"tool_input":{"command":"missing-binary"},"tool_response":{"llmContent":"failed","error":{"type":"shell_execute_error","message":"spawn failed"}}}`,
 			wantFailed: true,
+			wantReason: types.CommandFailureReasonHostError,
+		},
+		{
+			name:       "claude interrupt is a signal",
+			client:     "claude",
+			payload:    `{"tool_input":{"command":"go test ./..."},"error":"interrupted","is_interrupt":true}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonSignal,
+		},
+		{
+			name:       "structured timeout is a timeout",
+			client:     "codex",
+			payload:    `{"tool_input":{"command":"go test ./..."},"error":"deadline","timed_out":true}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonTimeout,
 		},
 		{
 			name:       "empty top-level error is not a failure",
 			client:     "claude",
 			payload:    `{"tool_input":{"command":"go test ./..."},"error":""}`,
 			wantFailed: false,
+			wantReason: types.CommandFailureReasonUnknown,
 		},
 		{
 			name:       "gemini empty tool_response.error is not a failure",
 			client:     "gemini",
 			payload:    `{"tool_input":{"command":"go test ./..."},"tool_response":{"llmContent":"ok","error":""}}`,
 			wantFailed: false,
+			wantReason: types.CommandFailureReasonUnknown,
 		},
 		{
 			name:       "codex raw-string tool_response mentioning error is not flagged",
 			client:     "codex",
 			payload:    `{"tool_input":{"command":"go test ./..."},"tool_response":"error: a test logged the word error but exited 0"}`,
 			wantFailed: false,
+			wantReason: types.CommandFailureReasonUnknown,
 		},
 	}
 
@@ -1742,6 +1763,9 @@ func TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload(t *testing.T) {
 
 			if got := eventStub.auditCall.failed; got != tc.wantFailed {
 				t.Fatalf("audit failed = %t, want %t", got, tc.wantFailed)
+			}
+			if got := eventStub.auditCall.failureReason; got != tc.wantReason {
+				t.Fatalf("audit failure reason = %q, want %q", got, tc.wantReason)
 			}
 		})
 	}

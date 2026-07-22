@@ -400,20 +400,37 @@ func (s *Server) recordEvent() mcp.ToolHandlerFor[recordEventInput, recordEventO
 				ExtraRedactPatterns(s.extraRedactPatterns).
 				StructuredRules(s.structuredRedactRules).
 				Build()
+			exitCode := types.None[int]()
+			if input.ExitCode != nil {
+				exitCode = types.Some(*input.ExitCode)
+			}
+			failureReason := types.CommandFailureReasonUnknown
+			if strings.TrimSpace(input.FailureReason) != "" {
+				parsedReason, parseErr := types.CommandFailureReasonFrom(input.FailureReason)
+				if parseErr != nil {
+					return nil, recordEventOutput{}, xerrors.Errorf("invalid failure_reason: %w", parseErr)
+				}
+				failureReason = parsedReason
+			}
 			event, audit, err := s.event.Audit(ctx, apptypes.AuditInput{
-				Command:   input.Command,
-				Input:     input.Input,
-				Output:    input.Output,
-				Client:    types.Client(resolveValue(input.Client, defaultClientValue)),
-				Agent:     types.Agent(resolveValue(input.Agent, defaultAgentValue)),
-				SessionID: types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
-				Workspace: types.Workspace(strings.TrimSpace(input.Workspace)),
-				ExitCode:  types.None[int](),
+				Command:       input.Command,
+				Input:         input.Input,
+				Output:        input.Output,
+				Client:        types.Client(resolveValue(input.Client, defaultClientValue)),
+				Agent:         types.Agent(resolveValue(input.Agent, defaultAgentValue)),
+				SessionID:     types.SessionID(resolveValue(input.SessionID, defaultSessionValue)),
+				Workspace:     types.Workspace(strings.TrimSpace(input.Workspace)),
+				ExitCode:      exitCode,
+				FailureReason: failureReason,
 			}, auditCfg)
 			if err != nil {
 				return nil, recordEventOutput{}, xerrors.Errorf("failed to record command audit: %w", err)
 			}
-			return nil, recordEventOutput{EventID: event.EventID().String(), Type: "audit", Kind: event.Kind().String(), Client: event.Client().String(), Agent: event.Agent().String(), SessionID: event.SessionID().String(), Workspace: event.Workspace().String(), Body: apptypes.ExtractPlainBody(event.Body()), Command: audit.Command(), InputRedacted: audit.InputRedacted(), OutputRedacted: audit.OutputRedacted(), InputTruncated: audit.InputTruncated(), OutputTruncated: audit.OutputTruncated(), InputOriginalBytes: audit.InputOriginalBytes(), OutputOriginalBytes: audit.OutputOriginalBytes(), SourceHook: event.SourceHook(), CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano)}, nil
+			out := recordEventOutput{EventID: event.EventID().String(), Type: "audit", Kind: event.Kind().String(), Client: event.Client().String(), Agent: event.Agent().String(), SessionID: event.SessionID().String(), Workspace: event.Workspace().String(), Body: apptypes.ExtractPlainBody(event.Body()), Command: audit.Command(), CommandName: audit.CommandIdentity().Command().String(), ExitCode: optionalPointer(audit.ExitCode()), Failed: audit.Failed(), FailureReason: audit.FailureReason().String(), InputRedacted: audit.InputRedacted(), OutputRedacted: audit.OutputRedacted(), InputTruncated: audit.InputTruncated(), OutputTruncated: audit.OutputTruncated(), InputOriginalBytes: audit.InputOriginalBytes(), OutputOriginalBytes: audit.OutputOriginalBytes(), SourceHook: event.SourceHook(), CreatedAt: event.CreatedAt().UTC().Format(time.RFC3339Nano)}
+			if wrapper, ok := audit.CommandIdentity().Wrapper().Value(); ok {
+				out.Wrapper = wrapper.String()
+			}
+			return nil, out, nil
 		default:
 			return nil, recordEventOutput{}, xerrors.Errorf("record_event type must be one of log, audit")
 		}

@@ -18,6 +18,7 @@ const (
 type CommandAudit struct {
 	eventID             types.EventID
 	command             string
+	commandIdentity     types.CommandIdentity
 	input               string
 	output              string
 	inputTruncated      bool
@@ -28,6 +29,7 @@ type CommandAudit struct {
 	outputRedacted      bool
 	exitCode            types.Optional[int]
 	failed              bool
+	failureReason       types.CommandFailureReason
 }
 
 // NewCommandAudit creates a new CommandAudit.
@@ -47,12 +49,14 @@ func NewCommandAudit(
 	return &CommandAudit{
 		eventID:             eventID,
 		command:             trimmedCommand,
+		commandIdentity:     types.CommandIdentityFrom(trimmedCommand),
 		input:               input,
 		output:              output,
 		inputTruncated:      inputTruncated,
 		outputTruncated:     outputTruncated,
 		inputOriginalBytes:  inferAuditPayloadOriginalBytes(input, inputTruncated),
 		outputOriginalBytes: inferAuditPayloadOriginalBytes(output, outputTruncated),
+		failureReason:       types.CommandFailureReasonUnknown,
 	}, nil
 }
 
@@ -70,6 +74,7 @@ func CommandAuditOf(
 	return &CommandAudit{
 		eventID:             eventID,
 		command:             command,
+		commandIdentity:     types.CommandIdentityOf(types.None[types.CommandName](), types.CommandNameUnknown),
 		input:               input,
 		output:              output,
 		inputTruncated:      inputTruncated,
@@ -78,6 +83,7 @@ func CommandAuditOf(
 		outputOriginalBytes: inferAuditPayloadOriginalBytes(output, outputTruncated),
 		exitCode:            exitCode,
 		failed:              failed,
+		failureReason:       types.CommandFailureReasonUnknown,
 	}
 }
 
@@ -86,6 +92,9 @@ func (a *CommandAudit) EventID() types.EventID { return a.eventID }
 
 // Command returns the executed command.
 func (a *CommandAudit) Command() string { return a.command }
+
+// CommandIdentity returns the separately normalized wrapper and executable.
+func (a *CommandAudit) CommandIdentity() types.CommandIdentity { return a.commandIdentity }
 
 // Input returns the command input payload.
 func (a *CommandAudit) Input() string { return a.input }
@@ -146,7 +155,7 @@ func (a *CommandAudit) SetExitCode(code types.Optional[int]) {
 	if a == nil {
 		return
 	}
-	a.exitCode = code
+	_ = a.ClassifyOutcome(code, a.failureReason, a.failed)
 }
 
 // Failed reports whether the tool/command execution failed. This is a
@@ -155,12 +164,70 @@ func (a *CommandAudit) SetExitCode(code types.Optional[int]) {
 // without a numeric exit code in the hook payload. See docs/hooks/contract.md.
 func (a *CommandAudit) Failed() bool { return a.failed }
 
+// FailureReason returns structured evidence for the audit outcome. Unknown is
+// explicit for legacy rows and captures without outcome evidence.
+func (a *CommandAudit) FailureReason() types.CommandFailureReason {
+	if a == nil || a.failureReason.String() == "" {
+		return types.CommandFailureReasonUnknown
+	}
+	return a.failureReason
+}
+
+// ClassifyOutcome resolves structured outcome evidence. A zero exit code is
+// authoritative success even when payload text or a host flag looks like a
+// failure. Specific signal/timeout/denial evidence takes precedence over a
+// non-zero code; otherwise the code is classified as exit_code.
+func (a *CommandAudit) ClassifyOutcome(
+	exitCode types.Optional[int],
+	reportedReason types.CommandFailureReason,
+	structuralFailure bool,
+) error {
+	if a == nil {
+		return nil
+	}
+	reason := reportedReason
+	if reason.String() == "" {
+		reason = types.CommandFailureReasonUnknown
+	}
+	validated, err := types.CommandFailureReasonFrom(reason.String())
+	if err != nil {
+		return xerrors.Errorf("invalid command failure reason: %w", err)
+	}
+
+	if code, ok := exitCode.Value(); ok {
+		a.exitCode = exitCode
+		if code == 0 {
+			a.failureReason = types.CommandFailureReasonNone
+			a.failed = false
+			return nil
+		}
+		switch validated {
+		case types.CommandFailureReasonSignal,
+			types.CommandFailureReasonTimeout,
+			types.CommandFailureReasonHookDenied:
+			a.failureReason = validated
+		default:
+			a.failureReason = types.CommandFailureReasonExitCode
+		}
+		a.failed = true
+		return nil
+	}
+
+	a.exitCode = types.None[int]()
+	if validated == types.CommandFailureReasonUnknown && structuralFailure {
+		validated = types.CommandFailureReasonHostError
+	}
+	a.failureReason = validated
+	a.failed = validated.IsFailure()
+	return nil
+}
+
 // SetFailed marks whether the tool/command execution failed.
 func (a *CommandAudit) SetFailed(failed bool) {
 	if a == nil {
 		return
 	}
-	a.failed = failed
+	_ = a.ClassifyOutcome(a.exitCode, a.failureReason, failed)
 }
 
 func inferAuditPayloadOriginalBytes(payload string, truncated bool) int {

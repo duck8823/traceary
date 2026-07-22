@@ -178,11 +178,17 @@ func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, au
 	if exitCode, ok := audit.ExitCode().Value(); ok {
 		exitCodeSQL = &exitCode
 	}
+	var wrapper string
+	if value, ok := audit.CommandIdentity().Wrapper().Value(); ok {
+		wrapper = value.String()
+	}
 	if _, err := tx.ExecContext(
 		ctx,
 		insertCommandAuditQuery,
 		audit.EventID().String(),
 		audit.Command(),
+		wrapper,
+		audit.CommandIdentity().Command().String(),
 		audit.Input(),
 		audit.Output(),
 		audit.InputTruncated(),
@@ -191,6 +197,7 @@ func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, au
 		audit.OutputOriginalBytes(),
 		exitCodeSQL,
 		audit.Failed(),
+		audit.FailureReason().String(),
 	); err != nil {
 		return xerrors.Errorf("failed to insert command audit: %w", err)
 	}

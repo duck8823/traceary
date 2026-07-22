@@ -71,16 +71,18 @@ type sessionActionInput struct {
 
 // recordEventInput is the MCP input for the record_event tool.
 type recordEventInput struct {
-	Type      string `json:"type" jsonschema:"required,event write type: log or audit"`
-	Message   string `json:"message,omitempty" jsonschema:"log body to record"`
-	Kind      string `json:"kind,omitempty" jsonschema:"event kind for log records"`
-	Command   string `json:"command,omitempty" jsonschema:"executed command for audit records"`
-	Input     string `json:"input,omitempty" jsonschema:"command input"`
-	Output    string `json:"output,omitempty" jsonschema:"command output"`
-	Client    string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
-	Agent     string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"session ID (default: default)"`
-	Workspace string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
+	Type          string `json:"type" jsonschema:"required,event write type: log or audit"`
+	Message       string `json:"message,omitempty" jsonschema:"log body to record"`
+	Kind          string `json:"kind,omitempty" jsonschema:"event kind for log records"`
+	Command       string `json:"command,omitempty" jsonschema:"executed command for audit records"`
+	Input         string `json:"input,omitempty" jsonschema:"command input"`
+	Output        string `json:"output,omitempty" jsonschema:"command output"`
+	ExitCode      *int   `json:"exit_code,omitempty" jsonschema:"captured command exit code"`
+	FailureReason string `json:"failure_reason,omitempty" jsonschema:"structured outcome: none, exit_code, signal, timeout, hook_denied, host_error, or unknown"`
+	Client        string `json:"client,omitempty" jsonschema:"recording channel (default: mcp)"`
+	Agent         string `json:"agent,omitempty" jsonschema:"actor name (default: manual)"`
+	SessionID     string `json:"session_id,omitempty" jsonschema:"session ID (default: default)"`
+	Workspace     string `json:"workspace,omitempty" jsonschema:"auxiliary work context identifier"`
 }
 
 // startSessionInput is the MCP input for the start_session tool.

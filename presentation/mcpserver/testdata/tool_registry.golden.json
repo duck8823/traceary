@@ -484,6 +484,17 @@
           "description": "executed command for audit records",
           "type": "string"
         },
+        "exit_code": {
+          "description": "captured command exit code",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "failure_reason": {
+          "description": "structured outcome: none, exit_code, signal, timeout, hook_denied, host_error, or unknown",
+          "type": "string"
+        },
         "input": {
           "description": "command input",
           "type": "string"

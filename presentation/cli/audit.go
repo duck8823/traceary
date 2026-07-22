@@ -30,6 +30,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		outputFlagSet  bool
 		exitCode       int
 		exitCodeSet    bool
+		failureReason  string
 		idOnly         bool
 		asJSON         bool
 		allowSecrets   bool
@@ -68,6 +69,13 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 			if exitCodeSet {
 				exitCodeOpt = types.Some(exitCode)
 			}
+			failureReasonValue := types.CommandFailureReasonUnknown
+			if strings.TrimSpace(failureReason) != "" {
+				failureReasonValue, err = types.CommandFailureReasonFrom(failureReason)
+				if err != nil {
+					return xerrors.Errorf("%s: %w", Localize("failed to resolve --failure-reason", "failure-reason の解決に失敗しました"), err)
+				}
+			}
 
 			return c.runAudit(cmd.Context(), cmd.OutOrStdout(), auditCommandInput{
 				dbPath:         dbPath,
@@ -79,6 +87,7 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 				sessionID:      sessionID,
 				repo:           repo,
 				exitCode:       exitCodeOpt,
+				failureReason:  failureReasonValue,
 				idOnly:         idOnly,
 				asJSON:         asJSON,
 				allowSecrets:   allowSecrets,
@@ -126,6 +135,15 @@ func (c *RootCLI) newAuditCommand() *cobra.Command {
 		Localize("maximum stored output bytes (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 uses default)", "出力保存サイズ上限 (env: TRACEARY_MAX_AUDIT_OUTPUT_BYTES, 0 なら既定値)"),
 	)
 	auditCmd.Flags().IntVar(&exitCode, "exit-code", 0, Localize("command exit code", "コマンド終了コード"))
+	auditCmd.Flags().StringVar(
+		&failureReason,
+		"failure-reason",
+		"",
+		Localize(
+			"structured outcome: none, exit_code, signal, timeout, hook_denied, host_error, or unknown",
+			"構造化された結果: none, exit_code, signal, timeout, hook_denied, host_error, unknown",
+		),
+	)
 	auditCmd.PreRun = func(cmd *cobra.Command, _ []string) {
 		commandFlagSet = cmd.Flags().Changed("command")
 		inputFlagSet = cmd.Flags().Changed("input")
@@ -189,16 +207,17 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		Build()
 	event, commandAudit, err := c.event.Audit(ctx,
 		apptypes.AuditInput{
-			Command:   input.command,
-			Input:     input.input,
-			Output:    input.output,
-			Client:    client,
-			Agent:     agent,
-			SessionID: sid,
-			Workspace: types.Workspace(resolvedRepo),
-			ExitCode:  input.exitCode,
-			// Failed stays false: manual audits carry an explicit exit code;
-			// the failure flag is for hosts that omit one.
+			Command:       input.command,
+			Input:         input.input,
+			Output:        input.output,
+			Client:        client,
+			Agent:         agent,
+			SessionID:     sid,
+			Workspace:     types.Workspace(resolvedRepo),
+			ExitCode:      input.exitCode,
+			FailureReason: input.failureReason,
+			// Failed stays false: manual audits use the structured exit-code
+			// and failure-reason fields rather than a host-only boolean.
 		},
 		auditCfg,
 	)

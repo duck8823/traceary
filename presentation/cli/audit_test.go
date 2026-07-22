@@ -356,6 +356,50 @@ func TestRootCLI_AuditCommand_JSON(t *testing.T) {
 	}
 }
 
+func TestRootCLI_AuditCommand_ForwardsStructuredOutcome(t *testing.T) {
+	t.Setenv("TRACEARY_SESSION_ID", "session-env")
+	eventID := mustEventID(t, "event-audit-outcome")
+	audit, err := model.NewCommandAudit(eventID, "rtk git status", "", "", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+	eventStub := &eventUsecaseStub{
+		auditEvent: model.EventOf(eventID, types.EventKindCommandExecuted, "cli", "codex", "session-env", "workspace", "rtk git status", time.Now()),
+		auditAudit: audit,
+	}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"audit", "--db-path", "/tmp/traceary.db", "--exit-code", "124", "--failure-reason", "timeout", "rtk git status"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, ok := eventStub.auditCall.exitCode.Value(); !ok || got != 124 {
+		t.Fatalf("exit code = (%d, %v), want (124, true)", got, ok)
+	}
+	if got := eventStub.auditCall.failureReason; got != types.CommandFailureReasonTimeout {
+		t.Fatalf("failure reason = %q, want timeout", got)
+	}
+}
+
+func TestRootCLI_AuditCommand_RejectsUnknownFailureReason(t *testing.T) {
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"audit", "--db-path", "/tmp/traceary.db", "--failure-reason", "quoted_failure", "go test ./..."})
+
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want invalid failure reason error")
+	}
+}
+
 func TestRootCLI_AuditCommand_DoesNotAllowDuplicateFlagAndPositional(t *testing.T) {
 	t.Setenv("TRACEARY_SESSION_ID", "session-env")
 

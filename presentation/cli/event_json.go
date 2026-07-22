@@ -184,6 +184,7 @@ func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 	}
 	out := &commandAudit{
 		Command:             audit.Command(),
+		CommandName:         audit.CommandIdentity().Command().String(),
 		Input:               audit.Input(),
 		Output:              audit.Output(),
 		InputTruncated:      audit.InputTruncated(),
@@ -192,6 +193,10 @@ func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 		OutputOriginalBytes: audit.OutputOriginalBytes(),
 		ExitCode:            exitCode,
 		Failed:              audit.Failed(),
+		FailureReason:       audit.FailureReason().String(),
+	}
+	if wrapper, ok := audit.CommandIdentity().Wrapper().Value(); ok {
+		out.Wrapper = wrapper.String()
 	}
 	classification := sensitivepath.Classify(sensitivepath.Input{
 		Command:         audit.Command(),

@@ -23,4 +23,7 @@ type AuditInput struct {
 	// Failed marks a structural failure even when no numeric exit code is
 	// available (e.g. Claude's PostToolUseFailure payload).
 	Failed bool
+	// FailureReason carries protocol-derived structured evidence. Its zero
+	// value means unavailable; command payload text is never parsed as a reason.
+	FailureReason domtypes.CommandFailureReason
 }
