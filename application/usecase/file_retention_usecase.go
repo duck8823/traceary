@@ -53,7 +53,7 @@ func (usecase *fileRetentionUsecase) InspectCapacity(ctx context.Context, reques
 
 func summarizeFileRetentionCapacity(snapshot apptypes.FileRetentionInventorySnapshot) apptypes.FileRetentionCapacityStatus {
 	status := apptypes.FileRetentionCapacityStatus{
-		Class: snapshot.Class, Root: snapshot.Root, FileCount: len(snapshot.Entries), AllocatedKnown: true,
+		Class: snapshot.Class, Root: snapshot.Root, FileCount: len(snapshot.Entries), AllocatedKnown: true, RootAccess: snapshot.RootAccess,
 	}
 	for _, entry := range snapshot.Entries {
 		if total, ok := addNonNegativeInt64(status.LogicalBytes, entry.LogicalBytes); ok && !status.LogicalOverflow {

@@ -78,8 +78,23 @@ func (datasource *FileRetentionDatasource) InspectFileRetention(ctx context.Cont
 		return apptypes.FileRetentionInventorySnapshot{}, err
 	}
 	return apptypes.FileRetentionInventorySnapshot{
-		Class: request.Class, Root: root, RootIdentity: rootIdentity, LiveGeneration: liveGeneration, Entries: entries,
+		Class: request.Class, Root: root, RootIdentity: rootIdentity, LiveGeneration: liveGeneration,
+		RootAccess: fileRetentionRootAccessEvidence(rootStat), Entries: entries,
 	}, nil
+}
+
+func fileRetentionRootAccessEvidence(rootStat unix.Stat_t) apptypes.FileRetentionRootAccessEvidence {
+	evidence := apptypes.FileRetentionRootAccessEvidence{
+		ApplyState:           apptypes.FileRetentionRootApplyEligible,
+		CallerOwned:          rootStat.Uid == uint32(os.Geteuid()),
+		GroupOrOtherWritable: rootStat.Mode&0o022 != 0,
+	}
+	if !evidence.CallerOwned {
+		evidence.ApplyState = apptypes.FileRetentionRootApplyUnsafeOwner
+	} else if evidence.GroupOrOtherWritable {
+		evidence.ApplyState = apptypes.FileRetentionRootApplyUnsafePermissions
+	}
+	return evidence
 }
 
 func (datasource *FileRetentionDatasource) inspectFileRetentionEntries(
@@ -549,7 +564,7 @@ func (datasource *FileRetentionDatasource) applyFileRetentionClass(ctx context.C
 	if fileRetentionRootIdentity(rootStat) != classPlan.RootIdentity {
 		return result, xerrors.New("file retention root identity changed")
 	}
-	if rootStat.Uid != uint32(os.Geteuid()) || rootStat.Mode&0o022 != 0 {
+	if fileRetentionRootAccessEvidence(rootStat).ApplyState != apptypes.FileRetentionRootApplyEligible {
 		return result, xerrors.New("file retention apply requires a caller-owned root without group/other write access")
 	}
 	lockFD, err := openAndLockFileRetentionRoot(rootFD, rootStat)

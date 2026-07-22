@@ -33,6 +33,7 @@ func TestInspectFileRetentionCapacityIsExplicitAndReadOnly(t *testing.T) {
 	stub := &fileRetentionCapacityInspectorStub{statuses: []apptypes.FileRetentionCapacityStatus{{
 		Class: "backup", Root: "/tmp/backups", State: "ready", FileCount: 2, VerifiedCount: 2,
 		LogicalBytes: 20, AllocatedBytes: 32, AllocatedKnown: true, FloorRelativePath: "new.db",
+		RootAccess: apptypes.FileRetentionRootAccessEvidence{ApplyState: apptypes.FileRetentionRootApplyEligible, CallerOwned: true},
 	}}}
 	rootCLI := NewRootCLI(WithFileRetentionCapacityInspector(stub))
 	if checks := rootCLI.inspectFileRetentionCapacity(context.Background(), "/tmp/live.db", "", ""); len(checks) != 0 || stub.calls != 0 {
@@ -45,7 +46,7 @@ func TestInspectFileRetentionCapacityIsExplicitAndReadOnly(t *testing.T) {
 	if stub.calls != 1 || len(stub.request.Classes) != 1 || stub.request.Classes[0].Class != "backup" {
 		t.Fatalf("status request/calls = %#v/%d", stub.request, stub.calls)
 	}
-	for _, evidence := range []string{"state=ready", "files=2", "logical_bytes=20", "allocated_bytes=32", "floor=new.db", "automatic cleanup is disabled"} {
+	for _, evidence := range []string{"state=ready", "apply_root=eligible", "caller_owned=true", "group_or_other_writable=false", "files=2", "logical_bytes=20", "allocated_bytes=32", "floor=new.db", "automatic cleanup is disabled"} {
 		if !strings.Contains(checks[0].Message, evidence) {
 			t.Fatalf("message %q missing %q", checks[0].Message, evidence)
 		}
@@ -64,6 +65,7 @@ func TestDoctorAndStatusCapacityRootsUseOnlyReadOnlyInspector(t *testing.T) {
 			stub := &fileRetentionCapacityInspectorStub{statuses: []apptypes.FileRetentionCapacityStatus{{
 				Class: "backup", Root: rootPath, State: "ready", FileCount: 1, VerifiedCount: 1,
 				LogicalBytes: 10, AllocatedBytes: 4096, AllocatedKnown: true, FloorRelativePath: "new\n.db",
+				RootAccess: apptypes.FileRetentionRootAccessEvidence{ApplyState: apptypes.FileRetentionRootApplyEligible, CallerOwned: true},
 			}}}
 			root := newFileRetentionDoctorTestCLI(WithStoreManagement(&retentionStoreStub{}), WithFileRetentionCapacityInspector(stub)).Command()
 			stdout := &bytes.Buffer{}
@@ -184,5 +186,38 @@ func TestFileRetentionCapacityDoctorCheckWarnsOnOverflow(t *testing.T) {
 	})
 	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "logical_bytes=overflow") || !strings.Contains(check.Message, "allocated_bytes=overflow") {
 		t.Fatalf("check = %#v", check)
+	}
+}
+
+func TestFileRetentionCapacityDoctorCheckWarnsWhenApplyRootIsUnsafeOrUnsupported(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name       string
+		rootAccess apptypes.FileRetentionRootAccessEvidence
+		want       string
+	}{
+		{
+			name: "group writable",
+			rootAccess: apptypes.FileRetentionRootAccessEvidence{
+				ApplyState: apptypes.FileRetentionRootApplyUnsafePermissions, CallerOwned: true, GroupOrOtherWritable: true,
+			},
+			want: "apply_root=unsafe_permissions",
+		},
+		{
+			name:       "unknown defaults to unsupported",
+			rootAccess: apptypes.FileRetentionRootAccessEvidence{},
+			want:       "apply_root=unsupported",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			check := fileRetentionCapacityDoctorCheck("backup-capacity-retention", apptypes.FileRetentionCapacityStatus{
+				Class: "backup", Root: "/tmp/backups", State: "ready", FileCount: 1, VerifiedCount: 1,
+				LogicalBytes: 10, AllocatedBytes: 4096, AllocatedKnown: true, FloorRelativePath: "new.db", RootAccess: test.rootAccess,
+			})
+			if check.Status != doctorStatusWarn || !strings.Contains(check.Message, test.want) {
+				t.Fatalf("check = %#v", check)
+			}
+		})
 	}
 }

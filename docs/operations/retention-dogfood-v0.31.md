@@ -2,7 +2,7 @@
 
 [日本語](./retention-dogfood-v0.31.ja.md)
 
-Status: Issue #1445 dogfood completed on 2026-07-22; release-blocking follow-up #1486 is tracked below and must close before release. All paths below were disposable copies or synthetic roots under `/private/tmp`; no command targeted the only copy of a live store.
+Status: Issue #1445 dogfood completed on 2026-07-22. Release-blocking follow-up #1486 was implemented and re-dogfooded before release. All paths below were disposable copies or synthetic roots under `/private/tmp`; no command targeted the only copy of a live store.
 
 ## Decision
 
@@ -63,7 +63,12 @@ The capacity-root portion of `traceary doctor --archive-root ... --backup-root .
 - backup: `state=ready files=1 verified=1 logical_bytes=262144 allocated_bytes=262144 floor=new.db`
 - both messages explicitly stated that automatic cleanup is disabled and linked to the manual plan command.
 
-Dogfood found that the first status implementation could report `ready` for a group/other-writable root even though exact apply rejects that permission boundary. Follow-up #1486 records and fixes this release-blocking mismatch before v0.31 release.
+Dogfood found that the first status implementation could report `ready` without exposing that a group/other-writable root would be rejected by exact apply. Follow-up #1486 now carries descriptor-bound ownership/mode evidence separately from recovery readiness. Re-dogfood against the same retained backup produced:
+
+- mode `0700`: `status=pass state=ready apply_root=eligible caller_owned=true group_or_other_writable=false`
+- mode `0770`: `status=warn state=ready apply_root=unsafe_permissions caller_owned=true group_or_other_writable=true`
+
+Both inspections remained read-only. Exact apply continues to reject a root unless it is caller-owned and has no group/other write access.
 
 ## Rollback and residual risk
 

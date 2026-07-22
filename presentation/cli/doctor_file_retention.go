@@ -63,16 +63,20 @@ func fileRetentionCapacityDoctorCheck(name string, status apptypes.FileRetention
 		floor = "none"
 	}
 	checkStatus := doctorStatusPass
-	if status.State == "indeterminate" || status.BlockingCount > 0 || status.UnverifiedCount > 0 || !status.AllocatedKnown || status.LogicalOverflow || status.AllocatedOverflow {
+	rootApplyState := status.RootAccess.ApplyState
+	if rootApplyState == "" {
+		rootApplyState = apptypes.FileRetentionRootApplyUnsupported
+	}
+	if status.State == "indeterminate" || status.BlockingCount > 0 || status.UnverifiedCount > 0 || !status.AllocatedKnown || status.LogicalOverflow || status.AllocatedOverflow || rootApplyState != apptypes.FileRetentionRootApplyEligible {
 		checkStatus = doctorStatusWarn
 	}
 	return doctorCheck{
 		Name:   name,
 		Status: checkStatus,
 		Message: localizef(
-			"read-only %s capacity-root inspection: state=%s files=%d verified=%d unverified=%d blockers=%d logical_bytes=%s allocated_bytes=%s floor=%s; automatic cleanup is disabled",
-			"読み取り専用 %s capacity-root 検査: state=%s files=%d verified=%d unverified=%d blockers=%d logical_bytes=%s allocated_bytes=%s floor=%s。自動 cleanup は無効です",
-			status.Class, status.State, status.FileCount, status.VerifiedCount, status.UnverifiedCount, status.BlockingCount, logical, allocated, floor,
+			"read-only %s capacity-root inspection: state=%s apply_root=%s caller_owned=%t group_or_other_writable=%t files=%d verified=%d unverified=%d blockers=%d logical_bytes=%s allocated_bytes=%s floor=%s; automatic cleanup is disabled",
+			"読み取り専用 %s capacity-root 検査: state=%s apply_root=%s caller_owned=%t group_or_other_writable=%t files=%d verified=%d unverified=%d blockers=%d logical_bytes=%s allocated_bytes=%s floor=%s。自動 cleanup は無効です",
+			status.Class, status.State, rootApplyState, status.RootAccess.CallerOwned, status.RootAccess.GroupOrOtherWritable, status.FileCount, status.VerifiedCount, status.UnverifiedCount, status.BlockingCount, logical, allocated, floor,
 		),
 		Hint: fileRetentionCapacityHint(status.Class, status.Root),
 	}
