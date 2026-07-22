@@ -9,6 +9,7 @@ import (
 	"io"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -263,10 +264,10 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 		}
 		seen[candidate.CandidateIdentity] = struct{}{}
 	}
-	if len(payload.Phases) != 1 || payload.Phases[0].Phase != "body_prune" || len(payload.Phases[0].Batches) != 1 {
-		return xerrors.Errorf("raw-body retention plan must contain one body_prune batch")
+	if len(payload.Phases) != 1 || payload.Phases[0].Phase != "body_prune" || len(payload.Phases[0].Batches) != len(payload.Candidates) {
+		return xerrors.Errorf("raw-body retention plan must contain one durable batch per candidate")
 	}
-	wantSteps := []string{"verify-source", "verify-recovery", "prune-body", "record-ledger"}
+	wantSteps := []string{"verify-plan", "confirm-plan", "verify-recovery", "verify-source", "prune-body", "record-ledger"}
 	if len(payload.Phases[0].OrderedSteps) != len(wantSteps) {
 		return xerrors.Errorf("retention body_prune steps are invalid")
 	}
@@ -275,12 +276,9 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 			return xerrors.Errorf("retention body_prune steps are invalid")
 		}
 	}
-	batch := payload.Phases[0].Batches[0]
-	if batch.Ordinal != "0" || len(batch.CandidateIdentities) != len(payload.Candidates) {
-		return xerrors.Errorf("retention plan batch does not cover every candidate")
-	}
 	for index, candidate := range payload.Candidates {
-		if batch.CandidateIdentities[index] != candidate.CandidateIdentity {
+		batch := payload.Phases[0].Batches[index]
+		if batch.Ordinal != strconv.Itoa(index) || len(batch.CandidateIdentities) != 1 || batch.CandidateIdentities[0] != candidate.CandidateIdentity {
 			return xerrors.Errorf("retention plan batch order does not match candidates")
 		}
 	}
@@ -297,6 +295,9 @@ func validateUTCInstant(value string) error {
 	}
 	if parsed.IsZero() {
 		return xerrors.Errorf("timestamp must not be zero")
+	}
+	if value != parsed.UTC().Format(time.RFC3339Nano) {
+		return xerrors.Errorf("timestamp must use canonical RFC3339Nano form")
 	}
 	return nil
 }
@@ -351,12 +352,12 @@ func normalizeRetentionPlan(plan *apptypes.RetentionPlan) {
 		}
 		return left.StableIdentity < right.StableIdentity
 	})
-	if len(plan.CanonicalPayload.Phases) == 1 && len(plan.CanonicalPayload.Phases[0].Batches) == 1 {
-		identities := make([]string, len(plan.CanonicalPayload.Candidates))
+	if len(plan.CanonicalPayload.Phases) == 1 {
+		batches := make([]apptypes.RetentionPlanBatch, len(plan.CanonicalPayload.Candidates))
 		for index, candidate := range plan.CanonicalPayload.Candidates {
-			identities[index] = candidate.CandidateIdentity
+			batches[index] = apptypes.RetentionPlanBatch{Ordinal: strconv.Itoa(index), CandidateIdentities: []string{candidate.CandidateIdentity}}
 		}
-		plan.CanonicalPayload.Phases[0].Batches[0].CandidateIdentities = identities
+		plan.CanonicalPayload.Phases[0].Batches = batches
 	}
 }
 

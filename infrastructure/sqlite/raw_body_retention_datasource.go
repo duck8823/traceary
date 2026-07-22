@@ -181,6 +181,9 @@ func startRawBodyExecution(ctx context.Context, db *sql.DB, sourcePath, database
 		if status == "restored" {
 			return xerrors.Errorf("restored raw-body plan is terminal; create a new plan to prune again")
 		}
+		if status != "running" && status != "completed" {
+			return xerrors.Errorf("raw-body execution cannot resume from status %s", status)
+		}
 	} else if _, err := tx.ExecContext(ctx, `INSERT INTO raw_body_retention_executions(plan_id, status, candidate_count, pruned_count, started_at)
 VALUES (?, 'running', ?, 0, ?)
 `, planID, candidateCount, stamp); err != nil {
@@ -201,6 +204,22 @@ func applyRawBodyCandidate(ctx context.Context, db *sql.DB, sourcePath, database
 	if err := requireRawBodySource(ctx, tx, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest); err != nil {
 		return false, err
 	}
+	var executionStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM raw_body_retention_executions WHERE plan_id = ?`, planID).Scan(&executionStatus); err != nil {
+		return false, xerrors.Errorf("failed to inspect raw-body execution status: %w", err)
+	}
+	if executionStatus == "running" {
+		res, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_executions SET status = 'running' WHERE plan_id = ? AND status = 'running'`, planID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to claim raw-body execution batch: %w", err)
+		}
+		changed, _ := res.RowsAffected()
+		if changed != 1 {
+			return false, xerrors.Errorf("raw-body execution is no longer running")
+		}
+	} else if executionStatus != "completed" {
+		return false, xerrors.Errorf("raw-body execution cannot apply from status %s", executionStatus)
+	}
 	body, alreadyPruned, err := verifyRawBodyCandidateState(ctx, tx, planID, candidate)
 	if err != nil {
 		return false, err
@@ -210,6 +229,9 @@ func applyRawBodyCandidate(ctx context.Context, db *sql.DB, sourcePath, database
 			return false, xerrors.Errorf("failed to commit raw-body idempotency check: %w", err)
 		}
 		return false, nil
+	}
+	if executionStatus != "running" {
+		return false, xerrors.Errorf("completed raw-body execution contains an unpruned candidate %s", candidate.EventID)
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE events
 SET body = ?, body_availability = 'unavailable_retention', body_pruned_at = ?, body_pruned_plan_id = ?
@@ -272,6 +294,10 @@ FROM events AS e WHERE e.id = ?`, candidate.EventID).Scan(&body, &createdAt, &av
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_id = ? AND event_id = ? AND body_sha256 = ? AND stored_bytes = ?`, planID, candidate.EventID, candidate.BodySHA256, candidate.StoredBytes).Scan(&entryCount); err != nil || entryCount != 1 {
 			return "", false, xerrors.Errorf("raw-body execution ledger does not match pruned event %s", candidate.EventID)
 		}
+		persistedCreatedAt, parseErr := time.Parse(time.RFC3339Nano, createdAt)
+		if parseErr != nil || !persistedCreatedAt.Equal(candidate.CreatedAt) || stored != candidate.StoredBytes || body != domtypes.EventBodyUnavailableRetentionMarker || activeSession {
+			return "", false, xerrors.Errorf("durable raw-body candidate state changed for event %s", candidate.EventID)
+		}
 		return body, true, nil
 	}
 	if activeSession {
@@ -297,6 +323,13 @@ func completeRawBodyExecution(ctx context.Context, db *sql.DB, sourcePath, datab
 	if err := requireRawBodySource(ctx, tx, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest); err != nil {
 		return err
 	}
+	var executionStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM raw_body_retention_executions WHERE plan_id = ?`, planID).Scan(&executionStatus); err != nil {
+		return xerrors.Errorf("failed to inspect raw-body completion status: %w", err)
+	}
+	if executionStatus != "running" && executionStatus != "completed" {
+		return xerrors.Errorf("raw-body execution cannot complete from status %s", executionStatus)
+	}
 	var ledgerCount int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_id = ?`, planID).Scan(&ledgerCount); err != nil {
 		return xerrors.Errorf("failed to count raw-body execution ledger: %w", err)
@@ -304,9 +337,20 @@ func completeRawBodyExecution(ctx context.Context, db *sql.DB, sourcePath, datab
 	if ledgerCount != candidateCount {
 		return xerrors.Errorf("raw-body execution is incomplete: ledger has %d of %d candidates", ledgerCount, candidateCount)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_executions
-SET status = 'completed', pruned_count = ?, completed_at = ? WHERE plan_id = ?`, candidateCount, stamp, planID); err != nil {
+	if executionStatus == "completed" {
+		if err := tx.Commit(); err != nil {
+			return xerrors.Errorf("failed to commit raw-body completion check: %w", err)
+		}
+		return nil
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_executions
+	SET status = 'completed', pruned_count = ?, completed_at = ? WHERE plan_id = ? AND status = 'running'`, candidateCount, stamp, planID)
+	if err != nil {
 		return xerrors.Errorf("failed to complete raw-body execution: %w", err)
+	}
+	changed, _ := res.RowsAffected()
+	if changed != 1 {
+		return xerrors.Errorf("raw-body execution changed state before completion")
 	}
 	if err := tx.Commit(); err != nil {
 		return xerrors.Errorf("failed to commit raw-body completion: %w", err)
@@ -339,6 +383,16 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 	if executionCandidates != len(bodies) || (executionStatus != "running" && executionStatus != "completed" && executionStatus != "restored") {
 		return result, xerrors.Errorf("raw-body execution state does not match restore plan")
 	}
+	if executionStatus != "restored" {
+		res, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_executions SET status = 'restoring' WHERE plan_id = ? AND status = ?`, planID, executionStatus)
+		if err != nil {
+			return result, xerrors.Errorf("failed to claim raw-body restore: %w", err)
+		}
+		changed, _ := res.RowsAffected()
+		if changed != 1 {
+			return result, xerrors.Errorf("raw-body execution changed state before restore")
+		}
+	}
 
 	stamp := formatTimestamp(restoredAt)
 	for _, recovery := range bodies {
@@ -351,7 +405,26 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 		if err := tx.QueryRowContext(ctx, `SELECT body, body_availability, body_pruned_plan_id FROM events WHERE id = ?`, recovery.Candidate.EventID).Scan(&body, &availability, &prunedPlan); err != nil {
 			return result, xerrors.Errorf("failed to verify restore event %s: %w", recovery.Candidate.EventID, err)
 		}
+		var ledgerDigest string
+		var ledgerStored int
+		var ledgerRestoredAt sql.NullString
+		ledgerErr := tx.QueryRowContext(ctx, `SELECT body_sha256, stored_bytes, restored_at FROM raw_body_retention_entries WHERE plan_id = ? AND event_id = ?`, planID, recovery.Candidate.EventID).Scan(&ledgerDigest, &ledgerStored, &ledgerRestoredAt)
+		if errors.Is(ledgerErr, sql.ErrNoRows) {
+			if executionStatus != "running" || availability != domtypes.BodyAvailabilityAvailable.String() {
+				return result, xerrors.Errorf("raw-body restore ledger is missing event %s", recovery.Candidate.EventID)
+			}
+			// A running execution may have stopped before this candidate. Preserve
+			// the currently available body, including legitimate post-plan changes.
+			result.AlreadyRestored++
+			continue
+		}
+		if ledgerErr != nil || ledgerDigest != recovery.Candidate.BodySHA256 || ledgerStored != recovery.Candidate.StoredBytes {
+			return result, xerrors.Errorf("raw-body restore ledger does not match event %s", recovery.Candidate.EventID)
+		}
 		if availability == domtypes.BodyAvailabilityAvailable.String() {
+			if !ledgerRestoredAt.Valid {
+				return result, xerrors.Errorf("event %s is available before its restore was recorded", recovery.Candidate.EventID)
+			}
 			current := sha256.Sum256([]byte(body))
 			if hex.EncodeToString(current[:]) != recovery.Candidate.BodySHA256 {
 				return result, xerrors.Errorf("available body conflicts with recovery for event %s", recovery.Candidate.EventID)

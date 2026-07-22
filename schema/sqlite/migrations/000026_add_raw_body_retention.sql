@@ -24,7 +24,7 @@ VALUES (lower(hex(randomblob(16))));
 
 CREATE TABLE raw_body_retention_executions (
     plan_id TEXT PRIMARY KEY NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'restored', 'conflicted')),
+    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'restoring', 'restored', 'conflicted')),
     candidate_count INTEGER NOT NULL CHECK (candidate_count >= 0),
     pruned_count INTEGER NOT NULL DEFAULT 0 CHECK (pruned_count >= 0),
     started_at TEXT NOT NULL,

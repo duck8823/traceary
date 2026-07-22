@@ -96,7 +96,7 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 				Generation: "archive-" + recoveryDigest[:12], Digest: recoveryDigest, RootID: "recovery", RelativePath: filepath.Base(recoveryPath),
 				CoverageDigest: hex.EncodeToString(make([]byte, sha256.Size)), State: "active",
 			}},
-			Phases: []apptypes.RetentionPlanPhase{{Phase: "body_prune", Batches: []apptypes.RetentionPlanBatch{{Ordinal: "0", CandidateIdentities: identities}}, OrderedSteps: []string{"verify-source", "verify-recovery", "prune-body", "record-ledger"}}},
+			Phases: []apptypes.RetentionPlanPhase{{Phase: "body_prune", Batches: nil, OrderedSteps: []string{"verify-plan", "confirm-plan", "verify-recovery", "verify-source", "prune-body", "record-ledger"}}},
 		},
 		Display: apptypes.RetentionPlanDisplay{Summary: strconv.Itoa(len(candidates)) + " raw-body candidates, " + strconv.Itoa(len(exclusions)) + " active-session exclusions"},
 	}
@@ -114,12 +114,13 @@ func (u *rawBodyRetentionUsecase) Apply(ctx context.Context, planData []byte, re
 	if u.executor == nil {
 		return apptypes.RawBodyApplyResult{}, xerrors.Errorf("raw-body retention executor is not configured")
 	}
-	plan, candidates, bodies, err := u.prepareExecution(planData, recoveryPath)
+	plan, err := decodeConfirmedRetentionPlan(planData, confirmedPlanID)
 	if err != nil {
 		return apptypes.RawBodyApplyResult{}, err
 	}
-	if plan.PlanID != confirmedPlanID {
-		return apptypes.RawBodyApplyResult{}, xerrors.Errorf("confirmed plan ID does not match reviewed plan")
+	candidates, bodies, err := u.prepareExecution(plan, recoveryPath)
+	if err != nil {
+		return apptypes.RawBodyApplyResult{}, err
 	}
 	_ = bodies
 	result, err := u.executor.ApplyRawBodyPlan(ctx, plan.CanonicalPayload.Source.DatabaseIdentity, plan.CanonicalPayload.Source.SQLiteUserVersion, plan.CanonicalPayload.Source.MigrationDigest, plan.PlanID, candidates, now.UTC())
@@ -133,12 +134,13 @@ func (u *rawBodyRetentionUsecase) Restore(ctx context.Context, planData []byte, 
 	if u.executor == nil {
 		return apptypes.RawBodyRestoreResult{}, xerrors.Errorf("raw-body retention executor is not configured")
 	}
-	plan, _, bodies, err := u.prepareExecution(planData, recoveryPath)
+	plan, err := decodeConfirmedRetentionPlan(planData, confirmedPlanID)
 	if err != nil {
 		return apptypes.RawBodyRestoreResult{}, err
 	}
-	if plan.PlanID != confirmedPlanID {
-		return apptypes.RawBodyRestoreResult{}, xerrors.Errorf("confirmed plan ID does not match reviewed plan")
+	_, bodies, err := u.prepareExecution(plan, recoveryPath)
+	if err != nil {
+		return apptypes.RawBodyRestoreResult{}, err
 	}
 	result, err := u.executor.RestoreRawBodyPlan(ctx, plan.CanonicalPayload.Source.DatabaseIdentity, plan.CanonicalPayload.Source.SQLiteUserVersion, plan.CanonicalPayload.Source.MigrationDigest, plan.PlanID, bodies, now.UTC())
 	if err != nil {
@@ -147,45 +149,52 @@ func (u *rawBodyRetentionUsecase) Restore(ctx context.Context, planData []byte, 
 	return result, nil
 }
 
-func (u *rawBodyRetentionUsecase) prepareExecution(planData []byte, recoveryPath string) (apptypes.RetentionPlan, []apptypes.RawBodyCandidate, []apptypes.RawBodyRecoveryBody, error) {
+func decodeConfirmedRetentionPlan(planData []byte, confirmedPlanID string) (apptypes.RetentionPlan, error) {
 	plan, err := decodeRetentionPlan(planData)
 	if err != nil {
-		return apptypes.RetentionPlan{}, nil, nil, err
+		return apptypes.RetentionPlan{}, err
 	}
+	if plan.PlanID != confirmedPlanID {
+		return apptypes.RetentionPlan{}, xerrors.Errorf("confirmed plan ID does not match reviewed plan")
+	}
+	return plan, nil
+}
+
+func (u *rawBodyRetentionUsecase) prepareExecution(plan apptypes.RetentionPlan, recoveryPath string) ([]apptypes.RawBodyCandidate, []apptypes.RawBodyRecoveryBody, error) {
 	candidates := make([]apptypes.RawBodyCandidate, 0, len(plan.CanonicalPayload.Candidates))
 	for _, planned := range plan.CanonicalPayload.Candidates {
 		eventID, digest, err := parseRawBodyCandidateIdentity(planned.CandidateIdentity)
 		if err != nil || eventID != planned.DatabaseIdentity {
-			return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("retention candidate identity does not match database identity")
+			return nil, nil, xerrors.Errorf("retention candidate identity does not match database identity")
 		}
 		createdAt, err := time.Parse(time.RFC3339Nano, planned.Timestamp)
 		if err != nil {
-			return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("parse retention candidate timestamp: %w", err)
+			return nil, nil, xerrors.Errorf("parse retention candidate timestamp: %w", err)
 		}
 		storedBytes, err := strconv.Atoi(planned.LogicalExtent.Bytes)
 		if err != nil || storedBytes < 0 {
-			return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("invalid retention candidate stored bytes")
+			return nil, nil, xerrors.Errorf("invalid retention candidate stored bytes")
 		}
 		candidates = append(candidates, apptypes.RawBodyCandidate{EventID: eventID, CreatedAt: createdAt, StoredBytes: storedBytes, BodySHA256: digest})
 	}
 	bodies, recoveryDigest, err := loadRawBodyRecovery(recoveryPath, candidates)
 	if err != nil {
-		return apptypes.RetentionPlan{}, nil, nil, err
+		return nil, nil, err
 	}
 	if recoveryDigest != plan.CanonicalPayload.RecoveryRequirements[0].Digest {
-		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("recovery package digest does not match reviewed plan")
+		return nil, nil, xerrors.Errorf("recovery package digest does not match reviewed plan")
 	}
 	recovery := plan.CanonicalPayload.RecoveryRequirements[0]
 	if recovery.Generation != "archive-"+recoveryDigest[:12] {
-		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("recovery generation does not match reviewed package")
+		return nil, nil, xerrors.Errorf("recovery generation does not match reviewed package")
 	}
 	rootPath, err := filepath.Abs(filepath.Dir(recoveryPath))
 	if err != nil {
-		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("resolve recovery root: %w", err)
+		return nil, nil, xerrors.Errorf("resolve recovery root: %w", err)
 	}
 	rootDigest := sha256.Sum256([]byte(rootPath))
 	if len(plan.CanonicalPayload.Source.Roots) != 1 || plan.CanonicalPayload.Source.Roots[0].RootID != recovery.RootID || plan.CanonicalPayload.Source.Roots[0].Fingerprint != hex.EncodeToString(rootDigest[:]) || recovery.RelativePath != filepath.Base(recoveryPath) {
-		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("recovery location does not match reviewed plan")
+		return nil, nil, xerrors.Errorf("recovery location does not match reviewed plan")
 	}
 	identities := make([]string, len(plan.CanonicalPayload.Candidates))
 	totalBytes := 0
@@ -195,7 +204,7 @@ func (u *rawBodyRetentionUsecase) prepareExecution(planData []byte, recoveryPath
 	}
 	coverage := sha256.Sum256([]byte(joinIdentities(identities)))
 	if recovery.CoverageDigest != hex.EncodeToString(coverage[:]) {
-		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("recovery coverage does not match reviewed candidates")
+		return nil, nil, xerrors.Errorf("recovery coverage does not match reviewed candidates")
 	}
 	wantStatus := "satisfied"
 	if len(candidates) > 0 {
@@ -203,9 +212,9 @@ func (u *rawBodyRetentionUsecase) prepareExecution(planData []byte, recoveryPath
 	}
 	classResult := plan.CanonicalPayload.ClassResults[0]
 	if classResult.Status != wantStatus || classResult.Ceilings[0].Current.Bytes != strconv.Itoa(totalBytes) || classResult.Ceilings[0].Projected.Bytes != "0" {
-		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("retention class result does not match reviewed candidates")
+		return nil, nil, xerrors.Errorf("retention class result does not match reviewed candidates")
 	}
-	return plan, candidates, bodies, nil
+	return candidates, bodies, nil
 }
 
 func loadRawBodyRecovery(path string, candidates []apptypes.RawBodyCandidate) ([]apptypes.RawBodyRecoveryBody, string, error) {
@@ -225,28 +234,39 @@ func loadRawBodyRecovery(path string, candidates []apptypes.RawBodyCandidate) ([
 	if err != nil {
 		return nil, "", xerrors.Errorf("parse recovery package: %w", err)
 	}
-	byID := make(map[string]string)
+	type recoveryEvent struct {
+		body      string
+		createdAt string
+	}
+	byID := make(map[string]recoveryEvent)
 	for _, row := range tables["events"] {
 		id, idOK := row["id"].(string)
 		body, bodyOK := row["body"].(string)
-		if idOK && bodyOK {
+		createdAt, createdAtOK := row["created_at"].(string)
+		if idOK {
 			if _, exists := byID[id]; exists {
 				return nil, "", xerrors.Errorf("recovery package contains duplicate event %s", id)
 			}
-			byID[id] = body
+			if bodyOK && createdAtOK {
+				byID[id] = recoveryEvent{body: body, createdAt: createdAt}
+			}
 		}
 	}
 	bodies := make([]apptypes.RawBodyRecoveryBody, 0, len(candidates))
 	for _, candidate := range candidates {
-		body, ok := byID[candidate.EventID]
+		archived, ok := byID[candidate.EventID]
 		if !ok {
 			return nil, "", xerrors.Errorf("recovery package does not cover event %s", candidate.EventID)
 		}
-		bodyDigest := sha256.Sum256([]byte(body))
-		if len(body) != candidate.StoredBytes || hex.EncodeToString(bodyDigest[:]) != candidate.BodySHA256 {
+		archivedCreatedAt, err := time.Parse(time.RFC3339Nano, archived.createdAt)
+		if err != nil || !archivedCreatedAt.Equal(candidate.CreatedAt) {
+			return nil, "", xerrors.Errorf("recovery package timestamp does not match event %s", candidate.EventID)
+		}
+		bodyDigest := sha256.Sum256([]byte(archived.body))
+		if len(archived.body) != candidate.StoredBytes || hex.EncodeToString(bodyDigest[:]) != candidate.BodySHA256 {
 			return nil, "", xerrors.Errorf("recovery package body does not match event %s", candidate.EventID)
 		}
-		bodies = append(bodies, apptypes.RawBodyRecoveryBody{Candidate: candidate, Body: body})
+		bodies = append(bodies, apptypes.RawBodyRecoveryBody{Candidate: candidate, Body: archived.body})
 	}
 	return bodies, hex.EncodeToString(digest[:]), nil
 }
