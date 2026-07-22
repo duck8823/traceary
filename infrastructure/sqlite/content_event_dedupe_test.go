@@ -163,6 +163,15 @@ func TestStoreManagementDatasource_DedupeContentEvents_DryRun(t *testing.T) {
 	if len(result.Skipped) != 1 || result.Skipped[0].Reason == "" {
 		t.Fatalf("Skipped = %#v, want one malformed-timestamp skip", result.Skipped)
 	}
+	if len(result.Sources) != 2 {
+		t.Fatalf("Sources = %#v, want prompt and transcript", result.Sources)
+	}
+	if result.Sources[0].Agent != "codex" || result.Sources[0].SourceHook != "stop" || result.Sources[0].CandidateCount != 1 || result.Sources[0].ScannedCount != 2 {
+		t.Fatalf("transcript source = %#v", result.Sources[0])
+	}
+	if result.Sources[1].SourceHook != "user_prompt_submit" || result.Sources[1].CandidateCount != 2 || result.Sources[1].ScannedCount != 7 {
+		t.Fatalf("prompt source = %#v", result.Sources[1])
+	}
 
 	// Dry-run must not mutate.
 	if dedupeArchiveCount(t, dbPath) != 0 {

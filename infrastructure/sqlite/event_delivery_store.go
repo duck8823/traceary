@@ -84,6 +84,9 @@ func persistEventDelivery(
 			return false, err
 		}
 		if found {
+			if err := insertHookDeliveryAttempt(ctx, tx, event, existing.deliveryRecordID, "exact_redelivery"); err != nil {
+				return false, err
+			}
 			if err := insertWorkspaceObservation(ctx, tx, event, existing.observedEventID, existing.deliveryRecordID, "supplemental", "runtime", diagnosticReason(existing.identityStatus), evidence.AttributionFingerprint()); err != nil {
 				return false, err
 			}
@@ -104,6 +107,9 @@ func persistEventDelivery(
 			}
 			return false, err
 		}
+		if err := insertHookDeliveryAttempt(ctx, tx, event, evidence.DeliveryRecordID(), identityStatus); err != nil {
+			return false, err
+		}
 	}
 
 	if err := insertEventAndAudit(ctx, tx, event, audit); err != nil {
@@ -120,6 +126,30 @@ func persistEventDelivery(
 		return false, err
 	}
 	return true, nil
+}
+
+func insertHookDeliveryAttempt(ctx context.Context, tx *sql.Tx, event *model.Event, deliveryRecordID, outcome string) error {
+	enabled, err := tableExistsInTransaction(ctx, tx, "hook_delivery_attempts")
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		// Focused historical-schema tests may omit migration 23. Runtime stores
+		// always initialize before hook writes.
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO hook_delivery_attempts (
+			delivery_record_id, attempted_event_id, outcome, observed_at
+		) VALUES (?, ?, ?, ?)`,
+		deliveryRecordID,
+		event.EventID().String(),
+		outcome,
+		formatTimestamp(event.CreatedAt()),
+	); err != nil {
+		return xerrors.Errorf("failed to insert hook delivery attempt: %w", err)
+	}
+	return nil
 }
 
 func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, audit *model.CommandAudit) error {

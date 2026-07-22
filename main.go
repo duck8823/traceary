@@ -24,6 +24,7 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation"
@@ -149,6 +150,7 @@ func run() error {
 	sessionDatasource := sqlite.NewSessionDatasource(db)
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
+	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
 
 	cfg := presentation.LoadConfig()
 	extraRedactPatterns := cfg.ExtraRedactPatterns
@@ -175,6 +177,7 @@ func run() error {
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
+	workspaceIdentityUsecase := usecase.NewWorkspaceIdentityUsecase(workspaceIdentityDatasource, workspaceIdentityDatasource, types.SystemClock{})
 
 	mcpServer, err := mcpserver.NewServer(
 		resolvedVersion,
@@ -215,6 +218,7 @@ func run() error {
 		cli.WithContext(contextUsecase),
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
+		cli.WithWorkspaceIdentity(workspaceIdentityUsecase),
 		cli.WithMCPServerRunner(mcpServer),
 		cli.WithHooksOrchestrator(hooksOrchestrator),
 		cli.WithHooksInspector(hooksInspector),

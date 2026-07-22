@@ -24,6 +24,7 @@ type RootCLI struct {
 	context                    usecase.ContextUsecase
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
+	workspaceIdentity          usecase.WorkspaceIdentityUsecase
 	mcpServerRunner            MCPServerRunner
 	hooksOrchestrator          application.HooksOrchestrator
 	hooksInspector             application.HooksInspector
@@ -102,6 +103,11 @@ func WithReplay(replay usecase.ReplayUsecase) RootCLIOption {
 // backup, gc, and doctor commands.
 func WithStoreManagement(storeManagement usecase.StoreManagementUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.storeManagement = storeManagement }
+}
+
+// WithWorkspaceIdentity injects body-free identity reporting and reviewed aliases.
+func WithWorkspaceIdentity(workspaceIdentity usecase.WorkspaceIdentityUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.workspaceIdentity = workspaceIdentity }
 }
 
 // WithMCPServerRunner injects the MCPServerRunner used by the mcp-server

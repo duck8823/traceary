@@ -57,6 +57,17 @@ type ContentEventDedupeSkip struct {
 	Reason   string
 }
 
+// ContentEventDedupeSourceStat keeps heuristic candidate measurement separate
+// from proven stable-ID redelivery metrics.
+type ContentEventDedupeSourceStat struct {
+	Agent          string  `json:"agent"`
+	SourceHook     string  `json:"source_hook"`
+	ScannedCount   int     `json:"scanned_count"`
+	GroupCount     int     `json:"group_count"`
+	CandidateCount int     `json:"candidate_count"`
+	CandidateRate  float64 `json:"candidate_rate"`
+}
+
 // ContentEventDedupeResult is the outcome of a dedupe run (dry-run or apply).
 type ContentEventDedupeResult struct {
 	RunID        string
@@ -64,6 +75,7 @@ type ContentEventDedupeResult struct {
 	ScannedCount int
 	Groups       []ContentEventDedupeGroup
 	Skipped      []ContentEventDedupeSkip
+	Sources      []ContentEventDedupeSourceStat
 }
 
 // MovedCount returns the total number of duplicate rows across all groups (the

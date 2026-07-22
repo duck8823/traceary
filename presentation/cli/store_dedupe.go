@@ -168,14 +168,24 @@ type storeDedupeSkipJSON struct {
 }
 
 type storeDedupeResultJSON struct {
-	RunID         string                 `json:"run_id,omitempty"`
-	Applied       bool                   `json:"applied"`
-	ScannedCount  int                    `json:"scanned_count"`
-	GroupCount    int                    `json:"group_count"`
-	MovedCount    int                    `json:"moved_count"`
-	SkippedCount  int                    `json:"skipped_count"`
-	Groups        []storeDedupeGroupJSON `json:"groups"`
-	Skipped       []storeDedupeSkipJSON  `json:"skipped"`
+	RunID        string                  `json:"run_id,omitempty"`
+	Applied      bool                    `json:"applied"`
+	ScannedCount int                     `json:"scanned_count"`
+	GroupCount   int                     `json:"group_count"`
+	MovedCount   int                     `json:"moved_count"`
+	SkippedCount int                     `json:"skipped_count"`
+	Groups       []storeDedupeGroupJSON  `json:"groups"`
+	Skipped      []storeDedupeSkipJSON   `json:"skipped"`
+	Sources      []storeDedupeSourceJSON `json:"sources"`
+}
+
+type storeDedupeSourceJSON struct {
+	Agent          string  `json:"agent"`
+	SourceHook     string  `json:"source_hook"`
+	ScannedCount   int     `json:"scanned_count"`
+	GroupCount     int     `json:"group_count"`
+	CandidateCount int     `json:"candidate_count"`
+	CandidateRate  float64 `json:"candidate_rate"`
 }
 
 type storeDedupeRestoreJSON struct {
@@ -193,6 +203,14 @@ func writeStoreDedupeJSON(output io.Writer, result apptypes.ContentEventDedupeRe
 		SkippedCount: len(result.Skipped),
 		Groups:       make([]storeDedupeGroupJSON, 0, len(result.Groups)),
 		Skipped:      make([]storeDedupeSkipJSON, 0, len(result.Skipped)),
+		Sources:      make([]storeDedupeSourceJSON, 0, len(result.Sources)),
+	}
+	for _, source := range result.Sources {
+		payload.Sources = append(payload.Sources, storeDedupeSourceJSON{
+			Agent: source.Agent, SourceHook: source.SourceHook,
+			ScannedCount: source.ScannedCount, GroupCount: source.GroupCount,
+			CandidateCount: source.CandidateCount, CandidateRate: source.CandidateRate,
+		})
 	}
 	for _, group := range result.Groups {
 		payload.Groups = append(payload.Groups, storeDedupeGroupJSON{
@@ -258,6 +276,16 @@ func writeStoreDedupeText(output io.Writer, result apptypes.ContentEventDedupeRe
 			Localize("SKIPPED", "スキップ"), strings.Join(skip.EventIDs, ","), skip.Reason,
 		); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print skipped group", "スキップグループの出力に失敗しました"), err)
+		}
+	}
+	for _, source := range result.Sources {
+		hook := source.SourceHook
+		if hook == "" {
+			hook = "-"
+		}
+		if _, err := fmt.Fprintf(output, "  heuristic agent=%s source_hook=%s scanned=%d groups=%d candidates=%d rate=%.4f\n",
+			source.Agent, hook, source.ScannedCount, source.GroupCount, source.CandidateCount, source.CandidateRate); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print dedupe source statistics", "重複候補の source 統計を出力できませんでした"), err)
 		}
 	}
 
