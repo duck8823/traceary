@@ -184,6 +184,19 @@ func TestStoreManagementDatasource_DedupeContentEvents_DryRun(t *testing.T) {
 	}
 }
 
+func TestStoreManagementDatasource_DedupeContentEvents_BoundsBodyScan(t *testing.T) {
+	t.Parallel()
+	_, storeManager, _ := seedDedupeFixture(t)
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{Agent: "codex", MaxScanRows: 3})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents() error = %v", err)
+	}
+	if result.TotalEligibleCount != 9 || result.ScannedCount != 3 {
+		t.Fatalf("eligible/scanned = %d/%d, want 9/3", result.TotalEligibleCount, result.ScannedCount)
+	}
+}
+
 func TestStoreManagementDatasource_DedupeContentEvents_ApplyAndIdempotent(t *testing.T) {
 	t.Parallel()
 	dbPath, storeManager, eventDS := seedDedupeFixture(t)

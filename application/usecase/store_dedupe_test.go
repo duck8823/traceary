@@ -84,6 +84,20 @@ func TestStoreManagementUsecase_DedupeContentEvents_ApplyMintsRunIDAndNow(t *tes
 	}
 }
 
+func TestStoreManagementUsecase_DedupeContentEvents_RejectsBoundedApply(t *testing.T) {
+	t.Parallel()
+	stub := &dedupeStoreManagerStub{}
+	uc := usecase.NewStoreManagementUsecase(stub)
+
+	_, err := uc.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{Apply: true, MaxScanRows: 100})
+	if err == nil || !strings.Contains(err.Error(), "bounded") {
+		t.Fatalf("DedupeContentEvents() error = %v, want bounded apply rejection", err)
+	}
+	if len(stub.dedupeParams) != 0 {
+		t.Fatalf("bounded apply reached store manager: %#v", stub.dedupeParams)
+	}
+}
+
 func TestStoreManagementUsecase_RestoreContentEventDedupeRun_RejectsEmpty(t *testing.T) {
 	t.Parallel()
 	stub := &dedupeStoreManagerStub{}

@@ -22,6 +22,10 @@ type ContentEventDedupeParams struct {
 	// content-event-reliability doctor check) so only near-simultaneous (likely
 	// hook double-write) groups are eligible.
 	Strict bool
+	// MaxScanRows bounds body materialization for diagnostic dry-runs. Zero
+	// preserves the maintenance command's full-scan behavior. A positive bound
+	// is invalid when Apply is true so cleanup can never mutate a partial view.
+	MaxScanRows int
 	// RunID identifies the apply run; it is recorded on every archived row so
 	// `--restore <run-id>` can reverse exactly this run. Required when Apply is
 	// true and ignored otherwise.
@@ -70,12 +74,13 @@ type ContentEventDedupeSourceStat struct {
 
 // ContentEventDedupeResult is the outcome of a dedupe run (dry-run or apply).
 type ContentEventDedupeResult struct {
-	RunID        string
-	Applied      bool
-	ScannedCount int
-	Groups       []ContentEventDedupeGroup
-	Skipped      []ContentEventDedupeSkip
-	Sources      []ContentEventDedupeSourceStat
+	RunID              string
+	Applied            bool
+	TotalEligibleCount int
+	ScannedCount       int
+	Groups             []ContentEventDedupeGroup
+	Skipped            []ContentEventDedupeSkip
+	Sources            []ContentEventDedupeSourceStat
 }
 
 // MovedCount returns the total number of duplicate rows across all groups (the

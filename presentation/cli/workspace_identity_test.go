@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,9 +41,10 @@ func TestRootCLI_WorkspaceIdentityReportSeparatesExactAndHeuristicRates(t *testi
 		Sources:  []apptypes.WorkspaceIdentitySourceReport{{Client: "codex", SourceHook: "user_prompt_submit", DeliveryAttemptCount: 200, RuntimeAttemptCount: 200, ExactRedeliveryCount: 1}},
 	}}
 	store := &storeManagementUsecaseStub{dedupeResult: apptypes.ContentEventDedupeResult{
-		ScannedCount: 10,
-		Groups:       []apptypes.ContentEventDedupeGroup{{DuplicateEventIDs: []string{"candidate-1"}}},
-		Sources:      []apptypes.ContentEventDedupeSourceStat{{Agent: "codex", SourceHook: "user_prompt_submit", ScannedCount: 10, CandidateCount: 1, CandidateRate: 0.1}},
+		TotalEligibleCount: 10,
+		ScannedCount:       10,
+		Groups:             []apptypes.ContentEventDedupeGroup{{DuplicateEventIDs: []string{"candidate-1"}}},
+		Sources:            []apptypes.ContentEventDedupeSourceStat{{Agent: "codex", SourceHook: "user_prompt_submit", ScannedCount: 10, CandidateCount: 1, CandidateRate: 0.1}},
 	}}
 	root := cli.NewRootCLI(cli.WithStoreManagement(store), cli.WithWorkspaceIdentity(identity)).Command()
 	var output bytes.Buffer
@@ -52,20 +54,119 @@ func TestRootCLI_WorkspaceIdentityReportSeparatesExactAndHeuristicRates(t *testi
 	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	root.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--conflict-sample-limit", "3", "--json"})
+	root.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--conflict-sample-limit", "3", "--include-heuristic", "--json"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v\n%s", err, output.String())
 	}
-	for _, want := range []string{`"sample_available": true`, `"target_met": true`, `"candidate_rate": 0.1`, `"heuristic_candidates"`} {
+	for _, want := range []string{`"sample_available": true`, `"target_met": true`, `"measurement_state": "complete"`, `"candidate_rate": 0.1`, `"heuristic_candidates"`} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("output missing %q:\n%s", want, output.String())
 		}
 	}
-	if identity.limit != 3 || len(store.dedupeParams) != 1 || store.dedupeParams[0].Apply {
+	if identity.limit != 3 || len(store.dedupeParams) != 1 || store.dedupeParams[0].Apply || store.dedupeParams[0].MaxScanRows <= 0 {
 		t.Fatalf("limit/dedupe params = %d/%#v", identity.limit, store.dedupeParams)
 	}
 	if store.initCalled {
 		t.Fatal("read-only report called store Initialize")
+	}
+}
+
+func TestRootCLI_WorkspaceIdentityReportSkipsHeuristicByDefault(t *testing.T) {
+	t.Parallel()
+	identity := &workspaceIdentityUsecaseStub{report: apptypes.WorkspaceIdentityReport{
+		Sources: []apptypes.WorkspaceIdentitySourceReport{{Client: "antigravity", RuntimeAttemptCount: 10, ExactRedeliveryCount: 1}},
+	}}
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	root := cli.NewRootCLI(cli.WithWorkspaceIdentity(identity)).Command()
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\n%s", err, output.String())
+	}
+	for _, want := range []string{`"measurement_state": "not_requested"`, `"attempt_count": 10`, `"exact_redelivery_count": 1`} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
+func TestRootCLI_WorkspaceIdentityReportMarksBoundedHeuristicPartial(t *testing.T) {
+	t.Parallel()
+	identity := &workspaceIdentityUsecaseStub{}
+	store := &storeManagementUsecaseStub{dedupeResult: apptypes.ContentEventDedupeResult{
+		TotalEligibleCount: 100,
+		ScannedCount:       10,
+	}}
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	root := cli.NewRootCLI(cli.WithStoreManagement(store), cli.WithWorkspaceIdentity(identity)).Command()
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--include-heuristic", "--heuristic-limit", "10", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\n%s", err, output.String())
+	}
+	for _, want := range []string{`"measurement_state": "partial"`, `"eligible_count": 100`, `"scanned_count": 10`} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, output.String())
+		}
+	}
+	if len(store.dedupeParams) != 1 || store.dedupeParams[0].MaxScanRows != 10 {
+		t.Fatalf("dedupe params = %#v, want bounded dry-run", store.dedupeParams)
+	}
+}
+
+func TestRootCLI_WorkspaceIdentityReportStrictPreservesExplicitHeuristicRequest(t *testing.T) {
+	t.Parallel()
+	identity := &workspaceIdentityUsecaseStub{}
+	store := &storeManagementUsecaseStub{}
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	root := cli.NewRootCLI(cli.WithStoreManagement(store), cli.WithWorkspaceIdentity(identity)).Command()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--strict", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(store.dedupeParams) != 1 || !store.dedupeParams[0].Strict || store.dedupeParams[0].MaxScanRows != 5000 {
+		t.Fatalf("dedupe params = %#v, want strict bounded dry-run", store.dedupeParams)
+	}
+}
+
+func TestRootCLI_WorkspaceIdentityReportEmitsExactMetricsWhenHeuristicFails(t *testing.T) {
+	t.Parallel()
+	identity := &workspaceIdentityUsecaseStub{report: apptypes.WorkspaceIdentityReport{
+		Sources: []apptypes.WorkspaceIdentitySourceReport{{Client: "codex", RuntimeAttemptCount: 200, ExactRedeliveryCount: 1}},
+	}}
+	store := &storeManagementUsecaseStub{dedupeErr: errors.New("measurement unavailable")}
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	root := cli.NewRootCLI(cli.WithStoreManagement(store), cli.WithWorkspaceIdentity(identity)).Command()
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--include-heuristic", "--json"})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "failed to measure historical duplicate candidates") {
+		t.Fatalf("Execute() error = %v, want heuristic measurement failure", err)
+	}
+	for _, want := range []string{`"measurement_state": "failed"`, `"attempt_count": 200`, `"exact_redelivery_count": 1`, `"exact_redelivery_rate": 0.005`} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, output.String())
+		}
 	}
 }
 
