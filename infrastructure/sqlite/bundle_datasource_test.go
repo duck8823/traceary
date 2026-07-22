@@ -208,3 +208,105 @@ func TestBundleDatasource_ImportSessionBackfillsMissingParent(t *testing.T) {
 		t.Fatalf("parent label = %q, want marker", got)
 	}
 }
+
+func TestBundleDatasource_UsageObservationsPreserveSnapshotChainAndRejectReplace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := sqlite.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bundles := sqlite.NewBundleDatasource(db, sqlite.NewEventDatasource(db))
+	source, err := types.UsageSourceOf("codex", "headless_stream", "0.31.0", "openai", "model-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	makeSnapshot := func(id string, revision int64, predecessor string, inputTokens int64) *model.UsageObservation {
+		observationID, err := types.UsageObservationIDFrom(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		supersedes := types.None[types.UsageObservationID]()
+		if predecessor != "" {
+			value, err := types.UsageObservationIDFrom(predecessor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			supersedes = types.Some(value)
+		}
+		descriptor, err := model.NewUsageSnapshotDescriptor(
+			observationID, types.SessionID("session-1"), source, "codex:session-1", revision, supersedes, ts.Add(time.Duration(revision)*time.Minute),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, err := types.KnownUsageValue(inputTokens)
+		if err != nil {
+			t.Fatal(err)
+		}
+		unavailable := types.UnavailableUsageValue()
+		counters, err := types.UsageCountersOf(input, unavailable, unavailable, unavailable, unavailable, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation, err := model.NewFinalizedUsageObservation(
+			descriptor, counters, types.UnavailableUsageCost(), types.UsageTerminalSuccess,
+			descriptor.ObservedAt().Add(time.Second),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return observation
+	}
+	root := makeSnapshot("usage-root", 1, "", 10)
+	successor := makeSnapshot("usage-successor", 2, "usage-root", 20)
+	tx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, observation := range []*model.UsageObservation{root, successor} {
+		imported, err := tx.ImportUsageObservation(ctx, observation, usecase.BundleConflictSkip)
+		if err != nil || !imported {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("ImportUsageObservation(%s) = %t/%v", observation.Descriptor().ObservationID(), imported, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := bundles.ListBundleUsageObservations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 || listed[0].Descriptor().ObservationID().String() != "usage-root" || listed[1].Descriptor().ObservationID().String() != "usage-successor" {
+		t.Fatalf("listed snapshot order = %#v", listed)
+	}
+
+	replayTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := replayTx.ImportUsageObservation(ctx, successor, usecase.BundleConflictSkip); err != nil || imported {
+		_ = replayTx.Rollback(ctx)
+		t.Fatalf("exact replay = %t/%v, want skipped", imported, err)
+	}
+	if err := replayTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	conflictTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = conflictTx.ImportUsageObservation(ctx, makeSnapshot("usage-successor", 2, "usage-root", 99), usecase.BundleConflictReplace)
+	if err == nil || !errors.Is(err, model.ErrConflictingUsageObservation) {
+		_ = conflictTx.Rollback(ctx)
+		t.Fatalf("conflicting replacement error = %v, want ErrConflictingUsageObservation", err)
+	}
+	if err := conflictTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -272,6 +272,18 @@ func TestUsageObservationMigration_RejectsMalformedDirectRows(t *testing.T) {
 		t.Fatal("known cost without currency/origin was inserted")
 	}
 	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "invalid-null-estimate-version", scope: "call", accounting: "additive",
+		costState: "known", costAmount: 1, costCurrency: "USD", costOrigin: "estimated",
+	}); err == nil {
+		t.Fatal("estimated cost with a NULL price-table version was inserted")
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "invalid-blank-estimate-version", scope: "call", accounting: "additive",
+		costState: "known", costAmount: 1, costCurrency: "USD", costOrigin: "estimated", priceVersion: "   ",
+	}); err == nil {
+		t.Fatal("estimated cost with a blank price-table version was inserted")
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
 		id: "invalid-null-snapshot", scope: "session_snapshot", accounting: "latest_snapshot",
 		costState: "unavailable",
 	}); err == nil {

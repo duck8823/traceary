@@ -63,6 +63,8 @@ type fakeBundleRepo struct {
 	memoryEdges               map[string]*model.MemoryEdge
 	exportMemories            []apptypes.MemoryDetails
 	exportMemoryEdges         []*model.MemoryEdge
+	usageObservations         map[string]*model.UsageObservation
+	exportUsageObservations   []*model.UsageObservation
 	enforceMemorySupersedesFK bool
 	forceErr                  error
 }
@@ -80,12 +82,16 @@ func (r *fakeBundleRepo) ListBundleMemories(context.Context) ([]apptypes.MemoryD
 func (r *fakeBundleRepo) ListBundleMemoryEdges(context.Context) ([]*model.MemoryEdge, error) {
 	return r.exportMemoryEdges, nil
 }
+func (r *fakeBundleRepo) ListBundleUsageObservations(context.Context) ([]*model.UsageObservation, error) {
+	return r.exportUsageObservations, nil
+}
 func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImportTransaction, error) {
 	tx := &fakeBundleTx{
-		repo:        r,
-		events:      map[string]bool{},
-		memories:    map[string]*model.Memory{},
-		memoryEdges: map[string]*model.MemoryEdge{},
+		repo:              r,
+		events:            map[string]bool{},
+		memories:          map[string]*model.Memory{},
+		memoryEdges:       map[string]*model.MemoryEdge{},
+		usageObservations: map[string]*model.UsageObservation{},
 	}
 	for id, value := range r.events {
 		tx.events[id] = value
@@ -96,14 +102,37 @@ func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImpor
 	for id, value := range r.memoryEdges {
 		tx.memoryEdges[id] = value
 	}
+	for id, value := range r.usageObservations {
+		tx.usageObservations[id] = value
+	}
 	return tx, nil
 }
 
 type fakeBundleTx struct {
-	repo        *fakeBundleRepo
-	events      map[string]bool
-	memories    map[string]*model.Memory
-	memoryEdges map[string]*model.MemoryEdge
+	repo              *fakeBundleRepo
+	events            map[string]bool
+	memories          map[string]*model.Memory
+	memoryEdges       map[string]*model.MemoryEdge
+	usageObservations map[string]*model.UsageObservation
+}
+
+func (tx *fakeBundleTx) ImportUsageObservation(_ context.Context, observation *model.UsageObservation, policy usecase.BundleConflictPolicy) (bool, error) {
+	if observation == nil {
+		return false, model.ErrInvalidUsageObservation
+	}
+	id := observation.Descriptor().ObservationID().String()
+	if existing, ok := tx.usageObservations[id]; ok {
+		transition, err := existing.Reconcile(observation)
+		if err == nil {
+			return transition == model.UsageObservationTransitionApplied, nil
+		}
+		if policy == usecase.BundleConflictSkip {
+			return false, nil
+		}
+		return false, err
+	}
+	tx.usageObservations[id] = observation
+	return true, nil
 }
 
 func (tx *fakeBundleTx) ImportSession(_ context.Context, session *model.Session, policy usecase.BundleConflictPolicy, missingParent usecase.BundleMissingParentPolicy) (bool, error) {
@@ -242,6 +271,7 @@ func (tx *fakeBundleTx) Commit(context.Context) error {
 	tx.repo.events = tx.events
 	tx.repo.memories = tx.memories
 	tx.repo.memoryEdges = tx.memoryEdges
+	tx.repo.usageObservations = tx.usageObservations
 	return nil
 }
 func (tx *fakeBundleTx) Rollback(context.Context) error { return nil }
@@ -270,6 +300,58 @@ func mustEventInSessionWorkspace(t *testing.T, id string, ts time.Time, session 
 		sessionID, workspace,
 		"body-"+id, ts,
 	)
+}
+
+func mustBundleUsageSnapshot(
+	t *testing.T,
+	id string,
+	revision int64,
+	predecessor string,
+	ts time.Time,
+) *model.UsageObservation {
+	t.Helper()
+	source, err := types.UsageSourceOf("codex", "headless_stream", "0.31.0", "openai", "model-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationID, err := types.UsageObservationIDFrom(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supersedes := types.None[types.UsageObservationID]()
+	if predecessor != "" {
+		value, err := types.UsageObservationIDFrom(predecessor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		supersedes = types.Some(value)
+	}
+	descriptor, err := model.NewUsageSnapshotDescriptor(
+		observationID, types.SessionID("usage-session"), source, "codex:usage-session", revision, supersedes, ts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero, err := types.KnownUsageValue(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := types.UnavailableUsageValue()
+	counters, err := types.UsageCountersOf(zero, unavailable, unavailable, zero, unavailable, zero)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cost, err := types.EstimatedUsageCost(0, "USD", "prices-2026-07")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := model.NewFinalizedUsageObservation(
+		descriptor, counters, cost, types.UsageTerminalSuccess, ts.Add(time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
 }
 
 func mustBundleMemoryID(t *testing.T, id string) types.MemoryID {
@@ -792,6 +874,75 @@ func TestBundleUsecase_ExportWritesManifestV2Tables(t *testing.T) {
 		if got := hashForTest(files[file]); got != entry.Checksum {
 			t.Fatalf("%s checksum = %s, want %s", table, entry.Checksum, got)
 		}
+	}
+}
+
+func TestBundleUsecase_RoundTripsUsageSnapshotChainWithoutCollapsingKnownZero(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	root := mustBundleUsageSnapshot(t, "usage-root", 1, "", ts)
+	successor := mustBundleUsageSnapshot(t, "usage-successor", 2, "usage-root", ts.Add(2*time.Minute))
+	exportRepo := &fakeBundleRepo{
+		schema:                  27,
+		exportUsageObservations: []*model.UsageObservation{successor, root},
+	}
+	out := filepath.Join(t.TempDir(), "usage-bundle.tbun")
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts }).Export(
+		context.Background(),
+		usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")},
+	); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	files := openTestBundle(t, out, []byte("pass1"))
+	if len(files["usage_observations.ndjson"]) == 0 {
+		t.Fatal("bundle missing usage_observations.ndjson rows")
+	}
+	var manifest struct {
+		Tables map[string]struct {
+			RowCount int `json:"row_count"`
+		} `json:"tables"`
+	}
+	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if got := manifest.Tables["usage_observations"].RowCount; got != 2 {
+		t.Fatalf("usage row count = %d, want 2", got)
+	}
+
+	importRepo := &fakeBundleRepo{schema: 27}
+	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
+	result, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath: out, Passphrase: []byte("pass1"),
+	})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if result.UsageObservationsImported != 2 || result.UsageObservationsSkipped != 0 {
+		t.Fatalf("Import result = %+v, want 2 usage observations imported", result)
+	}
+	restored := importRepo.usageObservations["usage-root"]
+	if restored == nil {
+		t.Fatal("usage root was not restored")
+	}
+	if value, present := restored.Counters().Input().Value(); !present || value != 0 {
+		t.Fatalf("restored known-zero input = %d/%t", value, present)
+	}
+	if restored.Cost().Origin() != types.UsageCostEstimated || restored.Cost().PriceTableVersion() != "prices-2026-07" {
+		t.Fatalf("restored cost provenance = %s/%q", restored.Cost().Origin(), restored.Cost().PriceTableVersion())
+	}
+	if predecessor, present := importRepo.usageObservations["usage-successor"].Descriptor().SupersedesID().Value(); !present || predecessor.String() != "usage-root" {
+		t.Fatalf("restored successor predecessor = %q/%t", predecessor, present)
+	}
+
+	result, err = importUC.Import(context.Background(), usecase.BundleImportOptions{
+		InPath: out, Passphrase: []byte("pass1"),
+	})
+	if err != nil {
+		t.Fatalf("idempotent Import: %v", err)
+	}
+	if result.UsageObservationsImported != 0 || result.UsageObservationsSkipped != 2 {
+		t.Fatalf("idempotent result = %+v, want 2 usage observations skipped", result)
 	}
 }
 

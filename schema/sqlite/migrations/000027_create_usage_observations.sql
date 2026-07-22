@@ -63,7 +63,9 @@ CREATE TABLE usage_observations (
             AND cost_currency GLOB '[A-Z][A-Z][A-Z]'
             AND cost_origin IS NOT NULL
             AND (
-                (cost_origin = 'estimated' AND length(price_table_version) > 0)
+                (cost_origin = 'estimated'
+                    AND price_table_version IS NOT NULL
+                    AND length(trim(price_table_version)) > 0)
                 OR (cost_origin = 'provider_reported' AND price_table_version IS NULL)
             ))
     ),

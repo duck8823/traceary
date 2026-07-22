@@ -4,8 +4,8 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// Portability covers all five tables — events, sessions, command_audits,
-// memories, and memory_edges — see docs/operations/cross-machine-handoff
+// Portability covers events, sessions, command_audits, memories, memory_edges,
+// and usage_observations — see docs/operations/cross-machine-handoff
 // for the operator guide.
 package usecase
 
@@ -25,17 +25,72 @@ func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
 	commandAudits := bundleCommandAuditsTable{}
 	memories := bundleMemoriesTable{}
 	memoryEdges := bundleMemoryEdgesTable{}
+	usageObservations := bundleUsageObservationsTable{}
 	return map[string]bundleTableImporter{
-		sessions.Name():      sessions,
-		events.Name():        events,
-		commandAudits.Name(): commandAudits,
-		memories.Name():      memories,
-		memoryEdges.Name():   memoryEdges,
+		sessions.Name():          sessions,
+		events.Name():            events,
+		commandAudits.Name():     commandAudits,
+		memories.Name():          memories,
+		memoryEdges.Name():       memoryEdges,
+		usageObservations.Name(): usageObservations,
 	}
 }
 
 func bundleTableImportOrder() []string {
-	return []string{"sessions", "events", "command_audits", "memories", "memory_edges"}
+	return []string{"sessions", "usage_observations", "events", "command_audits", "memories", "memory_edges"}
+}
+
+type bundleUsageObservationsTable struct{}
+
+func (bundleUsageObservationsTable) Name() string { return "usage_observations" }
+
+func (bundleUsageObservationsTable) FileName() string { return "usage_observations.ndjson" }
+
+func (bundleUsageObservationsTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
+	return encodeUsageObservationsNDJSON(input.UsageObservations)
+}
+
+func (bundleUsageObservationsTable) Decode(r io.Reader) ([]bundleRow, error) {
+	decoder := json.NewDecoder(r)
+	rows := []bundleRow{}
+	for decoder.More() {
+		var row bundleUsageObservationRow
+		if err := decoder.Decode(&row); err != nil {
+			return nil, xerrors.Errorf("usage observation row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (bundleUsageObservationsTable) Apply(
+	ctx context.Context,
+	tx BundleImportTransaction,
+	rows []bundleRow,
+	policy bundleImportPolicy,
+) (int, int, error) {
+	sortedRows, err := sortBundleUsageObservationRows(rows)
+	if err != nil {
+		return 0, 0, err
+	}
+	imported := 0
+	skipped := 0
+	for _, row := range sortedRows {
+		observation, err := row.toUsageObservation()
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("restore usage observation: %w", err)
+		}
+		didImport, err := tx.ImportUsageObservation(ctx, observation, policy.OnConflict)
+		if err != nil {
+			return imported, skipped, xerrors.Errorf("usage observation %s: %w", observation.Descriptor().ObservationID(), err)
+		}
+		if didImport {
+			imported++
+		} else {
+			skipped++
+		}
+	}
+	return imported, skipped, nil
 }
 
 type bundleSessionsTable struct{}

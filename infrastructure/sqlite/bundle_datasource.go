@@ -228,9 +228,53 @@ SELECT id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, cr
 	return edges, nil
 }
 
+// ListBundleUsageObservations returns every durable usage observation in a
+// deterministic order that keeps snapshot predecessors before successors.
+func (d *BundleDatasource) ListBundleUsageObservations(ctx context.Context) ([]*model.UsageObservation, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for bundle usage observation export: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+	rows, err := db.QueryContext(ctx, `
+SELECT observation_id, session_id, host, source_name, source_version, provider, model,
+       scope, accounting, status, observed_at, finalized_at, terminal_code,
+       input_state, input_tokens, cached_input_state, cached_input_tokens,
+       cache_write_input_state, cache_write_input_tokens, output_state, output_tokens,
+       reasoning_output_state, reasoning_output_tokens, total_state, total_tokens,
+       cost_state, cost_amount_micros, cost_currency, cost_origin, price_table_version,
+       snapshot_series, snapshot_revision, supersedes_id
+  FROM usage_observations
+ ORDER BY COALESCE(snapshot_series, ''), COALESCE(snapshot_revision, 0), observation_id`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query usage observations for bundle export: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+	observations := []*model.UsageObservation{}
+	for rows.Next() {
+		observation, err := scanUsageObservation(rows)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to scan bundle usage observation row: %w", err)
+		}
+		observations = append(observations, observation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate bundle usage observation rows: %w", err)
+	}
+	return observations, nil
+}
+
 // BeginBundleImport starts the transaction shared by every table
-// importer in a bundle (sessions, events, command_audits, memories,
-// and memory_edges).
+// importer in a bundle (sessions, usage_observations, events,
+// command_audits, memories, and memory_edges).
 func (d *BundleDatasource) BeginBundleImport(ctx context.Context) (usecase.BundleImportTransaction, error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
@@ -249,6 +293,64 @@ func (d *BundleDatasource) BeginBundleImport(ctx context.Context) (usecase.Bundl
 type bundleImportTx struct {
 	db *sql.DB
 	tx *sql.Tx
+}
+
+// ImportUsageObservation converges exact replays and pending-to-finalized
+// transitions without allowing bundle conflict policy to rewrite immutable
+// accounting evidence. Conflicting snapshots may be skipped, but replace is
+// rejected because it could invalidate an existing snapshot chain.
+func (t *bundleImportTx) ImportUsageObservation(
+	ctx context.Context,
+	observation *model.UsageObservation,
+	policy usecase.BundleConflictPolicy,
+) (bool, error) {
+	if observation == nil {
+		return false, model.ErrInvalidUsageObservation
+	}
+	current, err := findUsageObservation(ctx, t.tx, observation.Descriptor().ObservationID())
+	if err != nil {
+		return false, xerrors.Errorf("failed to inspect usage observation conflict: %w", err)
+	}
+	if existing, present := current.Value(); present {
+		transition, reconcileErr := existing.Reconcile(observation)
+		if reconcileErr == nil {
+			if transition == model.UsageObservationTransitionApplied {
+				if err := updateFinalizedUsageObservation(ctx, t.tx, existing); err != nil {
+					return false, xerrors.Errorf("failed to import usage finalization: %w", err)
+				}
+				return true, nil
+			}
+			return false, nil
+		}
+		if !errors.Is(reconcileErr, model.ErrConflictingUsageObservation) {
+			return false, reconcileErr
+		}
+		switch policy {
+		case usecase.BundleConflictSkip:
+			return false, nil
+		case usecase.BundleConflictReplace:
+			return false, xerrors.Errorf("usage observation replacement is unsafe for immutable accounting evidence: %w", reconcileErr)
+		default:
+			return false, reconcileErr
+		}
+	}
+
+	if observation.Descriptor().Scope() == types.UsageScopeSessionSnapshot {
+		head, err := findUsageSnapshotHead(ctx, t.tx, observation.Descriptor().SnapshotSeries())
+		if err != nil {
+			return false, xerrors.Errorf("failed to inspect usage snapshot series: %w", err)
+		}
+		if err := observation.ValidateSnapshotSuccessor(head); err != nil {
+			if policy == usecase.BundleConflictSkip && errors.Is(err, model.ErrConflictingUsageObservation) {
+				return false, nil
+			}
+			return false, xerrors.Errorf("failed to validate usage snapshot successor: %w", err)
+		}
+	}
+	if err := insertUsageObservation(ctx, t.tx, observation); err != nil {
+		return false, xerrors.Errorf("failed to import usage observation: %w", err)
+	}
+	return true, nil
 }
 
 // ImportSession inserts or replaces the session according to policy. Missing

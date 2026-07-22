@@ -4,8 +4,8 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// Portability covers all five tables — events, sessions, command_audits,
-// memories, and memory_edges — see docs/operations/cross-machine-handoff
+// Portability covers events, sessions, command_audits, memories, memory_edges,
+// and usage_observations — see docs/operations/cross-machine-handoff
 // for the operator guide.
 package usecase
 
@@ -137,6 +137,34 @@ func encodeCommandAuditsNDJSON(audits []*model.CommandAudit) (*bytes.Buffer, err
 	return buf, nil
 }
 
+func encodeUsageObservationsNDJSON(observations []*model.UsageObservation) (*bytes.Buffer, error) {
+	buf := &bytes.Buffer{}
+	sorted := append([]*model.UsageObservation(nil), observations...)
+	for _, observation := range sorted {
+		if observation == nil {
+			return nil, xerrors.Errorf("encode usage observation: observation must not be nil")
+		}
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		left := sorted[i].Descriptor()
+		right := sorted[j].Descriptor()
+		if left.SnapshotSeries() != right.SnapshotSeries() {
+			return left.SnapshotSeries() < right.SnapshotSeries()
+		}
+		if left.SnapshotRevision() != right.SnapshotRevision() {
+			return left.SnapshotRevision() < right.SnapshotRevision()
+		}
+		return left.ObservationID().String() < right.ObservationID().String()
+	})
+	enc := json.NewEncoder(buf)
+	for _, observation := range sorted {
+		if err := enc.Encode(bundleUsageObservationRowFromModel(observation)); err != nil {
+			return nil, xerrors.Errorf("encode usage observation: %w", err)
+		}
+	}
+	return buf, nil
+}
+
 func filterSessionsForBundleExport(sessions []*model.Session, events []*model.Event, opts BundleExportOptions) []*model.Session {
 	referencedSessionIDs := make(map[string]struct{}, len(events))
 	for _, event := range events {
@@ -188,6 +216,30 @@ func filterCommandAuditsForEvents(audits []*model.CommandAudit, events []*model.
 	for _, audit := range audits {
 		if _, ok := eventIDs[audit.EventID().String()]; ok {
 			filtered = append(filtered, audit)
+		}
+	}
+	return filtered
+}
+
+func filterUsageObservationsForBundleExport(
+	observations []*model.UsageObservation,
+	sessions []*model.Session,
+	opts BundleExportOptions,
+) []*model.UsageObservation {
+	if opts.Since.IsZero() && opts.Until.IsZero() && opts.Workspace.String() == "" {
+		return observations
+	}
+	sessionIDs := make(map[string]struct{}, len(sessions))
+	for _, session := range sessions {
+		sessionIDs[session.SessionID().String()] = struct{}{}
+	}
+	filtered := make([]*model.UsageObservation, 0, len(observations))
+	for _, observation := range observations {
+		if observation == nil {
+			continue
+		}
+		if _, included := sessionIDs[observation.Descriptor().SessionID().String()]; included {
+			filtered = append(filtered, observation)
 		}
 	}
 	return filtered
