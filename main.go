@@ -180,6 +180,8 @@ func run() error {
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 	rawBodyRetentionUsecase := usecase.NewRawBodyRetentionUsecase(storeManagementDatasource, storeManagementDatasource)
+	fileRetentionDatasource := filesystem.NewFileRetentionDatasource()
+	fileRetentionUsecase := usecase.NewFileRetentionUsecase(fileRetentionDatasource, fileRetentionDatasource)
 	oneShotRepairUsecase := usecase.NewOneShotRepairUsecase(storeManagementDatasource, storeManagementDatasource)
 	workspaceIdentityUsecase := usecase.NewWorkspaceIdentityUsecase(workspaceIdentityDatasource, workspaceIdentityDatasource, types.SystemClock{})
 
@@ -225,6 +227,7 @@ func run() error {
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithRawBodyRetention(rawBodyRetentionUsecase),
+		cli.WithFileRetention(fileRetentionUsecase),
 		cli.WithOneShotRepair(oneShotRepairUsecase),
 		cli.WithWorkspaceIdentity(workspaceIdentityUsecase),
 		cli.WithMCPServerRunner(mcpServer),

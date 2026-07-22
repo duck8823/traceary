@@ -35,6 +35,7 @@ func (c *RootCLI) newStoreRetentionCommand() *cobra.Command {
 	command.AddCommand(c.newStoreRetentionPlanCommand())
 	command.AddCommand(c.newStoreRetentionApplyCommand())
 	command.AddCommand(c.newStoreRetentionRestoreCommand())
+	command.AddCommand(c.newStoreFileRetentionCommand())
 	return command
 }
 

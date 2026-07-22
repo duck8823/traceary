@@ -2,8 +2,11 @@ package sqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -120,7 +123,70 @@ func (d *StoreManagementDatasource) CreateBackup(ctx context.Context, outputPath
 	if err := os.Chmod(destinationPath, 0o600); err != nil {
 		return xerrors.Errorf("failed to set backup file permissions: %w", err)
 	}
+	if err := writeBackupRetentionManifest(sourcePath, destinationPath); err != nil {
+		return xerrors.Errorf("failed to write backup retention manifest (backup file retained): %w", err)
+	}
 
+	return nil
+}
+
+func writeBackupRetentionManifest(sourcePath, destinationPath string) error {
+	data, err := os.ReadFile(destinationPath)
+	if err != nil {
+		return xerrors.Errorf("read created backup: %w", err)
+	}
+	digest := sha256.Sum256(data)
+	digestHex := hex.EncodeToString(digest[:])
+	lineage, err := types.FileRetentionLineageFromPath("backup", sourcePath)
+	if err != nil {
+		return xerrors.Errorf("derive backup lineage: %w", err)
+	}
+	manifest := apptypes.BackupRetentionManifest{
+		SchemaVersion: apptypes.BackupRetentionManifestSchema,
+		RelativePath:  filepath.Base(destinationPath),
+		BackupSHA256:  digestHex,
+		SourceLineage: lineage,
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	payload, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return xerrors.Errorf("marshal backup retention manifest: %w", err)
+	}
+	payload = append(payload, '\n')
+	directory := filepath.Dir(destinationPath)
+	manifestName := apptypes.BackupRetentionManifestName(filepath.Base(destinationPath))
+	temporary, err := os.CreateTemp(directory, manifestName+".tmp-")
+	if err != nil {
+		return xerrors.Errorf("create backup retention manifest temporary file: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryPath)
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		return xerrors.Errorf("chmod backup retention manifest: %w", err)
+	}
+	if _, err := temporary.Write(payload); err != nil {
+		return xerrors.Errorf("write backup retention manifest: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		return xerrors.Errorf("sync backup retention manifest: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return xerrors.Errorf("close backup retention manifest: %w", err)
+	}
+	if err := os.Rename(temporaryPath, filepath.Join(directory, manifestName)); err != nil {
+		return xerrors.Errorf("place backup retention manifest: %w", err)
+	}
+	directoryHandle, err := os.Open(directory)
+	if err != nil {
+		return xerrors.Errorf("open backup directory for sync: %w", err)
+	}
+	defer func() { _ = directoryHandle.Close() }()
+	if err := directoryHandle.Sync(); err != nil {
+		return xerrors.Errorf("sync backup directory: %w", err)
+	}
 	return nil
 }
 
