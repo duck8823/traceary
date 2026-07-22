@@ -67,11 +67,18 @@ func TestStoreManagementDatasource_CloseStaleSessions_UsesLatestActivity(t *test
 				t.Fatalf("closed count = %d, want %d", closedCount, tt.wantClosed)
 			}
 			var endedAt sql.NullString
-			if err := db.QueryRow(`SELECT ended_at FROM sessions WHERE session_id = ?`, sessionID).Scan(&endedAt); err != nil {
+			var terminalReason string
+			if err := db.QueryRow(`SELECT ended_at, terminal_reason FROM sessions WHERE session_id = ?`, sessionID).Scan(&endedAt, &terminalReason); err != nil {
 				t.Fatalf("select ended_at: %v", err)
 			}
 			if gotClosed := endedAt.Valid; gotClosed != (tt.wantClosed == 1) {
 				t.Fatalf("ended_at valid = %v, want %v", gotClosed, tt.wantClosed == 1)
+			}
+			if tt.wantClosed == 1 && terminalReason != types.TerminalReasonLegacyUnknown.String() {
+				t.Fatalf("terminal_reason = %q, want legacy_unknown", terminalReason)
+			}
+			if tt.wantClosed == 0 && terminalReason != "" {
+				t.Fatalf("active terminal_reason = %q, want empty", terminalReason)
 			}
 		})
 	}

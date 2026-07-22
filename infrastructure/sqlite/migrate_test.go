@@ -136,6 +136,81 @@ func TestMigrations_hookDeliveryAttemptsBackfillBodyFreeDenominator(t *testing.T
 	}
 }
 
+func TestMigrations_sessionLifecycleStatePreservesLegacyRows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	preV024 := migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 24)
+	store := newStoreManagementDatasource(t, dbPath, preV024)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-v024) error = %v", err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open(pre-v024) error = %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO sessions (
+		session_id, started_at, ended_at, client, agent, workspace, label, summary, model
+	) VALUES
+		('legacy-active', '2026-07-22T10:00:00Z', NULL, 'hook', 'codex', 'workspace-a', 'active label', 'active summary', 'model-a'),
+		('legacy-ended', '2026-07-22T11:00:00Z', '2026-07-22T11:30:00Z', 'hook', 'codex', 'workspace-b', 'ended label', 'ended summary', 'model-b')`)
+	if err != nil {
+		t.Fatalf("insert legacy sessions: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close pre-v024 DB: %v", err)
+	}
+
+	store = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(v024) error = %v", err)
+	}
+	db, err = sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open(upgraded) error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	for _, tt := range []struct {
+		sessionID     string
+		wantStarted   string
+		wantEnded     string
+		wantReason    string
+		wantWorkspace string
+		wantLabel     string
+		wantSummary   string
+		wantModel     string
+	}{
+		{sessionID: "legacy-active", wantStarted: "2026-07-22T10:00:00Z", wantReason: "", wantWorkspace: "workspace-a", wantLabel: "active label", wantSummary: "active summary", wantModel: "model-a"},
+		{sessionID: "legacy-ended", wantStarted: "2026-07-22T11:00:00Z", wantEnded: "2026-07-22T11:30:00Z", wantReason: "legacy_unknown", wantWorkspace: "workspace-b", wantLabel: "ended label", wantSummary: "ended summary", wantModel: "model-b"},
+	} {
+		var mode, reason, started, client, agent, workspace, label, summary, modelName string
+		var ended sql.NullString
+		if err := db.QueryRow(`SELECT runtime_mode, terminal_reason, started_at, ended_at, client, agent, workspace, label, summary, model FROM sessions WHERE session_id = ?`, tt.sessionID).Scan(&mode, &reason, &started, &ended, &client, &agent, &workspace, &label, &summary, &modelName); err != nil {
+			t.Fatalf("read upgraded %s: %v", tt.sessionID, err)
+		}
+		if mode != "interactive" || reason != tt.wantReason || started != tt.wantStarted || ended.String != tt.wantEnded || client != "hook" || agent != "codex" || workspace != tt.wantWorkspace || label != tt.wantLabel || summary != tt.wantSummary || modelName != tt.wantModel {
+			t.Fatalf("upgraded %s = mode=%q reason=%q started=%q ended=%q client=%q agent=%q workspace=%q label=%q summary=%q model=%q", tt.sessionID, mode, reason, started, ended.String, client, agent, workspace, label, summary, modelName)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, runtime_mode) VALUES ('invalid-runtime', '2026-07-22T12:00:00Z', 'unknown')`); err == nil {
+		t.Fatal("invalid runtime_mode insert succeeded")
+	}
+	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, terminal_reason) VALUES ('invalid-reason', '2026-07-22T12:00:00Z', 'unknown')`); err == nil {
+		t.Fatal("invalid terminal_reason insert succeeded")
+	}
+	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, terminal_reason) VALUES ('invalid-active-reason', '2026-07-22T12:00:00Z', 'success')`); err == nil {
+		t.Fatal("active session with terminal reason insert succeeded")
+	}
+	if _, err := db.Exec(`UPDATE sessions SET ended_at = NULL, terminal_reason = 'failure' WHERE session_id = 'legacy-ended'`); err == nil {
+		t.Fatal("active session with terminal reason update succeeded")
+	}
+	if _, err := db.Exec(`UPDATE sessions SET ended_at = '2026-07-22T12:30:00Z', terminal_reason = '' WHERE session_id = 'legacy-active'`); err != nil {
+		t.Fatalf("legacy-compatible end without terminal reason failed: %v", err)
+	}
+	assertMigrationApplied(t, db, 24)
+}
+
 func TestMigrations_upgradeFromPreV014DatabaseAddsSessionSpawnMetadata(t *testing.T) {
 	t.Parallel()
 

@@ -1604,6 +1604,11 @@ CREATE INDEX IF NOT EXISTS idx_sessions_parent_spawn_order
 		"000020_add_session_model.sql": {
 			Data: []byte(`ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT '';`),
 		},
+		"000024_add_session_lifecycle_state.sql": {
+			Data: []byte(`ALTER TABLE sessions ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'interactive' CHECK (runtime_mode IN ('interactive', 'one_shot', 'resumed', 'background'));
+ALTER TABLE sessions ADD COLUMN terminal_reason TEXT NOT NULL DEFAULT '' CHECK (terminal_reason IN ('', 'success', 'failure', 'timeout', 'signal', 'aborted_stream', 'legacy_unknown'));
+UPDATE sessions SET terminal_reason = 'legacy_unknown' WHERE ended_at IS NOT NULL AND terminal_reason = '';`),
+		},
 		"000021_add_event_body_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN body_original_bytes INTEGER CHECK (body_original_bytes IS NULL OR body_original_bytes >= 0);

@@ -50,7 +50,7 @@ hook を無効化している場合や、新しい agent session を長期間開
 traceary session gc --stale-after 24h
 ```
 
-導入時は先に `--dry-run` で確認します。`traceary doctor --json` を実行し、次の通常 hook start または定期実行後に `stale-active-sessions` check が `pass` になることを確認してください。この command は冪等で、`ended_at` を設定するだけです。session event は削除しません。
+導入時は先に `--dry-run` で確認します。`traceary doctor --json` を実行し、次の通常 hook start または定期実行後に `stale-active-sessions` check が `pass` になることを確認してください。この command は冪等で、`ended_at` と安全側の終了理由 `legacy_unknown` だけを設定します。session event は削除しません。
 
 ## 運用ルール
 

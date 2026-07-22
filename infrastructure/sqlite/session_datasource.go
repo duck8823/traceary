@@ -117,6 +117,7 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 // either a standalone operation or an existing transaction.
 type sqlExecer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // insertSessionRowIfMissing inserts the immutable session row if it does
@@ -158,6 +159,7 @@ func insertSessionRowIfMissing(ctx context.Context, exec sqlExecer, session *mod
 		session.SubagentKind(),
 		spawnOrder,
 		session.Model(),
+		session.RuntimeMode().String(),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") && session.ParentSessionID().String() != "" {
@@ -196,9 +198,11 @@ func saveSessionLabel(ctx context.Context, exec sqlExecer, session *model.Sessio
 // for the same session_id has already committed, so the caller's
 // transaction must roll back to avoid duplicate session_started events.
 // On end, a guarded UPDATE writes ended_at + summary only when ended_at
-// IS NULL; zero rows affected means the session was already ended and we
-// return ErrInvalidSessionState so the caller's transaction rolls back
-// (including the boundary event).
+// IS NULL. Exact hook redelivery is short-circuited by saveEventTransaction
+// before this helper runs. Reaching a zero-row update therefore means a new
+// delivery raced with, or followed, an already committed terminal state; the
+// stored and proposed reasons are compared for diagnostic errors while the
+// caller's transaction (including the new boundary event) rolls back.
 func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Session) error {
 	inserted, err := insertSessionRowIfMissing(ctx, exec, session)
 	if err != nil {
@@ -213,6 +217,10 @@ func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Ses
 	}
 
 	endedAt, _ := session.EndedAt().Value()
+	terminalReason, ok := session.TerminalReason().Value()
+	if !ok {
+		return xerrors.Errorf("cannot end session %s without a terminal reason: %w", session.SessionID(), model.ErrInvalidSessionState)
+	}
 	summary := session.Summary()
 	// summary is bound twice: once for the empty-check, once for the
 	// SET branch. Empty new summaries leave any previously-synced
@@ -221,6 +229,7 @@ func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Ses
 		ctx,
 		updateSessionEndQuery,
 		formatTimestamp(endedAt),
+		terminalReason.String(),
 		summary,
 		summary,
 		session.SessionID().String(),
@@ -233,7 +242,29 @@ func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Ses
 		return xerrors.Errorf("failed to check rows affected: %w", err)
 	}
 	if updated == 0 {
-		return xerrors.Errorf("cannot end session %s: %w", session.SessionID(), model.ErrInvalidSessionState)
+		var currentReason string
+		if err := exec.QueryRowContext(
+			ctx,
+			`SELECT COALESCE(NULLIF(terminal_reason, ''), 'legacy_unknown') FROM sessions WHERE session_id = ?`,
+			session.SessionID().String(),
+		).Scan(&currentReason); err != nil {
+			return xerrors.Errorf("failed to inspect terminal state for session %s: %w", session.SessionID(), err)
+		}
+		if currentReason != terminalReason.String() {
+			return xerrors.Errorf(
+				"session %s terminal reason %q conflicts with proposed reason %q: %w",
+				session.SessionID(),
+				currentReason,
+				terminalReason,
+				model.ErrConflictingTerminalState,
+			)
+		}
+		return xerrors.Errorf(
+			"session %s already ended with terminal reason %q under a different delivery: %w",
+			session.SessionID(),
+			currentReason,
+			model.ErrInvalidSessionState,
+		)
 	}
 	return nil
 }
@@ -267,6 +298,8 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		subagentKindValue    string
 		spawnOrderValue      sql.NullInt64
 		modelValue           string
+		runtimeModeValue     string
+		terminalReasonValue  string
 	)
 
 	if err := row.Scan(
@@ -283,6 +316,8 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		&subagentKindValue,
 		&spawnOrderValue,
 		&modelValue,
+		&runtimeModeValue,
+		&terminalReasonValue,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return types.None[*model.Session](), nil
@@ -312,21 +347,39 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		endedAt = types.Some(t)
 	}
 
-	return types.Some(model.SessionOf(
-		sid,
-		startedAt,
-		endedAt,
-		types.Client(clientValue),
-		agent,
-		types.Workspace(workspaceValue),
-		labelValue,
-		summaryValue,
-		types.SessionID(parentSessionIDValue),
-		types.EventID(spawnEventIDValue),
-		subagentKindValue,
-		optionalIntFromNullInt64(spawnOrderValue),
-		modelValue,
-	)), nil
+	runtimeMode, err := types.RuntimeModeFrom(runtimeModeValue)
+	if err != nil {
+		return types.None[*model.Session](), xerrors.Errorf("failed to restore runtime mode: %w", err)
+	}
+	terminalReason := types.None[types.TerminalReason]()
+	if strings.TrimSpace(terminalReasonValue) != "" {
+		reason, err := types.TerminalReasonFrom(terminalReasonValue)
+		if err != nil {
+			return types.None[*model.Session](), xerrors.Errorf("failed to restore terminal reason: %w", err)
+		}
+		terminalReason = types.Some(reason)
+	}
+	restored, err := model.SessionFromSnapshot(model.SessionSnapshot{
+		SessionID:       sid,
+		StartedAt:       startedAt,
+		EndedAt:         endedAt,
+		Client:          types.Client(clientValue),
+		Agent:           agent,
+		Workspace:       types.Workspace(workspaceValue),
+		Label:           labelValue,
+		Summary:         summaryValue,
+		Model:           modelValue,
+		RuntimeMode:     runtimeMode,
+		TerminalReason:  terminalReason,
+		ParentSessionID: types.SessionID(parentSessionIDValue),
+		SpawnEventID:    types.EventID(spawnEventIDValue),
+		SubagentKind:    subagentKindValue,
+		SpawnOrder:      optionalIntFromNullInt64(spawnOrderValue),
+	})
+	if err != nil {
+		return types.None[*model.Session](), xerrors.Errorf("failed to restore session lifecycle: %w", err)
+	}
+	return types.Some(restored), nil
 }
 
 // FindEndedSessionIDs returns ended session IDs in bounded batches so callers

@@ -4,19 +4,23 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	"github.com/duck8823/traceary/domain/types"
 )
 
 // Session represents a recorded agent work session.
 type Session struct {
-	sessionID       types.SessionID
-	startedAt       time.Time
-	endedAt         types.Optional[time.Time]
-	client          types.Client
-	agent           types.Agent
-	workspace       types.Workspace
-	label           string
-	summary         string
+	sessionID      types.SessionID
+	startedAt      time.Time
+	endedAt        types.Optional[time.Time]
+	client         types.Client
+	agent          types.Agent
+	workspace      types.Workspace
+	label          string
+	summary        string
+	runtimeMode    types.RuntimeMode
+	terminalReason types.Optional[types.TerminalReason]
 	// model is the host-reported model identifier when present. Empty means
 	// the host did not report a model; Traceary never fabricates one.
 	model           string
@@ -35,12 +39,40 @@ func NewSession(
 	workspace types.Workspace,
 ) *Session {
 	return &Session{
-		sessionID: sessionID,
-		startedAt: startedAt,
-		client:    client,
-		agent:     agent,
-		workspace: workspace,
+		sessionID:      sessionID,
+		startedAt:      startedAt,
+		client:         client,
+		agent:          agent,
+		workspace:      workspace,
+		runtimeMode:    types.RuntimeModeInteractive,
+		terminalReason: types.None[types.TerminalReason](),
 	}
+}
+
+// NewSessionWithRuntimeMode creates an active session under an explicit
+// lifecycle contract. The zero value is rejected so omission can never turn a
+// one-shot runtime into an interactive runtime, or vice versa.
+func NewSessionWithRuntimeMode(
+	sessionID types.SessionID,
+	startedAt time.Time,
+	client types.Client,
+	agent types.Agent,
+	workspace types.Workspace,
+	runtimeMode types.RuntimeMode,
+) (*Session, error) {
+	validatedMode, err := types.RuntimeModeFrom(runtimeMode.String())
+	if err != nil {
+		return nil, xerrors.Errorf("invalid session runtime mode: %w", err)
+	}
+	return &Session{
+		sessionID:      sessionID,
+		startedAt:      startedAt,
+		client:         client,
+		agent:          agent,
+		workspace:      workspace,
+		runtimeMode:    validatedMode,
+		terminalReason: types.None[types.TerminalReason](),
+	}, nil
 }
 
 // NewChildSession creates a new child Session spawned from a parent session.
@@ -62,7 +94,10 @@ func NewChildSession(
 	return session
 }
 
-// SessionOf restores a Session from persisted data.
+// SessionOf restores a legacy-compatible Session from domain values. It uses
+// interactive mode and maps an existing end timestamp to legacy_unknown. New
+// persistence adapters that carry lifecycle fields should use
+// SessionFromSnapshot instead.
 // spawnMetadata may include: EventID spawnEventID, string subagentKind,
 // Optional[int] spawnOrder, and optionally a trailing string model when the
 // caller places model as the 4th optional value.
@@ -104,6 +139,10 @@ func SessionOf(
 			modelName = value
 		}
 	}
+	terminalReason := types.None[types.TerminalReason]()
+	if _, ended := endedAt.Value(); ended {
+		terminalReason = types.Some(types.TerminalReasonLegacyUnknown)
+	}
 	return &Session{
 		sessionID:       sessionID,
 		startedAt:       startedAt,
@@ -114,6 +153,8 @@ func SessionOf(
 		label:           label,
 		summary:         summary,
 		model:           modelName,
+		runtimeMode:     types.RuntimeModeInteractive,
+		terminalReason:  terminalReason,
 		parentSessionID: parentSessionID,
 		spawnEventID:    spawnEventID,
 		subagentKind:    subagentKind,
@@ -130,6 +171,15 @@ func (s *Session) StartedAt() time.Time { return s.startedAt }
 // EndedAt returns when the session ended, or empty if still active.
 func (s *Session) EndedAt() types.Optional[time.Time] { return s.endedAt }
 
+// RuntimeMode returns the session's explicit lifecycle contract.
+func (s *Session) RuntimeMode() types.RuntimeMode { return s.runtimeMode }
+
+// TerminalReason returns the single effective terminal reason, or empty while
+// the session is active.
+func (s *Session) TerminalReason() types.Optional[types.TerminalReason] {
+	return s.terminalReason
+}
+
 // Client returns the client that created the session.
 func (s *Session) Client() types.Client { return s.client }
 
@@ -145,11 +195,13 @@ func (s *Session) Label() string { return s.label }
 // End marks the session as ended. Returns ErrInvalidSessionState when the
 // session is already ended.
 func (s *Session) End(endedAt time.Time, summary string) error {
-	if _, ok := s.endedAt.Value(); ok {
+	transition, err := s.Terminate(endedAt, types.TerminalReasonSuccess, summary)
+	if err != nil {
+		return err
+	}
+	if transition == SessionTerminalTransitionAlreadyApplied {
 		return ErrInvalidSessionState
 	}
-	s.endedAt = types.Some(endedAt)
-	s.summary = summary
 	return nil
 }
 

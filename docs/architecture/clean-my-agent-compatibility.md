@@ -41,7 +41,7 @@ Two accuracy notes from primary-source verification (2026-06-10):
 
 | Traceary surface | Relay concept | Fit | Notes |
 | --- | --- | --- | --- |
-| `Session` (`session_id`, `started_at`, `ended_at`, `client`, `agent`, `workspace`, `label`, `summary`) | `session` (`id`, `createdAt`, `lastUpdated`, `source`, `projectPath`/`projectName`, `title`) | Partial | `ended_at` has no relay slot (`lastUpdated` is the closest), and `summary` has none either (`session.metadata` at best). Relay's `tokens`, `sizeBytes`, `storageState`, `backupStatus` have no Traceary source of truth. |
+| `Session` (`session_id`, `started_at`, `ended_at`, `runtime_mode`, `terminal_reason`, `client`, `agent`, `workspace`, `label`, `summary`) | `session` (`id`, `createdAt`, `lastUpdated`, `source`, `projectPath`/`projectName`, `title`) | Partial | `ended_at`, `runtime_mode`, and `terminal_reason` have no relay slots (`lastUpdated` is the closest to an end timestamp), and `summary` has none either (`session.metadata` at best). Relay's `tokens`, `sizeBytes`, `storageState`, `backupStatus` have no Traceary source of truth. |
 | `Session` subagent lineage (`parent_session_id`, `spawn_event_id`, `subagent_kind`, `spawn_order`) | none | None | Relay documents are flat per-session exports. Traceary's session tree (parent/child spawn lineage) has no relay representation, so an export would sever subagent sessions from their parents. |
 | `Event` `kind=prompt` | `messages[]` with `role=user` | Good | Traceary can fill `id`, `createdAt`, `text`. |
 | `Event` `kind=transcript` | `messages[]` with `role=assistant` | Good | Same as above. |

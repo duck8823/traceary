@@ -1,1 +1,1 @@
-SELECT session_id, started_at, ended_at, client, agent, workspace, label, summary, COALESCE(parent_session_id, ''), COALESCE(spawn_event_id, ''), subagent_kind, spawn_order, COALESCE(model, '') FROM sessions WHERE session_id = ?
+SELECT session_id, started_at, ended_at, client, agent, workspace, label, summary, COALESCE(parent_session_id, ''), COALESCE(spawn_event_id, ''), subagent_kind, spawn_order, COALESCE(model, ''), runtime_mode, terminal_reason FROM sessions WHERE session_id = ?
