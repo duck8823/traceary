@@ -354,15 +354,20 @@ func hookPayloadFailed(payload []byte) bool {
 // failures. Host adapters may emit the shared failure_reason field after
 // interpreting their versioned payload contracts.
 func hookPayloadFailureReason(payload []byte) types.CommandFailureReason {
-	if code, ok := hookPayloadExitCode(payload).Value(); ok {
-		if code == 0 {
-			return types.CommandFailureReasonNone
-		}
-		return types.CommandFailureReasonExitCode
+	exitCode, hasExitCode := hookPayloadExitCode(payload).Value()
+	if hasExitCode && exitCode == 0 {
+		return types.CommandFailureReasonNone
 	}
+	explicitReason := types.CommandFailureReasonUnknown
 	if value := hookPayloadString(payload, "failure_reason", ""); value != "" {
 		if reason, err := types.CommandFailureReasonFrom(value); err == nil {
-			return reason
+			explicitReason = reason
+			switch reason {
+			case types.CommandFailureReasonSignal,
+				types.CommandFailureReasonTimeout,
+				types.CommandFailureReasonHookDenied:
+				return reason
+			}
 		}
 	}
 	if hookPayloadBool(payload, "is_interrupt") || hookPayloadBool(payload, "tool_response.interrupted") {
@@ -372,6 +377,12 @@ func hookPayloadFailureReason(payload []byte) types.CommandFailureReason {
 		if hookPayloadBool(payload, path) {
 			return types.CommandFailureReasonTimeout
 		}
+	}
+	if hasExitCode {
+		return types.CommandFailureReasonExitCode
+	}
+	if explicitReason != types.CommandFailureReasonUnknown {
+		return explicitReason
 	}
 	if hookPayloadFailed(payload) {
 		return types.CommandFailureReasonHostError

@@ -1694,6 +1694,27 @@ func TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload(t *testing.T) {
 			wantReason: types.CommandFailureReasonTimeout,
 		},
 		{
+			name:       "non-zero exit preserves structured timeout",
+			client:     "codex",
+			payload:    `{"tool_input":{"command":"go test ./..."},"tool_response":{"exitCode":124},"timed_out":true}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonTimeout,
+		},
+		{
+			name:       "non-zero exit preserves structured interrupt",
+			client:     "claude",
+			payload:    `{"tool_input":{"command":"go test ./..."},"tool_response":{"exitCode":130},"is_interrupt":true}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonSignal,
+		},
+		{
+			name:       "non-zero exit preserves structured hook denial",
+			client:     "grok",
+			payload:    `{"tool_input":{"command":"cat /restricted"},"tool_response":{"exitCode":1},"failure_reason":"hook_denied"}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonHookDenied,
+		},
+		{
 			name:       "empty top-level error is not a failure",
 			client:     "claude",
 			payload:    `{"tool_input":{"command":"go test ./..."},"error":""}`,

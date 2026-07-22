@@ -118,10 +118,17 @@ func summarizeReportCommands(records []apptypes.ReportCommandRecord) apptypes.Re
 		}
 	}
 	sort.Slice(summary.FailureLoops, func(i, j int) bool {
-		if summary.FailureLoops[i].Count == summary.FailureLoops[j].Count {
-			return summary.FailureLoops[i].Command < summary.FailureLoops[j].Command
+		left, right := summary.FailureLoops[i], summary.FailureLoops[j]
+		if left.Count != right.Count {
+			return left.Count > right.Count
 		}
-		return summary.FailureLoops[i].Count > summary.FailureLoops[j].Count
+		if left.Command != right.Command {
+			return left.Command < right.Command
+		}
+		if left.Workspace != right.Workspace {
+			return left.Workspace < right.Workspace
+		}
+		return left.Agent < right.Agent
 	})
 	if len(summary.FailureLoops) > reportFailureLoopLimit {
 		summary.FailureLoops = summary.FailureLoops[:reportFailureLoopLimit]

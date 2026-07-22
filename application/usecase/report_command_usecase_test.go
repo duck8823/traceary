@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,41 @@ import (
 type reportCommandQueryStub struct {
 	records  []apptypes.ReportCommandRecord
 	criteria apptypes.EventListCriteria
+}
+
+func TestReportCommandUsecaseFailureLoopLimitIsDeterministic(t *testing.T) {
+	t.Parallel()
+	records := make([]apptypes.ReportCommandRecord, 0, 36)
+	for workspace := 11; workspace >= 0; workspace-- {
+		for attempt := 0; attempt < 3; attempt++ {
+			record := reportCommandRecord(
+				fmt.Sprintf("event-%02d-%d", workspace, attempt),
+				"go",
+				types.CommandFailureReasonTimeout,
+				types.None[int](),
+				true,
+			)
+			record.Workspace = types.Workspace(fmt.Sprintf("workspace-%02d", workspace))
+			records = append(records, record)
+		}
+	}
+	stub := &reportCommandQueryStub{records: records}
+	got, err := usecase.NewReportCommandUsecase(stub).Summarize(
+		context.Background(),
+		apptypes.NewEventListCriteriaBuilder(5).Build(),
+	)
+	if err != nil {
+		t.Fatalf("Summarize() error = %v", err)
+	}
+	if len(got.FailureLoops) != 10 {
+		t.Fatalf("FailureLoops length = %d, want 10", len(got.FailureLoops))
+	}
+	for i, loop := range got.FailureLoops {
+		want := fmt.Sprintf("workspace-%02d", i)
+		if loop.Workspace != want {
+			t.Fatalf("FailureLoops[%d].Workspace = %q, want %q", i, loop.Workspace, want)
+		}
+	}
 }
 
 func (s *reportCommandQueryStub) ListReportWindow(_ context.Context, criteria apptypes.EventListCriteria) ([]apptypes.ReportCommandRecord, error) {
