@@ -317,6 +317,52 @@ func TestRawBodyRetention_interruptionResumesFromDurableBatch(t *testing.T) {
 	}
 }
 
+func TestRawBodyRetention_partialExecutionCanBeRestored(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	events, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	bodiesByID := map[string]string{"partial-a": "payload-a", "partial-b": "payload-b"}
+	for index, id := range []string{"partial-a", "partial-b"} {
+		if err := events.Save(context.Background(), rawBodyRetentionEvent(t, id, bodiesByID[id], time.Date(2026, 5, 2, index, 0, 0, 0, time.UTC))); err != nil {
+			t.Fatalf("Save(%s) error = %v", id, err)
+		}
+	}
+	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ListRawBodyCandidates() error = %v", err)
+	}
+	planID := "abababababababababababababababababababababababababababababababab"
+	store.SetRawBodyPrunedHookForTest(func(int) error { return errors.New("injected interruption") })
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Now().UTC()); err == nil {
+		t.Fatal("ApplyRawBodyPlan() error = nil, want interruption")
+	}
+	store.SetRawBodyPrunedHookForTest(nil)
+	recovery := make([]apptypes.RawBodyRecoveryBody, len(snapshot.Candidates))
+	for index, candidate := range snapshot.Candidates {
+		recovery[index] = apptypes.RawBodyRecoveryBody{Candidate: candidate, Body: bodiesByID[candidate.EventID]}
+	}
+	result, err := store.RestoreRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, recovery, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("RestoreRawBodyPlan(partial) error = %v", err)
+	}
+	if result.RestoredCount != 1 || result.AlreadyRestored != 1 {
+		t.Fatalf("partial restore result = %+v, want one restored and one unchanged", result)
+	}
+	for _, candidate := range snapshot.Candidates {
+		details, err := events.GetDetails(context.Background(), types.EventID(candidate.EventID))
+		if err != nil {
+			t.Fatalf("GetDetails(%s) error = %v", candidate.EventID, err)
+		}
+		if !details.Event().BodyAvailability().IsAvailable() || details.Event().Body() != bodiesByID[candidate.EventID] {
+			t.Fatalf("event %s not recovered from partial execution", candidate.EventID)
+		}
+	}
+}
+
 func TestRawBodyRetention_planIsBoundToCopiedStorePath(t *testing.T) {
 	t.Parallel()
 
