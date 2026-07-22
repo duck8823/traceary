@@ -192,6 +192,15 @@ CREATE UNIQUE INDEX idx_hook_deliveries_accepted_identity
     ON hook_deliveries(session_id, reported_delivery_id)
     WHERE identity_status = 'accepted';
 
+CREATE TABLE hook_delivery_attempts (
+    delivery_record_id TEXT NOT NULL,
+    attempted_event_id TEXT NOT NULL,
+    outcome TEXT NOT NULL
+        CHECK (outcome IN ('accepted', 'conflict', 'exact_redelivery')),
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (delivery_record_id, attempted_event_id)
+);
+
 CREATE TABLE session_workspace_observations (
     observation_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,

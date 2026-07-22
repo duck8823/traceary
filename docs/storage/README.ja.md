@@ -199,6 +199,14 @@ target ごとの policy:
 
 **振る舞いテスト。** dry-run の報告と非変更、apply ＋冪等性、restore ＋上書き拒否、malformed timestamp のスキップ、command-audit / 非 hook の除外、strict と近接スコープ、read surface の除外は `infrastructure/sqlite/content_event_dedupe_test.go` で、flag 配線と JSON/text 出力は `presentation/cli/store_dedupe_test.go` で、run id の採番は `application/usecase/store_dedupe_test.go` でカバーしています。
 
+## 本文を含まないワークスペース識別診断
+
+migration `000023` は `hook_delivery_attempts` を追加します。各行が保持するのは配送レコード ID、試行イベント ID、結果（`accepted`、`conflict`、`exact_redelivery`）、時刻だけです。upgrade 時に分母がリセットされないよう、既存の `hook_deliveries` 各行から accepted/conflict 試行を 1 件ずつ作りますが、イベント本文はコピーしません。実行時の配送と試行は同じ transaction で書き込みます。
+
+`session_workspace_aliases` は運用者が明示的に確認した情報を保持します。別名は `sessions.workspace`、`events.workspace`、観測時点の関係を一切書き換えません。読み取り projection だけが、確認情報と一致する保存済み競合を `explicit_alias` に変更するため、別名の削除で完全に元へ戻せます。
+
+`traceary report workspace-identity` は読み取り専用です。履歴本文候補の部分でも既存の dedupe 計画を `Apply=false` で呼び出すだけで、クリーンアップは引き続き別の明示的かつ可逆なコマンドです。
+
 ## backup の既定動作
 
 サポートする backup 導線は意図的にシンプルです。
