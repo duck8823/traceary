@@ -121,7 +121,11 @@ canonical hash は normative `canonical_payload` に RFC 8785 JSON canonicalizat
 
 任意 canonical field は省略し、場合によって `null` にしません。byte と nanosecond duration は leading zero のない unsigned base-10 string（zero は `"0"`）です。count は 0〜9,007,199,254,740,991 の JSON integer、時刻は UTC RFC3339Nano、relative path は `/` separator で `.`/`..`/empty segment を禁止します。
 
-set-like array の total order を schema で固定します。class result は retention-class enum、ceiling は ceiling enum、candidate は class/stable DB identity/root ID/relative path/timestamp/candidate identity、reason/exclusion は reason enum/stable identity、recovery point は generation/digest/root ID/relative path、phase/batch は phase enum/decimal batch ordinal です。全 key 同順位なら element の RFC 8785 bytes を final key にします。順序に意味がある array は `ordered_steps` と命名し sort しません。golden vector で input plan、canonical bytes、sorted array、SHA-256 plan ID を固定します。
+machine-readable schema は [`schema/retention-plan.schema.json`](../../schema/retention-plan.schema.json) です。required/optional field、type、`additionalProperties=false`、enum order を固定します。enum order は retention class `raw_body < metadata < aggregate < archive < backup`、ceiling/reason `age < count < logical_bytes < allocated_bytes < retain < debug < legal_hold < active_session < recovery_floor < unknown_extent < path_escape < unverified < stale`、phase `body_prune < archive_cleanup < backup_rotation < compaction`、status `satisfied < unsatisfied < indeterminate` です。
+
+DB/file candidate は全 comparison field を持ちます。非該当値は missing key でなく empty string です。DB candidate は `root_id`/`relative_path` を empty、file candidate は `database_identity` を empty にします。set-like array の total order は class result=class enum、ceiling=ceiling enum、candidate=class/database identity/root ID/relative path/timestamp/candidate identity、reason/exclusion=reason enum/stable identity、recovery point=generation/digest/root ID/relative path、phase/batch=phase enum/decimal-string batch ordinal です。全 key 同順位なら element の RFC 8785 bytes を final key にします。順序に意味がある array は `ordered_steps` と命名し sort しません。
+
+checked-in golden vector は [`retention-plan-canonical.golden.json`](./testdata/retention-plan-canonical.golden.json) と [`retention-plan.golden.json`](./testdata/retention-plan.golden.json) です。canonical fixture は末尾改行を含まない RFC 8785 の完全な byte sequence です。その SHA-256 digest が complete plan fixture の `plan_id` であり、全実装が両方に一致する必要があります。
 
 SHA-256 は誤変更検知で真正性署名ではありません。`display` は実行判定から参照しないため変更しても execution に影響しません。CLI confirmation は plan ID と exact phase を表示します。
 
@@ -147,15 +151,33 @@ archive/backup class を横断する一つの `RecoveryCatalog` が pin と rete
 
 Rollback は既定 disabled の自動実行を停止し、verified recovery point/archive を copied DB に restore・検証した後、強化した restore contract で live DB を置換することです。現行 `VACUUM INTO` backup と staged-rename restore は出発点であり、v0.31 execution の十分な証拠ではありません。
 
-replacement は exclusive cross-process writer lease/fencing token を取得し、新規 open を拒否し、WAL `TRUNCATE` checkpoint、全 Traceary connection close、writer zero と WAL/SHM sidecar 不存在を証明します。その後は single main DB file だけを扱います。same-directory durable swap journal は次の state を記録します。
+replacement は exclusive cross-process writer lease/fencing token を取得し、新規 open を拒否し、WAL `TRUNCATE` checkpoint、全 Traceary connection close、writer zero と WAL/SHM sidecar 不存在を証明します。その後は single main DB file だけを扱います。restart 時は新しい lease/fencing token を取得し、古い token の operation は拒否します。
+
+journal update は一つの persistence primitive を使います。monotonic sequence、fencing token、state、path、digest を含む完全 record を同じ directory の temporary file に書き、file fsync、journal への rename、directory fsync を行います。intent state の永続化後だけ namespace operation を実行できます。file rename 後は directory fsync、その後に completed state を永続化します。
 
 1. `prepared`: candidate を sync、digest 一致、`integrity_check` 成功。canonical path は old live のまま。
-2. `old_staged`: live DB を journal 指定 old generation へ rename し directory fsync。
-3. `new_placed`: candidate を canonical path へ rename し directory fsync。
-4. `verified`: fencing token 下で exact canonical path を reopen、migration/read check と `integrity_check`。
-5. `committed`: catalog/ledger commit と fsync。その rollback pin release 後だけ old generation を削除。
+2. `old_move_intent`: live DB を journal 指定 old generation へ rename する durable intent。
+3. live を old へ rename、directory fsync、`old_staged` 永続化。
+4. `new_move_intent`: candidate を canonical path へ rename する durable intent。
+5. candidate を canonical へ rename、directory fsync、`new_placed` 永続化。
+6. fencing token 下で exact canonical path を reopen、migration/read check と `integrity_check`、`verified` 永続化。
+7. catalog/ledger commit + fsync、`committed` 永続化。rollback pin release 後だけ old generation を削除。
 
-二つの rename を一つの atomic operation とは扱いません。restart 時は lease 下で journal、canonical path、old generation、candidate digest/state から一つの recovery action を決めます。`prepared` は old 継続、`old_staged` で canonical absent なら old を戻し、`new_placed`/`verified` は new digest/integrity 成功時だけ継続し、失敗なら new を quarantine して old を戻します。`committed` は new 継続です。WAL/SHM を multi-file unit として copy/rename しません。replace 中に open writer を残しません。加算的 schema/ledger は旧 binary が無視でき、down migration で削除 body を再構築しません。
+二つの rename を一つの atomic operation とは扱いません。recovery は次の完全な state/name matrix を使い、未掲載 combination は `conflicted` として削除しません。
+
+| Journal state | Canonical | Old | Candidate | Recovery |
+|---|---|---|---|---|
+| `prepared` | old digest | absent | new digest | old 継続、candidate は discard 可 |
+| `old_move_intent` | old digest | absent | new digest | old rename retry |
+| `old_move_intent` | absent | old digest | new digest | namespace operation 完了、`old_staged` 永続化 |
+| `old_staged` | absent | old digest | new digest | old restore または `new_move_intent` 永続化後に継続 |
+| `new_move_intent` | absent | old digest | new digest | new rename retry |
+| `new_move_intent` | new digest | old digest | absent | namespace operation 完了、`new_placed` 永続化 |
+| `new_placed` / `verified` | valid new digest | old digest | absent | verify/new 継続 |
+| `new_placed` / `verified` | invalid new | old digest | any | invalid new quarantine、old を canonical へ rename+fsync、`prepared` へ |
+| `committed` | valid new digest | old/absent | absent | new 継続、old は pin または release 後 retire |
+
+intent 後に canonical/old の両方が old digest、または unknown digest の path があれば推測せず conflict にします。WAL/SHM を multi-file unit として copy/rename しません。replace 中に open writer を残しません。加算的 schema/ledger は旧 binary が無視でき、down migration で削除 body を再構築しません。
 
 candidate/byte drift、integrity failure、metadata projection 変化、aggregate mismatch、recovery verify 失敗、path escape、hold bypass、nominal plan 中の write を rollback trigger とします。
 

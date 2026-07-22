@@ -121,7 +121,11 @@ Canonical hashing follows RFC 8785 JSON canonicalization over a normative `canon
 
 Optional canonical fields are omitted, never encoded sometimes as `null`. All byte values and nanosecond durations are unsigned base-10 strings without leading zeroes (except `"0"`), avoiding RFC 8785/IEEE-754 safe-integer ambiguity. Counts are JSON integers constrained to 0 through 9,007,199,254,740,991. Instants are UTC RFC3339Nano. Root-relative paths use slash separators without `.`, `..`, or empty segments.
 
-The total ordering for set-like arrays is fixed per schema: class results by retention-class enum; ceilings by ceiling enum; candidates by class, stable database identity, root ID, relative path, timestamp, candidate identity; reasons/exclusions by reason enum then stable identity; recovery points by generation, digest, root ID, relative path; phases/batches by phase enum then decimal batch ordinal. If all listed keys tie, the RFC 8785 bytes of the element are the final comparison key. Order-significant arrays are explicitly named `ordered_steps` and are not sorted. A golden vector fixes input plan, `canonical_payload` bytes, sorted arrays, and SHA-256 `plan_id`; implementations in every language must match it.
+The machine-readable schema is [`schema/retention-plan.schema.json`](../../schema/retention-plan.schema.json). It fixes required/optional fields, types, `additionalProperties=false`, and enum order. The enum orders are retention class `raw_body < metadata < aggregate < archive < backup`; ceiling/reason `age < count < logical_bytes < allocated_bytes < retain < debug < legal_hold < active_session < recovery_floor < unknown_extent < path_escape < unverified < stale`; phase `body_prune < archive_cleanup < backup_rotation < compaction`; status `satisfied < unsatisfied < indeterminate`.
+
+All database and file candidates carry every comparison field. An inapplicable value is the empty string, not a missing key: database candidates use empty `root_id`/`relative_path`; file candidates use empty `database_identity`. The total ordering for set-like arrays is fixed per schema: class results by class enum; ceilings by ceiling enum; candidates by class, database identity, root ID, relative path, timestamp, candidate identity; reasons/exclusions by reason enum then stable identity; recovery points by generation, digest, root ID, relative path; phases/batches by phase enum then decimal-string batch ordinal. If all listed keys tie, the RFC 8785 bytes of the element are the final comparison key. Order-significant arrays are explicitly named `ordered_steps` and are not sorted.
+
+The checked-in golden vector consists of [`retention-plan-canonical.golden.json`](./testdata/retention-plan-canonical.golden.json) and [`retention-plan.golden.json`](./testdata/retention-plan.golden.json). The canonical fixture is the exact RFC 8785 byte sequence with no trailing newline. Its SHA-256 digest is the `plan_id` in the complete plan fixture; implementations in every language must match both values.
 
 The SHA-256 hash detects accidental or operator modification; it is not an authenticity signature. Changing `display` cannot affect execution because no apply decision reads it. CLI confirmation displays the plan ID and exact phase.
 
@@ -147,15 +151,33 @@ One `RecoveryCatalog` owns pins and the retention floor across archive and backu
 
 Rollback means stopping automatic execution (disabled by default), restoring the verified recovery point or archive to a copied database, validating it, and replacing the live database only through the strengthened restore contract. The current `VACUUM INTO` backup and staged-rename restore are a starting point, not sufficient proof for v0.31 execution.
 
-Replacement acquires an exclusive cross-process writer lease and fencing token, rejects new opens, checkpoints WAL with `TRUNCATE`, closes every Traceary connection, and proves that no writer remains and WAL/SHM sidecars are absent. From that point only the single main database file participates. A same-directory durable swap journal records this recoverable state machine:
+Replacement acquires an exclusive cross-process writer lease and fencing token, rejects new opens, checkpoints WAL with `TRUNCATE`, closes every Traceary connection, and proves that no writer remains and WAL/SHM sidecars are absent. From that point only the single main database file participates. On restart, a new lease/fencing token is acquired; operations bearing the old token are rejected rather than treated as retaining a lease.
+
+Every journal update uses the same persistence primitive: write a complete record with monotonic sequence, fencing token, state, paths, and digests to a same-directory temporary file; fsync it; rename it over the journal; fsync the directory. Only after an intent state is durable may its namespace operation run. After each file rename, fsync the directory before writing the corresponding completed state. A same-directory durable swap journal records:
 
 1. `prepared`: candidate database is synced, digest-matched, and passes `integrity_check`; live database still owns the canonical path.
-2. `old_staged`: rename live database to the journal-named old generation and fsync the directory.
-3. `new_placed`: rename candidate to the canonical path and fsync the directory.
-4. `verified`: reopen the exact canonical path under the fencing token, run migrations/read checks and `integrity_check`.
-5. `committed`: persist catalog/ledger commit, fsync, then retire the old generation only after its rollback pin is released.
+2. `old_move_intent`: durable intent to rename live database to the journal-named old generation.
+3. rename live to old, fsync directory, then persist `old_staged`.
+4. `new_move_intent`: durable intent to rename candidate to the canonical path.
+5. rename candidate to canonical, fsync directory, then persist `new_placed`.
+6. reopen the exact canonical path under the fencing token, run migrations/read checks and `integrity_check`, then persist `verified`.
+7. commit catalog/ledger, fsync them, persist `committed`, and retire the old generation only after its rollback pin is released.
 
-The two renames are not claimed to be one atomic operation. On restart under the lease, the journal, canonical path, old generation, candidate digest, and state choose exactly one recovery action: `prepared` keeps old; `old_staged` restores old when canonical is absent; `new_placed`/`verified` continue new only if its digest and integrity pass, otherwise quarantine it and restore old; `committed` keeps new. WAL/SHM are never copied or renamed as a multi-file unit. No process may retain an open writer during replacement. Additive schema and execution-ledger tables may remain when rolling back the binary; older binaries ignore them. Down migrations do not reconstruct deleted bodies.
+The two renames are not claimed to be one atomic operation. Recovery uses this complete state/name matrix; any unlisted combination is `conflicted` and performs no deletion:
+
+| Journal state | Canonical | Old | Candidate | Recovery |
+|---|---|---|---|---|
+| `prepared` | old digest | absent | new digest | keep old; candidate may be discarded |
+| `old_move_intent` | old digest | absent | new digest | retry old rename |
+| `old_move_intent` | absent | old digest | new digest | namespace operation completed; persist `old_staged` |
+| `old_staged` | absent | old digest | new digest | either restore old or persist `new_move_intent` and continue |
+| `new_move_intent` | absent | old digest | new digest | retry new rename |
+| `new_move_intent` | new digest | old digest | absent | namespace operation completed; persist `new_placed` |
+| `new_placed` or `verified` | valid new digest | old digest | absent | verify/continue new |
+| `new_placed` or `verified` | invalid new | old digest | any | quarantine invalid new, rename old to canonical, fsync, return to `prepared` |
+| `committed` | valid new digest | old or absent | absent | keep new; old remains pinned or is retired after release |
+
+If both canonical and old contain the old digest after an intent, or a path has an unknown digest, recovery conflicts rather than guessing. WAL/SHM are never copied or renamed as a multi-file unit. No process may retain an open writer during replacement. Additive schema and execution-ledger tables may remain when rolling back the binary; older binaries ignore them. Down migrations do not reconstruct deleted bodies.
 
 Rollback triggers include candidate/byte drift, integrity failure, metadata projection change, aggregate mismatch, recovery verification failure, path escape, unexpected hold bypass, or any write during a nominal plan operation.
 

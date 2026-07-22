@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/duck8823/traceary/schema/retention-plan.schema.json",
+  "title": "Traceary retention plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_id", "canonical_payload"],
+  "properties": {
+    "plan_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "canonical_payload": {"$ref": "#/$defs/canonicalPayload"},
+    "display": {"type": "object", "description": "Non-authoritative presentation fields ignored by apply."}
+  },
+  "$defs": {
+    "class": {
+      "type": "string",
+      "enum": ["raw_body", "metadata", "aggregate", "archive", "backup"],
+      "x-traceary-order": ["raw_body", "metadata", "aggregate", "archive", "backup"]
+    },
+    "ceiling": {
+      "type": "string",
+      "enum": ["age", "count", "logical_bytes", "allocated_bytes"],
+      "x-traceary-order": ["age", "count", "logical_bytes", "allocated_bytes"]
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["age", "count", "logical_bytes", "allocated_bytes", "retain", "debug", "legal_hold", "active_session", "recovery_floor", "unknown_extent", "path_escape", "unverified", "stale"],
+      "x-traceary-order": ["age", "count", "logical_bytes", "allocated_bytes", "retain", "debug", "legal_hold", "active_session", "recovery_floor", "unknown_extent", "path_escape", "unverified", "stale"]
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["body_prune", "archive_cleanup", "backup_rotation", "compaction"],
+      "x-traceary-order": ["body_prune", "archive_cleanup", "backup_rotation", "compaction"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["satisfied", "unsatisfied", "indeterminate"],
+      "x-traceary-order": ["satisfied", "unsatisfied", "indeterminate"]
+    },
+    "decimal": {"type": "string", "pattern": "^(0|[1-9][0-9]*)$"},
+    "safeCount": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "instant": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "extent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability"],
+      "properties": {
+        "availability": {"type": "string", "enum": ["known", "unknown"]},
+        "bytes": {"$ref": "#/$defs/decimal"}
+      },
+      "allOf": [
+        {"if": {"properties": {"availability": {"const": "known"}}}, "then": {"required": ["bytes"]}},
+        {"if": {"properties": {"availability": {"const": "unknown"}}}, "then": {"not": {"required": ["bytes"]}}}
+      ]
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root_id", "fingerprint"],
+      "properties": {
+        "root_id": {"type": "string", "minLength": 1},
+        "fingerprint": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["database_identity", "sqlite_user_version", "migration_digest", "roots"],
+      "properties": {
+        "database_identity": {"type": "string", "minLength": 1},
+        "sqlite_user_version": {"$ref": "#/$defs/safeCount"},
+        "migration_digest": {"$ref": "#/$defs/digest"},
+        "roots": {"type": "array", "items": {"$ref": "#/$defs/root"}}
+      }
+    },
+    "policyCeiling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "ceiling", "value"],
+      "properties": {
+        "class": {"$ref": "#/$defs/class"},
+        "ceiling": {"$ref": "#/$defs/ceiling"},
+        "value": {"$ref": "#/$defs/decimal"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ceilings"],
+      "properties": {
+        "ceilings": {"type": "array", "items": {"$ref": "#/$defs/policyCeiling"}}
+      }
+    },
+    "ceilingResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ceiling", "status", "current", "projected"],
+      "properties": {
+        "ceiling": {"$ref": "#/$defs/ceiling"},
+        "status": {"$ref": "#/$defs/status"},
+        "current": {"$ref": "#/$defs/extent"},
+        "projected": {"$ref": "#/$defs/extent"}
+      }
+    },
+    "classResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "status", "ceilings"],
+      "properties": {
+        "class": {"$ref": "#/$defs/class"},
+        "status": {"$ref": "#/$defs/status"},
+        "ceilings": {"type": "array", "items": {"$ref": "#/$defs/ceilingResult"}}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "identity_kind", "database_identity", "root_id", "relative_path", "timestamp", "candidate_identity", "logical_extent", "allocated_extent", "reasons"],
+      "properties": {
+        "class": {"$ref": "#/$defs/class"},
+        "identity_kind": {"type": "string", "enum": ["database", "file"]},
+        "database_identity": {"type": "string"},
+        "root_id": {"type": "string"},
+        "relative_path": {"type": "string", "pattern": "^$|^(?!/)(?!.*(?:^|/)\\.\\.?(/|$))[^/]+(?:/[^/]+)*$"},
+        "timestamp": {"$ref": "#/$defs/instant"},
+        "candidate_identity": {"type": "string", "minLength": 1},
+        "logical_extent": {"$ref": "#/$defs/extent"},
+        "allocated_extent": {"$ref": "#/$defs/extent"},
+        "reasons": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/reason"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"identity_kind": {"const": "database"}}}, "then": {"properties": {"database_identity": {"minLength": 1}, "root_id": {"const": ""}, "relative_path": {"const": ""}}}},
+        {"if": {"properties": {"identity_kind": {"const": "file"}}}, "then": {"properties": {"database_identity": {"const": ""}, "root_id": {"minLength": 1}, "relative_path": {"minLength": 1}}}}
+      ]
+    },
+    "exclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "stable_identity"],
+      "properties": {
+        "reason": {"$ref": "#/$defs/reason"},
+        "stable_identity": {"type": "string", "minLength": 1}
+      }
+    },
+    "recoveryPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generation", "digest", "root_id", "relative_path", "coverage_digest", "state"],
+      "properties": {
+        "generation": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/digest"},
+        "root_id": {"type": "string", "minLength": 1},
+        "relative_path": {"type": "string", "minLength": 1},
+        "coverage_digest": {"$ref": "#/$defs/digest"},
+        "state": {"type": "string", "enum": ["active", "deleting", "deleted"]}
+      }
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "candidate_identities"],
+      "properties": {
+        "ordinal": {"$ref": "#/$defs/decimal"},
+        "candidate_identities": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "phasePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "batches", "ordered_steps"],
+      "properties": {
+        "phase": {"$ref": "#/$defs/phase"},
+        "batches": {"type": "array", "items": {"$ref": "#/$defs/batch"}},
+        "ordered_steps": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "canonicalPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "created_at", "snapshot_at", "source", "policy", "class_results", "candidates", "exclusions", "recovery_requirements", "phases"],
+      "properties": {
+        "schema_version": {"const": "retention-plan/v1"},
+        "created_at": {"$ref": "#/$defs/instant"},
+        "snapshot_at": {"$ref": "#/$defs/instant"},
+        "source": {"$ref": "#/$defs/source"},
+        "policy": {"$ref": "#/$defs/policy"},
+        "class_results": {"type": "array", "items": {"$ref": "#/$defs/classResult"}},
+        "candidates": {"type": "array", "items": {"$ref": "#/$defs/candidate"}},
+        "exclusions": {"type": "array", "items": {"$ref": "#/$defs/exclusion"}},
+        "recovery_requirements": {"type": "array", "items": {"$ref": "#/$defs/recoveryPoint"}},
+        "phases": {"type": "array", "items": {"$ref": "#/$defs/phasePlan"}}
+      }
+    }
+  }
+}
