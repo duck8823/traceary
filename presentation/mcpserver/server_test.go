@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ import (
 func TestServer_BuildAndTools(t *testing.T) {
 	t.Parallel()
 
-	server, dbPath := newTestServerWithDBPath(t)
+	server, dbPath, reportUsecase := newTestServerWithDBPath(t)
 	ctx := context.Background()
 	mcpServer, err := server.Build(ctx)
 	if err != nil {
@@ -118,18 +119,41 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
-	t.Run("get_report rejects page size above the shared maximum", func(t *testing.T) {
-		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
-			Name: "get_report",
-			Arguments: map[string]any{
-				"page_size": apptypes.MaxReportPageSize + 1,
-			},
+	t.Run("get_report enforces page size boundaries before report execution", func(t *testing.T) {
+		acceptedResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "get_report",
+			Arguments: map[string]any{"page_size": apptypes.MaxReportPageSize},
 		})
 		if err != nil {
-			t.Fatalf("CallTool(get_report) error = %v", err)
+			t.Fatalf("CallTool(get_report maximum) error = %v", err)
 		}
-		if !result.IsError {
-			t.Fatal("CallTool(get_report) IsError = false, want true")
+		if acceptedResult.IsError {
+			t.Fatal("CallTool(get_report maximum) IsError = true, want false")
+		}
+		callsAfterMaximum := reportUsecase.generateCalls
+
+		for _, tc := range []struct {
+			name     string
+			pageSize any
+		}{
+			{name: "maximum plus one", pageSize: apptypes.MaxReportPageSize + 1},
+			{name: "huge integer", pageSize: int64(math.MaxInt64)},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				result, callErr := clientSession.CallTool(ctx, &mcp.CallToolParams{
+					Name:      "get_report",
+					Arguments: map[string]any{"page_size": tc.pageSize},
+				})
+				if callErr != nil {
+					t.Fatalf("CallTool(get_report) error = %v", callErr)
+				}
+				if !result.IsError {
+					t.Fatal("CallTool(get_report) IsError = false, want true")
+				}
+				if reportUsecase.generateCalls != callsAfterMaximum {
+					t.Fatalf("Generate() calls = %d, want %d", reportUsecase.generateCalls, callsAfterMaximum)
+				}
+			})
 		}
 	})
 
@@ -1576,13 +1600,16 @@ func decodeJSONArrayPayload(t *testing.T, result *mcp.CallToolResult) []any {
 
 func newTestServer(t *testing.T) *mcpserver.Server {
 	t.Helper()
-	server, _ := newTestServerWithDBPath(t)
+	server, _, _ := newTestServerWithDBPath(t)
 	return server
 }
 
-type mcpReportUsecaseStub struct{}
+type mcpReportUsecaseStub struct {
+	generateCalls int
+}
 
-func (*mcpReportUsecaseStub) Generate(_ context.Context, criteria apptypes.ReportCriteria) (apptypes.ReportSnapshot, error) {
+func (s *mcpReportUsecaseStub) Generate(_ context.Context, criteria apptypes.ReportCriteria) (apptypes.ReportSnapshot, error) {
+	s.generateCalls++
 	interval := criteria.Interval()
 	observedAt := []time.Time(nil)
 	if criteria.ResultCap() > 0 {
@@ -1624,7 +1651,7 @@ func updateSessionParentForMCPTest(ctx context.Context, t *testing.T, dbPath str
 	}
 }
 
-func newTestServerWithDBPath(t *testing.T) (*mcpserver.Server, string) {
+func newTestServerWithDBPath(t *testing.T) (*mcpserver.Server, string, *mcpReportUsecaseStub) {
 	t.Helper()
 
 	migrations := fstest.MapFS{
@@ -1777,6 +1804,7 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 
+	reportUsecase := &mcpReportUsecaseStub{}
 	server, err := mcpserver.NewServer(
 		"test-version",
 		nil,
@@ -1788,11 +1816,11 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 		memoryUsecase,
 		contextUsecase,
 		storeManagementUsecase,
-		mcpserver.WithReport(&mcpReportUsecaseStub{}),
+		mcpserver.WithReport(reportUsecase),
 	)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 
-	return server, dbPath
+	return server, dbPath, reportUsecase
 }
