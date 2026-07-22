@@ -253,7 +253,7 @@ func (c *RootCLI) newTailCommand() *cobra.Command {
 	tailCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary workspace identifier", "補助的な workspace 識別子で絞り込む"))
 	tailCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	tailCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print NDJSON output", "NDJSON 形式で出力する"))
-	tailCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
+	tailCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated format", "従来のタブ区切り形式で出力する"))
 	tailCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	tailCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	tailCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())

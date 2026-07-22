@@ -260,6 +260,14 @@ func TestFormatEventWideRow_UTCMatchesLegacyFormat(t *testing.T) {
 	}
 }
 
+func TestFormatEventWideHeaderPreservesLegacyColumns(t *testing.T) {
+	t.Parallel()
+	want := []string{"CREATED_AT", "KIND", "CLIENT", "AGENT", "SESSION_ID", "WORKSPACE", "SOURCE_HOOK", "MESSAGE"}
+	if diff := cmp.Diff(want, strings.Split(formatEventWideHeader(), "\t")); diff != "" {
+		t.Fatalf("wide columns mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestWriteEvents_CompactDefaultOmitsHeader(t *testing.T) {
 	t.Parallel()
 
