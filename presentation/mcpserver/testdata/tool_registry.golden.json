@@ -57,7 +57,7 @@
           "type": "string"
         },
         "page_size": {
-          "description": "internal database page size; default 5000 and does not cap aggregate results",
+          "description": "internal database page size; default 5000, maximum 100000, and does not cap aggregate results",
           "type": [
             "null",
             "integer"

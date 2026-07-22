@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -39,6 +40,8 @@ func TestReportCriteriaFrom_RejectsAmbiguousOrInvalidLimits(t *testing.T) {
 	}{
 		{name: "upper bound without lower bound", to: "2026-07-22", pageSize: 1},
 		{name: "zero page size", from: "2026-07-21", pageSize: 0},
+		{name: "page size above maximum", from: "2026-07-21", pageSize: apptypes.MaxReportPageSize + 1},
+		{name: "huge page size", from: "2026-07-21", pageSize: math.MaxInt},
 		{name: "negative result cap", from: "2026-07-21", pageSize: 1, cap: -1},
 	}
 	for _, tt := range tests {
@@ -48,6 +51,20 @@ func TestReportCriteriaFrom_RejectsAmbiguousOrInvalidLimits(t *testing.T) {
 				t.Fatal("ReportCriteriaFrom() error = nil, want error")
 			}
 		})
+	}
+}
+
+func TestReportCriteriaFrom_AcceptsMaximumPageSize(t *testing.T) {
+	t.Parallel()
+	criteria, err := apptypes.ReportCriteriaFrom(
+		"2026-07-21", "2026-07-21", "UTC", time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC),
+		"", "", apptypes.MaxReportPageSize, 0,
+	)
+	if err != nil {
+		t.Fatalf("ReportCriteriaFrom() error = %v", err)
+	}
+	if criteria.PageSize() != apptypes.MaxReportPageSize {
+		t.Fatalf("PageSize() = %d, want %d", criteria.PageSize(), apptypes.MaxReportPageSize)
 	}
 }
 

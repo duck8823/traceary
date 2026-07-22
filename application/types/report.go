@@ -10,7 +10,12 @@ import (
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
-const defaultReportWindow = 7 * 24 * time.Hour
+const (
+	defaultReportWindow = 7 * 24 * time.Hour
+
+	// MaxReportPageSize bounds one internal database page before allocation.
+	MaxReportPageSize = 100_000
+)
 
 // ReportCoverage identifies whether an aggregate covers the full requested
 // filter or an explicitly capped prefix.
@@ -47,6 +52,9 @@ func ReportCriteriaFrom(
 	}
 	if pageSize <= 0 {
 		return ReportCriteria{}, xerrors.New("page size must be greater than or equal to 1")
+	}
+	if pageSize > MaxReportPageSize {
+		return ReportCriteria{}, xerrors.Errorf("page size must be less than or equal to %d", MaxReportPageSize)
 	}
 	if resultCap < 0 {
 		return ReportCriteria{}, xerrors.New("result cap must be greater than or equal to 0")
@@ -120,6 +128,9 @@ type ReportSourceExtent struct {
 func ReportSourceExtentOf(observedAt []time.Time, pageSize, resultCap int, truncated bool) (ReportSourceExtent, error) {
 	if pageSize <= 0 {
 		return ReportSourceExtent{}, xerrors.New("page size must be greater than or equal to 1")
+	}
+	if pageSize > MaxReportPageSize {
+		return ReportSourceExtent{}, xerrors.Errorf("page size must be less than or equal to %d", MaxReportPageSize)
 	}
 	if resultCap < 0 {
 		return ReportSourceExtent{}, xerrors.New("result cap must be greater than or equal to 0")

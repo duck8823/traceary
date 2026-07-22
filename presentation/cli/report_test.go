@@ -202,6 +202,28 @@ func TestRootCLI_Report_RejectsLegacyLimitWithPageSize(t *testing.T) {
 	}
 }
 
+func TestRootCLI_Report_RejectsHugePageSizeBeforeStoreInitialization(t *testing.T) {
+	t.Parallel()
+	store := &storeManagementUsecaseStub{}
+	report := &reportUsecaseStub{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(store), cli.WithReport(report)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"report", "--db-path", "/tmp/test-traceary.db", "--page-size", "9223372036854775807", "--json",
+	})
+	err := rootCmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "page size must be less than or equal to 100000") {
+		t.Fatalf("Execute() error = %v, want bounded page-size error", err)
+	}
+	if store.initCalled {
+		t.Fatal("store initialized before page-size validation")
+	}
+	if report.criteria.PageSize() != 0 {
+		t.Fatalf("report called with page size %d", report.criteria.PageSize())
+	}
+}
+
 func TestRootCLI_Report_PartialTextDoesNotPrintRates(t *testing.T) {
 	t.Parallel()
 	stub := &reportUsecaseStub{result: apptypes.ReportSnapshot{

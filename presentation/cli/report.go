@@ -57,7 +57,7 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&until, "until", "", Localize("alias for --to", "--to の alias"))
 	cmd.Flags().StringVar(&client, "client", "", Localize("optional client filter", "任意の client フィルタ"))
 	cmd.Flags().StringVar(&timezone, "timezone", "UTC", Localize("IANA timezone for date-only bounds (default: UTC)", "日付のみの境界に使う IANA タイムゾーン（既定: UTC）"))
-	cmd.Flags().IntVar(&pageSize, "page-size", defaultReportPageSize, Localize("internal database page size (does not cap aggregate results)", "DB 内部のページサイズ（集計結果の上限ではありません）"))
+	cmd.Flags().IntVar(&pageSize, "page-size", defaultReportPageSize, Localize("internal database page size, maximum 100000 (does not cap aggregate results)", "DB 内部のページサイズ、最大 100000（集計結果の上限ではありません）"))
 	cmd.Flags().IntVar(&resultCap, "result-cap", 0, Localize("maximum rows per aggregate source; 0 means complete aggregation", "集計元ごとの最大行数（0 は全件集計）"))
 	cmd.Flags().IntVar(&legacyLimit, "limit", 0, Localize("deprecated alias for --page-size", "--page-size の非推奨 alias"))
 	_ = cmd.Flags().MarkDeprecated("limit", Localize("use --page-size; use --result-cap only for an explicit partial aggregate", "--page-size を使ってください。部分集計を明示する場合だけ --result-cap を使います"))
