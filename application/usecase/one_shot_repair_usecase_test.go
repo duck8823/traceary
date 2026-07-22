@@ -154,6 +154,13 @@ func TestOneShotRepairUsecase_ApplyRequiresBackupAndStopsOnSafetyFailure(t *test
 			t.Fatalf("error/store = %v/%+v", err, store)
 		}
 	})
+	t.Run("control character in backup path", func(t *testing.T) {
+		store := &oneShotRepairStoreStub{}
+		_, err := usecase.NewOneShotRepairUsecase(store, store).Apply(context.Background(), apptypes.OneShotRepairApplyParams{Repair: params, BackupPath: "before\n.db"})
+		if err == nil || store.backupCalls != 0 || store.initCalls != 0 || store.applyCalls != 0 {
+			t.Fatalf("error/store = %v/%+v", err, store)
+		}
+	})
 	t.Run("missing safety store", func(t *testing.T) {
 		store := &oneShotRepairStoreStub{}
 		_, err := usecase.NewOneShotRepairUsecase(store, nil).Apply(context.Background(), apptypes.OneShotRepairApplyParams{Repair: params, BackupPath: "before.db"})
