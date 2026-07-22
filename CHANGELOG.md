@@ -5,6 +5,27 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.30.0] - 2026-07-22
+
+### Added
+- **Bounded metadata-only event inspection (#1439, #1428, #1433, #1459)** — list/search projections can omit event bodies while preserving stable field selection, truncation metadata, and structured handoff command provenance. SQLite reads only the requested columns instead of loading full bodies and discarding them later.
+- **Workspace attribution and delivery diagnostics (#1431, #1435, #1429, #1465, #1467)** — additive provenance tables distinguish a session's canonical workspace from each event's effective workspace, make exact hook redelivery idempotent across hosts, and report workspace conflicts, exact redelivery, and explicitly bounded heuristic candidates without deleting history.
+- **Explicit one-shot lifecycle semantics (#1430, #1436, #1434, #1473)** — sessions record runtime mode and terminal reason. `traceary session run` finalizes success, failure, timeout, and signal outcomes exactly once, while `session repair-one-shot` offers a dry-run-first repair path for stale one-shot rows with concurrent-writer coverage.
+- **Shared CLI/MCP retrospective reports (#1438)** — MCP `get_report` and `traceary report` now share complete/partial aggregation metadata, per-source observed counts and ranges, and explicit `result_cap` truncation provenance.
+
+### Changed
+- **Report command and interval semantics (#1440, #1432, #1438)** — wrapper commands and failure reasons are normalized consistently, date-only bounds use an explicit timezone and inclusive calendar end, RFC3339 end bounds remain exact and exclusive, and one request snapshot is reused across all report sources.
+- **Read-surface wording and controls (#1458)** — `--wide` is described as the legacy tab-separated format instead of claiming an incorrect fixed column count. Report `--page-size` controls internal paging only; partial aggregation requires the explicit `--result-cap` option.
+
+### Fixed
+- **Antigravity Stop exact-redelivery replay (#1465)** — copied-store dogfood confirmed repeated Stop delivery remains one accepted event and the measured exact duplicate rate stays below the release threshold.
+- **Unbounded report page allocation (#1479)** — CLI and MCP reject page sizes above 100,000 before report execution, so a huge integer returns a normal validation error instead of panicking during slice allocation.
+
+### Notes
+- v0.30.0 uses additive, rollback-compatible SQLite migrations; it does not rewrite or delete existing session/event rows.
+- MCP now exposes 9 tools, including the new read-only `get_report` tool.
+- Release-wide QA and the fixed follow-up are recorded in `docs/release/v0.30.0-qa.md`.
+
 ## [v0.29.0] - 2026-07-20
 
 ### Added

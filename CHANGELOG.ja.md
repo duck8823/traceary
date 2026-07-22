@@ -5,6 +5,27 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.30.0] - 2026-07-22
+
+### Added
+- **上限を明示した本文なしのイベント参照 (#1439, #1428, #1433, #1459)** — list/search の projection でイベント本文を読まずに、安定した field 選択、truncation metadata、構造化 handoff の command provenance を返せます。SQLite は本文を全件ロードして後で捨てず、要求された列だけを読みます。
+- **workspace attribution と delivery の診断 (#1431, #1435, #1429, #1465, #1467)** — 加算的な provenance table で session の canonical workspace と event ごとの effective workspace を分離し、複数ホストからの同一 hook 再送を冪等化しました。履歴を削除せず、workspace conflict、exact redelivery、明示的な上限付き heuristic candidate を報告します。
+- **one-shot lifecycle の明示モデル (#1430, #1436, #1434, #1473)** — session に runtime mode と terminal reason を記録します。`traceary session run` は success / failure / timeout / signal を一度だけ確定し、`session repair-one-shot` は stale な one-shot 行を dry-run 優先で修復します。並行 writer の検証も追加しました。
+- **CLI/MCP 共通の振り返り report (#1438)** — MCP `get_report` と `traceary report` が complete/partial 集計 metadata、source ごとの観測件数・時刻範囲、明示的な `result_cap` truncation provenance を共有します。
+
+### Changed
+- **report の command・failure・interval semantics (#1440, #1432, #1438)** — wrapper command と failure reason を一貫して正規化しました。日付のみの境界は明示 timezone と暦日を含む終了、RFC3339 の終了は従来どおり正確な排他境界を使い、全 report source で一つの request snapshot を共有します。
+- **read surface の文言と制御 (#1458)** — `--wide` を誤った固定列数ではなく「従来のタブ区切り形式」と説明します。report の `--page-size` は内部 paging だけを制御し、部分集計には明示的な `--result-cap` が必要です。
+
+### Fixed
+- **Antigravity Stop の exact-redelivery replay (#1465)** — copied-store dogfood で、Stop の再送が受理済み event 一件のままで、計測した exact duplicate rate が release 閾値を下回ることを確認しました。
+- **report page の無制限 allocation (#1479)** — CLI と MCP は 100,000 を超える page size を report 実行前に拒否します。巨大整数でも slice allocation の panic ではなく通常の validation error を返します。
+
+### Notes
+- v0.30.0 の SQLite migration は加算的で rollback 互換です。既存の session/event 行を書き換えたり削除したりしません。
+- MCP は read-only の新規 `get_report` を含む 9 tool を公開します。
+- release 全体 QA と修正済み follow-up は `docs/release/v0.30.0-qa.ja.md` に記録しています。
+
 ## [v0.29.0] - 2026-07-20
 
 ### Added
