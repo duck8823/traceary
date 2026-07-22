@@ -18,6 +18,7 @@ type RootCLI struct {
 	event                      usecase.EventUsecase
 	eventMetadata              usecase.EventMetadataUsecase
 	reportCommand              usecase.ReportCommandUsecase
+	report                     usecase.ReportUsecase
 	session                    usecase.SessionUsecase
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
@@ -70,6 +71,11 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption
 // WithReportCommand injects structured command-audit aggregation for report.
 func WithReportCommand(reportCommand usecase.ReportCommandUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.reportCommand = reportCommand }
+}
+
+// WithReport injects the shared CLI/MCP report generator.
+func WithReport(report usecase.ReportUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.report = report }
 }
 
 // WithSession injects the SessionUsecase used by session-related commands.

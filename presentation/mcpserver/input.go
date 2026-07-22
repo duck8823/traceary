@@ -1,5 +1,16 @@
 package mcpserver
 
+// getReportInput is the MCP input for the shared CLI/MCP aggregate report.
+type getReportInput struct {
+	Workspace string `json:"workspace,omitempty" jsonschema:"workspace filter"`
+	Client    string `json:"client,omitempty" jsonschema:"client filter"`
+	From      string `json:"from,omitempty" jsonschema:"inclusive period start (RFC3339 or YYYY-MM-DD)"`
+	To        string `json:"to,omitempty" jsonschema:"exclusive RFC3339 instant or inclusive calendar date"`
+	Timezone  string `json:"timezone,omitempty" jsonschema:"IANA timezone for date-only bounds (default: UTC); Local is rejected"`
+	PageSize  *int   `json:"page_size,omitempty" jsonschema:"internal database page size; default 5000 and does not cap aggregate results"`
+	ResultCap *int   `json:"result_cap,omitempty" jsonschema:"maximum rows per aggregate source; omit or set 0 for complete aggregation"`
+}
+
 // manageMemoryInput is the MCP input for the manage_memory action dispatcher.
 type manageMemoryInput struct {
 	Action        string           `json:"action" jsonschema:"required,action enum: propose, remember, accept, reject, expire, supersede, set_validity, import_instructions"`

@@ -1,0 +1,93 @@
+{
+  "period": {
+    "from": "2026-07-01T00:00:00Z",
+    "to": "2026-07-02T00:00:00Z",
+    "requested_from": "2026-07-01",
+    "requested_to": "2026-07-01",
+    "effective_from_inclusive": "2026-07-01T00:00:00Z",
+    "effective_to_exclusive": "2026-07-02T00:00:00Z",
+    "timezone": "UTC",
+    "snapshot_at": "2026-07-02T12:00:00Z",
+    "from_date_only": true,
+    "to_date_only": true
+  },
+  "aggregation": {
+    "coverage": "partial",
+    "page_size": 2,
+    "result_cap": 1,
+    "sources": {
+      "sessions": {
+        "coverage": "partial",
+        "observed_count": 1,
+        "page_size": 2,
+        "result_cap": 1,
+        "response_truncated": true,
+        "truncation_reason": "result_cap",
+        "observed_earliest_at": "2026-07-01T01:00:00Z",
+        "observed_latest_at": "2026-07-01T01:00:00Z"
+      },
+      "events": {
+        "coverage": "partial",
+        "observed_count": 1,
+        "page_size": 2,
+        "result_cap": 1,
+        "response_truncated": true,
+        "truncation_reason": "result_cap",
+        "observed_earliest_at": "2026-07-01T01:00:00Z",
+        "observed_latest_at": "2026-07-01T01:00:00Z"
+      },
+      "commands": {
+        "coverage": "partial",
+        "observed_count": 1,
+        "page_size": 2,
+        "result_cap": 1,
+        "response_truncated": true,
+        "truncation_reason": "result_cap",
+        "observed_earliest_at": "2026-07-01T01:00:00Z",
+        "observed_latest_at": "2026-07-01T01:00:00Z"
+      }
+    }
+  },
+  "workspace": "workspace",
+  "client": "codex",
+  "sessions": [
+    {
+      "client": "codex",
+      "sessions": 1,
+      "total_events": 2,
+      "command_count": 1
+    }
+  ],
+  "capture_coverage": [
+    {
+      "client": "codex",
+      "sessions": 1,
+      "with_prompt": 1,
+      "with_transcript": 0,
+      "with_command": 0,
+      "prompt_transcript_missing": 1
+    }
+  ],
+  "failures": {
+    "total": 1,
+    "by_client": {
+      "codex": 1
+    },
+    "by_reason": {
+      "exit_code": 1
+    },
+    "sample_event_ids": [
+      "event-1"
+    ]
+  },
+  "top_commands": [
+    {
+      "command": "go",
+      "count": 1,
+      "failed_count": 1,
+      "sample_event_id": "event-1"
+    }
+  ],
+  "event_scan_count": 1,
+  "session_scan_count": 1
+}
