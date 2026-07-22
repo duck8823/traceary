@@ -340,17 +340,21 @@ type timelineBlockOutput struct {
 
 // bundleImportOutput is the JSON shape of a bundle import result.
 type bundleImportOutput struct {
-	SessionsImported      int `json:"sessions_imported"`
-	SessionsSkipped       int `json:"sessions_skipped"`
-	EventsImported        int `json:"events_imported"`
-	EventsSkipped         int `json:"events_skipped"`
-	CommandAuditsImported int `json:"command_audits_imported"`
-	CommandAuditsSkipped  int `json:"command_audits_skipped"`
-	MemoriesImported      int `json:"memories_imported"`
-	MemoriesSkipped       int `json:"memories_skipped"`
-	MemoryEdgesImported   int `json:"memory_edges_imported"`
-	MemoryEdgesSkipped    int `json:"memory_edges_skipped"`
-	BundleSchemaVersion   int `json:"bundle_schema_version"`
+	SessionsImported          int `json:"sessions_imported"`
+	SessionsSkipped           int `json:"sessions_skipped"`
+	EventsImported            int `json:"events_imported"`
+	EventsSkipped             int `json:"events_skipped"`
+	CommandAuditsImported     int `json:"command_audits_imported"`
+	CommandAuditsSkipped      int `json:"command_audits_skipped"`
+	MemoriesImported          int `json:"memories_imported"`
+	MemoriesSkipped           int `json:"memories_skipped"`
+	MemoryEdgesImported       int `json:"memory_edges_imported"`
+	MemoryEdgesSkipped        int `json:"memory_edges_skipped"`
+	RunLineagesImported       int `json:"run_lineages_imported"`
+	RunLineagesSkipped        int `json:"run_lineages_skipped"`
+	UsageObservationsImported int `json:"usage_observations_imported"`
+	UsageObservationsSkipped  int `json:"usage_observations_skipped"`
+	BundleSchemaVersion       int `json:"bundle_schema_version"`
 }
 
 // memoryHygieneApplyOutput is the JSON shape of a memory hygiene apply result.

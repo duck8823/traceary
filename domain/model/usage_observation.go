@@ -22,6 +22,7 @@ type UsageObservationDescriptor struct {
 	snapshotSeries   string
 	snapshotRevision int64
 	supersedesID     types.Optional[types.UsageObservationID]
+	runIdentity      types.Optional[types.RunIdentity]
 }
 
 // NewUsageObservationDescriptor creates identity for a call or run. Session
@@ -48,7 +49,30 @@ func NewUsageObservationDescriptor(
 		accounting:    accounting,
 		observedAt:    observedAt,
 		supersedesID:  types.None[types.UsageObservationID](),
+		runIdentity:   types.None[types.RunIdentity](),
 	}
+	if err := descriptor.validate(); err != nil {
+		return UsageObservationDescriptor{}, err
+	}
+	return descriptor, nil
+}
+
+// NewUsageObservationDescriptorWithRunIdentity creates call/run identity
+// explicitly attributed to a previously recorded host run.
+func NewUsageObservationDescriptorWithRunIdentity(
+	observationID types.UsageObservationID,
+	sessionID types.SessionID,
+	source types.UsageSource,
+	scope types.UsageScope,
+	accounting types.UsageAccounting,
+	observedAt time.Time,
+	runIdentity types.RunIdentity,
+) (UsageObservationDescriptor, error) {
+	descriptor, err := NewUsageObservationDescriptor(observationID, sessionID, source, scope, accounting, observedAt)
+	if err != nil {
+		return UsageObservationDescriptor{}, err
+	}
+	descriptor.runIdentity = types.Some(runIdentity)
 	if err := descriptor.validate(); err != nil {
 		return UsageObservationDescriptor{}, err
 	}
@@ -76,6 +100,7 @@ func NewUsageSnapshotDescriptor(
 		snapshotSeries:   strings.TrimSpace(series),
 		snapshotRevision: revision,
 		supersedesID:     supersedesID,
+		runIdentity:      types.None[types.RunIdentity](),
 	}
 	if err := descriptor.validate(); err != nil {
 		return UsageObservationDescriptor{}, err
@@ -103,6 +128,9 @@ func (d UsageObservationDescriptor) validate() error {
 		return xerrors.Errorf("usage observation timestamp must not be zero")
 	}
 	if d.scope == types.UsageScopeSessionSnapshot {
+		if _, present := d.runIdentity.Value(); present {
+			return xerrors.Errorf("session snapshot cannot carry run identity")
+		}
 		if d.accounting != types.UsageAccountingLatestSnapshot || d.snapshotSeries == "" || d.snapshotRevision < 1 {
 			return xerrors.Errorf("session snapshot requires latest-snapshot accounting, series, and positive revision")
 		}
@@ -122,6 +150,15 @@ func (d UsageObservationDescriptor) validate() error {
 			return xerrors.Errorf("usage snapshot cannot supersede itself")
 		}
 	}
+	if runIdentity, present := d.runIdentity.Value(); present {
+		validated, err := types.RunIdentityFrom(runIdentity.Host(), runIdentity.RunID())
+		if err != nil || validated != runIdentity {
+			return xerrors.Errorf("invalid usage run identity")
+		}
+		if runIdentity.Host() != d.source.Host() {
+			return xerrors.Errorf("usage run identity host must match source host")
+		}
+	}
 	return nil
 }
 
@@ -133,7 +170,12 @@ func (d UsageObservationDescriptor) equivalent(other UsageObservationDescriptor)
 	}
 	currentPredecessor, currentPresent := d.supersedesID.Value()
 	otherPredecessor, otherPresent := other.supersedesID.Value()
-	return currentPresent == otherPresent && (!currentPresent || currentPredecessor == otherPredecessor)
+	if currentPresent != otherPresent || (currentPresent && currentPredecessor != otherPredecessor) {
+		return false
+	}
+	currentRun, currentRunPresent := d.runIdentity.Value()
+	otherRun, otherRunPresent := other.runIdentity.Value()
+	return currentRunPresent == otherRunPresent && (!currentRunPresent || currentRun == otherRun)
 }
 
 // ObservationID returns the adapter-owned authoritative identity.
@@ -165,6 +207,11 @@ func (d UsageObservationDescriptor) SnapshotRevision() int64 { return d.snapshot
 // SupersedesID returns the predecessor snapshot identity, when applicable.
 func (d UsageObservationDescriptor) SupersedesID() types.Optional[types.UsageObservationID] {
 	return d.supersedesID
+}
+
+// RunIdentity returns the namespaced run attribution, when known.
+func (d UsageObservationDescriptor) RunIdentity() types.Optional[types.RunIdentity] {
+	return d.runIdentity
 }
 
 // UsageObservation is the aggregate root for idempotent usage accounting.

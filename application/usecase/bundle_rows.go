@@ -165,39 +165,41 @@ type bundleCommandAuditRow struct {
 }
 
 type bundleUsageObservationRow struct {
-	ObservationID         string `json:"observation_id"`
-	SessionID             string `json:"session_id"`
-	Host                  string `json:"host"`
-	SourceName            string `json:"source_name"`
-	SourceVersion         string `json:"source_version"`
-	Provider              string `json:"provider,omitempty"`
-	Model                 string `json:"model,omitempty"`
-	Scope                 string `json:"scope"`
-	Accounting            string `json:"accounting"`
-	Status                string `json:"status"`
-	ObservedAt            string `json:"observed_at"`
-	FinalizedAt           string `json:"finalized_at,omitempty"`
-	TerminalCode          string `json:"terminal_code,omitempty"`
-	InputState            string `json:"input_state"`
-	InputTokens           *int64 `json:"input_tokens,omitempty"`
-	CachedInputState      string `json:"cached_input_state"`
-	CachedInputTokens     *int64 `json:"cached_input_tokens,omitempty"`
-	CacheWriteInputState  string `json:"cache_write_input_state"`
-	CacheWriteInputTokens *int64 `json:"cache_write_input_tokens,omitempty"`
-	OutputState           string `json:"output_state"`
-	OutputTokens          *int64 `json:"output_tokens,omitempty"`
-	ReasoningOutputState  string `json:"reasoning_output_state"`
-	ReasoningOutputTokens *int64 `json:"reasoning_output_tokens,omitempty"`
-	TotalState            string `json:"total_state"`
-	TotalTokens           *int64 `json:"total_tokens,omitempty"`
-	CostState             string `json:"cost_state"`
-	CostAmountMicros      *int64 `json:"cost_amount_micros,omitempty"`
-	CostCurrency          string `json:"cost_currency,omitempty"`
-	CostOrigin            string `json:"cost_origin,omitempty"`
-	PriceTableVersion     string `json:"price_table_version,omitempty"`
-	SnapshotSeries        string `json:"snapshot_series,omitempty"`
-	SnapshotRevision      *int64 `json:"snapshot_revision,omitempty"`
-	SupersedesID          string `json:"supersedes_id,omitempty"`
+	ObservationID         string  `json:"observation_id"`
+	SessionID             string  `json:"session_id"`
+	Host                  string  `json:"host"`
+	SourceName            string  `json:"source_name"`
+	SourceVersion         string  `json:"source_version"`
+	Provider              string  `json:"provider,omitempty"`
+	Model                 string  `json:"model,omitempty"`
+	Scope                 string  `json:"scope"`
+	Accounting            string  `json:"accounting"`
+	Status                string  `json:"status"`
+	ObservedAt            string  `json:"observed_at"`
+	FinalizedAt           string  `json:"finalized_at,omitempty"`
+	TerminalCode          string  `json:"terminal_code,omitempty"`
+	InputState            string  `json:"input_state"`
+	InputTokens           *int64  `json:"input_tokens,omitempty"`
+	CachedInputState      string  `json:"cached_input_state"`
+	CachedInputTokens     *int64  `json:"cached_input_tokens,omitempty"`
+	CacheWriteInputState  string  `json:"cache_write_input_state"`
+	CacheWriteInputTokens *int64  `json:"cache_write_input_tokens,omitempty"`
+	OutputState           string  `json:"output_state"`
+	OutputTokens          *int64  `json:"output_tokens,omitempty"`
+	ReasoningOutputState  string  `json:"reasoning_output_state"`
+	ReasoningOutputTokens *int64  `json:"reasoning_output_tokens,omitempty"`
+	TotalState            string  `json:"total_state"`
+	TotalTokens           *int64  `json:"total_tokens,omitempty"`
+	CostState             string  `json:"cost_state"`
+	CostAmountMicros      *int64  `json:"cost_amount_micros,omitempty"`
+	CostCurrency          string  `json:"cost_currency,omitempty"`
+	CostOrigin            string  `json:"cost_origin,omitempty"`
+	PriceTableVersion     string  `json:"price_table_version,omitempty"`
+	SnapshotSeries        string  `json:"snapshot_series,omitempty"`
+	SnapshotRevision      *int64  `json:"snapshot_revision,omitempty"`
+	SupersedesID          string  `json:"supersedes_id,omitempty"`
+	RunHost               *string `json:"run_host,omitempty"`
+	RunID                 *string `json:"run_id,omitempty"`
 }
 
 func bundleUsageObservationRowFromModel(observation *model.UsageObservation) bundleUsageObservationRow {
@@ -236,6 +238,10 @@ func bundleUsageObservationRowFromModel(observation *model.UsageObservation) bun
 	if value, present := descriptor.SupersedesID().Value(); present {
 		row.SupersedesID = value.String()
 	}
+	if value, present := descriptor.RunIdentity().Value(); present {
+		host, runID := value.Host(), value.RunID()
+		row.RunHost, row.RunID = &host, &runID
+	}
 	return row
 }
 
@@ -273,6 +279,9 @@ func (r bundleUsageObservationRow) toUsageObservation() (*model.UsageObservation
 	}
 	var descriptor model.UsageObservationDescriptor
 	if scope == types.UsageScopeSessionSnapshot {
+		if r.RunHost != nil || r.RunID != nil {
+			return nil, xerrors.Errorf("run identity is not allowed for a session snapshot")
+		}
 		if r.SnapshotRevision == nil {
 			return nil, xerrors.Errorf("snapshot_revision is required for a session snapshot")
 		}
@@ -285,8 +294,16 @@ func (r bundleUsageObservationRow) toUsageObservation() (*model.UsageObservation
 			predecessor = types.Some(value)
 		}
 		descriptor, err = model.NewUsageSnapshotDescriptor(id, sessionID, source, r.SnapshotSeries, *r.SnapshotRevision, predecessor, observedAt)
-	} else {
+	} else if r.RunHost == nil && r.RunID == nil {
 		descriptor, err = model.NewUsageObservationDescriptor(id, sessionID, source, scope, accounting, observedAt)
+	} else if r.RunHost == nil || r.RunID == nil {
+		return nil, xerrors.Errorf("run identity is incomplete")
+	} else {
+		runIdentity, identityErr := types.RunIdentityFrom(*r.RunHost, *r.RunID)
+		if identityErr != nil {
+			return nil, xerrors.Errorf("run identity: %w", identityErr)
+		}
+		descriptor, err = model.NewUsageObservationDescriptorWithRunIdentity(id, sessionID, source, scope, accounting, observedAt, runIdentity)
 	}
 	if err != nil {
 		return nil, xerrors.Errorf("descriptor: %w", err)
@@ -349,6 +366,181 @@ func (r bundleUsageObservationRow) toUsageObservation() (*model.UsageObservation
 		return nil, xerrors.Errorf("aggregate: %w", err)
 	}
 	return observation, nil
+}
+
+type bundleRunLineageRow struct {
+	Host              string  `json:"host"`
+	RunID             string  `json:"run_id"`
+	ParentHost        *string `json:"parent_host,omitempty"`
+	ParentRunID       *string `json:"parent_run_id,omitempty"`
+	SessionID         *string `json:"session_id,omitempty"`
+	BatchID           *string `json:"batch_id,omitempty"`
+	TicketRef         *string `json:"ticket_ref,omitempty"`
+	Repository        *string `json:"repository,omitempty"`
+	PullRequestNumber *int64  `json:"pull_request_number,omitempty"`
+	HeadSHA           *string `json:"head_sha,omitempty"`
+	PacketSHA256      *string `json:"packet_sha256,omitempty"`
+	PacketBytes       *int64  `json:"packet_bytes,omitempty"`
+	ToolOutputBytes   *int64  `json:"tool_output_bytes,omitempty"`
+}
+
+func bundleRunLineageRowFromModel(lineage *model.RunLineage) bundleRunLineageRow {
+	identity := lineage.Identity()
+	row := bundleRunLineageRow{Host: identity.Host(), RunID: identity.RunID()}
+	if value, present := lineage.Parent().Value(); present {
+		host, runID := value.Host(), value.RunID()
+		row.ParentHost, row.ParentRunID = &host, &runID
+	}
+	if value, present := lineage.SessionID().Value(); present {
+		sessionID := value.String()
+		row.SessionID = &sessionID
+	}
+	work := lineage.Work()
+	if value, present := work.BatchID().Value(); present {
+		row.BatchID = &value
+	}
+	if value, present := work.TicketRef().Value(); present {
+		row.TicketRef = &value
+	}
+	if value, present := work.Repository().Value(); present {
+		row.Repository = &value
+	}
+	if value, present := work.PullRequestNumber().Value(); present {
+		row.PullRequestNumber = &value
+	}
+	if value, present := work.HeadSHA().Value(); present {
+		row.HeadSHA = &value
+	}
+	if value, present := lineage.Packet().Value(); present {
+		bytes := value.Bytes()
+		sha := value.SHA256()
+		row.PacketSHA256, row.PacketBytes = &sha, &bytes
+	}
+	if value, present := lineage.ToolOutputBytes().Value(); present {
+		row.ToolOutputBytes = &value
+	}
+	return row
+}
+
+func (r bundleRunLineageRow) toRunLineage() (*model.RunLineage, error) {
+	identity, err := types.RunIdentityFrom(r.Host, r.RunID)
+	if err != nil {
+		return nil, xerrors.Errorf("identity: %w", err)
+	}
+	parent := types.None[types.RunIdentity]()
+	if r.ParentHost != nil || r.ParentRunID != nil {
+		if r.ParentHost == nil || r.ParentRunID == nil {
+			return nil, xerrors.Errorf("parent identity is incomplete")
+		}
+		value, err := types.RunIdentityFrom(*r.ParentHost, *r.ParentRunID)
+		if err != nil {
+			return nil, xerrors.Errorf("parent identity: %w", err)
+		}
+		parent = types.Some(value)
+	}
+	session := types.None[types.SessionID]()
+	if r.SessionID != nil {
+		value, err := types.SessionIDFrom(*r.SessionID)
+		if err != nil {
+			return nil, xerrors.Errorf("session_id: %w", err)
+		}
+		session = types.Some(value)
+	}
+	work, err := types.RunWorkAttributionFrom(optionalBundleString(r.BatchID), optionalBundleString(r.TicketRef), optionalBundleString(r.Repository), optionalBundleInt64(r.PullRequestNumber), optionalBundleString(r.HeadSHA))
+	if err != nil {
+		return nil, xerrors.Errorf("work attribution: %w", err)
+	}
+	packet := types.None[types.PacketIdentity]()
+	if r.PacketSHA256 != nil || r.PacketBytes != nil {
+		if r.PacketSHA256 == nil || r.PacketBytes == nil {
+			return nil, xerrors.Errorf("packet identity is incomplete")
+		}
+		value, err := types.PacketIdentityFrom(*r.PacketSHA256, *r.PacketBytes)
+		if err != nil {
+			return nil, xerrors.Errorf("packet identity: %w", err)
+		}
+		packet = types.Some(value)
+	}
+	lineage, err := model.RunLineageOf(identity, parent, session, work, packet, optionalBundleInt64(r.ToolOutputBytes))
+	if err != nil {
+		return nil, xerrors.Errorf("lineage: %w", err)
+	}
+	return lineage, nil
+}
+
+func optionalBundleString(value *string) types.Optional[string] {
+	if value == nil {
+		return types.None[string]()
+	}
+	return types.Some(*value)
+}
+func optionalBundleInt64(value *int64) types.Optional[int64] {
+	if value == nil {
+		return types.None[int64]()
+	}
+	return types.Some(*value)
+}
+
+func sortBundleRunLineageRows(rows []bundleRow) ([]bundleRunLineageRow, error) {
+	byIdentity := make(map[types.RunIdentity]bundleRunLineageRow, len(rows))
+	for _, generic := range rows {
+		row, ok := generic.(bundleRunLineageRow)
+		if !ok {
+			return nil, xerrors.Errorf("unexpected run_lineages row type %T", generic)
+		}
+		lineage, err := row.toRunLineage()
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := byIdentity[lineage.Identity()]; exists {
+			return nil, xerrors.Errorf("duplicate run lineage identity")
+		}
+		byIdentity[lineage.Identity()] = row
+	}
+	result := make([]bundleRunLineageRow, 0, len(rows))
+	state := make(map[types.RunIdentity]uint8, len(rows))
+	var visit func(types.RunIdentity) error
+	visit = func(identity types.RunIdentity) error {
+		switch state[identity] {
+		case 1:
+			return xerrors.Errorf("run lineage graph contains a cycle")
+		case 2:
+			return nil
+		}
+		row, exists := byIdentity[identity]
+		if !exists {
+			return xerrors.Errorf("run lineage parent is missing")
+		}
+		state[identity] = 1
+		if row.ParentHost != nil {
+			parent, err := types.RunIdentityFrom(*row.ParentHost, *row.ParentRunID)
+			if err != nil {
+				return xerrors.Errorf("invalid parent run identity: %w", err)
+			}
+			if err := visit(parent); err != nil {
+				return err
+			}
+		}
+		state[identity] = 2
+		result = append(result, row)
+		return nil
+	}
+	identities := make([]types.RunIdentity, 0, len(byIdentity))
+	for identity := range byIdentity {
+		identities = append(identities, identity)
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		if identities[i].Host() != identities[j].Host() {
+			return identities[i].Host() < identities[j].Host()
+		}
+		return identities[i].RunID() < identities[j].RunID()
+	})
+	for _, identity := range identities {
+		if err := visit(identity); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 func sortBundleUsageObservationRows(rows []bundleRow) ([]bundleUsageObservationRow, error) {

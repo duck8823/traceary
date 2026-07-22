@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,6 +66,8 @@ type fakeBundleRepo struct {
 	exportMemoryEdges         []*model.MemoryEdge
 	usageObservations         map[string]*model.UsageObservation
 	exportUsageObservations   []*model.UsageObservation
+	runLineages               map[types.RunIdentity]*model.RunLineage
+	exportRunLineages         []*model.RunLineage
 	enforceMemorySupersedesFK bool
 	forceErr                  error
 }
@@ -85,6 +88,9 @@ func (r *fakeBundleRepo) ListBundleMemoryEdges(context.Context) ([]*model.Memory
 func (r *fakeBundleRepo) ListBundleUsageObservations(context.Context) ([]*model.UsageObservation, error) {
 	return r.exportUsageObservations, nil
 }
+func (r *fakeBundleRepo) ListBundleRunLineages(context.Context) ([]*model.RunLineage, error) {
+	return r.exportRunLineages, nil
+}
 func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImportTransaction, error) {
 	tx := &fakeBundleTx{
 		repo:              r,
@@ -92,6 +98,7 @@ func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImpor
 		memories:          map[string]*model.Memory{},
 		memoryEdges:       map[string]*model.MemoryEdge{},
 		usageObservations: map[string]*model.UsageObservation{},
+		runLineages:       map[types.RunIdentity]*model.RunLineage{},
 	}
 	for id, value := range r.events {
 		tx.events[id] = value
@@ -105,6 +112,9 @@ func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImpor
 	for id, value := range r.usageObservations {
 		tx.usageObservations[id] = value
 	}
+	for id, value := range r.runLineages {
+		tx.runLineages[id] = value
+	}
 	return tx, nil
 }
 
@@ -114,11 +124,40 @@ type fakeBundleTx struct {
 	memories          map[string]*model.Memory
 	memoryEdges       map[string]*model.MemoryEdge
 	usageObservations map[string]*model.UsageObservation
+	runLineages       map[types.RunIdentity]*model.RunLineage
+}
+
+func (tx *fakeBundleTx) ImportRunLineage(_ context.Context, lineage *model.RunLineage) (bool, error) {
+	if lineage == nil {
+		return false, model.ErrInvalidRunLineage
+	}
+	if parent, present := lineage.Parent().Value(); present {
+		if _, exists := tx.runLineages[parent]; !exists {
+			return false, model.ErrInvalidRunLineage
+		}
+	}
+	if existing, present := tx.runLineages[lineage.Identity()]; present {
+		if _, err := existing.Reconcile(lineage); err != nil {
+			return false, xerrors.Errorf("reconcile run lineage: %w", err)
+		}
+		return false, nil
+	}
+	tx.runLineages[lineage.Identity()] = lineage
+	return true, nil
 }
 
 func (tx *fakeBundleTx) ImportUsageObservation(_ context.Context, observation *model.UsageObservation, policy usecase.BundleConflictPolicy) (bool, error) {
 	if observation == nil {
 		return false, model.ErrInvalidUsageObservation
+	}
+	if identity, present := observation.Descriptor().RunIdentity().Value(); present {
+		lineage, exists := tx.runLineages[identity]
+		if !exists {
+			return false, model.ErrInvalidRunLineage
+		}
+		if session, known := lineage.SessionID().Value(); known && session != observation.Descriptor().SessionID() {
+			return false, model.ErrInvalidRunLineage
+		}
 	}
 	id := observation.Descriptor().ObservationID().String()
 	if existing, ok := tx.usageObservations[id]; ok {
@@ -127,6 +166,11 @@ func (tx *fakeBundleTx) ImportUsageObservation(_ context.Context, observation *m
 			return transition == model.UsageObservationTransitionApplied, nil
 		}
 		if policy == usecase.BundleConflictSkip {
+			left, leftPresent := existing.Descriptor().RunIdentity().Value()
+			right, rightPresent := observation.Descriptor().RunIdentity().Value()
+			if leftPresent != rightPresent || (leftPresent && left != right) {
+				return false, xerrors.Errorf("usage run attribution conflict: %w", err)
+			}
 			return false, nil
 		}
 		return false, xerrors.Errorf("usage observation conflict: %w", err)
@@ -272,6 +316,7 @@ func (tx *fakeBundleTx) Commit(context.Context) error {
 	tx.repo.memories = tx.memories
 	tx.repo.memoryEdges = tx.memoryEdges
 	tx.repo.usageObservations = tx.usageObservations
+	tx.repo.runLineages = tx.runLineages
 	return nil
 }
 func (tx *fakeBundleTx) Rollback(context.Context) error { return nil }
@@ -867,15 +912,282 @@ func TestBundleUsecase_ExportWritesManifestV2Tables(t *testing.T) {
 	if got := hashForTest(files["events.ndjson"]); got != entry.Checksum {
 		t.Fatalf("events checksum = %s, want %s", entry.Checksum, got)
 	}
-	for table, file := range map[string]string{"memories": "memories.ndjson", "memory_edges": "memory_edges.ndjson"} {
+	for table, file := range map[string]string{"memories": "memories.ndjson", "memory_edges": "memory_edges.ndjson", "run_lineages": "run_lineages.ndjson"} {
 		entry := manifest.Tables[table]
-		if entry.TableName != table || entry.File != file || entry.RowCount != 1 {
+		wantRows := 1
+		if table == "run_lineages" {
+			wantRows = 0
+		}
+		if entry.TableName != table || entry.File != file || entry.RowCount != wantRows {
 			t.Fatalf("%s table entry = %+v", table, entry)
 		}
 		if got := hashForTest(files[file]); got != entry.Checksum {
 			t.Fatalf("%s checksum = %s, want %s", table, entry.Checksum, got)
 		}
 	}
+}
+
+func TestBundleUsecase_FilteredRunLineageRoundTripIncludesAncestorsOnly(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	parent := mustBundleRunLineage(t, "codex", "parent", types.None[types.RunIdentity](), types.Some[int64](0))
+	child := mustBundleRunLineage(t, "codex", "child", types.Some(parent.Identity()), types.Some[int64](0))
+	sibling := mustBundleRunLineage(t, "codex", "sibling", types.Some(parent.Identity()), types.None[int64]())
+	standalone := mustBundleRunLineage(t, "claude", "standalone", types.None[types.RunIdentity](), types.None[int64]())
+	observation := mustBundleRunUsage(t, "usage-run", "selected-session", child.Identity(), ts)
+	exportRepo := &fakeBundleRepo{
+		schema:                  28,
+		exportSessions:          []*model.Session{mustSessionInWorkspace(t, "selected-session", "", ts, types.Workspace("selected"))},
+		exportUsageObservations: []*model.UsageObservation{observation},
+		exportRunLineages:       []*model.RunLineage{sibling, child, standalone, parent},
+	}
+	out := filepath.Join(t.TempDir(), "run-lineage-bundle.tbun")
+	err := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts }).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1"), Workspace: types.Workspace("selected")})
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	files := openTestBundle(t, out, []byte("pass1"))
+	if bytes.Contains(files["run_lineages.ndjson"], []byte("sibling")) || bytes.Contains(files["run_lineages.ndjson"], []byte("standalone")) {
+		t.Fatal("filtered bundle leaked unrelated run lineage")
+	}
+
+	importRepo := &fakeBundleRepo{schema: 28}
+	result, err := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1")})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if result.RunLineagesImported != 2 || result.UsageObservationsImported != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if importRepo.runLineages[parent.Identity()] == nil || importRepo.runLineages[child.Identity()] == nil {
+		t.Fatal("ancestor closure missing")
+	}
+	if importRepo.runLineages[sibling.Identity()] != nil || importRepo.runLineages[standalone.Identity()] != nil {
+		t.Fatal("unrelated lineage imported")
+	}
+	restored := importRepo.usageObservations["usage-run"]
+	identity, present := restored.Descriptor().RunIdentity().Value()
+	if !present || identity != child.Identity() {
+		t.Fatalf("restored run identity = %#v, present=%v", identity, present)
+	}
+
+	result, err = usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1"), OnConflict: usecase.BundleConflictReplace})
+	if err != nil {
+		t.Fatalf("idempotent replace-policy Import: %v", err)
+	}
+	if result.RunLineagesSkipped != 2 || result.UsageObservationsSkipped != 1 {
+		t.Fatalf("idempotent result = %+v", result)
+	}
+}
+
+func TestBundleUsecase_RunLineageConflictFailsUnderEveryPolicy(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	exported := mustBundleRunLineage(t, "codex", "run-conflict", types.None[types.RunIdentity](), types.Some[int64](0))
+	out := filepath.Join(t.TempDir(), "run-lineage-conflict.tbun")
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 28, exportRunLineages: []*model.RunLineage{exported}}, func() time.Time { return ts }).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range []usecase.BundleConflictPolicy{usecase.BundleConflictSkip, usecase.BundleConflictReplace, usecase.BundleConflictError} {
+		policy := policy
+		t.Run(string(policy), func(t *testing.T) {
+			t.Parallel()
+			existing := mustBundleRunLineage(t, "codex", "run-conflict", types.None[types.RunIdentity](), types.Some[int64](1))
+			repo := &fakeBundleRepo{schema: 28, runLineages: map[types.RunIdentity]*model.RunLineage{existing.Identity(): existing}}
+			_, err := usecase.NewBundleUsecase(fakeEventQuery{}, repo, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1"), OnConflict: policy})
+			if !errors.Is(err, model.ErrConflictingRunLineage) {
+				t.Fatalf("Import(%s) error = %v", policy, err)
+			}
+			bytes, _ := repo.runLineages[existing.Identity()].ToolOutputBytes().Value()
+			if bytes != 1 {
+				t.Fatalf("conflict mutated tool bytes = %d", bytes)
+			}
+		})
+	}
+}
+
+func TestBundleUsecase_UsageRunAttributionConflictFailsUnderEveryPolicy(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	runA := mustBundleRunLineage(t, "codex", "run-a", types.None[types.RunIdentity](), types.None[int64]())
+	runB := mustBundleRunLineage(t, "codex", "run-b", types.None[types.RunIdentity](), types.None[int64]())
+	exportedUsage := mustBundleRunUsage(t, "usage-conflict", "session-1", runB.Identity(), ts)
+	out := filepath.Join(t.TempDir(), "usage-run-conflict.tbun")
+	exportRepo := &fakeBundleRepo{schema: 28, exportRunLineages: []*model.RunLineage{runB}, exportUsageObservations: []*model.UsageObservation{exportedUsage}}
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, nil).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range []usecase.BundleConflictPolicy{usecase.BundleConflictSkip, usecase.BundleConflictReplace, usecase.BundleConflictError} {
+		policy := policy
+		t.Run(string(policy), func(t *testing.T) {
+			t.Parallel()
+			existingUsage := mustBundleRunUsage(t, "usage-conflict", "session-1", runA.Identity(), ts)
+			repo := &fakeBundleRepo{schema: 28, runLineages: map[types.RunIdentity]*model.RunLineage{runA.Identity(): runA}, usageObservations: map[string]*model.UsageObservation{"usage-conflict": existingUsage}}
+			_, err := usecase.NewBundleUsecase(fakeEventQuery{}, repo, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1"), OnConflict: policy})
+			if !errors.Is(err, model.ErrConflictingUsageObservation) {
+				t.Fatalf("Import(%s) error = %v", policy, err)
+			}
+		})
+	}
+}
+
+func TestBundleUsecase_ExportRejectsCyclicAndMissingRunLineageGraphs(t *testing.T) {
+	t.Parallel()
+	a, _ := types.RunIdentityFrom("codex", "a")
+	b, _ := types.RunIdentityFrom("codex", "b")
+	cycleA := mustBundleRunLineage(t, "codex", "a", types.Some(b), types.None[int64]())
+	cycleB := mustBundleRunLineage(t, "codex", "b", types.Some(a), types.None[int64]())
+	missingParent, _ := types.RunIdentityFrom("codex", "missing")
+	for _, test := range []struct {
+		name string
+		rows []*model.RunLineage
+	}{
+		{name: "cycle", rows: []*model.RunLineage{cycleA, cycleB}},
+		{name: "missing parent", rows: []*model.RunLineage{mustBundleRunLineage(t, "codex", "child", types.Some(missingParent), types.None[int64]())}},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			out := filepath.Join(t.TempDir(), "invalid.tbun")
+			err := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 28, exportRunLineages: test.rows}, nil).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")})
+			if err == nil {
+				t.Fatal("invalid run graph exported")
+			}
+		})
+	}
+}
+
+func TestBundleUsecase_ImportRejectsInvalidUTF8RunIdentityBeforeReplacement(t *testing.T) {
+	t.Parallel()
+	line := []byte("{\"host\":\"codex\",\"run_id\":\"")
+	line = append(line, 0xff)
+	line = append(line, []byte("\"}\n")...)
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{"run_lineages.ndjson": line}, map[string]any{
+		"run_lineages": map[string]any{"table_name": "run_lineages", "file": "run_lineages.ndjson", "row_count": 1, "checksum": hashForTest(line)},
+	})
+	in := filepath.Join(t.TempDir(), "invalid-utf8.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 28}, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err == nil || !strings.Contains(err.Error(), "invalid UTF-8") {
+		t.Fatalf("Import error = %v", err)
+	}
+}
+
+func TestBundleUsecase_ImportRejectsUnpairedJSONSurrogateBeforeReplacement(t *testing.T) {
+	t.Parallel()
+	line := []byte("{\"host\":\"codex\",\"run_id\":\"\\ud800\"}\n")
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{"run_lineages.ndjson": line}, map[string]any{
+		"run_lineages": map[string]any{"table_name": "run_lineages", "file": "run_lineages.ndjson", "row_count": 1, "checksum": hashForTest(line)},
+	})
+	in := filepath.Join(t.TempDir(), "invalid-surrogate.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 28}, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err == nil || !strings.Contains(err.Error(), "invalid Unicode") {
+		t.Fatalf("Import error = %v", err)
+	}
+}
+
+func TestBundleUsecase_ImportRejectsSnapshotRunAttribution(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	out := filepath.Join(t.TempDir(), "snapshot.tbun")
+	repo := &fakeBundleRepo{schema: 28, exportUsageObservations: []*model.UsageObservation{mustBundleUsageSnapshot(t, "snapshot-1", "session-1", 1, "", ts)}}
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, repo, nil).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatal(err)
+	}
+	files := openTestBundle(t, out, []byte("pass1"))
+	var row map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(files["usage_observations.ndjson"]), &row); err != nil {
+		t.Fatal(err)
+	}
+	row["run_host"], row["run_id"] = "codex", "run-1"
+	usage, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage = append(usage, '\n')
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{"usage_observations.ndjson": usage}, map[string]any{
+		"usage_observations": map[string]any{"table_name": "usage_observations", "file": "usage_observations.ndjson", "row_count": 1, "checksum": hashForTest(usage)},
+	})
+	in := filepath.Join(t.TempDir(), "snapshot-with-run.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 28}, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err == nil || !strings.Contains(err.Error(), "not allowed for a session snapshot") {
+		t.Fatalf("Import error = %v", err)
+	}
+}
+
+func TestBundleUsecase_ImportRequiresUsageRunInsideBundle(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	run := mustBundleRunLineage(t, "codex", "already-local", types.None[types.RunIdentity](), types.None[int64]())
+	usageObservation := mustBundleRunUsage(t, "usage-incomplete-bundle", "session-1", run.Identity(), ts)
+	out := filepath.Join(t.TempDir(), "complete.tbun")
+	exportRepo := &fakeBundleRepo{schema: 28, exportRunLineages: []*model.RunLineage{run}, exportUsageObservations: []*model.UsageObservation{usageObservation}}
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, nil).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatal(err)
+	}
+	usage := openTestBundle(t, out, []byte("pass1"))["usage_observations.ndjson"]
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{"usage_observations.ndjson": usage}, map[string]any{
+		"usage_observations": map[string]any{"table_name": "usage_observations", "file": "usage_observations.ndjson", "row_count": 1, "checksum": hashForTest(usage)},
+	})
+	in := filepath.Join(t.TempDir(), "incomplete.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination := &fakeBundleRepo{schema: 28, runLineages: map[types.RunIdentity]*model.RunLineage{run.Identity(): run}}
+	_, err := usecase.NewBundleUsecase(fakeEventQuery{}, destination, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err == nil || !strings.Contains(err.Error(), "missing from bundle") {
+		t.Fatalf("Import error = %v", err)
+	}
+}
+
+func mustBundleRunLineage(t *testing.T, host, runID string, parent types.Optional[types.RunIdentity], toolBytes types.Optional[int64]) *model.RunLineage {
+	t.Helper()
+	identity, err := types.RunIdentityFrom(host, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet, err := types.PacketIdentityFrom(strings.Repeat("a", 64), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage, err := model.RunLineageOf(identity, parent, types.None[types.SessionID](), types.EmptyRunWorkAttribution(), types.Some(packet), toolBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lineage
+}
+
+func mustBundleRunUsage(t *testing.T, observationID, session string, run types.RunIdentity, observedAt time.Time) *model.UsageObservation {
+	t.Helper()
+	id, err := types.UsageObservationIDFrom(observationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := types.SessionIDFrom(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := types.UsageSourceOf(run.Host(), "test", "1", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := model.NewUsageObservationDescriptorWithRunIdentity(id, sessionID, source, types.UsageScopeRun, types.UsageAccountingAdditive, observedAt, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := model.NewPendingUsageObservation(descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
 }
 
 func TestBundleUsecase_RoundTripsUsageSnapshotChainWithoutCollapsingKnownZero(t *testing.T) {
@@ -1106,14 +1418,14 @@ func TestBundleUsecase_OrphanMemoryEdgeConflictErrorRollsBackBeforeSkip(t *testi
 	}
 }
 
-func TestBundleUsecase_ManifestV2FiveTableSpecDocReachable(t *testing.T) {
+func TestBundleUsecase_ManifestV2SevenTableSpecDocReachable(t *testing.T) {
 	t.Parallel()
 	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "operations", "cross-machine-handoff.md"))
 	if err != nil {
 		t.Fatalf("ReadFile(cross-machine-handoff.md): %v", err)
 	}
 	text := string(content)
-	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "command_audits.ndjson", "memories.ndjson", "memory_edges.ndjson", "Conflict matrix", "Five-table inclusion rules"} {
+	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "command_audits.ndjson", "memories.ndjson", "memory_edges.ndjson", "run_lineages.ndjson", "usage_observations.ndjson", "Conflict matrix", "Seven-table inclusion rules"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("doc missing %q", want)
 		}
