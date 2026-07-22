@@ -1081,7 +1081,9 @@ Print a period-scoped retrospective digest. Command totals aggregate by the norm
 
 Date-only `--to` includes the requested calendar day in the explicit `--timezone` (UTC by default); RFC3339 `--to` remains an exact exclusive instant. The host-dependent special zone name `Local` is rejected. Text keeps the requested calendar end visible. JSON exposes `requested_from` / `requested_to` separately from `effective_from_inclusive` / `effective_to_exclusive`, plus `timezone` and the shared `snapshot_at`. When both bounds are omitted, the requested fields remain empty while the effective fields contain the default seven-day window ending at `snapshot_at`. Compatibility fields `period.from` / `period.to` continue to contain the effective bounds at their pre-v0.30 second precision.
 
-Useful flags: `--from`, `--to`, `--timezone`, `--workspace`, `--client`, `--limit`, `--json`.
+Full aggregation is the default. `--page-size` controls only internal body-free SQLite paging and never caps aggregate rows. A positive `--result-cap` explicitly requests a per-source partial aggregate. JSON then reports `aggregation.coverage=partial`, the count and observed time range for sessions/events/commands, and `truncation_reason=result_cap`; ratios whose denominator is incomplete are omitted instead of being calculated from the prefix. The deprecated `--limit` alias maps only to `--page-size` and cannot be combined with it.
+
+Useful flags: `--from`, `--to`, `--timezone`, `--workspace`, `--client`, `--page-size`, `--result-cap`, `--json`.
 
 ### `traceary report workspace-identity`
 
