@@ -85,6 +85,8 @@ type FileRetentionInventoryEntry struct {
 	Verified             bool
 	VerificationDigest   string
 	VerificationReason   string
+	MetadataRelativePath string
+	MetadataSHA256       string
 	Pinned               bool
 	BlockingReason       string
 }
@@ -151,6 +153,8 @@ type FileRetentionInventoryPlan struct {
 	Verified             bool   `json:"verified"`
 	VerificationDigest   string `json:"verification_digest,omitempty"`
 	VerificationReason   string `json:"verification_reason,omitempty"`
+	MetadataRelativePath string `json:"metadata_relative_path,omitempty"`
+	MetadataSHA256       string `json:"metadata_sha256,omitempty"`
 	Pinned               bool   `json:"pinned"`
 	Protected            bool   `json:"protected"`
 	BlockingReason       string `json:"blocking_reason,omitempty"`

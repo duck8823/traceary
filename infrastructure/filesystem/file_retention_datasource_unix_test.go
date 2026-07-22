@@ -195,7 +195,8 @@ func TestFileRetentionCrashBoundariesConverge(t *testing.T) {
 		"lease-acquired", "pending", "catalog-deleting", "journal-running", "journal-tombstone_intent",
 		"tombstone-linked", "journal-tombstoned", "journal-unlink_original_intent", "original-unlinked",
 		"journal-original_unlinked", "journal-unlink_tombstone_intent", "tombstone-unlinked",
-		"journal-tombstone_unlinked", "journal-catalog_commit_intent", "ledger-recorded",
+		"journal-tombstone_unlinked", "journal-metadata_unlink_intent", "metadata-unlinked", "journal-metadata_unlinked",
+		"journal-catalog_commit_intent", "ledger-recorded",
 		"journal-ledger_recorded", "catalog-deleted", "journal-catalog_deleted", "journal-committed", "lease-released",
 	}
 	for _, boundary := range boundaries {
@@ -225,6 +226,13 @@ func TestFileRetentionCrashBoundariesConverge(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(root, "new.db")); err != nil {
 				t.Fatalf("new.db after %s retry error = %v", boundary, err)
+			}
+			oldManifest := filepath.Join(root, apptypes.BackupRetentionManifestName("old.db"))
+			if _, err := os.Stat(oldManifest); !os.IsNotExist(err) {
+				t.Fatalf("old manifest after %s retry stat error = %v", boundary, err)
+			}
+			if _, err := os.Stat(filepath.Join(root, apptypes.BackupRetentionManifestName("new.db"))); err != nil {
+				t.Fatalf("new manifest after %s retry error = %v", boundary, err)
 			}
 			ledgerData, err := os.ReadFile(filepath.Join(root, fileRetentionLedgerName))
 			if err != nil {

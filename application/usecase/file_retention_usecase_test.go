@@ -133,8 +133,8 @@ func fileRetentionSnapshot(now time.Time) apptypes.FileRetentionInventorySnapsho
 	return apptypes.FileRetentionInventorySnapshot{
 		Class: "backup", Root: "/tmp/backups", RootIdentity: digestOf('c'), LiveGeneration: digestOf('d'),
 		Entries: []apptypes.FileRetentionInventoryEntry{
-			{Identity: digestOf('a'), RelativePath: "a.db", Device: 1, Inode: 1, LinkCount: 1, LogicalBytes: 10, AllocatedBytes: 10, AllocatedKnown: true, ModifiedAt: now.Add(-2 * time.Hour), GenerationCreatedAt: now.Add(-2 * time.Hour), GenerationProvenance: "catalog", Generation: digestOf('d'), ContentSHA256: digestOf('1'), Verified: true, VerificationDigest: digestOf('e')},
-			{Identity: digestOf('b'), RelativePath: "b.db", Device: 1, Inode: 2, LinkCount: 1, LogicalBytes: 10, AllocatedBytes: 10, AllocatedKnown: true, ModifiedAt: now.Add(-time.Hour), GenerationCreatedAt: now.Add(-time.Hour), GenerationProvenance: "catalog", Generation: digestOf('d'), ContentSHA256: digestOf('2'), Verified: true, VerificationDigest: digestOf('f')},
+			{Identity: digestOf('a'), RelativePath: "a.db", Device: 1, Inode: 1, LinkCount: 1, LogicalBytes: 10, AllocatedBytes: 10, AllocatedKnown: true, ModifiedAt: now.Add(-2 * time.Hour), GenerationCreatedAt: now.Add(-2 * time.Hour), GenerationProvenance: "catalog", Generation: digestOf('d'), ContentSHA256: digestOf('1'), Verified: true, VerificationDigest: digestOf('e'), MetadataRelativePath: apptypes.BackupRetentionManifestName("a.db"), MetadataSHA256: digestOf('3')},
+			{Identity: digestOf('b'), RelativePath: "b.db", Device: 1, Inode: 2, LinkCount: 1, LogicalBytes: 10, AllocatedBytes: 10, AllocatedKnown: true, ModifiedAt: now.Add(-time.Hour), GenerationCreatedAt: now.Add(-time.Hour), GenerationProvenance: "catalog", Generation: digestOf('d'), ContentSHA256: digestOf('2'), Verified: true, VerificationDigest: digestOf('f'), MetadataRelativePath: apptypes.BackupRetentionManifestName("b.db"), MetadataSHA256: digestOf('4')},
 		},
 	}
 }

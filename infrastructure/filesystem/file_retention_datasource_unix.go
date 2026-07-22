@@ -105,7 +105,7 @@ func (datasource *FileRetentionDatasource) inspectFileRetentionEntries(
 	}
 	sort.Slice(dirEntries, func(i, j int) bool { return dirEntries[i].Name() < dirEntries[j].Name() })
 	result := make([]apptypes.FileRetentionInventoryEntry, 0, len(dirEntries))
-	backupManifests := map[string]apptypes.BackupRetentionManifest{}
+	backupManifests := map[string]backupRetentionManifestEvidence{}
 	if request.Class == "backup" {
 		var blockers []apptypes.FileRetentionInventoryEntry
 		backupManifests, blockers = readBackupRetentionManifests(rootFD, dirEntries, rootIdentity)
@@ -145,8 +145,8 @@ func readBackupRetentionManifests(
 	rootFD int,
 	dirEntries []os.DirEntry,
 	rootIdentity string,
-) (map[string]apptypes.BackupRetentionManifest, []apptypes.FileRetentionInventoryEntry) {
-	manifests := make(map[string]apptypes.BackupRetentionManifest)
+) (map[string]backupRetentionManifestEvidence, []apptypes.FileRetentionInventoryEntry) {
+	manifests := make(map[string]backupRetentionManifestEvidence)
 	var blockers []apptypes.FileRetentionInventoryEntry
 	for _, dirEntry := range dirEntries {
 		name := dirEntry.Name()
@@ -155,9 +155,10 @@ func readBackupRetentionManifests(
 		}
 		var manifest apptypes.BackupRetentionManifest
 		exists, err := readRootJSON(rootFD, name, &manifest)
+		manifestBytes, bytesErr := readRootFile(rootFD, name)
 		validDigest := len(manifest.BackupSHA256) == 64 && manifest.RelativePath != "" && filepath.Base(manifest.RelativePath) == manifest.RelativePath && name == apptypes.BackupRetentionManifestName(manifest.RelativePath)
 		createdAt, timeErr := time.Parse(time.RFC3339Nano, manifest.CreatedAt)
-		if err != nil || !exists || manifest.SchemaVersion != apptypes.BackupRetentionManifestSchema || !validDigest || len(manifest.SourceLineage) != 64 || timeErr != nil {
+		if err != nil || bytesErr != nil || !exists || manifest.SchemaVersion != apptypes.BackupRetentionManifestSchema || !validDigest || len(manifest.SourceLineage) != 64 || timeErr != nil {
 			digest := sha256HexString("invalid-backup-manifest:" + name)
 			blockers = append(blockers, apptypes.FileRetentionInventoryEntry{
 				Identity: sha256HexString(rootIdentity + ":invalid-backup-manifest:" + name), RelativePath: name,
@@ -167,7 +168,7 @@ func readBackupRetentionManifests(
 			continue
 		}
 		manifest.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		manifests[manifest.RelativePath] = manifest
+		manifests[manifest.RelativePath] = backupRetentionManifestEvidence{manifest: manifest, name: name, digest: sha256HexBytes(manifestBytes)}
 	}
 	return manifests, blockers
 }
@@ -178,7 +179,7 @@ func (datasource *FileRetentionDatasource) inspectFileRetentionEntry(
 	rootIdentity string,
 	request apptypes.FileRetentionInventoryRequest,
 	liveGeneration string,
-	backupManifests map[string]apptypes.BackupRetentionManifest,
+	backupManifests map[string]backupRetentionManifestEvidence,
 	name string,
 ) (apptypes.FileRetentionInventoryEntry, error) {
 	entry := apptypes.FileRetentionInventoryEntry{RelativePath: name, AllocatedKnown: true}
@@ -253,16 +254,26 @@ func (datasource *FileRetentionDatasource) inspectFileRetentionEntry(
 	entry.GenerationProvenance = verification.provenance
 	entry.VerificationReason = verification.reason
 	entry.VerificationDigest = verification.digest
+	entry.MetadataRelativePath = verification.metadataRelativePath
+	entry.MetadataSHA256 = verification.metadataSHA256
 	return entry, nil
 }
 
 type fileRetentionVerification struct {
-	verified   bool
-	generation string
-	createdAt  time.Time
-	provenance string
-	reason     string
-	digest     string
+	verified             bool
+	generation           string
+	createdAt            time.Time
+	provenance           string
+	reason               string
+	digest               string
+	metadataRelativePath string
+	metadataSHA256       string
+}
+
+type backupRetentionManifestEvidence struct {
+	manifest apptypes.BackupRetentionManifest
+	name     string
+	digest   string
 }
 
 type fileRetentionArchiveManifest struct {
@@ -346,12 +357,13 @@ func verifyFileRetentionBackup(
 	contentDigest string,
 	modifiedAt time.Time,
 	liveGeneration string,
-	manifests map[string]apptypes.BackupRetentionManifest,
+	manifests map[string]backupRetentionManifestEvidence,
 ) fileRetentionVerification {
-	manifest, exists := manifests[name]
+	evidence, exists := manifests[name]
 	if !exists {
 		return fileRetentionVerification{generation: sha256HexString("backup-unverified:" + name), createdAt: modifiedAt.UTC(), provenance: "filesystem_mtime", reason: "backup_manifest_missing"}
 	}
+	manifest := evidence.manifest
 	generation, integrity, err := sqliteFileRetentionGenerationFromFD(fileFD)
 	if err != nil {
 		return fileRetentionVerification{generation: sha256HexString("backup-unverified:" + name), provenance: "sqlite", reason: "invalid_sqlite_backup"}
@@ -370,6 +382,7 @@ func verifyFileRetentionBackup(
 	return fileRetentionVerification{
 		verified: verified, generation: manifest.SourceLineage, createdAt: createdAt.UTC(), provenance: "backup_manifest",
 		reason: reason, digest: sha256HexString(generation + ":" + integrity + ":" + manifest.SourceLineage + ":" + contentDigest),
+		metadataRelativePath: evidence.name, metadataSHA256: evidence.digest,
 	}
 }
 
@@ -684,6 +697,26 @@ func (datasource *FileRetentionDatasource) resumeFileRetentionCandidate(
 				return err
 			}
 		case "tombstone_unlinked":
+			entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
+			nextState := "catalog_commit_intent"
+			if entry.MetadataRelativePath != "" {
+				nextState = "metadata_unlink_intent"
+			}
+			if err := datasource.advanceFileRetentionJournal(rootFD, journalName, journal, nextState); err != nil {
+				return err
+			}
+		case "metadata_unlink_intent":
+			entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
+			if err := verifyAndUnlinkFileRetentionMetadata(rootFD, rootStat, entry); err != nil {
+				return err
+			}
+			if err := datasource.boundary("metadata-unlinked"); err != nil {
+				return err
+			}
+			if err := datasource.advanceFileRetentionJournal(rootFD, journalName, journal, "metadata_unlinked"); err != nil {
+				return err
+			}
+		case "metadata_unlinked":
 			if err := datasource.advanceFileRetentionJournal(rootFD, journalName, journal, "catalog_commit_intent"); err != nil {
 				return err
 			}
@@ -775,7 +808,7 @@ func (datasource *FileRetentionDatasource) verifyFileRetentionPlanSnapshot(
 
 func fileRetentionJournalOwnsCandidate(state string) bool {
 	switch state {
-	case "tombstone_intent", "tombstoned", "unlink_original_intent", "original_unlinked", "unlink_tombstone_intent", "tombstone_unlinked", "catalog_commit_intent", "ledger_recorded", "catalog_deleted", "committed":
+	case "tombstone_intent", "tombstoned", "unlink_original_intent", "original_unlinked", "unlink_tombstone_intent", "tombstone_unlinked", "metadata_unlink_intent", "metadata_unlinked", "catalog_commit_intent", "ledger_recorded", "catalog_deleted", "committed":
 		return true
 	default:
 		return false
@@ -853,6 +886,37 @@ func unlinkFileRetentionName(rootFD int, name string) error {
 	return nil
 }
 
+func verifyAndUnlinkFileRetentionMetadata(rootFD int, rootStat unix.Stat_t, entry apptypes.FileRetentionInventoryPlan) error {
+	if entry.MetadataRelativePath == "" || entry.MetadataSHA256 == "" {
+		return xerrors.New("file retention metadata identity is missing")
+	}
+	fd, err := unix.Openat(rootFD, entry.MetadataRelativePath, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("open file retention metadata: %w", err)
+	}
+	file := os.NewFile(uintptr(fd), entry.MetadataRelativePath)
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		_ = file.Close()
+		return xerrors.Errorf("stat file retention metadata: %w", err)
+	}
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return xerrors.Errorf("read file retention metadata: %w", readErr)
+	}
+	if closeErr != nil {
+		return xerrors.Errorf("close file retention metadata: %w", closeErr)
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1 || stat.Dev != rootStat.Dev || sha256HexBytes(data) != entry.MetadataSHA256 {
+		return xerrors.New("file retention metadata identity changed")
+	}
+	return unlinkFileRetentionName(rootFD, entry.MetadataRelativePath)
+}
+
 func (datasource *FileRetentionDatasource) advanceFileRetentionJournal(rootFD int, name string, journal *fileRetentionJournal, state string) error {
 	journal.Sequence++
 	journal.State = state
@@ -917,28 +981,40 @@ func readFileRetentionJournal(rootFD int, name string) (fileRetentionJournal, bo
 }
 
 func readRootJSON(rootFD int, name string, target any) (bool, error) {
-	fd, err := unix.Openat(rootFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	data, err := readRootFile(rootFD, name)
 	if errors.Is(err, unix.ENOENT) {
 		return false, nil
 	}
 	if err != nil {
-		return false, xerrors.Errorf("open file retention state %s: %w", name, err)
-	}
-	file := os.NewFile(uintptr(fd), name)
-	data, readErr := io.ReadAll(file)
-	closeErr := file.Close()
-	if readErr != nil {
-		return false, xerrors.Errorf("read file retention state %s: %w", name, readErr)
-	}
-	if closeErr != nil {
-		return false, xerrors.Errorf("close file retention state %s: %w", name, closeErr)
+		return false, err
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return false, xerrors.Errorf("decode file retention state %s: %w", name, err)
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return false, xerrors.Errorf("file retention state %s has trailing JSON", name)
+	}
 	return true, nil
+}
+
+func readRootFile(rootFD int, name string) ([]byte, error) {
+	fd, err := unix.Openat(rootFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, xerrors.Errorf("open file retention state %s: %w", name, err)
+	}
+	file := os.NewFile(uintptr(fd), name)
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return nil, xerrors.Errorf("read file retention state %s: %w", name, readErr)
+	}
+	if closeErr != nil {
+		return nil, xerrors.Errorf("close file retention state %s: %w", name, closeErr)
+	}
+	return data, nil
 }
 
 func writeRootJSON(rootFD int, name string, value any) error {

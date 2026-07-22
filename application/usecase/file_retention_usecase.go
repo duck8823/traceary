@@ -188,6 +188,7 @@ func fileRetentionInventoryPlan(entry apptypes.FileRetentionInventoryEntry, prot
 		ModifiedAt: entry.ModifiedAt.UTC().Format(time.RFC3339Nano), GenerationCreatedAt: entry.GenerationCreatedAt.UTC().Format(time.RFC3339Nano),
 		GenerationProvenance: entry.GenerationProvenance, Generation: entry.Generation, ContentSHA256: entry.ContentSHA256,
 		Verified: entry.Verified, VerificationDigest: entry.VerificationDigest, VerificationReason: entry.VerificationReason,
+		MetadataRelativePath: entry.MetadataRelativePath, MetadataSHA256: entry.MetadataSHA256,
 		Pinned: entry.Pinned, Protected: protected, BlockingReason: entry.BlockingReason,
 	}
 }

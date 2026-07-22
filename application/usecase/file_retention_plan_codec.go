@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -251,6 +253,13 @@ func validateFileRetentionClassOrder(classPlan apptypes.FileRetentionClassPlan) 
 			return xerrors.New("duplicate file retention inventory identity")
 		}
 		inventoryIDs[entry.Identity] = entry
+		if entry.MetadataRelativePath != "" {
+			if classPlan.Class != "backup" || filepath.Base(entry.MetadataRelativePath) != entry.MetadataRelativePath || !strings.HasPrefix(entry.MetadataRelativePath, apptypes.BackupRetentionManifestPrefix) || !lowerHexDigest.MatchString(entry.MetadataSHA256) {
+				return xerrors.New("invalid file retention metadata identity")
+			}
+		} else if entry.MetadataSHA256 != "" || (classPlan.Class == "backup" && entry.Verified) {
+			return xerrors.New("verified backup retention inventory requires exact metadata")
+		}
 	}
 	if classPlan.Status != "satisfied" && (len(classPlan.Candidates) != 0 || len(classPlan.Batches) != 0) {
 		return xerrors.New("non-satisfied file retention class must not contain apply batches")

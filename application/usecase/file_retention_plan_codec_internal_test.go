@@ -43,6 +43,7 @@ func fileRetentionCodecEntry(path, identity, digest, generation string, createdA
 		LogicalBytes: 10, AllocatedBytes: 10, AllocatedKnown: true, ModifiedAt: createdAt,
 		GenerationCreatedAt: createdAt, GenerationProvenance: "backup_manifest", Generation: generation,
 		ContentSHA256: digest, Verified: true, VerificationDigest: repeatedFileRetentionHex('e'),
+		MetadataRelativePath: apptypes.BackupRetentionManifestName(path), MetadataSHA256: repeatedFileRetentionHex('f'),
 	}
 }
 
