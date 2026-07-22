@@ -134,6 +134,9 @@ func queryReportSessionPage(ctx context.Context, tx *sql.Tx, criteria apptypes.R
 		criteria.Workspace().String(), criteria.Workspace().String(),
 		criteria.Client().String(), criteria.Client().String(),
 		from, from, to, to, limit, offset,
+		criteria.Workspace().String(), criteria.Workspace().String(),
+		criteria.Client().String(), criteria.Client().String(),
+		from, from, to, to,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query report session page: %w", err)

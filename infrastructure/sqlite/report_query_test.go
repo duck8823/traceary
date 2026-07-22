@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -83,5 +84,85 @@ func TestReportDatasource_LoadReportWindowSeparatesPageSizeAndResultCap(t *testi
 	}
 	if complete.Extents.Sessions.Coverage != apptypes.ReportCoverageComplete || complete.Extents.Events.Coverage != apptypes.ReportCoverageComplete || complete.Extents.Commands.Coverage != apptypes.ReportCoverageComplete {
 		t.Fatalf("complete extents = %+v", complete.Extents)
+	}
+}
+
+func TestReportDatasource_SessionTotalsUseTheSameHalfOpenIntervalAndFilters(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	events := sqlite.NewEventDatasource(db)
+	sessions := sqlite.NewSessionDatasource(db)
+	store := sqlite.NewStoreManagementDatasource(db)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessionUsecase := usecase.NewSessionUsecase(events, sessions, sessions, events)
+	eventUsecase := usecase.NewEventUsecase(events, events)
+	sessionID := types.SessionID("report-filter-session")
+	started, err := sessionUsecase.Start(ctx, "codex", "codex", sessionID, "workspace", "")
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	auditEvent, _, err := eventUsecase.Audit(ctx, apptypes.AuditInput{
+		Command: "go test ./...", Client: "codex", Agent: "codex",
+		SessionID: sessionID, Workspace: "workspace", ExitCode: types.Some(0),
+		FailureReason: types.CommandFailureReasonNone,
+	}, apptypes.NewAuditRedactionBuilder().Build())
+	if err != nil {
+		t.Fatalf("Audit() error = %v", err)
+	}
+	otherClient, err := eventUsecase.Log(
+		ctx, "other client", types.EventKindNote, "claude", "claude",
+		sessionID, "workspace", apptypes.NewLogRedactionBuilder().Build(),
+	)
+	if err != nil {
+		t.Fatalf("Log() error = %v", err)
+	}
+
+	from := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	to := from.Add(time.Hour)
+	conn, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, "UPDATE sessions SET started_at = ? WHERE session_id = ?", from.Format(time.RFC3339Nano), sessionID.String()); err != nil {
+		t.Fatalf("update session timestamp: %v", err)
+	}
+	updates := []struct {
+		id types.EventID
+		at time.Time
+	}{
+		{id: started.EventID(), at: from},
+		{id: auditEvent.EventID(), at: to},
+		{id: otherClient.EventID(), at: from.Add(30 * time.Minute)},
+	}
+	for _, update := range updates {
+		if _, err := conn.ExecContext(ctx, "UPDATE events SET created_at = ? WHERE id = ?", update.at.Format(time.RFC3339Nano), update.id.String()); err != nil {
+			t.Fatalf("update event %s timestamp: %v", update.id, err)
+		}
+	}
+
+	criteria, err := apptypes.ReportCriteriaFrom(
+		from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano), "UTC", to,
+		"workspace", "codex", 1, 0,
+	)
+	if err != nil {
+		t.Fatalf("ReportCriteriaFrom() error = %v", err)
+	}
+	window, err := sqlite.NewReportDatasource(db).LoadReportWindow(ctx, criteria)
+	if err != nil {
+		t.Fatalf("LoadReportWindow() error = %v", err)
+	}
+	if len(window.Sessions) != 1 || window.Sessions[0].TotalEvents != 1 || window.Sessions[0].CommandCount != 0 {
+		t.Fatalf("session rows = %+v, want one in-filter boundary event", window.Sessions)
+	}
+	if len(window.Events) != 1 || window.Events[0].EventID() != started.EventID() {
+		t.Fatalf("event rows = %+v, want from-inclusive codex event only", window.Events)
+	}
+	if len(window.Commands) != 0 {
+		t.Fatalf("command rows = %+v, want to-exclusive audit omitted", window.Commands)
 	}
 }

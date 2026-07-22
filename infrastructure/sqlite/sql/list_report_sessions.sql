@@ -13,6 +13,10 @@ WITH filtered_sessions AS (
            SUM(CASE WHEN e.kind = 'command_executed' THEN 1 ELSE 0 END) AS command_count
       FROM events e
       JOIN filtered_sessions fs ON fs.session_id = e.session_id
+     WHERE (? = '' OR e.workspace = ?)
+       AND (? = '' OR e.client = ?)
+       AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
+       AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
      GROUP BY e.session_id
 )
 SELECT fs.client,
