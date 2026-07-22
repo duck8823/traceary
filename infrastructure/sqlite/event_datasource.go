@@ -804,8 +804,13 @@ func restoreEvent(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore created_at: %w", err)
 	}
+	bodyAvailability := types.BodyAvailabilityAvailable
+	if bodyValue == types.EventBodyUnavailableRetentionMarker {
+		bodyAvailability = types.BodyAvailabilityUnavailableRetention
+		bodyValue = ""
+	}
 
-	return model.EventOfWithSourceHook(
+	return model.EventOfWithBodyAvailabilityAndSourceHook(
 		eventID,
 		eventKind,
 		types.Client(clientValue),
@@ -813,6 +818,7 @@ func restoreEvent(
 		sessionID,
 		types.Workspace(repoValue),
 		bodyValue,
+		bodyAvailability,
 		createdAt,
 		sourceHookValue,
 	), nil

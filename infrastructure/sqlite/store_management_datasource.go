@@ -61,7 +61,8 @@ var updateStaleSessionsQuery string
 // StoreManagementDatasource provides store lifecycle and maintenance
 // operations backed by SQLite.
 type StoreManagementDatasource struct {
-	db *Database
+	db              *Database
+	onRawBodyPruned func(index int) error
 }
 
 // NewStoreManagementDatasource creates a new StoreManagementDatasource

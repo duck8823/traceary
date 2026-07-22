@@ -6,6 +6,11 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
+// SetRawBodyPrunedHookForTest injects an interruption after a candidate write.
+func (d *StoreManagementDatasource) SetRawBodyPrunedHookForTest(hook func(index int) error) {
+	d.onRawBodyPruned = hook
+}
+
 // SetListWindowBatchHookForTest installs a hook that fires once per internal
 // paged read performed by ListWindow. Tests use it to assert the scan loop
 // actually issues multiple batches rather than returning all rows in a single
