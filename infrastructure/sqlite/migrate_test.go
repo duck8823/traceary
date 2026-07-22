@@ -70,7 +70,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	tables := []string{"events", "command_audits", "sessions", "schema_migrations"}
+	tables := []string{"events", "command_audits", "sessions", "usage_observations", "schema_migrations"}
 	for _, table := range tables {
 		var count int
 		if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count); err != nil {
@@ -92,6 +92,53 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	}
 
 	assertSessionSpawnMetadataSchema(t, db)
+}
+
+func TestMigrations_usageObservationsAreAdditiveAndPreserveExistingRows(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	preV027 := onDiskSQLiteMigrationsBefore(t, 27)
+	store := newStoreManagementDatasource(t, dbPath, preV027)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-v027) error = %v", err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, client, agent, workspace, label, summary, model, runtime_mode)
+		VALUES ('existing-session', '2026-07-23T10:00:00Z', 'hook', 'codex', '/repo', 'keep-label', 'keep-summary', 'model-1', 'interactive')`); err != nil {
+		t.Fatalf("insert existing session: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO events(id, kind, agent, session_id, body, created_at, client, workspace, body_availability)
+		VALUES ('existing-event', 'note', 'codex', 'existing-session', 'keep-body', '2026-07-23T10:01:00Z', 'hook', '/repo', 'available')`); err != nil {
+		t.Fatalf("insert existing event: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(v027) error = %v", err)
+	}
+	db, err = sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var label, summary, body string
+	if err := db.QueryRow(`SELECT label, summary FROM sessions WHERE session_id = 'existing-session'`).Scan(&label, &summary); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT body FROM events WHERE id = 'existing-event'`).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	if label != "keep-label" || summary != "keep-summary" || body != "keep-body" {
+		t.Fatalf("existing rows changed: label=%q summary=%q body=%q", label, summary, body)
+	}
 }
 
 func TestMigrations_hookDeliveryAttemptsBackfillBodyFreeDenominator(t *testing.T) {

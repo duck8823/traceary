@@ -4,8 +4,8 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// Portability covers all five tables — events, sessions, command_audits,
-// memories, and memory_edges — see docs/operations/cross-machine-handoff
+// Portability covers events, sessions, command_audits, memories, memory_edges,
+// and usage_observations — see docs/operations/cross-machine-handoff
 // for the operator guide.
 package usecase
 
@@ -160,6 +160,10 @@ type BundleImportResult struct {
 	// newly written vs skipped due to idempotency or orphan-edge tolerance.
 	MemoryEdgesImported int
 	MemoryEdgesSkipped  int
+	// UsageObservationsImported / UsageObservationsSkipped count durable usage
+	// observations restored vs retained as exact or policy-selected duplicates.
+	UsageObservationsImported int
+	UsageObservationsSkipped  int
 	// BundleSchemaVersion is the schema_migrations version the
 	// archive carried at Export time.
 	BundleSchemaVersion int
@@ -228,6 +232,8 @@ type BundleEventRepository interface {
 	ListBundleMemories(ctx context.Context) ([]apptypes.MemoryDetails, error)
 	// ListBundleMemoryEdges returns all memory graph edges for bundle export.
 	ListBundleMemoryEdges(ctx context.Context) ([]*model.MemoryEdge, error)
+	// ListBundleUsageObservations returns all provider-neutral usage evidence.
+	ListBundleUsageObservations(ctx context.Context) ([]*model.UsageObservation, error)
 	// BeginBundleImport starts the single transaction used by all table
 	// importers in registry order.
 	BeginBundleImport(ctx context.Context) (BundleImportTransaction, error)
@@ -243,6 +249,7 @@ type BundleImportTransaction interface {
 	MemoryExists(ctx context.Context, memoryID types.MemoryID) (bool, error)
 	MemoryEdgeExists(ctx context.Context, edgeID types.MemoryEdgeID) (bool, error)
 	ImportMemoryEdge(ctx context.Context, edge *model.MemoryEdge, policy BundleConflictPolicy) (bool, error)
+	ImportUsageObservation(ctx context.Context, observation *model.UsageObservation, policy BundleConflictPolicy) (bool, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
 }
@@ -306,6 +313,11 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	if err != nil {
 		return xerrors.Errorf("failed to list memory edges for bundle: %w", err)
 	}
+	usageObservations, err := u.repository.ListBundleUsageObservations(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to list usage observations for bundle: %w", err)
+	}
+	usageObservations = filterUsageObservationsForBundleExport(usageObservations, sessions, opts)
 
 	registry := u.bundleTableRegistry()
 	sessionsImporter := registry["sessions"]
@@ -334,6 +346,11 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	memoryEdgesBuf, err := memoryEdgesImporter.Export(ctx, bundleExportInputRows{MemoryEdges: memoryEdges})
 	if err != nil {
 		return xerrors.Errorf("failed to encode memory edges: %w", err)
+	}
+	usageObservationsImporter := registry["usage_observations"]
+	usageObservationsBuf, err := usageObservationsImporter.Export(ctx, bundleExportInputRows{UsageObservations: usageObservations})
+	if err != nil {
+		return xerrors.Errorf("failed to encode usage observations: %w", err)
 	}
 
 	manifest := bundleManifest{
@@ -383,6 +400,12 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 				RowCount:  len(memoryEdges),
 				Checksum:  hashSHA256(memoryEdgesBuf.Bytes()),
 			},
+			"usage_observations": {
+				TableName: "usage_observations",
+				File:      usageObservationsImporter.FileName(),
+				RowCount:  len(usageObservations),
+				Checksum:  hashSHA256(usageObservationsBuf.Bytes()),
+			},
 		},
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -391,12 +414,13 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	}
 
 	plaintext, err := encodeTarGz(map[string][]byte{
-		"manifest.json":         manifestBytes,
-		"sessions.ndjson":       sessionsBuf.Bytes(),
-		"events.ndjson":         eventsBuf.Bytes(),
-		"command_audits.ndjson": commandAuditsBuf.Bytes(),
-		"memories.ndjson":       memoriesBuf.Bytes(),
-		"memory_edges.ndjson":   memoryEdgesBuf.Bytes(),
+		"manifest.json":             manifestBytes,
+		"sessions.ndjson":           sessionsBuf.Bytes(),
+		"events.ndjson":             eventsBuf.Bytes(),
+		"command_audits.ndjson":     commandAuditsBuf.Bytes(),
+		"memories.ndjson":           memoriesBuf.Bytes(),
+		"memory_edges.ndjson":       memoryEdgesBuf.Bytes(),
+		"usage_observations.ndjson": usageObservationsBuf.Bytes(),
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to build tar.gz: %w", err)
@@ -523,6 +547,9 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		case "memory_edges":
 			result.MemoryEdgesImported += imported
 			result.MemoryEdgesSkipped += skipped
+		case "usage_observations":
+			result.UsageObservationsImported += imported
+			result.UsageObservationsSkipped += skipped
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -537,11 +564,12 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 type bundleRow any
 
 type bundleExportInputRows struct {
-	Sessions      []*model.Session
-	Events        []*model.Event
-	CommandAudits []*model.CommandAudit
-	Memories      []apptypes.MemoryDetails
-	MemoryEdges   []*model.MemoryEdge
+	Sessions          []*model.Session
+	Events            []*model.Event
+	CommandAudits     []*model.CommandAudit
+	Memories          []apptypes.MemoryDetails
+	MemoryEdges       []*model.MemoryEdge
+	UsageObservations []*model.UsageObservation
 }
 
 type bundleImportPolicy struct {

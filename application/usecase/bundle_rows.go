@@ -4,8 +4,8 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// Portability covers all five tables — events, sessions, command_audits,
-// memories, and memory_edges — see docs/operations/cross-machine-handoff
+// Portability covers events, sessions, command_audits, memories, memory_edges,
+// and usage_observations — see docs/operations/cross-machine-handoff
 // for the operator guide.
 package usecase
 
@@ -162,6 +162,222 @@ type bundleCommandAuditRow struct {
 	ExitCode            *int   `json:"exit_code,omitempty"`
 	Failed              bool   `json:"failed,omitempty"`
 	FailureReason       string `json:"failure_reason"`
+}
+
+type bundleUsageObservationRow struct {
+	ObservationID         string `json:"observation_id"`
+	SessionID             string `json:"session_id"`
+	Host                  string `json:"host"`
+	SourceName            string `json:"source_name"`
+	SourceVersion         string `json:"source_version"`
+	Provider              string `json:"provider,omitempty"`
+	Model                 string `json:"model,omitempty"`
+	Scope                 string `json:"scope"`
+	Accounting            string `json:"accounting"`
+	Status                string `json:"status"`
+	ObservedAt            string `json:"observed_at"`
+	FinalizedAt           string `json:"finalized_at,omitempty"`
+	TerminalCode          string `json:"terminal_code,omitempty"`
+	InputState            string `json:"input_state"`
+	InputTokens           *int64 `json:"input_tokens,omitempty"`
+	CachedInputState      string `json:"cached_input_state"`
+	CachedInputTokens     *int64 `json:"cached_input_tokens,omitempty"`
+	CacheWriteInputState  string `json:"cache_write_input_state"`
+	CacheWriteInputTokens *int64 `json:"cache_write_input_tokens,omitempty"`
+	OutputState           string `json:"output_state"`
+	OutputTokens          *int64 `json:"output_tokens,omitempty"`
+	ReasoningOutputState  string `json:"reasoning_output_state"`
+	ReasoningOutputTokens *int64 `json:"reasoning_output_tokens,omitempty"`
+	TotalState            string `json:"total_state"`
+	TotalTokens           *int64 `json:"total_tokens,omitempty"`
+	CostState             string `json:"cost_state"`
+	CostAmountMicros      *int64 `json:"cost_amount_micros,omitempty"`
+	CostCurrency          string `json:"cost_currency,omitempty"`
+	CostOrigin            string `json:"cost_origin,omitempty"`
+	PriceTableVersion     string `json:"price_table_version,omitempty"`
+	SnapshotSeries        string `json:"snapshot_series,omitempty"`
+	SnapshotRevision      *int64 `json:"snapshot_revision,omitempty"`
+	SupersedesID          string `json:"supersedes_id,omitempty"`
+}
+
+func bundleUsageObservationRowFromModel(observation *model.UsageObservation) bundleUsageObservationRow {
+	descriptor := observation.Descriptor()
+	source := descriptor.Source()
+	counters := observation.Counters()
+	cost := observation.Cost()
+	row := bundleUsageObservationRow{
+		ObservationID: descriptor.ObservationID().String(), SessionID: descriptor.SessionID().String(),
+		Host: source.Host(), SourceName: source.Name(), SourceVersion: source.Version(),
+		Provider: source.Provider(), Model: source.Model(), Scope: descriptor.Scope().String(),
+		Accounting: descriptor.Accounting().String(), Status: observation.Status().String(),
+		ObservedAt: descriptor.ObservedAt().UTC().Format(time.RFC3339Nano),
+		InputState: counters.Input().State().String(), InputTokens: bundleUsageValuePointer(counters.Input()),
+		CachedInputState: counters.CachedInput().State().String(), CachedInputTokens: bundleUsageValuePointer(counters.CachedInput()),
+		CacheWriteInputState: counters.CacheWriteInput().State().String(), CacheWriteInputTokens: bundleUsageValuePointer(counters.CacheWriteInput()),
+		OutputState: counters.Output().State().String(), OutputTokens: bundleUsageValuePointer(counters.Output()),
+		ReasoningOutputState: counters.ReasoningOutput().State().String(), ReasoningOutputTokens: bundleUsageValuePointer(counters.ReasoningOutput()),
+		TotalState: counters.Total().State().String(), TotalTokens: bundleUsageValuePointer(counters.Total()),
+		CostState: cost.State().String(), CostCurrency: cost.Currency(), CostOrigin: cost.Origin().String(),
+		PriceTableVersion: cost.PriceTableVersion(), SnapshotSeries: descriptor.SnapshotSeries(),
+	}
+	if value, present := cost.AmountMicros(); present {
+		row.CostAmountMicros = &value
+	}
+	if value, present := observation.FinalizedAt().Value(); present {
+		row.FinalizedAt = value.UTC().Format(time.RFC3339Nano)
+	}
+	if value, present := observation.TerminalCode().Value(); present {
+		row.TerminalCode = value.String()
+	}
+	if descriptor.SnapshotRevision() > 0 {
+		value := descriptor.SnapshotRevision()
+		row.SnapshotRevision = &value
+	}
+	if value, present := descriptor.SupersedesID().Value(); present {
+		row.SupersedesID = value.String()
+	}
+	return row
+}
+
+func bundleUsageValuePointer(value types.UsageValue) *int64 {
+	if numeric, present := value.Value(); present {
+		return &numeric
+	}
+	return nil
+}
+
+func (r bundleUsageObservationRow) toUsageObservation() (*model.UsageObservation, error) {
+	id, err := types.UsageObservationIDFrom(r.ObservationID)
+	if err != nil {
+		return nil, xerrors.Errorf("observation_id: %w", err)
+	}
+	sessionID, err := types.SessionIDFrom(r.SessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("session_id: %w", err)
+	}
+	source, err := types.UsageSourceOf(r.Host, r.SourceName, r.SourceVersion, r.Provider, r.Model)
+	if err != nil {
+		return nil, xerrors.Errorf("source: %w", err)
+	}
+	scope, err := types.UsageScopeFrom(r.Scope)
+	if err != nil {
+		return nil, xerrors.Errorf("scope: %w", err)
+	}
+	accounting, err := types.UsageAccountingFrom(r.Accounting)
+	if err != nil {
+		return nil, xerrors.Errorf("accounting: %w", err)
+	}
+	observedAt, err := time.Parse(time.RFC3339Nano, r.ObservedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("observed_at: %w", err)
+	}
+	var descriptor model.UsageObservationDescriptor
+	if scope == types.UsageScopeSessionSnapshot {
+		if r.SnapshotRevision == nil {
+			return nil, xerrors.Errorf("snapshot_revision is required for a session snapshot")
+		}
+		predecessor := types.None[types.UsageObservationID]()
+		if r.SupersedesID != "" {
+			value, err := types.UsageObservationIDFrom(r.SupersedesID)
+			if err != nil {
+				return nil, xerrors.Errorf("supersedes_id: %w", err)
+			}
+			predecessor = types.Some(value)
+		}
+		descriptor, err = model.NewUsageSnapshotDescriptor(id, sessionID, source, r.SnapshotSeries, *r.SnapshotRevision, predecessor, observedAt)
+	} else {
+		descriptor, err = model.NewUsageObservationDescriptor(id, sessionID, source, scope, accounting, observedAt)
+	}
+	if err != nil {
+		return nil, xerrors.Errorf("descriptor: %w", err)
+	}
+	values := []struct {
+		name  string
+		state string
+		value *int64
+	}{
+		{"input", r.InputState, r.InputTokens}, {"cached_input", r.CachedInputState, r.CachedInputTokens},
+		{"cache_write_input", r.CacheWriteInputState, r.CacheWriteInputTokens}, {"output", r.OutputState, r.OutputTokens},
+		{"reasoning_output", r.ReasoningOutputState, r.ReasoningOutputTokens}, {"total", r.TotalState, r.TotalTokens},
+	}
+	restored := make([]types.UsageValue, 0, len(values))
+	for _, item := range values {
+		optional := types.None[int64]()
+		if item.value != nil {
+			optional = types.Some(*item.value)
+		}
+		value, err := types.UsageValueFrom(item.state, optional)
+		if err != nil {
+			return nil, xerrors.Errorf("%s usage: %w", item.name, err)
+		}
+		restored = append(restored, value)
+	}
+	counters, err := types.UsageCountersOf(restored[0], restored[1], restored[2], restored[3], restored[4], restored[5])
+	if err != nil {
+		return nil, xerrors.Errorf("counters: %w", err)
+	}
+	costAmount := types.None[int64]()
+	if r.CostAmountMicros != nil {
+		costAmount = types.Some(*r.CostAmountMicros)
+	}
+	cost, err := types.UsageCostFrom(r.CostState, costAmount, r.CostCurrency, r.CostOrigin, r.PriceTableVersion)
+	if err != nil {
+		return nil, xerrors.Errorf("cost: %w", err)
+	}
+	status, err := types.UsageObservationStatusFrom(r.Status)
+	if err != nil {
+		return nil, xerrors.Errorf("status: %w", err)
+	}
+	terminal := types.None[types.UsageTerminalCode]()
+	if r.TerminalCode != "" {
+		value, err := types.UsageTerminalCodeFrom(r.TerminalCode)
+		if err != nil {
+			return nil, xerrors.Errorf("terminal_code: %w", err)
+		}
+		terminal = types.Some(value)
+	}
+	finalizedAt := types.None[time.Time]()
+	if r.FinalizedAt != "" {
+		value, err := time.Parse(time.RFC3339Nano, r.FinalizedAt)
+		if err != nil {
+			return nil, xerrors.Errorf("finalized_at: %w", err)
+		}
+		finalizedAt = types.Some(value)
+	}
+	observation, err := model.UsageObservationOf(descriptor, status, counters, cost, terminal, finalizedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("aggregate: %w", err)
+	}
+	return observation, nil
+}
+
+func sortBundleUsageObservationRows(rows []bundleRow) ([]bundleUsageObservationRow, error) {
+	observations := make([]bundleUsageObservationRow, 0, len(rows))
+	for _, generic := range rows {
+		row, ok := generic.(bundleUsageObservationRow)
+		if !ok {
+			return nil, xerrors.Errorf("unexpected usage_observations row type %T", generic)
+		}
+		observations = append(observations, row)
+	}
+	sort.Slice(observations, func(i, j int) bool {
+		if observations[i].SnapshotSeries != observations[j].SnapshotSeries {
+			return observations[i].SnapshotSeries < observations[j].SnapshotSeries
+		}
+		leftRevision := int64(0)
+		rightRevision := int64(0)
+		if observations[i].SnapshotRevision != nil {
+			leftRevision = *observations[i].SnapshotRevision
+		}
+		if observations[j].SnapshotRevision != nil {
+			rightRevision = *observations[j].SnapshotRevision
+		}
+		if leftRevision != rightRevision {
+			return leftRevision < rightRevision
+		}
+		return observations[i].ObservationID < observations[j].ObservationID
+	})
+	return observations, nil
 }
 
 type bundleRefRow struct {

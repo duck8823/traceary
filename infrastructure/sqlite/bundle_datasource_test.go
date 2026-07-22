@@ -208,3 +208,201 @@ func TestBundleDatasource_ImportSessionBackfillsMissingParent(t *testing.T) {
 		t.Fatalf("parent label = %q, want marker", got)
 	}
 }
+
+func TestBundleDatasource_UsageObservationsPreserveSnapshotChainAndRejectReplace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := sqlite.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bundles := sqlite.NewBundleDatasource(db, sqlite.NewEventDatasource(db))
+	source, err := types.UsageSourceOf("codex", "headless_stream", "0.31.0", "openai", "model-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	makeSnapshot := func(id string, revision int64, predecessor string, inputTokens int64) *model.UsageObservation {
+		observationID, err := types.UsageObservationIDFrom(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		supersedes := types.None[types.UsageObservationID]()
+		if predecessor != "" {
+			value, err := types.UsageObservationIDFrom(predecessor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			supersedes = types.Some(value)
+		}
+		descriptor, err := model.NewUsageSnapshotDescriptor(
+			observationID, types.SessionID("session-1"), source, "codex:session-1", revision, supersedes, ts.Add(time.Duration(revision)*time.Minute),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, err := types.KnownUsageValue(inputTokens)
+		if err != nil {
+			t.Fatal(err)
+		}
+		unavailable := types.UnavailableUsageValue()
+		counters, err := types.UsageCountersOf(input, unavailable, unavailable, unavailable, unavailable, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation, err := model.NewFinalizedUsageObservation(
+			descriptor, counters, types.UnavailableUsageCost(), types.UsageTerminalSuccess,
+			descriptor.ObservedAt().Add(time.Second),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return observation
+	}
+	root := makeSnapshot("usage-root", 1, "", 10)
+	successor := makeSnapshot("usage-successor", 2, "usage-root", 20)
+	tx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, observation := range []*model.UsageObservation{root, successor} {
+		imported, err := tx.ImportUsageObservation(ctx, observation, usecase.BundleConflictSkip)
+		if err != nil || !imported {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("ImportUsageObservation(%s) = %t/%v", observation.Descriptor().ObservationID(), imported, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := bundles.ListBundleUsageObservations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 || listed[0].Descriptor().ObservationID().String() != "usage-root" || listed[1].Descriptor().ObservationID().String() != "usage-successor" {
+		t.Fatalf("listed snapshot order = %#v", listed)
+	}
+
+	replayTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := replayTx.ImportUsageObservation(ctx, successor, usecase.BundleConflictSkip); err != nil || imported {
+		_ = replayTx.Rollback(ctx)
+		t.Fatalf("exact replay = %t/%v, want skipped", imported, err)
+	}
+	if err := replayTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	conflictTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = conflictTx.ImportUsageObservation(ctx, makeSnapshot("usage-successor", 2, "usage-root", 99), usecase.BundleConflictReplace)
+	if err == nil || !errors.Is(err, model.ErrConflictingUsageObservation) {
+		_ = conflictTx.Rollback(ctx)
+		t.Fatalf("conflicting replacement error = %v, want ErrConflictingUsageObservation", err)
+	}
+	if err := conflictTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	missingTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingID, _ := types.UsageObservationIDFrom("usage-missing-predecessor")
+	missingPredecessorID, _ := types.UsageObservationIDFrom("not-in-bundle-or-store")
+	missingDescriptor, err := model.NewUsageSnapshotDescriptor(
+		missingID, types.SessionID("session-1"), source, "missing-series", 3,
+		types.Some(missingPredecessorID), ts.Add(3*time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing, err := model.NewFinalizedUsageObservation(
+		missingDescriptor, root.Counters(), types.UnavailableUsageCost(), types.UsageTerminalSuccess,
+		missingDescriptor.ObservedAt().Add(time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := missingTx.ImportUsageObservation(ctx, missing, usecase.BundleConflictSkip); err == nil || imported {
+		_ = missingTx.Rollback(ctx)
+		t.Fatalf("missing predecessor import = %t/%v, want fail closed", imported, err)
+	}
+	if err := missingTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	missingWithHeadTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingWithHead := makeSnapshot("usage-missing-predecessor-with-head", 3, "absent-from-existing-series", 30)
+	if imported, err := missingWithHeadTx.ImportUsageObservation(ctx, missingWithHead, usecase.BundleConflictSkip); err == nil || imported {
+		_ = missingWithHeadTx.Rollback(ctx)
+		t.Fatalf("missing predecessor with destination head import = %t/%v, want fail closed", imported, err)
+	}
+	if err := missingWithHeadTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	sameIDMissingTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameIDMissing := makeSnapshot("usage-successor", 2, "absent-same-id-predecessor", 20)
+	if imported, err := sameIDMissingTx.ImportUsageObservation(ctx, sameIDMissing, usecase.BundleConflictSkip); err == nil || imported {
+		_ = sameIDMissingTx.Rollback(ctx)
+		t.Fatalf("same-ID missing predecessor import = %t/%v, want fail closed", imported, err)
+	}
+	if err := sameIDMissingTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBundleDatasource_LaterTableFailureRollsBackImportedUsageObservation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := sqlite.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bundles := sqlite.NewBundleDatasource(db, sqlite.NewEventDatasource(db))
+	tx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := sqliteFinalizedUsage(t, sqliteUsageDescriptor(t, "usage-rolled-back"), 10)
+	if imported, err := tx.ImportUsageObservation(ctx, observation, usecase.BundleConflictSkip); err != nil || !imported {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("ImportUsageObservation() = %t/%v", imported, err)
+	}
+	eventID, err := types.EventIDFrom("missing-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit, err := model.NewCommandAudit(eventID, "go test ./...", "", "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := tx.ImportCommandAudit(ctx, audit, usecase.BundleConflictSkip); err == nil || imported {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("ImportCommandAudit() = %t/%v, want failure", imported, err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := sqlite.NewUsageObservationDatasource(db).FindByID(ctx, observation.Descriptor().ObservationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := stored.Value(); present {
+		t.Fatal("usage observation survived rolled-back bundle transaction")
+	}
+}
