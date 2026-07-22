@@ -60,18 +60,37 @@ func NewSessionWithRuntimeMode(
 	workspace types.Workspace,
 	runtimeMode types.RuntimeMode,
 ) (*Session, error) {
+	return NewSessionWithRuntimeModeAndParent(sessionID, startedAt, client, agent, workspace, runtimeMode, "")
+}
+
+// NewSessionWithRuntimeModeAndParent creates an active session under an
+// explicit lifecycle contract and optional parent. Parent identity is part of
+// construction because it is immutable after the session starts.
+func NewSessionWithRuntimeModeAndParent(
+	sessionID types.SessionID,
+	startedAt time.Time,
+	client types.Client,
+	agent types.Agent,
+	workspace types.Workspace,
+	runtimeMode types.RuntimeMode,
+	parentSessionID types.SessionID,
+) (*Session, error) {
 	validatedMode, err := types.RuntimeModeFrom(runtimeMode.String())
 	if err != nil {
 		return nil, xerrors.Errorf("invalid session runtime mode: %w", err)
 	}
+	if parentSessionID != "" && parentSessionID == sessionID {
+		return nil, xerrors.Errorf("session cannot be its own parent: %w", ErrInvalidSessionState)
+	}
 	return &Session{
-		sessionID:      sessionID,
-		startedAt:      startedAt,
-		client:         client,
-		agent:          agent,
-		workspace:      workspace,
-		runtimeMode:    validatedMode,
-		terminalReason: types.None[types.TerminalReason](),
+		sessionID:       sessionID,
+		startedAt:       startedAt,
+		client:          client,
+		agent:           agent,
+		workspace:       workspace,
+		runtimeMode:     validatedMode,
+		terminalReason:  types.None[types.TerminalReason](),
+		parentSessionID: parentSessionID,
 	}, nil
 }
 

@@ -253,6 +253,8 @@ For SQLite concurrency expectations, PPID-based hook state caveats, and other kn
 
 Codex `Stop` fires after every assistant response, so Traceary records it as a turn-boundary transcript and keeps the session open (#1170). A Codex session ends via an explicit signal (MCP `manage_session`) or activity-aware stale GC. GC runs automatically after normal hook starts at most once every six hours per database; `traceary session gc` remains available for manual or scheduled fallback.
 
+For bounded invocations, `traceary session run -- codex exec ...` is the explicit alternative. Traceary supervises the process and records one authoritative terminal reason without interpreting `Stop` as session completion. See [Lifecycle Events](./lifecycle-events.md#authoritative-one-shot-sessions).
+
 ### Gemini CLI *(legacy compatibility)*
 
 > Gemini CLI is the legacy hook path; Antigravity is the active successor (supported from v0.21.1 — see below).

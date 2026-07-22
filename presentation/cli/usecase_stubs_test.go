@@ -168,8 +168,14 @@ type sessionUsecaseStub struct {
 		sessionID       types.SessionID
 		workspace       types.Workspace
 		parentSessionID types.SessionID
+		runtimeMode     types.RuntimeMode
 	}
-	startChildCall struct {
+	finalizeReason     types.TerminalReason
+	finalizeSessionID  types.SessionID
+	finalizeTransition model.SessionTerminalTransition
+	finalizeEvent      *model.Event
+	finalizeErr        error
+	startChildCall     struct {
 		parent       types.SessionID
 		childID      types.SessionID
 		agent        types.Agent
@@ -210,6 +216,20 @@ func (s *sessionUsecaseStub) Start(_ context.Context, client types.Client, agent
 	s.startCall.workspace = workspace
 	s.startCall.parentSessionID = parentSessionID
 	return s.startEvent, s.startErr
+}
+func (s *sessionUsecaseStub) StartWithRuntimeMode(_ context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID, runtimeMode types.RuntimeMode) (*model.Event, error) {
+	s.startCall.client = client
+	s.startCall.agent = agent
+	s.startCall.sessionID = sessionID
+	s.startCall.workspace = workspace
+	s.startCall.parentSessionID = parentSessionID
+	s.startCall.runtimeMode = runtimeMode
+	return s.startEvent, s.startErr
+}
+func (s *sessionUsecaseStub) FinalizeOneShot(_ context.Context, _ types.Client, _ types.Agent, sessionID types.SessionID, _ types.Workspace, reason types.TerminalReason, _ string) (model.SessionTerminalTransition, *model.Event, error) {
+	s.finalizeSessionID = sessionID
+	s.finalizeReason = reason
+	return s.finalizeTransition, s.finalizeEvent, s.finalizeErr
 }
 func (s *sessionUsecaseStub) StartChild(_ context.Context, parent types.SessionID, childID types.SessionID, agent types.Agent, workspace types.Workspace, spawnEventID types.EventID, kind string, startedAt time.Time) (*model.Event, error) {
 	s.startChildCall.parent = parent

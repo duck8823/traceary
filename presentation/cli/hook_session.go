@@ -74,6 +74,11 @@ func (c *RootCLI) runHookSession(
 			return err
 		}
 		sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
+		runtimeMode := types.RuntimeModeInteractive
+		if wrapperSessionID := explicitOneShotRuntimeSessionID(); wrapperSessionID != "" {
+			sessionID = wrapperSessionID
+			runtimeMode = types.RuntimeModeOneShot
+		}
 		parentSessionID := types.SessionID(strings.TrimSpace(os.Getenv("TRACEARY_PARENT_SESSION_ID")))
 		if parentSessionID == "" {
 			inferredParentSessionID, inferErr := c.inferHookParentSessionID(ctx, payload, client, agent, workspace)
@@ -82,7 +87,12 @@ func (c *RootCLI) runHookSession(
 			}
 			parentSessionID = inferredParentSessionID
 		}
-		event, err := c.session.Start(ctx, types.Client("hook"), agent, sessionID, workspace, parentSessionID)
+		var event *model.Event
+		if runtimeMode == types.RuntimeModeOneShot {
+			event, err = c.session.StartWithRuntimeMode(ctx, types.Client("hook"), agent, sessionID, workspace, parentSessionID, runtimeMode)
+		} else {
+			event, err = c.session.Start(ctx, types.Client("hook"), agent, sessionID, workspace, parentSessionID)
+		}
 		if err != nil {
 			// Spool replay (and hosts that re-fire SessionStart) often hit a
 			// session that already committed before the kill. Treat "already

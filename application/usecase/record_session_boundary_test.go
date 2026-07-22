@@ -49,6 +49,85 @@ func TestSessionUsecase_Start(t *testing.T) {
 	})
 }
 
+func TestSessionUsecase_StartWithRuntimeMode_PersistsOneShotParent(t *testing.T) {
+	t.Parallel()
+	sessionStub := &sessionRepositoryStub{}
+	sut := usecase.NewSessionUsecase(nil, sessionStub, nil, nil)
+
+	_, err := sut.StartWithRuntimeMode(context.Background(), "cli", "codex", "one-shot", "duck8823/traceary", "parent", types.RuntimeModeOneShot)
+	if err != nil {
+		t.Fatalf("StartWithRuntimeMode() error = %v", err)
+	}
+	if got := sessionStub.savedBoundary.RuntimeMode(); got != types.RuntimeModeOneShot {
+		t.Fatalf("saved RuntimeMode() = %q, want one_shot", got)
+	}
+	if got := sessionStub.savedBoundary.ParentSessionID(); got != "parent" {
+		t.Fatalf("saved ParentSessionID() = %q, want parent", got)
+	}
+}
+
+func TestSessionUsecase_FinalizeOneShot_IsIdempotentAndRejectsConflicts(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Now().Add(-time.Hour)
+	newOneShot := func(t *testing.T) *model.Session {
+		t.Helper()
+		session, err := model.NewSessionWithRuntimeMode("one-shot", startedAt, "cli", "codex", "duck8823/traceary", types.RuntimeModeOneShot)
+		if err != nil {
+			t.Fatalf("NewSessionWithRuntimeMode() error = %v", err)
+		}
+		return session
+	}
+
+	t.Run("applies one terminal reason", func(t *testing.T) {
+		sessionStub := &sessionRepositoryStub{session: newOneShot(t)}
+		sut := usecase.NewSessionUsecase(nil, sessionStub, nil, nil)
+		transition, event, err := sut.FinalizeOneShot(context.Background(), "cli", "codex", "one-shot", "duck8823/traceary", types.TerminalReasonFailure, "failed")
+		if err != nil {
+			t.Fatalf("FinalizeOneShot() error = %v", err)
+		}
+		if transition != model.SessionTerminalTransitionApplied || event == nil || !sessionStub.saveBoundaryCalled {
+			t.Fatalf("FinalizeOneShot() = (%q, %v), saved=%v", transition, event, sessionStub.saveBoundaryCalled)
+		}
+		if got, ok := sessionStub.savedBoundary.TerminalReason().Value(); !ok || got != types.TerminalReasonFailure {
+			t.Fatalf("saved terminal reason = %q/%v, want failure", got, ok)
+		}
+	})
+
+	t.Run("same reason redelivery is a no-op", func(t *testing.T) {
+		session := newOneShot(t)
+		if _, err := session.Terminate(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "done"); err != nil {
+			t.Fatal(err)
+		}
+		sessionStub := &sessionRepositoryStub{session: session}
+		sut := usecase.NewSessionUsecase(nil, sessionStub, nil, nil)
+		transition, event, err := sut.FinalizeOneShot(context.Background(), "cli", "codex", "one-shot", "duck8823/traceary", types.TerminalReasonSuccess, "retry")
+		if err != nil || transition != model.SessionTerminalTransitionAlreadyApplied || event != nil || sessionStub.saveBoundaryCalled {
+			t.Fatalf("FinalizeOneShot() = (%q, %v, %v), saved=%v", transition, event, err, sessionStub.saveBoundaryCalled)
+		}
+	})
+
+	t.Run("different reason conflicts", func(t *testing.T) {
+		session := newOneShot(t)
+		if _, err := session.Terminate(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "done"); err != nil {
+			t.Fatal(err)
+		}
+		sut := usecase.NewSessionUsecase(nil, &sessionRepositoryStub{session: session}, nil, nil)
+		_, _, err := sut.FinalizeOneShot(context.Background(), "cli", "codex", "one-shot", "duck8823/traceary", types.TerminalReasonFailure, "conflict")
+		if !errors.Is(err, model.ErrConflictingTerminalState) {
+			t.Fatalf("FinalizeOneShot() error = %v, want ErrConflictingTerminalState", err)
+		}
+	})
+
+	t.Run("interactive session is never synthesized", func(t *testing.T) {
+		session := model.NewSession("interactive", startedAt, "cli", "codex", "duck8823/traceary")
+		sut := usecase.NewSessionUsecase(nil, &sessionRepositoryStub{session: session}, nil, nil)
+		_, _, err := sut.FinalizeOneShot(context.Background(), "cli", "codex", "interactive", "duck8823/traceary", types.TerminalReasonSuccess, "done")
+		if !errors.Is(err, model.ErrInvalidSessionState) {
+			t.Fatalf("FinalizeOneShot() error = %v, want ErrInvalidSessionState", err)
+		}
+	})
+}
+
 func TestSessionUsecase_StartRejectsSelfParent(t *testing.T) {
 	t.Parallel()
 

@@ -16,12 +16,21 @@ type SessionUsecase interface {
 	// Zero-value parentSessionID means no parent (top-level session).
 	Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error)
 
+	// StartWithRuntimeMode begins a session under an explicit non-zero runtime
+	// lifecycle contract. Zero-value parentSessionID means no parent.
+	StartWithRuntimeMode(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID, runtimeMode types.RuntimeMode) (*model.Event, error)
+
 	// StartChild begins a child session spawned from an existing parent.
 	StartChild(ctx context.Context, parent types.SessionID, childID types.SessionID, agent types.Agent, workspace types.Workspace, spawnEventID types.EventID, kind string, startedAt time.Time) (*model.Event, error)
 
 	// End closes an existing session. Zero-value client/agent/workspace
 	// falls back to values from the corresponding session_started event.
 	End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error)
+
+	// FinalizeOneShot applies one authoritative terminal reason to an explicit
+	// one-shot session. Same-reason retries return already_applied without
+	// writing another boundary event; other runtime modes and conflicts fail closed.
+	FinalizeOneShot(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, reason types.TerminalReason, summary string) (model.SessionTerminalTransition, *model.Event, error)
 
 	// Label updates the label on an existing session.
 	Label(ctx context.Context, sessionID types.SessionID, label string) error

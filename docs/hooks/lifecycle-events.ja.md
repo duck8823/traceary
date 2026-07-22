@@ -62,6 +62,12 @@
 - Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開しておらず、`Stop` は assistant 応答ごとに発火する turn 境界（セッション終了ではない）であるため、Codex session は明示的な信号 (MCP `manage_session`) または stale GC (`traceary session gc`) でのみ終了する（[host-coverage.ja.md](./host-coverage.ja.md) と #1170 参照）。
 - best-effort: ホストが hook を発火させずに終了するケース（kill -9、シェルクラッシュ）もあり、dangling session は L2 reconciliation で吸収し、長時間アイドルな open session は stale GC で閉じる。
 
+#### Traceary が終了を確定できる完結型セッション
+
+Traceary が終了まで監督できる単発プロセスには `traceary session run -- <command> [args...]` を使う。このラッパーは `one_shot` セッションを作成し、子プロセス内の Traceary hook に同じセッション ID を渡す。子プロセス終了後、`success`、`failure`、`timeout`、`signal`、`aborted_stream` のいずれか 1 個を終了理由として記録する。同じ終了遷移の再実行は何も変更せず成功し、異なる終了理由への変更は競合として拒否する。
+
+たとえば `traceary session run -- codex exec "Review this change"` は `codex exec` プロセスの終了を根拠にセッションを閉じる。対話型 Codex の挙動は変わらず、通常の `Stop` はターン境界のままでセッション終了を合成しない。Traceary は transcript の文言やアイドル時間から完了を推測しない。
+
 ## Antigravity（v0.21.1+）
 
 Antigravity は Gemini CLI に代わる Traceary 連携ホストです。v0.21.1 からサポート対象の hook クライアントになりました（v0.21.0 は capability 診断のみ）。Tier 2 host と同様に canonical event kind へマッピングされます。
