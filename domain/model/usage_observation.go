@@ -342,7 +342,10 @@ func (o *UsageObservation) Reconcile(proposed *UsageObservation) (UsageObservati
 		}
 		currentCode, _ := o.terminalCode.Value()
 		proposedCode, _ := proposed.terminalCode.Value()
-		if o.counters == proposed.counters && o.cost == proposed.cost && currentCode == proposedCode {
+		currentFinalizedAt, _ := o.finalizedAt.Value()
+		proposedFinalizedAt, _ := proposed.finalizedAt.Value()
+		if o.counters == proposed.counters && o.cost == proposed.cost && currentCode == proposedCode &&
+			currentFinalizedAt.Equal(proposedFinalizedAt) {
 			return UsageObservationTransitionAlreadyApplied, nil
 		}
 		return "", newUsageObservationConflict(o.descriptor.observationID, "terminal accounting")

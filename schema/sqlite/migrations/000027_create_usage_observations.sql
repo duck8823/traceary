@@ -34,7 +34,7 @@ CREATE TABLE usage_observations (
 
     snapshot_series TEXT,
     snapshot_revision INTEGER,
-    supersedes_id TEXT REFERENCES usage_observations(observation_id) ON DELETE RESTRICT,
+    supersedes_id TEXT,
 
     CHECK ((input_state = 'known' AND input_tokens IS NOT NULL AND input_tokens >= 0)
         OR (input_state != 'known' AND input_tokens IS NULL)),
@@ -59,7 +59,9 @@ CREATE TABLE usage_observations (
         (cost_state = 'known'
             AND cost_amount_micros IS NOT NULL
             AND cost_amount_micros >= 0
+            AND cost_currency IS NOT NULL
             AND cost_currency GLOB '[A-Z][A-Z][A-Z]'
+            AND cost_origin IS NOT NULL
             AND (
                 (cost_origin = 'estimated' AND length(price_table_version) > 0)
                 OR (cost_origin = 'provider_reported' AND price_table_version IS NULL)
@@ -70,7 +72,9 @@ CREATE TABLE usage_observations (
         (scope = 'session_snapshot'
             AND accounting = 'latest_snapshot'
             AND status = 'finalized'
+            AND snapshot_series IS NOT NULL
             AND length(snapshot_series) > 0
+            AND snapshot_revision IS NOT NULL
             AND snapshot_revision >= 1)
         OR
         (scope IN ('call', 'run')
@@ -105,8 +109,28 @@ CREATE TABLE usage_observations (
     ),
 
     CHECK (supersedes_id IS NULL OR supersedes_id != observation_id),
-    UNIQUE (snapshot_series, snapshot_revision)
+    UNIQUE (snapshot_series, snapshot_revision),
+    UNIQUE (observation_id, snapshot_series),
+    FOREIGN KEY (supersedes_id, snapshot_series)
+        REFERENCES usage_observations(observation_id, snapshot_series)
+        ON DELETE RESTRICT
 );
+
+CREATE TRIGGER usage_observations_validate_snapshot_predecessor
+BEFORE INSERT ON usage_observations
+FOR EACH ROW
+WHEN NEW.supersedes_id IS NOT NULL
+BEGIN
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1
+          FROM usage_observations AS predecessor
+         WHERE predecessor.observation_id = NEW.supersedes_id
+           AND predecessor.snapshot_series = NEW.snapshot_series
+           AND predecessor.scope = 'session_snapshot'
+           AND predecessor.status = 'finalized'
+           AND predecessor.snapshot_revision < NEW.snapshot_revision
+    ) THEN RAISE(ABORT, 'invalid usage snapshot predecessor') END;
+END;
 
 CREATE UNIQUE INDEX idx_usage_observations_single_successor
     ON usage_observations(supersedes_id)

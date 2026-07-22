@@ -64,6 +64,31 @@ func TestUsageObservation_ReconcileRejectsConflictingTerminalData(t *testing.T) 
 	}
 }
 
+func TestUsageObservation_ReconcileRejectsDifferentTerminalTimestamp(t *testing.T) {
+	t.Parallel()
+
+	descriptor := usageDescriptor(t, "usage-time-conflict")
+	current := finalizedUsageObservation(t, descriptor, 1)
+	proposed, err := model.NewFinalizedUsageObservation(
+		descriptor,
+		current.Counters(),
+		current.Cost(),
+		types.UsageTerminalSuccess,
+		time.Date(2026, 7, 23, 12, 2, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := current.Reconcile(proposed); !errors.Is(err, model.ErrConflictingUsageObservation) {
+		t.Fatalf("Reconcile(different finalized_at) error = %v", err)
+	}
+	finalizedAt, _ := current.FinalizedAt().Value()
+	if !finalizedAt.Equal(time.Date(2026, 7, 23, 12, 1, 0, 0, time.UTC)) {
+		t.Fatalf("conflict mutated finalized_at = %v", finalizedAt)
+	}
+}
+
 func TestUsageObservation_finalizedRejectsUnknownUsage(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -247,6 +248,96 @@ func TestUsageObservationDatasource_RecordRejectsConcurrentConflictingFinals(t *
 	if applied != 1 || conflicts != 1 {
 		t.Fatalf("applied/conflicts = %d/%d", applied, conflicts)
 	}
+}
+
+func TestUsageObservationMigration_RejectsMalformedDirectRows(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	database := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "invalid-known-cost", scope: "call", accounting: "additive",
+		costState: "known", costAmount: 1,
+	}); err == nil {
+		t.Fatal("known cost without currency/origin was inserted")
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "invalid-null-snapshot", scope: "session_snapshot", accounting: "latest_snapshot",
+		costState: "unavailable",
+	}); err == nil {
+		t.Fatal("snapshot without series/revision was inserted")
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "series-a-1", scope: "session_snapshot", accounting: "latest_snapshot",
+		costState: "unavailable", snapshotSeries: "series-a", snapshotRevision: 1,
+	}); err != nil {
+		t.Fatalf("valid snapshot root insert error = %v", err)
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "series-a-second-root", scope: "session_snapshot", accounting: "latest_snapshot",
+		costState: "unavailable", snapshotSeries: "series-a", snapshotRevision: 2,
+	}); err == nil {
+		t.Fatal("second snapshot root was inserted")
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "series-b-2", scope: "session_snapshot", accounting: "latest_snapshot",
+		costState: "unavailable", snapshotSeries: "series-b", snapshotRevision: 2, supersedesID: "series-a-1",
+	}); err == nil {
+		t.Fatal("cross-series snapshot predecessor was inserted")
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "series-a-0", scope: "session_snapshot", accounting: "latest_snapshot",
+		costState: "unavailable", snapshotSeries: "series-a", snapshotRevision: 0, supersedesID: "series-a-1",
+	}); err == nil {
+		t.Fatal("non-increasing snapshot revision was inserted")
+	}
+}
+
+type rawUsageRow struct {
+	id               string
+	scope            string
+	accounting       string
+	costState        string
+	costAmount       any
+	costCurrency     any
+	costOrigin       any
+	priceVersion     any
+	snapshotSeries   any
+	snapshotRevision any
+	supersedesID     any
+}
+
+func insertRawFinalizedUsage(db *sql.DB, row rawUsageRow) error {
+	_, err := db.Exec(`
+INSERT INTO usage_observations (
+    observation_id, session_id, host, source_name, source_version,
+    scope, accounting, status, observed_at, finalized_at, terminal_code,
+    input_state, cached_input_state, cache_write_input_state,
+    output_state, reasoning_output_state, total_state,
+    cost_state, cost_amount_micros, cost_currency, cost_origin, price_table_version,
+    snapshot_series, snapshot_revision, supersedes_id
+) VALUES (?, 'session-1', 'test-host', 'test-source', '1.0.0',
+    ?, ?, 'finalized', '2026-07-23T12:00:00Z', '2026-07-23T12:01:00Z', 'success',
+    'unavailable', 'unavailable', 'unavailable', 'unavailable', 'unavailable', 'unavailable',
+    ?, ?, ?, ?, ?, ?, ?, ?)`,
+		row.id, row.scope, row.accounting,
+		row.costState, row.costAmount, row.costCurrency, row.costOrigin, row.priceVersion,
+		row.snapshotSeries, row.snapshotRevision, row.supersedesID,
+	)
+	if err != nil {
+		return fmt.Errorf("insert raw finalized usage: %w", err)
+	}
+	return nil
 }
 
 func sqliteUsageDescriptor(t *testing.T, value string) model.UsageObservationDescriptor {
