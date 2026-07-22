@@ -73,7 +73,7 @@ func (c *RootCLI) newSessionRepairOneShotCommand() *cobra.Command {
 }
 
 func (c *RootCLI) runSessionRepairOneShot(ctx context.Context, output io.Writer, input sessionRepairOneShotInput) error {
-	if c.storeManagement == nil || c.oneShotRepair == nil {
+	if c.oneShotRepair == nil {
 		return xerrors.New(Localize("one-shot repair dependencies are not configured", "完結型セッション修復の依存関係が設定されていません"))
 	}
 	if input.staleAfter <= 0 {
@@ -117,20 +117,12 @@ func (c *RootCLI) runSessionRepairOneShot(ctx context.Context, output io.Writer,
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	c.applyDatabasePath(resolvedDBPath)
-	if input.apply {
-		if err := c.storeManagement.CreateBackup(ctx, input.backupPath, false); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to create required pre-repair backup", "修復前に必須の backup を作成できませんでした"), err)
-		}
-		if err := c.storeManagement.Initialize(ctx); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
-		}
-	}
 	params := apptypes.OneShotRepairParams{
 		Entries: entries, EvidenceHash: evidenceHash, StaleAfter: input.staleAfter, Now: time.Now(),
 	}
 	var result apptypes.OneShotRepairResult
 	if input.apply {
-		result, err = c.oneShotRepair.Apply(ctx, params)
+		result, err = c.oneShotRepair.Apply(ctx, apptypes.OneShotRepairApplyParams{Repair: params, BackupPath: input.backupPath})
 	} else {
 		result, err = c.oneShotRepair.Preview(ctx, params)
 	}
@@ -192,7 +184,7 @@ func oneShotRepairManifestEntryHasControl(entry oneShotRepairManifestEntry) bool
 
 func writeOneShotRepairText(output io.Writer, result apptypes.OneShotRepairResult) error {
 	mode := "dry-run"
-	if result.Applied {
+	if result.ApplyMode {
 		mode = "applied"
 	}
 	if _, err := fmt.Fprintf(output, "one-shot repair: %s evidence_sha256=%s changed=%d\n", mode, result.EvidenceHash, result.AppliedCount()); err != nil {

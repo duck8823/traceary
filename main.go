@@ -177,7 +177,7 @@ func run() error {
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
-	oneShotRepairUsecase := usecase.NewOneShotRepairUsecase(storeManagementDatasource)
+	oneShotRepairUsecase := usecase.NewOneShotRepairUsecase(storeManagementDatasource, storeManagementDatasource)
 	workspaceIdentityUsecase := usecase.NewWorkspaceIdentityUsecase(workspaceIdentityDatasource, workspaceIdentityDatasource, types.SystemClock{})
 
 	mcpServer, err := mcpserver.NewServer(

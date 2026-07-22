@@ -39,6 +39,12 @@ type OneShotRepairParams struct {
 	Now          time.Time
 }
 
+// OneShotRepairApplyParams requires a rollback snapshot for a write operation.
+type OneShotRepairApplyParams struct {
+	Repair     OneShotRepairParams
+	BackupPath string
+}
+
 // OneShotRepairStats reports lifecycle counts across the store snapshot.
 type OneShotRepairStats struct {
 	ActiveCount    int `json:"active_count"`
@@ -64,7 +70,7 @@ type OneShotRepairCandidate struct {
 // OneShotRepairResult is the complete explainable outcome of one run.
 type OneShotRepairResult struct {
 	EvidenceHash string                   `json:"evidence_hash"`
-	Applied      bool                     `json:"applied"`
+	ApplyMode    bool                     `json:"apply_mode"`
 	Before       OneShotRepairStats       `json:"before"`
 	After        OneShotRepairStats       `json:"after"`
 	Candidates   []OneShotRepairCandidate `json:"candidates"`

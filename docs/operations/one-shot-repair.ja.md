@@ -33,6 +33,8 @@
 
 証拠参照はレビュー用出力に表示するが、event body にはコピーしない。run ID や SHA-256 digest など、秘密情報を含まない安定した値を使う。
 
+1 回の実行で受け付ける entry は最大 50,000 件である。session ID は 1,024 byte、証拠参照は 4,096 byte までとし、それ以上の修復はレビュー済み batch に分割する。manifest ファイル自体の上限は 64 MiB である。
+
 ## 先に dry-run する
 
 既定動作は dry-run である。
@@ -70,7 +72,7 @@ traceary session repair-one-shot \
   --json > one-shot-repair-applied.json
 ```
 
-Traceary はストアの初期化および修復 transaction より前に backup を作成する。dry-run は既存データベースを read-only で開き、ストアの新規作成や migration を行わない。対象変更と終了 event はすべて同じ transaction で commit する。エラーまたは commit 前の中断では実行全体を rollback する。成功後に同じ証拠を再実行すると `already_terminal` になり、重複 event は追加しない。
+application usecase は backup path を必須入力とし、backup、ストア初期化、適用の全順序を管理する。backup を省略できる公開 application apply 経路はない。Traceary はストアの初期化および修復 transaction より前に backup を作成する。dry-run は既存データベースを read-only で開き、ストアの新規作成や migration を行わない。対象変更と終了 event はすべて同じ transaction で commit する。エラーまたは commit 前の中断では実行全体を rollback する。成功後に同じ証拠を再実行すると `already_terminal` になり、重複 event は追加しない。
 
 commit 済み修復を戻す場合は Traceary の writer を停止し、必須 backup を復元する。
 

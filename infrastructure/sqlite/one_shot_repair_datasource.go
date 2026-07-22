@@ -18,6 +18,7 @@ import (
 )
 
 var _ application.OneShotRepairStore = (*StoreManagementDatasource)(nil)
+var _ application.OneShotRepairSafetyStore = (*StoreManagementDatasource)(nil)
 
 const oneShotRepairCandidateQuery = `
 SELECT s.started_at,
@@ -152,7 +153,7 @@ func (d *StoreManagementDatasource) repairOneShotSessions(ctx context.Context, p
 	}
 	return apptypes.OneShotRepairResult{
 		EvidenceHash: params.EvidenceHash,
-		Applied:      apply,
+		ApplyMode:    apply,
 		Before:       before,
 		After:        after,
 		Candidates:   candidates,

@@ -33,6 +33,8 @@ Every entry must explicitly assert `runtime_mode=one_shot`, use a non-legacy ter
 
 The evidence reference is printed for review but is not copied into event bodies. Keep it non-sensitive and stable, such as a run ID or SHA-256 digest.
 
+One invocation accepts at most 50,000 entries. Session IDs are limited to 1,024 bytes and evidence references to 4,096 bytes; split larger repairs into reviewed batches. The manifest file itself is limited to 64 MiB.
+
 ## Dry-run first
 
 Dry-run is the default:
@@ -70,7 +72,7 @@ traceary session repair-one-shot \
   --json > one-shot-repair-applied.json
 ```
 
-Traceary creates the backup before store initialization and before opening the repair transaction. Dry-run opens the existing database read-only and never creates or migrates a store. All eligible changes and terminal events commit together; an error or interruption before commit rolls back the complete run. Re-running the same evidence after a successful commit reports `already_terminal` and appends no duplicate events.
+The application use case requires a backup path and owns the complete backup, initialization, and apply sequence; no public application apply path can omit the backup. Traceary creates that backup before store initialization and before opening the repair transaction. Dry-run opens the existing database read-only and never creates or migrates a store. All eligible changes and terminal events commit together; an error or interruption before commit rolls back the complete run. Re-running the same evidence after a successful commit reports `already_terminal` and appends no duplicate events.
 
 To roll back the committed repair, stop Traceary writers and restore the mandatory backup:
 

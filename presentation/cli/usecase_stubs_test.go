@@ -212,6 +212,7 @@ type sessionUsecaseStub struct {
 
 type oneShotRepairUsecaseStub struct {
 	params       apptypes.OneShotRepairParams
+	applyParams  apptypes.OneShotRepairApplyParams
 	result       apptypes.OneShotRepairResult
 	err          error
 	calls        int
@@ -226,10 +227,10 @@ func (s *oneShotRepairUsecaseStub) Preview(_ context.Context, params apptypes.On
 	return s.result, s.err
 }
 
-func (s *oneShotRepairUsecaseStub) Apply(_ context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error) {
+func (s *oneShotRepairUsecaseStub) Apply(_ context.Context, params apptypes.OneShotRepairApplyParams) (apptypes.OneShotRepairResult, error) {
 	s.calls++
 	s.applyCalls++
-	s.params = params
+	s.applyParams = params
 	return s.result, s.err
 }
 

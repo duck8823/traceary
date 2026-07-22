@@ -47,7 +47,7 @@ func TestRootCLI_SessionRepairOneShot_DefaultsToExplainableDryRun(t *testing.T) 
 	}
 }
 
-func TestRootCLI_SessionRepairOneShot_ApplyRequiresAndCreatesBackup(t *testing.T) {
+func TestRootCLI_SessionRepairOneShot_ApplyRequiresBackupAndDelegatesSafety(t *testing.T) {
 	t.Parallel()
 	manifest := writeOneShotRepairManifest(t, false)
 	t.Run("requires backup", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestRootCLI_SessionRepairOneShot_ApplyRequiresAndCreatesBackup(t *testing.T
 
 	t.Run("backs up before apply", func(t *testing.T) {
 		storeStub := &storeManagementUsecaseStub{}
-		repairStub := &oneShotRepairUsecaseStub{result: apptypes.OneShotRepairResult{Applied: true}}
+		repairStub := &oneShotRepairUsecaseStub{result: apptypes.OneShotRepairResult{ApplyMode: true}}
 		backupPath := filepath.Join(t.TempDir(), "before.db")
 		root := cli.NewRootCLI(cli.WithStoreManagement(storeStub), cli.WithOneShotRepair(repairStub)).Command()
 		root.SetOut(&bytes.Buffer{})
@@ -75,14 +75,14 @@ func TestRootCLI_SessionRepairOneShot_ApplyRequiresAndCreatesBackup(t *testing.T
 		if err := root.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if storeStub.createBackupCalls != 1 || storeStub.createBackupPath != backupPath || repairStub.previewCalls != 0 || repairStub.applyCalls != 1 || strings.Join(storeStub.operations, ",") != "backup,initialize" {
+		if storeStub.createBackupCalls != 0 || storeStub.initCalled || repairStub.previewCalls != 0 || repairStub.applyCalls != 1 || repairStub.applyParams.BackupPath != backupPath {
 			t.Fatalf("backup/apply mismatch: store=%+v repair=%+v", storeStub, repairStub)
 		}
 	})
 
-	t.Run("backup failure prevents apply", func(t *testing.T) {
-		storeStub := &storeManagementUsecaseStub{createBackupErr: errors.New("backup failed")}
-		repairStub := &oneShotRepairUsecaseStub{}
+	t.Run("application safety failure is returned", func(t *testing.T) {
+		storeStub := &storeManagementUsecaseStub{}
+		repairStub := &oneShotRepairUsecaseStub{err: errors.New("backup failed")}
 		root := cli.NewRootCLI(cli.WithStoreManagement(storeStub), cli.WithOneShotRepair(repairStub)).Command()
 		root.SetOut(&bytes.Buffer{})
 		root.SetErr(&bytes.Buffer{})
@@ -90,11 +90,11 @@ func TestRootCLI_SessionRepairOneShot_ApplyRequiresAndCreatesBackup(t *testing.T
 		if err := root.Execute(); err == nil {
 			t.Fatal("Execute() error = nil, want backup error")
 		}
-		if repairStub.calls != 0 {
-			t.Fatalf("repair calls = %d, want 0", repairStub.calls)
+		if repairStub.applyCalls != 1 {
+			t.Fatalf("apply calls = %d, want 1", repairStub.applyCalls)
 		}
-		if storeStub.initCalled {
-			t.Fatal("store initialized after backup failure")
+		if storeStub.createBackupCalls != 0 || storeStub.initCalled {
+			t.Fatal("presentation bypassed application safety orchestration")
 		}
 	})
 }

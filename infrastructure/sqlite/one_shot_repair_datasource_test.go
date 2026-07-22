@@ -63,6 +63,38 @@ func TestStoreManagementDatasource_ApplyOneShotSessions_NormalizesFractionalTime
 	assertRepairTerminal(t, sessions, "fractional-boundary", types.TerminalReasonSuccess)
 }
 
+func TestStoreManagementDatasource_PreviewOneShotSessions_ExplainsContradictoryCompletion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := infra.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	store := infra.NewStoreManagementDatasource(db)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessions := infra.NewSessionDatasource(db)
+	startedAt := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
+	seedRepairSession(t, sessions, "before-start", types.RuntimeModeOneShot, startedAt, "event-before-start")
+	seedRepairSession(t, sessions, "before-activity", types.RuntimeModeOneShot, startedAt, "event-before-activity")
+	laterEvent := model.EventOf("event-later-activity", types.EventKindNote, "cli", "codex", "before-activity", "workspace", "later activity", startedAt.Add(2*time.Hour))
+	if err := infra.NewEventDatasource(db).Save(ctx, laterEvent); err != nil {
+		t.Fatalf("Save(later activity) error = %v", err)
+	}
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	result, err := store.PreviewOneShotSessions(ctx, apptypes.OneShotRepairParams{
+		EvidenceHash: strings.Repeat("e", 64), StaleAfter: 24 * time.Hour, Now: now,
+		Entries: []apptypes.OneShotRepairEvidenceEntry{
+			repairEvidence("before-start", types.TerminalReasonSuccess, startedAt.Add(-time.Second)),
+			repairEvidence("before-activity", types.TerminalReasonSuccess, startedAt.Add(time.Hour)),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PreviewOneShotSessions() error = %v", err)
+	}
+	if result.Candidates[0].Decision != "completion_before_start" || result.Candidates[1].Decision != "completion_before_latest_activity" {
+		t.Fatalf("candidates = %+v", result.Candidates)
+	}
+}
+
 func TestStoreManagementDatasource_OneShotRepair_PreviewApplyAndRerun(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -91,7 +123,7 @@ func TestStoreManagementDatasource_OneShotRepair_PreviewApplyAndRerun(t *testing
 	if err != nil {
 		t.Fatalf("PreviewOneShotSessions() error = %v", err)
 	}
-	if dryRun.Applied || dryRun.AppliedCount() != 0 || dryRun.Before != (apptypes.OneShotRepairStats{ActiveCount: 3, StaleCount: 2}) || dryRun.After != dryRun.Before {
+	if dryRun.ApplyMode || dryRun.AppliedCount() != 0 || dryRun.Before != (apptypes.OneShotRepairStats{ActiveCount: 3, StaleCount: 2}) || dryRun.After != dryRun.Before {
 		t.Fatalf("dry-run result = %+v", dryRun)
 	}
 	if !dryRun.Candidates[0].Eligible || !dryRun.Candidates[1].Eligible || dryRun.Candidates[2].Decision != "recently_active" || dryRun.Candidates[3].Decision != "missing_session" {
@@ -103,7 +135,7 @@ func TestStoreManagementDatasource_OneShotRepair_PreviewApplyAndRerun(t *testing
 	if err != nil {
 		t.Fatalf("ApplyOneShotSessions() error = %v", err)
 	}
-	if !applied.Applied || applied.AppliedCount() != 2 {
+	if !applied.ApplyMode || applied.AppliedCount() != 2 {
 		t.Fatalf("applied result = %+v", applied)
 	}
 	wantAfter := apptypes.OneShotRepairStats{ActiveCount: 1, CompletedCount: 1, FailedCount: 1}

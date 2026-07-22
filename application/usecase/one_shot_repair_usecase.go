@@ -17,16 +17,23 @@ import (
 // one consistent dry-run or atomic apply operation.
 type OneShotRepairUsecase interface {
 	Preview(ctx context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error)
-	Apply(ctx context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error)
+	Apply(ctx context.Context, params apptypes.OneShotRepairApplyParams) (apptypes.OneShotRepairResult, error)
 }
 
+const (
+	maxOneShotRepairEntries          = 50_000
+	maxOneShotRepairSessionIDBytes   = 1_024
+	maxOneShotRepairEvidenceRefBytes = 4_096
+)
+
 type oneShotRepairUsecase struct {
-	store application.OneShotRepairStore
+	store       application.OneShotRepairStore
+	safetyStore application.OneShotRepairSafetyStore
 }
 
 // NewOneShotRepairUsecase creates the evidence-backed repair use case.
-func NewOneShotRepairUsecase(store application.OneShotRepairStore) OneShotRepairUsecase {
-	return &oneShotRepairUsecase{store: store}
+func NewOneShotRepairUsecase(store application.OneShotRepairStore, safetyStore application.OneShotRepairSafetyStore) OneShotRepairUsecase {
+	return &oneShotRepairUsecase{store: store, safetyStore: safetyStore}
 }
 
 func (u *oneShotRepairUsecase) Preview(ctx context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error) {
@@ -40,11 +47,24 @@ func (u *oneShotRepairUsecase) Preview(ctx context.Context, params apptypes.OneS
 	return result, nil
 }
 
-func (u *oneShotRepairUsecase) Apply(ctx context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error) {
-	if err := u.validate(params); err != nil {
+func (u *oneShotRepairUsecase) Apply(ctx context.Context, params apptypes.OneShotRepairApplyParams) (apptypes.OneShotRepairResult, error) {
+	if err := u.validate(params.Repair); err != nil {
 		return apptypes.OneShotRepairResult{}, err
 	}
-	result, err := u.store.ApplyOneShotSessions(ctx, params)
+	if u.safetyStore == nil {
+		return apptypes.OneShotRepairResult{}, xerrors.New("one-shot repair safety store is not configured")
+	}
+	backupPath := strings.TrimSpace(params.BackupPath)
+	if backupPath == "" || strings.ContainsFunc(backupPath, unicode.IsControl) {
+		return apptypes.OneShotRepairResult{}, xerrors.New("one-shot repair apply requires a safe backup path")
+	}
+	if err := u.safetyStore.CreateBackup(ctx, backupPath, false); err != nil {
+		return apptypes.OneShotRepairResult{}, xerrors.Errorf("failed to create required pre-repair backup: %w", err)
+	}
+	if err := u.safetyStore.Initialize(ctx); err != nil {
+		return apptypes.OneShotRepairResult{}, xerrors.Errorf("failed to initialize store after backup: %w", err)
+	}
+	result, err := u.store.ApplyOneShotSessions(ctx, params.Repair)
 	if err != nil {
 		return apptypes.OneShotRepairResult{}, xerrors.Errorf("failed to apply one-shot repair: %w", err)
 	}
@@ -68,10 +88,17 @@ func (u *oneShotRepairUsecase) validate(params apptypes.OneShotRepairParams) err
 	if len(params.Entries) == 0 {
 		return xerrors.New("one-shot repair evidence must contain at least one entry")
 	}
+	if len(params.Entries) > maxOneShotRepairEntries {
+		return xerrors.Errorf("one-shot repair evidence exceeds %d entries", maxOneShotRepairEntries)
+	}
 	seen := make(map[types.SessionID]struct{}, len(params.Entries))
 	for index, entry := range params.Entries {
-		if _, err := types.SessionIDFrom(entry.SessionID.String()); err != nil || strings.ContainsFunc(entry.SessionID.String(), unicode.IsControl) {
-			return xerrors.Errorf("one-shot repair entry %d has invalid session ID: %w", index, err)
+		_, sessionIDErr := types.SessionIDFrom(entry.SessionID.String())
+		if sessionIDErr != nil {
+			return xerrors.Errorf("one-shot repair entry %d has invalid session ID: %w", index, sessionIDErr)
+		}
+		if strings.ContainsFunc(entry.SessionID.String(), unicode.IsControl) || len(entry.SessionID.String()) > maxOneShotRepairSessionIDBytes {
+			return xerrors.Errorf("one-shot repair entry %d has unsafe session ID", index)
 		}
 		if _, duplicate := seen[entry.SessionID]; duplicate {
 			return xerrors.Errorf("one-shot repair evidence repeats session %s", entry.SessionID)
@@ -87,7 +114,7 @@ func (u *oneShotRepairUsecase) validate(params apptypes.OneShotRepairParams) err
 		if entry.CompletedAt.IsZero() || entry.CompletedAt.After(params.Now) {
 			return xerrors.Errorf("one-shot repair entry %s has invalid completion time", entry.SessionID)
 		}
-		if !knownOneShotRepairEvidenceSource(entry.EvidenceSource) || strings.TrimSpace(entry.EvidenceRef) == "" || strings.ContainsFunc(entry.EvidenceRef, unicode.IsControl) {
+		if !knownOneShotRepairEvidenceSource(entry.EvidenceSource) || strings.TrimSpace(entry.EvidenceRef) == "" || strings.ContainsFunc(entry.EvidenceRef, unicode.IsControl) || len(entry.EvidenceRef) > maxOneShotRepairEvidenceRefBytes {
 			return xerrors.Errorf("one-shot repair entry %s lacks authoritative process-exit evidence", entry.SessionID)
 		}
 	}
