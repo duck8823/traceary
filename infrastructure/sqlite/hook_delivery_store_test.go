@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -120,6 +121,28 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		}
 		assertSQLiteCount(t, dbPath, "events", 2)
 		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+	})
+
+	t.Run("same native ID is isolated by hook kind", func(t *testing.T) {
+		t.Parallel()
+		dbPath, eventDS := newHookDeliveryTestStore(t)
+		first := hookDeliveryTestEvent(t, "event-hook-a", "session-hooks", "/repo", "/repo", "same body", "event_id:shared")
+		second := hookDeliveryTestEvent(t, "event-hook-b", "session-hooks", "/repo", "/repo", "same body", "event_id:shared")
+		second.SetSourceHook("stop")
+		evidence, err := model.NewHookDeliveryEvidence(second, "event_id:shared", "/repo")
+		if err != nil {
+			t.Fatalf("NewHookDeliveryEvidence(second) error = %v", err)
+		}
+		second.SetDeliveryEvidence(evidence)
+
+		for _, event := range []*model.Event{first, second} {
+			if err := eventDS.Save(context.Background(), event); err != nil {
+				t.Fatalf("Save(%s) error = %v", event.EventID(), err)
+			}
+		}
+		assertSQLiteCount(t, dbPath, "events", 2)
+		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'accepted'", 2)
 	})
 
 	t.Run("concurrent spool replay converges after retry", func(t *testing.T) {
@@ -265,6 +288,114 @@ func TestSessionDatasource_HookBoundaryRedeliveryIsIdempotent(t *testing.T) {
 	assertSQLiteCount(t, dbPath, "events", 2)
 	assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
 	assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "delivery_record_id IS NOT NULL", 2)
+}
+
+func TestSessionDatasource_HookBoundaryRejectsChangedLifecycleSemantics(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	eventDS, sessionDS, storeManager := newFullDatasources(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessions := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
+	for _, parentID := range []types.SessionID{"parent-a", "parent-b"} {
+		if _, err := sessions.Start(ctx, types.Client("hook"), types.Agent("codex"), parentID, types.Workspace("/repo"), ""); err != nil {
+			t.Fatalf("Start(%s) error = %v", parentID, err)
+		}
+	}
+
+	startCtx := apptypes.WithSourceHook(ctx, "session_start")
+	startCtx = apptypes.WithHookDelivery(startCtx, apptypes.HookDeliveryInputOf("session_id:target", "/repo"))
+	if _, err := sessions.Start(startCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("target"), types.Workspace("/repo"), types.SessionID("parent-a")); err != nil {
+		t.Fatalf("Start(target) error = %v", err)
+	}
+	if _, err := sessions.Start(startCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("target"), types.Workspace("/repo"), types.SessionID("parent-a")); err != nil {
+		t.Fatalf("Start(exact retry) error = %v", err)
+	}
+	if _, err := sessions.Start(startCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("target"), types.Workspace("/repo"), types.SessionID("parent-b")); err == nil {
+		t.Fatal("Start(changed parent) error = nil, want lifecycle rejection")
+	}
+
+	endCtx := apptypes.WithSourceHook(ctx, "session_end")
+	endCtx = apptypes.WithHookDelivery(endCtx, apptypes.HookDeliveryInputOf("session_id:target", "/repo"))
+	if _, err := sessions.End(endCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("target"), types.Workspace("/repo"), "original summary"); err != nil {
+		t.Fatalf("End(target) error = %v", err)
+	}
+	if _, err := sessions.End(endCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("target"), types.Workspace("/repo"), "original summary"); err != nil {
+		t.Fatalf("End(exact retry) error = %v", err)
+	}
+	if _, err := sessions.End(endCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("target"), types.Workspace("/repo"), "changed summary"); err == nil {
+		t.Fatal("End(changed summary) error = nil, want lifecycle rejection")
+	}
+	differentEndCtx := apptypes.WithSourceHook(ctx, "session_end")
+	differentEndCtx = apptypes.WithHookDelivery(differentEndCtx, apptypes.HookDeliveryInputOf("event_id:different-end", "/repo"))
+	if _, err := sessions.End(differentEndCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("target"), types.Workspace("/repo"), "original summary"); err == nil {
+		t.Fatal("End(different delivery) error = nil, want lifecycle rejection")
+	}
+
+	childCtx := apptypes.WithSourceHook(ctx, "subagent_start")
+	childCtx = apptypes.WithHookDelivery(childCtx, apptypes.HookDeliveryInputOf("tool_use_id:child-target", "/repo"))
+	childStartedAt := time.Date(2026, 7, 22, 0, 2, 0, 0, time.UTC)
+	startChild := func(spawnEventID types.EventID, kind string) error {
+		_, err := sessions.StartChild(
+			childCtx,
+			types.SessionID("parent-a"),
+			types.SessionID("child-target"),
+			types.Agent("codex/worker"),
+			types.Workspace("/repo"),
+			spawnEventID,
+			kind,
+			childStartedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("start child: %w", err)
+		}
+		return nil
+	}
+	if err := startChild(types.EventID("spawn-a"), "worker"); err != nil {
+		t.Fatalf("StartChild(first) error = %v", err)
+	}
+	if err := startChild(types.EventID("spawn-a"), "worker"); err != nil {
+		t.Fatalf("StartChild(exact retry) error = %v", err)
+	}
+	if err := startChild(types.EventID("spawn-b"), "worker"); err == nil {
+		t.Fatal("StartChild(changed spawn event) error = nil, want lifecycle rejection")
+	}
+	if err := startChild(types.EventID("spawn-a"), "reviewer"); err == nil {
+		t.Fatal("StartChild(changed kind) error = nil, want lifecycle rejection")
+	}
+
+	db := openHookDeliveryTestDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	var parentID, summary string
+	if err := db.QueryRow(`SELECT parent_session_id, summary FROM sessions WHERE session_id = 'target'`).Scan(&parentID, &summary); err != nil {
+		t.Fatalf("read target session: %v", err)
+	}
+	if parentID != "parent-a" || summary != "original summary" {
+		t.Fatalf("parent/summary = %q/%q, want immutable parent-a/original summary", parentID, summary)
+	}
+	var targetEvents, targetDeliveries int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = 'target'`).Scan(&targetEvents); err != nil {
+		t.Fatalf("count target events: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM hook_deliveries WHERE session_id = 'target'`).Scan(&targetDeliveries); err != nil {
+		t.Fatalf("count target deliveries: %v", err)
+	}
+	if targetEvents != 2 || targetDeliveries != 2 {
+		t.Fatalf("target events/deliveries = %d/%d, want one start plus one end", targetEvents, targetDeliveries)
+	}
+	var childEvents, childDeliveries int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = 'child-target'`).Scan(&childEvents); err != nil {
+		t.Fatalf("count child events: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM hook_deliveries WHERE session_id = 'child-target'`).Scan(&childDeliveries); err != nil {
+		t.Fatalf("count child deliveries: %v", err)
+	}
+	if childEvents != 1 || childDeliveries != 1 {
+		t.Fatalf("child events/deliveries = %d/%d, want one start", childEvents, childDeliveries)
+	}
 }
 
 func TestSessionDatasource_HookBoundaryWithoutNativeIDUsesLifecycleGuard(t *testing.T) {

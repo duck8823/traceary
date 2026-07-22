@@ -283,6 +283,9 @@ func insertWorkspaceObservation(
 	)
 	if err != nil {
 		if deliveryRecordID != "" && isSQLiteUniqueOrPKConflict(err) {
+			// Primary and unchanged-retry observations intentionally mint the
+			// same delivery+attribution ID. The collision is the database-backed
+			// idempotent no-op; changed attribution has a different ID and inserts.
 			return nil
 		}
 		return xerrors.Errorf("failed to insert workspace observation: %w", err)

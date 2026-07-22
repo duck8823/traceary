@@ -68,7 +68,15 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 		}
 	}
 
-	event, err := u.buildBoundaryEvent(ctx, types.EventKindSessionStarted, client, agent, resolvedSessionID, workspace)
+	event, err := u.buildBoundaryEvent(
+		ctx,
+		types.EventKindSessionStarted,
+		client,
+		agent,
+		resolvedSessionID,
+		workspace,
+		sessionStartDeliveryFields(resolvedParentSessionID)...,
+	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
@@ -140,7 +148,16 @@ func (u *sessionUsecase) StartChild(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to allocate child spawn order: %w", err)
 	}
-	event, err := u.buildBoundaryEventAt(ctx, types.EventKindSessionStarted, parentSession.Client(), resolvedAgent, resolvedChildID, workspace, startedAt)
+	event, err := u.buildBoundaryEventAt(
+		ctx,
+		types.EventKindSessionStarted,
+		parentSession.Client(),
+		resolvedAgent,
+		resolvedChildID,
+		workspace,
+		startedAt,
+		childSessionStartDeliveryFields(parentID, spawnEventID, strings.TrimSpace(kind))...,
+	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start child session: %w", err)
 	}
@@ -176,7 +193,15 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
 
-	event, err := u.buildBoundaryEvent(ctx, types.EventKindSessionEnded, resolvedClient, resolvedAgent, resolvedSessionID, resolvedWorkspace)
+	event, err := u.buildBoundaryEvent(
+		ctx,
+		types.EventKindSessionEnded,
+		resolvedClient,
+		resolvedAgent,
+		resolvedSessionID,
+		resolvedWorkspace,
+		sessionEndDeliveryFields(summary)...,
+	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
@@ -410,6 +435,7 @@ func (u *sessionUsecase) buildBoundaryEvent(
 	agent types.Agent,
 	sessionID types.SessionID,
 	workspace types.Workspace,
+	semanticFields ...string,
 ) (*model.Event, error) {
 	eventID, err := newEventID()
 	if err != nil {
@@ -420,7 +446,7 @@ func (u *sessionUsecase) buildBoundaryEvent(
 		return nil, xerrors.Errorf("failed to build session boundary event: %w", err)
 	}
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
-	if err := attachHookDelivery(ctx, event); err != nil {
+	if err := attachHookDelivery(ctx, event, semanticFields...); err != nil {
 		return nil, err
 	}
 	return event, nil
@@ -434,6 +460,7 @@ func (u *sessionUsecase) buildBoundaryEventAt(
 	sessionID types.SessionID,
 	workspace types.Workspace,
 	createdAt time.Time,
+	semanticFields ...string,
 ) (*model.Event, error) {
 	eventID, err := newEventID()
 	if err != nil {
@@ -441,10 +468,27 @@ func (u *sessionUsecase) buildBoundaryEventAt(
 	}
 	event := model.EventOf(eventID, kind, client, agent, sessionID, workspace, sessionBoundaryBody(kind), createdAt)
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
-	if err := attachHookDelivery(ctx, event); err != nil {
+	if err := attachHookDelivery(ctx, event, semanticFields...); err != nil {
 		return nil, err
 	}
 	return event, nil
+}
+
+func sessionStartDeliveryFields(parentSessionID types.SessionID) []string {
+	return []string{"session_start", "parent_session_id", parentSessionID.String()}
+}
+
+func childSessionStartDeliveryFields(parentSessionID types.SessionID, spawnEventID types.EventID, kind string) []string {
+	return []string{
+		"child_session_start",
+		"parent_session_id", parentSessionID.String(),
+		"spawn_event_id", spawnEventID.String(),
+		"subagent_kind", kind,
+	}
+}
+
+func sessionEndDeliveryFields(summary string) []string {
+	return []string{"session_end", "summary", summary}
 }
 
 // inheritAttribution fills empty caller-provided fields from the stored
