@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -36,8 +37,20 @@ func NewSessionUsecase(
 }
 
 func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
+	return u.startWithRuntimeMode(ctx, client, agent, sessionID, workspace, parentSessionID, types.RuntimeModeInteractive)
+}
+
+func (u *sessionUsecase) StartWithRuntimeMode(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID, runtimeMode types.RuntimeMode) (*model.Event, error) {
+	return u.startWithRuntimeMode(ctx, client, agent, sessionID, workspace, parentSessionID, runtimeMode)
+}
+
+func (u *sessionUsecase) startWithRuntimeMode(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID, runtimeMode types.RuntimeMode) (*model.Event, error) {
 	if u.sessionRepo == nil {
 		return nil, xerrors.Errorf("session repository is not configured")
+	}
+	validatedMode, err := types.RuntimeModeFrom(runtimeMode.String())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
 
 	resolvedSessionID, generated, err := u.resolveSessionStartID(sessionID)
@@ -81,12 +94,111 @@ func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent t
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
 
-	session := buildSessionFromBoundary(event, resolvedParentSessionID)
+	session, err := model.NewSessionWithRuntimeModeAndParent(
+		event.SessionID(), event.CreatedAt(), event.Client(), event.Agent(), event.Workspace(), validatedMode, resolvedParentSessionID,
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to build session start: %w", err)
+	}
 	if err := u.sessionRepo.SaveBoundary(ctx, session, event); err != nil {
 		return nil, xerrors.Errorf("failed to save session start: %w", err)
 	}
 
 	return event, nil
+}
+
+func (u *sessionUsecase) FinalizeOneShot(
+	ctx context.Context,
+	client types.Client,
+	agent types.Agent,
+	sessionID types.SessionID,
+	workspace types.Workspace,
+	reason types.TerminalReason,
+	summary string,
+) (model.SessionTerminalTransition, *model.Event, error) {
+	if u.sessionRepo == nil {
+		return "", nil, xerrors.Errorf("session repository is not configured")
+	}
+	resolvedSessionID, err := types.SessionIDFrom(strings.TrimSpace(sessionID.String()))
+	if err != nil {
+		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
+	}
+	validatedReason, err := types.TerminalReasonFrom(reason.String())
+	if err != nil || validatedReason == types.TerminalReasonLegacyUnknown {
+		if err == nil {
+			err = model.ErrInvalidSessionState
+		}
+		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
+	}
+	existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
+	if err != nil {
+		return "", nil, xerrors.Errorf("failed to find one-shot session: %w", err)
+	}
+	session, ok := existing.Value()
+	if !ok {
+		return "", nil, xerrors.Errorf("cannot finalize session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
+	}
+	resolvedClient, resolvedAgent, resolvedWorkspace := inheritAttribution(client, agent, workspace, session)
+	if _, err := types.AgentFrom(resolvedAgent.String()); err != nil {
+		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
+	}
+	if endedAt, ended := session.EndedAt().Value(); ended {
+		transition, err := session.FinalizeOneShot(endedAt, validatedReason, summary)
+		if err != nil {
+			return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
+		}
+		return transition, nil, nil
+	}
+
+	event, err := u.buildBoundaryEvent(
+		ctx,
+		types.EventKindSessionEnded,
+		resolvedClient,
+		resolvedAgent,
+		resolvedSessionID,
+		resolvedWorkspace,
+		"one_shot_finalization", "terminal_reason", validatedReason.String(), "summary", summary,
+	)
+	if err != nil {
+		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
+	}
+	transition, err := session.FinalizeOneShot(event.CreatedAt(), validatedReason, summary)
+	if err != nil {
+		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
+	}
+	if err := u.sessionRepo.SaveBoundary(ctx, session, event); err != nil {
+		if errors.Is(err, model.ErrInvalidSessionState) {
+			transition, reconcileErr := u.reconcileOneShotTerminalState(ctx, resolvedSessionID, validatedReason)
+			if reconcileErr == nil {
+				return transition, nil, nil
+			}
+			return "", nil, reconcileErr
+		}
+		return "", nil, xerrors.Errorf("failed to save one-shot finalization: %w", err)
+	}
+	return transition, event, nil
+}
+
+func (u *sessionUsecase) reconcileOneShotTerminalState(ctx context.Context, sessionID types.SessionID, proposed types.TerminalReason) (model.SessionTerminalTransition, error) {
+	latest, err := u.sessionRepo.FindByID(ctx, sessionID)
+	if err != nil {
+		return "", xerrors.Errorf("failed to reconcile one-shot finalization: %w", err)
+	}
+	session, ok := latest.Value()
+	if !ok {
+		return "", xerrors.Errorf("one-shot session disappeared during finalization: %w", model.ErrInvalidSessionState)
+	}
+	current, terminal := session.TerminalReason().Value()
+	if !terminal {
+		return "", xerrors.Errorf("one-shot session remained active after terminal conflict: %w", model.ErrInvalidSessionState)
+	}
+	if current == proposed {
+		return model.SessionTerminalTransitionAlreadyApplied, nil
+	}
+	return "", xerrors.Errorf(
+		"session %s terminal reason %q conflicts with proposed reason %q: %w",
+		sessionID, current, proposed, model.ErrConflictingTerminalState,
+	)
 }
 
 func (u *sessionUsecase) StartChild(
@@ -514,18 +626,6 @@ func inheritAttribution(
 		resolvedWorkspace = stored.Workspace()
 	}
 	return resolvedClient, resolvedAgent, resolvedWorkspace
-}
-
-func buildSessionFromBoundary(event *model.Event, parentSessionID types.SessionID) *model.Session {
-	return model.SessionOf(
-		event.SessionID(),
-		event.CreatedAt(),
-		types.None[time.Time](),
-		event.Client(),
-		event.Agent(),
-		event.Workspace(),
-		"", "", parentSessionID,
-	)
 }
 
 func sessionBoundaryBody(eventKind types.EventKind) string {

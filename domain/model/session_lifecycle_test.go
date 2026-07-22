@@ -140,6 +140,41 @@ func TestSessionTerminateRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestSessionFinalizeOneShotRejectsInteractiveMode(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Now().Add(-time.Minute)
+	session := model.NewSession("interactive", startedAt, "cli", "codex", "workspace")
+	if _, err := session.FinalizeOneShot(time.Now(), types.TerminalReasonSuccess, "done"); !errors.Is(err, model.ErrInvalidSessionState) {
+		t.Fatalf("FinalizeOneShot() error = %v, want ErrInvalidSessionState", err)
+	}
+}
+
+func TestNewSessionWithRuntimeModeAndParent(t *testing.T) {
+	t.Parallel()
+
+	agent, _ := types.AgentFrom("codex")
+	session, err := model.NewSessionWithRuntimeModeAndParent(
+		types.SessionID("child"),
+		time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC),
+		types.Client("cli"),
+		agent,
+		types.Workspace("workspace"),
+		types.RuntimeModeOneShot,
+		types.SessionID("parent"),
+	)
+	if err != nil {
+		t.Fatalf("NewSessionWithRuntimeModeAndParent() error = %v", err)
+	}
+	if session.RuntimeMode() != types.RuntimeModeOneShot || session.ParentSessionID() != types.SessionID("parent") {
+		t.Fatalf("session lifecycle = mode=%q parent=%q", session.RuntimeMode(), session.ParentSessionID())
+	}
+	if _, err := model.NewSessionWithRuntimeModeAndParent(
+		types.SessionID("self"), time.Now(), types.Client("cli"), agent, types.Workspace("workspace"), types.RuntimeModeOneShot, types.SessionID("self"),
+	); err == nil || !errors.Is(err, model.ErrInvalidSessionState) {
+		t.Fatalf("self-parent error = %v, want ErrInvalidSessionState", err)
+	}
+}
+
 func newLifecycleTestSession(t *testing.T, mode types.RuntimeMode) *model.Session {
 	t.Helper()
 	agent, _ := types.AgentFrom("codex")

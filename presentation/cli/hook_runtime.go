@@ -16,6 +16,8 @@ import (
 const (
 	hookStateDirEnvKey         = "TRACEARY_HOOK_STATE_DIR"
 	hookAuditSuppressionEnvKey = "TRACEARY_NO_AUDIT"
+	runtimeModeEnvKey          = "TRACEARY_RUNTIME_MODE"
+	runtimeSessionIDEnvKey     = "TRACEARY_RUNTIME_SESSION_ID"
 )
 
 const hookActiveSubagentStateTTL = 24 * time.Hour

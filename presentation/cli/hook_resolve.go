@@ -127,11 +127,26 @@ func resolveHookSubagentStartParentSessionID(payload []byte, client string) (typ
 }
 
 func resolveHookParentSessionID(payload []byte, client string) (types.SessionID, error) {
+	if sessionID := explicitOneShotRuntimeSessionID(); sessionID != "" {
+		return sessionID, nil
+	}
 	sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
 	if sessionID != "" {
 		return sessionID, nil
 	}
 	return readHookSessionState(client)
+}
+
+func explicitOneShotRuntimeSessionID() types.SessionID {
+	mode, err := types.RuntimeModeFrom(strings.TrimSpace(os.Getenv(runtimeModeEnvKey)))
+	if err != nil || mode != types.RuntimeModeOneShot {
+		return ""
+	}
+	sessionID, err := types.SessionIDFrom(strings.TrimSpace(os.Getenv(runtimeSessionIDEnvKey)))
+	if err != nil {
+		return ""
+	}
+	return sessionID
 }
 
 func synthesizeHookChildSessionID(parentSessionID types.SessionID, toolUseID string) types.SessionID {

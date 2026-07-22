@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,85 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
+
+func TestRootCLI_SessionRunCommand_FinalizesAuthoritativeOutcomes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		command    []string
+		extraArgs  []string
+		wantReason types.TerminalReason
+		wantCode   int
+		wantOutput string
+	}{
+		{name: "success", command: []string{"sh", "-c", "printf child-output"}, wantReason: types.TerminalReasonSuccess, wantOutput: "child-output"},
+		{name: "failure", command: []string{"sh", "-c", "exit 7"}, wantReason: types.TerminalReasonFailure, wantCode: 7},
+		{name: "signal", command: []string{"sh", "-c", "kill -TERM $$"}, wantReason: types.TerminalReasonSignal, wantCode: 143},
+		{name: "timeout", command: []string{"sh", "-c", "sleep 1"}, extraArgs: []string{"--timeout", "10ms"}, wantReason: types.TerminalReasonTimeout, wantCode: 124},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sessionID := types.SessionID("one-shot-" + tc.name)
+			sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+				types.EventID("event-"+tc.name), types.EventKindSessionStarted, "cli", "codex", sessionID, "duck8823/traceary", "session started", time.Now(),
+			)}
+			stdout := &bytes.Buffer{}
+			rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub)).Command()
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			args := append([]string{"session", "run", "--db-path", filepath.Join(t.TempDir(), "traceary.db"), "--agent", "codex"}, tc.extraArgs...)
+			args = append(args, "--")
+			args = append(args, tc.command...)
+			rootCmd.SetArgs(args)
+
+			err := rootCmd.Execute()
+			if tc.wantCode == 0 && err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if tc.wantCode != 0 {
+				var exitCoder interface{ ExitCode() int }
+				if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != tc.wantCode {
+					t.Fatalf("Execute() error = %v, exit code = %v, want %d", err, exitCoder, tc.wantCode)
+				}
+			}
+			if got := sessionStub.startCall.runtimeMode; got != types.RuntimeModeOneShot {
+				t.Fatalf("StartWithRuntimeMode mode = %q, want one_shot", got)
+			}
+			if sessionStub.finalizeSessionID != sessionID || sessionStub.finalizeReason != tc.wantReason {
+				t.Fatalf("FinalizeOneShot() = (%q, %q), want (%q, %q)", sessionStub.finalizeSessionID, sessionStub.finalizeReason, sessionID, tc.wantReason)
+			}
+			if diff := cmp.Diff(tc.wantOutput, stdout.String()); diff != "" {
+				t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRootCLI_SessionRunCommand_FinalizesAfterParentCancellation(t *testing.T) {
+	t.Parallel()
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-cancel", types.EventKindSessionStarted, "cli", "codex", "one-shot-cancel", "duck8823/traceary", "session started", time.Now(),
+	)}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "run", "--db-path", filepath.Join(t.TempDir(), "traceary.db"), "--", "sh", "-c", "sleep 10"})
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(20*time.Millisecond, cancel)
+
+	err := rootCmd.ExecuteContext(ctx)
+	var exitCoder interface{ ExitCode() int }
+	if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != 74 {
+		t.Fatalf("ExecuteContext() error = %v, want exit code 74", err)
+	}
+	if sessionStub.finalizeReason != types.TerminalReasonAbortedStream {
+		t.Fatalf("FinalizeOneShot reason = %q, want aborted_stream", sessionStub.finalizeReason)
+	}
+	if sessionStub.finalizeContextErr != nil {
+		t.Fatalf("FinalizeOneShot context error = %v, want independent finalization context", sessionStub.finalizeContextErr)
+	}
+}
 
 func TestRootCLI_SessionStartCommand(t *testing.T) {
 	t.Parallel()

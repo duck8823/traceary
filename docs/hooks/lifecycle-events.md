@@ -62,6 +62,12 @@ All event bodies pass through built-in secret redaction plus operator-configured
 - Claude / Gemini use a dedicated `SessionEnd` hook. Codex exposes no `SessionEnd` and its `Stop` fires after every assistant response (a turn boundary, not a session end), so a Codex session ends only via an explicit signal (MCP `manage_session`) or stale GC (`traceary session gc`) — see [host-coverage.md](./host-coverage.md) and #1170.
 - Best-effort: hosts may exit without firing the hook (kill -9, crashed shell). L2 reconciliation tolerates dangling sessions, and stale GC closes long-idle open sessions.
 
+#### Authoritative one-shot sessions
+
+Use `traceary session run -- <command> [args...]` when Traceary can supervise a bounded process directly. The wrapper creates a `one_shot` session, passes its identity to nested Traceary hooks, and writes exactly one typed terminal reason after the child exits: `success`, `failure`, `timeout`, `signal`, or `aborted_stream`. Repeating the same terminal transition is an idempotent no-op; a different terminal reason is rejected as a conflict.
+
+For example, `traceary session run -- codex exec "Review this change"` closes when the `codex exec` process exits. This does not change interactive Codex behavior: a normal Codex `Stop` remains a turn boundary and never becomes synthetic session completion. Traceary does not infer completion from transcript text or idle time.
+
 ## Antigravity (v0.21.1+)
 
 Antigravity is the successor to Gemini CLI as a Traceary-integrated host. As of v0.21.1 it is a supported hook client (capability diagnostics only in v0.21.0). It maps onto the canonical event kinds like a Tier 2 host:

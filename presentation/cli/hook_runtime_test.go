@@ -125,6 +125,40 @@ func TestRootCLI_HookSessionCommand_StartRecordsSessionAndState(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookSessionCommand_OneShotWrapperOverridesHostIdentity(t *testing.T) {
+	t.Setenv("TRACEARY_RUNTIME_MODE", "one_shot")
+	t.Setenv("TRACEARY_RUNTIME_SESSION_ID", "wrapper-session")
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		types.EventID("event-wrapper"), types.EventKindSessionStarted, "hook", "codex", "wrapper-session", "duck8823/traceary", "session started", time.Now(),
+	)}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"host-session","cwd":"duck8823/traceary"}`))
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hook", "session", "codex", "start"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := sessionStub.startCall.sessionID; got != "wrapper-session" {
+		t.Fatalf("StartWithRuntimeMode session ID = %q, want wrapper-session", got)
+	}
+	if got := sessionStub.startCall.runtimeMode; got != types.RuntimeModeOneShot {
+		t.Fatalf("StartWithRuntimeMode runtime mode = %q, want one_shot", got)
+	}
+	if got := sessionStub.startCall.parentSessionID; got != "" {
+		t.Fatalf("StartWithRuntimeMode parent session ID = %q, want empty", got)
+	}
+}
+
 func TestRootCLI_HookSessionCommand_StartRunsRateLimitedSessionGC(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-key")
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
