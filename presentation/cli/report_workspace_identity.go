@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -70,13 +71,16 @@ func (c *RootCLI) runWorkspaceIdentityReport(ctx context.Context, output io.Writ
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
-	c.applyDatabasePath(resolvedDBPath)
-	if err := c.storeManagement.Initialize(ctx); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "store の初期化に失敗しました"), err)
+	if _, err := os.Stat(resolvedDBPath); err != nil {
+		if os.IsNotExist(err) {
+			return xerrors.Errorf("%s", Localize("store does not exist; run traceary doctor to initialize it before reporting", "store が存在しません。report の前に traceary doctor で初期化してください"))
+		}
+		return xerrors.Errorf("%s: %w", Localize("failed to inspect DB path", "DB パスを確認できませんでした"), err)
 	}
+	c.applyDatabasePath(resolvedDBPath)
 	identity, err := c.workspaceIdentity.Report(ctx, sampleLimit)
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to build workspace identity report", "workspace identity report の作成に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to build workspace identity report; run traceary doctor if the store requires migration", "workspace identity report の作成に失敗しました。store の migration が必要な場合は traceary doctor を実行してください"), err)
 	}
 	heuristic, err := c.storeManagement.DedupeContentEvents(ctx, apptypes.ContentEventDedupeParams{Strict: strict})
 	if err != nil {
@@ -97,7 +101,7 @@ func (c *RootCLI) runWorkspaceIdentityReport(ctx context.Context, output io.Writ
 func buildWorkspaceIdentityReportEnvelope(identity apptypes.WorkspaceIdentityReport, heuristic apptypes.ContentEventDedupeResult) workspaceIdentityReportEnvelope {
 	attempts, exact := 0, 0
 	for _, source := range identity.Sources {
-		attempts += source.DeliveryAttemptCount
+		attempts += source.RuntimeAttemptCount
 		exact += source.ExactRedeliveryCount
 	}
 	heuristicCandidates := heuristic.MovedCount()
@@ -123,18 +127,18 @@ func writeWorkspaceIdentityReportText(output io.Writer, report workspaceIdentity
 	if _, err := fmt.Fprintf(output, "Workspace identity: events=%d covered=%d missing=%d coverage=%.4f observations=%d\n", c.EventCount, c.CoveredEvents, c.MissingEvents, c.CoverageRate, c.ObservationCount); err != nil {
 		return xerrors.Errorf("failed to print workspace identity coverage: %w", err)
 	}
-	if _, err := fmt.Fprintf(output, "Exact delivery: attempts=%d exact_redeliveries=%d rate=%.4f target<%.4f sample_available=%t target_met=%t\n", report.ExactDelivery.AttemptCount, report.ExactDelivery.ExactRedeliveryCount, report.ExactDelivery.ExactRedeliveryRate, report.ExactDelivery.TargetRate, report.ExactDelivery.SampleAvailable, report.ExactDelivery.TargetMet); err != nil {
+	if _, err := fmt.Fprintf(output, "Exact delivery: runtime_attempts=%d exact_redeliveries=%d rate=%.4f target<%.4f sample_available=%t target_met=%t\n", report.ExactDelivery.AttemptCount, report.ExactDelivery.ExactRedeliveryCount, report.ExactDelivery.ExactRedeliveryRate, report.ExactDelivery.TargetRate, report.ExactDelivery.SampleAvailable, report.ExactDelivery.TargetMet); err != nil {
 		return xerrors.Errorf("failed to print exact delivery summary: %w", err)
 	}
 	if _, err := fmt.Fprintf(output, "Heuristic content candidates: scanned=%d candidates=%d rate=%.4f (not proven redeliveries)\n", report.Heuristic.ScannedCount, report.Heuristic.CandidateCount, report.Heuristic.CandidateRate); err != nil {
 		return xerrors.Errorf("failed to print heuristic candidate summary: %w", err)
 	}
 	for _, source := range report.Workspace.Sources {
-		if _, err := fmt.Fprintf(output, "  source client=%s hook=%s observations=%d exact=%d descendant=%d ancestor=%d alias=%d conflict=%d unknown=%d conflict_rate=%.4f delivery_attempts=%d exact_redeliveries=%d exact_rate=%.4f\n",
+		if _, err := fmt.Fprintf(output, "  source client=%s hook=%s observations=%d exact=%d descendant=%d ancestor=%d alias=%d conflict=%d unknown=%d conflict_rate=%.4f delivery_attempts=%d runtime_attempts=%d backfilled_attempts=%d exact_redeliveries=%d exact_rate=%.4f\n",
 			source.Client, emptyDash(source.SourceHook), source.ObservationCount,
 			source.Relationships.Exact, source.Relationships.Descendant, source.Relationships.Ancestor,
 			source.Relationships.ExplicitAlias, source.Relationships.Conflict, source.Relationships.Unknown,
-			source.ConflictRate, source.DeliveryAttemptCount, source.ExactRedeliveryCount, source.ExactRedeliveryRate); err != nil {
+			source.ConflictRate, source.DeliveryAttemptCount, source.RuntimeAttemptCount, source.BackfilledAttemptCount, source.ExactRedeliveryCount, source.ExactRedeliveryRate); err != nil {
 			return xerrors.Errorf("failed to print workspace identity source: %w", err)
 		}
 	}

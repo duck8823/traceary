@@ -201,11 +201,13 @@ target ごとの policy:
 
 ## 本文を含まないワークスペース識別診断
 
-migration `000023` は `hook_delivery_attempts` を追加します。各行が保持するのは配送レコード ID、試行イベント ID、結果（`accepted`、`conflict`、`exact_redelivery`）、時刻だけです。upgrade 時に分母がリセットされないよう、既存の `hook_deliveries` 各行から accepted/conflict 試行を 1 件ずつ作りますが、イベント本文はコピーしません。実行時の配送と試行は同じ transaction で書き込みます。
+migration `000023` は `hook_delivery_attempts` を追加します。各行が保持するのは配送レコード ID、試行イベント ID、結果（`accepted`、`conflict`、`exact_redelivery`）、由来（`runtime` または `backfill`）、時刻だけです。既存の `hook_deliveries` 各行から accepted/conflict 試行を 1 件ずつ作りますが、`backfill` と明記し、イベント本文はコピーしません。リリース品質の率は runtime 試行だけを使うため、seed 行だけで未測定の rollout が合格することはありません。実行時の配送と試行は同じ transaction で書き込みます。
+
+試行イベント ID は、Traceary がフックコールバックごとに作る repository identity です。後続のホストコールバックには新しい event ID が割り当てられるため、新しい試行行になります。`INSERT OR IGNORE` が抑止するのは transaction race 後に同じ event object を内部 retry する場合だけで、repository retry の仕組みがホスト配送率を水増しすることを防ぎます。
 
 `session_workspace_aliases` は運用者が明示的に確認した情報を保持します。別名は `sessions.workspace`、`events.workspace`、観測時点の関係を一切書き換えません。読み取り projection だけが、確認情報と一致する保存済み競合を `explicit_alias` に変更するため、別名の削除で完全に元へ戻せます。
 
-`traceary report workspace-identity` は読み取り専用です。履歴本文候補の部分でも既存の dedupe 計画を `Apply=false` で呼び出すだけで、クリーンアップは引き続き別の明示的かつ可逆なコマンドです。
+`traceary report workspace-identity` は読み取り専用で、migration や provenance catch-up を実行しません。先に `traceary doctor` で store を初期化または migrate してください。未準備の store では案内付きで失敗します。履歴本文候補の部分でも既存の dedupe 計画を `Apply=false` で呼び出すだけで、クリーンアップは引き続き別の明示的かつ可逆なコマンドです。
 
 ## backup の既定動作
 

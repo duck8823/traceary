@@ -148,6 +148,8 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 
 	rows, err = tx.QueryContext(ctx, `
 		SELECT d.source_client, d.source_hook, COUNT(*),
+		       SUM(a.attempt_origin = 'runtime'),
+		       SUM(a.attempt_origin = 'backfill'),
 		       SUM(a.outcome = 'accepted'),
 		       SUM(a.outcome = 'conflict'),
 		       SUM(a.outcome = 'exact_redelivery')
@@ -160,8 +162,8 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var client, hook string
-		var attempts, accepted, conflicts, exact int
-		if err := rows.Scan(&client, &hook, &attempts, &accepted, &conflicts, &exact); err != nil {
+		var attempts, runtimeAttempts, backfilledAttempts, accepted, conflicts, exact int
+		if err := rows.Scan(&client, &hook, &attempts, &runtimeAttempts, &backfilledAttempts, &accepted, &conflicts, &exact); err != nil {
 			return nil, xerrors.Errorf("failed to scan hook delivery attempt source: %w", err)
 		}
 		key := workspaceIdentitySourceKey{client: client, hook: hook}
@@ -171,10 +173,12 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 			bySource[key] = item
 		}
 		item.DeliveryAttemptCount = attempts
+		item.RuntimeAttemptCount = runtimeAttempts
+		item.BackfilledAttemptCount = backfilledAttempts
 		item.AcceptedDeliveryCount = accepted
 		item.IdentityConflictCount = conflicts
 		item.ExactRedeliveryCount = exact
-		item.ExactRedeliveryRate = ratio(exact, attempts)
+		item.ExactRedeliveryRate = ratio(exact, runtimeAttempts)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate hook delivery attempt sources: %w", err)

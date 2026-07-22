@@ -116,7 +116,7 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 
 ## ワークスペース識別のリリース前 QA
 
-`traceary report workspace-identity` は、帰属情報の網羅率、現在のワークスペース関係、安定したホスト ID に基づくフック配送結果を、クライアントとフック別に表示します。リリース前 QA では `--json` を利用できます。競合サンプルに含めるのは識別子だけで、イベント本文は出力しません。
+先に `traceary doctor` を 1 回実行して store を初期化または migrate し、その後 `traceary report workspace-identity` を実行してください。レポート自体は migration も provenance catch-up の進行も行いません。帰属情報の網羅率、現在のワークスペース関係、安定したホスト ID に基づくフック配送結果を、クライアントとフック別に表示します。リリース前 QA では `--json` を利用できます。競合サンプルに含めるのは識別子だけで、イベント本文は出力しません。
 
 レポートは、証明済みの安定ホスト ID 結果である `exact_delivery`（目標 1% 未満）と、読み取り専用の履歴本文一致推定である `heuristic_candidates` を分離します。`sample_available=false` は測定済み配送がまだないことを示します。
 

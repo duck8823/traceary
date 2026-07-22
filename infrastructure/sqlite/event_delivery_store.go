@@ -138,10 +138,13 @@ func insertHookDeliveryAttempt(ctx context.Context, tx *sql.Tx, event *model.Eve
 		// always initialize before hook writes.
 		return nil
 	}
+	// A hook callback receives a fresh Traceary event ID. OR IGNORE collapses
+	// only a repository retry of that same event object after a transaction
+	// race; it does not collapse a later callback carrying a new event ID.
 	if _, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO hook_delivery_attempts (
-			delivery_record_id, attempted_event_id, outcome, observed_at
-		) VALUES (?, ?, ?, ?)`,
+			delivery_record_id, attempted_event_id, outcome, attempt_origin, observed_at
+		) VALUES (?, ?, ?, 'runtime', ?)`,
 		deliveryRecordID,
 		event.EventID().String(),
 		outcome,

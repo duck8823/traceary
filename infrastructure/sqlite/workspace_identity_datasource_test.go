@@ -51,7 +51,7 @@ func TestWorkspaceIdentityDatasource_ReportsCurrentReviewedRelationships(t *test
 		t.Fatalf("sources = %#v", report.Sources)
 	}
 	source := report.Sources[0]
-	if source.Relationships.Exact != 1 || source.Relationships.Conflict != 1 || source.DeliveryAttemptCount != 3 || source.ExactRedeliveryCount != 1 {
+	if source.Relationships.Exact != 1 || source.Relationships.Conflict != 1 || source.DeliveryAttemptCount != 3 || source.RuntimeAttemptCount != 3 || source.BackfilledAttemptCount != 0 || source.ExactRedeliveryCount != 1 {
 		t.Fatalf("source = %#v", source)
 	}
 	if len(report.ConflictSamples) != 1 || report.ConflictSamples[0].EventID != "event-3" {

@@ -193,6 +193,8 @@ CREATE TABLE hook_delivery_attempts (
     attempted_event_id TEXT NOT NULL,
     outcome TEXT NOT NULL
         CHECK (outcome IN ('accepted', 'conflict', 'exact_redelivery')),
+    attempt_origin TEXT NOT NULL
+        CHECK (attempt_origin IN ('runtime', 'backfill')),
     observed_at TEXT NOT NULL,
     PRIMARY KEY (delivery_record_id, attempted_event_id)
 );

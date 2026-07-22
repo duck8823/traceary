@@ -1066,6 +1066,7 @@ Run the MCP server over stdio for AI client integration.
 ### `traceary report workspace-identity`
 
 Print body-free workspace attribution coverage, relationship/conflict rates, stable-ID exact-redelivery rates, and separate historical heuristic candidate rates. Use `--json`, `--conflict-sample-limit`, and `--strict` for automation and QA.
+Run `traceary doctor` first when the store needs initialization or migration; the report itself is read-only.
 
 ### `traceary store workspace-alias add|list|remove`
 

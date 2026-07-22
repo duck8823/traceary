@@ -116,7 +116,7 @@ Possible but not actively tuned:
 
 ## Workspace identity release QA
 
-Run `traceary report workspace-identity` to inspect attribution coverage, current workspace relationships, and stable-ID hook delivery outcomes by client and hook. `--json` is suitable for release QA. Conflict samples contain identifiers only; event bodies are never included.
+Run `traceary doctor` once to initialize/migrate the store, then run `traceary report workspace-identity` to inspect attribution coverage, current workspace relationships, and stable-ID hook delivery outcomes by client and hook. The report itself does not migrate or advance provenance catch-up. `--json` is suitable for release QA. Conflict samples contain identifiers only; event bodies are never included.
 
 The report deliberately separates `exact_delivery` (proven stable host-ID outcomes, with a target below 1%) from `heuristic_candidates` (a read-only historical content-match estimate). `sample_available=false` means no delivery attempts have been measured yet.
 

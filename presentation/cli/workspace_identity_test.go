@@ -3,6 +3,8 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,7 +37,7 @@ func TestRootCLI_WorkspaceIdentityReportSeparatesExactAndHeuristicRates(t *testi
 	t.Parallel()
 	identity := &workspaceIdentityUsecaseStub{report: apptypes.WorkspaceIdentityReport{
 		Coverage: apptypes.WorkspaceIdentityCoverage{EventCount: 2, CoveredEvents: 2, CoverageRate: 1},
-		Sources:  []apptypes.WorkspaceIdentitySourceReport{{Client: "codex", SourceHook: "user_prompt_submit", DeliveryAttemptCount: 200, ExactRedeliveryCount: 1}},
+		Sources:  []apptypes.WorkspaceIdentitySourceReport{{Client: "codex", SourceHook: "user_prompt_submit", DeliveryAttemptCount: 200, RuntimeAttemptCount: 200, ExactRedeliveryCount: 1}},
 	}}
 	store := &storeManagementUsecaseStub{dedupeResult: apptypes.ContentEventDedupeResult{
 		ScannedCount: 10,
@@ -46,7 +48,11 @@ func TestRootCLI_WorkspaceIdentityReportSeparatesExactAndHeuristicRates(t *testi
 	var output bytes.Buffer
 	root.SetOut(&output)
 	root.SetErr(&output)
-	root.SetArgs([]string{"report", "workspace-identity", "--db-path", t.TempDir() + "/traceary.db", "--conflict-sample-limit", "3", "--json"})
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	root.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--conflict-sample-limit", "3", "--json"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v\n%s", err, output.String())
 	}
@@ -57,6 +63,34 @@ func TestRootCLI_WorkspaceIdentityReportSeparatesExactAndHeuristicRates(t *testi
 	}
 	if identity.limit != 3 || len(store.dedupeParams) != 1 || store.dedupeParams[0].Apply {
 		t.Fatalf("limit/dedupe params = %d/%#v", identity.limit, store.dedupeParams)
+	}
+	if store.initCalled {
+		t.Fatal("read-only report called store Initialize")
+	}
+}
+
+func TestRootCLI_WorkspaceIdentityReportDoesNotTreatBackfillAsLiveSample(t *testing.T) {
+	t.Parallel()
+	identity := &workspaceIdentityUsecaseStub{report: apptypes.WorkspaceIdentityReport{
+		Sources: []apptypes.WorkspaceIdentitySourceReport{{Client: "codex", DeliveryAttemptCount: 200, BackfilledAttemptCount: 200}},
+	}}
+	store := &storeManagementUsecaseStub{}
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	root := cli.NewRootCLI(cli.WithStoreManagement(store), cli.WithWorkspaceIdentity(identity)).Command()
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\n%s", err, output.String())
+	}
+	for _, want := range []string{`"attempt_count": 0`, `"sample_available": false`, `"target_met": false`} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, output.String())
+		}
 	}
 }
 

@@ -3,6 +3,8 @@ CREATE TABLE hook_delivery_attempts (
     attempted_event_id TEXT NOT NULL,
     outcome TEXT NOT NULL
         CHECK (outcome IN ('accepted', 'conflict', 'exact_redelivery')),
+    attempt_origin TEXT NOT NULL
+        CHECK (attempt_origin IN ('runtime', 'backfill')),
     observed_at TEXT NOT NULL,
     PRIMARY KEY (delivery_record_id, attempted_event_id)
 );
@@ -14,12 +16,14 @@ INSERT INTO hook_delivery_attempts (
     delivery_record_id,
     attempted_event_id,
     outcome,
+    attempt_origin,
     observed_at
 )
 SELECT
     delivery_record_id,
     observed_event_id,
     identity_status,
+    'backfill',
     accepted_at
 FROM hook_deliveries;
 

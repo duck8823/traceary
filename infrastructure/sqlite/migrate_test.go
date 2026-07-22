@@ -127,12 +127,12 @@ func TestMigrations_hookDeliveryAttemptsBackfillBodyFreeDenominator(t *testing.T
 		t.Fatalf("sql.Open(upgraded) error = %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	var eventID, outcome, observedAt string
-	if err := db.QueryRow(`SELECT attempted_event_id, outcome, observed_at FROM hook_delivery_attempts WHERE delivery_record_id = 'delivery-1'`).Scan(&eventID, &outcome, &observedAt); err != nil {
+	var eventID, outcome, origin, observedAt string
+	if err := db.QueryRow(`SELECT attempted_event_id, outcome, attempt_origin, observed_at FROM hook_delivery_attempts WHERE delivery_record_id = 'delivery-1'`).Scan(&eventID, &outcome, &origin, &observedAt); err != nil {
 		t.Fatalf("read backfilled attempt: %v", err)
 	}
-	if eventID != "event-1" || outcome != "accepted" || observedAt != "2026-07-22T00:00:00Z" {
-		t.Fatalf("backfilled attempt = %q/%q/%q", eventID, outcome, observedAt)
+	if eventID != "event-1" || outcome != "accepted" || origin != "backfill" || observedAt != "2026-07-22T00:00:00Z" {
+		t.Fatalf("backfilled attempt = %q/%q/%q/%q", eventID, outcome, origin, observedAt)
 	}
 }
 

@@ -31,6 +31,8 @@ type WorkspaceIdentitySourceReport struct {
 	KnownRelationshipCount int                         `json:"known_relationship_count"`
 	ConflictRate           float64                     `json:"conflict_rate"`
 	DeliveryAttemptCount   int                         `json:"delivery_attempt_count"`
+	RuntimeAttemptCount    int                         `json:"runtime_attempt_count"`
+	BackfilledAttemptCount int                         `json:"backfilled_attempt_count"`
 	AcceptedDeliveryCount  int                         `json:"accepted_delivery_count"`
 	IdentityConflictCount  int                         `json:"identity_conflict_count"`
 	ExactRedeliveryCount   int                         `json:"exact_redelivery_count"`
