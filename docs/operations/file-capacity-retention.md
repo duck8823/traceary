@@ -13,7 +13,7 @@ Traceary v0.31 adds a hidden, explicit plan/apply workflow for bounding local ar
 - Corrupt, unverified, orphaned, and pinned files remain visible and count toward known pressure, but never become deletion candidates.
 - Every candidate is bound to root device/inode, file device/inode/link count, size, mtime, SHA-256, verification evidence, all reasons, and one ordered batch.
 - `apply` requires the exact plan ID, rechecks the complete remaining inventory and recovery floor, and expires plans after one hour by default.
-- Deletion uses an exclusive root lock, durable catalog/journal/ledger files, and a same-directory no-replace hard-link tombstone. A retry resumes only a recognized state and never overwrites a tombstone.
+- Deletion uses an exclusive root lock, durable catalog/journal/ledger files, and an atomic same-directory no-replace rename to a reserved tombstone. The moved tombstone is verified before unlink; a raced replacement is restored when the original name is still free and is never unlinked. A retry resumes only a recognized state and never overwrites a tombstone.
 
 New SQLite backups also receive a digest-bound reserved retention manifest. A legacy backup without this manifest is reported as `backup_manifest_missing` and does not authorize deletion. Existing store archives are verified through their internal manifest and table digests; encrypted archives are report-only until an explicit passphrase-aware verifier is added.
 

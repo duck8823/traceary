@@ -136,7 +136,7 @@ func buildFileRetentionClassPlan(snapshot apptypes.FileRetentionInventorySnapsho
 	classPlan := apptypes.FileRetentionClassPlan{
 		Class: snapshot.Class, Root: snapshot.Root, RootIdentity: snapshot.RootIdentity,
 		LiveGeneration: snapshot.LiveGeneration, Budget: budgetPlan, Inventory: inventory, Status: status,
-		OrderedSteps: []string{"verify-plan", "acquire-root-lock", "verify-inventory", "verify-floor", "reserve-catalog", "link-tombstone", "unlink-original", "unlink-tombstone", "record-ledger", "commit-catalog"},
+		OrderedSteps: []string{"verify-plan", "acquire-root-lock", "verify-inventory", "verify-floor", "reserve-catalog", "rename-tombstone", "verify-tombstone", "unlink-tombstone", "record-ledger", "commit-catalog"},
 	}
 	for _, ceiling := range decision.Ceilings() {
 		classPlan.Ceilings = append(classPlan.Ceilings, apptypes.FileRetentionCeilingPlan{

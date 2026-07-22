@@ -185,59 +185,58 @@ func (datasource *FileRetentionDatasource) inspectFileRetentionEntry(
 	name string,
 ) (apptypes.FileRetentionInventoryEntry, error) {
 	entry := apptypes.FileRetentionInventoryEntry{RelativePath: name, AllocatedKnown: true}
-	var pathStat unix.Stat_t
-	if err := unix.Fstatat(rootFD, name, &pathStat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-		entry.BlockingReason = "unreadable"
-		entry.GenerationCreatedAt = time.Unix(1, 0).UTC()
-		entry.ModifiedAt = entry.GenerationCreatedAt
-		entry.ContentSHA256 = sha256HexString("unreadable:" + name)
-		entry.Identity = sha256HexString(rootIdentity + ":unreadable:" + name)
-		return entry, nil
-	}
-	entry.Device, entry.Inode, entry.LinkCount = uint64(pathStat.Dev), uint64(pathStat.Ino), uint64(pathStat.Nlink)
-	entry.LogicalBytes, entry.AllocatedBytes = pathStat.Size, pathStat.Blocks*512
-	if pathStat.Mode&unix.S_IFMT != unix.S_IFREG {
-		entry.BlockingReason = "non_regular"
-		entry.GenerationCreatedAt = time.Unix(1, 0).UTC()
-		entry.ModifiedAt = entry.GenerationCreatedAt
-		entry.ContentSHA256 = sha256HexString(fmt.Sprintf("non-regular:%s:%d:%d", name, pathStat.Dev, pathStat.Ino))
-		entry.Identity = fileRetentionIdentity(rootIdentity, name, pathStat, entry.ModifiedAt, entry.ContentSHA256)
-		return entry, nil
-	}
-	if uint64(pathStat.Dev) != uint64(rootStat.Dev) {
-		entry.BlockingReason = "device_boundary"
-	}
-	if pathStat.Nlink != 1 {
-		entry.BlockingReason = "hard_link"
-	}
-	fd, err := unix.Openat(rootFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(rootFD, name, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
-		entry.BlockingReason = "unreadable"
-		entry.GenerationCreatedAt = time.Unix(1, 0).UTC()
-		entry.ModifiedAt = entry.GenerationCreatedAt
-		entry.ContentSHA256 = sha256HexString("unreadable:" + name)
-		entry.Identity = fileRetentionIdentity(rootIdentity, name, pathStat, entry.ModifiedAt, entry.ContentSHA256)
-		return entry, nil
+		return blockedFileRetentionPathEntry(rootFD, rootIdentity, name), nil
 	}
 	file := os.NewFile(uintptr(fd), name)
+	defer func() { _ = file.Close() }()
+	if err := datasource.boundary("inventory-opened:" + name); err != nil {
+		return entry, err
+	}
+	var openedStat unix.Stat_t
+	if err := unix.Fstat(fd, &openedStat); err != nil {
+		return entry, xerrors.Errorf("stat open file retention entry %s: %w", name, err)
+	}
 	info, err := file.Stat()
 	if err != nil {
-		_ = file.Close()
 		return entry, xerrors.Errorf("stat file retention entry %s: %w", name, err)
 	}
+	entry.Device, entry.Inode, entry.LinkCount = uint64(openedStat.Dev), uint64(openedStat.Ino), uint64(openedStat.Nlink)
+	entry.LogicalBytes, entry.AllocatedBytes = openedStat.Size, openedStat.Blocks*512
 	entry.ModifiedAt = info.ModTime().UTC()
+	if openedStat.Mode&unix.S_IFMT != unix.S_IFREG {
+		entry.BlockingReason = "non_regular"
+		entry.GenerationCreatedAt = time.Unix(1, 0).UTC()
+		entry.ContentSHA256 = sha256HexString(fmt.Sprintf("non-regular:%s:%d:%d", name, openedStat.Dev, openedStat.Ino))
+		entry.Identity = fileRetentionIdentity(rootIdentity, name, openedStat, entry.ModifiedAt, entry.ContentSHA256)
+		return entry, nil
+	}
+	if openedStat.Dev != rootStat.Dev {
+		entry.BlockingReason = "device_boundary"
+	}
+	if openedStat.Nlink != 1 {
+		entry.BlockingReason = "hard_link"
+	}
+	if !fileRetentionPathMatchesStat(rootFD, name, openedStat) {
+		entry.BlockingReason = "changed_during_inventory"
+	}
 	data, err := io.ReadAll(file)
 	if err != nil {
 		entry.BlockingReason = "unreadable"
 		data = nil
 	}
+	var finalStat unix.Stat_t
+	finalInfo, finalInfoErr := file.Stat()
+	if statErr := unix.Fstat(fd, &finalStat); statErr != nil || finalInfoErr != nil || !sameFileRetentionStat(openedStat, finalStat) || !info.ModTime().Equal(finalInfo.ModTime()) || !fileRetentionPathMatchesStat(rootFD, name, finalStat) {
+		entry.BlockingReason = "changed_during_inventory"
+	}
 	contentDigest := sha256.Sum256(data)
 	entry.ContentSHA256 = hex.EncodeToString(contentDigest[:])
-	entry.Identity = fileRetentionIdentity(rootIdentity, name, pathStat, entry.ModifiedAt, entry.ContentSHA256)
+	entry.Identity = fileRetentionIdentity(rootIdentity, name, openedStat, entry.ModifiedAt, entry.ContentSHA256)
 	entry.GenerationCreatedAt = entry.ModifiedAt
 	entry.GenerationProvenance = "filesystem_mtime"
 	if entry.BlockingReason != "" {
-		_ = file.Close()
 		return entry, nil
 	}
 
@@ -246,9 +245,6 @@ func (datasource *FileRetentionDatasource) inspectFileRetentionEntry(
 		verification = verifyFileRetentionArchive(data, request.DatabasePath, liveGeneration)
 	} else {
 		verification = verifyFileRetentionBackup(fd, name, entry.ContentSHA256, entry.ModifiedAt, liveGeneration, backupManifests)
-	}
-	if closeErr := file.Close(); closeErr != nil {
-		return entry, xerrors.Errorf("close file retention entry %s: %w", name, closeErr)
 	}
 	entry.Verified = verification.verified
 	entry.Generation = verification.generation
@@ -259,6 +255,34 @@ func (datasource *FileRetentionDatasource) inspectFileRetentionEntry(
 	entry.MetadataRelativePath = verification.metadataRelativePath
 	entry.MetadataSHA256 = verification.metadataSHA256
 	return entry, nil
+}
+
+func blockedFileRetentionPathEntry(rootFD int, rootIdentity, name string) apptypes.FileRetentionInventoryEntry {
+	entry := apptypes.FileRetentionInventoryEntry{RelativePath: name, AllocatedKnown: true, BlockingReason: "unreadable"}
+	var stat unix.Stat_t
+	if err := unix.Fstatat(rootFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err == nil {
+		entry.Device, entry.Inode, entry.LinkCount = uint64(stat.Dev), uint64(stat.Ino), uint64(stat.Nlink)
+		entry.LogicalBytes, entry.AllocatedBytes = stat.Size, stat.Blocks*512
+		if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+			entry.BlockingReason = "non_regular"
+		}
+	}
+	entry.GenerationCreatedAt = time.Unix(1, 0).UTC()
+	entry.ModifiedAt = entry.GenerationCreatedAt
+	entry.ContentSHA256 = sha256HexString(entry.BlockingReason + ":" + name)
+	entry.Identity = fileRetentionIdentity(rootIdentity, name, stat, entry.ModifiedAt, entry.ContentSHA256)
+	return entry
+}
+
+func fileRetentionPathMatchesStat(rootFD int, name string, expected unix.Stat_t) bool {
+	var current unix.Stat_t
+	return unix.Fstatat(rootFD, name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil &&
+		current.Mode&unix.S_IFMT == unix.S_IFREG && current.Dev == expected.Dev && current.Ino == expected.Ino
+}
+
+func sameFileRetentionStat(left, right unix.Stat_t) bool {
+	return left.Mode&unix.S_IFMT == right.Mode&unix.S_IFMT && left.Dev == right.Dev && left.Ino == right.Ino &&
+		left.Nlink == right.Nlink && left.Size == right.Size && left.Blocks == right.Blocks
 }
 
 type fileRetentionVerification struct {
@@ -665,7 +689,7 @@ func (datasource *FileRetentionDatasource) resumeFileRetentionCandidate(
 			if err := datasource.verifyFileRetentionPlanSnapshot(ctx, plan, classPlan, *ledger, *journal, true); err != nil {
 				return err
 			}
-			if err := ensureFileRetentionTombstone(rootFD, rootStat, classPlan, candidate, journal.TombstonePath); err != nil {
+			if err := datasource.ensureFileRetentionTombstone(rootFD, rootStat, classPlan, candidate, journal.TombstonePath); err != nil {
 				return err
 			}
 			if err := datasource.boundary("tombstone-linked"); err != nil {
@@ -682,11 +706,7 @@ func (datasource *FileRetentionDatasource) resumeFileRetentionCandidate(
 			if err := datasource.verifyFileRetentionPlanSnapshot(ctx, plan, classPlan, *ledger, *journal, true); err != nil {
 				return err
 			}
-			entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
-			if err := verifyFileRetentionMetadataAt(rootFD, rootStat, entry); err != nil {
-				return err
-			}
-			if err := unlinkFileRetentionName(rootFD, candidate.RelativePath); err != nil {
+			if err := requireFileRetentionNameAbsent(rootFD, candidate.RelativePath); err != nil {
 				return err
 			}
 			if err := datasource.boundary("original-unlinked"); err != nil {
@@ -703,12 +723,17 @@ func (datasource *FileRetentionDatasource) resumeFileRetentionCandidate(
 			if err := datasource.verifyFileRetentionPlanSnapshot(ctx, plan, classPlan, *ledger, *journal, true); err != nil {
 				return err
 			}
-			entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
-			if err := verifyFileRetentionMetadataAt(rootFD, rootStat, entry); err != nil {
-				return err
-			}
-			if err := unlinkFileRetentionName(rootFD, journal.TombstonePath); err != nil {
-				return err
+			if fileRetentionNameExists(rootFD, journal.TombstonePath) {
+				entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
+				if err := verifyFileRetentionNameAt(rootFD, rootStat, classPlan, candidate, journal.TombstonePath); err != nil {
+					return err
+				}
+				if err := verifyFileRetentionMetadataAt(rootFD, rootStat, entry); err != nil {
+					return err
+				}
+				if err := unlinkFileRetentionName(rootFD, journal.TombstonePath); err != nil {
+					return err
+				}
 			}
 			if err := datasource.boundary("tombstone-unlinked"); err != nil {
 				return err
@@ -730,7 +755,7 @@ func (datasource *FileRetentionDatasource) resumeFileRetentionCandidate(
 			if err := datasource.verifyFileRetentionPlanSnapshot(ctx, plan, classPlan, *ledger, *journal, true); err != nil {
 				return err
 			}
-			if err := verifyAndUnlinkFileRetentionMetadata(rootFD, rootStat, entry); err != nil {
+			if err := moveAndUnlinkFileRetentionMetadata(rootFD, rootStat, entry, journal.TombstonePath+".metadata"); err != nil {
 				return err
 			}
 			if err := datasource.boundary("metadata-unlinked"); err != nil {
@@ -870,11 +895,22 @@ func verifyFileRetentionCandidateAt(rootFD int, rootStat unix.Stat_t, classPlan 
 	if !ok || entry.RelativePath != candidate.RelativePath || entry.Protected || !entry.Verified || entry.Pinned || entry.BlockingReason != "" {
 		return xerrors.New("candidate is not eligible in reviewed inventory")
 	}
-	fd, err := unix.Openat(rootFD, candidate.RelativePath, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return xerrors.Errorf("open file retention candidate: %w", err)
+	if err := verifyFileRetentionNameAt(rootFD, rootStat, classPlan, candidate, candidate.RelativePath); err != nil {
+		return err
 	}
-	file := os.NewFile(uintptr(fd), candidate.RelativePath)
+	return verifyFileRetentionMetadataAt(rootFD, rootStat, entry)
+}
+
+func verifyFileRetentionNameAt(rootFD int, rootStat unix.Stat_t, classPlan apptypes.FileRetentionClassPlan, candidate apptypes.FileRetentionCandidatePlan, name string) error {
+	entry, ok := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
+	if !ok {
+		return xerrors.New("candidate is absent from reviewed inventory")
+	}
+	fd, err := unix.Openat(rootFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return xerrors.Errorf("open file retention candidate name %s: %w", name, err)
+	}
+	file := os.NewFile(uintptr(fd), name)
 	defer func() { _ = file.Close() }()
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
@@ -893,10 +929,10 @@ func verifyFileRetentionCandidateAt(rootFD int, rootStat unix.Stat_t, classPlan 
 	}
 	digest := sha256HexBytes(data)
 	identity := fileRetentionIdentity(classPlan.RootIdentity, candidate.RelativePath, stat, info.ModTime().UTC(), digest)
-	if identity != candidate.Identity || digest != entry.ContentSHA256 {
+	if identity != candidate.Identity || digest != entry.ContentSHA256 || !fileRetentionPathMatchesStat(rootFD, name, stat) {
 		return xerrors.New("candidate identity or digest changed")
 	}
-	return verifyFileRetentionMetadataAt(rootFD, rootStat, entry)
+	return nil
 }
 
 func verifyFileRetentionMetadataAt(rootFD int, rootStat unix.Stat_t, entry apptypes.FileRetentionInventoryPlan) error {
@@ -930,15 +966,16 @@ func verifyFileRetentionMetadataAt(rootFD int, rootStat unix.Stat_t, entry appty
 	return nil
 }
 
-func ensureFileRetentionTombstone(rootFD int, rootStat unix.Stat_t, classPlan apptypes.FileRetentionClassPlan, candidate apptypes.FileRetentionCandidatePlan, tombstone string) error {
+func (datasource *FileRetentionDatasource) ensureFileRetentionTombstone(rootFD int, rootStat unix.Stat_t, classPlan apptypes.FileRetentionClassPlan, candidate apptypes.FileRetentionCandidatePlan, tombstone string) error {
 	var tombstoneStat unix.Stat_t
 	err := unix.Fstatat(rootFD, tombstone, &tombstoneStat, unix.AT_SYMLINK_NOFOLLOW)
 	if err == nil {
-		entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
-		inode, _ := strconv.ParseUint(entry.Inode, 10, 64)
-		device, _ := strconv.ParseUint(entry.Device, 10, 64)
-		if uint64(tombstoneStat.Ino) != inode || uint64(tombstoneStat.Dev) != device {
+		if err := verifyFileRetentionNameAt(rootFD, rootStat, classPlan, candidate, tombstone); err != nil {
 			return xerrors.New("file retention tombstone collision")
+		}
+		entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
+		if err := verifyFileRetentionMetadataAt(rootFD, rootStat, entry); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -948,13 +985,43 @@ func ensureFileRetentionTombstone(rootFD int, rootStat unix.Stat_t, classPlan ap
 	if err := verifyFileRetentionCandidateAt(rootFD, rootStat, classPlan, candidate); err != nil {
 		return err
 	}
-	if err := unix.Linkat(rootFD, candidate.RelativePath, rootFD, tombstone, 0); err != nil {
-		return xerrors.Errorf("create file retention tombstone: %w", err)
+	if err := datasource.boundary("candidate-verified-before-rename"); err != nil {
+		return err
+	}
+	if err := renameFileRetentionNoReplace(rootFD, candidate.RelativePath, tombstone); err != nil {
+		return xerrors.Errorf("atomically move file retention candidate to tombstone: %w", err)
 	}
 	if err := unix.Fsync(rootFD); err != nil {
 		return xerrors.Errorf("sync file retention tombstone: %w", err)
 	}
+	if err := verifyFileRetentionNameAt(rootFD, rootStat, classPlan, candidate, tombstone); err != nil {
+		restoreErr := renameFileRetentionNoReplace(rootFD, tombstone, candidate.RelativePath)
+		if restoreErr == nil {
+			restoreErr = unix.Fsync(rootFD)
+		}
+		if restoreErr != nil {
+			return xerrors.Errorf("verify moved file retention tombstone: %v; preserve unexpected file at %s: %w", err, tombstone, restoreErr)
+		}
+		return xerrors.Errorf("verify moved file retention tombstone: %w", err)
+	}
 	return nil
+}
+
+func requireFileRetentionNameAbsent(rootFD int, name string) error {
+	var stat unix.Stat_t
+	err := unix.Fstatat(rootFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW)
+	if errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("inspect moved file retention original %s: %w", name, err)
+	}
+	return xerrors.Errorf("file retention original %s was replaced after tombstone move", name)
+}
+
+func fileRetentionNameExists(rootFD int, name string) bool {
+	var stat unix.Stat_t
+	return unix.Fstatat(rootFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW) == nil
 }
 
 func unlinkFileRetentionName(rootFD int, name string) error {
@@ -967,18 +1034,39 @@ func unlinkFileRetentionName(rootFD int, name string) error {
 	return nil
 }
 
-func verifyAndUnlinkFileRetentionMetadata(rootFD int, rootStat unix.Stat_t, entry apptypes.FileRetentionInventoryPlan) error {
+func moveAndUnlinkFileRetentionMetadata(rootFD int, rootStat unix.Stat_t, entry apptypes.FileRetentionInventoryPlan, tombstone string) error {
 	if entry.MetadataRelativePath == "" || entry.MetadataSHA256 == "" {
 		return xerrors.New("file retention metadata identity is missing")
 	}
-	fd, err := unix.Openat(rootFD, entry.MetadataRelativePath, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if errors.Is(err, unix.ENOENT) {
-		return nil
+	var tombstoneStat unix.Stat_t
+	if err := unix.Fstatat(rootFD, tombstone, &tombstoneStat, unix.AT_SYMLINK_NOFOLLOW); errors.Is(err, unix.ENOENT) {
+		if !fileRetentionNameExists(rootFD, entry.MetadataRelativePath) {
+			return nil
+		}
+		if err := verifyFileRetentionMetadataAt(rootFD, rootStat, entry); err != nil {
+			return err
+		}
+		if err := renameFileRetentionNoReplace(rootFD, entry.MetadataRelativePath, tombstone); err != nil {
+			return xerrors.Errorf("atomically move file retention metadata to tombstone: %w", err)
+		}
+		if err := unix.Fsync(rootFD); err != nil {
+			return xerrors.Errorf("sync file retention metadata tombstone: %w", err)
+		}
+	} else if err != nil {
+		return xerrors.Errorf("inspect file retention metadata tombstone: %w", err)
 	}
+	if err := verifyFileRetentionMetadataNameAt(rootFD, rootStat, entry.MetadataSHA256, tombstone); err != nil {
+		return err
+	}
+	return unlinkFileRetentionName(rootFD, tombstone)
+}
+
+func verifyFileRetentionMetadataNameAt(rootFD int, rootStat unix.Stat_t, digest, name string) error {
+	fd, err := unix.Openat(rootFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return xerrors.Errorf("open file retention metadata: %w", err)
 	}
-	file := os.NewFile(uintptr(fd), entry.MetadataRelativePath)
+	file := os.NewFile(uintptr(fd), name)
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
 		_ = file.Close()
@@ -992,10 +1080,10 @@ func verifyAndUnlinkFileRetentionMetadata(rootFD int, rootStat unix.Stat_t, entr
 	if closeErr != nil {
 		return xerrors.Errorf("close file retention metadata: %w", closeErr)
 	}
-	if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1 || stat.Dev != rootStat.Dev || sha256HexBytes(data) != entry.MetadataSHA256 {
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1 || stat.Dev != rootStat.Dev || sha256HexBytes(data) != digest {
 		return xerrors.New("file retention metadata identity changed")
 	}
-	return unlinkFileRetentionName(rootFD, entry.MetadataRelativePath)
+	return nil
 }
 
 func (datasource *FileRetentionDatasource) advanceFileRetentionJournal(rootFD int, name string, journal *fileRetentionJournal, state string) error {

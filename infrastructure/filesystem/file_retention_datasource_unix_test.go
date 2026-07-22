@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -193,7 +194,7 @@ func TestFileRetentionArchivePlanUsesManifestGenerationAndCreatedAt(t *testing.T
 func TestFileRetentionCrashBoundariesConverge(t *testing.T) {
 	boundaries := []string{
 		"lease-acquired", "pending", "catalog-deleting", "journal-running", "journal-tombstone_intent",
-		"tombstone-linked", "journal-tombstoned", "journal-unlink_original_intent", "original-unlinked",
+		"candidate-verified-before-rename", "tombstone-linked", "journal-tombstoned", "journal-unlink_original_intent", "original-unlinked",
 		"journal-original_unlinked", "journal-unlink_tombstone_intent", "tombstone-unlinked",
 		"journal-tombstone_unlinked", "journal-metadata_unlink_intent", "metadata-unlinked", "journal-metadata_unlinked",
 		"journal-catalog_commit_intent", "ledger-recorded",
@@ -264,6 +265,85 @@ func TestFileRetentionCrashBoundariesConverge(t *testing.T) {
 				t.Fatalf("%s journal = %#v, error = %v", boundary, journal, err)
 			}
 		})
+	}
+}
+
+func TestFileRetentionInventoryRejectsPathReplacementAfterOpen(t *testing.T) {
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	livePath := filepath.Join(t.TempDir(), "live.db")
+	createFileRetentionSQLite(t, livePath)
+	copyFileRetentionTestFile(t, livePath, filepath.Join(root, "old.db"))
+	copyFileRetentionTestFile(t, livePath, filepath.Join(root, "replacement.db"))
+	writeFileRetentionBackupManifest(t, livePath, filepath.Join(root, "old.db"), now.Add(-time.Hour))
+	writeFileRetentionBackupManifest(t, livePath, filepath.Join(root, "replacement.db"), now)
+
+	datasource := NewFileRetentionDatasource()
+	datasource.afterBoundary = func(boundary string) error {
+		if boundary != "inventory-opened:old.db" {
+			return nil
+		}
+		datasource.afterBoundary = nil
+		if err := os.Rename(filepath.Join(root, "old.db"), filepath.Join(root, fileRetentionReservedPrefix+"preserved")); err != nil {
+			return fmt.Errorf("preserve opened candidate: %w", err)
+		}
+		if err := os.Rename(filepath.Join(root, "replacement.db"), filepath.Join(root, "old.db")); err != nil {
+			return fmt.Errorf("replace opened candidate: %w", err)
+		}
+		return nil
+	}
+	snapshot, err := datasource.InspectFileRetention(context.Background(), apptypes.FileRetentionInventoryRequest{Class: "backup", Root: root, DatabasePath: livePath})
+	if err != nil {
+		t.Fatalf("InspectFileRetention() error = %v", err)
+	}
+	found := false
+	for _, entry := range snapshot.Entries {
+		if entry.RelativePath == "old.db" && entry.BlockingReason == "changed_during_inventory" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("snapshot = %#v, want changed_during_inventory blocker", snapshot)
+	}
+}
+
+func TestFileRetentionApplyNeverDeletesReplacementRacedBeforeRename(t *testing.T) {
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	root, planBytes, plan, datasource, workflow := newFileRetentionBackupPlanFixture(t, now)
+	newData, err := os.ReadFile(filepath.Join(root, "new.db"))
+	if err != nil {
+		t.Fatalf("ReadFile(new.db) error = %v", err)
+	}
+	preserved := filepath.Join(root, fileRetentionReservedPrefix+"planned-preserved")
+	datasource.afterBoundary = func(boundary string) error {
+		if boundary != "candidate-verified-before-rename" {
+			return nil
+		}
+		datasource.afterBoundary = nil
+		if err := os.Rename(filepath.Join(root, "old.db"), preserved); err != nil {
+			return fmt.Errorf("preserve planned candidate: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "old.db"), newData, 0o600); err != nil {
+			return fmt.Errorf("install raced replacement: %w", err)
+		}
+		return nil
+	}
+	if _, err := workflow.Apply(context.Background(), planBytes, plan.PlanID, now); err == nil {
+		t.Fatal("Apply(raced replacement) error = nil, want conflict")
+	}
+	gotReplacement, err := os.ReadFile(filepath.Join(root, "old.db"))
+	if err != nil {
+		t.Fatalf("ReadFile(restored replacement) error = %v", err)
+	}
+	if !bytes.Equal(gotReplacement, newData) {
+		t.Fatal("raced replacement was not restored intact")
+	}
+	if _, err := os.Stat(preserved); err != nil {
+		t.Fatalf("planned candidate was not preserved: %v", err)
+	}
+	candidate := plan.CanonicalPayload.Classes[0].Candidates[0]
+	if _, err := os.Stat(filepath.Join(root, fileRetentionTombstoneName(plan.PlanID, candidate.Identity))); !os.IsNotExist(err) {
+		t.Fatalf("unexpected tombstone remains after restoration: %v", err)
 	}
 }
 
