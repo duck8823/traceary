@@ -370,7 +370,12 @@ func TestFileRetentionRetryDoesNotTreatNameInspectionErrorAsAbsence(t *testing.T
 		t.Fatalf("ReadFile(ledger) error = %v", err)
 	}
 	var ledger fileRetentionLedger
-	if err := json.Unmarshal(ledgerData, &ledger); err != nil || len(ledger.Entries) != 1 || ledger.Entries[0].Identity != candidate.Identity {
+	wantLedgerEntry := fileRetentionLedgerEntry{
+		PlanID:    plan.PlanID,
+		Identity:  candidate.Identity,
+		Committed: now.Add(4 * time.Minute).UTC().Format(time.RFC3339Nano),
+	}
+	if err := json.Unmarshal(ledgerData, &ledger); err != nil || len(ledger.Entries) != 1 || ledger.Entries[0] != wantLedgerEntry {
 		t.Fatalf("converged ledger = %#v, error = %v", ledger, err)
 	}
 	idempotent, err := workflow.Apply(context.Background(), planBytes, plan.PlanID, now.Add(5*time.Minute))
