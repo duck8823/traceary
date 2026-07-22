@@ -307,6 +307,21 @@ func (t *bundleImportTx) ImportUsageObservation(
 	if observation == nil {
 		return false, model.ErrInvalidUsageObservation
 	}
+	if observation.Descriptor().Scope() == types.UsageScopeSessionSnapshot {
+		if predecessorID, present := observation.Descriptor().SupersedesID().Value(); present {
+			predecessor, err := findUsageObservation(ctx, t.tx, predecessorID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to inspect usage snapshot predecessor: %w", err)
+			}
+			value, found := predecessor.Value()
+			if !found {
+				return false, xerrors.Errorf("usage snapshot predecessor %s is missing: %w", predecessorID, model.ErrConflictingUsageObservation)
+			}
+			if err := observation.ValidateSnapshotSuccessor(value); err != nil {
+				return false, xerrors.Errorf("failed to validate referenced usage snapshot predecessor: %w", err)
+			}
+		}
+	}
 	current, err := findUsageObservation(ctx, t.tx, observation.Descriptor().ObservationID())
 	if err != nil {
 		return false, xerrors.Errorf("failed to inspect usage observation conflict: %w", err)
@@ -336,19 +351,6 @@ func (t *bundleImportTx) ImportUsageObservation(
 	}
 
 	if observation.Descriptor().Scope() == types.UsageScopeSessionSnapshot {
-		if predecessorID, present := observation.Descriptor().SupersedesID().Value(); present {
-			predecessor, err := findUsageObservation(ctx, t.tx, predecessorID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to inspect usage snapshot predecessor: %w", err)
-			}
-			value, found := predecessor.Value()
-			if !found {
-				return false, xerrors.Errorf("usage snapshot predecessor %s is missing: %w", predecessorID, model.ErrConflictingUsageObservation)
-			}
-			if err := observation.ValidateSnapshotSuccessor(value); err != nil {
-				return false, xerrors.Errorf("failed to validate referenced usage snapshot predecessor: %w", err)
-			}
-		}
 		head, err := findUsageSnapshotHead(ctx, t.tx, observation.Descriptor().SnapshotSeries())
 		if err != nil {
 			return false, xerrors.Errorf("failed to inspect usage snapshot series: %w", err)

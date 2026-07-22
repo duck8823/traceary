@@ -350,6 +350,19 @@ func TestBundleDatasource_UsageObservationsPreserveSnapshotChainAndRejectReplace
 	if err := missingWithHeadTx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
+
+	sameIDMissingTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameIDMissing := makeSnapshot("usage-successor", 2, "absent-same-id-predecessor", 20)
+	if imported, err := sameIDMissingTx.ImportUsageObservation(ctx, sameIDMissing, usecase.BundleConflictSkip); err == nil || imported {
+		_ = sameIDMissingTx.Rollback(ctx)
+		t.Fatalf("same-ID missing predecessor import = %t/%v, want fail closed", imported, err)
+	}
+	if err := sameIDMissingTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestBundleDatasource_LaterTableFailureRollsBackImportedUsageObservation(t *testing.T) {
