@@ -86,3 +86,29 @@ func TestStoreRetentionApplyReadsAndValidatesBeforeStoreOpen(t *testing.T) {
 		t.Fatalf("old DB stat error = %v, want not exist", err)
 	}
 }
+
+func TestStoreRetentionCommandsAreVisibleButRemainExplicit(t *testing.T) {
+	t.Parallel()
+
+	rootCLI := NewRootCLI()
+	command := rootCLI.newStoreRetentionCommand()
+	if command.Hidden {
+		t.Fatal("store retention command is hidden after copied-store dogfood")
+	}
+	files, _, err := command.Find([]string{"files"})
+	if err != nil {
+		t.Fatalf("Find(files) error = %v", err)
+	}
+	if files.Hidden {
+		t.Fatal("store retention files command is hidden after copied-store dogfood")
+	}
+	apply, _, err := command.Find([]string{"apply"})
+	if err != nil {
+		t.Fatalf("Find(apply) error = %v", err)
+	}
+	for _, required := range []string{"plan", "recovery", "confirm-plan-id"} {
+		if flag := apply.Flag(required); flag == nil {
+			t.Fatalf("apply missing explicit %s flag", required)
+		}
+	}
+}

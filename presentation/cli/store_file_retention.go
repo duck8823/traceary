@@ -36,9 +36,8 @@ type storeFileRetentionApplyInput struct {
 
 func (c *RootCLI) newStoreFileRetentionCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:    "files",
-		Short:  Localize("Plan and apply archive/backup capacity limits", "archive/backup の容量上限を計画・適用する"),
-		Hidden: true,
+		Use:   "files",
+		Short: Localize("Plan and apply archive/backup capacity limits", "archive/backup の容量上限を計画・適用する"),
 	}
 	command.AddCommand(c.newStoreFileRetentionPlanCommand())
 	command.AddCommand(c.newStoreFileRetentionApplyCommand())

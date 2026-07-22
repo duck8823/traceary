@@ -67,6 +67,27 @@ type FileRetentionInventorySnapshot struct {
 	Entries        []FileRetentionInventoryEntry
 }
 
+// FileRetentionCapacityRequest selects read-only roots for operational status.
+type FileRetentionCapacityRequest struct {
+	DatabasePath string
+	Classes      []FileRetentionInventoryRequest
+}
+
+// FileRetentionCapacityStatus summarizes one verified inventory without creating an apply plan.
+type FileRetentionCapacityStatus struct {
+	Class             string
+	Root              string
+	State             string
+	FileCount         int
+	VerifiedCount     int
+	UnverifiedCount   int
+	BlockingCount     int
+	LogicalBytes      int64
+	AllocatedBytes    int64
+	AllocatedKnown    bool
+	FloorRelativePath string
+}
+
 // FileRetentionInventoryEntry is one exact regular file or fail-closed blocker.
 type FileRetentionInventoryEntry struct {
 	Identity             string

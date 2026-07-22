@@ -110,6 +110,72 @@ func TestFileRetentionPlanWithoutCurrentGenerationFloorIsReportOnly(t *testing.T
 	}
 }
 
+func TestFileRetentionInspectCapacitySummarizesReadOnlyEvidence(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	snapshot := fileRetentionSnapshot(now)
+	snapshot.Entries[0].AllocatedKnown = false
+	snapshot.Entries[0].AllocatedBytes = 0
+	snapshot.Entries[0].Verified = false
+	workflow := usecase.NewFileRetentionUsecase(&fileRetentionInventoryStub{snapshot: snapshot}, &fileRetentionExecutorStub{})
+	statuses, err := workflow.InspectCapacity(context.Background(), apptypes.FileRetentionCapacityRequest{
+		DatabasePath: "/tmp/live.db",
+		Classes:      []apptypes.FileRetentionInventoryRequest{{Class: "backup", Root: "/tmp/backups"}},
+	})
+	if err != nil {
+		t.Fatalf("InspectCapacity() error = %v", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("statuses = %#v, want one", statuses)
+	}
+	status := statuses[0]
+	if status.State != "ready" || status.FileCount != 2 || status.VerifiedCount != 1 || status.UnverifiedCount != 1 || status.BlockingCount != 0 {
+		t.Fatalf("status counts/readiness = %#v", status)
+	}
+	if status.LogicalBytes != 20 || status.AllocatedBytes != 10 || status.AllocatedKnown || status.FloorRelativePath != "b.db" {
+		t.Fatalf("status capacity/floor = %#v", status)
+	}
+}
+
+func TestFileRetentionInspectCapacityReportsEmptyAndIndeterminate(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		snapshot  apptypes.FileRetentionInventorySnapshot
+		wantState string
+	}{
+		{name: "empty", snapshot: apptypes.FileRetentionInventorySnapshot{Class: "archive", Root: "/tmp/archives", LiveGeneration: digestOf('d')}, wantState: "empty"},
+		{name: "missing floor", snapshot: func() apptypes.FileRetentionInventorySnapshot {
+			snapshot := fileRetentionSnapshot(now)
+			snapshot.Entries[0].Generation = digestOf('x')
+			snapshot.Entries[1].Generation = digestOf('x')
+			return snapshot
+		}(), wantState: "indeterminate"},
+		{name: "blocker", snapshot: func() apptypes.FileRetentionInventorySnapshot {
+			snapshot := fileRetentionSnapshot(now)
+			snapshot.Entries[0].BlockingReason = "hard_link"
+			return snapshot
+		}(), wantState: "indeterminate"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			workflow := usecase.NewFileRetentionUsecase(&fileRetentionInventoryStub{snapshot: test.snapshot}, &fileRetentionExecutorStub{})
+			statuses, err := workflow.InspectCapacity(context.Background(), apptypes.FileRetentionCapacityRequest{
+				DatabasePath: "/tmp/live.db", Classes: []apptypes.FileRetentionInventoryRequest{{Class: test.snapshot.Class, Root: test.snapshot.Root}},
+			})
+			if err != nil {
+				t.Fatalf("InspectCapacity() error = %v", err)
+			}
+			if len(statuses) != 1 || statuses[0].State != test.wantState {
+				t.Fatalf("statuses = %#v, want state %s", statuses, test.wantState)
+			}
+		})
+	}
+}
+
 type fileRetentionInventoryStub struct {
 	snapshot apptypes.FileRetentionInventorySnapshot
 	calls    int

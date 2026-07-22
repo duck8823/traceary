@@ -69,6 +69,8 @@ type contextCommandInput struct {
 // doctorCommandInput is the resolved input to the `traceary doctor` command.
 type doctorCommandInput struct {
 	dbPath            string
+	archiveRoot       string
+	backupRoot        string
 	client            string
 	projectDir        string
 	currentVersion    string
