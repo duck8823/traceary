@@ -52,6 +52,22 @@ func CommandAuditFromSnapshot(snapshot CommandAuditSnapshot) (*CommandAudit, err
 		if code != 0 && validatedReason == types.CommandFailureReasonNone {
 			return nil, xerrors.New("restore command audit: non-zero exit code cannot have no failure reason")
 		}
+		if code != 0 {
+			switch validatedReason {
+			case types.CommandFailureReasonUnknown,
+				types.CommandFailureReasonExitCode,
+				types.CommandFailureReasonSignal,
+				types.CommandFailureReasonTimeout,
+				types.CommandFailureReasonHookDenied:
+				// Legacy unknown and the outcomes preserved by ClassifyOutcome
+				// are the only valid non-zero combinations.
+			default:
+				return nil, xerrors.Errorf(
+					"restore command audit: non-zero exit code cannot have failure reason %s",
+					validatedReason,
+				)
+			}
+		}
 	}
 	if validatedReason != types.CommandFailureReasonUnknown && snapshot.Failed != validatedReason.IsFailure() {
 		return nil, xerrors.New("restore command audit: failed flag contradicts structured failure reason")

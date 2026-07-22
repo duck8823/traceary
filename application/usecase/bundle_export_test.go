@@ -8,6 +8,16 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
+// BundleCommandAuditFromJSONForTest exposes command-audit compatibility
+// restoration without making the private bundle row part of production API.
+func BundleCommandAuditFromJSONForTest(raw []byte) (*model.CommandAudit, error) {
+	var row bundleCommandAuditRow
+	if err := json.Unmarshal(raw, &row); err != nil {
+		return nil, xerrors.Errorf("decode bundle command audit: %w", err)
+	}
+	return row.toCommandAudit()
+}
+
 // BundleSessionRoundTripForTest exposes the observable codec round-trip
 // without making the private NDJSON row part of the production API.
 func BundleSessionRoundTripForTest(session *model.Session) (*model.Session, string, string, error) {

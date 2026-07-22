@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -8,6 +9,21 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
+
+func TestBundleCommandAuditRejectsContradictoryNonZeroHostError(t *testing.T) {
+	t.Parallel()
+	_, err := usecase.BundleCommandAuditFromJSONForTest([]byte(`{
+		"event_id":"event-1",
+		"command":"go test ./...",
+		"command_name":"go",
+		"exit_code":2,
+		"failed":true,
+		"failure_reason":"host_error"
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "non-zero exit code cannot have failure reason host_error") {
+		t.Fatalf("BundleCommandAuditFromJSONForTest() error = %v, want contradiction", err)
+	}
+}
 
 func TestBundleSessionRowRoundTripsLifecycleState(t *testing.T) {
 	t.Parallel()

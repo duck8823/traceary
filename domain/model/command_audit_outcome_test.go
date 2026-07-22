@@ -83,3 +83,36 @@ func TestCommandAuditFromSnapshotRejectsContradictorySuccess(t *testing.T) {
 		t.Fatalf("CommandAuditFromSnapshot() error = %v, want exit-code-zero contradiction", err)
 	}
 }
+
+func TestCommandAuditFromSnapshotRejectsNonZeroHostError(t *testing.T) {
+	t.Parallel()
+	_, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
+		EventID:       "event",
+		Command:       "go test ./...",
+		CommandName:   "go",
+		ExitCode:      types.Some(2),
+		Failed:        true,
+		FailureReason: types.CommandFailureReasonHostError,
+	})
+	if err == nil || !strings.Contains(err.Error(), "non-zero exit code cannot have failure reason host_error") {
+		t.Fatalf("CommandAuditFromSnapshot() error = %v, want non-zero host-error contradiction", err)
+	}
+}
+
+func TestCommandAuditFromSnapshotAllowsLegacyNonZeroUnknown(t *testing.T) {
+	t.Parallel()
+	audit, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
+		EventID:       "legacy-event",
+		Command:       "go test ./...",
+		CommandName:   types.CommandNameUnknown,
+		ExitCode:      types.Some(2),
+		Failed:        true,
+		FailureReason: types.CommandFailureReasonUnknown,
+	})
+	if err != nil {
+		t.Fatalf("CommandAuditFromSnapshot() error = %v", err)
+	}
+	if !audit.Failed() || audit.FailureReason() != types.CommandFailureReasonUnknown {
+		t.Fatalf("legacy outcome = failed:%v reason:%q", audit.Failed(), audit.FailureReason())
+	}
+}

@@ -26,8 +26,8 @@ type CommandIdentity struct {
 // currently unwraps only the observed rtk grammar; every other first token is
 // treated as the executable rather than guessed as a wrapper.
 func CommandIdentityFrom(raw string) CommandIdentity {
-	tokens := commandPrefixTokens(raw, 3)
-	if len(tokens) == 0 {
+	tokens, valid := commandPrefixTokens(raw, 3)
+	if !valid || len(tokens) == 0 {
 		return CommandIdentity{command: CommandNameUnknown}
 	}
 	first := commandTokenName(tokens[0])
@@ -74,7 +74,7 @@ func (i CommandIdentity) Command() CommandName {
 
 func commandTokenName(token string) CommandName {
 	trimmed := strings.TrimSpace(token)
-	if trimmed == "" {
+	if trimmed == "" || strings.ContainsAny(trimmed, "$`;&|<>()") {
 		return CommandNameUnknown
 	}
 	return CommandName(path.Base(trimmed))
@@ -83,9 +83,9 @@ func commandTokenName(token string) CommandName {
 // commandPrefixTokens reads only the command prefix needed for identity. It is
 // quote-aware but intentionally not a shell evaluator: expansions and control
 // operators remain ordinary token text and are never executed.
-func commandPrefixTokens(raw string, limit int) []string {
+func commandPrefixTokens(raw string, limit int) ([]string, bool) {
 	if limit <= 0 {
-		return nil
+		return nil, false
 	}
 	var (
 		tokens  []string
@@ -132,16 +132,16 @@ func commandPrefixTokens(raw string, limit int) []string {
 		}
 		if unicode.IsSpace(r) {
 			if flush() {
-				return tokens
+				return tokens, true
 			}
 			continue
 		}
 		builder.WriteRune(r)
 		inToken = true
 	}
-	if escaped {
-		builder.WriteRune('\\')
+	if escaped || quote != 0 {
+		return tokens, false
 	}
 	flush()
-	return tokens
+	return tokens, true
 }
