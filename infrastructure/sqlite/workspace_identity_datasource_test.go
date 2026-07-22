@@ -38,6 +38,18 @@ func TestWorkspaceIdentityDatasource_ReportsCurrentReviewedRelationships(t *test
 			t.Fatalf("Save(%s) error = %v", event.EventID(), err)
 		}
 	}
+	db = openHookDeliveryTestDB(t, dbPath)
+	if _, err := db.Exec(`
+		INSERT INTO hook_delivery_attempts (delivery_record_id, attempted_event_id, outcome, attempt_origin, observed_at)
+		SELECT delivery_record_id, 'historical-exact', 'exact_redelivery', 'backfill', '2026-07-21T00:00:00Z'
+		  FROM hook_deliveries
+		 ORDER BY accepted_at
+		 LIMIT 1`); err != nil {
+		t.Fatalf("insert historical exact backfill: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close historical setup DB: %v", err)
+	}
 
 	sut := sqlite.NewWorkspaceIdentityDatasource(database)
 	report, err := sut.WorkspaceIdentityReport(ctx, 10)
@@ -51,7 +63,7 @@ func TestWorkspaceIdentityDatasource_ReportsCurrentReviewedRelationships(t *test
 		t.Fatalf("sources = %#v", report.Sources)
 	}
 	source := report.Sources[0]
-	if source.Relationships.Exact != 1 || source.Relationships.Conflict != 1 || source.DeliveryAttemptCount != 3 || source.RuntimeAttemptCount != 3 || source.BackfilledAttemptCount != 0 || source.ExactRedeliveryCount != 1 {
+	if source.Relationships.Exact != 1 || source.Relationships.Conflict != 1 || source.DeliveryAttemptCount != 4 || source.RuntimeAttemptCount != 3 || source.BackfilledAttemptCount != 1 || source.ExactRedeliveryCount != 1 {
 		t.Fatalf("source = %#v", source)
 	}
 	if len(report.ConflictSamples) != 1 || report.ConflictSamples[0].EventID != "event-3" {

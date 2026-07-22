@@ -152,7 +152,7 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 		       SUM(a.attempt_origin = 'backfill'),
 		       SUM(a.outcome = 'accepted'),
 		       SUM(a.outcome = 'conflict'),
-		       SUM(a.outcome = 'exact_redelivery')
+		       SUM(a.attempt_origin = 'runtime' AND a.outcome = 'exact_redelivery')
 		  FROM hook_delivery_attempts a
 		  JOIN hook_deliveries d ON d.delivery_record_id = a.delivery_record_id
 		 GROUP BY d.source_client, d.source_hook`)
