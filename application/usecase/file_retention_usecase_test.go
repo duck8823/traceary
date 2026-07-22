@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -130,7 +131,7 @@ func TestFileRetentionInspectCapacitySummarizesReadOnlyEvidence(t *testing.T) {
 		t.Fatalf("statuses = %#v, want one", statuses)
 	}
 	status := statuses[0]
-	if status.State != "ready" || status.FileCount != 2 || status.VerifiedCount != 1 || status.UnverifiedCount != 1 || status.BlockingCount != 0 {
+	if status.State != "indeterminate" || status.FileCount != 2 || status.VerifiedCount != 1 || status.UnverifiedCount != 1 || status.BlockingCount != 0 {
 		t.Fatalf("status counts/readiness = %#v", status)
 	}
 	if status.LogicalBytes != 20 || status.AllocatedBytes != 10 || status.AllocatedKnown || status.FloorRelativePath != "b.db" {
@@ -159,6 +160,16 @@ func TestFileRetentionInspectCapacityReportsEmptyAndIndeterminate(t *testing.T) 
 			snapshot.Entries[0].BlockingReason = "hard_link"
 			return snapshot
 		}(), wantState: "indeterminate"},
+		{name: "logical overflow", snapshot: func() apptypes.FileRetentionInventorySnapshot {
+			snapshot := fileRetentionSnapshot(now)
+			snapshot.Entries[0].LogicalBytes = math.MaxInt64
+			return snapshot
+		}(), wantState: "indeterminate"},
+		{name: "allocated overflow", snapshot: func() apptypes.FileRetentionInventorySnapshot {
+			snapshot := fileRetentionSnapshot(now)
+			snapshot.Entries[0].AllocatedBytes = math.MaxInt64
+			return snapshot
+		}(), wantState: "indeterminate"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -171,6 +182,12 @@ func TestFileRetentionInspectCapacityReportsEmptyAndIndeterminate(t *testing.T) 
 			}
 			if len(statuses) != 1 || statuses[0].State != test.wantState {
 				t.Fatalf("statuses = %#v, want state %s", statuses, test.wantState)
+			}
+			if test.name == "logical overflow" && !statuses[0].LogicalOverflow {
+				t.Fatalf("status = %#v, want logical overflow", statuses[0])
+			}
+			if test.name == "allocated overflow" && !statuses[0].AllocatedOverflow {
+				t.Fatalf("status = %#v, want allocated overflow", statuses[0])
 			}
 		})
 	}

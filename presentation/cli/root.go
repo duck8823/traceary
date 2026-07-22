@@ -29,6 +29,7 @@ type RootCLI struct {
 	storeManagement            usecase.StoreManagementUsecase
 	rawBodyRetention           usecase.RawBodyRetentionUsecase
 	fileRetention              usecase.FileRetentionUsecase
+	fileRetentionCapacity      usecase.FileRetentionCapacityInspector
 	workspaceIdentity          usecase.WorkspaceIdentityUsecase
 	mcpServerRunner            MCPServerRunner
 	hooksOrchestrator          application.HooksOrchestrator
@@ -132,7 +133,15 @@ func WithRawBodyRetention(retention usecase.RawBodyRetentionUsecase) RootCLIOpti
 
 // WithFileRetention injects reviewed archive/backup capacity management.
 func WithFileRetention(retention usecase.FileRetentionUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.fileRetention = retention }
+	return func(c *RootCLI) {
+		c.fileRetention = retention
+		c.fileRetentionCapacity = retention
+	}
+}
+
+// WithFileRetentionCapacityInspector injects only the read-only doctor/status capability.
+func WithFileRetentionCapacityInspector(inspector usecase.FileRetentionCapacityInspector) RootCLIOption {
+	return func(c *RootCLI) { c.fileRetentionCapacity = inspector }
 }
 
 // WithWorkspaceIdentity injects body-free identity reporting and reviewed aliases.

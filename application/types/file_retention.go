@@ -83,8 +83,10 @@ type FileRetentionCapacityStatus struct {
 	UnverifiedCount   int
 	BlockingCount     int
 	LogicalBytes      int64
+	LogicalOverflow   bool
 	AllocatedBytes    int64
 	AllocatedKnown    bool
+	AllocatedOverflow bool
 	FloorRelativePath string
 }
 

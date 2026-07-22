@@ -2,7 +2,7 @@
 
 [English] | [日本語](file-capacity-retention.ja.md)
 
-Traceary v0.31 adds a hidden, explicit plan/apply workflow for bounding local archive and SQLite-backup roots by age, count, and allocated bytes. It is not automatic and does not compact the live database.
+Traceary v0.31 adds a public, explicit plan/apply workflow for bounding local archive and SQLite-backup roots by age, count, and allocated bytes. It remains manual and opt-in, and it does not compact the live database.
 
 ## Safety contract
 

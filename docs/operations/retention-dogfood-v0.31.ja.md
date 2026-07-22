@@ -50,12 +50,14 @@ allocated size が変わらないのは想定どおりです。logical body prun
 - 間違った confirmation の前後で root evidence hash は不変でした。
 - exact apply は候補2件を conflict なしで削除し、再実行は already-committed 2件でした。
 - 削除対象 backup の sidecar はなくなり、保持 floor の sidecar は残りました。
-- `Archive OK`、copied backup restore、代表 event count `1`、`PRAGMA integrity_check=ok` により保持 recovery point を検証しました。
+- raw-body recovery archive の SHA-256 `927d130e00e98586fb5caace14803f7170df1df82c10a593715bef895fd63db1` を `store archive verify` で検証し、新しい使い捨て database へ復元しました。dry-run と apply は `inserted=1 skipped=0 conflicts=0 total=1` を返しました。
+- archive の復元先は `PRAGMA integrity_check=ok` となり、metadata query で event/session/kind/client/agent/workspace の完全一致と利用可能な56 byte bodyを確認し、`traceary show` で元の全文を確認しました。
+- 保持した SQLite backup も copied database へ復元し、代表 event count `1` と `PRAGMA integrity_check=ok` を確認しました。
 - parameterized file-retention crash matrix は全 journal/namespace boundary を対象にし、retry が committed journal 1件、完全一致 ledger row 1件、deleted catalog state、candidate/tombstone 不在、floor 存在へ収束することを検証します。
 
 ## doctor/status の証拠
 
-`traceary doctor --archive-root ... --backup-root ... --json` は読み取り専用で、保持した root を Database section に表示しました。
+`traceary doctor --archive-root ... --backup-root ... --json` の capacity-root 検査部分は読み取り専用です。retention plan を作成・適用せず、保持した root を Database section に表示しました。ただし `doctor` command 全体は読み取り専用ではありません。指定した SQLite database の初期化・migration を行い、`--fix` は capacity 検査と無関係な review 済み修復を実行できます。
 
 - archive: `state=ready files=1 verified=1 logical_bytes=839 allocated_bytes=4096 floor=new.trcaryar`
 - backup: `state=ready files=1 verified=1 logical_bytes=262144 allocated_bytes=262144 floor=new.db`

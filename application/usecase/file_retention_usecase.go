@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"time"
 
@@ -15,9 +16,14 @@ import (
 
 const fileRetentionPlanSchemaVersion = "file-retention-plan/v1"
 
+// FileRetentionCapacityInspector provides read-only operational capacity evidence.
+type FileRetentionCapacityInspector interface {
+	InspectCapacity(ctx context.Context, request apptypes.FileRetentionCapacityRequest) ([]apptypes.FileRetentionCapacityStatus, error)
+}
+
 // FileRetentionUsecase plans and explicitly applies local archive/backup limits.
 type FileRetentionUsecase interface {
-	InspectCapacity(ctx context.Context, request apptypes.FileRetentionCapacityRequest) ([]apptypes.FileRetentionCapacityStatus, error)
+	FileRetentionCapacityInspector
 	CreatePlan(ctx context.Context, request apptypes.FileRetentionPlanRequest, now time.Time) ([]byte, error)
 	Apply(ctx context.Context, encodedPlan []byte, confirmedPlanID string, now time.Time) (apptypes.FileRetentionApplyResult, error)
 }
@@ -50,9 +56,17 @@ func summarizeFileRetentionCapacity(snapshot apptypes.FileRetentionInventorySnap
 		Class: snapshot.Class, Root: snapshot.Root, FileCount: len(snapshot.Entries), AllocatedKnown: true,
 	}
 	for _, entry := range snapshot.Entries {
-		status.LogicalBytes += entry.LogicalBytes
+		if total, ok := addNonNegativeInt64(status.LogicalBytes, entry.LogicalBytes); ok && !status.LogicalOverflow {
+			status.LogicalBytes = total
+		} else {
+			status.LogicalOverflow = true
+		}
 		if entry.AllocatedKnown {
-			status.AllocatedBytes += entry.AllocatedBytes
+			if total, ok := addNonNegativeInt64(status.AllocatedBytes, entry.AllocatedBytes); ok && !status.AllocatedOverflow {
+				status.AllocatedBytes = total
+			} else {
+				status.AllocatedOverflow = true
+			}
 		} else {
 			status.AllocatedKnown = false
 		}
@@ -73,12 +87,19 @@ func summarizeFileRetentionCapacity(snapshot apptypes.FileRetentionInventorySnap
 	if floorIndex >= 0 {
 		status.FloorRelativePath = snapshot.Entries[floorIndex].RelativePath
 	}
-	if floorIndex >= 0 && status.BlockingCount == 0 {
+	if floorIndex >= 0 && status.BlockingCount == 0 && status.AllocatedKnown && !status.LogicalOverflow && !status.AllocatedOverflow {
 		status.State = "ready"
 	} else {
 		status.State = "indeterminate"
 	}
 	return status
+}
+
+func addNonNegativeInt64(left, right int64) (int64, bool) {
+	if left < 0 || right < 0 || left > math.MaxInt64-right {
+		return 0, false
+	}
+	return left + right, true
 }
 
 type fileRetentionUsecase struct {

@@ -50,12 +50,14 @@ Evidence:
 - A wrong confirmation left the complete root evidence hash unchanged.
 - Exact apply deleted two candidates with zero conflicts; retry reported two already-committed candidates.
 - The deleted backup sidecar was removed and the retained-floor sidecar remained.
-- `Archive OK`, copied backup restore, representative event count `1`, and `PRAGMA integrity_check=ok` proved the retained recovery points.
+- The raw-body recovery archive with SHA-256 `927d130e00e98586fb5caace14803f7170df1df82c10a593715bef895fd63db1` passed `store archive verify`, then restored into a new disposable database: dry-run and apply reported `inserted=1 skipped=0 conflicts=0 total=1`.
+- The restored archive database passed `PRAGMA integrity_check=ok`; a metadata query returned the exact event/session/kind/client/agent/workspace identity with an available 56-byte body, and `traceary show` returned the original full payload.
+- The retained SQLite backup also restored into a copied database with representative event count `1` and `PRAGMA integrity_check=ok`.
 - The parameterized file-retention crash matrix covers every journal and namespace boundary; retry converges to one committed journal, one exact ledger entry, deleted catalog state, absent candidate/tombstone, and present floor.
 
 ## Doctor/status evidence
 
-`traceary doctor --archive-root ... --backup-root ... --json` is read-only and reported both retained roots in the Database section:
+The capacity-root portion of `traceary doctor --archive-root ... --backup-root ... --json` is read-only: it neither creates nor applies a retention plan, and it reported both retained roots in the Database section. `doctor` as a whole is not a read-only command: it initializes or migrates the configured SQLite database, and `--fix` can run unrelated reviewed remediations. These effects are separate from capacity-root inspection.
 
 - archive: `state=ready files=1 verified=1 logical_bytes=839 allocated_bytes=4096 floor=new.trcaryar`
 - backup: `state=ready files=1 verified=1 logical_bytes=262144 allocated_bytes=262144 floor=new.db`

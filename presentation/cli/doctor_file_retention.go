@@ -26,11 +26,11 @@ func (c *RootCLI) inspectFileRetentionCapacity(ctx context.Context, dbPath, arch
 			checks = append(checks, doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to resolve %s capacity root: %v", "%s capacity root の解決に失敗しました: %v", request.class, err)})
 			continue
 		}
-		if c.fileRetention == nil {
+		if c.fileRetentionCapacity == nil {
 			checks = append(checks, doctorCheck{Name: name, Status: doctorStatusFail, Message: Localize("file retention capacity inspection is not configured", "file retention の容量確認が設定されていません")})
 			continue
 		}
-		statuses, err := c.fileRetention.InspectCapacity(ctx, apptypes.FileRetentionCapacityRequest{
+		statuses, err := c.fileRetentionCapacity.InspectCapacity(ctx, apptypes.FileRetentionCapacityRequest{
 			DatabasePath: dbPath,
 			Classes:      []apptypes.FileRetentionInventoryRequest{{Class: request.class, Root: root}},
 		})
@@ -48,34 +48,41 @@ func (c *RootCLI) inspectFileRetentionCapacity(ctx context.Context, dbPath, arch
 }
 
 func fileRetentionCapacityDoctorCheck(name string, status apptypes.FileRetentionCapacityStatus) doctorCheck {
+	logical := fmt.Sprintf("%d", status.LogicalBytes)
+	if status.LogicalOverflow {
+		logical = "overflow"
+	}
 	allocated := fmt.Sprintf("%d", status.AllocatedBytes)
-	if !status.AllocatedKnown {
+	if status.AllocatedOverflow {
+		allocated = "overflow"
+	} else if !status.AllocatedKnown {
 		allocated = "partially-known:" + allocated
 	}
-	floor := status.FloorRelativePath
+	floor := normalizeTabularColumn(status.FloorRelativePath)
 	if floor == "" {
 		floor = "none"
 	}
 	checkStatus := doctorStatusPass
-	if status.State == "indeterminate" || status.BlockingCount > 0 || status.UnverifiedCount > 0 {
+	if status.State == "indeterminate" || status.BlockingCount > 0 || status.UnverifiedCount > 0 || !status.AllocatedKnown || status.LogicalOverflow || status.AllocatedOverflow {
 		checkStatus = doctorStatusWarn
 	}
 	return doctorCheck{
 		Name:   name,
 		Status: checkStatus,
 		Message: localizef(
-			"read-only %s capacity: state=%s files=%d verified=%d unverified=%d blockers=%d logical_bytes=%d allocated_bytes=%s floor=%s; automatic cleanup is disabled",
-			"読み取り専用 %s capacity: state=%s files=%d verified=%d unverified=%d blockers=%d logical_bytes=%d allocated_bytes=%s floor=%s。自動 cleanup は無効です",
-			status.Class, status.State, status.FileCount, status.VerifiedCount, status.UnverifiedCount, status.BlockingCount, status.LogicalBytes, allocated, floor,
+			"read-only %s capacity-root inspection: state=%s files=%d verified=%d unverified=%d blockers=%d logical_bytes=%s allocated_bytes=%s floor=%s; automatic cleanup is disabled",
+			"読み取り専用 %s capacity-root 検査: state=%s files=%d verified=%d unverified=%d blockers=%d logical_bytes=%s allocated_bytes=%s floor=%s。自動 cleanup は無効です",
+			status.Class, status.State, status.FileCount, status.VerifiedCount, status.UnverifiedCount, status.BlockingCount, logical, allocated, floor,
 		),
 		Hint: fileRetentionCapacityHint(status.Class, status.Root),
 	}
 }
 
 func fileRetentionCapacityHint(class, root string) string {
+	command := renderShellCommand([]string{"traceary", "store", "retention", "files", "plan", "--" + class + "-root", root, "..."})
 	return localizef(
-		"capacity changes remain manual and opt-in; review `traceary store retention files plan --%s-root %s ...` before exact apply",
-		"capacity 変更は手動 opt-in のままです。exact apply の前に `traceary store retention files plan --%s-root %s ...` を確認してください",
-		class, root,
+		"capacity changes remain manual and opt-in; review `%s` before exact apply",
+		"capacity 変更は手動 opt-in のままです。exact apply の前に `%s` を確認してください",
+		command,
 	)
 }
