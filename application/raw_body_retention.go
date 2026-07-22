@@ -14,6 +14,6 @@ type RawBodyRetentionPlanner interface {
 
 // RawBodyRetentionExecutor applies and restores exact reviewed body identities.
 type RawBodyRetentionExecutor interface {
-	ApplyRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, planID string, candidates []apptypes.RawBodyCandidate, appliedAt time.Time) (apptypes.RawBodyApplyResult, error)
-	RestoreRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, planID string, bodies []apptypes.RawBodyRecoveryBody, restoredAt time.Time) (apptypes.RawBodyRestoreResult, error)
+	ApplyRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidates []apptypes.RawBodyCandidate, appliedAt time.Time) (apptypes.RawBodyApplyResult, error)
+	RestoreRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, bodies []apptypes.RawBodyRecoveryBody, restoredAt time.Time) (apptypes.RawBodyRestoreResult, error)
 }

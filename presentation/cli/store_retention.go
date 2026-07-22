@@ -110,7 +110,7 @@ func (c *RootCLI) runStoreRetentionPlan(ctx context.Context, output io.Writer, i
 	} else if !os.IsNotExist(err) {
 		return xerrors.Errorf("stat plan output: %w", err)
 	}
-	if err := c.prepareRetentionStore(ctx, input.dbPath); err != nil {
+	if err := c.bindRetentionStore(input.dbPath); err != nil {
 		return err
 	}
 	now := gcNowFunc().UTC()
@@ -146,7 +146,7 @@ func (c *RootCLI) runStoreRetentionPlan(ctx context.Context, output io.Writer, i
 }
 
 func (c *RootCLI) runStoreRetentionApply(ctx context.Context, output io.Writer, input storeRetentionExecutionInput) error {
-	plan, err := c.readRetentionExecutionInput(ctx, input)
+	plan, err := c.readRetentionExecutionInput(input)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (c *RootCLI) runStoreRetentionApply(ctx context.Context, output io.Writer, 
 }
 
 func (c *RootCLI) runStoreRetentionRestore(ctx context.Context, output io.Writer, input storeRetentionExecutionInput) error {
-	plan, err := c.readRetentionExecutionInput(ctx, input)
+	plan, err := c.readRetentionExecutionInput(input)
 	if err != nil {
 		return err
 	}
@@ -175,11 +175,11 @@ func (c *RootCLI) runStoreRetentionRestore(ctx context.Context, output io.Writer
 	return nil
 }
 
-func (c *RootCLI) readRetentionExecutionInput(ctx context.Context, input storeRetentionExecutionInput) ([]byte, error) {
+func (c *RootCLI) readRetentionExecutionInput(input storeRetentionExecutionInput) ([]byte, error) {
 	if c.rawBodyRetention == nil || c.storeManagement == nil {
 		return nil, xerrors.Errorf("%s", Localize("raw-body retention is not configured", "本文保持ポリシーが設定されていません"))
 	}
-	if err := c.prepareRetentionStore(ctx, input.dbPath); err != nil {
+	if err := c.bindRetentionStore(input.dbPath); err != nil {
 		return nil, err
 	}
 	plan, err := os.ReadFile(input.planPath)
@@ -189,14 +189,11 @@ func (c *RootCLI) readRetentionExecutionInput(ctx context.Context, input storeRe
 	return plan, nil
 }
 
-func (c *RootCLI) prepareRetentionStore(ctx context.Context, dbPath string) error {
+func (c *RootCLI) bindRetentionStore(dbPath string) error {
 	resolved, err := resolveDBPath(dbPath)
 	if err != nil {
 		return xerrors.Errorf("resolve retention DB path: %w", err)
 	}
 	c.applyDatabasePath(resolved)
-	if err := c.storeManagement.Initialize(ctx); err != nil {
-		return xerrors.Errorf("initialize retention store: %w", err)
-	}
 	return nil
 }

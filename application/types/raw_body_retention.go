@@ -14,6 +14,7 @@ type RawBodyCandidate struct {
 type RawBodyRetentionSnapshot struct {
 	DatabaseIdentity  string
 	SQLiteUserVersion int
+	MigrationDigest   string
 	SnapshotAt        time.Time
 	Candidates        []RawBodyCandidate
 	ExcludedActive    []string

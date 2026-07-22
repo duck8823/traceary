@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -26,7 +28,8 @@ func (d *StoreManagementDatasource) ListRawBodyCandidates(ctx context.Context, b
 	if before.IsZero() {
 		return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("retention cutoff must not be zero")
 	}
-	db, err := d.db.open(ctx)
+	sourcePath := d.db.Path()
+	db, err := d.db.openAt(ctx, sourcePath)
 	if err != nil {
 		return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to open DB for raw-body plan: %w", err)
 	}
@@ -38,7 +41,11 @@ func (d *StoreManagementDatasource) ListRawBodyCandidates(ctx context.Context, b
 	}
 	defer rollbackRawBodyTx(tx)
 
-	identity, version, err := rawBodySourceIdentity(ctx, tx)
+	identity, version, err := rawBodySourceIdentity(ctx, tx, sourcePath)
+	if err != nil {
+		return apptypes.RawBodyRetentionSnapshot{}, err
+	}
+	migrationDigest, err := rawBodySchemaDigest(ctx, tx)
 	if err != nil {
 		return apptypes.RawBodyRetentionSnapshot{}, err
 	}
@@ -109,114 +116,209 @@ SELECT e.id
 	}
 
 	return apptypes.RawBodyRetentionSnapshot{
-		DatabaseIdentity: identity, SQLiteUserVersion: version, SnapshotAt: time.Now().UTC(),
+		DatabaseIdentity: identity, SQLiteUserVersion: version, MigrationDigest: migrationDigest, SnapshotAt: time.Now().UTC(),
 		Candidates: candidates, ExcludedActive: excluded,
 	}, nil
 }
 
-// ApplyRawBodyPlan prunes only exact candidate versions in one transaction.
-func (d *StoreManagementDatasource) ApplyRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, planID string, candidates []apptypes.RawBodyCandidate, appliedAt time.Time) (apptypes.RawBodyApplyResult, error) {
+// ApplyRawBodyPlan prunes exact candidate versions in durable, resumable batches.
+func (d *StoreManagementDatasource) ApplyRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidates []apptypes.RawBodyCandidate, appliedAt time.Time) (apptypes.RawBodyApplyResult, error) {
 	result := apptypes.RawBodyApplyResult{PlanID: planID, CandidateCount: len(candidates)}
-	db, err := d.db.open(ctx)
+	sourcePath := d.db.Path()
+	db, err := d.db.openAt(ctx, sourcePath)
 	if err != nil {
 		return result, xerrors.Errorf("failed to open DB for raw-body apply: %w", err)
 	}
 	defer closeRawBodyResource(db)
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return result, xerrors.Errorf("failed to begin raw-body apply: %w", err)
-	}
-	defer rollbackRawBodyTx(tx)
-	if err := requireRawBodySource(ctx, tx, databaseIdentity, sqliteUserVersion); err != nil {
+	stamp := formatTimestamp(appliedAt)
+	if err := preflightRawBodyCandidates(ctx, db, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest, planID, candidates); err != nil {
 		return result, err
 	}
-	var executionStatus string
-	var executionCandidates int
-	executionErr := tx.QueryRowContext(ctx, `SELECT status, candidate_count FROM raw_body_retention_executions WHERE plan_id = ?`, planID).Scan(&executionStatus, &executionCandidates)
-	if executionErr != nil && !errors.Is(executionErr, sql.ErrNoRows) {
-		return result, xerrors.Errorf("failed to inspect raw-body execution: %w", executionErr)
+	if err := startRawBodyExecution(ctx, db, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest, planID, len(candidates), stamp); err != nil {
+		return result, err
 	}
-	if executionErr == nil {
-		if executionCandidates != len(candidates) {
-			return result, xerrors.Errorf("raw-body execution candidate count conflicts with plan")
-		}
-		if executionStatus == "restored" {
-			return result, xerrors.Errorf("restored raw-body plan is terminal; create a new plan to prune again")
-		}
-	}
-
-	type pendingCandidate struct {
-		candidate apptypes.RawBodyCandidate
-		body      string
-	}
-	pending := make([]pendingCandidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		var body, createdAt, availability string
-		var stored int
-		var prunedPlan sql.NullString
-		err := tx.QueryRowContext(ctx, `SELECT body, created_at, body_availability, body_stored_bytes, body_pruned_plan_id FROM events WHERE id = ?`, candidate.EventID).
-			Scan(&body, &createdAt, &availability, &stored, &prunedPlan)
+	for index, candidate := range candidates {
+		pruned, err := applyRawBodyCandidate(ctx, db, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest, planID, candidate, stamp)
 		if err != nil {
-			return result, xerrors.Errorf("failed to verify raw-body candidate %s: %w", candidate.EventID, err)
+			return result, err
 		}
-		if availability == domtypes.BodyAvailabilityUnavailableRetention.String() && prunedPlan.String == planID {
-			var entryCount int
-			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_id = ? AND event_id = ? AND body_sha256 = ? AND stored_bytes = ?`, planID, candidate.EventID, candidate.BodySHA256, candidate.StoredBytes).Scan(&entryCount); err != nil || entryCount != 1 {
-				return result, xerrors.Errorf("raw-body execution ledger does not match pruned event %s", candidate.EventID)
-			}
+		if pruned {
+			result.PrunedCount++
+		} else {
 			result.AlreadyPruned++
-			continue
 		}
-		digest := sha256.Sum256([]byte(body))
-		if availability != domtypes.BodyAvailabilityAvailable.String() || createdAt != formatTimestamp(candidate.CreatedAt) || stored != candidate.StoredBytes || hex.EncodeToString(digest[:]) != candidate.BodySHA256 {
-			return result, xerrors.Errorf("raw-body plan is stale or mismatched at event %s", candidate.EventID)
-		}
-		pending = append(pending, pendingCandidate{candidate: candidate, body: body})
-	}
-
-	stamp := formatTimestamp(appliedAt)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO raw_body_retention_executions(plan_id, status, candidate_count, pruned_count, started_at)
-VALUES (?, 'running', ?, 0, ?)
-ON CONFLICT(plan_id) DO NOTHING`, planID, len(candidates), stamp); err != nil {
-		return result, xerrors.Errorf("failed to start raw-body execution: %w", err)
-	}
-	for index, item := range pending {
-		res, err := tx.ExecContext(ctx, `UPDATE events
-SET body = ?, body_availability = 'unavailable_retention', body_pruned_at = ?, body_pruned_plan_id = ?
-WHERE id = ? AND body_availability = 'available' AND body = ?`, domtypes.EventBodyUnavailableRetentionMarker, stamp, planID, item.candidate.EventID, item.body)
-		if err != nil {
-			return result, xerrors.Errorf("failed to prune raw body %s: %w", item.candidate.EventID, err)
-		}
-		changed, _ := res.RowsAffected()
-		if changed != 1 {
-			return result, xerrors.Errorf("raw-body candidate changed during apply: %s", item.candidate.EventID)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO raw_body_retention_entries(plan_id, event_id, body_sha256, stored_bytes, pruned_at)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(plan_id, event_id) DO NOTHING`, planID, item.candidate.EventID, item.candidate.BodySHA256, item.candidate.StoredBytes, stamp); err != nil {
-			return result, xerrors.Errorf("failed to record raw-body entry: %w", err)
-		}
-		result.PrunedCount++
 		if d.onRawBodyPruned != nil {
 			if err := d.onRawBodyPruned(index); err != nil {
-				return result, xerrors.Errorf("raw-body apply interrupted: %w", err)
+				return result, xerrors.Errorf("raw-body apply interrupted after durable batch: %w", err)
 			}
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_executions
-SET status = 'completed', pruned_count = ?, completed_at = ? WHERE plan_id = ?`, len(candidates), stamp, planID); err != nil {
-		return result, xerrors.Errorf("failed to complete raw-body execution: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return result, xerrors.Errorf("failed to commit raw-body apply: %w", err)
+	if err := completeRawBodyExecution(ctx, db, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest, planID, len(candidates), stamp); err != nil {
+		return result, err
 	}
 	return result, nil
 }
 
+func startRawBodyExecution(ctx context.Context, db *sql.DB, sourcePath, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidateCount int, stamp string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to begin raw-body execution: %w", err)
+	}
+	defer rollbackRawBodyTx(tx)
+	if err := requireRawBodySource(ctx, tx, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest); err != nil {
+		return err
+	}
+	var status string
+	var recordedCount int
+	err = tx.QueryRowContext(ctx, `SELECT status, candidate_count FROM raw_body_retention_executions WHERE plan_id = ?`, planID).Scan(&status, &recordedCount)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return xerrors.Errorf("failed to inspect raw-body execution: %w", err)
+	}
+	if err == nil {
+		if recordedCount != candidateCount {
+			return xerrors.Errorf("raw-body execution candidate count conflicts with plan")
+		}
+		if status == "restored" {
+			return xerrors.Errorf("restored raw-body plan is terminal; create a new plan to prune again")
+		}
+	} else if _, err := tx.ExecContext(ctx, `INSERT INTO raw_body_retention_executions(plan_id, status, candidate_count, pruned_count, started_at)
+VALUES (?, 'running', ?, 0, ?)
+`, planID, candidateCount, stamp); err != nil {
+		return xerrors.Errorf("failed to start raw-body execution: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit raw-body execution start: %w", err)
+	}
+	return nil
+}
+
+func applyRawBodyCandidate(ctx context.Context, db *sql.DB, sourcePath, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidate apptypes.RawBodyCandidate, stamp string) (bool, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, xerrors.Errorf("failed to begin raw-body batch: %w", err)
+	}
+	defer rollbackRawBodyTx(tx)
+	if err := requireRawBodySource(ctx, tx, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest); err != nil {
+		return false, err
+	}
+	body, alreadyPruned, err := verifyRawBodyCandidateState(ctx, tx, planID, candidate)
+	if err != nil {
+		return false, err
+	}
+	if alreadyPruned {
+		if err := tx.Commit(); err != nil {
+			return false, xerrors.Errorf("failed to commit raw-body idempotency check: %w", err)
+		}
+		return false, nil
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE events
+SET body = ?, body_availability = 'unavailable_retention', body_pruned_at = ?, body_pruned_plan_id = ?
+WHERE id = ? AND body_availability = 'available' AND body = ?`, domtypes.EventBodyUnavailableRetentionMarker, stamp, planID, candidate.EventID, body)
+	if err != nil {
+		return false, xerrors.Errorf("failed to prune raw body %s: %w", candidate.EventID, err)
+	}
+	changed, _ := res.RowsAffected()
+	if changed != 1 {
+		return false, xerrors.Errorf("raw-body candidate changed during apply: %s", candidate.EventID)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO raw_body_retention_entries(plan_id, event_id, body_sha256, stored_bytes, pruned_at)
+VALUES (?, ?, ?, ?, ?)
+`, planID, candidate.EventID, candidate.BodySHA256, candidate.StoredBytes, stamp); err != nil {
+		return false, xerrors.Errorf("failed to record raw-body entry: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_executions
+SET pruned_count = (SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_id = ?) WHERE plan_id = ?`, planID, planID); err != nil {
+		return false, xerrors.Errorf("failed to update raw-body execution progress: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, xerrors.Errorf("failed to commit raw-body batch: %w", err)
+	}
+	return true, nil
+}
+
+func preflightRawBodyCandidates(ctx context.Context, db *sql.DB, sourcePath, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidates []apptypes.RawBodyCandidate) error {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return xerrors.Errorf("failed to begin raw-body preflight: %w", err)
+	}
+	defer rollbackRawBodyTx(tx)
+	if err := requireRawBodySource(ctx, tx, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest); err != nil {
+		return err
+	}
+	for _, candidate := range candidates {
+		if _, _, err := verifyRawBodyCandidateState(ctx, tx, planID, candidate); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit raw-body preflight: %w", err)
+	}
+	return nil
+}
+
+func verifyRawBodyCandidateState(ctx context.Context, tx *sql.Tx, planID string, candidate apptypes.RawBodyCandidate) (string, bool, error) {
+	var body, createdAt, availability string
+	var stored int
+	var prunedPlan sql.NullString
+	var activeSession bool
+	err := tx.QueryRowContext(ctx, `SELECT e.body, e.created_at, e.body_availability, e.body_stored_bytes, e.body_pruned_plan_id,
+EXISTS(SELECT 1 FROM sessions AS s WHERE s.session_id = e.session_id AND s.ended_at IS NULL)
+FROM events AS e WHERE e.id = ?`, candidate.EventID).Scan(&body, &createdAt, &availability, &stored, &prunedPlan, &activeSession)
+	if err != nil {
+		return "", false, xerrors.Errorf("failed to verify raw-body candidate %s: %w", candidate.EventID, err)
+	}
+	if availability == domtypes.BodyAvailabilityUnavailableRetention.String() && prunedPlan.String == planID {
+		var entryCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_id = ? AND event_id = ? AND body_sha256 = ? AND stored_bytes = ?`, planID, candidate.EventID, candidate.BodySHA256, candidate.StoredBytes).Scan(&entryCount); err != nil || entryCount != 1 {
+			return "", false, xerrors.Errorf("raw-body execution ledger does not match pruned event %s", candidate.EventID)
+		}
+		return body, true, nil
+	}
+	if activeSession {
+		return "", false, xerrors.Errorf("raw-body plan is stale because event %s belongs to an active session", candidate.EventID)
+	}
+	persistedCreatedAt, parseErr := time.Parse(time.RFC3339Nano, createdAt)
+	if parseErr != nil {
+		return "", false, xerrors.Errorf("failed to parse raw-body candidate timestamp %s: %w", candidate.EventID, parseErr)
+	}
+	digest := sha256.Sum256([]byte(body))
+	if availability != domtypes.BodyAvailabilityAvailable.String() || !persistedCreatedAt.Equal(candidate.CreatedAt) || stored != candidate.StoredBytes || hex.EncodeToString(digest[:]) != candidate.BodySHA256 {
+		return "", false, xerrors.Errorf("raw-body plan is stale or mismatched at event %s", candidate.EventID)
+	}
+	return body, false, nil
+}
+
+func completeRawBodyExecution(ctx context.Context, db *sql.DB, sourcePath, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidateCount int, stamp string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to begin raw-body completion: %w", err)
+	}
+	defer rollbackRawBodyTx(tx)
+	if err := requireRawBodySource(ctx, tx, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest); err != nil {
+		return err
+	}
+	var ledgerCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_id = ?`, planID).Scan(&ledgerCount); err != nil {
+		return xerrors.Errorf("failed to count raw-body execution ledger: %w", err)
+	}
+	if ledgerCount != candidateCount {
+		return xerrors.Errorf("raw-body execution is incomplete: ledger has %d of %d candidates", ledgerCount, candidateCount)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_executions
+SET status = 'completed', pruned_count = ?, completed_at = ? WHERE plan_id = ?`, candidateCount, stamp, planID); err != nil {
+		return xerrors.Errorf("failed to complete raw-body execution: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit raw-body completion: %w", err)
+	}
+	return nil
+}
+
 // RestoreRawBodyPlan restores exact bodies only for the execution that pruned them.
-func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, planID string, bodies []apptypes.RawBodyRecoveryBody, restoredAt time.Time) (apptypes.RawBodyRestoreResult, error) {
+func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, bodies []apptypes.RawBodyRecoveryBody, restoredAt time.Time) (apptypes.RawBodyRestoreResult, error) {
 	result := apptypes.RawBodyRestoreResult{PlanID: planID, CandidateCount: len(bodies)}
-	db, err := d.db.open(ctx)
+	sourcePath := d.db.Path()
+	db, err := d.db.openAt(ctx, sourcePath)
 	if err != nil {
 		return result, xerrors.Errorf("failed to open DB for raw-body restore: %w", err)
 	}
@@ -226,7 +328,7 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 		return result, xerrors.Errorf("failed to begin raw-body restore: %w", err)
 	}
 	defer rollbackRawBodyTx(tx)
-	if err := requireRawBodySource(ctx, tx, databaseIdentity, sqliteUserVersion); err != nil {
+	if err := requireRawBodySource(ctx, tx, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest); err != nil {
 		return result, err
 	}
 	var executionStatus string
@@ -234,7 +336,7 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 	if err := tx.QueryRowContext(ctx, `SELECT status, candidate_count FROM raw_body_retention_executions WHERE plan_id = ?`, planID).Scan(&executionStatus, &executionCandidates); err != nil {
 		return result, xerrors.Errorf("raw-body execution is not available for restore: %w", err)
 	}
-	if executionCandidates != len(bodies) || (executionStatus != "completed" && executionStatus != "restored") {
+	if executionCandidates != len(bodies) || (executionStatus != "running" && executionStatus != "completed" && executionStatus != "restored") {
 		return result, xerrors.Errorf("raw-body execution state does not match restore plan")
 	}
 
@@ -279,24 +381,66 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 
 func rawBodySourceIdentity(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}) (string, int, error) {
-	var identity string
-	if err := q.QueryRowContext(ctx, `SELECT id FROM raw_body_retention_store_identity`).Scan(&identity); err != nil {
+}, databasePath string) (string, int, error) {
+	var lineageIdentity string
+	if err := q.QueryRowContext(ctx, `SELECT id FROM raw_body_retention_store_identity`).Scan(&lineageIdentity); err != nil {
 		return "", 0, xerrors.Errorf("failed to read raw-body store identity: %w", err)
 	}
+	canonicalPath, err := filepath.Abs(databasePath)
+	if err != nil {
+		return "", 0, xerrors.Errorf("resolve raw-body store path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(canonicalPath); err == nil {
+		canonicalPath = resolved
+	} else if !os.IsNotExist(err) {
+		return "", 0, xerrors.Errorf("resolve raw-body store symlinks: %w", err)
+	}
+	identityDigest := sha256.Sum256([]byte(lineageIdentity + "\x00" + filepath.Clean(canonicalPath)))
 	var version int
 	if err := q.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return "", 0, xerrors.Errorf("failed to read SQLite user_version: %w", err)
 	}
-	return identity, version, nil
+	return hex.EncodeToString(identityDigest[:]), version, nil
 }
 
-func requireRawBodySource(ctx context.Context, tx *sql.Tx, expectedIdentity string, expectedVersion int) error {
-	identity, version, err := rawBodySourceIdentity(ctx, tx)
+func rawBodySchemaDigest(ctx context.Context, tx *sql.Tx) (string, error) {
+	rows, err := tx.QueryContext(ctx, `
+SELECT type, name, tbl_name, sql
+  FROM sqlite_schema
+ WHERE sql IS NOT NULL
+   AND name NOT LIKE 'sqlite_%'
+ ORDER BY type, name, tbl_name, sql`)
+	if err != nil {
+		return "", xerrors.Errorf("failed to read SQLite schema for retention: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	hash := sha256.New()
+	for rows.Next() {
+		var objectType, name, tableName, statement string
+		if err := rows.Scan(&objectType, &name, &tableName, &statement); err != nil {
+			return "", xerrors.Errorf("failed to scan SQLite schema for retention: %w", err)
+		}
+		for _, value := range []string{objectType, name, tableName, statement} {
+			_, _ = hash.Write([]byte(value))
+			_, _ = hash.Write([]byte{0})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", xerrors.Errorf("failed to iterate SQLite schema for retention: %w", err)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func requireRawBodySource(ctx context.Context, tx *sql.Tx, databasePath, expectedIdentity string, expectedVersion int, expectedMigrationDigest string) error {
+	identity, version, err := rawBodySourceIdentity(ctx, tx, databasePath)
 	if err != nil {
 		return err
 	}
-	if identity != expectedIdentity || version != expectedVersion {
+	migrationDigest, err := rawBodySchemaDigest(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if identity != expectedIdentity || version != expectedVersion || migrationDigest != expectedMigrationDigest {
 		return xerrors.Errorf("raw-body plan belongs to a different store")
 	}
 	return nil

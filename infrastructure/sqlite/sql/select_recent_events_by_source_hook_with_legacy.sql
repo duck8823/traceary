@@ -6,9 +6,9 @@
 --
 -- Result limit is applied to the combined set so pagination is stable
 -- even when all hits come from the legacy branch.
-SELECT id, kind, client, agent, session_id, workspace, body, source_hook, created_at
+SELECT id, kind, client, agent, session_id, workspace, body, body_availability, source_hook, created_at
   FROM (
-        SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.source_hook, e.created_at
+        SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at
           FROM events e
           LEFT JOIN command_audits ca ON ca.event_id = e.id
          WHERE e.source_hook = ?
@@ -21,7 +21,7 @@ SELECT id, kind, client, agent, session_id, workspace, body, source_hook, create
            AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
            AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
         UNION ALL
-        SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.source_hook, e.created_at
+        SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at
           FROM events e
           LEFT JOIN command_audits ca ON ca.event_id = e.id
          WHERE e.source_hook IS NULL

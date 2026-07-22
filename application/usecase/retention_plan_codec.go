@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/xerrors"
@@ -55,9 +56,7 @@ func decodeRetentionPlan(data []byte) (apptypes.RetentionPlan, error) {
 	if err := validateRetentionPlan(plan); err != nil {
 		return apptypes.RetentionPlan{}, err
 	}
-	normalized := plan
-	normalizeRetentionPlan(&normalized)
-	canonical, err := canonicalRetentionPayload(normalized.CanonicalPayload)
+	canonical, err := canonicalRetentionPayload(plan.CanonicalPayload)
 	if err != nil {
 		return apptypes.RetentionPlan{}, err
 	}
@@ -65,10 +64,27 @@ func decodeRetentionPlan(data []byte) (apptypes.RetentionPlan, error) {
 	if hex.EncodeToString(digest[:]) != plan.PlanID {
 		return apptypes.RetentionPlan{}, xerrors.Errorf("retention plan ID does not match canonical payload")
 	}
+	normalized, err := cloneRetentionPlan(plan)
+	if err != nil {
+		return apptypes.RetentionPlan{}, err
+	}
+	normalizeRetentionPlan(&normalized)
 	if !retentionPlanOrderEqual(plan, normalized) {
 		return apptypes.RetentionPlan{}, xerrors.Errorf("retention plan arrays are not in canonical order")
 	}
 	return plan, nil
+}
+
+func cloneRetentionPlan(plan apptypes.RetentionPlan) (apptypes.RetentionPlan, error) {
+	data, err := json.Marshal(plan)
+	if err != nil {
+		return apptypes.RetentionPlan{}, xerrors.Errorf("clone retention plan: %w", err)
+	}
+	var cloned apptypes.RetentionPlan
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return apptypes.RetentionPlan{}, xerrors.Errorf("restore cloned retention plan: %w", err)
+	}
+	return cloned, nil
 }
 
 func canonicalRetentionPayload(payload apptypes.RetentionCanonicalPayload) ([]byte, error) {
@@ -183,11 +199,47 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 	if payload.SchemaVersion != retentionPlanSchemaVersion {
 		return xerrors.Errorf("unsupported retention plan schema %q", payload.SchemaVersion)
 	}
-	if payload.Source.DatabaseIdentity == "" || payload.CreatedAt == "" || payload.SnapshotAt == "" {
+	if payload.Source.DatabaseIdentity == "" || !lowerHexDigest.MatchString(payload.Source.DatabaseIdentity) {
+		return xerrors.Errorf("retention plan database identity must be a lowercase SHA-256 digest")
+	}
+	if err := validateUTCInstant(payload.CreatedAt); err != nil {
+		return xerrors.Errorf("invalid retention plan created_at: %w", err)
+	}
+	if err := validateUTCInstant(payload.SnapshotAt); err != nil {
+		return xerrors.Errorf("invalid retention plan snapshot_at: %w", err)
+	}
+	if payload.Source.SQLiteUserVersion < 0 || !lowerHexDigest.MatchString(payload.Source.MigrationDigest) {
 		return xerrors.Errorf("retention plan source and timestamps are required")
+	}
+	rootIDs := make(map[string]struct{}, len(payload.Source.Roots))
+	for _, root := range payload.Source.Roots {
+		if root.RootID == "" || !lowerHexDigest.MatchString(root.Fingerprint) {
+			return xerrors.Errorf("retention plan root is invalid")
+		}
+		if _, exists := rootIDs[root.RootID]; exists {
+			return xerrors.Errorf("duplicate retention plan root %s", root.RootID)
+		}
+		rootIDs[root.RootID] = struct{}{}
 	}
 	if len(payload.RecoveryRequirements) != 1 || !lowerHexDigest.MatchString(payload.RecoveryRequirements[0].Digest) || payload.RecoveryRequirements[0].State != "active" {
 		return xerrors.Errorf("retention plan requires one active verified recovery point")
+	}
+	recovery := payload.RecoveryRequirements[0]
+	if recovery.Generation == "" || recovery.RootID == "" || recovery.RelativePath == "" || !safeRelativePath(recovery.RelativePath) || !lowerHexDigest.MatchString(recovery.CoverageDigest) {
+		return xerrors.Errorf("retention recovery point is invalid")
+	}
+	if _, exists := rootIDs[recovery.RootID]; !exists {
+		return xerrors.Errorf("retention recovery point references an unknown root")
+	}
+	if len(payload.Policy.Ceilings) != 1 || payload.Policy.Ceilings[0].Class != "raw_body" || payload.Policy.Ceilings[0].Ceiling != "age" || !canonicalUnsignedInteger.MatchString(payload.Policy.Ceilings[0].Value) {
+		return xerrors.Errorf("raw-body retention plan requires one age ceiling")
+	}
+	if len(payload.ClassResults) != 1 || payload.ClassResults[0].Class != "raw_body" || !validRetentionStatus(payload.ClassResults[0].Status) || len(payload.ClassResults[0].Ceilings) != 1 {
+		return xerrors.Errorf("raw-body retention class result is invalid")
+	}
+	ceilingResult := payload.ClassResults[0].Ceilings[0]
+	if ceilingResult.Ceiling != "age" || ceilingResult.Status != payload.ClassResults[0].Status || !validKnownExtent(ceilingResult.Current) || !validKnownExtent(ceilingResult.Projected) {
+		return xerrors.Errorf("raw-body retention ceiling result is invalid")
 	}
 	seen := make(map[string]struct{}, len(payload.Candidates))
 	for _, candidate := range payload.Candidates {
@@ -196,6 +248,12 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 		}
 		if candidate.LogicalExtent.Availability != "known" || !canonicalUnsignedInteger.MatchString(candidate.LogicalExtent.Bytes) || candidate.AllocatedExtent.Availability != "unknown" {
 			return xerrors.Errorf("retention candidate extent is invalid")
+		}
+		if candidate.AllocatedExtent.Bytes != "" || len(candidate.Reasons) != 1 || candidate.Reasons[0] != "age" {
+			return xerrors.Errorf("retention candidate reasons or unknown extent are invalid")
+		}
+		if err := validateUTCInstant(candidate.Timestamp); err != nil {
+			return xerrors.Errorf("invalid retention candidate timestamp: %w", err)
 		}
 		if _, _, err := parseRawBodyCandidateIdentity(candidate.CandidateIdentity); err != nil {
 			return err
@@ -208,6 +266,15 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 	if len(payload.Phases) != 1 || payload.Phases[0].Phase != "body_prune" || len(payload.Phases[0].Batches) != 1 {
 		return xerrors.Errorf("raw-body retention plan must contain one body_prune batch")
 	}
+	wantSteps := []string{"verify-source", "verify-recovery", "prune-body", "record-ledger"}
+	if len(payload.Phases[0].OrderedSteps) != len(wantSteps) {
+		return xerrors.Errorf("retention body_prune steps are invalid")
+	}
+	for index, step := range wantSteps {
+		if payload.Phases[0].OrderedSteps[index] != step {
+			return xerrors.Errorf("retention body_prune steps are invalid")
+		}
+	}
 	batch := payload.Phases[0].Batches[0]
 	if batch.Ordinal != "0" || len(batch.CandidateIdentities) != len(payload.Candidates) {
 		return xerrors.Errorf("retention plan batch does not cover every candidate")
@@ -218,6 +285,40 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 		}
 	}
 	return nil
+}
+
+func validateUTCInstant(value string) error {
+	if !strings.HasSuffix(value, "Z") {
+		return xerrors.Errorf("timestamp must use UTC Z")
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return xerrors.Errorf("parse timestamp: %w", err)
+	}
+	if parsed.IsZero() {
+		return xerrors.Errorf("timestamp must not be zero")
+	}
+	return nil
+}
+
+func safeRelativePath(value string) bool {
+	if strings.HasPrefix(value, "/") || strings.Contains(value, "\\") {
+		return false
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func validRetentionStatus(value string) bool {
+	return value == "satisfied" || value == "unsatisfied" || value == "indeterminate"
+}
+
+func validKnownExtent(value apptypes.RetentionExtent) bool {
+	return value.Availability == "known" && canonicalUnsignedInteger.MatchString(value.Bytes)
 }
 
 func normalizeRetentionPlan(plan *apptypes.RetentionPlan) {

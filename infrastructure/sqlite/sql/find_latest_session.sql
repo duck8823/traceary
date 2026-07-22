@@ -6,6 +6,7 @@ WITH candidate_sessions AS (
             started.session_id,
             started.workspace,
             started.body,
+            started.body_availability,
             started.source_hook,
             started.created_at,
             (
@@ -111,6 +112,7 @@ SELECT id,
        session_id,
        workspace,
        body,
+       body_availability,
        source_hook,
        created_at
   FROM candidate_sessions

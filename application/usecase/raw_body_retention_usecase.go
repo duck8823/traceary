@@ -68,13 +68,11 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 	for _, eventID := range snapshot.ExcludedActive {
 		exclusions = append(exclusions, apptypes.RetentionPlanExclusion{Reason: "active_session", StableIdentity: "event:" + base64.RawURLEncoding.EncodeToString([]byte(eventID))})
 	}
-	coverage := sha256.Sum256([]byte(joinIdentities(identities)))
 	rootPath, err := filepath.Abs(filepath.Dir(recoveryPath))
 	if err != nil {
 		return nil, xerrors.Errorf("resolve recovery root: %w", err)
 	}
 	rootDigest := sha256.Sum256([]byte(rootPath))
-	migrationDigest := sha256.Sum256([]byte("traceary-sqlite-user-version:" + strconv.Itoa(snapshot.SQLiteUserVersion)))
 	status := "satisfied"
 	if len(candidates) > 0 {
 		status = "unsatisfied"
@@ -85,7 +83,7 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 			CreatedAt:     now.UTC().Format(time.RFC3339Nano), SnapshotAt: snapshot.SnapshotAt.UTC().Format(time.RFC3339Nano),
 			Source: apptypes.RetentionPlanSource{
 				DatabaseIdentity: snapshot.DatabaseIdentity, SQLiteUserVersion: snapshot.SQLiteUserVersion,
-				MigrationDigest: hex.EncodeToString(migrationDigest[:]),
+				MigrationDigest: snapshot.MigrationDigest,
 				Roots:           []apptypes.RetentionPlanRoot{{RootID: "recovery", Fingerprint: hex.EncodeToString(rootDigest[:])}},
 			},
 			Policy: apptypes.RetentionPlanPolicy{Ceilings: []apptypes.RetentionPolicyCeiling{{Class: "raw_body", Ceiling: "age", Value: strconv.FormatInt(now.Sub(before).Nanoseconds(), 10)}}},
@@ -96,12 +94,19 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 			Candidates: candidates, Exclusions: exclusions,
 			RecoveryRequirements: []apptypes.RetentionRecoveryPoint{{
 				Generation: "archive-" + recoveryDigest[:12], Digest: recoveryDigest, RootID: "recovery", RelativePath: filepath.Base(recoveryPath),
-				CoverageDigest: hex.EncodeToString(coverage[:]), State: "active",
+				CoverageDigest: hex.EncodeToString(make([]byte, sha256.Size)), State: "active",
 			}},
 			Phases: []apptypes.RetentionPlanPhase{{Phase: "body_prune", Batches: []apptypes.RetentionPlanBatch{{Ordinal: "0", CandidateIdentities: identities}}, OrderedSteps: []string{"verify-source", "verify-recovery", "prune-body", "record-ledger"}}},
 		},
 		Display: apptypes.RetentionPlanDisplay{Summary: strconv.Itoa(len(candidates)) + " raw-body candidates, " + strconv.Itoa(len(exclusions)) + " active-session exclusions"},
 	}
+	normalizeRetentionPlan(&plan)
+	identities = identities[:0]
+	for _, candidate := range plan.CanonicalPayload.Candidates {
+		identities = append(identities, candidate.CandidateIdentity)
+	}
+	coverage := sha256.Sum256([]byte(joinIdentities(identities)))
+	plan.CanonicalPayload.RecoveryRequirements[0].CoverageDigest = hex.EncodeToString(coverage[:])
 	return encodeRetentionPlan(plan)
 }
 
@@ -117,7 +122,7 @@ func (u *rawBodyRetentionUsecase) Apply(ctx context.Context, planData []byte, re
 		return apptypes.RawBodyApplyResult{}, xerrors.Errorf("confirmed plan ID does not match reviewed plan")
 	}
 	_ = bodies
-	result, err := u.executor.ApplyRawBodyPlan(ctx, plan.CanonicalPayload.Source.DatabaseIdentity, plan.CanonicalPayload.Source.SQLiteUserVersion, plan.PlanID, candidates, now.UTC())
+	result, err := u.executor.ApplyRawBodyPlan(ctx, plan.CanonicalPayload.Source.DatabaseIdentity, plan.CanonicalPayload.Source.SQLiteUserVersion, plan.CanonicalPayload.Source.MigrationDigest, plan.PlanID, candidates, now.UTC())
 	if err != nil {
 		return apptypes.RawBodyApplyResult{}, xerrors.Errorf("apply reviewed raw-body plan: %w", err)
 	}
@@ -135,7 +140,7 @@ func (u *rawBodyRetentionUsecase) Restore(ctx context.Context, planData []byte, 
 	if plan.PlanID != confirmedPlanID {
 		return apptypes.RawBodyRestoreResult{}, xerrors.Errorf("confirmed plan ID does not match reviewed plan")
 	}
-	result, err := u.executor.RestoreRawBodyPlan(ctx, plan.CanonicalPayload.Source.DatabaseIdentity, plan.CanonicalPayload.Source.SQLiteUserVersion, plan.PlanID, bodies, now.UTC())
+	result, err := u.executor.RestoreRawBodyPlan(ctx, plan.CanonicalPayload.Source.DatabaseIdentity, plan.CanonicalPayload.Source.SQLiteUserVersion, plan.CanonicalPayload.Source.MigrationDigest, plan.PlanID, bodies, now.UTC())
 	if err != nil {
 		return apptypes.RawBodyRestoreResult{}, xerrors.Errorf("restore reviewed raw-body plan: %w", err)
 	}
@@ -170,6 +175,36 @@ func (u *rawBodyRetentionUsecase) prepareExecution(planData []byte, recoveryPath
 	if recoveryDigest != plan.CanonicalPayload.RecoveryRequirements[0].Digest {
 		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("recovery package digest does not match reviewed plan")
 	}
+	recovery := plan.CanonicalPayload.RecoveryRequirements[0]
+	if recovery.Generation != "archive-"+recoveryDigest[:12] {
+		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("recovery generation does not match reviewed package")
+	}
+	rootPath, err := filepath.Abs(filepath.Dir(recoveryPath))
+	if err != nil {
+		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("resolve recovery root: %w", err)
+	}
+	rootDigest := sha256.Sum256([]byte(rootPath))
+	if len(plan.CanonicalPayload.Source.Roots) != 1 || plan.CanonicalPayload.Source.Roots[0].RootID != recovery.RootID || plan.CanonicalPayload.Source.Roots[0].Fingerprint != hex.EncodeToString(rootDigest[:]) || recovery.RelativePath != filepath.Base(recoveryPath) {
+		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("recovery location does not match reviewed plan")
+	}
+	identities := make([]string, len(plan.CanonicalPayload.Candidates))
+	totalBytes := 0
+	for index, candidate := range plan.CanonicalPayload.Candidates {
+		identities[index] = candidate.CandidateIdentity
+		totalBytes += candidates[index].StoredBytes
+	}
+	coverage := sha256.Sum256([]byte(joinIdentities(identities)))
+	if recovery.CoverageDigest != hex.EncodeToString(coverage[:]) {
+		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("recovery coverage does not match reviewed candidates")
+	}
+	wantStatus := "satisfied"
+	if len(candidates) > 0 {
+		wantStatus = "unsatisfied"
+	}
+	classResult := plan.CanonicalPayload.ClassResults[0]
+	if classResult.Status != wantStatus || classResult.Ceilings[0].Current.Bytes != strconv.Itoa(totalBytes) || classResult.Ceilings[0].Projected.Bytes != "0" {
+		return apptypes.RetentionPlan{}, nil, nil, xerrors.Errorf("retention class result does not match reviewed candidates")
+	}
 	return plan, candidates, bodies, nil
 }
 
@@ -195,6 +230,9 @@ func loadRawBodyRecovery(path string, candidates []apptypes.RawBodyCandidate) ([
 		id, idOK := row["id"].(string)
 		body, bodyOK := row["body"].(string)
 		if idOK && bodyOK {
+			if _, exists := byID[id]; exists {
+				return nil, "", xerrors.Errorf("recovery package contains duplicate event %s", id)
+			}
 			byID[id] = body
 		}
 	}
