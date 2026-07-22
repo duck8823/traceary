@@ -50,7 +50,7 @@ Candidates are ordered deterministically by class-specific age, stable identity,
 
 Allocated bytes are an estimate of storage occupied by the selected payload or file, not a promise that the filesystem will immediately reclaim them. SQLite row pruning reports logical reclaimable bytes; physical reclaim requires a separately requested compaction phase. Candidate-level SQLite allocated bytes are not additive and cannot drive `raw_body` selection in v0.31; database allocated bytes are observation-only before/after compaction.
 
-Every class result is `satisfied`, `unsatisfied`, or `indeterminate`. An unknown measurement for a configured byte-only ceiling yields `indeterminate`, never `satisfied`. `unsatisfied` means known measurements prove that protected/recovery-floor exclusions prevent the ceiling from being met.
+Every configured ceiling is evaluated independently against the projected post-plan state as `satisfied`, `unsatisfied`, or `indeterminate`. The class result is an AND reduction: any `unsatisfied` ceiling makes the class `unsatisfied`; otherwise any `indeterminate` ceiling makes it `indeterminate`; only all `satisfied` ceilings produce `satisfied`. An unknown current measurement or unknown candidate extent for any configured byte ceiling is `indeterminate`, including when age/count ceilings are also configured. Unsupported allocated-byte measurement is also `indeterminate`. `indeterminate` and `unsatisfied` plans cannot be applied.
 
 | Class | Age | Count | Logical bytes | Allocated bytes | Zero budget in v0.31 |
 |---|---|---|---|---|---|
@@ -117,7 +117,13 @@ The JSON plan includes:
 
 Plan JSON never includes event body, command input/output, archive passphrase, credentials, absolute home paths, or file contents.
 
-Canonical hashing follows RFC 8785 JSON canonicalization. Arrays whose semantics are sets are sorted by class, stable database identity, root ID, relative path, timestamp, and reason before canonicalization. Instants are UTC RFC3339Nano, durations are integer nanoseconds, byte/count values are base-10 JSON integers, and root-relative paths use slash separators without `.` or `..`. `plan_id` and presentation-only messages are excluded. The hash is SHA-256 and detects accidental or operator modification; it is not an authenticity signature. CLI confirmation displays the plan ID and exact phase.
+Canonical hashing follows RFC 8785 JSON canonicalization over a normative `canonical_payload`. The top-level plan has exactly `plan_id`, `canonical_payload`, and optional `display`; apply parses only `canonical_payload`, rejects unknown canonical fields, and ignores `display`. `canonical_payload` contains `schema_version`, `created_at`, `snapshot_at`, `source`, `policy`, `class_results`, `candidates`, `exclusions`, `recovery_requirements`, and `phases`. No other field is excluded from the hash.
+
+Optional canonical fields are omitted, never encoded sometimes as `null`. All byte values and nanosecond durations are unsigned base-10 strings without leading zeroes (except `"0"`), avoiding RFC 8785/IEEE-754 safe-integer ambiguity. Counts are JSON integers constrained to 0 through 9,007,199,254,740,991. Instants are UTC RFC3339Nano. Root-relative paths use slash separators without `.`, `..`, or empty segments.
+
+The total ordering for set-like arrays is fixed per schema: class results by retention-class enum; ceilings by ceiling enum; candidates by class, stable database identity, root ID, relative path, timestamp, candidate identity; reasons/exclusions by reason enum then stable identity; recovery points by generation, digest, root ID, relative path; phases/batches by phase enum then decimal batch ordinal. If all listed keys tie, the RFC 8785 bytes of the element are the final comparison key. Order-significant arrays are explicitly named `ordered_steps` and are not sorted. A golden vector fixes input plan, `canonical_payload` bytes, sorted arrays, and SHA-256 `plan_id`; implementations in every language must match it.
+
+The SHA-256 hash detects accidental or operator modification; it is not an authenticity signature. Changing `display` cannot affect execution because no apply decision reads it. CLI confirmation displays the plan ID and exact phase.
 
 ## Apply, interruption, and retry
 
@@ -127,7 +133,9 @@ Body pruning is a bounded transaction per plan batch. The execution ledger recor
 
 File cleanup uses a directory handle, refuses symlinks, and compares device/inode/size/mtime plus digest immediately before a same-directory tombstone rename without re-resolving the path. It then fsyncs the directory, records `tombstoned`, unlinks through the same directory handle, fsyncs again, and records `committed`. A durable state machine (`pending`, `running`, `tombstoned`, `committed`, `conflicted`, `failed`) makes every crash point retryable: a matching tombstone resumes unlink, an original replacement conflicts, and committed is a no-op. Missing candidates are accepted only when the execution ledger and tombstone identity prove the reviewed file was removed.
 
-Compaction is never implicit. It runs after database integrity and representative metadata/full-body queries pass, creates or verifies its own recovery point, and reports allocated-size change independently from logical pruning. The implementation uses a new `VACUUM INTO` database rather than mutating the live file in place, requires an exclusive writer lease, checkpoints/handles WAL sidecars, verifies free space for source plus destination plus safety margin, runs `integrity_check` on the destination, fsyncs the destination and directory, and swaps/reopens under the restore protocol. An interrupted build leaves the original database authoritative.
+Recovery points also have `active`, `deleting`, and `deleted` states. Pin acquisition and `active -> deleting` use one RecoveryCatalog CAS: a pin succeeds only for `active`; deletion reservation succeeds only when pin count is zero and no protected floor references the point. The rotation lease is held from that CAS through tombstone rename, both directory fsyncs, unlink, catalog `deleted`, and execution-ledger commit. A body apply racing a `deleting` point fails before its SQLite body transaction and must re-plan. A rotation racing a pin fails its CAS. Crash recovery retains the lease/fencing token, reconciles catalog state with the exact tombstone identity, and either completes deletion or returns the point to `active` only when the original verified file was restored.
+
+Compaction is never implicit. It runs after database integrity and representative metadata/full-body queries pass, creates or verifies its own recovery point, and reports allocated-size change independently from logical pruning. The implementation uses a new `VACUUM INTO` database rather than mutating the live file in place, requires an exclusive writer lease, verifies free space for source plus destination plus safety margin, runs `integrity_check` on the destination, and uses the recoverable single-database replacement state machine below. An interrupted or invalid `VACUUM INTO` output is discarded and never becomes authoritative.
 
 ## Recovery and rollback
 
@@ -137,7 +145,17 @@ One `RecoveryCatalog` owns pins and the retention floor across archive and backu
 
 `verified` requires root confinement and regular-file identity, SHA-256 verification, a supported format, a coverage manifest, availability of the decryption key through the named environment variable when encrypted, successful decode/SQLite `integrity_check`, and a copied-store restore rehearsal recorded for the same digest. Digest verification alone is insufficient. Recovery pins and rotation decisions use the digest and coverage generation, not a mutable path.
 
-Rollback means stopping automatic execution (disabled by default), restoring the verified recovery point or archive to a copied database, validating it, and replacing the live database only through the strengthened restore contract. The current `VACUUM INTO` backup and staged-rename restore are a starting point, not sufficient proof for v0.31 execution. Before retention can use them, restore must acquire an exclusive cross-process writer lease, validate/checkpoint WAL state, copy into a same-directory temporary file, fsync file and directory, run `integrity_check`, stage database/WAL/SHM together, atomically rename, reopen the exact snapshot path, and roll back the staged generation on any failure. No process may retain an open writer during replacement. Additive schema and execution-ledger tables may remain when rolling back the binary; older binaries ignore them. Down migrations do not reconstruct deleted bodies.
+Rollback means stopping automatic execution (disabled by default), restoring the verified recovery point or archive to a copied database, validating it, and replacing the live database only through the strengthened restore contract. The current `VACUUM INTO` backup and staged-rename restore are a starting point, not sufficient proof for v0.31 execution.
+
+Replacement acquires an exclusive cross-process writer lease and fencing token, rejects new opens, checkpoints WAL with `TRUNCATE`, closes every Traceary connection, and proves that no writer remains and WAL/SHM sidecars are absent. From that point only the single main database file participates. A same-directory durable swap journal records this recoverable state machine:
+
+1. `prepared`: candidate database is synced, digest-matched, and passes `integrity_check`; live database still owns the canonical path.
+2. `old_staged`: rename live database to the journal-named old generation and fsync the directory.
+3. `new_placed`: rename candidate to the canonical path and fsync the directory.
+4. `verified`: reopen the exact canonical path under the fencing token, run migrations/read checks and `integrity_check`.
+5. `committed`: persist catalog/ledger commit, fsync, then retire the old generation only after its rollback pin is released.
+
+The two renames are not claimed to be one atomic operation. On restart under the lease, the journal, canonical path, old generation, candidate digest, and state choose exactly one recovery action: `prepared` keeps old; `old_staged` restores old when canonical is absent; `new_placed`/`verified` continue new only if its digest and integrity pass, otherwise quarantine it and restore old; `committed` keeps new. WAL/SHM are never copied or renamed as a multi-file unit. No process may retain an open writer during replacement. Additive schema and execution-ledger tables may remain when rolling back the binary; older binaries ignore them. Down migrations do not reconstruct deleted bodies.
 
 Rollback triggers include candidate/byte drift, integrity failure, metadata projection change, aggregate mismatch, recovery verification failure, path escape, unexpected hold bypass, or any write during a nominal plan operation.
 
@@ -161,13 +179,17 @@ Rollback triggers include candidate/byte drift, integrity failure, metadata proj
 | two concurrent rotations | apply | catalog CAS serializes them and one verified floor remains | integration |
 | body prune followed by rotation | rotate | pinned covering recovery point remains until explicit release | integration |
 | every selected identity | render plan | identity and every selection reason are present | application/CLI |
+| canonical golden plan | hash in Go and fixture verifier | exact canonical bytes and plan ID match | domain/tooling |
+| pin races `active -> deleting` | interleave both CAS paths | exactly one wins; no pinned file is unlinked | integration |
+| crash at every file deletion state | restart | file/catalog/ledger converge without wrong-path deletion | integration |
+| crash at every DB swap state | restart | exactly old or verified new generation becomes canonical | SQLite integration |
 
 ## TDD and split-PR plan
 
 1. #1446: merge this contract only; no schema or behavior change.
-2. #1444, internal step A: value objects, additive schema, read-only planner, plan CLI, and dry-run side-effect tests.
-3. #1444, internal step B: recovery verification/restore tests, recovery catalog/pins, and execution ledger.
-4. #1444, internal step C: body executor behind an internal boundary; do not expose apply yet.
+2. #1444, internal step A: value objects, additive schema, read-only planner, plan CLI, golden canonical vector, and dry-run side-effect tests.
+3. #1444, internal step B: recovery verification/restore tests, recovery catalog/pins, execution ledger, and all DB swap crash states.
+4. #1444, internal step C: body executor behind an internal boundary; do not expose apply yet. Repository policy keeps one Issue/PR, so A/B/C are separate commits and review checkpoints within the single #1444 PR; each must pass its focused tests before the next commit.
 5. #1443: archive/backup inventory and rotation executor with root confinement, catalog CAS, pinned-floor tests, and no public apply until recovery drills pass.
 6. #1445: copied-store interruption/retry/restore/rollback drills, doctor/status, then opt-in public apply and final default decision.
 
