@@ -71,6 +71,26 @@ func TestRequestedIntervalFrom_OmittedEndUsesSnapshot(t *testing.T) {
 	}
 }
 
+func TestRequestedIntervalWithDefaultFrom_PreservesOmittedRequest(t *testing.T) {
+	t.Parallel()
+
+	snapshot := time.Date(2026, 7, 22, 10, 11, 12, 13, time.UTC)
+	interval, err := RequestedIntervalFrom("", "", "UTC", snapshot)
+	if err != nil {
+		t.Fatalf("RequestedIntervalFrom() error = %v", err)
+	}
+	wantFrom := snapshot.Add(-7 * 24 * time.Hour)
+	interval, err = interval.WithDefaultFrom(wantFrom)
+	if err != nil {
+		t.Fatalf("WithDefaultFrom() error = %v", err)
+	}
+	if interval.HasRequestedFrom() || interval.HasRequestedTo() {
+		t.Fatalf("requested bounds = [%q, %q), want omitted", interval.RequestedFrom(), interval.RequestedTo())
+	}
+	assertTimeEqual(t, interval.EffectiveFromInclusive(), wantFrom)
+	assertTimeEqual(t, interval.EffectiveToExclusive(), snapshot)
+}
+
 func TestRequestedIntervalFrom_RejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +101,7 @@ func TestRequestedIntervalFrom_RejectsInvalidInput(t *testing.T) {
 		zone string
 	}{
 		{name: "timezone", from: "2026-07-16", to: "2026-07-17", zone: "Mars/Olympus"},
+		{name: "system local timezone", from: "2026-07-16", to: "2026-07-17", zone: "Local"},
 		{name: "date", from: "not-a-date", to: "2026-07-17", zone: "UTC"},
 		{name: "instant order", from: "2026-07-17T00:00:00Z", to: "2026-07-17T00:00:00Z", zone: "UTC"},
 	}

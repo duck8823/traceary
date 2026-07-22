@@ -173,11 +173,9 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 		return err
 	}
 	snapshotAt := time.Now().UTC()
-	// Default period: last 7 days when --from omitted. Derive both bounds
-	// from the same snapshot so every query sees one stable window.
+	defaultWindow := false
 	if strings.TrimSpace(fromValue) == "" && strings.TrimSpace(toValue) == "" {
-		fromValue = snapshotAt.Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
-		toValue = snapshotAt.Format(time.RFC3339Nano)
+		defaultWindow = true
 	} else if strings.TrimSpace(fromValue) == "" {
 		// If only --to is set, still require an explicit from for clarity.
 		return xerrors.New(Localize("--from is required when --to is set (or omit both for last 7 days)", "--to 指定時は --from が必要です（両方省略で直近7日）"))
@@ -185,6 +183,12 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 	interval, err := apptypes.RequestedIntervalFrom(fromValue, toValue, input.timezone, snapshotAt)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve report interval", "report 期間の解決に失敗しました"), err)
+	}
+	if defaultWindow {
+		interval, err = interval.WithDefaultFrom(snapshotAt.Add(-7 * 24 * time.Hour))
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to apply default report interval", "report の既定期間の適用に失敗しました"), err)
+		}
 	}
 	fromInclusive := interval.EffectiveFromInclusive()
 	toExclusive := interval.EffectiveToExclusive()
@@ -324,8 +328,8 @@ func buildReportEnvelope(
 
 	return reportEnvelope{
 		Period: reportPeriod{
-			From:                   formatReportTime(interval.EffectiveFromInclusive()),
-			To:                     formatReportTime(interval.EffectiveToExclusive()),
+			From:                   formatReportCompatibilityTime(interval.EffectiveFromInclusive()),
+			To:                     formatReportCompatibilityTime(interval.EffectiveToExclusive()),
 			RequestedFrom:          interval.RequestedFrom(),
 			RequestedTo:            interval.RequestedTo(),
 			EffectiveFromInclusive: formatReportTime(interval.EffectiveFromInclusive()),
@@ -354,17 +358,28 @@ func formatReportTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
 }
 
+func formatReportCompatibilityTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
 func writeReportText(output io.Writer, report reportEnvelope) error {
 	var b strings.Builder
 	b.WriteString("Traceary report\n")
+	requestedFrom := report.Period.RequestedFrom
+	if requestedFrom == "" {
+		requestedFrom = report.Period.EffectiveFromInclusive
+	}
 	requestedTo := report.Period.RequestedTo
 	if requestedTo == "" {
 		requestedTo = report.Period.SnapshotAt
 	}
 	if report.Period.ToDateOnly {
-		fmt.Fprintf(&b, "Period: %s → %s (inclusive calendar end; timezone=%s)\n", report.Period.RequestedFrom, requestedTo, report.Period.Timezone)
+		fmt.Fprintf(&b, "Period: %s → %s (inclusive calendar end; timezone=%s)\n", requestedFrom, requestedTo, report.Period.Timezone)
 	} else {
-		fmt.Fprintf(&b, "Period: %s → %s (exclusive instant; timezone=%s)\n", report.Period.RequestedFrom, requestedTo, report.Period.Timezone)
+		fmt.Fprintf(&b, "Period: %s → %s (exclusive instant; timezone=%s)\n", requestedFrom, requestedTo, report.Period.Timezone)
 	}
 	fmt.Fprintf(&b, "Effective interval: %s → %s (exclusive end; snapshot=%s)\n", report.Period.EffectiveFromInclusive, report.Period.EffectiveToExclusive, report.Period.SnapshotAt)
 	if report.Workspace != "" {

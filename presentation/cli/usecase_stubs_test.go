@@ -137,7 +137,9 @@ func (s *eventMetadataUsecaseStub) Context(_ context.Context, _ apptypes.EventCo
 	s.contextCalls++
 	return s.contextMetadata, s.contextErr
 }
-func (s *eventUsecaseStub) ListWindow(_ context.Context, _ apptypes.EventListCriteria) ([]*model.Event, error) {
+
+func (s *eventUsecaseStub) ListWindow(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
+	s.listCriteria = criteria
 	return s.listEvents, s.listErr
 }
 func (s *eventUsecaseStub) Show(_ context.Context, _ types.EventID) (apptypes.EventDetails, error) {

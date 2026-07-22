@@ -32,6 +32,9 @@ func RequestedIntervalFrom(requestedFrom, requestedTo, timezone string, snapshot
 	if timezone == "" {
 		timezone = defaultIntervalTimezone
 	}
+	if timezone == "Local" {
+		return RequestedInterval{}, xerrors.New(`invalid timezone "Local": system-local timezone is not allowed`)
+	}
 
 	location, err := time.LoadLocation(timezone)
 	if err != nil {
@@ -63,6 +66,21 @@ func RequestedIntervalFrom(requestedFrom, requestedTo, timezone string, snapshot
 		fromDateOnly:           fromDateOnly,
 		toDateOnly:             toDateOnly,
 	}, nil
+}
+
+// WithDefaultFrom applies fallback as the effective lower bound only when the
+// caller omitted the lower bound. The requested value remains empty so output
+// can distinguish an explicit bound from a command-provided default window.
+func (i RequestedInterval) WithDefaultFrom(fallback time.Time) (RequestedInterval, error) {
+	if i.HasRequestedFrom() || !i.effectiveFromInclusive.IsZero() || fallback.IsZero() {
+		return i, nil
+	}
+	fallback = fallback.UTC()
+	if !i.effectiveToExclusive.IsZero() && !fallback.Before(i.effectiveToExclusive) {
+		return RequestedInterval{}, xerrors.New("default from bound must be earlier than to bound")
+	}
+	i.effectiveFromInclusive = fallback
+	return i, nil
 }
 
 func parseRequestedIntervalBound(value string, location *time.Location, endExclusive bool) (time.Time, bool, error) {
