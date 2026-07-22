@@ -224,6 +224,7 @@ func (c *RootCLI) runHookAudit(
 	if err != nil {
 		return err
 	}
+	ctx = withResolvedHookDelivery(ctx, payload, client)
 	command := hookPayloadString(payload, "tool_input.command", "")
 	if command == "" {
 		command = hookPayloadString(payload, "tool_name", "")
@@ -343,6 +344,7 @@ func (c *RootCLI) runHookCompact(
 	if err != nil {
 		return err
 	}
+	ctx = withResolvedHookDelivery(ctx, payload, client)
 	resolvedDBPath, err := resolveDBPath(dbPath)
 	if err != nil {
 		return err
@@ -474,6 +476,7 @@ func (c *RootCLI) runHookPrompt(
 	if err != nil {
 		return err
 	}
+	ctx = withResolvedHookDelivery(ctx, payload, client)
 	promptText := hookPayloadString(payload, "prompt", "")
 	if promptText == "" {
 		return nil
@@ -555,6 +558,7 @@ func (c *RootCLI) runHookTranscript(
 	if err != nil {
 		return err
 	}
+	ctx = withResolvedHookDelivery(ctx, payload, client)
 	extractor, ok := transcriptExtractorFor(client)
 	if !ok {
 		// Unknown client — silently skip so a packaged hook invoking an

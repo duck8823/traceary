@@ -172,7 +172,7 @@ target ごとの policy:
 
 ## 履歴 content の可逆的な dedupe
 
-**要件。** 初期の hook 発火で、同じ prompt/transcript が二重に書き込まれることがありました。現在の write path は短い window 内の新規 duplicate をすでに抑止している（`isDedupEligibleHookContentEvent`）ため、新しい書き込みでこれが増えることはありません。しかし履歴上の行は残り、`doctor` の `content-event-reliability` 警告や context size を膨らませます。クリーンアップは **明示的かつ可逆** でなければなりません。通常の upgrade/migration が `events` 行を移動・削除・書き換えることは決してなく、復元可能な証跡なしに hard delete することもありません（#1227）。
+**要件。** 初期の hook 発火で、同じ prompt/transcript が二重に書き込まれることがありました。現在の hook 書き込みが抑止するのは、ホスト由来の安定した delivery ID で証明できる完全な再送だけです。その証拠がない同一内容は正当な別イベントとして保持します。履歴上の推定 duplicate group は残り、`doctor` の `content-event-reliability` 警告や context size を膨らませます。クリーンアップは **明示的かつ可逆** でなければなりません。通常の upgrade/migration が `events` 行を移動・削除・書き換えることは決してなく、復元可能な証跡なしに hard delete することもありません（#1227）。
 
 **コマンド。** `traceary store dedupe content-events`
 
@@ -183,7 +183,7 @@ target ごとの policy:
 - `--strict` は時間差に関係なく完全一致する duplicate group をすべて報告します。
 - `--json` は dry-run / apply / restore で利用できます。
 
-**概念モデル。** duplicate group は identity tuple `kind, client, agent, session_id, workspace, source_hook, TrimSpace(body)` です。これは `content-event-reliability` 診断が使う identity と同じです（write-side guard は trimming なしの exact body を使うため異なります）。対象は `client='hook'` かつ `kind in (prompt, transcript)` の行のみで、**command audit は対象外** です。既定では、メンバーがほぼ同時（診断と同様に連続レコードをペアで cluster する 10s の近接 window 内）に書かれた group のみが対象になり、離れた意図的な再送は除外されます。`--strict` はこの window を外します。group ごとに残す **canonical** 行は、parse した `created_at` が最も早いもの（同値は event id が小さい方）です。`created_at` は Go 側で RFC3339Nano として parse します（`formatTimestamp` は可変幅の小数秒を出力するため、辞書順では並びません）。malformed な timestamp を含む group は **スキップして報告** し、変更しません。
+**概念モデル。** duplicate group は identity tuple `kind, client, agent, session_id, workspace, source_hook, TrimSpace(body)` です。これは `content-event-reliability` 診断が使う identity と同じですが、履歴クリーンアップ用の推定であり、実行時の delivery identity ではありません。書き込み時に再送を抑止するには、ホスト由来の安定した delivery ID と semantic fingerprint の一致が必要で、本文の一致だけでは同一性を証明しません。対象は `client='hook'` かつ `kind in (prompt, transcript)` の行のみで、**command audit は対象外** です。既定では、メンバーがほぼ同時（診断と同様に連続レコードをペアで cluster する 10s の近接 window 内）に書かれた group のみが対象になり、離れた意図的な再送は除外されます。`--strict` はこの window を外します。group ごとに残す **canonical** 行は、parse した `created_at` が最も早いもの（同値は event id が小さい方）です。`created_at` は Go 側で RFC3339Nano として parse します（`formatTimestamp` は可変幅の小数秒を出力するため、辞書順では並びません）。malformed な timestamp を含む group は **スキップして報告** し、変更しません。
 
 **責務。** CLI（`presentation/cli/store_dedupe.go`）が flag を解析し text/JSON を整形します。usecase（`StoreManagementUsecase.DedupeContentEvents` / `RestoreContentEventDedupeRun`）が apply 時に run id と `archived_at` を採番し、入力を検証します。SQLite datasource（`StoreManagementDatasource`）が transaction 内での read/group/move と restore を担います。
 

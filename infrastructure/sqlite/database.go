@@ -178,6 +178,12 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 	if err := d.migrate(ctx, db); err != nil {
 		return xerrors.Errorf("failed to run SQLite migrations: %w", err)
 	}
+	if err := catchUpWorkspaceObservations(ctx, db, workspaceObservationCatchUpBatchSize); err != nil {
+		// Catch-up is additive diagnostic coverage. A malformed historical row
+		// must not block normal ingestion after the schema migration succeeded;
+		// the next initialization retries the still-missing batch.
+		slog.Error("workspace observation catch-up incomplete; retrying on next initialization", "error", err)
+	}
 
 	return nil
 }

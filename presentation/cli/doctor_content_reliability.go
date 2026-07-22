@@ -16,14 +16,11 @@ const contentEventReliabilityScanLimit = 200
 
 // contentEventDuplicateProximityWindow bounds how close in time two
 // identity-matching prompt/transcript events must be to count as a likely hook
-// double-write rather than a genuine repeat. Real hook duplicates land
-// near-simultaneously (the write-side guard, duplicateHookContentEventWindow,
-// suppresses exact repeats within 2s); a user legitimately re-sending the same
-// prompt does so seconds-to-minutes apart. This window sits an order of
-// magnitude above the 2s write guard (to absorb clock skew and slow writes) yet
-// far below the spacing of deliberate repeats, so the default diagnostic stays
-// actionable. `traceary doctor --strict` ignores this window and reports every
-// exact duplicate group for forensic analysis. It mirrors
+// double-write rather than a genuine repeat. The current write path suppresses
+// only redeliveries proven by host-native identity, so this report remains a
+// heuristic over both historical and identity-less rows and can include
+// legitimate repeats. `traceary doctor --strict` ignores this window and
+// reports every exact duplicate group for forensic analysis. It mirrors
 // commandAuditDuplicateProximityWindow but is a separate constant: command
 // audits and content events keep independent dedup semantics.
 const contentEventDuplicateProximityWindow = 10 * time.Second
@@ -61,8 +58,7 @@ type contentEventDuplicateRecord struct {
 // events and reports duplicate groups. command_executed is intentionally out of
 // scope (it is covered by inspectCommandAuditReliability, whose re-run semantics
 // differ): this diagnostic lists only the prompt and transcript kinds filtered
-// to client="hook", matching the write-side dedup eligibility in
-// isDedupEligibleHookContentEvent.
+// to client="hook".
 func (c *RootCLI) inspectContentEventReliability(ctx context.Context, strict bool) doctorCheck {
 	const checkName = "content-event-reliability"
 	if c.event == nil {
@@ -104,9 +100,9 @@ func contentEventReliabilityFindingsFromEvents(events []*model.Event, strict boo
 		if event == nil {
 			continue
 		}
-		// Defensive: only hook-originated prompt/transcript content participates,
-		// mirroring isDedupEligibleHookContentEvent. command_executed never reaches
-		// here because the caller lists only the prompt/transcript kinds.
+		// Defensive: only hook-originated prompt/transcript content participates.
+		// command_executed never reaches here because the caller lists only the
+		// prompt/transcript kinds.
 		if event.Client().String() != "hook" {
 			continue
 		}
@@ -228,13 +224,13 @@ func contentEventReliabilityCheckFromFindings(findings contentEventReliabilityFi
 	}
 
 	hint := Localize(
-		"likely hook duplicates (identity-matching prompt/transcript content within "+contentEventDuplicateProximityWindow.String()+"); deliberate repeats farther apart are excluded. These are historical rows: the current write paths already suppress known fresh duplicates, so this never grows from new writes. Preview a reversible cleanup with `traceary store dedupe content-events` (dry-run; add --apply to quarantine, --restore <run-id> to reverse), and inspect individual rows with `traceary show <event_id>`. No automatic cleanup is performed",
-		"hook 由来とみられる duplicate（"+contentEventDuplicateProximityWindow.String()+" 以内の identity 一致 prompt/transcript content）です。離れた意図的な再送は除外されます。これらは履歴上の行です。現在の write path は既知の新規 duplicate をすでに抑止しているため、新しい書き込みで増えることはありません。可逆的なクリーンアップは `traceary store dedupe content-events`（dry-run。隔離するには --apply、取り消すには --restore <run-id>）で確認でき、個別の行は `traceary show <event_id>` で確認できます。自動的な削除は行いません",
+		"likely hook duplicates (identity-matching prompt/transcript content within "+contentEventDuplicateProximityWindow.String()+"); deliberate repeats farther apart are excluded. This heuristic report can include legitimate equal-content deliveries. Current hook writes suppress only exact redeliveries backed by a stable host-native ID; equal bodies without that evidence remain distinct. Preview a reversible cleanup with `traceary store dedupe content-events` (dry-run; add --apply to quarantine, --restore <run-id> to reverse), and inspect individual rows with `traceary show <event_id>`. No automatic cleanup is performed",
+		"hook 由来とみられる duplicate（"+contentEventDuplicateProximityWindow.String()+" 以内の identity 一致 prompt/transcript content）です。離れた意図的な再送は除外されますが、この推定には正当な同一内容の書き込みも含まれ得ます。現在の hook 書き込みが抑止するのは、ホスト由来の安定した ID で証明できる完全な再送だけです。その証拠がない同一本文は別イベントとして保持します。可逆的なクリーンアップは `traceary store dedupe content-events`（dry-run。隔離するには --apply、取り消すには --restore <run-id>）で確認でき、個別の行は `traceary show <event_id>` で確認できます。自動的な削除は行いません",
 	)
 	if strict {
 		hint = Localize(
-			"--strict: every exact duplicate content group is reported regardless of time gap, so deliberate repeats appear too. These are historical rows; current write paths already suppress known fresh duplicates. Inspect the sampled event IDs with `traceary show <event_id>`, and preview a reversible cleanup with `traceary store dedupe content-events --strict` (dry-run; add --apply to quarantine, --restore <run-id> to reverse) before drawing conclusions. No automatic cleanup is performed",
-			"--strict: 時間差に関係なく完全一致する duplicate content group をすべて報告します（意図的な再送も含みます）。これらは履歴上の行で、現在の write path は既知の新規 duplicate をすでに抑止しています。結論を出す前に sample event ID を `traceary show <event_id>` で確認し、可逆的なクリーンアップは `traceary store dedupe content-events --strict`（dry-run。隔離するには --apply、取り消すには --restore <run-id>）で確認してください。自動的な削除は行いません",
+			"--strict: every exact duplicate content group is reported regardless of time gap, so deliberate repeats appear too. Current writes suppress only exact redeliveries with stable host-native identity. Inspect the sampled event IDs with `traceary show <event_id>`, and preview a reversible cleanup with `traceary store dedupe content-events --strict` (dry-run; add --apply to quarantine, --restore <run-id> to reverse) before drawing conclusions. No automatic cleanup is performed",
+			"--strict: 時間差に関係なく完全一致する duplicate content group をすべて報告します（意図的な繰り返しも含みます）。現在の書き込みが抑止するのは、ホスト由来の安定した ID で証明できる完全な再送だけです。結論を出す前に sample event ID を `traceary show <event_id>` で確認し、可逆的なクリーンアップは `traceary store dedupe content-events --strict`（dry-run。隔離するには --apply、取り消すには --restore <run-id>）で確認してください。自動的な削除は行いません",
 		)
 	}
 
