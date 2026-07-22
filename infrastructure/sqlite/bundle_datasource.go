@@ -355,7 +355,7 @@ func (t *bundleImportTx) ImportRunLineage(ctx context.Context, lineage *model.Ru
 		return false, nil
 	}
 	if err := insertRunLineage(ctx, t.tx, lineage); err != nil {
-		return false, xerrors.Errorf("failed to import run lineage: %w", model.ErrInvalidRunLineage)
+		return false, xerrors.Errorf("failed to import run lineage: %w", errors.Join(model.ErrInvalidRunLineage, err))
 	}
 	return true, nil
 }

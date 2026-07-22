@@ -76,7 +76,7 @@ func (d *RunLineageDatasource) Record(ctx context.Context, lineage *model.RunLin
 		}
 	} else {
 		if err := insertRunLineage(ctx, conn, lineage); err != nil {
-			return "", xerrors.Errorf("failed to insert valid run lineage: %w", model.ErrInvalidRunLineage)
+			return "", xerrors.Errorf("failed to insert valid run lineage: %w", errors.Join(model.ErrInvalidRunLineage, err))
 		}
 		transition = model.RunLineageTransitionApplied
 	}
