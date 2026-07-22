@@ -25,25 +25,26 @@ type eventLogCall struct {
 }
 
 type eventUsecaseStub struct {
-	logEvent         *model.Event
-	logErr           error
-	auditEvent       *model.Event
-	auditAudit       *model.CommandAudit
-	auditErr         error
-	searchEvents     []*model.Event
-	searchErr        error
-	listEvents       []*model.Event
-	listErr          error
-	showDetails      apptypes.EventDetails
-	showErr          error
-	contextEvents    []*model.Event
-	contextErr       error
-	timelineBlocks   []apptypes.TimelineBlock
-	timelineErr      error
-	listCriteria     apptypes.EventListCriteria
-	listCalls        int
-	searchCalls      int
-	timelineCriteria apptypes.TimelineCriteria
+	logEvent            *model.Event
+	logErr              error
+	auditEvent          *model.Event
+	auditAudit          *model.CommandAudit
+	auditErr            error
+	searchEvents        []*model.Event
+	searchErr           error
+	listEvents          []*model.Event
+	listErr             error
+	showDetails         apptypes.EventDetails
+	showErr             error
+	contextEvents       []*model.Event
+	contextErr          error
+	timelineBlocks      []apptypes.TimelineBlock
+	timelineErr         error
+	listCriteria        apptypes.EventListCriteria
+	eventSearchCriteria apptypes.EventSearchCriteria
+	listCalls           int
+	searchCalls         int
+	timelineCriteria    apptypes.TimelineCriteria
 
 	logCall   eventLogCall
 	logCalls  []eventLogCall
@@ -88,8 +89,9 @@ func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, audi
 	s.auditCall.auditCfg = auditCfg
 	return s.auditEvent, s.auditAudit, s.auditErr
 }
-func (s *eventUsecaseStub) Search(_ context.Context, _ apptypes.EventSearchCriteria) ([]*model.Event, error) {
+func (s *eventUsecaseStub) Search(_ context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	s.searchCalls++
+	s.eventSearchCriteria = criteria
 	return s.searchEvents, s.searchErr
 }
 func (s *eventUsecaseStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
@@ -135,7 +137,9 @@ func (s *eventMetadataUsecaseStub) Context(_ context.Context, _ apptypes.EventCo
 	s.contextCalls++
 	return s.contextMetadata, s.contextErr
 }
-func (s *eventUsecaseStub) ListWindow(_ context.Context, _ apptypes.EventListCriteria) ([]*model.Event, error) {
+
+func (s *eventUsecaseStub) ListWindow(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
+	s.listCriteria = criteria
 	return s.listEvents, s.listErr
 }
 func (s *eventUsecaseStub) Show(_ context.Context, _ types.EventID) (apptypes.EventDetails, error) {

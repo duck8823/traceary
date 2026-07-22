@@ -95,6 +95,10 @@
           "description": "filter by hook identifier that produced the event (stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)",
           "type": "string"
         },
+        "timezone": {
+          "description": "IANA timezone for date-only bounds (default: UTC)",
+          "type": "string"
+        },
         "to": {
           "description": "end time (YYYY-MM-DD or RFC3339)",
           "type": "string"
@@ -564,6 +568,10 @@
         },
         "query": {
           "description": "literal search text; boolean-looking OR is treated as text, not any-match syntax",
+          "type": "string"
+        },
+        "timezone": {
+          "description": "IANA timezone for date-only bounds (default: UTC)",
           "type": "string"
         },
         "to": {

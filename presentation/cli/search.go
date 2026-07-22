@@ -25,6 +25,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 		since        string
 		to           string
 		until        string
+		timezone     string
 		limit        int
 		offset       int
 		failuresOnly bool
@@ -56,6 +57,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 				since:           since,
 				to:              to,
 				until:           until,
+				timezone:        timezone,
 				limit:           limit,
 				offset:          offset,
 				query:           query,
@@ -96,6 +98,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().StringVar(&since, "since", "", Localize("start date (`YYYY-MM-DD` or RFC3339) (alias for `--from`)", "開始日 (`YYYY-MM-DD` または RFC3339) (`--from` の別名)"))
 	searchCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339; alias: `--until`)", "終了日 (`YYYY-MM-DD` または RFC3339; 別名: `--until`)"))
 	searchCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD` or RFC3339) (alias for `--to`)", "終了日 (`YYYY-MM-DD` または RFC3339) (`--to` の別名)"))
+	searchCmd.Flags().StringVar(&timezone, "timezone", "UTC", Localize("IANA timezone for date-only bounds (default: UTC)", "日付のみの境界に使う IANA タイムゾーン（既定: UTC）"))
 	searchCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of results", "表示件数"))
 	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of matching events to skip before returning results", "結果を返す前にスキップする件数"))
 	searchCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
@@ -146,19 +149,20 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		return err
 	}
 
-	fromTime, err := parseSearchDate(fromValue, false)
+	interval, err := apptypes.RequestedIntervalFrom(fromValue, toValue, input.timezone, time.Now().UTC())
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve time interval", "期間の解決に失敗しました"), err)
 	}
-	toTime, err := parseSearchDate(toValue, true)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
+	requestedFrom := time.Time{}
+	if interval.HasRequestedFrom() {
+		requestedFrom = interval.EffectiveFromInclusive()
 	}
-	if !hasSearchConstraint(input.query, input.repo, input.sessionID, input.client, input.agent, input.kind, fromTime, toTime, input.failuresOnly) {
+	requestedTo := time.Time{}
+	if interval.HasRequestedTo() {
+		requestedTo = interval.EffectiveToExclusive()
+	}
+	if !hasSearchConstraint(input.query, input.repo, input.sessionID, input.client, input.agent, input.kind, requestedFrom, requestedTo, input.failuresOnly) {
 		return xerrors.New(Localize("at least one search filter is required", "検索条件は1つ以上必要です"))
-	}
-	if !fromTime.IsZero() && !toTime.IsZero() && fromTime.After(toTime) {
-		return xerrors.New(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
 	}
 	resolvedKind, err := validateSearchKind(input.kind)
 	if err != nil {
@@ -172,8 +176,8 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		Client(types.Client(input.client)).
 		Agent(types.Agent(input.agent)).
 		Kind(types.EventKind(resolvedKind)).
-		From(fromTime).
-		To(toTime).
+		From(interval.EffectiveFromInclusive()).
+		To(interval.EffectiveToExclusive()).
 		Offset(input.offset).
 		FailuresOnly(input.failuresOnly).
 		Build()
@@ -224,12 +228,6 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	}
 
 	return nil
-}
-
-// parseSearchDate delegates to parseFlexibleTime, which accepts both
-// RFC3339 and YYYY-MM-DD formats.
-func parseSearchDate(value string, endExclusive bool) (time.Time, error) {
-	return parseFlexibleTime(value, endExclusive)
 }
 
 func resolveSearchDateValue(primary string, alias string, primaryName string, aliasName string) (string, error) {

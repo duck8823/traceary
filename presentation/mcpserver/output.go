@@ -43,7 +43,17 @@ type sessionEventOutput struct {
 
 // eventsOutput is the MCP output for event listing tools (list_events, search, get_context).
 type eventsOutput struct {
-	Events []eventOutput `json:"events" jsonschema:"events matching the filters"`
+	Events   []eventOutput   `json:"events" jsonschema:"events matching the filters"`
+	Interval *intervalOutput `json:"interval,omitempty" jsonschema:"requested and effective half-open interval used by list_events or search"`
+}
+
+type intervalOutput struct {
+	RequestedFrom          string `json:"requested_from" jsonschema:"caller-supplied lower bound"`
+	RequestedTo            string `json:"requested_to" jsonschema:"caller-supplied upper bound"`
+	EffectiveFromInclusive string `json:"effective_from_inclusive" jsonschema:"resolved inclusive UTC lower bound"`
+	EffectiveToExclusive   string `json:"effective_to_exclusive" jsonschema:"resolved exclusive UTC upper bound"`
+	Timezone               string `json:"timezone" jsonschema:"IANA timezone used for date-only bounds"`
+	SnapshotAt             string `json:"snapshot_at" jsonschema:"UTC snapshot used for omitted upper bounds"`
 }
 
 // eventOutput is an individual event in an eventsOutput list.

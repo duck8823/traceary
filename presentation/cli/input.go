@@ -128,6 +128,7 @@ type listCommandInput struct {
 	since        string
 	to           string
 	until        string
+	timezone     string
 	failuresOnly bool
 	// sensitiveOnly keeps command_executed events whose bodies match the
 	// sensitive-path classifier (compute-on-read; independent of redaction).
@@ -178,6 +179,7 @@ type searchCommandInput struct {
 	since           string
 	to              string
 	until           string
+	timezone        string
 	limit           int
 	offset          int
 	query           string

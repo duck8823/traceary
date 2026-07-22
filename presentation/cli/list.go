@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -28,6 +29,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		since         string
 		to            string
 		until         string
+		timezone      string
 		failuresOnly  bool
 		sensitiveOnly bool
 		sourceHook    string
@@ -57,6 +59,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 				since:           since,
 				to:              to,
 				until:           until,
+				timezone:        timezone,
 				failuresOnly:    failuresOnly,
 				sensitiveOnly:   sensitiveOnly,
 				sourceHook:      sourceHook,
@@ -92,6 +95,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&since, "since", "", Localize("start date (`YYYY-MM-DD` or RFC3339) (alias for `--from`)", "開始日 (`YYYY-MM-DD` または RFC3339) (`--from` の別名)"))
 	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339; alias: `--until`)", "終了日 (`YYYY-MM-DD` または RFC3339; 別名: `--until`)"))
 	listCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD` or RFC3339) (alias for `--to`)", "終了日 (`YYYY-MM-DD` または RFC3339) (`--to` の別名)"))
+	listCmd.Flags().StringVar(&timezone, "timezone", "UTC", Localize("IANA timezone for date-only bounds (default: UTC)", "日付のみの境界に使う IANA タイムゾーン（既定: UTC）"))
 	listCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	listCmd.Flags().StringVar(&sourceHook, "source-hook", "", Localize("filter by hook identifier that produced the event (e.g. stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)", "イベントを生成した hook 識別子で絞り込む (例: stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
@@ -139,22 +143,9 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 	if err != nil {
 		return err
 	}
-	// Validate raw dates before applying endExclusive offset.
-	fromRaw, err := parseFlexibleTime(fromValue, false)
+	interval, err := apptypes.RequestedIntervalFrom(fromValue, toValue, input.timezone, time.Now().UTC())
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve --from", "from の解決に失敗しました"), err)
-	}
-	toRaw, err := parseFlexibleTime(toValue, false)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
-	}
-	if !fromRaw.IsZero() && !toRaw.IsZero() && fromRaw.After(toRaw) {
-		return xerrors.New(Localize("--from must be earlier than --to", "from は to より前である必要があります"))
-	}
-	fromTime := fromRaw
-	toTime, err := parseFlexibleTime(toValue, true)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve --to", "to の解決に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve time interval", "期間の解決に失敗しました"), err)
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -187,8 +178,8 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
 		FailuresOnly(input.failuresOnly).
 		SourceHook(strings.TrimSpace(input.sourceHook)).
-		From(fromTime).
-		To(toTime).
+		From(interval.EffectiveFromInclusive()).
+		To(interval.EffectiveToExclusive()).
 		Build()
 	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
 	if err != nil {
