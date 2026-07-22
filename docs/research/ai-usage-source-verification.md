@@ -18,10 +18,10 @@ The implementation baseline is:
 |---|---|---|---|
 | Codex `exec --json` | **available** | terminal `turn.completed.usage` | #1451: ingest the completed-turn counters once; `turn.failed` without counters is unavailable. |
 | Codex interactive rollout | **available** | final cumulative `token_count` snapshot before `task_complete` or `turn_aborted` | #1451: calculate a monotonic cumulative delta within one rollout/turn segment; never sum snapshots. |
-| Claude Code JSON/JSONL and local transcript | **available** | final `result.usage` for a one-shot run; unique assistant request (`requestId` + message id) for interactive provider calls | #1447: deduplicate repeated assistant transcript rows by stable provider request/message identity and preserve cache fields. |
+| Claude Code JSON/JSONL and local transcript | **available** | final `result.usage` for a one-shot run; unique assistant request (`requestId` + message id) for interactive provider calls | #1447: one-shot stream mode records only the terminal run summary; transcript mode records only unique calls. Never persist both accounting representations for one run. |
 | Gemini CLI headless `stream-json` | **available** | terminal `result.stats` | #1455: ingest run/model totals from the terminal result. |
 | Gemini CLI interactive hooks | **unavailable under the privacy boundary** | none | #1455: report unavailable. Do not install `AfterModel`, because its input also carries full model requests/responses. |
-| Antigravity CLI status line | **partial** | an `idle` state snapshot is authoritative only as a conversation snapshot, not as a provider call | #1455: ingest privacy-safe cumulative/current snapshot claims; do not claim per-call identity or cost. Stop remains lifecycle-only. |
+| Antigravity CLI status line | **partial** | an `idle` state snapshot is authoritative only as a conversation snapshot, not as a provider call | #1455: retain only cumulative total input/output as a non-additive session snapshot. Do not ingest `current_usage`, claim per-call identity, or estimate cost. Stop remains lifecycle-only. |
 | Grok Build headless `streaming-json` | **available** | terminal `end` event keyed by `requestId`/`sessionId` | #1450: ingest `end.usage` once, including cache-read and reasoning fields. |
 | Grok Build native hooks/TUI | **unavailable** | none | #1450: report unavailable; current hooks carry lifecycle and transcript paths but no usage. |
 | Kimi Code local main-agent wire | **available** | `usage.record` with `usageScope=turn` | #1452: ingest each terminal record once from the main-agent wire and keep unsupported/error paths unavailable. |
@@ -45,7 +45,7 @@ The installed versions probed on 2026-07-23 were Codex CLI 0.145.0, Claude Code 
 - Claude Code documents `--output-format json|stream-json`; a stream ends with a final `result` statistics message: https://docs.anthropic.com/en/docs/claude-code/cli-usage
 - Anthropic defines the billing usage dimensions, including input, cache creation, cache read, and output tokens: https://platform.claude.com/docs/en/api/go/messages
 - The 2.1.212 live stream contained the same usage keys on assistant and final result messages. A metadata-only local transcript inspection found duplicate assistant rows with the same `requestId`, message id, and identical usage but different row UUIDs. Therefore UUID is not a provider-call identity; `requestId` plus message id is.
-- Each unique assistant request is one provider response. A terminal `result.usage` is authoritative for the whole one-shot run. Aborted/error paths without a provider usage object are unavailable, not zero.
+- Each unique assistant request is one provider response. In transcript mode, #1447 records those unique calls and creates no run-summary usage. In one-shot stream mode, it ignores assistant usage rows and records only terminal `result.usage` for the run. These modes are mutually exclusive accounting representations, so the same run cannot be counted twice. Aborted/error paths without the selected provider usage object are unavailable, not zero.
 
 ### Gemini CLI
 
@@ -59,7 +59,7 @@ The installed versions probed on 2026-07-23 were Codex CLI 0.145.0, Claude Code 
 
 - Antigravity hooks document conversation/lifecycle fields and a Stop boundary, but no usage fields: https://antigravity.google/docs/hooks
 - The status-line contract is body-free and documents conversation/model identity plus cumulative input/output and `current_usage` input/output/cache counters: https://antigravity.google/docs/cli/statusline
-- Status-line payloads do not document a provider request id or Stop `executionNum`. Traceary may store an `idle` conversation snapshot, but must not transform it into exact per-call usage or price.
+- Status-line payloads do not document a provider request id, Stop `executionNum`, or whether `current_usage` is additive to the cumulative totals. Traceary therefore stores only `total_input_tokens` and `total_output_tokens` from an `idle` payload as an immutable, non-additive session snapshot. A later snapshot supersedes it; aggregate queries select the latest snapshot per conversation and never add snapshot history. `current_usage`, cache fields, per-call usage, and price remain unavailable.
 - A sandboxed 1.1.5 probe was stopped after its configured Traceary MCP server remained connecting; no completion claim was made from that attempt.
 
 ### Grok Build
@@ -71,19 +71,20 @@ The installed versions probed on 2026-07-23 were Codex CLI 0.145.0, Claude Code 
 
 ### Kimi Code
 
-- Kimi's official hook contract and Traceary's v0.27.0 sanitized fixtures establish lifecycle/compact fields: https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
-- The 0.29.0 live headless stdout contained no usage object. Its documented local main-agent wire ended with a `usage.record` containing `model`, `usageScope=turn`, and numeric `inputOther`, `inputCacheRead`, `inputCacheCreation`, and `output` fields.
+- Kimi's official hook contract establishes lifecycle/compact fields: https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
+- Traceary's [versioned host contract](../hooks/host-contract.json) records the sanitized live-probe method and the local main-agent wire side channel. The committed [v0.27.0 wire fixture](../../presentation/cli/testdata/kimi_hooks/v0.27.0/wire_main.jsonl) contains `usage.record` rows.
+- The 0.29.0 live headless stdout contained no usage object. The live-observed local main-agent wire ended with a `usage.record` containing `model`, `usageScope=turn`, and numeric `inputOther`, `inputCacheRead`, `inputCacheCreation`, and `output` fields.
 - Traceary may scan the wire line by line, decode only the event discriminator for non-usage rows, and fully decode only `usage.record`. It must never copy adjacent content/thinking/tool rows.
-- `usage.record` has no documented provider call id. #1452 must use the provider-neutral idempotency scheme from #1456 (session/agent/source position plus a payload fingerprint), detect conflicting replay, and keep missing terminal records unavailable.
+- `usage.record` has no documented provider call id. #1452 assigns the stable source identity `(host, session_id, agent_id, usage-record ordinal)`; the ordinal counts only `usage.record` rows in the append-only session wire, so copying/replaying the file elsewhere does not change the identity. A canonical payload fingerprint is stored as conflict evidence, not as the identity: the same identity and fingerprint is idempotent, while the same identity with different counters fails closed. Missing terminal records remain unavailable.
 
 ## Retry, stream, and failure rules
 
 | Host | Retry/stream rule | Failure rule |
 |---|---|---|
 | Codex | Headless completed usage already aggregates the turn. Interactive uses one final cumulative delta per turn; intermediate snapshots are replacements. | Preserve an observed delta for an aborted turn; otherwise unavailable. |
-| Claude | Deduplicate streamed/transcript rows by provider request/message identity; distinct request IDs remain distinct retry calls. | No final usage object means unavailable. |
+| Claude | One-shot mode ignores assistant usage and records the terminal run summary; transcript mode records deduplicated request/message calls and no summary. Distinct request IDs remain distinct retry calls. | No usage object for the selected mode means unavailable. |
 | Gemini | Only terminal result stats count; never add message chunks or `AfterModel` chunks. | Error without terminal stats is unavailable. |
-| Antigravity | Replace the latest conversation snapshot; never add status-line snapshots. | Missing/ambiguous idle snapshot is partial/unavailable. |
+| Antigravity | Persist immutable session snapshots, mark older ones superseded, and aggregate only the latest cumulative input/output snapshot. Ignore `current_usage`. | Missing/ambiguous idle snapshot is partial/unavailable. |
 | Grok | Only one `end` per request ID counts; ignore incremental events. | Missing `end.usage` is unavailable. |
 | Kimi | One `usage.record` is one reported turn record; replay is idempotent, not additive. | A retry/abort without its own record is unavailable. |
 
@@ -107,11 +108,11 @@ This decision does not reopen [the v0.26 OTel no-go](./otel-genai-export.md). Us
 
 ## Exact follow-up scope
 
-1. #1456: availability state, authoritative call identity, idempotent finalization, additive migration, and versioned price estimates.
+1. #1456: availability state, `call`/`run`/`session_snapshot` scope, authoritative identity, idempotent finalization, superseding snapshots, additive migration, and versioned price estimates.
 2. #1453: run/parent/session/batch/ticket/PR/head/packet lineage without private bodies.
 3. #1451: Codex headless terminal usage and interactive cumulative-delta adapter.
-4. #1447: Claude request/message deduplication plus one-shot result aggregation.
-5. #1455: Gemini headless terminal stats, Antigravity conversation snapshots, and explicit interactive unavailability.
+4. #1447: mutually exclusive Claude transcript-call or one-shot-run accounting, including request/message deduplication.
+5. #1455: Gemini headless terminal stats, non-additive Antigravity cumulative conversation snapshots, and explicit interactive unavailability.
 6. #1450: Grok headless `end` adapter and explicit native-hook unavailability.
 7. #1452: Kimi main-wire `usage.record` adapter; compact counts remain excluded.
 8. #1449: CLI/MCP aggregates over only finalized provider-neutral observations.
