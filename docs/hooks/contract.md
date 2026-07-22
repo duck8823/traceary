@@ -17,7 +17,7 @@ The versioned, machine-readable live contract for Grok Build (fixtures from 0.2.
 | PostToolUse | `Bash` | Record shell command audit |
 | PostToolUse | `mcp__.*` | Record MCP tool audit |
 | PostToolUse | `Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode` | Record built-in Claude Code tool invocations (file I/O, search, agent, web, plan-mode exit). Added in v0.8-6; expanded to include `NotebookRead` and `ExitPlanMode` in v0.8-6b |
-| PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | Record a failure-flagged tool audit. The payload carries a top-level `error` string (no `tool_response`, no numeric exit code), so Traceary marks the audit `failed` rather than reading an exit code; `list --failures` matches the flag |
+| PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | Record a tool audit with `failure_reason=host_error`. The payload carries a top-level structured `error` (no numeric exit code); Traceary does not inspect the error text |
 | PostCompact | `*` | Record compact summary |
 | UserPromptSubmit | `*` | Record user prompt text |
 | Stop | `*` | Record last assistant message from `transcript_path` as a `transcript` event (built-in secret redaction + operator-configured `redact.rules` / `redact.extra_patterns` applied) |
@@ -72,7 +72,8 @@ The versioned, machine-readable live contract for Grok Build (fixtures from 0.2.
 All tiers:
 - Session start persists the resolved workspace to the state file; audit reads the workspace from state
 - Agent type resolution: `agent_type` field → hierarchical agent name (Claude and Codex subagent hooks)
-- Exit code extraction from `tool_response.exitCode` when a host provides it. In practice none of the current hosts populate this field in the post-tool payload, so failure is detected structurally instead (see the failure-flag rows above and the fallback table below) rather than from an exit code.
+- Exit code extraction from `tool_response.exitCode` when a host provides it. Exit code `0` is authoritative success; a non-zero code is `exit_code` unless more specific structured evidence identifies `signal`, `timeout`, or `hook_denied`.
+- Failure classification uses structured fields only. Traceary maps host interruption/timeout markers to `signal`/`timeout`, Grok `PermissionDenied` to `hook_denied`, and generic structured host errors to `host_error`. Payload text is never parsed for failure words.
 - MCP tool name fallback: `tool_input.command` → `tool_name`
 
 Claude Task subagent capture:
@@ -86,7 +87,7 @@ Claude Task subagent capture:
 | Missing Capability | Fallback |
 |---|---|
 | Compact hooks | MCP `get_context` / `session_handoff` on demand |
-| Failure event | Derive a structural `failed` flag from the failure-shaped payload (Claude's top-level `error`, Gemini's `tool_response.error`, Grok's observed `PostToolUse.toolResult.FileNotFound` / `.PermissionDenied` variants); `list --failures` matches `failed = 1` in addition to a non-zero `exit_code`. Hosts that expose no structured failure signal (Codex; Gemini plain non-zero exits) are recorded as unflagged audits |
+| Failure event | Derive `failure_reason` from failure-shaped structured fields (Claude top-level `error` and Gemini `tool_response.error` become `host_error`; Grok `PermissionDenied` becomes `hook_denied`; interruption/timeout markers become `signal`/`timeout`). Hosts that expose no structured failure signal remain `unknown`; formatted output text is never parsed |
 | Agent type | Use client name only (e.g., `codex`, `gemini`) |
 
 ## 2026 Q2 host capability notes

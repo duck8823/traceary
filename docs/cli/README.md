@@ -30,6 +30,8 @@ Useful flags:
 - `--agent`
 - `--session-id`
 - `--workspace`
+- `--exit-code`
+- `--failure-reason` (`none`, `exit_code`, `signal`, `timeout`, `hook_denied`, `host_error`, or `unknown`)
 - `--id-only`
 - `--json`
 
@@ -72,6 +74,8 @@ Command-audit input/output payloads are truncated before persistence when they e
 On **read surfaces** (`sessions --snapshot --json`, list-style recent-command panes), large host-tool payloads (`Edit` / `Write` / `Read` / shell) are projected into a tool-aware compact summary (tool name, path when present, rune counts, content hash, head/tail, and a `traceary show <event_id>` retrieval hint). This is a presentation-time projection only: raw persistence and `traceary show` remain full-fidelity.
 
 Command strings also pass through the built-in best-effort secret redactors before storage. `input_redacted` / `output_redacted` only report input/output payload redaction; they do not expose a separate command-redaction flag.
+
+New audits store the raw command, a separately normalized wrapper/executable identity, and a structured outcome. A captured `--exit-code 0` is authoritative success; quoted failure text never changes the result. When no structured evidence exists, `failure_reason` remains `unknown` instead of being inferred from payload text.
 
 Session resolution follows the same rules as `traceary log`.
 
@@ -1062,6 +1066,12 @@ Removed in v0.15.0 and **not a supported uninstall surface**. The name is kept h
 ### `traceary mcp-server`
 
 Run the MCP server over stdio for AI client integration.
+
+### `traceary report`
+
+Print a period-scoped retrospective digest. Command totals aggregate by the normalized executable, so direct and verified wrapped invocations such as `git ...` and `rtk git ...` share the `git` row. Failures are counted from `exit_code` and `failure_reason`, never from command input/output text. JSON includes `failures.by_reason`; historical rows without structured evidence remain `unknown`.
+
+Useful flags: `--from`, `--to`, `--workspace`, `--client`, `--limit`, `--json`.
 
 ### `traceary report workspace-identity`
 

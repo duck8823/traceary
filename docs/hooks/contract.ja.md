@@ -17,7 +17,7 @@ Grok Build の versioned かつ機械可読な live contract（fixture は 0.2.9
 | PostToolUse | `Bash` | シェルコマンド監査を記録 |
 | PostToolUse | `mcp__.*` | MCP ツール監査を記録 |
 | PostToolUse | `Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode` | Claude Code 組み込みツール（ファイル I/O・検索・agent・web・plan モード終了）の呼び出しを記録（v0.8-6 で追加、v0.8-6b で `NotebookRead` と `ExitPlanMode` を追加） |
-| PostToolUseFailure | `Bash`, `mcp__.*`, 組み込みツール | 失敗フラグ付きのツール監査を記録。payload はトップレベル `error` 文字列を持ち（`tool_response` も数値 exit code も無い）、exit code を読む代わりに監査を `failed` とマークする。`list --failures` はこのフラグを対象にする |
+| PostToolUseFailure | `Bash`, `mcp__.*`, 組み込みツール | `failure_reason=host_error` のツール監査を記録。payload はトップレベルに構造化された `error` を持つが数値 exit code は無く、Traceary は error 本文を解析しない |
 | PostCompact | `*` | compact サマリーを記録 |
 | UserPromptSubmit | `*` | ユーザーの指示テキストを記録 |
 | Stop | `*` | `transcript_path` から最後の assistant メッセージを読み取り `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用） |
@@ -72,7 +72,8 @@ Grok Build の versioned かつ機械可読な live contract（fixture は 0.2.9
 全レベル共通:
 - セッション開始時に解決した workspace を state ファイルに保存し、audit はそこから workspace を読み取る
 - エージェントタイプ解決: `agent_type` フィールド → 階層的エージェント名（Claude および Codex の subagent hook）
-- host が提供する場合は `tool_response.exitCode` から exit code を抽出。ただし現行のどの host も post-tool payload にこのフィールドを出さないため、実際には exit code ではなく構造的に失敗を検出する（上記の失敗フラグ行と下記 fallback 表を参照）
+- host が提供する場合は `tool_response.exitCode` から exit code を抽出。終了コード `0` は常に成功で、非ゼロは、より具体的な構造化根拠が `signal`、`timeout`、`hook_denied` を示さない限り `exit_code` とする
+- 失敗分類には構造化フィールドだけを使う。host の中断/timeout marker は `signal` / `timeout`、Grok の `PermissionDenied` は `hook_denied`、一般的な構造化 host error は `host_error` とする。payload 本文から失敗語を解析しない
 - MCP ツール名 fallback: `tool_input.command` → `tool_name`
 
 Claude Task subagent capture:
@@ -86,7 +87,7 @@ Claude Task subagent capture:
 | 欠落機能 | フォールバック |
 |---|---|
 | Compact hooks | MCP `get_context` / `session_handoff` でオンデマンド取得 |
-| Failure イベント | 失敗形状の payload から構造的な `failed` フラグを導出（Claude のトップレベル `error`、Gemini の `tool_response.error`、Grok で観測した `PostToolUse.toolResult.FileNotFound` / `.PermissionDenied` variant）。`list --failures` は非ゼロ `exit_code` に加えて `failed = 1` も対象にする。構造化された失敗信号を出さない host（Codex、Gemini の通常の非ゼロ終了）はフラグなし監査として記録 |
+| Failure イベント | 失敗形状の構造化フィールドから `failure_reason` を導出（Claude のトップレベル `error` と Gemini の `tool_response.error` は `host_error`、Grok の `PermissionDenied` は `hook_denied`、中断/timeout marker は `signal` / `timeout`）。構造化された失敗信号を出さない host は `unknown` のまま記録し、整形済み output 本文は解析しない |
 | エージェントタイプ | クライアント名のみ使用（例: `codex`, `gemini`） |
 
 ## 2026 Q2 ホスト別機能メモ
