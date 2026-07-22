@@ -70,12 +70,16 @@ start/end event から導かれ、session 系コマンドでも更新される s
 - `session_id`: session identifier
 - `started_at`: session 開始時刻
 - `ended_at`: session が終了済みならその時刻
+- `runtime_mode`: 明示的なライフサイクル契約。`interactive`、`one_shot`、`resumed`、`background` のいずれか。履歴行は安全側の `interactive` へ移行する
+- `terminal_reason`: 1 つだけ有効な終了理由。`success`、`failure`、`timeout`、`signal`、`aborted_stream`、`legacy_unknown` のいずれか。active 中、または旧バイナリが終了時刻だけを書いた場合は空になる
 - `client`: session の client attribution
 - `agent`: session の agent attribution
 - `workspace`: 補助的な work-context identifier
 - `label`: 任意の運用ラベル
 - `summary`: 任意の session summary
 - `parent_session_id`: 任意の親 session link
+
+Traceary は空の値を `one_shot` と解釈しません。最初の終了理由は不変です。同じ理由の再配送は冪等な no-op になり、異なる理由は fail closed して、保存済みの時刻・summary・理由を変更しません。v0.30 より前の終了済み行には、成功や失敗を作り上げず `legacy_unknown` を使います。追加型のスキーマなので旧バイナリからも読み書きできます。旧バイナリが理由なしで `ended_at` を書いた場合、現行バイナリはその行を `legacy_unknown` として復元します。
 
 主な index:
 

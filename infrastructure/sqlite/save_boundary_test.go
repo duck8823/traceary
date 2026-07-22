@@ -69,6 +69,114 @@ func TestSessionDatasource_SaveBoundary_Start(t *testing.T) {
 	}
 }
 
+func TestSessionDatasource_SaveBoundary_RoundTripsRuntimeModeAndTerminalReason(t *testing.T) {
+	t.Parallel()
+
+	for _, reason := range []types.TerminalReason{
+		types.TerminalReasonSuccess,
+		types.TerminalReasonFailure,
+		types.TerminalReasonTimeout,
+		types.TerminalReasonSignal,
+		types.TerminalReasonAbortedStream,
+	} {
+		reason := reason
+		t.Run(reason.String(), func(t *testing.T) {
+			t.Parallel()
+			db := infra.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+			ctx := context.Background()
+			if err := infra.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+			ds := infra.NewSessionDatasource(db)
+			agent, _ := types.AgentFrom("codex")
+			sessionID := types.SessionID("lifecycle-" + reason.String())
+			startedAt := time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC)
+			session, err := model.NewSessionWithRuntimeMode(sessionID, startedAt, types.Client("hook"), agent, types.Workspace("workspace"), types.RuntimeModeOneShot)
+			if err != nil {
+				t.Fatalf("NewSessionWithRuntimeMode() error = %v", err)
+			}
+			startEvent := model.EventOf(types.EventID("start-"+reason.String()), types.EventKindSessionStarted, types.Client("hook"), agent, sessionID, types.Workspace("workspace"), "started", startedAt)
+			if err := ds.SaveBoundary(ctx, session, startEvent); err != nil {
+				t.Fatalf("SaveBoundary(start) error = %v", err)
+			}
+
+			endedAt := startedAt.Add(time.Minute)
+			if _, err := session.Terminate(endedAt, reason, "terminal summary"); err != nil {
+				t.Fatalf("Terminate() error = %v", err)
+			}
+			endEvent := model.EventOf(types.EventID("end-"+reason.String()), types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, types.Workspace("workspace"), "ended", endedAt)
+			if err := ds.SaveBoundary(ctx, session, endEvent); err != nil {
+				t.Fatalf("SaveBoundary(end) error = %v", err)
+			}
+
+			stored, err := ds.FindByID(ctx, sessionID)
+			if err != nil {
+				t.Fatalf("FindByID() error = %v", err)
+			}
+			got, ok := stored.Value()
+			if !ok {
+				t.Fatal("FindByID() session missing")
+			}
+			if got.RuntimeMode() != types.RuntimeModeOneShot {
+				t.Fatalf("RuntimeMode() = %q, want one_shot", got.RuntimeMode())
+			}
+			if gotReason, ok := got.TerminalReason().Value(); !ok || gotReason != reason {
+				t.Fatalf("TerminalReason() = %q/%v, want %q/present", gotReason, ok, reason)
+			}
+		})
+	}
+}
+
+func TestSessionDatasource_SaveBoundary_ConflictingTerminalReasonFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	db := infra.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := infra.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	ds := infra.NewSessionDatasource(db)
+	agent, _ := types.AgentFrom("codex")
+	sessionID := types.SessionID("terminal-conflict")
+	startedAt := time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC)
+	first, err := model.NewSessionWithRuntimeMode(sessionID, startedAt, types.Client("hook"), agent, types.Workspace("workspace"), types.RuntimeModeOneShot)
+	if err != nil {
+		t.Fatalf("NewSessionWithRuntimeMode(first) error = %v", err)
+	}
+	if err := ds.SaveSessionBoundaryForTest(ctx, first); err != nil {
+		t.Fatalf("SaveSessionBoundaryForTest(start) error = %v", err)
+	}
+	if _, err := first.Terminate(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "first"); err != nil {
+		t.Fatalf("Terminate(first) error = %v", err)
+	}
+	if err := ds.SaveSessionBoundaryForTest(ctx, first); err != nil {
+		t.Fatalf("SaveSessionBoundaryForTest(first) error = %v", err)
+	}
+
+	stale, err := model.NewSessionWithRuntimeMode(sessionID, startedAt, types.Client("hook"), agent, types.Workspace("workspace"), types.RuntimeModeOneShot)
+	if err != nil {
+		t.Fatalf("NewSessionWithRuntimeMode(stale) error = %v", err)
+	}
+	if _, err := stale.Terminate(startedAt.Add(2*time.Minute), types.TerminalReasonFailure, "conflict"); err != nil {
+		t.Fatalf("Terminate(stale) error = %v", err)
+	}
+	if err := ds.SaveSessionBoundaryForTest(ctx, stale); err == nil || !errors.Is(err, model.ErrInvalidSessionState) {
+		t.Fatalf("SaveSessionBoundaryForTest(conflict) error = %v, want ErrInvalidSessionState", err)
+	}
+
+	stored, err := ds.FindByID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindByID() error = %v", err)
+	}
+	got, _ := stored.Value()
+	if reason, ok := got.TerminalReason().Value(); !ok || reason != types.TerminalReasonSuccess {
+		t.Fatalf("effective reason = %q/%v, want success/present", reason, ok)
+	}
+	if got.Summary() != "first" {
+		t.Fatalf("effective summary = %q, want first", got.Summary())
+	}
+}
+
 func TestSessionDatasource_FindEndedSessionIDs(t *testing.T) {
 	t.Parallel()
 

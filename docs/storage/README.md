@@ -70,12 +70,16 @@ Key columns:
 - `session_id`: session identifier
 - `started_at`: session start time
 - `ended_at`: session end time when the session has been closed
+- `runtime_mode`: explicit lifecycle contract: `interactive`, `one_shot`, `resumed`, or `background`; historical rows migrate conservatively to `interactive`
+- `terminal_reason`: single effective outcome: `success`, `failure`, `timeout`, `signal`, `aborted_stream`, or `legacy_unknown`; empty only while active or after an older binary writes the end marker
 - `client`: client attribution for the session
 - `agent`: agent attribution for the session
 - `workspace`: auxiliary work-context identifier
 - `label`: optional operator-facing label
 - `summary`: optional session summary text
 - `parent_session_id`: optional parent session link
+
+Traceary never derives `one_shot` from an empty value. The first terminal reason is immutable: a same-reason delivery is an idempotent no-op, while a different reason fails closed and leaves the stored timestamp, summary, and reason unchanged. Pre-v0.30 ended rows use `legacy_unknown` rather than fabricated success or failure. The additive schema remains readable by older binaries; if one writes `ended_at` without a reason, the current binary restores that row as `legacy_unknown`.
 
 Important indexes:
 

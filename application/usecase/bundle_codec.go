@@ -57,12 +57,16 @@ func encodeSessionsNDJSON(sessions []*model.Session) (*bytes.Buffer, error) {
 			ParentSessionID: session.ParentSessionID().String(),
 			SpawnEventID:    session.SpawnEventID().String(),
 			SubagentKind:    session.SubagentKind(),
+			RuntimeMode:     session.RuntimeMode().String(),
 		}
 		if endedAt, ok := session.EndedAt().Value(); ok {
 			row.EndedAt = endedAt.UTC().Format(time.RFC3339Nano)
 		}
 		if spawnOrder, ok := session.SpawnOrder().Value(); ok {
 			row.SpawnOrder = &spawnOrder
+		}
+		if terminalReason, ok := session.TerminalReason().Value(); ok {
+			row.TerminalReason = terminalReason.String()
 		}
 		if err := enc.Encode(row); err != nil {
 			return nil, xerrors.Errorf("encode session: %w", err)

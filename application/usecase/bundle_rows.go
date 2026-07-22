@@ -143,6 +143,8 @@ type bundleSessionRow struct {
 	SpawnEventID    string `json:"spawn_event_id,omitempty"`
 	SubagentKind    string `json:"subagent_kind,omitempty"`
 	SpawnOrder      *int   `json:"spawn_order,omitempty"`
+	RuntimeMode     string `json:"runtime_mode,omitempty"`
+	TerminalReason  string `json:"terminal_reason,omitempty"`
 }
 
 type bundleCommandAuditRow struct {
@@ -324,20 +326,41 @@ func (r bundleSessionRow) toSession() (*model.Session, error) {
 	if r.SpawnOrder != nil {
 		spawnOrder = types.Some(*r.SpawnOrder)
 	}
-	return model.SessionOf(
-		sessionID,
-		startedAt,
-		endedAt,
-		types.Client(r.Client),
-		agent,
-		types.Workspace(r.Workspace),
-		r.Label,
-		r.Summary,
-		types.SessionID(r.ParentSessionID),
-		types.EventID(r.SpawnEventID),
-		r.SubagentKind,
-		spawnOrder,
-	), nil
+	runtimeMode := types.RuntimeMode("")
+	if r.RuntimeMode != "" {
+		runtimeMode, err = types.RuntimeModeFrom(r.RuntimeMode)
+		if err != nil {
+			return nil, xerrors.Errorf("runtime_mode: %w", err)
+		}
+	}
+	terminalReason := types.None[types.TerminalReason]()
+	if r.TerminalReason != "" {
+		reason, err := types.TerminalReasonFrom(r.TerminalReason)
+		if err != nil {
+			return nil, xerrors.Errorf("terminal_reason: %w", err)
+		}
+		terminalReason = types.Some(reason)
+	}
+	restored, err := model.SessionFromSnapshot(model.SessionSnapshot{
+		SessionID:       sessionID,
+		StartedAt:       startedAt,
+		EndedAt:         endedAt,
+		Client:          types.Client(r.Client),
+		Agent:           agent,
+		Workspace:       types.Workspace(r.Workspace),
+		Label:           r.Label,
+		Summary:         r.Summary,
+		RuntimeMode:     runtimeMode,
+		TerminalReason:  terminalReason,
+		ParentSessionID: types.SessionID(r.ParentSessionID),
+		SpawnEventID:    types.EventID(r.SpawnEventID),
+		SubagentKind:    r.SubagentKind,
+		SpawnOrder:      spawnOrder,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("session lifecycle: %w", err)
+	}
+	return restored, nil
 }
 
 func (r bundleCommandAuditRow) toCommandAudit() (*model.CommandAudit, error) {

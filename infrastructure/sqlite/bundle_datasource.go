@@ -79,7 +79,8 @@ func (d *BundleDatasource) ListBundleSessions(ctx context.Context) ([]*model.Ses
 	}()
 	rows, err := db.QueryContext(ctx, `
 SELECT session_id, started_at, ended_at, client, agent, workspace, label, summary,
-       COALESCE(parent_session_id, ''), COALESCE(spawn_event_id, ''), subagent_kind, spawn_order
+       COALESCE(parent_session_id, ''), COALESCE(spawn_event_id, ''), subagent_kind, spawn_order,
+       runtime_mode, terminal_reason
 FROM sessions
 ORDER BY
   CASE WHEN parent_session_id IS NULL THEN 0 ELSE 1 END,
@@ -556,23 +557,28 @@ func (t *bundleImportTx) upsertSession(ctx context.Context, session *model.Sessi
 	if value, ok := session.SpawnOrder().Value(); ok {
 		spawnOrder = &value
 	}
-	_, err := t.tx.ExecContext(ctx, `
+	result, err := t.tx.ExecContext(ctx, `
 INSERT INTO sessions (
   session_id, started_at, ended_at, client, agent, workspace, label, summary,
-  parent_session_id, spawn_event_id, subagent_kind, spawn_order
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  parent_session_id, spawn_event_id, subagent_kind, spawn_order, runtime_mode, terminal_reason
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(session_id) DO UPDATE SET
   started_at = excluded.started_at,
-  ended_at = excluded.ended_at,
+  ended_at = CASE WHEN sessions.ended_at IS NULL THEN excluded.ended_at ELSE sessions.ended_at END,
   client = excluded.client,
   agent = excluded.agent,
   workspace = excluded.workspace,
   label = excluded.label,
-  summary = excluded.summary,
+  summary = CASE WHEN sessions.ended_at IS NULL THEN excluded.summary ELSE sessions.summary END,
   parent_session_id = excluded.parent_session_id,
   spawn_event_id = excluded.spawn_event_id,
   subagent_kind = excluded.subagent_kind,
-  spawn_order = excluded.spawn_order`,
+  spawn_order = excluded.spawn_order,
+  runtime_mode = excluded.runtime_mode,
+  terminal_reason = CASE WHEN sessions.ended_at IS NULL THEN excluded.terminal_reason ELSE sessions.terminal_reason END
+WHERE sessions.ended_at IS NULL
+   OR (excluded.ended_at IS NOT NULL
+       AND COALESCE(NULLIF(sessions.terminal_reason, ''), 'legacy_unknown') = excluded.terminal_reason)`,
 		session.SessionID().String(),
 		formatTimestamp(session.StartedAt()),
 		endedAt,
@@ -585,12 +591,31 @@ ON CONFLICT(session_id) DO UPDATE SET
 		spawnEventID,
 		session.SubagentKind(),
 		spawnOrder,
+		session.RuntimeMode().String(),
+		terminalReasonString(session),
 	)
 	if err != nil {
 		if isSQLiteForeignKeyConflict(err) && session.ParentSessionID().String() != "" {
 			return xerrors.Errorf("parent session not found: %s", session.ParentSessionID())
 		}
 		return xerrors.Errorf("failed to import session %s: %w", session.SessionID(), err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return xerrors.Errorf("failed to inspect imported session %s: %w", session.SessionID(), err)
+	}
+	if rowsAffected == 0 {
+		var currentReason string
+		if err := t.tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(terminal_reason, ''), 'legacy_unknown') FROM sessions WHERE session_id = ?`, session.SessionID().String()).Scan(&currentReason); err != nil {
+			return xerrors.Errorf("failed to inspect conflicting session %s: %w", session.SessionID(), err)
+		}
+		return xerrors.Errorf(
+			"session %s terminal reason %q conflicts with imported reason %q: %w",
+			session.SessionID(),
+			currentReason,
+			terminalReasonString(session),
+			model.ErrConflictingTerminalState,
+		)
 	}
 	return nil
 }
@@ -664,6 +689,8 @@ func scanBundleSession(row interface {
 		spawnEventID    string
 		subagentKind    string
 		spawnOrder      sql.NullInt64
+		runtimeMode     string
+		terminalReason  string
 	)
 	if err := row.Scan(
 		&sessionID,
@@ -678,6 +705,8 @@ func scanBundleSession(row interface {
 		&spawnEventID,
 		&subagentKind,
 		&spawnOrder,
+		&runtimeMode,
+		&terminalReason,
 	); err != nil {
 		return nil, xerrors.Errorf("scan session: %w", err)
 	}
@@ -697,20 +726,45 @@ func scanBundleSession(row interface {
 	if err != nil {
 		return nil, xerrors.Errorf("agent: %w", err)
 	}
-	return model.SessionOf(
-		types.SessionID(sessionID),
-		startedAt,
-		endedAt,
-		types.Client(clientValue),
-		agent,
-		types.Workspace(workspaceValue),
-		labelValue,
-		summaryValue,
-		types.SessionID(parentSessionID),
-		types.EventID(spawnEventID),
-		subagentKind,
-		optionalIntFromNullInt64(spawnOrder),
-	), nil
+	mode, err := types.RuntimeModeFrom(runtimeMode)
+	if err != nil {
+		return nil, xerrors.Errorf("runtime_mode: %w", err)
+	}
+	reason := types.None[types.TerminalReason]()
+	if terminalReason != "" {
+		parsed, err := types.TerminalReasonFrom(terminalReason)
+		if err != nil {
+			return nil, xerrors.Errorf("terminal_reason: %w", err)
+		}
+		reason = types.Some(parsed)
+	}
+	restored, err := model.SessionFromSnapshot(model.SessionSnapshot{
+		SessionID:       types.SessionID(sessionID),
+		StartedAt:       startedAt,
+		EndedAt:         endedAt,
+		Client:          types.Client(clientValue),
+		Agent:           agent,
+		Workspace:       types.Workspace(workspaceValue),
+		Label:           labelValue,
+		Summary:         summaryValue,
+		RuntimeMode:     mode,
+		TerminalReason:  reason,
+		ParentSessionID: types.SessionID(parentSessionID),
+		SpawnEventID:    types.EventID(spawnEventID),
+		SubagentKind:    subagentKind,
+		SpawnOrder:      optionalIntFromNullInt64(spawnOrder),
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("session lifecycle: %w", err)
+	}
+	return restored, nil
+}
+
+func terminalReasonString(session *model.Session) string {
+	if reason, ok := session.TerminalReason().Value(); ok {
+		return reason.String()
+	}
+	return ""
 }
 
 func scanBundleCommandAudit(row interface {

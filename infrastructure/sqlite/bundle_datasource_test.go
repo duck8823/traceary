@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,77 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
+
+func TestBundleDatasource_ImportSessionRejectsConflictingTerminalReplace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := sqlite.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	bundles := sqlite.NewBundleDatasource(db, sqlite.NewEventDatasource(db))
+	agent, _ := types.AgentFrom("codex")
+	startedAt := time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC)
+	newTerminal := func(reason types.TerminalReason, summary string) *model.Session {
+		session, err := model.NewSessionWithRuntimeMode(types.SessionID("bundle-terminal"), startedAt, types.Client("hook"), agent, types.Workspace("workspace"), types.RuntimeModeOneShot)
+		if err != nil {
+			t.Fatalf("NewSessionWithRuntimeMode() error = %v", err)
+		}
+		if _, err := session.Terminate(startedAt.Add(time.Minute), reason, summary); err != nil {
+			t.Fatalf("Terminate() error = %v", err)
+		}
+		return session
+	}
+
+	firstTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatalf("BeginBundleImport(first) error = %v", err)
+	}
+	if imported, err := firstTx.ImportSession(ctx, newTerminal(types.TerminalReasonSuccess, "first"), usecase.BundleConflictReplace, usecase.BundleMissingParentReject); err != nil || !imported {
+		t.Fatalf("ImportSession(first) = %v/%v", imported, err)
+	}
+	if err := firstTx.Commit(ctx); err != nil {
+		t.Fatalf("Commit(first) error = %v", err)
+	}
+	idempotentTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatalf("BeginBundleImport(idempotent) error = %v", err)
+	}
+	if imported, err := idempotentTx.ImportSession(ctx, newTerminal(types.TerminalReasonSuccess, "redelivery"), usecase.BundleConflictReplace, usecase.BundleMissingParentReject); err != nil || !imported {
+		_ = idempotentTx.Rollback(ctx)
+		t.Fatalf("ImportSession(idempotent) = %v/%v", imported, err)
+	}
+	if err := idempotentTx.Commit(ctx); err != nil {
+		t.Fatalf("Commit(idempotent) error = %v", err)
+	}
+
+	conflictTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatalf("BeginBundleImport(conflict) error = %v", err)
+	}
+	_, err = conflictTx.ImportSession(ctx, newTerminal(types.TerminalReasonFailure, "conflict"), usecase.BundleConflictReplace, usecase.BundleMissingParentReject)
+	if err == nil || !errors.Is(err, model.ErrConflictingTerminalState) {
+		_ = conflictTx.Rollback(ctx)
+		t.Fatalf("ImportSession(conflict) error = %v, want ErrConflictingTerminalState", err)
+	}
+	if !strings.Contains(err.Error(), `"success"`) || !strings.Contains(err.Error(), `"failure"`) {
+		_ = conflictTx.Rollback(ctx)
+		t.Fatalf("ImportSession(conflict) error lacks diagnostic reasons: %v", err)
+	}
+	if err := conflictTx.Rollback(ctx); err != nil {
+		t.Fatalf("Rollback(conflict) error = %v", err)
+	}
+
+	stored, err := sqlite.NewSessionDatasource(db).FindByID(ctx, types.SessionID("bundle-terminal"))
+	if err != nil {
+		t.Fatalf("FindByID() error = %v", err)
+	}
+	got, _ := stored.Value()
+	if reason, ok := got.TerminalReason().Value(); !ok || reason != types.TerminalReasonSuccess || got.Summary() != "first" {
+		t.Fatalf("stored terminal state = %q/%v summary=%q", reason, ok, got.Summary())
+	}
+}
 
 func TestBundleDatasource_CommandAuditBeforeEventFailsFK(t *testing.T) {
 	t.Parallel()

@@ -41,7 +41,7 @@ Traceary に関係する成果物は 2 つです。
 
 | Traceary サーフェス | relay 概念 | 適合度 | 備考 |
 | --- | --- | --- | --- |
-| `Session` (`session_id`, `started_at`, `ended_at`, `client`, `agent`, `workspace`, `label`, `summary`) | `session` (`id`, `createdAt`, `lastUpdated`, `source`, `projectPath`/`projectName`, `title`) | 部分的 | `ended_at` に対応する relay スロットはありません（最も近いのは `lastUpdated`）。`summary` にもありません（強いて言えば `session.metadata`）。relay の `tokens`, `sizeBytes`, `storageState`, `backupStatus` には Traceary 側の情報源がありません。 |
+| `Session` (`session_id`, `started_at`, `ended_at`, `runtime_mode`, `terminal_reason`, `client`, `agent`, `workspace`, `label`, `summary`) | `session` (`id`, `createdAt`, `lastUpdated`, `source`, `projectPath`/`projectName`, `title`) | 部分的 | `ended_at`、`runtime_mode`、`terminal_reason` に対応する relay スロットはありません（終了時刻に最も近いのは `lastUpdated`）。`summary` にもありません（強いて言えば `session.metadata`）。relay の `tokens`, `sizeBytes`, `storageState`, `backupStatus` には Traceary 側の情報源がありません。 |
 | `Session` の subagent 系譜 (`parent_session_id`, `spawn_event_id`, `subagent_kind`, `spawn_order`) | なし | なし | relay ドキュメントはフラットな session 単位エクスポートです。Traceary の session ツリー（親子の spawn 系譜）には relay 上の表現がなく、エクスポートすると subagent session が親から切り離されます。 |
 | `Event` `kind=prompt` | `messages[]` の `role=user` | 良好 | Traceary は `id`, `createdAt`, `text` を埋められます。 |
 | `Event` `kind=transcript` | `messages[]` の `role=assistant` | 良好 | 同上。 |

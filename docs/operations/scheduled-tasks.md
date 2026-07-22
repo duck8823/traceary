@@ -50,7 +50,7 @@ If hooks are disabled or the workstation goes for long periods without starting 
 traceary session gc --stale-after 24h
 ```
 
-Use `--dry-run` first when adopting the task. Verify with `traceary doctor --json`: the `stale-active-sessions` check should become `pass` after the next normal hook start or scheduled run. The command is idempotent and only sets `ended_at`; it does not delete session events.
+Use `--dry-run` first when adopting the task. Verify with `traceary doctor --json`: the `stale-active-sessions` check should become `pass` after the next normal hook start or scheduled run. The command is idempotent and only sets `ended_at` plus the conservative `legacy_unknown` terminal reason; it does not delete session events.
 
 ## Conventions
 
