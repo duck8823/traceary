@@ -140,3 +140,4 @@ Aliases affect the current diagnostic projection only. Removing one restores the
 - Repository tooling plan: [`./repo-tooling.md`](./repo-tooling.md)
 - Memory command surface plan: [`./memory-command-surface.md`](./memory-command-surface.md)
 - Workspace identity contract: [`./workspace-identity-contract.md`](./workspace-identity-contract.md)
+- Evidence-backed one-shot repair: [`./one-shot-repair.md`](./one-shot-repair.md)

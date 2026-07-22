@@ -18,6 +18,7 @@ type RootCLI struct {
 	event                      usecase.EventUsecase
 	eventMetadata              usecase.EventMetadataUsecase
 	session                    usecase.SessionUsecase
+	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
 	memoryEdge                 usecase.MemoryEdgeUsecase
 	bundle                     usecase.BundleUsecase
@@ -68,6 +69,11 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption
 // WithSession injects the SessionUsecase used by session-related commands.
 func WithSession(session usecase.SessionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.session = session }
+}
+
+// WithOneShotRepair injects the evidence-backed historical repair use case.
+func WithOneShotRepair(repair usecase.OneShotRepairUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.oneShotRepair = repair }
 }
 
 // WithMemory injects the MemoryUsecase used by durable-memory commands.
