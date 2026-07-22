@@ -137,6 +137,28 @@ func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
 	return d.openAt(ctx, d.Path())
 }
 
+// openReadOnly opens the current database without journal-mode or schema
+// side effects. Preview commands use this path so a dry-run cannot create or
+// migrate a store, change database content, or change file permissions. SQLite
+// may still create WAL shared-memory sidecars while reading a WAL-mode store.
+func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
+	db, err := sql.Open("sqlite", sqliteReadOnlyDSN(d.Path()))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to initialize read-only SQLite connection: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			if closeErr := db.Close(); closeErr != nil {
+				slog.Debug("failed to close resource", "error", closeErr)
+			}
+		}
+	}()
+	if err := db.PingContext(ctx); err != nil {
+		return nil, xerrors.Errorf("failed to ping read-only SQLite DB: %w", err)
+	}
+	return db, nil
+}
+
 // initialize creates the store directory, ensures permissions, and applies
 // pending migrations. It snapshots the current path at entry and
 // delegates to initializeAt so a concurrent SetPath cannot split the
@@ -211,6 +233,15 @@ func sqliteDSN(dbPath string) string {
 		Path:     dbPath,
 		RawQuery: values.Encode(),
 	}).String()
+}
+
+func sqliteReadOnlyDSN(dbPath string) string {
+	values := url.Values{}
+	values.Add("mode", "ro")
+	values.Add("_pragma", "query_only(1)")
+	values.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeout))
+	values.Add("_pragma", "foreign_keys(1)")
+	return (&url.URL{Scheme: "file", Path: dbPath, RawQuery: values.Encode()}).String()
 }
 
 func formatTimestamp(timestamp time.Time) string {

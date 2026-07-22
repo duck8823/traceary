@@ -210,6 +210,30 @@ type sessionUsecaseStub struct {
 	}
 }
 
+type oneShotRepairUsecaseStub struct {
+	params       apptypes.OneShotRepairParams
+	applyParams  apptypes.OneShotRepairApplyParams
+	result       apptypes.OneShotRepairResult
+	err          error
+	calls        int
+	previewCalls int
+	applyCalls   int
+}
+
+func (s *oneShotRepairUsecaseStub) Preview(_ context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error) {
+	s.calls++
+	s.previewCalls++
+	s.params = params
+	return s.result, s.err
+}
+
+func (s *oneShotRepairUsecaseStub) Apply(_ context.Context, params apptypes.OneShotRepairApplyParams) (apptypes.OneShotRepairResult, error) {
+	s.calls++
+	s.applyCalls++
+	s.applyParams = params
+	return s.result, s.err
+}
+
 func (s *sessionUsecaseStub) Start(_ context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
 	s.startCall.client = client
 	s.startCall.agent = agent
@@ -623,23 +647,26 @@ func (s *memoryUsecaseStub) ActivationStatus(_ context.Context, criteria apptype
 
 // storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.
 type storeManagementUsecaseStub struct {
-	staleMu         sync.Mutex
-	staleDelay      time.Duration
-	initCalled      bool
-	initErr         error
-	createBackupErr error
-	restoreErr      error
-	gcResult        apptypes.CollectGarbageResult
-	gcErr           error
-	dedupeResult    apptypes.ContentEventDedupeResult
-	dedupeErr       error
-	dedupeParams    []apptypes.ContentEventDedupeParams
-	restoreResult   apptypes.ContentEventDedupeRestoreResult
-	restoreRunErr   error
-	restoreRunIDs   []string
-	staleResult     apptypes.CloseStaleSessionsResult
-	staleErr        error
-	staleCalls      []struct {
+	staleMu           sync.Mutex
+	staleDelay        time.Duration
+	initCalled        bool
+	initErr           error
+	createBackupErr   error
+	createBackupPath  string
+	createBackupCalls int
+	operations        []string
+	restoreErr        error
+	gcResult          apptypes.CollectGarbageResult
+	gcErr             error
+	dedupeResult      apptypes.ContentEventDedupeResult
+	dedupeErr         error
+	dedupeParams      []apptypes.ContentEventDedupeParams
+	restoreResult     apptypes.ContentEventDedupeRestoreResult
+	restoreRunErr     error
+	restoreRunIDs     []string
+	staleResult       apptypes.CloseStaleSessionsResult
+	staleErr          error
+	staleCalls        []struct {
 		staleAfter          time.Duration
 		dryRun              bool
 		protectedSessionIDs []types.SessionID
@@ -650,9 +677,13 @@ func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
 	s.staleMu.Lock()
 	defer s.staleMu.Unlock()
 	s.initCalled = true
+	s.operations = append(s.operations, "initialize")
 	return s.initErr
 }
-func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, _ string, _ bool) error {
+func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, path string, _ bool) error {
+	s.createBackupCalls++
+	s.createBackupPath = path
+	s.operations = append(s.operations, "backup")
 	return s.createBackupErr
 }
 func (s *storeManagementUsecaseStub) RestoreBackup(_ context.Context, _ string, _ bool) error {

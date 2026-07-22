@@ -140,3 +140,4 @@ traceary store workspace-alias remove --session <id> --workspace <path>
 - repository tooling の方針: [`./repo-tooling.ja.md`](./repo-tooling.ja.md)
 - Memory コマンド体系の整理計画: [`./memory-command-surface.ja.md`](./memory-command-surface.ja.md)
 - ワークスペース識別契約: [`./workspace-identity-contract.ja.md`](./workspace-identity-contract.ja.md)
+- 証拠に基づく完結型セッション修復: [`./one-shot-repair.ja.md`](./one-shot-repair.ja.md)
