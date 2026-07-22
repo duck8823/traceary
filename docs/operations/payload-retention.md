@@ -163,18 +163,26 @@ Every journal update uses the same persistence primitive: write a complete recor
 6. reopen the exact canonical path under the fencing token, run migrations/read checks and `integrity_check`, then persist `verified`.
 7. commit catalog/ledger, fsync them, persist `committed`, and retire the old generation only after its rollback pin is released.
 
+Recovery never chooses between rolling forward and rolling back implicitly. `old_staged` always rolls forward because `prepared` already proved the candidate; aborting a plan requires an explicit durable abort request before `old_move_intent`. If canonical-new verification fails after placement, recovery uses these additional journal states: `rollback_new_quarantine_intent`, `rollback_new_quarantined`, `rollback_old_restore_intent`, and terminal `rolled_back`. Each rename follows the same intent, rename, directory-fsync, completed-state sequence. A rolled-back execution never returns to `prepared`; a new candidate requires a new plan and journal.
+
 The two renames are not claimed to be one atomic operation. Recovery uses this complete state/name matrix; any unlisted combination is `conflicted` and performs no deletion:
 
 | Journal state | Canonical | Old | Candidate | Recovery |
 |---|---|---|---|---|
-| `prepared` | old digest | absent | new digest | keep old; candidate may be discarded |
+| `prepared` | old digest | absent | new digest | persist `old_move_intent` and continue |
 | `old_move_intent` | old digest | absent | new digest | retry old rename |
 | `old_move_intent` | absent | old digest | new digest | namespace operation completed; persist `old_staged` |
-| `old_staged` | absent | old digest | new digest | either restore old or persist `new_move_intent` and continue |
+| `old_staged` | absent | old digest | new digest | persist `new_move_intent` and continue |
 | `new_move_intent` | absent | old digest | new digest | retry new rename |
 | `new_move_intent` | new digest | old digest | absent | namespace operation completed; persist `new_placed` |
 | `new_placed` or `verified` | valid new digest | old digest | absent | verify/continue new |
-| `new_placed` or `verified` | invalid new | old digest | any | quarantine invalid new, rename old to canonical, fsync, return to `prepared` |
+| `new_placed` or `verified` | invalid new | old digest | absent | persist `rollback_new_quarantine_intent` |
+| `rollback_new_quarantine_intent` | new digest | old digest | absent | rename canonical new to journal-named quarantine, fsync, persist `rollback_new_quarantined` |
+| `rollback_new_quarantine_intent` | absent | old digest | absent; quarantine has new digest | prior rename completed; persist `rollback_new_quarantined` |
+| `rollback_new_quarantined` | absent | old digest | absent; quarantine has new digest | persist `rollback_old_restore_intent` |
+| `rollback_old_restore_intent` | absent | old digest | absent; quarantine has new digest | rename old to canonical, fsync, persist `rolled_back` |
+| `rollback_old_restore_intent` | old digest | absent | absent; quarantine has new digest | prior rename completed; persist `rolled_back` |
+| `rolled_back` | old digest | absent | absent; quarantine has new digest | terminal no-op; a new plan is required to retry |
 | `committed` | valid new digest | old or absent | absent | keep new; old remains pinned or is retired after release |
 
 If both canonical and old contain the old digest after an intent, or a path has an unknown digest, recovery conflicts rather than guessing. WAL/SHM are never copied or renamed as a multi-file unit. No process may retain an open writer during replacement. Additive schema and execution-ledger tables may remain when rolling back the binary; older binaries ignore them. Down migrations do not reconstruct deleted bodies.

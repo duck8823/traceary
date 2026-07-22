@@ -163,18 +163,26 @@ journal update は一つの persistence primitive を使います。monotonic se
 6. fencing token 下で exact canonical path を reopen、migration/read check と `integrity_check`、`verified` 永続化。
 7. catalog/ledger commit + fsync、`committed` 永続化。rollback pin release 後だけ old generation を削除。
 
+Recovery は roll-forward と rollback を暗黙に選びません。`prepared` で candidate の検証が済んでいるため、`old_staged` は常に roll-forward します。plan abort は `old_move_intent` より前に明示的な durable abort request を必要とします。配置後に canonical-new verification が失敗した場合は、`rollback_new_quarantine_intent`, `rollback_new_quarantined`, `rollback_old_restore_intent`, terminal `rolled_back` を使います。各 rename は同じ intent、rename、directory-fsync、completed-state の順です。rollback 済み execution は `prepared` へ戻りません。再試行には新しい candidate、plan、journal が必要です。
+
 二つの rename を一つの atomic operation とは扱いません。recovery は次の完全な state/name matrix を使い、未掲載 combination は `conflicted` として削除しません。
 
 | Journal state | Canonical | Old | Candidate | Recovery |
 |---|---|---|---|---|
-| `prepared` | old digest | absent | new digest | old 継続、candidate は discard 可 |
+| `prepared` | old digest | absent | new digest | `old_move_intent` を永続化して続行 |
 | `old_move_intent` | old digest | absent | new digest | old rename retry |
 | `old_move_intent` | absent | old digest | new digest | namespace operation 完了、`old_staged` 永続化 |
-| `old_staged` | absent | old digest | new digest | old restore または `new_move_intent` 永続化後に継続 |
+| `old_staged` | absent | old digest | new digest | `new_move_intent` を永続化して続行 |
 | `new_move_intent` | absent | old digest | new digest | new rename retry |
 | `new_move_intent` | new digest | old digest | absent | namespace operation 完了、`new_placed` 永続化 |
 | `new_placed` / `verified` | valid new digest | old digest | absent | verify/new 継続 |
-| `new_placed` / `verified` | invalid new | old digest | any | invalid new quarantine、old を canonical へ rename+fsync、`prepared` へ |
+| `new_placed` / `verified` | invalid new | old digest | absent | `rollback_new_quarantine_intent` を永続化 |
+| `rollback_new_quarantine_intent` | new digest | old digest | absent | canonical new を journal 指定 quarantine へ rename、fsync、`rollback_new_quarantined` を永続化 |
+| `rollback_new_quarantine_intent` | absent | old digest | absent、quarantine は new digest | 先行 rename 完了、`rollback_new_quarantined` を永続化 |
+| `rollback_new_quarantined` | absent | old digest | absent、quarantine は new digest | `rollback_old_restore_intent` を永続化 |
+| `rollback_old_restore_intent` | absent | old digest | absent、quarantine は new digest | old を canonical へ rename、fsync、`rolled_back` を永続化 |
+| `rollback_old_restore_intent` | old digest | absent | absent、quarantine は new digest | 先行 rename 完了、`rolled_back` を永続化 |
+| `rolled_back` | old digest | absent | absent、quarantine は new digest | terminal no-op、再試行には新 plan が必要 |
 | `committed` | valid new digest | old/absent | absent | new 継続、old は pin または release 後 retire |
 
 intent 後に canonical/old の両方が old digest、または unknown digest の path があれば推測せず conflict にします。WAL/SHM を multi-file unit として copy/rename しません。replace 中に open writer を残しません。加算的 schema/ledger は旧 binary が無視でき、down migration で削除 body を再構築しません。
