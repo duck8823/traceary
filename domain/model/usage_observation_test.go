@@ -2,6 +2,7 @@ package model_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +131,65 @@ func TestUsageObservation_snapshotMustBeFinalized(t *testing.T) {
 	}
 	if _, err := model.NewPendingUsageObservation(descriptor); err == nil {
 		t.Fatal("NewPendingUsageObservation(snapshot) error = nil")
+	}
+}
+
+func TestUsageObservation_SnapshotSuccessorRequiresSameSessionAndSource(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	source, err := types.UsageSourceOf("antigravity", "statusline", "1.1.5", "google", "model-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := types.UsageObservationIDFrom("snapshot-lineage-root")
+	rootDescriptor, err := model.NewUsageSnapshotDescriptor(
+		rootID, types.SessionID("session-1"), source, "snapshot-series", 1,
+		types.None[types.UsageObservationID](), ts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeFinalized := func(descriptor model.UsageObservationDescriptor) *model.UsageObservation {
+		unavailable := types.UnavailableUsageValue()
+		counters, err := types.UsageCountersOf(unavailable, unavailable, unavailable, unavailable, unavailable, unavailable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation, err := model.NewFinalizedUsageObservation(
+			descriptor, counters, types.UnavailableUsageCost(), types.UsageTerminalSuccess, descriptor.ObservedAt().Add(time.Second),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return observation
+	}
+	root := makeFinalized(rootDescriptor)
+
+	otherSource, err := types.UsageSourceOf("antigravity", "statusline", "1.1.6", "google", "model-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name      string
+		sessionID types.SessionID
+		source    types.UsageSource
+	}{
+		{name: "different session", sessionID: types.SessionID("session-2"), source: source},
+		{name: "different source", sessionID: types.SessionID("session-1"), source: otherSource},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			successorID, _ := types.UsageObservationIDFrom("snapshot-" + strings.ReplaceAll(tt.name, " ", "-"))
+			descriptor, err := model.NewUsageSnapshotDescriptor(
+				successorID, tt.sessionID, tt.source, "snapshot-series", 2, types.Some(rootID), ts.Add(time.Minute),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := makeFinalized(descriptor).ValidateSnapshotSuccessor(root); !errors.Is(err, model.ErrConflictingUsageObservation) {
+				t.Fatalf("ValidateSnapshotSuccessor() error = %v", err)
+			}
+		})
 	}
 }
 

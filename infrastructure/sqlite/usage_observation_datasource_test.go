@@ -283,6 +283,14 @@ func TestUsageObservationMigration_RejectsMalformedDirectRows(t *testing.T) {
 	}); err == nil {
 		t.Fatal("estimated cost with a blank price-table version was inserted")
 	}
+	for _, whitespace := range []string{"\t", "\n", " \t\r\n "} {
+		if err := insertRawFinalizedUsage(db, rawUsageRow{
+			id: "invalid-ascii-whitespace-estimate-version-" + fmt.Sprintf("%x", whitespace), scope: "call", accounting: "additive",
+			costState: "known", costAmount: 1, costCurrency: "USD", costOrigin: "estimated", priceVersion: whitespace,
+		}); err == nil {
+			t.Fatalf("estimated cost with ASCII-whitespace price-table version %q was inserted", whitespace)
+		}
+	}
 	if err := insertRawFinalizedUsage(db, rawUsageRow{
 		id: "invalid-null-snapshot", scope: "session_snapshot", accounting: "latest_snapshot",
 		costState: "unavailable",
@@ -294,6 +302,9 @@ func TestUsageObservationMigration_RejectsMalformedDirectRows(t *testing.T) {
 		costState: "unavailable", snapshotSeries: "series-a", snapshotRevision: 1,
 	}); err != nil {
 		t.Fatalf("valid snapshot root insert error = %v", err)
+	}
+	if _, err := db.Exec(`UPDATE usage_observations SET session_id = 'session-2' WHERE observation_id = 'series-a-1'`); err == nil {
+		t.Fatal("immutable snapshot descriptor was updated")
 	}
 	if err := insertRawFinalizedUsage(db, rawUsageRow{
 		id: "series-a-second-root", scope: "session_snapshot", accounting: "latest_snapshot",
@@ -308,6 +319,18 @@ func TestUsageObservationMigration_RejectsMalformedDirectRows(t *testing.T) {
 		t.Fatal("cross-series snapshot predecessor was inserted")
 	}
 	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "series-a-cross-session", sessionID: "session-2", scope: "session_snapshot", accounting: "latest_snapshot",
+		costState: "unavailable", snapshotSeries: "series-a", snapshotRevision: 2, supersedesID: "series-a-1",
+	}); err == nil {
+		t.Fatal("cross-session snapshot predecessor was inserted")
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
+		id: "series-a-cross-source", sourceVersion: "2.0.0", scope: "session_snapshot", accounting: "latest_snapshot",
+		costState: "unavailable", snapshotSeries: "series-a", snapshotRevision: 2, supersedesID: "series-a-1",
+	}); err == nil {
+		t.Fatal("cross-source snapshot predecessor was inserted")
+	}
+	if err := insertRawFinalizedUsage(db, rawUsageRow{
 		id: "series-a-0", scope: "session_snapshot", accounting: "latest_snapshot",
 		costState: "unavailable", snapshotSeries: "series-a", snapshotRevision: 0, supersedesID: "series-a-1",
 	}); err == nil {
@@ -317,6 +340,8 @@ func TestUsageObservationMigration_RejectsMalformedDirectRows(t *testing.T) {
 
 type rawUsageRow struct {
 	id               string
+	sessionID        string
+	sourceVersion    string
 	scope            string
 	accounting       string
 	costState        string
@@ -330,6 +355,14 @@ type rawUsageRow struct {
 }
 
 func insertRawFinalizedUsage(db *sql.DB, row rawUsageRow) error {
+	sessionID := row.sessionID
+	if sessionID == "" {
+		sessionID = "session-1"
+	}
+	sourceVersion := row.sourceVersion
+	if sourceVersion == "" {
+		sourceVersion = "1.0.0"
+	}
 	_, err := db.Exec(`
 INSERT INTO usage_observations (
     observation_id, session_id, host, source_name, source_version,
@@ -338,11 +371,11 @@ INSERT INTO usage_observations (
     output_state, reasoning_output_state, total_state,
     cost_state, cost_amount_micros, cost_currency, cost_origin, price_table_version,
     snapshot_series, snapshot_revision, supersedes_id
-) VALUES (?, 'session-1', 'test-host', 'test-source', '1.0.0',
+) VALUES (?, ?, 'test-host', 'test-source', ?,
     ?, ?, 'finalized', '2026-07-23T12:00:00Z', '2026-07-23T12:01:00Z', 'success',
     'unavailable', 'unavailable', 'unavailable', 'unavailable', 'unavailable', 'unavailable',
     ?, ?, ?, ?, ?, ?, ?, ?)`,
-		row.id, row.scope, row.accounting,
+		row.id, sessionID, sourceVersion, row.scope, row.accounting,
 		row.costState, row.costAmount, row.costCurrency, row.costOrigin, row.priceVersion,
 		row.snapshotSeries, row.snapshotRevision, row.supersedesID,
 	)

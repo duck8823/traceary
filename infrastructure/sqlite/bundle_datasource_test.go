@@ -309,4 +309,74 @@ func TestBundleDatasource_UsageObservationsPreserveSnapshotChainAndRejectReplace
 	if err := conflictTx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
+
+	missingTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingID, _ := types.UsageObservationIDFrom("usage-missing-predecessor")
+	missingPredecessorID, _ := types.UsageObservationIDFrom("not-in-bundle-or-store")
+	missingDescriptor, err := model.NewUsageSnapshotDescriptor(
+		missingID, types.SessionID("session-1"), source, "missing-series", 3,
+		types.Some(missingPredecessorID), ts.Add(3*time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing, err := model.NewFinalizedUsageObservation(
+		missingDescriptor, root.Counters(), types.UnavailableUsageCost(), types.UsageTerminalSuccess,
+		missingDescriptor.ObservedAt().Add(time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := missingTx.ImportUsageObservation(ctx, missing, usecase.BundleConflictSkip); err == nil || imported {
+		_ = missingTx.Rollback(ctx)
+		t.Fatalf("missing predecessor import = %t/%v, want fail closed", imported, err)
+	}
+	if err := missingTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBundleDatasource_LaterTableFailureRollsBackImportedUsageObservation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := sqlite.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bundles := sqlite.NewBundleDatasource(db, sqlite.NewEventDatasource(db))
+	tx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := sqliteFinalizedUsage(t, sqliteUsageDescriptor(t, "usage-rolled-back"), 10)
+	if imported, err := tx.ImportUsageObservation(ctx, observation, usecase.BundleConflictSkip); err != nil || !imported {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("ImportUsageObservation() = %t/%v", imported, err)
+	}
+	eventID, err := types.EventIDFrom("missing-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit, err := model.NewCommandAudit(eventID, "go test ./...", "", "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := tx.ImportCommandAudit(ctx, audit, usecase.BundleConflictSkip); err == nil || imported {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("ImportCommandAudit() = %t/%v, want failure", imported, err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := sqlite.NewUsageObservationDatasource(db).FindByID(ctx, observation.Descriptor().ObservationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := stored.Value(); present {
+		t.Fatal("usage observation survived rolled-back bundle transaction")
+	}
 }

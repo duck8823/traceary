@@ -305,6 +305,7 @@ func mustEventInSessionWorkspace(t *testing.T, id string, ts time.Time, session 
 func mustBundleUsageSnapshot(
 	t *testing.T,
 	id string,
+	sessionID string,
 	revision int64,
 	predecessor string,
 	ts time.Time,
@@ -327,7 +328,7 @@ func mustBundleUsageSnapshot(
 		supersedes = types.Some(value)
 	}
 	descriptor, err := model.NewUsageSnapshotDescriptor(
-		observationID, types.SessionID("usage-session"), source, "codex:usage-session", revision, supersedes, ts,
+		observationID, types.SessionID(sessionID), source, "codex:"+sessionID, revision, supersedes, ts,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -881,8 +882,8 @@ func TestBundleUsecase_RoundTripsUsageSnapshotChainWithoutCollapsingKnownZero(t 
 	t.Parallel()
 
 	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
-	root := mustBundleUsageSnapshot(t, "usage-root", 1, "", ts)
-	successor := mustBundleUsageSnapshot(t, "usage-successor", 2, "usage-root", ts.Add(2*time.Minute))
+	root := mustBundleUsageSnapshot(t, "usage-root", "usage-session", 1, "", ts)
+	successor := mustBundleUsageSnapshot(t, "usage-successor", "usage-session", 2, "usage-root", ts.Add(2*time.Minute))
 	exportRepo := &fakeBundleRepo{
 		schema:                  27,
 		exportUsageObservations: []*model.UsageObservation{successor, root},
@@ -943,6 +944,48 @@ func TestBundleUsecase_RoundTripsUsageSnapshotChainWithoutCollapsingKnownZero(t 
 	}
 	if result.UsageObservationsImported != 0 || result.UsageObservationsSkipped != 2 {
 		t.Fatalf("idempotent result = %+v, want 2 usage observations skipped", result)
+	}
+}
+
+func TestBundleUsecase_FilteredExportKeepsCompleteUsageSnapshotChainForSelectedSession(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	root := mustBundleUsageSnapshot(t, "selected-root", "selected-session", 1, "", ts)
+	successor := mustBundleUsageSnapshot(t, "selected-successor", "selected-session", 2, "selected-root", ts.Add(2*time.Minute))
+	excluded := mustBundleUsageSnapshot(t, "excluded-root", "excluded-session", 1, "", ts)
+	exportRepo := &fakeBundleRepo{
+		schema: 27,
+		exportSessions: []*model.Session{
+			mustSessionInWorkspace(t, "selected-session", "", ts, types.Workspace("selected")),
+			mustSessionInWorkspace(t, "excluded-session", "", ts, types.Workspace("excluded")),
+		},
+		exportUsageObservations: []*model.UsageObservation{successor, excluded, root},
+	}
+	out := filepath.Join(t.TempDir(), "filtered-usage-bundle.tbun")
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts }).Export(
+		context.Background(),
+		usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1"), Workspace: types.Workspace("selected")},
+	); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	importRepo := &fakeBundleRepo{schema: 27}
+	result, err := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil).Import(
+		context.Background(),
+		usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1")},
+	)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if result.UsageObservationsImported != 2 || result.UsageObservationsSkipped != 0 {
+		t.Fatalf("filtered import result = %+v, want complete selected chain", result)
+	}
+	if importRepo.usageObservations["selected-root"] == nil || importRepo.usageObservations["selected-successor"] == nil {
+		t.Fatal("filtered bundle did not preserve both selected snapshot revisions")
+	}
+	if importRepo.usageObservations["excluded-root"] != nil {
+		t.Fatal("filtered bundle leaked an excluded session usage observation")
 	}
 }
 

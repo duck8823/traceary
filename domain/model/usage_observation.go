@@ -372,6 +372,9 @@ func (o *UsageObservation) ValidateSnapshotSuccessor(head *UsageObservation) err
 		head.status != types.UsageObservationFinalized {
 		return newUsageObservationConflict(o.descriptor.observationID, "snapshot series")
 	}
+	if head.descriptor.sessionID != o.descriptor.sessionID || head.descriptor.source != o.descriptor.source {
+		return newUsageObservationConflict(o.descriptor.observationID, "snapshot lineage")
+	}
 	if !hasPredecessor || predecessor != head.descriptor.observationID {
 		return newUsageObservationConflict(o.descriptor.observationID, "snapshot predecessor")
 	}

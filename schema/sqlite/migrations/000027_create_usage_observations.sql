@@ -63,9 +63,9 @@ CREATE TABLE usage_observations (
             AND cost_currency GLOB '[A-Z][A-Z][A-Z]'
             AND cost_origin IS NOT NULL
             AND (
-                (cost_origin = 'estimated'
-                    AND price_table_version IS NOT NULL
-                    AND length(trim(price_table_version)) > 0)
+				(cost_origin = 'estimated'
+					AND price_table_version IS NOT NULL
+					AND length(trim(price_table_version, char(9, 10, 11, 12, 13, 32))) > 0)
                 OR (cost_origin = 'provider_reported' AND price_table_version IS NULL)
             ))
     ),
@@ -124,14 +124,30 @@ FOR EACH ROW
 WHEN NEW.supersedes_id IS NOT NULL
 BEGIN
     SELECT CASE WHEN NOT EXISTS (
-        SELECT 1
-          FROM usage_observations AS predecessor
-         WHERE predecessor.observation_id = NEW.supersedes_id
-           AND predecessor.snapshot_series = NEW.snapshot_series
-           AND predecessor.scope = 'session_snapshot'
+		 SELECT 1
+		  FROM usage_observations AS predecessor
+		 WHERE predecessor.observation_id = NEW.supersedes_id
+		   AND predecessor.snapshot_series = NEW.snapshot_series
+		   AND predecessor.session_id = NEW.session_id
+		   AND predecessor.host = NEW.host
+		   AND predecessor.source_name = NEW.source_name
+		   AND predecessor.source_version = NEW.source_version
+		   AND predecessor.provider IS NEW.provider
+		   AND predecessor.model IS NEW.model
+		   AND predecessor.scope = 'session_snapshot'
            AND predecessor.status = 'finalized'
            AND predecessor.snapshot_revision < NEW.snapshot_revision
     ) THEN RAISE(ABORT, 'invalid usage snapshot predecessor') END;
+END;
+
+CREATE TRIGGER usage_observations_reject_descriptor_update
+BEFORE UPDATE OF observation_id, session_id, host, source_name, source_version,
+    provider, model, scope, accounting, observed_at, snapshot_series,
+    snapshot_revision, supersedes_id
+ON usage_observations
+FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'usage observation descriptor is immutable');
 END;
 
 CREATE UNIQUE INDEX idx_usage_observations_single_successor

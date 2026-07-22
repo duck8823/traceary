@@ -341,7 +341,10 @@ func (t *bundleImportTx) ImportUsageObservation(
 			return false, xerrors.Errorf("failed to inspect usage snapshot series: %w", err)
 		}
 		if err := observation.ValidateSnapshotSuccessor(head); err != nil {
-			if policy == usecase.BundleConflictSkip && errors.Is(err, model.ErrConflictingUsageObservation) {
+			// A missing predecessor means the bundle itself is incomplete; never
+			// turn that structural loss into a successful skip. Skip remains valid
+			// when a complete destination series simply conflicts with this one.
+			if policy == usecase.BundleConflictSkip && head != nil && errors.Is(err, model.ErrConflictingUsageObservation) {
 				return false, nil
 			}
 			return false, xerrors.Errorf("failed to validate usage snapshot successor: %w", err)
