@@ -84,3 +84,5 @@ traceary store backup restore \
 ```
 
 Restoring replaces the complete store snapshot, so events written after the backup are also removed. Prefer a maintenance window and retain the apply JSON as an audit record.
+
+Release QA for concurrent activity and terminal writers is recorded in [v0.30.0 one-shot repair concurrency dogfood](../release/v0.30.0-one-shot-repair-concurrency-dogfood.md).
