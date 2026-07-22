@@ -103,7 +103,7 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of matching events to skip before returning results", "結果を返す前にスキップする件数"))
 	searchCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	searchCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
-	searchCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
+	searchCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated format", "従来のタブ区切り形式で出力する"))
 	searchCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	searchCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	searchCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())

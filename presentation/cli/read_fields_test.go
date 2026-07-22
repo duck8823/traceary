@@ -11,28 +11,28 @@ func TestResolveReadFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		explicit      []string
-		explicitSet   bool
+		name         string
+		explicit     []string
+		explicitSet  bool
 		configFields []string
-		want          []readFieldID
-		wantErr       bool
+		want         []readFieldID
+		wantErr      bool
 	}{
 		{
 			name: "default fallback when nothing is specified includes agent for v0.8+",
 			want: []readFieldID{readFieldTS, readFieldKind, readFieldAgent, readFieldSession, readFieldWorkspace, readFieldMessage},
 		},
 		{
-			name:          "config columns used when flag absent",
+			name:         "config columns used when flag absent",
 			configFields: []string{"ts", "kind", "message"},
-			want:          []readFieldID{readFieldTS, readFieldKind, readFieldMessage},
+			want:         []readFieldID{readFieldTS, readFieldKind, readFieldMessage},
 		},
 		{
-			name:          "explicit flag overrides config columns",
-			explicit:      []string{"id", "kind"},
-			explicitSet:   true,
+			name:         "explicit flag overrides config columns",
+			explicit:     []string{"id", "kind"},
+			explicitSet:  true,
 			configFields: []string{"ts", "kind", "message"},
-			want:          []readFieldID{readFieldEventID, readFieldKind},
+			want:         []readFieldID{readFieldEventID, readFieldKind},
 		},
 		{
 			name:        "unknown field yields error",
@@ -106,6 +106,32 @@ func TestResolveReadFieldsForCommand_WideConflict(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--wide") {
 		t.Fatalf("expected error to mention --wide, got %q", err.Error())
+	}
+}
+
+func TestResolveReadFieldsForCommand_WideConflictWordingMatchesLegacyContract(t *testing.T) {
+	tests := []struct {
+		name   string
+		locale string
+		want   string
+	}{
+		{
+			name: "English", locale: "en",
+			want: "--fields cannot be combined with --wide (wide mode keeps the legacy tab-separated format)",
+		},
+		{
+			name: "Japanese", locale: "ja",
+			want: "--fields は --wide と併用できません (wide モードは従来のタブ区切り形式を維持します)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TRACEARY_LANG", tt.locale)
+			_, err := NewRootCLI().resolveReadFieldsForCommand([]string{"ts"}, true, true, false, nil)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("resolveReadFieldsForCommand() error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

@@ -167,8 +167,8 @@ func readFieldsFlagUsage() string {
 func (c *RootCLI) resolveReadFieldsForCommand(explicit []string, explicitSet bool, wide bool, asJSON bool, presetFields []readFieldID) ([]readFieldID, error) {
 	if wide && explicitSet {
 		return nil, xerrors.New(Localize(
-			"--fields cannot be combined with --wide (wide mode keeps the legacy seven-column format)",
-			"--fields は --wide と併用できません (wide モードは従来の 7 カラム形式を維持します)",
+			"--fields cannot be combined with --wide (wide mode keeps the legacy tab-separated format)",
+			"--fields は --wide と併用できません (wide モードは従来のタブ区切り形式を維持します)",
 		))
 	}
 	if wide {

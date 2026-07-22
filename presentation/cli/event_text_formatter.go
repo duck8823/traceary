@@ -27,7 +27,7 @@ const (
 // eventTextFormatOptions controls text-mode event rendering (wide/compact).
 // It is shared by tail/list/search so they stay in sync.
 type eventTextFormatOptions struct {
-	// wide selects the tab-separated 7-column format. When false, compact
+	// wide selects the legacy tab-separated format. When false, compact
 	// single-line format is used.
 	wide bool
 	// utc forces UTC timestamps. When false, the location field (or

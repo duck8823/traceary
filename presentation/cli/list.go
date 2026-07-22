@@ -99,7 +99,7 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	listCmd.Flags().StringVar(&sourceHook, "source-hook", "", Localize("filter by hook identifier that produced the event (e.g. stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)", "イベントを生成した hook 識別子で絞り込む (例: stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)"))
 	listCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
-	listCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated seven-column format", "従来のタブ区切り 7 カラム形式で出力する"))
+	listCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated format", "従来のタブ区切り形式で出力する"))
 	listCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
 	listCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	listCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
