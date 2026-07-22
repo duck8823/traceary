@@ -22,6 +22,8 @@ Traceary exposes exactly 8 MCP tools — frozen since v0.10.0 and enforced by a 
 
 `manage_memory.ids` accepts either a single string or an array of strings for accept/reject flows. `record_event` returns one uniform shape for both `type="log"` and `type="audit"`.
 
+`list_events` and `search` accept an explicit `timezone` for date-only `from` / `to` values (default: UTC). Date-only `to` includes the requested calendar day; RFC3339 `to` is an exact exclusive instant. Both tools return an additive `interval` object with requested bounds, effective half-open UTC bounds, timezone, and the single request snapshot used when `to` is omitted.
+
 `session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` using the same node array shape as `traceary session tree --json`; `depth` is optional and `0` returns only the root.
 
 `session_status(action="active", ...)` treats a session that received events after its end marker as still active, matching the CLI `sessions --snapshot` `ended_with_late_events` rule. A lone `session_ended` followed by later prompts or audits does not exclude the session from the active result.

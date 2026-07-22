@@ -105,6 +105,8 @@ List recent events.
 
 `list` is the fast recent-history view. Use it when you already know the event kind / client / agent / session / workspace filters you want. Switch to `search` when you need keyword matching or date-range filtering.
 
+`list` and `search` use one half-open interval: `--from` is inclusive and `--to` is exclusive for RFC3339 instants. A date-only `--to YYYY-MM-DD` includes that calendar day by resolving to the next local midnight. Date-only values use `--timezone <IANA-name>`; the default is explicitly UTC and never the host's local timezone. An omitted upper bound is fixed to one command-start snapshot.
+
 Default text output is the same compact single-line shape as `tail` (`HH:MM:SS  kind  agent=<agent>  sess=<first-8>  ws=<basename>  message`, local time, no header). Pass `--wide` for the legacy tab-separated seven-column format, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte. JSON without explicit `--fields` keeps the existing full event keys. Explicit JSON `--fields` emits only the selected keys; when `message` is absent, `list` and `search` use the body-free metadata query. Use `--fields ts,kind,message` to pick fields; precedence for text is `--fields` > preset fields > `read.fields` in `~/.config/traceary/config.json` > built-in default. `--fields` cannot be combined with `--wide`. Supported fields: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`, `source_hook`. Use `--preset <name>` to apply a saved view: built-in presets are `failures`, `prompts-only`, `compact-summaries`; user-defined entries in `read.presets` can override built-in names and explicit filter flags (`--kind`, `--failures`, `--workspace`, etc.) still win over a preset. Presets ignore `--wide` / `--json` for field overrides but still apply filters. Use `--color=auto|always|never` to toggle ANSI highlighting of compact rows (defaults to `auto`, honours the `NO_COLOR` env variable, and is ignored by `--wide` and `--json`). When highlighting is on, failed `command_executed` rows turn red+bold, `prompt` and `transcript` rows become cyan, `compact_summary` rows become magenta, and `session_started` / `session_ended` rows are dimmed.
 
 Useful flags:
@@ -122,6 +124,9 @@ Useful flags:
 - `--agent`
 - `--workspace`
 - `--session-id`
+- `--from` / `--since`
+- `--to` / `--until`
+- `--timezone`
 
 ### `traceary tail`
 
@@ -158,6 +163,8 @@ Search events by text and structured filters.
 
 Text results use the same compact single-line format as `list` / `tail` (local time by default). Pass `--wide` for the legacy seven-column table, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte. `--json` is unchanged. Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default); `--fields` cannot be combined with `--wide`, and the supported field list is shown under `traceary list` above. Use `--preset <name>` for saved views; a preset with filters can make a search with no free-text query valid because its filters count as constraints.
 
+Time filters use the same requested/effective interval semantics as `traceary list`: date-only upper bounds include the requested calendar day, `--timezone` is explicit (UTC by default), and RFC3339 upper bounds remain exact exclusive instants.
+
 Useful flags:
 
 - `--kind`
@@ -167,6 +174,7 @@ Useful flags:
 - `--session-id`
 - `--since`
 - `--until`
+- `--timezone`
 - `--limit`
 - `--offset`
 - `--json`
@@ -1071,7 +1079,9 @@ Run the MCP server over stdio for AI client integration.
 
 Print a period-scoped retrospective digest. Command totals aggregate by the normalized executable, so direct and verified wrapped invocations such as `git ...` and `rtk git ...` share the `git` row. Failures are counted from `exit_code` and `failure_reason`, never from command input/output text. JSON includes `failures.by_reason`; historical rows without structured evidence remain `unknown`.
 
-Useful flags: `--from`, `--to`, `--workspace`, `--client`, `--limit`, `--json`.
+Date-only `--to` includes the requested calendar day in the explicit `--timezone` (UTC by default); RFC3339 `--to` remains an exact exclusive instant. Text keeps the requested calendar end visible. JSON exposes `requested_from` / `requested_to` separately from `effective_from_inclusive` / `effective_to_exclusive`, plus `timezone` and the shared `snapshot_at`. Compatibility fields `period.from` / `period.to` continue to contain the effective bounds.
+
+Useful flags: `--from`, `--to`, `--timezone`, `--workspace`, `--client`, `--limit`, `--json`.
 
 ### `traceary report workspace-identity`
 
