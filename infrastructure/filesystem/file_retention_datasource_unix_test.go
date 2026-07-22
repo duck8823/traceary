@@ -267,6 +267,52 @@ func TestFileRetentionCrashBoundariesConverge(t *testing.T) {
 	}
 }
 
+func TestFileRetentionApplyRejectsBackupMetadataDrift(t *testing.T) {
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		selectPath func(apptypes.FileRetentionClassPlan) string
+	}{
+		{
+			name: "candidate metadata",
+			selectPath: func(classPlan apptypes.FileRetentionClassPlan) string {
+				candidate := classPlan.Candidates[0]
+				entry, _ := findFileRetentionInventoryPlan(classPlan, candidate.Identity)
+				return entry.MetadataRelativePath
+			},
+		},
+		{
+			name: "protected floor metadata",
+			selectPath: func(classPlan apptypes.FileRetentionClassPlan) string {
+				entry, _ := findFileRetentionInventoryPlan(classPlan, classPlan.Floor.Identity)
+				return entry.MetadataRelativePath
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, planBytes, plan, _, workflow := newFileRetentionBackupPlanFixture(t, now)
+			classPlan := plan.CanonicalPayload.Classes[0]
+			metadataPath := test.selectPath(classPlan)
+			if metadataPath == "" {
+				t.Fatal("selected backup metadata path is empty")
+			}
+			if err := os.WriteFile(filepath.Join(root, metadataPath), []byte("{}\n"), 0o600); err != nil {
+				t.Fatalf("WriteFile(metadata drift) error = %v", err)
+			}
+			if _, err := workflow.Apply(context.Background(), planBytes, plan.PlanID, now); err == nil {
+				t.Fatal("Apply(metadata drift) error = nil, want fail-closed conflict")
+			}
+			if _, err := os.Stat(filepath.Join(root, "old.db")); err != nil {
+				t.Fatalf("old backup changed after rejected apply: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(root, "new.db")); err != nil {
+				t.Fatalf("protected floor changed after rejected apply: %v", err)
+			}
+		})
+	}
+}
+
 func createFileRetentionSQLite(t *testing.T, path string) {
 	t.Helper()
 	database, err := sql.Open("sqlite", path)
