@@ -1,0 +1,122 @@
+# 決定: host 利用量 source と privacy 境界 (#1448)
+
+[English](./ai-usage-source-verification.md)
+
+**Status:** source 検証完了。実装は v0.32.0 の adapter Issue に分割する
+
+**Date:** 2026-07-23
+
+**Issue:** #1448
+
+## 決定
+
+Traceary は、version を特定できるローカル host surface が返した利用量だけを取り込む。本文から token 数を推定せず、provider の請求 dashboard を複製せず、network traffic を傍受せず、network telemetry を有効化しない。
+
+実装の基準は次のとおり。
+
+| Host 経路 | 分類 | 利用量を確定する境界 | Adapter の正確な範囲 |
+|---|---|---|---|
+| Codex Traceary-owned `exec --json` | **available** | 終端 `turn.completed.usage` | #1451: run 開始時に `headless_stream` capture mode を選び、完了 turn counter を一度だけ取り込む。同じ rollout は走査しない。 |
+| Codex native/interactive rollout | **available** | `task_complete` または `turn_aborted` 直前の最終 cumulative `token_count` snapshot | #1451: Traceary が headless stream を所有しない場合に `rollout` mode を選び、turn 区間ごとに cumulative 差分を 1 件だけ計算する。 |
+| Claude Code JSON/JSONL とローカル transcript | **available** | one-shot 全体は最終 `result.usage`、対話 provider call は一意な assistant request（`requestId` と message id） | #1447: one-shot stream mode は終端 run summary だけ、transcript mode は一意な call だけを記録する。同じ run で両方を永続化しない。 |
+| Gemini CLI headless `stream-json` | **available** | 終端 `result.stats` | #1455: 終端 result の run/model 合計を取り込む。 |
+| Gemini CLI 対話 hook | **privacy 境界上 unavailable** | なし | #1455: unavailable を返す。`AfterModel` は完全な request/response も渡すため導入しない。 |
+| Antigravity CLI status line | **partial** | `idle` state snapshot は conversation snapshot としてのみ確定可能。provider call 単位ではない | #1455: cumulative total input/output だけを非加算 session snapshot として保持する。`current_usage` は取り込まず、call identity と cost は主張しない。Stop は lifecycle 専用。 |
+| Grok Build headless `streaming-json` | **available** | `requestId`/`sessionId` を持つ終端 `end` event | #1450: cache-read と reasoning を含む `end.usage` を一度だけ取り込む。 |
+| Grok Build native hook | **unavailable** | なし | #1450: unavailable を返す。現行 hook は lifecycle と transcript path を持つが利用量を持たない。TUI について別の claim は作らない。 |
+| Kimi Code ローカル main-agent wire | **partial** | `usage.record` は自身の counter だけの正本。call/turn 終端や retry cardinality は未検証 | #1452: record ごとに非 aggregate の partial source observation を取り込み、correlated record を証明できない lifecycle completion は unavailable とする。 |
+| Kimi compact hook | **unavailable** | なし | #1452: compact marker だけを維持する。この count は context 圧縮量であり provider 利用量ではない。 |
+
+`partial` は、文書化された counter を記載した粒度でだけ利用できるという意味であり、不足項目を Traceary が埋めてよいという意味ではない。
+
+## 証拠の基準
+
+2026-07-23 に確認した導入済み version は Codex CLI 0.145.0、Claude Code 2.1.212、Gemini CLI 0.46.0、Antigravity CLI 1.1.5、Grok Build 0.2.106、Kimi Code 0.29.0。probe prompt は公開して問題のない `Reply with exactly OK. Do not call tools.`（SHA-256 `ee8edbda12067ca9c4d226e355619c0cdb0dea01c475c52510e81cc9b678c7d3`）とした。raw output は `/private/tmp` に残し、field 名、event 順序、数値型だけを調べた。
+
+### Codex
+
+- 公式 SDK event 型は、input、cached input、cache-write input、output、reasoning-output counter を持つ `turn.completed.usage` を定義している: https://github.com/openai/codex/blob/f343d1237d8d360e8224997a846acde0b04a17cd/sdk/typescript/src/events.ts
+- 0.145.0 の headless probe は `thread.started` 1 件と、この 5 counter を持つ終端 `turn.completed` 1 件を出力した。
+- 現在のローカル rollout を metadata だけに限定して確認した結果、`token_count.info.total_token_usage` / `last_token_usage`、`turn_context.payload.turn_id`、`task_complete.payload.turn_id`、`turn_aborted.payload.turn_id` が存在した。compaction を含む 5,541 snapshot で cumulative total の減少はなかった。ただし、これは将来 version でも reset しないという保証ではない。減少時は adapter が fail closed する。
+- Codex capture mode は run ごとに開始時に固定する。Traceary-owned one-shot child は `headless_stream` を使い、`(thread_id, turn ordinal)` suppression key を書いて同じ rollout 区間を import しない。native/interactive は `rollout` を使う。legacy data に両方ある場合は `headless_stream` を優先し、rollout observation は非 aggregate とする。
+- Rollout 区間は `turn_context` で始まる。baseline はその行より前の最後の有効 cumulative snapshot。以前の `token_count` が存在しない最初の turn だけ zero baseline を許可する。terminal snapshot は `turn_context` より後、対応する `task_complete`/`turn_aborted` 以前の最後の有効 cumulative snapshot とし、終端後の snapshot は次の区間に属する。利用量は field ごとの非負 `terminal - baseline`。baseline/terminal 欠落、曖昧な境界、counter regression は unavailable。途中 snapshot は置換であり合算しない。
+
+### Claude Code
+
+- Claude Code は `--output-format json|stream-json` を文書化し、stream は統計を持つ最終 `result` で終わる: https://docs.anthropic.com/en/docs/claude-code/cli-usage
+- Anthropic は input、cache creation、cache read、output token を含む請求上の利用量項目を定義している: https://platform.claude.com/docs/en/api/go/messages
+- 2.1.212 の live stream では assistant message と最終 result に同じ利用量 key が存在した。ローカル transcript を metadata だけに限定して確認すると、`requestId`、message id、利用量が同一で、行 UUID だけが異なる assistant 行が重複していた。したがって UUID は provider call identity に使わず、`requestId` と message id を使う。
+- 一意な assistant request 1 件を provider response 1 件として扱う。capture mode は run 開始時に固定する。`one_shot_stream` は assistant usage 行を無視して最終 `result.usage` だけ、`transcript_calls` は一意な request だけを記録して run summary を作らない。legacy input に両方あれば session/run の one-shot summary を優先し、call observation は非 aggregate とする。選択した mode の provider usage object がない abort/error は zero ではなく unavailable。
+
+### Gemini CLI
+
+- 公式 output contract は total/input/output/cached counter と model 別合計を含む終端 `result.stats` を定義している: https://github.com/google-gemini/gemini-cli/blob/f743ab579098f982d87ea3f2472c2405f6999297/packages/core/src/output/types.ts
+- 公式 non-interactive runner は、最終成功時に session metrics から result を 1 回だけ出力する: https://github.com/google-gemini/gemini-cli/blob/f743ab579098f982d87ea3f2472c2405f6999297/packages/cli/src/nonInteractiveCliAgentSession.ts
+- 現在のローカル probe は、導入済み individual Gemini client が非対応として拒否されたため実行できなかった。公式 output の分類は変えないが、#1455 では adapter を有効化する前に version 付き fixture を追加する。
+- Gemini の `AfterModel` hook は `usageMetadata` を持つ一方、元の LLM request と response/chunk も受け取る: https://github.com/google-gemini/gemini-cli/blob/f743ab579098f982d87ea3f2472c2405f6999297/docs/hooks/reference.md
+- Traceary は利用量取得のためにこの hook を導入しない。本文を含まない終端 surface が追加されるまで、native interactive Gemini は unavailable とする。
+
+### Antigravity CLI
+
+- Antigravity hook は conversation/lifecycle field と Stop 境界を文書化しているが、利用量 field はない: https://antigravity.google/docs/hooks
+- status-line contract は本文を含まず、conversation/model identity、cumulative input/output、`current_usage` の input/output/cache counter を文書化している: https://antigravity.google/docs/cli/statusline
+- status-line payload には provider request id、Stop の `executionNum`、`current_usage` と cumulative total の加算関係がない。source capability は常に `partial`。Traceary は `idle` payload の `total_input_tokens` と `total_output_tokens` だけを `(host, conversation_id, model_id)` key と ingest revision を持つ immutable・非加算 session snapshot として保存する。新 revision は以前を supersede し、aggregate query は最新 revision だけを選び、履歴を合算しない。各 Stop execution には別の call usage classification を作るが、correlation key がないため `unavailable` とする。`current_usage`、cache、call counter、価格は unavailable のままにする。
+- sandbox 内の 1.1.5 probe は、設定済み Traceary MCP server が接続中のままになったため停止した。この attempt から completion claim は作らない。
+
+### Grok Build
+
+- Grok はローカル headless `streaming-json` surface と automation 用途を文書化している: https://docs.x.ai/build/cli/headless-scripting
+- 0.2.106 の live probe は、`requestId`、`sessionId`、`stopReason`、`num_turns` と、input/cache-read/output/reasoning/total の数値利用量を持つ終端 `end` object を出力した。transcript 本文を読まずに確定できる。
+- Grok の hook contract と Traceary の version 付き fixture は lifecycle、tool、compact、transcript-path field を持つが、model と利用量 counter は持たない: https://docs.x.ai/build/features/hooks
+- xAI API の利用量 shape は Grok Build hook が同じ field を持つ証拠にはならない。provider API から推測せず、native hook 経路は unavailable とする。TUI storage は未検証なので、この決定では分類も adapter scope も作らない。
+
+### Kimi Code
+
+- Kimi 公式 hook contract は lifecycle/compact field を確定している: https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
+- Traceary の [version 付き host contract](../hooks/host-contract.json) は sanitized live-probe の方法とローカル main-agent wire side channel を記録している。commit 済みの [v0.27.0 wire fixture](../../presentation/cli/testdata/kimi_hooks/v0.27.0/wire_main.jsonl) には `usage.record` 行がある。
+- 0.29.0 live headless stdout には利用量 object がなかった。一方、live-observed なローカル main-agent wire の末尾には、`model`、`usageScope=turn`、数値の `inputOther`、`inputCacheRead`、`inputCacheCreation`、`output` を持つ `usage.record` があった。
+- Traceary は wire を一行ずつ走査し、利用量以外の行では event discriminator だけを decode し、`usage.record` だけを完全に decode する。隣接する content/thinking/tool 行を複製してはならない。
+- 公式 hook contract と version 付き fixture のどちらも、`usage.record` が provider call/turn ごとに一度、retry 後、abort 時に出ることを証明していない。したがって **partial** であり aggregate 対象外とする。#1452 は `(host, session_id, agent_id, usage-record ordinal)` を source-record identity とする。ordinal は append-only session wire 内の `usage.record` 行だけを数えるため copy/replay で変わらない。canonical payload fingerprint は衝突証拠とし、同じ identity/fingerprint は冪等、異なる counter は fail closed。provably correlated record のない Stop/SessionEnd は `unavailable` call observation を作る。aggregate 対象への昇格には後続の versioned contract/probe Issue が必要で、#1452 は推測しない。
+
+## Retry、stream、failure の規則
+
+| Host | Retry/stream 規則 | Failure 規則 |
+|---|---|---|
+| Codex | Headless completed usage は turn 全体を集約済み。対話経路は turn ごとに最終 cumulative 差分を 1 件だけ使い、途中 snapshot は置換する。 | abort 前に差分を観測できた場合は保持し、なければ unavailable。 |
+| Claude | one-shot mode は assistant usage を無視して終端 run summary を記録する。transcript mode は request/message call を重複除外して summary を作らない。異なる request ID は異なる retry call とする。 | 選択した mode の usage object がなければ unavailable。 |
+| Gemini | 終端 result stats だけを数える。message chunk や `AfterModel` chunk を加算しない。 | stats 付き終端 result がなければ unavailable。 |
+| Antigravity | immutable session snapshot を保存し、旧 revision を superseded にして、最新 cumulative input/output snapshot だけを aggregate する。`current_usage` は無視する。 | capability は partial のまま。correlation 不能な Stop call は明示的に unavailable。 |
+| Grok | request ID ごとに `end` 1 件だけを数える。途中 event は無視する。 | `end.usage` がなければ unavailable。 |
+| Kimi | `usage.record` は partial source record であり、call/turn 終端とは証明されていない。replay は冪等、aggregate から除外する。 | correlation を証明できない completion はすべて unavailable。retry/abort 利用量を推測しない。 |
+
+## Privacy 境界
+
+永続化してよいのは、host/provider/model identifier、opaque な session/call/run lineage、source version、availability、数値の利用量、timestamp、後で #1456 が追加する version 付き price-table identifier、および closed enum の normalized terminal code。
+
+Adapter は allowlist した host terminal value だけを `success`、`failure`、`timeout`、`signal`、`aborted_stream`、`unknown` などの normalized code に変換する。host が terminal metadata と呼んでいても、自由記述の `reason`、`error`、`message`、`detail`、nested error object、stack trace は破棄する。
+
+次の情報は対象外とし、domain 境界より前に破棄する。
+
+- prompt、response、thinking/reasoning 本文、compact summary、transcript content。
+- 利用量 source を読む際の tool 名、argument、result。
+- credential、cookie、quota token、email/account identity、raw host log。
+- network interception、provider billing API scraping、既定または opt-out の telemetry。
+- 推定 token 数、推定 model 名、推測価格。
+
+混在 JSONL reader は bounded line scan を使い、最初に最小 event envelope だけを decode し、利用量行だけを完全 decode する。診断では path を伏せ、reject した行を log に出さない。status-line reader は account/email/quota field を無視する。
+
+## OTel 決定との関係
+
+この決定は [v0.26 の OTel no-go](./otel-genai-export.ja.md) を再検討するものではない。利用量収集は Traceary の SQLite store へのローカル取り込みである。OTLP exporter、network listener、既定 telemetry、private payload span は追加しない。将来 exporter を追加する場合も、semantic convention の安定と具体的 consumer 要件を満たした後、別の opt-in 設計が必要。
+
+## Follow-up の正確な範囲
+
+1. #1456: availability state、`call`/`run`/`session_snapshot` scope、authoritative identity、冪等な確定、superseding snapshot、additive migration、version 付き価格推定。
+2. #1453: private 本文を含まない run/parent/session/batch/ticket/PR/head/packet lineage。
+3. #1451: 排他的な Codex `headless_stream`/`rollout` capture mode、suppression key、正確な cumulative baseline。
+4. #1447: 排他的な Claude transcript-call/one-shot-run accounting、request/message 重複除外、legacy precedence。
+5. #1455: Gemini headless 終端 stats、非加算の Antigravity cumulative conversation snapshot、明示的 unavailable Stop call。
+6. #1450: Grok headless `end` adapter と native-hook unavailable。未検証 TUI claim は作らない。
+7. #1452: partial・非 aggregate の Kimi main-wire source record と unavailable call completion。compact count は除外。
+8. #1449: 確定済み provider-neutral observation だけを使う CLI/MCP aggregate。
+9. #1457: 7 日分の履歴/live reconciliation、privacy 検査、follow-up Issue 完了後に release。
