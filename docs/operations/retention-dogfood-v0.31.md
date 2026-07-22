@@ -2,7 +2,7 @@
 
 [日本語](./retention-dogfood-v0.31.ja.md)
 
-Status: completed on 2026-07-22 for Issues #1445 and #1486. All paths below were disposable copies or synthetic roots under `/private/tmp`; no command targeted the only copy of a live store.
+Status: Issue #1445 dogfood completed on 2026-07-22; release-blocking follow-up #1486 is tracked below and must close before release. All paths below were disposable copies or synthetic roots under `/private/tmp`; no command targeted the only copy of a live store.
 
 ## Decision
 

@@ -2,7 +2,7 @@
 
 [English](./retention-dogfood-v0.31.md)
 
-状態: Issue #1445 と #1486 の検証として 2026-07-22 に完了しました。以下の path はすべて `/private/tmp` 配下の使い捨て copy または synthetic root です。live store の唯一の copy は対象にしていません。
+状態: Issue #1445 の dogfooding は 2026-07-22 に完了しました。release blocker の follow-up #1486 は後述のとおり追跡し、release 前に close します。以下の path はすべて `/private/tmp` 配下の使い捨て copy または synthetic root です。live store の唯一の copy は対象にしていません。
 
 ## 決定
 
