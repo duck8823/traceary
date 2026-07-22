@@ -1063,6 +1063,15 @@ Removed in v0.15.0 and **not a supported uninstall surface**. The name is kept h
 
 Run the MCP server over stdio for AI client integration.
 
+### `traceary report workspace-identity`
+
+Print body-free workspace attribution coverage, relationship/conflict rates, stable-ID exact-redelivery rates, and separate historical heuristic candidate rates. Use `--json`, `--conflict-sample-limit`, and `--strict` for automation and QA.
+Run `traceary doctor` first when the store needs initialization or migration; the report itself is read-only.
+
+### `traceary store workspace-alias add|list|remove`
+
+Manage operator-reviewed session/workspace aliases used by the current diagnostic projection. Add requires `--session`, `--workspace`, and `--reviewed-by`; aliases never rewrite canonical provenance.
+
 ## Related docs
 
 - onboarding and quick start: [`../../README.md`](../../README.md)

@@ -94,6 +94,48 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	assertSessionSpawnMetadataSchema(t, db)
 }
 
+func TestMigrations_hookDeliveryAttemptsBackfillBodyFreeDenominator(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	preV023 := migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 23)
+	store := newStoreManagementDatasource(t, dbPath, preV023)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-v023) error = %v", err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO hook_deliveries (
+		delivery_record_id, session_id, reported_delivery_id, delivery_fingerprint,
+		identity_status, observed_event_id, accepted_at, source_client, source_hook
+	) VALUES ('delivery-1', 'session-1', 'native-1', 'fingerprint-1', 'accepted',
+		'event-1', '2026-07-22T00:00:00Z', 'codex', 'user_prompt_submit')`); err != nil {
+		t.Fatalf("insert pre-v023 delivery: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close pre-v023 DB: %v", err)
+	}
+
+	store = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(v023) error = %v", err)
+	}
+	db, err = sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open(upgraded) error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var eventID, outcome, origin, observedAt string
+	if err := db.QueryRow(`SELECT attempted_event_id, outcome, attempt_origin, observed_at FROM hook_delivery_attempts WHERE delivery_record_id = 'delivery-1'`).Scan(&eventID, &outcome, &origin, &observedAt); err != nil {
+		t.Fatalf("read backfilled attempt: %v", err)
+	}
+	if eventID != "event-1" || outcome != "accepted" || origin != "backfill" || observedAt != "2026-07-22T00:00:00Z" {
+		t.Fatalf("backfilled attempt = %q/%q/%q/%q", eventID, outcome, origin, observedAt)
+	}
+}
+
 func TestMigrations_upgradeFromPreV014DatabaseAddsSessionSpawnMetadata(t *testing.T) {
 	t.Parallel()
 

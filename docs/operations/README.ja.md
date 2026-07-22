@@ -114,6 +114,22 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 4. risky cleanup や手動調査の前に `traceary store backup create` を実行する
 5. best-effort session-end hook に依存する場合は、自分たちの team automation に client 固有注意点を明記する
 
+## ワークスペース識別のリリース前 QA
+
+先に `traceary doctor` を 1 回実行して store を初期化または migrate し、その後 `traceary report workspace-identity` を実行してください。レポート自体は migration も provenance catch-up の進行も行いません。帰属情報の網羅率、現在のワークスペース関係、安定したホスト ID に基づくフック配送結果を、クライアントとフック別に表示します。リリース前 QA では `--json` を利用できます。競合サンプルに含めるのは識別子だけで、イベント本文は出力しません。
+
+レポートは、証明済みの安定ホスト ID 結果である `exact_delivery`（目標 1% 未満）と、読み取り専用の履歴本文一致推定である `heuristic_candidates` を分離します。`sample_available=false` は測定済み配送がまだないことを示します。
+
+運用者はセッションの正規 provenance を変更せず、確認済みの競合を再分類できます。
+
+```sh
+traceary store workspace-alias add --session <id> --workspace <path> --reviewed-by <operator> --note <reason>
+traceary store workspace-alias list
+traceary store workspace-alias remove --session <id> --workspace <path>
+```
+
+別名は現在の診断 projection だけに影響します。削除すると元の関係分類に戻ります。
+
 ## 関連文書
 
 - hooks integration: [`../hooks/README.ja.md`](../hooks/README.ja.md)

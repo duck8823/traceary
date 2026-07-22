@@ -174,7 +174,47 @@ func (d *StoreManagementDatasource) DedupeContentEvents(
 		})
 	}
 	result.Skipped = plan.skipped
+	result.Sources = contentEventDedupeSourceStats(rows, result.Groups)
 	return result, nil
+}
+
+func contentEventDedupeSourceStats(rows []dedupeCandidateRow, groups []apptypes.ContentEventDedupeGroup) []apptypes.ContentEventDedupeSourceStat {
+	type sourceKey struct {
+		agent string
+		hook  string
+	}
+	stats := map[sourceKey]*apptypes.ContentEventDedupeSourceStat{}
+	for _, row := range rows {
+		key := sourceKey{agent: row.agent, hook: row.sourceHook.String}
+		item := stats[key]
+		if item == nil {
+			item = &apptypes.ContentEventDedupeSourceStat{Agent: key.agent, SourceHook: key.hook}
+			stats[key] = item
+		}
+		item.ScannedCount++
+	}
+	for _, group := range groups {
+		key := sourceKey{agent: group.Agent, hook: group.SourceHook}
+		item := stats[key]
+		if item == nil {
+			item = &apptypes.ContentEventDedupeSourceStat{Agent: key.agent, SourceHook: key.hook}
+			stats[key] = item
+		}
+		item.GroupCount++
+		item.CandidateCount += group.DuplicateCount()
+	}
+	result := make([]apptypes.ContentEventDedupeSourceStat, 0, len(stats))
+	for _, item := range stats {
+		item.CandidateRate = ratio(item.CandidateCount, item.ScannedCount)
+		result = append(result, *item)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Agent != result[j].Agent {
+			return result[i].Agent < result[j].Agent
+		}
+		return result[i].SourceHook < result[j].SourceHook
+	})
+	return result
 }
 
 // loadDedupeCandidates reads every eligible hook content event. Eligibility is

@@ -60,6 +60,7 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&client, "client", "", Localize("optional client filter", "任意の client フィルタ"))
 	cmd.Flags().IntVar(&limit, "limit", 5000, Localize("maximum events to scan for aggregation", "集計に使う event の最大件数"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("emit JSON", "JSON で出力する"))
+	cmd.AddCommand(c.newWorkspaceIdentityReportCommand())
 	return cmd
 }
 

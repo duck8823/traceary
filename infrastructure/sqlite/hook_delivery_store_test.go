@@ -35,6 +35,9 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 
 		assertSQLiteCount(t, dbPath, "events", 1)
 		assertSQLiteCount(t, dbPath, "hook_deliveries", 1)
+		assertSQLiteCount(t, dbPath, "hook_delivery_attempts", 2)
+		assertSQLiteCountWhere(t, dbPath, "hook_delivery_attempts", "outcome = 'accepted'", 1)
+		assertSQLiteCountWhere(t, dbPath, "hook_delivery_attempts", "outcome = 'exact_redelivery'", 1)
 		assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "delivery_record_id IS NOT NULL", 1)
 
 		db := openHookDeliveryTestDB(t, dbPath)
@@ -62,6 +65,7 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		}
 
 		assertSQLiteCount(t, dbPath, "events", 1)
+		assertSQLiteCount(t, dbPath, "hook_delivery_attempts", 2)
 		assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "delivery_record_id IS NOT NULL", 2)
 		db := openHookDeliveryTestDB(t, dbPath)
 		defer func() { _ = db.Close() }()
@@ -103,6 +107,7 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 
 		assertSQLiteCount(t, dbPath, "events", 2)
 		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+		assertSQLiteCount(t, dbPath, "hook_delivery_attempts", 3)
 		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'accepted'", 1)
 		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'conflict'", 1)
 		assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "diagnostic_reason = 'delivery_identity_conflict'", 1)
@@ -121,6 +126,7 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		}
 		assertSQLiteCount(t, dbPath, "events", 2)
 		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+		assertSQLiteCount(t, dbPath, "hook_delivery_attempts", 2)
 	})
 
 	t.Run("same native ID is isolated by hook kind", func(t *testing.T) {
@@ -142,6 +148,7 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		}
 		assertSQLiteCount(t, dbPath, "events", 2)
 		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+		assertSQLiteCount(t, dbPath, "hook_delivery_attempts", 2)
 		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'accepted'", 2)
 	})
 
@@ -180,6 +187,7 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		}
 		assertSQLiteCount(t, dbPath, "events", 1)
 		assertSQLiteCount(t, dbPath, "hook_deliveries", 1)
+		assertSQLiteCount(t, dbPath, "hook_delivery_attempts", attempts)
 		assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "delivery_record_id IS NOT NULL", 1)
 	})
 
@@ -213,6 +221,7 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		}
 		assertSQLiteCount(t, dbPath, "events", 2)
 		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+		assertSQLiteCount(t, dbPath, "hook_delivery_attempts", 2)
 		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'accepted'", 1)
 		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'conflict'", 1)
 	})
@@ -287,6 +296,7 @@ func TestSessionDatasource_HookBoundaryRedeliveryIsIdempotent(t *testing.T) {
 	assertSQLiteCount(t, dbPath, "sessions", 1)
 	assertSQLiteCount(t, dbPath, "events", 2)
 	assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+	assertSQLiteCount(t, dbPath, "hook_delivery_attempts", 4)
 	assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "delivery_record_id IS NOT NULL", 2)
 }
 
@@ -376,25 +386,37 @@ func TestSessionDatasource_HookBoundaryRejectsChangedLifecycleSemantics(t *testi
 	if parentID != "parent-a" || summary != "original summary" {
 		t.Fatalf("parent/summary = %q/%q, want immutable parent-a/original summary", parentID, summary)
 	}
-	var targetEvents, targetDeliveries int
+	var targetEvents, targetDeliveries, targetAttempts int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = 'target'`).Scan(&targetEvents); err != nil {
 		t.Fatalf("count target events: %v", err)
 	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM hook_deliveries WHERE session_id = 'target'`).Scan(&targetDeliveries); err != nil {
 		t.Fatalf("count target deliveries: %v", err)
 	}
-	if targetEvents != 2 || targetDeliveries != 2 {
-		t.Fatalf("target events/deliveries = %d/%d, want one start plus one end", targetEvents, targetDeliveries)
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM hook_delivery_attempts a
+		JOIN hook_deliveries d ON d.delivery_record_id = a.delivery_record_id
+		WHERE d.session_id = 'target'`).Scan(&targetAttempts); err != nil {
+		t.Fatalf("count target attempts: %v", err)
 	}
-	var childEvents, childDeliveries int
+	if targetEvents != 2 || targetDeliveries != 2 || targetAttempts != 4 {
+		t.Fatalf("target events/deliveries/attempts = %d/%d/%d, want two logical boundaries and two exact retries", targetEvents, targetDeliveries, targetAttempts)
+	}
+	var childEvents, childDeliveries, childAttempts int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = 'child-target'`).Scan(&childEvents); err != nil {
 		t.Fatalf("count child events: %v", err)
 	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM hook_deliveries WHERE session_id = 'child-target'`).Scan(&childDeliveries); err != nil {
 		t.Fatalf("count child deliveries: %v", err)
 	}
-	if childEvents != 1 || childDeliveries != 1 {
-		t.Fatalf("child events/deliveries = %d/%d, want one start", childEvents, childDeliveries)
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM hook_delivery_attempts a
+		JOIN hook_deliveries d ON d.delivery_record_id = a.delivery_record_id
+		WHERE d.session_id = 'child-target'`).Scan(&childAttempts); err != nil {
+		t.Fatalf("count child attempts: %v", err)
+	}
+	if childEvents != 1 || childDeliveries != 1 || childAttempts != 2 {
+		t.Fatalf("child events/deliveries/attempts = %d/%d/%d, want one logical start and one exact retry", childEvents, childDeliveries, childAttempts)
 	}
 }
 

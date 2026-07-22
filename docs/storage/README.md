@@ -200,6 +200,16 @@ Practical implications:
 
 **Behavior tests.** Dry-run reporting and no-mutation, apply + idempotency, restore + overwrite refusal, malformed-timestamp skip, command-audit/non-hook exclusion, strict vs. proximity scope, and read-surface exclusion are covered in `infrastructure/sqlite/content_event_dedupe_test.go`; flag wiring and JSON/text output in `presentation/cli/store_dedupe_test.go`; run-id minting in `application/usecase/store_dedupe_test.go`.
 
+## Body-free workspace identity diagnostics
+
+Migration `000023` adds `hook_delivery_attempts`. Each row records only a delivery-record ID, attempted event ID, outcome (`accepted`, `conflict`, or `exact_redelivery`), origin (`runtime` or `backfill`), and timestamp. The migration seeds one accepted/conflict attempt from every pre-existing `hook_deliveries` row but marks it `backfill`; it never copies event bodies. Release-quality rates use runtime attempts only, so seeded rows cannot make an unmeasured rollout pass. Runtime writes add the delivery and its attempt in the same transaction.
+
+The attempted event ID is Traceary's per-callback repository identity. A later host callback gets a new event ID and therefore a new attempt row. `INSERT OR IGNORE` suppresses only an internal retry of the same event object after a transaction race, preventing repository retry mechanics from inflating the host-delivery rate.
+
+`session_workspace_aliases` stores explicit operator review metadata. An alias never rewrites `sessions.workspace`, `events.workspace`, or an observation's ingested relationship. The read projection changes a matching stored conflict to `explicit_alias` while the review exists, so removal is a complete rollback.
+
+`traceary report workspace-identity` is read-only and does not run migrations or provenance catch-up. Initialize or migrate the store first with `traceary doctor`; an unready store fails with guidance. Its historical content candidate section calls the existing dedupe planner with `Apply=false`; cleanup remains a separate, explicit, reversible command.
+
 ## Backup defaults
 
 The supported backup story is intentionally simple:

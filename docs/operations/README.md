@@ -114,6 +114,22 @@ Possible but not actively tuned:
 4. run `traceary store backup create` before risky cleanup or manual inspection
 5. document client-specific caveats in your own team automation if you rely on best-effort session-end hooks
 
+## Workspace identity release QA
+
+Run `traceary doctor` once to initialize/migrate the store, then run `traceary report workspace-identity` to inspect attribution coverage, current workspace relationships, and stable-ID hook delivery outcomes by client and hook. The report itself does not migrate or advance provenance catch-up. `--json` is suitable for release QA. Conflict samples contain identifiers only; event bodies are never included.
+
+The report deliberately separates `exact_delivery` (proven stable host-ID outcomes, with a target below 1%) from `heuristic_candidates` (a read-only historical content-match estimate). `sample_available=false` means no delivery attempts have been measured yet.
+
+Reviewed conflicts can be reclassified without changing canonical session provenance:
+
+```sh
+traceary store workspace-alias add --session <id> --workspace <path> --reviewed-by <operator> --note <reason>
+traceary store workspace-alias list
+traceary store workspace-alias remove --session <id> --workspace <path>
+```
+
+Aliases affect the current diagnostic projection only. Removing one restores the original relationship classification.
+
 ## Related docs
 
 - hooks integration: [`../hooks/README.md`](../hooks/README.md)
