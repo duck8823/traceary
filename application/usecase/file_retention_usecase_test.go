@@ -170,6 +170,11 @@ func TestFileRetentionInspectCapacityReportsEmptyAndIndeterminate(t *testing.T) 
 			snapshot.Entries[0].AllocatedBytes = math.MaxInt64
 			return snapshot
 		}(), wantState: "indeterminate"},
+		{name: "unsupported root evidence remains visible", snapshot: func() apptypes.FileRetentionInventorySnapshot {
+			snapshot := fileRetentionSnapshot(now)
+			snapshot.RootAccess = apptypes.FileRetentionRootAccessEvidence{ApplyState: apptypes.FileRetentionRootApplyUnsupported}
+			return snapshot
+		}(), wantState: "ready"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -188,6 +193,9 @@ func TestFileRetentionInspectCapacityReportsEmptyAndIndeterminate(t *testing.T) 
 			}
 			if test.name == "allocated overflow" && !statuses[0].AllocatedOverflow {
 				t.Fatalf("status = %#v, want allocated overflow", statuses[0])
+			}
+			if test.name == "unsupported root evidence remains visible" && statuses[0].RootAccess.ApplyState != apptypes.FileRetentionRootApplyUnsupported {
+				t.Fatalf("status = %#v, want unsupported root evidence", statuses[0])
 			}
 		})
 	}
@@ -215,6 +223,7 @@ func (stub *fileRetentionExecutorStub) ApplyFileRetention(_ context.Context, pla
 func fileRetentionSnapshot(now time.Time) apptypes.FileRetentionInventorySnapshot {
 	return apptypes.FileRetentionInventorySnapshot{
 		Class: "backup", Root: "/tmp/backups", RootIdentity: digestOf('c'), LiveGeneration: digestOf('d'),
+		RootAccess: apptypes.FileRetentionRootAccessEvidence{ApplyState: apptypes.FileRetentionRootApplyEligible, CallerOwned: true},
 		Entries: []apptypes.FileRetentionInventoryEntry{
 			{Identity: digestOf('a'), RelativePath: "a.db", Device: 1, Inode: 1, LinkCount: 1, LogicalBytes: 10, AllocatedBytes: 10, AllocatedKnown: true, ModifiedAt: now.Add(-2 * time.Hour), GenerationCreatedAt: now.Add(-2 * time.Hour), GenerationProvenance: "catalog", Generation: digestOf('d'), ContentSHA256: digestOf('1'), Verified: true, VerificationDigest: digestOf('e'), MetadataRelativePath: apptypes.BackupRetentionManifestName("a.db"), MetadataSHA256: digestOf('3')},
 			{Identity: digestOf('b'), RelativePath: "b.db", Device: 1, Inode: 2, LinkCount: 1, LogicalBytes: 10, AllocatedBytes: 10, AllocatedKnown: true, ModifiedAt: now.Add(-time.Hour), GenerationCreatedAt: now.Add(-time.Hour), GenerationProvenance: "catalog", Generation: digestOf('d'), ContentSHA256: digestOf('2'), Verified: true, VerificationDigest: digestOf('f'), MetadataRelativePath: apptypes.BackupRetentionManifestName("b.db"), MetadataSHA256: digestOf('4')},

@@ -118,6 +118,37 @@ func TestFileRetentionBackupPlanApplyAndRetry(t *testing.T) {
 	}
 }
 
+func TestFileRetentionInventoryReportsDescriptorBoundRootAccess(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	livePath := filepath.Join(t.TempDir(), "live.db")
+	createFileRetentionSQLite(t, livePath)
+	datasource := NewFileRetentionDatasource()
+
+	safe, err := datasource.InspectFileRetention(context.Background(), apptypes.FileRetentionInventoryRequest{Class: "backup", Root: root, DatabasePath: livePath})
+	if err != nil {
+		t.Fatalf("InspectFileRetention(safe) error = %v", err)
+	}
+	if safe.RootAccess.ApplyState != apptypes.FileRetentionRootApplyEligible || !safe.RootAccess.CallerOwned || safe.RootAccess.GroupOrOtherWritable {
+		t.Fatalf("safe root access = %#v", safe.RootAccess)
+	}
+	if err := os.Chmod(root, 0o770); err != nil {
+		t.Fatalf("Chmod(root) error = %v", err)
+	}
+	unsafe, err := datasource.InspectFileRetention(context.Background(), apptypes.FileRetentionInventoryRequest{Class: "backup", Root: root, DatabasePath: livePath})
+	if err != nil {
+		t.Fatalf("InspectFileRetention(group writable) error = %v", err)
+	}
+	if unsafe.RootAccess.ApplyState != apptypes.FileRetentionRootApplyUnsafePermissions || !unsafe.RootAccess.CallerOwned || !unsafe.RootAccess.GroupOrOtherWritable {
+		t.Fatalf("unsafe root access = %#v", unsafe.RootAccess)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("read-only inventory changed root: entries=%v error=%v", entries, err)
+	}
+}
+
 func TestFileRetentionInventoryFailsClosedForSymlinkAndHardLink(t *testing.T) {
 	t.Parallel()
 

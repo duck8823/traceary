@@ -2,7 +2,7 @@
 
 [English](./retention-dogfood-v0.31.md)
 
-状態: Issue #1445 の dogfooding は 2026-07-22 に完了しました。release blocker の follow-up #1486 は後述のとおり追跡し、release 前に close します。以下の path はすべて `/private/tmp` 配下の使い捨て copy または synthetic root です。live store の唯一の copy は対象にしていません。
+状態: Issue #1445 の dogfooding は 2026-07-22 に完了しました。release blocker の follow-up #1486 も実装し、release 前に再度 dogfooding しました。以下の path はすべて `/private/tmp` 配下の使い捨て copy または synthetic root です。live store の唯一の copy は対象にしていません。
 
 ## 決定
 
@@ -63,7 +63,12 @@ allocated size が変わらないのは想定どおりです。logical body prun
 - backup: `state=ready files=1 verified=1 logical_bytes=262144 allocated_bytes=262144 floor=new.db`
 - どちらも automatic cleanup が無効であることと、手動 plan command を明示しました。
 
-dogfooding では、最初の status 実装が group/other-writable root を `ready` と表示できる一方、exact apply は同じ permission boundary を拒否する不一致を発見しました。release blocker として follow-up #1486 を登録し、v0.31 release 前に修正します。
+dogfooding では、最初の status 実装が group/other-writable root を `ready` と表示しても、exact apply が拒否することを示せない問題を発見しました。follow-up #1486 では、recovery readiness と分けて、同じ descriptor から得た所有者・mode の根拠を表示します。同じ保持 backup を使った再 dogfooding の結果は次のとおりです。
+
+- mode `0700`: `status=pass state=ready apply_root=eligible caller_owned=true group_or_other_writable=false`
+- mode `0770`: `status=warn state=ready apply_root=unsafe_permissions caller_owned=true group_or_other_writable=true`
+
+どちらも検査は読み取り専用です。exact apply は引き続き、caller 所有かつ group/other write 権限のない root だけを受け付けます。
 
 ## rollback と残存リスク
 

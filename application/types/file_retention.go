@@ -58,12 +58,34 @@ type FileRetentionInventoryRequest struct {
 	DatabasePath string
 }
 
+// FileRetentionRootApplyState reports whether exact apply accepts the inspected root boundary.
+type FileRetentionRootApplyState string
+
+const (
+	// FileRetentionRootApplyEligible means exact apply accepts the root boundary.
+	FileRetentionRootApplyEligible FileRetentionRootApplyState = "eligible"
+	// FileRetentionRootApplyUnsafeOwner means the caller does not own the root.
+	FileRetentionRootApplyUnsafeOwner FileRetentionRootApplyState = "unsafe_owner"
+	// FileRetentionRootApplyUnsafePermissions means group or other users may write the root.
+	FileRetentionRootApplyUnsafePermissions FileRetentionRootApplyState = "unsafe_permissions"
+	// FileRetentionRootApplyUnsupported means the platform cannot prove the boundary.
+	FileRetentionRootApplyUnsupported FileRetentionRootApplyState = "unsupported"
+)
+
+// FileRetentionRootAccessEvidence is descriptor-bound ownership and mode evidence.
+type FileRetentionRootAccessEvidence struct {
+	ApplyState           FileRetentionRootApplyState
+	CallerOwned          bool
+	GroupOrOtherWritable bool
+}
+
 // FileRetentionInventorySnapshot is body-free verified filesystem evidence.
 type FileRetentionInventorySnapshot struct {
 	Class          string
 	Root           string
 	RootIdentity   string
 	LiveGeneration string
+	RootAccess     FileRetentionRootAccessEvidence
 	Entries        []FileRetentionInventoryEntry
 }
 
@@ -88,6 +110,7 @@ type FileRetentionCapacityStatus struct {
 	AllocatedKnown    bool
 	AllocatedOverflow bool
 	FloorRelativePath string
+	RootAccess        FileRetentionRootAccessEvidence
 }
 
 // FileRetentionInventoryEntry is one exact regular file or fail-closed blocker.
