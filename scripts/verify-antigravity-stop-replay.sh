@@ -60,7 +60,7 @@ PY
 )
 
 report_path="$work_dir/report.json"
-"$binary" report workspace-identity --db-path "$db_path" --json >"$report_path"
+"$binary" report workspace-identity --db-path "$db_path" --include-heuristic --json >"$report_path"
 
 python3 - "$db_path" "$report_path" "$before_report" <<'PY'
 import json

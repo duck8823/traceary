@@ -208,7 +208,7 @@ The attempted event ID is Traceary's per-callback repository identity. A later h
 
 `session_workspace_aliases` stores explicit operator review metadata. An alias never rewrites `sessions.workspace`, `events.workspace`, or an observation's ingested relationship. The read projection changes a matching stored conflict to `explicit_alias` while the review exists, so removal is a complete rollback.
 
-`traceary report workspace-identity` is read-only and does not run migrations or provenance catch-up. Initialize or migrate the store first with `traceary doctor`; an unready store fails with guidance. Its historical content candidate section calls the existing dedupe planner with `Apply=false`; cleanup remains a separate, explicit, reversible command.
+`traceary report workspace-identity` is read-only and does not run migrations or provenance catch-up. Initialize or migrate the store first with `traceary doctor`; an unready store fails with guidance. The default path does not load event bodies. `--include-heuristic` calls the existing dedupe planner with `Apply=false` and `MaxScanRows` set from the positive `--heuristic-limit`; a body-free count distinguishes a `partial` bounded sample from a `complete` one. Bounded apply is rejected, so cleanup remains a separate, unbounded, explicit, reversible command.
 
 ## Backup defaults
 

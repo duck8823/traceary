@@ -75,6 +75,12 @@ func (u *storeManagementUsecase) DedupeContentEvents(
 	params apptypes.ContentEventDedupeParams,
 ) (apptypes.ContentEventDedupeResult, error) {
 	params.Agent = strings.TrimSpace(params.Agent)
+	if params.MaxScanRows < 0 {
+		return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("dedupe scan bound must not be negative")
+	}
+	if params.Apply && params.MaxScanRows > 0 {
+		return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("bounded content-event dedupe cannot be applied")
+	}
 	if params.Apply {
 		// The run id and archived_at stamp are minted here so the apply is
 		// fully reproducible from the result and so the infrastructure layer

@@ -100,6 +100,12 @@ func (d *StoreManagementDatasource) DedupeContentEvents(
 	ctx context.Context,
 	params apptypes.ContentEventDedupeParams,
 ) (apptypes.ContentEventDedupeResult, error) {
+	if params.MaxScanRows < 0 {
+		return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("dedupe scan bound must not be negative")
+	}
+	if params.Apply && params.MaxScanRows > 0 {
+		return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("bounded content-event dedupe cannot be applied")
+	}
 	if params.Apply {
 		if strings.TrimSpace(params.RunID) == "" {
 			return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("apply requires a non-empty dedupe run id")
@@ -133,9 +139,20 @@ func (d *StoreManagementDatasource) DedupeContentEvents(
 		}
 	}()
 
-	rows, err := d.loadDedupeCandidates(ctx, tx, strings.TrimSpace(params.Agent))
+	agent := strings.TrimSpace(params.Agent)
+	totalEligible := 0
+	if params.MaxScanRows > 0 {
+		totalEligible, err = d.countDedupeCandidates(ctx, tx, agent)
+		if err != nil {
+			return apptypes.ContentEventDedupeResult{}, err
+		}
+	}
+	rows, err := d.loadDedupeCandidates(ctx, tx, agent, params.MaxScanRows)
 	if err != nil {
 		return apptypes.ContentEventDedupeResult{}, err
+	}
+	if params.MaxScanRows == 0 {
+		totalEligible = len(rows)
 	}
 
 	plan := planContentEventDedupe(rows, params.Strict)
@@ -155,9 +172,10 @@ func (d *StoreManagementDatasource) DedupeContentEvents(
 	}
 
 	result := apptypes.ContentEventDedupeResult{
-		RunID:        params.RunID,
-		Applied:      params.Apply,
-		ScannedCount: len(rows),
+		RunID:              params.RunID,
+		Applied:            params.Apply,
+		TotalEligibleCount: totalEligible,
+		ScannedCount:       len(rows),
 	}
 	for _, group := range plan.groups {
 		dupIDs := make([]string, 0, len(group.duplicates))
@@ -226,6 +244,7 @@ func (d *StoreManagementDatasource) loadDedupeCandidates(
 	ctx context.Context,
 	tx *sql.Tx,
 	agent string,
+	maxRows int,
 ) ([]dedupeCandidateRow, error) {
 	query := `SELECT id, kind, client, agent, session_id, workspace, body, created_at, source_hook
 	            FROM events
@@ -235,6 +254,13 @@ func (d *StoreManagementDatasource) loadDedupeCandidates(
 	if agent != "" {
 		query += "\n             AND agent = ?"
 		args = append(args, agent)
+	}
+	if maxRows > 0 {
+		// This order selects a deterministic diagnostic sample only. Canonical
+		// duplicate resolution still parses timestamps in planContentEventDedupe;
+		// it never relies on SQLite's lexical timestamp ordering.
+		query += "\n           ORDER BY created_at DESC, id DESC LIMIT ?"
+		args = append(args, maxRows)
 	}
 
 	rows, err := tx.QueryContext(ctx, query, args...)
@@ -272,6 +298,27 @@ func (d *StoreManagementDatasource) loadDedupeCandidates(
 		return nil, xerrors.Errorf("failed to iterate content-event dedupe candidates: %w", err)
 	}
 	return candidates, nil
+}
+
+func (d *StoreManagementDatasource) countDedupeCandidates(
+	ctx context.Context,
+	tx *sql.Tx,
+	agent string,
+) (int, error) {
+	query := `SELECT COUNT(*)
+	            FROM events
+	           WHERE client = 'hook'
+	             AND kind IN ('prompt', 'transcript')`
+	args := []any{}
+	if agent != "" {
+		query += "\n             AND agent = ?"
+		args = append(args, agent)
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, xerrors.Errorf("failed to count content-event dedupe candidates: %w", err)
+	}
+	return count, nil
 }
 
 // dedupeGroupPlan is one resolved duplicate cluster: the canonical row to keep

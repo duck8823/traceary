@@ -123,7 +123,7 @@ func TestRootCLI_HookAntigravityStopReplayUsesStableDeliveryLedger(t *testing.T)
 	reportOut := &bytes.Buffer{}
 	reportCmd.SetOut(reportOut)
 	reportCmd.SetErr(&bytes.Buffer{})
-	reportCmd.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--json"})
+	reportCmd.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--include-heuristic", "--json"})
 	if err := reportCmd.Execute(); err != nil {
 		t.Fatalf("Execute(report workspace-identity) error = %v", err)
 	}

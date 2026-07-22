@@ -75,10 +75,12 @@ func readWorkspaceIdentityCoverage(ctx context.Context, tx *sql.Tx, coverage *ap
 	if err := tx.QueryRowContext(ctx, `
 		SELECT
 			(SELECT COUNT(*) FROM events),
-			(SELECT COUNT(*) FROM events e WHERE EXISTS (
-				SELECT 1 FROM session_workspace_observations o
-				 WHERE o.observed_event_id = e.id AND o.observation_kind = 'primary'
-			)),
+			(SELECT COUNT(*)
+			   FROM session_workspace_observations o
+			   JOIN events e ON e.id = o.observed_event_id
+			  WHERE o.observation_kind = 'primary'
+			    AND o.observed_event_id IS NOT NULL
+			    AND o.observed_event_id <> ''),
 			(SELECT COUNT(*) FROM session_workspace_observations)
 	`).Scan(&coverage.EventCount, &coverage.CoveredEvents, &coverage.ObservationCount); err != nil {
 		return xerrors.Errorf("failed to read workspace identity coverage: %w", err)
