@@ -119,6 +119,13 @@ func TestRootCLI_HookGrokCoreEvents(t *testing.T) {
 			if eventStub.auditCall.output == "" {
 				t.Fatalf("%s audit output is empty", fixture)
 			}
+			wantReason := types.CommandFailureReasonHostError
+			if fixture == "post_tool_use_denied.json" {
+				wantReason = types.CommandFailureReasonHookDenied
+			}
+			if eventStub.auditCall.failureReason != wantReason {
+				t.Fatalf("%s failure reason = %q, want %q", fixture, eventStub.auditCall.failureReason, wantReason)
+			}
 		})
 	}
 }

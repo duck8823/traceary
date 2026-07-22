@@ -29,6 +29,7 @@ type auditCommandInput struct {
 	sessionID      string
 	repo           string
 	exitCode       types.Optional[int]
+	failureReason  types.CommandFailureReason
 	idOnly         bool
 	asJSON         bool
 	allowSecrets   bool
@@ -115,19 +116,19 @@ type hooksGuideCommandInput struct {
 
 // listCommandInput is the resolved input to the `traceary list` command.
 type listCommandInput struct {
-	dbPath          string
-	limit           int
-	offset          int
-	kind            string
-	client          string
-	agent           string
-	sessionID       string
-	repo            string
-	from            string
-	since           string
-	to              string
-	until           string
-	failuresOnly    bool
+	dbPath       string
+	limit        int
+	offset       int
+	kind         string
+	client       string
+	agent        string
+	sessionID    string
+	repo         string
+	from         string
+	since        string
+	to           string
+	until        string
+	failuresOnly bool
 	// sensitiveOnly keeps command_executed events whose bodies match the
 	// sensitive-path classifier (compute-on-read; independent of redaction).
 	// When set, kind defaults to command_executed if unset.

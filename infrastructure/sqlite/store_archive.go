@@ -54,8 +54,8 @@ SELECT id, kind, client, agent, session_id, workspace, body, created_at, source_
 				}
 			}
 			audits, err := queryArchiveMapsIn(ctx, db, `
-SELECT event_id, command_text, input_text, output_text, input_truncated, output_truncated,
-       input_original_bytes, output_original_bytes, exit_code, failed
+SELECT event_id, command_text, command_wrapper, command_name, input_text, output_text, input_truncated, output_truncated,
+       input_original_bytes, output_original_bytes, exit_code, failed, failure_reason
   FROM command_audits
  WHERE event_id IN (%s)
  ORDER BY event_id`, ids)
@@ -489,10 +489,10 @@ func insertArchiveRow(ctx context.Context, tx *sql.Tx, table string, row map[str
 		return nil
 	case "command_audits":
 		_, err := tx.ExecContext(ctx, insertCommandAuditQuery,
-			row["event_id"], row["command_text"], row["input_text"], row["output_text"],
+			row["event_id"], row["command_text"], nullStr(row["command_wrapper"]), archiveStringOr(row, "command_name", "unknown"), row["input_text"], row["output_text"],
 			asInt(row["input_truncated"]), asInt(row["output_truncated"]),
 			row["input_original_bytes"], row["output_original_bytes"],
-			row["exit_code"], asInt(row["failed"]),
+			row["exit_code"], asInt(row["failed"]), archiveStringOr(row, "failure_reason", "unknown"),
 		)
 		if err != nil {
 			return xerrors.Errorf("insert command_audits: %w", err)
@@ -552,6 +552,18 @@ INSERT INTO memory_artifact_refs (memory_id, ordinal, ref_kind, ref_value) VALUE
 	default:
 		return xerrors.Errorf("unsupported archive table %s", table)
 	}
+}
+
+func archiveStringOr(row map[string]any, key, fallback string) string {
+	value, ok := row[key]
+	if !ok || value == nil {
+		return fallback
+	}
+	text, ok := value.(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return fallback
+	}
+	return text
 }
 
 func nullStr(v any) any {

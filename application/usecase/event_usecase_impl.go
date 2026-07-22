@@ -165,8 +165,9 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 	}
 	commandAudit.SetOriginalPayloadBytes(inputPayload.OriginalBytes, outputPayload.OriginalBytes)
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
-	commandAudit.SetExitCode(in.ExitCode)
-	commandAudit.SetFailed(in.Failed)
+	if err := commandAudit.ClassifyOutcome(in.ExitCode, in.FailureReason, in.Failed); err != nil {
+		return nil, nil, xerrors.Errorf("failed to classify command audit outcome: %w", err)
+	}
 
 	event, err := model.NewEvent(
 		eventID,

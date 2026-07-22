@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -20,6 +21,37 @@ const sqliteMigrationVersionDigits = 6
 func onDiskSQLiteMigrations(t testing.TB) fs.FS {
 	t.Helper()
 	return os.DirFS(onDiskSQLiteMigrationDir(t))
+}
+
+// onDiskSQLiteMigrationsBefore returns a copied migration set ending before
+// the requested version. It is used to create genuine pre-migration stores
+// before reopening them with the complete set.
+func onDiskSQLiteMigrationsBefore(t testing.TB, beforeVersion int) fs.FS {
+	t.Helper()
+	dir := onDiskSQLiteMigrationDir(t)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read SQLite migrations: %v", err)
+	}
+	migrations := fstest.MapFS{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		version, err := sqliteMigrationVersion(entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version >= beforeVersion {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			t.Fatalf("read migration %s: %v", entry.Name(), err)
+		}
+		migrations[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	return migrations
 }
 
 func onDiskSQLiteMigrationDir(t testing.TB) string {

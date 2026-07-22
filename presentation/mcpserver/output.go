@@ -14,6 +14,11 @@ type recordEventOutput struct {
 	Body                string                    `json:"body,omitempty" jsonschema:"event body plain-text projection"`
 	BodyBlocks          []apptypes.EventBodyBlock `json:"body_blocks,omitempty" jsonschema:"structured block form of transcript body"`
 	Command             string                    `json:"command,omitempty" jsonschema:"executed command for audit records"`
+	Wrapper             string                    `json:"wrapper,omitempty" jsonschema:"verified command wrapper when present"`
+	CommandName         string                    `json:"command_name,omitempty" jsonschema:"normalized executable used for aggregation"`
+	ExitCode            *int                      `json:"exit_code,omitempty" jsonschema:"captured command exit code"`
+	Failed              bool                      `json:"failed,omitempty" jsonschema:"whether structured outcome evidence indicates failure"`
+	FailureReason       string                    `json:"failure_reason,omitempty" jsonschema:"structured command outcome reason"`
 	InputRedacted       bool                      `json:"input_redacted" jsonschema:"whether input was redacted"`
 	OutputRedacted      bool                      `json:"output_redacted" jsonschema:"whether output was redacted"`
 	InputTruncated      bool                      `json:"input_truncated" jsonschema:"whether input was truncated"`

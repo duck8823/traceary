@@ -114,6 +114,7 @@ func encodeCommandAuditsNDJSON(audits []*model.CommandAudit) (*bytes.Buffer, err
 		row := bundleCommandAuditRow{
 			EventID:             audit.EventID().String(),
 			Command:             audit.Command(),
+			CommandName:         audit.CommandIdentity().Command().String(),
 			Input:               audit.Input(),
 			Output:              audit.Output(),
 			InputTruncated:      audit.InputTruncated(),
@@ -121,6 +122,10 @@ func encodeCommandAuditsNDJSON(audits []*model.CommandAudit) (*bytes.Buffer, err
 			InputOriginalBytes:  audit.InputOriginalBytes(),
 			OutputOriginalBytes: audit.OutputOriginalBytes(),
 			Failed:              audit.Failed(),
+			FailureReason:       audit.FailureReason().String(),
+		}
+		if wrapper, ok := audit.CommandIdentity().Wrapper().Value(); ok {
+			row.Wrapper = wrapper.String()
 		}
 		if exitCode, ok := audit.ExitCode().Value(); ok {
 			row.ExitCode = &exitCode

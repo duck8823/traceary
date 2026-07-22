@@ -77,16 +77,16 @@ type reportCommandInput struct {
 }
 
 type reportEnvelope struct {
-	Period           reportPeriod              `json:"period"`
-	Workspace        string                    `json:"workspace,omitempty"`
-	ClientFilter     string                    `json:"client,omitempty"`
-	Sessions         []reportSessionRow        `json:"sessions"`
-	CaptureCoverage  []reportCoverageRow       `json:"capture_coverage"`
-	Failures         reportFailures            `json:"failures"`
-	TopCommands      []reportCommandRow        `json:"top_commands"`
-	FailureLoops     []reportFailureLoop       `json:"failure_loops,omitempty"`
-	EventScanCount   int                       `json:"event_scan_count"`
-	SessionScanCount int                       `json:"session_scan_count"`
+	Period           reportPeriod        `json:"period"`
+	Workspace        string              `json:"workspace,omitempty"`
+	ClientFilter     string              `json:"client,omitempty"`
+	Sessions         []reportSessionRow  `json:"sessions"`
+	CaptureCoverage  []reportCoverageRow `json:"capture_coverage"`
+	Failures         reportFailures      `json:"failures"`
+	TopCommands      []reportCommandRow  `json:"top_commands"`
+	FailureLoops     []reportFailureLoop `json:"failure_loops,omitempty"`
+	EventScanCount   int                 `json:"event_scan_count"`
+	SessionScanCount int                 `json:"session_scan_count"`
 }
 
 type reportPeriod struct {
@@ -102,34 +102,35 @@ type reportSessionRow struct {
 }
 
 type reportCoverageRow struct {
-	Client                    string  `json:"client"`
-	Sessions                  int     `json:"sessions"`
-	WithPrompt                int     `json:"with_prompt"`
-	WithTranscript            int     `json:"with_transcript"`
-	WithCommand               int     `json:"with_command"`
-	PromptTranscriptMissing   int     `json:"prompt_transcript_missing"`
+	Client                       string  `json:"client"`
+	Sessions                     int     `json:"sessions"`
+	WithPrompt                   int     `json:"with_prompt"`
+	WithTranscript               int     `json:"with_transcript"`
+	WithCommand                  int     `json:"with_command"`
+	PromptTranscriptMissing      int     `json:"prompt_transcript_missing"`
 	PromptTranscriptMissingRatio float64 `json:"prompt_transcript_missing_ratio"`
 }
 
 type reportFailures struct {
-	Total   int                `json:"total"`
-	ByClient map[string]int    `json:"by_client"`
-	Samples []string           `json:"sample_event_ids"`
+	Total    int            `json:"total"`
+	ByClient map[string]int `json:"by_client"`
+	ByReason map[string]int `json:"by_reason"`
+	Samples  []string       `json:"sample_event_ids"`
 }
 
 type reportCommandRow struct {
-	Command      string  `json:"command"`
-	Count        int     `json:"count"`
-	FailedCount  int     `json:"failed_count"`
-	FailureRate  float64 `json:"failure_rate"`
-	SampleEventID string `json:"sample_event_id,omitempty"`
+	Command       string  `json:"command"`
+	Count         int     `json:"count"`
+	FailedCount   int     `json:"failed_count"`
+	FailureRate   float64 `json:"failure_rate"`
+	SampleEventID string  `json:"sample_event_id,omitempty"`
 }
 
 type reportFailureLoop struct {
-	Command       string   `json:"command"`
-	Workspace     string   `json:"workspace,omitempty"`
-	Agent         string   `json:"agent,omitempty"`
-	Count         int      `json:"count"`
+	Command        string   `json:"command"`
+	Workspace      string   `json:"workspace,omitempty"`
+	Agent          string   `json:"agent,omitempty"`
+	Count          int      `json:"count"`
 	SampleEventIDs []string `json:"sample_event_ids"`
 }
 
@@ -142,6 +143,9 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 	}
 	if c.session == nil {
 		return xerrors.New(Localize("session usecase is not configured", "session usecase が設定されていません"))
+	}
+	if c.reportCommand == nil {
+		return xerrors.New(Localize("report command usecase is not configured", "report command usecase が設定されていません"))
 	}
 	if input.limit <= 0 {
 		return xerrors.New(Localize("--limit must be positive", "--limit は 1 以上である必要があります"))
@@ -220,8 +224,12 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 			return xerrors.Errorf("%s: %w", Localize("failed to list events for report", "report 用 event 一覧の取得に失敗しました"), err)
 		}
 	}
+	commandSummary, err := c.reportCommand.Summarize(ctx, eventCriteria)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to summarize command audits for report", "report 用 command audit の集計に失敗しました"), err)
+	}
 
-	envelope := buildReportEnvelope(fromRaw, toExclusive, ws.String(), clientFilter, sessions, events)
+	envelope := buildReportEnvelope(fromRaw, toExclusive, ws.String(), clientFilter, sessions, events, commandSummary)
 	if input.asJSON {
 		enc := json.NewEncoder(output)
 		enc.SetIndent("", "  ")
@@ -238,6 +246,7 @@ func buildReportEnvelope(
 	workspace, clientFilter string,
 	sessions []apptypes.SessionSummary,
 	events []*model.Event,
+	commandSummary apptypes.ReportCommandSummary,
 ) reportEnvelope {
 	sessionRows := map[string]*reportSessionRow{}
 	for _, s := range sessions {
@@ -256,15 +265,6 @@ func buildReportEnvelope(
 	}
 
 	coverageByClient := map[string][]appusecase.EventCoverageInput{}
-	commandAgg := map[string]*reportCommandRow{}
-	failuresByClient := map[string]int{}
-	failureSamples := make([]string, 0, 8)
-	failureTotal := 0
-	type failKey struct {
-		command, workspace, agent string
-	}
-	failLoops := map[failKey]*reportFailureLoop{}
-
 	for _, event := range events {
 		if event == nil {
 			continue
@@ -277,42 +277,6 @@ func buildReportEnvelope(
 			SessionID: event.SessionID().String(),
 			Kind:      event.Kind(),
 		})
-		if event.Kind() != types.EventKindCommandExecuted {
-			continue
-		}
-		command := firstCommandToken(apptypes.ExtractPlainBody(event.Body()))
-		if command == "" {
-			command = "(unknown)"
-		}
-		row := commandAgg[command]
-		if row == nil {
-			row = &reportCommandRow{Command: command, SampleEventID: event.EventID().String()}
-			commandAgg[command] = row
-		}
-		row.Count++
-		failed := looksFailedCommandBody(event.Body())
-		if failed {
-			row.FailedCount++
-			failureTotal++
-			failuresByClient[client]++
-			if len(failureSamples) < 8 {
-				failureSamples = append(failureSamples, event.EventID().String())
-			}
-			key := failKey{command: command, workspace: event.Workspace().String(), agent: event.Agent().String()}
-			loop := failLoops[key]
-			if loop == nil {
-				loop = &reportFailureLoop{
-					Command:   command,
-					Workspace: event.Workspace().String(),
-					Agent:     event.Agent().String(),
-				}
-				failLoops[key] = loop
-			}
-			loop.Count++
-			if len(loop.SampleEventIDs) < 3 {
-				loop.SampleEventIDs = append(loop.SampleEventIDs, event.EventID().String())
-			}
-		}
 	}
 
 	sessionOut := make([]reportSessionRow, 0, len(sessionRows))
@@ -341,37 +305,19 @@ func buildReportEnvelope(
 	}
 	sort.Slice(coverageOut, func(i, j int) bool { return coverageOut[i].Client < coverageOut[j].Client })
 
-	topCommands := make([]reportCommandRow, 0, len(commandAgg))
-	for _, row := range commandAgg {
-		if row.Count > 0 {
-			row.FailureRate = float64(row.FailedCount) / float64(row.Count)
-		}
-		topCommands = append(topCommands, *row)
+	topCommands := make([]reportCommandRow, 0, len(commandSummary.TopCommands))
+	for _, row := range commandSummary.TopCommands {
+		topCommands = append(topCommands, reportCommandRow{
+			Command: row.Command, Count: row.Count, FailedCount: row.FailedCount,
+			FailureRate: row.FailureRate, SampleEventID: row.SampleEventID,
+		})
 	}
-	sort.Slice(topCommands, func(i, j int) bool {
-		if topCommands[i].Count == topCommands[j].Count {
-			return topCommands[i].Command < topCommands[j].Command
-		}
-		return topCommands[i].Count > topCommands[j].Count
-	})
-	if len(topCommands) > 15 {
-		topCommands = topCommands[:15]
-	}
-
-	loops := make([]reportFailureLoop, 0, len(failLoops))
-	for _, loop := range failLoops {
-		if loop.Count >= 3 {
-			loops = append(loops, *loop)
-		}
-	}
-	sort.Slice(loops, func(i, j int) bool {
-		if loops[i].Count == loops[j].Count {
-			return loops[i].Command < loops[j].Command
-		}
-		return loops[i].Count > loops[j].Count
-	})
-	if len(loops) > 10 {
-		loops = loops[:10]
+	loops := make([]reportFailureLoop, 0, len(commandSummary.FailureLoops))
+	for _, loop := range commandSummary.FailureLoops {
+		loops = append(loops, reportFailureLoop{
+			Command: loop.Command, Workspace: loop.Workspace, Agent: loop.Agent,
+			Count: loop.Count, SampleEventIDs: loop.SampleEventIDs,
+		})
 	}
 
 	return reportEnvelope{
@@ -383,7 +329,7 @@ func buildReportEnvelope(
 		ClientFilter:     clientFilter,
 		Sessions:         sessionOut,
 		CaptureCoverage:  coverageOut,
-		Failures:         reportFailures{Total: failureTotal, ByClient: failuresByClient, Samples: failureSamples},
+		Failures:         reportFailures{Total: commandSummary.FailureTotal, ByClient: commandSummary.FailuresByClient, ByReason: commandSummary.FailuresByReason, Samples: commandSummary.FailureSamples},
 		TopCommands:      topCommands,
 		FailureLoops:     loops,
 		EventScanCount:   len(events),
@@ -418,6 +364,9 @@ func writeReportText(output io.Writer, report reportEnvelope) error {
 	for client, n := range report.Failures.ByClient {
 		fmt.Fprintf(&b, "- %s: %d\n", client, n)
 	}
+	for reason, n := range report.Failures.ByReason {
+		fmt.Fprintf(&b, "- reason=%s: %d\n", reason, n)
+	}
 	if len(report.Failures.Samples) > 0 {
 		fmt.Fprintf(&b, "samples: %s\n", strings.Join(report.Failures.Samples, ", "))
 	}
@@ -437,32 +386,4 @@ func writeReportText(output io.Writer, report reportEnvelope) error {
 		return xerrors.Errorf("%s: %w", Localize("failed to write report text", "report テキストの書き出しに失敗しました"), err)
 	}
 	return nil
-}
-
-func firstCommandToken(body string) string {
-	line := strings.TrimSpace(strings.Split(body, "\n")[0])
-	if line == "" {
-		return ""
-	}
-	fields := strings.Fields(line)
-	if len(fields) == 0 {
-		return ""
-	}
-	return fields[0]
-}
-
-func looksFailedCommandBody(body string) bool {
-	// Best-effort: failed marker from PostToolUseFailure-style bodies or
-	// "exit_code=" non-zero when present in projected text.
-	lower := strings.ToLower(body)
-	if strings.Contains(lower, "exit_code=0") {
-		return false
-	}
-	if strings.Contains(lower, "exit_code=") {
-		return true
-	}
-	if strings.Contains(lower, "\"failed\": true") || strings.Contains(lower, "failed=true") {
-		return true
-	}
-	return false
 }

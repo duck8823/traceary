@@ -192,6 +192,9 @@ func normalizeGrokHookPayload(input io.Reader) ([]byte, error) {
 		// fixed class here and preserve/redact the full result through
 		// tool_response rather than duplicating a host path in the error field.
 		normalized["error"] = "grok tool result: " + failureKind
+		if failureKind == "PermissionDenied" {
+			normalized["failure_reason"] = "hook_denied"
+		}
 	}
 
 	encoded, err := marshalStableJSON(normalized)

@@ -11,10 +11,12 @@
   },
   "command_audit": {
     "command": "go test ./presentation/cli",
+    "command_name": "unknown",
     "input": "stdin",
     "output": "stdout",
     "input_truncated": false,
     "output_truncated": false,
-    "exit_code": 0
+    "exit_code": 0,
+    "failure_reason": "unknown"
   }
 }

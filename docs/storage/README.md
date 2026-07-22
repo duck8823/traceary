@@ -54,8 +54,13 @@ Key columns:
 - `output_truncated`: whether Traceary truncated the stored output
 - `input_original_bytes`: original input byte count when `input_truncated` is true and known
 - `output_original_bytes`: original output byte count when `output_truncated` is true and known
+- `command_wrapper`: verified wrapper basename when Traceary recognizes one (currently `rtk`); empty for direct commands
+- `command_name`: normalized executable basename used for report aggregation (`rtk git ...` and `git ...` both use `git`)
 - `exit_code`: captured exit code when available
-- `failed`: structural failure flag, set when a host reports a tool/command failure without a numeric exit code in the hook payload (e.g. Claude's `PostToolUseFailure`); `list --failures` matches `failed = 1` in addition to a non-zero `exit_code`
+- `failed`: compatibility failure flag derived from structured outcome evidence
+- `failure_reason`: `none`, `exit_code`, `signal`, `timeout`, `hook_denied`, `host_error`, or `unknown`
+
+Traceary normalizes only command structure it has verified. Direct executables use the first token basename, and only the observed `rtk <command>` / `rtk proxy <command>` grammar is unwrapped. It never executes or fully evaluates the shell text. A captured exit code of `0` is authoritative success even if input/output text contains words such as `failed`; report aggregation never parses payload text. Historical rows created before this schema use explicit `command_name=unknown` and `failure_reason=unknown` rather than reconstructing evidence that was not captured.
 
 When `input_truncated` or `output_truncated` is true, the stored payload is already a bounded head/tail projection, the corresponding `*_original_bytes` column records the original size for new rows, and the body also includes an `original_bytes` marker for human-readable context. The omitted bytes are not recoverable from historical rows.
 

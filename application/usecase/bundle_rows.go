@@ -11,6 +11,7 @@ package usecase
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -150,6 +151,8 @@ type bundleSessionRow struct {
 type bundleCommandAuditRow struct {
 	EventID             string `json:"event_id"`
 	Command             string `json:"command"`
+	Wrapper             string `json:"wrapper,omitempty"`
+	CommandName         string `json:"command_name"`
 	Input               string `json:"input"`
 	Output              string `json:"output"`
 	InputTruncated      bool   `json:"input_truncated"`
@@ -158,6 +161,7 @@ type bundleCommandAuditRow struct {
 	OutputOriginalBytes int    `json:"output_original_bytes,omitempty"`
 	ExitCode            *int   `json:"exit_code,omitempty"`
 	Failed              bool   `json:"failed,omitempty"`
+	FailureReason       string `json:"failure_reason"`
 }
 
 type bundleRefRow struct {
@@ -372,17 +376,20 @@ func (r bundleCommandAuditRow) toCommandAudit() (*model.CommandAudit, error) {
 	if r.ExitCode != nil {
 		exitCode = types.Some(*r.ExitCode)
 	}
-	audit := model.CommandAuditOf(
-		eventID,
-		r.Command,
-		r.Input,
-		r.Output,
-		r.InputTruncated,
-		r.OutputTruncated,
-		exitCode,
-		r.Failed,
-	)
-	audit.SetOriginalPayloadBytes(r.InputOriginalBytes, r.OutputOriginalBytes)
+	wrapper := types.None[types.CommandName]()
+	if strings.TrimSpace(r.Wrapper) != "" {
+		wrapper = types.Some(types.CommandName(r.Wrapper))
+	}
+	audit, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
+		EventID: eventID, Command: r.Command, Wrapper: wrapper,
+		CommandName: types.CommandName(r.CommandName), Input: r.Input, Output: r.Output,
+		InputTruncated: r.InputTruncated, OutputTruncated: r.OutputTruncated,
+		InputOriginalBytes: r.InputOriginalBytes, OutputOriginalBytes: r.OutputOriginalBytes,
+		ExitCode: exitCode, Failed: r.Failed, FailureReason: types.CommandFailureReason(r.FailureReason),
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("command audit: %w", err)
+	}
 	return audit, nil
 }
 

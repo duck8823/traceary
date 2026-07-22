@@ -48,16 +48,17 @@ type eventUsecaseStub struct {
 	logCall   eventLogCall
 	logCalls  []eventLogCall
 	auditCall struct {
-		command   string
-		input     string
-		output    string
-		client    types.Client
-		agent     types.Agent
-		sessionID types.SessionID
-		workspace types.Workspace
-		exitCode  types.Optional[int]
-		failed    bool
-		auditCfg  apptypes.AuditRedaction
+		command       string
+		input         string
+		output        string
+		client        types.Client
+		agent         types.Agent
+		sessionID     types.SessionID
+		workspace     types.Workspace
+		exitCode      types.Optional[int]
+		failed        bool
+		failureReason types.CommandFailureReason
+		auditCfg      apptypes.AuditRedaction
 	}
 }
 
@@ -83,6 +84,7 @@ func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, audi
 	s.auditCall.workspace = in.Workspace
 	s.auditCall.exitCode = in.ExitCode
 	s.auditCall.failed = in.Failed
+	s.auditCall.failureReason = in.FailureReason
 	s.auditCall.auditCfg = auditCfg
 	return s.auditEvent, s.auditAudit, s.auditErr
 }
@@ -106,6 +108,17 @@ type eventMetadataUsecaseStub struct {
 	listCalls       int
 	searchCalls     int
 	contextCalls    int
+}
+
+type reportCommandUsecaseStub struct {
+	summary  apptypes.ReportCommandSummary
+	err      error
+	criteria apptypes.EventListCriteria
+}
+
+func (s *reportCommandUsecaseStub) Summarize(_ context.Context, criteria apptypes.EventListCriteria) (apptypes.ReportCommandSummary, error) {
+	s.criteria = criteria
+	return s.summary, s.err
 }
 
 func (s *eventMetadataUsecaseStub) List(_ context.Context, _ apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {

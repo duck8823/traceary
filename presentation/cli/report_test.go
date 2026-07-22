@@ -53,11 +53,16 @@ func TestRootCLI_Report_SucceedsWithJSON(t *testing.T) {
 	)
 	sessionStub := &sessionUsecaseStub{listResult: []apptypes.SessionSummary{summary}}
 	eventStub := &eventUsecaseStub{listEvents: []*model.Event{event}}
+	reportStub := &reportCommandUsecaseStub{summary: apptypes.ReportCommandSummary{
+		FailuresByClient: map[string]int{}, FailuresByReason: map[string]int{},
+		TopCommands: []apptypes.ReportCommandRow{{Command: "go", Count: 1, SampleEventID: eventID.String()}},
+	}}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(sessionStub),
 		cli.WithEvent(eventStub),
+		cli.WithReportCommand(reportStub),
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -91,6 +96,7 @@ func TestRootCLI_Report_TextExitZero(t *testing.T) {
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(&sessionUsecaseStub{}),
 		cli.WithEvent(&eventUsecaseStub{}),
+		cli.WithReportCommand(&reportCommandUsecaseStub{summary: apptypes.ReportCommandSummary{FailuresByClient: map[string]int{}, FailuresByReason: map[string]int{}}}),
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})

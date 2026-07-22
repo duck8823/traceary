@@ -119,16 +119,19 @@ func TestServer_BuildAndTools(t *testing.T) {
 	})
 
 	t.Run("add_audit and get_context work together", func(t *testing.T) {
+		zero := 0
 		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name: "record_event",
 			Arguments: map[string]any{
-				"type":       "audit",
-				"command":    "go test ./...",
-				"input":      "stdin",
-				"output":     "stdout",
-				"agent":      "codex",
-				"session_id": "session-2",
-				"workspace":  "github.com/duck8823/traceary",
+				"type":           "audit",
+				"command":        "rtk git status",
+				"input":          "stdin",
+				"output":         `{"failed": true}`,
+				"exit_code":      zero,
+				"failure_reason": "host_error",
+				"agent":          "codex",
+				"session_id":     "session-2",
+				"workspace":      "github.com/duck8823/traceary",
 			},
 		})
 		if err != nil {
@@ -136,6 +139,15 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 		if result.IsError {
 			t.Fatalf("CallTool(add_audit) returned tool error")
+		}
+		if got := extractJSONStringValue(t, result, "wrapper"); got != "rtk" {
+			t.Fatalf("wrapper = %q, want rtk", got)
+		}
+		if got := extractJSONStringValue(t, result, "command_name"); got != "git" {
+			t.Fatalf("command_name = %q, want git", got)
+		}
+		if got := extractJSONStringValue(t, result, "failure_reason"); got != "none" {
+			t.Fatalf("failure_reason = %q, want none", got)
 		}
 
 		contextResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -1568,7 +1580,9 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			Data: []byte(`
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    command_text TEXT NOT NULL,
+	command_text TEXT NOT NULL,
+	command_wrapper TEXT NOT NULL DEFAULT '',
+	command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -1576,7 +1590,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+	failed INTEGER NOT NULL DEFAULT 0,
+	failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 		"000004_create_sessions.sql": {

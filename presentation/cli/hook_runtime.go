@@ -296,18 +296,20 @@ func (c *RootCLI) runHookAudit(
 		ExtraRedactPatterns(c.extraRedactPatterns).
 		StructuredRules(c.structuredRedactRules).
 		Build()
+	failureReason := hookPayloadFailureReason(payload)
 	_, _, err = c.event.Audit(
 		ctx,
 		apptypes.AuditInput{
-			Command:   command,
-			Input:     auditInput,
-			Output:    auditOutput,
-			Client:    types.Client("hook"),
-			Agent:     agent,
-			SessionID: sessionID,
-			Workspace: workspace,
-			ExitCode:  hookPayloadExitCode(payload),
-			Failed:    hookPayloadFailed(payload),
+			Command:       command,
+			Input:         auditInput,
+			Output:        auditOutput,
+			Client:        types.Client("hook"),
+			Agent:         agent,
+			SessionID:     sessionID,
+			Workspace:     workspace,
+			ExitCode:      hookPayloadExitCode(payload),
+			Failed:        failureReason.IsFailure(),
+			FailureReason: failureReason,
 		},
 		auditCfg,
 	)

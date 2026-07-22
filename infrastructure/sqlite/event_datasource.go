@@ -434,6 +434,8 @@ func (d *EventDatasource) GetDetails(
 
 	var (
 		commandTextValue     sql.NullString
+		commandWrapperValue  sql.NullString
+		commandNameValue     sql.NullString
 		inputTextValue       sql.NullString
 		outputTextValue      sql.NullString
 		inputTruncatedValue  sql.NullBool
@@ -442,11 +444,14 @@ func (d *EventDatasource) GetDetails(
 		outputOriginalBytes  sql.NullInt64
 		exitCodeValue        sql.NullInt64
 		failedValue          sql.NullBool
+		failureReasonValue   sql.NullString
 	)
 
 	event, err := scanEventWithAudit(
 		row,
 		&commandTextValue,
+		&commandWrapperValue,
+		&commandNameValue,
 		&inputTextValue,
 		&outputTextValue,
 		&inputTruncatedValue,
@@ -455,6 +460,7 @@ func (d *EventDatasource) GetDetails(
 		&outputOriginalBytes,
 		&exitCodeValue,
 		&failedValue,
+		&failureReasonValue,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -469,17 +475,20 @@ func (d *EventDatasource) GetDetails(
 		if exitCodeValue.Valid {
 			exitCode = types.Some(int(exitCodeValue.Int64))
 		}
-		commandAudit := model.CommandAuditOf(
-			eventID,
-			commandTextValue.String,
-			inputTextValue.String,
-			outputTextValue.String,
-			inputTruncatedValue.Bool,
-			outputTruncatedValue.Bool,
-			exitCode,
-			failedValue.Bool,
-		)
-		commandAudit.SetOriginalPayloadBytes(int(inputOriginalBytes.Int64), int(outputOriginalBytes.Int64))
+		wrapper := types.None[types.CommandName]()
+		if commandWrapperValue.String != "" {
+			wrapper = types.Some(types.CommandName(commandWrapperValue.String))
+		}
+		commandAudit, restoreErr := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
+			EventID: eventID, Command: commandTextValue.String, Wrapper: wrapper,
+			CommandName: types.CommandName(commandNameValue.String), Input: inputTextValue.String, Output: outputTextValue.String,
+			InputTruncated: inputTruncatedValue.Bool, OutputTruncated: outputTruncatedValue.Bool,
+			InputOriginalBytes: int(inputOriginalBytes.Int64), OutputOriginalBytes: int(outputOriginalBytes.Int64),
+			ExitCode: exitCode, Failed: failedValue.Bool, FailureReason: types.CommandFailureReason(failureReasonValue.String),
+		})
+		if restoreErr != nil {
+			return apptypes.EventDetails{}, xerrors.Errorf("failed to restore command audit: %w", restoreErr)
+		}
 		commandAuditOpt = types.Some(commandAudit)
 	}
 
@@ -701,6 +710,8 @@ func scanEventWithAudit(
 		Scan(dest ...any) error
 	},
 	commandTextValue *sql.NullString,
+	commandWrapperValue *sql.NullString,
+	commandNameValue *sql.NullString,
 	inputTextValue *sql.NullString,
 	outputTextValue *sql.NullString,
 	inputTruncatedValue *sql.NullBool,
@@ -709,6 +720,7 @@ func scanEventWithAudit(
 	outputOriginalBytes *sql.NullInt64,
 	exitCodeValue *sql.NullInt64,
 	failedValue *sql.NullBool,
+	failureReasonValue *sql.NullString,
 ) (*model.Event, error) {
 	var (
 		eventIDValue    string
@@ -733,6 +745,8 @@ func scanEventWithAudit(
 		&sourceHookValue,
 		&createdAtValue,
 		commandTextValue,
+		commandWrapperValue,
+		commandNameValue,
 		inputTextValue,
 		outputTextValue,
 		inputTruncatedValue,
@@ -741,6 +755,7 @@ func scanEventWithAudit(
 		outputOriginalBytes,
 		exitCodeValue,
 		failedValue,
+		failureReasonValue,
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan event details row: %w", err)
 	}

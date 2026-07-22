@@ -185,10 +185,12 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"  },\n" +
 			"  \"command_audit\": {\n" +
 			"    \"command\": \"go test ./...\",\n" +
+			"    \"command_name\": \"unknown\",\n" +
 			"    \"input\": \"stdin\",\n" +
 			"    \"output\": \"stdout\",\n" +
 			"    \"input_truncated\": true,\n" +
 			"    \"output_truncated\": false,\n" +
+			"    \"failure_reason\": \"unknown\",\n" +
 			"    \"sensitive\": {\n" +
 			"      \"matched\": false,\n" +
 			"      \"coverage\": \"partial\",\n" +

@@ -17,6 +17,7 @@ import (
 type RootCLI struct {
 	event                      usecase.EventUsecase
 	eventMetadata              usecase.EventMetadataUsecase
+	reportCommand              usecase.ReportCommandUsecase
 	session                    usecase.SessionUsecase
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
@@ -64,6 +65,11 @@ func WithEvent(event usecase.EventUsecase) RootCLIOption {
 // WithEventMetadata injects body-free event reads used by metadata projections.
 func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.eventMetadata = eventMetadata }
+}
+
+// WithReportCommand injects structured command-audit aggregation for report.
+func WithReportCommand(reportCommand usecase.ReportCommandUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.reportCommand = reportCommand }
 }
 
 // WithSession injects the SessionUsecase used by session-related commands.

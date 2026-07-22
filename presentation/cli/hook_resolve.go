@@ -349,6 +349,56 @@ func hookPayloadFailed(payload []byte) bool {
 	return false
 }
 
+// hookPayloadFailureReason resolves only structured hook evidence. It never
+// searches error/output text, so quoted failure examples cannot become actual
+// failures. Host adapters may emit the shared failure_reason field after
+// interpreting their versioned payload contracts.
+func hookPayloadFailureReason(payload []byte) types.CommandFailureReason {
+	exitCode, hasExitCode := hookPayloadExitCode(payload).Value()
+	if hasExitCode && exitCode == 0 {
+		return types.CommandFailureReasonNone
+	}
+	explicitReason := types.CommandFailureReasonUnknown
+	if value := hookPayloadString(payload, "failure_reason", ""); value != "" {
+		if reason, err := types.CommandFailureReasonFrom(value); err == nil {
+			explicitReason = reason
+			switch reason {
+			case types.CommandFailureReasonSignal,
+				types.CommandFailureReasonTimeout,
+				types.CommandFailureReasonHookDenied:
+				return reason
+			}
+		}
+	}
+	if hookPayloadBool(payload, "is_interrupt") || hookPayloadBool(payload, "tool_response.interrupted") {
+		return types.CommandFailureReasonSignal
+	}
+	for _, path := range []string{"timed_out", "tool_response.timed_out", "tool_response.timedOut"} {
+		if hookPayloadBool(payload, path) {
+			return types.CommandFailureReasonTimeout
+		}
+	}
+	if hasExitCode {
+		return types.CommandFailureReasonExitCode
+	}
+	if explicitReason != types.CommandFailureReasonUnknown {
+		return explicitReason
+	}
+	if hookPayloadFailed(payload) {
+		return types.CommandFailureReasonHostError
+	}
+	return types.CommandFailureReasonUnknown
+}
+
+func hookPayloadBool(payload []byte, path string) bool {
+	value, ok := lookupHookPayloadValue(payload, path)
+	if !ok {
+		return false
+	}
+	boolean, ok := value.(bool)
+	return ok && boolean
+}
+
 func buildHookFailureOutput(payload []byte) (string, error) {
 	if len(payload) == 0 {
 		return "", nil

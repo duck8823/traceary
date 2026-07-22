@@ -54,8 +54,13 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - `output_truncated`: output を切り詰めたかどうか
 - `input_original_bytes`: `input_truncated` が true で既知の場合の元 input byte 数
 - `output_original_bytes`: `output_truncated` が true で既知の場合の元 output byte 数
+- `command_wrapper`: Traceary が確認済みとして認識する wrapper の basename（現時点では `rtk`）。直接実行では空
+- `command_name`: report 集計に使う正規化済み executable basename。`rtk git ...` と `git ...` はどちらも `git`
 - `exit_code`: 取得できた場合の終了コード
-- `failed`: 構造的な失敗フラグ。host が hook payload に数値 exit code を出さずに tool/command の失敗を伝える場合（例: Claude の `PostToolUseFailure`）に立つ。`list --failures` は非ゼロ `exit_code` に加えて `failed = 1` も対象にする
+- `failed`: 構造化された実行結果から導出する互換用の失敗フラグ
+- `failure_reason`: `none`、`exit_code`、`signal`、`timeout`、`hook_denied`、`host_error`、`unknown` のいずれか
+
+Traceary は確認済みのコマンド構造だけを正規化します。直接実行は先頭 token の basename を使い、wrapper として展開するのは観測済みの `rtk <command>` / `rtk proxy <command>` だけです。shell 文字列を実行したり完全評価したりはしません。取得済みの終了コード `0` は常に成功であり、input/output に `failed` のような文字列が含まれていても report の失敗には数えません。report 集計は payload 本文を解析しません。この schema より前の履歴行は、取得していない根拠を推測せず、`command_name=unknown` と `failure_reason=unknown` を明示します。
 
 `input_truncated` または `output_truncated` が true の場合、保存済み payload はすでに上限内の head/tail projection であり、新規 row では対応する `*_original_bytes` column に元の byte 数を記録します。body にも人が読める文脈として `original_bytes` marker を含めます。省略された byte は過去 row から復元できません。
 
