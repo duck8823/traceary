@@ -112,17 +112,6 @@ type eventMetadataUsecaseStub struct {
 	contextCalls    int
 }
 
-type reportCommandUsecaseStub struct {
-	summary  apptypes.ReportCommandSummary
-	err      error
-	criteria apptypes.EventListCriteria
-}
-
-func (s *reportCommandUsecaseStub) Summarize(_ context.Context, criteria apptypes.EventListCriteria) (apptypes.ReportCommandSummary, error) {
-	s.criteria = criteria
-	return s.summary, s.err
-}
-
 func (s *eventMetadataUsecaseStub) List(_ context.Context, _ apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
 	s.listCalls++
 	return s.listMetadata, s.listErr

@@ -151,6 +151,7 @@ func run() error {
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
+	reportDatasource := sqlite.NewReportDatasource(db)
 
 	cfg := presentation.LoadConfig()
 	extraRedactPatterns := cfg.ExtraRedactPatterns
@@ -163,7 +164,7 @@ func run() error {
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
-	reportCommandUsecase := usecase.NewReportCommandUsecase(eventDatasource)
+	reportUsecase := usecase.NewReportUsecase(reportDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	codexMemorySource := filesystem.NewCodexMemorySource()
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns, usecase.MemoryUsecaseDependencies{
@@ -193,6 +194,7 @@ func run() error {
 		contextUsecase,
 		storeManagementUsecase,
 		mcpserver.WithEventMetadata(eventMetadataUsecase),
+		mcpserver.WithReport(reportUsecase),
 	)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)
@@ -213,7 +215,7 @@ func run() error {
 	rootCmd := cli.NewRootCLI(
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
-		cli.WithReportCommand(reportCommandUsecase),
+		cli.WithReport(reportUsecase),
 		cli.WithSession(sessionUsecase),
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),

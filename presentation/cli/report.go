@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 
@@ -13,26 +12,28 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	appusecase "github.com/duck8823/traceary/application/usecase"
-	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
+
+const defaultReportPageSize = 5000
 
 // newReportCommand builds `traceary report`, a period-scoped retrospective
 // digest. Exit code is always 0 on successful aggregation (health verdicts
 // remain doctor's job).
 func (c *RootCLI) newReportCommand() *cobra.Command {
 	var (
-		dbPath    string
-		workspace string
-		from      string
-		since     string
-		to        string
-		until     string
-		client    string
-		timezone  string
-		limit     int
-		asJSON    bool
+		dbPath      string
+		workspace   string
+		from        string
+		since       string
+		to          string
+		until       string
+		client      string
+		timezone    string
+		pageSize    int
+		resultCap   int
+		legacyLimit int
+		asJSON      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "report",
@@ -40,16 +41,11 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runReport(cmd.Context(), cmd.OutOrStdout(), reportCommandInput{
-				dbPath:    dbPath,
-				workspace: workspace,
-				from:      from,
-				since:     since,
-				to:        to,
-				until:     until,
-				client:    client,
-				timezone:  timezone,
-				limit:     limit,
-				asJSON:    asJSON,
+				dbPath: dbPath, workspace: workspace, from: from, since: since,
+				to: to, until: until, client: client, timezone: timezone,
+				pageSize: pageSize, resultCap: resultCap, legacyLimit: legacyLimit,
+				pageSizeSet: cmd.Flags().Changed("page-size"), legacyLimitSet: cmd.Flags().Changed("limit"),
+				asJSON: asJSON,
 			})
 		},
 	}
@@ -61,107 +57,44 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&until, "until", "", Localize("alias for --to", "--to の alias"))
 	cmd.Flags().StringVar(&client, "client", "", Localize("optional client filter", "任意の client フィルタ"))
 	cmd.Flags().StringVar(&timezone, "timezone", "UTC", Localize("IANA timezone for date-only bounds (default: UTC)", "日付のみの境界に使う IANA タイムゾーン（既定: UTC）"))
-	cmd.Flags().IntVar(&limit, "limit", 5000, Localize("maximum events to scan for aggregation", "集計に使う event の最大件数"))
+	cmd.Flags().IntVar(&pageSize, "page-size", defaultReportPageSize, Localize("internal database page size (does not cap aggregate results)", "DB 内部のページサイズ（集計結果の上限ではありません）"))
+	cmd.Flags().IntVar(&resultCap, "result-cap", 0, Localize("maximum rows per aggregate source; 0 means complete aggregation", "集計元ごとの最大行数（0 は全件集計）"))
+	cmd.Flags().IntVar(&legacyLimit, "limit", 0, Localize("deprecated alias for --page-size", "--page-size の非推奨 alias"))
+	_ = cmd.Flags().MarkDeprecated("limit", Localize("use --page-size; use --result-cap only for an explicit partial aggregate", "--page-size を使ってください。部分集計を明示する場合だけ --result-cap を使います"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("emit JSON", "JSON で出力する"))
 	cmd.AddCommand(c.newWorkspaceIdentityReportCommand())
 	return cmd
 }
 
 type reportCommandInput struct {
-	dbPath    string
-	workspace string
-	from      string
-	since     string
-	to        string
-	until     string
-	client    string
-	timezone  string
-	limit     int
-	asJSON    bool
-}
-
-type reportEnvelope struct {
-	Period           reportPeriod        `json:"period"`
-	Workspace        string              `json:"workspace,omitempty"`
-	ClientFilter     string              `json:"client,omitempty"`
-	Sessions         []reportSessionRow  `json:"sessions"`
-	CaptureCoverage  []reportCoverageRow `json:"capture_coverage"`
-	Failures         reportFailures      `json:"failures"`
-	TopCommands      []reportCommandRow  `json:"top_commands"`
-	FailureLoops     []reportFailureLoop `json:"failure_loops,omitempty"`
-	EventScanCount   int                 `json:"event_scan_count"`
-	SessionScanCount int                 `json:"session_scan_count"`
-}
-
-type reportPeriod struct {
-	// From and To preserve the pre-v0.30 effective-bound JSON fields.
-	From                   string `json:"from"`
-	To                     string `json:"to"`
-	RequestedFrom          string `json:"requested_from"`
-	RequestedTo            string `json:"requested_to"`
-	EffectiveFromInclusive string `json:"effective_from_inclusive"`
-	EffectiveToExclusive   string `json:"effective_to_exclusive"`
-	Timezone               string `json:"timezone"`
-	SnapshotAt             string `json:"snapshot_at"`
-	FromDateOnly           bool   `json:"from_date_only"`
-	ToDateOnly             bool   `json:"to_date_only"`
-}
-
-type reportSessionRow struct {
-	Client       string `json:"client"`
-	Sessions     int    `json:"sessions"`
-	TotalEvents  int    `json:"total_events"`
-	CommandCount int    `json:"command_count"`
-}
-
-type reportCoverageRow struct {
-	Client                       string  `json:"client"`
-	Sessions                     int     `json:"sessions"`
-	WithPrompt                   int     `json:"with_prompt"`
-	WithTranscript               int     `json:"with_transcript"`
-	WithCommand                  int     `json:"with_command"`
-	PromptTranscriptMissing      int     `json:"prompt_transcript_missing"`
-	PromptTranscriptMissingRatio float64 `json:"prompt_transcript_missing_ratio"`
-}
-
-type reportFailures struct {
-	Total    int            `json:"total"`
-	ByClient map[string]int `json:"by_client"`
-	ByReason map[string]int `json:"by_reason"`
-	Samples  []string       `json:"sample_event_ids"`
-}
-
-type reportCommandRow struct {
-	Command       string  `json:"command"`
-	Count         int     `json:"count"`
-	FailedCount   int     `json:"failed_count"`
-	FailureRate   float64 `json:"failure_rate"`
-	SampleEventID string  `json:"sample_event_id,omitempty"`
-}
-
-type reportFailureLoop struct {
-	Command        string   `json:"command"`
-	Workspace      string   `json:"workspace,omitempty"`
-	Agent          string   `json:"agent,omitempty"`
-	Count          int      `json:"count"`
-	SampleEventIDs []string `json:"sample_event_ids"`
+	dbPath         string
+	workspace      string
+	from           string
+	since          string
+	to             string
+	until          string
+	client         string
+	timezone       string
+	pageSize       int
+	resultCap      int
+	legacyLimit    int
+	pageSizeSet    bool
+	legacyLimitSet bool
+	asJSON         bool
 }
 
 func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.event == nil {
-		return xerrors.New(Localize("event usecase is not configured", "event usecase が設定されていません"))
+	if c.report == nil {
+		return xerrors.New(Localize("report usecase is not configured", "report usecase が設定されていません"))
 	}
-	if c.session == nil {
-		return xerrors.New(Localize("session usecase is not configured", "session usecase が設定されていません"))
+	if input.pageSizeSet && input.legacyLimitSet {
+		return xerrors.New(Localize("--limit and --page-size cannot be used together", "--limit と --page-size は同時に指定できません"))
 	}
-	if c.reportCommand == nil {
-		return xerrors.New(Localize("report command usecase is not configured", "report command usecase が設定されていません"))
-	}
-	if input.limit <= 0 {
-		return xerrors.New(Localize("--limit must be positive", "--limit は 1 以上である必要があります"))
+	if input.legacyLimitSet {
+		input.pageSize = input.legacyLimit
 	}
 
 	fromValue, err := resolveSearchDateValue(input.from, input.since, "from", "since")
@@ -172,27 +105,15 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 	if err != nil {
 		return err
 	}
-	snapshotAt := time.Now().UTC()
-	defaultWindow := false
-	if strings.TrimSpace(fromValue) == "" && strings.TrimSpace(toValue) == "" {
-		defaultWindow = true
-	} else if strings.TrimSpace(fromValue) == "" {
-		// If only --to is set, still require an explicit from for clarity.
-		return xerrors.New(Localize("--from is required when --to is set (or omit both for last 7 days)", "--to 指定時は --from が必要です（両方省略で直近7日）"))
-	}
-	interval, err := apptypes.RequestedIntervalFrom(fromValue, toValue, input.timezone, snapshotAt)
+	criteria, err := apptypes.ReportCriteriaFrom(
+		fromValue, toValue, input.timezone, time.Now().UTC(),
+		types.Workspace(resolveWorkspaceValue(ctx, input.workspace)),
+		types.Client(strings.TrimSpace(input.client)),
+		input.pageSize, input.resultCap,
+	)
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve report interval", "report 期間の解決に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve report criteria", "report 条件の解決に失敗しました"), err)
 	}
-	if defaultWindow {
-		interval, err = interval.WithDefaultFrom(snapshotAt.Add(-7 * 24 * time.Hour))
-		if err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to apply default report interval", "report の既定期間の適用に失敗しました"), err)
-		}
-	}
-	fromInclusive := interval.EffectiveFromInclusive()
-	toExclusive := interval.EffectiveToExclusive()
-
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
@@ -202,170 +123,22 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	ws := types.Workspace(resolveWorkspaceValue(ctx, input.workspace))
-	clientFilter := strings.TrimSpace(input.client)
-
-	sessionCriteria := apptypes.NewSessionListCriteriaBuilder(input.limit).
-		Workspace(ws).
-		Client(types.Client(clientFilter)).
-		From(types.Some(fromInclusive)).
-		To(types.Some(toExclusive)).
-		Build()
-	sessions, err := c.session.List(ctx, sessionCriteria)
+	report, err := c.report.Generate(ctx, criteria)
 	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to list sessions for report", "report 用 session 一覧の取得に失敗しました"), err)
+		return xerrors.Errorf("%s: %w", Localize("failed to generate report", "report の生成に失敗しました"), err)
 	}
-
-	eventCriteria := apptypes.NewEventListCriteriaBuilder(input.limit).
-		Workspace(ws).
-		Client(types.Client(clientFilter)).
-		From(fromInclusive).
-		To(toExclusive).
-		Build()
-	events, err := c.event.ListWindow(ctx, eventCriteria)
-	if err != nil {
-		// Fall back to List when ListWindow is unavailable on stub/older paths.
-		events, err = c.event.List(ctx, eventCriteria)
-		if err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to list events for report", "report 用 event 一覧の取得に失敗しました"), err)
-		}
-	}
-	commandSummary, err := c.reportCommand.Summarize(ctx, eventCriteria)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to summarize command audits for report", "report 用 command audit の集計に失敗しました"), err)
-	}
-
-	envelope := buildReportEnvelope(interval, ws.String(), clientFilter, sessions, events, commandSummary)
 	if input.asJSON {
 		enc := json.NewEncoder(output)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(envelope); err != nil {
+		if err := enc.Encode(report); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to encode report JSON", "report JSON の encode に失敗しました"), err)
 		}
 		return nil
 	}
-	return writeReportText(output, envelope)
+	return writeReportText(output, report)
 }
 
-func buildReportEnvelope(
-	interval apptypes.RequestedInterval,
-	workspace, clientFilter string,
-	sessions []apptypes.SessionSummary,
-	events []*model.Event,
-	commandSummary apptypes.ReportCommandSummary,
-) reportEnvelope {
-	sessionRows := map[string]*reportSessionRow{}
-	for _, s := range sessions {
-		client := s.Client().String()
-		if client == "" {
-			client = "(empty)"
-		}
-		row := sessionRows[client]
-		if row == nil {
-			row = &reportSessionRow{Client: client}
-			sessionRows[client] = row
-		}
-		row.Sessions++
-		row.TotalEvents += s.TotalEvents()
-		row.CommandCount += s.CommandCount()
-	}
-
-	coverageByClient := map[string][]appusecase.EventCoverageInput{}
-	for _, event := range events {
-		if event == nil {
-			continue
-		}
-		client := event.Client().String()
-		if client == "" {
-			client = "(empty)"
-		}
-		coverageByClient[client] = append(coverageByClient[client], appusecase.EventCoverageInput{
-			SessionID: event.SessionID().String(),
-			Kind:      event.Kind(),
-		})
-	}
-
-	sessionOut := make([]reportSessionRow, 0, len(sessionRows))
-	for _, row := range sessionRows {
-		sessionOut = append(sessionOut, *row)
-	}
-	sort.Slice(sessionOut, func(i, j int) bool {
-		if sessionOut[i].Sessions == sessionOut[j].Sessions {
-			return sessionOut[i].Client < sessionOut[j].Client
-		}
-		return sessionOut[i].Sessions > sessionOut[j].Sessions
-	})
-
-	coverageOut := make([]reportCoverageRow, 0, len(coverageByClient))
-	for client, inputs := range coverageByClient {
-		summary := appusecase.SummarizeSessionEventCoverage(inputs)
-		coverageOut = append(coverageOut, reportCoverageRow{
-			Client:                       client,
-			Sessions:                     summary.Sessions,
-			WithPrompt:                   summary.WithPrompt,
-			WithTranscript:               summary.WithTranscript,
-			WithCommand:                  summary.WithCommand,
-			PromptTranscriptMissing:      summary.PromptTranscriptMissing,
-			PromptTranscriptMissingRatio: summary.PromptTranscriptMissingRatio(),
-		})
-	}
-	sort.Slice(coverageOut, func(i, j int) bool { return coverageOut[i].Client < coverageOut[j].Client })
-
-	topCommands := make([]reportCommandRow, 0, len(commandSummary.TopCommands))
-	for _, row := range commandSummary.TopCommands {
-		topCommands = append(topCommands, reportCommandRow{
-			Command: row.Command, Count: row.Count, FailedCount: row.FailedCount,
-			FailureRate: row.FailureRate, SampleEventID: row.SampleEventID,
-		})
-	}
-	loops := make([]reportFailureLoop, 0, len(commandSummary.FailureLoops))
-	for _, loop := range commandSummary.FailureLoops {
-		loops = append(loops, reportFailureLoop{
-			Command: loop.Command, Workspace: loop.Workspace, Agent: loop.Agent,
-			Count: loop.Count, SampleEventIDs: loop.SampleEventIDs,
-		})
-	}
-
-	return reportEnvelope{
-		Period: reportPeriod{
-			From:                   formatReportCompatibilityTime(interval.EffectiveFromInclusive()),
-			To:                     formatReportCompatibilityTime(interval.EffectiveToExclusive()),
-			RequestedFrom:          interval.RequestedFrom(),
-			RequestedTo:            interval.RequestedTo(),
-			EffectiveFromInclusive: formatReportTime(interval.EffectiveFromInclusive()),
-			EffectiveToExclusive:   formatReportTime(interval.EffectiveToExclusive()),
-			Timezone:               interval.Timezone(),
-			SnapshotAt:             formatReportTime(interval.SnapshotAt()),
-			FromDateOnly:           interval.FromIsDateOnly(),
-			ToDateOnly:             interval.ToIsDateOnly(),
-		},
-		Workspace:        workspace,
-		ClientFilter:     clientFilter,
-		Sessions:         sessionOut,
-		CaptureCoverage:  coverageOut,
-		Failures:         reportFailures{Total: commandSummary.FailureTotal, ByClient: commandSummary.FailuresByClient, ByReason: commandSummary.FailuresByReason, Samples: commandSummary.FailureSamples},
-		TopCommands:      topCommands,
-		FailureLoops:     loops,
-		EventScanCount:   len(events),
-		SessionScanCount: len(sessions),
-	}
-}
-
-func formatReportTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format(time.RFC3339Nano)
-}
-
-func formatReportCompatibilityTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format(time.RFC3339)
-}
-
-func writeReportText(output io.Writer, report reportEnvelope) error {
+func writeReportText(output io.Writer, report apptypes.ReportSnapshot) error {
 	var b strings.Builder
 	b.WriteString("Traceary report\n")
 	requestedFrom := report.Period.RequestedFrom
@@ -382,6 +155,7 @@ func writeReportText(output io.Writer, report reportEnvelope) error {
 		fmt.Fprintf(&b, "Period: %s → %s (exclusive instant; timezone=%s)\n", requestedFrom, requestedTo, report.Period.Timezone)
 	}
 	fmt.Fprintf(&b, "Effective interval: %s → %s (exclusive end; snapshot=%s)\n", report.Period.EffectiveFromInclusive, report.Period.EffectiveToExclusive, report.Period.SnapshotAt)
+	fmt.Fprintf(&b, "Aggregation: coverage=%s page_size=%d result_cap=%d\n", report.Aggregation.Coverage, report.Aggregation.PageSize, report.Aggregation.ResultCap)
 	if report.Workspace != "" {
 		fmt.Fprintf(&b, "Workspace: %s\n", report.Workspace)
 	}
@@ -398,8 +172,12 @@ func writeReportText(output io.Writer, report reportEnvelope) error {
 	}
 	b.WriteString("\n## capture_coverage\n")
 	for _, row := range report.CaptureCoverage {
-		fmt.Fprintf(&b, "- %s: sessions=%d prompt=%d transcript=%d command=%d missing_ratio=%.2f\n",
-			row.Client, row.Sessions, row.WithPrompt, row.WithTranscript, row.WithCommand, row.PromptTranscriptMissingRatio)
+		ratio := "unavailable(partial)"
+		if row.PromptTranscriptMissingRatio != nil {
+			ratio = fmt.Sprintf("%.2f", *row.PromptTranscriptMissingRatio)
+		}
+		fmt.Fprintf(&b, "- %s: sessions=%d prompt=%d transcript=%d command=%d missing_ratio=%s\n",
+			row.Client, row.Sessions, row.WithPrompt, row.WithTranscript, row.WithCommand, ratio)
 	}
 	b.WriteString("\n## failures\n")
 	fmt.Fprintf(&b, "total=%d\n", report.Failures.Total)
@@ -421,8 +199,12 @@ func writeReportText(output io.Writer, report reportEnvelope) error {
 	}
 	b.WriteString("\n## top_commands\n")
 	for _, row := range report.TopCommands {
-		fmt.Fprintf(&b, "- %s: count=%d failed=%d rate=%.2f sample=%s\n",
-			row.Command, row.Count, row.FailedCount, row.FailureRate, row.SampleEventID)
+		rate := "unavailable(partial)"
+		if row.FailureRate != nil {
+			rate = fmt.Sprintf("%.2f", *row.FailureRate)
+		}
+		fmt.Fprintf(&b, "- %s: count=%d failed=%d rate=%s sample=%s\n",
+			row.Command, row.Count, row.FailedCount, rate, row.SampleEventID)
 	}
 	if _, err := io.WriteString(output, b.String()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to write report text", "report テキストの書き出しに失敗しました"), err)

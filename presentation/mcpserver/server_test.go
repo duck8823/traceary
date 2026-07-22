@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/mcpserver"
@@ -93,6 +94,27 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 		if len(listResult.Content) == 0 {
 			t.Fatalf("list_events result content is empty")
+		}
+	})
+
+	t.Run("get_report returns the shared aggregate schema", func(t *testing.T) {
+		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "get_report",
+			Arguments: map[string]any{
+				"from": "2026-07-21", "to": "2026-07-21", "timezone": "UTC",
+				"page_size": 2, "result_cap": 1,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(get_report) error = %v", err)
+		}
+		payload := decodeJSONPayload(t, result)
+		aggregation, ok := payload["aggregation"].(map[string]any)
+		if !ok || aggregation["coverage"] != "partial" || aggregation["result_cap"] != float64(1) {
+			t.Fatalf("aggregation = %#v", payload["aggregation"])
+		}
+		if _, ok := payload["period"].(map[string]any); !ok {
+			t.Fatalf("period = %#v", payload["period"])
 		}
 	})
 
@@ -1543,6 +1565,38 @@ func newTestServer(t *testing.T) *mcpserver.Server {
 	return server
 }
 
+type mcpReportUsecaseStub struct{}
+
+func (*mcpReportUsecaseStub) Generate(_ context.Context, criteria apptypes.ReportCriteria) (apptypes.ReportSnapshot, error) {
+	interval := criteria.Interval()
+	observedAt := []time.Time(nil)
+	if criteria.ResultCap() > 0 {
+		observedAt = []time.Time{interval.EffectiveFromInclusive()}
+	}
+	partialExtent, _ := apptypes.ReportSourceExtentOf(observedAt, criteria.PageSize(), criteria.ResultCap(), criteria.ResultCap() > 0)
+	coverage := apptypes.ReportCoverageComplete
+	if criteria.ResultCap() > 0 {
+		coverage = apptypes.ReportCoveragePartial
+	}
+	return apptypes.ReportSnapshot{
+		Period: apptypes.ReportPeriod{
+			From:          interval.EffectiveFromInclusive().UTC().Format(time.RFC3339),
+			To:            interval.EffectiveToExclusive().UTC().Format(time.RFC3339),
+			RequestedFrom: interval.RequestedFrom(), RequestedTo: interval.RequestedTo(),
+			EffectiveFromInclusive: interval.EffectiveFromInclusive().UTC().Format(time.RFC3339Nano),
+			EffectiveToExclusive:   interval.EffectiveToExclusive().UTC().Format(time.RFC3339Nano),
+			Timezone:               interval.Timezone(), SnapshotAt: interval.SnapshotAt().UTC().Format(time.RFC3339Nano),
+		},
+		Aggregation: apptypes.ReportAggregation{
+			Coverage: coverage, PageSize: criteria.PageSize(), ResultCap: criteria.ResultCap(),
+			Sources: apptypes.ReportSourceExtents{Sessions: partialExtent, Events: partialExtent, Commands: partialExtent},
+		},
+		Sessions: []apptypes.ReportSessionRow{}, CaptureCoverage: []apptypes.ReportCoverageRow{},
+		Failures:    apptypes.ReportFailures{ByClient: map[string]int{}, ByReason: map[string]int{}, Samples: []string{}},
+		TopCommands: []apptypes.ReportCommandOutput{},
+	}, nil
+}
+
 func updateSessionParentForMCPTest(ctx context.Context, t *testing.T, dbPath string, sessionID string, parentID string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
@@ -1719,6 +1773,7 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 		memoryUsecase,
 		contextUsecase,
 		storeManagementUsecase,
+		mcpserver.WithReport(&mcpReportUsecaseStub{}),
 	)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)

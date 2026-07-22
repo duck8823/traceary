@@ -40,6 +40,53 @@
     }
   },
   {
+    "name": "get_report",
+    "description": "Aggregate sessions, capture coverage, failures, and commands with explicit complete/partial provenance.",
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "client": {
+          "description": "client filter",
+          "type": "string"
+        },
+        "from": {
+          "description": "inclusive period start (RFC3339 or YYYY-MM-DD)",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "internal database page size; default 5000 and does not cap aggregate results",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "result_cap": {
+          "description": "maximum rows per aggregate source; omit or set 0 for complete aggregation",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "timezone": {
+          "description": "IANA timezone for date-only bounds (default: UTC); Local is rejected",
+          "type": "string"
+        },
+        "to": {
+          "description": "exclusive RFC3339 instant or inclusive calendar date",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "workspace filter",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "list_events",
     "description": "List recent events, logs, audits, prompts, transcripts, and summaries.",
     "annotations": {

@@ -2,269 +2,170 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-func TestRootCLI_Report_SucceedsWithJSON(t *testing.T) {
-	t.Parallel()
-
-	agent, err := types.AgentFrom("codex")
-	if err != nil {
-		t.Fatalf("AgentFrom: %v", err)
-	}
-	sessionID, err := types.SessionIDFrom("session-report-1")
-	if err != nil {
-		t.Fatalf("SessionIDFrom: %v", err)
-	}
-	eventID, err := types.EventIDFrom("event-report-1")
-	if err != nil {
-		t.Fatalf("EventIDFrom: %v", err)
-	}
-	event := model.EventOf(
-		eventID,
-		types.EventKindCommandExecuted,
-		"hook",
-		agent,
-		sessionID,
-		"duck8823/traceary",
-		"go test ./...\n\nINPUT:\n\n\nOUTPUT:\nok",
-		time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC),
-	)
-	summary := apptypes.SessionSummaryOf(
-		sessionID,
-		types.Workspace("duck8823/traceary"),
-		time.Date(2026, 7, 10, 11, 0, 0, 0, time.UTC),
-		types.None[time.Time](),
-		"active",
-		1,
-		1,
-		[]string{"codex"},
-		"",
-		"",
-		types.SessionID(""),
-		types.Client("hook"),
-	)
-	sessionStub := &sessionUsecaseStub{listResult: []apptypes.SessionSummary{summary}}
-	eventStub := &eventUsecaseStub{listEvents: []*model.Event{event}}
-	reportStub := &reportCommandUsecaseStub{summary: apptypes.ReportCommandSummary{
-		FailuresByClient: map[string]int{}, FailuresByReason: map[string]int{},
-		TopCommands: []apptypes.ReportCommandRow{{Command: "go", Count: 1, SampleEventID: eventID.String()}},
-	}}
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(sessionStub),
-		cli.WithEvent(eventStub),
-		cli.WithReportCommand(reportStub),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{
-		"report",
-		"--db-path", "/tmp/test-traceary.db",
-		"--from", "2026-07-01",
-		"--to", "2026-07-16",
-		"--json",
-	})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute error = %v", err)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, `"period"`) || !strings.Contains(out, `"sessions"`) {
-		t.Fatalf("JSON missing expected keys: %s", out)
-	}
-	if !strings.Contains(out, `"top_commands"`) {
-		t.Fatalf("JSON missing top_commands: %s", out)
-	}
-	if !strings.Contains(out, "go") {
-		t.Fatalf("JSON missing top command token: %s", out)
-	}
-	var document struct {
-		Period struct {
-			RequestedFrom          string `json:"requested_from"`
-			RequestedTo            string `json:"requested_to"`
-			EffectiveFromInclusive string `json:"effective_from_inclusive"`
-			EffectiveToExclusive   string `json:"effective_to_exclusive"`
-			Timezone               string `json:"timezone"`
-			SnapshotAt             string `json:"snapshot_at"`
-		} `json:"period"`
-	}
-	if err := json.Unmarshal([]byte(out), &document); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	if document.Period.RequestedFrom != "2026-07-01" || document.Period.RequestedTo != "2026-07-16" {
-		t.Fatalf("requested period = %+v", document.Period)
-	}
-	if document.Period.EffectiveFromInclusive != "2026-07-01T00:00:00Z" || document.Period.EffectiveToExclusive != "2026-07-17T00:00:00Z" {
-		t.Fatalf("effective period = %+v", document.Period)
-	}
-	if document.Period.Timezone != "UTC" || document.Period.SnapshotAt == "" {
-		t.Fatalf("period metadata = %+v", document.Period)
-	}
-	if !reportStub.criteria.From().Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) || !reportStub.criteria.To().Equal(time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("report criteria = [%s, %s)", reportStub.criteria.From(), reportStub.criteria.To())
-	}
-	if !eventStub.listCriteria.From().Equal(reportStub.criteria.From()) || !eventStub.listCriteria.To().Equal(reportStub.criteria.To()) {
-		t.Fatalf("event criteria = [%s, %s), report = [%s, %s)", eventStub.listCriteria.From(), eventStub.listCriteria.To(), reportStub.criteria.From(), reportStub.criteria.To())
-	}
-	sessionFrom, fromOK := sessionStub.listCriteria.From().Value()
-	sessionTo, toOK := sessionStub.listCriteria.To().Value()
-	if !fromOK || !toOK || !sessionFrom.Equal(reportStub.criteria.From()) || !sessionTo.Equal(reportStub.criteria.To()) {
-		t.Fatalf("session criteria = [%s, %s), report = [%s, %s)", sessionFrom, sessionTo, reportStub.criteria.From(), reportStub.criteria.To())
-	}
+type reportUsecaseStub struct {
+	criteria apptypes.ReportCriteria
+	result   apptypes.ReportSnapshot
+	err      error
 }
 
-func TestRootCLI_Report_DefaultWindowPreservesOmittedRequestedBounds(t *testing.T) {
-	t.Parallel()
-
-	sessionStub := &sessionUsecaseStub{}
-	eventStub := &eventUsecaseStub{}
-	reportStub := &reportCommandUsecaseStub{summary: apptypes.ReportCommandSummary{FailuresByClient: map[string]int{}, FailuresByReason: map[string]int{}}}
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(sessionStub),
-		cli.WithEvent(eventStub),
-		cli.WithReportCommand(reportStub),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"report", "--db-path", "/tmp/test-traceary.db", "--json"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute error = %v", err)
+func (s *reportUsecaseStub) Generate(_ context.Context, criteria apptypes.ReportCriteria) (apptypes.ReportSnapshot, error) {
+	s.criteria = criteria
+	if s.result.Period.Timezone == "" {
+		s.result = reportSnapshotForCriteria(criteria)
 	}
-
-	var document struct {
-		Period struct {
-			RequestedFrom          string `json:"requested_from"`
-			RequestedTo            string `json:"requested_to"`
-			EffectiveFromInclusive string `json:"effective_from_inclusive"`
-			EffectiveToExclusive   string `json:"effective_to_exclusive"`
-			SnapshotAt             string `json:"snapshot_at"`
-		} `json:"period"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	if document.Period.RequestedFrom != "" || document.Period.RequestedTo != "" {
-		t.Fatalf("requested bounds = [%q, %q), want omitted", document.Period.RequestedFrom, document.Period.RequestedTo)
-	}
-	if document.Period.EffectiveToExclusive != document.Period.SnapshotAt {
-		t.Fatalf("effective to = %q, snapshot = %q", document.Period.EffectiveToExclusive, document.Period.SnapshotAt)
-	}
-	effectiveFrom, err := time.Parse(time.RFC3339Nano, document.Period.EffectiveFromInclusive)
-	if err != nil {
-		t.Fatalf("parse effective from: %v", err)
-	}
-	effectiveTo, err := time.Parse(time.RFC3339Nano, document.Period.EffectiveToExclusive)
-	if err != nil {
-		t.Fatalf("parse effective to: %v", err)
-	}
-	if got := effectiveTo.Sub(effectiveFrom); got != 7*24*time.Hour {
-		t.Fatalf("default window = %s, want 168h", got)
-	}
-	if !eventStub.listCriteria.From().Equal(reportStub.criteria.From()) || !eventStub.listCriteria.To().Equal(reportStub.criteria.To()) {
-		t.Fatalf("event and report criteria differ")
-	}
-	sessionFrom, fromOK := sessionStub.listCriteria.From().Value()
-	sessionTo, toOK := sessionStub.listCriteria.To().Value()
-	if !fromOK || !toOK || !sessionFrom.Equal(reportStub.criteria.From()) || !sessionTo.Equal(reportStub.criteria.To()) {
-		t.Fatalf("session and report criteria differ")
-	}
+	return s.result, s.err
 }
 
-func TestRootCLI_Report_LegacyPeriodFieldsKeepSecondPrecision(t *testing.T) {
+func TestRootCLI_Report_JSONUsesSharedSnapshot(t *testing.T) {
 	t.Parallel()
-
+	stub := &reportUsecaseStub{}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{}),
-		cli.WithEvent(&eventUsecaseStub{}),
-		cli.WithReportCommand(&reportCommandUsecaseStub{summary: apptypes.ReportCommandSummary{FailuresByClient: map[string]int{}, FailuresByReason: map[string]int{}}}),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{
-		"report", "--db-path", "/tmp/test-traceary.db", "--json",
-		"--from", "2026-07-01T00:00:00.123Z",
-		"--to", "2026-07-02T00:00:00.456Z",
-	})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute error = %v", err)
-	}
-	var document struct {
-		Period struct {
-			From                   string `json:"from"`
-			To                     string `json:"to"`
-			EffectiveFromInclusive string `json:"effective_from_inclusive"`
-			EffectiveToExclusive   string `json:"effective_to_exclusive"`
-		} `json:"period"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	if document.Period.From != "2026-07-01T00:00:00Z" || document.Period.To != "2026-07-02T00:00:00Z" {
-		t.Fatalf("legacy period = [%q, %q)", document.Period.From, document.Period.To)
-	}
-	if document.Period.EffectiveFromInclusive != "2026-07-01T00:00:00.123Z" || document.Period.EffectiveToExclusive != "2026-07-02T00:00:00.456Z" {
-		t.Fatalf("effective period = [%q, %q)", document.Period.EffectiveFromInclusive, document.Period.EffectiveToExclusive)
-	}
-}
-
-func TestRootCLI_Report_TextExitZero(t *testing.T) {
-	t.Parallel()
-
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{}),
-		cli.WithEvent(&eventUsecaseStub{}),
-		cli.WithReportCommand(&reportCommandUsecaseStub{summary: apptypes.ReportCommandSummary{FailuresByClient: map[string]int{}, FailuresByReason: map[string]int{}}}),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{
-		"report",
-		"--db-path", "/tmp/test-traceary.db",
-		"--from", "2026-07-01T00:00:00Z",
-		"--to", "2026-07-16T00:00:00Z",
-	})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute error = %v (success path must exit 0)", err)
-	}
-	if !strings.Contains(stdout.String(), "Traceary report") {
-		t.Fatalf("text missing header: %s", stdout.String())
-	}
-}
-
-func TestRootCLI_Report_TextPreservesRequestedCalendarEnd(t *testing.T) {
-	t.Parallel()
-
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{}),
-		cli.WithEvent(&eventUsecaseStub{}),
-		cli.WithReportCommand(&reportCommandUsecaseStub{summary: apptypes.ReportCommandSummary{FailuresByClient: map[string]int{}, FailuresByReason: map[string]int{}}}),
+		cli.WithReport(stub),
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
 		"report", "--db-path", "/tmp/test-traceary.db",
-		"--from", "2026-03-08", "--to", "2026-03-08",
-		"--timezone", "America/New_York",
+		"--from", "2026-07-01", "--to", "2026-07-16", "--json",
 	})
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute error = %v", err)
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var got apptypes.ReportSnapshot
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got.Period.RequestedFrom != "2026-07-01" || got.Period.RequestedTo != "2026-07-16" {
+		t.Fatalf("requested period = %+v", got.Period)
+	}
+	if got.Period.EffectiveFromInclusive != "2026-07-01T00:00:00Z" || got.Period.EffectiveToExclusive != "2026-07-17T00:00:00Z" {
+		t.Fatalf("effective period = %+v", got.Period)
+	}
+	if got.Aggregation.Coverage != apptypes.ReportCoverageComplete || got.Aggregation.PageSize != 5000 || got.Aggregation.ResultCap != 0 {
+		t.Fatalf("aggregation = %+v", got.Aggregation)
+	}
+	if stub.criteria.PageSize() != 5000 || stub.criteria.ResultCap() != 0 {
+		t.Fatalf("criteria page=%d cap=%d", stub.criteria.PageSize(), stub.criteria.ResultCap())
+	}
+}
+
+func TestRootCLI_Report_JSONGolden(t *testing.T) {
+	t.Parallel()
+	extent := apptypes.ReportSourceExtent{
+		Coverage: apptypes.ReportCoveragePartial, ObservedCount: 1, PageSize: 2, ResultCap: 1,
+		ResponseTruncated: true, TruncationReason: "result_cap",
+		ObservedEarliestAt: "2026-07-01T01:00:00Z", ObservedLatestAt: "2026-07-01T01:00:00Z",
+	}
+	stub := &reportUsecaseStub{result: apptypes.ReportSnapshot{
+		Period: apptypes.ReportPeriod{
+			From: "2026-07-01T00:00:00Z", To: "2026-07-02T00:00:00Z",
+			RequestedFrom: "2026-07-01", RequestedTo: "2026-07-01",
+			EffectiveFromInclusive: "2026-07-01T00:00:00Z", EffectiveToExclusive: "2026-07-02T00:00:00Z",
+			Timezone: "UTC", SnapshotAt: "2026-07-02T12:00:00Z", FromDateOnly: true, ToDateOnly: true,
+		},
+		Aggregation: apptypes.ReportAggregation{
+			Coverage: apptypes.ReportCoveragePartial, PageSize: 2, ResultCap: 1,
+			Sources: apptypes.ReportSourceExtents{Sessions: extent, Events: extent, Commands: extent},
+		},
+		Workspace: "workspace", ClientFilter: "codex",
+		Sessions:        []apptypes.ReportSessionRow{{Client: "codex", Sessions: 1, TotalEvents: 2, CommandCount: 1}},
+		CaptureCoverage: []apptypes.ReportCoverageRow{{Client: "codex", Sessions: 1, WithPrompt: 1, PromptTranscriptMissing: 1}},
+		Failures: apptypes.ReportFailures{
+			Total: 1, ByClient: map[string]int{"codex": 1}, ByReason: map[string]int{"exit_code": 1}, Samples: []string{"event-1"},
+		},
+		TopCommands:      []apptypes.ReportCommandOutput{{Command: "go", Count: 1, FailedCount: 1, SampleEventID: "event-1"}},
+		FailureLoops:     []apptypes.ReportFailureLoopOutput{},
+		EventScanCount:   1,
+		SessionScanCount: 1,
+	}}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"report", "--db-path", "/tmp/test-traceary.db", "--from", "2026-07-01", "--to", "2026-07-01",
+		"--workspace", "workspace", "--client", "codex", "--page-size", "2", "--result-cap", "1", "--json",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "report", "partial.golden.json"))
+}
+
+func TestRootCLI_Report_DefaultWindowPreservesOmittedRequestedBounds(t *testing.T) {
+	t.Parallel()
+	stub := &reportUsecaseStub{}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"report", "--db-path", "/tmp/test-traceary.db", "--json"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	interval := stub.criteria.Interval()
+	if interval.HasRequestedFrom() || interval.HasRequestedTo() {
+		t.Fatalf("requested bounds = [%q, %q), want omitted", interval.RequestedFrom(), interval.RequestedTo())
+	}
+	if !interval.EffectiveToExclusive().Equal(interval.SnapshotAt()) {
+		t.Fatalf("effective to = %s, snapshot = %s", interval.EffectiveToExclusive(), interval.SnapshotAt())
+	}
+	if got := interval.EffectiveToExclusive().Sub(interval.EffectiveFromInclusive()); got != 7*24*time.Hour {
+		t.Fatalf("default window = %s, want 168h", got)
+	}
+}
+
+func TestRootCLI_Report_LegacyPeriodFieldsKeepSecondPrecision(t *testing.T) {
+	t.Parallel()
+	stub := &reportUsecaseStub{}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"report", "--db-path", "/tmp/test-traceary.db", "--json",
+		"--from", "2026-07-01T00:00:00.123Z", "--to", "2026-07-02T00:00:00.456Z",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var got apptypes.ReportSnapshot
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got.Period.From != "2026-07-01T00:00:00Z" || got.Period.To != "2026-07-02T00:00:00Z" {
+		t.Fatalf("legacy period = [%q, %q)", got.Period.From, got.Period.To)
+	}
+	if got.Period.EffectiveFromInclusive != "2026-07-01T00:00:00.123Z" || got.Period.EffectiveToExclusive != "2026-07-02T00:00:00.456Z" {
+		t.Fatalf("effective period = [%q, %q)", got.Period.EffectiveFromInclusive, got.Period.EffectiveToExclusive)
+	}
+}
+
+func TestRootCLI_Report_TextPreservesRequestedCalendarEnd(t *testing.T) {
+	t.Parallel()
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(&reportUsecaseStub{})).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"report", "--db-path", "/tmp/test-traceary.db",
+		"--from", "2026-03-08", "--to", "2026-03-08", "--timezone", "America/New_York",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
 	}
 	out := stdout.String()
 	if !strings.Contains(out, "Period: 2026-03-08 → 2026-03-08 (inclusive calendar end; timezone=America/New_York)") {
@@ -272,5 +173,77 @@ func TestRootCLI_Report_TextPreservesRequestedCalendarEnd(t *testing.T) {
 	}
 	if !strings.Contains(out, "Effective interval: 2026-03-08T05:00:00Z → 2026-03-09T04:00:00Z") {
 		t.Fatalf("text missing DST-safe effective interval: %s", out)
+	}
+}
+
+func TestRootCLI_Report_LegacyLimitMapsOnlyToPageSize(t *testing.T) {
+	t.Parallel()
+	stub := &reportUsecaseStub{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"report", "--db-path", "/tmp/test-traceary.db", "--limit", "7", "--json"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stub.criteria.PageSize() != 7 || stub.criteria.ResultCap() != 0 {
+		t.Fatalf("legacy limit mapped to page=%d cap=%d", stub.criteria.PageSize(), stub.criteria.ResultCap())
+	}
+}
+
+func TestRootCLI_Report_RejectsLegacyLimitWithPageSize(t *testing.T) {
+	t.Parallel()
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(&reportUsecaseStub{})).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"report", "--limit", "7", "--page-size", "8"})
+	if err := rootCmd.Execute(); err == nil || !strings.Contains(err.Error(), "cannot be used together") {
+		t.Fatalf("Execute() error = %v, want conflict", err)
+	}
+}
+
+func TestRootCLI_Report_PartialTextDoesNotPrintRates(t *testing.T) {
+	t.Parallel()
+	stub := &reportUsecaseStub{result: apptypes.ReportSnapshot{
+		Period:          apptypes.ReportPeriod{Timezone: "UTC", EffectiveFromInclusive: "2026-07-01T00:00:00Z", EffectiveToExclusive: "2026-07-02T00:00:00Z", SnapshotAt: "2026-07-02T00:00:00Z"},
+		Aggregation:     apptypes.ReportAggregation{Coverage: apptypes.ReportCoveragePartial, PageSize: 10, ResultCap: 1},
+		CaptureCoverage: []apptypes.ReportCoverageRow{{Client: "codex", Sessions: 1, PromptTranscriptMissingRatio: nil}},
+		TopCommands:     []apptypes.ReportCommandOutput{{Command: "go", Count: 1, FailedCount: 1, FailureRate: nil}},
+		Failures:        apptypes.ReportFailures{ByClient: map[string]int{}, ByReason: map[string]int{}},
+	}}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"report", "--db-path", "/tmp/test-traceary.db"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.Count(stdout.String(), "unavailable(partial)") != 2 || strings.Contains(stdout.String(), "rate=0.00") {
+		t.Fatalf("partial text must not print numeric rates: %s", stdout.String())
+	}
+}
+
+func reportSnapshotForCriteria(criteria apptypes.ReportCriteria) apptypes.ReportSnapshot {
+	interval := criteria.Interval()
+	formatNano := func(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
+	formatSeconds := func(value time.Time) string { return value.UTC().Format(time.RFC3339) }
+	emptyExtent, _ := apptypes.ReportSourceExtentOf(nil, criteria.PageSize(), criteria.ResultCap(), false)
+	return apptypes.ReportSnapshot{
+		Period: apptypes.ReportPeriod{
+			From: formatSeconds(interval.EffectiveFromInclusive()), To: formatSeconds(interval.EffectiveToExclusive()),
+			RequestedFrom: interval.RequestedFrom(), RequestedTo: interval.RequestedTo(),
+			EffectiveFromInclusive: formatNano(interval.EffectiveFromInclusive()), EffectiveToExclusive: formatNano(interval.EffectiveToExclusive()),
+			Timezone: interval.Timezone(), SnapshotAt: formatNano(interval.SnapshotAt()),
+			FromDateOnly: interval.FromIsDateOnly(), ToDateOnly: interval.ToIsDateOnly(),
+		},
+		Aggregation: apptypes.ReportAggregation{
+			Coverage: apptypes.ReportCoverageComplete, PageSize: criteria.PageSize(), ResultCap: criteria.ResultCap(),
+			Sources: apptypes.ReportSourceExtents{Sessions: emptyExtent, Events: emptyExtent, Commands: emptyExtent},
+		},
+		Workspace: criteria.Workspace().String(), ClientFilter: criteria.Client().String(),
+		Sessions: []apptypes.ReportSessionRow{}, CaptureCoverage: []apptypes.ReportCoverageRow{},
+		Failures:    apptypes.ReportFailures{ByClient: map[string]int{}, ByReason: map[string]int{}, Samples: []string{}},
+		TopCommands: []apptypes.ReportCommandOutput{},
 	}
 }

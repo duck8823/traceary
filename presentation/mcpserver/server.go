@@ -22,6 +22,7 @@ const (
 	defaultSessionValue     = "default"
 	defaultContextLimit     = 20
 	defaultSearchLimit      = 20
+	defaultReportPageSize   = 5000
 	defaultServerName       = "traceary"
 	defaultServerVersion    = "dev"
 	defaultActiveStaleAfter = 24 * time.Hour
@@ -41,6 +42,7 @@ type Server struct {
 	memory                usecase.MemoryUsecase
 	context               usecase.ContextUsecase
 	storeManagement       usecase.StoreManagementUsecase
+	report                usecase.ReportUsecase
 }
 
 // NewServer creates a new MCP server.
@@ -105,6 +107,11 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) ServerOption 
 	return func(server *Server) { server.eventMetadata = eventMetadata }
 }
 
+// WithReport configures the shared body-free aggregate report.
+func WithReport(report usecase.ReportUsecase) ServerOption {
+	return func(server *Server) { server.report = report }
+}
+
 // Build creates an MCP server backed by an initialized store. The DB
 // path has already been resolved and applied to the shared
 // sqlite.Database by the CLI before Build is invoked (see
@@ -160,6 +167,13 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 		Description: "Get recent context events, logs, audits, prompts, transcripts, and summaries for a session or workspace.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.getContext())
+	if s.report != nil {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "get_report",
+			Description: "Aggregate sessions, capture coverage, failures, and commands with explicit complete/partial provenance.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		}, s.getReport())
+	}
 	return server, nil
 }
 
@@ -174,6 +188,33 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *Server) getReport() mcp.ToolHandlerFor[getReportInput, apptypes.ReportSnapshot] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input getReportInput) (*mcp.CallToolResult, apptypes.ReportSnapshot, error) {
+		pageSize := defaultReportPageSize
+		if input.PageSize != nil {
+			pageSize = *input.PageSize
+		}
+		resultCap := 0
+		if input.ResultCap != nil {
+			resultCap = *input.ResultCap
+		}
+		criteria, err := apptypes.ReportCriteriaFrom(
+			input.From, input.To, input.Timezone, time.Now().UTC(),
+			types.Workspace(strings.TrimSpace(input.Workspace)),
+			types.Client(strings.TrimSpace(input.Client)),
+			pageSize, resultCap,
+		)
+		if err != nil {
+			return nil, apptypes.ReportSnapshot{}, xerrors.Errorf("failed to resolve report criteria: %w", err)
+		}
+		report, err := s.report.Generate(ctx, criteria)
+		if err != nil {
+			return nil, apptypes.ReportSnapshot{}, xerrors.Errorf("failed to generate report: %w", err)
+		}
+		return nil, report, nil
+	}
 }
 
 func (s *Server) manageMemory() mcp.ToolHandlerFor[manageMemoryInput, any] {
