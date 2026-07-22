@@ -1994,7 +1994,7 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 		if includeBlocks && !result.Truncated {
 			blocks, _ = apptypes.DecodeCanonicalEnvelope(event.Body())
 		}
-		outputs = append(outputs, eventOutput{
+		output := eventOutput{
 			EventID:       event.EventID().String(),
 			Kind:          event.Kind().String(),
 			Client:        event.Client().String(),
@@ -2007,7 +2007,13 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 			BodyLength:    fullLen,
 			SourceHook:    event.SourceHook(),
 			CreatedAt:     event.CreatedAt().UTC().Format(time.RFC3339Nano),
-		})
+		}
+		if !event.BodyAvailability().IsAvailable() {
+			output.Body = nil
+			output.BodyBlocks = nil
+			output.BodyUnavailableReason = "retention"
+		}
+		outputs = append(outputs, output)
 	}
 
 	return outputs

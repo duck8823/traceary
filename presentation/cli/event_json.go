@@ -127,7 +127,7 @@ func writeEventJSON(output io.Writer, e *model.Event) error {
 }
 
 func newEventOutput(e *model.Event) event {
-	return event{
+	output := event{
 		EventID:    e.EventID().String(),
 		Kind:       e.Kind().String(),
 		Client:     e.Client().String(),
@@ -138,6 +138,11 @@ func newEventOutput(e *model.Event) event {
 		SourceHook: e.SourceHook(),
 		CreatedAt:  formatJSONTime(e.CreatedAt()),
 	}
+	if !e.BodyAvailability().IsAvailable() {
+		output.Message = ""
+		output.BodyUnavailableReason = "retention"
+	}
+	return output
 }
 
 // newTruncatedEventOutput is the snapshot-friendly variant of
