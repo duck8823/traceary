@@ -2,7 +2,10 @@ package sqlite_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +14,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	apptypes "github.com/duck8823/traceary/application/types"
+	domtypes "github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
@@ -64,6 +69,27 @@ func TestDatasource_CreateBackup(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("backup file mode = %o, want 600", info.Mode().Perm())
+	}
+	backupData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("ReadFile(backup) error = %v", err)
+	}
+	digest := sha256.Sum256(backupData)
+	manifestPath := filepath.Join(filepath.Dir(outputPath), apptypes.BackupRetentionManifestName(filepath.Base(outputPath)))
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile(retention manifest) error = %v", err)
+	}
+	var manifest apptypes.BackupRetentionManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("Unmarshal(retention manifest) error = %v", err)
+	}
+	lineage, err := domtypes.FileRetentionLineageFromPath("backup", dbPath)
+	if err != nil {
+		t.Fatalf("FileRetentionLineageFromPath() error = %v", err)
+	}
+	if manifest.SchemaVersion != apptypes.BackupRetentionManifestSchema || manifest.RelativePath != filepath.Base(outputPath) || manifest.BackupSHA256 != hex.EncodeToString(digest[:]) || manifest.SourceLineage != lineage {
+		t.Fatalf("retention manifest = %#v", manifest)
 	}
 }
 
