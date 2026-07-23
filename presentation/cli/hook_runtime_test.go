@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +50,54 @@ type claudeUsageCaptureStub struct {
 	err      error
 }
 
+type geminiUsageCaptureStub struct {
+	inputs      []usecase.GeminiUsageCaptureInput
+	headless    []application.GeminiUsageLoadResult
+	interactive []usecase.GeminiUsageCaptureInput
+	err         error
+}
+
+func (s *geminiUsageCaptureStub) CaptureHeadless(
+	_ context.Context,
+	input usecase.GeminiUsageCaptureInput,
+	loaded application.GeminiUsageLoadResult,
+) (usecase.GeminiUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	s.headless = append(s.headless, loaded)
+	return usecase.GeminiUsageCaptureResult{Applied: len(loaded.Samples)}, s.err
+}
+
+func (s *geminiUsageCaptureStub) CaptureInteractiveUnavailable(
+	_ context.Context,
+	input usecase.GeminiUsageCaptureInput,
+) (usecase.GeminiUsageCaptureResult, error) {
+	s.interactive = append(s.interactive, input)
+	return usecase.GeminiUsageCaptureResult{Applied: 1, Unavailable: 1}, s.err
+}
+
+type antigravityUsageCaptureStub struct {
+	statusPayloads []string
+	stops          []usecase.AntigravityUsageStopInput
+	err            error
+}
+
+func (s *antigravityUsageCaptureStub) CaptureStatus(
+	_ context.Context,
+	input io.Reader,
+) (usecase.AntigravityUsageCaptureResult, error) {
+	payload, _ := io.ReadAll(input)
+	s.statusPayloads = append(s.statusPayloads, string(payload))
+	return usecase.AntigravityUsageCaptureResult{Applied: 1}, s.err
+}
+
+func (s *antigravityUsageCaptureStub) CaptureStopUnavailable(
+	_ context.Context,
+	input usecase.AntigravityUsageStopInput,
+) (usecase.AntigravityUsageCaptureResult, error) {
+	s.stops = append(s.stops, input)
+	return usecase.AntigravityUsageCaptureResult{Applied: 1, Unavailable: 1}, s.err
+}
+
 func (s *claudeUsageCaptureStub) Capture(
 	_ context.Context,
 	input usecase.ClaudeUsageCaptureInput,
@@ -76,6 +125,54 @@ func (s *codexUsageCaptureStub) CaptureHeadless(_ context.Context, input usecase
 	s.inputs = append(s.inputs, input)
 	s.headless = append(s.headless, loaded)
 	return usecase.CodexUsageCaptureResult{Applied: 1}, s.err
+}
+
+func TestRootCLI_HookUsageGemini_UsesBodyFreeTimestampBoundary(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	usage := &geminiUsageCaptureStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithGeminiUsage(usage),
+		cli.WithDatabasePathSetter(func(string) {}),
+	).Command()
+	rootCmd.SetIn(strings.NewReader(`{
+	  "session_id":"gemini-session-1",
+	  "timestamp":"2026-07-23T01:00:00Z",
+	  "hook_event_name":"AfterAgent",
+	  "prompt":"PRIVATE-PROMPT",
+	  "prompt_response":"PRIVATE-RESPONSE"
+	}`))
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hook", "usage", "gemini", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(usage.interactive) != 1 ||
+		usage.interactive[0].SessionID != "gemini-session-1" ||
+		usage.interactive[0].DeliveryID != "timestamp:2026-07-23T01:00:00Z" {
+		t.Fatalf("interactive captures = %+v", usage.interactive)
+	}
+}
+
+func TestRootCLI_HookAntigravityStatusline_DelegatesToUsageCapture(t *testing.T) {
+	usage := &antigravityUsageCaptureStub{}
+	payload := `{"conversation_id":"conversation-1","agent_state":"idle","email":"PRIVATE"}`
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithAntigravityUsage(usage),
+		cli.WithDatabasePathSetter(func(string) {}),
+	).Command()
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hook", "antigravity", "statusline", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{payload}, usage.statusPayloads); diff != "" {
+		t.Fatalf("status payload mismatch (-want +got):\n%s", diff)
+	}
 }
 
 func TestRootCLI_HookUsageCommand_DelegatesBodyFreeCodexIdentity(t *testing.T) {

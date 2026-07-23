@@ -21,6 +21,37 @@ Antigravity の payload は camelCase フィールド（`conversationId`, `works
 
 packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-server` も公開し、`traceary-session-history`、`traceary-memory-review`、`traceary-memory-remember` の文脈 skill を同梱します。`traceary hooks install` の直接設定は hook のみを導入します。Antigravity に MCP tool と skill を自動検出させる場合は packaged plugin を使用してください。
 
+## status line からの usage metadata
+
+Antigravity の hook payload は provider usage を公開しません。一方、独立した status-line payload には本文を含まない累積合計があります。Traceary は次の内部合成コマンドでこの payload を受け取れます。
+
+```sh
+traceary hook antigravity statusline
+```
+
+このコマンドだけを status-line renderer に設定しないでください。表示用の出力を意図的に生成しないためです。Bash では、たとえば既存 renderer と次のように合成します。
+
+```bash
+#!/usr/bin/env bash
+tee >(traceary hook antigravity statusline >/dev/null 2>&1) |
+  "$HOME/.local/bin/my-antigravity-statusline"
+```
+
+この wrapper を `~/.gemini/antigravity-cli/settings.json` で指定します。
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.gemini/antigravity-cli/traceary-statusline.sh"
+  }
+}
+```
+
+この設定は任意であり、`traceary hooks install` は変更しません。
+
+Traceary は `idle` payload だけを受け入れ、`total_input_tokens` と `total_output_tokens` を conversation / model source の最新 immutable snapshot として保存します。古い snapshot は加算せず、後続 snapshot で置き換えます。`current_usage`、cache counter、quota、email、account field、cost は無視します。同じ snapshot の再配信は冪等で、累積値の減少は安全側に倒して拒否します。`Stop` transcript から安定した完了 turn step を取得できた場合、その provider call と対応付けられない境界を usage **unavailable** として別に保存します。安定した step が無い場合は call identity を作りません。transcript の長さや command 回数から usage を推測することもありません。
+
 ## 制限事項
 
 - **`SessionStart` が無い。** conversation 単位で最初に発火するのは `PreInvocation`（毎回のモデル呼び出し前に発火）なので、Traceary はこれを `conversationId` を key にした冪等な session 開始/更新として使います。
@@ -29,6 +60,7 @@ packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-
 - **prompt 本文は直接の hook field ではありません。** 公開 hook payload は `transcriptPath` を提供します。Traceary は Stop 時に最新の `USER_INPUT` / `USER_EXPLICIT` 行を復元します。
 - **transcript 抽出は best effort。** 文書化された `transcriptPath` のファイルは `transcript.jsonl` です。Traceary は現在の CLI の `MODEL` / `*_RESPONSE` 行と従来の nested/flat 形式を処理し、thinking/text を分離して保持します。未知の形式は黙ってスキップします。
 - **認証情報・keychain・cookie・ブラウザストレージは一切読みません。** ディスクから読むのは文書化された `transcriptPath` hook フィールドのみです。
+- **status-line usage は一部対応かつ任意設定です。** conversation / model 単位の累積合計であり、provider call identity ではありません。Traceary は status snapshot と `Stop` を対応付けません。
 
 ## headless print mode (`agy --print`) の capture level
 

@@ -11,11 +11,20 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 - `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
 - `BeforeAgent` prompt hook（送信された user prompt を `prompt` event として記録）
-- `AfterAgent` transcript hook（agent の応答を `transcript` event として記録）
+- `AfterAgent` transcript / usage availability hook（agent の応答を `transcript` event として記録し、本文を含まない hook から provider usage を取得できないことも明示的に記録）
 - `run_shell_command` 向け `AfterTool` audit hook
 - `PreCompress` compact marker hook（Gemini に post-compress summary hook がないため、圧縮前の境界だけを記録）
 - slash command の `/traceary-help` と `/traceary-doctor`
 - 文脈で効く `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember` skill。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。
+
+## Usage metadata
+
+Gemini CLI では、次の 2 つの記録経路を意図的に分離します。
+
+- `traceary session run -- gemini -p "..." --output-format stream-json` のように Traceary が起動した完結型コマンドでは、終端の `result.stats` を記録します。結果にモデル別合計がある場合はモデル別の行だけを保存し、全体合計を重ねて保存しません。
+- 対話モードの `AfterAgent` hook では、usage を取得できないことを明示する観測を保存します。`AfterModel` はモデルへの request / response 本文も含むため、Traceary は usage 取得目的では導入しません。
+
+adapter が読むのは、version 付きの本文を含まない metadata のうち、source identity・終了状態・timestamp・token 合計に必要なフィールドだけです。prompt / response の長さ、tool 回数、経過時間から usage を推測しません。同じ終端 result または `AfterAgent` timestamp を再配信しても二重計上しません。
 
 ## Memory activation strategy
 

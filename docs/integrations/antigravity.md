@@ -21,6 +21,37 @@ Antigravity payloads use camelCase fields (`conversationId`, `workspacePaths`, `
 
 The packaged plugin also exposes the local `traceary mcp-server` through `mcp_config.json` and includes the `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember` contextual skills. Direct `traceary hooks install` routes install hooks only; use the packaged plugin when Antigravity should discover the MCP tools and skills automatically.
 
+## Usage metadata from the status line
+
+Antigravity's hook payloads do not expose provider usage. Its separate status-line payload does expose body-free cumulative totals. Traceary can consume that payload through the internal composition command:
+
+```sh
+traceary hook antigravity statusline
+```
+
+Do not configure that command as the only status-line renderer: it intentionally writes no display output. Compose it with an existing renderer, for example in Bash:
+
+```bash
+#!/usr/bin/env bash
+tee >(traceary hook antigravity statusline >/dev/null 2>&1) |
+  "$HOME/.local/bin/my-antigravity-statusline"
+```
+
+Configure this wrapper in `~/.gemini/antigravity-cli/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.gemini/antigravity-cli/traceary-statusline.sh"
+  }
+}
+```
+
+This is opt-in and is not modified by `traceary hooks install`.
+
+Traceary accepts only `idle` payloads and stores `total_input_tokens` and `total_output_tokens` as the latest immutable snapshot for the conversation/model source. Older snapshots are superseded rather than added. It ignores `current_usage`, cache counters, quota, email, account fields, and cost. A repeated snapshot is idempotent; a cumulative regression fails closed. When a `Stop` transcript exposes a stable completed-turn step, that uncorrelatable boundary is stored separately as usage **unavailable**. If no stable step exists, Traceary does not invent a call identity. It never estimates usage from transcript length or command count.
+
 ## Limitations
 
 - **No `SessionStart`.** The earliest per-conversation signal is `PreInvocation`, which fires before every model call, so Traceary uses it as an idempotent session start/refresh keyed by `conversationId`.
@@ -29,6 +60,7 @@ The packaged plugin also exposes the local `traceary mcp-server` through `mcp_co
 - **Prompt text is not a direct hook field.** The public hook payload exposes `transcriptPath`; Traceary recovers the latest `USER_INPUT` / `USER_EXPLICIT` row from that file at Stop.
 - **Transcript extraction is best effort.** The documented `transcriptPath` file is `transcript.jsonl`. Traceary supports the current CLI `MODEL` / `*_RESPONSE` rows plus legacy nested/flat shapes, preserving separate thinking/text blocks, and silently skips unknown shapes.
 - **No credential, keychain, cookie, or browser-storage reads.** Only the documented `transcriptPath` hook field is read from disk.
+- **Status-line capture is partial and opt-in.** It provides cumulative conversation/model totals, not provider-call identity. Traceary does not correlate a status snapshot with `Stop`.
 
 ## Capture level in headless print mode (`agy --print`)
 

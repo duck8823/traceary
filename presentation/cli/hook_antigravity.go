@@ -20,6 +20,7 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -41,8 +42,48 @@ func (c *RootCLI) newHookAntigravityCommand() *cobra.Command {
 	cmd.AddCommand(c.newHookAntigravityEventCommand("pre-tool-use", c.runHookAntigravityPreToolUse))
 	cmd.AddCommand(c.newHookAntigravityEventCommand("post-tool-use", c.runHookAntigravityPostToolUse))
 	cmd.AddCommand(c.newHookAntigravityEventCommand("stop", c.runHookAntigravityStop))
+	cmd.AddCommand(c.newHookAntigravityStatuslineCommand())
 
 	return cmd
+}
+
+func (c *RootCLI) newHookAntigravityStatuslineCommand() *cobra.Command {
+	var dbPath string
+	cmd := &cobra.Command{
+		Use:    "statusline",
+		Short:  "Record body-free Antigravity status-line usage",
+		Hidden: true,
+		Args:   noArgsLocalized(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runHookBestEffort("antigravity statusline", func() error {
+				return c.runHookAntigravityStatusline(cmd.Context(), cmd.InOrStdin(), dbPath)
+			})
+		},
+	}
+	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
+	return cmd
+}
+
+func (c *RootCLI) runHookAntigravityStatusline(
+	ctx context.Context,
+	input io.Reader,
+	dbPath string,
+) error {
+	if c.storeManagement == nil || c.antigravityUsage == nil {
+		return xerrors.Errorf("Antigravity usage capture dependencies are not configured")
+	}
+	resolvedDBPath, err := resolveDBPath(dbPath)
+	if err != nil {
+		return err
+	}
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
+		return xerrors.Errorf("failed to initialize store: %w", err)
+	}
+	if _, err := c.antigravityUsage.CaptureStatus(ctx, input); err != nil {
+		return xerrors.Errorf("failed to capture Antigravity status-line usage: %w", err)
+	}
+	return nil
 }
 
 func (c *RootCLI) newHookAntigravityEventCommand(
@@ -266,7 +307,17 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 	if err := c.runHookSession(ctx, nil, bytes.NewReader(normalized), antigravityHookClient, "stop", dbPath); err != nil {
 		return err
 	}
-	return errors.Join(promptErr, transcriptErr)
+	var usageErr error
+	if c.antigravityUsage != nil && sessionID != "" && strings.TrimSpace(turn.StepID) != "" {
+		_, usageErr = c.antigravityUsage.CaptureStopUnavailable(
+			ctx,
+			usecase.AntigravityUsageStopInput{
+				SessionID:  types.SessionID(sessionID),
+				BoundaryID: "turn:" + strings.TrimSpace(turn.StepID),
+			},
+		)
+	}
+	return errors.Join(promptErr, transcriptErr, usageErr)
 }
 
 // antigravityNormalizeOptions carries the resolved values used to build a

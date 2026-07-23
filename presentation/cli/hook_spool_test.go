@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -218,6 +220,107 @@ func TestClaudeUsageHookSpool_IsBodyAndPathFreeAndReplayable(t *testing.T) {
 	replayed, failed := root.drainHookSpoolRecords(context.Background(), 5)
 	if replayed != 1 || failed != 0 || len(usage.inputs) != 2 {
 		t.Fatalf("replay = %d/%d calls=%d", replayed, failed, len(usage.inputs))
+	}
+}
+
+func TestGeminiUsageHookSpool_IsBodyAndPathFreeAndReplayable(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	usage := &spoolGeminiUsageStub{err: errors.New("database busy")}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithGeminiUsage(usage),
+	)
+	payload := `{"session_id":"gemini-session","timestamp":"2026-07-23T01:00:00Z","transcript_path":"/private/transcript","prompt":"private prompt","prompt_response":"private response"}`
+	if err := root.runGeminiUsageHookDurably(
+		context.Background(), strings.NewReader(payload), "gemini", "/tmp/traceary.db",
+	); err != nil {
+		t.Fatalf("runGeminiUsageHookDurably() must remain fail-soft: %v", err)
+	}
+	records, unreadable, err := scanHookSpoolRecords([]string{"gemini"})
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 {
+		t.Fatalf("records=%d unreadable=%d", len(records), len(unreadable))
+	}
+	if records[0].Command != "usage" ||
+		records[0].Payload != `{"session_id":"gemini-session","timestamp":"2026-07-23T01:00:00Z"}` ||
+		strings.Contains(records[0].Payload, "private") ||
+		strings.Contains(records[0].Payload, "transcript") ||
+		strings.Contains(records[0].Payload, "prompt") {
+		t.Fatalf("usage spool record = %#v", records[0])
+	}
+	usage.err = nil
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 1 || failed != 0 || len(usage.inputs) != 2 {
+		t.Fatalf("replay = %d/%d calls=%d", replayed, failed, len(usage.inputs))
+	}
+}
+
+func TestGeminiUsageHookSpool_RejectsUntrustedTimestamp(t *testing.T) {
+	for name, timestamp := range map[string]string{
+		"missing":          "",
+		"prompt":           "private prompt",
+		"escaped newline":  "2026-07-23T01:00:00Z\nprivate prompt",
+		"leading newline":  "\n2026-07-23T01:00:00Z",
+		"trailing newline": "2026-07-23T01:00:00Z\r\n",
+		"oversized":        strings.Repeat("x", 65),
+		"invalid calendar": "2026-02-30T01:00:00Z",
+	} {
+		t.Run(name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			t.Setenv(hookStateDirEnvKey, stateDir)
+			usage := &spoolGeminiUsageStub{err: errors.New("database busy")}
+			root := NewRootCLI(
+				WithStoreManagement(&spoolStoreManagementStub{}),
+				WithGeminiUsage(usage),
+			)
+			payload, err := json.Marshal(map[string]string{
+				"session_id": "gemini-session",
+				"timestamp":  timestamp,
+				"prompt":     "private prompt",
+			})
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+			if err := root.runGeminiUsageHookDurably(
+				context.Background(), bytes.NewReader(payload), "gemini", "/tmp/traceary.db",
+			); err != nil {
+				t.Fatalf("runGeminiUsageHookDurably() error = %v", err)
+			}
+			records, unreadable, err := scanHookSpoolRecords([]string{"gemini"})
+			if err != nil {
+				t.Fatalf("scanHookSpoolRecords() error = %v", err)
+			}
+			if len(records) != 0 || len(unreadable) != 0 || len(usage.inputs) != 0 {
+				t.Fatalf("records=%#v unreadable=%#v calls=%d", records, unreadable, len(usage.inputs))
+			}
+		})
+	}
+}
+
+func TestGeminiUsageHookSpool_CanonicalizesTimestampToUTC(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	usage := &spoolGeminiUsageStub{err: errors.New("database busy")}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithGeminiUsage(usage),
+	)
+	payload := `{"session_id":"gemini-session","timestamp":"2026-07-23T10:00:00+09:00"}`
+	if err := root.runGeminiUsageHookDurably(
+		context.Background(), strings.NewReader(payload), "gemini", "/tmp/traceary.db",
+	); err != nil {
+		t.Fatalf("runGeminiUsageHookDurably() error = %v", err)
+	}
+	records, unreadable, err := scanHookSpoolRecords([]string{"gemini"})
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 ||
+		records[0].Payload != `{"session_id":"gemini-session","timestamp":"2026-07-23T01:00:00Z"}` {
+		t.Fatalf("records=%#v unreadable=%#v", records, unreadable)
 	}
 }
 
@@ -489,6 +592,28 @@ type spoolCodexUsageStub struct {
 type spoolClaudeUsageStub struct {
 	inputs []usecase.ClaudeUsageCaptureInput
 	err    error
+}
+
+type spoolGeminiUsageStub struct {
+	inputs []usecase.GeminiUsageCaptureInput
+	err    error
+}
+
+func (s *spoolGeminiUsageStub) CaptureHeadless(
+	_ context.Context,
+	input usecase.GeminiUsageCaptureInput,
+	_ application.GeminiUsageLoadResult,
+) (usecase.GeminiUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.GeminiUsageCaptureResult{}, s.err
+}
+
+func (s *spoolGeminiUsageStub) CaptureInteractiveUnavailable(
+	_ context.Context,
+	input usecase.GeminiUsageCaptureInput,
+) (usecase.GeminiUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.GeminiUsageCaptureResult{}, s.err
 }
 
 func (s *spoolClaudeUsageStub) Capture(

@@ -28,6 +28,9 @@ type RootCLI struct {
 	codexHeadlessUsage         application.CodexHeadlessUsageStreamFactory
 	claudeUsage                usecase.ClaudeUsageCaptureUsecase
 	claudeHeadlessUsage        application.ClaudeHeadlessUsageStreamFactory
+	geminiUsage                usecase.GeminiUsageCaptureUsecase
+	geminiHeadlessUsage        application.GeminiHeadlessUsageStreamFactory
+	antigravityUsage           usecase.AntigravityUsageCaptureUsecase
 	context                    usecase.ContextUsecase
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
@@ -124,6 +127,21 @@ func WithClaudeUsage(usage usecase.ClaudeUsageCaptureUsecase) RootCLIOption {
 // WithClaudeHeadlessUsage injects the body-free Claude one-shot stream adapter.
 func WithClaudeHeadlessUsage(factory application.ClaudeHeadlessUsageStreamFactory) RootCLIOption {
 	return func(c *RootCLI) { c.claudeHeadlessUsage = factory }
+}
+
+// WithGeminiUsage injects the body-free Gemini usage capture adapter.
+func WithGeminiUsage(usage usecase.GeminiUsageCaptureUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.geminiUsage = usage }
+}
+
+// WithGeminiHeadlessUsage injects the body-free Gemini stream adapter.
+func WithGeminiHeadlessUsage(factory application.GeminiHeadlessUsageStreamFactory) RootCLIOption {
+	return func(c *RootCLI) { c.geminiHeadlessUsage = factory }
+}
+
+// WithAntigravityUsage injects cumulative status and unavailable Stop capture.
+func WithAntigravityUsage(usage usecase.AntigravityUsageCaptureUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.antigravityUsage = usage }
 }
 
 // WithMemoryEdge injects the MemoryEdgeUsecase used by

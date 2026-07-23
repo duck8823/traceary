@@ -81,7 +81,7 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		}
 	})
 
-	t.Run("AfterAgent records agent response as transcript event", func(t *testing.T) {
+	t.Run("AfterAgent records usage availability before transcript", func(t *testing.T) {
 		t.Parallel()
 
 		entries := hooks.Entries("AfterAgent")
@@ -95,7 +95,21 @@ func TestGeminiHooksHandler_Build(t *testing.T) {
 		if diff := cmp.Diff("*", matcher); diff != "" {
 			t.Fatalf("AfterAgent matcher mismatch (-want +got):\n%s", diff)
 		}
-		command := entries[0].Commands()[0]
+		commands := entries[0].Commands()
+		if diff := cmp.Diff(2, len(commands)); diff != "" {
+			t.Fatalf("len(AfterAgent commands) mismatch (-want +got):\n%s", diff)
+		}
+		usage := commands[0]
+		if diff := cmp.Diff("traceary-usage", usage.Name()); diff != "" {
+			t.Fatalf("AfterAgent usage name mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("traceary-usage.sh:gemini", usage.ManagedKey()); diff != "" {
+			t.Fatalf("AfterAgent usage managed key mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'traceary' 'hook' 'usage' 'gemini'`, usage.Command()); diff != "" {
+			t.Fatalf("AfterAgent usage command mismatch (-want +got):\n%s", diff)
+		}
+		command := commands[1]
 		if diff := cmp.Diff("traceary-transcript", command.Name()); diff != "" {
 			t.Fatalf("AfterAgent command name mismatch (-want +got):\n%s", diff)
 		}

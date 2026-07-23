@@ -47,6 +47,13 @@
         "matcher": "*",
         "hooks": [
           {
+            "name": "traceary-usage",
+            "type": "command",
+            "command": "'traceary' 'hook' 'usage' 'gemini'",
+            "timeout": 10000,
+            "description": "Record explicit Gemini usage availability"
+          },
+          {
             "name": "traceary-transcript",
             "type": "command",
             "command": "'traceary' 'hook' 'transcript' 'gemini'",

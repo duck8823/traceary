@@ -25,6 +25,8 @@ const (
 	codexUsageModeHeadless     = "headless_stream"
 	claudeUsageModeEnvKey      = "TRACEARY_CLAUDE_USAGE_MODE"
 	claudeUsageModeOneShot     = "one_shot_stream"
+	geminiUsageModeEnvKey      = "TRACEARY_GEMINI_USAGE_MODE"
+	geminiUsageModeOneShot     = "one_shot_stream"
 )
 
 const hookActiveSubagentStateTTL = 24 * time.Hour
@@ -222,11 +224,16 @@ func (c *RootCLI) newHookUsageCommand() *cobra.Command {
 			if client == "claude" && strings.TrimSpace(os.Getenv(claudeUsageModeEnvKey)) == claudeUsageModeOneShot {
 				return nil
 			}
+			if client == "gemini" && strings.TrimSpace(os.Getenv(geminiUsageModeEnvKey)) == geminiUsageModeOneShot {
+				return nil
+			}
 			switch client {
 			case "codex":
 				return c.runCodexUsageHookDurably(cmd.Context(), cmd.InOrStdin(), client, dbPath)
 			case "claude":
 				return c.runClaudeUsageHookDurably(cmd.Context(), cmd.InOrStdin(), client, dbPath)
+			case "gemini":
+				return c.runGeminiUsageHookDurably(cmd.Context(), cmd.InOrStdin(), client, dbPath)
 			default:
 				return c.runHookUsage(cmd.Context(), cmd.InOrStdin(), client, dbPath)
 			}
@@ -302,13 +309,69 @@ func (c *RootCLI) runClaudeUsageHookDurably(ctx context.Context, input io.Reader
 	)
 }
 
+func (c *RootCLI) runGeminiUsageHookDurably(ctx context.Context, input io.Reader, client, dbPath string) error {
+	payload, err := readHookPayload(input)
+	if err != nil {
+		return runHookBestEffort("usage", func() error { return err })
+	}
+	sessionID, err := resolveHookSessionID(payload, client)
+	if err != nil {
+		return runHookBestEffort("usage", func() error { return err })
+	}
+	if sessionID == "" {
+		return nil
+	}
+	timestamp, ok := canonicalGeminiHookTimestamp(hookPayloadString(payload, "timestamp", ""))
+	if !ok {
+		return nil
+	}
+	minimal := struct {
+		SessionID string `json:"session_id"`
+		Timestamp string `json:"timestamp,omitempty"`
+	}{
+		SessionID: sessionID.String(),
+		Timestamp: timestamp,
+	}
+	sanitized, err := json.Marshal(minimal)
+	if err != nil {
+		return runHookBestEffort("usage", func() error {
+			return xerrors.Errorf("failed to encode body-free Gemini usage payload: %w", err)
+		})
+	}
+	return c.runHookDurably(
+		ctx,
+		"usage",
+		hookInvocationSpec{Command: "usage", Client: client, DBPath: dbPath},
+		newExplicitHookPayloadReader(sanitized),
+		func(replay io.Reader) error {
+			return c.runHookUsage(ctx, replay, client, dbPath)
+		},
+	)
+}
+
+func canonicalGeminiHookTimestamp(value string) (string, bool) {
+	const maxTimestampBytes = 64
+	if len(value) > maxTimestampBytes || strings.ContainsAny(value, "\r\n\x00") {
+		return "", false
+	}
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, trimmed)
+	if err != nil {
+		return "", false
+	}
+	return parsed.UTC().Format(time.RFC3339Nano), true
+}
+
 func (c *RootCLI) runHookUsage(
 	ctx context.Context,
 	input io.Reader,
 	client string,
 	dbPath string,
 ) error {
-	if client != "codex" && client != "claude" {
+	if client != "codex" && client != "claude" && client != "gemini" {
 		return xerrors.Errorf("unsupported hook usage client: %s", client)
 	}
 	if c.storeManagement == nil {
@@ -320,12 +383,19 @@ func (c *RootCLI) runHookUsage(
 	if client == "claude" && c.claudeUsage == nil {
 		return xerrors.Errorf("Claude usage capture dependencies are not configured")
 	}
+	if client == "gemini" && c.geminiUsage == nil {
+		return xerrors.Errorf("Gemini usage capture dependencies are not configured")
+	}
 	payload, err := readHookPayload(input)
 	if err != nil {
 		return err
 	}
-	ctx = apptypes.WithSourceHook(ctx, "stop")
-	deliveryID := resolveHookDeliveryNativeID(payload, client, "stop")
+	sourceHook := "stop"
+	if client == "gemini" {
+		sourceHook = "after_agent"
+	}
+	ctx = apptypes.WithSourceHook(ctx, sourceHook)
+	deliveryID := resolveHookDeliveryNativeID(payload, client, sourceHook)
 	sessionID, err := resolveHookSessionID(payload, client)
 	if err != nil {
 		return err
@@ -355,6 +425,13 @@ func (c *RootCLI) runHookUsage(
 		})
 		if err != nil {
 			return xerrors.Errorf("failed to capture Claude usage: %w", err)
+		}
+	case "gemini":
+		_, err = c.geminiUsage.CaptureInteractiveUnavailable(ctx, usecase.GeminiUsageCaptureInput{
+			SessionID: sessionID, DeliveryID: deliveryID,
+		})
+		if err != nil {
+			return xerrors.Errorf("failed to capture Gemini usage availability: %w", err)
 		}
 	}
 	return nil
