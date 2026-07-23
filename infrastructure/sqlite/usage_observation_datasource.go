@@ -44,10 +44,73 @@ var _ model.UsageObservationRepository = (*UsageObservationDatasource)(nil)
 func (d *UsageObservationDatasource) Record(
 	ctx context.Context,
 	observation *model.UsageObservation,
-) (transition model.UsageObservationTransition, err error) {
+) (model.UsageObservationTransition, error) {
 	if observation == nil {
 		return "", model.ErrInvalidUsageObservation
 	}
+	return d.recordTransaction(ctx, func(conn *sql.Conn) (model.UsageObservationTransition, error) {
+		return recordUsageObservation(ctx, conn, observation)
+	})
+}
+
+// RecordExclusive atomically grants one source observation the additive claim
+// for a normalized identity. Later alternative sources are retained as
+// excluded evidence regardless of delivery order or concurrency.
+func (d *UsageObservationDatasource) RecordExclusive(
+	ctx context.Context,
+	key types.UsageExclusivityKey,
+	additive, excluded *model.UsageObservation,
+) (model.UsageObservationTransition, error) {
+	validatedKey, err := types.UsageExclusivityKeyFrom(key.String())
+	if err != nil {
+		return "", xerrors.Errorf("invalid usage exclusivity key: %w", err)
+	}
+	if err := additive.ValidateAccountingAlternative(excluded); err != nil {
+		return "", xerrors.Errorf("invalid usage accounting alternatives: %w", err)
+	}
+	return d.recordTransaction(ctx, func(conn *sql.Conn) (model.UsageObservationTransition, error) {
+		winnerID, present, err := findUsageExclusivityWinner(ctx, conn, validatedKey)
+		if err != nil {
+			return "", err
+		}
+		selected := additive
+		shouldClaim := !present
+		if present && winnerID != additive.Descriptor().ObservationID() {
+			selected = excluded
+			shouldClaim = false
+		} else if !present {
+			existing, err := findUsageObservation(ctx, conn, additive.Descriptor().ObservationID())
+			if err != nil {
+				return "", xerrors.Errorf("failed to inspect existing exclusive usage observation: %w", err)
+			}
+			if current, exists := existing.Value(); exists && current.Descriptor().Accounting() == types.UsageAccountingExcluded {
+				// Bundles persist the selected accounting directly. An imported
+				// excluded alternative must remain excluded until the imported
+				// or subsequently observed winner establishes the claim.
+				selected = excluded
+				shouldClaim = false
+			}
+		}
+		transition, err := recordUsageObservation(ctx, conn, selected)
+		if err != nil {
+			return "", err
+		}
+		if shouldClaim {
+			if _, err := conn.ExecContext(ctx,
+				"INSERT INTO usage_exclusivity_claims (claim_key, winner_observation_id) VALUES (?, ?)",
+				validatedKey.String(), additive.Descriptor().ObservationID().String(),
+			); err != nil {
+				return "", xerrors.Errorf("failed to persist usage exclusivity winner: %w", err)
+			}
+		}
+		return transition, nil
+	})
+}
+
+func (d *UsageObservationDatasource) recordTransaction(
+	ctx context.Context,
+	operation func(*sql.Conn) (model.UsageObservationTransition, error),
+) (transition model.UsageObservationTransition, err error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
 		return "", xerrors.Errorf("failed to open DB for usage observation record: %w", err)
@@ -80,12 +143,29 @@ func (d *UsageObservationDatasource) Record(
 		}
 	}()
 
+	transition, err = operation(conn)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return "", xerrors.Errorf("failed to commit usage observation transaction: %w", err)
+	}
+	committed = true
+	return transition, nil
+}
+
+func recordUsageObservation(
+	ctx context.Context,
+	conn *sql.Conn,
+	observation *model.UsageObservation,
+) (model.UsageObservationTransition, error) {
 	current, err := findUsageObservation(ctx, conn, observation.Descriptor().ObservationID())
 	if err != nil {
 		return "", xerrors.Errorf("failed to inspect existing usage observation: %w", err)
 	}
 	if existing, present := current.Value(); present {
-		transition, err = existing.Reconcile(observation)
+		transition, err := existing.Reconcile(observation)
 		if err != nil {
 			return "", xerrors.Errorf("failed to reconcile usage observation: %w", err)
 		}
@@ -94,27 +174,44 @@ func (d *UsageObservationDatasource) Record(
 				return "", xerrors.Errorf("failed to apply usage finalization: %w", err)
 			}
 		}
-	} else {
-		if observation.Descriptor().Scope() == types.UsageScopeSessionSnapshot {
-			head, err := findUsageSnapshotHead(ctx, conn, observation.Descriptor().SnapshotSeries())
-			if err != nil {
-				return "", xerrors.Errorf("failed to inspect usage snapshot series: %w", err)
-			}
-			if err := observation.ValidateSnapshotSuccessor(head); err != nil {
-				return "", xerrors.Errorf("failed to validate usage snapshot successor: %w", err)
-			}
-		}
-		if err := insertUsageObservation(ctx, conn, observation); err != nil {
-			return "", xerrors.Errorf("failed to record new usage observation: %w", err)
-		}
-		transition = model.UsageObservationTransitionApplied
+		return transition, nil
 	}
+	if observation.Descriptor().Scope() == types.UsageScopeSessionSnapshot {
+		head, err := findUsageSnapshotHead(ctx, conn, observation.Descriptor().SnapshotSeries())
+		if err != nil {
+			return "", xerrors.Errorf("failed to inspect usage snapshot series: %w", err)
+		}
+		if err := observation.ValidateSnapshotSuccessor(head); err != nil {
+			return "", xerrors.Errorf("failed to validate usage snapshot successor: %w", err)
+		}
+	}
+	if err := insertUsageObservation(ctx, conn, observation); err != nil {
+		return "", xerrors.Errorf("failed to record new usage observation: %w", err)
+	}
+	return model.UsageObservationTransitionApplied, nil
+}
 
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return "", xerrors.Errorf("failed to commit usage observation transaction: %w", err)
+func findUsageExclusivityWinner(
+	ctx context.Context,
+	queryer usageQueryer,
+	key types.UsageExclusivityKey,
+) (types.UsageObservationID, bool, error) {
+	var raw string
+	err := queryer.QueryRowContext(ctx,
+		"SELECT winner_observation_id FROM usage_exclusivity_claims WHERE claim_key = ?",
+		key.String(),
+	).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
 	}
-	committed = true
-	return transition, nil
+	if err != nil {
+		return "", false, xerrors.Errorf("failed to inspect usage exclusivity winner: %w", err)
+	}
+	id, err := types.UsageObservationIDFrom(raw)
+	if err != nil {
+		return "", false, xerrors.Errorf("invalid stored usage exclusivity winner: %w", err)
+	}
+	return id, true, nil
 }
 
 // FindByID restores an observation by authoritative identity.

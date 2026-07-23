@@ -5,6 +5,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -42,6 +43,17 @@ type CodexUsageSample struct {
 type CodexUsageLoadResult struct {
 	Samples          []CodexUsageSample
 	BoundaryObserved bool
+}
+
+// CodexUsageRepository atomically records normal observations and chooses one
+// additive winner among equivalent headless/rollout source alternatives.
+type CodexUsageRepository interface {
+	model.UsageObservationRepository
+	RecordExclusive(
+		ctx context.Context,
+		key types.UsageExclusivityKey,
+		additive, excluded *model.UsageObservation,
+	) (model.UsageObservationTransition, error)
 }
 
 // CodexUsageSource reads only body-free usage metadata from local Codex files.

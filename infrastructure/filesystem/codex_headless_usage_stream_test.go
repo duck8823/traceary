@@ -31,7 +31,8 @@ func TestCodexHeadlessUsageStream_ForwardsBodyButRetainsOnlyTerminalUsage(t *tes
 		t.Fatalf("result = %+v", result)
 	}
 	sample := result.Samples[0]
-	if sample.RecordID != "headless_stream:thread-1:1" || !sample.Available || sample.TerminalCode != types.UsageTerminalSuccess {
+	if sample.RecordID != "headless_stream:thread-1:1" || sample.SuppressionID != sample.RecordID ||
+		!sample.Available || sample.TerminalCode != types.UsageTerminalSuccess {
 		t.Fatalf("sample = %+v", sample)
 	}
 	if sample.Model != "" || sample.Counters.TotalTokens != nil {

@@ -24,6 +24,28 @@ func UsageObservationIDFrom(value string) (UsageObservationID, error) {
 
 func (id UsageObservationID) String() string { return string(id) }
 
+// UsageExclusivityKey identifies alternative observations that may contribute
+// to an aggregate at most once. Adapters derive it only from body-free,
+// authoritative host identities.
+type UsageExclusivityKey string
+
+// UsageExclusivityKeyFrom validates an opaque additive-claim identity.
+func UsageExclusivityKeyFrom(value string) (UsageExclusivityKey, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", xerrors.Errorf("usage exclusivity key must not be empty")
+	}
+	if len(trimmed) > 512 {
+		return "", xerrors.Errorf("usage exclusivity key must not exceed 512 bytes")
+	}
+	if strings.ContainsAny(trimmed, "\r\n\x00") {
+		return "", xerrors.Errorf("usage exclusivity key contains invalid control characters")
+	}
+	return UsageExclusivityKey(trimmed), nil
+}
+
+func (key UsageExclusivityKey) String() string { return string(key) }
+
 // UsageScope is the accounting granularity selected by a host adapter.
 type UsageScope string
 

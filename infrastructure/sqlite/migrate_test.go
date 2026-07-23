@@ -71,7 +71,7 @@ func TestMigrations_applyToEmptyDatabase(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	tables := []string{"events", "command_audits", "sessions", "usage_observations", "run_lineages", "usage_observation_runs", "schema_migrations"}
+	tables := []string{"events", "command_audits", "sessions", "usage_observations", "usage_exclusivity_claims", "run_lineages", "usage_observation_runs", "schema_migrations"}
 	for _, table := range tables {
 		var count int
 		if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count); err != nil {

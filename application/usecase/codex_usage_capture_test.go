@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,10 +27,18 @@ func (s codexUsageSourceStub) Load(context.Context, application.CodexUsageLoadCr
 
 type codexUsageRepositoryFake struct {
 	observations map[types.UsageObservationID]*model.UsageObservation
+	claims       map[types.UsageExclusivityKey]types.UsageObservationID
 	recordCalls  int
+	mu           sync.Mutex
 }
 
 func (r *codexUsageRepositoryFake) Record(_ context.Context, proposed *model.UsageObservation) (model.UsageObservationTransition, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.record(proposed)
+}
+
+func (r *codexUsageRepositoryFake) record(proposed *model.UsageObservation) (model.UsageObservationTransition, error) {
 	r.recordCalls++
 	if r.observations == nil {
 		r.observations = map[types.UsageObservationID]*model.UsageObservation{}
@@ -49,11 +58,36 @@ func (r *codexUsageRepositoryFake) Record(_ context.Context, proposed *model.Usa
 }
 
 func (r *codexUsageRepositoryFake) FindByID(_ context.Context, id types.UsageObservationID) (types.Optional[*model.UsageObservation], error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	observation := r.observations[id]
 	if observation == nil {
 		return types.None[*model.UsageObservation](), nil
 	}
 	return types.Some(observation), nil
+}
+
+func (r *codexUsageRepositoryFake) RecordExclusive(
+	_ context.Context,
+	key types.UsageExclusivityKey,
+	additive, excluded *model.UsageObservation,
+) (model.UsageObservationTransition, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := additive.ValidateAccountingAlternative(excluded); err != nil {
+		return "", xerrors.Errorf("invalid fake accounting alternatives: %w", err)
+	}
+	if r.claims == nil {
+		r.claims = map[types.UsageExclusivityKey]types.UsageObservationID{}
+	}
+	selected := additive
+	additiveID := additive.Descriptor().ObservationID()
+	if winner, present := r.claims[key]; present && winner != additiveID {
+		selected = excluded
+	} else if !present {
+		r.claims[key] = additiveID
+	}
+	return r.record(selected)
 }
 
 func TestCodexUsageCaptureUsecase_RecordsKnownAndUnavailableFieldsOnce(t *testing.T) {
@@ -198,7 +232,8 @@ func TestCodexUsageCaptureUsecase_HeadlessObservationSuppressesLegacyRolloutAcco
 	repository := &codexUsageRepositoryFake{}
 	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository)
 	headless := application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
-		RecordID: "headless_stream:thread-1:1", SourceName: "headless_stream", SourceVersion: "schema-v1",
+		RecordID: "headless_stream:thread-1:1", SuppressionID: "headless_stream:thread-1:1",
+		SourceName: "headless_stream", SourceVersion: "schema-v1",
 		ObservedAt: observedAt, TerminalCode: types.UsageTerminalSuccess, Available: true,
 		Counters: application.CodexUsageCounters{InputTokens: &inputTokens, OutputTokens: &outputTokens},
 	}}}
@@ -217,5 +252,43 @@ func TestCodexUsageCaptureUsecase_HeadlessObservationSuppressesLegacyRolloutAcco
 	rollout := repository.observations["codex:rollout:thread-1:turn-1"]
 	if rollout == nil || rollout.Descriptor().Accounting() != types.UsageAccountingExcluded {
 		t.Fatalf("rollout accounting = %+v", rollout)
+	}
+}
+
+func TestCodexUsageCaptureUsecase_RolloutObservationSuppressesLaterHeadlessAccounting(t *testing.T) {
+	t.Parallel()
+	observedAt := time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC)
+	inputTokens, outputTokens := int64(10), int64(2)
+	repository := &codexUsageRepositoryFake{}
+	rolloutSource := codexUsageSourceStub{result: application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
+		RecordID: "rollout:thread-1:turn-1", SuppressionID: "headless_stream:thread-1:1",
+		SourceName: "rollout_jsonl", SourceVersion: "0.145.0", ObservedAt: observedAt,
+		TerminalCode: types.UsageTerminalSuccess, Available: true,
+		Counters: application.CodexUsageCounters{InputTokens: &inputTokens, OutputTokens: &outputTokens},
+	}}}}
+	input := usecase.CodexUsageCaptureInput{SessionID: "session-1"}
+	if _, err := usecase.NewCodexUsageCaptureUsecase(rolloutSource, repository).Capture(context.Background(), input); err != nil {
+		t.Fatalf("Capture(rollout) error = %v", err)
+	}
+	headless := application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
+		RecordID: "headless_stream:thread-1:1", SuppressionID: "headless_stream:thread-1:1",
+		SourceName: "headless_stream", SourceVersion: "schema-v1", ObservedAt: observedAt,
+		TerminalCode: types.UsageTerminalSuccess, Available: true,
+		Counters: application.CodexUsageCounters{InputTokens: &inputTokens, OutputTokens: &outputTokens},
+	}}}
+	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository)
+	if _, err := sut.CaptureHeadless(context.Background(), input, headless); err != nil {
+		t.Fatalf("CaptureHeadless() error = %v", err)
+	}
+	rollout := repository.observations["codex:rollout:thread-1:turn-1"]
+	headlessObservation := repository.observations["codex:headless_stream:thread-1:1"]
+	if rollout == nil || rollout.Descriptor().Accounting() != types.UsageAccountingAdditive {
+		t.Fatalf("rollout accounting = %+v", rollout)
+	}
+	if headlessObservation == nil || headlessObservation.Descriptor().Accounting() != types.UsageAccountingExcluded {
+		t.Fatalf("headless accounting = %+v", headlessObservation)
+	}
+	if len(repository.claims) != 1 {
+		t.Fatalf("claims = %d, want 1", len(repository.claims))
 	}
 }

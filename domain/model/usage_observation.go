@@ -400,6 +400,35 @@ func (o *UsageObservation) Reconcile(proposed *UsageObservation) (UsageObservati
 	return "", ErrInvalidUsageObservation
 }
 
+// ValidateAccountingAlternative verifies that two observations differ only in
+// whether they are additive or excluded. This lets a repository choose one
+// accounting outcome atomically without moving adapter rules into storage.
+func (o *UsageObservation) ValidateAccountingAlternative(alternative *UsageObservation) error {
+	if o == nil || alternative == nil {
+		return ErrInvalidUsageObservation
+	}
+	current := o.descriptor
+	other := alternative.descriptor
+	currentAccounting, otherAccounting := current.accounting, other.accounting
+	if currentAccounting != types.UsageAccountingAdditive || otherAccounting != types.UsageAccountingExcluded {
+		return newUsageObservationConflict(current.observationID, "accounting alternatives")
+	}
+	current.accounting = otherAccounting
+	if !current.equivalent(other) || o.status != alternative.status || o.counters != alternative.counters || o.cost != alternative.cost {
+		return newUsageObservationConflict(o.descriptor.observationID, "accounting alternative semantics")
+	}
+	currentCode, currentCodePresent := o.terminalCode.Value()
+	otherCode, otherCodePresent := alternative.terminalCode.Value()
+	currentFinalizedAt, currentFinalizedPresent := o.finalizedAt.Value()
+	otherFinalizedAt, otherFinalizedPresent := alternative.finalizedAt.Value()
+	if currentCodePresent != otherCodePresent || (currentCodePresent && currentCode != otherCode) ||
+		currentFinalizedPresent != otherFinalizedPresent ||
+		(currentFinalizedPresent && !currentFinalizedAt.Equal(otherFinalizedAt)) {
+		return newUsageObservationConflict(o.descriptor.observationID, "accounting alternative terminal semantics")
+	}
+	return nil
+}
+
 // ValidateSnapshotSuccessor verifies that this observation can extend the
 // supplied current snapshot head. A nil head is valid only for the first
 // revision of a series and therefore requires no predecessor.

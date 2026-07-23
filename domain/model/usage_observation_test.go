@@ -119,6 +119,36 @@ func TestUsageObservation_ReconcileRejectsDifferentTerminalTimestamp(t *testing.
 	}
 }
 
+func TestUsageObservation_ValidateAccountingAlternativeAcceptsOnlyAccountingDifference(t *testing.T) {
+	t.Parallel()
+
+	additiveDescriptor := usageDescriptor(t, "usage-exclusive")
+	excludedDescriptor, err := model.NewUsageObservationDescriptor(
+		additiveDescriptor.ObservationID(),
+		additiveDescriptor.SessionID(),
+		additiveDescriptor.Source(),
+		additiveDescriptor.Scope(),
+		types.UsageAccountingExcluded,
+		additiveDescriptor.ObservedAt(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	additive := finalizedUsageObservation(t, additiveDescriptor, 10)
+	excluded := finalizedUsageObservation(t, excludedDescriptor, 10)
+	if err := additive.ValidateAccountingAlternative(excluded); err != nil {
+		t.Fatalf("ValidateAccountingAlternative() error = %v", err)
+	}
+
+	differentCounters := finalizedUsageObservation(t, excludedDescriptor, 11)
+	if err := additive.ValidateAccountingAlternative(differentCounters); !errors.Is(err, model.ErrConflictingUsageObservation) {
+		t.Fatalf("different counters error = %v", err)
+	}
+	if err := excluded.ValidateAccountingAlternative(additive); !errors.Is(err, model.ErrConflictingUsageObservation) {
+		t.Fatalf("reversed alternatives error = %v", err)
+	}
+}
+
 func TestUsageObservation_finalizedRejectsUnknownUsage(t *testing.T) {
 	t.Parallel()
 

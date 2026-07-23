@@ -36,13 +36,13 @@ type CodexUsageCaptureUsecase interface {
 
 type codexUsageCaptureUsecase struct {
 	source     application.CodexUsageSource
-	repository model.UsageObservationRepository
+	repository application.CodexUsageRepository
 }
 
 // NewCodexUsageCaptureUsecase creates the Codex adapter boundary.
 func NewCodexUsageCaptureUsecase(
 	source application.CodexUsageSource,
-	repository model.UsageObservationRepository,
+	repository application.CodexUsageRepository,
 ) CodexUsageCaptureUsecase {
 	return &codexUsageCaptureUsecase{source: source, repository: repository}
 }
@@ -82,15 +82,7 @@ func (u *codexUsageCaptureUsecase) captureLoaded(
 	}
 	result := CodexUsageCaptureResult{}
 	for _, sample := range loaded.Samples {
-		accounting, err := u.sampleAccounting(ctx, sample)
-		if err != nil {
-			return result, err
-		}
-		observation, err := codexUsageObservation(input.SessionID, sample, accounting)
-		if err != nil {
-			return result, err
-		}
-		transition, err := u.repository.Record(ctx, observation)
+		transition, err := u.recordSample(ctx, input.SessionID, sample)
 		if err != nil {
 			return result, xerrors.Errorf("failed to reconcile Codex usage sample %q: %w", sample.RecordID, err)
 		}
@@ -108,28 +100,50 @@ func (u *codexUsageCaptureUsecase) captureLoaded(
 	return result, nil
 }
 
-func (u *codexUsageCaptureUsecase) sampleAccounting(
+func (u *codexUsageCaptureUsecase) recordSample(
 	ctx context.Context,
+	sessionID types.SessionID,
 	sample application.CodexUsageSample,
-) (types.UsageAccounting, error) {
+) (model.UsageObservationTransition, error) {
 	if !sample.Available {
-		return types.UsageAccountingExcluded, nil
+		observation, err := codexUsageObservation(sessionID, sample, types.UsageAccountingExcluded)
+		if err != nil {
+			return "", err
+		}
+		transition, err := u.repository.Record(ctx, observation)
+		if err != nil {
+			return "", xerrors.Errorf("failed to record unavailable Codex usage: %w", err)
+		}
+		return transition, nil
 	}
 	if strings.TrimSpace(sample.SuppressionID) == "" {
-		return types.UsageAccountingAdditive, nil
+		observation, err := codexUsageObservation(sessionID, sample, types.UsageAccountingAdditive)
+		if err != nil {
+			return "", err
+		}
+		transition, err := u.repository.Record(ctx, observation)
+		if err != nil {
+			return "", xerrors.Errorf("failed to record additive Codex usage: %w", err)
+		}
+		return transition, nil
 	}
-	suppressionID, err := types.UsageObservationIDFrom("codex:" + strings.TrimSpace(sample.SuppressionID))
+	key, err := types.UsageExclusivityKeyFrom("codex:" + strings.TrimSpace(sample.SuppressionID))
 	if err != nil {
-		return "", xerrors.Errorf("invalid Codex headless suppression identity: %w", err)
+		return "", xerrors.Errorf("invalid Codex additive exclusivity identity: %w", err)
 	}
-	existing, err := u.repository.FindByID(ctx, suppressionID)
+	additive, err := codexUsageObservation(sessionID, sample, types.UsageAccountingAdditive)
 	if err != nil {
-		return "", xerrors.Errorf("failed to inspect Codex headless suppression identity: %w", err)
+		return "", err
 	}
-	if _, present := existing.Value(); present {
-		return types.UsageAccountingExcluded, nil
+	excluded, err := codexUsageObservation(sessionID, sample, types.UsageAccountingExcluded)
+	if err != nil {
+		return "", err
 	}
-	return types.UsageAccountingAdditive, nil
+	transition, err := u.repository.RecordExclusive(ctx, key, additive, excluded)
+	if err != nil {
+		return "", xerrors.Errorf("failed to record mutually exclusive Codex usage: %w", err)
+	}
+	return transition, nil
 }
 
 func (u *codexUsageCaptureUsecase) recordUnavailableBoundary(

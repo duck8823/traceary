@@ -150,6 +150,7 @@ func (s *codexHeadlessUsageStream) parseLine(line []byte) error {
 		s.ordinal++
 		s.result.Samples = append(s.result.Samples, application.CodexUsageSample{
 			RecordID:      "headless_stream:" + s.threadID + ":" + strconv.Itoa(s.ordinal),
+			SuppressionID: "headless_stream:" + s.threadID + ":" + strconv.Itoa(s.ordinal),
 			SourceName:    "headless_stream",
 			SourceVersion: "schema-v1",
 			ObservedAt:    s.now().UTC(),
