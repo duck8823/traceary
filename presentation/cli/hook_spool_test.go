@@ -221,6 +221,41 @@ func TestClaudeUsageHookSpool_IsBodyAndPathFreeAndReplayable(t *testing.T) {
 	}
 }
 
+func TestGeminiUsageHookSpool_IsBodyAndPathFreeAndReplayable(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	usage := &spoolGeminiUsageStub{err: errors.New("database busy")}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithGeminiUsage(usage),
+	)
+	payload := `{"session_id":"gemini-session","timestamp":"2026-07-23T01:00:00Z","transcript_path":"/private/transcript","prompt":"private prompt","prompt_response":"private response"}`
+	if err := root.runGeminiUsageHookDurably(
+		context.Background(), strings.NewReader(payload), "gemini", "/tmp/traceary.db",
+	); err != nil {
+		t.Fatalf("runGeminiUsageHookDurably() must remain fail-soft: %v", err)
+	}
+	records, unreadable, err := scanHookSpoolRecords([]string{"gemini"})
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 {
+		t.Fatalf("records=%d unreadable=%d", len(records), len(unreadable))
+	}
+	if records[0].Command != "usage" ||
+		records[0].Payload != `{"session_id":"gemini-session","timestamp":"2026-07-23T01:00:00Z"}` ||
+		strings.Contains(records[0].Payload, "private") ||
+		strings.Contains(records[0].Payload, "transcript") ||
+		strings.Contains(records[0].Payload, "prompt") {
+		t.Fatalf("usage spool record = %#v", records[0])
+	}
+	usage.err = nil
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 1 || failed != 0 || len(usage.inputs) != 2 {
+		t.Fatalf("replay = %d/%d calls=%d", replayed, failed, len(usage.inputs))
+	}
+}
+
 func TestDrainHookSpoolRecords_BatchLimitAndOldestFirst(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
@@ -489,6 +524,28 @@ type spoolCodexUsageStub struct {
 type spoolClaudeUsageStub struct {
 	inputs []usecase.ClaudeUsageCaptureInput
 	err    error
+}
+
+type spoolGeminiUsageStub struct {
+	inputs []usecase.GeminiUsageCaptureInput
+	err    error
+}
+
+func (s *spoolGeminiUsageStub) CaptureHeadless(
+	_ context.Context,
+	input usecase.GeminiUsageCaptureInput,
+	_ application.GeminiUsageLoadResult,
+) (usecase.GeminiUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.GeminiUsageCaptureResult{}, s.err
+}
+
+func (s *spoolGeminiUsageStub) CaptureInteractiveUnavailable(
+	_ context.Context,
+	input usecase.GeminiUsageCaptureInput,
+) (usecase.GeminiUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.GeminiUsageCaptureResult{}, s.err
 }
 
 func (s *spoolClaudeUsageStub) Capture(

@@ -101,8 +101,10 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 	processStdout := stdout
 	codexUsageMode := ""
 	claudeUsageMode := ""
+	geminiUsageMode := ""
 	var headlessUsage application.CodexHeadlessUsageStream
 	var claudeHeadlessUsage application.ClaudeHeadlessUsageStream
+	var geminiHeadlessUsage application.GeminiHeadlessUsageStream
 	if isCodexHeadlessUsageCommand(command) && c.codexHeadlessUsage != nil && c.codexUsage != nil {
 		codexUsageMode = codexUsageModeHeadless
 		headlessUsage = c.codexHeadlessUsage.New(stdout)
@@ -111,12 +113,16 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 		claudeUsageMode = claudeUsageModeOneShot
 		claudeHeadlessUsage = c.claudeHeadlessUsage.New(stdout)
 		processStdout = claudeHeadlessUsage
+	} else if isGeminiHeadlessUsageCommand(command) && c.geminiHeadlessUsage != nil && c.geminiUsage != nil {
+		geminiUsageMode = geminiUsageModeOneShot
+		geminiHeadlessUsage = c.geminiHeadlessUsage.New(stdout)
+		processStdout = geminiHeadlessUsage
 	}
 	reason, exitCode, runErr := runOneShotProcess(
 		ctx, stdin, processStdout, stderr, command, input.timeout,
 		oneShotProcessEnvironment(
 			resolvedDBPath, startEvent.SessionID(), types.SessionID(strings.TrimSpace(input.parentSessionID)),
-			codexUsageMode, claudeUsageMode,
+			codexUsageMode, claudeUsageMode, geminiUsageMode,
 		),
 	)
 	summary := "one-shot process finished: " + reason.String()
@@ -158,6 +164,25 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 			usageErr = errors.Join(
 				usageErr,
 				xerrors.Errorf("failed to record Claude headless usage: %w", captureErr),
+			)
+		}
+	}
+	if geminiHeadlessUsage != nil {
+		loaded, collectErr := geminiHeadlessUsage.Complete()
+		_, captureErr := c.geminiUsage.CaptureHeadless(finalizeCtx, usecase.GeminiUsageCaptureInput{
+			SessionID: startEvent.SessionID(), DeliveryID: "session_run",
+			FallbackTerminal: usageTerminalFromReason(reason),
+		}, loaded)
+		if collectErr != nil {
+			usageErr = errors.Join(
+				usageErr,
+				xerrors.Errorf("failed to decode body-free Gemini headless usage: %w", collectErr),
+			)
+		}
+		if captureErr != nil {
+			usageErr = errors.Join(
+				usageErr,
+				xerrors.Errorf("failed to record Gemini headless usage: %w", captureErr),
 			)
 		}
 	}
@@ -217,7 +242,7 @@ func runOneShotProcess(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 func oneShotProcessEnvironment(
 	dbPath string,
 	sessionID, parentSessionID types.SessionID,
-	codexUsageMode, claudeUsageMode string,
+	codexUsageMode, claudeUsageMode, geminiUsageMode string,
 ) []string {
 	overrides := map[string]string{
 		"TRACEARY_DB_PATH":           dbPath,
@@ -226,6 +251,7 @@ func oneShotProcessEnvironment(
 		"TRACEARY_PARENT_SESSION_ID": parentSessionID.String(),
 		codexUsageModeEnvKey:         codexUsageMode,
 		claudeUsageModeEnvKey:        claudeUsageMode,
+		geminiUsageModeEnvKey:        geminiUsageMode,
 	}
 	env := make([]string, 0, len(os.Environ())+len(overrides))
 	for _, entry := range os.Environ() {
@@ -277,6 +303,38 @@ optionLoop:
 		}
 	}
 	return printMode && jsonMode
+}
+
+func isGeminiHeadlessUsageCommand(command []string) bool {
+	if len(command) < 2 || filepath.Base(strings.TrimSpace(command[0])) != "gemini" {
+		return false
+	}
+	promptMode := false
+	streamMode := false
+optionLoop:
+	for index := 1; index < len(command); index++ {
+		switch command[index] {
+		case "--":
+			break optionLoop
+		case "-p", "--prompt":
+			promptMode = true
+			if index+1 < len(command) {
+				index++
+			}
+		case "--output-format":
+			if index+1 < len(command) && command[index+1] == "stream-json" {
+				streamMode = true
+			}
+			index++
+		case "--output-format=stream-json":
+			streamMode = true
+		default:
+			if value, found := strings.CutPrefix(command[index], "--prompt="); found && value != "" {
+				promptMode = true
+			}
+		}
+	}
+	return promptMode && streamMode
 }
 
 func usageTerminalFromReason(reason types.TerminalReason) types.UsageTerminalCode {

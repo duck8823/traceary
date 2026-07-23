@@ -16,14 +16,21 @@ import (
 // against the supplied stubs so a caller can replay a multi-event sequence and
 // observe the accumulated effect (the stubs record each call). The runtime
 // entrypoints are fail-soft, so Execute() is expected to succeed.
-func execAntigravityHook(t *testing.T, event, payload string, eventStub *eventUsecaseStub, sessionStub *sessionUsecaseStub) string {
+func execAntigravityHook(
+	t *testing.T,
+	event, payload string,
+	eventStub *eventUsecaseStub,
+	sessionStub *sessionUsecaseStub,
+	opts ...cli.RootCLIOption,
+) string {
 	t.Helper()
 
-	rootCmd := newTestRootCLI(
+	base := []cli.RootCLIOption{
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithEvent(eventStub),
 		cli.WithSession(sessionStub),
-	).Command()
+	}
+	rootCmd := newTestRootCLI(append(base, opts...)...).Command()
 
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -111,11 +118,15 @@ func TestRootCLI_HookAntigravityStopRecordsTranscriptWhenHostEmitsStop(t *testin
 
 	eventStub := &eventUsecaseStub{}
 	sessionStub := &sessionUsecaseStub{}
+	usageStub := &antigravityUsageCaptureStub{}
 
 	payload := fmt.Sprintf(
 		`{"conversationId":"stop-conv","workspacePaths":["/repo"],"transcriptPath":%q,"terminationReason":"completed"}`,
 		transcriptPath)
-	if out := execAntigravityHook(t, "stop", payload, eventStub, sessionStub); out != `{"decision":""}` {
+	if out := execAntigravityHook(
+		t, "stop", payload, eventStub, sessionStub,
+		cli.WithAntigravityUsage(usageStub),
+	); out != `{"decision":""}` {
 		t.Fatalf("Stop output = %q, want {\"decision\":\"\"}", out)
 	}
 
@@ -133,6 +144,11 @@ func TestRootCLI_HookAntigravityStopRecordsTranscriptWhenHostEmitsStop(t *testin
 	}
 	if got := eventStub.logCalls[0]; got.kind != types.EventKindPrompt || got.message != "current prompt" || got.sourceHook != "stop_transcript" {
 		t.Fatalf("Stop prompt call = %+v, want transcript-derived prompt", got)
+	}
+	if len(usageStub.stops) != 1 ||
+		usageStub.stops[0].SessionID != "stop-conv" ||
+		usageStub.stops[0].BoundaryID != "turn:step:1" {
+		t.Fatalf("Stop usage availability captures = %+v", usageStub.stops)
 	}
 }
 

@@ -204,6 +204,48 @@ func TestUsageObservationDatasource_RecordBuildsOneSnapshotChain(t *testing.T) {
 	}
 }
 
+func TestUsageObservationDatasource_FindSnapshotHeadReturnsOnlyCurrentRevision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	sut := sqlite.NewUsageObservationDatasource(db)
+
+	first := sqliteSnapshotObservation(t, "snapshot-find-1", 1, types.None[types.UsageObservationID](), 100)
+	if _, err := sut.Record(ctx, first); err != nil {
+		t.Fatalf("Record(first) error = %v", err)
+	}
+	second := sqliteSnapshotObservation(
+		t, "snapshot-find-2", 2, types.Some(first.Descriptor().ObservationID()), 150,
+	)
+	if _, err := sut.Record(ctx, second); err != nil {
+		t.Fatalf("Record(second) error = %v", err)
+	}
+
+	head, err := sut.FindSnapshotHead(ctx, "antigravity:conversation-1:model-1")
+	if err != nil {
+		t.Fatalf("FindSnapshotHead() error = %v", err)
+	}
+	value, present := head.Value()
+	if !present || value.Descriptor().ObservationID() != second.Descriptor().ObservationID() {
+		t.Fatalf("FindSnapshotHead() = (%v, %t), want %q", value, present, second.Descriptor().ObservationID())
+	}
+	missing, err := sut.FindSnapshotHead(ctx, "antigravity:missing:model-1")
+	if err != nil {
+		t.Fatalf("FindSnapshotHead(missing) error = %v", err)
+	}
+	if _, present := missing.Value(); present {
+		t.Fatal("FindSnapshotHead(missing) returned an observation")
+	}
+	if _, err := sut.FindSnapshotHead(ctx, " \t "); err == nil {
+		t.Fatal("FindSnapshotHead(blank) error = nil")
+	}
+}
+
 func TestUsageObservationDatasource_RecordRejectsConcurrentConflictingFinals(t *testing.T) {
 	t.Parallel()
 

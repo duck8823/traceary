@@ -11,11 +11,20 @@ The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expe
 - `traceary` MCP server via `traceary mcp-server`
 - `SessionStart` / `SessionEnd` hooks
 - `BeforeAgent` prompt hook — records the submitted user prompt as a `prompt` event
-- `AfterAgent` transcript hook — records the agent response as a `transcript` event
+- `AfterAgent` transcript and usage-availability hooks — records the agent response as a `transcript` event and records that provider usage is unavailable from this body-free hook surface
 - `AfterTool` shell-audit hook for `run_shell_command`
 - `PreCompress` compact marker hook — records the pre-compress boundary (Gemini exposes no post-compress summary hook)
 - slash commands: `/traceary-help` and `/traceary-doctor`
 - contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて").
+
+## Usage metadata
+
+Gemini CLI has two deliberately separate capture paths:
+
+- A Traceary-owned one-shot command such as `traceary session run -- gemini -p "..." --output-format stream-json` records the terminal `result.stats` totals. When the result contains per-model totals, Traceary stores those model rows and does not store the aggregate again.
+- Interactive `AfterAgent` hooks record an explicit **unavailable** usage observation. Traceary does not install `AfterModel` for usage because that hook also carries model request/response bodies.
+
+The adapter reads only the versioned, body-free metadata fields needed for source identity, terminal status, timestamp, and token totals. It does not infer usage from prompt length, response length, tool count, or elapsed time. Replaying the same terminal result or `AfterAgent` timestamp is idempotent.
 
 ## Memory activation strategy
 

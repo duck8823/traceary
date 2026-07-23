@@ -29,6 +29,7 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 	sessionEndCommand := newHookRuntimeCommand(tracearyBin, "hook", "session", "gemini", "end")
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "gemini")
 	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "gemini")
+	usageCommand := newHookRuntimeCommand(tracearyBin, "hook", "usage", "gemini")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "gemini")
 	preCompressCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "gemini", "pre-compact")
 
@@ -89,6 +90,14 @@ func (h *GeminiHooksHandler) Build(tracearyBin string) model.Hooks {
 		},
 		"AfterAgent": {
 			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf(
+					"traceary-usage",
+					"command",
+					usageCommand,
+					timeout,
+					"Record explicit Gemini usage availability",
+					managedKeyOf("traceary-usage.sh", "gemini"),
+				),
 				model.HookCommandOf(
 					"traceary-transcript",
 					"command",

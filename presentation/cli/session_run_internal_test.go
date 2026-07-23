@@ -21,7 +21,7 @@ func TestRunOneShotProcess_TimeoutKillsProcessGroupPromptly(t *testing.T) {
 	reason, exitCode, err := runOneShotProcess(
 		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
 		[]string{"sh", "-c", "(sleep 10) & wait"}, 20*time.Millisecond,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", ""),
 	)
 	if err == nil || reason != types.TerminalReasonTimeout || exitCode != oneShotTimeoutExitCode {
 		t.Fatalf("runOneShotProcess() = (%q, %d, %v), want timeout/%d/error", reason, exitCode, err, oneShotTimeoutExitCode)
@@ -39,7 +39,7 @@ func TestRunOneShotProcess_ClassifiesAbortedStream(t *testing.T) {
 		&bytes.Buffer{},
 		[]string{"sh", "-c", "printf output"},
 		0,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", ""),
 	)
 	if err == nil {
 		t.Fatal("runOneShotProcess() error = nil, want stream error")
@@ -53,7 +53,7 @@ func TestRunOneShotProcess_ClassifiesStartFailure(t *testing.T) {
 	reason, exitCode, err := runOneShotProcess(
 		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
 		[]string{"/path/that/does/not/exist"}, 0,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", ""),
 	)
 	if err == nil {
 		t.Fatal("runOneShotProcess() error = nil, want start error")
@@ -83,6 +83,32 @@ func TestIsClaudeHeadlessUsageCommand_RequiresPrintAndJSONOutput(t *testing.T) {
 			t.Parallel()
 			if got := isClaudeHeadlessUsageCommand(test.command); got != test.want {
 				t.Fatalf("isClaudeHeadlessUsageCommand(%q) = %t, want %t", test.command, got, test.want)
+			}
+		})
+	}
+}
+
+func TestIsGeminiHeadlessUsageCommand_RequiresPromptAndStreamJSON(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		command []string
+		want    bool
+	}{
+		{name: "separate options", command: []string{"gemini", "-p", "prompt", "--output-format", "stream-json"}, want: true},
+		{name: "equals options", command: []string{"/usr/local/bin/gemini", "--prompt=prompt", "--output-format=stream-json"}, want: true},
+		{name: "plain prompt", command: []string{"gemini", "-p", "prompt"}, want: false},
+		{name: "interactive stream", command: []string{"gemini", "--output-format", "stream-json"}, want: false},
+		{name: "options after separator", command: []string{"gemini", "--", "-p", "prompt", "--output-format=stream-json"}, want: false},
+		{name: "stream before separator", command: []string{"gemini", "--prompt", "prompt", "--output-format=stream-json", "--", "argument"}, want: true},
+		{name: "missing prompt value", command: []string{"gemini", "--prompt=", "--output-format=stream-json"}, want: false},
+		{name: "other host", command: []string{"claude", "-p", "prompt", "--output-format", "stream-json"}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isGeminiHeadlessUsageCommand(test.command); got != test.want {
+				t.Fatalf("isGeminiHeadlessUsageCommand(%q) = %t, want %t", test.command, got, test.want)
 			}
 		})
 	}

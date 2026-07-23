@@ -183,6 +183,10 @@ func run() error {
 	claudeUsageUsecase := usecase.NewClaudeUsageCaptureUsecase(
 		filesystem.NewClaudeUsageSource(), usageObservationDatasource,
 	)
+	geminiUsageUsecase := usecase.NewGeminiUsageCaptureUsecase(usageObservationDatasource)
+	antigravityUsageUsecase := usecase.NewAntigravityUsageCaptureUsecase(
+		filesystem.NewAntigravityUsageSource(), usageObservationDatasource,
+	)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
@@ -234,6 +238,9 @@ func run() error {
 		cli.WithCodexHeadlessUsage(filesystem.NewCodexHeadlessUsageStreamFactory()),
 		cli.WithClaudeUsage(claudeUsageUsecase),
 		cli.WithClaudeHeadlessUsage(filesystem.NewClaudeHeadlessUsageStreamFactory()),
+		cli.WithGeminiUsage(geminiUsageUsecase),
+		cli.WithGeminiHeadlessUsage(filesystem.NewGeminiHeadlessUsageStreamFactory()),
+		cli.WithAntigravityUsage(antigravityUsageUsecase),
 		cli.WithContext(contextUsecase),
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -251,6 +252,34 @@ func (d *UsageObservationDatasource) FindByID(
 		return types.None[*model.UsageObservation](), xerrors.Errorf("failed to find usage observation: %w", err)
 	}
 	return observation, nil
+}
+
+// FindSnapshotHead restores the only unsuperseded observation in one
+// immutable snapshot series.
+func (d *UsageObservationDatasource) FindSnapshotHead(
+	ctx context.Context,
+	series string,
+) (types.Optional[*model.UsageObservation], error) {
+	if strings.TrimSpace(series) == "" || len(strings.TrimSpace(series)) > 512 {
+		return types.None[*model.UsageObservation](), xerrors.Errorf("invalid usage snapshot series")
+	}
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return types.None[*model.UsageObservation](), xerrors.Errorf("failed to open DB for usage snapshot lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+	head, err := findUsageSnapshotHead(ctx, db, strings.TrimSpace(series))
+	if err != nil {
+		return types.None[*model.UsageObservation](), err
+	}
+	if head == nil {
+		return types.None[*model.UsageObservation](), nil
+	}
+	return types.Some(head), nil
 }
 
 type usageRowScanner interface {

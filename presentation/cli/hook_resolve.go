@@ -206,6 +206,10 @@ func provenHookDeliveryIDFields(client string) []string {
 		return []string{"tool_use_id", "prompt_id"}
 	case "kimi":
 		return []string{"tool_use_id"}
+	case "gemini":
+		// The documented base hook schema carries the event execution timestamp.
+		// It is retained only as body-free delivery identity.
+		return []string{"timestamp"}
 	default:
 		return nil
 	}

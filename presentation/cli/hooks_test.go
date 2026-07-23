@@ -123,8 +123,11 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		if diff := cmp.Diff("*", *settings.Hooks["AfterAgent"][0].Matcher); diff != "" {
 			t.Fatalf("AfterAgent matcher mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'transcript' 'gemini'`, settings.Hooks["AfterAgent"][0].Hooks[0].Command); diff != "" {
-			t.Fatalf("AfterAgent command mismatch (-want +got):\n%s", diff)
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'usage' 'gemini'`, settings.Hooks["AfterAgent"][0].Hooks[0].Command); diff != "" {
+			t.Fatalf("AfterAgent usage command mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'transcript' 'gemini'`, settings.Hooks["AfterAgent"][0].Hooks[1].Command); diff != "" {
+			t.Fatalf("AfterAgent transcript command mismatch (-want +got):\n%s", diff)
 		}
 	})
 

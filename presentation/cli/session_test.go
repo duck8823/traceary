@@ -236,6 +236,60 @@ func TestRootCLI_SessionRunCommand_CapturesUnavailableClaudeBoundaryAfterParseFa
 	}
 }
 
+func TestRootCLI_SessionRunCommand_CapturesBodyFreeGeminiHeadlessUsage(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	gemini := filepath.Join(dir, "gemini")
+	fixturePath, err := filepath.Abs("testdata/gemini_usage/v0.46.0/headless_stream.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncat " + shellQuoteForTest(fixturePath) + "\n"
+	if err := os.WriteFile(gemini, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := types.SessionID("one-shot-gemini-headless")
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-gemini-headless", types.EventKindSessionStarted, "cli", "gemini", sessionID,
+		"duck8823/traceary", "session started", time.Now(),
+	)}
+	usage := &geminiUsageCaptureStub{}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithGeminiUsage(usage),
+		cli.WithGeminiHeadlessUsage(filesystem.NewGeminiHeadlessUsageStreamFactory()),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session", "run", "--db-path", filepath.Join(dir, "traceary.db"),
+		"--session-id", sessionID.String(), "--",
+		gemini, "-p", "synthetic prompt", "--output-format", "stream-json",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !bytes.Equal(stdout.Bytes(), fixture) {
+		t.Fatal("stdout changed")
+	}
+	if len(usage.headless) != 1 || len(usage.headless[0].Samples) != 2 {
+		t.Fatalf("headless capture = %+v", usage.headless)
+	}
+	if sessionStub.finalizeReason != types.TerminalReasonSuccess {
+		t.Fatalf("finalize reason = %q", sessionStub.finalizeReason)
+	}
+}
+
+func shellQuoteForTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 func TestRootCLI_SessionStartCommand(t *testing.T) {
 	t.Parallel()
 
