@@ -13,6 +13,22 @@ import (
 
 const workspaceObservationCatchUpBatchSize = 1000
 
+const workspaceObservationCatchUpBatchQuery = `
+	SELECT e.id, e.session_id, e.workspace, e.created_at, e.agent,
+	       COALESCE(e.source_hook, ''), COALESCE(s.workspace, '')
+	  FROM events e
+	  LEFT JOIN sessions s ON s.session_id = e.session_id
+	 WHERE NOT EXISTS (
+	       SELECT 1
+	         FROM session_workspace_observations o
+	        WHERE o.observed_event_id = e.id
+	          AND o.observation_kind = 'primary'
+	          AND o.observed_event_id IS NOT NULL
+	          AND o.observed_event_id <> ''
+	 )
+	 ORDER BY ts_norm(e.created_at), e.id
+	 LIMIT ?`
+
 func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int) error {
 	if batchSize <= 0 {
 		return xerrors.Errorf("workspace observation catch-up batch size must be positive")
@@ -31,19 +47,7 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	rows, err := tx.QueryContext(ctx, `
-		SELECT e.id, e.session_id, e.workspace, e.created_at, e.agent,
-		       COALESCE(e.source_hook, ''), COALESCE(s.workspace, '')
-		  FROM events e
-		  LEFT JOIN sessions s ON s.session_id = e.session_id
-		 WHERE NOT EXISTS (
-		       SELECT 1
-		         FROM session_workspace_observations o
-		        WHERE o.observed_event_id = e.id
-		          AND o.observation_kind = 'primary'
-		 )
-		 ORDER BY ts_norm(e.created_at), e.id
-		 LIMIT ?`, batchSize)
+	rows, err := tx.QueryContext(ctx, workspaceObservationCatchUpBatchQuery, batchSize)
 	if err != nil {
 		return xerrors.Errorf("failed to query workspace observation catch-up batch: %w", err)
 	}
