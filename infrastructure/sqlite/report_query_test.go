@@ -11,6 +11,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -164,5 +165,75 @@ func TestReportDatasource_SessionTotalsUseTheSameHalfOpenIntervalAndFilters(t *t
 	}
 	if len(window.Commands) != 0 {
 		t.Fatalf("command rows = %+v, want to-exclusive audit omitted", window.Commands)
+	}
+}
+
+func TestReportDatasource_UsageSelectsCurrentSnapshotAndExposesCapAndFilters(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	store := sqlite.NewStoreManagementDatasource(db)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	events := sqlite.NewEventDatasource(db)
+	sessions := sqlite.NewSessionDatasource(db)
+	sessionUsecase := usecase.NewSessionUsecase(events, sessions, sessions, events)
+	if _, err := sessionUsecase.Start(ctx, "codex", "codex", types.SessionID("session-1"), "workspace", ""); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	usage := sqlite.NewUsageObservationDatasource(db)
+	observations := []*model.UsageObservation{
+		sqliteFinalizedUsage(t, sqliteUsageDescriptor(t, "report-additive"), 10),
+		sqliteSnapshotObservation(t, "report-snapshot-1", 1, types.None[types.UsageObservationID](), 20),
+	}
+	supersededID := observations[1].Descriptor().ObservationID()
+	observations = append(observations,
+		sqliteSnapshotObservation(t, "report-snapshot-2", 2, types.Some(supersededID), 40),
+	)
+	for _, observation := range observations {
+		if _, err := usage.Record(ctx, observation); err != nil {
+			t.Fatalf("Record(%s) error = %v", observation.Descriptor().ObservationID(), err)
+		}
+	}
+
+	cappedCriteria, err := apptypes.ReportCriteriaFrom(
+		"2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z", "UTC", time.Now().UTC(),
+		"", "", 1, 1,
+	)
+	if err != nil {
+		t.Fatalf("ReportCriteriaFrom(capped) error = %v", err)
+	}
+	capped, err := sqlite.NewReportDatasource(db).LoadReportWindow(ctx, cappedCriteria)
+	if err != nil {
+		t.Fatalf("LoadReportWindow(capped) error = %v", err)
+	}
+	if len(capped.Usage) != 1 || capped.Usage[0].ObservationID != "report-snapshot-2" {
+		t.Fatalf("capped usage = %+v, want current snapshot head", capped.Usage)
+	}
+	if extent := capped.Extents.Usage; extent.Coverage != apptypes.ReportCoveragePartial ||
+		!extent.ResponseTruncated || extent.TruncationReason != "result_cap" ||
+		extent.ObservedCount != 1 || extent.PageSize != 1 || extent.ResultCap != 1 {
+		t.Fatalf("capped usage extent = %+v", extent)
+	}
+
+	filteredCriteria, err := apptypes.ReportCriteriaFrom(
+		"2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z", "UTC", time.Now().UTC(),
+		"workspace", "codex", 1, 0,
+	)
+	if err != nil {
+		t.Fatalf("ReportCriteriaFrom(filtered) error = %v", err)
+	}
+	filtered, err := sqlite.NewReportDatasource(db).LoadReportWindow(ctx, filteredCriteria)
+	if err != nil {
+		t.Fatalf("LoadReportWindow(filtered) error = %v", err)
+	}
+	if len(filtered.Usage) != 1 || filtered.Usage[0].ObservationID != "report-additive" {
+		t.Fatalf("filtered usage = %+v, want matching session usage only", filtered.Usage)
+	}
+	if filtered.Extents.Usage.Coverage != apptypes.ReportCoverageComplete {
+		t.Fatalf("filtered usage extent = %+v", filtered.Extents.Usage)
 	}
 }
