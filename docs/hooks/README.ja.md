@@ -208,7 +208,7 @@ traceary hooks install --client codex --upgrade
 
 すべての非公開 `traceary hook ...` entrypoint は、SQLite に触れる前に host payload を `~/.config/traceary/hooks/spool/` 配下の mode `0600` record へ保存します。record は atomic に公開され、hook operation が成功した後だけ削除されます。SIGTERM は command context を cancel します。host が競合中または低速な hook を kill しても、先に公開した record が残るため event は黙って消えません。
 
-後続の hook 呼び出しは、自身の処理の前に未処理 spool record を oldest-first の bounded batch で drain します。Traceary が解釈できる command だけを replay し、replay が成功した record のみ削除します。`traceary doctor` は残存 record と読めない record を `hook-spool` check で報告し、`traceary doctor --fix` は host timeout 外で大きめに drain します。手動削除前に spool ディレクトリの payload を確認してください。経過時間だけでは自動削除しません。
+各 hook は、現在の delivery を in-flight filename で公開し、実行後にその file を削除または replay queue へ移してから、残りの host timeout で backlog を replay します。並行する drain は実行中の delivery を選択しません。失敗または cancellation では原子的に replay queue へ移し、host に kill されて残った in-flight file は1分後に replay 可能になります。現在の処理が成功した後に限り、filename 順の bounded batch を選択して payload を decode します。replay に失敗した v1 spool record は保持したまま、未試行 record の後ろへ原子的に移動します。このため、恒常的に失敗する最古 record が後続の正常な delivery の再生を妨げ続けません。`traceary doctor` は残存 record と読めない record を `hook-spool` check で報告します。`traceary doctor --fix` は1回につき最大200件を drain し、replayed・failed・正確な remaining 件数を表示します。手動削除前に spool ディレクトリの payload を確認してください。経過時間だけでは自動削除しません。
 
 SQLite が writer 競合を待つのは最大1秒です。packaged host hook の budget は必ずこの待機時間を上回る必要があります。Gemini の生成・同梱 hook timeout は10秒で、DB attempt が失敗して spool record を保持したまま host deadline より前に制御を戻せます。この関係は意図的です: `SQLite busy_timeout < host hook timeout`。
 
