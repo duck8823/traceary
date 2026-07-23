@@ -42,7 +42,12 @@ CREATE INDEX idx_usage_observations_exclusivity
 CREATE TRIGGER usage_observations_reject_exclusivity_key_update
 BEFORE UPDATE OF exclusivity_key ON usage_observations
 FOR EACH ROW
-WHEN OLD.exclusivity_key IS NOT NULL OR NEW.exclusivity_key IS NULL
+WHEN NOT (
+    OLD.exclusivity_key IS NULL
+    AND NEW.exclusivity_key IS NOT NULL
+    AND OLD.accounting = 'excluded'
+    AND NEW.accounting = 'excluded'
+)
 BEGIN
     SELECT RAISE(ABORT, 'usage observation exclusivity key is immutable');
 END;

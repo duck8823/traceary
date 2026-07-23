@@ -110,7 +110,8 @@ func attachLegacyUsageExclusivityKey(
 		`UPDATE usage_observations
 		    SET exclusivity_key = ?
 		  WHERE observation_id = ?
-		    AND exclusivity_key IS NULL`,
+		    AND exclusivity_key IS NULL
+		    AND accounting = 'excluded'`,
 		key.String(), observationID.String(),
 	); err != nil {
 		return xerrors.Errorf("failed to attach portable key to legacy usage observation: %w", err)

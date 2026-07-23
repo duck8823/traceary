@@ -491,6 +491,34 @@ func TestUsageObservationMigration_UpgradesLegacyClaimsAndAlternatives(t *testin
 			t.Fatalf("group %s additive/keyed = %d/%d", group.key, additive, keyed)
 		}
 	}
+	if _, err := sqlDB.Exec(`UPDATE usage_observations SET exclusivity_key = 'changed'
+		WHERE observation_id = ?`, groups[0].rolloutID); err == nil {
+		t.Fatal("adopted legacy excluded key was changed")
+	}
+	if _, err := sqlDB.Exec(`UPDATE usage_observations SET exclusivity_key = NULL
+		WHERE observation_id = ?`, groups[0].rolloutID); err == nil {
+		t.Fatal("adopted legacy excluded key was cleared")
+	}
+	const unclaimedAdditiveID = "codex:rollout:thread-3:turn-1"
+	if err := insertRawFinalizedUsage(sqlDB, rawUsageRow{
+		id: unclaimedAdditiveID, host: "codex", sourceName: "headless_stream",
+		sourceVersion: "0.145.0", scope: "call", accounting: "additive", costState: "unavailable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unclaimedKey, _ := types.UsageExclusivityKeyFrom("codex:headless_stream:thread-3:1")
+	unclaimed := sqliteUnavailableUsageAccountingAlternatives(t, unclaimedKey, unclaimedAdditiveID)
+	if _, err := sut.RecordExclusive(ctx, unclaimedKey, unclaimed.additive, unclaimed.excluded); !errors.Is(err, model.ErrConflictingUsageObservation) {
+		t.Fatalf("legacy unclaimed additive adoption error = %v", err)
+	}
+	var keyIsNull int
+	if err := sqlDB.QueryRow(`SELECT exclusivity_key IS NULL FROM usage_observations
+		WHERE observation_id = ?`, unclaimedAdditiveID).Scan(&keyIsNull); err != nil {
+		t.Fatal(err)
+	}
+	if keyIsNull != 1 {
+		t.Fatal("legacy unclaimed additive acquired an exclusivity key")
+	}
 	if err := sqlDB.Close(); err != nil {
 		t.Fatal(err)
 	}
