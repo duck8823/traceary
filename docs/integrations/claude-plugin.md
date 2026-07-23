@@ -8,8 +8,34 @@ The Claude package lives under `integrations/claude-plugin/` and is published th
 
 - `traceary` MCP server via `traceary mcp-server`
 - `SessionStart` / `SessionEnd` hooks
+- a `Stop` usage hook that records provider-reported Claude token counters from the local transcript before transcript-event capture
 - `PostToolUse` / `PostToolUseFailure` audit hooks for `Bash`, `mcp__.*`, and the built-in tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`)
 - slash-style skills: `/traceary-help` plus the contextual `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember` skills. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて") and writes durable memory directly.
+
+## Usage accounting
+
+Traceary uses two mutually exclusive Claude capture modes:
+
+- Native interactive sessions read the local Claude transcript at `Stop` and
+  record each unique assistant provider response once. Identity is derived
+  from `requestId` plus the message id; duplicate transcript rows do not add
+  usage twice.
+- A Traceary-owned print run records only the terminal `result.usage` summary:
+
+```sh
+traceary session run -- claude -p --output-format stream-json "your prompt"
+```
+
+The wrapper selects one-shot mode before starting Claude, forwards JSON output
+unchanged, and suppresses transcript-call accounting for that run. Input,
+cache-creation, cache-read, and output counters retain provider field
+semantics, including known zero. Missing fields and unsupported/aborted paths
+remain explicitly unavailable; Traceary does not infer totals, model names, or
+cost.
+
+The usage reader decodes only session/call/model/counter/terminal metadata.
+Prompt, response, thinking, tool, account, transcript-path, and arbitrary error
+content are not copied into the usage ledger or durable hook retry spool.
 
 ## Memory activation strategy
 

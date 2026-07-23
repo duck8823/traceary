@@ -99,14 +99,26 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 	}
 
 	processStdout := stdout
-	usageMode := ""
+	codexUsageMode := ""
+	claudeUsageMode := ""
 	var headlessUsage application.CodexHeadlessUsageStream
+	var claudeHeadlessUsage application.ClaudeHeadlessUsageStream
 	if isCodexHeadlessUsageCommand(command) && c.codexHeadlessUsage != nil && c.codexUsage != nil {
-		usageMode = codexUsageModeHeadless
+		codexUsageMode = codexUsageModeHeadless
 		headlessUsage = c.codexHeadlessUsage.New(stdout)
 		processStdout = headlessUsage
+	} else if isClaudeHeadlessUsageCommand(command) && c.claudeHeadlessUsage != nil && c.claudeUsage != nil {
+		claudeUsageMode = claudeUsageModeOneShot
+		claudeHeadlessUsage = c.claudeHeadlessUsage.New(stdout)
+		processStdout = claudeHeadlessUsage
 	}
-	reason, exitCode, runErr := runOneShotProcess(ctx, stdin, processStdout, stderr, command, input.timeout, oneShotProcessEnvironment(resolvedDBPath, startEvent.SessionID(), types.SessionID(strings.TrimSpace(input.parentSessionID)), usageMode))
+	reason, exitCode, runErr := runOneShotProcess(
+		ctx, stdin, processStdout, stderr, command, input.timeout,
+		oneShotProcessEnvironment(
+			resolvedDBPath, startEvent.SessionID(), types.SessionID(strings.TrimSpace(input.parentSessionID)),
+			codexUsageMode, claudeUsageMode,
+		),
+	)
 	summary := "one-shot process finished: " + reason.String()
 	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), oneShotFinalizeTimeout)
 	defer cancelFinalize()
@@ -122,6 +134,19 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 		}
 		if captureErr != nil {
 			usageErr = xerrors.Errorf("failed to record Codex headless usage: %w", captureErr)
+		}
+	}
+	if claudeHeadlessUsage != nil {
+		loaded, collectErr := claudeHeadlessUsage.Complete()
+		_, captureErr := c.claudeUsage.CaptureHeadless(finalizeCtx, usecase.ClaudeUsageCaptureInput{
+			SessionID: startEvent.SessionID(), DeliveryID: "session_run",
+			FallbackSourceName: "one_shot_stream", FallbackTerminal: codexUsageTerminal(reason),
+		}, loaded)
+		if collectErr != nil {
+			usageErr = xerrors.Errorf("failed to decode body-free Claude headless usage: %w", collectErr)
+		}
+		if captureErr != nil {
+			usageErr = xerrors.Errorf("failed to record Claude headless usage: %w", captureErr)
 		}
 	}
 	if _, _, finalizeErr := c.session.FinalizeOneShot(finalizeCtx, client, agent, startEvent.SessionID(), workspace, reason, summary); finalizeErr != nil {
@@ -177,13 +202,18 @@ func runOneShotProcess(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 	return types.TerminalReasonAbortedStream, oneShotStreamExitCode, xerrors.Errorf("one-shot process stream aborted: %w", err)
 }
 
-func oneShotProcessEnvironment(dbPath string, sessionID, parentSessionID types.SessionID, usageMode string) []string {
+func oneShotProcessEnvironment(
+	dbPath string,
+	sessionID, parentSessionID types.SessionID,
+	codexUsageMode, claudeUsageMode string,
+) []string {
 	overrides := map[string]string{
 		"TRACEARY_DB_PATH":           dbPath,
 		runtimeModeEnvKey:            types.RuntimeModeOneShot.String(),
 		runtimeSessionIDEnvKey:       sessionID.String(),
 		"TRACEARY_PARENT_SESSION_ID": parentSessionID.String(),
-		codexUsageModeEnvKey:         usageMode,
+		codexUsageModeEnvKey:         codexUsageMode,
+		claudeUsageModeEnvKey:        claudeUsageMode,
 	}
 	env := make([]string, 0, len(os.Environ())+len(overrides))
 	for _, entry := range os.Environ() {
@@ -209,6 +239,28 @@ func isCodexHeadlessUsageCommand(command []string) bool {
 		}
 	}
 	return false
+}
+
+func isClaudeHeadlessUsageCommand(command []string) bool {
+	if len(command) < 2 || filepath.Base(strings.TrimSpace(command[0])) != "claude" {
+		return false
+	}
+	printMode := false
+	jsonMode := false
+	for index := 1; index < len(command); index++ {
+		switch command[index] {
+		case "-p", "--print":
+			printMode = true
+		case "--output-format":
+			if index+1 < len(command) &&
+				(command[index+1] == "json" || command[index+1] == "stream-json") {
+				jsonMode = true
+			}
+		case "--output-format=json", "--output-format=stream-json":
+			jsonMode = true
+		}
+	}
+	return printMode && jsonMode
 }
 
 func codexUsageTerminal(reason types.TerminalReason) types.UsageTerminalCode {

@@ -180,6 +180,9 @@ func run() error {
 	codexUsageUsecase := usecase.NewCodexUsageCaptureUsecase(
 		filesystem.NewCodexUsageSource(), usageObservationDatasource,
 	)
+	claudeUsageUsecase := usecase.NewClaudeUsageCaptureUsecase(
+		filesystem.NewClaudeUsageSource(), usageObservationDatasource,
+	)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
@@ -229,6 +232,8 @@ func run() error {
 		cli.WithBundle(bundleUsecase),
 		cli.WithCodexUsage(codexUsageUsecase),
 		cli.WithCodexHeadlessUsage(filesystem.NewCodexHeadlessUsageStreamFactory()),
+		cli.WithClaudeUsage(claudeUsageUsecase),
+		cli.WithClaudeHeadlessUsage(filesystem.NewClaudeHeadlessUsageStreamFactory()),
 		cli.WithContext(contextUsecase),
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),

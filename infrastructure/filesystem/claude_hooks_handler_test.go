@@ -88,6 +88,26 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 		}
 	})
 
+	t.Run("Stop captures usage before transcript", func(t *testing.T) {
+		t.Parallel()
+		entries := hooks.Entries("Stop")
+		if diff := cmp.Diff(1, len(entries)); diff != "" {
+			t.Fatalf("len(Stop entries) mismatch (-want +got):\n%s", diff)
+		}
+		commands := entries[0].Commands()
+		if diff := cmp.Diff(2, len(commands)); diff != "" {
+			t.Fatalf("len(Stop commands) mismatch (-want +got):\n%s", diff)
+		}
+		if commands[0].Name() != "traceary-usage" ||
+			commands[0].Command() != `'traceary' 'hook' 'usage' 'claude'` ||
+			commands[0].ManagedKey() != "traceary-usage.sh:claude" {
+			t.Fatalf("Stop usage command = %+v", commands[0])
+		}
+		if commands[1].Name() != "traceary-transcript" {
+			t.Fatalf("Stop transcript command = %+v", commands[1])
+		}
+	})
+
 	t.Run("PostToolUse covers Bash, mcp, and built-in tools", func(t *testing.T) {
 		t.Parallel()
 

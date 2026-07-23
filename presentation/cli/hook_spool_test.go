@@ -187,6 +187,40 @@ func TestCodexUsageHookSpool_IsBodyFreeAndReplayable(t *testing.T) {
 	}
 }
 
+func TestClaudeUsageHookSpool_IsBodyAndPathFreeAndReplayable(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	usage := &spoolClaudeUsageStub{err: errors.New("database busy")}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithClaudeUsage(usage),
+	)
+	payload := `{"session_id":"claude-session","event_id":"stop-1","transcript_path":"/private/transcript","last_assistant_message":"private body"}`
+	if err := root.runClaudeUsageHookDurably(
+		context.Background(), strings.NewReader(payload), "claude", "/tmp/traceary.db",
+	); err != nil {
+		t.Fatalf("runClaudeUsageHookDurably() must remain fail-soft: %v", err)
+	}
+	records, unreadable, err := scanHookSpoolRecords([]string{"claude"})
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 {
+		t.Fatalf("records=%d unreadable=%d", len(records), len(unreadable))
+	}
+	if records[0].Command != "usage" ||
+		records[0].Payload != `{"session_id":"claude-session","event_id":"stop-1"}` ||
+		strings.Contains(records[0].Payload, "private") ||
+		strings.Contains(records[0].Payload, "transcript") {
+		t.Fatalf("usage spool record = %#v", records[0])
+	}
+	usage.err = nil
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 1 || failed != 0 || len(usage.inputs) != 2 {
+		t.Fatalf("replay = %d/%d calls=%d", replayed, failed, len(usage.inputs))
+	}
+}
+
 func TestDrainHookSpoolRecords_BatchLimitAndOldestFirst(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
@@ -450,6 +484,28 @@ type spoolEventUsecaseStub struct {
 type spoolCodexUsageStub struct {
 	inputs []usecase.CodexUsageCaptureInput
 	err    error
+}
+
+type spoolClaudeUsageStub struct {
+	inputs []usecase.ClaudeUsageCaptureInput
+	err    error
+}
+
+func (s *spoolClaudeUsageStub) Capture(
+	_ context.Context,
+	input usecase.ClaudeUsageCaptureInput,
+) (usecase.ClaudeUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.ClaudeUsageCaptureResult{}, s.err
+}
+
+func (s *spoolClaudeUsageStub) CaptureHeadless(
+	_ context.Context,
+	input usecase.ClaudeUsageCaptureInput,
+	_ application.ClaudeUsageLoadResult,
+) (usecase.ClaudeUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.ClaudeUsageCaptureResult{}, s.err
 }
 
 func (s *spoolCodexUsageStub) Capture(_ context.Context, input usecase.CodexUsageCaptureInput) (usecase.CodexUsageCaptureResult, error) {
