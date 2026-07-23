@@ -19,13 +19,13 @@ Traceary が公開する MCP tool は 9 個で、golden snapshot `presentation/m
 | `list_events` | event listing。body は既定で 500 rune に切り詰める。`projection=metadata` で本文フィールドを省略し、`body_limit=0` / `full_body=true` で保存済み本文の全文を返す | read |
 | `search` | literal text の event search。`list_events` と同じ metadata / bounded / full projection を使用できる | read |
 | `get_context` | recent-context read。`list_events` と同じ metadata / bounded / full projection を使用できる | read |
-| `get_report` | 本文を読まない session/event/command 集計。データ源ごとの完全・部分情報を返す | read |
+| `get_report` | 本文を読まない session/event/command/usage 集計。データ源ごとの完全・部分情報を返す | read |
 
 `manage_memory.ids` は accept/reject flow 向けに単一 string と string array の両方を受け付けます。`record_event` は `type="log"` と `type="audit"` のどちらでも同じ shape を返します。
 
 `list_events` と `search` は、日付だけの `from` / `to` に対して明示的な `timezone`（既定は UTC）を受け付けます。日付だけの `to` は指定した暦日を含み、RFC3339 の `to` は正確な排他時刻です。両 tool は追加の `interval` object を返し、要求された境界、開始を含み終了を含まない UTC の実効境界、タイムゾーン、`to` 省略時に使った 1 つのリクエストスナップショットを示します。
 
-`get_report` は CLI の `traceary report --json` と同じ応答スキーマを使います。`page_size` は 1 以上 100,000 以下で、本文を含まない SQLite 内部読み取りのページサイズだけを変え、既定は全件集計です。正の `result_cap` を指定した場合だけ、データ源ごとの部分集計を明示的に要求します。部分集計は観測件数・時刻範囲と `truncation_reason=result_cap` を返し、不完全な分母に基づく割合は省略します。
+`get_report` は CLI の `traceary report --json` と同じ応答スキーマを使い、usage と重複排除済み run fact の集計も含みます。`page_size` は 1 以上 100,000 以下で、本文を含まない SQLite 内部読み取りのページサイズだけを変え、既定は全件集計です。正の `result_cap` を指定した場合だけ、データ源ごとの部分集計を明示的に要求します。部分集計は観測件数・時刻範囲と `truncation_reason=result_cap` を返し、不完全な分母に基づく割合は省略します。usage 値は既知・取得不能の件数、加算対象外の会計証拠、provider reported と estimated の cost origin の分離を保持します。
 
 `session_status(action="tree", session_id="...", depth=N)` は `session_id` を root とする session subtree を `traceary session tree --json` と同じ node array shape で返します。`depth` は任意で、`0` は root のみを返します。
 

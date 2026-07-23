@@ -170,7 +170,7 @@ func (s *Server) Build(ctx context.Context) (*mcp.Server, error) {
 	if s.report != nil {
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "get_report",
-			Description: "Aggregate sessions, capture coverage, failures, and commands with explicit complete/partial provenance.",
+			Description: "Aggregate sessions, capture, failures, commands, usage, and run facts with complete/partial provenance.",
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		}, s.getReport())
 	}

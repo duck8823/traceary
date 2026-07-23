@@ -41,7 +41,7 @@
   },
   {
     "name": "get_report",
-    "description": "Aggregate sessions, capture coverage, failures, and commands with explicit complete/partial provenance.",
+    "description": "Aggregate sessions, capture, failures, commands, usage, and run facts with complete/partial provenance.",
     "annotations": {
       "readOnlyHint": true
     },

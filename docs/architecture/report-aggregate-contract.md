@@ -10,6 +10,7 @@
 - Internal database page size and caller-requested result cap are different concepts.
 - CLI and MCP must return the same aggregate schema for the same interval, filters, page size, and cap.
 - Report scans must use body-free rows and expose the observed range and truncation provenance.
+- Finalized usage must select only the current snapshot head, keep excluded evidence visible without summing it, and separate estimated from provider-reported cost.
 - Full aggregation remains the default. A positive result cap is an explicit sampling request.
 
 ### Conceptual model
@@ -17,17 +18,18 @@
 | Concept | State | Behavior | Invariant |
 |---|---|---|---|
 | Report criteria | interval, workspace, client, page size, result cap | validates and resolves one shared request | page size is positive; cap is zero (unlimited) or positive |
-| Source window | body-free session, event, and command rows | loads all rows or at most cap plus one sentinel row | every source uses the same effective interval and filters |
+| Source window | body-free session, event, command, and usage rows | loads all rows or at most cap plus one sentinel row | every source uses the same effective interval and filters |
 | Result extent | coverage, observed count/range, page size, cap, truncation reason | distinguishes complete from partial | `partial` requires `result_cap` truncation evidence |
 | Report snapshot | aggregates plus source extents | omits percentages whose denominator is partial | CLI and MCP serialize the same read model |
+| Usage aggregate | current finalized observation and immutable run facts | groups tokens/cost and deduplicates bytes per run | excluded evidence is not summed; missing values are not zero |
 
 ### Responsibility assignment
 
 | Responsibility | Owner | Not owner |
 |---|---|---|
 | Request validation and default seven-day interval | application report criteria | CLI/MCP adapters |
-| One-read-snapshot, body-free, capped scans | SQLite report query adapter | use case and presentation |
-| Aggregation and complete-denominator rules | report use case | SQL and output writers |
+| One-read-snapshot, body-free, capped scans and current usage snapshot selection | SQLite report query adapter | use case and presentation |
+| Aggregation, usage accounting, run deduplication, and complete-denominator rules | report use case | SQL and output writers |
 | Flags/tool input, localization, text rendering | CLI/MCP presentation | application core |
 
 ### Boundaries and interfaces
@@ -47,6 +49,9 @@
 | no result cap | generate report | coverage is `complete` and percentages are present | use case/integration |
 | identical CLI and MCP inputs | serialize report | decoded JSON values are equal | presentation integration |
 | large stored bodies | aggregate report | SQL projection does not select body columns | datasource/integration |
+| superseded snapshot and excluded alternative | aggregate usage | only the current head is read and excluded evidence contributes no tokens | datasource/use case |
+| repeated observations for one run | aggregate run facts | packet/tool bytes contribute once | use case |
+| estimated and provider-reported cost | aggregate usage | origins remain separate | use case |
 | `--limit` and `--page-size` together | run CLI | command fails before querying | CLI |
 
 ### TDD plan

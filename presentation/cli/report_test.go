@@ -64,6 +64,7 @@ func TestRootCLI_Report_JSONUsesSharedSnapshot(t *testing.T) {
 
 func TestRootCLI_Report_JSONGolden(t *testing.T) {
 	t.Parallel()
+	pullRequest := int64(1490)
 	extent := apptypes.ReportSourceExtent{
 		Coverage: apptypes.ReportCoveragePartial, ObservedCount: 1, PageSize: 2, ResultCap: 1,
 		ResponseTruncated: true, TruncationReason: "result_cap",
@@ -78,7 +79,7 @@ func TestRootCLI_Report_JSONGolden(t *testing.T) {
 		},
 		Aggregation: apptypes.ReportAggregation{
 			Coverage: apptypes.ReportCoveragePartial, PageSize: 2, ResultCap: 1,
-			Sources: apptypes.ReportSourceExtents{Sessions: extent, Events: extent, Commands: extent},
+			Sources: apptypes.ReportSourceExtents{Sessions: extent, Events: extent, Commands: extent, Usage: extent},
 		},
 		Workspace: "workspace", ClientFilter: "codex",
 		Sessions:        []apptypes.ReportSessionRow{{Client: "codex", Sessions: 1, TotalEvents: 2, CommandCount: 1}},
@@ -86,10 +87,34 @@ func TestRootCLI_Report_JSONGolden(t *testing.T) {
 		Failures: apptypes.ReportFailures{
 			Total: 1, ByClient: map[string]int{"codex": 1}, ByReason: map[string]int{"exit_code": 1}, Samples: []string{"event-1"},
 		},
-		TopCommands:      []apptypes.ReportCommandOutput{{Command: "go", Count: 1, FailedCount: 1, SampleEventID: "event-1"}},
-		FailureLoops:     []apptypes.ReportFailureLoopOutput{},
+		TopCommands:  []apptypes.ReportCommandOutput{{Command: "go", Count: 1, FailedCount: 1, SampleEventID: "event-1"}},
+		FailureLoops: []apptypes.ReportFailureLoopOutput{},
+		Usage: apptypes.ReportUsageSnapshot{
+			Aggregates: []apptypes.ReportUsageAggregateRow{{
+				Provider: "openai", Engine: "codex", Model: "gpt-5.6-sol",
+				RoleAvailability: "unavailable", Repository: "duck8823/traceary",
+				TicketRef: "#1449", PullRequest: &pullRequest, BatchID: "release-v0.32",
+				RoundAvailability: "unavailable", Observations: 2, Accounted: 1, Excluded: 1,
+				InputTokens:     apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 100},
+				OutputTokens:    apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 25},
+				TotalTokens:     apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 125},
+				CostUnavailable: 1,
+				Costs:           []apptypes.ReportUsageCostRow{},
+				TerminalCodes:   map[string]int{"success": 2},
+			}},
+			Runs: []apptypes.ReportUsageRunAggregateRow{{
+				Engine: "codex", RoleAvailability: "unavailable",
+				Repository: "duck8823/traceary", TicketRef: "#1449",
+				PullRequest: &pullRequest, BatchID: "release-v0.32",
+				RoundAvailability: "unavailable", Runs: 1,
+				PacketBytes:     apptypes.ReportUsageRunMetric{KnownRuns: 1, Sum: 2048},
+				ToolOutputBytes: apptypes.ReportUsageRunMetric{KnownRuns: 1, Sum: 4096},
+				WallTimeMS:      apptypes.ReportUsageRunMetric{UnavailableRuns: 1},
+			}},
+		},
 		EventScanCount:   1,
 		SessionScanCount: 1,
+		UsageScanCount:   1,
 	}}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
@@ -246,6 +271,47 @@ func TestRootCLI_Report_PartialTextDoesNotPrintRates(t *testing.T) {
 	}
 }
 
+func TestRootCLI_Report_TextMakesUsageAvailabilityAndCostOriginExplicit(t *testing.T) {
+	t.Parallel()
+	stub := &reportUsecaseStub{result: apptypes.ReportSnapshot{
+		Period:      apptypes.ReportPeriod{Timezone: "UTC", EffectiveFromInclusive: "2026-07-01T00:00:00Z", EffectiveToExclusive: "2026-07-02T00:00:00Z", SnapshotAt: "2026-07-02T00:00:00Z"},
+		Aggregation: apptypes.ReportAggregation{Coverage: apptypes.ReportCoverageComplete, PageSize: 10},
+		Failures:    apptypes.ReportFailures{ByClient: map[string]int{}, ByReason: map[string]int{}},
+		Usage: apptypes.ReportUsageSnapshot{Aggregates: []apptypes.ReportUsageAggregateRow{{
+			Provider: "openai", Engine: "codex", Model: "gpt-5.6-sol",
+			RoleAvailability: "unavailable", RoundAvailability: "unavailable",
+			Observations: 1, Accounted: 1,
+			InputTokens:  apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 10},
+			OutputTokens: apptypes.ReportUsageMetric{UnavailableObservations: 1},
+			Costs: []apptypes.ReportUsageCostRow{{
+				Origin: "estimated", Currency: "USD", PriceTableVersion: "2026-07",
+				Observations: 1, AmountMicros: 42,
+			}},
+			TerminalCodes: map[string]int{"success": 1},
+		}}},
+		UsageScanCount: 1,
+	}}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"report", "--db-path", "/tmp/test-traceary.db"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{
+		"input_tokens=10(known=1 unavailable=0)",
+		"output_tokens=0(known=0 unavailable=1)",
+		"role=unavailable",
+		"round=unavailable",
+		"cost: origin=estimated",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("report text missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
 func reportSnapshotForCriteria(criteria apptypes.ReportCriteria) apptypes.ReportSnapshot {
 	interval := criteria.Interval()
 	formatNano := func(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
@@ -261,7 +327,7 @@ func reportSnapshotForCriteria(criteria apptypes.ReportCriteria) apptypes.Report
 		},
 		Aggregation: apptypes.ReportAggregation{
 			Coverage: apptypes.ReportCoverageComplete, PageSize: criteria.PageSize(), ResultCap: criteria.ResultCap(),
-			Sources: apptypes.ReportSourceExtents{Sessions: emptyExtent, Events: emptyExtent, Commands: emptyExtent},
+			Sources: apptypes.ReportSourceExtents{Sessions: emptyExtent, Events: emptyExtent, Commands: emptyExtent, Usage: emptyExtent},
 		},
 		Workspace: criteria.Workspace().String(), ClientFilter: criteria.Client().String(),
 		Sessions: []apptypes.ReportSessionRow{}, CaptureCoverage: []apptypes.ReportCoverageRow{},
