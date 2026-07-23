@@ -66,6 +66,41 @@ traceary doctor --client codex --json
 
 The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json` (named `traceary-session-start`, `traceary-prompt`, `traceary-usage`, `traceary-transcript`, `traceary-session-stop`, `traceary-audit`). Existing non-Traceary entries are preserved.
 
+## Capture-gap diagnostics
+
+`traceary doctor --client codex --project-dir <workspace> --json` includes a
+`codex-capture` check. It resolves `<workspace>` to the same canonical
+repository identity used by event reads, then correlates three body-free
+evidence sources from the last seven days:
+
+- committed event metadata for session start, prompt, tool, compact, and Stop;
+- finalized Codex usage aggregates;
+- durable spool command/action metadata associated with that workspace.
+
+Each boundary is reported as `stored`, `delivery_pending`,
+`stored_and_delivery_pending`, or `not_observed`.
+The check also records `surface`, `client`, Traceary version, plugin key, hook
+trust, and canonical workspace. Its stable reasons are:
+
+| Reason | Meaning |
+|---|---|
+| `capture_observed` | recent committed evidence exists and no actionable gap was found |
+| `hook_spool_backlog` | Codex reached Traceary, but one or more deliveries remain durable and uncommitted |
+| `usage_missing_after_stop` | a Stop was committed without finalized usage and without a pending usage delivery |
+| `no_recent_capture_evidence` | neither committed nor pending evidence exists; this is a warning, not a successful capture claim |
+
+An active session does not need to have exercised every hook. For example,
+`stop:not_observed` before the first completed response is not itself a
+failure. The diagnostic never prints session IDs, prompt/transcript bodies, or
+tool input/output. A usage retry spool stores only its existing body-free
+identity fields; other spool payloads are projected to command/action and
+allowlisted session/cwd metadata solely for local correlation.
+
+If a local path alias returns no MCP session or events, rerun the read with the
+`workspace=` value printed by `codex-capture`. `session_status`,
+`list_events`, the usage aggregate, and this diagnostic all use that canonical
+workspace identity.
+
 ## Verified usage capture
 
 On each trusted interactive Codex `Stop`, Traceary reads the matching local rollout JSONL under `CODEX_HOME/sessions` (or `~/.codex/sessions`). A turn begins at `turn_context` and ends at the matching `task_complete` or `turn_aborted`. Traceary subtracts the last cumulative `token_count.info.total_token_usage` before the turn from the final cumulative snapshot at the terminal boundary. Intermediate and compaction snapshots replace earlier snapshots; they are never added together. A missing baseline or terminal snapshot, an ambiguous boundary, or any counter regression within the segment makes the turn an excluded `unavailable` observation. A terminal without a snapshot also invalidates attribution for the following turn; that following terminal snapshot can establish a fresh baseline only for later turns.
