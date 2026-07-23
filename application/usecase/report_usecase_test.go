@@ -278,6 +278,23 @@ func TestReportUsecaseGenerate_RejectsUsageSumOverflow(t *testing.T) {
 				}(),
 			},
 		},
+		{
+			name: "run tool output bytes",
+			records: []apptypes.ReportUsageRecord{
+				func() apptypes.ReportUsageRecord {
+					row := base
+					row.ObservationID, row.RunHost, row.RunID = "tool-max", "codex", "tool-max"
+					row.ToolOutputBytes = types.Some(int64(math.MaxInt64))
+					return row
+				}(),
+				func() apptypes.ReportUsageRecord {
+					row := base
+					row.ObservationID, row.RunHost, row.RunID = "tool-one", "codex", "tool-one"
+					row.ToolOutputBytes = types.Some(int64(1))
+					return row
+				}(),
+			},
+		},
 	}
 	for _, test := range tests {
 		test := test
