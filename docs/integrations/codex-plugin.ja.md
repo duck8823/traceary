@@ -70,7 +70,7 @@ fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary
 
 trust 済みの対話型 Codex `Stop` ごとに、Traceary は `CODEX_HOME/sessions`（未指定時は `~/.codex/sessions`）配下の対応するローカル rollout JSONL を読みます。turn は `turn_context` で始まり、対応する `task_complete` または `turn_aborted` で終わります。turn 直前の最後の累積 `token_count.info.total_token_usage` を、終端境界時点の最後の累積 snapshot から差し引きます。途中 snapshot と compaction snapshot は以前の snapshot を置き換えるだけで、合算しません。baseline や終端 snapshot の欠落、境界の曖昧さ、区間内の counter の減少は、集計対象外の `unavailable` observation として記録します。snapshot のない終端があると直後の turn も利用量を帰属できないため `unavailable` になります。その直後の終端 snapshot は、さらに後続する turn の新しい baseline としてだけ使います。
 
-`traceary session run -- codex exec --json ...` では、capture mode を `headless_stream` に固定します。stdout は変更せず転送し、メモリに保持するのは `thread.started.thread_id` と終端 `turn.completed.usage` だけです。headless と rollout は、本文を含まない同じ排他キー `(thread_id, turn ordinal)` を導出します。SQLite は最初に永続化された sample に単一の加算枠を原子的に与え、後から到着した、または同時に到着した別 source を excluded evidence として保持します。そのため、到着順に関係なく二重加算しません。
+`traceary session run -- codex exec --json ...` では、capture mode を `headless_stream` に固定します。stdout は変更せず転送し、メモリに保持するのは `thread.started.thread_id` と終端 `turn.completed.usage` だけです。headless と rollout は、本文を含まない同じ portable な排他キー `(thread_id, turn ordinal)` を observation に保存します。直列化した SQLite transaction と unique partial index により、そのキーで additive にできる observation は 1 件だけです。後から到着した、import された、または同時に到着した別 source は excluded evidence として保持するため、到着順に関係なく二重加算しません。
 
 - 終端 turn ごとに本文に依存しない決定的な observation ID を付けるため、hook の再送、retry、session の resume で token を二重加算しません。
 - 既知の 0 は既知の 0 のまま保存します。Codex が省略した field は数値 0 ではなく `unavailable` です。

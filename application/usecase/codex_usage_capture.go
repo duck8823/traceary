@@ -106,7 +106,9 @@ func (u *codexUsageCaptureUsecase) recordSample(
 	sample application.CodexUsageSample,
 ) (model.UsageObservationTransition, error) {
 	if !sample.Available {
-		observation, err := codexUsageObservation(sessionID, sample, types.UsageAccountingExcluded)
+		observation, err := codexUsageObservation(
+			sessionID, sample, types.UsageAccountingExcluded, types.None[types.UsageExclusivityKey](),
+		)
 		if err != nil {
 			return "", err
 		}
@@ -117,7 +119,9 @@ func (u *codexUsageCaptureUsecase) recordSample(
 		return transition, nil
 	}
 	if strings.TrimSpace(sample.SuppressionID) == "" {
-		observation, err := codexUsageObservation(sessionID, sample, types.UsageAccountingAdditive)
+		observation, err := codexUsageObservation(
+			sessionID, sample, types.UsageAccountingAdditive, types.None[types.UsageExclusivityKey](),
+		)
 		if err != nil {
 			return "", err
 		}
@@ -131,11 +135,12 @@ func (u *codexUsageCaptureUsecase) recordSample(
 	if err != nil {
 		return "", xerrors.Errorf("invalid Codex additive exclusivity identity: %w", err)
 	}
-	additive, err := codexUsageObservation(sessionID, sample, types.UsageAccountingAdditive)
+	exclusivity := types.Some(key)
+	additive, err := codexUsageObservation(sessionID, sample, types.UsageAccountingAdditive, exclusivity)
 	if err != nil {
 		return "", err
 	}
-	excluded, err := codexUsageObservation(sessionID, sample, types.UsageAccountingExcluded)
+	excluded, err := codexUsageObservation(sessionID, sample, types.UsageAccountingExcluded, exclusivity)
 	if err != nil {
 		return "", err
 	}
@@ -203,6 +208,7 @@ func codexUsageObservation(
 	sessionID types.SessionID,
 	sample application.CodexUsageSample,
 	accounting types.UsageAccounting,
+	exclusivityKey types.Optional[types.UsageExclusivityKey],
 ) (*model.UsageObservation, error) {
 	id, err := types.UsageObservationIDFrom("codex:" + strings.TrimSpace(sample.RecordID))
 	if err != nil {
@@ -217,6 +223,12 @@ func codexUsageObservation(
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Codex usage descriptor: %w", err)
+	}
+	if key, present := exclusivityKey.Value(); present {
+		descriptor, err = descriptor.WithExclusivityKey(key)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid Codex usage exclusivity descriptor: %w", err)
+		}
 	}
 	counters, err := codexUsageCounters(sample.Counters, sample.Available)
 	if err != nil {

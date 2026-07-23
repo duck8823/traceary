@@ -15,7 +15,7 @@ import (
 
 const selectUsageObservation = `
 SELECT observation.observation_id, session_id, observation.host, source_name, source_version, provider, model,
-       scope, accounting, status, observed_at, finalized_at, terminal_code,
+       scope, accounting, observation.exclusivity_key, status, observed_at, finalized_at, terminal_code,
        input_state, input_tokens, cached_input_state, cached_input_tokens,
        cache_write_input_state, cache_write_input_tokens, output_state, output_tokens,
        reasoning_output_state, reasoning_output_tokens, total_state, total_tokens,
@@ -68,40 +68,30 @@ func (d *UsageObservationDatasource) RecordExclusive(
 	if err := additive.ValidateAccountingAlternative(excluded); err != nil {
 		return "", xerrors.Errorf("invalid usage accounting alternatives: %w", err)
 	}
+	descriptorKey, present := additive.Descriptor().ExclusivityKey().Value()
+	if !present || descriptorKey != validatedKey {
+		return "", xerrors.Errorf("usage accounting alternatives do not carry the requested exclusivity key")
+	}
 	return d.recordTransaction(ctx, func(conn *sql.Conn) (model.UsageObservationTransition, error) {
 		winnerID, present, err := findUsageExclusivityWinner(ctx, conn, validatedKey)
 		if err != nil {
 			return "", err
 		}
 		selected := additive
-		shouldClaim := !present
 		if present && winnerID != additive.Descriptor().ObservationID() {
 			selected = excluded
-			shouldClaim = false
 		} else if !present {
 			existing, err := findUsageObservation(ctx, conn, additive.Descriptor().ObservationID())
 			if err != nil {
 				return "", xerrors.Errorf("failed to inspect existing exclusive usage observation: %w", err)
 			}
 			if current, exists := existing.Value(); exists && current.Descriptor().Accounting() == types.UsageAccountingExcluded {
-				// Bundles persist the selected accounting directly. An imported
-				// excluded alternative must remain excluded until the imported
-				// or subsequently observed winner establishes the claim.
 				selected = excluded
-				shouldClaim = false
 			}
 		}
 		transition, err := recordUsageObservation(ctx, conn, selected)
 		if err != nil {
 			return "", err
-		}
-		if shouldClaim {
-			if _, err := conn.ExecContext(ctx,
-				"INSERT INTO usage_exclusivity_claims (claim_key, winner_observation_id) VALUES (?, ?)",
-				validatedKey.String(), additive.Descriptor().ObservationID().String(),
-			); err != nil {
-				return "", xerrors.Errorf("failed to persist usage exclusivity winner: %w", err)
-			}
 		}
 		return transition, nil
 	})
@@ -198,7 +188,10 @@ func findUsageExclusivityWinner(
 ) (types.UsageObservationID, bool, error) {
 	var raw string
 	err := queryer.QueryRowContext(ctx,
-		"SELECT winner_observation_id FROM usage_exclusivity_claims WHERE claim_key = ?",
+		`SELECT observation_id
+		   FROM usage_observations
+		  WHERE exclusivity_key = ?
+		    AND accounting = 'additive'`,
 		key.String(),
 	).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -305,6 +298,7 @@ func scanUsageObservation(row usageRowScanner, includesRunIdentity bool) (*model
 		observationID, sessionID, host, sourceName, sourceVersion string
 		provider, modelName, finalizedAt, terminalCode            sql.NullString
 		scope, accounting, status, observedAt                     string
+		exclusivityKey                                            sql.NullString
 		inputState, cachedInputState, cacheWriteInputState        string
 		outputState, reasoningOutputState, totalState             string
 		inputTokens, cachedInputTokens, cacheWriteInputTokens     sql.NullInt64
@@ -318,7 +312,7 @@ func scanUsageObservation(row usageRowScanner, includesRunIdentity bool) (*model
 	)
 	destinations := []any{
 		&observationID, &sessionID, &host, &sourceName, &sourceVersion, &provider, &modelName,
-		&scope, &accounting, &status, &observedAt, &finalizedAt, &terminalCode,
+		&scope, &accounting, &exclusivityKey, &status, &observedAt, &finalizedAt, &terminalCode,
 		&inputState, &inputTokens, &cachedInputState, &cachedInputTokens,
 		&cacheWriteInputState, &cacheWriteInputTokens, &outputState, &outputTokens,
 		&reasoningOutputState, &reasoningOutputTokens, &totalState, &totalTokens,
@@ -389,6 +383,16 @@ func scanUsageObservation(row usageRowScanner, includesRunIdentity bool) (*model
 	}
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore usage observation descriptor: %w", err)
+	}
+	if exclusivityKey.Valid {
+		key, keyErr := types.UsageExclusivityKeyFrom(exclusivityKey.String)
+		if keyErr != nil {
+			return nil, xerrors.Errorf("failed to restore usage exclusivity key: %w", keyErr)
+		}
+		descriptor, err = descriptor.WithExclusivityKey(key)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to attach usage exclusivity key: %w", err)
+		}
 	}
 
 	counters, err := restoreUsageCounters(
@@ -467,13 +471,13 @@ func insertUsageObservation(ctx context.Context, exec usageExecer, observation *
 	const query = `
 INSERT INTO usage_observations (
     observation_id, session_id, host, source_name, source_version, provider, model,
-    scope, accounting, status, observed_at, finalized_at, terminal_code,
+    scope, accounting, exclusivity_key, status, observed_at, finalized_at, terminal_code,
     input_state, input_tokens, cached_input_state, cached_input_tokens,
     cache_write_input_state, cache_write_input_tokens, output_state, output_tokens,
     reasoning_output_state, reasoning_output_tokens, total_state, total_tokens,
     cost_state, cost_amount_micros, cost_currency, cost_origin, price_table_version,
     snapshot_series, snapshot_revision, supersedes_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	args := usageObservationArgs(observation)
 	if _, err := exec.ExecContext(ctx, query, args...); err != nil {
 		return xerrors.Errorf("failed to insert usage observation: %w", err)
@@ -520,8 +524,13 @@ func usageObservationArgs(observation *model.UsageObservation) []any {
 	args := []any{
 		descriptor.ObservationID().String(), descriptor.SessionID().String(), source.Host(), source.Name(), source.Version(),
 		nullableString(source.Provider()), nullableString(source.Model()), descriptor.Scope().String(), descriptor.Accounting().String(),
-		observation.Status().String(), formatTimestamp(descriptor.ObservedAt()),
 	}
+	if key, present := descriptor.ExclusivityKey().Value(); present {
+		args = append(args, key.String())
+	} else {
+		args = append(args, nil)
+	}
+	args = append(args, observation.Status().String(), formatTimestamp(descriptor.ObservedAt()))
 	args = append(args, usageFinalizationArgs(observation)[1:]...)
 	args = append(args, nullableString(descriptor.SnapshotSeries()))
 	if descriptor.SnapshotRevision() > 0 {

@@ -23,6 +23,7 @@ type UsageObservationDescriptor struct {
 	snapshotRevision int64
 	supersedesID     types.Optional[types.UsageObservationID]
 	runIdentity      types.Optional[types.RunIdentity]
+	exclusivityKey   types.Optional[types.UsageExclusivityKey]
 }
 
 // NewUsageObservationDescriptor creates identity for a call or run. Session
@@ -42,19 +43,36 @@ func NewUsageObservationDescriptor(
 		return UsageObservationDescriptor{}, xerrors.Errorf("call/run descriptor has unsupported accounting %q", accounting)
 	}
 	descriptor := UsageObservationDescriptor{
-		observationID: observationID,
-		sessionID:     sessionID,
-		source:        source,
-		scope:         scope,
-		accounting:    accounting,
-		observedAt:    observedAt,
-		supersedesID:  types.None[types.UsageObservationID](),
-		runIdentity:   types.None[types.RunIdentity](),
+		observationID:  observationID,
+		sessionID:      sessionID,
+		source:         source,
+		scope:          scope,
+		accounting:     accounting,
+		observedAt:     observedAt,
+		supersedesID:   types.None[types.UsageObservationID](),
+		runIdentity:    types.None[types.RunIdentity](),
+		exclusivityKey: types.None[types.UsageExclusivityKey](),
 	}
 	if err := descriptor.validate(); err != nil {
 		return UsageObservationDescriptor{}, err
 	}
 	return descriptor, nil
+}
+
+// WithExclusivityKey returns a descriptor whose additive/excluded accounting
+// participates in one portable, body-free exclusivity group.
+func (d UsageObservationDescriptor) WithExclusivityKey(
+	key types.UsageExclusivityKey,
+) (UsageObservationDescriptor, error) {
+	validated, err := types.UsageExclusivityKeyFrom(key.String())
+	if err != nil {
+		return UsageObservationDescriptor{}, xerrors.Errorf("invalid usage exclusivity key: %w", err)
+	}
+	d.exclusivityKey = types.Some(validated)
+	if err := d.validate(); err != nil {
+		return UsageObservationDescriptor{}, err
+	}
+	return d, nil
 }
 
 // NewUsageObservationDescriptorWithRunIdentity creates call/run identity
@@ -101,6 +119,7 @@ func NewUsageSnapshotDescriptor(
 		snapshotRevision: revision,
 		supersedesID:     supersedesID,
 		runIdentity:      types.None[types.RunIdentity](),
+		exclusivityKey:   types.None[types.UsageExclusivityKey](),
 	}
 	if err := descriptor.validate(); err != nil {
 		return UsageObservationDescriptor{}, err
@@ -131,6 +150,9 @@ func (d UsageObservationDescriptor) validate() error {
 		if _, present := d.runIdentity.Value(); present {
 			return xerrors.Errorf("session snapshot cannot carry run identity")
 		}
+		if _, present := d.exclusivityKey.Value(); present {
+			return xerrors.Errorf("session snapshot cannot carry an exclusivity key")
+		}
 		if d.accounting != types.UsageAccountingLatestSnapshot || d.snapshotSeries == "" || d.snapshotRevision < 1 {
 			return xerrors.Errorf("session snapshot requires latest-snapshot accounting, series, and positive revision")
 		}
@@ -159,6 +181,14 @@ func (d UsageObservationDescriptor) validate() error {
 			return xerrors.Errorf("usage run identity host must match source host")
 		}
 	}
+	if key, present := d.exclusivityKey.Value(); present {
+		if _, err := types.UsageExclusivityKeyFrom(key.String()); err != nil {
+			return xerrors.Errorf("invalid usage exclusivity key: %w", err)
+		}
+		if d.accounting != types.UsageAccountingAdditive && d.accounting != types.UsageAccountingExcluded {
+			return xerrors.Errorf("usage exclusivity requires additive or excluded accounting")
+		}
+	}
 	return nil
 }
 
@@ -175,7 +205,12 @@ func (d UsageObservationDescriptor) equivalent(other UsageObservationDescriptor)
 	}
 	currentRun, currentRunPresent := d.runIdentity.Value()
 	otherRun, otherRunPresent := other.runIdentity.Value()
-	return currentRunPresent == otherRunPresent && (!currentRunPresent || currentRun == otherRun)
+	if currentRunPresent != otherRunPresent || (currentRunPresent && currentRun != otherRun) {
+		return false
+	}
+	currentKey, currentKeyPresent := d.exclusivityKey.Value()
+	otherKey, otherKeyPresent := other.exclusivityKey.Value()
+	return currentKeyPresent == otherKeyPresent && (!currentKeyPresent || currentKey == otherKey)
 }
 
 // ObservationID returns the adapter-owned authoritative identity.
@@ -212,6 +247,11 @@ func (d UsageObservationDescriptor) SupersedesID() types.Optional[types.UsageObs
 // RunIdentity returns the namespaced run attribution, when known.
 func (d UsageObservationDescriptor) RunIdentity() types.Optional[types.RunIdentity] {
 	return d.runIdentity
+}
+
+// ExclusivityKey returns the portable additive-claim identity, when present.
+func (d UsageObservationDescriptor) ExclusivityKey() types.Optional[types.UsageExclusivityKey] {
+	return d.exclusivityKey
 }
 
 // UsageObservation is the aggregate root for idempotent usage accounting.

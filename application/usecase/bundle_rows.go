@@ -174,6 +174,7 @@ type bundleUsageObservationRow struct {
 	Model                 string  `json:"model,omitempty"`
 	Scope                 string  `json:"scope"`
 	Accounting            string  `json:"accounting"`
+	ExclusivityKey        string  `json:"exclusivity_key,omitempty"`
 	Status                string  `json:"status"`
 	ObservedAt            string  `json:"observed_at"`
 	FinalizedAt           string  `json:"finalized_at,omitempty"`
@@ -242,6 +243,9 @@ func bundleUsageObservationRowFromModel(observation *model.UsageObservation) bun
 		host, runID := value.Host(), value.RunID()
 		row.RunHost, row.RunID = &host, &runID
 	}
+	if value, present := descriptor.ExclusivityKey().Value(); present {
+		row.ExclusivityKey = value.String()
+	}
 	return row
 }
 
@@ -307,6 +311,16 @@ func (r bundleUsageObservationRow) toUsageObservation() (*model.UsageObservation
 	}
 	if err != nil {
 		return nil, xerrors.Errorf("descriptor: %w", err)
+	}
+	if r.ExclusivityKey != "" {
+		key, keyErr := types.UsageExclusivityKeyFrom(r.ExclusivityKey)
+		if keyErr != nil {
+			return nil, xerrors.Errorf("exclusivity_key: %w", keyErr)
+		}
+		descriptor, err = descriptor.WithExclusivityKey(key)
+		if err != nil {
+			return nil, xerrors.Errorf("exclusivity descriptor: %w", err)
+		}
 	}
 	values := []struct {
 		name  string

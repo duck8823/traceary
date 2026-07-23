@@ -134,6 +134,15 @@ func TestUsageObservation_ValidateAccountingAlternativeAcceptsOnlyAccountingDiff
 	if err != nil {
 		t.Fatal(err)
 	}
+	key, _ := types.UsageExclusivityKeyFrom("codex:headless_stream:thread-1:1")
+	additiveDescriptor, err = additiveDescriptor.WithExclusivityKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	excludedDescriptor, err = excludedDescriptor.WithExclusivityKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
 	additive := finalizedUsageObservation(t, additiveDescriptor, 10)
 	excluded := finalizedUsageObservation(t, excludedDescriptor, 10)
 	if err := additive.ValidateAccountingAlternative(excluded); err != nil {
