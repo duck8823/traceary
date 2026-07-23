@@ -59,13 +59,6 @@ func (c *RootCLI) runHookDurably(
 	run func(io.Reader) error,
 ) error {
 	return runHookBestEffort(name, func() error {
-		// Drain a bounded batch of older timeout-killed records before this
-		// invocation's own work. Failures stay on disk for later retries.
-		if ctx.Err() == nil {
-			if replayed, failed := c.drainHookSpoolRecords(ctx, hookSpoolReplayBatchLimit); replayed > 0 || failed > 0 {
-				slog.Debug("hook spool drain", "replayed", replayed, "failed", failed)
-			}
-		}
 		payload, err := readHookPayload(input)
 		if err != nil {
 			return err
@@ -96,49 +89,82 @@ func (c *RootCLI) runHookDurably(
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return xerrors.Errorf("failed to clear committed hook spool record: %w", err)
 		}
+		// The current delivery is committed and its spool record is cleared
+		// before backlog work can consume the remaining host timeout. Replay is
+		// opportunistic: failures remain durable and never change current
+		// delivery success.
+		if ctx.Err() == nil {
+			if replayed, failed := c.drainHookSpoolRecords(ctx, hookSpoolReplayBatchLimit); replayed > 0 || failed > 0 {
+				slog.Debug("hook spool drain", "replayed", replayed, "failed", failed)
+			}
+		}
 		return nil
 	})
 }
 
-// drainHookSpoolRecords replays up to limit pending spool records (oldest
-// first). A record is removed only after replay returns nil. Returns counts
-// of successful replays and retained failures.
+type hookSpoolDrainResult struct {
+	Replayed  int
+	Failed    int
+	Remaining int
+	Err       error
+}
+
+// drainHookSpoolRecords replays up to limit pending spool records in filename
+// queue order. A record is removed only after replay returns nil. A failed
+// record is atomically moved to the retry tail so it cannot starve unattempted
+// records. Returns counts of successful replays and retained failures.
 func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replayed, failed int) {
+	result := c.drainHookSpoolRecordsDetailed(ctx, limit)
+	return result.Replayed, result.Failed
+}
+
+func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) hookSpoolDrainResult {
 	if limit <= 0 {
-		return 0, 0
+		remaining, err := countHookSpoolRecordPaths()
+		return hookSpoolDrainResult{Remaining: remaining, Err: err}
 	}
-	records, _, err := scanHookSpoolRecords(nil)
-	if err != nil || len(records) == 0 {
-		return 0, 0
+	records, unreadable, err := loadHookSpoolReplayBatch(limit, os.ReadFile)
+	if err != nil {
+		return hookSpoolDrainResult{Err: err}
 	}
-	// scanHookSpoolRecords returns newest first; drain oldest first.
-	sort.Slice(records, func(i, j int) bool {
-		return records[i].CreatedAt.Before(records[j].CreatedAt)
-	})
-	for i, record := range records {
-		if i >= limit {
+	result := hookSpoolDrainResult{}
+	for _, path := range unreadable {
+		if ctx.Err() != nil {
 			break
 		}
+		result.Failed++
+		if err := requeueHookSpoolRecord(path); err != nil {
+			slog.Debug("unreadable hook spool requeue failed", "path", path, "error", err)
+		}
+	}
+	for _, record := range records {
 		if err := ctx.Err(); err != nil {
 			break
 		}
 		if strings.TrimSpace(record.Path) == "" {
-			failed++
+			result.Failed++
 			continue
 		}
 		if err := c.replayHookSpoolRecord(ctx, record); err != nil {
-			failed++
+			result.Failed++
 			slog.Debug("hook spool replay failed", "path", record.Path, "command", record.Command, "client", record.Client, "error", err)
+			if requeueErr := requeueHookSpoolRecord(record.Path); requeueErr != nil {
+				slog.Debug("failed hook spool requeue failed", "path", record.Path, "error", requeueErr)
+			}
 			continue
 		}
 		if err := os.Remove(record.Path); err != nil && !os.IsNotExist(err) {
-			failed++
+			result.Failed++
 			slog.Debug("hook spool clear failed after replay", "path", record.Path, "error", err)
+			if requeueErr := requeueHookSpoolRecord(record.Path); requeueErr != nil {
+				slog.Debug("committed hook spool requeue failed", "path", record.Path, "error", requeueErr)
+			}
 			continue
 		}
-		replayed++
+		result.Replayed++
 	}
-	return replayed, failed
+	result.Remaining, result.Err = countHookSpoolRecordPaths()
+	return result
 }
 
 func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRecord) error {
@@ -275,6 +301,90 @@ func hookSpoolDir() (string, error) {
 	return filepath.Join(stateDir, "spool"), nil
 }
 
+func listHookSpoolRecordPaths() ([]string, error) {
+	dir, err := hookSpoolDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read hook spool directory: %w", err)
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		paths = append(paths, filepath.Join(dir, entry.Name()))
+	}
+	return paths, nil
+}
+
+func countHookSpoolRecordPaths() (int, error) {
+	paths, err := listHookSpoolRecordPaths()
+	return len(paths), err
+}
+
+func loadHookSpoolReplayBatch(
+	limit int,
+	readFile func(string) ([]byte, error),
+) ([]hookSpoolRecord, []string, error) {
+	if limit <= 0 {
+		return nil, nil, nil
+	}
+	paths, err := listHookSpoolRecordPaths()
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(paths) > limit {
+		paths = paths[:limit]
+	}
+	records := make([]hookSpoolRecord, 0, len(paths))
+	unreadable := make([]string, 0)
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			unreadable = append(unreadable, path)
+			continue
+		}
+		data, err := readFile(path)
+		if err != nil {
+			unreadable = append(unreadable, path)
+			continue
+		}
+		var record hookSpoolRecord
+		if err := json.Unmarshal(data, &record); err != nil || record.SchemaVersion != hookSpoolSchemaVersion {
+			unreadable = append(unreadable, path)
+			continue
+		}
+		record.Path = path
+		records = append(records, record)
+	}
+	return records, unreadable, nil
+}
+
+func requeueHookSpoolRecord(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return xerrors.New("hook spool path is required")
+	}
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		return xerrors.Errorf("failed to generate hook spool retry ID: %w", err)
+	}
+	name := fmt.Sprintf(
+		"zz-retry-%s-%s.json",
+		time.Now().UTC().Format("20060102T150405.000000000Z"),
+		hex.EncodeToString(random),
+	)
+	if err := os.Rename(path, filepath.Join(filepath.Dir(path), name)); err != nil {
+		return xerrors.Errorf("failed to move hook spool record to retry tail: %w", err)
+	}
+	return nil
+}
+
 func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error) {
 	dir, err := hookSpoolDir()
 	if err != nil {
@@ -357,24 +467,29 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,
 		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
-			pending, _, err := scanHookSpoolRecords(nil)
+			pending, err := countHookSpoolRecordPaths()
 			if err != nil {
 				return "", err
 			}
 			if dryRun {
-				return localizef("would drain up to %d pending hook spool record(s)", "未処理 hook spool record 最大 %d 件を drain します", min(len(pending), 200)), nil
+				return localizef("would drain up to %d pending hook spool record(s)", "未処理 hook spool record 最大 %d 件を drain します", min(pending, 200)), nil
 			}
 			// Force path: allow a larger batch than the per-hook opportunistic drain.
-			limit := len(pending)
+			limit := pending
 			if limit > 200 {
 				limit = 200
 			}
-			replayed, failed := c.drainHookSpoolRecords(ctx, limit)
-			remaining := len(pending) - replayed
-			if remaining < 0 {
-				remaining = 0
+			result := c.drainHookSpoolRecordsDetailed(ctx, limit)
+			if result.Err != nil {
+				return "", result.Err
 			}
-			return localizef("drained hook spool: replayed=%d failed=%d remaining_estimate=%d", "hook spool を drain しました: replayed=%d failed=%d remaining_estimate=%d", replayed, failed, remaining), nil
+			return localizef(
+				"drained hook spool: replayed=%d failed=%d remaining=%d",
+				"hook spool を drain しました: replayed=%d failed=%d remaining=%d",
+				result.Replayed,
+				result.Failed,
+				result.Remaining,
+			), nil
 		},
 	}
 }

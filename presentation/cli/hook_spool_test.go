@@ -49,6 +49,55 @@ func TestRunHookDurably_RemovesSpoolAfterSuccess(t *testing.T) {
 	}
 }
 
+func TestRunHookDurably_CommitsCurrentBeforeBacklogAndCancellation(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	backlog := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{"prompt":"backlog","session_id":"s-backlog","cwd":"/tmp"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}
+	backlogPath, err := persistHookSpoolRecord(backlog)
+	if err != nil {
+		t.Fatalf("persist backlog: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	err = root.runHookDurably(
+		ctx,
+		"prompt",
+		hookInvocationSpec{Command: "prompt", Client: "claude"},
+		strings.NewReader(`{"prompt":"current"}`),
+		func(io.Reader) error {
+			if eventStub.logCalls != 0 {
+				t.Fatalf("backlog replayed before current delivery, calls=%d", eventStub.logCalls)
+			}
+			cancel()
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("runHookDurably() error = %v", err)
+	}
+	if _, err := os.Stat(backlogPath); err != nil {
+		t.Fatalf("cancelled post-commit drain must retain backlog: %v", err)
+	}
+	records, unreadable, err := scanHookSpoolRecords(nil)
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 || records[0].Payload != backlog.Payload {
+		t.Fatalf("records=%#v unreadable=%#v, want only backlog", records, unreadable)
+	}
+}
+
 func TestRunHookDurably_RetainsSpoolAfterFailure(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
@@ -155,8 +204,15 @@ func TestDrainHookSpoolRecords_ReplaysAndRemoves(t *testing.T) {
 	if replayed != 0 || failed != 1 {
 		t.Fatalf("unsupported: replayed=%d failed=%d want 0/1", replayed, failed)
 	}
-	if _, err := os.Stat(badPath); err != nil {
-		t.Fatalf("unsupported command must not delete spool: %v", err)
+	if _, err := os.Stat(badPath); !os.IsNotExist(err) {
+		t.Fatalf("unsupported command must move to retry tail, stat err=%v", err)
+	}
+	remaining, unreadable, err := scanHookSpoolRecords(nil)
+	if err != nil {
+		t.Fatalf("scan retained unsupported record: %v", err)
+	}
+	if len(unreadable) != 0 || len(remaining) != 1 || remaining[0].Command != bad.Command {
+		t.Fatalf("retained records=%#v unreadable=%#v", remaining, unreadable)
 	}
 }
 
@@ -372,6 +428,85 @@ func TestDrainHookSpoolRecords_BatchLimitAndOldestFirst(t *testing.T) {
 	}
 }
 
+func TestLoadHookSpoolReplayBatch_BoundsPayloadReads(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	if err := os.MkdirAll(spoolDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	const pending = 10_000
+	for i := range pending {
+		path := filepath.Join(spoolDir, time.Unix(int64(i), 0).UTC().Format("20060102T150405.000000000Z")+"-claude-test.json")
+		if err := os.WriteFile(path, []byte(`{"schema_version":1,"command":"not-a-real-hook","client":"claude","payload":"{}","created_at":"2026-07-24T00:00:00Z"}`), 0o600); err != nil {
+			t.Fatalf("WriteFile(%d) error = %v", i, err)
+		}
+	}
+	reads := 0
+	records, unreadable, err := loadHookSpoolReplayBatch(5, func(path string) ([]byte, error) {
+		reads++
+		return os.ReadFile(path)
+	})
+	if err != nil {
+		t.Fatalf("loadHookSpoolReplayBatch() error = %v", err)
+	}
+	if reads != 5 || len(records) != 5 || len(unreadable) != 0 {
+		t.Fatalf("reads=%d records=%d unreadable=%d, want 5/5/0", reads, len(records), len(unreadable))
+	}
+}
+
+func TestDrainHookSpoolRecords_RequeuesFailureBehindUnattemptedRecord(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	poisonPath, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC().Add(-2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist poison: %v", err)
+	}
+	validPath, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{"prompt":"later valid","session_id":"s-later","cwd":"/tmp"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist valid: %v", err)
+	}
+
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 1)
+	if replayed != 0 || failed != 1 {
+		t.Fatalf("first drain=%d/%d, want 0/1", replayed, failed)
+	}
+	if _, err := os.Stat(poisonPath); !os.IsNotExist(err) {
+		t.Fatalf("poison path must move to retry tail, stat err=%v", err)
+	}
+	replayed, failed = root.drainHookSpoolRecords(context.Background(), 1)
+	if replayed != 1 || failed != 0 {
+		t.Fatalf("second drain=%d/%d, want 1/0", replayed, failed)
+	}
+	if _, err := os.Stat(validPath); !os.IsNotExist(err) {
+		t.Fatalf("valid record must be removed, stat err=%v", err)
+	}
+	remaining, unreadable, err := scanHookSpoolRecords(nil)
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(remaining) != 1 || remaining[0].Command != "not-a-real-hook" {
+		t.Fatalf("remaining=%#v unreadable=%#v", remaining, unreadable)
+	}
+}
+
 func TestDrainHookSpoolRecords_StopsOnCancelledContext(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
@@ -483,6 +618,46 @@ func TestInspectHookSpoolDiagnostics_FixFuncDrains(t *testing.T) {
 	}
 	if len(records) != 0 {
 		t.Fatalf("after doctor --fix, remaining=%d", len(records))
+	}
+}
+
+func TestInspectHookSpoolDiagnostics_FixReportsUnreadableRemaining(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	if _, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{"prompt":"valid","session_id":"s-valid","cwd":"/tmp"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("persist valid: %v", err)
+	}
+	spoolDir := filepath.Join(stateDir, "spool")
+	if err := os.WriteFile(filepath.Join(spoolDir, "invalid.json"), []byte(`{"private":"must not be printed"`), 0o600); err != nil {
+		t.Fatalf("write invalid: %v", err)
+	}
+
+	check := root.inspectHookSpoolDiagnostics([]string{"claude"})
+	if check.FixFunc == nil {
+		t.Fatal("expected fix function")
+	}
+	message, err := check.FixFunc(context.Background(), false)
+	if err != nil {
+		t.Fatalf("FixFunc() error = %v", err)
+	}
+	for _, expected := range []string{"replayed=1", "failed=1", "remaining=1"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("message=%q, missing %q", message, expected)
+		}
+	}
+	if strings.Contains(message, "private") {
+		t.Fatalf("message leaked payload body: %q", message)
 	}
 }
 
