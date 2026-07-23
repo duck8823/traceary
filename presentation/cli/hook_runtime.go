@@ -351,8 +351,11 @@ func (c *RootCLI) runGeminiUsageHookDurably(ctx context.Context, input io.Reader
 
 func canonicalGeminiHookTimestamp(value string) (string, bool) {
 	const maxTimestampBytes = 64
+	if len(value) > maxTimestampBytes || strings.ContainsAny(value, "\r\n\x00") {
+		return "", false
+	}
 	trimmed := strings.TrimSpace(value)
-	if trimmed == "" || len(trimmed) > maxTimestampBytes || strings.ContainsAny(trimmed, "\r\n\x00") {
+	if trimmed == "" {
 		return "", false
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, trimmed)

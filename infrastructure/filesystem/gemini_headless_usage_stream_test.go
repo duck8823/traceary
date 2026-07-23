@@ -134,12 +134,26 @@ func TestGeminiHeadlessUsageStream_RejectsConflictingTerminalWithoutStats(t *tes
 	}
 
 	stream := filesystem.NewGeminiHeadlessUsageStreamFactory().New(&bytes.Buffer{})
-	if _, err := stream.Write([]byte(init + noStatsError + noStatsError)); err != nil {
+	noStatsErrorWithDifferentPrivateBody := strings.Replace(noStatsError, "PRIVATE", "OTHER PRIVATE", 1)
+	if _, err := stream.Write([]byte(init + noStatsError + noStatsErrorWithDifferentPrivateBody)); err != nil {
 		t.Fatalf("Write() exact duplicate error = %v", err)
 	}
 	result, err := stream.Complete()
 	if err != nil || result.BoundaryObserved || len(result.Samples) != 0 {
 		t.Fatalf("Complete() exact duplicate = (%+v, %v)", result, err)
+	}
+}
+
+func TestGeminiHeadlessUsageStream_RejectsInputBreakdownOverflow(t *testing.T) {
+	stream := filesystem.NewGeminiHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+	fixture := `{"type":"init","timestamp":"2026-07-23T01:00:00Z","session_id":"session-overflow","model":"model-1"}` + "\n" +
+		`{"type":"result","timestamp":"2026-07-23T01:00:01Z","status":"success","stats":{"total_tokens":1,"input_tokens":1,"output_tokens":0,"cached":1,"input":9223372036854775807,"models":{}}}` + "\n"
+	if _, err := stream.Write([]byte(fixture)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	result, err := stream.Complete()
+	if err == nil || result.BoundaryObserved || len(result.Samples) != 0 {
+		t.Fatalf("Complete() = (%+v, %v)", result, err)
 	}
 }
 

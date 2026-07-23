@@ -40,16 +40,16 @@ func (f *geminiHeadlessUsageStreamFactory) New(destination io.Writer) applicatio
 }
 
 type geminiHeadlessUsageStream struct {
-	destination    io.Writer
-	maxLine        int
-	buffer         []byte
-	sessionID      string
-	initModel      string
-	result         application.GeminiUsageLoadResult
-	parseErr       error
-	discardLine    bool
-	terminalSeen   bool
-	terminalDigest [sha256.Size]byte
+	destination       io.Writer
+	maxLine           int
+	buffer            []byte
+	sessionID         string
+	initModel         string
+	result            application.GeminiUsageLoadResult
+	parseErr          error
+	discardLine       bool
+	terminalSeen      bool
+	terminalSignature [sha256.Size]byte
 }
 
 func (s *geminiHeadlessUsageStream) Write(data []byte) (int, error) {
@@ -150,15 +150,12 @@ func (s *geminiHeadlessUsageStream) parseLine(line []byte) error {
 		s.sessionID = sessionID
 		s.initModel = modelName
 	case "result":
-		return s.parseResult(envelope, sha256.Sum256(line))
+		return s.parseResult(envelope)
 	}
 	return nil
 }
 
-func (s *geminiHeadlessUsageStream) parseResult(
-	envelope geminiStreamEnvelope,
-	digest [sha256.Size]byte,
-) error {
+func (s *geminiHeadlessUsageStream) parseResult(envelope geminiStreamEnvelope) error {
 	if s.sessionID == "" {
 		return xerrors.Errorf("Gemini headless result arrived before init identity")
 	}
@@ -170,60 +167,86 @@ func (s *geminiHeadlessUsageStream) parseResult(
 	if err != nil {
 		return xerrors.Errorf("invalid Gemini headless result timestamp")
 	}
+	var stats *geminiStreamStats
+	next := application.GeminiUsageLoadResult{}
+	if len(envelope.Stats) > 0 && string(envelope.Stats) != "null" {
+		stats = &geminiStreamStats{}
+		if err := json.Unmarshal(envelope.Stats, stats); err != nil {
+			return xerrors.Errorf("invalid Gemini headless terminal usage")
+		}
+		if err := validateGeminiStreamCounters(stats.geminiStreamCounters); err != nil {
+			return err
+		}
+		modelNames := make([]string, 0, len(stats.Models))
+		for modelName := range stats.Models {
+			modelNames = append(modelNames, modelName)
+		}
+		sort.Strings(modelNames)
+
+		samples := make([]application.GeminiUsageSample, 0, max(1, len(modelNames)))
+		if len(modelNames) == 0 {
+			samples = append(samples, geminiUsageSample(
+				s.sessionID, s.initModel, observedAt.UTC(), terminal, stats.geminiStreamCounters,
+			))
+		} else {
+			var sums geminiCounterSums
+			for _, modelName := range modelNames {
+				if !validGeminiUsageIdentity(modelName) {
+					return xerrors.Errorf("invalid Gemini headless model identity")
+				}
+				counters := stats.Models[modelName]
+				if err := validateGeminiStreamCounters(counters); err != nil {
+					return err
+				}
+				if err := sums.add(counters); err != nil {
+					return err
+				}
+				samples = append(samples, geminiUsageSample(
+					s.sessionID, modelName, observedAt.UTC(), terminal, counters,
+				))
+			}
+			if !sums.matches(stats.geminiStreamCounters) {
+				return xerrors.Errorf("Gemini headless model totals conflict with aggregate usage")
+			}
+		}
+		next = application.GeminiUsageLoadResult{Samples: samples, BoundaryObserved: true}
+	}
+
+	signature, err := geminiTerminalMetadataSignature(terminal, observedAt.UTC(), stats)
+	if err != nil {
+		return err
+	}
 	if s.terminalSeen {
-		if s.terminalDigest != digest {
+		if s.terminalSignature != signature {
 			return xerrors.Errorf("conflicting Gemini headless terminal results")
 		}
 		return nil
 	}
 	s.terminalSeen = true
-	s.terminalDigest = digest
-	if len(envelope.Stats) == 0 || string(envelope.Stats) == "null" {
-		return nil
-	}
-	var stats geminiStreamStats
-	if err := json.Unmarshal(envelope.Stats, &stats); err != nil {
-		return xerrors.Errorf("invalid Gemini headless terminal usage")
-	}
-	if err := validateGeminiStreamCounters(stats.geminiStreamCounters); err != nil {
-		return err
-	}
-	modelNames := make([]string, 0, len(stats.Models))
-	for modelName := range stats.Models {
-		modelNames = append(modelNames, modelName)
-	}
-	sort.Strings(modelNames)
-
-	samples := make([]application.GeminiUsageSample, 0, max(1, len(modelNames)))
-	if len(modelNames) == 0 {
-		samples = append(samples, geminiUsageSample(
-			s.sessionID, s.initModel, observedAt.UTC(), terminal, stats.geminiStreamCounters,
-		))
-	} else {
-		var sums geminiCounterSums
-		for _, modelName := range modelNames {
-			if !validGeminiUsageIdentity(modelName) {
-				return xerrors.Errorf("invalid Gemini headless model identity")
-			}
-			counters := stats.Models[modelName]
-			if err := validateGeminiStreamCounters(counters); err != nil {
-				return err
-			}
-			if err := sums.add(counters); err != nil {
-				return err
-			}
-			samples = append(samples, geminiUsageSample(
-				s.sessionID, modelName, observedAt.UTC(), terminal, counters,
-			))
-		}
-		if !sums.matches(stats.geminiStreamCounters) {
-			return xerrors.Errorf("Gemini headless model totals conflict with aggregate usage")
-		}
-	}
-
-	next := application.GeminiUsageLoadResult{Samples: samples, BoundaryObserved: true}
+	s.terminalSignature = signature
 	s.result = next
 	return nil
+}
+
+func geminiTerminalMetadataSignature(
+	terminal types.UsageTerminalCode,
+	observedAt time.Time,
+	stats *geminiStreamStats,
+) ([sha256.Size]byte, error) {
+	metadata := struct {
+		Status    types.UsageTerminalCode `json:"status"`
+		Timestamp string                  `json:"timestamp"`
+		Stats     *geminiStreamStats      `json:"stats,omitempty"`
+	}{
+		Status:    terminal,
+		Timestamp: observedAt.UTC().Format(time.RFC3339Nano),
+		Stats:     stats,
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return [sha256.Size]byte{}, xerrors.Errorf("failed to normalize Gemini headless terminal metadata")
+	}
+	return sha256.Sum256(encoded), nil
 }
 
 func geminiTerminalCode(status string) (types.UsageTerminalCode, error) {
