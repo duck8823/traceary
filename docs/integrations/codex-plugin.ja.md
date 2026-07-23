@@ -66,6 +66,47 @@ traceary doctor --client codex --json
 
 fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary-session-start` / `traceary-prompt` / `traceary-usage` / `traceary-transcript` / `traceary-session-stop` / `traceary-audit`) を直接書き込みます。Traceary 以外のエントリは保持されます。
 
+## Capture gap の診断
+
+`traceary doctor --client codex --project-dir <workspace> --json` は
+`codex-capture` check を返します。`<workspace>` を event read と同じ
+canonical repository identity に解決し、次の証跡を本文なしで照合します。
+
+- 直近7日分の session start / prompt / tool / compact / Stop の完全な
+  commit 済み event aggregate
+- 上記 Stop session と照合した finalized interactive Codex usage
+  （identity 用 timestamp が意図的に7日窓外となる deterministic unavailable
+  observation も含む）
+- 対象 workspace に関連付けられる全 durable spool command / action record
+  （record の古さは問わない）
+
+各境界は `stored`、`delivery_pending`、`stored_and_delivery_pending`、
+`not_observed` のいずれかです。
+check には `surface`、`client`、Traceary version、plugin key、hook trust、
+canonical workspace も記録されます。reason は次の固定値です。
+
+| Reason | 意味 |
+|---|---|
+| `capture_observed` | recent な commit 済み証跡があり、対応必須の gap は見つからない |
+| `hook_spool_backlog` | Codex から Traceary には到達したが、delivery が durable spool に残り未commit |
+| `spool_projection_partial` | spool の distinct working directory 数が bounded diagnostic の解決上限を超えたため、backlog の確認または drain が必要 |
+| `usage_missing_after_stop` | Stop は commit 済みだが finalized usage も pending usage delivery もない |
+| `no_recent_capture_evidence` | commit 済み証跡も pending 証跡もない。capture 成功とはせず warning |
+
+active session ですべての hook が発火済みである必要はありません。たとえば
+最初の response が完了する前の `stop:not_observed` は、それだけでは failure
+ではありません。diagnostic は session ID、prompt / transcript 本文、tool の
+input / output を表示しません。usage retry spool は既存の本文なし identity
+field だけを保存します。それ以外の spool payload も、ローカル照合のために
+command / action と allowlist 済み session / cwd metadata だけへ射影します。
+spool working directory の canonical 化は1回につき distinct 64件を上限とし、
+超過時は absence を成功扱いせず `spool_projection_partial` を返します。
+
+local path alias で MCP の session / event が見つからない場合は、
+`codex-capture` が表示した `workspace=` の値で read を再実行してください。
+`session_status`、`list_events`、usage aggregate、この diagnostic は同じ
+canonical workspace identity を使います。
+
 ## 検証済み usage の取得
 
 trust 済みの対話型 Codex `Stop` ごとに、Traceary は `CODEX_HOME/sessions`（未指定時は `~/.codex/sessions`）配下の対応するローカル rollout JSONL を読みます。turn は `turn_context` で始まり、対応する `task_complete` または `turn_aborted` で終わります。turn 直前の最後の累積 `token_count.info.total_token_usage` を、終端境界時点の最後の累積 snapshot から差し引きます。途中 snapshot と compaction snapshot は以前の snapshot を置き換えるだけで、合算しません。baseline や終端 snapshot の欠落、境界の曖昧さ、区間内の counter の減少は、集計対象外の `unavailable` observation として記録します。snapshot のない終端があると直後の turn も利用量を帰属できないため `unavailable` になります。その直後の終端 snapshot は、さらに後続する turn の新しい baseline としてだけ使います。

@@ -294,7 +294,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Status:  doctorStatusPass,
 		Message: localizef("resolved project directory: %s", "解決した project directory: %s", resolvedProjectDir),
 	})
-	report.Checks = append(report.Checks, c.inspectHookSpoolDiagnostics(resolvedClients))
+	spoolRecords, spoolUnreadable, spoolErr := scanHookSpoolRecords(resolvedClients)
+	report.Checks = append(
+		report.Checks,
+		c.inspectHookSpoolDiagnosticsFromScan(spoolRecords, spoolUnreadable, spoolErr),
+	)
 	report.Checks = append(report.Checks, c.inspectHookMemoryExtractDiagnostics(time.Now().UTC()))
 	report.Checks = append(report.Checks, c.inspectMemoryInboxSaturation(ctx))
 	report.Checks = append(report.Checks, inspectHookGrokTranscriptDiagnostics(time.Now().UTC()))
@@ -357,13 +361,29 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		var check doctorCheck
 		if targetClient == "codex" {
 			pluginState := c.detectCodexPluginHookFallback()
+			trust := codexPluginHookTrustResult{
+				PluginKey: pluginState.PluginKey,
+				Status:    codexPluginHookTrustAbsent,
+			}
 			if pluginState.PluginEnabled {
-				trust := codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey)
+				trust = codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey)
 				report.Checks = append(report.Checks, codexPluginHookTrustCheck(trust))
 				check = c.inspectCodexConfigWithHookTrust(ctx, outputPath, resolvedProjectDir, trust)
 			} else {
 				check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
 			}
+			report.Checks = append(
+				report.Checks,
+				c.inspectCodexCapture(
+					ctx,
+					resolvedProjectDir,
+					input.currentVersion,
+					pluginState,
+					trust,
+					spoolRecords,
+					spoolErr,
+				),
+			)
 		} else {
 			check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, resolvedProjectDir)
 		}

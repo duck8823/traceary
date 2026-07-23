@@ -322,8 +322,16 @@ func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error)
 }
 
 func (c *RootCLI) inspectHookSpoolDiagnostics(clients []string) doctorCheck {
-	const name = "hook-spool"
 	records, unreadable, err := scanHookSpoolRecords(clients)
+	return c.inspectHookSpoolDiagnosticsFromScan(records, unreadable, err)
+}
+
+func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
+	records []hookSpoolRecord,
+	unreadable []string,
+	err error,
+) doctorCheck {
+	const name = "hook-spool"
 	if err != nil {
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect hook spool: %v", "hook spool の検査に失敗しました: %v", err)}
 	}

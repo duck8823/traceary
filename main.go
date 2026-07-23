@@ -152,6 +152,7 @@ func run() error {
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
 	reportDatasource := sqlite.NewReportDatasource(db)
+	codexCaptureDiagnosticDatasource := sqlite.NewCodexCaptureDiagnosticDatasource(db)
 
 	cfg := presentation.LoadConfig()
 	extraRedactPatterns := cfg.ExtraRedactPatterns
@@ -165,6 +166,7 @@ func run() error {
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
 	reportUsecase := usecase.NewReportUsecase(reportDatasource)
+	codexCaptureDiagnosticUsecase := usecase.NewCodexCaptureDiagnosticUsecase(codexCaptureDiagnosticDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	codexMemorySource := filesystem.NewCodexMemorySource()
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns, usecase.MemoryUsecaseDependencies{
@@ -234,6 +236,7 @@ func run() error {
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
 		cli.WithReport(reportUsecase),
+		cli.WithCodexCaptureDiagnostic(codexCaptureDiagnosticUsecase),
 		cli.WithSession(sessionUsecase),
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),

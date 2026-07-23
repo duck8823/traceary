@@ -1,10 +1,26 @@
 package cli_test
 
 import (
+	"context"
+
 	"github.com/duck8823/traceary/application"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/presentation/cli"
 )
+
+type testCodexCaptureDiagnostic struct{}
+
+func (testCodexCaptureDiagnostic) Load(
+	context.Context,
+	apptypes.CodexCaptureDiagnosticCriteria,
+) (apptypes.CodexCaptureDiagnosticEvidence, error) {
+	return apptypes.CodexCaptureDiagnosticEvidence{
+		StoredEvents:         1,
+		SessionStartObserved: true,
+		PromptObserved:       true,
+	}, nil
+}
 
 // newTestHooksOptions returns the hook-related options used by the majority
 // of CLI tests. They wire filesystem-backed orchestrator and inspector
@@ -20,6 +36,7 @@ func newTestHooksOptions() []cli.RootCLIOption {
 	}
 
 	return []cli.RootCLIOption{
+		cli.WithCodexCaptureDiagnostic(testCodexCaptureDiagnostic{}),
 		cli.WithHooksOrchestrator(filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
 			"claude":      filesystem.NewClaudeHooksHandler(),
 			"codex":       filesystem.NewCodexHooksHandlerWithHomeDirFunc(homeDirFunc),
