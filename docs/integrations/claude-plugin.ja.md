@@ -8,8 +8,24 @@ Claude 向け package は `integrations/claude-plugin/` にあり、repository r
 
 - `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
+- transcript event の記録前に、ローカル transcript から Claude が報告した token 数を記録する `Stop` usage hook
 - `Bash` / `mcp__.*` / 組み込み tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`) 向けの `PostToolUse` / `PostToolUseFailure` audit hook
 - slash command として使える `/traceary-help` と、文脈で自動適用される `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember` skill。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。
+
+## 利用量の記録
+
+Traceary は Claude の利用量を、同時には使わない二つの方式で記録します。
+
+- 通常の対話セッションでは、`Stop` 時にローカルの Claude transcript を読み、provider から返った一意な assistant response を 1 回ずつ記録します。識別には `requestId` と message id の組を使うため、同じ応答が transcript に重複していても二重計上しません。
+- Traceary が管理する完結型の print 実行では、最後の `result.usage` だけを記録します。
+
+```sh
+traceary session run -- claude -p --output-format stream-json "your prompt"
+```
+
+wrapper は Claude の起動前に完結型モードを選び、JSON 出力を変更せず転送し、その実行に対する transcript 単位の利用量記録を抑止します。入力、cache 作成、cache 読み取り、出力の各 token 数は、既知の 0 を含めて Claude のフィールドの意味を維持します。存在しないフィールドや、対応していない経路・中断された経路は「取得不可」のまま保持し、合計値、model 名、cost は推測しません。
+
+利用量 reader が読み取るのは session/call/model/counter/終了状態の metadata だけです。prompt、response、thinking、tool、account、transcript path、任意の error 内容は、利用量 ledger や hook の永続 retry spool にコピーしません。
 
 ## Memory activation strategy
 

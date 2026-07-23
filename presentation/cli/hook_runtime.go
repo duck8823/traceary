@@ -23,6 +23,8 @@ const (
 	runtimeSessionIDEnvKey     = "TRACEARY_RUNTIME_SESSION_ID"
 	codexUsageModeEnvKey       = "TRACEARY_CODEX_USAGE_MODE"
 	codexUsageModeHeadless     = "headless_stream"
+	claudeUsageModeEnvKey      = "TRACEARY_CLAUDE_USAGE_MODE"
+	claudeUsageModeOneShot     = "one_shot_stream"
 )
 
 const hookActiveSubagentStateTTL = 24 * time.Hour
@@ -213,10 +215,21 @@ func (c *RootCLI) newHookUsageCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(args[0]) == "codex" && strings.TrimSpace(os.Getenv(codexUsageModeEnvKey)) == codexUsageModeHeadless {
+			client := strings.TrimSpace(args[0])
+			if client == "codex" && strings.TrimSpace(os.Getenv(codexUsageModeEnvKey)) == codexUsageModeHeadless {
 				return nil
 			}
-			return c.runCodexUsageHookDurably(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
+			if client == "claude" && strings.TrimSpace(os.Getenv(claudeUsageModeEnvKey)) == claudeUsageModeOneShot {
+				return nil
+			}
+			switch client {
+			case "codex":
+				return c.runCodexUsageHookDurably(cmd.Context(), cmd.InOrStdin(), client, dbPath)
+			case "claude":
+				return c.runClaudeUsageHookDurably(cmd.Context(), cmd.InOrStdin(), client, dbPath)
+			default:
+				return c.runHookUsage(cmd.Context(), cmd.InOrStdin(), client, dbPath)
+			}
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
@@ -251,17 +264,61 @@ func (c *RootCLI) runCodexUsageHookDurably(ctx context.Context, input io.Reader,
 	})
 }
 
+func (c *RootCLI) runClaudeUsageHookDurably(ctx context.Context, input io.Reader, client, dbPath string) error {
+	payload, err := readHookPayload(input)
+	if err != nil {
+		return runHookBestEffort("usage", func() error { return err })
+	}
+	sessionID, err := resolveHookSessionID(payload, client)
+	if err != nil {
+		return runHookBestEffort("usage", func() error { return err })
+	}
+	if sessionID == "" {
+		return nil
+	}
+	minimal := struct {
+		SessionID string `json:"session_id"`
+		EventID   string `json:"event_id,omitempty"`
+		ToolUseID string `json:"tool_use_id,omitempty"`
+	}{
+		SessionID: sessionID.String(),
+		EventID:   strings.TrimSpace(hookPayloadString(payload, "event_id", "")),
+		ToolUseID: strings.TrimSpace(hookPayloadString(payload, "tool_use_id", "")),
+	}
+	sanitized, err := json.Marshal(minimal)
+	if err != nil {
+		return runHookBestEffort("usage", func() error {
+			return xerrors.Errorf("failed to encode body-free Claude usage payload: %w", err)
+		})
+	}
+	return c.runHookDurably(
+		ctx,
+		"usage",
+		hookInvocationSpec{Command: "usage", Client: client, DBPath: dbPath},
+		newExplicitHookPayloadReader(sanitized),
+		func(replay io.Reader) error {
+			return c.runHookUsage(ctx, replay, client, dbPath)
+		},
+	)
+}
+
 func (c *RootCLI) runHookUsage(
 	ctx context.Context,
 	input io.Reader,
 	client string,
 	dbPath string,
 ) error {
-	if client != "codex" {
+	if client != "codex" && client != "claude" {
 		return xerrors.Errorf("unsupported hook usage client: %s", client)
 	}
-	if c.storeManagement == nil || c.codexUsage == nil {
+	if c.storeManagement == nil {
+		return xerrors.Errorf("usage capture store dependency is not configured")
+	}
+	if client == "codex" && c.codexUsage == nil {
 		return xerrors.Errorf("Codex usage capture dependencies are not configured")
+	}
+	if client == "claude" && c.claudeUsage == nil {
+		return xerrors.Errorf("Claude usage capture dependencies are not configured")
 	}
 	payload, err := readHookPayload(input)
 	if err != nil {
@@ -284,11 +341,21 @@ func (c *RootCLI) runHookUsage(
 	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize store: %w", err)
 	}
-	_, err = c.codexUsage.Capture(ctx, usecase.CodexUsageCaptureInput{
-		SessionID: sessionID, DeliveryID: deliveryID,
-	})
-	if err != nil {
-		return xerrors.Errorf("failed to capture Codex usage: %w", err)
+	switch client {
+	case "codex":
+		_, err = c.codexUsage.Capture(ctx, usecase.CodexUsageCaptureInput{
+			SessionID: sessionID, DeliveryID: deliveryID,
+		})
+		if err != nil {
+			return xerrors.Errorf("failed to capture Codex usage: %w", err)
+		}
+	case "claude":
+		_, err = c.claudeUsage.Capture(ctx, usecase.ClaudeUsageCaptureInput{
+			SessionID: sessionID, DeliveryID: deliveryID,
+		})
+		if err != nil {
+			return xerrors.Errorf("failed to capture Claude usage: %w", err)
+		}
 	}
 	return nil
 }

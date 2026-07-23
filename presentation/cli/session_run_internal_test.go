@@ -21,7 +21,7 @@ func TestRunOneShotProcess_TimeoutKillsProcessGroupPromptly(t *testing.T) {
 	reason, exitCode, err := runOneShotProcess(
 		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
 		[]string{"sh", "-c", "(sleep 10) & wait"}, 20*time.Millisecond,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", ""),
 	)
 	if err == nil || reason != types.TerminalReasonTimeout || exitCode != oneShotTimeoutExitCode {
 		t.Fatalf("runOneShotProcess() = (%q, %d, %v), want timeout/%d/error", reason, exitCode, err, oneShotTimeoutExitCode)
@@ -39,7 +39,7 @@ func TestRunOneShotProcess_ClassifiesAbortedStream(t *testing.T) {
 		&bytes.Buffer{},
 		[]string{"sh", "-c", "printf output"},
 		0,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", ""),
 	)
 	if err == nil {
 		t.Fatal("runOneShotProcess() error = nil, want stream error")
@@ -53,12 +53,37 @@ func TestRunOneShotProcess_ClassifiesStartFailure(t *testing.T) {
 	reason, exitCode, err := runOneShotProcess(
 		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
 		[]string{"/path/that/does/not/exist"}, 0,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", ""),
 	)
 	if err == nil {
 		t.Fatal("runOneShotProcess() error = nil, want start error")
 	}
 	if reason != types.TerminalReasonFailure || exitCode != oneShotStartExitCode {
 		t.Fatalf("runOneShotProcess() = (%q, %d), want (failure, %d)", reason, exitCode, oneShotStartExitCode)
+	}
+}
+
+func TestIsClaudeHeadlessUsageCommand_RequiresPrintAndJSONOutput(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		command []string
+		want    bool
+	}{
+		{name: "stream JSON", command: []string{"claude", "-p", "--output-format", "stream-json"}, want: true},
+		{name: "single JSON", command: []string{"/usr/local/bin/claude", "--print", "--output-format=json"}, want: true},
+		{name: "plain print", command: []string{"claude", "-p"}, want: false},
+		{name: "interactive JSON option", command: []string{"claude", "--output-format", "json"}, want: false},
+		{name: "prompt option after separator", command: []string{"claude", "-p", "--", "--output-format=json"}, want: false},
+		{name: "JSON option before separator", command: []string{"claude", "-p", "--output-format=json", "--", "prompt"}, want: true},
+		{name: "other host", command: []string{"codex", "-p", "--output-format", "stream-json"}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isClaudeHeadlessUsageCommand(test.command); got != test.want {
+				t.Fatalf("isClaudeHeadlessUsageCommand(%q) = %t, want %t", test.command, got, test.want)
+			}
+		})
 	}
 }

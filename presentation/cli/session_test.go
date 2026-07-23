@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
@@ -136,6 +137,99 @@ func TestRootCLI_SessionRunCommand_CapturesBodyFreeCodexHeadlessUsage(t *testing
 	sample := usage.headless[0].Samples[0]
 	if sample.RecordID != "headless_stream:thread-1:1" || sample.Model != "" || sample.Counters.TotalTokens != nil {
 		t.Fatalf("headless sample = %+v", sample)
+	}
+	if sessionStub.finalizeReason != types.TerminalReasonSuccess {
+		t.Fatalf("finalize reason = %q", sessionStub.finalizeReason)
+	}
+}
+
+func TestRootCLI_SessionRunCommand_CapturesBodyFreeClaudeHeadlessUsage(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	claude := filepath.Join(dir, "claude")
+	fixture := `{"type":"assistant","message":{"content":[{"type":"text","text":"private body stays on stdout"}],"usage":{"input_tokens":999,"output_tokens":999}}}` + "\n" +
+		`{"type":"result","subtype":"success","session_id":"claude-host-session","result":"private result stays on stdout","usage":{"input_tokens":21,"cache_creation_input_tokens":0,"cache_read_input_tokens":10,"output_tokens":5},"modelUsage":{"claude-opus-4-1":{"costUSD":0.1}}}` + "\n"
+	script := "#!/bin/sh\nprintf '%s' '" + fixture + "'\n"
+	if err := os.WriteFile(claude, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := types.SessionID("one-shot-claude-headless")
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-claude-headless", types.EventKindSessionStarted, "cli", "claude", sessionID,
+		"duck8823/traceary", "session started", time.Now(),
+	)}
+	usage := &claudeUsageCaptureStub{}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithClaudeUsage(usage),
+		cli.WithClaudeHeadlessUsage(filesystem.NewClaudeHeadlessUsageStreamFactory()),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session", "run", "--db-path", filepath.Join(dir, "traceary.db"),
+		"--session-id", sessionID.String(), "--", claude, "-p", "--output-format", "stream-json",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout.String() != fixture {
+		t.Fatalf("stdout changed = %q", stdout.String())
+	}
+	if len(usage.headless) != 1 || len(usage.headless[0].Samples) != 1 {
+		t.Fatalf("headless capture = %+v", usage.headless)
+	}
+	sample := usage.headless[0].Samples[0]
+	if sample.Scope != types.UsageScopeRun || sample.Model != "claude-opus-4-1" ||
+		sample.Counters.InputTokens == nil || *sample.Counters.InputTokens != 21 {
+		t.Fatalf("headless sample = %+v", sample)
+	}
+	if sessionStub.finalizeReason != types.TerminalReasonSuccess {
+		t.Fatalf("finalize reason = %q", sessionStub.finalizeReason)
+	}
+}
+
+func TestRootCLI_SessionRunCommand_CapturesUnavailableClaudeBoundaryAfterParseFailure(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	claude := filepath.Join(dir, "claude")
+	fixture := `{"type":"result","subtype":"success","session_id":"claude-host-session","usage":{"input_tokens":21,"output_tokens":5}}` + "\n" +
+		`{"type":"result","session_id":"claude-host-session","usage":{"input_tokens":"PRIVATE-INVALID"}}` + "\n"
+	script := "#!/bin/sh\nprintf '%s' '" + fixture + "'\n"
+	if err := os.WriteFile(claude, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := types.SessionID("one-shot-claude-invalid")
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-claude-invalid", types.EventKindSessionStarted, "cli", "claude", sessionID,
+		"duck8823/traceary", "session started", time.Now(),
+	)}
+	usage := &claudeUsageCaptureStub{err: errors.New("simulated capture failure")}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithClaudeUsage(usage),
+		cli.WithClaudeHeadlessUsage(filesystem.NewClaudeHeadlessUsageStreamFactory()),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session", "run", "--db-path", filepath.Join(dir, "traceary.db"),
+		"--session-id", sessionID.String(), "--", claude, "-p", "--output-format", "stream-json",
+	})
+	err := rootCmd.Execute()
+	if err == nil ||
+		!strings.Contains(err.Error(), "failed to decode body-free Claude headless usage") ||
+		!strings.Contains(err.Error(), "failed to record Claude headless usage") {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(usage.headless) != 1 ||
+		usage.headless[0].Mode != application.ClaudeUsageModeOneShotStream ||
+		usage.headless[0].BoundaryObserved ||
+		len(usage.headless[0].Samples) != 0 {
+		t.Fatalf("headless fallback = %+v", usage.headless)
 	}
 	if sessionStub.finalizeReason != types.TerminalReasonSuccess {
 		t.Fatalf("finalize reason = %q", sessionStub.finalizeReason)

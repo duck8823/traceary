@@ -43,6 +43,30 @@ type codexUsageCaptureStub struct {
 	err      error
 }
 
+type claudeUsageCaptureStub struct {
+	inputs   []usecase.ClaudeUsageCaptureInput
+	headless []application.ClaudeUsageLoadResult
+	err      error
+}
+
+func (s *claudeUsageCaptureStub) Capture(
+	_ context.Context,
+	input usecase.ClaudeUsageCaptureInput,
+) (usecase.ClaudeUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.ClaudeUsageCaptureResult{Applied: 1}, s.err
+}
+
+func (s *claudeUsageCaptureStub) CaptureHeadless(
+	_ context.Context,
+	input usecase.ClaudeUsageCaptureInput,
+	loaded application.ClaudeUsageLoadResult,
+) (usecase.ClaudeUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	s.headless = append(s.headless, loaded)
+	return usecase.ClaudeUsageCaptureResult{Applied: 1}, s.err
+}
+
 func (s *codexUsageCaptureStub) Capture(_ context.Context, input usecase.CodexUsageCaptureInput) (usecase.CodexUsageCaptureResult, error) {
 	s.inputs = append(s.inputs, input)
 	return usecase.CodexUsageCaptureResult{Applied: 1}, s.err
@@ -75,6 +99,55 @@ func TestRootCLI_HookUsageCommand_DelegatesBodyFreeCodexIdentity(t *testing.T) {
 	}
 	if usage.inputs[0].SessionID != types.SessionID("codex-session") || usage.inputs[0].DeliveryID != "event_id:stop-1" || strings.Contains(usage.inputs[0].DeliveryID, "private") {
 		t.Fatalf("capture input = %+v", usage.inputs[0])
+	}
+}
+
+func TestRootCLI_HookUsageCommand_DelegatesBodyFreeClaudeIdentity(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "claude-usage-key")
+	store := &storeManagementUsecaseStub{}
+	usage := &claudeUsageCaptureStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(store),
+		cli.WithClaudeUsage(usage),
+		cli.WithDatabasePathSetter(func(string) {}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(
+		`{"session_id":"claude-session","tool_use_id":"stop-1","transcript_path":"/private/path","last_assistant_message":"private body"}`,
+	))
+	rootCmd.SetArgs([]string{
+		"hook", "usage", "claude", "--db-path", filepath.Join(t.TempDir(), "traceary.db"),
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !store.initCalled || len(usage.inputs) != 1 {
+		t.Fatalf("initialized=%t inputs=%+v", store.initCalled, usage.inputs)
+	}
+	if usage.inputs[0].SessionID != types.SessionID("claude-session") ||
+		usage.inputs[0].DeliveryID != "tool_use_id:stop-1" ||
+		strings.Contains(usage.inputs[0].DeliveryID, "private") {
+		t.Fatalf("capture input = %+v", usage.inputs[0])
+	}
+}
+
+func TestRootCLI_HookUsageCommand_SkipsClaudeStopDuringOwnedOneShot(t *testing.T) {
+	t.Setenv("TRACEARY_CLAUDE_USAGE_MODE", "one_shot_stream")
+	usage := &claudeUsageCaptureStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithClaudeUsage(usage),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"host-session","event_id":"stop-1"}`))
+	rootCmd.SetArgs([]string{"hook", "usage", "claude"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(usage.inputs) != 0 {
+		t.Fatalf("one-shot Stop must not capture transcript usage: %+v", usage.inputs)
 	}
 }
 

@@ -92,6 +92,7 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 	compactPreSnapshotCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "pre-compact")
 	compactResumeCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "claude", "session-start-compact")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "claude")
+	usageCommand := newHookRuntimeCommand(tracearyBin, "hook", "usage", "claude")
 	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "claude")
 	subagentStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-start", "claude")
 	subagentStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-stop", "claude")
@@ -153,6 +154,7 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 		},
 		"Stop": {
 			model.HookEntryOf(types.Some("*"), []model.HookCommand{
+				model.HookCommandOf("traceary-usage", "command", usageCommand, types.None[int](), "", managedKeyOf("traceary-usage.sh", "claude")),
 				model.HookCommandOf("traceary-transcript", "command", transcriptCommand, types.None[int](), "", managedKeyOf("traceary-transcript.sh", "claude")),
 			}),
 		},

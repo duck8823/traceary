@@ -38,6 +38,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "'traceary' 'hook' 'usage' 'claude'"
+          },
+          {
+            "type": "command",
             "command": "'traceary' 'hook' 'transcript' 'claude'"
           }
         ]
