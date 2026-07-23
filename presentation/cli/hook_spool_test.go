@@ -455,6 +455,67 @@ func TestLoadHookSpoolReplayBatch_BoundsPayloadReads(t *testing.T) {
 	}
 }
 
+func TestDrainHookSpoolRecords_DoesNotFollowExternalSymlink(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	if err := os.MkdirAll(spoolDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	const privateMarker = "private sentinel must not be replayed"
+	sentinel := filepath.Join(stateDir, "private-sentinel.json")
+	sentinelRecord := `{"schema_version":1,"command":"prompt","client":"claude","payload":"{\"prompt\":\"` + privateMarker + `\",\"session_id\":\"s-private\",\"cwd\":\"/tmp\"}","created_at":"2026-07-24T00:00:00Z"}`
+	if err := os.WriteFile(sentinel, []byte(sentinelRecord), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	link := filepath.Join(spoolDir, "00000000T000000.000000000Z-symlink.json")
+	if err := os.Symlink(sentinel, link); err != nil {
+		t.Skipf("symlink is unavailable: %v", err)
+	}
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 1)
+	if replayed != 0 || failed != 1 || eventStub.logCalls != 0 {
+		t.Fatalf("drain=%d/%d logCalls=%d, want 0/1/0", replayed, failed, eventStub.logCalls)
+	}
+	data, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatalf("sentinel must remain untouched: %v", err)
+	}
+	if string(data) != sentinelRecord {
+		t.Fatal("sentinel content changed")
+	}
+}
+
+func TestInspectHookSpoolDiagnostics_DoesNotFollowExternalSymlink(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	if err := os.MkdirAll(spoolDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	const privateMarker = "private doctor sentinel"
+	sentinel := filepath.Join(stateDir, "private-sentinel.json")
+	if err := os.WriteFile(sentinel, []byte(privateMarker), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink(sentinel, filepath.Join(spoolDir, "external.json")); err != nil {
+		t.Skipf("symlink is unavailable: %v", err)
+	}
+
+	check := (&RootCLI{}).inspectHookSpoolDiagnostics(nil)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "1 unreadable") {
+		t.Fatalf("check=%#v", check)
+	}
+	if strings.Contains(check.Message, privateMarker) || strings.Contains(check.Hint, privateMarker) {
+		t.Fatalf("doctor leaked sentinel content: %#v", check)
+	}
+}
+
 func TestDrainHookSpoolRecords_RequeuesFailureBehindUnattemptedRecord(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)

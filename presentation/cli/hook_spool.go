@@ -123,7 +123,7 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) 
 		remaining, err := countHookSpoolRecordPaths()
 		return hookSpoolDrainResult{Remaining: remaining, Err: err}
 	}
-	records, unreadable, err := loadHookSpoolReplayBatch(limit, os.ReadFile)
+	records, unreadable, err := loadHookSpoolReplayBatch(limit, readHookSpoolFile)
 	if err != nil {
 		return hookSpoolDrainResult{Err: err}
 	}
@@ -345,11 +345,6 @@ func loadHookSpoolReplayBatch(
 	records := make([]hookSpoolRecord, 0, len(paths))
 	unreadable := make([]string, 0)
 	for _, path := range paths {
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			unreadable = append(unreadable, path)
-			continue
-		}
 		data, err := readFile(path)
 		if err != nil {
 			unreadable = append(unreadable, path)
@@ -408,7 +403,7 @@ func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error)
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
-		data, err := os.ReadFile(path)
+		data, err := readHookSpoolFile(path)
 		if err != nil {
 			unreadable = append(unreadable, path)
 			continue
