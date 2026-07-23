@@ -165,6 +165,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "codex-capture",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Hooks",
+      "message": "surface=manual_hooks client=codex traceary_version=- plugin=- hook_trust=absent workspace=/tmp/traceary-json-golden-project reason=diagnostic_dependencies_unavailable",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "codex-config",
       "status": "warn",
       "severity": "WARN",
@@ -419,6 +429,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "codex-capture",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Hooks",
+          "message": "surface=manual_hooks client=codex traceary_version=- plugin=- hook_trust=absent workspace=/tmp/traceary-json-golden-project reason=diagnostic_dependencies_unavailable",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "codex-config",
           "status": "warn",
           "severity": "WARN",
@@ -432,7 +452,7 @@
     }
   ],
   "summary": {
-    "pass": 18,
+    "pass": 19,
     "warn": 2,
     "fail": 0
   },
