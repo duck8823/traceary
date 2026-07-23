@@ -89,12 +89,33 @@ func (d *UsageObservationDatasource) RecordExclusive(
 				selected = excluded
 			}
 		}
+		if err := attachLegacyUsageExclusivityKey(ctx, conn, selected.Descriptor().ObservationID(), validatedKey); err != nil {
+			return "", err
+		}
 		transition, err := recordUsageObservation(ctx, conn, selected)
 		if err != nil {
 			return "", err
 		}
 		return transition, nil
 	})
+}
+
+func attachLegacyUsageExclusivityKey(
+	ctx context.Context,
+	exec usageExecer,
+	observationID types.UsageObservationID,
+	key types.UsageExclusivityKey,
+) error {
+	if _, err := exec.ExecContext(ctx,
+		`UPDATE usage_observations
+		    SET exclusivity_key = ?
+		  WHERE observation_id = ?
+		    AND exclusivity_key IS NULL`,
+		key.String(), observationID.String(),
+	); err != nil {
+		return xerrors.Errorf("failed to attach portable key to legacy usage observation: %w", err)
+	}
+	return nil
 }
 
 func (d *UsageObservationDatasource) recordTransaction(

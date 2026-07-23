@@ -409,25 +409,53 @@ func TestUsageObservationDatasource_RecordExclusiveFindsImportedAdditiveAlternat
 	}
 }
 
-func TestUsageObservationMigration_BackfillsPreReleaseHeadlessAdditiveWinner(t *testing.T) {
+func TestUsageObservationMigration_UpgradesLegacyClaimsAndAlternatives(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	preV029 := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 29))
-	if err := sqlite.NewStoreManagementDatasource(preV029).Initialize(ctx); err != nil {
+	preV030 := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 30))
+	if err := sqlite.NewStoreManagementDatasource(preV030).Initialize(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const headlessID = "codex:headless_stream:thread-1:1"
-	if err := insertRawFinalizedUsage(sqlDB, rawUsageRow{
-		id: headlessID, host: "codex", sourceName: "headless_stream",
-		sourceVersion: "schema-v1", scope: "call", accounting: "additive", costState: "unavailable",
-	}); err != nil {
-		t.Fatal(err)
+	groups := []struct {
+		key          string
+		headlessID   string
+		rolloutID    string
+		winnerID     string
+		headlessMode string
+		rolloutMode  string
+	}{
+		{
+			key: "codex:headless_stream:thread-1:1", headlessID: "codex:headless_stream:thread-1:1",
+			rolloutID: "codex:rollout:thread-1:turn-1", winnerID: "codex:headless_stream:thread-1:1",
+			headlessMode: "additive", rolloutMode: "excluded",
+		},
+		{
+			key: "codex:headless_stream:thread-2:1", headlessID: "codex:headless_stream:thread-2:1",
+			rolloutID: "codex:rollout:thread-2:turn-1", winnerID: "codex:rollout:thread-2:turn-1",
+			headlessMode: "excluded", rolloutMode: "additive",
+		},
+	}
+	for _, group := range groups {
+		for _, row := range []rawUsageRow{
+			{id: group.headlessID, host: "codex", sourceName: "headless_stream", sourceVersion: "0.145.0", scope: "call", accounting: group.headlessMode, costState: "unavailable"},
+			{id: group.rolloutID, host: "codex", sourceName: "headless_stream", sourceVersion: "0.145.0", scope: "call", accounting: group.rolloutMode, costState: "unavailable"},
+		} {
+			if err := insertRawFinalizedUsage(sqlDB, row); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := sqlDB.Exec(
+			`INSERT INTO usage_exclusivity_claims (claim_key, winner_observation_id) VALUES (?, ?)`,
+			group.key, group.winnerID,
+		); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := sqlDB.Close(); err != nil {
 		t.Fatal(err)
@@ -441,30 +469,30 @@ func TestUsageObservationMigration_BackfillsPreReleaseHeadlessAdditiveWinner(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	var storedKey string
-	if err := sqlDB.QueryRow(`SELECT exclusivity_key FROM usage_observations WHERE observation_id = ?`, headlessID).Scan(&storedKey); err != nil {
-		t.Fatal(err)
+	sut := sqlite.NewUsageObservationDatasource(current)
+	for _, group := range groups {
+		key, _ := types.UsageExclusivityKeyFrom(group.key)
+		for _, id := range []string{group.headlessID, group.rolloutID} {
+			alternatives := sqliteUnavailableUsageAccountingAlternatives(t, key, id)
+			transition, err := sut.RecordExclusive(ctx, key, alternatives.additive, alternatives.excluded)
+			if err != nil || transition != model.UsageObservationTransitionAlreadyApplied {
+				t.Fatalf("RecordExclusive(%s after migration) = %q, %v", id, transition, err)
+			}
+		}
+		var additive, keyed int
+		if err := sqlDB.QueryRow(`SELECT SUM(accounting = 'additive'), SUM(exclusivity_key = ?)
+			FROM usage_observations
+			WHERE observation_id IN (?, ?)`,
+			group.key, group.headlessID, group.rolloutID,
+		).Scan(&additive, &keyed); err != nil {
+			t.Fatal(err)
+		}
+		if additive != 1 || keyed != 2 {
+			t.Fatalf("group %s additive/keyed = %d/%d", group.key, additive, keyed)
+		}
 	}
 	if err := sqlDB.Close(); err != nil {
 		t.Fatal(err)
-	}
-	if storedKey != headlessID {
-		t.Fatalf("backfilled exclusivity key = %q", storedKey)
-	}
-
-	key, _ := types.UsageExclusivityKeyFrom(headlessID)
-	rollout := sqliteUsageAccountingAlternatives(t, key, "codex:rollout:thread-1:turn-1", 12)
-	transition, err := sqlite.NewUsageObservationDatasource(current).RecordExclusive(ctx, key, rollout.additive, rollout.excluded)
-	if err != nil || transition != model.UsageObservationTransitionApplied {
-		t.Fatalf("RecordExclusive(rollout after migration) = %q, %v", transition, err)
-	}
-	stored, err := sqlite.NewUsageObservationDatasource(current).FindByID(ctx, rollout.additive.Descriptor().ObservationID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	value, present := stored.Value()
-	if !present || value.Descriptor().Accounting() != types.UsageAccountingExcluded {
-		t.Fatalf("rollout after migration = %+v/%t", value, present)
 	}
 }
 
@@ -693,6 +721,75 @@ func sqliteUsageAccountingAlternatives(
 	}{
 		additive: sqliteFinalizedUsage(t, additiveDescriptor, inputTokens),
 		excluded: sqliteFinalizedUsage(t, excludedDescriptor, inputTokens),
+	}
+}
+
+func sqliteUnavailableUsageAccountingAlternatives(
+	t *testing.T,
+	key types.UsageExclusivityKey,
+	observationID string,
+) struct {
+	additive *model.UsageObservation
+	excluded *model.UsageObservation
+} {
+	t.Helper()
+	source, err := types.UsageSourceOf("codex", "headless_stream", "0.145.0", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := types.UsageObservationIDFrom(observationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	additiveDescriptor, err := model.NewUsageObservationDescriptor(
+		id, types.SessionID("session-1"), source, types.UsageScopeCall, types.UsageAccountingAdditive,
+		time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	excludedDescriptor, err := model.NewUsageObservationDescriptor(
+		additiveDescriptor.ObservationID(),
+		additiveDescriptor.SessionID(),
+		additiveDescriptor.Source(),
+		additiveDescriptor.Scope(),
+		types.UsageAccountingExcluded,
+		additiveDescriptor.ObservedAt(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	additiveDescriptor, err = additiveDescriptor.WithExclusivityKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	excludedDescriptor, err = excludedDescriptor.WithExclusivityKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := types.UnavailableUsageValue()
+	counters, err := types.UsageCountersOf(
+		unavailable, unavailable, unavailable, unavailable, unavailable, unavailable,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func(descriptor model.UsageObservationDescriptor) *model.UsageObservation {
+		observation, err := model.NewFinalizedUsageObservation(
+			descriptor, counters, types.UnavailableUsageCost(), types.UsageTerminalSuccess,
+			time.Date(2026, 7, 23, 12, 1, 0, 0, time.UTC),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return observation
+	}
+	return struct {
+		additive *model.UsageObservation
+		excluded *model.UsageObservation
+	}{
+		additive: build(additiveDescriptor),
+		excluded: build(excludedDescriptor),
 	}
 }
 
