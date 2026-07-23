@@ -33,6 +33,7 @@ type RootCLI struct {
 	antigravityUsage           usecase.AntigravityUsageCaptureUsecase
 	grokUsage                  usecase.GrokUsageCaptureUsecase
 	grokHeadlessUsage          application.GrokHeadlessUsageStreamFactory
+	kimiUsage                  usecase.KimiUsageCaptureUsecase
 	context                    usecase.ContextUsecase
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
@@ -154,6 +155,11 @@ func WithGrokUsage(usage usecase.GrokUsageCaptureUsecase) RootCLIOption {
 // WithGrokHeadlessUsage injects the body-free Grok streaming-json adapter.
 func WithGrokHeadlessUsage(factory application.GrokHeadlessUsageStreamFactory) RootCLIOption {
 	return func(c *RootCLI) { c.grokHeadlessUsage = factory }
+}
+
+// WithKimiUsage injects partial wire usage and unavailable lifecycle capture.
+func WithKimiUsage(usage usecase.KimiUsageCaptureUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.kimiUsage = usage }
 }
 
 // WithMemoryEdge injects the MemoryEdgeUsecase used by

@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/application/usecase"
 )
 
 const kimiHookClient = "kimi"
@@ -80,7 +83,9 @@ func (c *RootCLI) runHookKimiSessionEnd(ctx context.Context, input io.Reader, db
 	if strings.TrimSpace(hookPayloadString(normalized, "session_id", "")) == "" {
 		return nil
 	}
-	return c.runHookSession(ctx, nil, bytes.NewReader(normalized), kimiHookClient, "end", dbPath)
+	sessionErr := c.runHookSession(ctx, nil, bytes.NewReader(normalized), kimiHookClient, "end", dbPath)
+	usageErr := c.captureKimiUsage(ctx, normalized, dbPath, usecase.KimiUsageBoundarySessionEnd)
+	return errors.Join(sessionErr, usageErr)
 }
 
 func (c *RootCLI) runHookKimiUserPromptSubmit(ctx context.Context, input io.Reader, dbPath string) error {
@@ -161,7 +166,50 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 	if err != nil {
 		return err
 	}
-	return c.runHookTranscript(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
+	transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
+	usageErr := c.captureKimiUsage(ctx, normalized, dbPath, usecase.KimiUsageBoundaryStop)
+	return errors.Join(transcriptErr, usageErr)
+}
+
+func (c *RootCLI) captureKimiUsage(
+	ctx context.Context,
+	payload []byte,
+	dbPath string,
+	boundary usecase.KimiUsageBoundary,
+) error {
+	if c.kimiUsage == nil {
+		return nil
+	}
+	providerSessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
+	if providerSessionID == "" {
+		return nil
+	}
+	sessionID, err := resolveHookParentSessionID(payload, kimiHookClient)
+	if err != nil {
+		return err
+	}
+	if sessionID == "" {
+		return nil
+	}
+	if c.storeManagement == nil {
+		return xerrors.Errorf("usage capture store dependency is not configured")
+	}
+	resolvedDBPath, err := resolveDBPath(dbPath)
+	if err != nil {
+		return err
+	}
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
+		return xerrors.Errorf("failed to initialize store: %w", err)
+	}
+	if _, err := c.kimiUsage.Capture(ctx, usecase.KimiUsageCaptureInput{
+		SessionID:         sessionID,
+		ProviderSessionID: providerSessionID,
+		Boundary:          boundary,
+	}); err != nil {
+		return xerrors.Errorf("failed to capture Kimi usage: %w", err)
+	}
+	return nil
 }
 
 // normalizeKimiHookPayload maps fields proven by the versioned live contract

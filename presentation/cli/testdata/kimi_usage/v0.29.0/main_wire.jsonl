@@ -1,0 +1,4 @@
+{"type":"metadata","protocol_version":"1.4","created_at":1784800000000}
+{"type":"turn.prompt","prompt":[{"type":"text","text":"<redacted prompt>"}],"time":1784800000100}
+{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"think","think":"<redacted thinking>"}},"time":1784800000200}
+{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":7,"inputCacheRead":3,"inputCacheCreation":2,"output":5},"usageScope":"turn","time":1784800000300}

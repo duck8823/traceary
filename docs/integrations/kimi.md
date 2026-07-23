@@ -32,6 +32,36 @@ unwired — it has no correlation ids, so the Agent tool's `PreToolUse` is the
 start signal instead. See the [host coverage matrix](../hooks/host-coverage.md)
 for the field-level status.
 
+## Usage metadata
+
+Traceary scans the live-verified Kimi Code 0.29.0 main-agent session wire and
+persists only `usage.record` metadata:
+
+- `model`
+- `usageScope=turn`
+- `inputOther`
+- `inputCacheRead`
+- `inputCacheCreation`
+- `output`
+
+The scanner decodes only the event discriminator for every other row. Prompt,
+response, thinking, and tool bodies are never copied into usage observations.
+The session-index path and final `wire.jsonl` path must both remain inside the
+configured Kimi sessions root.
+
+Kimi does not currently prove that a `usage.record` is emitted exactly once
+per provider call, after retries, for subagents, or on abort. Traceary
+therefore stores each row as **partial, excluded evidence** using the stable
+source identity `(Kimi session, main agent, usage-record ordinal)`. Replaying
+the same wire is idempotent; changed metadata under the same identity fails
+closed. Stop and SessionEnd also record an unavailable call observation
+because the host does not expose a verified one-to-one correlation between
+those lifecycle boundaries and a usage row.
+
+Absent counters stay unavailable and known zero stays zero. Traceary does not
+infer total tokens, retry counts, compact-token usage, subagent attribution,
+or cost. These Kimi records do not contribute to usage aggregates.
+
 ## Install
 
 1. Install the Traceary CLI and confirm that `traceary` is on `PATH` (the
