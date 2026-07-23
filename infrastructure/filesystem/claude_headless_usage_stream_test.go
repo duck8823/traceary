@@ -104,3 +104,28 @@ func TestClaudeHeadlessUsageStream_RejectsMalformedUsageWithoutEchoingBody(t *te
 		t.Fatalf("parse failure result = %+v", result)
 	}
 }
+
+func TestClaudeHeadlessUsageStream_DiscardsTerminalResultAfterLaterParseFailure(t *testing.T) {
+	valid := `{"type":"result","subtype":"success","session_id":"claude-session-1","usage":{"input_tokens":2,"output_tokens":1}}` + "\n"
+	tests := map[string]string{
+		"malformed JSON":  `{"type":"result"` + "\n",
+		"malformed usage": `{"type":"result","session_id":"claude-session-1","usage":{"input_tokens":"invalid"}}` + "\n",
+		"oversized line":  strings.Repeat("x", 8*1024*1024+1) + "\n",
+	}
+	for name, invalid := range tests {
+		t.Run(name, func(t *testing.T) {
+			stream := filesystem.NewClaudeHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+			if _, err := stream.Write([]byte(valid + invalid)); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			result, err := stream.Complete()
+			if err == nil {
+				t.Fatal("Complete() error = nil")
+			}
+			if result.Mode != application.ClaudeUsageModeOneShotStream ||
+				result.BoundaryObserved || len(result.Samples) != 0 {
+				t.Fatalf("parse failure result = %+v", result)
+			}
+		})
+	}
+}

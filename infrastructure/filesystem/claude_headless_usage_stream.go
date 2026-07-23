@@ -101,7 +101,9 @@ func (s *claudeHeadlessUsageStream) Complete() (application.ClaudeUsageLoadResul
 	}
 	s.buffer = nil
 	if s.parseErr != nil {
-		return s.result, s.parseErr
+		return application.ClaudeUsageLoadResult{
+			Mode: application.ClaudeUsageModeOneShotStream,
+		}, s.parseErr
 	}
 	return s.result, nil
 }

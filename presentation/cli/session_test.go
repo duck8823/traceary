@@ -195,7 +195,8 @@ func TestRootCLI_SessionRunCommand_CapturesUnavailableClaudeBoundaryAfterParseFa
 	t.Parallel()
 	dir := t.TempDir()
 	claude := filepath.Join(dir, "claude")
-	fixture := `{"type":"result","session_id":"claude-host-session","usage":{"input_tokens":"PRIVATE-INVALID"}}` + "\n"
+	fixture := `{"type":"result","subtype":"success","session_id":"claude-host-session","usage":{"input_tokens":21,"output_tokens":5}}` + "\n" +
+		`{"type":"result","session_id":"claude-host-session","usage":{"input_tokens":"PRIVATE-INVALID"}}` + "\n"
 	script := "#!/bin/sh\nprintf '%s' '" + fixture + "'\n"
 	if err := os.WriteFile(claude, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -226,7 +227,8 @@ func TestRootCLI_SessionRunCommand_CapturesUnavailableClaudeBoundaryAfterParseFa
 	}
 	if len(usage.headless) != 1 ||
 		usage.headless[0].Mode != application.ClaudeUsageModeOneShotStream ||
-		usage.headless[0].BoundaryObserved {
+		usage.headless[0].BoundaryObserved ||
+		len(usage.headless[0].Samples) != 0 {
 		t.Fatalf("headless fallback = %+v", usage.headless)
 	}
 	if sessionStub.finalizeReason != types.TerminalReasonSuccess {
