@@ -21,7 +21,7 @@ func TestRunOneShotProcess_TimeoutKillsProcessGroupPromptly(t *testing.T) {
 	reason, exitCode, err := runOneShotProcess(
 		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
 		[]string{"sh", "-c", "(sleep 10) & wait"}, 20*time.Millisecond,
-		oneShotProcessEnvironment("/tmp/test.db", "session", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", ""),
 	)
 	if err == nil || reason != types.TerminalReasonTimeout || exitCode != oneShotTimeoutExitCode {
 		t.Fatalf("runOneShotProcess() = (%q, %d, %v), want timeout/%d/error", reason, exitCode, err, oneShotTimeoutExitCode)
@@ -39,7 +39,7 @@ func TestRunOneShotProcess_ClassifiesAbortedStream(t *testing.T) {
 		&bytes.Buffer{},
 		[]string{"sh", "-c", "printf output"},
 		0,
-		oneShotProcessEnvironment("/tmp/test.db", "session", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", ""),
 	)
 	if err == nil {
 		t.Fatal("runOneShotProcess() error = nil, want stream error")
@@ -53,7 +53,7 @@ func TestRunOneShotProcess_ClassifiesStartFailure(t *testing.T) {
 	reason, exitCode, err := runOneShotProcess(
 		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
 		[]string{"/path/that/does/not/exist"}, 0,
-		oneShotProcessEnvironment("/tmp/test.db", "session", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", ""),
 	)
 	if err == nil {
 		t.Fatal("runOneShotProcess() error = nil, want start error")

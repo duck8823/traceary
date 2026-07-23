@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -93,6 +95,50 @@ func TestRootCLI_SessionRunCommand_FinalizesAfterParentCancellation(t *testing.T
 	}
 	if sessionStub.finalizeContextErr != nil {
 		t.Fatalf("FinalizeOneShot context error = %v, want independent finalization context", sessionStub.finalizeContextErr)
+	}
+}
+
+func TestRootCLI_SessionRunCommand_CapturesBodyFreeCodexHeadlessUsage(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	codex := filepath.Join(dir, "codex")
+	fixture := `{"type":"thread.started","thread_id":"thread-1"}` + "\n" +
+		`{"type":"item.completed","item":{"type":"agent_message","text":"private body stays on stdout"}}` + "\n" +
+		`{"type":"turn.completed","usage":{"input_tokens":21,"cached_input_tokens":10,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":2}}` + "\n"
+	script := "#!/bin/sh\nprintf '%s' '" + fixture + "'\n"
+	if err := os.WriteFile(codex, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := types.SessionID("one-shot-headless")
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-headless", types.EventKindSessionStarted, "cli", "codex", sessionID, "duck8823/traceary", "session started", time.Now(),
+	)}
+	usage := &codexUsageCaptureStub{}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithCodexUsage(usage),
+		cli.WithCodexHeadlessUsage(filesystem.NewCodexHeadlessUsageStreamFactory()),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "run", "--db-path", filepath.Join(dir, "traceary.db"), "--session-id", sessionID.String(), "--", codex, "exec", "--json"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout.String() != fixture {
+		t.Fatalf("stdout changed = %q", stdout.String())
+	}
+	if len(usage.headless) != 1 || len(usage.headless[0].Samples) != 1 {
+		t.Fatalf("headless capture = %+v", usage.headless)
+	}
+	sample := usage.headless[0].Samples[0]
+	if sample.RecordID != "headless_stream:thread-1:1" || sample.Model != "" || sample.Counters.TotalTokens != nil {
+		t.Fatalf("headless sample = %+v", sample)
+	}
+	if sessionStub.finalizeReason != types.TerminalReasonSuccess {
+		t.Fatalf("finalize reason = %q", sessionStub.finalizeReason)
 	}
 }
 

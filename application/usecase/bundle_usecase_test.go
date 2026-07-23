@@ -400,6 +400,47 @@ func mustBundleUsageSnapshot(
 	return observation
 }
 
+func mustBundleExclusiveUsage(
+	t *testing.T,
+	id string,
+	key types.UsageExclusivityKey,
+	accounting types.UsageAccounting,
+	ts time.Time,
+) *model.UsageObservation {
+	t.Helper()
+	source, err := types.UsageSourceOf("codex", "headless_stream", "0.32.0", "openai", "model-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationID, err := types.UsageObservationIDFrom(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := model.NewUsageObservationDescriptor(
+		observationID, types.SessionID("session-1"), source, types.UsageScopeCall, accounting, ts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err = descriptor.WithExclusivityKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, _ := types.KnownUsageValue(12)
+	unavailable := types.UnavailableUsageValue()
+	counters, err := types.UsageCountersOf(value, unavailable, unavailable, unavailable, unavailable, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := model.NewFinalizedUsageObservation(
+		descriptor, counters, types.UnavailableUsageCost(), types.UsageTerminalSuccess, ts.Add(time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
+}
+
 func mustBundleMemoryID(t *testing.T, id string) types.MemoryID {
 	t.Helper()
 	memoryID, err := types.MemoryIDFrom(id)
@@ -1256,6 +1297,39 @@ func TestBundleUsecase_RoundTripsUsageSnapshotChainWithoutCollapsingKnownZero(t 
 	}
 	if result.UsageObservationsImported != 0 || result.UsageObservationsSkipped != 2 {
 		t.Fatalf("idempotent result = %+v, want 2 usage observations skipped", result)
+	}
+}
+
+func TestBundleUsecase_RoundTripsUsageExclusivityKey(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	key, _ := types.UsageExclusivityKeyFrom("codex:headless_stream:thread-1:1")
+	observation := mustBundleExclusiveUsage(
+		t, "codex:headless_stream:thread-1:1", key, types.UsageAccountingAdditive, ts,
+	)
+	exportRepo := &fakeBundleRepo{schema: 29, exportUsageObservations: []*model.UsageObservation{observation}}
+	out := filepath.Join(t.TempDir(), "exclusive-usage.tbun")
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts }).Export(
+		context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")},
+	); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	files := openTestBundle(t, out, []byte("pass1"))
+	if !bytes.Contains(files["usage_observations.ndjson"], []byte(`"exclusivity_key":"codex:headless_stream:thread-1:1"`)) {
+		t.Fatalf("usage row does not contain exclusivity key: %s", files["usage_observations.ndjson"])
+	}
+
+	importRepo := &fakeBundleRepo{schema: 29}
+	if _, err := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil).Import(
+		context.Background(), usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1")},
+	); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	restored := importRepo.usageObservations["codex:headless_stream:thread-1:1"]
+	restoredKey, present := restored.Descriptor().ExclusivityKey().Value()
+	if !present || restoredKey != key {
+		t.Fatalf("restored exclusivity key = %q/%t", restoredKey, present)
 	}
 }
 

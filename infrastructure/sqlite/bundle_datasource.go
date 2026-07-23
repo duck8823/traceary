@@ -242,7 +242,7 @@ func (d *BundleDatasource) ListBundleUsageObservations(ctx context.Context) ([]*
 	}()
 	rows, err := db.QueryContext(ctx, `
 SELECT observation.observation_id, session_id, observation.host, source_name, source_version, provider, model,
-       scope, accounting, status, observed_at, finalized_at, terminal_code,
+       scope, accounting, observation.exclusivity_key, status, observed_at, finalized_at, terminal_code,
        input_state, input_tokens, cached_input_state, cached_input_tokens,
        cache_write_input_state, cache_write_input_tokens, output_state, output_tokens,
        reasoning_output_state, reasoning_output_tokens, total_state, total_tokens,

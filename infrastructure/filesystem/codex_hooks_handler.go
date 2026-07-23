@@ -36,6 +36,7 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 	auditCommand := newHookRuntimeCommand(tracearyBin, "hook", "audit", "codex")
 	promptCommand := newHookRuntimeCommand(tracearyBin, "hook", "prompt", "codex")
 	transcriptCommand := newHookRuntimeCommand(tracearyBin, "hook", "transcript", "codex")
+	usageCommand := newHookRuntimeCommand(tracearyBin, "hook", "usage", "codex")
 	compactPreCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "codex", "pre-compact")
 	compactPostCommand := newHookRuntimeCommand(tracearyBin, "hook", "compact", "codex", "post-compact")
 	subagentStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-start", "codex")
@@ -73,18 +74,19 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 				model.HookCommandOf("traceary-prompt", "command", promptCommand, types.None[int](), "", managedKeyOf("traceary-prompt.sh", "codex")),
 			}),
 		},
-		// Codex delivers `last_assistant_message` on Stop, so the
-		// transcript hook runs alongside the session-stop hook in the
+		// Codex delivers `last_assistant_message` on Stop, so usage and
+		// transcript capture run alongside the session-stop hook in the
 		// same event entry. Stop fires after every assistant response,
 		// not when the conversation ends, so the session-stop hook is a
 		// turn boundary: it keeps the session open and the hook state
 		// intact, and only fires the best-effort memory auto-extract
-		// (#1170). Ordering is still deliberate: transcript runs FIRST
-		// so the turn's transcript event is recorded before any
+		// (#1170). Ordering is deliberate: body-free usage is read first,
+		// transcript is recorded next, and both complete before any
 		// turn-boundary side effects, keeping the event order
 		// chronologically accurate.
 		"Stop": {
 			model.HookEntryOf(types.None[string](), []model.HookCommand{
+				model.HookCommandOf("traceary-usage", "command", usageCommand, types.None[int](), "", managedKeyOf("traceary-usage.sh", "codex")),
 				model.HookCommandOf("traceary-transcript", "command", transcriptCommand, types.None[int](), "", managedKeyOf("traceary-transcript.sh", "codex")),
 				model.HookCommandOf("traceary-session-stop", "command", sessionStopCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "stop")),
 			}),

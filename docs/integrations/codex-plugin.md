@@ -42,7 +42,7 @@ traceary doctor --client codex --json
 ## What the official flow wires automatically
 
 - `traceary` MCP server via `traceary mcp-server`
-- `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop` (turn-boundary transcript; not a session end — #1170), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest) — **only when `plugin_hooks` is enabled on your Codex build and the current definitions are trusted in `/hooks`**; otherwise see the fallback below
+- `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop` (body-free usage plus turn-boundary transcript; not a session end — #1170), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest) — **only when `plugin_hooks` is enabled on your Codex build and the current definitions are trusted in `/hooks`**; otherwise see the fallback below
 - slash commands: `/traceary:help` and `/traceary:doctor`
 - contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて").
 
@@ -64,7 +64,21 @@ traceary hooks install --client codex --upgrade --traceary-bin "$(command -v tra
 traceary doctor --client codex --json
 ```
 
-The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json` (named `traceary-session-start`, `traceary-prompt`, `traceary-transcript`, `traceary-session-stop`, `traceary-audit`). Existing non-Traceary entries are preserved.
+The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json` (named `traceary-session-start`, `traceary-prompt`, `traceary-usage`, `traceary-transcript`, `traceary-session-stop`, `traceary-audit`). Existing non-Traceary entries are preserved.
+
+## Verified usage capture
+
+On each trusted interactive Codex `Stop`, Traceary reads the matching local rollout JSONL under `CODEX_HOME/sessions` (or `~/.codex/sessions`). A turn begins at `turn_context` and ends at the matching `task_complete` or `turn_aborted`. Traceary subtracts the last cumulative `token_count.info.total_token_usage` before the turn from the final cumulative snapshot at the terminal boundary. Intermediate and compaction snapshots replace earlier snapshots; they are never added together. A missing baseline or terminal snapshot, an ambiguous boundary, or any counter regression within the segment makes the turn an excluded `unavailable` observation. A terminal without a snapshot also invalidates attribution for the following turn; that following terminal snapshot can establish a fresh baseline only for later turns.
+
+For `traceary session run -- codex exec --json ...`, capture mode is fixed to `headless_stream`. Traceary forwards stdout unchanged and retains only `thread.started.thread_id` and terminal `turn.completed.usage` in memory. Headless and rollout samples persist the same portable, body-free `(thread_id, turn ordinal)` exclusivity key. A serialized SQLite transaction and unique partial index allow one additive observation for that key and retain any later, imported, or concurrent alternative as excluded evidence, preventing double counting regardless of delivery order.
+
+- Every terminal turn has a deterministic body-free observation ID, so duplicate hooks, retries, and resumed sessions replay without adding tokens twice.
+- Known zero remains known zero. A field omitted by Codex is stored as `unavailable`, not numeric zero.
+- If a stable Stop `event_id` has no readable usage record, Traceary stores one excluded observation with explicitly unavailable counters. If the host provides neither usage nor a stable delivery ID, Traceary skips instead of inventing identity from content.
+- The reader rejects symlinks in every matched path component, verifies the opened regular file is the inspected file, and enforces hard file/read and JSONL-line size limits.
+- Durable retry spools for the usage hook contain only `session_id` and a verified `event_id`; assistant text and other Stop payload fields are discarded before the spool is written.
+
+The capture is local-only. It does not send the rollout or usage record to a network service and does not estimate billing cost.
 
 ### Duplicate-capture warning
 
@@ -76,7 +90,7 @@ traceary doctor --fix --dry-run --client codex
 traceary doctor --fix --client codex
 ```
 
-Doctor only offers this cleanup when Codex reports the current Traceary plugin hook definitions as trusted. It removes the named Traceary-managed entries (`traceary-session-start`, `traceary-prompt`, `traceary-transcript`, `traceary-session-stop`, and `traceary-audit`) while preserving unrelated hooks and top-level fields. When trust is unverified, untrusted, modified, or disabled, doctor keeps the manual fallback intact.
+Doctor only offers this cleanup when Codex reports the current Traceary plugin hook definitions as trusted. It removes the named Traceary-managed entries (`traceary-session-start`, `traceary-prompt`, `traceary-usage`, `traceary-transcript`, `traceary-session-stop`, and `traceary-audit`) while preserving unrelated hooks and top-level fields. When trust is unverified, untrusted, modified, or disabled, doctor keeps the manual fallback intact.
 
 After cleanup, re-run `traceary doctor --client codex --json` to confirm only one registration path is active.
 
