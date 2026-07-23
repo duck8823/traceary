@@ -42,7 +42,7 @@ traceary doctor --client codex --json
 ## What the official flow wires automatically
 
 - `traceary` MCP server via `traceary mcp-server`
-- `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop` (turn-boundary transcript; not a session end — #1170), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest) — **only when `plugin_hooks` is enabled on your Codex build and the current definitions are trusted in `/hooks`**; otherwise see the fallback below
+- `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop` (body-free usage plus turn-boundary transcript; not a session end — #1170), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest) — **only when `plugin_hooks` is enabled on your Codex build and the current definitions are trusted in `/hooks`**; otherwise see the fallback below
 - slash commands: `/traceary:help` and `/traceary:doctor`
 - contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて").
 
@@ -64,7 +64,18 @@ traceary hooks install --client codex --upgrade --traceary-bin "$(command -v tra
 traceary doctor --client codex --json
 ```
 
-The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json` (named `traceary-session-start`, `traceary-prompt`, `traceary-transcript`, `traceary-session-stop`, `traceary-audit`). Existing non-Traceary entries are preserved.
+The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json` (named `traceary-session-start`, `traceary-prompt`, `traceary-usage`, `traceary-transcript`, `traceary-session-stop`, `traceary-audit`). Existing non-Traceary entries are preserved.
+
+## Verified usage capture
+
+On each trusted Codex `Stop`, Traceary reads the matching local Codex rollout JSONL under `CODEX_HOME/sessions` (or `~/.codex/sessions`). It records only authoritative `token_count.info.last_token_usage` or `turn.completed.usage` fields. Prompt, response, tool payload, rate-limit, and transcript body fields are ignored by the usage adapter.
+
+- Every source record has a deterministic body-free observation ID, so a duplicate hook or resumed session replays without adding tokens twice.
+- Known zero remains known zero. A field omitted by Codex is stored as `unavailable`, not numeric zero.
+- If a stable Stop `event_id` has no readable usage record, Traceary stores one excluded observation with explicitly unavailable counters. If the host provides neither usage nor a stable delivery ID, Traceary skips instead of inventing identity from content.
+- The reader accepts only regular non-symlink files matched below the resolved Codex sessions root and applies file and JSONL-line size guards.
+
+The capture is local-only. It does not send the rollout or usage record to a network service and does not estimate billing cost.
 
 ### Duplicate-capture warning
 
@@ -76,7 +87,7 @@ traceary doctor --fix --dry-run --client codex
 traceary doctor --fix --client codex
 ```
 
-Doctor only offers this cleanup when Codex reports the current Traceary plugin hook definitions as trusted. It removes the named Traceary-managed entries (`traceary-session-start`, `traceary-prompt`, `traceary-transcript`, `traceary-session-stop`, and `traceary-audit`) while preserving unrelated hooks and top-level fields. When trust is unverified, untrusted, modified, or disabled, doctor keeps the manual fallback intact.
+Doctor only offers this cleanup when Codex reports the current Traceary plugin hook definitions as trusted. It removes the named Traceary-managed entries (`traceary-session-start`, `traceary-prompt`, `traceary-usage`, `traceary-transcript`, `traceary-session-stop`, and `traceary-audit`) while preserving unrelated hooks and top-level fields. When trust is unverified, untrusted, modified, or disabled, doctor keeps the manual fallback intact.
 
 After cleanup, re-run `traceary doctor --client codex --json` to confirm only one registration path is active.
 

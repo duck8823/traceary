@@ -92,16 +92,19 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		if diff := cmp.Diff("", *settings.Hooks["PostToolUse"][0].Matcher); diff != "" {
 			t.Fatalf("PostToolUse matcher mismatch (-want +got):\n%s", diff)
 		}
-		// Transcript runs before session-stop in the Stop entry:
+		// Body-free usage and transcript run before session-stop in the Stop entry:
 		// session-stop clears the cached session / workspace state
 		// files as part of teardown, so running it first would make
 		// the transcript hook silent-skip if the payload ever omits
 		// `session_id` (see codex_hooks_handler.go).
-		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'transcript' 'codex'`, settings.Hooks["Stop"][0].Hooks[0].Command); diff != "" {
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'usage' 'codex'`, settings.Hooks["Stop"][0].Hooks[0].Command); diff != "" {
 			t.Fatalf("Stop[0] command mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'session' 'codex' 'stop'`, settings.Hooks["Stop"][0].Hooks[1].Command); diff != "" {
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'transcript' 'codex'`, settings.Hooks["Stop"][0].Hooks[1].Command); diff != "" {
 			t.Fatalf("Stop[1] command mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(`'/tmp/traceary bin/traceary' 'hook' 'session' 'codex' 'stop'`, settings.Hooks["Stop"][0].Hooks[2].Command); diff != "" {
+			t.Fatalf("Stop[2] command mismatch (-want +got):\n%s", diff)
 		}
 	})
 

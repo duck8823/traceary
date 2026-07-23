@@ -25,6 +25,7 @@ import (
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
 )
@@ -33,6 +34,94 @@ type hookMemoryExtractJobFixture struct {
 	SessionID      string `json:"session_id"`
 	Workspace      string `json:"workspace"`
 	SourceBoundary string `json:"source_boundary"`
+}
+
+type codexUsageCaptureStub struct {
+	inputs []usecase.CodexUsageCaptureInput
+	err    error
+}
+
+func (s *codexUsageCaptureStub) Capture(_ context.Context, input usecase.CodexUsageCaptureInput) (usecase.CodexUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.CodexUsageCaptureResult{Applied: 1}, s.err
+}
+
+func TestRootCLI_HookUsageCommand_DelegatesBodyFreeCodexIdentity(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-usage-key")
+	store := &storeManagementUsecaseStub{}
+	usage := &codexUsageCaptureStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(store),
+		cli.WithCodexUsage(usage),
+		cli.WithDatabasePathSetter(func(string) {}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"codex-session","event_id":"stop-1","last_assistant_message":"private body must not enter usage identity"}`))
+	rootCmd.SetArgs([]string{"hook", "usage", "codex", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !store.initCalled || len(usage.inputs) != 1 {
+		t.Fatalf("initialized=%t inputs=%+v", store.initCalled, usage.inputs)
+	}
+	if usage.inputs[0].SessionID != types.SessionID("codex-session") || usage.inputs[0].DeliveryID != "event_id:stop-1" || strings.Contains(usage.inputs[0].DeliveryID, "private") {
+		t.Fatalf("capture input = %+v", usage.inputs[0])
+	}
+}
+
+func TestRootCLI_HookUsageCommand_PersistsVerifiedCodexUsageIdempotently(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-usage-integration")
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	sessionID := "019f8c18-6729-7bd1-bcfa-2e330f334de0"
+	rolloutPath := filepath.Join(codexHome, "sessions", "2026", "07", "23", "rollout-"+sessionID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(rolloutPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := strings.Join([]string{
+		`{"timestamp":"2026-07-23T01:00:00Z","type":"session_meta","payload":{"cli_version":"0.145.0"}}`,
+		`{"timestamp":"2026-07-23T01:00:01Z","type":"turn_context","payload":{"model":"gpt-5.6-sol"}}`,
+		`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":80,"cache_write_input_tokens":0,"output_tokens":6,"reasoning_output_tokens":2,"total_tokens":106}}}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(rolloutPath, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	store := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	usageRepo := sqliteinfra.NewUsageObservationDatasource(db)
+	usage := usecase.NewCodexUsageCaptureUsecase(filesystem.NewCodexUsageSource(), usageRepo, types.SystemClock{})
+
+	for range 2 {
+		rootCmd := newTestRootCLI(
+			cli.WithStoreManagement(store), cli.WithCodexUsage(usage), cli.WithDatabasePathSetter(db.SetPath),
+		).Command()
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetIn(strings.NewReader(`{"session_id":"` + sessionID + `","event_id":"stop-1","last_assistant_message":"private"}`))
+		rootCmd.SetArgs([]string{"hook", "usage", "codex", "--db-path", dbPath})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+	}
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	var count int
+	var input, cached, cacheWrite, output, reasoning, total int64
+	var modelName, costState string
+	err = sqlDB.QueryRow(`SELECT COUNT(*), input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_output_tokens, total_tokens, model, cost_state FROM usage_observations`).Scan(
+		&count, &input, &cached, &cacheWrite, &output, &reasoning, &total, &modelName, &costState,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || input != 100 || cached != 80 || cacheWrite != 0 || output != 6 || reasoning != 2 || total != 106 || modelName != "gpt-5.6-sol" || costState != "unavailable" {
+		t.Fatalf("stored usage = count=%d input=%d cached=%d cache_write=%d output=%d reasoning=%d total=%d model=%q cost=%q", count, input, cached, cacheWrite, output, reasoning, total, modelName, costState)
+	}
 }
 
 func readHookMemoryExtractJobForTest(t *testing.T, path string) hookMemoryExtractJobFixture {

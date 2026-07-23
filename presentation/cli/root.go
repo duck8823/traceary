@@ -24,6 +24,7 @@ type RootCLI struct {
 	memory                     usecase.MemoryUsecase
 	memoryEdge                 usecase.MemoryEdgeUsecase
 	bundle                     usecase.BundleUsecase
+	codexUsage                 usecase.CodexUsageCaptureUsecase
 	context                    usecase.ContextUsecase
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
@@ -100,6 +101,11 @@ func WithMemory(memory usecase.MemoryUsecase) RootCLIOption {
 // export / import subcommands.
 func WithBundle(b usecase.BundleUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.bundle = b }
+}
+
+// WithCodexUsage injects the body-free Codex usage capture adapter.
+func WithCodexUsage(usage usecase.CodexUsageCaptureUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.codexUsage = usage }
 }
 
 // WithMemoryEdge injects the MemoryEdgeUsecase used by

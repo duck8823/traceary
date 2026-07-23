@@ -42,7 +42,7 @@ traceary doctor --client codex --json
 ## 公式 flow が自動で組み込むもの
 
 - `traceary mcp-server` を呼ぶ `traceary` MCP server
-- `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop`（turn 境界の transcript。session 終了ではない — #1170）, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照） — **Codex 側の `plugin_hooks` feature が有効で、現在の定義が `/hooks` で trust されている場合に限る**。それ以外は下記 **Hook fallback (plugin_hooks が利用できない環境向け)** セクションを参照
+- `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop`（本文を含まない usage と turn 境界の transcript。session 終了ではない — #1170）, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照） — **Codex 側の `plugin_hooks` feature が有効で、現在の定義が `/hooks` で trust されている場合に限る**。それ以外は下記 **Hook fallback (plugin_hooks が利用できない環境向け)** セクションを参照
 - slash command: `/traceary:help`, `/traceary:doctor`
 - 文脈に効く skill: `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember`。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。
 
@@ -64,7 +64,18 @@ traceary hooks install --client codex --upgrade --traceary-bin "$(command -v tra
 traceary doctor --client codex --json
 ```
 
-fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary-session-start` / `traceary-prompt` / `traceary-transcript` / `traceary-session-stop` / `traceary-audit`) を直接書き込みます。Traceary 以外のエントリは保持されます。
+fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary-session-start` / `traceary-prompt` / `traceary-usage` / `traceary-transcript` / `traceary-session-stop` / `traceary-audit`) を直接書き込みます。Traceary 以外のエントリは保持されます。
+
+## 検証済み usage の取得
+
+trust 済みの Codex `Stop` ごとに、Traceary は `CODEX_HOME/sessions`（未指定時は `~/.codex/sessions`）配下の対応するローカル rollout JSONL を読みます。usage adapter が記録するのは、Codex が提示した `token_count.info.last_token_usage` または `turn.completed.usage` だけです。prompt、response、tool payload、rate limit、transcript 本文の各フィールドは usage 計測に使いません。
+
+- source record ごとに本文に依存しない決定的な observation ID を付けるため、hook の再送や session の resume で token を二重加算しません。
+- 既知の 0 は既知の 0 のまま保存します。Codex が省略した field は数値 0 ではなく `unavailable` です。
+- 安定した Stop `event_id` があるのに usage record を読めない場合は、全 counter を明示的な unavailable とした集計対象外 observation を1件保存します。usage も安定 delivery ID もない場合は、本文から identity を作らず skip します。
+- reader は解決済み Codex sessions root 配下で一致した通常 file だけを受け入れ、symlink を拒否し、file size と JSONL line size に上限を適用します。
+
+取得処理はローカルだけで完結します。rollout や usage record をネットワークサービスへ送信せず、請求額も推定しません。
 
 ### 二重記録の注意点
 
@@ -76,7 +87,7 @@ traceary doctor --fix --dry-run --client codex
 traceary doctor --fix --client codex
 ```
 
-doctor が cleanup を提示するのは、Codex が現在の Traceary plugin hook 定義を trusted と報告した場合だけです。名前付きの Traceary 管理エントリ (`traceary-session-start` / `traceary-prompt` / `traceary-transcript` / `traceary-session-stop` / `traceary-audit`) だけを削除し、Traceary 以外の hook と top-level field は保持します。trust が未確認・untrusted・変更済み・無効な場合は手動 fallback を残します。
+doctor が cleanup を提示するのは、Codex が現在の Traceary plugin hook 定義を trusted と報告した場合だけです。名前付きの Traceary 管理エントリ (`traceary-session-start` / `traceary-prompt` / `traceary-usage` / `traceary-transcript` / `traceary-session-stop` / `traceary-audit`) だけを削除し、Traceary 以外の hook と top-level field は保持します。trust が未確認・untrusted・変更済み・無効な場合は手動 fallback を残します。
 
 cleanup 後に `traceary doctor --client codex --json` を再実行し、登録経路が一つだけになっていることを確認してください。
 
