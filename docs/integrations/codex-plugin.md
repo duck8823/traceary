@@ -68,12 +68,15 @@ The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json`
 
 ## Verified usage capture
 
-On each trusted Codex `Stop`, Traceary reads the matching local Codex rollout JSONL under `CODEX_HOME/sessions` (or `~/.codex/sessions`). It records only authoritative `token_count.info.last_token_usage` or `turn.completed.usage` fields. Prompt, response, tool payload, rate-limit, and transcript body fields are ignored by the usage adapter.
+On each trusted interactive Codex `Stop`, Traceary reads the matching local rollout JSONL under `CODEX_HOME/sessions` (or `~/.codex/sessions`). A turn begins at `turn_context` and ends at the matching `task_complete` or `turn_aborted`. Traceary subtracts the last cumulative `token_count.info.total_token_usage` before the turn from the final cumulative snapshot at the terminal boundary. Intermediate and compaction snapshots replace earlier snapshots; they are never added together. A missing baseline or terminal snapshot, an ambiguous boundary, or a counter regression becomes an excluded `unavailable` observation.
 
-- Every source record has a deterministic body-free observation ID, so a duplicate hook or resumed session replays without adding tokens twice.
+For `traceary session run -- codex exec --json ...`, capture mode is fixed to `headless_stream`. Traceary forwards stdout unchanged, retains only `thread.started.thread_id` and terminal `turn.completed.usage` in memory, and suppresses rollout capture for that child. The headless `(thread_id, turn ordinal)` identity also suppresses aggregate accounting if legacy input later exposes the same rollout segment.
+
+- Every terminal turn has a deterministic body-free observation ID, so duplicate hooks, retries, and resumed sessions replay without adding tokens twice.
 - Known zero remains known zero. A field omitted by Codex is stored as `unavailable`, not numeric zero.
 - If a stable Stop `event_id` has no readable usage record, Traceary stores one excluded observation with explicitly unavailable counters. If the host provides neither usage nor a stable delivery ID, Traceary skips instead of inventing identity from content.
-- The reader accepts only regular non-symlink files matched below the resolved Codex sessions root and applies file and JSONL-line size guards.
+- The reader rejects symlinks in every matched path component, verifies the opened regular file is the inspected file, and enforces hard file/read and JSONL-line size limits.
+- Durable retry spools for the usage hook contain only `session_id` and a verified `event_id`; assistant text and other Stop payload fields are discarded before the spool is written.
 
 The capture is local-only. It does not send the rollout or usage record to a network service and does not estimate billing cost.
 

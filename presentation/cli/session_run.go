@@ -7,12 +7,15 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -95,10 +98,32 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 		return xerrors.Errorf("%s: %w", Localize("failed to start one-shot session", "完結型セッションを開始できませんでした"), err)
 	}
 
-	reason, exitCode, runErr := runOneShotProcess(ctx, stdin, stdout, stderr, command, input.timeout, oneShotProcessEnvironment(resolvedDBPath, startEvent.SessionID(), types.SessionID(strings.TrimSpace(input.parentSessionID))))
+	processStdout := stdout
+	usageMode := ""
+	var headlessUsage application.CodexHeadlessUsageStream
+	if isCodexHeadlessUsageCommand(command) && c.codexHeadlessUsage != nil && c.codexUsage != nil {
+		usageMode = codexUsageModeHeadless
+		headlessUsage = c.codexHeadlessUsage.New(stdout)
+		processStdout = headlessUsage
+	}
+	reason, exitCode, runErr := runOneShotProcess(ctx, stdin, processStdout, stderr, command, input.timeout, oneShotProcessEnvironment(resolvedDBPath, startEvent.SessionID(), types.SessionID(strings.TrimSpace(input.parentSessionID)), usageMode))
 	summary := "one-shot process finished: " + reason.String()
 	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), oneShotFinalizeTimeout)
 	defer cancelFinalize()
+	var usageErr error
+	if headlessUsage != nil {
+		loaded, collectErr := headlessUsage.Complete()
+		_, captureErr := c.codexUsage.CaptureHeadless(finalizeCtx, usecase.CodexUsageCaptureInput{
+			SessionID: startEvent.SessionID(), DeliveryID: "session_run",
+			FallbackSourceName: "headless_stream", FallbackTerminal: codexUsageTerminal(reason),
+		}, loaded)
+		if collectErr != nil {
+			usageErr = xerrors.Errorf("failed to decode body-free Codex headless usage: %w", collectErr)
+		}
+		if captureErr != nil {
+			usageErr = xerrors.Errorf("failed to record Codex headless usage: %w", captureErr)
+		}
+	}
 	if _, _, finalizeErr := c.session.FinalizeOneShot(finalizeCtx, client, agent, startEvent.SessionID(), workspace, reason, summary); finalizeErr != nil {
 		if exitCode == 0 {
 			exitCode = 1
@@ -107,6 +132,9 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 	}
 	if runErr != nil {
 		return oneShotExitError{message: fmt.Sprintf("%s: %v", Localize("one-shot command failed", "完結型コマンドが失敗しました"), runErr), exitCode: exitCode}
+	}
+	if usageErr != nil {
+		return oneShotExitError{message: fmt.Sprintf("%s: %v", Localize("one-shot usage capture failed", "完結型 usage の記録に失敗しました"), usageErr), exitCode: 1}
 	}
 	return nil
 }
@@ -149,12 +177,13 @@ func runOneShotProcess(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 	return types.TerminalReasonAbortedStream, oneShotStreamExitCode, xerrors.Errorf("one-shot process stream aborted: %w", err)
 }
 
-func oneShotProcessEnvironment(dbPath string, sessionID, parentSessionID types.SessionID) []string {
+func oneShotProcessEnvironment(dbPath string, sessionID, parentSessionID types.SessionID, usageMode string) []string {
 	overrides := map[string]string{
 		"TRACEARY_DB_PATH":           dbPath,
 		runtimeModeEnvKey:            types.RuntimeModeOneShot.String(),
 		runtimeSessionIDEnvKey:       sessionID.String(),
 		"TRACEARY_PARENT_SESSION_ID": parentSessionID.String(),
+		codexUsageModeEnvKey:         usageMode,
 	}
 	env := make([]string, 0, len(os.Environ())+len(overrides))
 	for _, entry := range os.Environ() {
@@ -168,4 +197,33 @@ func oneShotProcessEnvironment(dbPath string, sessionID, parentSessionID types.S
 		env = append(env, key+"="+value)
 	}
 	return env
+}
+
+func isCodexHeadlessUsageCommand(command []string) bool {
+	if len(command) < 2 || filepath.Base(strings.TrimSpace(command[0])) != "codex" || command[1] != "exec" {
+		return false
+	}
+	for _, arg := range command[2:] {
+		if arg == "--json" {
+			return true
+		}
+	}
+	return false
+}
+
+func codexUsageTerminal(reason types.TerminalReason) types.UsageTerminalCode {
+	switch reason {
+	case types.TerminalReasonSuccess:
+		return types.UsageTerminalSuccess
+	case types.TerminalReasonFailure:
+		return types.UsageTerminalFailure
+	case types.TerminalReasonTimeout:
+		return types.UsageTerminalTimeout
+	case types.TerminalReasonSignal:
+		return types.UsageTerminalSignal
+	case types.TerminalReasonAbortedStream:
+		return types.UsageTerminalAbortedStream
+	default:
+		return types.UsageTerminalUnknown
+	}
 }

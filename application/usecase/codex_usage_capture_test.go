@@ -62,8 +62,9 @@ func TestCodexUsageCaptureUsecase_RecordsKnownAndUnavailableFieldsOnce(t *testin
 	t.Parallel()
 	knownZero, knownInput, knownCached, knownOutput, knownReasoning, knownTotal := int64(0), int64(120), int64(80), int64(7), int64(3), int64(127)
 	observedAt := time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC)
-	source := codexUsageSourceStub{result: application.CodexUsageLoadResult{Samples: []application.CodexUsageSample{{
+	source := codexUsageSourceStub{result: application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
 		RecordID: "rollout_jsonl:file:9", SourceName: "rollout_jsonl", SourceVersion: "0.145.0", Model: "gpt-5.6-sol", ObservedAt: observedAt,
+		TerminalCode: types.UsageTerminalSuccess, Available: true,
 		Counters: application.CodexUsageCounters{
 			InputTokens: &knownInput, CachedInputTokens: &knownCached, CacheWriteInputTokens: &knownZero,
 			OutputTokens: &knownOutput, ReasoningOutputTokens: &knownReasoning, TotalTokens: &knownTotal,
@@ -137,8 +138,9 @@ func TestCodexUsageCaptureUsecase_MissingUsageWithoutStableDeliveryDoesNotInvent
 func TestCodexUsageCaptureUsecase_RejectsInvalidSourceCounter(t *testing.T) {
 	t.Parallel()
 	negative := int64(-1)
-	source := codexUsageSourceStub{result: application.CodexUsageLoadResult{Samples: []application.CodexUsageSample{{
+	source := codexUsageSourceStub{result: application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
 		RecordID: "rollout_jsonl:file:1", SourceName: "rollout_jsonl", SourceVersion: "1", ObservedAt: time.Now(),
+		TerminalCode: types.UsageTerminalSuccess, Available: true,
 		Counters: application.CodexUsageCounters{InputTokens: &negative},
 	}}}}
 	_, err := usecase.NewCodexUsageCaptureUsecase(source, &codexUsageRepositoryFake{}, nil).Capture(
@@ -156,8 +158,9 @@ func TestCodexUsageCaptureUsecase_RejectsChangedReplaySemantics(t *testing.T) {
 	repository := &codexUsageRepositoryFake{}
 	input := usecase.CodexUsageCaptureInput{SessionID: types.SessionID("session-1")}
 	makeSource := func(value *int64) codexUsageSourceStub {
-		return codexUsageSourceStub{result: application.CodexUsageLoadResult{Samples: []application.CodexUsageSample{{
+		return codexUsageSourceStub{result: application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
 			RecordID: "rollout_jsonl:file:1", SourceName: "rollout_jsonl", SourceVersion: "1", ObservedAt: observedAt,
+			TerminalCode: types.UsageTerminalSuccess, Available: true,
 			Counters: application.CodexUsageCounters{InputTokens: value},
 		}}}}
 	}
@@ -167,5 +170,34 @@ func TestCodexUsageCaptureUsecase_RejectsChangedReplaySemantics(t *testing.T) {
 	_, err := usecase.NewCodexUsageCaptureUsecase(makeSource(&changedValue), repository, nil).Capture(context.Background(), input)
 	if err == nil || !errors.Is(err, model.ErrConflictingUsageObservation) {
 		t.Fatalf("Capture(changed replay) error = %v", err)
+	}
+}
+
+func TestCodexUsageCaptureUsecase_HeadlessObservationSuppressesLegacyRolloutAccounting(t *testing.T) {
+	t.Parallel()
+	observedAt := time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC)
+	inputTokens, outputTokens := int64(10), int64(2)
+	repository := &codexUsageRepositoryFake{}
+	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository, nil)
+	headless := application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
+		RecordID: "headless_stream:thread-1:1", SourceName: "headless_stream", SourceVersion: "schema-v1",
+		ObservedAt: observedAt, TerminalCode: types.UsageTerminalSuccess, Available: true,
+		Counters: application.CodexUsageCounters{InputTokens: &inputTokens, OutputTokens: &outputTokens},
+	}}}
+	if _, err := sut.CaptureHeadless(context.Background(), usecase.CodexUsageCaptureInput{SessionID: "session-1"}, headless); err != nil {
+		t.Fatalf("CaptureHeadless() error = %v", err)
+	}
+	rolloutSource := codexUsageSourceStub{result: application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
+		RecordID: "rollout:thread-1:turn-1", SuppressionID: "headless_stream:thread-1:1",
+		SourceName: "rollout_jsonl", SourceVersion: "0.145.0", ObservedAt: observedAt,
+		TerminalCode: types.UsageTerminalSuccess, Available: true,
+		Counters: application.CodexUsageCounters{InputTokens: &inputTokens, OutputTokens: &outputTokens},
+	}}}}
+	if _, err := usecase.NewCodexUsageCaptureUsecase(rolloutSource, repository, nil).Capture(context.Background(), usecase.CodexUsageCaptureInput{SessionID: "session-1"}); err != nil {
+		t.Fatalf("Capture(rollout) error = %v", err)
+	}
+	rollout := repository.observations["codex:rollout:thread-1:turn-1"]
+	if rollout == nil || rollout.Descriptor().Accounting() != types.UsageAccountingExcluded {
+		t.Fatalf("rollout accounting = %+v", rollout)
 	}
 }

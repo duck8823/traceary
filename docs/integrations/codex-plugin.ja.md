@@ -68,12 +68,15 @@ fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary
 
 ## 検証済み usage の取得
 
-trust 済みの Codex `Stop` ごとに、Traceary は `CODEX_HOME/sessions`（未指定時は `~/.codex/sessions`）配下の対応するローカル rollout JSONL を読みます。usage adapter が記録するのは、Codex が提示した `token_count.info.last_token_usage` または `turn.completed.usage` だけです。prompt、response、tool payload、rate limit、transcript 本文の各フィールドは usage 計測に使いません。
+trust 済みの対話型 Codex `Stop` ごとに、Traceary は `CODEX_HOME/sessions`（未指定時は `~/.codex/sessions`）配下の対応するローカル rollout JSONL を読みます。turn は `turn_context` で始まり、対応する `task_complete` または `turn_aborted` で終わります。turn 直前の最後の累積 `token_count.info.total_token_usage` を、終端境界時点の最後の累積 snapshot から差し引きます。途中 snapshot と compaction snapshot は以前の snapshot を置き換えるだけで、合算しません。baseline や終端 snapshot の欠落、境界の曖昧さ、counter の減少は、集計対象外の `unavailable` observation として記録します。
 
-- source record ごとに本文に依存しない決定的な observation ID を付けるため、hook の再送や session の resume で token を二重加算しません。
+`traceary session run -- codex exec --json ...` では、capture mode を `headless_stream` に固定します。stdout は変更せず転送し、メモリに保持するのは `thread.started.thread_id` と終端 `turn.completed.usage` だけです。この子プロセスの rollout 取得は抑止します。headless の `(thread_id, turn ordinal)` identity は、後で旧データから同じ rollout 区間が見つかった場合も、その rollout を集計対象外にします。
+
+- 終端 turn ごとに本文に依存しない決定的な observation ID を付けるため、hook の再送、retry、session の resume で token を二重加算しません。
 - 既知の 0 は既知の 0 のまま保存します。Codex が省略した field は数値 0 ではなく `unavailable` です。
 - 安定した Stop `event_id` があるのに usage record を読めない場合は、全 counter を明示的な unavailable とした集計対象外 observation を1件保存します。usage も安定 delivery ID もない場合は、本文から identity を作らず skip します。
-- reader は解決済み Codex sessions root 配下で一致した通常 file だけを受け入れ、symlink を拒否し、file size と JSONL line size に上限を適用します。
+- reader は一致した path の全 component で symlink を拒否し、open 後の通常 file が検査済み file と同一であることを確認し、総 read byte 数と JSONL line size に強制上限を適用します。
+- usage hook の再試行 spool へ保存するのは `session_id` と検証済み `event_id` だけです。assistant text など Stop payload の他 field は spool 書き込み前に破棄します。
 
 取得処理はローカルだけで完結します。rollout や usage record をネットワークサービスへ送信せず、請求額も推定しません。
 

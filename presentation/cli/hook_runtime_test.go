@@ -21,6 +21,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cobra"
 
+	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -37,12 +38,19 @@ type hookMemoryExtractJobFixture struct {
 }
 
 type codexUsageCaptureStub struct {
-	inputs []usecase.CodexUsageCaptureInput
-	err    error
+	inputs   []usecase.CodexUsageCaptureInput
+	headless []application.CodexUsageLoadResult
+	err      error
 }
 
 func (s *codexUsageCaptureStub) Capture(_ context.Context, input usecase.CodexUsageCaptureInput) (usecase.CodexUsageCaptureResult, error) {
 	s.inputs = append(s.inputs, input)
+	return usecase.CodexUsageCaptureResult{Applied: 1}, s.err
+}
+
+func (s *codexUsageCaptureStub) CaptureHeadless(_ context.Context, input usecase.CodexUsageCaptureInput, loaded application.CodexUsageLoadResult) (usecase.CodexUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	s.headless = append(s.headless, loaded)
 	return usecase.CodexUsageCaptureResult{Applied: 1}, s.err
 }
 
@@ -81,8 +89,9 @@ func TestRootCLI_HookUsageCommand_PersistsVerifiedCodexUsageIdempotently(t *test
 	}
 	fixture := strings.Join([]string{
 		`{"timestamp":"2026-07-23T01:00:00Z","type":"session_meta","payload":{"cli_version":"0.145.0"}}`,
-		`{"timestamp":"2026-07-23T01:00:01Z","type":"turn_context","payload":{"model":"gpt-5.6-sol"}}`,
-		`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":80,"cache_write_input_tokens":0,"output_tokens":6,"reasoning_output_tokens":2,"total_tokens":106}}}}`,
+		`{"timestamp":"2026-07-23T01:00:01Z","type":"turn_context","payload":{"turn_id":"turn-1","model":"gpt-5.6-sol"}}`,
+		`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":80,"cache_write_input_tokens":0,"output_tokens":6,"reasoning_output_tokens":2,"total_tokens":106}}}}`,
+		`{"timestamp":"2026-07-23T01:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`,
 	}, "\n") + "\n"
 	if err := os.WriteFile(rolloutPath, []byte(fixture), 0o600); err != nil {
 		t.Fatal(err)

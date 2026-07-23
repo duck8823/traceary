@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/duck8823/traceary/domain/types"
@@ -23,23 +24,40 @@ type CodexUsageCounters struct {
 	TotalTokens           *int64
 }
 
-// CodexUsageSample is one body-free, authoritative completed-call record.
+// CodexUsageSample is one body-free, authoritative terminal-turn record.
 type CodexUsageSample struct {
 	RecordID      string
+	SuppressionID string
 	SourceName    string
 	SourceVersion string
 	Model         string
 	ObservedAt    time.Time
+	TerminalCode  types.UsageTerminalCode
+	Available     bool
 	Counters      CodexUsageCounters
 }
 
-// CodexUsageLoadResult contains every verified completed call currently
-// visible in the session source. Empty is a supported explicit outcome.
+// CodexUsageLoadResult contains terminal turns currently visible in the
+// selected source. Empty is a supported explicit outcome.
 type CodexUsageLoadResult struct {
-	Samples []CodexUsageSample
+	Samples          []CodexUsageSample
+	BoundaryObserved bool
 }
 
 // CodexUsageSource reads only body-free usage metadata from local Codex files.
 type CodexUsageSource interface {
 	Load(ctx context.Context, criteria CodexUsageLoadCriteria) (CodexUsageLoadResult, error)
+}
+
+// CodexHeadlessUsageStream forwards a Traceary-owned Codex exec JSON stream
+// while retaining only body-free terminal usage metadata in memory.
+type CodexHeadlessUsageStream interface {
+	io.Writer
+	Complete() (CodexUsageLoadResult, error)
+}
+
+// CodexHeadlessUsageStreamFactory creates one bounded stream adapter per
+// supervised Codex exec invocation.
+type CodexHeadlessUsageStreamFactory interface {
+	New(destination io.Writer) CodexHeadlessUsageStream
 }

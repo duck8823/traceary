@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +21,8 @@ const (
 	hookAuditSuppressionEnvKey = "TRACEARY_NO_AUDIT"
 	runtimeModeEnvKey          = "TRACEARY_RUNTIME_MODE"
 	runtimeSessionIDEnvKey     = "TRACEARY_RUNTIME_SESSION_ID"
+	codexUsageModeEnvKey       = "TRACEARY_CODEX_USAGE_MODE"
+	codexUsageModeHeadless     = "headless_stream"
 )
 
 const hookActiveSubagentStateTTL = 24 * time.Hour
@@ -209,13 +213,42 @@ func (c *RootCLI) newHookUsageCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runHookDurably(cmd.Context(), "usage", hookInvocationSpec{Command: "usage", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
-				return c.runHookUsage(cmd.Context(), input, args[0], dbPath)
-			})
+			if strings.TrimSpace(args[0]) == "codex" && strings.TrimSpace(os.Getenv(codexUsageModeEnvKey)) == codexUsageModeHeadless {
+				return nil
+			}
+			return c.runCodexUsageHookDurably(cmd.Context(), cmd.InOrStdin(), args[0], dbPath)
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	return cmd
+}
+
+func (c *RootCLI) runCodexUsageHookDurably(ctx context.Context, input io.Reader, client, dbPath string) error {
+	payload, err := readHookPayload(input)
+	if err != nil {
+		return runHookBestEffort("usage", func() error { return err })
+	}
+	sessionID, err := resolveHookSessionID(payload, client)
+	if err != nil {
+		return runHookBestEffort("usage", func() error { return err })
+	}
+	if sessionID == "" {
+		return nil
+	}
+	minimal := struct {
+		SessionID string `json:"session_id"`
+		EventID   string `json:"event_id,omitempty"`
+	}{
+		SessionID: sessionID.String(),
+		EventID:   strings.TrimSpace(hookPayloadString(payload, "event_id", "")),
+	}
+	sanitized, err := json.Marshal(minimal)
+	if err != nil {
+		return runHookBestEffort("usage", func() error { return xerrors.Errorf("failed to encode body-free Codex usage payload: %w", err) })
+	}
+	return c.runHookDurably(ctx, "usage", hookInvocationSpec{Command: "usage", Client: client, DBPath: dbPath}, newExplicitHookPayloadReader(sanitized), func(replay io.Reader) error {
+		return c.runHookUsage(ctx, replay, client, dbPath)
+	})
 }
 
 func (c *RootCLI) runHookUsage(

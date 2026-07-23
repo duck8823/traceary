@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -153,6 +155,35 @@ func TestDrainHookSpoolRecords_ReplaysAndRemoves(t *testing.T) {
 	}
 	if _, err := os.Stat(badPath); err != nil {
 		t.Fatalf("unsupported command must not delete spool: %v", err)
+	}
+}
+
+func TestCodexUsageHookSpool_IsBodyFreeAndReplayable(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	usage := &spoolCodexUsageStub{err: errors.New("database busy")}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithCodexUsage(usage),
+	)
+	payload := `{"session_id":"codex-session","event_id":"stop-1","last_assistant_message":"private body must never enter spool"}`
+	if err := root.runCodexUsageHookDurably(context.Background(), strings.NewReader(payload), "codex", "/tmp/traceary.db"); err != nil {
+		t.Fatalf("runCodexUsageHookDurably() must remain fail-soft: %v", err)
+	}
+	records, unreadable, err := scanHookSpoolRecords([]string{"codex"})
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 {
+		t.Fatalf("records=%d unreadable=%d", len(records), len(unreadable))
+	}
+	if records[0].Command != "usage" || records[0].Payload != `{"session_id":"codex-session","event_id":"stop-1"}` || strings.Contains(records[0].Payload, "private") {
+		t.Fatalf("usage spool record = %#v", records[0])
+	}
+	usage.err = nil
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 1 || failed != 0 || len(usage.inputs) != 2 {
+		t.Fatalf("replay = %d/%d calls=%d", replayed, failed, len(usage.inputs))
 	}
 }
 
@@ -414,6 +445,21 @@ type spoolEventUsecaseStub struct {
 	logCalls    int
 	lastMessage string
 	logErr      error
+}
+
+type spoolCodexUsageStub struct {
+	inputs []usecase.CodexUsageCaptureInput
+	err    error
+}
+
+func (s *spoolCodexUsageStub) Capture(_ context.Context, input usecase.CodexUsageCaptureInput) (usecase.CodexUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.CodexUsageCaptureResult{}, s.err
+}
+
+func (s *spoolCodexUsageStub) CaptureHeadless(_ context.Context, input usecase.CodexUsageCaptureInput, _ application.CodexUsageLoadResult) (usecase.CodexUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.CodexUsageCaptureResult{}, s.err
 }
 
 func (s *spoolEventUsecaseStub) Log(_ context.Context, message string, _ types.EventKind, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ apptypes.LogRedaction) (*model.Event, error) {
