@@ -102,9 +102,11 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 	codexUsageMode := ""
 	claudeUsageMode := ""
 	geminiUsageMode := ""
+	grokUsageMode := ""
 	var headlessUsage application.CodexHeadlessUsageStream
 	var claudeHeadlessUsage application.ClaudeHeadlessUsageStream
 	var geminiHeadlessUsage application.GeminiHeadlessUsageStream
+	var grokHeadlessUsage application.GrokHeadlessUsageStream
 	if isCodexHeadlessUsageCommand(command) && c.codexHeadlessUsage != nil && c.codexUsage != nil {
 		codexUsageMode = codexUsageModeHeadless
 		headlessUsage = c.codexHeadlessUsage.New(stdout)
@@ -117,12 +119,16 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 		geminiUsageMode = geminiUsageModeOneShot
 		geminiHeadlessUsage = c.geminiHeadlessUsage.New(stdout)
 		processStdout = geminiHeadlessUsage
+	} else if isGrokHeadlessUsageCommand(command) && c.grokHeadlessUsage != nil && c.grokUsage != nil {
+		grokUsageMode = grokUsageModeOneShot
+		grokHeadlessUsage = c.grokHeadlessUsage.New(stdout)
+		processStdout = grokHeadlessUsage
 	}
 	reason, exitCode, runErr := runOneShotProcess(
 		ctx, stdin, processStdout, stderr, command, input.timeout,
 		oneShotProcessEnvironment(
 			resolvedDBPath, startEvent.SessionID(), types.SessionID(strings.TrimSpace(input.parentSessionID)),
-			codexUsageMode, claudeUsageMode, geminiUsageMode,
+			codexUsageMode, claudeUsageMode, geminiUsageMode, grokUsageMode,
 		),
 	)
 	summary := "one-shot process finished: " + reason.String()
@@ -186,6 +192,26 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 			)
 		}
 	}
+	if grokHeadlessUsage != nil {
+		loaded, collectErr := grokHeadlessUsage.Complete()
+		if collectErr != nil {
+			usageErr = errors.Join(
+				usageErr,
+				xerrors.Errorf("failed to decode body-free Grok headless usage: %w", collectErr),
+			)
+		} else {
+			_, captureErr := c.grokUsage.CaptureHeadless(finalizeCtx, usecase.GrokUsageCaptureInput{
+				SessionID: startEvent.SessionID(), DeliveryID: "session_run",
+				FallbackTerminal: usageTerminalFromReason(reason),
+			}, loaded)
+			if captureErr != nil {
+				usageErr = errors.Join(
+					usageErr,
+					xerrors.Errorf("failed to record Grok headless usage: %w", captureErr),
+				)
+			}
+		}
+	}
 	if _, _, finalizeErr := c.session.FinalizeOneShot(finalizeCtx, client, agent, startEvent.SessionID(), workspace, reason, summary); finalizeErr != nil {
 		if exitCode == 0 {
 			exitCode = 1
@@ -242,7 +268,7 @@ func runOneShotProcess(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 func oneShotProcessEnvironment(
 	dbPath string,
 	sessionID, parentSessionID types.SessionID,
-	codexUsageMode, claudeUsageMode, geminiUsageMode string,
+	codexUsageMode, claudeUsageMode, geminiUsageMode, grokUsageMode string,
 ) []string {
 	overrides := map[string]string{
 		"TRACEARY_DB_PATH":           dbPath,
@@ -252,6 +278,7 @@ func oneShotProcessEnvironment(
 		codexUsageModeEnvKey:         codexUsageMode,
 		claudeUsageModeEnvKey:        claudeUsageMode,
 		geminiUsageModeEnvKey:        geminiUsageMode,
+		grokUsageModeEnvKey:          grokUsageMode,
 	}
 	env := make([]string, 0, len(os.Environ())+len(overrides))
 	for _, entry := range os.Environ() {
@@ -331,6 +358,46 @@ optionLoop:
 		default:
 			if value, found := strings.CutPrefix(command[index], "--prompt="); found && value != "" {
 				promptMode = true
+			}
+		}
+	}
+	return promptMode && streamMode
+}
+
+func isGrokHeadlessUsageCommand(command []string) bool {
+	if len(command) < 2 || filepath.Base(strings.TrimSpace(command[0])) != "grok" {
+		return false
+	}
+	promptMode := false
+	streamMode := false
+optionLoop:
+	for index := 1; index < len(command); index++ {
+		switch command[index] {
+		case "--":
+			break optionLoop
+		case "-p", "--single", "--prompt-file", "--prompt-json":
+			promptMode = true
+			if index+1 < len(command) {
+				index++
+			}
+		case "--output-format":
+			if index+1 < len(command) && command[index+1] == "streaming-json" {
+				streamMode = true
+			}
+			index++
+		case "--output-format=streaming-json":
+			streamMode = true
+		default:
+			if strings.HasPrefix(command[index], "-p") &&
+				!strings.HasPrefix(command[index], "--") &&
+				len(command[index]) > len("-p") {
+				promptMode = true
+			}
+			for _, prefix := range []string{"--single=", "--prompt-file=", "--prompt-json="} {
+				if value, found := strings.CutPrefix(command[index], prefix); found && value != "" {
+					promptMode = true
+					break
+				}
 			}
 		}
 	}

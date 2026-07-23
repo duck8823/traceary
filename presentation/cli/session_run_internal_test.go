@@ -21,7 +21,7 @@ func TestRunOneShotProcess_TimeoutKillsProcessGroupPromptly(t *testing.T) {
 	reason, exitCode, err := runOneShotProcess(
 		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
 		[]string{"sh", "-c", "(sleep 10) & wait"}, 20*time.Millisecond,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", "", ""),
 	)
 	if err == nil || reason != types.TerminalReasonTimeout || exitCode != oneShotTimeoutExitCode {
 		t.Fatalf("runOneShotProcess() = (%q, %d, %v), want timeout/%d/error", reason, exitCode, err, oneShotTimeoutExitCode)
@@ -39,7 +39,7 @@ func TestRunOneShotProcess_ClassifiesAbortedStream(t *testing.T) {
 		&bytes.Buffer{},
 		[]string{"sh", "-c", "printf output"},
 		0,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", "", ""),
 	)
 	if err == nil {
 		t.Fatal("runOneShotProcess() error = nil, want stream error")
@@ -53,7 +53,7 @@ func TestRunOneShotProcess_ClassifiesStartFailure(t *testing.T) {
 	reason, exitCode, err := runOneShotProcess(
 		context.Background(), bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{},
 		[]string{"/path/that/does/not/exist"}, 0,
-		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", ""),
+		oneShotProcessEnvironment("/tmp/test.db", "session", "", "", "", "", ""),
 	)
 	if err == nil {
 		t.Fatal("runOneShotProcess() error = nil, want start error")
@@ -83,6 +83,35 @@ func TestIsClaudeHeadlessUsageCommand_RequiresPrintAndJSONOutput(t *testing.T) {
 			t.Parallel()
 			if got := isClaudeHeadlessUsageCommand(test.command); got != test.want {
 				t.Fatalf("isClaudeHeadlessUsageCommand(%q) = %t, want %t", test.command, got, test.want)
+			}
+		})
+	}
+}
+
+func TestIsGrokHeadlessUsageCommand_RequiresSingleAndStreamingJSON(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		command []string
+		want    bool
+	}{
+		{name: "short single", command: []string{"grok", "-p", "prompt", "--output-format", "streaming-json"}, want: true},
+		{name: "attached short single", command: []string{"grok", "-pprompt", "--output-format", "streaming-json"}, want: true},
+		{name: "long single", command: []string{"/usr/local/bin/grok", "--single=prompt", "--output-format=streaming-json"}, want: true},
+		{name: "prompt file", command: []string{"grok", "--prompt-file", "prompt.md", "--output-format=streaming-json"}, want: true},
+		{name: "prompt JSON", command: []string{"grok", "--prompt-json={\"type\":\"text\",\"text\":\"prompt\"}", "--output-format=streaming-json"}, want: true},
+		{name: "plain single", command: []string{"grok", "-p", "prompt"}, want: false},
+		{name: "interactive stream", command: []string{"grok", "--output-format", "streaming-json"}, want: false},
+		{name: "unrelated attached short option", command: []string{"grok", "-xprompt", "--output-format", "streaming-json"}, want: false},
+		{name: "option after separator", command: []string{"grok", "-p", "prompt", "--", "--output-format=streaming-json"}, want: false},
+		{name: "attached prompt after separator", command: []string{"grok", "--output-format=streaming-json", "--", "-pprompt"}, want: false},
+		{name: "other host", command: []string{"gemini", "-p", "prompt", "--output-format", "streaming-json"}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isGrokHeadlessUsageCommand(test.command); got != test.want {
+				t.Fatalf("isGrokHeadlessUsageCommand(%q) = %t, want %t", test.command, got, test.want)
 			}
 		})
 	}

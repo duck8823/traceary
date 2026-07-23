@@ -10,7 +10,8 @@ Traceary v0.23.0 は Grok Build をネイティブにサポートします。
 
 ## 対応範囲
 
-このパッケージは、Grok Build 0.2.99 で実際に確認した契約を対象にします。
+ライフサイクル用パッケージは、Grok Build 0.2.99 で実際に確認した hook 契約を
+対象にします。usage 取得は、Grok Build 0.2.106 の headless 終端契約にも固定します。
 
 | Grok event | Traceary の処理 |
 | --- | --- |
@@ -20,6 +21,40 @@ Traceary v0.23.0 は Grok Build をネイティブにサポートします。
 | `PostToolUse` | 完了したコマンド監査を1件記録する。確認済みのファイル不在・拒否結果も失敗として扱う |
 | `Stop` | `updates.jsonl` から可能な範囲で transcript を記録し、turn 境界を作る。セッションは終了しない |
 | `PreCompact` / `PostCompact` | compact 前後の marker を別々に記録する。Grok は summary 本文を公開しない |
+
+## usage の利用可否
+
+Grok の native hook は provider usage を公開しません。そのため Traceary は、
+検証済みの `promptId` で安定した境界を識別できる `Stop` に限り、集計対象外の
+`unavailable` call observation を記録します。transcript、compact marker、retry、
+subagent、response 本文から token 数を推定しません。安定した識別子がない Stop では、
+usage 行を合成しません。
+
+終了範囲が明確な headless 実行では、Grok の検証済み終端 stream を Traceary 管理の
+完結型ライフサイクルから利用します。
+
+```sh
+traceary session run -- \
+  grok --no-auto-update -p "your prompt" --output-format streaming-json
+```
+
+Traceary は stdout を変更せず転送し、終端 `end` の metadata だけを読み取ります。
+`requestId`/`sessionId` ごとに `end.usage` を1件保存し、input、cache-read input、
+output、reasoning、total token を記録します。途中の thought/text event、cost field、
+error 本文、transcript 本文は破棄します。終端 usage object がない場合はゼロではなく、
+同じ portable provider identity を維持したまま、集計対象外の `unavailable` run
+observation を1件記録します。不正・競合・上限超過の終端 metadata は fail closed し、
+代替 observation を生成しません。`modelUsage` がモデルを1件だけ示す場合はそのモデル名を
+残します。複数モデルにまたがる合計はモデル未特定の
+まま保存し、分割や二重集計をしません。
+provider の `requestId` / `sessionId` の組は、長さ固定の portable identity に正規化します。
+そのため、同じ終端結果が別の Traceary wrapper session から再送されても冪等です。
+同じ identity で counter が変化した場合は、安全側に倒して競合として拒否します。
+
+retry と subagent の利用量は、Grok の終端合計に含まれる範囲だけを採用します。
+Traceary は途中 event を加算せず、回数も推定しません。compact hook の count は
+provider usage ではなく context 圧縮の測定値なので、ライフサイクル記録だけに使います。
+TUI の usage 経路は対応済みと表明しません。
 
 `SessionEnd`、独立した失敗 hook、subagent の親子関係は payload を実環境で
 確認できていないため、v0.23.0 の対応対象に含めません。Traceary は利用できない

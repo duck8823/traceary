@@ -27,6 +27,8 @@ const (
 	claudeUsageModeOneShot     = "one_shot_stream"
 	geminiUsageModeEnvKey      = "TRACEARY_GEMINI_USAGE_MODE"
 	geminiUsageModeOneShot     = "one_shot_stream"
+	grokUsageModeEnvKey        = "TRACEARY_GROK_USAGE_MODE"
+	grokUsageModeOneShot       = "one_shot_stream"
 )
 
 const hookActiveSubagentStateTTL = 24 * time.Hour

@@ -57,6 +57,31 @@ type geminiUsageCaptureStub struct {
 	err         error
 }
 
+type grokUsageCaptureStub struct {
+	inputs   []usecase.GrokUsageCaptureInput
+	headless []application.GrokUsageLoadResult
+	hooks    []usecase.GrokUsageCaptureInput
+	err      error
+}
+
+func (s *grokUsageCaptureStub) CaptureHeadless(
+	_ context.Context,
+	input usecase.GrokUsageCaptureInput,
+	loaded application.GrokUsageLoadResult,
+) (usecase.GrokUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	s.headless = append(s.headless, loaded)
+	return usecase.GrokUsageCaptureResult{Applied: len(loaded.Samples)}, s.err
+}
+
+func (s *grokUsageCaptureStub) CaptureHookUnavailable(
+	_ context.Context,
+	input usecase.GrokUsageCaptureInput,
+) (usecase.GrokUsageCaptureResult, error) {
+	s.hooks = append(s.hooks, input)
+	return usecase.GrokUsageCaptureResult{Applied: 1, Unavailable: 1}, s.err
+}
+
 func (s *geminiUsageCaptureStub) CaptureHeadless(
 	_ context.Context,
 	input usecase.GeminiUsageCaptureInput,
@@ -300,6 +325,84 @@ func TestRootCLI_HookUsageCommand_PersistsVerifiedCodexUsageIdempotently(t *test
 	}
 	if count != 1 || input != 100 || cached != 80 || cacheWrite != 0 || output != 6 || reasoning != 2 || total != 106 || modelName != "gpt-5.6-sol" || costState != "unavailable" {
 		t.Fatalf("stored usage = count=%d input=%d cached=%d cache_write=%d output=%d reasoning=%d total=%d model=%q cost=%q", count, input, cached, cacheWrite, output, reasoning, total, modelName, costState)
+	}
+}
+
+func TestRootCLI_HookGrokStopRoutesUsageToExplicitDatabaseIdempotently(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-usage-db-routing")
+	t.Setenv("TRACEARY_WORKSPACE", "duck8823/traceary")
+	dir := t.TempDir()
+	defaultDBPath := filepath.Join(dir, "default.db")
+	targetDBPath := filepath.Join(dir, "target.db")
+	t.Setenv("TRACEARY_DB_PATH", defaultDBPath)
+
+	db := sqliteinfra.NewDatabase(
+		defaultDBPath,
+		os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")),
+	)
+	store := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	usage := usecase.NewGrokUsageCaptureUsecase(sqliteinfra.NewUsageObservationDatasource(db))
+	payload := `{
+		"hookEventName":"stop",
+		"sessionId":"019f0000-0000-7000-8000-000000000088",
+		"cwd":"/workspace/traceary",
+		"promptId":"prompt-db-route-1",
+		"reason":"end_turn"
+	}`
+
+	// The first attempt fails after durable spooling. The next invocation must
+	// replay that record to the original explicit DB and then treat its own
+	// identical delivery as an idempotent no-op.
+	failedRoot := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{initErr: errors.New("simulated initialization failure")}),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithGrokUsage(&grokUsageCaptureStub{}),
+	).Command()
+	failedRoot.SetOut(&bytes.Buffer{})
+	failedRoot.SetErr(&bytes.Buffer{})
+	failedRoot.SetIn(strings.NewReader(payload))
+	failedRoot.SetArgs([]string{"hook", "grok", "stop", "--db-path", targetDBPath})
+	if err := failedRoot.Execute(); err != nil {
+		t.Fatalf("fail-open first Execute() error = %v", err)
+	}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(store),
+		cli.WithSession(&sessionUsecaseStub{}),
+		cli.WithGrokUsage(usage),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "grok", "stop", "--db-path", targetDBPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("replay Execute() error = %v", err)
+	}
+
+	sqlDB, err := sql.Open("sqlite", targetDBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	var count int
+	var sourceName, scope, accounting, sessionID string
+	if err := sqlDB.QueryRow(`
+		SELECT COUNT(*), source_name, scope, accounting, session_id
+		  FROM usage_observations
+	`).Scan(&count, &sourceName, &scope, &accounting, &sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || sourceName != "stop_hook" || scope != "call" ||
+		accounting != "excluded" || sessionID != "019f0000-0000-7000-8000-000000000088" {
+		t.Fatalf(
+			"stored usage = count=%d source=%q scope=%q accounting=%q session=%q",
+			count, sourceName, scope, accounting, sessionID,
+		)
+	}
+	if _, err := os.Stat(defaultDBPath); !os.IsNotExist(err) {
+		t.Fatalf("default DB must remain untouched, Stat() error = %v", err)
 	}
 }
 

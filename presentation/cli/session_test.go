@@ -143,6 +143,105 @@ func TestRootCLI_SessionRunCommand_CapturesBodyFreeCodexHeadlessUsage(t *testing
 	}
 }
 
+func TestRootCLI_SessionRunCommand_CapturesBodyFreeGrokHeadlessUsage(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	grok := filepath.Join(dir, "grok")
+	modeFile := filepath.Join(dir, "usage-mode")
+	fixturePath, err := filepath.Abs("testdata/grok_usage/v0.2.106/headless_stream.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nprintf '%s' \"$TRACEARY_GROK_USAGE_MODE\" > " + modeFile + "\ncat " + fixturePath + "\n"
+	if err := os.WriteFile(grok, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := types.SessionID("one-shot-grok-headless")
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-grok-headless", types.EventKindSessionStarted, "cli", "grok", sessionID,
+		"duck8823/traceary", "session started", time.Now(),
+	)}
+	usage := &grokUsageCaptureStub{}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithGrokUsage(usage),
+		cli.WithGrokHeadlessUsage(filesystem.NewGrokHeadlessUsageStreamFactory()),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session", "run", "--db-path", filepath.Join(dir, "traceary.db"), "--agent", "grok", "--",
+		grok, "--no-auto-update", "-p", "prompt", "--output-format", "streaming-json",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	fixture, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stdout.Bytes(), fixture) {
+		t.Fatal("stdout changed")
+	}
+	if len(usage.headless) != 1 || len(usage.headless[0].Samples) != 1 {
+		t.Fatalf("headless capture = %+v", usage.headless)
+	}
+	mode, err := os.ReadFile(modeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(mode) != "one_shot_stream" {
+		t.Fatalf("TRACEARY_GROK_USAGE_MODE = %q", mode)
+	}
+}
+
+func TestRootCLI_SessionRunCommand_DoesNotPersistGrokUsageAfterParseFailure(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	grok := filepath.Join(dir, "grok")
+	streamPath := filepath.Join(dir, "conflicting.jsonl")
+	first := `{"type":"end","requestId":"request-1","sessionId":"session-1","stopReason":"EndTurn","num_turns":1,"usage":{"input_tokens":2,"cache_read_input_tokens":0,"output_tokens":1,"reasoning_tokens":0,"total_tokens":3}}`
+	conflict := `{"type":"end","requestId":"request-1","sessionId":"session-1","stopReason":"EndTurn","num_turns":1,"usage":{"input_tokens":2,"cache_read_input_tokens":0,"output_tokens":1,"reasoning_tokens":0,"total_tokens":4}}`
+	if err := os.WriteFile(streamPath, []byte(first+"\n"+conflict+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncat " + shellQuoteForTest(streamPath) + "\n"
+	if err := os.WriteFile(grok, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := types.SessionID("one-shot-grok-invalid")
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-grok-invalid", types.EventKindSessionStarted, "cli", "grok", sessionID,
+		"duck8823/traceary", "session started", time.Now(),
+	)}
+	usage := &grokUsageCaptureStub{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+		cli.WithGrokUsage(usage),
+		cli.WithGrokHeadlessUsage(filesystem.NewGrokHeadlessUsageStreamFactory()),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{
+		"session", "run", "--db-path", filepath.Join(dir, "traceary.db"),
+		"--session-id", sessionID.String(), "--agent", "grok", "--",
+		grok, "-p", "prompt", "--output-format", "streaming-json",
+	})
+	err := rootCmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "failed to decode body-free Grok headless usage") {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(usage.headless) != 0 {
+		t.Fatalf("parse failure reached persistence: %+v", usage.headless)
+	}
+	if sessionStub.finalizeReason != types.TerminalReasonSuccess {
+		t.Fatalf("finalize reason = %q", sessionStub.finalizeReason)
+	}
+}
+
 func TestRootCLI_SessionRunCommand_CapturesBodyFreeClaudeHeadlessUsage(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

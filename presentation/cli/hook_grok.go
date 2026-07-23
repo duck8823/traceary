@@ -15,6 +15,7 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 )
 
 const grokHookClient = "grok"
@@ -154,7 +155,43 @@ func (c *RootCLI) runHookGrokStop(ctx context.Context, input io.Reader, dbPath s
 		}
 	}
 	boundaryErr := c.runHookSession(ctx, nil, bytes.NewReader(normalized), grokHookClient, "stop", dbPath)
-	return errors.Join(transcriptErr, boundaryErr)
+	var usageErr error
+	if !isTracearyOwnedGrokOneShot() && c.grokUsage != nil {
+		sessionID, resolveErr := resolveHookSessionID(normalized, grokHookClient)
+		if resolveErr != nil {
+			usageErr = resolveErr
+		} else if sessionID != "" {
+			promptID := strings.TrimSpace(hookPayloadString(normalized, "prompt_id", ""))
+			deliveryID := ""
+			if promptID != "" {
+				deliveryID = "prompt_id:" + promptID
+			}
+			if deliveryID != "" {
+				resolvedDBPath, pathErr := resolveDBPath(dbPath)
+				if pathErr != nil {
+					usageErr = pathErr
+				} else if c.storeManagement == nil {
+					usageErr = xerrors.Errorf("usage capture store dependency is not configured")
+				} else {
+					c.applyDatabasePath(resolvedDBPath)
+					if initializeErr := c.storeManagement.Initialize(ctx); initializeErr != nil {
+						usageErr = xerrors.Errorf("failed to initialize store: %w", initializeErr)
+					} else {
+						_, usageErr = c.grokUsage.CaptureHookUnavailable(ctx, usecase.GrokUsageCaptureInput{
+							SessionID:  sessionID,
+							DeliveryID: deliveryID,
+						})
+					}
+				}
+			}
+		}
+	}
+	return errors.Join(transcriptErr, boundaryErr, usageErr)
+}
+
+func isTracearyOwnedGrokOneShot() bool {
+	return strings.TrimSpace(os.Getenv(grokUsageModeEnvKey)) == grokUsageModeOneShot &&
+		explicitOneShotRuntimeSessionID() != ""
 }
 
 // normalizeGrokHookPayload maps only fields proven by the versioned live

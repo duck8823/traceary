@@ -1,0 +1,3 @@
+{"type":"thought","data":"synthetic body ignored by usage adapter"}
+{"type":"text","data":"OK"}
+{"type":"end","requestId":"request-synthetic-1","sessionId":"session-synthetic-1","stopReason":"EndTurn","num_turns":1,"usage":{"input_tokens":21440,"cache_read_input_tokens":0,"output_tokens":25,"reasoning_tokens":20,"total_tokens":21465},"modelUsage":{"grok-4.5-build":{"inputTokens":21440,"cacheReadInputTokens":0,"outputTokens":25,"modelCalls":1,"costUSD":0.01}},"total_cost_usd":0.01,"total_cost_usd_ticks":10000}
