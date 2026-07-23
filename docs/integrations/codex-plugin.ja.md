@@ -87,6 +87,7 @@ canonical workspace も記録されます。reason は次の固定値です。
 | `capture_observed` | recent な commit 済み証跡があり、対応必須の gap は見つからない |
 | `hook_spool_backlog` | Codex から Traceary には到達したが、delivery が durable spool に残り未commit |
 | `usage_missing_after_stop` | Stop は commit 済みだが finalized usage も pending usage delivery もない |
+| `usage_scan_partial` | capped report prefix に Codex usage がなく、result cap なしまたは短い interval の report を確認するまで欠落とは断定できない |
 | `no_recent_capture_evidence` | commit 済み証跡も pending 証跡もない。capture 成功とはせず warning |
 
 active session ですべての hook が発火済みである必要はありません。たとえば

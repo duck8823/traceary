@@ -55,6 +55,18 @@ func TestClassifyCodexCapture(t *testing.T) {
 			wantUsage:  codexBoundaryNotObserved,
 		},
 		{
+			name: "partial usage scan does not claim usage is missing",
+			evidence: codexCaptureEvidence{
+				StoredEvents:      500,
+				UsageScanPartial:  true,
+				StoredBoundaries:  map[string]bool{codexBoundaryStop: true},
+				PendingBoundaries: map[string]bool{},
+			},
+			wantStatus: doctorStatusWarn,
+			wantReason: codexCaptureReasonPartial,
+			wantUsage:  "partial_scan_no_codex_observation",
+		},
+		{
 			name: "no evidence never passes",
 			evidence: codexCaptureEvidence{
 				StoredBoundaries:  map[string]bool{},

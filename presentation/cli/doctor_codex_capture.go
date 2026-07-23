@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	codexCaptureCheckName   = "codex-capture"
-	codexCaptureWindow      = 7 * 24 * time.Hour
-	codexCaptureResultCap   = 500
-	codexCaptureReasonOK    = "capture_observed"
-	codexCaptureReasonEmpty = "no_recent_capture_evidence"
-	codexCaptureReasonSpool = "hook_spool_backlog"
-	codexCaptureReasonUsage = "usage_missing_after_stop"
+	codexCaptureCheckName     = "codex-capture"
+	codexCaptureWindow        = 7 * 24 * time.Hour
+	codexCaptureResultCap     = 500
+	codexCaptureReasonOK      = "capture_observed"
+	codexCaptureReasonEmpty   = "no_recent_capture_evidence"
+	codexCaptureReasonSpool   = "hook_spool_backlog"
+	codexCaptureReasonUsage   = "usage_missing_after_stop"
+	codexCaptureReasonPartial = "usage_scan_partial"
 
 	codexBoundarySessionStart = "session_start"
 	codexBoundaryPrompt       = "prompt"
@@ -48,6 +49,7 @@ type codexCaptureEvidence struct {
 	UsageObservations  int
 	UsageKnown         int
 	UsageUnavailable   int
+	UsageScanPartial   bool
 	PendingDeliveries  int
 	UnscopedDeliveries int
 	StoredBoundaries   map[string]bool
@@ -162,6 +164,8 @@ func (c *RootCLI) inspectCodexCapture(
 		evidence.UsageKnown += aggregate.TotalTokens.KnownObservations
 		evidence.UsageUnavailable += aggregate.TotalTokens.UnavailableObservations
 	}
+	evidence.UsageScanPartial =
+		report.Aggregation.Sources.Usage.Coverage == apptypes.ReportCoveragePartial
 	if evidence.UsageObservations > 0 {
 		evidence.StoredBoundaries[codexBoundaryUsage] = true
 		evidence.StoredBoundaries[codexBoundaryStop] = true
@@ -203,6 +207,11 @@ func (c *RootCLI) inspectCodexCapture(
 		check.Hint = Localize(
 			"a Codex Stop was committed without a finalized usage observation or pending usage delivery; inspect the installed plugin version and local rollout availability",
 			"Codex Stop は commit 済みですが finalized usage observation も pending usage delivery もありません。installed plugin version と local rollout availability を確認してください",
+		)
+	case codexCaptureReasonPartial:
+		check.Hint = Localize(
+			"the capped report snapshot did not contain a Codex usage observation, but its usage source was partial; rerun `traceary report` with an uncapped or narrower interval before concluding that usage is missing",
+			"capped report snapshot に Codex usage observation がありませんが、usage source は partial でした。usage 欠落と判断する前に、`traceary report` を result cap なし、または短い interval で再実行してください",
 		)
 	case codexCaptureReasonEmpty:
 		check.Hint = Localize(
@@ -273,6 +282,12 @@ func classifyCodexCapture(evidence codexCaptureEvidence) codexCaptureClassificat
 	if evidence.PendingDeliveries > 0 {
 		classification.Status = doctorStatusWarn
 		classification.Reason = codexCaptureReasonSpool
+		return classification
+	}
+	if evidence.UsageScanPartial && evidence.UsageObservations == 0 {
+		classification.Status = doctorStatusWarn
+		classification.Reason = codexCaptureReasonPartial
+		classification.UsageState = "partial_scan_no_codex_observation"
 		return classification
 	}
 	if evidence.StoredBoundaries[codexBoundaryStop] && evidence.UsageObservations == 0 {

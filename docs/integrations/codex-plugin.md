@@ -87,6 +87,7 @@ trust, and canonical workspace. Its stable reasons are:
 | `capture_observed` | recent committed evidence exists and no actionable gap was found |
 | `hook_spool_backlog` | Codex reached Traceary, but one or more deliveries remain durable and uncommitted |
 | `usage_missing_after_stop` | a Stop was committed without finalized usage and without a pending usage delivery |
+| `usage_scan_partial` | the capped report prefix contains no Codex usage, so absence cannot be concluded until an uncapped or narrower report is inspected |
 | `no_recent_capture_evidence` | neither committed nor pending evidence exists; this is a warning, not a successful capture claim |
 
 An active session does not need to have exercised every hook. For example,
