@@ -31,6 +31,8 @@ type RootCLI struct {
 	geminiUsage                usecase.GeminiUsageCaptureUsecase
 	geminiHeadlessUsage        application.GeminiHeadlessUsageStreamFactory
 	antigravityUsage           usecase.AntigravityUsageCaptureUsecase
+	grokUsage                  usecase.GrokUsageCaptureUsecase
+	grokHeadlessUsage          application.GrokHeadlessUsageStreamFactory
 	context                    usecase.ContextUsecase
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
@@ -142,6 +144,16 @@ func WithGeminiHeadlessUsage(factory application.GeminiHeadlessUsageStreamFactor
 // WithAntigravityUsage injects cumulative status and unavailable Stop capture.
 func WithAntigravityUsage(usage usecase.AntigravityUsageCaptureUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.antigravityUsage = usage }
+}
+
+// WithGrokUsage injects headless usage and unavailable Stop capture.
+func WithGrokUsage(usage usecase.GrokUsageCaptureUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.grokUsage = usage }
+}
+
+// WithGrokHeadlessUsage injects the body-free Grok streaming-json adapter.
+func WithGrokHeadlessUsage(factory application.GrokHeadlessUsageStreamFactory) RootCLIOption {
+	return func(c *RootCLI) { c.grokHeadlessUsage = factory }
 }
 
 // WithMemoryEdge injects the MemoryEdgeUsecase used by

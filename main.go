@@ -184,6 +184,7 @@ func run() error {
 		filesystem.NewClaudeUsageSource(), usageObservationDatasource,
 	)
 	geminiUsageUsecase := usecase.NewGeminiUsageCaptureUsecase(usageObservationDatasource)
+	grokUsageUsecase := usecase.NewGrokUsageCaptureUsecase(usageObservationDatasource)
 	antigravityUsageUsecase := usecase.NewAntigravityUsageCaptureUsecase(
 		filesystem.NewAntigravityUsageSource(), usageObservationDatasource,
 	)
@@ -241,6 +242,8 @@ func run() error {
 		cli.WithGeminiUsage(geminiUsageUsecase),
 		cli.WithGeminiHeadlessUsage(filesystem.NewGeminiHeadlessUsageStreamFactory()),
 		cli.WithAntigravityUsage(antigravityUsageUsecase),
+		cli.WithGrokUsage(grokUsageUsecase),
+		cli.WithGrokHeadlessUsage(filesystem.NewGrokHeadlessUsageStreamFactory()),
 		cli.WithContext(contextUsecase),
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),

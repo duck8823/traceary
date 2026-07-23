@@ -9,7 +9,9 @@ memory/session skills. Recorded hook events use `client=hook` and `agent=grok`.
 
 ## Supported coverage
 
-The package targets the live-verified Grok Build 0.2.99 contract.
+The lifecycle package targets the live-verified Grok Build 0.2.99 hook
+contract. Usage capture additionally pins the Grok Build 0.2.106 headless
+terminal contract.
 
 | Grok event | Traceary behavior |
 | --- | --- |
@@ -19,6 +21,42 @@ The package targets the live-verified Grok Build 0.2.99 contract.
 | `PostToolUse` | Records one completed command audit, including observed missing-file and denial result variants |
 | `Stop` | Records a best-effort transcript from `updates.jsonl` and a turn boundary; it does not end the session |
 | `PreCompact` / `PostCompact` | Records phase-specific compact markers; Grok exposes no summary body |
+
+## Usage availability
+
+Grok's native hooks do not expose provider usage. Traceary therefore records
+an excluded `unavailable` call observation at a `Stop` boundary only when the
+verified `promptId` supplies a stable identity. It does not estimate tokens
+from the transcript, compact markers, retries, subagents, or response text.
+A Stop without a stable identity creates no synthetic usage row.
+
+For a bounded headless run, use Grok's verified terminal stream through the
+Traceary-owned one-shot lifecycle:
+
+```sh
+traceary session run -- \
+  grok --no-auto-update -p "your prompt" --output-format streaming-json
+```
+
+Traceary forwards stdout byte-for-byte and reads only the terminal `end`
+metadata. One `end.usage` is stored per `requestId`/`sessionId`, including
+input, cache-read input, output, reasoning, and total tokens. Incremental
+thought/text events, cost fields, error bodies, and transcript content are
+discarded. A missing terminal usage object becomes one excluded
+`unavailable` run observation rather than zero while retaining the same
+portable provider identity. Malformed, conflicting, or oversized terminal
+metadata fails closed and creates no substitute observation. If `modelUsage`
+names exactly one model, that model is retained; multi-model aggregate usage remains
+model-unattributed and is never split or counted twice.
+The provider `requestId`/`sessionId` pair is normalized to a bounded portable
+identity, so replaying the same terminal result under another Traceary wrapper
+session remains idempotent; changed counters for that identity fail closed.
+
+Retry and subagent activity is included only to the extent that Grok's
+terminal aggregate includes it. Traceary does not add incremental events or
+infer cardinality. Compact hooks remain lifecycle-only because their counts,
+when present, are context-compression measurements rather than provider usage.
+No TUI usage path is claimed.
 
 `SessionEnd`, standalone failure hooks, and subagent parent/child correlation
 are not claimed in v0.23.0 because their payloads were not live-verified.

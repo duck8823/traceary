@@ -169,6 +169,101 @@ func TestRootCLI_HookGrokStopRecordsBestEffortTranscript(t *testing.T) {
 	}
 }
 
+func TestRootCLI_HookGrokStopRecordsStableUsageUnavailability(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-stop-usage")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	usage := &grokUsageCaptureStub{}
+
+	runGrokHook(
+		t, "stop", grokFixtureWithoutField(t, "stop.json", "transcriptPath"),
+		nil, nil, cli.WithGrokUsage(usage),
+	)
+
+	if len(usage.hooks) != 1 ||
+		usage.hooks[0].SessionID != "019f0000-0000-7000-8000-000000000001" ||
+		usage.hooks[0].DeliveryID != "prompt_id:prompt-contract-probe-1" {
+		t.Fatalf("usage hooks = %+v", usage.hooks)
+	}
+}
+
+func TestRootCLI_HookGrokStopUsesOnlyVerifiedPromptIdentityForUsage(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-stop-usage-identity")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	for _, test := range []struct {
+		name         string
+		promptID     any
+		toolUseID    any
+		wantDelivery string
+	}{
+		{name: "tool identity alone is unverified", promptID: nil, toolUseID: "tool-stop-1"},
+		{name: "prompt wins when both are present", promptID: "prompt-stop-1", toolUseID: "tool-stop-1", wantDelivery: "prompt_id:prompt-stop-1"},
+		{name: "blank prompt does not fall back to tool", promptID: "   ", toolUseID: "tool-stop-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload := grokFixtureWithoutField(t, "stop.json", "transcriptPath")
+			if test.promptID == nil {
+				payload = grokJSONWithoutField(t, payload, "promptId")
+			} else {
+				payload = grokJSONWithField(t, payload, "promptId", test.promptID)
+			}
+			payload = grokJSONWithField(t, payload, "toolUseId", test.toolUseID)
+			usage := &grokUsageCaptureStub{}
+			runGrokHook(t, "stop", payload, nil, nil, cli.WithGrokUsage(usage))
+			if test.wantDelivery == "" {
+				if len(usage.hooks) != 0 {
+					t.Fatalf("usage hooks = %+v, want none", usage.hooks)
+				}
+				return
+			}
+			if len(usage.hooks) != 1 || usage.hooks[0].DeliveryID != test.wantDelivery {
+				t.Fatalf("usage hooks = %+v, want delivery %q", usage.hooks, test.wantDelivery)
+			}
+		})
+	}
+}
+
+func TestRootCLI_HookGrokStopSuppressesUnavailableDuringOwnedHeadlessRun(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-stop-owned")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	t.Setenv("TRACEARY_GROK_USAGE_MODE", "one_shot_stream")
+	t.Setenv("TRACEARY_RUNTIME_MODE", "one_shot")
+	t.Setenv("TRACEARY_RUNTIME_SESSION_ID", "one-shot-grok-owned")
+	usage := &grokUsageCaptureStub{}
+
+	runGrokHook(
+		t, "stop", grokFixtureWithoutField(t, "stop.json", "transcriptPath"),
+		nil, nil, cli.WithGrokUsage(usage),
+	)
+
+	if len(usage.hooks) != 0 {
+		t.Fatalf("usage hooks = %+v, want suppressed", usage.hooks)
+	}
+}
+
+func TestRootCLI_HookGrokStopDoesNotTrustUsageModeAlone(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-stop-mode-only")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	t.Setenv("TRACEARY_GROK_USAGE_MODE", "one_shot_stream")
+	usage := &grokUsageCaptureStub{}
+	payload := grokJSONWithField(
+		t,
+		grokFixtureWithoutField(t, "stop.json", "transcriptPath"),
+		"promptId",
+		"prompt-mode-only",
+	)
+
+	runGrokHook(t, "stop", payload, nil, nil, cli.WithGrokUsage(usage))
+
+	if len(usage.hooks) != 1 || usage.hooks[0].DeliveryID != "prompt_id:prompt-mode-only" {
+		t.Fatalf("usage hooks = %+v, want native availability capture", usage.hooks)
+	}
+}
+
 func TestRootCLI_HookGrokCompactRecordsObservedMarkers(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-compact")
@@ -443,14 +538,19 @@ func grokJSONWithField(t *testing.T, input, field string, value any) string {
 
 func grokFixtureWithoutField(t *testing.T, name, field string) string {
 	t.Helper()
+	return grokJSONWithoutField(t, readGrokFixture(t, name), field)
+}
+
+func grokJSONWithoutField(t *testing.T, input, field string) string {
+	t.Helper()
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(readGrokFixture(t, name)), &payload); err != nil {
-		t.Fatalf("decode Grok fixture %s: %v", name, err)
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		t.Fatalf("decode Grok JSON: %v", err)
 	}
 	delete(payload, field)
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		t.Fatalf("encode Grok fixture %s without %s: %v", name, field, err)
+		t.Fatalf("encode Grok JSON without %s: %v", field, err)
 	}
 	return string(encoded)
 }
