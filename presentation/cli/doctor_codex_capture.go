@@ -13,14 +13,14 @@ import (
 )
 
 const (
-	codexCaptureCheckName     = "codex-capture"
-	codexCaptureWindow        = 7 * 24 * time.Hour
-	codexCaptureResultCap     = 500
-	codexCaptureReasonOK      = "capture_observed"
-	codexCaptureReasonEmpty   = "no_recent_capture_evidence"
-	codexCaptureReasonSpool   = "hook_spool_backlog"
-	codexCaptureReasonUsage   = "usage_missing_after_stop"
-	codexCaptureReasonPartial = "usage_scan_partial"
+	codexCaptureCheckName          = "codex-capture"
+	codexCaptureWindow             = 7 * 24 * time.Hour
+	codexCaptureReasonOK           = "capture_observed"
+	codexCaptureReasonEmpty        = "no_recent_capture_evidence"
+	codexCaptureReasonSpool        = "hook_spool_backlog"
+	codexCaptureReasonSpoolPartial = "spool_projection_partial"
+	codexCaptureReasonUsage        = "usage_missing_after_stop"
+	codexCaptureCWDLimit           = 64
 
 	codexBoundarySessionStart = "session_start"
 	codexBoundaryPrompt       = "prompt"
@@ -49,9 +49,11 @@ type codexCaptureEvidence struct {
 	UsageObservations  int
 	UsageKnown         int
 	UsageUnavailable   int
-	UsageScanPartial   bool
+	StopSessions       int
+	StopsWithUsage     int
 	PendingDeliveries  int
 	UnscopedDeliveries int
+	SpoolPartial       bool
 	StoredBoundaries   map[string]bool
 	PendingBoundaries  map[string]bool
 }
@@ -95,84 +97,51 @@ func (c *RootCLI) inspectCodexCapture(
 	if spoolErr != nil {
 		return codexCaptureFailure(identity, fmt.Sprintf("failed to inspect hook spool metadata: %v", spoolErr))
 	}
-	if c.eventMetadata == nil || c.report == nil {
+	if c.codexCaptureDiagnostic == nil {
 		return doctorCheck{
 			Name:   codexCaptureCheckName,
-			Status: doctorStatusSkip,
+			Status: doctorStatusWarn,
 			Message: formatCodexCaptureIdentity(identity) +
 				" reason=diagnostic_dependencies_unavailable",
 		}
 	}
 
 	now := time.Now().UTC()
-	events, err := c.eventMetadata.List(
-		ctx,
-		apptypes.NewEventListCriteriaBuilder(codexCaptureResultCap).
-			Agent(types.Agent("codex")).
-			Workspace(workspace).
-			From(now.Add(-codexCaptureWindow)).
-			To(now).
-			Build(),
-	)
-	if err != nil {
-		return codexCaptureFailure(identity, fmt.Sprintf("failed to list body-free Codex event metadata: %v", err))
-	}
-	criteria, err := apptypes.ReportCriteriaFrom(
-		now.Add(-codexCaptureWindow).Format(time.RFC3339Nano),
-		now.Format(time.RFC3339Nano),
-		"UTC",
-		now,
+	criteria, err := apptypes.CodexCaptureDiagnosticCriteriaOf(
 		workspace,
-		"",
-		codexCaptureResultCap,
-		codexCaptureResultCap,
+		now.Add(-codexCaptureWindow),
+		now,
 	)
 	if err != nil {
-		return codexCaptureFailure(identity, fmt.Sprintf("failed to build Codex usage diagnostic criteria: %v", err))
+		return codexCaptureFailure(identity, fmt.Sprintf("failed to build Codex capture diagnostic criteria: %v", err))
 	}
-	report, err := c.report.Generate(ctx, criteria)
+	stored, err := c.codexCaptureDiagnostic.Load(ctx, criteria)
 	if err != nil {
-		return codexCaptureFailure(identity, fmt.Sprintf("failed to load body-free Codex usage aggregates: %v", err))
+		return codexCaptureFailure(identity, fmt.Sprintf("failed to load body-free Codex capture evidence: %v", err))
 	}
 
 	evidence := codexCaptureEvidence{
-		StoredEvents:      len(events),
+		StoredEvents:      stored.StoredEvents,
+		UsageObservations: stored.UsageObservations,
+		UsageKnown:        stored.UsageKnown,
+		UsageUnavailable:  stored.UsageUnavailable,
+		StopSessions:      stored.StopSessions,
+		StopsWithUsage:    stored.StopSessionsWithUsage,
 		StoredBoundaries:  make(map[string]bool),
 		PendingBoundaries: make(map[string]bool),
 	}
-	for _, event := range events {
-		switch event.Kind() {
-		case types.EventKindSessionStarted:
-			evidence.StoredBoundaries[codexBoundarySessionStart] = true
-		case types.EventKindPrompt:
-			evidence.StoredBoundaries[codexBoundaryPrompt] = true
-		case types.EventKindCommandExecuted:
-			evidence.StoredBoundaries[codexBoundaryTool] = true
-		case types.EventKindCompactSummary:
-			evidence.StoredBoundaries[codexBoundaryCompact] = true
-		case types.EventKindTranscript:
-			if event.SourceHook() == "stop" {
-				evidence.StoredBoundaries[codexBoundaryStop] = true
-			}
-		}
-	}
-	for _, aggregate := range report.Usage.Aggregates {
-		if aggregate.Engine != "codex" {
-			continue
-		}
-		evidence.UsageObservations += aggregate.Observations
-		evidence.UsageKnown += aggregate.TotalTokens.KnownObservations
-		evidence.UsageUnavailable += aggregate.TotalTokens.UnavailableObservations
-	}
-	evidence.UsageScanPartial =
-		report.Aggregation.Sources.Usage.Coverage == apptypes.ReportCoveragePartial
+	evidence.StoredBoundaries[codexBoundarySessionStart] = stored.SessionStartObserved
+	evidence.StoredBoundaries[codexBoundaryPrompt] = stored.PromptObserved
+	evidence.StoredBoundaries[codexBoundaryTool] = stored.ToolObserved
+	evidence.StoredBoundaries[codexBoundaryCompact] = stored.CompactObserved
+	evidence.StoredBoundaries[codexBoundaryStop] = stored.StopSessions > 0
 	if evidence.UsageObservations > 0 {
 		evidence.StoredBoundaries[codexBoundaryUsage] = true
-		evidence.StoredBoundaries[codexBoundaryStop] = true
 	}
 
-	projected, unscoped := projectCodexSpoolMetadata(ctx, spoolRecords, workspace)
+	projected, unscoped, projectionPartial := projectCodexSpoolMetadata(ctx, spoolRecords, workspace)
 	evidence.UnscopedDeliveries = unscoped
+	evidence.SpoolPartial = projectionPartial
 	for _, pending := range projected {
 		evidence.PendingDeliveries++
 		for _, boundary := range codexSpoolBoundaries(pending.Command, pending.Action) {
@@ -203,15 +172,15 @@ func (c *RootCLI) inspectCodexCapture(
 			"Codex から Traceary には到達していますが、この workspace の delivery が durable spool に残り未commitです。DB open latency または write failure を解消し、`traceary doctor --client codex --fix` で bounded batch を drain してください。",
 		)
 		check.FixCommand = "traceary doctor --client codex --fix"
+	case codexCaptureReasonSpoolPartial:
+		check.Hint = Localize(
+			"the Codex spool contains more distinct working directories than the bounded diagnostic resolves; inspect the global hook-spool check and drain the backlog before retrying",
+			"Codex spool に bounded diagnostic の解決上限を超える working directory があります。global hook-spool check を確認し、backlog を drain してから再実行してください",
+		)
 	case codexCaptureReasonUsage:
 		check.Hint = Localize(
 			"a Codex Stop was committed without a finalized usage observation or pending usage delivery; inspect the installed plugin version and local rollout availability",
 			"Codex Stop は commit 済みですが finalized usage observation も pending usage delivery もありません。installed plugin version と local rollout availability を確認してください",
-		)
-	case codexCaptureReasonPartial:
-		check.Hint = Localize(
-			"the capped report snapshot did not contain a Codex usage observation, but its usage source was partial; rerun `traceary report` with an uncapped or narrower interval before concluding that usage is missing",
-			"capped report snapshot に Codex usage observation がありませんが、usage source は partial でした。usage 欠落と判断する前に、`traceary report` を result cap なし、または短い interval で再実行してください",
 		)
 	case codexCaptureReasonEmpty:
 		check.Hint = Localize(
@@ -284,13 +253,12 @@ func classifyCodexCapture(evidence codexCaptureEvidence) codexCaptureClassificat
 		classification.Reason = codexCaptureReasonSpool
 		return classification
 	}
-	if evidence.UsageScanPartial && evidence.UsageObservations == 0 {
+	if evidence.SpoolPartial {
 		classification.Status = doctorStatusWarn
-		classification.Reason = codexCaptureReasonPartial
-		classification.UsageState = "partial_scan_no_codex_observation"
+		classification.Reason = codexCaptureReasonSpoolPartial
 		return classification
 	}
-	if evidence.StoredBoundaries[codexBoundaryStop] && evidence.UsageObservations == 0 {
+	if evidence.StopSessions > evidence.StopsWithUsage {
 		classification.Status = doctorStatusWarn
 		classification.Reason = codexCaptureReasonUsage
 		return classification
@@ -306,7 +274,7 @@ func projectCodexSpoolMetadata(
 	ctx context.Context,
 	records []hookSpoolRecord,
 	target types.Workspace,
-) ([]codexSpoolMetadata, int) {
+) ([]codexSpoolMetadata, int, bool) {
 	metadata := make([]codexSpoolMetadata, 0, len(records))
 	for _, record := range records {
 		if strings.TrimSpace(record.Client) != "codex" {
@@ -326,12 +294,17 @@ func projectCodexSpoolMetadata(
 
 	canonicalByCWD := map[string]types.Workspace{}
 	workspaceBySession := map[string]types.Workspace{}
+	projectionPartial := false
 	for _, record := range metadata {
 		if record.CWD == "" {
 			continue
 		}
 		workspace, ok := canonicalByCWD[record.CWD]
 		if !ok {
+			if len(canonicalByCWD) >= codexCaptureCWDLimit {
+				projectionPartial = true
+				continue
+			}
 			workspace = canonicalWorkspaceForCodexSpool(ctx, record.CWD)
 			canonicalByCWD[record.CWD] = workspace
 		}
@@ -356,7 +329,7 @@ func projectCodexSpoolMetadata(
 		}
 	}
 	sort.Slice(scoped, func(i, j int) bool { return scoped[i].CreatedAt.Before(scoped[j].CreatedAt) })
-	return scoped, unscoped
+	return scoped, unscoped, projectionPartial
 }
 
 func canonicalWorkspaceForCodexSpool(ctx context.Context, cwd string) types.Workspace {

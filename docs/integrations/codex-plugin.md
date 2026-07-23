@@ -71,11 +71,15 @@ The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json`
 `traceary doctor --client codex --project-dir <workspace> --json` includes a
 `codex-capture` check. It resolves `<workspace>` to the same canonical
 repository identity used by event reads, then correlates three body-free
-evidence sources from the last seven days:
+evidence sources:
 
-- committed event metadata for session start, prompt, tool, compact, and Stop;
-- finalized Codex usage aggregates;
-- durable spool command/action metadata associated with that workspace.
+- complete committed-event aggregates for session start, prompt, tool, compact,
+  and Stop from the last seven days;
+- finalized interactive Codex usage correlated to those Stop sessions,
+  including deterministic unavailable observations whose identity timestamp is
+  intentionally outside the seven-day window;
+- every durable spool command/action record associated with that workspace,
+  regardless of record age.
 
 Each boundary is reported as `stored`, `delivery_pending`,
 `stored_and_delivery_pending`, or `not_observed`.
@@ -86,8 +90,8 @@ trust, and canonical workspace. Its stable reasons are:
 |---|---|
 | `capture_observed` | recent committed evidence exists and no actionable gap was found |
 | `hook_spool_backlog` | Codex reached Traceary, but one or more deliveries remain durable and uncommitted |
+| `spool_projection_partial` | the spool has more distinct working directories than the bounded diagnostic resolves; backlog inspection/drain is required |
 | `usage_missing_after_stop` | a Stop was committed without finalized usage and without a pending usage delivery |
-| `usage_scan_partial` | the capped report prefix contains no Codex usage, so absence cannot be concluded until an uncapped or narrower report is inspected |
 | `no_recent_capture_evidence` | neither committed nor pending evidence exists; this is a warning, not a successful capture claim |
 
 An active session does not need to have exercised every hook. For example,
@@ -96,6 +100,9 @@ failure. The diagnostic never prints session IDs, prompt/transcript bodies, or
 tool input/output. A usage retry spool stores only its existing body-free
 identity fields; other spool payloads are projected to command/action and
 allowlisted session/cwd metadata solely for local correlation.
+Canonicalization is capped at 64 distinct spool working directories per run;
+exceeding that budget produces `spool_projection_partial`, never a successful
+absence claim.
 
 If a local path alias returns no MCP session or events, rerun the read with the
 `workspace=` value printed by `codex-capture`. `session_status`,

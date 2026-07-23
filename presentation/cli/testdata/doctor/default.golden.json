@@ -166,10 +166,10 @@
     },
     {
       "name": "codex-capture",
-      "status": "skip",
+      "status": "pass",
       "severity": "PASS",
       "section": "Hooks",
-      "message": "surface=manual_hooks client=codex traceary_version=- plugin=- hook_trust=absent workspace=/tmp/traceary-json-golden-project reason=diagnostic_dependencies_unavailable",
+      "message": "surface=manual_hooks client=codex traceary_version=- plugin=- hook_trust=absent workspace=/tmp/traceary-json-golden-project reason=capture_observed boundaries=session_start:stored,prompt:stored,tool:not_observed,compact:not_observed,stop:not_observed,usage:not_observed usage=not_observed stored_events=1 usage_observations=0 pending_deliveries=0 unscoped_pending=0",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -430,10 +430,10 @@
         },
         {
           "name": "codex-capture",
-          "status": "skip",
+          "status": "pass",
           "severity": "PASS",
           "section": "Hooks",
-          "message": "surface=manual_hooks client=codex traceary_version=- plugin=- hook_trust=absent workspace=/tmp/traceary-json-golden-project reason=diagnostic_dependencies_unavailable",
+          "message": "surface=manual_hooks client=codex traceary_version=- plugin=- hook_trust=absent workspace=/tmp/traceary-json-golden-project reason=capture_observed boundaries=session_start:stored,prompt:stored,tool:not_observed,compact:not_observed,stop:not_observed,usage:not_observed usage=not_observed stored_events=1 usage_observations=0 pending_deliveries=0 unscoped_pending=0",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false

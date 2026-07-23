@@ -19,6 +19,7 @@ type RootCLI struct {
 	eventMetadata              usecase.EventMetadataUsecase
 	reportCommand              usecase.ReportCommandUsecase
 	report                     usecase.ReportUsecase
+	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
 	session                    usecase.SessionUsecase
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
@@ -89,6 +90,11 @@ func WithReportCommand(reportCommand usecase.ReportCommandUsecase) RootCLIOption
 // WithReport injects the shared CLI/MCP report generator.
 func WithReport(report usecase.ReportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.report = report }
+}
+
+// WithCodexCaptureDiagnostic injects the body-free Codex doctor projection.
+func WithCodexCaptureDiagnostic(diagnostic usecase.CodexCaptureDiagnosticUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.codexCaptureDiagnostic = diagnostic }
 }
 
 // WithSession injects the SessionUsecase used by session-related commands.

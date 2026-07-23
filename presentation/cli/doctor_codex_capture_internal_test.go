@@ -47,6 +47,7 @@ func TestClassifyCodexCapture(t *testing.T) {
 			name: "stored stop without usage warns instead of returning unknown",
 			evidence: codexCaptureEvidence{
 				StoredEvents:      2,
+				StopSessions:      1,
 				StoredBoundaries:  map[string]bool{codexBoundarySessionStart: true, codexBoundaryStop: true},
 				PendingBoundaries: map[string]bool{},
 			},
@@ -55,16 +56,19 @@ func TestClassifyCodexCapture(t *testing.T) {
 			wantUsage:  codexBoundaryNotObserved,
 		},
 		{
-			name: "partial usage scan does not claim usage is missing",
+			name: "usage from another stop cannot hide one uncovered stop",
 			evidence: codexCaptureEvidence{
-				StoredEvents:      500,
-				UsageScanPartial:  true,
-				StoredBoundaries:  map[string]bool{codexBoundaryStop: true},
+				StoredEvents:      501,
+				UsageObservations: 1,
+				UsageKnown:        1,
+				StopSessions:      2,
+				StopsWithUsage:    1,
+				StoredBoundaries:  map[string]bool{codexBoundaryStop: true, codexBoundaryUsage: true},
 				PendingBoundaries: map[string]bool{},
 			},
 			wantStatus: doctorStatusWarn,
-			wantReason: codexCaptureReasonPartial,
-			wantUsage:  "partial_scan_no_codex_observation",
+			wantReason: codexCaptureReasonUsage,
+			wantUsage:  "known",
 		},
 		{
 			name: "no evidence never passes",
@@ -83,6 +87,8 @@ func TestClassifyCodexCapture(t *testing.T) {
 				UsageObservations: 2,
 				UsageKnown:        1,
 				UsageUnavailable:  1,
+				StopSessions:      1,
+				StopsWithUsage:    1,
 				StoredBoundaries: map[string]bool{
 					codexBoundarySessionStart: true,
 					codexBoundaryPrompt:       true,
@@ -164,7 +170,10 @@ func TestProjectCodexSpoolMetadata_IsWorkspaceScopedAndBodyFree(t *testing.T) {
 	}
 
 	target := types.Workspace(normalizeLocalWorkContextPath(repo))
-	got, unscoped := projectCodexSpoolMetadata(context.Background(), records, target)
+	got, unscoped, partial := projectCodexSpoolMetadata(context.Background(), records, target)
+	if partial {
+		t.Fatal("projection unexpectedly partial")
+	}
 	if unscoped != 0 {
 		t.Fatalf("unscoped = %d, want 0", unscoped)
 	}
@@ -214,43 +223,16 @@ func TestRootCLI_InspectCodexCapture_ReportsSurfaceAndCanonicalEvidence(t *testi
 	t.Parallel()
 	projectDir := t.TempDir()
 	workspace := types.Workspace(normalizeLocalWorkContextPath(projectDir))
-	now := time.Now().UTC().Add(-time.Minute)
-	bodyExtent, err := apptypes.EventBodyExtentOf(
-		types.None[int](),
-		0,
-		types.None[bool](),
-		types.None[bool](),
-		types.None[int](),
-	)
-	if err != nil {
-		t.Fatalf("EventBodyExtentOf() error = %v", err)
-	}
-	event, err := apptypes.EventMetadataOf(
-		types.EventID("event-stop"),
-		types.EventKindTranscript,
-		types.Client("hook"),
-		types.Agent("codex"),
-		types.SessionID("session-body-free"),
-		workspace,
-		"stop",
-		now,
-		bodyExtent,
-		types.None[apptypes.CommandAuditMetadata](),
-	)
-	if err != nil {
-		t.Fatalf("EventMetadataOf() error = %v", err)
-	}
 	root := &RootCLI{
-		eventMetadata: &codexCaptureEventMetadataStub{events: []apptypes.EventMetadata{event}},
-		report: &codexCaptureReportStub{snapshot: apptypes.ReportSnapshot{
-			Usage: apptypes.ReportUsageSnapshot{Aggregates: []apptypes.ReportUsageAggregateRow{
-				{
-					Engine:       "codex",
-					Observations: 1,
-					TotalTokens:  apptypes.ReportUsageMetric{UnavailableObservations: 1},
-				},
-			}},
-		}},
+		codexCaptureDiagnostic: &codexCaptureDiagnosticStub{
+			evidence: apptypes.CodexCaptureDiagnosticEvidence{
+				StoredEvents:          1,
+				StopSessions:          1,
+				StopSessionsWithUsage: 1,
+				UsageObservations:     1,
+				UsageUnavailable:      1,
+			},
+		},
 	}
 	check := root.inspectCodexCapture(
 		context.Background(),
@@ -291,30 +273,14 @@ func TestRootCLI_InspectCodexCapture_ReportsSurfaceAndCanonicalEvidence(t *testi
 	}
 }
 
-// These fakes implement only body-free read contracts and return prebuilt
-// observable state; they do not duplicate production classification behavior.
-type codexCaptureEventMetadataStub struct {
-	events []apptypes.EventMetadata
-	err    error
-}
-
-func (s *codexCaptureEventMetadataStub) List(context.Context, apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
-	return s.events, s.err
-}
-
-func (*codexCaptureEventMetadataStub) Search(context.Context, apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	return nil, nil
-}
-
-func (*codexCaptureEventMetadataStub) Context(context.Context, apptypes.EventContextCriteria) ([]apptypes.EventMetadata, error) {
-	return nil, nil
-}
-
-type codexCaptureReportStub struct {
-	snapshot apptypes.ReportSnapshot
+type codexCaptureDiagnosticStub struct {
+	evidence apptypes.CodexCaptureDiagnosticEvidence
 	err      error
 }
 
-func (s *codexCaptureReportStub) Generate(context.Context, apptypes.ReportCriteria) (apptypes.ReportSnapshot, error) {
-	return s.snapshot, s.err
+func (s *codexCaptureDiagnosticStub) Load(
+	context.Context,
+	apptypes.CodexCaptureDiagnosticCriteria,
+) (apptypes.CodexCaptureDiagnosticEvidence, error) {
+	return s.evidence, s.err
 }
