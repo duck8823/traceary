@@ -233,14 +233,57 @@ func geminiTerminalMetadataSignature(
 	observedAt time.Time,
 	stats *geminiStreamStats,
 ) ([sha256.Size]byte, error) {
+	type modelSignature struct {
+		Model        string `json:"model"`
+		TotalTokens  int64  `json:"total_tokens"`
+		InputTokens  int64  `json:"input_tokens"`
+		OutputTokens int64  `json:"output_tokens"`
+		Cached       int64  `json:"cached"`
+		Input        int64  `json:"input"`
+	}
+	type statsSignature struct {
+		TotalTokens  int64            `json:"total_tokens"`
+		InputTokens  int64            `json:"input_tokens"`
+		OutputTokens int64            `json:"output_tokens"`
+		Cached       int64            `json:"cached"`
+		Input        int64            `json:"input"`
+		Models       []modelSignature `json:"models"`
+	}
+	var normalizedStats *statsSignature
+	if stats != nil {
+		normalizedStats = &statsSignature{
+			TotalTokens:  *stats.TotalTokens,
+			InputTokens:  *stats.InputTokens,
+			OutputTokens: *stats.OutputTokens,
+			Cached:       *stats.Cached,
+			Input:        *stats.Input,
+			Models:       make([]modelSignature, 0, len(stats.Models)),
+		}
+		modelNames := make([]string, 0, len(stats.Models))
+		for modelName := range stats.Models {
+			modelNames = append(modelNames, modelName)
+		}
+		sort.Strings(modelNames)
+		for _, modelName := range modelNames {
+			counters := stats.Models[modelName]
+			normalizedStats.Models = append(normalizedStats.Models, modelSignature{
+				Model:        modelName,
+				TotalTokens:  *counters.TotalTokens,
+				InputTokens:  *counters.InputTokens,
+				OutputTokens: *counters.OutputTokens,
+				Cached:       *counters.Cached,
+				Input:        *counters.Input,
+			})
+		}
+	}
 	metadata := struct {
 		Status    types.UsageTerminalCode `json:"status"`
 		Timestamp string                  `json:"timestamp"`
-		Stats     *geminiStreamStats      `json:"stats,omitempty"`
+		Stats     *statsSignature         `json:"stats,omitempty"`
 	}{
 		Status:    terminal,
 		Timestamp: observedAt.UTC().Format(time.RFC3339Nano),
-		Stats:     stats,
+		Stats:     normalizedStats,
 	}
 	encoded, err := json.Marshal(metadata)
 	if err != nil {

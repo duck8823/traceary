@@ -157,6 +157,31 @@ func TestGeminiHeadlessUsageStream_RejectsInputBreakdownOverflow(t *testing.T) {
 	}
 }
 
+func TestGeminiHeadlessUsageStream_NormalizesTerminalMetadataSignature(t *testing.T) {
+	init := `{"type":"init","timestamp":"2026-07-23T01:00:00Z","session_id":"session-normalized","model":"model-1"}` + "\n"
+	withoutModels := `{"type":"result","timestamp":"2026-07-23T01:00:01Z","status":"success","stats":{"total_tokens":3,"input_tokens":2,"output_tokens":1,"cached":1,"input":1,"private":"FIRST"},"error":{"message":"PRIVATE FIRST"}}` + "\n"
+	withEmptyModels := `{"type":"result","timestamp":"2026-07-23T01:00:01Z","status":"success","stats":{"total_tokens":3,"input_tokens":2,"output_tokens":1,"cached":1,"input":1,"models":{},"private":"SECOND"},"error":{"message":"PRIVATE SECOND"}}` + "\n"
+	changedCounters := `{"type":"result","timestamp":"2026-07-23T01:00:01Z","status":"success","stats":{"total_tokens":4,"input_tokens":2,"output_tokens":2,"cached":1,"input":1,"models":{}}}` + "\n"
+
+	stream := filesystem.NewGeminiHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+	if _, err := stream.Write([]byte(init + withoutModels + withEmptyModels)); err != nil {
+		t.Fatalf("Write() normalized redelivery error = %v", err)
+	}
+	result, err := stream.Complete()
+	if err != nil || !result.BoundaryObserved || len(result.Samples) != 1 {
+		t.Fatalf("Complete() normalized redelivery = (%+v, %v)", result, err)
+	}
+
+	stream = filesystem.NewGeminiHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+	if _, err := stream.Write([]byte(init + withEmptyModels + changedCounters)); err != nil {
+		t.Fatalf("Write() changed counters error = %v", err)
+	}
+	result, err = stream.Complete()
+	if err == nil || result.BoundaryObserved || len(result.Samples) != 0 {
+		t.Fatalf("Complete() changed counters = (%+v, %v)", result, err)
+	}
+}
+
 func TestGeminiHeadlessUsageStream_RejectsModelCounterOverflow(t *testing.T) {
 	stream := filesystem.NewGeminiHeadlessUsageStreamFactory().New(&bytes.Buffer{})
 	fixture := `{"type":"init","timestamp":"2026-07-23T01:00:00Z","session_id":"session-overflow","model":"model-1"}` + "\n" +
