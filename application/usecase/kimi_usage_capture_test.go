@@ -151,6 +151,48 @@ func TestKimiUsageCapture_SeparatesStopAndSessionEndAvailability(t *testing.T) {
 	}
 }
 
+func TestKimiUsageCapture_ReusesSourceAcrossBoundariesAndSeparatesNextTurn(t *testing.T) {
+	value := int64(1)
+	source := &kimiUsageSourceStub{result: application.KimiUsageLoadResult{
+		LatestTurnOrdinal: 1,
+		Samples: []application.KimiUsageSample{{
+			RecordID:      "main_wire:record-a",
+			SourceName:    "main_wire",
+			SourceVersion: "0.29.0",
+			Model:         "kimi-code/k3",
+			ObservedAt:    time.UnixMilli(1784466740000).UTC(),
+			Counters:      application.KimiUsageCounters{InputOther: &value},
+		}},
+	}}
+	repository := newKimiUsageRepositoryStub()
+	capture := usecase.NewKimiUsageCaptureUsecase(source, repository)
+	input := usecase.KimiUsageCaptureInput{
+		SessionID:         types.SessionID("provider-session"),
+		ProviderSessionID: "provider-session",
+		Boundary:          usecase.KimiUsageBoundaryStop,
+	}
+	if result, err := capture.Capture(context.Background(), input); err != nil ||
+		result.Applied != 2 || result.Unavailable != 1 {
+		t.Fatalf("first Stop = (%+v, %v)", result, err)
+	}
+
+	input.Boundary = usecase.KimiUsageBoundarySessionEnd
+	if result, err := capture.Capture(context.Background(), input); err != nil ||
+		result.Applied != 1 || result.AlreadyApplied != 1 || result.Unavailable != 1 {
+		t.Fatalf("SessionEnd = (%+v, %v)", result, err)
+	}
+
+	source.result.LatestTurnOrdinal = 2
+	input.Boundary = usecase.KimiUsageBoundaryStop
+	if result, err := capture.Capture(context.Background(), input); err != nil ||
+		result.Applied != 1 || result.AlreadyApplied != 1 || result.Unavailable != 1 {
+		t.Fatalf("next-turn Stop = (%+v, %v)", result, err)
+	}
+	if len(repository.observations) != 4 {
+		t.Fatalf("observations = %d, want one source and three boundary rows", len(repository.observations))
+	}
+}
+
 func TestKimiUsageCapture_ChangedSourceRecordFailsClosed(t *testing.T) {
 	value := int64(1)
 	source := &kimiUsageSourceStub{result: application.KimiUsageLoadResult{

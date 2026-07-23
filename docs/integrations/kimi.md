@@ -46,8 +46,9 @@ persists only `usage.record` metadata:
 
 The scanner decodes only the event discriminator for every other row. Prompt,
 response, thinking, and tool bodies are never copied into usage observations.
-The session-index path and final `wire.jsonl` path must both remain inside the
-configured Kimi sessions root.
+The session index is opened by its fixed name directly below the configured
+Kimi home. Its absolute session-directory target and every component used to
+open the final `wire.jsonl` must remain inside that home's `sessions` root.
 
 Kimi does not currently prove that a `usage.record` is emitted exactly once
 per provider call, after retries, for subagents, or on abort. Traceary

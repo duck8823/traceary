@@ -35,9 +35,10 @@ Traceary は、実機で確認済みの Kimi Code 0.29.0 main-agent session wire
 - `output`
 
 それ以外の行では event 種別だけを読み取ります。prompt、応答、思考、
-tool の入力・結果を利用量 observation に複製しません。session index の
-参照先と最終的な `wire.jsonl` は、どちらも設定済み Kimi sessions root
-の内側にある必要があります。
+tool の入力・結果を利用量 observation に複製しません。session index は
+設定済み Kimi home 直下の固定名で開きます。index が指す絶対 session
+directory と、最終的な `wire.jsonl` を開くまでの全要素は、その home の
+`sessions` root 内にある必要があります。
 
 現時点の Kimi contract では、`usage.record` が provider call ごとに
 正確に 1 回出ること、retry 後・subagent・中断時にも同じ規則で出ること

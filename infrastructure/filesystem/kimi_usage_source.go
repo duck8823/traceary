@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
@@ -88,39 +89,63 @@ func (s *kimiUsageSource) Load(
 	if err != nil || strings.TrimSpace(root) == "" {
 		return application.KimiUsageLoadResult{}, xerrors.Errorf("failed to resolve Kimi usage home")
 	}
-	sessionDir, found, err := findKimiUsageSessionDir(ctx, filepath.Join(root, kimiUsageSessionIndex), providerSessionID)
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return application.KimiUsageLoadResult{}, xerrors.Errorf("failed to resolve Kimi usage home")
+	}
+	homeRoot, err := os.OpenRoot(root)
+	if os.IsNotExist(err) {
+		return application.KimiUsageLoadResult{}, nil
+	}
+	if err != nil {
+		return application.KimiUsageLoadResult{}, xerrors.Errorf("failed to open Kimi usage home")
+	}
+	defer func() { _ = homeRoot.Close() }()
+	sessionsRoot, err := homeRoot.OpenRoot("sessions")
+	if os.IsNotExist(err) {
+		return application.KimiUsageLoadResult{}, nil
+	}
+	if err != nil {
+		return application.KimiUsageLoadResult{}, xerrors.Errorf("failed to open Kimi usage sessions root")
+	}
+	defer func() { _ = sessionsRoot.Close() }()
+
+	sessionDir, found, err := findKimiUsageSessionDir(ctx, homeRoot, providerSessionID)
 	if err != nil {
 		return application.KimiUsageLoadResult{}, err
 	}
 	if !found {
 		return application.KimiUsageLoadResult{}, nil
 	}
-	wirePath, found, err := containedKimiUsageWire(root, sessionDir)
+	sessionsRootPath := filepath.Join(root, "sessions")
+	wirePath, err := relativeKimiUsageWire(sessionsRootPath, sessionDir)
 	if err != nil {
 		return application.KimiUsageLoadResult{}, err
+	}
+	file, found, err := openKimiUsageRegularFile(sessionsRoot, wirePath)
+	if err != nil {
+		return application.KimiUsageLoadResult{}, xerrors.Errorf("failed to open Kimi usage wire")
 	}
 	if !found {
 		return application.KimiUsageLoadResult{}, nil
 	}
-	return loadKimiUsageWire(ctx, wirePath, providerSessionID)
+	defer func() { _ = file.Close() }()
+	return loadKimiUsageWire(ctx, file, providerSessionID)
 }
 
 func findKimiUsageSessionDir(
 	ctx context.Context,
-	indexPath string,
+	root *os.Root,
 	providerSessionID string,
 ) (string, bool, error) {
-	file, err := os.Open(indexPath) // #nosec G304 -- fixed name below the configured Kimi home
-	if os.IsNotExist(err) {
-		return "", false, nil
-	}
+	file, found, err := openKimiUsageRegularFile(root, kimiUsageSessionIndex)
 	if err != nil {
 		return "", false, xerrors.Errorf("failed to open Kimi usage session index")
 	}
-	defer func() { _ = file.Close() }()
-	if info, statErr := file.Stat(); statErr != nil || info.Size() > kimiUsageMaxSourceSize {
-		return "", false, xerrors.Errorf("Kimi usage session index exceeds the source limit")
+	if !found {
+		return "", false, nil
 	}
+	defer func() { _ = file.Close() }()
 
 	sessionDir := ""
 	scanner, limited := boundedKimiUsageScanner(file)
@@ -145,47 +170,40 @@ func findKimiUsageSessionDir(
 	return sessionDir, sessionDir != "", nil
 }
 
-func containedKimiUsageWire(root, sessionDir string) (string, bool, error) {
-	sessionsRoot := filepath.Join(root, "sessions")
-	resolvedRoot, err := filepath.EvalSymlinks(sessionsRoot)
-	if os.IsNotExist(err) {
-		return "", false, nil
+func relativeKimiUsageWire(sessionsRoot, sessionDir string) (string, error) {
+	if !filepath.IsAbs(sessionDir) {
+		return "", xerrors.Errorf("Kimi usage session directory must be absolute")
 	}
-	if err != nil {
-		return "", false, xerrors.Errorf("failed to resolve Kimi usage sessions root")
-	}
-	candidate := filepath.Join(sessionDir, "agents", "main", "wire.jsonl")
-	resolvedCandidate, err := filepath.EvalSymlinks(filepath.Clean(candidate))
-	if os.IsNotExist(err) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, xerrors.Errorf("failed to resolve Kimi usage wire")
-	}
-	rel, err := filepath.Rel(resolvedRoot, resolvedCandidate)
+	rel, err := filepath.Rel(sessionsRoot, filepath.Clean(sessionDir))
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", false, xerrors.Errorf("Kimi usage wire escapes the sessions root")
+		return "", xerrors.Errorf("Kimi usage wire escapes the sessions root")
 	}
-	return resolvedCandidate, true, nil
+	return filepath.Join(rel, "agents", "main", "wire.jsonl"), nil
+}
+
+func openKimiUsageRegularFile(root *os.Root, name string) (*os.File, bool, error) {
+	// os.Root keeps every path component inside root across renames and symlink
+	// changes. O_NONBLOCK prevents a hostile FIFO from blocking before fstat.
+	file, err := root.OpenFile(name, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, xerrors.Errorf("failed to open contained Kimi usage source")
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > kimiUsageMaxSourceSize {
+		_ = file.Close()
+		return nil, false, xerrors.Errorf("Kimi usage source is not a bounded regular file")
+	}
+	return file, true, nil
 }
 
 func loadKimiUsageWire(
 	ctx context.Context,
-	wirePath string,
+	file *os.File,
 	providerSessionID string,
 ) (application.KimiUsageLoadResult, error) {
-	file, err := os.Open(wirePath) // #nosec G304 -- path passed the sessions-root containment check
-	if os.IsNotExist(err) {
-		return application.KimiUsageLoadResult{}, nil
-	}
-	if err != nil {
-		return application.KimiUsageLoadResult{}, xerrors.Errorf("failed to open Kimi usage wire")
-	}
-	defer func() { _ = file.Close() }()
-	if info, statErr := file.Stat(); statErr != nil || info.Size() > kimiUsageMaxSourceSize {
-		return application.KimiUsageLoadResult{}, xerrors.Errorf("Kimi usage wire exceeds the source limit")
-	}
-
 	result := application.KimiUsageLoadResult{}
 	usageOrdinal := int64(0)
 	turnOrdinal := int64(0)

@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestKimiUsageSource_LoadReturnsOnlyBodyFreeUsageRecords(t *testing.T) {
@@ -135,6 +138,134 @@ func TestKimiUsageSource_LoadRejectsIndexPathEscape(t *testing.T) {
 	}
 	if _, err := newKimiUsageSourceWithRoot(root).Load(context.Background(), "provider-session"); err == nil {
 		t.Fatal("expected path escape to fail closed")
+	}
+}
+
+func TestKimiUsageSource_LoadRejectsRelativeSessionDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sessions"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := json.Marshal(kimiUsageIndexEntry{
+		SessionID:  "provider-session",
+		SessionDir: filepath.Join("sessions", "wd_test", "provider-session"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, kimiUsageSessionIndex), append(entry, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newKimiUsageSourceWithRoot(root).Load(context.Background(), "provider-session"); err == nil {
+		t.Fatal("expected relative session directory to fail closed")
+	}
+}
+
+func TestKimiUsageSource_LoadRejectsSymlinkEscapes(t *testing.T) {
+	t.Run("session index", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "sessions"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		outsideIndex := filepath.Join(t.TempDir(), "session_index.jsonl")
+		if err := os.WriteFile(outsideIndex, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsideIndex, filepath.Join(root, kimiUsageSessionIndex)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newKimiUsageSourceWithRoot(root).Load(context.Background(), "provider-session"); err == nil {
+			t.Fatal("expected index symlink escape to fail closed")
+		}
+	})
+
+	for _, target := range []string{"wire", "parent"} {
+		t.Run(target, func(t *testing.T) {
+			root := t.TempDir()
+			sessionDir := filepath.Join(root, "sessions", "wd_test", "provider-session")
+			if err := os.MkdirAll(filepath.Dir(sessionDir), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			outside := t.TempDir()
+			if target == "wire" {
+				if err := os.MkdirAll(filepath.Join(sessionDir, "agents", "main"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				outsideWire := filepath.Join(outside, "wire.jsonl")
+				if err := os.WriteFile(outsideWire, []byte("{}\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outsideWire, filepath.Join(sessionDir, "agents", "main", "wire.jsonl")); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.MkdirAll(filepath.Join(outside, "agents", "main"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(outside, "agents", "main", "wire.jsonl"), []byte("{}\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, sessionDir); err != nil {
+					t.Fatal(err)
+				}
+			}
+			entry, err := json.Marshal(kimiUsageIndexEntry{
+				SessionID:  "provider-session",
+				SessionDir: sessionDir,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, kimiUsageSessionIndex), append(entry, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := newKimiUsageSourceWithRoot(root).Load(context.Background(), "provider-session"); err == nil {
+				t.Fatalf("expected %s symlink escape to fail closed", target)
+			}
+		})
+	}
+}
+
+func TestKimiUsageSource_LoadRejectsFIFOWithoutBlocking(t *testing.T) {
+	for _, target := range []string{"session index", "wire"} {
+		t.Run(target, func(t *testing.T) {
+			root := t.TempDir()
+			if target == "session index" {
+				if err := os.MkdirAll(filepath.Join(root, "sessions"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := unix.Mkfifo(filepath.Join(root, kimiUsageSessionIndex), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				sessionDir := filepath.Join(root, "sessions", "wd_test", "provider-session")
+				if err := os.MkdirAll(filepath.Join(sessionDir, "agents", "main"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				entry, err := json.Marshal(kimiUsageIndexEntry{
+					SessionID:  "provider-session",
+					SessionDir: sessionDir,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, kimiUsageSessionIndex), append(entry, '\n'), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := unix.Mkfifo(filepath.Join(sessionDir, "agents", "main", "wire.jsonl"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if _, err := newKimiUsageSourceWithRoot(root).Load(ctx, "provider-session"); err == nil {
+				t.Fatalf("expected %s FIFO to fail closed", target)
+			}
+			if ctx.Err() != nil {
+				t.Fatalf("%s FIFO blocked until context timeout", target)
+			}
+		})
 	}
 }
 
