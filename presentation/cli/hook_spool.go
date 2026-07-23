@@ -23,6 +23,10 @@ const (
 	// hookSpoolReplayBatchLimit caps opportunistic drain work per hook
 	// invocation so replay cannot exhaust the host timeout budget.
 	hookSpoolReplayBatchLimit = 5
+	// Packaged host hook budgets are 10 seconds. An in-flight record older than
+	// one minute belongs to a process that did not finish its normal
+	// success/failure transition and is safe to make replayable.
+	hookSpoolInflightStaleAge = time.Minute
 )
 
 type hookInvocationSpec struct {
@@ -72,7 +76,7 @@ func (c *RootCLI) runHookDurably(
 			Payload:       string(payload),
 			CreatedAt:     time.Now().UTC(),
 		}
-		path, err := persistHookSpoolRecord(record)
+		path, err := persistCurrentHookSpoolRecord(record)
 		if err != nil {
 			// Preserve existing fail-soft behavior when the state directory is
 			// unavailable. The operational error remains visible in debug logs;
@@ -81,12 +85,18 @@ func (c *RootCLI) runHookDurably(
 			return run(newExplicitHookPayloadReader(payload))
 		}
 		if err := ctx.Err(); err != nil {
+			if promoteErr := promoteCurrentHookSpoolRecord(path); promoteErr != nil && !os.IsNotExist(promoteErr) {
+				slog.Debug("cancelled current hook spool promotion failed", "path", path, "error", promoteErr)
+			}
 			return xerrors.Errorf("hook context cancelled after spool persistence: %w", err)
 		}
 		if err := run(newExplicitHookPayloadReader(payload)); err != nil {
+			if promoteErr := promoteCurrentHookSpoolRecord(path); promoteErr != nil && !os.IsNotExist(promoteErr) {
+				slog.Debug("failed current hook spool promotion failed", "path", path, "error", promoteErr)
+			}
 			return err
 		}
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		if err := clearCurrentHookSpoolRecord(path); err != nil {
 			return xerrors.Errorf("failed to clear committed hook spool record: %w", err)
 		}
 		// The current delivery is committed and its spool record is cleared
@@ -119,8 +129,11 @@ func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replaye
 }
 
 func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) hookSpoolDrainResult {
+	if err := recoverStaleCurrentHookSpoolRecords(time.Now().UTC()); err != nil {
+		return hookSpoolDrainResult{Err: err}
+	}
 	if limit <= 0 {
-		remaining, err := countHookSpoolRecordPaths()
+		remaining, err := countHookSpoolPendingPaths(time.Now().UTC())
 		return hookSpoolDrainResult{Remaining: remaining, Err: err}
 	}
 	records, unreadable, err := loadHookSpoolReplayBatch(limit, readHookSpoolFile)
@@ -264,6 +277,14 @@ func (c *RootCLI) replayKimiSpoolRecord(ctx context.Context, input io.Reader, ac
 }
 
 func persistHookSpoolRecord(record hookSpoolRecord) (string, error) {
+	return persistHookSpoolRecordWithSuffix(record, ".json")
+}
+
+func persistCurrentHookSpoolRecord(record hookSpoolRecord) (string, error) {
+	return persistHookSpoolRecordWithSuffix(record, ".inflight")
+}
+
+func persistHookSpoolRecordWithSuffix(record hookSpoolRecord, suffix string) (string, error) {
 	dir, err := hookSpoolDir()
 	if err != nil {
 		return "", err
@@ -275,7 +296,13 @@ func persistHookSpoolRecord(record hookSpoolRecord) (string, error) {
 	if _, err := rand.Read(random); err != nil {
 		return "", xerrors.Errorf("failed to generate hook spool ID: %w", err)
 	}
-	base := fmt.Sprintf("%s-%s-%s.json", record.CreatedAt.Format("20060102T150405.000000000Z"), sanitizeHookStateKey(record.Client), hex.EncodeToString(random))
+	base := fmt.Sprintf(
+		"%s-%s-%s%s",
+		record.CreatedAt.Format("20060102T150405.000000000Z"),
+		sanitizeHookStateKey(record.Client),
+		hex.EncodeToString(random),
+		suffix,
+	)
 	path := filepath.Join(dir, base)
 	tmpPath := path + ".tmp"
 	encoded, err := json.MarshalIndent(record, "", "  ")
@@ -291,6 +318,65 @@ func persistHookSpoolRecord(record hookSpoolRecord) (string, error) {
 		return "", xerrors.Errorf("failed to publish hook spool record: %w", err)
 	}
 	return path, nil
+}
+
+func replayablePathForCurrentHookSpool(path string) string {
+	return strings.TrimSuffix(path, ".inflight") + ".json"
+}
+
+func promoteCurrentHookSpoolRecord(path string) error {
+	if !strings.HasSuffix(path, ".inflight") {
+		return xerrors.New("current hook spool path must end with .inflight")
+	}
+	if err := os.Rename(path, replayablePathForCurrentHookSpool(path)); err != nil {
+		return xerrors.Errorf("failed to promote current hook spool record: %w", err)
+	}
+	return nil
+}
+
+func clearCurrentHookSpoolRecord(path string) error {
+	if err := os.Remove(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to remove in-flight hook spool record: %w", err)
+	}
+	// A stale-recovery race may already have promoted the record. A successful
+	// current commit owns that duplicate and may safely clear it as well.
+	if err := os.Remove(replayablePathForCurrentHookSpool(path)); err != nil && !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to remove promoted current hook spool record: %w", err)
+	}
+	return nil
+}
+
+func recoverStaleCurrentHookSpoolRecords(now time.Time) error {
+	dir, err := hookSpoolDir()
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("failed to read hook spool directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".inflight") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return xerrors.Errorf("failed to inspect in-flight hook spool record: %w", err)
+		}
+		if now.Sub(info.ModTime()) < hookSpoolInflightStaleAge {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if err := promoteCurrentHookSpoolRecord(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func hookSpoolDir() (string, error) {
@@ -326,6 +412,38 @@ func listHookSpoolRecordPaths() ([]string, error) {
 func countHookSpoolRecordPaths() (int, error) {
 	paths, err := listHookSpoolRecordPaths()
 	return len(paths), err
+}
+
+func countHookSpoolPendingPaths(now time.Time) (int, error) {
+	paths, err := listHookSpoolRecordPaths()
+	if err != nil {
+		return 0, err
+	}
+	dir, err := hookSpoolDir()
+	if err != nil {
+		return 0, err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return len(paths), nil
+	}
+	if err != nil {
+		return 0, xerrors.Errorf("failed to read hook spool directory: %w", err)
+	}
+	count := len(paths)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".inflight") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return 0, xerrors.Errorf("failed to inspect in-flight hook spool record: %w", err)
+		}
+		if now.Sub(info.ModTime()) >= hookSpoolInflightStaleAge {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func loadHookSpoolReplayBatch(
@@ -399,7 +517,19 @@ func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error)
 	records := []hookSpoolRecord{}
 	unreadable := []string{}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() {
+			continue
+		}
+		isReplayable := strings.HasSuffix(entry.Name(), ".json")
+		if !isReplayable && strings.HasSuffix(entry.Name(), ".inflight") {
+			info, infoErr := entry.Info()
+			if infoErr != nil {
+				unreadable = append(unreadable, filepath.Join(dir, entry.Name()))
+				continue
+			}
+			isReplayable = time.Since(info.ModTime()) >= hookSpoolInflightStaleAge
+		}
+		if !isReplayable {
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
@@ -462,7 +592,7 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,
 		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
-			pending, err := countHookSpoolRecordPaths()
+			pending, err := countHookSpoolPendingPaths(time.Now().UTC())
 			if err != nil {
 				return "", err
 			}

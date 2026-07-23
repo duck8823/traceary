@@ -98,6 +98,58 @@ func TestRunHookDurably_CommitsCurrentBeforeBacklogAndCancellation(t *testing.T)
 	}
 }
 
+func TestRunHookDurably_ConcurrentDrainCannotConsumeActiveCurrentRecord(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	activeStarted := make(chan struct{})
+	releaseActive := make(chan struct{})
+	activeDone := make(chan struct{})
+	go func() {
+		defer close(activeDone)
+		_ = root.runHookDurably(
+			context.Background(),
+			"prompt",
+			hookInvocationSpec{Command: "prompt", Client: "claude"},
+			strings.NewReader(`{"prompt":"active current","session_id":"s-active","cwd":"/tmp"}`),
+			func(io.Reader) error {
+				close(activeStarted)
+				<-releaseActive
+				return errors.New("active current failed")
+			},
+		)
+	}()
+	<-activeStarted
+
+	if err := root.runHookDurably(
+		context.Background(),
+		"prompt",
+		hookInvocationSpec{Command: "prompt", Client: "claude"},
+		strings.NewReader(`{"prompt":"concurrent success","session_id":"s-concurrent","cwd":"/tmp"}`),
+		func(io.Reader) error { return nil },
+	); err != nil {
+		t.Fatalf("concurrent runHookDurably() error = %v", err)
+	}
+	if eventStub.logCalls != 0 {
+		t.Fatalf("concurrent drain replayed active current record, calls=%d", eventStub.logCalls)
+	}
+	close(releaseActive)
+	<-activeDone
+
+	records, unreadable, err := scanHookSpoolRecords(nil)
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 ||
+		!strings.Contains(records[0].Payload, "active current") {
+		t.Fatalf("records=%#v unreadable=%#v, want failed active current", records, unreadable)
+	}
+}
+
 func TestRunHookDurably_RetainsSpoolAfterFailure(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
@@ -565,6 +617,42 @@ func TestDrainHookSpoolRecords_RequeuesFailureBehindUnattemptedRecord(t *testing
 	}
 	if len(unreadable) != 0 || len(remaining) != 1 || remaining[0].Command != "not-a-real-hook" {
 		t.Fatalf("remaining=%#v unreadable=%#v", remaining, unreadable)
+	}
+}
+
+func TestDrainHookSpoolRecords_RecoversStaleInflightRecord(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	path, err := persistCurrentHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{"prompt":"stale inflight","session_id":"s-stale","cwd":"/tmp"}`,
+		CreatedAt:     time.Now().UTC().Add(-2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persistCurrentHookSpoolRecord() error = %v", err)
+	}
+	staleAt := time.Now().Add(-2 * hookSpoolInflightStaleAge)
+	if err := os.Chtimes(path, staleAt, staleAt); err != nil {
+		t.Fatalf("Chtimes() error = %v", err)
+	}
+
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 1)
+	if replayed != 1 || failed != 0 || eventStub.logCalls != 1 {
+		t.Fatalf("drain=%d/%d logCalls=%d, want 1/0/1", replayed, failed, eventStub.logCalls)
+	}
+	remaining, err := countHookSpoolPendingPaths(time.Now().UTC())
+	if err != nil {
+		t.Fatalf("countHookSpoolPendingPaths() error = %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining=%d, want 0", remaining)
 	}
 }
 
