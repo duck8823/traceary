@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -39,14 +40,16 @@ func (f *geminiHeadlessUsageStreamFactory) New(destination io.Writer) applicatio
 }
 
 type geminiHeadlessUsageStream struct {
-	destination io.Writer
-	maxLine     int
-	buffer      []byte
-	sessionID   string
-	initModel   string
-	result      application.GeminiUsageLoadResult
-	parseErr    error
-	discardLine bool
+	destination    io.Writer
+	maxLine        int
+	buffer         []byte
+	sessionID      string
+	initModel      string
+	result         application.GeminiUsageLoadResult
+	parseErr       error
+	discardLine    bool
+	terminalSeen   bool
+	terminalDigest [sha256.Size]byte
 }
 
 func (s *geminiHeadlessUsageStream) Write(data []byte) (int, error) {
@@ -147,12 +150,15 @@ func (s *geminiHeadlessUsageStream) parseLine(line []byte) error {
 		s.sessionID = sessionID
 		s.initModel = modelName
 	case "result":
-		return s.parseResult(envelope)
+		return s.parseResult(envelope, sha256.Sum256(line))
 	}
 	return nil
 }
 
-func (s *geminiHeadlessUsageStream) parseResult(envelope geminiStreamEnvelope) error {
+func (s *geminiHeadlessUsageStream) parseResult(
+	envelope geminiStreamEnvelope,
+	digest [sha256.Size]byte,
+) error {
 	if s.sessionID == "" {
 		return xerrors.Errorf("Gemini headless result arrived before init identity")
 	}
@@ -160,12 +166,20 @@ func (s *geminiHeadlessUsageStream) parseResult(envelope geminiStreamEnvelope) e
 	if err != nil {
 		return err
 	}
-	if len(envelope.Stats) == 0 || string(envelope.Stats) == "null" {
-		return nil
-	}
 	observedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(envelope.Timestamp))
 	if err != nil {
 		return xerrors.Errorf("invalid Gemini headless result timestamp")
+	}
+	if s.terminalSeen {
+		if s.terminalDigest != digest {
+			return xerrors.Errorf("conflicting Gemini headless terminal results")
+		}
+		return nil
+	}
+	s.terminalSeen = true
+	s.terminalDigest = digest
+	if len(envelope.Stats) == 0 || string(envelope.Stats) == "null" {
+		return nil
 	}
 	var stats geminiStreamStats
 	if err := json.Unmarshal(envelope.Stats, &stats); err != nil {
@@ -195,7 +209,9 @@ func (s *geminiHeadlessUsageStream) parseResult(envelope geminiStreamEnvelope) e
 			if err := validateGeminiStreamCounters(counters); err != nil {
 				return err
 			}
-			sums.add(counters)
+			if err := sums.add(counters); err != nil {
+				return err
+			}
 			samples = append(samples, geminiUsageSample(
 				s.sessionID, modelName, observedAt.UTC(), terminal, counters,
 			))
@@ -206,12 +222,6 @@ func (s *geminiHeadlessUsageStream) parseResult(envelope geminiStreamEnvelope) e
 	}
 
 	next := application.GeminiUsageLoadResult{Samples: samples, BoundaryObserved: true}
-	if s.result.BoundaryObserved {
-		if !sameGeminiUsageResult(s.result, next) {
-			return xerrors.Errorf("conflicting Gemini headless terminal usage summaries")
-		}
-		return nil
-	}
 	s.result = next
 	return nil
 }
@@ -242,7 +252,8 @@ func validateGeminiStreamCounters(counters geminiStreamCounters) error {
 			return xerrors.Errorf("incomplete or negative Gemini headless terminal usage")
 		}
 	}
-	if *counters.Input+*counters.Cached != *counters.InputTokens {
+	inputBreakdown, ok := checkedGeminiCounterAdd(*counters.Input, *counters.Cached)
+	if !ok || inputBreakdown != *counters.InputTokens {
 		return xerrors.Errorf("Gemini headless input breakdown conflicts with input total")
 	}
 	return nil
@@ -276,12 +287,32 @@ type geminiCounterSums struct {
 	total, input, output, cached, uncached int64
 }
 
-func (s *geminiCounterSums) add(counters geminiStreamCounters) {
-	s.total += *counters.TotalTokens
-	s.input += *counters.InputTokens
-	s.output += *counters.OutputTokens
-	s.cached += *counters.Cached
-	s.uncached += *counters.Input
+func (s *geminiCounterSums) add(counters geminiStreamCounters) error {
+	values := []struct {
+		sum   *int64
+		value int64
+	}{
+		{sum: &s.total, value: *counters.TotalTokens},
+		{sum: &s.input, value: *counters.InputTokens},
+		{sum: &s.output, value: *counters.OutputTokens},
+		{sum: &s.cached, value: *counters.Cached},
+		{sum: &s.uncached, value: *counters.Input},
+	}
+	for _, item := range values {
+		next, ok := checkedGeminiCounterAdd(*item.sum, item.value)
+		if !ok {
+			return xerrors.Errorf("Gemini headless model totals overflow aggregate usage")
+		}
+		*item.sum = next
+	}
+	return nil
+}
+
+func checkedGeminiCounterAdd(left, right int64) (int64, bool) {
+	if left < 0 || right < 0 || right > math.MaxInt64-left {
+		return 0, false
+	}
+	return left + right, true
 }
 
 func (s geminiCounterSums) matches(counters geminiStreamCounters) bool {
@@ -290,24 +321,4 @@ func (s geminiCounterSums) matches(counters geminiStreamCounters) bool {
 		s.output == *counters.OutputTokens &&
 		s.cached == *counters.Cached &&
 		s.uncached == *counters.Input
-}
-
-func sameGeminiUsageResult(left, right application.GeminiUsageLoadResult) bool {
-	if left.BoundaryObserved != right.BoundaryObserved || len(left.Samples) != len(right.Samples) {
-		return false
-	}
-	for index := range left.Samples {
-		l, r := left.Samples[index], right.Samples[index]
-		if l.RecordID != r.RecordID || l.SourceName != r.SourceName ||
-			l.SourceVersion != r.SourceVersion || l.Model != r.Model ||
-			!l.ObservedAt.Equal(r.ObservedAt) || l.TerminalCode != r.TerminalCode ||
-			l.Available != r.Available ||
-			!sameOptionalInt64(l.Counters.InputTokens, r.Counters.InputTokens) ||
-			!sameOptionalInt64(l.Counters.CachedInputTokens, r.Counters.CachedInputTokens) ||
-			!sameOptionalInt64(l.Counters.OutputTokens, r.Counters.OutputTokens) ||
-			!sameOptionalInt64(l.Counters.TotalTokens, r.Counters.TotalTokens) {
-			return false
-		}
-	}
-	return true
 }

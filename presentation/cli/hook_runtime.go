@@ -321,12 +321,16 @@ func (c *RootCLI) runGeminiUsageHookDurably(ctx context.Context, input io.Reader
 	if sessionID == "" {
 		return nil
 	}
+	timestamp, ok := canonicalGeminiHookTimestamp(hookPayloadString(payload, "timestamp", ""))
+	if !ok {
+		return nil
+	}
 	minimal := struct {
 		SessionID string `json:"session_id"`
 		Timestamp string `json:"timestamp,omitempty"`
 	}{
 		SessionID: sessionID.String(),
-		Timestamp: strings.TrimSpace(hookPayloadString(payload, "timestamp", "")),
+		Timestamp: timestamp,
 	}
 	sanitized, err := json.Marshal(minimal)
 	if err != nil {
@@ -343,6 +347,19 @@ func (c *RootCLI) runGeminiUsageHookDurably(ctx context.Context, input io.Reader
 			return c.runHookUsage(ctx, replay, client, dbPath)
 		},
 	)
+}
+
+func canonicalGeminiHookTimestamp(value string) (string, bool) {
+	const maxTimestampBytes = 64
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || len(trimmed) > maxTimestampBytes || strings.ContainsAny(trimmed, "\r\n\x00") {
+		return "", false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, trimmed)
+	if err != nil {
+		return "", false
+	}
+	return parsed.UTC().Format(time.RFC3339Nano), true
 }
 
 func (c *RootCLI) runHookUsage(

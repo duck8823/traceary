@@ -110,6 +110,52 @@ func TestGeminiHeadlessUsageStream_DeduplicatesExactTerminalAndRejectsConflict(t
 	}
 }
 
+func TestGeminiHeadlessUsageStream_RejectsConflictingTerminalWithoutStats(t *testing.T) {
+	init := `{"type":"init","timestamp":"2026-07-23T01:00:00Z","session_id":"session-1","model":"model-1"}` + "\n"
+	noStatsError := `{"type":"result","timestamp":"2026-07-23T01:00:01Z","status":"error","error":{"message":"PRIVATE"}}` + "\n"
+	withStatsSuccess := `{"type":"result","timestamp":"2026-07-23T01:00:02Z","status":"success","stats":{"total_tokens":3,"input_tokens":2,"output_tokens":1,"cached":1,"input":1,"models":{}}}` + "\n"
+	noStatsSuccess := `{"type":"result","timestamp":"2026-07-23T01:00:03Z","status":"success"}` + "\n"
+
+	for name, terminalEvents := range map[string]string{
+		"error without stats then usage":   noStatsError + withStatsSuccess,
+		"success without stats then usage": noStatsSuccess + withStatsSuccess,
+		"different results without stats":  noStatsError + noStatsSuccess,
+	} {
+		t.Run(name, func(t *testing.T) {
+			stream := filesystem.NewGeminiHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+			if _, err := stream.Write([]byte(init + terminalEvents)); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			result, err := stream.Complete()
+			if err == nil || result.BoundaryObserved || len(result.Samples) != 0 {
+				t.Fatalf("Complete() = (%+v, %v)", result, err)
+			}
+		})
+	}
+
+	stream := filesystem.NewGeminiHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+	if _, err := stream.Write([]byte(init + noStatsError + noStatsError)); err != nil {
+		t.Fatalf("Write() exact duplicate error = %v", err)
+	}
+	result, err := stream.Complete()
+	if err != nil || result.BoundaryObserved || len(result.Samples) != 0 {
+		t.Fatalf("Complete() exact duplicate = (%+v, %v)", result, err)
+	}
+}
+
+func TestGeminiHeadlessUsageStream_RejectsModelCounterOverflow(t *testing.T) {
+	stream := filesystem.NewGeminiHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+	fixture := `{"type":"init","timestamp":"2026-07-23T01:00:00Z","session_id":"session-overflow","model":"model-1"}` + "\n" +
+		`{"type":"result","timestamp":"2026-07-23T01:00:01Z","status":"success","stats":{"total_tokens":1,"input_tokens":0,"output_tokens":0,"cached":0,"input":0,"models":{"model-1":{"total_tokens":9223372036854775807,"input_tokens":0,"output_tokens":0,"cached":0,"input":0},"model-2":{"total_tokens":9223372036854775807,"input_tokens":0,"output_tokens":0,"cached":0,"input":0},"model-3":{"total_tokens":3,"input_tokens":0,"output_tokens":0,"cached":0,"input":0}}}}` + "\n"
+	if _, err := stream.Write([]byte(fixture)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	result, err := stream.Complete()
+	if err == nil || result.BoundaryObserved || len(result.Samples) != 0 {
+		t.Fatalf("Complete() = (%+v, %v)", result, err)
+	}
+}
+
 func TestGeminiHeadlessUsageStream_DiscardsPartialTerminalAfterParseFailure(t *testing.T) {
 	valid := `{"type":"init","timestamp":"2026-07-23T01:00:00Z","session_id":"session-1","model":"model-1"}` + "\n" +
 		`{"type":"result","timestamp":"2026-07-23T01:00:01Z","status":"success","stats":{"total_tokens":3,"input_tokens":2,"output_tokens":1,"cached":1,"input":1,"duration_ms":1,"tool_calls":0,"models":{}}}` + "\n"

@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -253,6 +255,46 @@ func TestGeminiUsageHookSpool_IsBodyAndPathFreeAndReplayable(t *testing.T) {
 	replayed, failed := root.drainHookSpoolRecords(context.Background(), 5)
 	if replayed != 1 || failed != 0 || len(usage.inputs) != 2 {
 		t.Fatalf("replay = %d/%d calls=%d", replayed, failed, len(usage.inputs))
+	}
+}
+
+func TestGeminiUsageHookSpool_RejectsUntrustedTimestamp(t *testing.T) {
+	for name, timestamp := range map[string]string{
+		"missing":          "",
+		"prompt":           "private prompt",
+		"escaped newline":  "2026-07-23T01:00:00Z\nprivate prompt",
+		"oversized":        strings.Repeat("x", 65),
+		"invalid calendar": "2026-02-30T01:00:00Z",
+	} {
+		t.Run(name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			t.Setenv(hookStateDirEnvKey, stateDir)
+			usage := &spoolGeminiUsageStub{err: errors.New("database busy")}
+			root := NewRootCLI(
+				WithStoreManagement(&spoolStoreManagementStub{}),
+				WithGeminiUsage(usage),
+			)
+			payload, err := json.Marshal(map[string]string{
+				"session_id": "gemini-session",
+				"timestamp":  timestamp,
+				"prompt":     "private prompt",
+			})
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+			if err := root.runGeminiUsageHookDurably(
+				context.Background(), bytes.NewReader(payload), "gemini", "/tmp/traceary.db",
+			); err != nil {
+				t.Fatalf("runGeminiUsageHookDurably() error = %v", err)
+			}
+			records, unreadable, err := scanHookSpoolRecords([]string{"gemini"})
+			if err != nil {
+				t.Fatalf("scanHookSpoolRecords() error = %v", err)
+			}
+			if len(records) != 0 || len(unreadable) != 0 || len(usage.inputs) != 0 {
+				t.Fatalf("records=%#v unreadable=%#v calls=%d", records, unreadable, len(usage.inputs))
+			}
+		})
 	}
 }
 
