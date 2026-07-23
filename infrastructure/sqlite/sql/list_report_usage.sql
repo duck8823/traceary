@@ -24,7 +24,7 @@ SELECT observation.observation_id,
        COALESCE(observation.price_table_version, ''),
        COALESCE(attribution.run_host, ''),
        COALESCE(attribution.run_id, ''),
-       COALESCE(lineage.repository, session.workspace, ''),
+       COALESCE(lineage.repository, ''),
        COALESCE(lineage.ticket_ref, ''),
        lineage.pull_request_number,
        COALESCE(lineage.batch_id, ''),
@@ -43,8 +43,9 @@ SELECT observation.observation_id,
         observation.accounting != 'latest_snapshot'
         OR NOT EXISTS (
             SELECT 1
-              FROM usage_observations AS successor
+             FROM usage_observations AS successor
              WHERE successor.supersedes_id = observation.observation_id
+               AND successor.status = 'finalized'
         )
    )
    AND (? = '' OR session.workspace = ?)

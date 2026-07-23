@@ -52,6 +52,7 @@
 | superseded snapshot and excluded alternative | aggregate usage | only the current head is read and excluded evidence contributes no tokens | datasource/use case |
 | repeated observations for one run | aggregate run facts | packet/tool bytes contribute once | use case |
 | estimated and provider-reported cost | aggregate usage | origins remain separate | use case |
+| token, cost, or run-byte sum exceeds `int64` | aggregate usage | generation fails instead of wrapping | use case |
 | `--limit` and `--page-size` together | run CLI | command fails before querying | CLI |
 
 ### TDD plan
@@ -67,4 +68,4 @@
 - Procedural risk: duplicating interval, cap, or rate decisions in both adapters. Mitigation: one application criteria and snapshot type.
 - Premature abstraction risk: a generic reporting framework would exceed the issue. Only the report window and extent are shared.
 - Compatibility: `period.from` / `period.to` and complete-report numeric fields remain unchanged. Legacy `--limit` remains a deprecated hidden alias for page size.
-- Rollback trigger: CLI/MCP schema drift, percentages on partial data, or body hydration during aggregation. The change is additive and has no migration.
+- Rollback trigger: CLI/MCP schema drift, percentages on partial data, integer wraparound, or body hydration during aggregation. The change is additive and has no migration.

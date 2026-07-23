@@ -198,6 +198,9 @@ func TestReportDatasource_UsageSelectsCurrentSnapshotAndExposesCapAndFilters(t *
 			t.Fatalf("Record(%s) error = %v", observation.Descriptor().ObservationID(), err)
 		}
 	}
+	if _, err := usage.Record(ctx, observations[0]); err != nil {
+		t.Fatalf("Record(idempotent replay) error = %v", err)
+	}
 
 	cappedCriteria, err := apptypes.ReportCriteriaFrom(
 		"2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z", "UTC", time.Now().UTC(),

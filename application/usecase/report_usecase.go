@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,7 +40,7 @@ func (u *reportUsecase) Generate(ctx context.Context, criteria apptypes.ReportCr
 	if err := validateReportWindow(window); err != nil {
 		return apptypes.ReportSnapshot{}, err
 	}
-	return buildReportSnapshot(criteria, window), nil
+	return buildReportSnapshot(criteria, window)
 }
 
 func validateReportWindow(window apptypes.ReportWindow) error {
@@ -99,18 +100,26 @@ func validateReportWindow(window apptypes.ReportWindow) error {
 			}
 		} else if record.RunHost == "" {
 			return xerrors.Errorf("report usage row has incomplete run identity")
+		} else if record.Engine != record.RunHost {
+			return xerrors.Errorf("report usage row engine does not match run host")
 		}
 	}
 	return nil
 }
 
-func buildReportSnapshot(criteria apptypes.ReportCriteria, window apptypes.ReportWindow) apptypes.ReportSnapshot {
+func buildReportSnapshot(
+	criteria apptypes.ReportCriteria,
+	window apptypes.ReportWindow,
+) (apptypes.ReportSnapshot, error) {
 	interval := criteria.Interval()
 	sessions := summarizeReportSessions(window.Sessions)
 	coverage := summarizeReportCoverage(window.Events, window.Extents.Events.Coverage == apptypes.ReportCoverageComplete)
 	commandSummary := summarizeReportCommands(window.Commands)
 	commands := reportCommandOutputs(commandSummary, window.Extents.Commands.Coverage == apptypes.ReportCoverageComplete)
-	usage := summarizeReportUsage(window.Usage)
+	usage, err := summarizeReportUsage(window.Usage)
+	if err != nil {
+		return apptypes.ReportSnapshot{}, xerrors.Errorf("failed to aggregate report usage: %w", err)
+	}
 	loops := make([]apptypes.ReportFailureLoopOutput, 0, len(commandSummary.FailureLoops))
 	for _, loop := range commandSummary.FailureLoops {
 		loops = append(loops, apptypes.ReportFailureLoopOutput(loop))
@@ -148,7 +157,7 @@ func buildReportSnapshot(criteria apptypes.ReportCriteria, window apptypes.Repor
 		TopCommands: commands, FailureLoops: loops, Usage: usage,
 		EventScanCount: len(window.Events), SessionScanCount: len(window.Sessions),
 		UsageScanCount: len(window.Usage),
-	}
+	}, nil
 }
 
 type reportUsageKey struct {
@@ -176,7 +185,7 @@ type reportUsageRunAccumulator struct {
 	row apptypes.ReportUsageRunAggregateRow
 }
 
-func summarizeReportUsage(records []apptypes.ReportUsageRecord) apptypes.ReportUsageSnapshot {
+func summarizeReportUsage(records []apptypes.ReportUsageRecord) (apptypes.ReportUsageSnapshot, error) {
 	usageByKey := map[reportUsageKey]*reportUsageAccumulator{}
 	runsByKey := map[reportUsageRunKey]*reportUsageRunAccumulator{}
 	seenRuns := map[string]struct{}{}
@@ -201,9 +210,13 @@ func summarizeReportUsage(records []apptypes.ReportUsageRecord) apptypes.ReportU
 			}
 			usageByKey[key] = accumulator
 		}
-		accumulateReportUsageObservation(accumulator, record)
+		if err := accumulateReportUsageObservation(accumulator, record); err != nil {
+			return apptypes.ReportUsageSnapshot{}, xerrors.Errorf(
+				"failed to aggregate usage observation %q: %w", record.ObservationID, err,
+			)
+		}
 
-		if record.RunID == "" {
+		if record.RunID == "" || record.Accounting == domtypes.UsageAccountingExcluded {
 			continue
 		}
 		runIdentity := record.RunHost + "\x00" + record.RunID
@@ -225,7 +238,11 @@ func summarizeReportUsage(records []apptypes.ReportUsageRecord) apptypes.ReportU
 			}
 			runsByKey[runKey] = runAccumulator
 		}
-		accumulateReportUsageRun(runAccumulator, record)
+		if err := accumulateReportUsageRun(runAccumulator, record); err != nil {
+			return apptypes.ReportUsageSnapshot{}, xerrors.Errorf(
+				"failed to aggregate usage run %q/%q: %w", record.RunHost, record.RunID, err,
+			)
+		}
 	}
 
 	aggregates := make([]apptypes.ReportUsageAggregateRow, 0, len(usageByKey))
@@ -243,7 +260,7 @@ func summarizeReportUsage(records []apptypes.ReportUsageRecord) apptypes.ReportU
 	sort.Slice(runs, func(i, j int) bool {
 		return reportUsageRunOrder(runs[i]) < reportUsageRunOrder(runs[j])
 	})
-	return apptypes.ReportUsageSnapshot{Aggregates: aggregates, Runs: runs}
+	return apptypes.ReportUsageSnapshot{Aggregates: aggregates, Runs: runs}, nil
 }
 
 func newReportUsageKey(record apptypes.ReportUsageRecord) reportUsageKey {
@@ -259,7 +276,7 @@ func newReportUsageKey(record apptypes.ReportUsageRecord) reportUsageKey {
 
 func newReportUsageRunKey(record apptypes.ReportUsageRecord) reportUsageRunKey {
 	key := reportUsageRunKey{
-		engine: record.RunHost, repository: record.Repository,
+		engine: record.Engine, repository: record.Repository,
 		ticket: record.TicketRef, batch: record.BatchID,
 	}
 	if value, present := record.PullRequest.Value(); present {
@@ -271,24 +288,35 @@ func newReportUsageRunKey(record apptypes.ReportUsageRecord) reportUsageRunKey {
 func accumulateReportUsageObservation(
 	accumulator *reportUsageAccumulator,
 	record apptypes.ReportUsageRecord,
-) {
+) error {
 	row := &accumulator.row
 	row.Observations++
 	row.TerminalCodes[record.TerminalCode.String()]++
 	if record.Accounting == domtypes.UsageAccountingExcluded {
 		row.Excluded++
-		return
+		return nil
 	}
 	row.Accounted++
-	addReportUsageMetric(&row.InputTokens, record.Counters.Input())
-	addReportUsageMetric(&row.CachedInputTokens, record.Counters.CachedInput())
-	addReportUsageMetric(&row.CacheWriteTokens, record.Counters.CacheWriteInput())
-	addReportUsageMetric(&row.OutputTokens, record.Counters.Output())
-	addReportUsageMetric(&row.ReasoningTokens, record.Counters.ReasoningOutput())
-	addReportUsageMetric(&row.TotalTokens, record.Counters.Total())
+	metrics := []struct {
+		name   string
+		target *apptypes.ReportUsageMetric
+		value  domtypes.UsageValue
+	}{
+		{name: "input tokens", target: &row.InputTokens, value: record.Counters.Input()},
+		{name: "cached input tokens", target: &row.CachedInputTokens, value: record.Counters.CachedInput()},
+		{name: "cache-write input tokens", target: &row.CacheWriteTokens, value: record.Counters.CacheWriteInput()},
+		{name: "output tokens", target: &row.OutputTokens, value: record.Counters.Output()},
+		{name: "reasoning output tokens", target: &row.ReasoningTokens, value: record.Counters.ReasoningOutput()},
+		{name: "total tokens", target: &row.TotalTokens, value: record.Counters.Total()},
+	}
+	for _, metric := range metrics {
+		if err := addReportUsageMetric(metric.target, metric.value); err != nil {
+			return xerrors.Errorf("%s: %w", metric.name, err)
+		}
+	}
 	if record.Cost.State() == domtypes.UsageCostUnavailable {
 		row.CostUnavailable++
-		return
+		return nil
 	}
 	amount, _ := record.Cost.AmountMicros()
 	key := reportUsageCostKey{
@@ -303,36 +331,66 @@ func accumulateReportUsageObservation(
 		accumulator.costs[key] = cost
 	}
 	cost.Observations++
-	cost.AmountMicros += amount
+	total, err := checkedReportSum(cost.AmountMicros, amount)
+	if err != nil {
+		return xerrors.Errorf("cost amount: %w", err)
+	}
+	cost.AmountMicros = total
+	return nil
 }
 
-func addReportUsageMetric(metric *apptypes.ReportUsageMetric, value domtypes.UsageValue) {
+func addReportUsageMetric(metric *apptypes.ReportUsageMetric, value domtypes.UsageValue) error {
 	if numeric, present := value.Value(); present {
 		metric.KnownObservations++
-		metric.Sum += numeric
-		return
+		total, err := checkedReportSum(metric.Sum, numeric)
+		if err != nil {
+			return err
+		}
+		metric.Sum = total
+		return nil
 	}
 	metric.UnavailableObservations++
+	return nil
 }
 
 func accumulateReportUsageRun(
 	accumulator *reportUsageRunAccumulator,
 	record apptypes.ReportUsageRecord,
-) {
+) error {
 	row := &accumulator.row
 	row.Runs++
-	addReportUsageRunMetric(&row.PacketBytes, record.PacketBytes)
-	addReportUsageRunMetric(&row.ToolOutputBytes, record.ToolOutputBytes)
+	if err := addReportUsageRunMetric(&row.PacketBytes, record.PacketBytes); err != nil {
+		return xerrors.Errorf("packet bytes: %w", err)
+	}
+	if err := addReportUsageRunMetric(&row.ToolOutputBytes, record.ToolOutputBytes); err != nil {
+		return xerrors.Errorf("tool output bytes: %w", err)
+	}
 	row.WallTimeMS.UnavailableRuns++
+	return nil
 }
 
-func addReportUsageRunMetric(metric *apptypes.ReportUsageRunMetric, value domtypes.Optional[int64]) {
+func addReportUsageRunMetric(metric *apptypes.ReportUsageRunMetric, value domtypes.Optional[int64]) error {
 	if numeric, present := value.Value(); present {
 		metric.KnownRuns++
-		metric.Sum += numeric
-		return
+		total, err := checkedReportSum(metric.Sum, numeric)
+		if err != nil {
+			return err
+		}
+		metric.Sum = total
+		return nil
 	}
 	metric.UnavailableRuns++
+	return nil
+}
+
+func checkedReportSum(current, delta int64) (int64, error) {
+	if current < 0 || delta < 0 {
+		return 0, xerrors.New("report usage sum requires non-negative values")
+	}
+	if current > math.MaxInt64-delta {
+		return 0, xerrors.New("report usage sum overflows int64")
+	}
+	return current + delta, nil
 }
 
 func sortedReportUsageCosts(

@@ -52,6 +52,7 @@
 | superseded snapshot と加算対象外の代替証拠 | usage 集計 | 現在の head だけを読み、加算対象外の証拠は token に寄与しない | datasource/usecase |
 | 1 run に複数の観測 | run fact 集計 | packet/tool byte 数は 1 回だけ加算される | usecase |
 | estimated と provider reported の cost | usage 集計 | origin を分離したまま返す | usecase |
+| token、cost、run byte の合計が `int64` を超える | usage 集計 | 巻き戻らず生成を失敗させる | usecase |
 | `--limit` と `--page-size` を併用 | CLI 実行 | query 前に失敗 | CLI |
 
 ### TDD 計画
@@ -67,4 +68,4 @@
 - 手続き化リスク: CLI と MCP の双方に期間・上限・割合判断を複製すること。対策として application の条件と snapshot を 1 つにします。
 - 早すぎる抽象化: 汎用レポート基盤は本 Issue の範囲を超えます。report window と範囲情報だけを共有します。
 - 互換性: `period.from` / `period.to` と完全集計時の数値フィールドは維持します。旧 `--limit` はページサイズの非表示・非推奨 alias として残します。
-- ロールバック条件: CLI/MCP のスキーマ差、部分集計での割合表示、集計時の本文取得。変更は追加的で migration はありません。
+- ロールバック条件: CLI/MCP のスキーマ差、部分集計での割合表示、整数の巻き戻り、集計時の本文取得。変更は追加的で migration はありません。

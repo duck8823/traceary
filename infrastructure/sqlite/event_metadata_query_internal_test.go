@@ -18,6 +18,7 @@ func TestMetadataQueries_DoNotSelectBodyColumns(t *testing.T) {
 		"recent legacy hook": selectRecentEventMetadataBySourceHookWithLegacyQuery,
 		"search":             searchEventMetadataQuery,
 		"context":            getContextEventMetadataQuery,
+		"report usage":       listReportUsageQuery,
 	}
 	for name, query := range queries {
 		name, query := name, query
@@ -34,5 +35,13 @@ func TestMetadataQueries_DoNotSelectBodyColumns(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestReportUsageQuery_CurrentHeadRequiresFinalizedSuccessor(t *testing.T) {
+	t.Parallel()
+	normalized := strings.Join(strings.Fields(strings.ToLower(listReportUsageQuery)), " ")
+	if !strings.Contains(normalized, "successor.supersedes_id = observation.observation_id and successor.status = 'finalized'") {
+		t.Fatalf("report usage current-head predicate does not require a finalized successor: %s", normalized)
 	}
 }

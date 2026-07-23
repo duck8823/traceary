@@ -129,6 +129,21 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if !ok || aggregate["provider"] != "openai" || aggregate["role_availability"] != "unavailable" {
 			t.Fatalf("usage aggregate = %#v", aggregates[0])
 		}
+		inputTokens, ok := aggregate["input_tokens"].(map[string]any)
+		if !ok || inputTokens["sum"] != float64(100) || inputTokens["known_observations"] != float64(1) {
+			t.Fatalf("usage input tokens = %#v", aggregate["input_tokens"])
+		}
+		costs, ok := aggregate["costs"].([]any)
+		if !ok || len(costs) != 2 {
+			t.Fatalf("usage costs = %#v", aggregate["costs"])
+		}
+		firstCost, firstOK := costs[0].(map[string]any)
+		secondCost, secondOK := costs[1].(map[string]any)
+		if !firstOK || !secondOK ||
+			firstCost["origin"] != "estimated" ||
+			secondCost["origin"] != "provider_reported" {
+			t.Fatalf("usage cost origins = %#v", costs)
+		}
 	})
 
 	t.Run("get_report enforces page size boundaries before report execution", func(t *testing.T) {
@@ -1657,7 +1672,11 @@ func (s *mcpReportUsecaseStub) Generate(_ context.Context, criteria apptypes.Rep
 				RoleAvailability: "unavailable", Repository: "duck8823/traceary",
 				TicketRef: "#1449", PullRequest: &pullRequest,
 				RoundAvailability: "unavailable", Observations: 1, Accounted: 1,
-				InputTokens:   apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 100},
+				InputTokens: apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 100},
+				Costs: []apptypes.ReportUsageCostRow{
+					{Origin: "estimated", Currency: "USD", PriceTableVersion: "prices-v1", Observations: 1, AmountMicros: 25},
+					{Origin: "provider_reported", Currency: "USD", Observations: 1, AmountMicros: 30},
+				},
 				TerminalCodes: map[string]int{"success": 1},
 			}},
 			Runs: []apptypes.ReportUsageRunAggregateRow{},
