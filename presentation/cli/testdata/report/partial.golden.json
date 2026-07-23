@@ -45,6 +45,16 @@
         "truncation_reason": "result_cap",
         "observed_earliest_at": "2026-07-01T01:00:00Z",
         "observed_latest_at": "2026-07-01T01:00:00Z"
+      },
+      "usage": {
+        "coverage": "partial",
+        "observed_count": 1,
+        "page_size": 2,
+        "result_cap": 1,
+        "response_truncated": true,
+        "truncation_reason": "result_cap",
+        "observed_earliest_at": "2026-07-01T01:00:00Z",
+        "observed_latest_at": "2026-07-01T01:00:00Z"
       }
     }
   },
@@ -88,6 +98,87 @@
       "sample_event_id": "event-1"
     }
   ],
+  "usage": {
+    "aggregates": [
+      {
+        "provider": "openai",
+        "engine": "codex",
+        "model": "gpt-5.6-sol",
+        "role_availability": "unavailable",
+        "repository": "duck8823/traceary",
+        "ticket": "#1449",
+        "pull_request": 1490,
+        "batch": "release-v0.32",
+        "round_availability": "unavailable",
+        "observations": 2,
+        "accounted_observations": 1,
+        "excluded_observations": 1,
+        "input_tokens": {
+          "known_observations": 1,
+          "unavailable_observations": 0,
+          "sum": 100
+        },
+        "cached_input_tokens": {
+          "known_observations": 0,
+          "unavailable_observations": 0,
+          "sum": 0
+        },
+        "cache_write_input_tokens": {
+          "known_observations": 0,
+          "unavailable_observations": 0,
+          "sum": 0
+        },
+        "output_tokens": {
+          "known_observations": 1,
+          "unavailable_observations": 0,
+          "sum": 25
+        },
+        "reasoning_output_tokens": {
+          "known_observations": 0,
+          "unavailable_observations": 0,
+          "sum": 0
+        },
+        "total_tokens": {
+          "known_observations": 1,
+          "unavailable_observations": 0,
+          "sum": 125
+        },
+        "cost_unavailable_observations": 1,
+        "costs": [],
+        "terminal_classifications": {
+          "success": 2
+        }
+      }
+    ],
+    "runs": [
+      {
+        "engine": "codex",
+        "role_availability": "unavailable",
+        "repository": "duck8823/traceary",
+        "ticket": "#1449",
+        "pull_request": 1490,
+        "batch": "release-v0.32",
+        "round_availability": "unavailable",
+        "runs": 1,
+        "packet_bytes": {
+          "known_runs": 1,
+          "unavailable_runs": 0,
+          "sum": 2048
+        },
+        "tool_output_bytes": {
+          "known_runs": 1,
+          "unavailable_runs": 0,
+          "sum": 4096
+        },
+        "wall_time_ms": {
+          "known_runs": 0,
+          "unavailable_runs": 1,
+          "sum": 0
+        }
+      }
+    ]
+  },
   "event_scan_count": 1,
-  "session_scan_count": 1
+  "session_scan_count": 1,
+  "usage_scan_count": 1
 }

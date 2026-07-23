@@ -108,6 +108,29 @@ type ReportSessionRecord struct {
 	CommandCount int
 }
 
+// ReportUsageRecord is one body-free finalized usage projection loaded under
+// the report snapshot. Role, round, and wall time are intentionally absent
+// because the durable schema does not currently record them.
+type ReportUsageRecord struct {
+	ObservationID   string
+	ObservedAt      time.Time
+	Engine          string
+	Provider        string
+	Model           string
+	Accounting      domtypes.UsageAccounting
+	TerminalCode    domtypes.UsageTerminalCode
+	Counters        domtypes.UsageCounters
+	Cost            domtypes.UsageCost
+	RunHost         string
+	RunID           string
+	Repository      string
+	TicketRef       string
+	PullRequest     domtypes.Optional[int64]
+	BatchID         string
+	PacketBytes     domtypes.Optional[int64]
+	ToolOutputBytes domtypes.Optional[int64]
+}
+
 // ReportSourceExtent describes the returned portion of one aggregate source.
 // It mirrors response-truncation provenance: a partial source names the cap
 // that cut the response and the observed time range.
@@ -175,6 +198,7 @@ type ReportSourceExtents struct {
 	Sessions ReportSourceExtent `json:"sessions"`
 	Events   ReportSourceExtent `json:"events"`
 	Commands ReportSourceExtent `json:"commands"`
+	Usage    ReportSourceExtent `json:"usage"`
 }
 
 // ReportWindow is the raw, body-free snapshot returned by report storage.
@@ -182,6 +206,7 @@ type ReportWindow struct {
 	Sessions []ReportSessionRecord
 	Events   []EventMetadata
 	Commands []ReportCommandRecord
+	Usage    []ReportUsageRecord
 	Extents  ReportSourceExtents
 }
 
@@ -252,6 +277,85 @@ type ReportFailureLoopOutput struct {
 	SampleEventIDs []string `json:"sample_event_ids"`
 }
 
+// ReportUsageMetric aggregates one usage dimension without treating an
+// unavailable value as numeric zero.
+type ReportUsageMetric struct {
+	KnownObservations       int   `json:"known_observations"`
+	UnavailableObservations int   `json:"unavailable_observations"`
+	Sum                     int64 `json:"sum"`
+}
+
+// ReportUsageRunMetric aggregates immutable run facts exactly once per run.
+type ReportUsageRunMetric struct {
+	KnownRuns       int   `json:"known_runs"`
+	UnavailableRuns int   `json:"unavailable_runs"`
+	Sum             int64 `json:"sum"`
+}
+
+// ReportUsageCostRow keeps provider-reported and estimated amounts separate.
+type ReportUsageCostRow struct {
+	Origin            string `json:"origin" jsonschema:"provider_reported or estimated"`
+	Currency          string `json:"currency"`
+	PriceTableVersion string `json:"price_table_version,omitempty"`
+	Observations      int    `json:"observations"`
+	AmountMicros      int64  `json:"amount_micros"`
+}
+
+// ReportUsageAggregateRow is one comparable provider/run-attribution group.
+// Role and round remain explicitly unavailable until their authoritative
+// values are persisted.
+type ReportUsageAggregateRow struct {
+	Provider          string               `json:"provider,omitempty"`
+	Engine            string               `json:"engine"`
+	Model             string               `json:"model,omitempty"`
+	Role              string               `json:"role,omitempty"`
+	RoleAvailability  string               `json:"role_availability"`
+	Repository        string               `json:"repository,omitempty"`
+	TicketRef         string               `json:"ticket,omitempty"`
+	PullRequest       *int64               `json:"pull_request,omitempty"`
+	BatchID           string               `json:"batch,omitempty"`
+	Round             *int64               `json:"round,omitempty"`
+	RoundAvailability string               `json:"round_availability"`
+	Observations      int                  `json:"observations"`
+	Accounted         int                  `json:"accounted_observations"`
+	Excluded          int                  `json:"excluded_observations"`
+	InputTokens       ReportUsageMetric    `json:"input_tokens"`
+	CachedInputTokens ReportUsageMetric    `json:"cached_input_tokens"`
+	CacheWriteTokens  ReportUsageMetric    `json:"cache_write_input_tokens"`
+	OutputTokens      ReportUsageMetric    `json:"output_tokens"`
+	ReasoningTokens   ReportUsageMetric    `json:"reasoning_output_tokens"`
+	TotalTokens       ReportUsageMetric    `json:"total_tokens"`
+	CostUnavailable   int                  `json:"cost_unavailable_observations"`
+	Costs             []ReportUsageCostRow `json:"costs"`
+	TerminalCodes     map[string]int       `json:"terminal_classifications"`
+}
+
+// ReportUsageRunAggregateRow reports immutable run facts separately from
+// provider/model token groups so one run cannot multiply packet or tool bytes
+// when it carries multiple usage observations.
+type ReportUsageRunAggregateRow struct {
+	Engine            string               `json:"engine"`
+	Role              string               `json:"role,omitempty"`
+	RoleAvailability  string               `json:"role_availability"`
+	Repository        string               `json:"repository,omitempty"`
+	TicketRef         string               `json:"ticket,omitempty"`
+	PullRequest       *int64               `json:"pull_request,omitempty"`
+	BatchID           string               `json:"batch,omitempty"`
+	Round             *int64               `json:"round,omitempty"`
+	RoundAvailability string               `json:"round_availability"`
+	Runs              int                  `json:"runs"`
+	PacketBytes       ReportUsageRunMetric `json:"packet_bytes"`
+	ToolOutputBytes   ReportUsageRunMetric `json:"tool_output_bytes"`
+	WallTimeMS        ReportUsageRunMetric `json:"wall_time_ms"`
+}
+
+// ReportUsageSnapshot combines observation and run aggregates from the same
+// database snapshot.
+type ReportUsageSnapshot struct {
+	Aggregates []ReportUsageAggregateRow    `json:"aggregates"`
+	Runs       []ReportUsageRunAggregateRow `json:"runs"`
+}
+
 // ReportSnapshot is the shared CLI/MCP report response.
 type ReportSnapshot struct {
 	Period           ReportPeriod              `json:"period"`
@@ -263,6 +367,8 @@ type ReportSnapshot struct {
 	Failures         ReportFailures            `json:"failures"`
 	TopCommands      []ReportCommandOutput     `json:"top_commands"`
 	FailureLoops     []ReportFailureLoopOutput `json:"failure_loops,omitempty"`
+	Usage            ReportUsageSnapshot       `json:"usage"`
 	EventScanCount   int                       `json:"event_scan_count"`
 	SessionScanCount int                       `json:"session_scan_count"`
+	UsageScanCount   int                       `json:"usage_scan_count"`
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,7 +38,7 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "report",
-		Short: Localize("Period-scoped retrospective digest (sessions, coverage, failures, top commands)", "期間指定の振り返りダイジェスト（sessions / coverage / failures / top commands）"),
+		Short: Localize("Period-scoped retrospective digest (sessions, coverage, failures, commands, usage)", "期間指定の振り返りダイジェスト（sessions / coverage / failures / commands / usage）"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runReport(cmd.Context(), cmd.OutOrStdout(), reportCommandInput{
@@ -162,7 +163,7 @@ func writeReportText(output io.Writer, report apptypes.ReportSnapshot) error {
 	if report.ClientFilter != "" {
 		fmt.Fprintf(&b, "Client: %s\n", report.ClientFilter)
 	}
-	fmt.Fprintf(&b, "Scanned: %d sessions, %d events\n\n", report.SessionScanCount, report.EventScanCount)
+	fmt.Fprintf(&b, "Scanned: %d sessions, %d events, %d usage observations\n\n", report.SessionScanCount, report.EventScanCount, report.UsageScanCount)
 	b.WriteString("## sessions\n")
 	if len(report.Sessions) == 0 {
 		b.WriteString("(none)\n")
@@ -206,8 +207,101 @@ func writeReportText(output io.Writer, report apptypes.ReportSnapshot) error {
 		fmt.Fprintf(&b, "- %s: count=%d failed=%d rate=%s sample=%s\n",
 			row.Command, row.Count, row.FailedCount, rate, row.SampleEventID)
 	}
+	b.WriteString("\n## usage\n")
+	if len(report.Usage.Aggregates) == 0 {
+		b.WriteString("(none)\n")
+	}
+	for _, row := range report.Usage.Aggregates {
+		fmt.Fprintf(&b,
+			"- provider=%s engine=%s model=%s role=%s repo=%s ticket=%s pr=%s batch=%s round=%s observations=%d accounted=%d excluded=%d input_tokens=%s output_tokens=%s total_tokens=%s terminal=%s\n",
+			textValueOrUnavailable(row.Provider), row.Engine, textValueOrUnavailable(row.Model),
+			textAvailability(row.Role, row.RoleAvailability), textValueOrUnavailable(row.Repository),
+			textValueOrUnavailable(row.TicketRef), textOptionalInt64(row.PullRequest),
+			textValueOrUnavailable(row.BatchID), textOptionalAvailability(row.Round, row.RoundAvailability),
+			row.Observations, row.Accounted, row.Excluded,
+			textUsageMetric(row.InputTokens), textUsageMetric(row.OutputTokens),
+			textUsageMetric(row.TotalTokens), textCounts(row.TerminalCodes),
+		)
+		for _, cost := range row.Costs {
+			fmt.Fprintf(&b, "  cost: origin=%s currency=%s price_table=%s observations=%d amount_micros=%d\n",
+				cost.Origin, cost.Currency, textValueOrUnavailable(cost.PriceTableVersion),
+				cost.Observations, cost.AmountMicros)
+		}
+		if row.CostUnavailable > 0 {
+			fmt.Fprintf(&b, "  cost: unavailable_observations=%d\n", row.CostUnavailable)
+		}
+	}
+	b.WriteString("\n## usage_runs\n")
+	if len(report.Usage.Runs) == 0 {
+		b.WriteString("(none)\n")
+	}
+	for _, row := range report.Usage.Runs {
+		fmt.Fprintf(&b,
+			"- engine=%s role=%s repo=%s ticket=%s pr=%s batch=%s round=%s runs=%d packet_bytes=%s tool_output_bytes=%s wall_time_ms=%s\n",
+			row.Engine, textAvailability(row.Role, row.RoleAvailability),
+			textValueOrUnavailable(row.Repository), textValueOrUnavailable(row.TicketRef),
+			textOptionalInt64(row.PullRequest), textValueOrUnavailable(row.BatchID),
+			textOptionalAvailability(row.Round, row.RoundAvailability), row.Runs,
+			textUsageRunMetric(row.PacketBytes), textUsageRunMetric(row.ToolOutputBytes),
+			textUsageRunMetric(row.WallTimeMS),
+		)
+	}
 	if _, err := io.WriteString(output, b.String()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to write report text", "report テキストの書き出しに失敗しました"), err)
 	}
 	return nil
+}
+
+func textValueOrUnavailable(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "unavailable"
+	}
+	return value
+}
+
+func textAvailability(value, availability string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return textValueOrUnavailable(availability)
+}
+
+func textOptionalInt64(value *int64) string {
+	if value == nil {
+		return "unavailable"
+	}
+	return fmt.Sprintf("%d", *value)
+}
+
+func textOptionalAvailability(value *int64, availability string) string {
+	if value != nil {
+		return fmt.Sprintf("%d", *value)
+	}
+	return textValueOrUnavailable(availability)
+}
+
+func textUsageMetric(metric apptypes.ReportUsageMetric) string {
+	return fmt.Sprintf("%d(known=%d unavailable=%d)",
+		metric.Sum, metric.KnownObservations, metric.UnavailableObservations)
+}
+
+func textUsageRunMetric(metric apptypes.ReportUsageRunMetric) string {
+	return fmt.Sprintf("%d(known=%d unavailable=%d)",
+		metric.Sum, metric.KnownRuns, metric.UnavailableRuns)
+}
+
+func textCounts(counts map[string]int) string {
+	if len(counts) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	values := make([]string, 0, len(keys))
+	for _, key := range keys {
+		values = append(values, fmt.Sprintf("%s:%d", key, counts[key]))
+	}
+	return strings.Join(values, ",")
 }

@@ -18,6 +18,9 @@ import (
 //go:embed sql/list_report_sessions.sql
 var listReportSessionsQuery string
 
+//go:embed sql/list_report_usage.sql
+var listReportUsageQuery string
+
 var _ queryservice.ReportQueryService = (*ReportDatasource)(nil)
 
 // ReportDatasource loads all report projections through one SQLite snapshot.
@@ -87,15 +90,29 @@ func (d *ReportDatasource) LoadReportWindow(ctx context.Context, criteria apptyp
 	if err != nil {
 		return apptypes.ReportWindow{}, xerrors.Errorf("failed to load report commands: %w", err)
 	}
+	usage, usageTruncated, err := loadCappedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit, offset int) ([]apptypes.ReportUsageRecord, error) {
+		return queryReportUsagePage(ctx, tx, criteria, limit, offset)
+	})
+	if err != nil {
+		return apptypes.ReportWindow{}, xerrors.Errorf("failed to load report usage: %w", err)
+	}
 
-	extents, err := buildReportSourceExtents(criteria, sessions, sessionsTruncated, events, eventsTruncated, commands, commandsTruncated)
+	extents, err := buildReportSourceExtents(
+		criteria,
+		sessions, sessionsTruncated,
+		events, eventsTruncated,
+		commands, commandsTruncated,
+		usage, usageTruncated,
+	)
 	if err != nil {
 		return apptypes.ReportWindow{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return apptypes.ReportWindow{}, xerrors.Errorf("failed to commit report transaction: %w", err)
 	}
-	return apptypes.ReportWindow{Sessions: sessions, Events: events, Commands: commands, Extents: extents}, nil
+	return apptypes.ReportWindow{
+		Sessions: sessions, Events: events, Commands: commands, Usage: usage, Extents: extents,
+	}, nil
 }
 
 func loadCappedReportRows[T any](pageSize, resultCap int, loadPage func(limit, offset int) ([]T, error)) ([]T, bool, error) {
@@ -203,6 +220,126 @@ func queryReportCommandPage(ctx context.Context, tx *sql.Tx, criteria apptypes.R
 	return result, nil
 }
 
+func queryReportUsagePage(
+	ctx context.Context,
+	tx *sql.Tx,
+	criteria apptypes.ReportCriteria,
+	limit, offset int,
+) ([]apptypes.ReportUsageRecord, error) {
+	from := formatOptionalTimestamp(criteria.Interval().EffectiveFromInclusive())
+	to := formatOptionalTimestamp(criteria.Interval().EffectiveToExclusive())
+	rows, err := tx.QueryContext(
+		ctx, listReportUsageQuery,
+		criteria.Workspace().String(), criteria.Workspace().String(),
+		criteria.Client().String(), criteria.Client().String(),
+		from, from, to, to, limit, offset,
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query report usage page: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close report usage rows", "error", err)
+		}
+	}()
+	result := make([]apptypes.ReportUsageRecord, 0, limit)
+	for rows.Next() {
+		record, err := scanReportUsageRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate report usage rows: %w", err)
+	}
+	return result, nil
+}
+
+func scanReportUsageRecord(scanner interface{ Scan(...any) error }) (apptypes.ReportUsageRecord, error) {
+	var (
+		record                                                apptypes.ReportUsageRecord
+		observedAtValue, accountingValue, terminalCodeValue   string
+		inputState, cachedState, cacheWriteState, outputState string
+		reasoningState, totalState, costState, costOrigin     string
+		input, cached, cacheWrite, output, reasoning, total   sql.NullInt64
+		costAmount, pullRequest, packetBytes, toolOutputBytes sql.NullInt64
+		costCurrency, priceTableVersion                       string
+	)
+	if err := scanner.Scan(
+		&record.ObservationID,
+		&observedAtValue,
+		&record.Engine,
+		&record.Provider,
+		&record.Model,
+		&accountingValue,
+		&terminalCodeValue,
+		&inputState, &input,
+		&cachedState, &cached,
+		&cacheWriteState, &cacheWrite,
+		&outputState, &output,
+		&reasoningState, &reasoning,
+		&totalState, &total,
+		&costState, &costAmount, &costCurrency, &costOrigin, &priceTableVersion,
+		&record.RunHost, &record.RunID, &record.Repository, &record.TicketRef,
+		&pullRequest, &record.BatchID, &packetBytes, &toolOutputBytes,
+	); err != nil {
+		return apptypes.ReportUsageRecord{}, xerrors.Errorf("failed to scan report usage row: %w", err)
+	}
+	observedAt, err := time.Parse(time.RFC3339Nano, observedAtValue)
+	if err != nil {
+		return apptypes.ReportUsageRecord{}, xerrors.Errorf("failed to restore report usage timestamp: %w", err)
+	}
+	accounting, err := types.UsageAccountingFrom(accountingValue)
+	if err != nil {
+		return apptypes.ReportUsageRecord{}, xerrors.Errorf("failed to restore report usage accounting: %w", err)
+	}
+	terminalCode, err := types.UsageTerminalCodeFrom(terminalCodeValue)
+	if err != nil {
+		return apptypes.ReportUsageRecord{}, xerrors.Errorf("failed to restore report usage terminal code: %w", err)
+	}
+	rawValues := []struct {
+		state string
+		value sql.NullInt64
+	}{
+		{state: inputState, value: input},
+		{state: cachedState, value: cached},
+		{state: cacheWriteState, value: cacheWrite},
+		{state: outputState, value: output},
+		{state: reasoningState, value: reasoning},
+		{state: totalState, value: total},
+	}
+	values := make([]types.UsageValue, 0, len(rawValues))
+	for _, raw := range rawValues {
+		value, err := types.UsageValueFrom(raw.state, optionalInt64(raw.value))
+		if err != nil {
+			return apptypes.ReportUsageRecord{}, xerrors.Errorf("failed to restore report usage value: %w", err)
+		}
+		values = append(values, value)
+	}
+	counters, err := types.UsageCountersOf(
+		values[0], values[1], values[2], values[3], values[4], values[5],
+	)
+	if err != nil {
+		return apptypes.ReportUsageRecord{}, xerrors.Errorf("failed to restore report usage counters: %w", err)
+	}
+	cost, err := types.UsageCostFrom(
+		costState, optionalInt64(costAmount), costCurrency, costOrigin, priceTableVersion,
+	)
+	if err != nil {
+		return apptypes.ReportUsageRecord{}, xerrors.Errorf("failed to restore report usage cost: %w", err)
+	}
+	record.ObservedAt = observedAt
+	record.Accounting = accounting
+	record.TerminalCode = terminalCode
+	record.Counters = counters
+	record.Cost = cost
+	record.PullRequest = optionalInt64(pullRequest)
+	record.PacketBytes = optionalInt64(packetBytes)
+	record.ToolOutputBytes = optionalInt64(toolOutputBytes)
+	return record, nil
+}
+
 func reportEventCriteria(criteria apptypes.ReportCriteria) apptypes.EventListCriteria {
 	return apptypes.NewEventListCriteriaBuilder(criteria.PageSize()).
 		Workspace(criteria.Workspace()).
@@ -220,6 +357,8 @@ func buildReportSourceExtents(
 	eventsTruncated bool,
 	commands []apptypes.ReportCommandRecord,
 	commandsTruncated bool,
+	usage []apptypes.ReportUsageRecord,
+	usageTruncated bool,
 ) (apptypes.ReportSourceExtents, error) {
 	sessionTimes := make([]time.Time, 0, len(sessions))
 	for _, session := range sessions {
@@ -233,6 +372,10 @@ func buildReportSourceExtents(
 	for _, command := range commands {
 		commandTimes = append(commandTimes, command.CreatedAt)
 	}
+	usageTimes := make([]time.Time, 0, len(usage))
+	for _, observation := range usage {
+		usageTimes = append(usageTimes, observation.ObservedAt)
+	}
 	sessionExtent, err := apptypes.ReportSourceExtentOf(sessionTimes, criteria.PageSize(), criteria.ResultCap(), sessionsTruncated)
 	if err != nil {
 		return apptypes.ReportSourceExtents{}, xerrors.Errorf("failed to build report session extent: %w", err)
@@ -245,5 +388,13 @@ func buildReportSourceExtents(
 	if err != nil {
 		return apptypes.ReportSourceExtents{}, xerrors.Errorf("failed to build report command extent: %w", err)
 	}
-	return apptypes.ReportSourceExtents{Sessions: sessionExtent, Events: eventExtent, Commands: commandExtent}, nil
+	usageExtent, err := apptypes.ReportSourceExtentOf(
+		usageTimes, criteria.PageSize(), criteria.ResultCap(), usageTruncated,
+	)
+	if err != nil {
+		return apptypes.ReportSourceExtents{}, xerrors.Errorf("failed to build report usage extent: %w", err)
+	}
+	return apptypes.ReportSourceExtents{
+		Sessions: sessionExtent, Events: eventExtent, Commands: commandExtent, Usage: usageExtent,
+	}, nil
 }

@@ -19,13 +19,13 @@ Traceary exposes 9 MCP tools, enforced by a golden snapshot (`presentation/mcpse
 | `list_events` | event listing; bodies are truncated by default to 500 runes; use `projection=metadata` to omit body fields, `body_limit=0` / `full_body=true` for the full stored body | read |
 | `search` | literal-text event search with the same `metadata` / bounded / full projection controls as `list_events` | read |
 | `get_context` | recent-context read with the same `metadata` / bounded / full projection controls as `list_events` | read |
-| `get_report` | body-free session/event/command aggregate with complete/partial source provenance | read |
+| `get_report` | body-free session/event/command/usage aggregate with complete/partial source provenance | read |
 
 `manage_memory.ids` accepts either a single string or an array of strings for accept/reject flows. `record_event` returns one uniform shape for both `type="log"` and `type="audit"`.
 
 `list_events` and `search` accept an explicit `timezone` for date-only `from` / `to` values (default: UTC). Date-only `to` includes the requested calendar day; RFC3339 `to` is an exact exclusive instant. Both tools return an additive `interval` object with requested bounds, effective half-open UTC bounds, timezone, and the single request snapshot used when `to` is omitted.
 
-`get_report` shares the CLI `traceary report --json` response schema. Its `page_size` accepts 1 through 100,000 and changes only internal body-free SQLite paging; full aggregation remains the default. A positive `result_cap` explicitly requests a per-source partial aggregate. Partial output includes observed counts/ranges and `truncation_reason=result_cap`, and omits percentages whose denominator is incomplete.
+`get_report` shares the CLI `traceary report --json` response schema, including usage and deduplicated run-fact aggregates. Its `page_size` accepts 1 through 100,000 and changes only internal body-free SQLite paging; full aggregation remains the default. A positive `result_cap` explicitly requests a per-source partial aggregate. Partial output includes observed counts/ranges and `truncation_reason=result_cap`, and omits percentages whose denominator is incomplete. Usage values preserve known/unavailable counts, excluded accounting evidence, and separate provider-reported versus estimated cost origins.
 
 `session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` using the same node array shape as `traceary session tree --json`; `depth` is optional and `0` returns only the root.
 

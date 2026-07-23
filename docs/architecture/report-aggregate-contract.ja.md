@@ -10,6 +10,7 @@
 - DB 内部のページサイズと、呼び出し側が指定する結果上限は別の概念です。
 - CLI と MCP は、同じ期間・フィルター・ページサイズ・結果上限に対して同じ集計スキーマを返します。
 - レポート走査は本文を取得せず、観測範囲と切り詰めの発生元を返します。
+- 確定済み usage は現在の snapshot head だけを選び、加算対象外の証拠を合計せず可視化し、estimated cost と provider reported cost を分離します。
 - 既定は全件集計です。正の結果上限を指定した場合だけ、明示的な部分集計になります。
 
 ### 概念モデル
@@ -17,17 +18,18 @@
 | 概念 | 状態 | 振る舞い | 不変条件 |
 |---|---|---|---|
 | レポート条件 | 期間、workspace、client、ページサイズ、結果上限 | 1 つの要求を検証して解決する | ページサイズは正、上限は 0（無制限）または正 |
-| 取得範囲 | 本文を含まない session/event/command 行 | 全件または上限に確認用 1 件を加えた数まで読む | 全データ源で同じ実効期間とフィルターを使う |
+| 取得範囲 | 本文を含まない session/event/command/usage 行 | 全件または上限に確認用 1 件を加えた数まで読む | 全データ源で同じ実効期間とフィルターを使う |
 | 結果の範囲情報 | 完全性、観測件数・期間、ページサイズ、上限、切り詰め理由 | 完全と部分を区別する | `partial` には `result_cap` の切り詰め証拠が必要 |
 | レポートスナップショット | 集計値とデータ源別の範囲情報 | 分母が部分的な割合を出さない | CLI と MCP が同じ read model を直列化する |
+| Usage 集計 | 現在有効な確定済み観測と不変の run fact | token/cost を集計し、run ごとに byte 数を重複排除する | 加算対象外の証拠は合計せず、取得不能を 0 と扱わない |
 
 ### 責務の割り当て
 
 | 責務 | 所有者 | 所有しない層 |
 |---|---|---|
 | 要求検証と既定 7 日間の解決 | application のレポート条件 | CLI/MCP adapter |
-| 1 つの read snapshot、本文なし、上限付き走査 | SQLite レポート query adapter | usecase と presentation |
-| 集計と完全な分母だけで割合を出す規則 | report usecase | SQL と output writer |
+| 1 つの read snapshot、本文なし、上限付き走査、現在の usage snapshot 選択 | SQLite レポート query adapter | usecase と presentation |
+| 集計、usage accounting、run 重複排除、完全な分母だけで割合を出す規則 | report usecase | SQL と output writer |
 | flag/tool input、文言、テキスト表示 | CLI/MCP presentation | application core |
 
 ### 境界とインターフェース
@@ -47,6 +49,10 @@
 | 結果上限なし | レポート生成 | `complete`、割合あり | usecase/integration |
 | CLI と MCP に同じ入力 | レポート直列化 | JSON を復号した値が一致 | presentation integration |
 | 大きな保存本文がある | レポート集計 | SQL projection が本文列を選ばない | datasource/integration |
+| superseded snapshot と加算対象外の代替証拠 | usage 集計 | 現在の head だけを読み、加算対象外の証拠は token に寄与しない | datasource/usecase |
+| 1 run に複数の観測 | run fact 集計 | packet/tool byte 数は 1 回だけ加算される | usecase |
+| estimated と provider reported の cost | usage 集計 | origin を分離したまま返す | usecase |
+| token、cost、run byte の合計が `int64` を超える | usage 集計 | 巻き戻らず生成を失敗させる | usecase |
 | `--limit` と `--page-size` を併用 | CLI 実行 | query 前に失敗 | CLI |
 
 ### TDD 計画
@@ -62,4 +68,4 @@
 - 手続き化リスク: CLI と MCP の双方に期間・上限・割合判断を複製すること。対策として application の条件と snapshot を 1 つにします。
 - 早すぎる抽象化: 汎用レポート基盤は本 Issue の範囲を超えます。report window と範囲情報だけを共有します。
 - 互換性: `period.from` / `period.to` と完全集計時の数値フィールドは維持します。旧 `--limit` はページサイズの非表示・非推奨 alias として残します。
-- ロールバック条件: CLI/MCP のスキーマ差、部分集計での割合表示、集計時の本文取得。変更は追加的で migration はありません。
+- ロールバック条件: CLI/MCP のスキーマ差、部分集計での割合表示、整数の巻き戻り、集計時の本文取得。変更は追加的で migration はありません。

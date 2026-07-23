@@ -59,7 +59,7 @@ func TestServer_ToolMetadata(t *testing.T) {
 		{name: "list_events", want: toolMetadataExpectation{description: "List recent events, logs, audits, prompts, transcripts, and summaries.", readOnly: true}},
 		{name: "search", want: toolMetadataExpectation{description: "Search events by literal text/time/workspace; boolean OR is not parsed as any-match syntax.", readOnly: true}},
 		{name: "get_context", want: toolMetadataExpectation{description: "Get recent context events, logs, audits, prompts, transcripts, and summaries for a session or workspace.", readOnly: true}},
-		{name: "get_report", want: toolMetadataExpectation{description: "Aggregate sessions, capture coverage, failures, and commands with explicit complete/partial provenance.", readOnly: true}},
+		{name: "get_report", want: toolMetadataExpectation{description: "Aggregate sessions, capture, failures, commands, usage, and run facts with complete/partial provenance.", readOnly: true}},
 	}
 	if diff := cmp.Diff(9, len(listResult.Tools)); diff != "" {
 		t.Fatalf("registered tool count mismatch (-want +got):\n%s", diff)
