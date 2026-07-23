@@ -142,8 +142,35 @@ func TestClaudeUsageCaptureUsecase_RecordsStableUnavailableBoundary(t *testing.T
 	}
 	for _, observation := range repository.observations {
 		if observation.Descriptor().Accounting() != types.UsageAccountingExcluded ||
+			observation.Descriptor().Scope() != types.UsageScopeCall ||
 			observation.Counters().Availability() != types.UsageAvailabilityUnavailable {
 			t.Fatalf("unavailable observation = %+v", observation)
+		}
+	}
+}
+
+func TestClaudeUsageCaptureUsecase_RecordsOneShotUnavailableBoundaryAtRunScope(t *testing.T) {
+	t.Parallel()
+	repository := &codexUsageRepositoryFake{}
+	sut := usecase.NewClaudeUsageCaptureUsecase(claudeUsageSourceStub{}, repository)
+	result, err := sut.CaptureHeadless(
+		context.Background(),
+		usecase.ClaudeUsageCaptureInput{
+			SessionID: "session-1", DeliveryID: "session_run",
+			FallbackSourceName: "one_shot_stream", FallbackTerminal: types.UsageTerminalAbortedStream,
+		},
+		application.ClaudeUsageLoadResult{Mode: application.ClaudeUsageModeOneShotStream},
+	)
+	if err != nil {
+		t.Fatalf("CaptureHeadless() error = %v", err)
+	}
+	if result.Applied != 1 || result.Unavailable != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	for _, observation := range repository.observations {
+		if observation.Descriptor().Scope() != types.UsageScopeRun ||
+			observation.Descriptor().Accounting() != types.UsageAccountingExcluded {
+			t.Fatalf("one-shot fallback = %+v", observation)
 		}
 	}
 }

@@ -74,6 +74,8 @@ func TestIsClaudeHeadlessUsageCommand_RequiresPrintAndJSONOutput(t *testing.T) {
 		{name: "single JSON", command: []string{"/usr/local/bin/claude", "--print", "--output-format=json"}, want: true},
 		{name: "plain print", command: []string{"claude", "-p"}, want: false},
 		{name: "interactive JSON option", command: []string{"claude", "--output-format", "json"}, want: false},
+		{name: "prompt option after separator", command: []string{"claude", "-p", "--", "--output-format=json"}, want: false},
+		{name: "JSON option before separator", command: []string{"claude", "-p", "--output-format=json", "--", "prompt"}, want: true},
 		{name: "other host", command: []string{"codex", "-p", "--output-format", "stream-json"}, want: false},
 	}
 	for _, test := range tests {

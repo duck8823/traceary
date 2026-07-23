@@ -101,7 +101,7 @@ func (s *claudeHeadlessUsageStream) Complete() (application.ClaudeUsageLoadResul
 	}
 	s.buffer = nil
 	if s.parseErr != nil {
-		return application.ClaudeUsageLoadResult{}, s.parseErr
+		return s.result, s.parseErr
 	}
 	return s.result, nil
 }
@@ -127,6 +127,7 @@ func (s *claudeHeadlessUsageStream) parseLine(line []byte) error {
 	}
 	sample.ObservedAt = s.now().UTC()
 	if len(s.result.Samples) > 0 {
+		sample.ObservedAt = s.result.Samples[0].ObservedAt
 		if !sameClaudeUsageSample(s.result.Samples[0], sample) {
 			return xerrors.Errorf("conflicting Claude headless terminal usage summaries")
 		}

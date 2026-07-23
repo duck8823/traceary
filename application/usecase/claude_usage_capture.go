@@ -107,7 +107,7 @@ func (u *claudeUsageCaptureUsecase) captureLoaded(
 	if loaded.BoundaryObserved || strings.TrimSpace(input.DeliveryID) == "" {
 		return result, nil
 	}
-	if err := u.recordUnavailableBoundary(ctx, input, &result); err != nil {
+	if err := u.recordUnavailableBoundary(ctx, input, loaded.Mode, &result); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -145,6 +145,7 @@ func claudeUsageAccounting(
 func (u *claudeUsageCaptureUsecase) recordUnavailableBoundary(
 	ctx context.Context,
 	input ClaudeUsageCaptureInput,
+	mode application.ClaudeUsageCaptureMode,
 	result *ClaudeUsageCaptureResult,
 ) error {
 	sourceName := strings.TrimSpace(input.FallbackSourceName)
@@ -165,9 +166,13 @@ func (u *claudeUsageCaptureUsecase) recordUnavailableBoundary(
 	if err != nil {
 		return xerrors.Errorf("invalid Claude unavailable source: %w", err)
 	}
+	scope := types.UsageScopeCall
+	if mode == application.ClaudeUsageModeOneShotStream {
+		scope = types.UsageScopeRun
+	}
 	now := time.Unix(0, 0).UTC()
 	descriptor, err := model.NewUsageObservationDescriptor(
-		id, input.SessionID, source, types.UsageScopeCall, types.UsageAccountingExcluded, now,
+		id, input.SessionID, source, scope, types.UsageAccountingExcluded, now,
 	)
 	if err != nil {
 		return xerrors.Errorf("invalid Claude unavailable descriptor: %w", err)

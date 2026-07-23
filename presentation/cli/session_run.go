@@ -127,26 +127,38 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 		loaded, collectErr := headlessUsage.Complete()
 		_, captureErr := c.codexUsage.CaptureHeadless(finalizeCtx, usecase.CodexUsageCaptureInput{
 			SessionID: startEvent.SessionID(), DeliveryID: "session_run",
-			FallbackSourceName: "headless_stream", FallbackTerminal: codexUsageTerminal(reason),
+			FallbackSourceName: "headless_stream", FallbackTerminal: usageTerminalFromReason(reason),
 		}, loaded)
 		if collectErr != nil {
-			usageErr = xerrors.Errorf("failed to decode body-free Codex headless usage: %w", collectErr)
+			usageErr = errors.Join(
+				usageErr,
+				xerrors.Errorf("failed to decode body-free Codex headless usage: %w", collectErr),
+			)
 		}
 		if captureErr != nil {
-			usageErr = xerrors.Errorf("failed to record Codex headless usage: %w", captureErr)
+			usageErr = errors.Join(
+				usageErr,
+				xerrors.Errorf("failed to record Codex headless usage: %w", captureErr),
+			)
 		}
 	}
 	if claudeHeadlessUsage != nil {
 		loaded, collectErr := claudeHeadlessUsage.Complete()
 		_, captureErr := c.claudeUsage.CaptureHeadless(finalizeCtx, usecase.ClaudeUsageCaptureInput{
 			SessionID: startEvent.SessionID(), DeliveryID: "session_run",
-			FallbackSourceName: "one_shot_stream", FallbackTerminal: codexUsageTerminal(reason),
+			FallbackSourceName: "one_shot_stream", FallbackTerminal: usageTerminalFromReason(reason),
 		}, loaded)
 		if collectErr != nil {
-			usageErr = xerrors.Errorf("failed to decode body-free Claude headless usage: %w", collectErr)
+			usageErr = errors.Join(
+				usageErr,
+				xerrors.Errorf("failed to decode body-free Claude headless usage: %w", collectErr),
+			)
 		}
 		if captureErr != nil {
-			usageErr = xerrors.Errorf("failed to record Claude headless usage: %w", captureErr)
+			usageErr = errors.Join(
+				usageErr,
+				xerrors.Errorf("failed to record Claude headless usage: %w", captureErr),
+			)
 		}
 	}
 	if _, _, finalizeErr := c.session.FinalizeOneShot(finalizeCtx, client, agent, startEvent.SessionID(), workspace, reason, summary); finalizeErr != nil {
@@ -247,8 +259,11 @@ func isClaudeHeadlessUsageCommand(command []string) bool {
 	}
 	printMode := false
 	jsonMode := false
+optionLoop:
 	for index := 1; index < len(command); index++ {
 		switch command[index] {
+		case "--":
+			break optionLoop
 		case "-p", "--print":
 			printMode = true
 		case "--output-format":
@@ -256,6 +271,7 @@ func isClaudeHeadlessUsageCommand(command []string) bool {
 				(command[index+1] == "json" || command[index+1] == "stream-json") {
 				jsonMode = true
 			}
+			index++
 		case "--output-format=json", "--output-format=stream-json":
 			jsonMode = true
 		}
@@ -263,7 +279,7 @@ func isClaudeHeadlessUsageCommand(command []string) bool {
 	return printMode && jsonMode
 }
 
-func codexUsageTerminal(reason types.TerminalReason) types.UsageTerminalCode {
+func usageTerminalFromReason(reason types.TerminalReason) types.UsageTerminalCode {
 	switch reason {
 	case types.TerminalReasonSuccess:
 		return types.UsageTerminalSuccess

@@ -59,14 +59,48 @@ func TestClaudeHeadlessUsageStream_MissingTerminalUsageRemainsUnavailable(t *tes
 	}
 }
 
+func TestClaudeHeadlessUsageStream_DeduplicatesIdenticalTerminalRows(t *testing.T) {
+	stream := filesystem.NewClaudeHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+	row := `{"type":"result","subtype":"success","session_id":"claude-session-1","usage":{"input_tokens":2,"output_tokens":1}}` + "\n"
+	if _, err := stream.Write([]byte(row + row)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	result, err := stream.Complete()
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if len(result.Samples) != 1 {
+		t.Fatalf("samples = %+v", result.Samples)
+	}
+}
+
+func TestClaudeHeadlessUsageStream_MissingSubtypeDoesNotInferSuccess(t *testing.T) {
+	stream := filesystem.NewClaudeHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+	row := `{"type":"result","session_id":"claude-session-1","usage":{"input_tokens":2,"output_tokens":1}}` + "\n"
+	if _, err := stream.Write([]byte(row)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	result, err := stream.Complete()
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if len(result.Samples) != 1 ||
+		result.Samples[0].TerminalCode != types.UsageTerminalUnknown {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 func TestClaudeHeadlessUsageStream_RejectsMalformedUsageWithoutEchoingBody(t *testing.T) {
 	stream := filesystem.NewClaudeHeadlessUsageStreamFactory().New(&bytes.Buffer{})
 	fixture := `{"type":"result","session_id":"claude-session-1","usage":{"input_tokens":"PRIVATE-INVALID"}}` + "\n"
 	if _, err := stream.Write([]byte(fixture)); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
-	_, err := stream.Complete()
+	result, err := stream.Complete()
 	if err == nil || strings.Contains(err.Error(), "PRIVATE-INVALID") {
 		t.Fatalf("Complete() error = %v", err)
+	}
+	if result.Mode != application.ClaudeUsageModeOneShotStream || result.BoundaryObserved {
+		t.Fatalf("parse failure result = %+v", result)
 	}
 }

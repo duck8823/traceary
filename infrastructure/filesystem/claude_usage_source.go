@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -62,9 +63,38 @@ func (s *claudeUsageSource) Load(
 	if err != nil {
 		return application.ClaudeUsageLoadResult{}, err
 	}
-	paths, err := filepath.Glob(filepath.Join(root, "*", sessionID+".jsonl"))
+	rootHandle, err := os.OpenRoot(root)
 	if err != nil {
-		return application.ClaudeUsageLoadResult{}, xerrors.Errorf("failed to match Claude usage source")
+		if os.IsNotExist(err) {
+			return application.ClaudeUsageLoadResult{Mode: application.ClaudeUsageModeTranscriptCalls}, nil
+		}
+		return application.ClaudeUsageLoadResult{}, xerrors.Errorf("failed to open Claude projects root")
+	}
+	defer func() { _ = rootHandle.Close() }()
+	entries, err := fs.ReadDir(rootHandle.FS(), ".")
+	if err != nil {
+		return application.ClaudeUsageLoadResult{}, xerrors.Errorf("failed to list Claude projects root")
+	}
+	paths := make([]string, 0, 1)
+	for _, entry := range entries {
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return application.ClaudeUsageLoadResult{}, xerrors.Errorf(
+				"Claude projects root must not contain symlinked project directories",
+			)
+		}
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(entry.Name(), sessionID+".jsonl")
+		if _, err := rootHandle.Lstat(candidate); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return application.ClaudeUsageLoadResult{}, xerrors.Errorf(
+				"failed to inspect Claude usage source",
+			)
+		}
+		paths = append(paths, candidate)
 	}
 	sort.Strings(paths)
 	if len(paths) == 0 {
@@ -73,7 +103,7 @@ func (s *claudeUsageSource) Load(
 	if len(paths) != 1 {
 		return application.ClaudeUsageLoadResult{}, xerrors.Errorf("ambiguous Claude usage source")
 	}
-	return s.loadFile(ctx, root, paths[0], sessionID)
+	return s.loadFile(ctx, rootHandle, paths[0], sessionID)
 }
 
 func (s *claudeUsageSource) resolveProjectsRoot() (string, error) {
@@ -98,12 +128,12 @@ func (s *claudeUsageSource) resolveProjectsRoot() (string, error) {
 
 func (s *claudeUsageSource) loadFile(
 	ctx context.Context,
-	root string,
-	path string,
+	root *os.Root,
+	relative string,
 	sessionID string,
 ) (application.ClaudeUsageLoadResult, error) {
-	relative, err := filepath.Rel(root, path)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) ||
+		filepath.IsAbs(relative) {
 		return application.ClaudeUsageLoadResult{}, xerrors.Errorf("Claude usage source escapes projects root")
 	}
 	info, err := validateClaudeUsagePath(root, relative)
@@ -115,7 +145,7 @@ func (s *claudeUsageSource) loadFile(
 			"Claude usage source exceeds %d-byte limit", s.maxFileBytes,
 		)
 	}
-	file, err := os.Open(path) // #nosec G304 -- all components were checked below the resolved projects root
+	file, err := root.Open(relative)
 	if err != nil {
 		return application.ClaudeUsageLoadResult{}, xerrors.Errorf("failed to open Claude usage source")
 	}
@@ -137,15 +167,15 @@ func (s *claudeUsageSource) loadFile(
 	return result, nil
 }
 
-func validateClaudeUsagePath(root, relative string) (os.FileInfo, error) {
-	current := root
+func validateClaudeUsagePath(root *os.Root, relative string) (os.FileInfo, error) {
+	current := ""
 	parts := strings.Split(filepath.Clean(relative), string(filepath.Separator))
 	for index, part := range parts {
 		if part == "" || part == "." || part == ".." {
 			return nil, xerrors.Errorf("invalid Claude usage source path")
 		}
 		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
+		info, err := root.Lstat(current)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to inspect Claude usage source")
 		}
@@ -317,9 +347,11 @@ func claudeResultUsageSample(
 	if err != nil {
 		return application.ClaudeUsageSample{}, err
 	}
-	terminal := types.UsageTerminalSuccess
+	terminal := types.UsageTerminalUnknown
 	if envelope.IsError || (envelope.Subtype != "" && envelope.Subtype != "success") {
 		terminal = types.UsageTerminalFailure
+	} else if envelope.Subtype == "success" {
+		terminal = types.UsageTerminalSuccess
 	}
 	return application.ClaudeUsageSample{
 		RecordID:      "one_shot_stream:" + opaqueClaudeIdentity(sessionID, "terminal-result"),

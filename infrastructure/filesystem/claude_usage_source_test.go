@@ -95,6 +95,93 @@ func TestClaudeUsageSource_MissingSelectedUsageIsExplicitlyUnavailable(t *testin
 	}
 }
 
+func TestClaudeUsageSource_ErrorResultRetainsReportedUsageWithoutInferringSuccess(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session-claude-error-usage"
+	writeClaudeUsageFixture(t, home, sessionID,
+		`{"type":"result","session_id":"session-claude-error-usage","subtype":"error","is_error":true,"timestamp":"2026-07-23T01:00:01Z","usage":{"input_tokens":3,"output_tokens":1},"error":"PRIVATE-ERROR"}`+"\n",
+	)
+	result, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(result.Samples) != 1 || !result.Samples[0].Available ||
+		result.Samples[0].TerminalCode != types.UsageTerminalFailure {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestClaudeUsageSource_RejectsConflictingDuplicateAssistantUsage(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session-conflict"
+	writeClaudeUsageFixture(t, home, sessionID, strings.Join([]string{
+		`{"type":"assistant","sessionId":"session-conflict","requestId":"req-1","timestamp":"2026-07-23T01:00:00Z","message":{"id":"msg-1","usage":{"input_tokens":1,"output_tokens":1}}}`,
+		`{"type":"assistant","sessionId":"session-conflict","requestId":"req-1","timestamp":"2026-07-23T01:00:00Z","message":{"id":"msg-1","usage":{"input_tokens":2,"output_tokens":1},"content":"PRIVATE-CONFLICT"}}`,
+	}, "\n")+"\n")
+	_, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err == nil || strings.Contains(err.Error(), "PRIVATE-CONFLICT") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestClaudeUsageSource_RejectsAmbiguousExactSessionFiles(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session-ambiguous"
+	for _, project := range []string{"project-a", "project-b"} {
+		path := filepath.Join(home, ".claude", "projects", project, sessionID+".jsonl")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(`{"type":"result"}`+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestClaudeUsageSource_UsesExactSessionNameInsteadOfGlobPattern(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session[1]"
+	writeClaudeUsageFixture(t, home, sessionID,
+		`{"type":"result","session_id":"session[1]","subtype":"success","usage":{"input_tokens":1,"output_tokens":1}}`+"\n",
+	)
+	result, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(result.Samples) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestClaudeUsageSource_RejectsMalformedJSONWithoutLeakingBody(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session-malformed"
+	writeClaudeUsageFixture(t, home, sessionID, `{"type":"assistant","private":"PRIVATE-MALFORMED"`+"\n")
+	_, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err == nil || strings.Contains(err.Error(), "PRIVATE-MALFORMED") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
 func TestClaudeUsageSource_RejectsUnsafeOrOversizedSourceWithoutLeakingBody(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Run("oversized", func(t *testing.T) {
@@ -127,6 +214,32 @@ func TestClaudeUsageSource_RejectsUnsafeOrOversizedSourceWithoutLeakingBody(t *t
 		).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
 		if err == nil {
 			t.Fatal("Load() error = nil, want symlink rejection")
+		}
+	})
+	t.Run("symlinked project directory", func(t *testing.T) {
+		home := t.TempDir()
+		projects := filepath.Join(home, ".claude", "projects")
+		if err := os.MkdirAll(projects, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		outside := filepath.Join(t.TempDir(), "project")
+		if err := os.MkdirAll(outside, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		sessionID := "session-parent-symlink"
+		if err := os.WriteFile(
+			filepath.Join(outside, sessionID+".jsonl"), []byte(`{"type":"result"}`), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(projects, "linked-project")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := filesystem.NewClaudeUsageSourceForTest(
+			func() (string, error) { return home, nil }, 1024, 1024,
+		).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+		if err == nil {
+			t.Fatal("Load() error = nil, want symlinked parent rejection")
 		}
 	})
 }
