@@ -178,7 +178,7 @@ func run() error {
 	bundleUsecase := usecase.NewBundleUsecase(eventDatasource, bundleDatasource, nil)
 	usageObservationDatasource := sqlite.NewUsageObservationDatasource(db)
 	codexUsageUsecase := usecase.NewCodexUsageCaptureUsecase(
-		filesystem.NewCodexUsageSource(), usageObservationDatasource, types.SystemClock{},
+		filesystem.NewCodexUsageSource(), usageObservationDatasource,
 	)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)

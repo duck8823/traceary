@@ -100,7 +100,7 @@ func TestRootCLI_HookUsageCommand_PersistsVerifiedCodexUsageIdempotently(t *test
 	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
 	store := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
 	usageRepo := sqliteinfra.NewUsageObservationDatasource(db)
-	usage := usecase.NewCodexUsageCaptureUsecase(filesystem.NewCodexUsageSource(), usageRepo, types.SystemClock{})
+	usage := usecase.NewCodexUsageCaptureUsecase(filesystem.NewCodexUsageSource(), usageRepo)
 
 	for range 2 {
 		rootCmd := newTestRootCLI(

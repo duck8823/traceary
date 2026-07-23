@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"strings"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -36,19 +37,14 @@ type CodexUsageCaptureUsecase interface {
 type codexUsageCaptureUsecase struct {
 	source     application.CodexUsageSource
 	repository model.UsageObservationRepository
-	clock      types.Clock
 }
 
 // NewCodexUsageCaptureUsecase creates the Codex adapter boundary.
 func NewCodexUsageCaptureUsecase(
 	source application.CodexUsageSource,
 	repository model.UsageObservationRepository,
-	clock types.Clock,
 ) CodexUsageCaptureUsecase {
-	if clock == nil {
-		clock = types.SystemClock{}
-	}
-	return &codexUsageCaptureUsecase{source: source, repository: repository, clock: clock}
+	return &codexUsageCaptureUsecase{source: source, repository: repository}
 }
 
 func (u *codexUsageCaptureUsecase) Capture(
@@ -153,22 +149,14 @@ func (u *codexUsageCaptureUsecase) recordUnavailableBoundary(
 	if err != nil {
 		return xerrors.Errorf("invalid Codex unavailable observation identity: %w", err)
 	}
-	existing, err := u.repository.FindByID(ctx, id)
-	if err != nil {
-		return xerrors.Errorf("failed to inspect Codex unavailable observation: %w", err)
-	}
-	if current, present := existing.Value(); present {
-		if codexUnavailableBoundaryMatches(current, input.SessionID, sourceName, terminal) {
-			result.AlreadyApplied++
-			return nil
-		}
-		return xerrors.Errorf("Codex unavailable boundary changed semantics: %w", model.ErrConflictingUsageObservation)
-	}
 	source, err := types.UsageSourceOf("codex", sourceName, "schema-v1", "openai", "")
 	if err != nil {
 		return xerrors.Errorf("invalid Codex unavailable source: %w", err)
 	}
-	now := u.clock.Now().UTC()
+	// A body-free Stop delivery has no authoritative event timestamp. Use one
+	// deterministic sentinel so exact replays are reconciled by the domain
+	// aggregate instead of an adapter-local equality rule.
+	now := time.Unix(0, 0).UTC()
 	descriptor, err := model.NewUsageObservationDescriptor(
 		id, input.SessionID, source, types.UsageScopeCall, types.UsageAccountingExcluded, now,
 	)
@@ -231,23 +219,6 @@ func codexUsageObservation(
 		return nil, xerrors.Errorf("invalid Codex usage observation: %w", err)
 	}
 	return observation, nil
-}
-
-func codexUnavailableBoundaryMatches(
-	existing *model.UsageObservation,
-	sessionID types.SessionID,
-	sourceName string,
-	terminal types.UsageTerminalCode,
-) bool {
-	if existing == nil || existing.Descriptor().SessionID() != sessionID || existing.Descriptor().Scope() != types.UsageScopeCall || existing.Descriptor().Accounting() != types.UsageAccountingExcluded || existing.Status() != types.UsageObservationFinalized {
-		return false
-	}
-	source := existing.Descriptor().Source()
-	if source.Host() != "codex" || source.Name() != sourceName || source.Version() != "schema-v1" || source.Provider() != "openai" || source.Model() != "" || existing.Counters().Availability() != types.UsageAvailabilityUnavailable || existing.Cost().State() != types.UsageCostUnavailable {
-		return false
-	}
-	storedTerminal, present := existing.TerminalCode().Value()
-	return present && storedTerminal == terminal
 }
 
 func codexUsageCounters(raw application.CodexUsageCounters, available bool) (types.UsageCounters, error) {

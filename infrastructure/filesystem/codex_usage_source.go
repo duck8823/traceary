@@ -209,13 +209,14 @@ type codexRawUsageCounters struct {
 }
 
 type codexRolloutSegment struct {
-	turnID        string
-	ordinal       int
-	model         string
-	baseline      codexRawUsageCounters
-	baselineValid bool
-	terminal      *codexRawUsageCounters
-	terminalAt    time.Time
+	turnID            string
+	ordinal           int
+	model             string
+	baseline          codexRawUsageCounters
+	baselineValid     bool
+	counterRegression bool
+	terminal          *codexRawUsageCounters
+	terminalAt        time.Time
 }
 
 func parseCodexRolloutUsageJSONL(
@@ -228,8 +229,9 @@ func parseCodexRolloutUsageJSONL(
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), maxLineBytes)
 	version := "schema-v1"
-	var previous *codexRawUsageCounters
-	seenSnapshot := false
+	var previousTerminal *codexRawUsageCounters
+	var lastSnapshot *codexRawUsageCounters
+	continuityValid := true
 	ordinal := 0
 	var active *codexRolloutSegment
 	result := application.CodexUsageLoadResult{}
@@ -271,14 +273,13 @@ func parseCodexRolloutUsageJSONL(
 			ambiguousPrevious := active != nil
 			if ambiguousPrevious {
 				result.Samples = append(result.Samples, unavailableCodexRolloutSample(sessionID, version, *active, types.UsageTerminalUnknown, fallbackTime))
+				previousTerminal = nil
+				continuityValid = false
 			}
 			ordinal++
-			baseline, valid := zeroCodexUsageCounters(), !seenSnapshot
-			if previous != nil {
-				baseline, valid = copyCodexUsageCounters(previous), completeCodexUsageCounters(previous)
-			}
-			if ambiguousPrevious {
-				valid = false
+			baseline, valid := zeroCodexUsageCounters(), continuityValid && lastSnapshot == nil
+			if previousTerminal != nil {
+				baseline, valid = copyCodexUsageCounters(previousTerminal), continuityValid && completeCodexUsageCounters(previousTerminal)
 			}
 			active = &codexRolloutSegment{
 				turnID: turnID, ordinal: ordinal, model: strings.TrimSpace(payload.Model),
@@ -296,10 +297,16 @@ func parseCodexRolloutUsageJSONL(
 				if err := json.Unmarshal(envelope.Payload, &payload); err != nil || payload.Info.TotalTokenUsage == nil || !completeCodexUsageCounters(payload.Info.TotalTokenUsage) {
 					return application.CodexUsageLoadResult{}, xerrors.Errorf("invalid Codex token_count usage at line %d", lineNumber)
 				}
-				seenSnapshot = true
 				snapshot := copyCodexUsageCounters(payload.Info.TotalTokenUsage)
+				regressed := false
+				if lastSnapshot != nil {
+					_, regressed = subtractCodexUsageCounters(snapshot, *lastSnapshot)
+					regressed = !regressed
+				}
+				lastSnapshot = &snapshot
 				if active == nil {
-					previous = &snapshot
+					previousTerminal = &snapshot
+					continuityValid = true
 					continue
 				}
 				observedAt, err := codexUsageTimestamp(envelope.Timestamp, fallbackTime)
@@ -308,6 +315,7 @@ func parseCodexRolloutUsageJSONL(
 				}
 				active.terminal = &snapshot
 				active.terminalAt = observedAt
+				active.counterRegression = active.counterRegression || regressed
 			case "task_complete", "turn_aborted":
 				var payload codexTerminalPayload
 				if err := json.Unmarshal(envelope.Payload, &payload); err != nil || strings.TrimSpace(payload.TurnID) == "" {
@@ -321,12 +329,16 @@ func parseCodexRolloutUsageJSONL(
 					ordinal++
 					unmatched := codexRolloutSegment{turnID: strings.TrimSpace(payload.TurnID), ordinal: ordinal}
 					result.Samples = append(result.Samples, unavailableCodexRolloutSample(sessionID, version, unmatched, terminalCode, observedAtOrFallback(envelope.Timestamp, fallbackTime)))
+					previousTerminal = nil
+					continuityValid = false
 					result.BoundaryObserved = true
 					continue
 				}
 				if active.turnID != strings.TrimSpace(payload.TurnID) {
 					result.Samples = append(result.Samples, unavailableCodexRolloutSample(sessionID, version, *active, types.UsageTerminalUnknown, observedAtOrFallback(envelope.Timestamp, fallbackTime)))
 					active = nil
+					previousTerminal = nil
+					continuityValid = false
 					result.BoundaryObserved = false
 					continue
 				}
@@ -338,7 +350,11 @@ func parseCodexRolloutUsageJSONL(
 				result.Samples = append(result.Samples, sample)
 				if active.terminal != nil {
 					snapshot := copyCodexUsageCounters(active.terminal)
-					previous = &snapshot
+					previousTerminal = &snapshot
+					continuityValid = true
+				} else {
+					previousTerminal = nil
+					continuityValid = false
 				}
 				active = nil
 				result.BoundaryObserved = true
@@ -368,7 +384,7 @@ func finalizeCodexRolloutSample(
 	terminalCode types.UsageTerminalCode,
 	observedAt time.Time,
 ) application.CodexUsageSample {
-	if !segment.baselineValid || segment.terminal == nil {
+	if !segment.baselineValid || segment.counterRegression || segment.terminal == nil {
 		return unavailableCodexRolloutSample(sessionID, version, segment, terminalCode, observedAt)
 	}
 	delta, ok := subtractCodexUsageCounters(*segment.terminal, segment.baseline)
@@ -488,7 +504,7 @@ func codexUsageTimestamp(value string, fallback time.Time) (time.Time, error) {
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, trimmed)
 	if err != nil {
-		return time.Time{}, xerrors.Errorf("invalid usage timestamp: %w", err)
+		return time.Time{}, xerrors.Errorf("invalid usage timestamp")
 	}
 	return parsed.UTC(), nil
 }

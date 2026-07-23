@@ -26,9 +26,11 @@ func (s codexUsageSourceStub) Load(context.Context, application.CodexUsageLoadCr
 
 type codexUsageRepositoryFake struct {
 	observations map[types.UsageObservationID]*model.UsageObservation
+	recordCalls  int
 }
 
 func (r *codexUsageRepositoryFake) Record(_ context.Context, proposed *model.UsageObservation) (model.UsageObservationTransition, error) {
+	r.recordCalls++
 	if r.observations == nil {
 		r.observations = map[types.UsageObservationID]*model.UsageObservation{}
 	}
@@ -54,10 +56,6 @@ func (r *codexUsageRepositoryFake) FindByID(_ context.Context, id types.UsageObs
 	return types.Some(observation), nil
 }
 
-type fixedCodexUsageClock struct{ now time.Time }
-
-func (c fixedCodexUsageClock) Now() time.Time { return c.now }
-
 func TestCodexUsageCaptureUsecase_RecordsKnownAndUnavailableFieldsOnce(t *testing.T) {
 	t.Parallel()
 	knownZero, knownInput, knownCached, knownOutput, knownReasoning, knownTotal := int64(0), int64(120), int64(80), int64(7), int64(3), int64(127)
@@ -71,7 +69,7 @@ func TestCodexUsageCaptureUsecase_RecordsKnownAndUnavailableFieldsOnce(t *testin
 		},
 	}}}}
 	repository := &codexUsageRepositoryFake{}
-	sut := usecase.NewCodexUsageCaptureUsecase(source, repository, fixedCodexUsageClock{now: observedAt})
+	sut := usecase.NewCodexUsageCaptureUsecase(source, repository)
 	input := usecase.CodexUsageCaptureInput{SessionID: types.SessionID("session-1"), DeliveryID: "event_id:stop-1"}
 
 	first, err := sut.Capture(context.Background(), input)
@@ -98,9 +96,8 @@ func TestCodexUsageCaptureUsecase_RecordsKnownAndUnavailableFieldsOnce(t *testin
 
 func TestCodexUsageCaptureUsecase_RecordsStableUnavailableBoundary(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2026, 7, 23, 4, 5, 6, 0, time.UTC)
 	repository := &codexUsageRepositoryFake{}
-	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository, fixedCodexUsageClock{now: now})
+	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository)
 	input := usecase.CodexUsageCaptureInput{SessionID: types.SessionID("session-1"), DeliveryID: "event_id:stop-missing"}
 
 	first, err := sut.Capture(context.Background(), input)
@@ -111,7 +108,7 @@ func TestCodexUsageCaptureUsecase_RecordsStableUnavailableBoundary(t *testing.T)
 	if err != nil {
 		t.Fatalf("Capture(replay) error = %v", err)
 	}
-	if first.Applied != 1 || first.Unavailable != 1 || second.AlreadyApplied != 1 || len(repository.observations) != 1 {
+	if first.Applied != 1 || first.Unavailable != 1 || second.AlreadyApplied != 1 || len(repository.observations) != 1 || repository.recordCalls != 2 {
 		t.Fatalf("results = first %+v second %+v rows=%d", first, second, len(repository.observations))
 	}
 	for _, observation := range repository.observations {
@@ -122,10 +119,31 @@ func TestCodexUsageCaptureUsecase_RecordsStableUnavailableBoundary(t *testing.T)
 	}
 }
 
+func TestCodexUsageCaptureUsecase_RejectsChangedUnavailableBoundaryThroughDomainReconcile(t *testing.T) {
+	t.Parallel()
+	repository := &codexUsageRepositoryFake{}
+	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository)
+	input := usecase.CodexUsageCaptureInput{
+		SessionID: "session-1", DeliveryID: "event_id:stop-missing",
+		FallbackTerminal: types.UsageTerminalSuccess,
+	}
+	if _, err := sut.Capture(context.Background(), input); err != nil {
+		t.Fatalf("Capture() error = %v", err)
+	}
+	input.FallbackTerminal = types.UsageTerminalFailure
+	_, err := sut.Capture(context.Background(), input)
+	if err == nil || !errors.Is(err, model.ErrConflictingUsageObservation) {
+		t.Fatalf("Capture(changed terminal) error = %v", err)
+	}
+	if repository.recordCalls != 2 {
+		t.Fatalf("Record() calls = %d, want 2", repository.recordCalls)
+	}
+}
+
 func TestCodexUsageCaptureUsecase_MissingUsageWithoutStableDeliveryDoesNotInventIdentity(t *testing.T) {
 	t.Parallel()
 	repository := &codexUsageRepositoryFake{}
-	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository, fixedCodexUsageClock{now: time.Now()})
+	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository)
 	result, err := sut.Capture(context.Background(), usecase.CodexUsageCaptureInput{SessionID: types.SessionID("session-1")})
 	if err != nil {
 		t.Fatalf("Capture() error = %v", err)
@@ -143,7 +161,7 @@ func TestCodexUsageCaptureUsecase_RejectsInvalidSourceCounter(t *testing.T) {
 		TerminalCode: types.UsageTerminalSuccess, Available: true,
 		Counters: application.CodexUsageCounters{InputTokens: &negative},
 	}}}}
-	_, err := usecase.NewCodexUsageCaptureUsecase(source, &codexUsageRepositoryFake{}, nil).Capture(
+	_, err := usecase.NewCodexUsageCaptureUsecase(source, &codexUsageRepositoryFake{}).Capture(
 		context.Background(), usecase.CodexUsageCaptureInput{SessionID: types.SessionID("session-1")},
 	)
 	if err == nil || !strings.Contains(err.Error(), "must not be negative") {
@@ -164,10 +182,10 @@ func TestCodexUsageCaptureUsecase_RejectsChangedReplaySemantics(t *testing.T) {
 			Counters: application.CodexUsageCounters{InputTokens: value},
 		}}}}
 	}
-	if _, err := usecase.NewCodexUsageCaptureUsecase(makeSource(&firstValue), repository, nil).Capture(context.Background(), input); err != nil {
+	if _, err := usecase.NewCodexUsageCaptureUsecase(makeSource(&firstValue), repository).Capture(context.Background(), input); err != nil {
 		t.Fatalf("Capture(first) error = %v", err)
 	}
-	_, err := usecase.NewCodexUsageCaptureUsecase(makeSource(&changedValue), repository, nil).Capture(context.Background(), input)
+	_, err := usecase.NewCodexUsageCaptureUsecase(makeSource(&changedValue), repository).Capture(context.Background(), input)
 	if err == nil || !errors.Is(err, model.ErrConflictingUsageObservation) {
 		t.Fatalf("Capture(changed replay) error = %v", err)
 	}
@@ -178,7 +196,7 @@ func TestCodexUsageCaptureUsecase_HeadlessObservationSuppressesLegacyRolloutAcco
 	observedAt := time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC)
 	inputTokens, outputTokens := int64(10), int64(2)
 	repository := &codexUsageRepositoryFake{}
-	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository, nil)
+	sut := usecase.NewCodexUsageCaptureUsecase(codexUsageSourceStub{}, repository)
 	headless := application.CodexUsageLoadResult{BoundaryObserved: true, Samples: []application.CodexUsageSample{{
 		RecordID: "headless_stream:thread-1:1", SourceName: "headless_stream", SourceVersion: "schema-v1",
 		ObservedAt: observedAt, TerminalCode: types.UsageTerminalSuccess, Available: true,
@@ -193,7 +211,7 @@ func TestCodexUsageCaptureUsecase_HeadlessObservationSuppressesLegacyRolloutAcco
 		TerminalCode: types.UsageTerminalSuccess, Available: true,
 		Counters: application.CodexUsageCounters{InputTokens: &inputTokens, OutputTokens: &outputTokens},
 	}}}}
-	if _, err := usecase.NewCodexUsageCaptureUsecase(rolloutSource, repository, nil).Capture(context.Background(), usecase.CodexUsageCaptureInput{SessionID: "session-1"}); err != nil {
+	if _, err := usecase.NewCodexUsageCaptureUsecase(rolloutSource, repository).Capture(context.Background(), usecase.CodexUsageCaptureInput{SessionID: "session-1"}); err != nil {
 		t.Fatalf("Capture(rollout) error = %v", err)
 	}
 	rollout := repository.observations["codex:rollout:thread-1:turn-1"]
