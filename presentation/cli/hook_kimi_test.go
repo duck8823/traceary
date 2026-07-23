@@ -2,16 +2,31 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	cli "github.com/duck8823/traceary/presentation/cli"
 )
+
+type kimiUsageCaptureStub struct {
+	inputs []usecase.KimiUsageCaptureInput
+	err    error
+}
+
+func (s *kimiUsageCaptureStub) Capture(
+	_ context.Context,
+	input usecase.KimiUsageCaptureInput,
+) (usecase.KimiUsageCaptureResult, error) {
+	s.inputs = append(s.inputs, input)
+	return usecase.KimiUsageCaptureResult{}, s.err
+}
 
 func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
@@ -514,6 +529,43 @@ func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 			t.Fatalf("malformed payload recorded audit %q, want fail-open skip", eventStub.auditCall.command)
 		}
 	})
+}
+
+func TestRootCLI_HookKimiUsageBoundaries(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-usage-boundaries")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	usage := &kimiUsageCaptureStub{}
+	for _, tc := range []struct {
+		event    string
+		fixture  string
+		boundary usecase.KimiUsageBoundary
+	}{
+		{event: "stop", fixture: "stop.json", boundary: usecase.KimiUsageBoundaryStop},
+		{event: "session-end", fixture: "session_end.json", boundary: usecase.KimiUsageBoundarySessionEnd},
+	} {
+		t.Run(tc.event, func(t *testing.T) {
+			usage.inputs = nil
+			runKimiHook(
+				t,
+				tc.event,
+				readKimiFixture(t, tc.fixture),
+				nil,
+				&sessionUsecaseStub{},
+				cli.WithKimiUsage(usage),
+			)
+			if len(usage.inputs) != 1 {
+				t.Fatalf("usage captures = %d, want 1", len(usage.inputs))
+			}
+			input := usage.inputs[0]
+			if input.SessionID != "session_00000000-0000-4000-8000-000000000001" ||
+				input.ProviderSessionID != "session_00000000-0000-4000-8000-000000000001" ||
+				input.Boundary != tc.boundary {
+				t.Fatalf("usage input = %+v", input)
+			}
+		})
+	}
 }
 
 func runKimiHook(
