@@ -8,6 +8,8 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [v0.32.1] - 2026-07-25
 
 ### Fixed
+- **大容量 store の診断と確認 (#1539, #1542)** — `traceary doctor --json --warnings-ok` は、regular store file が 2 GiB 以上の場合、SQLite を開かず event / payload data も読まない、完了済みの metadata-only diagnostic を返します。最新 event を body なしで確認する正確なコマンド `traceary list --limit 1 --fields ts,kind --color never` は、live store 全体の初期化や sort ではなく、index を使う read-only の bounded metadata query を使います。[large-store doctor ガイド](docs/operations/large-store-doctor.ja.md) と [large-store list ガイド](docs/operations/large-store-list.ja.md) を参照してください。
+- **Grok の local-repository plugin refresh (#1540)** — Grok installer は canonical な `traceary-grok` package に収束します。legacy の local-repository identity は別に報告し、明示的かつ source-bounded な `--migrate-local-repo-identity` 指定時だけ migrate します。通常の refresh では削除しません。[Grok plugin 更新ガイド](docs/integrations/grok-plugin.ja.md#local-repository-identity-migration) を参照してください。
 - **upgrade 後の plugin readiness (#1523)** — `traceary doctor` が対応する全 host package の installed version を検証し、pass、明示的な skip、stale package を区別します。日英の refresh guide には安全な activation と remediation 手順を追加しました。
 - **native Grok plugin の解決 (#1522)** — Grok package の名前を `traceary-grok` に変更し、同名の Claude package を native integration と誤認しないようにしました。doctor は installed route と resolved route を別々に報告し、legacy shadowing は fail closed します。
 - **Codex headless final-turn 診断 (#1519)** — manifest だけから final-turn coverage を推測せず、本文なしの prompt 数と final turn 未観測数を doctor が報告します。
