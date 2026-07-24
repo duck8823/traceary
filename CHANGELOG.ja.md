@@ -5,6 +5,20 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.32.1] - 2026-07-25
+
+### Fixed
+- **upgrade 後の plugin readiness (#1523)** — `traceary doctor` が対応する全 host package の installed version を検証し、pass、明示的な skip、stale package を区別します。日英の refresh guide には安全な activation と remediation 手順を追加しました。
+- **native Grok plugin の解決 (#1522)** — Grok package の名前を `traceary-grok` に変更し、同名の Claude package を native integration と誤認しないようにしました。doctor は installed route と resolved route を別々に報告し、legacy shadowing は fail closed します。
+- **Codex headless final-turn 診断 (#1519)** — manifest だけから final-turn coverage を推測せず、本文なしの prompt 数と final turn 未観測数を doctor が報告します。
+- **Antigravity headless permission (#1521)** — doctor が安全な scoped hook permission と plugin install を分け、duplicate/broad/interactive/unsandboxed grant を警告します。最小 permission set も文書化しました。
+- **partial usage 診断 (#1532)** — Grok の decode failure では child exit status を変えずに冪等な unavailable evidence を残し、Codex は有効な partial counter を保持して `--` を尊重し、Claude は保存済み usage に reportable timestamp を要求して黙って補完しません。
+
+### Notes
+- この patch は diagnostic、host-plugin readiness、usage observation の分類を変更します。network interception、billing dashboard scraping、prompt/response body の保存は有効化しません。
+- release artifact と Homebrew Formula の checksum は tagged release workflow が生成・commit するものです。この準備変更では推測や手書きをしません。candidate の検証境界は `docs/release/v0.32.1-qa.ja.md` を参照してください。
+- 関連 PR の review では独立 external reviewer topology を利用できませんでした。各 merge 判断では maintainer が残リスクを明示的に了承しており、本 release note は topology が充足されたとは扱いません。
+
 ## [v0.32.0] - 2026-07-24
 
 ### Added
