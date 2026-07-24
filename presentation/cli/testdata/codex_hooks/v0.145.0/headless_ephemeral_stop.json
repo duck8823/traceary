@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "codex-headless-ephemeral-fixture",
+  "cwd": "github.com/duck8823/traceary",
+  "last_assistant_message": "TRACEARY_HEADLESS_EPHEMERAL_MARKER"
+}

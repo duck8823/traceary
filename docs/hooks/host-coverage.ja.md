@@ -28,7 +28,7 @@
 
 <!-- host-coverage-matrix:begin -->
 <!-- DO NOT EDIT: generated from application/hostcoverage/matrix.json via `go run ./cmd/repo-tooling docs generate-host-coverage`. -->
-| Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.144.1 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Antigravity (`antigravity-plugin`) | Kimi Code 0.27.0 (`kimi-plugin`) | Grok Build 0.2.99 | 確認方法 |
+| Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.145.0 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Antigravity (`antigravity-plugin`) | Kimi Code 0.27.0 (`kimi-plugin`) | Grok Build 0.2.99 | 確認方法 |
 |---|---|---|---|---|---|---|---|
 | `session_started` | ● `SessionStart` | ● `SessionStart` | ● `SessionStart` | ● `PreInvocation`（`conversationId` を key にした冪等開始。Antigravity に `SessionStart` はない） | ● `SessionStart`（`source` = startup|resume。resume は同一 session_id で再発火し、冪等に記録） | ● `SessionStart`（native の `agent=grok`） | `traceary list events --kind session_started --limit 5` |
 | `prompt` | ● `UserPromptSubmit` | ● `UserPromptSubmit` | ● `BeforeAgent` | ● `Stop`（直接の prompt field は無い。`transcriptPath` の最新 `USER_INPUT` / `USER_EXPLICIT` 行から復元） | ● `UserPromptSubmit`（`prompt` の content block 配列をテキスト化） | ● `UserPromptSubmit`（`prompt`、native の `agent=grok`） | `traceary list events --kind prompt --limit 5` |
@@ -39,6 +39,8 @@
 <!-- host-coverage-matrix:end -->
 
 > **Antigravity headless `agy --print`:** 現行 CLI は `PreInvocation`、必要に応じて `PreToolUse`/`PostToolUse`、および `transcriptPath` 付き `Stop` を発行します。Traceary は Stop で prompt と transcript を復元します。実行時の欠落は `antigravity-event-coverage` が DB 証拠から検出します。hook event は `client=hook`, `agent=antigravity` で記録されるため、`traceary list --agent antigravity` で確認してください。
+
+> **Codex headless `codex exec`:** Codex CLI 0.145.0 で marker だけを返すローカルプローブを実行し、通常実行と `--ephemeral` の両方で、text 出力と `--json` 出力から `SessionStart`、`UserPromptSubmit`、`Stop` を確認しました。両 mode の安定した final-turn source は `Stop.last_assistant_message` で、ephemeral payload は `transcript_path` を含みません。Traceary は `Stop` の欠落を別 rollout の走査で補いません。実行時の証拠が無い間、`codex-capture` は `final_turn_not_observed` を返します。
 
 > **Grok Build contract（fixture 0.2.99、再 probe 0.2.101 / 2026-07-16）:** sanitized な空 workspace で `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop`、`PreCompact`、`PostCompact` を live capture しました。0.2.101 再 probe でも standalone な `PostToolUseFailure` / `PermissionDenied` / `SessionEnd` は発火せず、missing-file Read は `PostToolUse` 配下の `FileNotFound` でした。subagent 起動は `spawn_subagent` tool と tool audit のみで、`SubagentStart` / `SubagentStop` hook payload も parent/child identity も観測されませんでした。Traceary は未観測 hook を合成しません。field 単位の証拠は [`host-contract.json`](./host-contract.json) にあります。
 
@@ -64,7 +66,7 @@
 ## ホスト別参照
 
 - Claude Code: https://code.claude.com/docs/en/hooks · パッケージ config: [`integrations/claude-plugin/hooks/hooks.json`](../../integrations/claude-plugin/hooks/hooks.json)
-- Codex CLI: Codex CLI 0.144.1 の公式 hook reference（`SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, `Stop`）。 パッケージ config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
+- Codex CLI: Codex CLI 0.145.0 の公式 hook reference（`SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, `Stop`）。 パッケージ config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
 - Gemini CLI: ローカルインストール同梱の hooks reference (`/opt/homebrew/Cellar/gemini-cli/0.43.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`。文書化された hook surface に post-compress event はなく、`PreCompress` は compression 前に非同期で発火する advisory-only hook). パッケージ config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
 - Antigravity: 公開 hook surface は https://www.antigravity.google/docs/hooks および https://antigravity.google/assets/docs/editor/ide-hooks.md、plugin packaging は https://antigravity.google/assets/docs/cli/cli-plugins.md に文書化（2026-06-20 JST 確認）。パッケージ config: [`integrations/antigravity-plugin/hooks.json`](../../integrations/antigravity-plugin/hooks.json)
 - Grok Build: 公式 hook surface は https://docs.x.ai/build/features/hooks（最終更新 2026-07-02）。0.2.99 の live payload contract は [`host-contract.json`](./host-contract.json)、sanitized fixture は [`presentation/cli/testdata/grok_hooks/v0.2.99`](../../presentation/cli/testdata/grok_hooks/v0.2.99/) を参照

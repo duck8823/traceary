@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "host": "codex",
+  "host_version": "0.145.0",
+  "observed_at": "2026-07-24T14:36:27Z",
+  "probe": "isolated PATH hook recorder; marker-only prompt; no tools or history reads",
+  "modes": [
+    {
+      "name": "interactive",
+      "ephemeral": false,
+      "emitted_hooks": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop"
+      ],
+      "final_turn_source": "Stop.last_assistant_message",
+      "transcript_path": "present"
+    },
+    {
+      "name": "headless",
+      "ephemeral": false,
+      "output_modes_tested": [
+        "text",
+        "jsonl"
+      ],
+      "emitted_hooks": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop"
+      ],
+      "final_turn_source": "Stop.last_assistant_message",
+      "transcript_path": "present"
+    },
+    {
+      "name": "headless",
+      "ephemeral": true,
+      "output_modes_tested": [
+        "text",
+        "jsonl"
+      ],
+      "emitted_hooks": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop"
+      ],
+      "final_turn_source": "Stop.last_assistant_message",
+      "transcript_path": "absent"
+    }
+  ]
+}

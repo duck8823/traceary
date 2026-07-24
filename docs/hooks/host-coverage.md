@@ -28,7 +28,7 @@ Relationship to the machine-readable [host contract](./host-contract.json): cont
 
 <!-- host-coverage-matrix:begin -->
 <!-- DO NOT EDIT: generated from application/hostcoverage/matrix.json via `go run ./cmd/repo-tooling docs generate-host-coverage`. -->
-| Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.144.1 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Antigravity (`antigravity-plugin`) | Kimi Code 0.27.0 (`kimi-plugin`) | Grok Build 0.2.99 | Verification |
+| Traceary lifecycle event | Claude Code (`claude-plugin`) | Codex CLI 0.145.0 (`plugins/traceary`) | Gemini CLI (`gemini-extension`) | Antigravity (`antigravity-plugin`) | Kimi Code 0.27.0 (`kimi-plugin`) | Grok Build 0.2.99 | Verification |
 |---|---|---|---|---|---|---|---|
 | `session_started` | ● `SessionStart` | ● `SessionStart` | ● `SessionStart` | ● `PreInvocation` (idempotent, keyed by `conversationId`; Antigravity has no `SessionStart`) | ● `SessionStart` (`source` = startup|resume; resume re-fires with the same session_id, recorded idempotently) | ● `SessionStart` (native `agent=grok`) | `traceary list events --kind session_started --limit 5` |
 | `prompt` | ● `UserPromptSubmit` | ● `UserPromptSubmit` | ● `BeforeAgent` | ● `Stop` (no direct prompt field; recovered from the latest `USER_INPUT` / `USER_EXPLICIT` row at `transcriptPath`) | ● `UserPromptSubmit` (`prompt` content-block array flattened to text) | ● `UserPromptSubmit` (`prompt`; native `agent=grok`) | `traceary list events --kind prompt --limit 5` |
@@ -39,6 +39,8 @@ Relationship to the machine-readable [host contract](./host-contract.json): cont
 <!-- host-coverage-matrix:end -->
 
 > **Antigravity headless `agy --print`:** the current CLI emits `PreInvocation`, `PreToolUse`/`PostToolUse` when needed, and `Stop` with `transcriptPath`. Traceary recovers prompt and transcript at Stop. `antigravity-event-coverage` detects runtime gaps from database evidence. Hook events are stored with `client=hook`, `agent=antigravity`, so verify them with `traceary list --agent antigravity`.
+
+> **Codex headless `codex exec`:** local marker-only probes on Codex CLI 0.145.0 observed `SessionStart`, `UserPromptSubmit`, and `Stop` in both normal and `--ephemeral` runs, with text and `--json` output. `Stop.last_assistant_message` is the stable final-turn source in both modes; ephemeral payloads omit `transcript_path`. Traceary does not inspect another rollout to compensate for a missing `Stop`. `codex-capture` reports `final_turn_not_observed` until runtime evidence exists.
 
 > **Grok Build contract (fixtures 0.2.99; re-probed 0.2.101 on 2026-07-16):** `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `PreCompact`, and `PostCompact` were captured live in sanitized empty workspaces. Re-probe on 0.2.101 still did not emit standalone `PostToolUseFailure`, `PermissionDenied`, or `SessionEnd`; a missing-file Read returned `FileNotFound` nested under `PostToolUse`. Spawning a subagent used the `spawn_subagent` tool and produced tool audits only — no `SubagentStart`/`SubagentStop` hook payloads and no parent/child identity contract. Traceary does not synthesize those unobserved hooks. Field-level evidence is in [`host-contract.json`](./host-contract.json).
 
@@ -64,7 +66,7 @@ This list excludes hooks that already appear in the lifecycle matrix above.
 ## Per-host references
 
 - Claude Code: https://code.claude.com/docs/en/hooks · packaged config: [`integrations/claude-plugin/hooks/hooks.json`](../../integrations/claude-plugin/hooks/hooks.json)
-- Codex CLI: official Codex CLI 0.144.1 hook reference (`SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, `Stop`). Packaged config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
+- Codex CLI: official Codex CLI 0.145.0 hook reference (`SessionStart`, `SubagentStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStop`, `Stop`). Packaged config: [`plugins/traceary/hooks.json`](../../plugins/traceary/hooks.json)
 - Gemini CLI: hooks reference shipped with the local install at `/opt/homebrew/Cellar/gemini-cli/0.43.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md` (no post-compress event in the documented hook surface; `PreCompress` is advisory-only and fires asynchronously before compression). Packaged config: [`integrations/gemini-extension/hooks/hooks.json`](../../integrations/gemini-extension/hooks/hooks.json)
 - Antigravity: public hook surface documented at https://www.antigravity.google/docs/hooks and https://antigravity.google/assets/docs/editor/ide-hooks.md; plugin packaging at https://antigravity.google/assets/docs/cli/cli-plugins.md (verified 2026-06-20 JST). Packaged config: [`integrations/antigravity-plugin/hooks.json`](../../integrations/antigravity-plugin/hooks.json)
 - Grok Build: official hook surface at https://docs.x.ai/build/features/hooks (last updated 2026-07-02); live 0.2.99 payload contract: [`host-contract.json`](./host-contract.json); sanitized fixtures: [`presentation/cli/testdata/grok_hooks/v0.2.99`](../../presentation/cli/testdata/grok_hooks/v0.2.99/)

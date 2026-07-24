@@ -46,14 +46,17 @@ func (c CodexCaptureDiagnosticCriteria) To() time.Time { return c.to }
 // CodexCaptureDiagnosticEvidence is the complete body-free projection consumed
 // by doctor. Session identities and event bodies never cross this boundary.
 type CodexCaptureDiagnosticEvidence struct {
-	StoredEvents          int
-	SessionStartObserved  bool
-	PromptObserved        bool
-	ToolObserved          bool
-	CompactObserved       bool
-	StopSessions          int
-	StopSessionsWithUsage int
-	UsageObservations     int
-	UsageKnown            int
-	UsageUnavailable      int
+	StoredEvents              int
+	SessionStartObserved      bool
+	PromptObserved            bool
+	PromptTurns               int
+	ToolObserved              bool
+	CompactObserved           bool
+	StopSessions              int
+	StopSessionsWithUsage     int
+	UncoveredFinalTurns       int
+	UsageObservations         int
+	HeadlessUsageObservations int
+	UsageKnown                int
+	UsageUnavailable          int
 }

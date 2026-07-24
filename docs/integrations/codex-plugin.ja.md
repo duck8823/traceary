@@ -66,6 +66,33 @@ traceary doctor --client codex --json
 
 fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary-session-start` / `traceary-prompt` / `traceary-usage` / `traceary-transcript` / `traceary-session-stop` / `traceary-audit`) を直接書き込みます。Traceary 以外のエントリは保持されます。
 
+## 実行時の hook 境界表
+
+hook manifest は Codex が呼び出し得る hook を記述しますが、個々の実行で
+すべての境界が実際に発行された証拠ではありません。次の表は 2026-07-24 に
+Codex CLI 0.145.0 で marker だけを返すローカルプローブを実行した結果です。
+隔離した `traceary` recorder を `PATH` に置き、session history は読まず、
+headless mode では通常の text 出力と `--json` の両方を確認しました。
+
+| Codex mode | tool を使わない marker turn で確認した hook | final-turn source | `transcript_path` |
+|---|---|---|---|
+| Interactive `codex` | `SessionStart`, `UserPromptSubmit`, `Stop` | `Stop.last_assistant_message` | あり |
+| Headless `codex exec` | `SessionStart`, `UserPromptSubmit`, `Stop` | `Stop.last_assistant_message` | あり |
+| Ephemeral headless `codex exec --ephemeral` | `SessionStart`, `UserPromptSubmit`, `Stop` | `Stop.last_assistant_message` | なし |
+
+tool を使わないプローブでは `PostToolUse`、compact、subagent の hook を
+実行していないため、それらの発行は表から推測しません。ephemeral mode でも
+transcript の取得に rollout file は不要です。確認した `Stop` payload が
+final marker を inline で持ち、Traceary は通常の transcript hook からそれを
+永続化します。non-ephemeral mode は `transcript_path` を含む場合がありますが、
+Traceary が assistant text に使うのは inline の `last_assistant_message` です。
+その path を開いて assistant text を探しません。
+
+将来の host または中断された headless 実行で activity はあるのに実行時の
+`Stop` が無い場合、doctor は `final_turn_not_observed` を返し、final-turn
+coverage を partial として扱います。manifest を発行証拠にはせず、欠落を
+埋めるために別 rollout や無関係な private history を走査しません。
+
 ## Capture gap の診断
 
 `traceary doctor --client codex --project-dir <workspace> --json` は
@@ -73,7 +100,8 @@ fallback は `~/.codex/hooks.json` に Traceary 管理のエントリ (`traceary
 canonical repository identity に解決し、次の証跡を本文なしで照合します。
 
 - 直近7日分の session start / prompt / tool / compact / Stop の完全な
-  commit 済み event aggregate
+  commit 済み event aggregate。同じ session 内で Stop と対応していない
+  prompt turn の本文なし件数を含む
 - 上記 Stop session と照合した finalized interactive Codex usage
   （identity 用 timestamp が意図的に7日窓外となる deterministic unavailable
   observation も含む）
@@ -82,6 +110,8 @@ canonical repository identity に解決し、次の証跡を本文なしで照�
 
 各境界は `stored`、`delivery_pending`、`stored_and_delivery_pending`、
 `not_observed` のいずれかです。
+`prompt_turns` と `uncovered_final_turns` により、以前の成功 turn が、
+後続 prompt の final boundary 欠落を隠さないようにします。
 check には `surface`、`client`、Traceary version、plugin key、hook trust、
 canonical workspace も記録されます。reason は次の固定値です。
 
@@ -91,11 +121,14 @@ canonical workspace も記録されます。reason は次の固定値です。
 | `hook_spool_backlog` | Codex から Traceary には到達したが、delivery が durable spool に残り未commit |
 | `spool_projection_partial` | spool の distinct working directory 数が bounded diagnostic の解決上限を超えたため、backlog の確認または drain が必要 |
 | `usage_missing_after_stop` | Stop は commit 済みだが finalized usage も pending usage delivery もない |
+| `final_turn_not_observed` | Stop と対応していない prompt turn が1件以上ある、または Stop 由来 transcript なしで headless usage だけがある。final-turn coverage は partial |
 | `no_recent_capture_evidence` | commit 済み証跡も pending 証跡もない。capture 成功とはせず warning |
 
-active session ですべての hook が発火済みである必要はありません。たとえば
-最初の response が完了する前の `stop:not_observed` は、それだけでは failure
-ではありません。diagnostic は session ID、prompt / transcript 本文、tool の
+進行中の session が `stop:not_observed` になること自体は正当ですが、doctor
+はその状態を complete capture とは判定しません。response を1回完了して
+diagnostic を再実行し、それでも境界が無ければ install 成功の推測ではなく
+partial coverage の warning として扱います。diagnostic は session ID、
+prompt / transcript 本文、tool の
 input / output を表示しません。usage retry spool は既存の本文なし identity
 field だけを保存します。それ以外の spool payload も、ローカル照合のために
 command / action と allowlist 済み session / cwd metadata だけへ射影します。

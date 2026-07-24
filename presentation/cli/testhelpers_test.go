@@ -16,9 +16,14 @@ func (testCodexCaptureDiagnostic) Load(
 	apptypes.CodexCaptureDiagnosticCriteria,
 ) (apptypes.CodexCaptureDiagnosticEvidence, error) {
 	return apptypes.CodexCaptureDiagnosticEvidence{
-		StoredEvents:         1,
-		SessionStartObserved: true,
-		PromptObserved:       true,
+		StoredEvents:          3,
+		SessionStartObserved:  true,
+		PromptObserved:        true,
+		PromptTurns:           1,
+		StopSessions:          1,
+		StopSessionsWithUsage: 1,
+		UsageObservations:     1,
+		UsageUnavailable:      1,
 	}, nil
 }
 

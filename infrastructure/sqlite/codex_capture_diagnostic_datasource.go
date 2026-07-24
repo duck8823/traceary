@@ -53,16 +53,19 @@ func (d *CodexCaptureDiagnosticDatasource) LoadCodexCaptureDiagnostic(
 	if err := db.QueryRowContext(
 		ctx,
 		loadCodexCaptureDiagnosticQuery,
-		criteria.Workspace().String(), from, to, from, to,
+		criteria.Workspace().String(), from, to, criteria.Workspace().String(), from, to, from, to,
 	).Scan(
 		&evidence.StoredEvents,
 		&sessionStart,
 		&prompt,
+		&evidence.PromptTurns,
 		&tool,
 		&compact,
 		&evidence.StopSessions,
 		&evidence.StopSessionsWithUsage,
+		&evidence.UncoveredFinalTurns,
 		&evidence.UsageObservations,
+		&evidence.HeadlessUsageObservations,
 		&evidence.UsageKnown,
 		&evidence.UsageUnavailable,
 	); err != nil {
