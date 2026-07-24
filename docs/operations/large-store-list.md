@@ -9,7 +9,9 @@ written store, use:
 traceary list --limit 1 --fields ts,kind --color never
 ```
 
-This exact unfiltered shape uses the bounded latest-metadata path. It opens
+This exact shape uses the bounded latest-metadata path. The normal CLI may
+apply the current repository as an implicit workspace scope; that scope remains
+on the bounded path. It opens
 SQLite read-only, does not initialize or migrate the store, does not run the
 workspace-observation catch-up, and does not read event bodies, prompts,
 responses, command payloads, hook spools, credentials, or identifier samples.
@@ -27,8 +29,10 @@ whole-store sort.
 - Adding `message`, using `--wide`, using `--sensitive`, or adding filters uses
   the normal read path. Those forms may initialize an old store and can take
   longer; use them only after a bounded check succeeds.
-- This command does not delete data, apply retention, build an index, or modify
-  SQLite sidecars. For capacity planning, preview the separate operation with
+- This command does not delete data, apply retention, or build an index. A
+  read-only SQLite connection can recreate transient WAL shared-memory sidecars
+  while observing a WAL store; that is not a Traceary data mutation. For
+  capacity planning, preview the separate operation with
   `traceary store gc --dry-run` and archive before applying retention.
 
 ## Rollback

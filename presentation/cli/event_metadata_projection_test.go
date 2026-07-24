@@ -89,7 +89,9 @@ func TestRootCLI_ListJSONFieldsUsesMetadataProjection(t *testing.T) {
 }
 
 func TestRootCLI_ListTextMetadataFieldsSkipsStoreInitialization(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) { return "duck8823/traceary", nil })
+	t.Cleanup(cli.ResetDetectRepoContextFunc)
 
 	store := &storeManagementUsecaseStub{initErr: fmt.Errorf("initialization must not run")}
 	full := &eventUsecaseStub{}
@@ -112,6 +114,9 @@ func TestRootCLI_ListTextMetadataFieldsSkipsStoreInitialization(t *testing.T) {
 	}
 	if full.listCalls != 0 || metadataUsecase.listCalls != 1 {
 		t.Fatalf("full List() calls = %d, metadata List() calls = %d", full.listCalls, metadataUsecase.listCalls)
+	}
+	if got, want := metadataUsecase.listCriteria.Workspace().String(), "duck8823/traceary"; got != want {
+		t.Fatalf("implicit metadata workspace = %q, want %q", got, want)
 	}
 	if got, want := stdout.String(), "06:00:00  command_executed\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
