@@ -58,6 +58,9 @@ jobs:
       - name: Verify packaged integrations
         run: go run ./cmd/repo-tooling integrations verify
 
+      - name: Verify post-upgrade plugin refresh gate
+        run: ./scripts/smoke_test_integrations.sh post-upgrade-plugin-refresh
+
   test:
     name: Test
     runs-on: ubuntu-latest

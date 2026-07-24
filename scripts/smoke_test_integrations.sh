@@ -106,12 +106,18 @@ run_grok() {
   echo 'ok: grok plugin validation, install, inventory, and uninstall passed'
 }
 
+run_post_upgrade_plugin_refresh() {
+  "${ROOT_DIR}/scripts/test-verify-post-upgrade-plugin-refresh.sh"
+  echo 'ok: post-upgrade plugin refresh gate behavior passed'
+}
+
 case "${TARGET}" in
   all)
     run_claude
     run_codex
     run_gemini
     run_grok
+    run_post_upgrade_plugin_refresh
     ;;
   claude)
     run_claude
@@ -125,8 +131,11 @@ case "${TARGET}" in
   grok)
     run_grok
     ;;
+  post-upgrade-plugin-refresh)
+    run_post_upgrade_plugin_refresh
+    ;;
   *)
-    echo "usage: $0 [all|claude|codex|gemini|grok]" >&2
+    echo "usage: $0 [all|claude|codex|gemini|grok|post-upgrade-plugin-refresh]" >&2
     exit 64
     ;;
 esac
