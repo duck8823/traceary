@@ -66,6 +66,10 @@ func TestRootCLI_HookAuditCommand_SuppressesSelfInspectionNoise(t *testing.T) {
 }
 
 func TestRootCLI_HookAuditCommand_RecordsGenericSearchTool(t *testing.T) {
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
 	eventStub := &eventUsecaseStub{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
