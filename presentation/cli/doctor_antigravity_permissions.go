@@ -2,11 +2,9 @@ package cli
 
 import (
 	"encoding/json"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -25,8 +23,7 @@ var antigravityRequiredHookPermissions = []string{
 }
 
 // antigravityPermissionRules mirrors the documented Antigravity `permissions`
-// object. Rules can come from CLI settings, shared user settings, or the
-// matching project settings document.
+// object in Antigravity CLI's global settings document.
 type antigravityPermissionRules struct {
 	Allow []string `json:"allow"`
 	Deny  []string `json:"deny"`
@@ -189,9 +186,12 @@ func readAntigravityPermissionRules(data []byte) (antigravityPermissionRules, er
 	return rules, nil
 }
 
-// inspectAntigravityHeadlessPermissions reads only documented settings files.
+// inspectAntigravityHeadlessPermissions reads only Antigravity CLI's documented
+// global settings document (~/.gemini/antigravity-cli/settings.json). The host
+// does not use Gemini CLI or project settings as a permission source for this
+// integration, so treating either as readiness evidence would be misleading.
 // It does not launch Antigravity, inspect conversations, or read credentials.
-func inspectAntigravityHeadlessPermissions(projectDir string) antigravityPermissionAssessment {
+func inspectAntigravityHeadlessPermissions() antigravityPermissionAssessment {
 	home, err := userHomeDirFunc()
 	if err != nil {
 		return antigravityPermissionAssessment{
@@ -199,107 +199,24 @@ func inspectAntigravityHeadlessPermissions(projectDir string) antigravityPermiss
 		}
 	}
 
-	paths := []string{
-		filepath.Join(home, ".gemini", "antigravity-cli", "settings.json"),
-		filepath.Join(home, ".gemini", "settings.json"),
-	}
-	paths = append(paths, matchingAntigravityProjectSettingsPaths(home, projectDir)...)
-
-	var combined antigravityPermissionRules
-	var readErrors []string
-	for _, path := range paths {
-		data, readErr := os.ReadFile(path) // #nosec G304 -- fixed Antigravity settings paths
-		if readErr != nil {
-			if os.IsNotExist(readErr) {
-				continue
-			}
-			readErrors = append(readErrors, filepath.Base(path))
-			continue
+	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
+	data, readErr := os.ReadFile(path) // #nosec G304 -- fixed Antigravity CLI global settings path
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return evaluateAntigravityHeadlessPermissions(antigravityPermissionRules{})
 		}
-		rules, parseErr := readAntigravityPermissionRules(data)
-		if parseErr != nil {
-			readErrors = append(readErrors, filepath.Base(path))
-			continue
-		}
-		combined.Allow = append(combined.Allow, rules.Allow...)
-		combined.Deny = append(combined.Deny, rules.Deny...)
-		combined.Ask = append(combined.Ask, rules.Ask...)
-	}
-
-	assessment := evaluateAntigravityHeadlessPermissions(combined)
-	assessment.ReadErrors = readErrors
-	if len(readErrors) > 0 {
+		assessment := evaluateAntigravityHeadlessPermissions(antigravityPermissionRules{})
+		assessment.ReadErrors = []string{filepath.Base(path)}
 		assessment.Executable = false
+		return assessment
 	}
-	return assessment
-}
-
-// matchingAntigravityProjectSettingsPaths selects only the current project's
-// host-owned JSON document. Other project files are not treated as permission
-// sources, preventing unrelated grants from making this workspace look ready.
-func matchingAntigravityProjectSettingsPaths(home, projectDir string) []string {
-	projectDir = cleanAntigravityProjectPath(projectDir)
-	if projectDir == "" {
-		return nil
+	rules, parseErr := readAntigravityPermissionRules(data)
+	if parseErr != nil {
+		assessment := evaluateAntigravityHeadlessPermissions(antigravityPermissionRules{})
+		assessment.ReadErrors = []string{filepath.Base(path)}
+		return assessment
 	}
-	candidates, err := filepath.Glob(filepath.Join(home, ".gemini", "config", "projects", "*.json"))
-	if err != nil {
-		return nil
-	}
-	var matches []string
-	for _, candidate := range candidates {
-		data, readErr := os.ReadFile(candidate) // #nosec G304 -- fixed Antigravity projects directory
-		if readErr != nil {
-			continue
-		}
-		if antigravityProjectSettingsMatch(data, projectDir) {
-			matches = append(matches, candidate)
-		}
-	}
-	return matches
-}
-
-func antigravityProjectSettingsMatch(data []byte, projectDir string) bool {
-	var document struct {
-		Name             string `json:"name"`
-		ProjectResources struct {
-			Resources []struct {
-				FolderURI string `json:"folderUri"`
-			} `json:"resources"`
-		} `json:"projectResources"`
-	}
-	if err := json.Unmarshal(data, &document); err != nil {
-		return false
-	}
-	if cleanAntigravityProjectPath(document.Name) == projectDir {
-		return true
-	}
-	for _, resource := range document.ProjectResources.Resources {
-		parsed, err := url.Parse(resource.FolderURI)
-		if err != nil || parsed.Scheme != "file" {
-			continue
-		}
-		path, err := url.PathUnescape(parsed.Path)
-		if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
-			path = path[1:]
-		}
-		if err == nil && cleanAntigravityProjectPath(filepath.FromSlash(path)) == projectDir {
-			return true
-		}
-	}
-	return false
-}
-
-func cleanAntigravityProjectPath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return ""
-	}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return filepath.Clean(path)
-	}
-	return filepath.Clean(absolute)
+	return evaluateAntigravityHeadlessPermissions(rules)
 }
 
 func buildAntigravityHeadlessCoverageCheck(
@@ -320,6 +237,21 @@ func buildAntigravityHeadlessCoverageCheck(
 			Message: Localize(
 				"no healthy Antigravity hook route is installed; headless command permission coverage is not evaluated",
 				"健全な Antigravity hook 経路が導入されていないため、headless command permission coverage は判定しません",
+			),
+		}
+	}
+	if len(healthyRoutes) != 1 {
+		return doctorCheck{
+			Name:   checkName,
+			Status: doctorStatusWarn,
+			Hint: Localize(
+				"Retain exactly one Antigravity hook route before relying on headless hook readiness; multiple routes can invoke each hook more than once.",
+				"headless hook readiness を利用する前に Antigravity hook 経路を 1 つだけ残してください。複数経路では各 hook が複数回呼ばれる可能性があります。",
+			),
+			Message: localizef(
+				"Antigravity hooks are active via multiple routes (%s), so headless hook readiness is not healthy even when scoped permissions are present. Retain exactly one route.",
+				"Antigravity hooks は複数経路 (%s) で有効なため、scoped permission があっても headless hook readiness は健全ではありません。経路を 1 つだけ残してください。",
+				strings.Join(healthyRoutes, ", "),
 			),
 		}
 	}

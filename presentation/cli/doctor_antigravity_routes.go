@@ -182,7 +182,7 @@ func (c *RootCLI) inspectAntigravityHookRoutes(projectDir string) []doctorCheck 
 		checks,
 		buildAntigravityHeadlessCoverageCheck(
 			routes,
-			inspectAntigravityHeadlessPermissions(projectDir),
+			inspectAntigravityHeadlessPermissions(),
 		),
 	)
 	return checks

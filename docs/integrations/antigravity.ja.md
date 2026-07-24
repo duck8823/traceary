@@ -104,10 +104,12 @@ plugin は、そのまま settings に merge できる fragment
 }
 ```
 
-この 4 項目を `~/.gemini/antigravity-cli/settings.json`、Antigravity の共有
-settings、または対象 project settings の `permissions.allow` 配列へ merge
-してください。plugin の導入処理は operator 所有の settings を自動上書き
-しません。
+この 4 項目は Antigravity CLI の global settings
+`~/.gemini/antigravity-cli/settings.json` の `permissions.allow` 配列へ merge
+してください。`~/.gemini/settings.json` や project settings だけに置いても
+Antigravity CLI 1.1.6 はこの連携の headless permission source として使わず、
+`doctor` は未準備として報告します。plugin の導入処理は operator 所有の
+settings を自動上書きしません。
 
 4 項目は packaged hook entrypoint だけを許可する exact な token-prefix
 resource です。command の wildcard grant、`unsandboxed(...)` grant、
@@ -185,7 +187,7 @@ traceary doctor --client antigravity --json
 - `antigravity-cli-plugin` — 現行の共有 plugin directory `~/.gemini/config/plugins/traceary` と、従来の CLI 専用 directory `~/.gemini/antigravity-cli/plugins/traceary` を検査します。サポートされた Antigravity の top-level hook-group 形式なら `pass`、**古い Gemini 形式のパッケージ**（legacy な top-level `{"hooks": ...}` 形式、または `traceary hook ... gemini` を呼び出す command）を見つけると `warn` を報告します。この check は `plugin.json`・`hooks.json`・`hooks/hooks.json` のみを読み取り、transcript や認証情報は読みません。
 - `antigravity-mcp` — 導入済み CLI plugin の `mcp_config.json` に `traceary mcp-server` 登録があれば `pass` します。plugin はあるが登録がなければ `warn`、plugin 経路自体がなければ `skip` します。hook の直接設定は MCP tool を提供しないためです。
 - `antigravity-hooks` — 集約サマリー。**いずれか**の経路の config が不正（経路別 check が `fail`）な場合は、別の経路が健全でも Antigravity が読み込めないため `fail` を報告します。健全な経路が **1 つだけ**なら `pass`、複数なら handler の重複登録を避けるため `warn`、どの経路も健全でない場合も導入手順付きの `warn` を報告します。
-- `antigravity-headless-hooks` — hook file の導入と非対話での実行可能 coverage を分けて診断します。健全な経路があり、4 個の exact command resource が matching deny/ask rule や広すぎる grant、unsandboxed grant なしで許可されている場合だけ `pass` します。導入済み hook が確認待ちになるか shadow されていれば `warn`、健全な経路自体がなければ `skip` します。
+- `antigravity-headless-hooks` — hook file の導入と非対話での実行可能 coverage を分けて診断します。健全な経路が**ちょうど 1 つ**で、global `~/.gemini/antigravity-cli/settings.json` が 4 個の exact command resource を matching deny/ask rule、広すぎる grant、unsandboxed grant なしで許可する場合だけ `pass` します。複数経路で hook が重複する場合、導入済み hook が確認待ちになるか shadow される場合、permission が Gemini/project settings にしかない場合は `warn`、健全な経路自体がなければ `skip` します。
 - `antigravity-capture-levels` — 常に `pass`。公開 hook の設定上の capability として、interactive と現行 headless CLI の `start_supported`、`tool_audit_supported`、`final_turn_supported` を報告します。
 - `antigravity-event-coverage` — recent な `agent=antigravity` の DB 証拠を検査します。hook 導入経路がすべて健全でも、十分な sample の開始済み session に transcript event が無ければ警告します。
 - `antigravity-plugin-version` — 導入済み plugin manifest と実行中 Traceary release の version を比較し、不一致なら `warn` を報告します。Traceary 更新後は packaged plugin も再導入してください。

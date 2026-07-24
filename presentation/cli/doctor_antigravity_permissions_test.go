@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -170,6 +169,24 @@ func TestBuildAntigravityHeadlessCoverageCheck(t *testing.T) {
 			t.Fatalf("Status = %q, want pass (message=%q)", check.Status, check.Message)
 		}
 	})
+
+	t.Run("warns with multiple healthy routes even when permissions are exact", func(t *testing.T) {
+		check := buildAntigravityHeadlessCoverageCheck(
+			[]antigravityHookRoute{
+				healthyRoute(antigravityRouteWorkspaceLabel),
+				healthyRoute(antigravityRoutePluginLabel),
+			},
+			evaluateAntigravityHeadlessPermissions(antigravityPermissionRules{
+				Allow: append([]string(nil), antigravityRequiredHookPermissions...),
+			}),
+		)
+		if check.Status != doctorStatusWarn {
+			t.Fatalf("Status = %q, want warn (message=%q)", check.Status, check.Message)
+		}
+		if !strings.Contains(check.Message, "multiple routes") {
+			t.Fatalf("Message = %q, want duplicate-route guidance", check.Message)
+		}
+	})
 }
 
 func TestPackagedAntigravityPermissionsAreExact(t *testing.T) {
@@ -228,16 +245,11 @@ func TestPackagedAntigravityPermissionsAreExact(t *testing.T) {
 	}
 }
 
-func TestInspectAntigravityHeadlessPermissionsUsesOnlyMatchingProject(t *testing.T) {
+func TestInspectAntigravityHeadlessPermissionsUsesOnlyCLIGlobalSettings(t *testing.T) {
 	home := t.TempDir()
-	projectDir := t.TempDir()
-	otherProjectDir := t.TempDir()
 	cliSettingsDir := filepath.Join(home, ".gemini", "antigravity-cli")
-	projectSettingsDir := filepath.Join(home, ".gemini", "config", "projects")
-	for _, dir := range []string{cliSettingsDir, projectSettingsDir} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			t.Fatalf("MkdirAll(%s): %v", dir, err)
-		}
+	if err := os.MkdirAll(cliSettingsDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", cliSettingsDir, err)
 	}
 	if err := os.WriteFile(
 		filepath.Join(cliSettingsDir, "settings.json"),
@@ -247,38 +259,19 @@ func TestInspectAntigravityHeadlessPermissionsUsesOnlyMatchingProject(t *testing
 		t.Fatalf("write CLI settings: %v", err)
 	}
 
-	projectRules, err := os.ReadFile(filepath.Join("..", "..", "integrations", "antigravity-plugin", "permissions.example.json"))
+	exactRules, err := os.ReadFile(filepath.Join("..", "..", "integrations", "antigravity-plugin", "permissions.example.json"))
 	if err != nil {
-		t.Fatalf("read packaged project rules: %v", err)
+		t.Fatalf("read packaged rules: %v", err)
 	}
-	var projectPermissionDocument any
-	if err := json.Unmarshal(projectRules, &projectPermissionDocument); err != nil {
-		t.Fatalf("decode packaged project rules: %v", err)
-	}
-	matchingDocument := map[string]any{
-		"name": projectDir,
-		"projectResources": map[string]any{
-			"resources": []map[string]any{{"folderUri": (&url.URL{Scheme: "file", Path: projectDir}).String()}},
-		},
-		"permissions": projectPermissionDocument.(map[string]any)["permissions"],
-	}
-	unrelatedDocument := map[string]any{
-		"name": otherProjectDir,
-		"projectResources": map[string]any{
-			"resources": []map[string]any{{"folderUri": (&url.URL{Scheme: "file", Path: otherProjectDir}).String()}},
-		},
-		"permissions": map[string]any{"allow": []string{"command(*)"}},
-	}
-	for name, document := range map[string]any{
-		"matching.json":  matchingDocument,
-		"unrelated.json": unrelatedDocument,
+	for path := range map[string]struct{}{
+		filepath.Join(home, ".gemini", "settings.json"):                     {},
+		filepath.Join(home, ".gemini", "config", "projects", "active.json"): {},
 	} {
-		data, marshalErr := json.Marshal(document)
-		if marshalErr != nil {
-			t.Fatalf("marshal %s: %v", name, marshalErr)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", filepath.Dir(path), err)
 		}
-		if writeErr := os.WriteFile(filepath.Join(projectSettingsDir, name), data, 0o600); writeErr != nil {
-			t.Fatalf("write %s: %v", name, writeErr)
+		if err := os.WriteFile(path, exactRules, 0o600); err != nil {
+			t.Fatalf("write non-CLI settings %s: %v", path, err)
 		}
 	}
 
@@ -286,8 +279,16 @@ func TestInspectAntigravityHeadlessPermissionsUsesOnlyMatchingProject(t *testing
 	userHomeDirFunc = func() (string, error) { return home, nil }
 	t.Cleanup(func() { userHomeDirFunc = originalHomeDirFunc })
 
-	got := inspectAntigravityHeadlessPermissions(projectDir)
+	got := inspectAntigravityHeadlessPermissions()
+	if got.Executable || len(got.Missing) != len(antigravityRequiredHookPermissions) {
+		t.Fatalf("assessment = %+v, want non-CLI settings to be ignored", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(cliSettingsDir, "settings.json"), exactRules, 0o600); err != nil {
+		t.Fatalf("write exact CLI settings: %v", err)
+	}
+	got = inspectAntigravityHeadlessPermissions()
 	if !got.Executable || len(got.Unsafe) != 0 {
-		t.Fatalf("assessment = %+v, want matching exact project rules only", got)
+		t.Fatalf("assessment = %+v, want exact global CLI settings only", got)
 	}
 }
