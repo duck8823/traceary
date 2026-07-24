@@ -126,7 +126,10 @@ type hookSpoolDrainResult struct {
 // records. Returns counts of successful replays and retained failures.
 func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replayed, failed int) {
 	result := c.drainHookSpoolRecordsDetailed(ctx, limit)
-	return result.Replayed, result.Failed
+	// Preserve the legacy aggregate used by opportunistic debug logging while
+	// the structured result keeps replay failures and unreadable records
+	// disjoint.
+	return result.Replayed, result.Failed + result.Unreadable
 }
 
 func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) hookSpoolDrainResult {
@@ -146,7 +149,6 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) 
 		if ctx.Err() != nil {
 			break
 		}
-		result.Failed++
 		if err := requeueHookSpoolRecord(path); err != nil {
 			slog.Debug("unreadable hook spool requeue failed", "path", path, "error", err)
 		}
@@ -587,19 +589,18 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		if result.Err != nil {
 			return doctorFixResult{}, result.Err
 		}
-		replayFailed := max(result.Failed-result.Unreadable, 0)
 		return doctorFixResult{
 			Action: localizef(
 				"drained hook spool: replayed=%d failed=%d unreadable=%d remaining=%d",
 				"hook spool を drain しました: replayed=%d failed=%d unreadable=%d remaining=%d",
 				result.Replayed,
-				replayFailed,
+				result.Failed,
 				result.Unreadable,
 				result.Remaining,
 			),
 			Metrics: map[string]int{
 				"replayed":   result.Replayed,
-				"failed":     replayFailed,
+				"failed":     result.Failed,
 				"remaining":  result.Remaining,
 				"unreadable": result.Unreadable,
 			},
