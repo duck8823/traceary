@@ -11,7 +11,7 @@ After every released binary upgrade:
 1. Confirm the binary: `traceary -v`.
 2. Refresh every installed host package using the matrix below.
 3. Complete its activation step before collecting the doctor report.
-4. Run the body-free release-QA gate. It accepts only a `pass`/supported `skip` plugin-version result for every unskipped host:
+4. Run the body-free release-QA gate. Every unskipped host must have a `pass` plugin-version result. Antigravity may additionally report `skip` for an incomplete dual-path twin only when another copy passes:
 
    ```sh
    ./scripts/verify-post-upgrade-plugin-refresh.sh \
@@ -61,22 +61,6 @@ If the other path is a healthy package but an incomplete leftover twin has no `v
 ```sh
 traceary hooks install --client antigravity --upgrade
 ```
-
-## Reproducible, body-free command matrix
-
-The gate can consume pre-collected doctor JSON for automation without rerunning doctor:
-
-```sh
-./scripts/verify-post-upgrade-plugin-refresh.sh \
-  --doctor-json claude=/tmp/claude-doctor.json \
-  --doctor-json codex=/tmp/codex-doctor.json \
-  --doctor-json gemini=/tmp/gemini-doctor.json \
-  --doctor-json antigravity=/tmp/antigravity-doctor.json \
-  --doctor-json grok=/tmp/grok-doctor.json \
-  --doctor-json kimi=/tmp/kimi-doctor.json
-```
-
-This mode is suitable for release QA artifacts because the verifier reads only public check identifiers and statuses. A locally installed package behind the core binary produces `warn` and fails unless the operator supplied that host’s explicit unused-host skip.
 
 ## Homebrew note
 

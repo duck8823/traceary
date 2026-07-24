@@ -23,14 +23,15 @@ Options:
   --traceary PATH            Traceary binary to inspect (default: traceary)
   --project-dir PATH         Project directory passed to doctor (default: cwd)
   --skip HOST=REASON         Explicitly skip an intentionally unused host.
-  --doctor-json HOST=PATH    Read an existing doctor --json report instead of
-                             invoking doctor for HOST (fixture/QA use).
+  --doctor-json HOST=PATH    Test-fixture input only. Requires
+                             TRACEARY_PLUGIN_REFRESH_TEST_MODE=1.
   -h, --help                 Show this help.
 
-Each unskipped host must report its <host>-plugin-version check as pass or
-skip. warn/fail (including a package behind the running binary) fails. The
-script reads only JSON check name/status, never messages, paths, prompts,
-transcripts, command output, or database-event bodies.
+Claude, Codex, Gemini, Grok, and Kimi require a pass result. Antigravity
+requires at least one pass and permits additional skip results for its known
+incomplete dual-path twin. warn/fail (including a package behind the running
+binary) fails. The script reads only JSON check name/status, never messages,
+paths, prompts, transcripts, command output, or database-event bodies.
 USAGE
 }
 
@@ -82,6 +83,10 @@ while [[ $# -gt 0 ]]; do
     --project-dir) [[ $# -ge 2 ]] || { echo 'error: --project-dir requires PATH' >&2; exit 64; }; PROJECT_DIR="$2"; shift 2 ;;
     --skip|--doctor-json)
       [[ $# -ge 2 ]] || { echo "error: $1 requires HOST=VALUE" >&2; exit 64; }
+      if [[ "$1" == --doctor-json && "${TRACEARY_PLUGIN_REFRESH_TEST_MODE:-}" != 1 ]]; then
+        echo 'error: --doctor-json is restricted to fixture tests; release QA must run live doctor commands' >&2
+        exit 64
+      fi
       assignment="$(parse_assignment "$1" "$2")"
       host="${assignment%%$'\n'*}"
       value="${assignment#*$'\n'}"
@@ -97,20 +102,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-all_hosts_skipped=true
-for host in "${HOSTS[@]}"; do
-  if ! skip_reason_for "${host}" >/dev/null; then
-    all_hosts_skipped=false
-    break
-  fi
-done
-if [[ "${all_hosts_skipped}" == true ]]; then
-  echo 'error: refusing to skip every host; verify at least one installed package' >&2
-  exit 64
-fi
-
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/traceary-plugin-refresh.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT
+actual_passes=0
 
 for host in "${HOSTS[@]}"; do
   if skip_reason="$(skip_reason_for "${host}")"; then
@@ -126,11 +120,12 @@ for host in "${HOSTS[@]}"; do
     echo "FAIL ${host}: doctor command failed; use --skip ${host}=REASON only when this host is intentionally unused" >&2
     exit 1
   fi
-  python3 - "${host}" "${report}" <<'PY'
+  pass_marker="${TMP_DIR}/${host}.pass"
+  python3 - "${host}" "${report}" "${pass_marker}" <<'PY'
 import json
 import sys
 
-host, report_path = sys.argv[1:]
+host, report_path, pass_marker = sys.argv[1:]
 expected = f"{host}-plugin-version"
 try:
     with open(report_path, encoding="utf-8") as source:
@@ -143,11 +138,26 @@ except (OSError, json.JSONDecodeError) as exc:
 statuses = [check.get("status") for check in report.get("checks", []) if check.get("name") == expected]
 if not statuses:
     raise SystemExit(f"FAIL {host}: no {expected} check; use --skip {host}=REASON only when the host is intentionally unused")
-invalid = [status for status in statuses if status not in {"pass", "skip"}]
+if host == "antigravity":
+    invalid = [status for status in statuses if status not in {"pass", "skip"}]
+    if "pass" not in statuses:
+        raise SystemExit(f"FAIL {host}: {expected} must include pass; skip is allowed only beside a healthy dual-path copy")
+else:
+    invalid = [status for status in statuses if status != "pass"]
 if invalid:
     raise SystemExit(f"FAIL {host}: {expected} status is {','.join(str(status) for status in invalid)}; refresh the package or use an explicit unused-host skip")
+with open(pass_marker, "w", encoding="utf-8") as marker:
+    marker.write("1\n" if "pass" in statuses else "0\n")
 print(f"PASS {host}: {expected}={','.join(statuses)}")
 PY
+  if [[ "$(cat "${pass_marker}")" == 1 ]]; then
+    actual_passes=$((actual_passes + 1))
+  fi
 done
+
+if [[ ${actual_passes} -eq 0 ]]; then
+  echo 'FAIL: no unskipped host reported an actual plugin-version pass' >&2
+  exit 1
+fi
 
 echo 'PASS: post-upgrade plugin refresh contract is complete'

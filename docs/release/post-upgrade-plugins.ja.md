@@ -11,7 +11,7 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 1. `traceary -v` でバイナリを確認する。
 2. 下表に従い、導入済みホスト package をすべて更新する。
 3. doctor の収集前に、そのホストの有効化を完了する。
-4. 本文を読まない release QA gate を実行する。skip を付けていないホストは、plugin-version が `pass` または許可された `skip` でなければなりません。
+4. 本文を読まない release QA gate を実行する。skip を付けていないホストの plugin-version はすべて `pass` でなければなりません。Antigravity だけは、一方の copy が pass のときに限り、不完全な dual-path twin の `skip` を追加で許可します。
 
    ```sh
    ./scripts/verify-post-upgrade-plugin-refresh.sh \
@@ -61,22 +61,6 @@ traceary doctor --client antigravity --json
 ```sh
 traceary hooks install --client antigravity --upgrade
 ```
-
-## 再現可能で本文を読まない command matrix
-
-gate は事前に収集した doctor JSON を受け取り、doctor を再実行せずに自動検証できます。
-
-```sh
-./scripts/verify-post-upgrade-plugin-refresh.sh \
-  --doctor-json claude=/tmp/claude-doctor.json \
-  --doctor-json codex=/tmp/codex-doctor.json \
-  --doctor-json gemini=/tmp/gemini-doctor.json \
-  --doctor-json antigravity=/tmp/antigravity-doctor.json \
-  --doctor-json grok=/tmp/grok-doctor.json \
-  --doctor-json kimi=/tmp/kimi-doctor.json
-```
-
-この mode は、公開された check identifier と status だけを読むため、release QA artifact に使えます。ローカル導入 package が core binary より古い場合は `warn` になり、host の明示的な未使用 skip がない限り失敗します。
 
 ## Homebrew の注意
 
