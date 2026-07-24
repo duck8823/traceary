@@ -183,6 +183,18 @@ hook-only で導入した project/global ファイルは plugin と独立して�
 | `grok-mcp` / `grok-skills` が警告 | 導入済みパッケージの内容が不足している。plugin を再導入する |
 | `grok-event-coverage` が警告 | 直近の `agent=grok` event と待機中の hook/transcript queue を確認する。導入状態が正常でも実行時配送まで保証しない |
 
+### Stop の最終ターン transcript disposition
+
+Grok は最終 assistant message を `updates.jsonl` に追記している途中で `Stop` を
+発行することがあります。Traceary は ready な最終 message を1回だけ記録します。
+ready でなければ transcript worker を1件起動し、100ms 間隔で最大20回だけ確認します。
+path 不在、wire の malformed、worker の cancel、または最終 message が最後まで現れない
+場合は、本文を含まない **partial** final-turn disposition として記録し、未処理 retry
+job は残しません。`traceary doctor --client grok --json` が報告するのは disposition の
+集計件数だけで、transcript path、session ID、prompt ID、assistant 本文は表示しません。
+warning が残る場合は queue file をコピー・編集せず、`TRACEARY_HOOK_DEBUG=1` を有効にして
+新しい marker turn を実行してください。
+
 読み取り専用で確認できる command は次のとおりです。
 
 ```sh

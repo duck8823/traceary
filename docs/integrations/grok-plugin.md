@@ -194,6 +194,18 @@ removed separately if they were installed.
 | `grok-mcp` / `grok-skills` warns | The installed package inventory is incomplete; reinstall it |
 | `grok-event-coverage` warns | Inspect recent `agent=grok` events and pending hook/transcript queues; a healthy install alone does not prove runtime delivery |
 
+### Stop final-turn transcript disposition
+
+Grok can emit `Stop` while its `updates.jsonl` file is still receiving the
+final assistant message. Traceary records a ready final message once. Otherwise
+it starts one bounded transcript worker (20 checks at 100ms). A missing path,
+malformed wire, worker cancellation, or a final message that remains absent is
+recorded as a body-free **partial** final-turn disposition and has no pending
+retry job. `traceary doctor --client grok --json` reports aggregate disposition
+counts only; it never exposes the transcript path, session ID, prompt ID, or
+assistant body. Start a new marker turn with `TRACEARY_HOOK_DEBUG=1` when the
+warning remains rather than copying or editing queue files.
+
 Useful read-only checks:
 
 ```sh

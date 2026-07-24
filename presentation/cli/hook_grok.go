@@ -283,30 +283,55 @@ type grokTranscriptUpdate struct {
 	} `json:"params"`
 }
 
+type grokTranscriptDisposition string
+
+const (
+	grokTranscriptReady       grokTranscriptDisposition = "ready"
+	grokTranscriptDelayed     grokTranscriptDisposition = "delayed"
+	grokTranscriptUnavailable grokTranscriptDisposition = "unavailable"
+	grokTranscriptMalformed   grokTranscriptDisposition = "malformed"
+)
+
 // extractGrokTranscript reads Grok's updates.jsonl and joins the streamed
 // agent_message_chunk rows for the Stop payload's promptId. Thought and tool
 // rows are intentionally excluded from the persisted assistant transcript.
 func extractGrokTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
+	blocks, disposition := inspectGrokTranscript(payload)
+	return blocks, disposition == grokTranscriptReady
+}
+
+// inspectGrokTranscript classifies only the availability of the final
+// agent-message boundary. It deliberately does not surface a source path or
+// body in its result: callers use the body only when ready, and queue
+// diagnostics retain only the body-free disposition.
+func inspectGrokTranscript(payload []byte) ([]apptypes.EventBodyBlock, grokTranscriptDisposition) {
 	path := strings.TrimSpace(hookPayloadString(payload, "transcript_path", ""))
 	if path == "" {
-		return nil, false
+		return nil, grokTranscriptUnavailable
 	}
 	targetPromptID := strings.TrimSpace(hookPayloadString(payload, "prompt_id", ""))
 
 	file, err := os.Open(path) // #nosec G304 -- path supplied by the Grok Stop hook
 	if err != nil {
 		slog.Debug("failed to open Grok transcript file", "path", path, "error", err)
-		return nil, false
+		return nil, grokTranscriptUnavailable
 	}
 	defer func() { _ = file.Close() }()
 
 	chunks := map[string]*strings.Builder{}
 	lastPromptID := ""
+	nonEmptyRows := 0
+	malformedRows := 0
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
+		if len(bytes.TrimSpace(scanner.Bytes())) == 0 {
+			continue
+		}
+		nonEmptyRows++
 		var row grokTranscriptUpdate
 		if err := json.Unmarshal(scanner.Bytes(), &row); err != nil {
+			malformedRows++
 			continue
 		}
 		if row.Method != "session/update" || row.Params.Update.SessionUpdate != "agent_message_chunk" || row.Params.Update.Content.Type != "text" {
@@ -326,18 +351,21 @@ func extractGrokTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
 	}
 	if err := scanner.Err(); err != nil {
 		slog.Debug("failed while scanning Grok transcript file", "path", path, "error", err)
-		return nil, false
+		return nil, grokTranscriptMalformed
 	}
 	if targetPromptID == "" {
 		targetPromptID = lastPromptID
 	}
 	builder := chunks[targetPromptID]
 	if builder == nil {
-		return nil, false
+		if nonEmptyRows > 0 && malformedRows == nonEmptyRows {
+			return nil, grokTranscriptMalformed
+		}
+		return nil, grokTranscriptDelayed
 	}
 	text := strings.TrimSpace(builder.String())
 	if text == "" {
-		return nil, false
+		return nil, grokTranscriptDelayed
 	}
-	return []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: text}}, true
+	return []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: text}}, grokTranscriptReady
 }

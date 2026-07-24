@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	hookGrokTranscriptJobSchemaVersion = 1
-	hookGrokTranscriptRetryCount       = 20
-	hookGrokTranscriptRetryInterval    = 100 * time.Millisecond
+	hookGrokTranscriptJobSchemaVersion      = 1
+	hookGrokTranscriptTerminalSchemaVersion = 1
+	hookGrokTranscriptRetryCount            = 20
+	hookGrokTranscriptRetryInterval         = 100 * time.Millisecond
 )
 
 type hookGrokTranscriptJob struct {
@@ -33,6 +34,12 @@ type hookGrokTranscriptJob struct {
 	Attempts      int       `json:"attempts,omitempty"`
 	LastAttemptAt time.Time `json:"last_attempt_at,omitempty"`
 	LastError     string    `json:"last_error,omitempty"`
+}
+
+type hookGrokTranscriptTerminal struct {
+	SchemaVersion int       `json:"schema_version"`
+	Disposition   string    `json:"disposition"`
+	OccurredAt    time.Time `json:"occurred_at"`
 }
 
 func scanHookGrokTranscriptJobs() ([]hookGrokTranscriptJob, []string, error) {
@@ -72,7 +79,11 @@ func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
 	if err != nil {
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect Grok transcript queue: %v", "Grok transcript queue の検査に失敗しました: %v", err)}
 	}
-	if len(jobs) == 0 && len(unreadable) == 0 {
+	terminals, terminalUnreadable, terminalErr := scanHookGrokTranscriptTerminals()
+	if terminalErr != nil {
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect Grok transcript terminal dispositions: %v", "Grok transcript の終端 disposition 検査に失敗しました: %v", terminalErr)}
+	}
+	if len(jobs) == 0 && len(unreadable) == 0 && len(terminals) == 0 && terminalUnreadable == 0 {
 		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending Grok transcript jobs found", "未処理の Grok transcript job はありません")}
 	}
 	failed := 0
@@ -88,15 +99,20 @@ func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
 			failed++
 		}
 	}
+	terminalCounts := map[string]int{}
+	for _, terminal := range terminals {
+		terminalCounts[terminal.Disposition]++
+	}
+	partial := terminalCounts["unavailable"] + terminalCounts["malformed"] + terminalCounts["cancelled"]
 	return doctorCheck{
 		Name:   name,
 		Status: doctorStatusWarn,
 		Message: localizef(
-			"found %d pending Grok transcript job(s), %d previously failed job(s), and %d unreadable job(s); oldest age %s",
-			"未処理の Grok transcript job が %d 件、以前失敗した job が %d 件、読めない job が %d 件あります。最古の経過時間は %s です",
-			len(jobs), failed, len(unreadable), oldestAge.Round(time.Second),
+			"found %d pending Grok transcript job(s), %d previously failed job(s), %d unreadable job(s), and %d partial final-turn disposition(s) (%d unavailable, %d malformed, %d cancelled; %d unreadable disposition marker(s)); oldest age %s",
+			"未処理の Grok transcript job が %d 件、以前失敗した job が %d 件、読めない job が %d 件、partial final-turn disposition が %d 件（unavailable %d 件、malformed %d 件、cancelled %d 件、読めない disposition marker %d 件）あります。最古の経過時間は %s です",
+			len(jobs), failed, len(unreadable), partial, terminalCounts["unavailable"], terminalCounts["malformed"], terminalCounts["cancelled"], terminalUnreadable, oldestAge.Round(time.Second),
 		),
-		Hint: Localize("the final Grok transcript remained unavailable after Stop; enable TRACEARY_HOOK_DEBUG for the next turn and remove a pending job only after confirming it is stale", "Stop 後も最終 Grok transcript を取得できませんでした。次の turn で TRACEARY_HOOK_DEBUG を有効にし、未処理 job は不要と確認してから削除してください"),
+		Hint: Localize("a terminal final-turn disposition is partial coverage and has no retry job; enable TRACEARY_HOOK_DEBUG for the next turn. Remove a pending job only after confirming it is stale", "終端 final-turn disposition は partial coverage であり retry job はありません。次の turn で TRACEARY_HOOK_DEBUG を有効にしてください。未処理 job は不要と確認してからだけ削除してください"),
 	}
 }
 
@@ -137,6 +153,14 @@ func hookGrokTranscriptQueueDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(stateDir, "grok-transcript"), nil
+}
+
+func hookGrokTranscriptTerminalDir() (string, error) {
+	stateDir, err := resolveHookStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(stateDir, "grok-transcript-terminal"), nil
 }
 
 func enqueueHookGrokTranscript(payload []byte, dbPath string, requestedAt time.Time) (string, error) {
@@ -210,22 +234,34 @@ func (c *RootCLI) runHookGrokTranscriptWorker(ctx context.Context, jobPath strin
 	}
 	payload := []byte(job.Payload)
 	for attempt := 0; attempt < hookGrokTranscriptRetryCount; attempt++ {
-		if _, ready := extractGrokTranscript(payload); ready {
+		blocks, disposition := inspectGrokTranscript(payload)
+		if disposition == grokTranscriptReady {
 			if err := c.runHookTranscript(ctx, bytes.NewReader(payload), grokHookClient, job.DBPath); err != nil {
 				return c.failHookGrokTranscriptJob(resolvedJobPath, job, err)
 			}
-			if err := os.Remove(resolvedJobPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return xerrors.Errorf("failed to clear completed Grok transcript job: %w", err)
-			}
-			return nil
+			_ = blocks // body ownership remains in runHookTranscript; this branch is state-only.
+			return finalizeHookGrokTranscriptJob(resolvedJobPath, "recorded")
+		}
+		if disposition == grokTranscriptUnavailable || disposition == grokTranscriptMalformed {
+			return finalizeHookGrokTranscriptJob(resolvedJobPath, string(disposition))
 		}
 		select {
 		case <-ctx.Done():
-			return c.failHookGrokTranscriptJob(resolvedJobPath, job, ctx.Err())
+			return finalizeHookGrokTranscriptJob(resolvedJobPath, "cancelled")
 		case <-time.After(hookGrokTranscriptRetryInterval):
 		}
 	}
-	return c.failHookGrokTranscriptJob(resolvedJobPath, job, xerrors.Errorf("Grok transcript was not ready after %s", hookGrokTranscriptRetryCount*hookGrokTranscriptRetryInterval))
+	return finalizeHookGrokTranscriptJob(resolvedJobPath, "unavailable")
+}
+
+func finalizeHookGrokTranscriptJob(jobPath, disposition string) error {
+	if err := writeHookGrokTranscriptTerminal(jobPath, disposition, time.Now().UTC()); err != nil {
+		return err
+	}
+	if err := os.Remove(jobPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return xerrors.Errorf("failed to clear terminal Grok transcript job: %w", err)
+	}
+	return nil
 }
 
 func validateHookGrokTranscriptJobPath(jobPath string) (string, error) {
@@ -271,6 +307,107 @@ func readHookGrokTranscriptJob(path string) (hookGrokTranscriptJob, error) {
 		return hookGrokTranscriptJob{}, xerrors.Errorf("Grok transcript job has an unsupported shape")
 	}
 	return job, nil
+}
+
+func scanHookGrokTranscriptTerminals() ([]hookGrokTranscriptTerminal, int, error) {
+	dir, err := hookGrokTranscriptTerminalDir()
+	if err != nil {
+		return nil, 0, err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, 0, nil
+	}
+	if err != nil {
+		return nil, 0, xerrors.Errorf("failed to read Grok transcript terminal dispositions: %w", err)
+	}
+	terminals := []hookGrokTranscriptTerminal{}
+	unreadable := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		terminal, readErr := readHookGrokTranscriptTerminal(filepath.Join(dir, entry.Name()))
+		if readErr != nil {
+			unreadable++
+			continue
+		}
+		terminals = append(terminals, terminal)
+	}
+	return terminals, unreadable, nil
+}
+
+func readHookGrokTranscriptTerminal(path string) (hookGrokTranscriptTerminal, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return hookGrokTranscriptTerminal{}, xerrors.Errorf("failed to read Grok transcript terminal disposition: %w", err)
+	}
+	var terminal hookGrokTranscriptTerminal
+	if err := json.Unmarshal(data, &terminal); err != nil {
+		return hookGrokTranscriptTerminal{}, xerrors.Errorf("failed to decode Grok transcript terminal disposition: %w", err)
+	}
+	if terminal.SchemaVersion != hookGrokTranscriptTerminalSchemaVersion || terminal.OccurredAt.IsZero() || !validHookGrokTranscriptTerminalDisposition(terminal.Disposition) {
+		return hookGrokTranscriptTerminal{}, xerrors.Errorf("Grok transcript terminal disposition has an unsupported shape")
+	}
+	return terminal, nil
+}
+
+func validHookGrokTranscriptTerminalDisposition(disposition string) bool {
+	switch disposition {
+	case "recorded", "unavailable", "malformed", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func writeHookGrokTranscriptTerminal(jobPath, disposition string, occurredAt time.Time) error {
+	if !validHookGrokTranscriptTerminalDisposition(disposition) || occurredAt.IsZero() {
+		return xerrors.Errorf("Grok transcript terminal disposition is invalid")
+	}
+	dir, err := hookGrokTranscriptTerminalDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return xerrors.Errorf("failed to create Grok transcript terminal disposition directory: %w", err)
+	}
+	name := filepath.Base(jobPath)
+	if len(name) != 69 || !strings.HasSuffix(name, ".json") {
+		return xerrors.Errorf("Grok transcript terminal disposition job name is invalid")
+	}
+	terminalPath := filepath.Join(dir, name)
+	terminal := hookGrokTranscriptTerminal{
+		SchemaVersion: hookGrokTranscriptTerminalSchemaVersion,
+		Disposition:   disposition,
+		OccurredAt:    occurredAt.UTC(),
+	}
+	encoded, err := json.MarshalIndent(terminal, "", "  ")
+	if err != nil {
+		return xerrors.Errorf("failed to encode Grok transcript terminal disposition: %w", err)
+	}
+	encoded = append(encoded, '\n')
+	temporaryFile, err := os.CreateTemp(dir, "."+name+".*.tmp")
+	if err != nil {
+		return xerrors.Errorf("failed to create Grok transcript terminal disposition temporary file: %w", err)
+	}
+	temporaryPath := temporaryFile.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporaryFile.Chmod(0o600); err != nil {
+		_ = temporaryFile.Close()
+		return xerrors.Errorf("failed to protect Grok transcript terminal disposition temporary file: %w", err)
+	}
+	if _, err := temporaryFile.Write(encoded); err != nil {
+		_ = temporaryFile.Close()
+		return xerrors.Errorf("failed to write Grok transcript terminal disposition: %w", err)
+	}
+	if err := temporaryFile.Close(); err != nil {
+		return xerrors.Errorf("failed to close Grok transcript terminal disposition: %w", err)
+	}
+	if err := os.Rename(temporaryPath, terminalPath); err != nil {
+		return xerrors.Errorf("failed to publish Grok transcript terminal disposition: %w", err)
+	}
+	return nil
 }
 
 func writeHookGrokTranscriptJob(path string, job hookGrokTranscriptJob) error {

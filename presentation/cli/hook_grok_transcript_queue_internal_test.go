@@ -54,6 +54,38 @@ func TestInspectHookGrokTranscriptDiagnosticsPassesWithoutJobs(t *testing.T) {
 	}
 }
 
+func TestInspectHookGrokTranscriptDiagnosticsReportsBodyFreeTerminalPartialState(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	jobPath := filepath.Join(stateDir, "grok-transcript", strings.Repeat("a", 64)+".json")
+	if err := writeHookGrokTranscriptTerminal(jobPath, "unavailable", now); err != nil {
+		t.Fatalf("writeHookGrokTranscriptTerminal() error = %v", err)
+	}
+	terminalDir, err := hookGrokTranscriptTerminalDir()
+	if err != nil {
+		t.Fatalf("hookGrokTranscriptTerminalDir() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(terminalDir, "broken.json"), []byte("{"), 0o600); err != nil {
+		t.Fatalf("WriteFile(broken terminal) error = %v", err)
+	}
+
+	check := inspectHookGrokTranscriptDiagnostics(now)
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("check = %+v, want warning", check)
+	}
+	for _, want := range []string{"1 partial final-turn disposition", "1 unavailable", "1 unreadable disposition marker"} {
+		if !strings.Contains(check.Message, want) {
+			t.Fatalf("check message = %q, want %q", check.Message, want)
+		}
+	}
+	for _, private := range []string{jobPath, stateDir, strings.Repeat("a", 64)} {
+		if strings.Contains(check.Message+check.Hint, private) {
+			t.Fatalf("doctor output exposed terminal input %q: %+v", private, check)
+		}
+	}
+}
+
 func TestScanHookGrokTranscriptJobsRejectsInvalidMetadata(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
