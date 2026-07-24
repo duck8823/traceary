@@ -66,6 +66,33 @@ traceary doctor --client codex --json
 
 The fallback writes Traceary-managed entries directly into `~/.codex/hooks.json` (named `traceary-session-start`, `traceary-prompt`, `traceary-usage`, `traceary-transcript`, `traceary-session-stop`, `traceary-audit`). Existing non-Traceary entries are preserved.
 
+## Runtime hook boundary matrix
+
+The hook manifest describes what Codex may invoke; it is not evidence that a
+particular run emitted every configured boundary. The following matrix records
+a local marker-only probe against Codex CLI 0.145.0 on 2026-07-24. The probe
+used an isolated `traceary` recorder on `PATH`, read no session history, and
+exercised both normal text output and `--json` for the headless modes.
+
+| Codex mode | Observed hooks for a no-tool marker turn | Final-turn source | `transcript_path` |
+|---|---|---|---|
+| Interactive `codex` | `SessionStart`, `UserPromptSubmit`, `Stop` | `Stop.last_assistant_message` | present |
+| Headless `codex exec` | `SessionStart`, `UserPromptSubmit`, `Stop` | `Stop.last_assistant_message` | present |
+| Ephemeral headless `codex exec --ephemeral` | `SessionStart`, `UserPromptSubmit`, `Stop` | `Stop.last_assistant_message` | absent |
+
+`PostToolUse`, compact, and subagent hooks were not exercised by the no-tool
+probe, so the matrix does not infer their emission. Ephemeral mode does not
+need a rollout file for transcript capture: the observed `Stop` payload carries
+the final marker inline, and Traceary persists that value through the normal
+transcript hook. Non-ephemeral mode can include `transcript_path`, but Traceary
+still uses the inline `last_assistant_message`; it does not open that path to
+find assistant text.
+
+If a future or interrupted headless run records activity but no runtime
+`Stop`, doctor reports `final_turn_not_observed` and treats final-turn coverage
+as partial. It does not use the manifest as proof of emission and does not scan
+another rollout or unrelated private history to fill the gap.
+
 ## Capture-gap diagnostics
 
 `traceary doctor --client codex --project-dir <workspace> --json` includes a
@@ -74,7 +101,8 @@ repository identity used by event reads, then correlates three body-free
 evidence sources:
 
 - complete committed-event aggregates for session start, prompt, tool, compact,
-  and Stop from the last seven days;
+  and Stop from the last seven days, including the body-free count of prompt
+  turns not paired with a Stop in the same session;
 - finalized interactive Codex usage correlated to those Stop sessions,
   including deterministic unavailable observations whose identity timestamp is
   intentionally outside the seven-day window;
@@ -83,6 +111,8 @@ evidence sources:
 
 Each boundary is reported as `stored`, `delivery_pending`,
 `stored_and_delivery_pending`, or `not_observed`.
+`prompt_turns` and `uncovered_final_turns` keep a successful older turn from
+hiding a later prompt that never received a final boundary.
 The check also records `surface`, `client`, Traceary version, plugin key, hook
 trust, and canonical workspace. Its stable reasons are:
 
@@ -92,12 +122,15 @@ trust, and canonical workspace. Its stable reasons are:
 | `hook_spool_backlog` | Codex reached Traceary, but one or more deliveries remain durable and uncommitted |
 | `spool_projection_partial` | the spool has more distinct working directories than the bounded diagnostic resolves; backlog inspection/drain is required |
 | `usage_missing_after_stop` | a Stop was committed without finalized usage and without a pending usage delivery |
+| `final_turn_not_observed` | Codex activity exists with one or more prompt turns not covered by Stop, or headless usage exists without a Stop-backed transcript; final-turn coverage is partial |
 | `no_recent_capture_evidence` | neither committed nor pending evidence exists; this is a warning, not a successful capture claim |
 
-An active session does not need to have exercised every hook. For example,
-`stop:not_observed` before the first completed response is not itself a
-failure. The diagnostic never prints session IDs, prompt/transcript bodies, or
-tool input/output. A usage retry spool stores only its existing body-free
+An in-progress session can legitimately show `stop:not_observed`, but doctor
+does not call that state complete capture. Complete one response and rerun the
+diagnostic; if the boundary remains absent, the warning represents partial
+coverage rather than an install inference. The diagnostic never prints session
+IDs, prompt/transcript bodies, or tool input/output. A usage retry spool stores
+only its existing body-free
 identity fields; other spool payloads are projected to command/action and
 allowlisted session/cwd metadata solely for local correlation.
 Canonicalization is capped at 64 distinct spool working directories per run;

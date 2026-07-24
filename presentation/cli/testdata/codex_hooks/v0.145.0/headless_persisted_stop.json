@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "codex-headless-persisted-fixture",
+  "cwd": "github.com/duck8823/traceary",
+  "transcript_path": "/fixture/codex/unrelated-history-must-not-be-read.jsonl",
+  "last_assistant_message": "TRACEARY_HEADLESS_PERSISTED_MARKER"
+}

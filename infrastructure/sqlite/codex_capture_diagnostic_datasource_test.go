@@ -86,7 +86,8 @@ func TestCodexCaptureDiagnosticDatasource_CorrelatesCompleteStopUsageWithoutBodi
 	if err != nil {
 		t.Fatalf("LoadCodexCaptureDiagnostic() error = %v", err)
 	}
-	if got.StoredEvents != 503 || !got.PromptObserved || got.StopSessions != 2 ||
+	if got.StoredEvents != 503 || !got.PromptObserved || got.PromptTurns != 501 ||
+		got.StopSessions != 2 || got.UncoveredFinalTurns != 501 ||
 		got.StopSessionsWithUsage != 1 || got.UsageObservations != 1 ||
 		got.UsageKnown != 0 || got.UsageUnavailable != 1 {
 		t.Fatalf("evidence = %+v", got)

@@ -49,10 +49,12 @@ type CodexCaptureDiagnosticEvidence struct {
 	StoredEvents          int
 	SessionStartObserved  bool
 	PromptObserved        bool
+	PromptTurns           int
 	ToolObserved          bool
 	CompactObserved       bool
 	StopSessions          int
 	StopSessionsWithUsage int
+	UncoveredFinalTurns   int
 	UsageObservations     int
 	UsageKnown            int
 	UsageUnavailable      int

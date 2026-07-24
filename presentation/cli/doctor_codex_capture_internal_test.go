@@ -112,19 +112,55 @@ func TestClassifyCodexCapture(t *testing.T) {
 			},
 		},
 		{
-			name: "active session before stop is healthy but stop remains not observed",
+			name: "activity without runtime stop evidence is partial rather than inferred from configuration",
 			evidence: codexCaptureEvidence{
 				StoredEvents:      2,
 				StoredBoundaries:  map[string]bool{codexBoundarySessionStart: true, codexBoundaryPrompt: true},
 				PendingBoundaries: map[string]bool{},
 			},
-			wantStatus: doctorStatusPass,
-			wantReason: codexCaptureReasonOK,
+			wantStatus: doctorStatusWarn,
+			wantReason: codexCaptureReasonFinalTurn,
 			wantUsage:  codexBoundaryNotObserved,
 			wantBoundary: map[string]string{
 				codexBoundaryStop:  codexBoundaryNotObserved,
 				codexBoundaryUsage: codexBoundaryNotObserved,
 			},
+		},
+		{
+			name: "headless usage without a stop transcript remains partial",
+			evidence: codexCaptureEvidence{
+				UsageObservations: 1,
+				UsageKnown:        1,
+				StoredBoundaries:  map[string]bool{codexBoundaryUsage: true},
+				PendingBoundaries: map[string]bool{},
+			},
+			wantStatus: doctorStatusWarn,
+			wantReason: codexCaptureReasonFinalTurn,
+			wantUsage:  "known",
+			wantBoundary: map[string]string{
+				codexBoundaryStop:  codexBoundaryNotObserved,
+				codexBoundaryUsage: codexBoundaryStored,
+			},
+		},
+		{
+			name: "a covered turn cannot hide another prompt without a final boundary",
+			evidence: codexCaptureEvidence{
+				StoredEvents:        4,
+				UsageObservations:   1,
+				UsageKnown:          1,
+				StopSessions:        1,
+				StopsWithUsage:      1,
+				UncoveredFinalTurns: 1,
+				StoredBoundaries: map[string]bool{
+					codexBoundaryPrompt: true,
+					codexBoundaryStop:   true,
+					codexBoundaryUsage:  true,
+				},
+				PendingBoundaries: map[string]bool{},
+			},
+			wantStatus: doctorStatusWarn,
+			wantReason: codexCaptureReasonFinalTurn,
+			wantUsage:  "known",
 		},
 	}
 
@@ -270,6 +306,56 @@ func TestRootCLI_InspectCodexCapture_ReportsSurfaceAndCanonicalEvidence(t *testi
 	}
 	if strings.Contains(check.Message, "session-body-free") {
 		t.Fatalf("diagnostic leaked session identity: %s", check.Message)
+	}
+}
+
+func TestRootCLI_InspectCodexCapture_DoesNotTreatTrustedManifestAsFinalTurnEvidence(t *testing.T) {
+	t.Parallel()
+	projectDir := t.TempDir()
+	root := &RootCLI{
+		codexCaptureDiagnostic: &codexCaptureDiagnosticStub{
+			evidence: apptypes.CodexCaptureDiagnosticEvidence{
+				StoredEvents:         2,
+				SessionStartObserved: true,
+				PromptObserved:       true,
+				PromptTurns:          1,
+				UncoveredFinalTurns:  1,
+			},
+		},
+	}
+	check := root.inspectCodexCapture(
+		context.Background(),
+		projectDir,
+		"0.32.1",
+		codexPluginHookFallbackState{
+			PluginEnabled: true,
+			PluginKey:     "traceary@traceary-marketplace",
+		},
+		codexPluginHookTrustResult{
+			PluginKey: "traceary@traceary-marketplace",
+			Status:    codexPluginHookTrustTrusted,
+		},
+		nil,
+		nil,
+	)
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("status = %q, want warn: %s", check.Status, check.Message)
+	}
+	for _, want := range []string{
+		"hook_trust=trusted",
+		"reason=final_turn_not_observed",
+		"prompt_turns=1",
+		"uncovered_final_turns=1",
+		"stop:not_observed",
+	} {
+		if !strings.Contains(check.Message, want) {
+			t.Errorf("message missing %q: %s", want, check.Message)
+		}
+	}
+	for _, want := range []string{"configuration only", "unrelated rollout"} {
+		if !strings.Contains(check.Hint, want) {
+			t.Errorf("hint missing %q: %s", want, check.Hint)
+		}
 	}
 }
 

@@ -20,6 +20,7 @@ const (
 	codexCaptureReasonSpool        = "hook_spool_backlog"
 	codexCaptureReasonSpoolPartial = "spool_projection_partial"
 	codexCaptureReasonUsage        = "usage_missing_after_stop"
+	codexCaptureReasonFinalTurn    = "final_turn_not_observed"
 	codexCaptureCWDLimit           = 64
 
 	codexBoundarySessionStart = "session_start"
@@ -45,17 +46,18 @@ var codexCaptureBoundaryOrder = []string{
 }
 
 type codexCaptureEvidence struct {
-	StoredEvents       int
-	UsageObservations  int
-	UsageKnown         int
-	UsageUnavailable   int
-	StopSessions       int
-	StopsWithUsage     int
-	PendingDeliveries  int
-	UnscopedDeliveries int
-	SpoolPartial       bool
-	StoredBoundaries   map[string]bool
-	PendingBoundaries  map[string]bool
+	StoredEvents        int
+	UsageObservations   int
+	UsageKnown          int
+	UsageUnavailable    int
+	StopSessions        int
+	StopsWithUsage      int
+	UncoveredFinalTurns int
+	PendingDeliveries   int
+	UnscopedDeliveries  int
+	SpoolPartial        bool
+	StoredBoundaries    map[string]bool
+	PendingBoundaries   map[string]bool
 }
 
 type codexCaptureClassification struct {
@@ -121,14 +123,15 @@ func (c *RootCLI) inspectCodexCapture(
 	}
 
 	evidence := codexCaptureEvidence{
-		StoredEvents:      stored.StoredEvents,
-		UsageObservations: stored.UsageObservations,
-		UsageKnown:        stored.UsageKnown,
-		UsageUnavailable:  stored.UsageUnavailable,
-		StopSessions:      stored.StopSessions,
-		StopsWithUsage:    stored.StopSessionsWithUsage,
-		StoredBoundaries:  make(map[string]bool),
-		PendingBoundaries: make(map[string]bool),
+		StoredEvents:        stored.StoredEvents,
+		UsageObservations:   stored.UsageObservations,
+		UsageKnown:          stored.UsageKnown,
+		UsageUnavailable:    stored.UsageUnavailable,
+		StopSessions:        stored.StopSessions,
+		StopsWithUsage:      stored.StopSessionsWithUsage,
+		UncoveredFinalTurns: stored.UncoveredFinalTurns,
+		StoredBoundaries:    make(map[string]bool),
+		PendingBoundaries:   make(map[string]bool),
 	}
 	evidence.StoredBoundaries[codexBoundarySessionStart] = stored.SessionStartObserved
 	evidence.StoredBoundaries[codexBoundaryPrompt] = stored.PromptObserved
@@ -154,12 +157,14 @@ func (c *RootCLI) inspectCodexCapture(
 		Name:   codexCaptureCheckName,
 		Status: classification.Status,
 		Message: fmt.Sprintf(
-			"%s reason=%s boundaries=%s usage=%s stored_events=%d usage_observations=%d pending_deliveries=%d unscoped_pending=%d",
+			"%s reason=%s boundaries=%s usage=%s stored_events=%d prompt_turns=%d uncovered_final_turns=%d usage_observations=%d pending_deliveries=%d unscoped_pending=%d",
 			formatCodexCaptureIdentity(identity),
 			classification.Reason,
 			formatCodexBoundaryStates(classification.Boundaries),
 			classification.UsageState,
 			evidence.StoredEvents,
+			stored.PromptTurns,
+			evidence.UncoveredFinalTurns,
 			evidence.UsageObservations,
 			evidence.PendingDeliveries,
 			evidence.UnscopedDeliveries,
@@ -181,6 +186,11 @@ func (c *RootCLI) inspectCodexCapture(
 		check.Hint = Localize(
 			"a Codex Stop was committed without a finalized usage observation or pending usage delivery; inspect the installed plugin version and local rollout availability",
 			"Codex Stop は commit 済みですが finalized usage observation も pending usage delivery もありません。installed plugin version と local rollout availability を確認してください",
+		)
+	case codexCaptureReasonFinalTurn:
+		check.Hint = Localize(
+			"Codex activity was committed, but final-turn evidence is incomplete: one or more prompts lack a Stop-backed transcript, or activity exists without any Stop transcript. A declared Stop hook is configuration only and does not prove host emission. Complete one marker response in this workspace and rerun doctor. If the gap remains, final-turn coverage is partial; do not scan another session or unrelated rollout to fill it.",
+			"Codex activity は commit 済みですが、1件以上の prompt に Stop 由来 transcript が無い、または activity に対応する Stop transcript が1件も無いため、final-turn evidence は不完全です。Stop hook の宣言は設定にすぎず、host が発行した証明にはなりません。この workspace で marker response を1回完了して doctor を再実行してください。欠落が残る場合、final-turn coverage は partial です。別 session や無関係な rollout の走査で埋めないでください。",
 		)
 	case codexCaptureReasonEmpty:
 		check.Hint = Localize(
@@ -258,9 +268,19 @@ func classifyCodexCapture(evidence codexCaptureEvidence) codexCaptureClassificat
 		classification.Reason = codexCaptureReasonSpoolPartial
 		return classification
 	}
+	if evidence.UncoveredFinalTurns > 0 {
+		classification.Status = doctorStatusWarn
+		classification.Reason = codexCaptureReasonFinalTurn
+		return classification
+	}
 	if evidence.StopSessions > evidence.StopsWithUsage {
 		classification.Status = doctorStatusWarn
 		classification.Reason = codexCaptureReasonUsage
+		return classification
+	}
+	if evidence.StopSessions == 0 && (evidence.StoredEvents > 0 || evidence.UsageObservations > 0) {
+		classification.Status = doctorStatusWarn
+		classification.Reason = codexCaptureReasonFinalTurn
 		return classification
 	}
 	if evidence.StoredEvents == 0 && evidence.UsageObservations == 0 {
