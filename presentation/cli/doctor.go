@@ -154,6 +154,13 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 		fixes := c.applyDoctorFixes(ctx, report, input.dryRun)
 		after, err := c.buildDoctorReport(ctx, input)
 		if err != nil {
+			// The remediation has already happened. Preserve its exact result
+			// even when a cancelled or failed reinspection cannot produce the
+			// post-fix status.
+			report.Fixes = fixes
+			if writeErr := writeDoctorReport(output, report, input.asJSON, input.warningsOK); writeErr != nil {
+				return writeErr
+			}
 			return err
 		}
 		annotateDoctorFixesAfter(fixes, after)
@@ -195,7 +202,7 @@ func (c *RootCLI) applyDoctorFixes(ctx context.Context, report *doctorReport, dr
 			continue
 		}
 		log := doctorFixLog{Name: check.Name, Before: check.Status}
-		if !check.AutoFixAvailable || check.FixFunc == nil {
+		if !check.AutoFixAvailable || (check.FixFunc == nil && check.StructuredFixFunc == nil) {
 			log.Action = guidedDoctorFixAction(check)
 			fixes = append(fixes, log)
 			continue

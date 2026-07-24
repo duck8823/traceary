@@ -802,12 +802,12 @@ func TestInspectHookSpoolDiagnostics_FixReportsUnreadableRemaining(t *testing.T)
 		t.Fatalf("StructuredFixFunc() error = %v", err)
 	}
 	message := result.Action
-	for _, expected := range []string{"replayed=1", "failed=1", "remaining=1"} {
+	for _, expected := range []string{"replayed=1", "failed=0", "unreadable=1", "remaining=1"} {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("message=%q, missing %q", message, expected)
 		}
 	}
-	wantMetrics := map[string]int{"replayed": 1, "failed": 1, "remaining": 1, "unreadable": 1}
+	wantMetrics := map[string]int{"replayed": 1, "failed": 0, "remaining": 1, "unreadable": 1}
 	if !reflect.DeepEqual(result.Metrics, wantMetrics) {
 		t.Fatalf("metrics=%v, want %v", result.Metrics, wantMetrics)
 	}
@@ -846,6 +846,33 @@ func TestApplyDoctorFixes_PreservesHookSpoolMetrics(t *testing.T) {
 	want := map[string]int{"replayed": 0, "failed": 2, "remaining": 2, "unreadable": 0}
 	if !reflect.DeepEqual(fixes[0].Metrics, want) {
 		t.Fatalf("metrics=%v, want %v", fixes[0].Metrics, want)
+	}
+	encoded, err := json.Marshal(fixes[0])
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	for _, zeroField := range []string{`"replayed":0`, `"unreadable":0`} {
+		if !bytes.Contains(encoded, []byte(zeroField)) {
+			t.Fatalf("JSON=%s, missing zero-valued field %s", encoded, zeroField)
+		}
+	}
+}
+
+func TestApplyDoctorFixes_AcceptsStructuredOnlyFix(t *testing.T) {
+	root := NewRootCLI(WithStoreManagement(&spoolStoreManagementStub{}))
+	check := doctorCheck{
+		Name:             "structured-only",
+		Status:           doctorStatusWarn,
+		Severity:         doctorSeverityWarn,
+		AutoFixAvailable: true,
+		StructuredFixFunc: func(context.Context, bool) (doctorFixResult, error) {
+			return doctorFixResult{Action: "structured action"}, nil
+		},
+	}
+
+	fixes := root.applyDoctorFixes(context.Background(), &doctorReport{Checks: []doctorCheck{check}}, false)
+	if len(fixes) != 1 || fixes[0].Action != "structured action" {
+		t.Fatalf("fixes=%v, want structured action", fixes)
 	}
 }
 

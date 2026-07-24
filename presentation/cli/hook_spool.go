@@ -587,17 +587,19 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		if result.Err != nil {
 			return doctorFixResult{}, result.Err
 		}
+		replayFailed := max(result.Failed-result.Unreadable, 0)
 		return doctorFixResult{
 			Action: localizef(
-				"drained hook spool: replayed=%d failed=%d remaining=%d",
-				"hook spool を drain しました: replayed=%d failed=%d remaining=%d",
+				"drained hook spool: replayed=%d failed=%d unreadable=%d remaining=%d",
+				"hook spool を drain しました: replayed=%d failed=%d unreadable=%d remaining=%d",
 				result.Replayed,
-				result.Failed,
+				replayFailed,
+				result.Unreadable,
 				result.Remaining,
 			),
 			Metrics: map[string]int{
 				"replayed":   result.Replayed,
-				"failed":     result.Failed,
+				"failed":     replayFailed,
 				"remaining":  result.Remaining,
 				"unreadable": result.Unreadable,
 			},
