@@ -5,6 +5,20 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.32.1] - 2026-07-25
+
+### Fixed
+- **Post-upgrade plugin readiness (#1523)** — `traceary doctor` now verifies the installed version of every supported host package and distinguishes a passing package from an explicit skip or stale package. The bilingual refresh guide includes safe activation and remediation steps.
+- **Native Grok plugin resolution (#1522)** — the Grok package is now named `traceary-grok`, so a same-named Claude package cannot be mistaken for the native integration. Doctor reports installed and resolved routes separately and fails closed on legacy shadowing.
+- **Codex headless final-turn diagnostics (#1519)** — doctor reports body-free prompt and uncovered-final-turn counts instead of inferring final-turn coverage from a manifest alone.
+- **Antigravity headless permissions (#1521)** — doctor separates safe scoped hook permissions from plugin installation, warns about duplicate/broad/interactive/unsandboxed grants, and documents the minimal permission set.
+- **Partial usage diagnostics (#1532)** — Grok decode failures preserve idempotent unavailable evidence without changing child exit status; Codex preserves valid partial counters and respects `--`; Claude requires reportable stored timestamps rather than silently inventing them.
+
+### Notes
+- This patch changes diagnostics, host-plugin readiness, and usage-observation classification. It does not enable network interception, billing-dashboard scraping, or storage of prompt/response bodies.
+- Release artifacts and Homebrew Formula checksums are generated and committed only by the tagged release workflow; this preparation change intentionally does not predict or hand-write them. See `docs/release/v0.32.1-qa.md` for the candidate verification boundary.
+- The independent external reviewer topology was unavailable during the contributing PR reviews. Those merge decisions were explicitly accepted by the maintainer; this release note does not represent that topology as satisfied.
+
 ## [v0.32.0] - 2026-07-24
 
 ### Added
