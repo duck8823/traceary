@@ -42,7 +42,7 @@ type grokDoctorState struct {
 	PluginVersion        string
 	PluginPath           string
 	ResolvedPathClass    string
-	LegacyPluginShadowed bool
+	LegacyPluginDetected bool
 	ProjectTrusted       bool
 	ProjectHooks         bool
 	NativeHooks          bool
@@ -133,8 +133,8 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		if hook.Source.PluginName == grokTracearyPluginName || (hook.Source.PluginName == legacyTracearyPluginName && state.ResolvedPathClass == "") {
 			state.ResolvedPathClass = pathClass
 		}
-		if hook.Source.PluginName == legacyTracearyPluginName && pathClass == grokPluginPathClassClaude {
-			state.LegacyPluginShadowed = true
+		if hook.Source.PluginName == legacyTracearyPluginName {
+			state.LegacyPluginDetected = true
 		}
 		if hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative && grokHookFileHasVerifiedCoverage(hook.Target) {
 			state.NativeHooks = true
@@ -217,25 +217,29 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 	}
 	checks := []doctorCheck{{Name: "grok-cli", Status: doctorStatusPass, Message: localizef("detected Grok CLI %s", "Grok CLI %s を検出しました", state.HostVersion)}}
 	if !state.PluginInstalled {
-		checks = append(checks, doctorCheck{Name: "grok-plugin", Status: doctorStatusWarn, Message: Localize("native Traceary Grok plugin traceary-grok is not installed", "native Traceary Grok plugin traceary-grok がインストールされていません"), Hint: Localize("install the native plugin with scripts/install-grok-plugin.sh", "scripts/install-grok-plugin.sh で native plugin をインストールしてください")})
-		return checks
+		message := Localize("native Traceary Grok plugin traceary-grok is not installed", "native Traceary Grok plugin traceary-grok がインストールされていません")
+		if state.LegacyPluginDetected {
+			message = Localize("legacy Traceary Grok plugin traceary is resolved but canonical traceary-grok is not installed", "legacy Traceary Grok plugin traceary が解決されていますが canonical traceary-grok はインストールされていません")
+		}
+		checks = append(checks, doctorCheck{Name: "grok-plugin", Status: doctorStatusWarn, Message: message, Hint: Localize("install the native plugin with scripts/install-grok-plugin.sh", "scripts/install-grok-plugin.sh で native plugin をインストールしてください")})
+	} else {
+		pluginStatus := doctorStatusPass
+		pluginMessage := localizef("native Traceary Grok plugin traceary-grok %s is installed and enabled", "native Traceary Grok plugin traceary-grok %s はインストール済みで有効です", state.PluginVersion)
+		pluginHint := ""
+		if !state.PluginEnabled || state.LegacyPluginDetected {
+			pluginStatus, pluginMessage = doctorStatusWarn, Localize("native Traceary Grok plugin traceary-grok is installed but a legacy traceary route is also resolved, or the canonical route is disabled", "native Traceary Grok plugin traceary-grok はインストール済みですが legacy traceary route も解決されているか、canonical route が無効です")
+			pluginHint = "grok plugin enable traceary-grok"
+		} else if releaseTracearyVersionPattern.MatchString(tracearyVersion) && strings.TrimPrefix(state.PluginVersion, "v") != strings.TrimPrefix(tracearyVersion, "v") {
+			pluginStatus = doctorStatusWarn
+			pluginMessage = localizef("native Traceary Grok plugin version %s does not match Traceary %s", "native Traceary Grok plugin version %s は Traceary %s と一致しません", state.PluginVersion, tracearyVersion)
+			pluginHint = "grok plugin update traceary-grok"
+		}
+		checks = append(checks, doctorCheck{Name: "grok-plugin", Status: pluginStatus, Message: pluginMessage, Hint: pluginHint})
 	}
-	pluginStatus := doctorStatusPass
-	pluginMessage := localizef("native Traceary Grok plugin traceary-grok %s is installed and enabled", "native Traceary Grok plugin traceary-grok %s はインストール済みで有効です", state.PluginVersion)
-	pluginHint := ""
-	if !state.PluginEnabled || state.LegacyPluginShadowed {
-		pluginStatus, pluginMessage = doctorStatusWarn, Localize("native Traceary Grok plugin traceary-grok is installed but disabled, shadowed, or not resolved", "native Traceary Grok plugin traceary-grok はインストール済みですが無効、shadow 済み、または解決されていません")
-		pluginHint = "grok plugin enable traceary-grok"
-	} else if releaseTracearyVersionPattern.MatchString(tracearyVersion) && strings.TrimPrefix(state.PluginVersion, "v") != strings.TrimPrefix(tracearyVersion, "v") {
-		pluginStatus = doctorStatusWarn
-		pluginMessage = localizef("native Traceary Grok plugin version %s does not match Traceary %s", "native Traceary Grok plugin version %s は Traceary %s と一致しません", state.PluginVersion, tracearyVersion)
-		pluginHint = "grok plugin update traceary-grok"
-	}
-	checks = append(checks, doctorCheck{Name: "grok-plugin", Status: pluginStatus, Message: pluginMessage, Hint: pluginHint})
 	resolutionStatus := doctorStatusPass
 	resolutionMessage := localizef("native plugin installed path: %s; resolved path class: %s", "native plugin のインストール path: %s、解決された path class: %s", grokDoctorDisplayPath(state.PluginPath), state.ResolvedPathClass)
 	resolutionHint := ""
-	if state.ResolvedPathClass != grokPluginPathClassNative || state.LegacyPluginShadowed {
+	if state.ResolvedPathClass != grokPluginPathClassNative || state.LegacyPluginDetected {
 		resolutionStatus = doctorStatusWarn
 		resolutionMessage = localizef("native plugin installed path: %s; resolved path class: %s; same-name legacy traceary may be shadowed by another host", "native plugin のインストール path: %s、解決された path class: %s。同名の legacy traceary が別 host により shadow されている可能性があります", grokDoctorDisplayPath(state.PluginPath), state.ResolvedPathClass)
 		resolutionHint = "scripts/install-grok-plugin.sh"

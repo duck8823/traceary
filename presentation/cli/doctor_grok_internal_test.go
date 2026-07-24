@@ -242,7 +242,7 @@ func TestProbeGrokDoctorStateDetectsSameNameClaudePluginShadowing(t *testing.T) 
 	if err != nil {
 		t.Fatalf("probeGrokDoctorState() error = %v", err)
 	}
-	if !state.PluginInstalled || !state.PluginEnabled || state.NativeHooks || !state.LegacyPluginShadowed {
+	if !state.PluginInstalled || !state.PluginEnabled || state.NativeHooks || !state.LegacyPluginDetected {
 		t.Fatalf("state = %+v, want installed native package with Claude shadowing", state)
 	}
 	checks := buildGrokDoctorChecks(state, "0.23.0")
@@ -253,5 +253,87 @@ func TestProbeGrokDoctorStateDetectsSameNameClaudePluginShadowing(t *testing.T) 
 		if check.Name == "grok-plugin-resolution" && (check.Status != doctorStatusWarn || !strings.Contains(check.Message, "claude-plugin")) {
 			t.Fatalf("grok-plugin-resolution = %+v, want Claude path-class warning", check)
 		}
+	}
+}
+
+func TestProbeGrokDoctorStateWarnsForLegacyTracearyRoutes(t *testing.T) {
+	tests := []struct {
+		name           string
+		listPlugins    string
+		plugins        string
+		hookTarget     string
+		hookPluginName string
+		wantInstalled  bool
+		wantPathClass  string
+	}{
+		{
+			name:           "legacy native only",
+			listPlugins:    `[{"name":"traceary","version":"0.32.0"}]`,
+			plugins:        `[{"name":"traceary","enabled":true,"provides":{"skills":3,"mcpServers":1}}]`,
+			hookTarget:     "/Users/operator/.grok/installed-plugins/grok-plugin-legacy/hooks/hooks.json",
+			hookPluginName: legacyTracearyPluginName,
+			wantPathClass:  grokPluginPathClassNative,
+		},
+		{
+			name:           "legacy Claude route only",
+			listPlugins:    `[{"name":"traceary","version":"0.32.0"}]`,
+			plugins:        `[{"name":"traceary","enabled":true,"provides":{"skills":3,"mcpServers":1}}]`,
+			hookTarget:     "/Users/operator/.claude/plugins/cache/traceary/hooks/hooks.json",
+			hookPluginName: legacyTracearyPluginName,
+			wantPathClass:  grokPluginPathClassClaude,
+		},
+		{
+			name:           "canonical only",
+			listPlugins:    `[{"name":"traceary-grok","version":"0.32.0"}]`,
+			plugins:        `[{"name":"traceary-grok","enabled":true,"provides":{"skills":3,"mcpServers":1}}]`,
+			hookTarget:     "/Users/operator/.grok/installed-plugins/grok-plugin-canonical/hooks/hooks.json",
+			hookPluginName: grokTracearyPluginName,
+			wantInstalled:  true,
+			wantPathClass:  grokPluginPathClassNative,
+		},
+		{
+			name:           "canonical and legacy native coexist",
+			listPlugins:    `[{"name":"traceary-grok","version":"0.32.0"},{"name":"traceary","version":"0.32.0"}]`,
+			plugins:        `[{"name":"traceary-grok","enabled":true,"provides":{"skills":3,"mcpServers":1}},{"name":"traceary","enabled":true,"provides":{"skills":3,"mcpServers":1}}]`,
+			hookTarget:     "/Users/operator/.grok/installed-plugins/grok-plugin-legacy/hooks/hooks.json",
+			hookPluginName: legacyTracearyPluginName,
+			wantInstalled:  true,
+			wantPathClass:  grokPluginPathClassNative,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			originalLookPath, originalOutput := grokDoctorLookPath, grokDoctorOutput
+			t.Cleanup(func() { grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput })
+			grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+			projectDir := t.TempDir()
+			grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+				switch strings.Join(args, " ") {
+				case "--version":
+					return []byte("grok 0.2.111\n"), nil
+				case "plugin list --json":
+					return []byte(tc.listPlugins), nil
+				default:
+					return []byte(`{"projectTrusted":true,"plugins":` + tc.plugins + `,"hooks":[{"target":` + strconv.Quote(tc.hookTarget) + `,"source":{"type":"plugin","plugin_name":` + strconv.Quote(tc.hookPluginName) + `}}]}`), nil
+				}
+			}
+
+			state, err := probeGrokDoctorState(context.Background(), projectDir)
+			if err != nil {
+				t.Fatalf("probeGrokDoctorState() error = %v", err)
+			}
+			if state.PluginInstalled != tc.wantInstalled || state.ResolvedPathClass != tc.wantPathClass {
+				t.Fatalf("state = %+v, want installed=%v pathClass=%q", state, tc.wantInstalled, tc.wantPathClass)
+			}
+			checks := buildGrokDoctorChecks(state, "0.32.0")
+			for _, check := range checks {
+				if check.Name == "grok-plugin" && tc.name != "canonical only" && check.Status != doctorStatusWarn {
+					t.Fatalf("grok-plugin = %+v, want legacy warning", check)
+				}
+				if check.Name == "grok-plugin" && tc.name == "canonical only" && check.Status != doctorStatusPass {
+					t.Fatalf("grok-plugin = %+v, want canonical pass", check)
+				}
+			}
+		})
 	}
 }
