@@ -22,6 +22,7 @@ import (
 type doctorReport struct {
 	DBPath   string          `json:"db_path"`
 	Clients  []string        `json:"clients"`
+	Mode     string          `json:"mode"`
 	Checks   []doctorCheck   `json:"checks"`
 	Sections []doctorSection `json:"sections"`
 	Summary  doctorSummary   `json:"summary"`
@@ -497,6 +498,59 @@ enabled = true
 			t.Fatalf("doctor statuses mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	largeStore := filepath.Join(t.TempDir(), "large-metadata-only.db")
+	file, err := os.OpenFile(largeStore, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("OpenFile() error = %v", err)
+	}
+	// A sparse fixture exercises the multi-GB decision path without allocating
+	// a multi-GB test artifact. It intentionally is not a valid SQLite file:
+	// doctor must return before trying to open or migrate it.
+	if err := file.Truncate(2 << 30); err != nil {
+		_ = file.Close()
+		t.Fatalf("Truncate() error = %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	store := &storeManagementUsecaseStub{}
+	events := &eventUsecaseStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(store),
+		cli.WithEvent(events),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	// Even --fix must stay non-destructive in metadata-only mode.
+	rootCmd.SetArgs([]string{"doctor", "--db-path", largeStore, "--json", "--warnings-ok", "--fix"})
+
+	started := time.Now()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("bounded metadata-only doctor took %s, want <= 1s", elapsed)
+	}
+	report := decodeDoctorReport(t, stdout.Bytes())
+	if report.Mode != "metadata_only_large_store" {
+		t.Fatalf("report.Mode = %q, want metadata_only_large_store", report.Mode)
+	}
+	if store.initCalled {
+		t.Fatal("large-store doctor initialized SQLite, want metadata-only outcome")
+	}
+	if events.listCalls != 0 {
+		t.Fatalf("large-store doctor listed %d events, want no event/payload reads", events.listCalls)
+	}
+	check := statusByName(report, "large-store-diagnostics")
+	if check.Status != "warn" || !strings.Contains(check.Message, "were not read") {
+		t.Fatalf("large-store-diagnostics = %#v, want explicit metadata-only warning", check)
+	}
 }
 
 func TestRootCLI_DoctorCommand_ClaudeHookCancellationDiagnostics(t *testing.T) {

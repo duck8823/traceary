@@ -10,6 +10,48 @@ import (
 // stores around 2.4 GB already spend 2–4 s on cold open alone.
 const storeSizeWarnBytes int64 = 1 << 30 // 1 GiB
 
+const (
+	doctorModeMetadataOnlyLargeStore = "metadata_only_large_store"
+	// doctorLargeStoreMetadataOnlyBytes is an operational threshold, not a
+	// retention target or a store-size limit. Above it, the default doctor
+	// command returns a finite metadata-only result instead of opening SQLite
+	// and traversing content-bearing diagnostics.
+	doctorLargeStoreMetadataOnlyBytes int64 = 2 << 30 // 2 GiB
+)
+
+// isLargeStoreForBoundedDoctor uses only filesystem metadata. It must remain
+// independent of SQLite so the bounded doctor outcome is still available when
+// a writer holds the database lock or the store is otherwise unhealthy.
+func isLargeStoreForBoundedDoctor(dbPath string) bool {
+	info, err := os.Stat(dbPath)
+	return err == nil && info.Mode().IsRegular() && info.Size() >= doctorLargeStoreMetadataOnlyBytes
+}
+
+func boundedLargeStoreDoctorCheck(dbPath string) doctorCheck {
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		return doctorCheck{
+			Name:    "large-store-diagnostics",
+			Status:  doctorStatusFail,
+			Message: localizef("failed to stat large SQLite store metadata: %v", "大容量 SQLite ストアの metadata を確認できませんでした: %v", err),
+		}
+	}
+	return doctorCheck{
+		Name:   "large-store-diagnostics",
+		Status: doctorStatusWarn,
+		Message: localizef(
+			"bounded metadata-only doctor result for %s store: SQLite open, migrations, event bodies, command payloads, hook spools, credentials, and identifier samples were not read",
+			"%s のストアに対する bounded metadata-only doctor 結果です。SQLite の open、migration、event body、command payload、hook spool、credential、identifier sample は読み取りませんでした",
+			formatByteSize(info.Size()),
+		),
+		Hint: Localize(
+			"this is capacity-safe, not a lock diagnosis. If an application needs a content diagnostic, first stop competing writers or use a reviewed bounded copy; then run the specific read command. Preview safe remediation with `traceary store gc --dry-run` and archive before applying retention.",
+			"これは capacity-safe な結果であり lock 診断ではありません。content diagnostic が必要なら、競合 writer を停止するか、review 済みの bounded copy を使用してから個別の read command を実行してください。安全な remediation は `traceary store gc --dry-run` でプレビューし、retention を適用する前に archive を作成してください。",
+		),
+		FixCommand: "traceary store gc --dry-run",
+	}
+}
+
 func inspectStoreSizeBudget(dbPath string) doctorCheck {
 	const name = "store-size"
 	info, err := os.Stat(dbPath)
