@@ -93,15 +93,15 @@ run_grok() {
   HOME="${tmp_home}" grok plugin install --trust "${ROOT_DIR}/integrations/grok-plugin"
   local list_output details_output inspect_output tmp_cwd
   list_output="$(HOME="${tmp_home}" grok plugin list --json)"
-  details_output="$(HOME="${tmp_home}" grok plugin details traceary)"
+  details_output="$(HOME="${tmp_home}" grok plugin details traceary-grok)"
   tmp_cwd="$(mktemp -d)"
   inspect_output="$(HOME="${tmp_home}" grok --cwd "${tmp_cwd}" inspect --json)"
-  [[ "${list_output}" == *'"name":"traceary"'* || "${list_output}" == *'"name": "traceary"'* ]]
+  [[ "${list_output}" == *'"name":"traceary-grok"'* || "${list_output}" == *'"name": "traceary-grok"'* ]]
   [[ "${details_output}" == *traceary* ]]
   [[ "${details_output}" == *traceary-session-history* ]]
-  [[ "${inspect_output}" == *'"plugin_name": "traceary"'* ]]
+  [[ "${inspect_output}" == *'"plugin_name": "traceary-grok"'* ]]
   [[ "${inspect_output}" == *'"mcpServers": 1'* ]]
-  HOME="${tmp_home}" grok plugin uninstall traceary
+  HOME="${tmp_home}" grok plugin uninstall traceary-grok
   rm -rf "${tmp_home}" "${tmp_cwd}"
   echo 'ok: grok plugin validation, install, inventory, and uninstall passed'
 }

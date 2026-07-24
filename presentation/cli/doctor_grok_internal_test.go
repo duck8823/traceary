@@ -68,7 +68,7 @@ func TestProbeGrokDoctorStateUsesHostInventoryAndHookFile(t *testing.T) {
 	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
 
 	projectDir := t.TempDir()
-	pluginHook := filepath.Join(t.TempDir(), "hooks.json")
+	pluginHook := filepath.Join(projectDir, "integrations", "grok-plugin", "hooks", "hooks.json")
 	writeGrokDoctorHookFixture(t, pluginHook, true)
 	calls := []string{}
 	grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
@@ -77,9 +77,9 @@ func TestProbeGrokDoctorStateUsesHostInventoryAndHookFile(t *testing.T) {
 		case "--version":
 			return []byte("grok 0.2.99 (build)\n"), nil
 		case "plugin list --json":
-			return []byte(`[{"name":"traceary","version":"0.23.0"}]`), nil
+			return []byte(`[{"name":"traceary-grok","version":"0.23.0","path":"/Users/operator/.grok/plugins/traceary-grok"}]`), nil
 		case "--cwd " + projectDir + " inspect --json":
-			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary","enabled":true,"provides":{"skills":3,"hooks":true,"mcpServers":1}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"source":{"type":"plugin","plugin_name":"traceary"}}]}`), nil
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":3,"hooks":true,"mcpServers":1}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"source":{"type":"plugin","plugin_name":"traceary-grok"}}]}`), nil
 		default:
 			t.Fatalf("unexpected Grok arguments: %v", args)
 			return nil, nil
@@ -90,7 +90,7 @@ func TestProbeGrokDoctorStateUsesHostInventoryAndHookFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("probeGrokDoctorState() error = %v", err)
 	}
-	if !state.CLIAvailable || state.HostVersion != "0.2.99" || !state.PluginInstalled || !state.PluginEnabled || state.PluginVersion != "0.23.0" || !state.NativeHooks || state.MCPServers != 1 || state.Skills != 3 {
+	if !state.CLIAvailable || state.HostVersion != "0.2.99" || !state.PluginInstalled || !state.PluginEnabled || state.PluginVersion != "0.23.0" || !state.NativeHooks || state.ResolvedPathClass != grokPluginPathClassNative || state.MCPServers != 1 || state.Skills != 3 {
 		t.Fatalf("state = %+v, want healthy host inventory", state)
 	}
 	if got, want := strings.Join(calls, "|"), "--version|plugin list --json|--cwd "+projectDir+" inspect --json"; got != want {
@@ -110,7 +110,7 @@ func TestProbeGrokDoctorStateDoesNotTrustProvidesHooksBoolean(t *testing.T) {
 	if err := os.WriteFile(projectHook, []byte(`{"hooks":{}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	pluginHook := filepath.Join(t.TempDir(), "hooks.json")
+	pluginHook := filepath.Join(projectDir, "integrations", "grok-plugin", "hooks", "hooks.json")
 	writeGrokDoctorHookFixture(t, pluginHook, true)
 	var file map[string]any
 	data, err := os.ReadFile(pluginHook)
@@ -135,9 +135,9 @@ func TestProbeGrokDoctorStateDoesNotTrustProvidesHooksBoolean(t *testing.T) {
 		case "--version":
 			return []byte("grok 0.2.99\n"), nil
 		case "plugin list --json":
-			return []byte(`[{"name":"traceary","version":"0.23.0"}]`), nil
+			return []byte(`[{"name":"traceary-grok","version":"0.23.0"}]`), nil
 		default:
-			return []byte(`{"projectTrusted":false,"plugins":[{"name":"traceary","enabled":true,"provides":{"skills":3,"hooks":true,"mcpServers":1}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"source":{"type":"plugin","plugin_name":"traceary"}}]}`), nil
+			return []byte(`{"projectTrusted":false,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":3,"hooks":true,"mcpServers":1}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"source":{"type":"plugin","plugin_name":"traceary-grok"}}]}`), nil
 		}
 	}
 	state, err := probeGrokDoctorState(context.Background(), projectDir)
@@ -151,6 +151,9 @@ func TestProbeGrokDoctorStateDoesNotTrustProvidesHooksBoolean(t *testing.T) {
 
 func writeGrokDoctorHookFixture(t *testing.T, path string, complete bool) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
 	contracts := []struct{ event, name, action string }{
 		{"SessionStart", "traceary-session-start", "session-start"},
 		{"UserPromptSubmit", "traceary-prompt", "user-prompt-submit"},
@@ -178,5 +181,39 @@ func writeGrokDoctorHookFixture(t *testing.T, path string, complete bool) {
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+func TestProbeGrokDoctorStateDetectsSameNameClaudePluginShadowing(t *testing.T) {
+	originalLookPath, originalOutput := grokDoctorLookPath, grokDoctorOutput
+	t.Cleanup(func() { grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput })
+	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+	projectDir := t.TempDir()
+	grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "--version":
+			return []byte("grok 0.2.99\n"), nil
+		case "plugin list --json":
+			return []byte(`[{"name":"traceary-grok","version":"0.23.0","path":"/Users/operator/.grok/plugins/traceary-grok"}]`), nil
+		default:
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":3,"mcpServers":1}},{"name":"traceary","enabled":true,"provides":{"skills":3,"mcpServers":1}}],"hooks":[{"target":"/Users/operator/.claude/plugins/cache/traceary/hooks/hooks.json","source":{"type":"plugin","plugin_name":"traceary"}}]}`), nil
+		}
+	}
+
+	state, err := probeGrokDoctorState(context.Background(), projectDir)
+	if err != nil {
+		t.Fatalf("probeGrokDoctorState() error = %v", err)
+	}
+	if !state.PluginInstalled || !state.PluginEnabled || state.NativeHooks || !state.LegacyPluginShadowed {
+		t.Fatalf("state = %+v, want installed native package with Claude shadowing", state)
+	}
+	checks := buildGrokDoctorChecks(state, "0.23.0")
+	for _, check := range checks {
+		if check.Name == "grok-plugin" && check.Status != doctorStatusWarn {
+			t.Fatalf("grok-plugin = %+v, want warning for shadowed resolution", check)
+		}
+		if check.Name == "grok-plugin-resolution" && (check.Status != doctorStatusWarn || !strings.Contains(check.Message, "claude-plugin")) {
+			t.Fatalf("grok-plugin-resolution = %+v, want Claude path-class warning", check)
+		}
 	}
 }

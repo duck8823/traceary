@@ -6,6 +6,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_DIR="${ROOT_DIR}/integrations/grok-plugin"
+PLUGIN_NAME="traceary-grok"
 TMP_HOME="$(mktemp -d "${TMPDIR:-/tmp}/traceary-grok-clean-home.XXXXXX")"
 cleanup() { rm -rf "${TMP_HOME}"; }
 trap cleanup EXIT
@@ -31,23 +32,23 @@ echo "== validate package =="
 grok plugin validate "${PLUGIN_DIR}"
 
 echo "== install (clean home) =="
-if grok plugin list --json 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary"'; then
-  grok plugin uninstall traceary || true
+if grok plugin list --json 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary-grok"'; then
+  grok plugin uninstall "${PLUGIN_NAME}" || true
 fi
 grok plugin install --trust "${PLUGIN_DIR}"
 
 echo "== details =="
-grok plugin details traceary
+grok plugin details "${PLUGIN_NAME}"
 
 echo "== list contains traceary =="
-grok plugin list --json | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary"'
+grok plugin list --json | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary-grok"'
 
 echo "== reinstall (update path) =="
 # Host rejects double install of the same local path; uninstall then install
 # models the post-upgrade refresh path operators use after a binary bump.
-grok plugin uninstall traceary
+grok plugin uninstall "${PLUGIN_NAME}"
 grok plugin install --trust "${PLUGIN_DIR}"
-grok plugin details traceary
+grok plugin details "${PLUGIN_NAME}"
 
 echo "== doctor (best-effort; may skip host probes in empty home) =="
 if command -v traceary >/dev/null 2>&1; then
@@ -67,9 +68,9 @@ if command -v traceary >/dev/null 2>&1; then
 fi
 
 echo "== uninstall =="
-grok plugin uninstall traceary
-if grok plugin list --json 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary"'; then
-  echo "error: traceary still listed after uninstall" >&2
+grok plugin uninstall "${PLUGIN_NAME}"
+if grok plugin list --json 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary-grok"'; then
+  echo "error: ${PLUGIN_NAME} still listed after uninstall" >&2
   exit 1
 fi
 

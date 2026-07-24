@@ -256,7 +256,7 @@ func checkGrok(root, version string) error {
 	if err := readJSON(root, "integrations/grok-plugin/plugin.json", &manifest); err != nil {
 		return err
 	}
-	if manifest.Name != "traceary" {
+	if manifest.Name != "traceary-grok" {
 		return xerrors.Errorf("unexpected Grok plugin name")
 	}
 	if manifest.Version != version {

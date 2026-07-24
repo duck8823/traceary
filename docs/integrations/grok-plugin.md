@@ -162,10 +162,16 @@ git checkout v0.23.0 # replace with the installed Traceary version
 traceary doctor --client grok --project-dir . --json
 ```
 
+The native package is named `traceary-grok`, deliberately distinct from the
+Claude package named `traceary`. The installer replaces only `traceary-grok`;
+it never removes a legacy `traceary` package because Grok can resolve that
+same-name package from another host. A converged native installation reports
+seven hook boundaries, one MCP server, and three skills.
+
 To remove only the native Grok package:
 
 ```sh
-grok plugin uninstall traceary
+grok plugin uninstall traceary-grok
 ```
 
 Project/global hook-only files are independent of the plugin and must be
@@ -177,6 +183,7 @@ removed separately if they were installed.
 | --- | --- |
 | `grok-cli` fails | Install Grok Build and ensure `grok` is on `PATH` |
 | `grok-plugin` warns | Install/reinstall the package; a version mismatch requires the package from the same Traceary release |
+| `grok-plugin-resolution` warns | Grok resolved a non-native path class or a same-name legacy package. Run `scripts/install-grok-plugin.sh`, then confirm `traceary-grok` is the enabled route; doctor reads only package paths, names, and inventory counts. |
 | `grok-hook-trust` warns | Review the project hook file and use `/hooks-trust`, or remove the unused project route |
 | `grok-hooks` warns | The installed hook file is missing or has drifted from the exact seven-event contract; reinstall the plugin |
 | `grok-mcp` / `grok-skills` warns | The installed package inventory is incomplete; reinstall it |
@@ -186,7 +193,7 @@ Useful read-only checks:
 
 ```sh
 grok plugin list --json
-grok plugin details traceary
+grok plugin details traceary-grok
 grok --cwd . inspect --json
 traceary list --agent grok --limit 20
 traceary doctor --client grok --project-dir . --json
