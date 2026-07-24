@@ -80,6 +80,64 @@ Traceary は `idle` payload だけを受け入れ、`total_input_tokens` と `to
 > `agent=antigravity` で保存されます。`traceary list --agent antigravity` で読み取って
 > ください。`traceary list --client antigravity` ではこれらの event は 0 件になります。
 
+## sandboxed headless 実行用の scoped hook permission
+
+Antigravity は command hook も permission engine で評価します。interactive
+実行では operator に確認できますが、非対話の `agy --print` は確認 prompt
+に回答できません。そのため、hook file が正しく導入済みでも headless mode
+では hook を実行できない状態が発生します。
+
+plugin は、そのまま settings に merge できる fragment
+[`integrations/antigravity-plugin/permissions.example.json`](../../integrations/antigravity-plugin/permissions.example.json)
+を同梱します。
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "command(traceary hook antigravity pre-invocation)",
+      "command(traceary hook antigravity pre-tool-use)",
+      "command(traceary hook antigravity post-tool-use)",
+      "command(traceary hook antigravity stop)"
+    ]
+  }
+}
+```
+
+この 4 項目を `~/.gemini/antigravity-cli/settings.json`、Antigravity の共有
+settings、または対象 project settings の `permissions.allow` 配列へ merge
+してください。plugin の導入処理は operator 所有の settings を自動上書き
+しません。
+
+4 項目は packaged hook entrypoint だけを許可する exact な token-prefix
+resource です。command の wildcard grant、`unsandboxed(...)` grant、
+`--dangerously-skip-permissions`、`--sandbox` を外した実行で置き換えないで
+ください。effective な `deny` / `ask` list も確認が必要です。Antigravity の
+優先順位は **deny > ask > allow** なので、明示的な広い ask rule が exact
+allow を遮り、headless 実行が回答不能な確認待ちになる場合があります。
+
+`traceary` hook group は workspace、user-level、CLI plugin の**いずれか
+1 経路だけ**で登録してください。複数経路を有効にすると同じ lifecycle
+handler が 2 回呼ばれる可能性があります。`doctor` は複数の健全な経路を
+正常扱いせず警告します。
+
+## 本文を扱わない headless marker probe
+
+scoped permission fragment を追加した後、次を実行します。
+
+```sh
+scripts/verify-antigravity-headless-markers.sh
+```
+
+probe は candidate binary を build して `PATH` の先頭へ置き、
+`--mode plan --sandbox` を維持し、隔離された一時 Traceary DB を使います。
+固定の公開 response marker を検証した後、`id,kind,session,source_hook`
+だけを読み戻します。prompt、response、transcript の本文は表示もコピーも
+しません。現行 host が健全なら `session_start`、`prompt`、`final_turn`、
+`stop_boundary` が `true` になります。Antigravity の `Stop` は真の
+session-end event ではなく turn boundary なので、`session_end` は
+`false` のままです。
+
 ## インストール
 
 1. まず Traceary CLI をインストールします。
@@ -103,7 +161,7 @@ traceary hooks install --client antigravity --global
 
 alias `agy` と `antigravity-cli` は canonical な `antigravity` client に解決されます。インストールは非破壊で、置換されるのは `traceary` hook グループのみ、その他の top-level hook グループはそのまま保持されます。`--upgrade` で再実行すると、ユーザー追加グループを保持したまま managed グループを更新します。
 
-代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を導入できます。同じ `traceary` hook グループに加え、公式 Antigravity スキーマに従う version 付き `plugin.json`、Traceary MCP server 用の `mcp_config.json`、共有の memory/session skill 3 件を同梱しています。
+代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を導入できます。同じ `traceary` hook グループに加え、公式 Antigravity スキーマに従う version 付き `plugin.json`、Traceary MCP server 用の `mcp_config.json`、共有の memory/session skill 3 件、任意適用の `permissions.example.json` fragment を同梱しています。workspace または user-level の Traceary hook 経路を同時に残さないでください。
 
 ## セットアップガイド
 
@@ -124,14 +182,15 @@ traceary doctor --client antigravity --json
 - `antigravity-capability` — Antigravity のインストール（PATH 上の `agy`/`antigravity` CLI、またはアプリバンドル）を検出すると `pass`。Traceary は公開 hooks/plugin contract をサポートし、Traceary 側の認証は不要なためです。CLI もバンドルも無い場合は `not_installed`（warn）。この check はアプリを起動せず、ブラウザ自動操作も認証情報の読み取りも行いません。
 - `antigravity-hooks-workspace` — workspace 経路（`<project>/.agents/hooks.json`）。
 - `antigravity-hooks-user` — user-level 経路（`~/.gemini/config/hooks.json`）。
-- `antigravity-cli-plugin` — `agy plugin install` が import する CLI plugin 経路のディレクトリ `~/.gemini/antigravity-cli/plugins/traceary` を検査します。サポートされた Antigravity の top-level hook-group 形式なら `pass`、**古い Gemini 形式のパッケージ**（legacy な top-level `{"hooks": ...}` 形式、または `traceary hook ... gemini` を呼び出す command）を見つけると `warn` を報告します。この check は `plugin.json`・`hooks.json`・`hooks/hooks.json` のみを読み取り、transcript や認証情報は読みません。
+- `antigravity-cli-plugin` — 現行の共有 plugin directory `~/.gemini/config/plugins/traceary` と、従来の CLI 専用 directory `~/.gemini/antigravity-cli/plugins/traceary` を検査します。サポートされた Antigravity の top-level hook-group 形式なら `pass`、**古い Gemini 形式のパッケージ**（legacy な top-level `{"hooks": ...}` 形式、または `traceary hook ... gemini` を呼び出す command）を見つけると `warn` を報告します。この check は `plugin.json`・`hooks.json`・`hooks/hooks.json` のみを読み取り、transcript や認証情報は読みません。
 - `antigravity-mcp` — 導入済み CLI plugin の `mcp_config.json` に `traceary mcp-server` 登録があれば `pass` します。plugin はあるが登録がなければ `warn`、plugin 経路自体がなければ `skip` します。hook の直接設定は MCP tool を提供しないためです。
-- `antigravity-hooks` — 集約サマリー。**いずれか**の経路の config が不正（経路別 check が `fail`）な場合は、別の経路が健全でも Antigravity が読み込めないため `fail` を報告します。それ以外では、**いずれか**の経路が健全なら `pass`、**どの**経路も健全でない場合のみ、導入手順を案内する actionable な `warn` を報告します。
+- `antigravity-hooks` — 集約サマリー。**いずれか**の経路の config が不正（経路別 check が `fail`）な場合は、別の経路が健全でも Antigravity が読み込めないため `fail` を報告します。健全な経路が **1 つだけ**なら `pass`、複数なら handler の重複登録を避けるため `warn`、どの経路も健全でない場合も導入手順付きの `warn` を報告します。
+- `antigravity-headless-hooks` — hook file の導入と非対話での実行可能 coverage を分けて診断します。健全な経路があり、4 個の exact command resource が matching deny/ask rule や広すぎる grant、unsandboxed grant なしで許可されている場合だけ `pass` します。導入済み hook が確認待ちになるか shadow されていれば `warn`、健全な経路自体がなければ `skip` します。
 - `antigravity-capture-levels` — 常に `pass`。公開 hook の設定上の capability として、interactive と現行 headless CLI の `start_supported`、`tool_audit_supported`、`final_turn_supported` を報告します。
 - `antigravity-event-coverage` — recent な `agent=antigravity` の DB 証拠を検査します。hook 導入経路がすべて健全でも、十分な sample の開始済み session に transcript event が無ければ警告します。
 - `antigravity-plugin-version` — 導入済み plugin manifest と実行中 Traceary release の version を比較し、不一致なら `warn` を報告します。Traceary 更新後は packaged plugin も再導入してください。
 
-**各経路は単体では任意です。** 経路が無い場合は `warn` ではなく `skip` を報告します。たとえば user-level または CLI plugin の経路が健全であれば、存在しない workspace `.agents/hooks.json` は `skip` 扱いとなり、`antigravity-hooks` サマリーは `pass` のままです。doctor が hook coverage について warn するのは、3 経路のいずれも `traceary` グループを登録していないときだけです。経路ファイルが存在するが不正（JSON オブジェクトでない）な場合は、他経路の状態に関わらず Antigravity 自体が読み込めないため `fail` を報告します。
+**各経路は単体では任意ですが、有効にするのは 1 つだけです。** 経路が無い場合は `warn` ではなく `skip` を報告します。たとえば user-level 経路だけが健全なら、存在しない workspace `.agents/hooks.json` と CLI plugin は `skip` 扱いとなり、`antigravity-hooks` サマリーは `pass` のままです。複数の健全な経路は重複登録の警告になります。経路ファイルが存在するが不正（JSON オブジェクトでない）な場合は、他経路の状態に関わらず Antigravity 自体が読み込めないため `fail` を報告します。
 
 Antigravity はデフォルトの doctor client 一覧（`["claude","codex","gemini"]`）に含まれません。明示的に `--client antigravity` を指定してください。
 
@@ -174,8 +233,11 @@ Antigravity validator では skill が `3 processed`、MCP server と hook group
 
 ## 公式リファレンス
 
-2026-06-20 JST に確認:
+2026-07-24 JST に Antigravity CLI 1.1.6 で確認:
 
+- Antigravity permissions と優先順位: https://antigravity.google/docs/cli-permissions
+- Antigravity hooks と handler contract: https://antigravity.google/docs/hooks
+- Antigravity plugins: https://antigravity.google/docs/plugins
 - Antigravity 2.0 hooks: https://antigravity.google/assets/docs/antigravity-2-0/hooks.md
 - Antigravity IDE hooks: https://antigravity.google/assets/docs/editor/ide-hooks.md
 - Antigravity CLI plugins: https://antigravity.google/assets/docs/cli/cli-plugins.md

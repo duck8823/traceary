@@ -30,10 +30,23 @@ const (
 	antigravityCLIPluginUnknown
 )
 
-// antigravityCLIPluginDir returns the directory `agy plugin install` imports
-// the Traceary plugin into under the user's home directory.
+// antigravityCLIPluginDir returns the legacy CLI-specific directory used by
+// older `agy plugin install` releases.
 func antigravityCLIPluginDir(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary")
+}
+
+// antigravityConfigPluginDir returns the shared Antigravity customization path
+// used by current CLI releases and Antigravity 2.0.
+func antigravityConfigPluginDir(home string) string {
+	return filepath.Join(home, ".gemini", "config", "plugins", "traceary")
+}
+
+func antigravityCLIPluginDirs(home string) []string {
+	return []string{
+		antigravityConfigPluginDir(home),
+		antigravityCLIPluginDir(home),
+	}
 }
 
 // antigravityCLIPluginProbe captures the hooks documents doctor reads to
@@ -187,11 +200,11 @@ type antigravityCLIPluginObservation struct {
 	Resolved bool
 }
 
-// observeAntigravityCLIPlugin resolves the CLI plugin directory under the user's
-// home, reads only its plugin config files, classifies the shape once, and
-// builds the doctorCheck from that same shape. It is the single source the
-// doctor check and the route model both read, so probing/classification happen
-// exactly once per doctor run.
+// observeAntigravityCLIPlugin resolves the current shared plugin directory and
+// the legacy CLI-specific directory under the user's home, reads only their
+// plugin config files, and selects the most safety-relevant shape (stale,
+// unknown, healthy, absent). It is the single source the doctor check and route
+// model both read, so each candidate is probed/classified exactly once per run.
 func observeAntigravityCLIPlugin() antigravityCLIPluginObservation {
 	home, err := userHomeDirFunc()
 	if err != nil {
@@ -203,13 +216,34 @@ func observeAntigravityCLIPlugin() antigravityCLIPluginObservation {
 			},
 		}
 	}
-	dir := antigravityCLIPluginDir(home)
-	shape := classifyAntigravityCLIPluginProbe(probeAntigravityCLIPlugin(dir))
+	dirs := antigravityCLIPluginDirs(home)
+	shape := antigravityCLIPluginAbsent
+	dir := strings.Join(dirs, " or ")
+	for _, candidate := range dirs {
+		candidateShape := classifyAntigravityCLIPluginProbe(probeAntigravityCLIPlugin(candidate))
+		if antigravityCLIPluginShapePriority(candidateShape) > antigravityCLIPluginShapePriority(shape) {
+			shape = candidateShape
+			dir = candidate
+		}
+	}
 	return antigravityCLIPluginObservation{
 		Shape:    shape,
 		Dir:      dir,
 		Check:    buildAntigravityCLIPluginCheck(shape, dir),
 		Resolved: true,
+	}
+}
+
+func antigravityCLIPluginShapePriority(shape antigravityCLIPluginShape) int {
+	switch shape {
+	case antigravityCLIPluginStaleGemini:
+		return 3
+	case antigravityCLIPluginUnknown:
+		return 2
+	case antigravityCLIPluginHealthy:
+		return 1
+	default:
+		return 0
 	}
 }
 

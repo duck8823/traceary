@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "command(traceary hook antigravity pre-invocation)",
+      "command(traceary hook antigravity pre-tool-use)",
+      "command(traceary hook antigravity post-tool-use)",
+      "command(traceary hook antigravity stop)"
+    ]
+  }
+}
