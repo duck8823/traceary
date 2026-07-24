@@ -19,6 +19,9 @@ import (
 //go:embed sql/select_recent_event_metadata.sql
 var selectRecentEventMetadataQuery string
 
+//go:embed sql/select_latest_event_metadata_fast.sql
+var selectLatestEventMetadataFastQuery string
+
 //go:embed sql/select_recent_event_metadata_by_source_hook.sql
 var selectRecentEventMetadataBySourceHookQuery string
 
@@ -42,7 +45,7 @@ func (d *EventDatasource) ListRecentMetadata(
 		return nil, err
 	}
 
-	db, err := d.db.open(ctx)
+	db, err := d.db.openReadOnly(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event metadata listing: %w", err)
 	}
@@ -72,7 +75,7 @@ func (d *EventDatasource) ListWindowMetadata(
 		return nil, err
 	}
 
-	db, err := d.db.open(ctx)
+	db, err := d.db.openReadOnly(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event metadata window: %w", err)
 	}
@@ -136,7 +139,7 @@ func (d *EventDatasource) SearchMetadata(
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
 
-	db, err := d.db.open(ctx)
+	db, err := d.db.openReadOnly(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event metadata search: %w", err)
 	}
@@ -185,7 +188,7 @@ func (d *EventDatasource) GetContextMetadata(
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
 
-	db, err := d.db.open(ctx)
+	db, err := d.db.openReadOnly(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event metadata context: %w", err)
 	}
@@ -452,6 +455,13 @@ func queryRecentEventMetadataWith(
 ) (*sql.Rows, error) {
 	sourceHook := criteria.SourceHook()
 	failuresFlag := boolToInt(criteria.FailuresOnly())
+	if isBoundedLatestMetadataCriteria(criteria, fromValue, toValue, limit, offset) {
+		rows, err := query(ctx, selectLatestEventMetadataFastQuery)
+		if err != nil {
+			return nil, xerrors.Errorf("query bounded latest event metadata: %w", err)
+		}
+		return rows, nil
+	}
 	if sourceHook == "" {
 		rows, err := query(
 			ctx,
@@ -516,4 +526,20 @@ func queryRecentEventMetadataWith(
 		return nil, xerrors.Errorf("query recent event metadata by source hook: %w", err)
 	}
 	return rows, nil
+}
+
+// isBoundedLatestMetadataCriteria identifies the single-row, body-free CLI
+// inspection intent that can use the existing created_at index without a
+// store-wide timestamp normalization sort. Filters deliberately stay on the
+// general, boundary-complete query path.
+func isBoundedLatestMetadataCriteria(criteria apptypes.EventListCriteria, fromValue, toValue string, limit, offset int) bool {
+	return limit == 1 && offset == 0 &&
+		criteria.Kind() == "" &&
+		criteria.Client() == "" &&
+		criteria.Agent() == "" &&
+		criteria.SessionID() == "" &&
+		criteria.Workspace() == "" &&
+		!criteria.FailuresOnly() &&
+		criteria.SourceHook() == "" &&
+		fromValue == "" && toValue == ""
 }

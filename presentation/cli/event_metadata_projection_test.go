@@ -88,6 +88,36 @@ func TestRootCLI_ListJSONFieldsUsesMetadataProjection(t *testing.T) {
 	}
 }
 
+func TestRootCLI_ListTextMetadataFieldsSkipsStoreInitialization(t *testing.T) {
+	t.Parallel()
+
+	store := &storeManagementUsecaseStub{initErr: fmt.Errorf("initialization must not run")}
+	full := &eventUsecaseStub{}
+	metadataUsecase := &eventMetadataUsecaseStub{listMetadata: []apptypes.EventMetadata{newCLIMetadataFixture(t, "event-text-metadata")}}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(store),
+		cli.WithEvent(full),
+		cli.WithEventMetadata(metadataUsecase),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--limit", "1", "--fields", "ts,kind", "--color", "never", "--utc"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if store.initCalled {
+		t.Fatal("metadata-only text list initialized the store")
+	}
+	if full.listCalls != 0 || metadataUsecase.listCalls != 1 {
+		t.Fatalf("full List() calls = %d, metadata List() calls = %d", full.listCalls, metadataUsecase.listCalls)
+	}
+	if got, want := stdout.String(), "06:00:00  command_executed\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
 func TestRootCLI_SearchJSONFieldsUsesMetadataProjection(t *testing.T) {
 	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) { return "", nil })

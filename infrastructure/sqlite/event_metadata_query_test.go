@@ -70,6 +70,84 @@ func TestEventMetadataQuery_ListRecentDoesNotHydrateBody(t *testing.T) {
 	}
 }
 
+func TestEventMetadataQuery_BoundedLatestUsesCreatedAtIndexAndKeepsTimestampOrder(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	// given: RFC3339Nano's lexical ordering puts an exact-second `Z` after a
+	// fractional timestamp in the same second. The bounded query must still
+	// return the real latest event while using the existing created_at index to
+	// avoid a store-wide timestamp-normalization sort.
+	base := time.Date(2026, 7, 25, 1, 2, 3, 0, time.UTC)
+	for _, event := range []*model.Event{
+		newEventForSQLiteTest(t, "event-before", "cli", "codex", "session-1", "ws", "body", base.Add(-time.Second)),
+		newEventForSQLiteTest(t, "event-exact", "cli", "codex", "session-1", "ws", "body", base),
+		newEventForSQLiteTest(t, "event-fraction", "cli", "codex", "session-1", "ws", "body", base.Add(500*time.Millisecond)),
+	} {
+		if err := sut.Save(context.Background(), event); err != nil {
+			t.Fatalf("Save(%s) error = %v", event.EventID(), err)
+		}
+	}
+
+	got, err := sut.ListRecentMetadata(context.Background(), apptypes.NewEventListCriteriaBuilder(1).Build())
+	if err != nil {
+		t.Fatalf("ListRecentMetadata() error = %v", err)
+	}
+	if len(got) != 1 || got[0].EventID().String() != "event-fraction" {
+		t.Fatalf("bounded latest metadata = %#v, want event-fraction", got)
+	}
+
+}
+
+func TestEventMetadataQuery_BoundedLatestRespondsOnSparseFourGiBStore(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	if err := sut.Save(context.Background(), newEventForSQLiteTest(
+		t,
+		"event-large-store",
+		"cli",
+		"codex",
+		"session-1",
+		"ws",
+		strings.Repeat("body-not-read-", 1024),
+		time.Date(2026, 7, 25, 2, 0, 0, 0, time.UTC),
+	)); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	// A sparse extent models the operator-visible multi-gigabyte file size
+	// without allocating or reading a payload corpus. SQLite's logical page
+	// count remains tiny; the test proves this bounded read does not scan the
+	// appended sparse region or initialize/migrate the store.
+	if err := os.Truncate(dbPath, 4<<30); err != nil {
+		t.Fatalf("Truncate sparse fixture: %v", err)
+	}
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("Stat sparse fixture: %v", err)
+	}
+	if info.Size() != 4<<30 {
+		t.Fatalf("sparse fixture size = %d, want %d", info.Size(), int64(4<<30))
+	}
+
+	started := time.Now()
+	got, err := sut.ListRecentMetadata(context.Background(), apptypes.NewEventListCriteriaBuilder(1).Build())
+	if err != nil {
+		t.Fatalf("ListRecentMetadata() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("bounded large-store metadata list took %s, want <= 1s", elapsed)
+	}
+	if len(got) != 1 || got[0].EventID().String() != "event-large-store" {
+		t.Fatalf("bounded metadata list = %#v, want event-large-store", got)
+	}
+}
+
 func TestEventMetadataQuery_AllocationDoesNotScaleWithStoredBody(t *testing.T) {
 	// Repeating the query reduces one-off allocator noise. The 512 KiB margin is
 	// deliberately far below the 8 MiB body, so accidentally hydrating the body
