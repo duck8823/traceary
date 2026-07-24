@@ -69,8 +69,13 @@ type doctorSummary struct {
 }
 
 type doctorReport struct {
-	DBPath   string          `json:"db_path"`
-	Clients  []string        `json:"clients"`
+	DBPath  string   `json:"db_path"`
+	Clients []string `json:"clients"`
+	// Mode makes a bounded early outcome machine-readable.  In particular, a
+	// large live store is deliberately not opened by the default doctor path:
+	// opening it can run migrations and content diagnostics that are neither
+	// necessary nor safe for a quick operator health check.
+	Mode     string          `json:"mode,omitempty"`
 	Checks   []doctorCheck   `json:"checks"`
 	Sections []doctorSection `json:"sections"`
 	Summary  doctorSummary   `json:"summary"`
@@ -278,6 +283,16 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	})
 	report.Checks = append(report.Checks, inspectStoreSizeBudget(resolvedDBPath))
 	report.Checks = append(report.Checks, inspectTracearyOnPath())
+	if isLargeStoreForBoundedDoctor(resolvedDBPath) {
+		report.Mode = doctorModeMetadataOnlyLargeStore
+		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(resolvedDBPath))
+		// This is an intentional, successful bounded outcome. Do not initialize
+		// SQLite, list events, scan hook spools, or inspect client state here:
+		// those operations can block behind a live writer and some inspect event
+		// bodies/payloads. The result is useful precisely because it is based on
+		// filesystem metadata only and cannot mutate or expose store content.
+		return report, nil
+	}
 
 	report.Checks = append(report.Checks, inspectDoctorConfig())
 
