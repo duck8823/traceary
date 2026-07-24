@@ -194,22 +194,19 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 	}
 	if grokHeadlessUsage != nil {
 		loaded, collectErr := grokHeadlessUsage.Complete()
+		// A malformed host stream means the provider counters are unavailable,
+		// not that the supervised child changed its own terminal outcome. Always
+		// submit the empty result so the use case records its stable unavailable
+		// run observation; report the diagnostic without replacing the child exit.
+		_, captureErr := c.grokUsage.CaptureHeadless(finalizeCtx, usecase.GrokUsageCaptureInput{
+			SessionID: startEvent.SessionID(), DeliveryID: "session_run",
+			FallbackTerminal: usageTerminalFromReason(reason),
+		}, loaded)
 		if collectErr != nil {
-			usageErr = errors.Join(
-				usageErr,
-				xerrors.Errorf("failed to decode body-free Grok headless usage: %w", collectErr),
-			)
-		} else {
-			_, captureErr := c.grokUsage.CaptureHeadless(finalizeCtx, usecase.GrokUsageCaptureInput{
-				SessionID: startEvent.SessionID(), DeliveryID: "session_run",
-				FallbackTerminal: usageTerminalFromReason(reason),
-			}, loaded)
-			if captureErr != nil {
-				usageErr = errors.Join(
-					usageErr,
-					xerrors.Errorf("failed to record Grok headless usage: %w", captureErr),
-				)
-			}
+			_, _ = fmt.Fprintf(stderr, "traceary: failed to decode body-free Grok headless usage: %v\n", collectErr)
+		}
+		if captureErr != nil {
+			_, _ = fmt.Fprintf(stderr, "traceary: failed to record Grok headless usage: %v\n", captureErr)
 		}
 	}
 	if _, _, finalizeErr := c.session.FinalizeOneShot(finalizeCtx, client, agent, startEvent.SessionID(), workspace, reason, summary); finalizeErr != nil {
@@ -299,6 +296,9 @@ func isCodexHeadlessUsageCommand(command []string) bool {
 		return false
 	}
 	for _, arg := range command[2:] {
+		if arg == "--" {
+			break
+		}
 		if arg == "--json" {
 			return true
 		}

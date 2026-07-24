@@ -44,7 +44,10 @@ output、reasoning、total token を記録します。途中の thought/text eve
 error 本文、transcript 本文は破棄します。終端 usage object がない場合はゼロではなく、
 同じ portable provider identity を維持したまま、集計対象外の `unavailable` run
 observation を1件記録します。不正・競合・上限超過の終端 metadata は fail closed し、
-代替 observation を生成しません。`modelUsage` がモデルを1件だけ示す場合はそのモデル名を
+代替 observation を生成しません。Traceary が管理する `streaming-json` 実行を decode
+できなかった場合は、supervised delivery identity を使い、counter を unavailable とした
+excluded run observation を冪等に1件保存します。decode の診断は報告しますが、子プロセスの
+終了 status を置き換えません。`modelUsage` がモデルを1件だけ示す場合はそのモデル名を
 残します。複数モデルにまたがる合計はモデル未特定の
 まま保存し、分割や二重集計をしません。
 provider の `requestId` / `sessionId` の組は、長さ固定の portable identity に正規化します。

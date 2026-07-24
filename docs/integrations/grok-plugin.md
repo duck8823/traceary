@@ -45,7 +45,11 @@ thought/text events, cost fields, error bodies, and transcript content are
 discarded. A missing terminal usage object becomes one excluded
 `unavailable` run observation rather than zero while retaining the same
 portable provider identity. Malformed, conflicting, or oversized terminal
-metadata fails closed and creates no substitute observation. If `modelUsage`
+metadata fails closed and creates no substitute observation. If a supervised
+`streaming-json` run cannot be decoded, Traceary still writes one idempotent,
+excluded run observation with unavailable counters using the supervised
+delivery identity. The decode diagnostic is reported, but it never replaces
+the child process exit status. If `modelUsage`
 names exactly one model, that model is retained; multi-model aggregate usage remains
 model-unattributed and is never split or counted twice.
 The provider `requestId`/`sessionId` pair is normalized to a bounded portable

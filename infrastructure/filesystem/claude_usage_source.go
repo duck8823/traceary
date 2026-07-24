@@ -314,11 +314,11 @@ func claudeAssistantUsageSample(
 		return application.ClaudeUsageSample{}, "", false, nil
 	}
 	identity := requestID + "\x00" + messageID
-	observedAt, err := claudeObservedAt(envelope.Timestamp)
+	counters, available, err := decodeClaudeUsage(message.Usage)
 	if err != nil {
 		return application.ClaudeUsageSample{}, "", false, err
 	}
-	counters, available, err := decodeClaudeUsage(message.Usage)
+	observedAt, err := claudeObservedAt(envelope.Timestamp, available, time.Time{})
 	if err != nil {
 		return application.ClaudeUsageSample{}, "", false, err
 	}
@@ -339,11 +339,19 @@ func claudeResultUsageSample(
 	envelope claudeUsageEnvelope,
 	sessionID string,
 ) (application.ClaudeUsageSample, error) {
-	observedAt, err := claudeObservedAt(envelope.Timestamp)
+	return claudeResultUsageSampleAt(envelope, sessionID, time.Time{})
+}
+
+func claudeResultUsageSampleAt(
+	envelope claudeUsageEnvelope,
+	sessionID string,
+	fallbackObservedAt time.Time,
+) (application.ClaudeUsageSample, error) {
+	counters, available, err := decodeClaudeUsage(envelope.Usage)
 	if err != nil {
 		return application.ClaudeUsageSample{}, err
 	}
-	counters, available, err := decodeClaudeUsage(envelope.Usage)
+	observedAt, err := claudeObservedAt(envelope.Timestamp, available, fallbackObservedAt)
 	if err != nil {
 		return application.ClaudeUsageSample{}, err
 	}
@@ -392,9 +400,15 @@ func decodeClaudeUsage(raw json.RawMessage) (application.ClaudeUsageCounters, bo
 	}, true, nil
 }
 
-func claudeObservedAt(raw string) (time.Time, error) {
+func claudeObservedAt(raw string, available bool, fallback time.Time) (time.Time, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
+		if !fallback.IsZero() {
+			return fallback.UTC(), nil
+		}
+		if available {
+			return time.Time{}, xerrors.Errorf("available Claude usage requires a reportable timestamp")
+		}
 		return time.Unix(0, 0).UTC(), nil
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)

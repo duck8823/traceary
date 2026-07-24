@@ -156,7 +156,7 @@ func TestClaudeUsageSource_UsesExactSessionNameInsteadOfGlobPattern(t *testing.T
 	home := t.TempDir()
 	sessionID := "session[1]"
 	writeClaudeUsageFixture(t, home, sessionID,
-		`{"type":"result","session_id":"session[1]","subtype":"success","usage":{"input_tokens":1,"output_tokens":1}}`+"\n",
+		`{"type":"result","session_id":"session[1]","subtype":"success","timestamp":"2026-07-25T00:00:00Z","usage":{"input_tokens":1,"output_tokens":1}}`+"\n",
 	)
 	result, err := filesystem.NewClaudeUsageSourceForTest(
 		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
@@ -166,6 +166,21 @@ func TestClaudeUsageSource_UsesExactSessionNameInsteadOfGlobPattern(t *testing.T
 	}
 	if len(result.Samples) != 1 {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestClaudeUsageSource_RejectsAvailableUsageWithoutReportableTimestamp(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session-missing-timestamp"
+	writeClaudeUsageFixture(t, home, sessionID,
+		`{"type":"result","session_id":"session-missing-timestamp","subtype":"success","usage":{"input_tokens":1,"output_tokens":1}}`+"\n",
+	)
+	_, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err == nil || !strings.Contains(err.Error(), "reportable timestamp") {
+		t.Fatalf("Load() error = %v", err)
 	}
 }
 

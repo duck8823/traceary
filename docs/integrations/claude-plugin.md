@@ -34,6 +34,10 @@ remain explicitly unavailable; Traceary does not infer totals, model names, or
 cost.
 
 The usage reader decodes only session/call/model/counter/terminal metadata.
+Available usage from a stored transcript must carry an RFC 3339 timestamp;
+Traceary rejects a missing timestamp instead of assigning the Unix epoch. A
+Traceary-owned headless result without a host timestamp uses its UTC ingestion
+time, which remains reportable without claiming a provider event time.
 Prompt, response, thinking, tool, account, transcript-path, and arbitrary error
 content are not copied into the usage ledger or durable hook retry spool.
 
