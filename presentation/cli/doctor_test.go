@@ -52,11 +52,12 @@ type doctorCheck struct {
 }
 
 type doctorFixLog struct {
-	Name   string `json:"name"`
-	Action string `json:"action"`
-	Before string `json:"before"`
-	After  string `json:"after"`
-	Error  string `json:"error"`
+	Name    string         `json:"name"`
+	Action  string         `json:"action"`
+	Metrics map[string]int `json:"metrics"`
+	Before  string         `json:"before"`
+	After   string         `json:"after"`
+	Error   string         `json:"error"`
 }
 
 func executeDoctorAllowWarnings(t *testing.T, cmd interface{ Execute() error }) {
