@@ -337,3 +337,65 @@ func TestProbeGrokDoctorStateWarnsForLegacyTracearyRoutes(t *testing.T) {
 		})
 	}
 }
+
+func TestProbeGrokDoctorStateDiagnosesLocalRepositoryIdentitySeparately(t *testing.T) {
+	originalLookPath, originalOutput := grokDoctorLookPath, grokDoctorOutput
+	t.Cleanup(func() { grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput })
+	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+	projectDir := t.TempDir()
+	grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "--version":
+			return []byte("grok 0.2.111\n"), nil
+		case "plugin list --json":
+			return []byte(`[{"name":"traceary","repo_key":"grok-plugin-4d1bd2fe","version":"0.32.0","path":"/Users/operator/.grok/installed-plugins/grok-plugin-4d1bd2fe","source":"/Users/operator/Repositories/traceary/integrations/grok-plugin"}]`), nil
+		default:
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary","enabled":true,"provides":{"skills":3,"mcpServers":1}}],"hooks":[]}`), nil
+		}
+	}
+
+	state, err := probeGrokDoctorState(context.Background(), projectDir)
+	if err != nil {
+		t.Fatalf("probeGrokDoctorState() error = %v", err)
+	}
+	if state.PluginInstalled || !state.LocalRepoConflict {
+		t.Fatalf("state = %+v, want only a local-repository identity conflict", state)
+	}
+	checks := buildGrokDoctorChecks(state, "0.32.1")
+	found := map[string]bool{}
+	for _, check := range checks {
+		if check.Name != "grok-plugin" && check.Name != "grok-plugin-resolution" {
+			continue
+		}
+		found[check.Name] = true
+		if check.Status != doctorStatusWarn || check.Hint != "scripts/install-grok-plugin.sh --migrate-local-repo-identity" {
+			t.Fatalf("%s = %+v, want bounded migration warning", check.Name, check)
+		}
+		if strings.Contains(check.Message+check.Hint, "4d1bd2fe") || strings.Contains(check.Message+check.Hint, "/Users/") {
+			t.Fatalf("%s leaked inventory identifier or path: %+v", check.Name, check)
+		}
+	}
+	if !found["grok-plugin"] || !found["grok-plugin-resolution"] {
+		t.Fatalf("checks = %+v, want plugin and resolution migration checks", checks)
+	}
+}
+
+func TestGrokIsLocalRepositoryIdentity(t *testing.T) {
+	tests := []struct {
+		name   string
+		plugin grokPluginListEntry
+		want   bool
+	}{
+		{name: "subdirectory local repository identity", plugin: grokPluginListEntry{Name: "traceary", RepoKey: "grok-plugin-4d1bd2fe", Source: "/repo/integrations/grok-plugin"}, want: true},
+		{name: "canonical package", plugin: grokPluginListEntry{Name: "traceary-grok", RepoKey: "grok-plugin-4d1bd2fe", Source: "/repo"}},
+		{name: "legacy package from another host", plugin: grokPluginListEntry{Name: "traceary", RepoKey: "marketplace-traceary", Source: "duck8823/traceary"}},
+		{name: "local repository root with canonical subdirectory", plugin: grokPluginListEntry{Name: "traceary-grok", RepoKey: "grok-plugin-4d1bd2fe", Source: "/repo"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := grokIsLocalRepositoryIdentity(tc.plugin); got != tc.want {
+				t.Fatalf("grokIsLocalRepositoryIdentity(%+v) = %v, want %v", tc.plugin, got, tc.want)
+			}
+		})
+	}
+}

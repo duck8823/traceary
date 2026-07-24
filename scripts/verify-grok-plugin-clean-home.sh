@@ -32,7 +32,7 @@ echo "== install (clean home) =="
 if grok plugin list --json 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary-grok"'; then
   grok plugin uninstall "${PLUGIN_NAME}" || true
 fi
-grok plugin install --trust "${PLUGIN_DIR}"
+grok plugin install --trust "${ROOT_DIR}#integrations/grok-plugin"
 
 echo "== details =="
 grok plugin details "${PLUGIN_NAME}"
@@ -44,7 +44,7 @@ echo "== reinstall (update path) =="
 # Host rejects double install of the same local path; uninstall then install
 # models the post-upgrade refresh path operators use after a binary bump.
 grok plugin uninstall "${PLUGIN_NAME}"
-grok plugin install --trust "${PLUGIN_DIR}"
+grok plugin install --trust "${ROOT_DIR}#integrations/grok-plugin"
 grok plugin details "${PLUGIN_NAME}"
 
 echo "== doctor native plugin checks =="

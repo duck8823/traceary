@@ -90,7 +90,7 @@ run_grok() {
   local tmp_home
   tmp_home="$(mktemp -d)"
   HOME="${tmp_home}" grok plugin validate "${ROOT_DIR}/integrations/grok-plugin"
-  HOME="${tmp_home}" grok plugin install --trust "${ROOT_DIR}/integrations/grok-plugin"
+  HOME="${tmp_home}" grok plugin install --trust "${ROOT_DIR}#integrations/grok-plugin"
   local list_output details_output inspect_output tmp_cwd
   list_output="$(HOME="${tmp_home}" grok plugin list --json)"
   details_output="$(HOME="${tmp_home}" grok plugin details traceary-grok)"

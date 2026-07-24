@@ -43,6 +43,7 @@ type grokDoctorState struct {
 	PluginPath           string
 	ResolvedPathClass    string
 	LegacyPluginDetected bool
+	LocalRepoConflict    bool
 	ProjectTrusted       bool
 	ProjectHooks         bool
 	NativeHooks          bool
@@ -52,8 +53,10 @@ type grokDoctorState struct {
 
 type grokPluginListEntry struct {
 	Name    string `json:"name"`
+	RepoKey string `json:"repo_key"`
 	Version string `json:"version"`
 	Path    string `json:"path"`
+	Source  string `json:"source"`
 }
 
 type grokInspectDocument struct {
@@ -102,7 +105,9 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 			state.PluginInstalled = true
 			state.PluginVersion = plugin.Version
 			state.PluginPath = plugin.Path
-			break
+		}
+		if grokIsLocalRepositoryIdentity(plugin) {
+			state.LocalRepoConflict = true
 		}
 	}
 	inspectOutput, err := grokDoctorOutput(ctx, "--cwd", projectDir, "inspect", "--json")
@@ -141,6 +146,17 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		}
 	}
 	return state, nil
+}
+
+// grokIsLocalRepositoryIdentity distinguishes Grok's repository-level local
+// install identity from a package manifest name. It uses only the plugin list
+// inventory fields and never reads installed plugin contents or hook payloads.
+func grokIsLocalRepositoryIdentity(plugin grokPluginListEntry) bool {
+	if plugin.Name == grokTracearyPluginName || !strings.HasPrefix(plugin.RepoKey, "grok-plugin-") {
+		return false
+	}
+	normalizedSource := filepath.ToSlash(plugin.Source)
+	return strings.HasSuffix(normalizedSource, "/integrations/grok-plugin")
 }
 
 // grokPluginPathClass classifies only the installation host encoded in a hook
@@ -218,17 +234,26 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 	checks := []doctorCheck{{Name: "grok-cli", Status: doctorStatusPass, Message: localizef("detected Grok CLI %s", "Grok CLI %s を検出しました", state.HostVersion)}}
 	if !state.PluginInstalled {
 		message := Localize("native Traceary Grok plugin traceary-grok is not installed", "native Traceary Grok plugin traceary-grok がインストールされていません")
+		hint := Localize("install the native plugin with scripts/install-grok-plugin.sh", "scripts/install-grok-plugin.sh で native plugin をインストールしてください")
 		if state.LegacyPluginDetected {
 			message = Localize("legacy Traceary Grok plugin traceary is resolved but canonical traceary-grok is not installed", "legacy Traceary Grok plugin traceary が解決されていますが canonical traceary-grok はインストールされていません")
 		}
-		checks = append(checks, doctorCheck{Name: "grok-plugin", Status: doctorStatusWarn, Message: message, Hint: Localize("install the native plugin with scripts/install-grok-plugin.sh", "scripts/install-grok-plugin.sh で native plugin をインストールしてください")})
+		if state.LocalRepoConflict {
+			message = Localize("a local-repository Grok identity conflicts with canonical traceary-grok", "ローカルリポジトリ由来の Grok identity が canonical traceary-grok と競合しています")
+			hint = "scripts/install-grok-plugin.sh --migrate-local-repo-identity"
+		}
+		checks = append(checks, doctorCheck{Name: "grok-plugin", Status: doctorStatusWarn, Message: message, Hint: hint})
 	} else {
 		pluginStatus := doctorStatusPass
 		pluginMessage := localizef("native Traceary Grok plugin traceary-grok %s is installed and enabled", "native Traceary Grok plugin traceary-grok %s はインストール済みで有効です", state.PluginVersion)
 		pluginHint := ""
-		if !state.PluginEnabled || state.LegacyPluginDetected {
+		if !state.PluginEnabled || state.LegacyPluginDetected || state.LocalRepoConflict {
 			pluginStatus, pluginMessage = doctorStatusWarn, Localize("native Traceary Grok plugin traceary-grok is installed but a legacy traceary route is also resolved, or the canonical route is disabled", "native Traceary Grok plugin traceary-grok はインストール済みですが legacy traceary route も解決されているか、canonical route が無効です")
 			pluginHint = "grok plugin enable traceary-grok"
+			if state.LocalRepoConflict {
+				pluginMessage = Localize("a local-repository Grok identity conflicts with canonical traceary-grok", "ローカルリポジトリ由来の Grok identity が canonical traceary-grok と競合しています")
+				pluginHint = "scripts/install-grok-plugin.sh --migrate-local-repo-identity"
+			}
 		} else if releaseTracearyVersionPattern.MatchString(tracearyVersion) && strings.TrimPrefix(state.PluginVersion, "v") != strings.TrimPrefix(tracearyVersion, "v") {
 			pluginStatus = doctorStatusWarn
 			pluginMessage = localizef("native Traceary Grok plugin version %s does not match Traceary %s", "native Traceary Grok plugin version %s は Traceary %s と一致しません", state.PluginVersion, tracearyVersion)
@@ -239,7 +264,11 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 	resolutionStatus := doctorStatusPass
 	resolutionMessage := localizef("native plugin installed path: %s; resolved path class: %s", "native plugin のインストール path: %s、解決された path class: %s", grokDoctorDisplayPath(state.PluginPath), state.ResolvedPathClass)
 	resolutionHint := ""
-	if state.ResolvedPathClass != grokPluginPathClassNative || state.LegacyPluginDetected {
+	if state.LocalRepoConflict {
+		resolutionStatus = doctorStatusWarn
+		resolutionMessage = Localize("Grok has a local-repository identity from the plugin subdirectory; canonical traceary-grok cannot converge until it is explicitly migrated", "Grok は plugin subdirectory 由来のローカルリポジトリ identity を持っています。明示的に移行するまで canonical traceary-grok へ収束できません")
+		resolutionHint = "scripts/install-grok-plugin.sh --migrate-local-repo-identity"
+	} else if state.ResolvedPathClass != grokPluginPathClassNative || state.LegacyPluginDetected {
 		resolutionStatus = doctorStatusWarn
 		resolutionMessage = localizef("native plugin installed path: %s; resolved path class: %s; same-name legacy traceary may be shadowed by another host", "native plugin のインストール path: %s、解決された path class: %s。同名の legacy traceary が別 host により shadow されている可能性があります", grokDoctorDisplayPath(state.PluginPath), state.ResolvedPathClass)
 		resolutionHint = "scripts/install-grok-plugin.sh"

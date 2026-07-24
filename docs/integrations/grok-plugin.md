@@ -109,7 +109,8 @@ cd traceary
 ./scripts/install-grok-plugin.sh
 ```
 
-The installer runs `grok plugin install --trust`. Review the checked-out
+The installer runs `grok plugin install --trust` with the repository
+`#integrations/grok-plugin` selector. Review the checked-out
 package before running it because trusted command hooks execute locally. The
 current package invokes only the documented Traceary hook entrypoints and does
 not read or transmit Grok credentials or browser state.
@@ -173,6 +174,28 @@ it never removes a legacy `traceary` package because Grok can resolve that
 same-name package from another host. A converged native installation reports
 seven hook boundaries, one MCP server, and three skills.
 
+#### Local-repository identity migration
+
+Older local installs that omitted the `#integrations/grok-plugin` selector can
+be shown by Grok as a repository identity such as `traceary`, rather than the
+package name `traceary-grok`. `traceary doctor --client grok --json` reports
+this as a body-free `grok-plugin-resolution` warning. It reads only inventory
+names, repository keys, source paths, hook paths, and component counts; it
+does not read plugin payloads, prompts, transcripts, or credentials.
+
+The normal installer stops without removing anything. After reviewing
+`grok plugin list --json`, run this bounded migration from the same checkout:
+
+```sh
+./scripts/install-grok-plugin.sh --migrate-local-repo-identity
+```
+
+It removes only an identity whose source is exactly that checkout's
+`integrations/grok-plugin` directory, then installs the canonical package from
+the repository subdirectory selector. It never selects or removes a `traceary`
+package from another source. Re-run doctor and confirm that `grok-plugin`,
+`grok-plugin-resolution`, `grok-hooks`, `grok-mcp`, and `grok-skills` pass.
+
 To remove only the native Grok package:
 
 ```sh
@@ -188,7 +211,7 @@ removed separately if they were installed.
 | --- | --- |
 | `grok-cli` fails | Install Grok Build and ensure `grok` is on `PATH` |
 | `grok-plugin` warns | Install/reinstall the package; a version mismatch requires the package from the same Traceary release |
-| `grok-plugin-resolution` warns | Grok resolved a non-native path class or a same-name legacy package. Run `scripts/install-grok-plugin.sh`, then confirm `traceary-grok` is the enabled route; doctor reads only package paths, names, and inventory counts. |
+| `grok-plugin-resolution` warns | Grok resolved a non-native path class, a same-name legacy package, or a local-repository identity. For a local-repository identity, review `grok plugin list --json` and run `scripts/install-grok-plugin.sh --migrate-local-repo-identity` from that checkout; otherwise run the normal installer and confirm `traceary-grok` is the enabled route. Doctor reads only inventory metadata. |
 | `grok-hook-trust` warns | Review the project hook file and use `/hooks-trust`, or remove the unused project route |
 | `grok-hooks` warns | The installed hook file is missing or has drifted from the exact seven-event contract; reinstall the plugin |
 | `grok-mcp` / `grok-skills` warns | The installed package inventory is incomplete; reinstall it |

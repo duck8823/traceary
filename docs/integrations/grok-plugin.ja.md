@@ -106,7 +106,8 @@ cd traceary
 ./scripts/install-grok-plugin.sh
 ```
 
-installer は `grok plugin install --trust` を実行します。信頼した command hook は
+installer は repository の `#integrations/grok-plugin` selector を付けて
+`grok plugin install --trust` を実行します。信頼した command hook は
 ローカルで実行されるため、実行前にパッケージを確認してください。現行パッケージは
 文書化された Traceary hook entrypoint のみを呼び出し、Grok の認証情報やブラウザ状態を
 読み取ったり送信したりしません。
@@ -171,13 +172,35 @@ grok plugin uninstall traceary-grok
 hook-only で導入した project/global ファイルは plugin と独立しているため、使用した
 場合は別途削除してください。
 
+#### local-repository identity の移行
+
+過去に `#integrations/grok-plugin` selector を付けずに local install した場合、Grok は
+package 名 `traceary-grok` ではなく `traceary` などの repository identity として表示する
+ことがあります。`traceary doctor --client grok --json` はこれを本文を含まない
+`grok-plugin-resolution` の警告として報告します。読むのは inventory の名前、repository
+key、source path、hook path、component 数だけで、plugin payload、prompt、transcript、
+credential は読みません。
+
+通常の installer は何も削除せずに停止します。`grok plugin list --json` を確認したうえで、
+旧 install に使った同じ checkout から次の限定移行を実行してください。
+
+```sh
+./scripts/install-grok-plugin.sh --migrate-local-repo-identity
+```
+
+この操作が削除するのは、その checkout の `integrations/grok-plugin` directory を source と
+する identity だけです。その後 repository subdirectory selector から canonical package を
+導入します。別 source の `traceary` package は選択も削除もされません。doctor を再実行し、
+`grok-plugin`、`grok-plugin-resolution`、`grok-hooks`、`grok-mcp`、`grok-skills` がすべて
+pass であることを確認してください。
+
 ## トラブルシュート
 
 | Doctor check | 意味と対応 |
 | --- | --- |
 | `grok-cli` が失敗 | Grok Build を導入し、`grok` を `PATH` に追加する |
 | `grok-plugin` が警告 | パッケージを導入し直す。バージョン不一致の場合は同じ Traceary リリースのパッケージを使う |
-| `grok-plugin-resolution` が警告 | Grok が native 以外の path class、または同名の legacy package を解決しています。`scripts/install-grok-plugin.sh` を実行し、`traceary-grok` が有効 route になったことを確認してください。doctor は package path、名前、inventory 件数だけを読みます。 |
+| `grok-plugin-resolution` が警告 | Grok が native 以外の path class、同名の legacy package、または local-repository identity を解決しています。local-repository identity の場合は `grok plugin list --json` を確認し、その checkout で `scripts/install-grok-plugin.sh --migrate-local-repo-identity` を実行してください。それ以外は通常の installer を実行し、`traceary-grok` が有効 route になったことを確認してください。doctor が読むのは inventory metadata だけです。 |
 | `grok-hook-trust` が警告 | project hook を確認して `/hooks-trust` を実行するか、未使用の project route を削除する |
 | `grok-hooks` が警告 | 導入済み hook file が不足しているか、7 event の厳密な契約からずれている。plugin を再導入する |
 | `grok-mcp` / `grok-skills` が警告 | 導入済みパッケージの内容が不足している。plugin を再導入する |
