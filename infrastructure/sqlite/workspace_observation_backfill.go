@@ -4,14 +4,25 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"golang.org/x/xerrors"
+	sqlitelib "modernc.org/sqlite"
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 const workspaceObservationCatchUpBatchSize = 1000
+const workspaceObservationCatchUpMaxAttempts = 3
+const workspaceObservationCatchUpRetryDelay = 25 * time.Millisecond
+
+type workspaceObservationCatchUpResult struct {
+	Selected    int
+	Inserted    int
+	Retries     int
+	MorePending bool
+}
 
 const workspaceObservationCatchUpBatchQuery = `
 	SELECT e.id, e.session_id, e.workspace, e.created_at, e.agent,
@@ -29,27 +40,41 @@ const workspaceObservationCatchUpBatchQuery = `
 	 ORDER BY ts_norm(e.created_at), e.id
 	 LIMIT ?`
 
-func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int) error {
+func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
 	if batchSize <= 0 {
-		return xerrors.Errorf("workspace observation catch-up batch size must be positive")
+		return workspaceObservationCatchUpResult{}, xerrors.Errorf("workspace observation catch-up batch size must be positive")
 	}
 	exists, err := sqliteTableExists(ctx, db, "session_workspace_observations")
 	if err != nil {
-		return err
+		return workspaceObservationCatchUpResult{}, err
 	}
 	if !exists {
-		return nil
+		return workspaceObservationCatchUpResult{}, nil
 	}
 
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return xerrors.Errorf("failed to begin workspace observation catch-up: %w", err)
+	for attempt := 1; attempt <= workspaceObservationCatchUpMaxAttempts; attempt++ {
+		result, err := catchUpWorkspaceObservationsOnce(ctx, db, batchSize)
+		result.Retries = attempt - 1
+		if err == nil || !isSQLiteBusy(err) || attempt == workspaceObservationCatchUpMaxAttempts {
+			return result, err
+		}
+		timer := time.NewTimer(workspaceObservationCatchUpRetryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return result, xerrors.Errorf("workspace observation catch-up retry cancelled: %w", ctx.Err())
+		case <-timer.C:
+		}
 	}
-	defer func() { _ = tx.Rollback() }()
+	return workspaceObservationCatchUpResult{}, nil
+}
 
-	rows, err := tx.QueryContext(ctx, workspaceObservationCatchUpBatchQuery, batchSize)
+func catchUpWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
+	rows, err := db.QueryContext(ctx, workspaceObservationCatchUpBatchQuery, batchSize+1)
 	if err != nil {
-		return xerrors.Errorf("failed to query workspace observation catch-up batch: %w", err)
+		return workspaceObservationCatchUpResult{}, xerrors.Errorf("failed to query workspace observation catch-up batch: %w", err)
 	}
 
 	type catchUpRow struct {
@@ -60,17 +85,35 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 		var row catchUpRow
 		if err := rows.Scan(&row.eventID, &row.sessionID, &row.workspace, &row.createdAt, &row.agent, &row.sourceHook, &row.canonical); err != nil {
 			_ = rows.Close()
-			return xerrors.Errorf("failed to scan workspace observation catch-up row: %w", err)
+			return workspaceObservationCatchUpResult{}, xerrors.Errorf("failed to scan workspace observation catch-up row: %w", err)
 		}
 		batch = append(batch, row)
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return xerrors.Errorf("failed to iterate workspace observation catch-up rows: %w", err)
+		return workspaceObservationCatchUpResult{}, xerrors.Errorf("failed to iterate workspace observation catch-up rows: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return xerrors.Errorf("failed to close workspace observation catch-up rows: %w", err)
+		return workspaceObservationCatchUpResult{}, xerrors.Errorf("failed to close workspace observation catch-up rows: %w", err)
 	}
+	result := workspaceObservationCatchUpResult{Selected: len(batch)}
+	if len(batch) > batchSize {
+		result.MorePending = true
+		batch = batch[:batchSize]
+		result.Selected = batchSize
+	}
+	if len(batch) == 0 {
+		return result, nil
+	}
+
+	// Do not upgrade the candidate-selection snapshot into a writer. A
+	// concurrent hook commit between SELECT and INSERT would otherwise turn
+	// the upgrade into SQLITE_BUSY_SNAPSHOT even with busy_timeout enabled.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return result, xerrors.Errorf("failed to begin workspace observation catch-up: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 
 	for _, row := range batch {
 		relationship := model.ClassifyWorkspaceRelationship(types.Workspace(row.canonical), types.Workspace(row.workspace))
@@ -95,14 +138,26 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 			if isSQLiteUniqueOrPKConflict(err) {
 				continue
 			}
-			return xerrors.Errorf("failed to insert backfill workspace observation for event %s: %w", row.eventID, err)
+			return result, xerrors.Errorf("failed to insert backfill workspace observation for event %s: %w", row.eventID, err)
 		}
+		result.Inserted++
 	}
 
 	if err := tx.Commit(); err != nil {
-		return xerrors.Errorf("failed to commit workspace observation catch-up: %w", err)
+		return result, xerrors.Errorf("failed to commit workspace observation catch-up: %w", err)
 	}
-	return nil
+	return result, nil
+}
+
+func isSQLiteBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	var sqliteErr *sqlitelib.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	return sqliteErr.Code()&0xff == 5
 }
 
 func sqliteTableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
