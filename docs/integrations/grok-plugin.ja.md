@@ -81,6 +81,12 @@ Traceary が載っている場合、本リポジトリを clone せず Grok Buil
 traceary doctor --client grok --project-dir . --json
 ```
 
+ネイティブパッケージ名は `traceary-grok` です。Claude 側の `traceary` と意図的に
+異なる名前にして、同名 package の解決衝突を避けます。installer は
+`traceary-grok` だけを置き換えます。legacy の `traceary` は別 host の package の
+可能性があるため削除しません。収束した native 導入では 7 hook boundary、1 MCP
+server、3 skill が報告されます。
+
 カタログ投稿用メタデータ:
 
 - テンプレート: [`integrations/grok-plugin/marketplace-entry.json`](../../integrations/grok-plugin/marketplace-entry.json)
@@ -156,7 +162,7 @@ traceary doctor --client grok --project-dir . --json
 Grok のネイティブパッケージだけを削除する場合は次を実行します。
 
 ```sh
-grok plugin uninstall traceary
+grok plugin uninstall traceary-grok
 ```
 
 hook-only で導入した project/global ファイルは plugin と独立しているため、使用した
@@ -168,6 +174,7 @@ hook-only で導入した project/global ファイルは plugin と独立して�
 | --- | --- |
 | `grok-cli` が失敗 | Grok Build を導入し、`grok` を `PATH` に追加する |
 | `grok-plugin` が警告 | パッケージを導入し直す。バージョン不一致の場合は同じ Traceary リリースのパッケージを使う |
+| `grok-plugin-resolution` が警告 | Grok が native 以外の path class、または同名の legacy package を解決しています。`scripts/install-grok-plugin.sh` を実行し、`traceary-grok` が有効 route になったことを確認してください。doctor は package path、名前、inventory 件数だけを読みます。 |
 | `grok-hook-trust` が警告 | project hook を確認して `/hooks-trust` を実行するか、未使用の project route を削除する |
 | `grok-hooks` が警告 | 導入済み hook file が不足しているか、7 event の厳密な契約からずれている。plugin を再導入する |
 | `grok-mcp` / `grok-skills` が警告 | 導入済みパッケージの内容が不足している。plugin を再導入する |
@@ -177,7 +184,7 @@ hook-only で導入した project/global ファイルは plugin と独立して�
 
 ```sh
 grok plugin list --json
-grok plugin details traceary
+grok plugin details traceary-grok
 grok --cwd . inspect --json
 traceary list --agent grok --limit 20
 traceary doctor --client grok --project-dir . --json

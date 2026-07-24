@@ -40,7 +40,12 @@ python3 scripts/validate-catalog.py
 | `source.url` | `https://github.com/duck8823/traceary.git` |
 | `source.sha` | タグ付け release の 40 文字 commit SHA |
 | `source.path` | `integrations/grok-plugin` |
-| `name` | `traceary` |
+| `name` | `traceary-grok` |
+
+`name` は `integrations/grok-plugin/plugin.json` と完全に一致させます。
+Claude marketplace の `traceary` とは意図的に異なる名前です。Grok 0.2.111 は
+native package を `~/.grok/installed-plugins/` 配下へ導入するため、固有 identity
+により同名 package を誤って解決することを防ぎます。
 
 秘密は commit しない。パッケージは Traceary hook と local MCP stdio のみ。
 

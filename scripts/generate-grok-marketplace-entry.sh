@@ -19,7 +19,7 @@ import sys
 sha = os.environ["TRACEARY_MARKETPLACE_SHA"]
 version = os.environ["TRACEARY_MARKETPLACE_VERSION"]
 entry = {
-  "name": "traceary",
+  "name": "traceary-grok",
   "description": (
     "Local-first Traceary integration for Grok Build: native session/audit/"
     "transcript/compact hooks, local MCP tools, and shared memory/session skills. "
