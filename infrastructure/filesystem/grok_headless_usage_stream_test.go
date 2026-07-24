@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
@@ -15,6 +16,7 @@ func TestGrokHeadlessUsageStream_UsesVersionedTerminalFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	before := time.Now().UTC()
 	output := &bytes.Buffer{}
 	stream := filesystem.NewGrokHeadlessUsageStreamFactory().New(output)
 	for _, chunk := range [][]byte{fixture[:13], fixture[13:87], fixture[87:]} {
@@ -23,6 +25,7 @@ func TestGrokHeadlessUsageStream_UsesVersionedTerminalFixture(t *testing.T) {
 		}
 	}
 	result, err := stream.Complete()
+	after := time.Now().UTC()
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
@@ -33,6 +36,10 @@ func TestGrokHeadlessUsageStream_UsesVersionedTerminalFixture(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 	sample := result.Samples[0]
+	if sample.ObservedAt.Before(before) || sample.ObservedAt.After(after) ||
+		sample.ObservedAt.Location() != time.UTC {
+		t.Fatalf("sample observed_at = %s, want UTC ingestion time in [%s, %s]", sample.ObservedAt, before, after)
+	}
 	if !sample.Available ||
 		sample.RecordID != "headless_stream:ae531a76b3e09738546f60434a97e5090e00833f09aeb76ff382b98bc7d5911a" ||
 		sample.Model != "grok-4.5-build" || sample.TerminalCode != types.UsageTerminalSuccess {

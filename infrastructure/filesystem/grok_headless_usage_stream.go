@@ -19,13 +19,14 @@ import (
 const defaultGrokUsageMaxLineBytes = 8 * 1024 * 1024
 
 type grokHeadlessUsageStreamFactory struct {
+	now          func() time.Time
 	maxLineBytes int
 }
 
 // NewGrokHeadlessUsageStreamFactory creates body-free adapters for
 // Traceary-owned Grok `streaming-json` invocations.
 func NewGrokHeadlessUsageStreamFactory() application.GrokHeadlessUsageStreamFactory {
-	return &grokHeadlessUsageStreamFactory{maxLineBytes: defaultGrokUsageMaxLineBytes}
+	return &grokHeadlessUsageStreamFactory{now: time.Now, maxLineBytes: defaultGrokUsageMaxLineBytes}
 }
 
 func (f *grokHeadlessUsageStreamFactory) New(destination io.Writer) application.GrokHeadlessUsageStream {
@@ -34,12 +35,14 @@ func (f *grokHeadlessUsageStreamFactory) New(destination io.Writer) application.
 	}
 	return &grokHeadlessUsageStream{
 		destination: destination,
+		now:         f.now,
 		maxLine:     f.maxLineBytes,
 	}
 }
 
 type grokHeadlessUsageStream struct {
 	destination       io.Writer
+	now               func() time.Time
 	maxLine           int
 	buffer            []byte
 	result            application.GrokUsageLoadResult
@@ -189,7 +192,7 @@ func (s *grokHeadlessUsageStream) parseEnd(end grokStreamEnd) error {
 			SourceName:    "headless_stream",
 			SourceVersion: "0.2.106",
 			Model:         model,
-			ObservedAt:    time.Unix(0, 0).UTC(),
+			ObservedAt:    s.now().UTC(),
 			TerminalCode:  terminal,
 			Available:     true,
 			Counters: application.GrokUsageCounters{
