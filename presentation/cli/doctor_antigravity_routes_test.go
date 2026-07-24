@@ -187,6 +187,15 @@ func TestAntigravityHookRouteSummary(t *testing.T) {
 			wantStatus:   doctorStatusFail,
 			wantContains: []string{antigravityRouteWorkspaceLabel, "invalid", "per-route checks"},
 		},
+		{
+			name: "multiple healthy routes warn about duplicate hook registration",
+			routes: []antigravityHookRoute{
+				healthyRoute(antigravityRouteUserLabel),
+				healthyRoute(antigravityRoutePluginLabel),
+			},
+			wantStatus:   doctorStatusWarn,
+			wantContains: []string{"multiple", antigravityRouteUserLabel, antigravityRoutePluginLabel, "exactly one"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

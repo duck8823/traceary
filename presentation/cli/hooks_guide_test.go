@@ -81,6 +81,12 @@ func TestRootCLI_HooksGuideCommand_Antigravity(t *testing.T) {
 	if !strings.Contains(output, "PreInvocation") {
 		t.Fatalf("stdout = %q, want the Antigravity PreInvocation note", output)
 	}
+	if !strings.Contains(output, "permissions.example.json") {
+		t.Fatalf("stdout = %q, want the scoped headless permission note", output)
+	}
+	if !strings.Contains(output, "exactly one route") {
+		t.Fatalf("stdout = %q, want duplicate route prevention", output)
+	}
 }
 
 func TestRootCLI_HooksGuideCommand_MissingClientReturnsError(t *testing.T) {

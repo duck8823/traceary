@@ -186,6 +186,50 @@ func TestInspectAntigravityCLIPluginSkipsWhenHomeUnresolved(t *testing.T) {
 	}
 }
 
+func TestObserveAntigravityCLIPluginUsesCurrentSharedConfigPath(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	home := t.TempDir()
+	dir := antigravityConfigPluginDir(home)
+	writeFile(t, filepath.Join(dir, "plugin.json"), healthyAntigravityPluginJSON)
+	writeFile(t, filepath.Join(dir, "hooks.json"), healthyAntigravityHooksJSON)
+
+	orig := userHomeDirFunc
+	t.Cleanup(func() { userHomeDirFunc = orig })
+	userHomeDirFunc = func() (string, error) { return home, nil }
+
+	observation := observeAntigravityCLIPlugin()
+	if observation.Shape != antigravityCLIPluginHealthy {
+		t.Fatalf("Shape = %v, want healthy", observation.Shape)
+	}
+	if observation.Dir != dir {
+		t.Fatalf("Dir = %q, want current shared config path %q", observation.Dir, dir)
+	}
+	if observation.Check.Status != doctorStatusPass {
+		t.Fatalf("Status = %q, want pass", observation.Check.Status)
+	}
+}
+
+func TestObserveAntigravityCLIPluginDoesNotHideStaleTwin(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	home := t.TempDir()
+	currentDir := antigravityConfigPluginDir(home)
+	legacyDir := antigravityCLIPluginDir(home)
+	writeFile(t, filepath.Join(currentDir, "hooks.json"), healthyAntigravityHooksJSON)
+	writeFile(t, filepath.Join(legacyDir, "hooks", "hooks.json"), staleGeminiHooksJSON)
+
+	orig := userHomeDirFunc
+	t.Cleanup(func() { userHomeDirFunc = orig })
+	userHomeDirFunc = func() (string, error) { return home, nil }
+
+	observation := observeAntigravityCLIPlugin()
+	if observation.Shape != antigravityCLIPluginStaleGemini {
+		t.Fatalf("Shape = %v, want stale Gemini twin to remain visible", observation.Shape)
+	}
+	if observation.Dir != legacyDir {
+		t.Fatalf("Dir = %q, want stale path %q", observation.Dir, legacyDir)
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

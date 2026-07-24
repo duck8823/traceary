@@ -177,7 +177,15 @@ func (c *RootCLI) inspectAntigravityHookRoutes(projectDir string) []doctorCheck 
 		routes = append(routes, inspectAntigravityHookFileRoute(antigravityRouteUserLabel, antigravityRouteUserCheck, userPath))
 	}
 	routes = append(routes, antigravityCLIPluginRoute())
-	return antigravityHookRouteChecks(routes)
+	checks := antigravityHookRouteChecks(routes)
+	checks = append(
+		checks,
+		buildAntigravityHeadlessCoverageCheck(
+			routes,
+			inspectAntigravityHeadlessPermissions(),
+		),
+	)
+	return checks
 }
 
 // antigravityHookRouteChecks emits each route's per-route check followed by the
@@ -241,6 +249,21 @@ func antigravityHookRouteSummary(routes []antigravityHookRoute) doctorCheck {
 	}
 
 	if len(healthy) > 0 {
+		if len(healthy) > 1 {
+			return doctorCheck{
+				Name:   antigravityRouteSummaryCheck,
+				Status: doctorStatusWarn,
+				Hint: Localize(
+					"Retain exactly one Antigravity hook route. Prefer the CLI plugin when you also use Traceary MCP tools and skills; otherwise retain either the workspace or user-level direct hook route.",
+					"Antigravity hook 経路は 1 つだけ残してください。Traceary MCP tool と skill も使う場合は CLI plugin を優先し、それ以外は workspace または user-level の直接 hook 経路のいずれかを残してください。",
+				),
+				Message: localizef(
+					"multiple Antigravity hook routes are active and can register duplicate lifecycle handlers: %s. Retain exactly one route.",
+					"複数の Antigravity hook 経路が有効で lifecycle handler が重複登録される可能性があります: %s。経路を 1 つだけ残してください。",
+					strings.Join(healthy, ", "),
+				),
+			}
+		}
 		return doctorCheck{
 			Name:   antigravityRouteSummaryCheck,
 			Status: doctorStatusPass,
