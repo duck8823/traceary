@@ -203,7 +203,11 @@ malformed wire, worker cancellation, or a final message that remains absent is
 recorded as a body-free **partial** final-turn disposition and has no pending
 retry job. `traceary doctor --client grok --json` reports aggregate disposition
 counts only; it never exposes the transcript path, session ID, prompt ID, or
-assistant body. Start a new marker turn with `TRACEARY_HOOK_DEBUG=1` when the
+assistant body. A `recorded` disposition by itself is a healthy idempotency
+receipt and leaves doctor passing. Pending work, partial dispositions, or
+unreadable queue state warn. Re-delivering the same Stop after any terminal
+disposition (`recorded`, `unavailable`, `malformed`, or `cancelled`) creates no
+new job or worker. Start a new marker turn with `TRACEARY_HOOK_DEBUG=1` when a
 warning remains rather than copying or editing queue files.
 
 Useful read-only checks:

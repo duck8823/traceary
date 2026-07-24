@@ -83,9 +83,6 @@ func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
 	if terminalErr != nil {
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect Grok transcript terminal dispositions: %v", "Grok transcript の終端 disposition 検査に失敗しました: %v", terminalErr)}
 	}
-	if len(jobs) == 0 && len(unreadable) == 0 && len(terminals) == 0 && terminalUnreadable == 0 {
-		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending Grok transcript jobs found", "未処理の Grok transcript job はありません")}
-	}
 	failed := 0
 	oldestAge := time.Duration(0)
 	if len(jobs) > 0 {
@@ -104,6 +101,19 @@ func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
 		terminalCounts[terminal.Disposition]++
 	}
 	partial := terminalCounts["unavailable"] + terminalCounts["malformed"] + terminalCounts["cancelled"]
+	// A recorded marker is a successful idempotency receipt, not an operator
+	// warning. Only outstanding work, partial coverage, or unreadable state
+	// requires attention from doctor.
+	if len(jobs) == 0 && len(unreadable) == 0 && partial == 0 && terminalUnreadable == 0 {
+		if terminalCounts["recorded"] == 0 {
+			return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending Grok transcript jobs found", "未処理の Grok transcript job はありません")}
+		}
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusPass,
+			Message: localizef("no pending Grok transcript jobs found; %d final-turn transcript(s) already recorded", "未処理の Grok transcript job はありません。final-turn transcript は %d 件記録済みです", terminalCounts["recorded"]),
+		}
+	}
 	return doctorCheck{
 		Name:   name,
 		Status: doctorStatusWarn,
@@ -133,9 +143,12 @@ func (c *RootCLI) newHookGrokTranscriptWorkerCommand() *cobra.Command {
 }
 
 func (c *RootCLI) scheduleHookGrokTranscript(payload []byte, dbPath string) error {
-	jobPath, err := enqueueHookGrokTranscript(payload, dbPath, time.Now().UTC())
+	jobPath, shouldLaunch, err := enqueueHookGrokTranscript(payload, dbPath, time.Now().UTC())
 	if err != nil {
 		return err
+	}
+	if !shouldLaunch {
+		return nil
 	}
 	launcher := c.hookGrokTranscriptLauncher
 	if launcher == nil {
@@ -163,18 +176,22 @@ func hookGrokTranscriptTerminalDir() (string, error) {
 	return filepath.Join(stateDir, "grok-transcript-terminal"), nil
 }
 
-func enqueueHookGrokTranscript(payload []byte, dbPath string, requestedAt time.Time) (string, error) {
+// enqueueHookGrokTranscript creates work only when this delivery has neither a
+// durable job nor a terminal receipt. The boolean is false for either
+// idempotent case, so callers do not launch another detached worker for a
+// redelivered Stop.
+func enqueueHookGrokTranscript(payload []byte, dbPath string, requestedAt time.Time) (string, bool, error) {
 	sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
 	transcriptPath := strings.TrimSpace(hookPayloadString(payload, "transcript_path", ""))
 	if sessionID == "" || transcriptPath == "" {
-		return "", xerrors.Errorf("Grok transcript job requires session_id and transcript_path")
+		return "", false, xerrors.Errorf("Grok transcript job requires session_id and transcript_path")
 	}
 	dir, err := hookGrokTranscriptQueueDir()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", xerrors.Errorf("failed to create Grok transcript queue: %w", err)
+		return "", false, xerrors.Errorf("failed to create Grok transcript queue: %w", err)
 	}
 	key := strings.Join([]string{
 		strings.TrimSpace(dbPath),
@@ -184,26 +201,37 @@ func enqueueHookGrokTranscript(payload []byte, dbPath string, requestedAt time.T
 	}, "\x00")
 	digest := sha256.Sum256([]byte(key))
 	jobPath := filepath.Join(dir, hex.EncodeToString(digest[:])+".json")
+	jobLock := flock.New(jobPath + ".lock")
+	if err := jobLock.Lock(); err != nil {
+		return "", false, xerrors.Errorf("failed to lock Grok transcript enqueue: %w", err)
+	}
+	defer func() { _ = jobLock.Unlock() }()
+
+	terminalPath, err := hookGrokTranscriptTerminalPath(jobPath)
+	if err != nil {
+		return "", false, err
+	}
+	if _, readErr := readHookGrokTranscriptTerminal(terminalPath); readErr == nil {
+		return jobPath, false, nil
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return "", false, readErr
+	}
+
 	job := hookGrokTranscriptJob{
 		SchemaVersion: hookGrokTranscriptJobSchemaVersion,
 		Payload:       string(payload),
 		DBPath:        strings.TrimSpace(dbPath),
 		RequestedAt:   requestedAt,
 	}
-	if existing, readErr := readHookGrokTranscriptJob(jobPath); readErr == nil {
-		job.Attempts = existing.Attempts
-		job.LastAttemptAt = existing.LastAttemptAt
-		job.LastError = existing.LastError
-		if existing.RequestedAt.Before(job.RequestedAt) {
-			job.RequestedAt = existing.RequestedAt
-		}
+	if _, readErr := readHookGrokTranscriptJob(jobPath); readErr == nil {
+		return jobPath, false, nil
 	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return "", readErr
+		return "", false, readErr
 	}
 	if err := writeHookGrokTranscriptJob(jobPath, job); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return jobPath, nil
+	return jobPath, true, nil
 }
 
 func (c *RootCLI) runHookGrokTranscriptWorker(ctx context.Context, jobPath string) error {
@@ -372,11 +400,10 @@ func writeHookGrokTranscriptTerminal(jobPath, disposition string, occurredAt tim
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return xerrors.Errorf("failed to create Grok transcript terminal disposition directory: %w", err)
 	}
-	name := filepath.Base(jobPath)
-	if len(name) != 69 || !strings.HasSuffix(name, ".json") {
-		return xerrors.Errorf("Grok transcript terminal disposition job name is invalid")
+	terminalPath, err := hookGrokTranscriptTerminalPath(jobPath)
+	if err != nil {
+		return err
 	}
-	terminalPath := filepath.Join(dir, name)
 	terminal := hookGrokTranscriptTerminal{
 		SchemaVersion: hookGrokTranscriptTerminalSchemaVersion,
 		Disposition:   disposition,
@@ -387,7 +414,7 @@ func writeHookGrokTranscriptTerminal(jobPath, disposition string, occurredAt tim
 		return xerrors.Errorf("failed to encode Grok transcript terminal disposition: %w", err)
 	}
 	encoded = append(encoded, '\n')
-	temporaryFile, err := os.CreateTemp(dir, "."+name+".*.tmp")
+	temporaryFile, err := os.CreateTemp(dir, "."+filepath.Base(terminalPath)+".*.tmp")
 	if err != nil {
 		return xerrors.Errorf("failed to create Grok transcript terminal disposition temporary file: %w", err)
 	}
@@ -408,6 +435,18 @@ func writeHookGrokTranscriptTerminal(jobPath, disposition string, occurredAt tim
 		return xerrors.Errorf("failed to publish Grok transcript terminal disposition: %w", err)
 	}
 	return nil
+}
+
+func hookGrokTranscriptTerminalPath(jobPath string) (string, error) {
+	name := filepath.Base(jobPath)
+	if len(name) != 69 || !strings.HasSuffix(name, ".json") {
+		return "", xerrors.Errorf("Grok transcript terminal disposition job name is invalid")
+	}
+	dir, err := hookGrokTranscriptTerminalDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name), nil
 }
 
 func writeHookGrokTranscriptJob(path string, job hookGrokTranscriptJob) error {

@@ -525,6 +525,72 @@ func TestRootCLI_HookGrokTranscriptWorkerRecordsDelayedFinalTurnExactlyOnce(t *t
 	}
 }
 
+func TestRootCLI_HookGrokStopDoesNotRelaunchTerminalTranscriptDelivery(t *testing.T) {
+	for _, disposition := range []string{"recorded", "unavailable", "malformed", "cancelled"} {
+		t.Run(disposition, func(t *testing.T) {
+			stateDir := t.TempDir()
+			t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+			t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-terminal-redelivery-"+disposition)
+			t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+			transcriptPath := filepath.Join(t.TempDir(), "updates.jsonl")
+			transcript := `{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"prompt"}},"_meta":{"promptId":"prompt-contract-probe-1"}}}` + "\n"
+			if disposition == "malformed" {
+				transcript = "not-json\n"
+			}
+			if err := os.WriteFile(transcriptPath, []byte(transcript), 0o600); err != nil {
+				t.Fatalf("write transcript: %v", err)
+			}
+			payload := grokFixtureWithField(t, "stop.json", "transcriptPath", transcriptPath)
+			jobPath := ""
+			eventStub := &eventUsecaseStub{}
+			runGrokHook(t, "stop", payload, eventStub, &sessionUsecaseStub{}, cli.WithHookGrokTranscriptLauncher(func(path string) error {
+				jobPath = path
+				return nil
+			}))
+			if jobPath == "" {
+				t.Fatal("initial Stop did not enqueue transcript job")
+			}
+			if disposition == "recorded" {
+				file, err := os.OpenFile(transcriptPath, os.O_APPEND|os.O_WRONLY, 0)
+				if err != nil {
+					t.Fatalf("open transcript: %v", err)
+				}
+				if _, err := file.WriteString(`{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"final answer"}},"_meta":{"promptId":"prompt-contract-probe-1"}}}` + "\n"); err != nil {
+					t.Fatalf("append transcript: %v", err)
+				}
+				if err := file.Close(); err != nil {
+					t.Fatalf("close transcript: %v", err)
+				}
+			}
+			worker := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(eventStub)).Command()
+			worker.SetOut(&bytes.Buffer{})
+			worker.SetErr(&bytes.Buffer{})
+			worker.SetArgs([]string{"hook", "grok", "transcript-worker", "--job", jobPath})
+			if disposition == "cancelled" {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				if err := worker.ExecuteContext(ctx); err != nil {
+					t.Fatalf("cancelled worker: %v", err)
+				}
+			} else if err := worker.Execute(); err != nil {
+				t.Fatalf("terminal worker: %v", err)
+			}
+
+			launches := 0
+			runGrokHook(t, "stop", payload, &eventUsecaseStub{}, &sessionUsecaseStub{}, cli.WithHookGrokTranscriptLauncher(func(string) error {
+				launches++
+				return nil
+			}))
+			if launches != 0 {
+				t.Fatalf("terminal %s Stop redelivery launched %d worker(s), want zero", disposition, launches)
+			}
+			if _, err := os.Stat(jobPath); !os.IsNotExist(err) {
+				t.Fatalf("terminal %s Stop redelivery recreated job: %v", disposition, err)
+			}
+		})
+	}
+}
+
 func TestRootCLI_HookGrokFailsOpenForMalformedAndMissingPayloads(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)

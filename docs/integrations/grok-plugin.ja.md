@@ -192,8 +192,11 @@ path 不在、wire の malformed、worker の cancel、または最終 message �
 場合は、本文を含まない **partial** final-turn disposition として記録し、未処理 retry
 job は残しません。`traceary doctor --client grok --json` が報告するのは disposition の
 集計件数だけで、transcript path、session ID、prompt ID、assistant 本文は表示しません。
-warning が残る場合は queue file をコピー・編集せず、`TRACEARY_HOOK_DEBUG=1` を有効にして
-新しい marker turn を実行してください。
+`recorded` だけの disposition は正常な冪等性 receipt なので doctor は pass です。待機中の
+job、partial disposition、または読めない queue 状態だけが warning になります。いずれかの
+terminal disposition（`recorded`、`unavailable`、`malformed`、`cancelled`）の後に同じ Stop
+が再配送されても、新しい job や worker は作成されません。warning が残る場合は queue file を
+コピー・編集せず、`TRACEARY_HOOK_DEBUG=1` を有効にして新しい marker turn を実行してください。
 
 読み取り専用で確認できる command は次のとおりです。
 

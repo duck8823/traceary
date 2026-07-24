@@ -13,9 +13,12 @@ func TestInspectHookGrokTranscriptDiagnosticsReportsPendingFailureMetadata(t *te
 	t.Setenv(hookStateDirEnvKey, stateDir)
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	payload := []byte(`{"session_id":"private-session","prompt_id":"prompt-1","transcript_path":"/private/transcript/updates.jsonl"}`)
-	path, err := enqueueHookGrokTranscript(payload, filepath.Join(t.TempDir(), "traceary.db"), now.Add(-3*time.Minute))
+	path, shouldLaunch, err := enqueueHookGrokTranscript(payload, filepath.Join(t.TempDir(), "traceary.db"), now.Add(-3*time.Minute))
 	if err != nil {
 		t.Fatalf("enqueueHookGrokTranscript() error = %v", err)
+	}
+	if !shouldLaunch {
+		t.Fatal("initial enqueue must request a worker launch")
 	}
 	job, err := readHookGrokTranscriptJob(path)
 	if err != nil {
@@ -82,6 +85,26 @@ func TestInspectHookGrokTranscriptDiagnosticsReportsBodyFreeTerminalPartialState
 	for _, private := range []string{jobPath, stateDir, strings.Repeat("a", 64)} {
 		if strings.Contains(check.Message+check.Hint, private) {
 			t.Fatalf("doctor output exposed terminal input %q: %+v", private, check)
+		}
+	}
+}
+
+func TestInspectHookGrokTranscriptDiagnosticsPassesWithRecordedTerminalOnly(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	jobPath := filepath.Join(stateDir, "grok-transcript", strings.Repeat("b", 64)+".json")
+	if err := writeHookGrokTranscriptTerminal(jobPath, "recorded", now); err != nil {
+		t.Fatalf("writeHookGrokTranscriptTerminal() error = %v", err)
+	}
+
+	check := inspectHookGrokTranscriptDiagnostics(now)
+	if check.Status != doctorStatusPass {
+		t.Fatalf("check = %+v, want pass for recorded-only terminal", check)
+	}
+	for _, want := range []string{"no pending", "1 final-turn transcript"} {
+		if !strings.Contains(check.Message, want) {
+			t.Fatalf("check message = %q, want %q", check.Message, want)
 		}
 	}
 }
