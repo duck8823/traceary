@@ -46,18 +46,19 @@ var codexCaptureBoundaryOrder = []string{
 }
 
 type codexCaptureEvidence struct {
-	StoredEvents        int
-	UsageObservations   int
-	UsageKnown          int
-	UsageUnavailable    int
-	StopSessions        int
-	StopsWithUsage      int
-	UncoveredFinalTurns int
-	PendingDeliveries   int
-	UnscopedDeliveries  int
-	SpoolPartial        bool
-	StoredBoundaries    map[string]bool
-	PendingBoundaries   map[string]bool
+	StoredEvents              int
+	UsageObservations         int
+	HeadlessUsageObservations int
+	UsageKnown                int
+	UsageUnavailable          int
+	StopSessions              int
+	StopsWithUsage            int
+	UncoveredFinalTurns       int
+	PendingDeliveries         int
+	UnscopedDeliveries        int
+	SpoolPartial              bool
+	StoredBoundaries          map[string]bool
+	PendingBoundaries         map[string]bool
 }
 
 type codexCaptureClassification struct {
@@ -123,15 +124,16 @@ func (c *RootCLI) inspectCodexCapture(
 	}
 
 	evidence := codexCaptureEvidence{
-		StoredEvents:        stored.StoredEvents,
-		UsageObservations:   stored.UsageObservations,
-		UsageKnown:          stored.UsageKnown,
-		UsageUnavailable:    stored.UsageUnavailable,
-		StopSessions:        stored.StopSessions,
-		StopsWithUsage:      stored.StopSessionsWithUsage,
-		UncoveredFinalTurns: stored.UncoveredFinalTurns,
-		StoredBoundaries:    make(map[string]bool),
-		PendingBoundaries:   make(map[string]bool),
+		StoredEvents:              stored.StoredEvents,
+		UsageObservations:         stored.UsageObservations,
+		HeadlessUsageObservations: stored.HeadlessUsageObservations,
+		UsageKnown:                stored.UsageKnown,
+		UsageUnavailable:          stored.UsageUnavailable,
+		StopSessions:              stored.StopSessions,
+		StopsWithUsage:            stored.StopSessionsWithUsage,
+		UncoveredFinalTurns:       stored.UncoveredFinalTurns,
+		StoredBoundaries:          make(map[string]bool),
+		PendingBoundaries:         make(map[string]bool),
 	}
 	evidence.StoredBoundaries[codexBoundarySessionStart] = stored.SessionStartObserved
 	evidence.StoredBoundaries[codexBoundaryPrompt] = stored.PromptObserved
@@ -157,7 +159,7 @@ func (c *RootCLI) inspectCodexCapture(
 		Name:   codexCaptureCheckName,
 		Status: classification.Status,
 		Message: fmt.Sprintf(
-			"%s reason=%s boundaries=%s usage=%s stored_events=%d prompt_turns=%d uncovered_final_turns=%d usage_observations=%d pending_deliveries=%d unscoped_pending=%d",
+			"%s reason=%s boundaries=%s usage=%s stored_events=%d prompt_turns=%d uncovered_final_turns=%d usage_observations=%d headless_usage_observations=%d pending_deliveries=%d unscoped_pending=%d",
 			formatCodexCaptureIdentity(identity),
 			classification.Reason,
 			formatCodexBoundaryStates(classification.Boundaries),
@@ -166,6 +168,7 @@ func (c *RootCLI) inspectCodexCapture(
 			stored.PromptTurns,
 			evidence.UncoveredFinalTurns,
 			evidence.UsageObservations,
+			evidence.HeadlessUsageObservations,
 			evidence.PendingDeliveries,
 			evidence.UnscopedDeliveries,
 		),

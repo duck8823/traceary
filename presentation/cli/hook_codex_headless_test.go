@@ -97,6 +97,9 @@ func TestRootCLI_HookTranscriptCommand_PersistsCodexHeadlessMarkersFromStop(t *t
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			// Durable hook replay is process-global by default. Isolate HOME so a
+			// real pending delivery cannot be replayed through this event stub.
+			t.Setenv("HOME", t.TempDir())
 			t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
 			payload, err := os.ReadFile(filepath.Join("testdata/codex_hooks/v0.145.0", tt.fixture))
 			if err != nil {
