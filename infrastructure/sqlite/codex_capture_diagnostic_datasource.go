@@ -53,7 +53,7 @@ func (d *CodexCaptureDiagnosticDatasource) LoadCodexCaptureDiagnostic(
 	if err := db.QueryRowContext(
 		ctx,
 		loadCodexCaptureDiagnosticQuery,
-		criteria.Workspace().String(), from, to, from, to, from, to,
+		criteria.Workspace().String(), from, to, criteria.Workspace().String(), from, to, from, to,
 	).Scan(
 		&evidence.StoredEvents,
 		&sessionStart,

@@ -143,6 +143,23 @@ func TestClassifyCodexCapture(t *testing.T) {
 			},
 		},
 		{
+			name: "eventless finalized headless usage remains final turn partial",
+			evidence: codexCaptureEvidence{
+				HeadlessUsageObservations: 1,
+				UsageObservations:         1,
+				UsageUnavailable:          1,
+				StoredBoundaries:          map[string]bool{codexBoundaryUsage: true},
+				PendingBoundaries:         map[string]bool{},
+			},
+			wantStatus: doctorStatusWarn,
+			wantReason: codexCaptureReasonFinalTurn,
+			wantUsage:  "unavailable_recorded",
+			wantBoundary: map[string]string{
+				codexBoundaryStop:  codexBoundaryNotObserved,
+				codexBoundaryUsage: codexBoundaryStored,
+			},
+		},
+		{
 			name: "a covered turn cannot hide another prompt without a final boundary",
 			evidence: codexCaptureEvidence{
 				StoredEvents:        4,

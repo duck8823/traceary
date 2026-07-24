@@ -43,11 +43,22 @@ func TestCodexCaptureDiagnosticDatasource_CorrelatesCompleteStopUsageWithoutBodi
 			t.Fatalf("insert event %s: %v", id, execErr)
 		}
 	}
+	insertSession := func(sessionID string) {
+		t.Helper()
+		if _, execErr := raw.Exec(
+			`INSERT INTO sessions (session_id, started_at, ended_at, client, agent, workspace, runtime_mode, terminal_reason)
+			 VALUES (?, ?, ?, 'codex', 'codex', 'github.com/duck8823/traceary', 'one_shot', 'success')`,
+			sessionID, from.Add(-time.Hour).Format(time.RFC3339Nano), from.Format(time.RFC3339Nano),
+		); execErr != nil {
+			t.Fatalf("insert session %s: %v", sessionID, execErr)
+		}
+	}
 	for index := 0; index < 501; index++ {
 		insertEvent(fmt.Sprintf("prompt-%03d", index), "prompt", "active-session", "user_prompt_submit", from.Add(time.Duration(index)*time.Second))
 	}
 	insertEvent("stop-covered", "transcript", "covered-session", "stop", from.Add(time.Hour))
 	insertEvent("stop-missing", "transcript", "missing-session", "stop", from.Add(2*time.Hour))
+	insertSession("missing-session")
 
 	insertUsage := func(id, sessionID, sourceName, observedAt, totalState string, total any) {
 		t.Helper()
@@ -107,7 +118,11 @@ func TestCodexCaptureDiagnosticDatasource_CorrelatesHookPromptsBySessionAndStabl
 	if err != nil {
 		t.Fatalf("open fixture DB: %v", err)
 	}
-	defer raw.Close()
+	defer func() {
+		if closeErr := raw.Close(); closeErr != nil {
+			t.Errorf("close fixture DB: %v", closeErr)
+		}
+	}()
 
 	from := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
 	to := from.Add(time.Hour)
@@ -153,7 +168,7 @@ func TestCodexCaptureDiagnosticDatasource_CorrelatesHookPromptsBySessionAndStabl
 	}
 }
 
-func TestCodexCaptureDiagnosticDatasource_ScopesFinalizedHeadlessUsageToWorkspaceWindow(t *testing.T) {
+func TestCodexCaptureDiagnosticDatasource_ScopesFinalizedHeadlessUsageToCanonicalSessionWorkspaceAndObservationWindow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
@@ -165,18 +180,22 @@ func TestCodexCaptureDiagnosticDatasource_ScopesFinalizedHeadlessUsageToWorkspac
 	if err != nil {
 		t.Fatalf("open fixture DB: %v", err)
 	}
-	defer raw.Close()
+	defer func() {
+		if closeErr := raw.Close(); closeErr != nil {
+			t.Errorf("close fixture DB: %v", closeErr)
+		}
+	}()
 
 	from := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
 	to := from.Add(time.Hour)
-	insertEvent := func(id, sessionID, workspace string) {
+	insertSession := func(sessionID, workspace string) {
 		t.Helper()
 		if _, err := raw.Exec(
-			`INSERT INTO events (id, kind, agent, session_id, body, created_at, client, workspace, source_hook)
-			 VALUES (?, 'prompt', 'codex', ?, 'private body', ?, 'hook', ?, 'user_prompt_submit')`,
-			id, sessionID, from.Add(time.Second).Format(time.RFC3339Nano), workspace,
+			`INSERT INTO sessions (session_id, started_at, ended_at, client, agent, workspace, runtime_mode, terminal_reason)
+			 VALUES (?, ?, ?, 'codex', 'codex', ?, 'one_shot', 'success')`,
+			sessionID, from.Add(-time.Hour).Format(time.RFC3339Nano), from.Format(time.RFC3339Nano), workspace,
 		); err != nil {
-			t.Fatalf("insert event: %v", err)
+			t.Fatalf("insert session: %v", err)
 		}
 	}
 	insertUsage := func(id, sessionID string, observedAt time.Time) {
@@ -197,12 +216,23 @@ func TestCodexCaptureDiagnosticDatasource_ScopesFinalizedHeadlessUsageToWorkspac
 		}
 	}
 	const targetWorkspace = "github.com/duck8823/traceary"
-	insertEvent("target-prompt", "target-session", targetWorkspace)
-	insertEvent("other-prompt", "other-session", "github.com/duck8823/other")
+	// No events are inserted: finalized headless-only sessions must still be
+	// visible through the canonical sessions ownership projection.
+	insertSession("target-session", targetWorkspace)
+	insertSession("other-session", "github.com/duck8823/other")
 	insertUsage("headless-target", "target-session", from.Add(2*time.Second))
 	insertUsage("headless-other-workspace", "other-session", from.Add(2*time.Second))
 	insertUsage("headless-outside-window", "target-session", to.Add(time.Second))
-
+	var targetSessionCount, targetUsageCount int
+	if err := raw.QueryRow(`SELECT COUNT(*) FROM sessions WHERE agent = 'codex' AND workspace = ?`, targetWorkspace).Scan(&targetSessionCount); err != nil {
+		t.Fatalf("count target sessions: %v", err)
+	}
+	if err := raw.QueryRow(`SELECT COUNT(*) FROM usage_observations WHERE session_id = 'target-session' AND source_name = 'headless_stream'`).Scan(&targetUsageCount); err != nil {
+		t.Fatalf("count target usage: %v", err)
+	}
+	if targetSessionCount != 1 || targetUsageCount != 2 {
+		t.Fatalf("fixture setup target sessions=%d usage=%d", targetSessionCount, targetUsageCount)
+	}
 	criteria, err := apptypes.CodexCaptureDiagnosticCriteriaOf(targetWorkspace, from, to)
 	if err != nil {
 		t.Fatalf("criteria: %v", err)
@@ -211,7 +241,7 @@ func TestCodexCaptureDiagnosticDatasource_ScopesFinalizedHeadlessUsageToWorkspac
 	if err != nil {
 		t.Fatalf("LoadCodexCaptureDiagnostic: %v", err)
 	}
-	if got.HeadlessUsageObservations != 1 || got.UsageObservations != 1 || got.UsageUnavailable != 1 {
-		t.Fatalf("headless workspace projection = %+v, want only target finalized in-window observation", got)
+	if got.StoredEvents != 0 || got.HeadlessUsageObservations != 1 || got.UsageObservations != 1 || got.UsageUnavailable != 1 {
+		t.Fatalf("headless workspace projection = %+v, want only target finalized in-window observation without events", got)
 	}
 }

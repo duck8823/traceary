@@ -6,10 +6,14 @@ WITH window_events AS (
        AND ts_norm(created_at) >= ts_norm(?)
        AND ts_norm(created_at) < ts_norm(?)
 ),
-window_sessions AS (
-    SELECT DISTINCT session_id
-      FROM window_events
-     WHERE session_id <> ''
+workspace_sessions AS (
+    -- Usage observations do not carry a workspace. sessions is the canonical
+    -- owner for the (workspace, session_id, agent) relationship, so do not
+    -- infer it from an event in this diagnostic window.
+    SELECT session_id
+      FROM sessions
+     WHERE agent = 'codex'
+       AND workspace = ?
 ),
 window_stops AS (
     SELECT id, session_id, created_at
@@ -94,7 +98,7 @@ headless_usage AS (
            SUM(CASE WHEN observation.total_state = 'known' THEN 1 ELSE 0 END) AS known_count,
            SUM(CASE WHEN observation.total_state = 'unavailable' THEN 1 ELSE 0 END) AS unavailable_count
       FROM usage_observations AS observation
-      JOIN window_sessions AS session
+      JOIN workspace_sessions AS session
         ON session.session_id = observation.session_id
      WHERE observation.host = 'codex'
        AND observation.status = 'finalized'
