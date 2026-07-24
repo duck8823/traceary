@@ -502,6 +502,11 @@ enabled = true
 
 func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	// The bounded large-store result intentionally still includes the normal
+	// environment checks. Give the PATH check its healthy fixture so
+	// --warnings-ok exercises the expected warning-only exit semantics rather
+	// than inheriting a CI runner's unrelated missing `traceary` binary.
+	setTracearyPathToCurrentExecutable(t)
 	largeStore := filepath.Join(t.TempDir(), "large-metadata-only.db")
 	file, err := os.OpenFile(largeStore, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
