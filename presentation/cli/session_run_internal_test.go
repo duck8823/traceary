@@ -144,3 +144,29 @@ func TestIsGeminiHeadlessUsageCommand_RequiresPromptAndStreamJSON(t *testing.T) 
 		})
 	}
 }
+
+func TestIsCodexHeadlessUsageCommand_RecognizesOnlyExecOptionsBeforeDelimiter(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		command []string
+		want    bool
+	}{
+		{name: "exec json", command: []string{"codex", "exec", "--json"}, want: true},
+		{name: "absolute executable", command: []string{"/usr/local/bin/codex", "exec", "--json", "prompt"}, want: true},
+		{name: "exec json before delimiter", command: []string{"codex", "exec", "--json", "--", "prompt"}, want: true},
+		{name: "json after delimiter", command: []string{"codex", "exec", "--", "--json"}, want: false},
+		{name: "different subcommand", command: []string{"codex", "app-server", "--json"}, want: false},
+		{name: "missing json", command: []string{"codex", "exec", "--full-auto"}, want: false},
+		{name: "json without exec", command: []string{"codex", "--json"}, want: false},
+		{name: "different executable", command: []string{"codex-wrapper", "exec", "--json"}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isCodexHeadlessUsageCommand(test.command); got != test.want {
+				t.Fatalf("isCodexHeadlessUsageCommand(%q) = %t, want %t", test.command, got, test.want)
+			}
+		})
+	}
+}

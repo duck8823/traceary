@@ -279,7 +279,7 @@ func parseCodexRolloutUsageJSONL(
 			ordinal++
 			baseline, valid := zeroCodexUsageCounters(), continuityValid && lastSnapshot == nil
 			if previousTerminal != nil {
-				baseline, valid = copyCodexUsageCounters(previousTerminal), continuityValid && completeCodexUsageCounters(previousTerminal)
+				baseline, valid = copyCodexUsageCounters(previousTerminal), continuityValid && validCodexUsageCounters(previousTerminal)
 			}
 			active = &codexRolloutSegment{
 				turnID: turnID, ordinal: ordinal, model: strings.TrimSpace(payload.Model),
@@ -294,19 +294,15 @@ func parseCodexRolloutUsageJSONL(
 			switch discriminator.Type {
 			case "token_count":
 				var payload codexTokenCountPayload
-				if err := json.Unmarshal(envelope.Payload, &payload); err != nil || payload.Info.TotalTokenUsage == nil || !completeCodexUsageCounters(payload.Info.TotalTokenUsage) {
+				if err := json.Unmarshal(envelope.Payload, &payload); err != nil || !validCodexUsageCounters(payload.Info.TotalTokenUsage) {
 					return application.CodexUsageLoadResult{}, xerrors.Errorf("invalid Codex token_count usage at line %d", lineNumber)
 				}
 				snapshot := copyCodexUsageCounters(payload.Info.TotalTokenUsage)
-				regressed := false
-				if lastSnapshot != nil {
-					_, regressed = subtractCodexUsageCounters(snapshot, *lastSnapshot)
-					regressed = !regressed
-				}
+				regressed := lastSnapshot != nil && codexUsageCountersRegress(snapshot, *lastSnapshot)
 				lastSnapshot = &snapshot
 				if active == nil {
 					previousTerminal = &snapshot
-					continuityValid = true
+					continuityValid = !regressed
 					continue
 				}
 				observedAt, err := codexUsageTimestamp(envelope.Timestamp, fallbackTime)
@@ -428,19 +424,28 @@ func unavailableCodexRolloutSample(
 	}
 }
 
-func completeCodexUsageCounters(value *codexRawUsageCounters) bool {
+// validCodexUsageCounters accepts a provider cumulative snapshot when it has
+// at least one reported, non-negative dimension. Codex rollout versions do not
+// guarantee that every token dimension is present, so absence remains
+// unavailable instead of making the whole boundary unusable.
+func validCodexUsageCounters(value *codexRawUsageCounters) bool {
 	if value == nil {
 		return false
 	}
+	known := false
 	for _, counter := range []*int64{
 		value.InputTokens, value.CachedInputTokens, value.CacheWriteInputTokens,
 		value.OutputTokens, value.ReasoningOutputTokens, value.TotalTokens,
 	} {
-		if counter == nil || *counter < 0 {
+		if counter == nil {
+			continue
+		}
+		if *counter < 0 {
 			return false
 		}
+		known = true
 	}
-	return true
+	return known
 }
 
 func zeroCodexUsageCounters() codexRawUsageCounters {
@@ -467,23 +472,48 @@ func copyCodexUsageCounters(value *codexRawUsageCounters) codexRawUsageCounters 
 }
 
 func subtractCodexUsageCounters(terminal, baseline codexRawUsageCounters) (codexRawUsageCounters, bool) {
-	difference := func(after, before *int64) (*int64, bool) {
-		if after == nil || before == nil || *after < *before {
-			return nil, false
+	difference := func(after, before *int64) *int64 {
+		if after == nil || before == nil {
+			return nil
+		}
+		// A regression is rejected before this function is called. Keep this
+		// guard so a future caller cannot turn a negative delta into evidence.
+		if *after < *before {
+			return nil
 		}
 		value := *after - *before
-		return &value, true
+		return &value
 	}
-	input, ok1 := difference(terminal.InputTokens, baseline.InputTokens)
-	cached, ok2 := difference(terminal.CachedInputTokens, baseline.CachedInputTokens)
-	cacheWrite, ok3 := difference(terminal.CacheWriteInputTokens, baseline.CacheWriteInputTokens)
-	output, ok4 := difference(terminal.OutputTokens, baseline.OutputTokens)
-	reasoning, ok5 := difference(terminal.ReasoningOutputTokens, baseline.ReasoningOutputTokens)
-	total, ok6 := difference(terminal.TotalTokens, baseline.TotalTokens)
+	input := difference(terminal.InputTokens, baseline.InputTokens)
+	cached := difference(terminal.CachedInputTokens, baseline.CachedInputTokens)
+	cacheWrite := difference(terminal.CacheWriteInputTokens, baseline.CacheWriteInputTokens)
+	output := difference(terminal.OutputTokens, baseline.OutputTokens)
+	reasoning := difference(terminal.ReasoningOutputTokens, baseline.ReasoningOutputTokens)
+	total := difference(terminal.TotalTokens, baseline.TotalTokens)
 	return codexRawUsageCounters{
 		InputTokens: input, CachedInputTokens: cached, CacheWriteInputTokens: cacheWrite,
 		OutputTokens: output, ReasoningOutputTokens: reasoning, TotalTokens: total,
-	}, ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+	}, input != nil || cached != nil || cacheWrite != nil || output != nil || reasoning != nil || total != nil
+}
+
+// codexUsageCountersRegress compares only dimensions known in both snapshots.
+// A newly omitted or newly introduced dimension is unavailable evidence, not a
+// regression. Any decrease in a shared known dimension invalidates the active
+// turn rather than producing a negative delta.
+func codexUsageCountersRegress(current, previous codexRawUsageCounters) bool {
+	for _, pair := range [][2]*int64{
+		{current.InputTokens, previous.InputTokens},
+		{current.CachedInputTokens, previous.CachedInputTokens},
+		{current.CacheWriteInputTokens, previous.CacheWriteInputTokens},
+		{current.OutputTokens, previous.OutputTokens},
+		{current.ReasoningOutputTokens, previous.ReasoningOutputTokens},
+		{current.TotalTokens, previous.TotalTokens},
+	} {
+		if pair[0] != nil && pair[1] != nil && *pair[0] < *pair[1] {
+			return true
+		}
+	}
+	return false
 }
 
 func applicationCodexUsageCounters(raw codexRawUsageCounters) application.CodexUsageCounters {

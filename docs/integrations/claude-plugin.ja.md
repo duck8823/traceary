@@ -25,7 +25,7 @@ traceary session run -- claude -p --output-format stream-json "your prompt"
 
 wrapper は Claude の起動前に完結型モードを選び、JSON 出力を変更せず転送し、その実行に対する transcript 単位の利用量記録を抑止します。入力、cache 作成、cache 読み取り、出力の各 token 数は、既知の 0 を含めて Claude のフィールドの意味を維持します。存在しないフィールドや、対応していない経路・中断された経路は「取得不可」のまま保持し、合計値、model 名、cost は推測しません。
 
-利用量 reader が読み取るのは session/call/model/counter/終了状態の metadata だけです。保存済み transcript の available usage には RFC 3339 timestamp が必要です。timestamp が無い available usage を Unix epoch に割り当てず、Traceary は拒否します。Traceary 管理の headless result で host timestamp が無い場合は、provider event time とは主張せず、report に使える UTC ingestion time を保存します。prompt、response、thinking、tool、account、transcript path、任意の error 内容は、利用量 ledger や hook の永続 retry spool にコピーしません。
+利用量 reader が読み取るのは session/call/model/counter/終了状態の metadata だけです。保存済み transcript の available usage には RFC 3339 timestamp が必要です。timestamp が無い available usage を Unix epoch に割り当てず、Traceary は拒否します。provider timestamp が無い unavailable terminal は、検査済みのローカル transcript file time を使うため、実際の report 期間に入ります。Traceary 管理の headless result で host timestamp が無い場合は、provider event time とは主張せず、report に使える UTC ingestion time を保存します。prompt、response、thinking、tool、account、transcript path、任意の error 内容は、利用量 ledger や hook の永続 retry spool にコピーしません。
 
 ## Memory activation strategy
 
