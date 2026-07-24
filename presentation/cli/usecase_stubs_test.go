@@ -108,12 +108,14 @@ type eventMetadataUsecaseStub struct {
 	searchErr       error
 	contextErr      error
 	listCalls       int
+	listCriteria    apptypes.EventListCriteria
 	searchCalls     int
 	contextCalls    int
 }
 
-func (s *eventMetadataUsecaseStub) List(_ context.Context, _ apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
+func (s *eventMetadataUsecaseStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
 	s.listCalls++
+	s.listCriteria = criteria
 	return s.listMetadata, s.listErr
 }
 

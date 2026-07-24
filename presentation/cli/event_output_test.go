@@ -1,9 +1,18 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
+
+var errMetadataOutput = errors.New("metadata output failed")
+
+type metadataFailingWriter struct{}
+
+func (metadataFailingWriter) Write([]byte) (int, error) { return 0, errMetadataOutput }
 
 func TestTruncateMessage(t *testing.T) {
 	t.Parallel()
@@ -57,6 +66,31 @@ func TestTruncateMessage(t *testing.T) {
 			got := truncateMessage(tt.in)
 			if got != tt.want {
 				t.Errorf("truncateMessage() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWriteEventMetadataByFormatWrapsOutputErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		metadata []apptypes.EventMetadata
+		wantText string
+	}{
+		{name: "empty list", wantText: "failed to print empty list message"},
+		{name: "metadata row", metadata: []apptypes.EventMetadata{{}}, wantText: "failed to print event row"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := writeEventMetadataByFormat(metadataFailingWriter{}, tt.metadata, false, eventTextFormatOptions{fields: []readFieldID{readFieldKind}})
+			if !errors.Is(err, errMetadataOutput) {
+				t.Fatalf("error = %v, want wrapped output error", err)
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantText) {
+				t.Fatalf("error = %v, want context %q", err, tt.wantText)
 			}
 		})
 	}

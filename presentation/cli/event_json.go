@@ -41,6 +41,25 @@ func writeEventMetadataJSONFields(output io.Writer, metadata []apptypes.EventMet
 	return writeJSON(output, serializedEvents)
 }
 
+func writeEventMetadataByFormat(output io.Writer, metadata []apptypes.EventMetadata, asJSON bool, opts eventTextFormatOptions) error {
+	if asJSON {
+		return writeEventMetadataJSONFields(output, metadata, opts.fields)
+	}
+	if len(metadata) == 0 {
+		_, err := io.WriteString(output, Localize("No matching records.\n", "一致する記録はありません。\n"))
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print empty list message", "空一覧メッセージの出力に失敗しました"), err)
+		}
+		return nil
+	}
+	for _, event := range metadata {
+		if _, err := io.WriteString(output, formatEventMetadataCompactRow(event, opts)+"\n"); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
+		}
+	}
+	return nil
+}
+
 func newEventFieldsOutput(event *model.Event, fields []readFieldID, extras compactRowExtras) map[string]any {
 	result := make(map[string]any, len(fields))
 	for _, field := range fields {

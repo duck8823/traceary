@@ -9,6 +9,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -54,6 +55,58 @@ type eventTextFormatOptions struct {
 	// so legacy non-interactive compact output keeps its historical minimum
 	// message floor even when metadata columns are unusually wide.
 	hardTargetWidth bool
+}
+
+// formatEventMetadataCompactRow renders a message-free compact row without
+// constructing a domain Event or loading an event body. It is deliberately
+// limited to field sets that do not include message; callers keep the full
+// event path for body-bearing output.
+func formatEventMetadataCompactRow(event apptypes.EventMetadata, opts eventTextFormatOptions) string {
+	fields := opts.fields
+	if len(fields) == 0 {
+		fields = defaultReadFields
+	}
+	tokens := make([]string, len(fields))
+	for i, field := range fields {
+		tokens[i] = renderMetadataCompactToken(event, field, opts)
+	}
+	plain := strings.Join(tokens, "  ")
+	if opts.colorEnabled {
+		exitCode := types.None[int]()
+		if audit, ok := event.CommandAudit().Value(); ok {
+			exitCode = audit.ExitCode()
+		}
+		code, set := exitCode.Value()
+		return applyCompactRowHighlight(plain, string(event.Kind()), code, set)
+	}
+	return plain
+}
+
+func renderMetadataCompactToken(event apptypes.EventMetadata, id readFieldID, opts eventTextFormatOptions) string {
+	switch id {
+	case readFieldTS:
+		return formatTextTimestamp(event.CreatedAt(), opts, eventCompactTimeLayout)
+	case readFieldKind:
+		return string(event.Kind())
+	case readFieldSession:
+		return "sess=" + compactSessionID(event.SessionID().String())
+	case readFieldWorkspace:
+		return "ws=" + compactWorkspace(event.Workspace().String())
+	case readFieldClient:
+		return "client=" + formatOptionalColumn(event.Client().String())
+	case readFieldAgent:
+		return "agent=" + formatOptionalColumn(event.Agent().String())
+	case readFieldExitCode:
+		if audit, ok := event.CommandAudit().Value(); ok {
+			return "exit=" + formatOptionalExitCode(audit.ExitCode())
+		}
+		return "exit=-"
+	case readFieldEventID:
+		return "id=" + event.EventID().String()
+	case readFieldSourceHook:
+		return "hook=" + formatOptionalColumn(event.SourceHook())
+	}
+	return ""
 }
 
 // compactRowExtras carries hydrated data that a specific field needs but is

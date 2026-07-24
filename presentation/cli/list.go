@@ -109,12 +109,6 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 }
 
 func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.Writer, input listCommandInput) error {
-	if c.storeManagement == nil {
-		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
-	}
-	if c.event == nil {
-		return xerrors.New(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
-	}
 	if input.limit <= 0 {
 		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}
@@ -153,9 +147,6 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	c.applyDatabasePath(resolvedDBPath)
-	if err := c.storeManagement.Initialize(ctx); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
-	}
 
 	fetchLimit := input.limit
 	if input.sensitiveOnly {
@@ -185,7 +176,8 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 	if err != nil {
 		return err
 	}
-	if input.asJSON && input.fieldsSet && !readFieldsContain(resolvedFields, readFieldMessage) && !input.sensitiveOnly {
+	metadataOnly := !input.sensitiveOnly && !input.wide && !readFieldsContain(resolvedFields, readFieldMessage) && (!input.asJSON || input.fieldsSet)
+	if metadataOnly {
 		if c.eventMetadata == nil {
 			return xerrors.New(Localize("event metadata query service is not configured", "イベントメタデータクエリサービスが設定されていません"))
 		}
@@ -193,10 +185,35 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to list event metadata", "イベントメタデータ一覧の取得に失敗しました"), err)
 		}
-		if err := writeEventMetadataJSONFields(output, metadata, resolvedFields); err != nil {
+		colorMode, err := resolveColorMode(
+			input.color,
+			input.colorSet,
+			c.defaultReadColor,
+			input.asJSON,
+			func() bool { return isTerminalWriter(output) },
+		)
+		if err != nil {
+			return err
+		}
+		if err := writeEventMetadataByFormat(output, metadata, input.asJSON, eventTextFormatOptions{
+			utc:          input.utc,
+			location:     input.location,
+			fields:       resolvedFields,
+			colorEnabled: colorMode == colorModeOn,
+			targetWidth:  terminalWidthOf(output),
+		}); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print event list", "一覧出力に失敗しました"), err)
 		}
 		return nil
+	}
+	if c.storeManagement == nil {
+		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
+	}
+	if c.event == nil {
+		return xerrors.New(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
+	}
+	if err := c.storeManagement.Initialize(ctx); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 	events, err := c.event.List(ctx, criteria)
 	if err != nil {
