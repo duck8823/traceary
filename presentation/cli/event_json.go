@@ -47,11 +47,14 @@ func writeEventMetadataByFormat(output io.Writer, metadata []apptypes.EventMetad
 	}
 	if len(metadata) == 0 {
 		_, err := io.WriteString(output, Localize("No matching records.\n", "一致する記録はありません。\n"))
-		return err
+		if err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print empty list message", "空一覧メッセージの出力に失敗しました"), err)
+		}
+		return nil
 	}
 	for _, event := range metadata {
 		if _, err := io.WriteString(output, formatEventMetadataCompactRow(event, opts)+"\n"); err != nil {
-			return err
+			return xerrors.Errorf("%s: %w", Localize("failed to print event row", "イベント一覧行の出力に失敗しました"), err)
 		}
 	}
 	return nil
