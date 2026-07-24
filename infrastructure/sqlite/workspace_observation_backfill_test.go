@@ -170,3 +170,77 @@ func TestCatchUpWorkspaceObservations_RetriesConcurrentWriterContention(t *testi
 		t.Fatalf("observation count = %d, want 1", count)
 	}
 }
+
+func TestCatchUpWorkspaceObservations_DoesNotReportRolledBackInserts(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.Exec(`
+		CREATE TABLE sessions (
+			session_id TEXT PRIMARY KEY,
+			workspace TEXT NOT NULL
+		);
+		CREATE TABLE events (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			workspace TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			agent TEXT NOT NULL,
+			source_hook TEXT
+		);
+		CREATE TABLE session_workspace_observations (
+			observation_id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			workspace TEXT NOT NULL,
+			raw_workspace TEXT,
+			observation_kind TEXT NOT NULL,
+			observation_origin TEXT NOT NULL,
+			observed_relationship TEXT NOT NULL,
+			observed_event_id TEXT,
+			delivery_record_id TEXT,
+			attribution_fingerprint TEXT NOT NULL,
+			diagnostic_reason TEXT NOT NULL,
+			observed_at TEXT NOT NULL,
+			source_client TEXT NOT NULL,
+			source_hook TEXT
+		);
+		CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
+			ON session_workspace_observations(observed_event_id)
+			WHERE observation_kind = 'primary'
+			  AND observed_event_id IS NOT NULL
+			  AND observed_event_id <> '';
+		CREATE TRIGGER reject_second_observation
+			BEFORE INSERT ON session_workspace_observations
+			WHEN NEW.observed_event_id = 'event-2'
+			BEGIN
+				SELECT RAISE(ABORT, 'forced catch-up failure');
+			END;
+		INSERT INTO sessions (session_id, workspace) VALUES ('session-1', '/repo');
+		INSERT INTO events (id, session_id, workspace, created_at, agent, source_hook)
+		VALUES
+			('event-1', 'session-1', '/repo', '2026-07-24T00:00:00Z', 'codex', 'user_prompt_submit'),
+			('event-2', 'session-1', '/repo', '2026-07-24T00:00:01Z', 'codex', 'user_prompt_submit');
+	`); err != nil {
+		t.Fatalf("create catch-up schema: %v", err)
+	}
+
+	result, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	if err == nil || !strings.Contains(err.Error(), "forced catch-up failure") {
+		t.Fatalf("catchUpWorkspaceObservations() error = %v, want forced failure", err)
+	}
+	if result.Selected != 2 || result.Inserted != 0 || result.Retries != 0 {
+		t.Fatalf("catch-up result = %+v, want selected=2 inserted=0 retries=0", result)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations`).Scan(&count); err != nil {
+		t.Fatalf("count observations: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("observation count = %d, want 0 after rollback", count)
+	}
+}

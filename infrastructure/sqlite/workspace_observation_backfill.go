@@ -115,6 +115,7 @@ func catchUpWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	inserted := 0
 	for _, row := range batch {
 		relationship := model.ClassifyWorkspaceRelationship(types.Workspace(row.canonical), types.Workspace(row.workspace))
 		_, err := tx.ExecContext(ctx, `
@@ -140,12 +141,15 @@ func catchUpWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize
 			}
 			return result, xerrors.Errorf("failed to insert backfill workspace observation for event %s: %w", row.eventID, err)
 		}
-		result.Inserted++
+		inserted++
 	}
 
 	if err := tx.Commit(); err != nil {
 		return result, xerrors.Errorf("failed to commit workspace observation catch-up: %w", err)
 	}
+	// Report only durable inserts. An exhausted busy retry may have executed
+	// statements in a transaction that was rolled back before commit.
+	result.Inserted = inserted
 	return result, nil
 }
 
