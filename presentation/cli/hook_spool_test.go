@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"syscall"
@@ -744,7 +745,7 @@ func TestInspectHookSpoolDiagnostics_FixFuncDrains(t *testing.T) {
 	}
 
 	check := root.inspectHookSpoolDiagnostics([]string{"claude"})
-	if check.Status != doctorStatusWarn || check.FixFunc == nil {
+	if check.Status != doctorStatusWarn || check.FixFunc == nil || check.StructuredFixFunc == nil {
 		t.Fatalf("check = %#v", check)
 	}
 	dryMsg, err := check.FixFunc(context.Background(), true)
@@ -793,20 +794,85 @@ func TestInspectHookSpoolDiagnostics_FixReportsUnreadableRemaining(t *testing.T)
 	}
 
 	check := root.inspectHookSpoolDiagnostics([]string{"claude"})
-	if check.FixFunc == nil {
-		t.Fatal("expected fix function")
+	if check.FixFunc == nil || check.StructuredFixFunc == nil {
+		t.Fatal("expected fix functions")
 	}
-	message, err := check.FixFunc(context.Background(), false)
+	result, err := check.StructuredFixFunc(context.Background(), false)
 	if err != nil {
-		t.Fatalf("FixFunc() error = %v", err)
+		t.Fatalf("StructuredFixFunc() error = %v", err)
 	}
-	for _, expected := range []string{"replayed=1", "failed=1", "remaining=1"} {
+	message := result.Action
+	for _, expected := range []string{"replayed=1", "failed=0", "unreadable=1", "remaining=1"} {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("message=%q, missing %q", message, expected)
 		}
 	}
+	wantMetrics := map[string]int{"replayed": 1, "failed": 0, "remaining": 1, "unreadable": 1}
+	if !reflect.DeepEqual(result.Metrics, wantMetrics) {
+		t.Fatalf("metrics=%v, want %v", result.Metrics, wantMetrics)
+	}
 	if strings.Contains(message, "private") {
 		t.Fatalf("message leaked payload body: %q", message)
+	}
+}
+
+func TestApplyDoctorFixes_PreservesHookSpoolMetrics(t *testing.T) {
+	root := NewRootCLI(WithStoreManagement(&spoolStoreManagementStub{}))
+	check := doctorCheck{
+		Name:             "hook-spool",
+		Status:           doctorStatusWarn,
+		Severity:         doctorSeverityWarn,
+		AutoFixAvailable: true,
+		FixFunc: func(context.Context, bool) (string, error) {
+			return "legacy action", nil
+		},
+		StructuredFixFunc: func(context.Context, bool) (doctorFixResult, error) {
+			return doctorFixResult{
+				Action: "drained hook spool",
+				Metrics: map[string]int{
+					"replayed":   0,
+					"failed":     2,
+					"remaining":  2,
+					"unreadable": 0,
+				},
+			}, nil
+		},
+	}
+
+	fixes := root.applyDoctorFixes(context.Background(), &doctorReport{Checks: []doctorCheck{check}}, false)
+	if len(fixes) != 1 {
+		t.Fatalf("fixes=%v, want one", fixes)
+	}
+	want := map[string]int{"replayed": 0, "failed": 2, "remaining": 2, "unreadable": 0}
+	if !reflect.DeepEqual(fixes[0].Metrics, want) {
+		t.Fatalf("metrics=%v, want %v", fixes[0].Metrics, want)
+	}
+	encoded, err := json.Marshal(fixes[0])
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	for _, zeroField := range []string{`"replayed":0`, `"unreadable":0`} {
+		if !bytes.Contains(encoded, []byte(zeroField)) {
+			t.Fatalf("JSON=%s, missing zero-valued field %s", encoded, zeroField)
+		}
+	}
+}
+
+func TestApplyDoctorFixes_AcceptsStructuredOnlyFix(t *testing.T) {
+	root := NewRootCLI(WithStoreManagement(&spoolStoreManagementStub{}))
+	check := doctorCheck{
+		Name:             "structured-only",
+		Status:           doctorStatusWarn,
+		Severity:         doctorSeverityWarn,
+		AutoFixAvailable: true,
+		StructuredFixFunc: func(context.Context, bool) (doctorFixResult, error) {
+			return doctorFixResult{Action: "structured action"}, nil
+		},
+	}
+
+	fixes := root.applyDoctorFixes(context.Background(), &doctorReport{Checks: []doctorCheck{check}}, false)
+	if len(fixes) != 1 || fixes[0].Action != "structured action" {
+		t.Fatalf("fixes=%v, want structured action", fixes)
 	}
 }
 

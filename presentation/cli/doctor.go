@@ -28,25 +28,33 @@ const (
 )
 
 type doctorCheck struct {
-	Name             string        `json:"name"`
-	Status           string        `json:"status"`
-	Severity         string        `json:"severity"`
-	Section          string        `json:"section"`
-	Message          string        `json:"message"`
-	Hint             string        `json:"hint"`
-	FixCommand       string        `json:"fix_command"`
-	AutoFixAvailable bool          `json:"auto_fix_available"`
-	FixFunc          doctorFixFunc `json:"-"`
+	Name              string                  `json:"name"`
+	Status            string                  `json:"status"`
+	Severity          string                  `json:"severity"`
+	Section           string                  `json:"section"`
+	Message           string                  `json:"message"`
+	Hint              string                  `json:"hint"`
+	FixCommand        string                  `json:"fix_command"`
+	AutoFixAvailable  bool                    `json:"auto_fix_available"`
+	FixFunc           doctorFixFunc           `json:"-"`
+	StructuredFixFunc doctorStructuredFixFunc `json:"-"`
+}
+
+type doctorFixResult struct {
+	Action  string         `json:"action"`
+	Metrics map[string]int `json:"metrics,omitempty"`
 }
 
 type doctorFixFunc func(context.Context, bool) (string, error)
+type doctorStructuredFixFunc func(context.Context, bool) (doctorFixResult, error)
 
 type doctorFixLog struct {
-	Name   string `json:"name"`
-	Action string `json:"action"`
-	Before string `json:"before"`
-	After  string `json:"after"`
-	Error  string `json:"error,omitempty"`
+	Name    string         `json:"name"`
+	Action  string         `json:"action"`
+	Metrics map[string]int `json:"metrics,omitempty"`
+	Before  string         `json:"before"`
+	After   string         `json:"after"`
+	Error   string         `json:"error,omitempty"`
 }
 
 type doctorSection struct {
@@ -146,6 +154,13 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 		fixes := c.applyDoctorFixes(ctx, report, input.dryRun)
 		after, err := c.buildDoctorReport(ctx, input)
 		if err != nil {
+			// The remediation has already happened. Preserve its exact result
+			// even when a cancelled or failed reinspection cannot produce the
+			// post-fix status.
+			report.Fixes = fixes
+			if writeErr := writeDoctorReport(output, report, input.asJSON, input.warningsOK); writeErr != nil {
+				return writeErr
+			}
 			return err
 		}
 		annotateDoctorFixesAfter(fixes, after)
@@ -187,13 +202,20 @@ func (c *RootCLI) applyDoctorFixes(ctx context.Context, report *doctorReport, dr
 			continue
 		}
 		log := doctorFixLog{Name: check.Name, Before: check.Status}
-		if !check.AutoFixAvailable || check.FixFunc == nil {
+		if !check.AutoFixAvailable || (check.FixFunc == nil && check.StructuredFixFunc == nil) {
 			log.Action = guidedDoctorFixAction(check)
 			fixes = append(fixes, log)
 			continue
 		}
-		action, err := check.FixFunc(ctx, dryRun)
-		log.Action = action
+		var err error
+		if check.StructuredFixFunc != nil {
+			result, structuredErr := check.StructuredFixFunc(ctx, dryRun)
+			log.Action = result.Action
+			log.Metrics = result.Metrics
+			err = structuredErr
+		} else {
+			log.Action, err = check.FixFunc(ctx, dryRun)
+		}
 		if err != nil {
 			log.Error = err.Error()
 		}

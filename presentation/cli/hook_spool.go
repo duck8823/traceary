@@ -113,10 +113,11 @@ func (c *RootCLI) runHookDurably(
 }
 
 type hookSpoolDrainResult struct {
-	Replayed  int
-	Failed    int
-	Remaining int
-	Err       error
+	Replayed   int
+	Failed     int
+	Unreadable int
+	Remaining  int
+	Err        error
 }
 
 // drainHookSpoolRecords replays up to limit pending spool records in filename
@@ -125,7 +126,10 @@ type hookSpoolDrainResult struct {
 // records. Returns counts of successful replays and retained failures.
 func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replayed, failed int) {
 	result := c.drainHookSpoolRecordsDetailed(ctx, limit)
-	return result.Replayed, result.Failed
+	// Preserve the legacy aggregate used by opportunistic debug logging while
+	// the structured result keeps replay failures and unreadable records
+	// disjoint.
+	return result.Replayed, result.Failed + result.Unreadable
 }
 
 func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) hookSpoolDrainResult {
@@ -140,12 +144,11 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) 
 	if err != nil {
 		return hookSpoolDrainResult{Err: err}
 	}
-	result := hookSpoolDrainResult{}
+	result := hookSpoolDrainResult{Unreadable: len(unreadable)}
 	for _, path := range unreadable {
 		if ctx.Err() != nil {
 			break
 		}
-		result.Failed++
 		if err := requeueHookSpoolRecord(path); err != nil {
 			slog.Debug("unreadable hook spool requeue failed", "path", path, "error", err)
 		}
@@ -573,6 +576,36 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 	if len(records) == 0 && len(unreadable) == 0 {
 		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending hook spool records found", "未処理の hook spool record はありません")}
 	}
+	structuredFix := func(ctx context.Context, dryRun bool) (doctorFixResult, error) {
+		pending, err := countHookSpoolPendingPaths(time.Now().UTC())
+		if err != nil {
+			return doctorFixResult{}, err
+		}
+		if dryRun {
+			return doctorFixResult{Action: localizef("would drain up to %d pending hook spool record(s)", "未処理 hook spool record 最大 %d 件を drain します", min(pending, 200))}, nil
+		}
+		limit := min(pending, 200)
+		result := c.drainHookSpoolRecordsDetailed(ctx, limit)
+		if result.Err != nil {
+			return doctorFixResult{}, result.Err
+		}
+		return doctorFixResult{
+			Action: localizef(
+				"drained hook spool: replayed=%d failed=%d unreadable=%d remaining=%d",
+				"hook spool を drain しました: replayed=%d failed=%d unreadable=%d remaining=%d",
+				result.Replayed,
+				result.Failed,
+				result.Unreadable,
+				result.Remaining,
+			),
+			Metrics: map[string]int{
+				"replayed":   result.Replayed,
+				"failed":     result.Failed,
+				"remaining":  result.Remaining,
+				"unreadable": result.Unreadable,
+			},
+		}, nil
+	}
 	latest := "-"
 	if len(records) > 0 {
 		latest = fmt.Sprintf("client=%s command=%s action=%s created_at=%s path=%s", emptyAsDash(records[0].Client), emptyAsDash(records[0].Command), emptyAsDash(records[0].Action), records[0].CreatedAt.Format(time.RFC3339Nano), records[0].Path)
@@ -592,29 +625,9 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,
 		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
-			pending, err := countHookSpoolPendingPaths(time.Now().UTC())
-			if err != nil {
-				return "", err
-			}
-			if dryRun {
-				return localizef("would drain up to %d pending hook spool record(s)", "未処理 hook spool record 最大 %d 件を drain します", min(pending, 200)), nil
-			}
-			// Force path: allow a larger batch than the per-hook opportunistic drain.
-			limit := pending
-			if limit > 200 {
-				limit = 200
-			}
-			result := c.drainHookSpoolRecordsDetailed(ctx, limit)
-			if result.Err != nil {
-				return "", result.Err
-			}
-			return localizef(
-				"drained hook spool: replayed=%d failed=%d remaining=%d",
-				"hook spool を drain しました: replayed=%d failed=%d remaining=%d",
-				result.Replayed,
-				result.Failed,
-				result.Remaining,
-			), nil
+			result, err := structuredFix(ctx, dryRun)
+			return result.Action, err
 		},
+		StructuredFixFunc: structuredFix,
 	}
 }
