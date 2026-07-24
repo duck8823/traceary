@@ -96,6 +96,8 @@ func TestIsGrokHeadlessUsageCommand_RequiresSingleAndStreamingJSON(t *testing.T)
 		want    bool
 	}{
 		{name: "short single", command: []string{"grok", "-p", "prompt", "--output-format", "streaming-json"}, want: true},
+		{name: "live flags prompt last", command: []string{"grok", "--cwd", "/private/tmp", "--permission-mode", "plan", "--no-memory", "--no-subagents", "--disable-web-search", "--output-format", "streaming-json", "-p", "prompt"}, want: true},
+		{name: "live flags prompt first", command: []string{"grok", "-p", "prompt", "--output-format", "streaming-json", "--cwd", "/private/tmp", "--permission-mode", "plan", "--no-memory", "--no-subagents", "--disable-web-search"}, want: true},
 		{name: "attached short single", command: []string{"grok", "-pprompt", "--output-format", "streaming-json"}, want: true},
 		{name: "long single", command: []string{"/usr/local/bin/grok", "--single=prompt", "--output-format=streaming-json"}, want: true},
 		{name: "prompt file", command: []string{"grok", "--prompt-file", "prompt.md", "--output-format=streaming-json"}, want: true},

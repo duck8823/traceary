@@ -56,6 +56,9 @@ func TestGrokUsageCapture_DeduplicatesProviderTerminalAcrossTracearySessions(t *
 	if err != nil || first.Applied != 1 {
 		t.Fatalf("first capture = (%+v, %v)", first, err)
 	}
+	replayedSample := grokUsageSampleFixture()
+	replayedSample.ObservedAt = replayedSample.ObservedAt.Add(time.Minute)
+	loaded.Samples = []application.GrokUsageSample{replayedSample}
 	replayed, err := capture.CaptureHeadless(
 		context.Background(),
 		usecase.GrokUsageCaptureInput{SessionID: "traceary-session-2", DeliveryID: "session_run"},

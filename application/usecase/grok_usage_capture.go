@@ -135,20 +135,15 @@ func reconcilePortableGrokObservation(
 	proposedDescriptor := proposed.Descriptor()
 	currentTerminal, currentTerminalPresent := current.TerminalCode().Value()
 	proposedTerminal, proposedTerminalPresent := proposed.TerminalCode().Value()
-	currentFinalizedAt, currentFinalizedPresent := current.FinalizedAt().Value()
-	proposedFinalizedAt, proposedFinalizedPresent := proposed.FinalizedAt().Value()
 	equivalent := currentDescriptor.ObservationID() == proposedDescriptor.ObservationID() &&
 		currentDescriptor.Source() == proposedDescriptor.Source() &&
 		currentDescriptor.Scope() == proposedDescriptor.Scope() &&
 		currentDescriptor.Accounting() == proposedDescriptor.Accounting() &&
-		currentDescriptor.ObservedAt().Equal(proposedDescriptor.ObservedAt()) &&
 		current.Status() == proposed.Status() &&
 		current.Counters() == proposed.Counters() &&
 		current.Cost() == proposed.Cost() &&
 		currentTerminalPresent == proposedTerminalPresent &&
-		(!currentTerminalPresent || currentTerminal == proposedTerminal) &&
-		currentFinalizedPresent == proposedFinalizedPresent &&
-		(!currentFinalizedPresent || currentFinalizedAt.Equal(proposedFinalizedAt))
+		(!currentTerminalPresent || currentTerminal == proposedTerminal)
 	if equivalent {
 		return model.UsageObservationTransitionAlreadyApplied, nil
 	}
