@@ -40,7 +40,12 @@ python3 scripts/validate-catalog.py
 | `source.url` | `https://github.com/duck8823/traceary.git` |
 | `source.sha` | Full 40-char commit SHA of the tagged release |
 | `source.path` | `integrations/grok-plugin` |
-| `name` | `traceary` |
+| `name` | `traceary-grok` |
+
+`name` must match `integrations/grok-plugin/plugin.json` exactly. It is
+intentionally distinct from the Claude marketplace package named `traceary`:
+Grok 0.2.111 installs native packages below `~/.grok/installed-plugins/`, and
+the unique identity prevents a same-name package from being resolved instead.
 
 Never commit secrets. The package only invokes Traceary hook entrypoints and a
 local MCP stdio server.

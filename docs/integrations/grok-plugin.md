@@ -95,8 +95,9 @@ Remote source shape (SHA must be a full 40-char commit of this repository; packa
 ### B. Local-source install (deterministic fallback)
 
 Always available from a matching Traceary release tag. The installer validates
-the package, replaces an existing `traceary` plugin, and prints the installed
-inventory.
+the package, replaces only an existing `traceary-grok` package, and prints the
+installed inventory. It intentionally leaves a legacy package named `traceary`
+untouched because that name can belong to another host integration.
 
 ```sh
 git clone --branch v0.27.0 --depth 1 https://github.com/duck8823/traceary.git

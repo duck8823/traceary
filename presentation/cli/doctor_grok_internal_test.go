@@ -98,6 +98,44 @@ func TestProbeGrokDoctorStateUsesHostInventoryAndHookFile(t *testing.T) {
 	}
 }
 
+func TestProbeGrokDoctorStateAcceptsCleanHomeCanonicalInstalledPluginPath(t *testing.T) {
+	originalLookPath, originalOutput := grokDoctorLookPath, grokDoctorOutput
+	t.Cleanup(func() { grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput })
+	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	pluginHook := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-traceary-grok", "hooks", "hooks.json")
+	writeGrokDoctorHookFixture(t, pluginHook, true)
+	grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "--version":
+			return []byte("grok 0.2.111\n"), nil
+		case "plugin list --json":
+			return []byte(`[{"name":"traceary-grok","version":"0.32.0","path":` + strconv.Quote(filepath.Dir(filepath.Dir(pluginHook))) + `}]`), nil
+		case "--cwd " + projectDir + " inspect --json":
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":3,"mcpServers":1}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"source":{"type":"plugin","plugin_name":"traceary-grok"}}]}`), nil
+		default:
+			t.Fatalf("unexpected Grok arguments: %v", args)
+			return nil, nil
+		}
+	}
+
+	state, err := probeGrokDoctorState(context.Background(), projectDir)
+	if err != nil {
+		t.Fatalf("probeGrokDoctorState() error = %v", err)
+	}
+	if !state.NativeHooks || state.ResolvedPathClass != grokPluginPathClassNative {
+		t.Fatalf("state = %+v, want native clean-home route", state)
+	}
+	checks := buildGrokDoctorChecks(state, "0.32.0")
+	for _, check := range checks {
+		if (check.Name == "grok-plugin-resolution" || check.Name == "grok-hooks") && check.Status != doctorStatusPass {
+			t.Fatalf("%s = %+v, want pass for canonical clean-home path", check.Name, check)
+		}
+	}
+}
+
 func TestProbeGrokDoctorStateDoesNotTrustProvidesHooksBoolean(t *testing.T) {
 	originalLookPath, originalOutput := grokDoctorLookPath, grokDoctorOutput
 	t.Cleanup(func() { grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput })

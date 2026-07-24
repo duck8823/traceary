@@ -148,7 +148,7 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 func grokPluginPathClass(path string) string {
 	normalized := filepath.ToSlash(path)
 	switch {
-	case strings.Contains(normalized, "/.grok/plugins/"), strings.Contains(normalized, "/integrations/grok-plugin/"):
+	case strings.Contains(normalized, "/.grok/plugins/"), strings.Contains(normalized, "/.grok/installed-plugins/"), strings.Contains(normalized, "/integrations/grok-plugin/"):
 		return grokPluginPathClassNative
 	case strings.Contains(normalized, "/.claude/plugins/"):
 		return grokPluginPathClassClaude
