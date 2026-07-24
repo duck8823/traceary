@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain/types"
@@ -95,6 +96,31 @@ func TestClaudeUsageSource_MissingSelectedUsageIsExplicitlyUnavailable(t *testin
 	}
 }
 
+func TestClaudeUsageSource_UnavailableTranscriptUsesFileTimeInsteadOfEpochForPeriodReports(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session-unavailable-file-time"
+	path := writeClaudeUsageFixture(t, home, sessionID,
+		`{"type":"result","session_id":"session-unavailable-file-time","subtype":"error","is_error":true,"error":"PRIVATE-ERROR"}`+"\n",
+	)
+	fileTime := time.Date(2026, 7, 25, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(path, fileTime, fileTime); err != nil {
+		t.Fatal(err)
+	}
+	result, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(result.Samples) != 1 || result.Samples[0].Available {
+		t.Fatalf("result = %+v", result)
+	}
+	if !result.Samples[0].ObservedAt.Equal(fileTime) || result.Samples[0].ObservedAt.Equal(time.Unix(0, 0).UTC()) {
+		t.Fatalf("unavailable transcript timestamp = %s, want file time %s", result.Samples[0].ObservedAt, fileTime)
+	}
+}
+
 func TestClaudeUsageSource_ErrorResultRetainsReportedUsageWithoutInferringSuccess(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	home := t.TempDir()
@@ -156,7 +182,7 @@ func TestClaudeUsageSource_UsesExactSessionNameInsteadOfGlobPattern(t *testing.T
 	home := t.TempDir()
 	sessionID := "session[1]"
 	writeClaudeUsageFixture(t, home, sessionID,
-		`{"type":"result","session_id":"session[1]","subtype":"success","usage":{"input_tokens":1,"output_tokens":1}}`+"\n",
+		`{"type":"result","session_id":"session[1]","subtype":"success","timestamp":"2026-07-25T00:00:00Z","usage":{"input_tokens":1,"output_tokens":1}}`+"\n",
 	)
 	result, err := filesystem.NewClaudeUsageSourceForTest(
 		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
@@ -166,6 +192,21 @@ func TestClaudeUsageSource_UsesExactSessionNameInsteadOfGlobPattern(t *testing.T
 	}
 	if len(result.Samples) != 1 {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestClaudeUsageSource_RejectsAvailableUsageWithoutReportableTimestamp(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session-missing-timestamp"
+	writeClaudeUsageFixture(t, home, sessionID,
+		`{"type":"result","session_id":"session-missing-timestamp","subtype":"success","usage":{"input_tokens":1,"output_tokens":1}}`+"\n",
+	)
+	_, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err == nil || !strings.Contains(err.Error(), "reportable timestamp") {
+		t.Fatalf("Load() error = %v", err)
 	}
 }
 

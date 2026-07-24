@@ -197,7 +197,7 @@ func TestRootCLI_SessionRunCommand_CapturesBodyFreeGrokHeadlessUsage(t *testing.
 	}
 }
 
-func TestRootCLI_SessionRunCommand_DoesNotPersistGrokUsageAfterParseFailure(t *testing.T) {
+func TestRootCLI_SessionRunCommand_RecordsUnavailableGrokUsageAfterParseFailureWithoutChangingChildExit(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	grok := filepath.Join(dir, "grok")
@@ -207,7 +207,7 @@ func TestRootCLI_SessionRunCommand_DoesNotPersistGrokUsageAfterParseFailure(t *t
 	if err := os.WriteFile(streamPath, []byte(first+"\n"+conflict+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\ncat " + shellQuoteForTest(streamPath) + "\n"
+	script := "#!/bin/sh\ncat " + shellQuoteForTest(streamPath) + "\nexit 7\n"
 	if err := os.WriteFile(grok, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -224,21 +224,55 @@ func TestRootCLI_SessionRunCommand_DoesNotPersistGrokUsageAfterParseFailure(t *t
 		cli.WithGrokHeadlessUsage(filesystem.NewGrokHeadlessUsageStreamFactory()),
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
-	rootCmd.SetErr(&bytes.Buffer{})
+	stderr := &bytes.Buffer{}
+	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{
 		"session", "run", "--db-path", filepath.Join(dir, "traceary.db"),
 		"--session-id", sessionID.String(), "--agent", "grok", "--",
 		grok, "-p", "prompt", "--output-format", "streaming-json",
 	})
 	err := rootCmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "failed to decode body-free Grok headless usage") {
+	var exitCoder interface{ ExitCode() int }
+	if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != 7 {
+		t.Fatalf("Execute() error = %v, want child exit code 7", err)
+	}
+	if len(usage.headless) != 1 || usage.headless[0].BoundaryObserved || len(usage.headless[0].Samples) != 0 {
+		t.Fatalf("unavailable fallback = %+v", usage.headless)
+	}
+	if !strings.Contains(stderr.String(), "failed to decode body-free Grok headless usage") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if sessionStub.finalizeReason != types.TerminalReasonFailure {
+		t.Fatalf("finalize reason = %q, want failure", sessionStub.finalizeReason)
+	}
+}
+
+func TestRootCLI_SessionRunCommand_DoesNotTreatCodexArgumentAfterDoubleDashAsJSONMode(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	codex := filepath.Join(dir, "codex")
+	if err := os.WriteFile(codex, []byte("#!/bin/sh\nprintf child-output\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := types.SessionID("one-shot-codex-double-dash")
+	sessionStub := &sessionUsecaseStub{startEvent: model.EventOf(
+		"event-codex-double-dash", types.EventKindSessionStarted, "cli", "codex", sessionID,
+		"duck8823/traceary", "session started", time.Now(),
+	)}
+	usage := &codexUsageCaptureStub{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub), cli.WithCodexUsage(usage),
+		cli.WithCodexHeadlessUsage(filesystem.NewCodexHeadlessUsageStreamFactory()),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "run", "--db-path", filepath.Join(dir, "traceary.db"), "--", codex, "exec", "--", "--json"})
+	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	if len(usage.headless) != 0 {
-		t.Fatalf("parse failure reached persistence: %+v", usage.headless)
-	}
-	if sessionStub.finalizeReason != types.TerminalReasonSuccess {
-		t.Fatalf("finalize reason = %q", sessionStub.finalizeReason)
+		t.Fatalf("argument after -- started Codex headless capture: %+v", usage.headless)
 	}
 }
 
@@ -282,7 +316,8 @@ func TestRootCLI_SessionRunCommand_CapturesBodyFreeClaudeHeadlessUsage(t *testin
 	}
 	sample := usage.headless[0].Samples[0]
 	if sample.Scope != types.UsageScopeRun || sample.Model != "claude-opus-4-1" ||
-		sample.Counters.InputTokens == nil || *sample.Counters.InputTokens != 21 {
+		sample.Counters.InputTokens == nil || *sample.Counters.InputTokens != 21 ||
+		sample.ObservedAt.Equal(time.Unix(0, 0).UTC()) {
 		t.Fatalf("headless sample = %+v", sample)
 	}
 	if sessionStub.finalizeReason != types.TerminalReasonSuccess {

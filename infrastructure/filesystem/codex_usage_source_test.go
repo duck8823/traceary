@@ -100,6 +100,91 @@ func TestCodexUsageSource_CounterRegressionBecomesUnavailable(t *testing.T) {
 	}
 }
 
+func TestCodexUsageSource_PartialRolloutCountersPreserveKnownDimensions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	sessionID := "partial-rollout-session"
+	path := filepath.Join(home, ".codex", "sessions", "2026", "07", "23", "rollout-"+sessionID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := strings.Join([]string{
+		`{"timestamp":"2026-07-23T01:00:00Z","type":"turn_context","payload":{"turn_id":"turn-partial","model":"gpt"}}`,
+		`{"timestamp":"2026-07-23T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":13,"cached_input_tokens":0}}}}`,
+		`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-partial"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := filesystem.NewCodexUsageSourceForTest(func() (string, error) { return home, nil }, 1024*1024, 1024*1024).Load(context.Background(), application.CodexUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(result.Samples) != 1 || !result.Samples[0].Available {
+		t.Fatalf("result = %+v", result)
+	}
+	counters := result.Samples[0].Counters
+	if counters.InputTokens == nil || *counters.InputTokens != 13 ||
+		counters.CachedInputTokens == nil || *counters.CachedInputTokens != 0 ||
+		counters.CacheWriteInputTokens != nil || counters.OutputTokens != nil ||
+		counters.ReasoningOutputTokens != nil || counters.TotalTokens != nil {
+		t.Fatalf("partial counters = %+v", counters)
+	}
+}
+
+func TestCodexUsageSource_PartialRolloutRejectsNegativeAndSharedDimensionRegression(t *testing.T) {
+	tests := []struct {
+		name          string
+		lines         []string
+		wantLoadError bool
+	}{
+		{
+			name: "negative known dimension",
+			lines: []string{
+				`{"timestamp":"2026-07-23T01:00:00Z","type":"turn_context","payload":{"turn_id":"turn-negative","model":"gpt"}}`,
+				`{"timestamp":"2026-07-23T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":-1}}}}`,
+			},
+			wantLoadError: true,
+		},
+		{
+			name: "shared known dimension regression",
+			lines: []string{
+				`{"timestamp":"2026-07-23T01:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10}}}}`,
+				`{"timestamp":"2026-07-23T01:00:01Z","type":"turn_context","payload":{"turn_id":"turn-regression","model":"gpt"}}`,
+				`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":9,"output_tokens":3}}}}`,
+				`{"timestamp":"2026-07-23T01:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-regression"}}`,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("CODEX_HOME", "")
+			sessionID := "partial-" + strings.ReplaceAll(tc.name, " ", "-")
+			path := filepath.Join(home, ".codex", "sessions", "2026", "07", "23", "rollout-"+sessionID+".jsonl")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(strings.Join(tc.lines, "\n")+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			result, err := filesystem.NewCodexUsageSourceForTest(func() (string, error) { return home, nil }, 1024*1024, 1024*1024).Load(context.Background(), application.CodexUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+			if tc.wantLoadError {
+				if err == nil || !strings.Contains(err.Error(), "invalid Codex token_count usage") {
+					t.Fatalf("Load() error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if len(result.Samples) != 1 || result.Samples[0].Available || !result.BoundaryObserved {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+}
+
 func TestCodexUsageSource_RecoveredIntermediateRegressionRemainsUnavailable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", "")

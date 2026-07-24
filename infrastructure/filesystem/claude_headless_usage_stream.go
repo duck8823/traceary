@@ -123,11 +123,10 @@ func (s *claudeHeadlessUsageStream) parseLine(line []byte) error {
 	if sessionID == "" || strings.ContainsAny(sessionID, "\r\n\x00") {
 		return xerrors.Errorf("invalid Claude headless session identity")
 	}
-	sample, err := claudeResultUsageSample(envelope, sessionID)
+	sample, err := claudeResultUsageSampleAt(envelope, sessionID, s.now())
 	if err != nil {
 		return err
 	}
-	sample.ObservedAt = s.now().UTC()
 	if len(s.result.Samples) > 0 {
 		sample.ObservedAt = s.result.Samples[0].ObservedAt
 		if !sameClaudeUsageSample(s.result.Samples[0], sample) {

@@ -144,8 +144,10 @@ func (s *codexHeadlessUsageStream) parseLine(line []byte) error {
 				return xerrors.Errorf("invalid negative Codex headless terminal usage")
 			}
 		}
-		if counters.InputTokens == nil || counters.OutputTokens == nil {
-			return xerrors.Errorf("incomplete Codex headless terminal usage")
+		if counters.InputTokens == nil && counters.CachedInputTokens == nil &&
+			counters.CacheWriteInputTokens == nil && counters.OutputTokens == nil &&
+			counters.ReasoningOutputTokens == nil && counters.TotalTokens == nil {
+			return xerrors.Errorf("Codex headless terminal usage has no known counters")
 		}
 		s.ordinal++
 		s.result.Samples = append(s.result.Samples, application.CodexUsageSample{

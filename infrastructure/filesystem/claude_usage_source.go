@@ -155,7 +155,10 @@ func (s *claudeUsageSource) loadFile(
 		return application.ClaudeUsageLoadResult{}, xerrors.Errorf("Claude usage source changed during open")
 	}
 	limited := &io.LimitedReader{R: file, N: s.maxFileBytes + 1}
-	result, err := parseClaudeUsageJSONL(ctx, limited, sessionID, s.maxLineBytes)
+	// Transcript rows can omit a provider timestamp on an unavailable terminal.
+	// The inspected file modification time is a deterministic local source time
+	// for that evidence; never place such an observation at the Unix epoch.
+	result, err := parseClaudeUsageJSONL(ctx, limited, sessionID, opened.ModTime().UTC(), s.maxLineBytes)
 	if err != nil {
 		return application.ClaudeUsageLoadResult{}, err
 	}
@@ -225,6 +228,7 @@ func parseClaudeUsageJSONL(
 	ctx context.Context,
 	reader io.Reader,
 	sessionID string,
+	fallbackObservedAt time.Time,
 	maxLineBytes int,
 ) (application.ClaudeUsageLoadResult, error) {
 	result := application.ClaudeUsageLoadResult{Mode: application.ClaudeUsageModeTranscriptCalls}
@@ -254,7 +258,7 @@ func parseClaudeUsageJSONL(
 		}
 		switch envelope.Type {
 		case "assistant":
-			sample, identity, relevant, err := claudeAssistantUsageSample(envelope, sessionID)
+			sample, identity, relevant, err := claudeAssistantUsageSample(envelope, sessionID, fallbackObservedAt)
 			if err != nil {
 				return application.ClaudeUsageLoadResult{}, err
 			}
@@ -273,7 +277,7 @@ func parseClaudeUsageJSONL(
 			calls = append(calls, sample)
 			result.BoundaryObserved = true
 		case "result":
-			sample, err := claudeResultUsageSample(envelope, sessionID)
+			sample, err := claudeTranscriptResultUsageSample(envelope, sessionID, fallbackObservedAt)
 			if err != nil {
 				return application.ClaudeUsageLoadResult{}, err
 			}
@@ -300,6 +304,7 @@ func parseClaudeUsageJSONL(
 func claudeAssistantUsageSample(
 	envelope claudeUsageEnvelope,
 	sessionID string,
+	fallbackObservedAt time.Time,
 ) (application.ClaudeUsageSample, string, bool, error) {
 	if len(envelope.Message) == 0 || string(envelope.Message) == "null" {
 		return application.ClaudeUsageSample{}, "", false, nil
@@ -314,11 +319,14 @@ func claudeAssistantUsageSample(
 		return application.ClaudeUsageSample{}, "", false, nil
 	}
 	identity := requestID + "\x00" + messageID
-	observedAt, err := claudeObservedAt(envelope.Timestamp)
+	counters, available, err := decodeClaudeUsage(message.Usage)
 	if err != nil {
 		return application.ClaudeUsageSample{}, "", false, err
 	}
-	counters, available, err := decodeClaudeUsage(message.Usage)
+	if available {
+		fallbackObservedAt = time.Time{}
+	}
+	observedAt, err := claudeObservedAt(envelope.Timestamp, available, fallbackObservedAt)
 	if err != nil {
 		return application.ClaudeUsageSample{}, "", false, err
 	}
@@ -335,15 +343,36 @@ func claudeAssistantUsageSample(
 	}, identity, true, nil
 }
 
-func claudeResultUsageSample(
+func claudeResultUsageSampleAt(
 	envelope claudeUsageEnvelope,
 	sessionID string,
+	fallbackObservedAt time.Time,
 ) (application.ClaudeUsageSample, error) {
-	observedAt, err := claudeObservedAt(envelope.Timestamp)
+	return claudeResultUsageSampleWithFallback(envelope, sessionID, fallbackObservedAt, true)
+}
+
+func claudeTranscriptResultUsageSample(
+	envelope claudeUsageEnvelope,
+	sessionID string,
+	fallbackObservedAt time.Time,
+) (application.ClaudeUsageSample, error) {
+	return claudeResultUsageSampleWithFallback(envelope, sessionID, fallbackObservedAt, false)
+}
+
+func claudeResultUsageSampleWithFallback(
+	envelope claudeUsageEnvelope,
+	sessionID string,
+	fallbackObservedAt time.Time,
+	allowAvailableFallback bool,
+) (application.ClaudeUsageSample, error) {
+	counters, available, err := decodeClaudeUsage(envelope.Usage)
 	if err != nil {
 		return application.ClaudeUsageSample{}, err
 	}
-	counters, available, err := decodeClaudeUsage(envelope.Usage)
+	if available && !allowAvailableFallback {
+		fallbackObservedAt = time.Time{}
+	}
+	observedAt, err := claudeObservedAt(envelope.Timestamp, available, fallbackObservedAt)
 	if err != nil {
 		return application.ClaudeUsageSample{}, err
 	}
@@ -392,9 +421,15 @@ func decodeClaudeUsage(raw json.RawMessage) (application.ClaudeUsageCounters, bo
 	}, true, nil
 }
 
-func claudeObservedAt(raw string) (time.Time, error) {
+func claudeObservedAt(raw string, available bool, fallback time.Time) (time.Time, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
+		if !fallback.IsZero() {
+			return fallback.UTC(), nil
+		}
+		if available {
+			return time.Time{}, xerrors.Errorf("available Claude usage requires a reportable timestamp")
+		}
 		return time.Unix(0, 0).UTC(), nil
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)

@@ -52,3 +52,35 @@ func TestCodexHeadlessUsageStream_RejectsMalformedTerminalUsageWithoutEchoingItI
 		t.Fatalf("Complete() error = %v", err)
 	}
 }
+
+func TestCodexHeadlessUsageStream_PreservesKnownPartialCountersAndRejectsNegativeValues(t *testing.T) {
+	t.Run("partial", func(t *testing.T) {
+		stream := filesystem.NewCodexHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+		fixture := `{"type":"thread.started","thread_id":"thread-1"}` + "\n" +
+			`{"type":"turn.completed","usage":{"cached_input_tokens":0,"reasoning_output_tokens":3}}` + "\n"
+		if _, err := stream.Write([]byte(fixture)); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+		result, err := stream.Complete()
+		if err != nil || len(result.Samples) != 1 {
+			t.Fatalf("Complete() = (%+v, %v)", result, err)
+		}
+		counters := result.Samples[0].Counters
+		if counters.CachedInputTokens == nil || *counters.CachedInputTokens != 0 ||
+			counters.ReasoningOutputTokens == nil || *counters.ReasoningOutputTokens != 3 ||
+			counters.InputTokens != nil || counters.OutputTokens != nil {
+			t.Fatalf("partial counters = %+v", counters)
+		}
+	})
+	t.Run("negative", func(t *testing.T) {
+		stream := filesystem.NewCodexHeadlessUsageStreamFactory().New(&bytes.Buffer{})
+		fixture := `{"type":"thread.started","thread_id":"thread-1"}` + "\n" +
+			`{"type":"turn.completed","usage":{"input_tokens":-1}}` + "\n"
+		if _, err := stream.Write([]byte(fixture)); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+		if _, err := stream.Complete(); err == nil {
+			t.Fatal("Complete() error = nil")
+		}
+	})
+}
