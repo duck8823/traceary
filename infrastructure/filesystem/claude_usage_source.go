@@ -343,13 +343,6 @@ func claudeAssistantUsageSample(
 	}, identity, true, nil
 }
 
-func claudeResultUsageSample(
-	envelope claudeUsageEnvelope,
-	sessionID string,
-) (application.ClaudeUsageSample, error) {
-	return claudeResultUsageSampleAt(envelope, sessionID, time.Time{})
-}
-
 func claudeResultUsageSampleAt(
 	envelope claudeUsageEnvelope,
 	sessionID string,
