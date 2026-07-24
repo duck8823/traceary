@@ -5,6 +5,28 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.32.0] - 2026-07-24
+
+### Added
+- **Provider 非依存の usage accounting (#1456)** — additive migration により、finalized/pending availability、call/run/session-snapshot scope、additive/latest-snapshot/excluded accounting、型付き token/cost dimension、不変の provider identity、snapshot supersede、source 間の排他 claim を追加しました。prompt/response は保存しません。
+- **構造化 run lineage (#1453)** — 不変の host/run identity に parent run、Traceary session、batch、ticket、repository、pull request、head SHA、packet hash/bytes、tool-output bytes を保持できます。cycle、競合 replay、存在しない parent は fail closed します。
+- **検証済み multi-host usage adapter (#1451, #1447, #1455, #1450, #1452)** — 本文なし terminal/local source から、Codex、Claude Code、Gemini CLI、Antigravity、Grok Build、Kimi Code を検証済み granularity で取得します。unavailable / partial source を推測 counter に変換せず明示します。
+- **Snapshot-consistent CLI/MCP usage report (#1449)** — `traceary report` と MCP `get_report` は current finalized observation だけを集計し、unavailable dimension を保持し、provider-reported cost と estimated cost を分離し、run fact の重複を除外し、source ごとの complete/partial 範囲を返します。
+
+### Changed
+- **Versioned host-source / privacy contract (#1448)** — provider が報告する local source、retry/stream boundary、additive と snapshot の意味、許可する metadata を host ごとに定義しました。network interception、billing dashboard scraping、本文を含む hook、token count 推測、default telemetry は対象外です。
+- **Release accounting QA (#1457)** — 8 日間の complete report と隔離した headless probe により、focused completion をすべて分類し、Codex/Grok terminal counter を重複なしで照合し、private body を読まず unavailable/partial host path を記録しました。
+
+### Fixed
+- **Codex queued-capture 診断 (#1498)** — doctor は committed usage と durable hook spool に安全に queue 済みの evidence を区別し、capture が存在しないという誤報を避けます。
+- **上限付き current-first spool replay (#1504)** — hook delivery は現在イベントを上限付きで公平な retry batch より先に処理します。並行 consumer は分離した inflight file を claim し、link payload を拒否し、stale claim を上限なしの起動処理なしで復旧します。
+- **Grok report timestamp (#1506)** — headless usage に Unix epoch ではなく UTC の ingest time を割り当て、同じ provider identity の正確な replay は Traceary session をまたいでも冪等に保ちます。
+
+### Notes
+- migration `000027` から `000030` は additive かつ rollback-compatible です。既存 event/session body を書き換えず、network telemetry を有効にしません。
+- follow-up 修正後の既知 live Codex/Grok headless probe は availability 100% でした。upgrade 前の hook spool backlog は運用負債として監視し、v0.32 の上限付き current-first replay で drain します。
+- release 全体の証跡と残る運用確認は `docs/release/v0.32.0-qa.ja.md` に記録しています。
+
 ## [v0.31.0] - 2026-07-22
 
 ### Added
