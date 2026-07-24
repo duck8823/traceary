@@ -5,6 +5,28 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.32.0] - 2026-07-24
+
+### Added
+- **Provider-neutral usage accounting (#1456)** — additive migrations introduce finalized/pending availability, call/run/session-snapshot scope, additive/latest-snapshot/excluded accounting, typed token and cost dimensions, immutable provider identity, superseding snapshots, and cross-source exclusivity claims without storing prompts or responses.
+- **Structured run lineage (#1453)** — immutable host/run identity can retain parent run, Traceary session, batch, ticket, repository, pull request, head SHA, packet hash/bytes, and tool-output bytes. Cycles, conflicting replays, and missing parents fail closed.
+- **Verified multi-host usage adapters (#1451, #1447, #1455, #1450, #1452)** — body-free terminal/local sources capture Codex, Claude Code, Gemini CLI, Antigravity, Grok Build, and Kimi Code at their verified granularity. Unavailable and partial sources remain explicit rather than becoming inferred counters.
+- **Snapshot-consistent CLI/MCP usage reports (#1449)** — `traceary report` and MCP `get_report` aggregate only current finalized observations, preserve unavailable dimensions, separate provider-reported and estimated cost, deduplicate run facts, and expose complete/partial source extents.
+
+### Changed
+- **Versioned host-source and privacy contract (#1448)** — provider-reported local sources, retry/stream boundaries, additive versus snapshot semantics, and allowlisted metadata are documented per host. Network interception, billing-dashboard scraping, body-bearing hooks, inferred token counts, and default telemetry remain out of scope.
+- **Release accounting QA (#1457)** — an eight-day complete report and isolated headless probes classify every focused completion, reconcile Codex/Grok terminal counters without duplicates, and record unavailable/partial host paths without reading private bodies.
+
+### Fixed
+- **Codex queued-capture diagnosis (#1498)** — doctor now distinguishes committed usage from evidence safely queued in the durable hook spool instead of reporting a false missing-capture state.
+- **Bounded current-first spool replay (#1504)** — hook delivery processes the current event before a bounded, fair retry batch; concurrent consumers claim isolated inflight files, linked payloads are rejected, and stale claims recover without unbounded startup work.
+- **Grok report timestamps (#1506)** — headless usage receives its UTC ingestion time instead of the Unix epoch, while exact provider-identity replay remains idempotent across Traceary sessions.
+
+### Notes
+- Migrations `000027` through `000030` are additive and rollback-compatible. They do not rewrite existing event/session bodies or enable network telemetry.
+- Known live Codex and Grok headless probes reached 100% availability after follow-up fixes. The pre-upgrade hook spool backlog remains a monitored operational debt that v0.32 drains with bounded current-first replay.
+- Release-wide evidence and residual operational checks are recorded in `docs/release/v0.32.0-qa.md`.
+
 ## [v0.31.0] - 2026-07-22
 
 ### Added
