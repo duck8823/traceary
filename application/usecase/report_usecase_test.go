@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -71,6 +72,30 @@ func TestReportUsecaseGenerate_PartialWindowOmitsRates(t *testing.T) {
 	}
 	if !got.Aggregation.Sources.Events.ResponseTruncated || got.Aggregation.Sources.Events.TruncationReason != "result_cap" {
 		t.Fatalf("event extent = %+v", got.Aggregation.Sources.Events)
+	}
+}
+
+func TestReportUsecaseGenerate_HookDeniedReasonIsBodyFree(t *testing.T) {
+	t.Parallel()
+	criteria := reportCriteria(t, 0)
+	command := reportCommandRecord(
+		"event-hook-denied", "cat", types.CommandFailureReasonHookDenied, types.Some(2), true,
+	)
+	window := reportWindow(t, criteria, nil, nil, []apptypes.ReportCommandRecord{command}, false)
+
+	got, err := usecase.NewReportUsecase(&reportQueryStub{window: window}).Generate(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if got.Failures.Total != 1 || got.Failures.ByReason["hook_denied"] != 1 {
+		t.Fatalf("failures = %+v, want exactly one hook_denied", got.Failures)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("json.Marshal(report) error = %v", err)
+	}
+	if strings.Contains(string(encoded), "🚫 [hook]") {
+		t.Fatalf("report retained raw hook marker: %s", encoded)
 	}
 }
 

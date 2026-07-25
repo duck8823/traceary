@@ -73,7 +73,7 @@ All tiers:
 - Session start persists the resolved workspace to the state file; audit reads the workspace from state
 - Agent type resolution: `agent_type` field → hierarchical agent name (Claude and Codex subagent hooks)
 - Exit code extraction from `tool_response.exitCode` when a host provides it. Exit code `0` is authoritative success; a non-zero code is `exit_code` unless more specific structured evidence identifies `signal`, `timeout`, or `hook_denied`.
-- Failure classification uses structured fields only. Traceary maps host interruption/timeout markers to `signal`/`timeout`, Grok `PermissionDenied` to `hook_denied`, and generic structured host errors to `host_error`. Payload text is never parsed for failure words.
+- Failure classification uses structured fields only. Traceary maps host interruption/timeout markers to `signal`/`timeout`, Grok `PermissionDenied` to `hook_denied`, and generic structured host errors to `host_error`. The hook runtime additionally reports `hook_denied` only for `tool_response.exitCode == 2` with a string `tool_response.stderr` whose first bytes are exactly `🚫 [hook]`; it neither trims nor searches stderr. Other payload text is never parsed for failure words, and the marker is not copied into reports or other audit fields.
 - MCP tool name fallback: `tool_input.command` → `tool_name`
 
 Claude Task subagent capture:

@@ -2086,6 +2086,41 @@ func TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload(t *testing.T) {
 			wantReason: types.CommandFailureReasonHookDenied,
 		},
 		{
+			name:       "hook stderr marker with exit code two is hook denied",
+			client:     "codex",
+			payload:    `{"tool_input":{"command":"cat /restricted"},"tool_response":{"exitCode":2,"stderr":"🚫 [hook] policy denied; credential=secret-value"}}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonHookDenied,
+		},
+		{
+			name:       "hook stderr marker after a newline remains an exit code failure",
+			client:     "codex",
+			payload:    `{"tool_input":{"command":"cat /restricted"},"tool_response":{"exitCode":2,"stderr":"\n🚫 [hook] policy denied"}}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonExitCode,
+		},
+		{
+			name:       "non-string hook stderr remains an exit code failure",
+			client:     "codex",
+			payload:    `{"tool_input":{"command":"cat /restricted"},"tool_response":{"exitCode":2,"stderr":{"message":"🚫 [hook] policy denied"}}}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonExitCode,
+		},
+		{
+			name:       "hook stderr marker with another exit code remains an exit code failure",
+			client:     "codex",
+			payload:    `{"tool_input":{"command":"cat /restricted"},"tool_response":{"exitCode":3,"stderr":"🚫 [hook] policy denied"}}`,
+			wantFailed: true,
+			wantReason: types.CommandFailureReasonExitCode,
+		},
+		{
+			name:       "zero exit remains successful despite the hook stderr marker",
+			client:     "codex",
+			payload:    `{"tool_input":{"command":"cat /restricted"},"tool_response":{"exitCode":0,"stderr":"🚫 [hook] policy denied"}}`,
+			wantFailed: false,
+			wantReason: types.CommandFailureReasonNone,
+		},
+		{
 			name:       "empty top-level error is not a failure",
 			client:     "claude",
 			payload:    `{"tool_input":{"command":"go test ./..."},"error":""}`,
@@ -2158,6 +2193,15 @@ func TestRootCLI_HookAuditCommand_FlagsFailureFromErrorPayload(t *testing.T) {
 			}
 			if got := eventStub.auditCall.failureReason; got != tc.wantReason {
 				t.Fatalf("audit failure reason = %q, want %q", got, tc.wantReason)
+			}
+			if tc.name == "hook stderr marker with exit code two is hook denied" {
+				const rawMarker = "credential=secret-value"
+				if got := strings.Count(eventStub.auditCall.output, rawMarker); got != 1 {
+					t.Fatalf("audit output raw marker count = %d, want one existing tool_response copy", got)
+				}
+				if strings.Contains(string(eventStub.auditCall.failureReason), rawMarker) {
+					t.Fatalf("failure reason leaked raw hook stderr: %q", eventStub.auditCall.failureReason)
+				}
 			}
 		})
 	}
