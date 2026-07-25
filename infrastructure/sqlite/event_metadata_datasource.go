@@ -566,10 +566,11 @@ func queryRecentEventMetadataWith(
 		return rows, nil
 	}
 	if sourceHookHasLegacyPrefix(sourceHook) {
+		queryText := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, fromValue, toValue)
 		rows, err := query(
 			ctx,
-			selectRecentEventMetadataBySourceHookWithLegacyQuery,
-			sourceHookLegacyQueryArgs(
+			queryText,
+			metadataSourceHookLegacyQueryArgs(
 				sourceHook,
 				criteria.Kind(),
 				criteria.Client(),
@@ -588,10 +589,11 @@ func queryRecentEventMetadataWith(
 		}
 		return rows, nil
 	}
+	queryText := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookQuery, fromValue, toValue)
 	rows, err := query(
 		ctx,
-		selectRecentEventMetadataBySourceHookQuery,
-		sourceHookPrimaryQueryArgs(
+		queryText,
+		metadataSourceHookPrimaryQueryArgs(
 			sourceHook,
 			criteria.Kind(),
 			criteria.Client(),
@@ -628,13 +630,12 @@ func scopedRecentEventMetadataQuery(
 		criteria.Client().String(), criteria.Client().String(),
 		criteria.Agent().String(), criteria.Agent().String(),
 		failuresFlag,
-		fromValue, fromValue,
-		toValue, toValue,
-		limit, offset,
 	}
+	common = append(common, metadataTimeRangeArgs(fromValue, toValue)...)
+	common = append(common, limit, offset)
 	switch {
 	case workspace != "" && sessionID != "":
-		return selectRecentEventMetadataByWorkspaceSessionQuery, append([]any{workspace, sessionID}, common...)
+		return metadataTimeRangeQuery(selectRecentEventMetadataByWorkspaceSessionQuery, fromValue, toValue), append([]any{workspace, sessionID}, common...)
 	case workspace != "":
 		// The workspace query retains session_id as an optional filter.
 		args := []any{workspace,
@@ -642,27 +643,92 @@ func scopedRecentEventMetadataQuery(
 			criteria.Client().String(), criteria.Client().String(),
 			criteria.Agent().String(), criteria.Agent().String(),
 			sessionID, sessionID,
-			failuresFlag, fromValue, fromValue, toValue, toValue, limit, offset,
+			failuresFlag,
 		}
-		return selectRecentEventMetadataByWorkspaceQuery, args
+		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+		args = append(args, limit, offset)
+		return metadataTimeRangeQuery(selectRecentEventMetadataByWorkspaceQuery, fromValue, toValue), args
 	case sessionID != "":
 		args := []any{sessionID,
 			criteria.Kind().String(), criteria.Kind().String(),
 			criteria.Client().String(), criteria.Client().String(),
 			criteria.Agent().String(), criteria.Agent().String(),
 			workspace, workspace,
-			failuresFlag, fromValue, fromValue, toValue, toValue, limit, offset,
+			failuresFlag,
 		}
-		return selectRecentEventMetadataBySessionQuery, args
+		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+		args = append(args, limit, offset)
+		return metadataTimeRangeQuery(selectRecentEventMetadataBySessionQuery, fromValue, toValue), args
 	default:
-		return selectRecentEventMetadataQuery, []any{
+		args := []any{
 			criteria.Kind().String(), criteria.Kind().String(),
 			criteria.Client().String(), criteria.Client().String(),
 			criteria.Agent().String(), criteria.Agent().String(),
 			"", "", "", "",
-			failuresFlag, fromValue, fromValue, toValue, toValue, limit, offset,
+			failuresFlag,
 		}
+		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+		args = append(args, limit, offset)
+		return metadataTimeRangeQuery(selectRecentEventMetadataQuery, fromValue, toValue), args
 	}
+}
+
+const (
+	metadataOptionalFromPredicate = "AND (? = '' OR e.created_at_norm >= ?)"
+	metadataOptionalToPredicate   = "AND (? = '' OR e.created_at_norm < ?)"
+)
+
+// metadataTimeRangeQuery selects a SQL variant with direct range predicates
+// whenever a boundary is supplied. Direct predicates let SQLite seek within
+// the persisted timestamp indexes instead of scanning an ordered index and
+// evaluating optional range expressions row by row.
+func metadataTimeRangeQuery(query, fromValue, toValue string) string {
+	if fromValue != "" {
+		query = strings.Replace(query, metadataOptionalFromPredicate, "AND e.created_at_norm >= ?", 1)
+	}
+	if toValue != "" {
+		query = strings.Replace(query, metadataOptionalToPredicate, "AND e.created_at_norm < ?", 1)
+	}
+	return query
+}
+
+func metadataTimeRangeArgs(fromValue, toValue string) []any {
+	args := make([]any, 0, 4)
+	if fromValue == "" {
+		args = append(args, "", "")
+	} else {
+		args = append(args, fromValue)
+	}
+	if toValue == "" {
+		args = append(args, "", "")
+	} else {
+		args = append(args, toValue)
+	}
+	return args
+}
+
+func metadataSourceHookPrimaryQueryArgs(
+	sourceHook string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
+	failuresFlag int,
+	fromValue, toValue string,
+	limit, offset int,
+) []any {
+	args := []any{sourceHook, kind.String(), kind.String(), client.String(), client.String(), agent.String(), agent.String(), sessionID.String(), sessionID.String(), workspace.String(), workspace.String(), failuresFlag}
+	args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+	return append(args, limit, offset)
+}
+
+func metadataSourceHookLegacyQueryArgs(
+	sourceHook string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
+	failuresFlag int,
+	fromValue, toValue string,
+	limit, offset int,
+) []any {
+	args := []any{sourceHook, sourceHook, sourceHook, kind.String(), kind.String(), client.String(), client.String(), agent.String(), agent.String(), sessionID.String(), sessionID.String(), workspace.String(), workspace.String(), failuresFlag}
+	args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+	return append(args, limit, offset)
 }
 
 func contextEventMetadataQuery(workspace, sessionID string, limit int) (string, []any) {

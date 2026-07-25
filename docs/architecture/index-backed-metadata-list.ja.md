@@ -28,15 +28,16 @@
 | workspace + session context | `idx_events_workspace_session_created_at_norm_id_desc` |
 | source-hook list | `idx_events_source_hook_created_at_norm_id_desc` |
 
-公開済みフィルタの意味を保つため、list の条件は任意のままとする。計画は順序インデックスを走査し、scope だけのページでは `offset + limit` に達したら終了する。scope 以外のフィルタはその順序走査中に適用する。組み合わせごとの SQL を増やして結果の意味を変えない。
+公開済みフィルタの意味を保つため、list の条件は任意のままとする。ただし時刻境界が指定された場合は、順序インデックス内をseekできる直接範囲predicateのSQL variantを選ぶ。計画は順序インデックスを走査し、scope だけのページでは `offset + limit` に達したら終了する。scope 以外のフィルタはその順序走査中に適用する。組み合わせごとの SQL を増やして結果の意味を変えない。
 
 ### 振る舞いテスト
 
-1. 代表的な list/context の `EXPLAIN QUERY PLAN` が対象インデックスを使い、order-by 用の一時 B-tree を作らないことを確認する。
+1. migration済みストアに対する代表的な list/context とlegacy source-hook fallbackの `EXPLAIN QUERY PLAN` が対象インデックスを使い、order-by 用の一時 B-tree を作らないことを確認する。
 2. 通常 list と scope/offset ページの時刻順を確認する。
 3. metadata SQL の SELECT リストで `body` と command payload 列を禁止する。
 4. 000031 前のストアを更新し、固定幅時刻がバックフィルされ、insert と時刻更新後も維持されることを確認する。
+5. 10k eventのmigration済みfixtureを直接range queryで実行し、p95を回帰証跡として残す（今回の測定値は265.083us）。
 
 ### ロールバックと残リスク
 
-000031 は追加かつ冪等である。旧アプリは追加列、trigger、置換インデックスを無視するため、アプリのロールバック後もストアを読める。巨大ストアでのインデックス作成には一時的に容量と書込みロックが必要である。p95 は環境依存の時間計測ではなく、インデックスを使う計画で回帰を防ぐ。
+000031 は追加かつ冪等である。旧アプリは追加列、trigger、インデックスを無視するため、アプリのロールバック後もストアを読める。巨大ストアでのインデックス作成には一時的に容量と書込みロックが必要である。p95 は環境依存の時間計測ではなく、インデックスを使う計画で回帰を防ぐ。

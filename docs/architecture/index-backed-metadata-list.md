@@ -30,8 +30,9 @@
 | workspace + session context | `idx_events_workspace_session_created_at_norm_id_desc` |
 | source-hook list | `idx_events_source_hook_created_at_norm_id_desc` |
 
-The list predicates remain deliberately optional so all public filters keep
-their existing semantics. The planner can scan the matching ordering index;
+The list predicates remain optional for public filters, but supplied timestamp
+bounds select direct SQL variants so the planner can seek within the matching
+ordering index. The planner can scan the matching ordering index;
 for an unfiltered scoped page it stops after `offset + limit`, while filters
 that are not an indexed scope are applied during that ordered scan. This is
 preferable to duplicating every filter combination or changing result
@@ -39,19 +40,22 @@ membership.
 
 ### Behavior tests and TDD plan
 
-1. Assert representative list/context `EXPLAIN QUERY PLAN` output uses the
+1. Assert representative list/context and legacy source-hook fallback
+   `EXPLAIN QUERY PLAN` output from a migrated store uses the
    documented ordering index and does not build a temporary order-by tree.
 2. Assert normal list and scoped/offset pages preserve timestamp order.
 3. Keep the metadata SQL select-list guard: `body` and command payload columns
    are forbidden in every metadata query.
 4. Upgrade a pre-000031 store and assert the fixed-width timestamp is
    backfilled and maintained after inserts and timestamp updates.
+5. Exercise a 10k-event migrated fixture and retain the direct-range p95 as
+   regression evidence (the current test run recorded 265.083us).
 
 ### Rollback and residual risk
 
 Migration 000031 is additive and idempotent. Reverting application code keeps
 the store readable because older readers ignore the added column, triggers, and
-replacement indexes. Index creation can temporarily require disk and write-lock
+indexes. Index creation can temporarily require disk and write-lock
 capacity on very large stores; operators should retry after freeing capacity or
 quiescing writers. The p95 target is guarded structurally by index plans rather
 than a machine-dependent wall-clock benchmark.

@@ -94,12 +94,6 @@ BEGIN
      WHERE id = NEW.id;
 END;
 
-DROP INDEX IF EXISTS idx_events_ts_norm_created_at_id_desc;
-DROP INDEX IF EXISTS idx_events_workspace_ts_norm_created_at_id_desc;
-DROP INDEX IF EXISTS idx_events_session_ts_norm_created_at_id_desc;
-DROP INDEX IF EXISTS idx_events_workspace_session_ts_norm_created_at_id_desc;
-DROP INDEX IF EXISTS idx_events_source_hook_time;
-
 CREATE INDEX idx_events_created_at_norm_id_desc
     ON events(created_at_norm DESC, id DESC);
 CREATE INDEX idx_events_workspace_created_at_norm_id_desc

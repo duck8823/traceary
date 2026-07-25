@@ -3,7 +3,10 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 func TestBoundedLatestEventMetadataQueryPlanUsesCreatedAtIndex(t *testing.T) {
@@ -188,6 +192,136 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 				t.Fatalf("query plan sorts metadata rows outside its ordering index:\n%s", joined)
 			}
 		})
+	}
+}
+
+func TestMetadataRangeAndLegacyFallbackPlansUseProductionMigrationIndexes(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	migrations := os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations"))
+	if err := NewStoreManagementDatasource(NewDatabase(dbPath, migrations)).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, row := range []struct {
+		id, kind, sourceHook, body, createdAt string
+	}{
+		{"tagged", "session_ended", "subagent_stop", "tagged", "2026-07-25T00:00:02Z"},
+		{"legacy", "session_ended", "", "[phase:subagent] legacy", "2026-07-25T00:00:01Z"},
+	} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook, body_availability)
+			VALUES (?, ?, 'hook', 'codex', 'session-1', 'repo-current', ?, ?, NULLIF(?, ''), 'available')`, row.id, row.kind, row.body, row.createdAt, row.sourceHook); err != nil {
+			t.Fatalf("insert %s: %v", row.id, err)
+		}
+	}
+
+	from := "2026-07-25T00:00:00.000000000Z"
+	to := "2026-07-25T00:00:03.000000000Z"
+	criteria := apptypes.NewEventListCriteriaBuilder(25).
+		Workspace(types.Workspace("repo-current")).
+		From(time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)).
+		To(time.Date(2026, 7, 25, 0, 0, 3, 0, time.UTC)).
+		Build()
+	query, args := scopedRecentEventMetadataQuery(criteria, 0, from, to, 25, 0)
+	assertPlanUsesOrderedIndex(t, explainQueryPlan(t, db, query, args...), "idx_events_workspace_created_at_norm_id_desc")
+
+	legacyQuery := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, from, to)
+	legacyArgs := metadataSourceHookLegacyQueryArgs(
+		"subagent_stop", "", "", "", "", "", 0, from, to, 25, 0,
+	)
+	assertPlanUsesOrderedIndex(t, explainQueryPlan(t, db, legacyQuery, legacyArgs...), "idx_events_created_at_norm_id_desc")
+}
+
+func assertPlanUsesOrderedIndex(t *testing.T, plan []string, index string) {
+	t.Helper()
+	joined := strings.Join(plan, "\n")
+	if !strings.Contains(joined, index) {
+		t.Fatalf("query plan does not use %s:\n%s", index, joined)
+	}
+	if strings.Contains(joined, "USE TEMP B-TREE FOR ORDER BY") {
+		t.Fatalf("query plan sorts outside its ordering index:\n%s", joined)
+	}
+}
+
+func TestMetadataRangeQueryP95OnLargeMigratedStore(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	migrations := os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations"))
+	if err := NewStoreManagementDatasource(NewDatabase(dbPath, migrations)).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	statement, err := tx.PrepareContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, body_availability)
+		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', '', ?, 'available')`)
+	if err != nil {
+		t.Fatalf("PrepareContext() error = %v", err)
+	}
+	base := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 10000; i++ {
+		if _, err := statement.ExecContext(ctx, fmt.Sprintf("event-%05d", i), base.Add(time.Duration(i)*time.Millisecond).Format(time.RFC3339Nano)); err != nil {
+			_ = statement.Close()
+			_ = tx.Rollback()
+			t.Fatalf("insert fixture %d: %v", i, err)
+		}
+	}
+	if err := statement.Close(); err != nil {
+		t.Fatalf("statement.Close() error = %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+
+	criteria := apptypes.NewEventListCriteriaBuilder(50).
+		Workspace(types.Workspace("repo-current")).
+		From(base.Add(4 * time.Second)).
+		To(base.Add(6 * time.Second)).
+		Build()
+	query, args := scopedRecentEventMetadataQuery(
+		criteria, 0,
+		formatMetadataOptionalTimestamp(criteria.From()),
+		formatMetadataOptionalTimestamp(criteria.To()),
+		criteria.Limit(), criteria.Offset(),
+	)
+	durations := make([]time.Duration, 0, 25)
+	for range 25 {
+		started := time.Now()
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			t.Fatalf("range query: %v", err)
+		}
+		for rows.Next() {
+			var values [16]any
+			pointers := make([]any, len(values))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			if err := rows.Scan(pointers...); err != nil {
+				_ = rows.Close()
+				t.Fatalf("scan range row: %v", err)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatalf("rows.Close() error = %v", err)
+		}
+		durations = append(durations, time.Since(started))
+	}
+	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+	p95 := durations[(len(durations)*95+99)/100-1]
+	t.Logf("10k migrated events, workspace direct range query p95=%s", p95)
+	if p95 >= 750*time.Millisecond {
+		t.Fatalf("range query p95=%s, want < 750ms", p95)
 	}
 }
 
