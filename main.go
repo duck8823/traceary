@@ -165,6 +165,7 @@ func run() error {
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
+	eventBoundedUsecase := usecase.NewEventBoundedUsecase(eventDatasource)
 	reportUsecase := usecase.NewReportUsecase(reportDatasource)
 	codexCaptureDiagnosticUsecase := usecase.NewCodexCaptureDiagnosticUsecase(codexCaptureDiagnosticDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
@@ -214,6 +215,7 @@ func run() error {
 		contextUsecase,
 		storeManagementUsecase,
 		mcpserver.WithEventMetadata(eventMetadataUsecase),
+		mcpserver.WithEventBounded(eventBoundedUsecase),
 		mcpserver.WithReport(reportUsecase),
 	)
 	if err != nil {

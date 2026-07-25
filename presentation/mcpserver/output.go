@@ -70,7 +70,7 @@ type eventOutput struct {
 	BodyTruncated         bool                      `json:"body_truncated,omitempty" jsonschema:"true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to disable response truncation; audit payloads truncated at ingestion stay visibly truncated and are not recoverable"`
 	BodyLength            int                       `json:"body_length,omitempty" jsonschema:"original body length in runes before any truncation; only emitted when body_truncated is true"`
 	BodyOriginalBytes     *int                      `json:"body_original_bytes,omitempty" jsonschema:"original event body byte count when known"`
-	BodyStoredBytes       *int                      `json:"body_stored_bytes,omitempty" jsonschema:"stored event body byte count; available for projection=metadata"`
+	BodyStoredBytes       *int                      `json:"body_stored_bytes,omitempty" jsonschema:"stored event body byte count; available for projection=metadata and projection=bounded"`
 	BodyIngestTruncated   *bool                     `json:"body_ingest_truncated,omitempty" jsonschema:"whether ingestion truncated the event body when known"`
 	BodyStorageTruncated  *bool                     `json:"body_storage_truncated,omitempty" jsonschema:"whether storage policy truncated the event body when known"`
 	ExitCode              *int                      `json:"exit_code,omitempty" jsonschema:"command exit code when available in metadata projection"`

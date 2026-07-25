@@ -38,6 +38,7 @@ type Server struct {
 	auditMaxOutputBytes   int
 	event                 usecase.EventUsecase
 	eventMetadata         usecase.EventMetadataUsecase
+	eventBounded          usecase.EventBoundedUsecase
 	session               usecase.SessionUsecase
 	memory                usecase.MemoryUsecase
 	context               usecase.ContextUsecase
@@ -96,6 +97,9 @@ func NewServer(
 	for _, opt := range opts {
 		opt(result)
 	}
+	if result.eventBounded == nil {
+		return nil, xerrors.Errorf("event bounded usecase is not configured")
+	}
 	return result, nil
 }
 
@@ -105,6 +109,12 @@ type ServerOption func(*Server)
 // WithEventMetadata configures body-free event reads for metadata projections.
 func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) ServerOption {
 	return func(server *Server) { server.eventMetadata = eventMetadata }
+}
+
+// WithEventBounded configures body-limited event reads that avoid full Event
+// hydration for the default MCP projection.
+func WithEventBounded(eventBounded usecase.EventBoundedUsecase) ServerOption {
+	return func(server *Server) { server.eventBounded = eventBounded }
 }
 
 // WithReport configures the shared body-free aggregate report.
@@ -632,7 +642,8 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			From(interval.EffectiveFromInclusive()).
 			To(interval.EffectiveToExclusive()).
 			Build()
-		if projection == apptypes.EventProjectionMetadata {
+		switch projection {
+		case apptypes.EventProjectionMetadata:
 			if s.eventMetadata == nil {
 				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
 			}
@@ -641,14 +652,24 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 				return nil, eventsOutput{}, xerrors.Errorf("failed to list event metadata: %w", err)
 			}
 			return nil, eventsOutput{Events: convertEventMetadata(metadata), Interval: &intervalMetadata}, nil
+		case apptypes.EventProjectionBounded:
+			if s.eventBounded == nil {
+				return nil, eventsOutput{}, xerrors.Errorf("event bounded usecase is not configured")
+			}
+			events, err := s.eventBounded.List(ctx, criteria, bodyLimit)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to list bounded events: %w", err)
+			}
+			return nil, eventsOutput{Events: convertBoundedEvents(events), Interval: &intervalMetadata}, nil
+		case apptypes.EventProjectionFull:
+			events, err := s.event.List(ctx, criteria)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
+			}
+			return nil, eventsOutput{Events: convertEventsWithBodyLimit(events, 0), Interval: &intervalMetadata}, nil
+		default:
+			return nil, eventsOutput{}, xerrors.Errorf("unsupported resolved event projection %q", projection)
 		}
-
-		events, err := s.event.List(ctx, criteria)
-		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
-		}
-
-		return nil, eventsOutput{Events: convertEventsWithBodyLimit(events, bodyLimit), Interval: &intervalMetadata}, nil
 	}
 }
 
@@ -763,7 +784,8 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			From(interval.EffectiveFromInclusive()).
 			To(interval.EffectiveToExclusive()).
 			Build()
-		if projection == apptypes.EventProjectionMetadata {
+		switch projection {
+		case apptypes.EventProjectionMetadata:
 			if s.eventMetadata == nil {
 				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
 			}
@@ -772,18 +794,26 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 				return nil, eventsOutput{}, xerrors.Errorf("failed to search event metadata: %w", err)
 			}
 			return nil, eventsOutput{Events: convertEventMetadata(metadata), Interval: &intervalMetadata}, nil
+		case apptypes.EventProjectionBounded:
+			if s.eventBounded == nil {
+				return nil, eventsOutput{}, xerrors.Errorf("event bounded usecase is not configured")
+			}
+			events, err := s.eventBounded.Search(ctx, criteria, bodyLimit)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to search bounded events: %w", err)
+			}
+			return nil, eventsOutput{Events: convertBoundedEvents(events), Interval: &intervalMetadata}, nil
+		case apptypes.EventProjectionFull:
+			events, err := s.event.Search(ctx, criteria)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to search events: %w", err)
+			}
+			// Full search intentionally omits body_blocks so thinking content
+			// is not re-exposed through this surface.
+			return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, 0), Interval: &intervalMetadata}, nil
+		default:
+			return nil, eventsOutput{}, xerrors.Errorf("unsupported resolved event projection %q", projection)
 		}
-
-		events, err := s.event.Search(ctx, criteria)
-		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to search events: %w", err)
-		}
-
-		// Search intentionally omits body_blocks so thinking content is
-		// not re-exposed through this surface — #682 strips thinking
-		// from the LIKE match, but the envelope is still attached to
-		// the returned event and body_blocks would bypass the gate.
-		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, bodyLimit), Interval: &intervalMetadata}, nil
 	}
 }
 
@@ -797,7 +827,8 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
 			SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
 			Build()
-		if projection == apptypes.EventProjectionMetadata {
+		switch projection {
+		case apptypes.EventProjectionMetadata:
 			if s.eventMetadata == nil {
 				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
 			}
@@ -806,17 +837,25 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 				return nil, eventsOutput{}, xerrors.Errorf("failed to get context metadata: %w", err)
 			}
 			return nil, eventsOutput{Events: convertEventMetadata(metadata)}, nil
+		case apptypes.EventProjectionBounded:
+			if s.eventBounded == nil {
+				return nil, eventsOutput{}, xerrors.Errorf("event bounded usecase is not configured")
+			}
+			events, err := s.eventBounded.Context(ctx, criteria, bodyLimit)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to get bounded context: %w", err)
+			}
+			return nil, eventsOutput{Events: convertBoundedEvents(events)}, nil
+		case apptypes.EventProjectionFull:
+			events, err := s.event.Context(ctx, criteria)
+			if err != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to get context: %w", err)
+			}
+			// Full get_context omits body_blocks for the same reason as search.
+			return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, 0)}, nil
+		default:
+			return nil, eventsOutput{}, xerrors.Errorf("unsupported resolved event projection %q", projection)
 		}
-
-		events, err := s.event.Context(ctx, criteria)
-		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to get context: %w", err)
-		}
-
-		// get_context also omits body_blocks for the same reason as
-		// search: the canonical envelope would re-expose thinking
-		// block text that other surfaces already strip.
-		return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, bodyLimit)}, nil
 	}
 }
 
@@ -2016,6 +2055,47 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 		outputs = append(outputs, output)
 	}
 
+	return outputs
+}
+
+func convertBoundedEvents(events []apptypes.BoundedEvent) []eventOutput {
+	outputs := make([]eventOutput, 0, len(events))
+	for _, event := range events {
+		metadata := event.Metadata()
+		extent := metadata.BodyExtent()
+		output := eventOutput{
+			EventID:              metadata.EventID().String(),
+			Kind:                 metadata.Kind().String(),
+			Client:               metadata.Client().String(),
+			Agent:                metadata.Agent().String(),
+			SessionID:            metadata.SessionID().String(),
+			Workspace:            metadata.Workspace().String(),
+			BodyBlocks:           event.BodyBlocks(),
+			BodyOriginalBytes:    optionalPointer(extent.OriginalBytes()),
+			BodyStoredBytes:      intPointer(extent.StoredBytes()),
+			BodyIngestTruncated:  optionalPointer(extent.IngestTruncated()),
+			BodyStorageTruncated: optionalPointer(extent.StorageTruncated()),
+			SourceHook:           metadata.SourceHook(),
+			CreatedAt:            metadata.CreatedAt().UTC().Format(time.RFC3339Nano),
+		}
+		if event.BodyAvailability().IsAvailable() {
+			body := event.Body()
+			if event.BodyResponseTruncated() {
+				body += "…"
+				output.BodyTruncated = true
+				output.BodyLength = event.VisibleBodyRunes()
+			}
+			output.Body = stringPointer(body)
+		} else {
+			output.BodyUnavailableReason = "retention"
+			output.BodyBlocks = nil
+		}
+		if audit, ok := metadata.CommandAudit().Value(); ok {
+			output.ExitCode = optionalPointer(audit.ExitCode())
+			output.Failed = audit.Failed()
+		}
+		outputs = append(outputs, output)
+	}
 	return outputs
 }
 

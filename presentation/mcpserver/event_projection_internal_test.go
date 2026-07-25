@@ -149,6 +149,83 @@ func TestSearchAndContext_MetadataProjectionUseBodyFreeQueries(t *testing.T) {
 	}
 }
 
+func TestDefaultBoundedProjectionUsesBoundedQueriesBeforeFullEvents(t *testing.T) {
+	t.Parallel()
+
+	boundedEvent := newMCPBoundedFixture(t, "bounded visible body", 20, false)
+	full := &projectionEventUsecaseStub{}
+	bounded := &projectionBoundedUsecaseStub{
+		list:    []apptypes.BoundedEvent{boundedEvent},
+		search:  []apptypes.BoundedEvent{boundedEvent},
+		context: []apptypes.BoundedEvent{boundedEvent},
+	}
+	server := &Server{event: full, eventBounded: bounded}
+
+	_, listOutput, err := server.listEvents()(context.Background(), nil, listEventsInput{Limit: 1})
+	if err != nil {
+		t.Fatalf("listEvents() error = %v", err)
+	}
+	_, searchOutput, err := server.search()(context.Background(), nil, searchInput{Query: "visible", Limit: 1})
+	if err != nil {
+		t.Fatalf("search() error = %v", err)
+	}
+	_, contextOutput, err := server.getContext()(context.Background(), nil, getContextInput{SessionID: "session-1", Limit: 1})
+	if err != nil {
+		t.Fatalf("getContext() error = %v", err)
+	}
+	if full.listCalls != 0 || full.searchCalls != 0 || full.contextCalls != 0 {
+		t.Fatalf("full calls: list=%d search=%d context=%d, want zero", full.listCalls, full.searchCalls, full.contextCalls)
+	}
+	if bounded.listCalls != 1 || bounded.searchCalls != 1 || bounded.contextCalls != 1 {
+		t.Fatalf("bounded calls: list=%d search=%d context=%d, want one each", bounded.listCalls, bounded.searchCalls, bounded.contextCalls)
+	}
+	for name, events := range map[string][]eventOutput{
+		"list": listOutput.Events, "search": searchOutput.Events, "context": contextOutput.Events,
+	} {
+		if len(events) != 1 || events[0].Body == nil || *events[0].Body != "bounded visible body" {
+			t.Fatalf("%s bounded output = %+v", name, events)
+		}
+	}
+}
+
+func TestConvertBoundedEventsPreservesResponseAndStorageProvenance(t *testing.T) {
+	t.Parallel()
+
+	truncated := newMCPBoundedFixture(t, "visible", 20, true)
+	output := convertBoundedEvents([]apptypes.BoundedEvent{truncated})
+	if len(output) != 1 || output[0].Body == nil {
+		t.Fatalf("convertBoundedEvents() = %+v", output)
+	}
+	if *output[0].Body != "visible…" ||
+		!output[0].BodyTruncated ||
+		output[0].BodyLength != 20 {
+		t.Fatalf("bounded response truncation = %+v", output[0])
+	}
+	if output[0].BodyStoredBytes == nil || *output[0].BodyStoredBytes != 8*1024*1024 {
+		t.Fatalf("bounded stored extent = %+v", output[0])
+	}
+	if len(output[0].BodyBlocks) != 0 {
+		t.Fatalf("response-truncated body_blocks = %+v, want omitted", output[0].BodyBlocks)
+	}
+}
+
+func TestConvertBoundedEventsIncludesExplicitCanonicalBlocksOnlyWhenAttached(t *testing.T) {
+	t.Parallel()
+
+	event := newMCPBoundedFixture(t, "visible", 7, true)
+	withBlocks, err := event.WithCanonicalBodyBlocks([]apptypes.EventBodyBlock{
+		{Type: apptypes.EventBodyBlockTypeThinking, Text: "hidden"},
+		{Type: apptypes.EventBodyBlockTypeText, Text: "visible"},
+	})
+	if err != nil {
+		t.Fatalf("WithCanonicalBodyBlocks() error = %v", err)
+	}
+	output := convertBoundedEvents([]apptypes.BoundedEvent{withBlocks})
+	if len(output) != 1 || len(output[0].BodyBlocks) != 2 {
+		t.Fatalf("canonical bounded output = %+v", output)
+	}
+}
+
 func TestSearchProjection_OmitsThinkingBesideUnknownBlocks(t *testing.T) {
 	t.Parallel()
 
@@ -205,7 +282,7 @@ func TestListEventsAndSearchShareRequestedIntervalSemantics(t *testing.T) {
 		events := &projectionEventUsecaseStub{}
 		server := &Server{event: events}
 		_, output, err := server.listEvents()(context.Background(), nil, listEventsInput{
-			From: "2026-03-08", To: "2026-03-08", Timezone: "America/New_York",
+			From: "2026-03-08", To: "2026-03-08", Timezone: "America/New_York", FullBody: true,
 		})
 		if err != nil {
 			t.Fatalf("listEvents() error = %v", err)
@@ -218,7 +295,7 @@ func TestListEventsAndSearchShareRequestedIntervalSemantics(t *testing.T) {
 		events := &projectionEventUsecaseStub{}
 		server := &Server{event: events}
 		_, output, err := server.search()(context.Background(), nil, searchInput{
-			Query: "needle", From: "2026-03-08", To: "2026-03-08", Timezone: "America/New_York",
+			Query: "needle", From: "2026-03-08", To: "2026-03-08", Timezone: "America/New_York", FullBody: true,
 		})
 		if err != nil {
 			t.Fatalf("search() error = %v", err)
@@ -266,7 +343,10 @@ func TestListEvents_LegacyBodyControlsRemainCompatible(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			full := &projectionEventUsecaseStub{list: []*model.Event{event}}
-			server := &Server{event: full}
+			boundedBody := string([]rune(body)[:defaultListEventBodyLimit])
+			boundedEvent := newMCPBoundedFixture(t, boundedBody, len([]rune(body)), false)
+			bounded := &projectionBoundedUsecaseStub{list: []apptypes.BoundedEvent{boundedEvent}}
+			server := &Server{event: full, eventBounded: bounded}
 			_, output, err := server.listEvents()(context.Background(), nil, listEventsInput{BodyLimit: tt.bodyLimit, FullBody: tt.fullBody})
 			if err != nil {
 				t.Fatalf("listEvents() error = %v", err)
@@ -282,6 +362,13 @@ func TestListEvents_LegacyBodyControlsRemainCompatible(t *testing.T) {
 			}
 			if tt.wantTruncated && len([]rune(*output.Events[0].Body)) > defaultListEventBodyLimit+1 {
 				t.Fatalf("bounded body runes = %d, want <= %d", len([]rune(*output.Events[0].Body)), defaultListEventBodyLimit+1)
+			}
+			if tt.wantTruncated {
+				if bounded.listCalls != 1 || full.listCalls != 0 {
+					t.Fatalf("bounded/full calls = %d/%d, want 1/0", bounded.listCalls, full.listCalls)
+				}
+			} else if bounded.listCalls != 0 || full.listCalls != 1 {
+				t.Fatalf("bounded/full calls = %d/%d, want 0/1", bounded.listCalls, full.listCalls)
 			}
 		})
 	}
@@ -353,6 +440,42 @@ func (s *projectionMetadataUsecaseStub) Context(context.Context, apptypes.EventC
 	return s.context, nil
 }
 
+type projectionBoundedUsecaseStub struct {
+	list         []apptypes.BoundedEvent
+	search       []apptypes.BoundedEvent
+	context      []apptypes.BoundedEvent
+	listCalls    int
+	searchCalls  int
+	contextCalls int
+}
+
+func (s *projectionBoundedUsecaseStub) List(
+	context.Context,
+	apptypes.EventListCriteria,
+	int,
+) ([]apptypes.BoundedEvent, error) {
+	s.listCalls++
+	return s.list, nil
+}
+
+func (s *projectionBoundedUsecaseStub) Search(
+	context.Context,
+	apptypes.EventSearchCriteria,
+	int,
+) ([]apptypes.BoundedEvent, error) {
+	s.searchCalls++
+	return s.search, nil
+}
+
+func (s *projectionBoundedUsecaseStub) Context(
+	context.Context,
+	apptypes.EventContextCriteria,
+	int,
+) ([]apptypes.BoundedEvent, error) {
+	s.contextCalls++
+	return s.context, nil
+}
+
 func newMCPMetadataFixture(t *testing.T) apptypes.EventMetadata {
 	t.Helper()
 	extent, err := apptypes.EventBodyExtentOf(types.None[int](), 8*1024*1024, types.None[bool](), types.None[bool](), types.None[int]())
@@ -369,4 +492,25 @@ func newMCPMetadataFixture(t *testing.T) apptypes.EventMetadata {
 		t.Fatalf("EventMetadataOf() error = %v", err)
 	}
 	return metadata
+}
+
+func newMCPBoundedFixture(
+	t *testing.T,
+	body string,
+	visibleBodyRunes int,
+	canonical bool,
+) apptypes.BoundedEvent {
+	t.Helper()
+	event, err := apptypes.BoundedEventOf(
+		newMCPMetadataFixture(t),
+		body,
+		len([]rune(body)),
+		visibleBodyRunes,
+		types.BodyAvailabilityAvailable,
+		canonical,
+	)
+	if err != nil {
+		t.Fatalf("BoundedEventOf() error = %v", err)
+	}
+	return event
 }
