@@ -12,5 +12,5 @@ WITH latest_lexical AS (
 SELECT e.kind, e.created_at
   FROM same_second_ids candidate
  CROSS JOIN events e ON e.id = candidate.id
- ORDER BY e.created_at DESC, e.id DESC
+ ORDER BY ts_norm(e.created_at) DESC, e.id DESC
  LIMIT 1

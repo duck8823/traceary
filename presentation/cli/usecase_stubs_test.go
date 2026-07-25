@@ -111,11 +111,13 @@ type eventMetadataUsecaseStub struct {
 	listCalls             int
 	listCriteria          apptypes.EventListCriteria
 	timestampKindCriteria apptypes.EventListCriteria
+	timestampKindCalls    int
 	searchCalls           int
 	contextCalls          int
 }
 
 func (s *eventMetadataUsecaseStub) ListTimestampKinds(_ context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventTimestampKind, error) {
+	s.timestampKindCalls++
 	s.timestampKindCriteria = criteria
 	return s.timestampKinds, nil
 }

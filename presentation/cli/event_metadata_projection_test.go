@@ -46,6 +46,28 @@ func TestRootCLI_ListMetadataProjectionBoundsTenThousandLargeEvents(t *testing.T
 	}
 }
 
+func TestRootCLI_ListTimestampKindProjectionKeepsFilteredAndPagedListsOnMetadataPath(t *testing.T) {
+	for _, args := range [][]string{
+		{"list", "--db-path", "/tmp/test-traceary.db", "--fields", "ts,kind"},
+		{"list", "--db-path", "/tmp/test-traceary.db", "--limit", "1", "--kind", "note", "--fields", "ts,kind"},
+		{"list", "--db-path", "/tmp/test-traceary.db", "--limit", "1", "--offset", "1", "--fields", "ts,kind"},
+	} {
+		t.Run(fmt.Sprint(args), func(t *testing.T) {
+			metadataUsecase := &eventMetadataUsecaseStub{listMetadata: []apptypes.EventMetadata{newCLIMetadataFixture(t, "event-metadata")}}
+			rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(&eventUsecaseStub{}), cli.WithEventMetadata(metadataUsecase)).Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(args)
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if metadataUsecase.timestampKindCalls != 0 || metadataUsecase.listCalls != 1 {
+				t.Fatalf("timestamp/kind calls = %d, metadata list calls = %d", metadataUsecase.timestampKindCalls, metadataUsecase.listCalls)
+			}
+		})
+	}
+}
+
 func TestRootCLI_ListJSONFieldsUsesMetadataProjection(t *testing.T) {
 	t.Parallel()
 

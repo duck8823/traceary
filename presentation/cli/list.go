@@ -181,7 +181,7 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		if c.eventMetadata == nil {
 			return xerrors.New(Localize("event metadata query service is not configured", "イベントメタデータクエリサービスが設定されていません"))
 		}
-		if !input.asJSON && fromValue == "" && toValue == "" && isTimestampKindFields(resolvedFields) {
+		if isBoundedTimestampKindList(input, resolvedKind, fromValue, toValue, resolvedFields) {
 			entries, err := c.eventMetadata.ListTimestampKinds(ctx, criteria)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to list event timestamp/kind", "イベント時刻・種別一覧の取得に失敗しました"), err)
@@ -259,6 +259,17 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 	}
 
 	return nil
+}
+
+// isBoundedTimestampKindList guards the minimal projection. Every other list
+// shape retains the general metadata path and its established filtering
+// semantics.
+func isBoundedTimestampKindList(input listCommandInput, resolvedKind, fromValue, toValue string, fields []readFieldID) bool {
+	return !input.asJSON && input.limit == 1 && input.offset == 0 &&
+		resolvedKind == "" && strings.TrimSpace(input.client) == "" &&
+		strings.TrimSpace(input.agent) == "" && strings.TrimSpace(input.sessionID) == "" &&
+		!input.failuresOnly && strings.TrimSpace(input.sourceHook) == "" &&
+		fromValue == "" && toValue == "" && isTimestampKindFields(fields)
 }
 
 func isTimestampKindFields(fields []readFieldID) bool {
