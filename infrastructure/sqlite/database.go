@@ -200,6 +200,27 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 	if err := d.migrate(ctx, db); err != nil {
 		return xerrors.Errorf("failed to run SQLite migrations: %w", err)
 	}
+	searchBackfillResult, searchBackfillErr := catchUpEventSearchDocuments(ctx, db, eventSearchBackfillBatchSize)
+	if searchBackfillErr != nil {
+		// Indexed search remains fail-closed while the durable backfill is
+		// incomplete: only hard-bounded legacy fallback is allowed. A transient
+		// catch-up failure therefore must not block event ingestion.
+		slog.Error("event search backfill incomplete; retrying on next initialization",
+			"selected", searchBackfillResult.Selected,
+			"inserted", searchBackfillResult.Inserted,
+			"last_event_id", searchBackfillResult.LastEventID,
+			"target_event_id", searchBackfillResult.TargetID,
+			"error", searchBackfillErr,
+		)
+	} else if searchBackfillResult.Selected > 0 {
+		slog.Debug("event search backfill batch completed",
+			"selected", searchBackfillResult.Selected,
+			"inserted", searchBackfillResult.Inserted,
+			"last_event_id", searchBackfillResult.LastEventID,
+			"target_event_id", searchBackfillResult.TargetID,
+			"completed", searchBackfillResult.Completed,
+		)
+	}
 	catchUpResult, catchUpErr := catchUpWorkspaceObservations(ctx, db, workspaceObservationCatchUpBatchSize)
 	if catchUpErr != nil {
 		// Catch-up is additive diagnostic coverage. A malformed historical row

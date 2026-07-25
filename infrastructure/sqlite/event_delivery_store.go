@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -13,6 +14,7 @@ import (
 )
 
 const maxDeliveryDecisionAttempts = 3
+const eventDeliveryBusyRetryDelay = 25 * time.Millisecond
 
 var errHookDeliveryIdentityRace = errors.New("hook delivery identity race")
 
@@ -47,9 +49,23 @@ func saveEventTransaction(
 		}
 		if persistErr != nil {
 			rollbackErr := tx.Rollback()
-			if errors.Is(persistErr, errHookDeliveryIdentityRace) {
+			if errors.Is(persistErr, errHookDeliveryIdentityRace) || isSQLiteBusy(persistErr) {
 				if rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-					return xerrors.Errorf("failed to rollback delivery identity race: %w", rollbackErr)
+					return xerrors.Errorf("failed to rollback retryable event delivery: %w", rollbackErr)
+				}
+				if attempt == maxDeliveryDecisionAttempts-1 {
+					return xerrors.Errorf("event delivery remained retryable after %d attempts: %w", maxDeliveryDecisionAttempts, persistErr)
+				}
+				if isSQLiteBusy(persistErr) {
+					timer := time.NewTimer(eventDeliveryBusyRetryDelay)
+					select {
+					case <-ctx.Done():
+						if !timer.Stop() {
+							<-timer.C
+						}
+						return xerrors.Errorf("event delivery retry cancelled: %w", ctx.Err())
+					case <-timer.C:
+					}
 				}
 				continue
 			}

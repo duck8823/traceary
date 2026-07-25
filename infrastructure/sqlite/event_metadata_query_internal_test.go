@@ -20,6 +20,7 @@ func TestMetadataQueries_DoNotSelectBodyColumns(t *testing.T) {
 		"recent source hook":        selectRecentEventMetadataBySourceHookQuery,
 		"recent legacy hook":        selectRecentEventMetadataBySourceHookWithLegacyQuery,
 		"search":                    searchEventMetadataQuery,
+		"indexed search hydration":  hydrateEventSearchMetadataCandidatesQuery,
 		"context":                   getContextEventMetadataQuery,
 		"context workspace":         getContextEventMetadataByWorkspaceQuery,
 		"context session":           getContextEventMetadataBySessionQuery,

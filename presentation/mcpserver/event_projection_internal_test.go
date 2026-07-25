@@ -149,6 +149,51 @@ func TestSearchAndContext_MetadataProjectionUseBodyFreeQueries(t *testing.T) {
 	}
 }
 
+func TestSearchProjection_OmitsThinkingBesideUnknownBlocks(t *testing.T) {
+	t.Parallel()
+
+	body := `{"blocks":[{"type":"thinking","text":"hidden-tool-reasoning"},{"type":"tool_use","text":"","id":"call-1"},{"type":"text","text":"visible response"}]}`
+	event := model.EventOf(
+		types.EventID("event-tool-envelope"),
+		types.EventKindTranscript,
+		types.Client("hook"),
+		types.Agent("codex"),
+		types.SessionID("session-1"),
+		types.Workspace("duck8823/traceary"),
+		body,
+		time.Date(2026, 7, 25, 1, 0, 0, 0, time.UTC),
+	)
+	full := &projectionEventUsecaseStub{search: []*model.Event{event}}
+	server := &Server{event: full}
+
+	_, output, err := server.search()(
+		context.Background(),
+		nil,
+		searchInput{Query: "visible response", FullBody: true},
+	)
+	if err != nil {
+		t.Fatalf("search() error = %v", err)
+	}
+	if full.searchCalls != 1 || len(output.Events) != 1 {
+		t.Fatalf("search calls/output = %d/%+v, want one event", full.searchCalls, output.Events)
+	}
+	got := output.Events[0]
+	if got.Body == nil || *got.Body != "visible response" {
+		t.Fatalf("search body = %v, want visible response only", got.Body)
+	}
+	if len(got.BodyBlocks) != 0 {
+		t.Fatalf("search body_blocks = %+v, want omitted", got.BodyBlocks)
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(encoded), "hidden-tool-reasoning") ||
+		strings.Contains(string(encoded), "tool_use") {
+		t.Fatalf("search output leaked non-visible blocks: %s", encoded)
+	}
+}
+
 func TestListEventsAndSearchShareRequestedIntervalSemantics(t *testing.T) {
 	t.Parallel()
 
@@ -247,6 +292,7 @@ type projectionEventUsecaseStub struct {
 	searchCalls    int
 	contextCalls   int
 	list           []*model.Event
+	search         []*model.Event
 	listCriteria   apptypes.EventListCriteria
 	searchCriteria apptypes.EventSearchCriteria
 }
@@ -260,7 +306,7 @@ func (*projectionEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, a
 func (s *projectionEventUsecaseStub) Search(_ context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	s.searchCalls++
 	s.searchCriteria = criteria
-	return nil, nil
+	return s.search, nil
 }
 func (s *projectionEventUsecaseStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
 	s.listCalls++
