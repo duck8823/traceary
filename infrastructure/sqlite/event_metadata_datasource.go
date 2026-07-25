@@ -19,6 +19,15 @@ import (
 //go:embed sql/select_recent_event_metadata.sql
 var selectRecentEventMetadataQuery string
 
+//go:embed sql/select_recent_event_metadata_by_workspace.sql
+var selectRecentEventMetadataByWorkspaceQuery string
+
+//go:embed sql/select_recent_event_metadata_by_session.sql
+var selectRecentEventMetadataBySessionQuery string
+
+//go:embed sql/select_recent_event_metadata_by_workspace_session.sql
+var selectRecentEventMetadataByWorkspaceSessionQuery string
+
 //go:embed sql/select_latest_event_metadata_fast.sql
 var selectLatestEventMetadataFastQuery string
 
@@ -42,6 +51,15 @@ var searchEventMetadataQuery string
 
 //go:embed sql/get_context_event_metadata.sql
 var getContextEventMetadataQuery string
+
+//go:embed sql/get_context_event_metadata_by_workspace.sql
+var getContextEventMetadataByWorkspaceQuery string
+
+//go:embed sql/get_context_event_metadata_by_session.sql
+var getContextEventMetadataBySessionQuery string
+
+//go:embed sql/get_context_event_metadata_by_workspace_session.sql
+var getContextEventMetadataByWorkspaceSessionQuery string
 
 var _ queryservice.EventMetadataQueryService = (*EventDatasource)(nil)
 
@@ -118,8 +136,8 @@ func (d *EventDatasource) ListRecentMetadata(
 		ctx,
 		db,
 		criteria,
-		formatOptionalTimestamp(criteria.From()),
-		formatOptionalTimestamp(criteria.To()),
+		formatMetadataOptionalTimestamp(criteria.From()),
+		formatMetadataOptionalTimestamp(criteria.To()),
 		criteria.Limit(),
 		criteria.Offset(),
 	)
@@ -162,8 +180,8 @@ func (d *EventDatasource) ListWindowMetadata(
 			ctx,
 			tx,
 			criteria,
-			formatOptionalTimestamp(criteria.From()),
-			formatOptionalTimestamp(criteria.To()),
+			formatMetadataOptionalTimestamp(criteria.From()),
+			formatMetadataOptionalTimestamp(criteria.To()),
 			batch,
 			offset,
 		)
@@ -259,15 +277,8 @@ func (d *EventDatasource) GetContextMetadata(
 
 	workspace := strings.TrimSpace(criteria.Workspace().String())
 	sessionID := strings.TrimSpace(criteria.SessionID().String())
-	rows, err := db.QueryContext(
-		ctx,
-		getContextEventMetadataQuery,
-		workspace,
-		workspace,
-		sessionID,
-		sessionID,
-		criteria.Limit(),
-	)
+	query, args := contextEventMetadataQuery(workspace, sessionID, criteria.Limit())
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query event metadata context: %w", err)
 	}
@@ -295,6 +306,17 @@ func formatOptionalTimestamp(value time.Time) string {
 		return ""
 	}
 	return formatTimestamp(value)
+}
+
+// formatMetadataOptionalTimestamp matches events.created_at_norm, which is
+// persisted in the fixed-width form used by its ordering indexes. Other event
+// queries still normalize created_at inside SQLite and therefore keep the
+// variable-width RFC3339Nano parameter format.
+func formatMetadataOptionalTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return formatMemoryValidityTimestamp(value)
 }
 
 func closeMetadataResource(db *sql.DB) {
@@ -532,19 +554,11 @@ func queryRecentEventMetadataWith(
 		return rows, nil
 	}
 	if sourceHook == "" {
+		queryText, args := scopedRecentEventMetadataQuery(criteria, failuresFlag, fromValue, toValue, limit, offset)
 		rows, err := query(
 			ctx,
-			selectRecentEventMetadataQuery,
-			criteria.Kind().String(), criteria.Kind().String(),
-			criteria.Client().String(), criteria.Client().String(),
-			criteria.Agent().String(), criteria.Agent().String(),
-			criteria.SessionID().String(), criteria.SessionID().String(),
-			criteria.Workspace().String(), criteria.Workspace().String(),
-			failuresFlag,
-			fromValue, fromValue,
-			toValue, toValue,
-			limit,
-			offset,
+			queryText,
+			args...,
 		)
 		if err != nil {
 			return nil, xerrors.Errorf("query recent event metadata: %w", err)
@@ -552,10 +566,11 @@ func queryRecentEventMetadataWith(
 		return rows, nil
 	}
 	if sourceHookHasLegacyPrefix(sourceHook) {
+		queryText := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, fromValue, toValue)
 		rows, err := query(
 			ctx,
-			selectRecentEventMetadataBySourceHookWithLegacyQuery,
-			sourceHookLegacyQueryArgs(
+			queryText,
+			metadataSourceHookLegacyQueryArgs(
 				sourceHook,
 				criteria.Kind(),
 				criteria.Client(),
@@ -574,10 +589,11 @@ func queryRecentEventMetadataWith(
 		}
 		return rows, nil
 	}
+	queryText := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookQuery, fromValue, toValue)
 	rows, err := query(
 		ctx,
-		selectRecentEventMetadataBySourceHookQuery,
-		sourceHookPrimaryQueryArgs(
+		queryText,
+		metadataSourceHookPrimaryQueryArgs(
 			sourceHook,
 			criteria.Kind(),
 			criteria.Client(),
@@ -595,6 +611,137 @@ func queryRecentEventMetadataWith(
 		return nil, xerrors.Errorf("query recent event metadata by source hook: %w", err)
 	}
 	return rows, nil
+}
+
+// scopedRecentEventMetadataQuery selects the most selective stable scope as a
+// top-level predicate. The public optional-filter semantics remain unchanged,
+// while SQLite can use the matching normalized-timestamp ordering index for a
+// bounded metadata page instead of sorting all matching rows.
+func scopedRecentEventMetadataQuery(
+	criteria apptypes.EventListCriteria,
+	failuresFlag int,
+	fromValue, toValue string,
+	limit, offset int,
+) (string, []any) {
+	workspace := criteria.Workspace().String()
+	sessionID := criteria.SessionID().String()
+	common := []any{
+		criteria.Kind().String(), criteria.Kind().String(),
+		criteria.Client().String(), criteria.Client().String(),
+		criteria.Agent().String(), criteria.Agent().String(),
+		failuresFlag,
+	}
+	common = append(common, metadataTimeRangeArgs(fromValue, toValue)...)
+	common = append(common, limit, offset)
+	switch {
+	case workspace != "" && sessionID != "":
+		return metadataTimeRangeQuery(selectRecentEventMetadataByWorkspaceSessionQuery, fromValue, toValue), append([]any{workspace, sessionID}, common...)
+	case workspace != "":
+		// The workspace query retains session_id as an optional filter.
+		args := []any{workspace,
+			criteria.Kind().String(), criteria.Kind().String(),
+			criteria.Client().String(), criteria.Client().String(),
+			criteria.Agent().String(), criteria.Agent().String(),
+			sessionID, sessionID,
+			failuresFlag,
+		}
+		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+		args = append(args, limit, offset)
+		return metadataTimeRangeQuery(selectRecentEventMetadataByWorkspaceQuery, fromValue, toValue), args
+	case sessionID != "":
+		args := []any{sessionID,
+			criteria.Kind().String(), criteria.Kind().String(),
+			criteria.Client().String(), criteria.Client().String(),
+			criteria.Agent().String(), criteria.Agent().String(),
+			workspace, workspace,
+			failuresFlag,
+		}
+		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+		args = append(args, limit, offset)
+		return metadataTimeRangeQuery(selectRecentEventMetadataBySessionQuery, fromValue, toValue), args
+	default:
+		args := []any{
+			criteria.Kind().String(), criteria.Kind().String(),
+			criteria.Client().String(), criteria.Client().String(),
+			criteria.Agent().String(), criteria.Agent().String(),
+			"", "", "", "",
+			failuresFlag,
+		}
+		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+		args = append(args, limit, offset)
+		return metadataTimeRangeQuery(selectRecentEventMetadataQuery, fromValue, toValue), args
+	}
+}
+
+const (
+	metadataOptionalFromPredicate = "AND (? = '' OR e.created_at_norm >= ?)"
+	metadataOptionalToPredicate   = "AND (? = '' OR e.created_at_norm < ?)"
+)
+
+// metadataTimeRangeQuery selects a SQL variant with direct range predicates
+// whenever a boundary is supplied. Direct predicates let SQLite seek within
+// the persisted timestamp indexes instead of scanning an ordered index and
+// evaluating optional range expressions row by row.
+func metadataTimeRangeQuery(query, fromValue, toValue string) string {
+	if fromValue != "" {
+		query = strings.Replace(query, metadataOptionalFromPredicate, "AND e.created_at_norm >= ?", 1)
+	}
+	if toValue != "" {
+		query = strings.Replace(query, metadataOptionalToPredicate, "AND e.created_at_norm < ?", 1)
+	}
+	return query
+}
+
+func metadataTimeRangeArgs(fromValue, toValue string) []any {
+	args := make([]any, 0, 4)
+	if fromValue == "" {
+		args = append(args, "", "")
+	} else {
+		args = append(args, fromValue)
+	}
+	if toValue == "" {
+		args = append(args, "", "")
+	} else {
+		args = append(args, toValue)
+	}
+	return args
+}
+
+func metadataSourceHookPrimaryQueryArgs(
+	sourceHook string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
+	failuresFlag int,
+	fromValue, toValue string,
+	limit, offset int,
+) []any {
+	args := []any{sourceHook, kind.String(), kind.String(), client.String(), client.String(), agent.String(), agent.String(), sessionID.String(), sessionID.String(), workspace.String(), workspace.String(), failuresFlag}
+	args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+	return append(args, limit, offset)
+}
+
+func metadataSourceHookLegacyQueryArgs(
+	sourceHook string,
+	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
+	failuresFlag int,
+	fromValue, toValue string,
+	limit, offset int,
+) []any {
+	args := []any{sourceHook, sourceHook, sourceHook, kind.String(), kind.String(), client.String(), client.String(), agent.String(), agent.String(), sessionID.String(), sessionID.String(), workspace.String(), workspace.String(), failuresFlag}
+	args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
+	return append(args, limit, offset)
+}
+
+func contextEventMetadataQuery(workspace, sessionID string, limit int) (string, []any) {
+	switch {
+	case workspace != "" && sessionID != "":
+		return getContextEventMetadataByWorkspaceSessionQuery, []any{workspace, sessionID, limit}
+	case workspace != "":
+		return getContextEventMetadataByWorkspaceQuery, []any{workspace, limit}
+	case sessionID != "":
+		return getContextEventMetadataBySessionQuery, []any{sessionID, limit}
+	default:
+		return getContextEventMetadataQuery, []any{"", "", "", "", limit}
+	}
 }
 
 // boundedLatestMetadataWorkspace identifies the single-row, body-free CLI
