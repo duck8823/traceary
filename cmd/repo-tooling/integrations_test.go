@@ -9,6 +9,28 @@ import (
 	"testing"
 )
 
+func TestIsTracearyMCPCommand(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		command string
+		args    []string
+		want    bool
+	}{
+		{name: "shared default", command: "traceary", args: []string{"mcp-server"}, want: true},
+		{name: "missing argument", command: "traceary", want: false},
+		{name: "profile argument is rejected", command: "traceary", args: []string{"mcp-server", "--profile=read"}, want: false},
+		{name: "different executable", command: "traceary-mcp", args: []string{"mcp-server"}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isTracearyMCPCommand(tc.command, tc.args); got != tc.want {
+				t.Fatalf("isTracearyMCPCommand(%q, %q) = %t, want %t", tc.command, tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestVerifyIntegrations_PassesOnCurrentTree is the Go equivalent of running
 // scripts/verify_integrations.py against the repository: the current tree must
 // be consistent. The CLI smoke (Codex removed-command stubs) is skipped here so

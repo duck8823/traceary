@@ -1,7 +1,6 @@
 package mcpserver_test
 
 import (
-	"context"
 	"testing"
 	"unicode/utf8"
 
@@ -21,31 +20,7 @@ type toolMetadataExpectation struct {
 func TestServer_ToolMetadata(t *testing.T) {
 	t.Parallel()
 
-	server := newTestServer(t)
-	ctx := context.Background()
-	mcpServer, err := server.Build(ctx)
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-
-	clientTransport, serverTransport := mcp.NewInMemoryTransports()
-	serverSession, err := mcpServer.Connect(ctx, serverTransport, nil)
-	if err != nil {
-		t.Fatalf("Connect(server) error = %v", err)
-	}
-	defer func() { _ = serverSession.Wait() }()
-
-	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1.0.0"}, nil)
-	clientSession, err := client.Connect(ctx, clientTransport, nil)
-	if err != nil {
-		t.Fatalf("Connect(client) error = %v", err)
-	}
-	defer func() { _ = clientSession.Close() }()
-
-	listResult, err := clientSession.ListTools(ctx, nil)
-	if err != nil {
-		t.Fatalf("ListTools() error = %v", err)
-	}
+	listResult := runtimeToolAdvertisement(t)
 
 	cases := []struct {
 		name string

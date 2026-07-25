@@ -21,6 +21,14 @@ type integrationHookCopy struct {
 	packages []string
 }
 
+// isTracearyMCPCommand is the one shared default MCP registration across every
+// packaged host. Host manifests may carry native envelope fields (for example,
+// Gemini's working directory), but they must not select a tool profile or a
+// different command surface.
+func isTracearyMCPCommand(command string, args []string) bool {
+	return command == "traceary" && equalStrings(args, []string{"mcp-server"})
+}
+
 // sharedCompatibilityPackages are the host packages that still ship the common
 // compatibility shell wrappers (session/audit + common helpers).
 var sharedCompatibilityPackages = []string{
@@ -271,7 +279,7 @@ func checkGrok(root, version string) error {
 		return err
 	}
 	server, ok := mcp["traceary"]
-	if len(mcp) != 1 || !ok || server.Command != "traceary" || !equalStrings(server.Args, []string{"mcp-server"}) {
+	if len(mcp) != 1 || !ok || !isTracearyMCPCommand(server.Command, server.Args) {
 		return xerrors.Errorf("grok plugin must expose traceary mcp-server")
 	}
 
@@ -348,7 +356,7 @@ func checkKimi(root, version string) error {
 		return xerrors.Errorf("kimi plugin skills field must be exactly [\"./skills/\"], got %v", manifest.Skills)
 	}
 	server, ok := manifest.MCPServers["traceary"]
-	if len(manifest.MCPServers) != 1 || !ok || server.Command != "traceary" || !equalStrings(server.Args, []string{"mcp-server"}) {
+	if len(manifest.MCPServers) != 1 || !ok || !isTracearyMCPCommand(server.Command, server.Args) {
 		return xerrors.Errorf("kimi plugin must expose the traceary mcp-server")
 	}
 
@@ -535,11 +543,8 @@ func checkClaude(root, version string) error {
 	if err := readJSON(root, "integrations/claude-plugin/.mcp.json", &mcp); err != nil {
 		return err
 	}
-	if mcp.Traceary.Command != "traceary" {
-		return xerrors.Errorf("claude MCP must call traceary")
-	}
-	if !equalStrings(mcp.Traceary.Args, []string{"mcp-server"}) {
-		return xerrors.Errorf("claude MCP args must be traceary mcp-server")
+	if !isTracearyMCPCommand(mcp.Traceary.Command, mcp.Traceary.Args) {
+		return xerrors.Errorf("claude MCP must expose the shared traceary mcp-server command")
 	}
 
 	hooksPath := "integrations/claude-plugin/hooks/hooks.json"
@@ -639,11 +644,8 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 	if err := readJSON(root, "plugins/traceary/.mcp.json", &mcp); err != nil {
 		return err
 	}
-	if mcp.McpServers.Traceary.Command != "traceary" {
-		return xerrors.Errorf("codex MCP must call traceary")
-	}
-	if !equalStrings(mcp.McpServers.Traceary.Args, []string{"mcp-server"}) {
-		return xerrors.Errorf("codex MCP args must be traceary mcp-server")
+	if !isTracearyMCPCommand(mcp.McpServers.Traceary.Command, mcp.McpServers.Traceary.Args) {
+		return xerrors.Errorf("codex MCP must expose the shared traceary mcp-server command")
 	}
 
 	hooks, hooksRaw, err := readHookFile(root, "plugins/traceary/hooks.json")
@@ -739,11 +741,8 @@ func checkGemini(root, version string) error {
 	if manifest.Version != version {
 		return xerrors.Errorf("gemini extension version must track v%s", version)
 	}
-	if manifest.McpServers.Traceary.Command != "traceary" {
-		return xerrors.Errorf("gemini MCP must call traceary")
-	}
-	if !equalStrings(manifest.McpServers.Traceary.Args, []string{"mcp-server"}) {
-		return xerrors.Errorf("gemini MCP args must be traceary mcp-server")
+	if !isTracearyMCPCommand(manifest.McpServers.Traceary.Command, manifest.McpServers.Traceary.Args) {
+		return xerrors.Errorf("gemini MCP must expose the shared traceary mcp-server command")
 	}
 	if manifest.ContextFileName != "GEMINI.md" {
 		return xerrors.Errorf("gemini extension must expose GEMINI.md as context file")
@@ -831,7 +830,7 @@ func checkAntigravity(root string) error {
 		return err
 	}
 	server, ok := mcpConfig.MCPServers["traceary"]
-	if !ok || server.Command != "traceary" || len(server.Args) != 1 || server.Args[0] != "mcp-server" {
+	if !ok || !isTracearyMCPCommand(server.Command, server.Args) {
 		return xerrors.Errorf("antigravity plugin must expose the traceary mcp-server")
 	}
 	for _, skill := range []string{"traceary-session-history", "traceary-memory-review", "traceary-memory-remember"} {

@@ -1,0 +1,60 @@
+{
+  "listToolsBytes": 41028,
+  "inputSchemaBytes": 13636,
+  "tools": [
+    {
+      "name": "get_context",
+      "toolBytes": 4891,
+      "inputSchemaBytes": 913,
+      "outputSchemaBytes": 3768
+    },
+    {
+      "name": "get_report",
+      "toolBytes": 12370,
+      "inputSchemaBytes": 756,
+      "outputSchemaBytes": 11406
+    },
+    {
+      "name": "list_events",
+      "toolBytes": 5706,
+      "inputSchemaBytes": 1762,
+      "outputSchemaBytes": 3768
+    },
+    {
+      "name": "manage_memory",
+      "toolBytes": 2625,
+      "inputSchemaBytes": 2446,
+      "outputSchemaBytes": 0
+    },
+    {
+      "name": "manage_session",
+      "toolBytes": 2526,
+      "inputSchemaBytes": 1596,
+      "outputSchemaBytes": 712
+    },
+    {
+      "name": "query_memory",
+      "toolBytes": 2498,
+      "inputSchemaBytes": 2326,
+      "outputSchemaBytes": 0
+    },
+    {
+      "name": "record_event",
+      "toolBytes": 3433,
+      "inputSchemaBytes": 1014,
+      "outputSchemaBytes": 2229
+    },
+    {
+      "name": "search",
+      "toolBytes": 5187,
+      "inputSchemaBytes": 1227,
+      "outputSchemaBytes": 3768
+    },
+    {
+      "name": "session_status",
+      "toolBytes": 1772,
+      "inputSchemaBytes": 1596,
+      "outputSchemaBytes": 0
+    }
+  ]
+}

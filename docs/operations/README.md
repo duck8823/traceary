@@ -141,5 +141,6 @@ Aliases affect the current diagnostic projection only. Removing one restores the
 - Python dependency plan: [`./python-dependencies.md`](./python-dependencies.md)
 - Repository tooling plan: [`./repo-tooling.md`](./repo-tooling.md)
 - Memory command surface plan: [`./memory-command-surface.md`](./memory-command-surface.md)
+- MCP tool schema budget: [`./mcp-tool-schema-budget.md`](./mcp-tool-schema-budget.md)
 - Workspace identity contract: [`./workspace-identity-contract.md`](./workspace-identity-contract.md)
 - Evidence-backed one-shot repair: [`./one-shot-repair.md`](./one-shot-repair.md)
