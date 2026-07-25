@@ -48,21 +48,40 @@ membership.
    are forbidden in every metadata query.
 4. Upgrade a pre-000031 store and assert the fixed-width timestamp is
    backfilled and maintained after inserts and timestamp updates.
-5. Exercise a migrated, body-free 10k-event fixture with a sparse 4 GiB file
-   extent. The direct workspace-range query is measured 25 times; CI requires
-   p95 below 50 ms, while the migrated-store plan test requires direct lower
-   and upper timestamp constraints and rejects every temporary order-by tree.
+5. Keep the 10k-event direct-range p95 below 50 ms as a CI smoke test. The
+   migrated-store plan test also requires direct lower and upper timestamp
+   constraints and rejects every temporary B-tree, including partial order-by
+   sorts.
+6. Run the opt-in multi-GiB benchmark before release. It writes actual SQLite
+   pages and event bodies under a temporary directory, verifies both
+   `page_count * page_size` and `SUM(length(body))`, and is never run by CI.
 
 ### Performance evidence
 
-Measured on 2026-07-25 with Go 1.26.3 on macOS 26.5 (darwin/arm64), using the
-modernc SQLite driver. The fixture contains 10,000 indexed event metadata rows
-and a sparse 4 GiB database-file extent; it deliberately contains no large body
-corpus and is created only under the test temporary directory. The workload is
-25 repetitions of a workspace-scoped, two-second direct range with `limit=50`.
-The goal is p95 below 50 ms; the measured p95 was **416.125us**. The structural
-plan assertion is the primary full-scan regression guard, and the p95 threshold
-is the CI smoke guard. No generated fixture is committed.
+The CI smoke measurement on 2026-07-25 used Go 1.26.3 on macOS 26.5
+(darwin/arm64) with the modernc SQLite driver. It contains 10,000 indexed event
+metadata rows; 25 workspace-scoped, two-second direct ranges with `limit=50`
+measured p95 **416.125us** against a 50 ms target.
+
+The release-QA benchmark is opt-in and creates 8 events with 256 MiB bodies
+(at least 2 GiB total), then verifies `page_count * page_size >= 2 GiB`, the
+event count, and the stored body total before measuring 25 direct ranges. Run:
+
+```sh
+TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \
+  go test ./infrastructure/sqlite -run '^$' \
+  -bench BenchmarkMetadataDirectRangeMultiGiB -benchtime=1x
+```
+
+Its p95 goal is below 250 ms. A 2026-07-25 attempt in this constrained runner
+reached benchmark setup but was terminated before fixture completion, so it has
+no valid multi-GiB p95 to report. The runner had 7.8 GiB free but does not allow
+the required long-lived benchmark process; release QA must run the command on a
+host that permits it and record the p95 before release. The command creates its
+artifact only in the Go test temporary directory and deletes it afterwards; no
+large fixture is committed or run by CI. The direct-range plan assertion is the
+primary full-scan regression guard, while the 10k smoke threshold detects local
+latency regressions.
 
 ### Rollback and residual risk
 

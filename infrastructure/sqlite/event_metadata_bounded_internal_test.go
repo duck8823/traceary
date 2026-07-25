@@ -242,7 +242,7 @@ func assertPlanUsesOrderedIndex(t *testing.T, plan []string, index string) {
 	if !strings.Contains(joined, index) {
 		t.Fatalf("query plan does not use %s:\n%s", index, joined)
 	}
-	if strings.Contains(joined, "USE TEMP B-TREE FOR ORDER BY") {
+	if strings.Contains(joined, "USE TEMP B-TREE") {
 		t.Fatalf("query plan sorts outside its ordering index:\n%s", joined)
 	}
 }
@@ -290,27 +290,6 @@ func TestMetadataRangeQueryP95OnLargeMigratedStore(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close seeded DB: %v", err)
-	}
-	// This is a sparse 4 GiB, body-free equivalent fixture. It retains a 10k-row
-	// metadata index while avoiding a committed multi-gigabyte artifact and makes
-	// accidental whole-file reads observable during local/CI smoke testing.
-	if err := os.Truncate(dbPath, 4<<30); err != nil {
-		t.Fatalf("Truncate sparse fixture: %v", err)
-	}
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		t.Fatalf("Stat sparse fixture: %v", err)
-	}
-	if info.Size() != 4<<30 {
-		t.Fatalf("sparse fixture size = %d, want %d", info.Size(), int64(4<<30))
-	}
-	db, err = sql.Open("sqlite", sqliteDSN(dbPath))
-	if err != nil {
-		t.Fatalf("reopen sparse fixture: %v", err)
-	}
-
 	criteria := apptypes.NewEventListCriteriaBuilder(50).
 		Workspace(types.Workspace("repo-current")).
 		From(base.Add(4 * time.Second)).
@@ -347,9 +326,114 @@ func TestMetadataRangeQueryP95OnLargeMigratedStore(t *testing.T) {
 	}
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p95 := durations[(len(durations)*95+99)/100-1]
-	t.Logf("10k migrated events, workspace direct range query p95=%s", p95)
+	t.Logf("10k migrated metadata events, workspace direct range query p95=%s", p95)
 	if p95 >= 50*time.Millisecond {
 		t.Fatalf("range query p95=%s, want < 50ms", p95)
+	}
+}
+
+// BenchmarkMetadataDirectRangeMultiGiB creates actual SQLite-managed pages and
+// event bodies. It is intentionally opt-in because the setup writes at least
+// 2 GiB; CI keeps the 10k-event smoke test above and never creates this store.
+func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
+	if os.Getenv("TRACEARY_RUN_MULTI_GIB_BENCHMARK") != "1" {
+		b.Skip("set TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 to create the multi-GiB fixture")
+	}
+	const (
+		bodyBytes       = 256 << 20
+		eventCount      = 8
+		minimumDBBytes  = int64(2 << 30)
+		measurementRuns = 25
+	)
+	ctx := context.Background()
+	dbPath := filepath.Join(b.TempDir(), "traceary.db")
+	migrations := os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations"))
+	if err := NewStoreManagementDatasource(NewDatabase(dbPath, migrations)).Initialize(ctx); err != nil {
+		b.Fatalf("Initialize() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+	if err != nil {
+		b.Fatalf("sql.Open() error = %v", err)
+	}
+	b.Cleanup(func() { _ = db.Close() })
+	payload := strings.Repeat("x", bodyBytes)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		b.Fatalf("BeginTx() error = %v", err)
+	}
+	statement, err := tx.PrepareContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, body_availability)
+		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', ?, ?, 'available')`)
+	if err != nil {
+		_ = tx.Rollback()
+		b.Fatalf("PrepareContext() error = %v", err)
+	}
+	base := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < eventCount; i++ {
+		if _, err := statement.ExecContext(ctx, fmt.Sprintf("large-event-%03d", i), payload, base.Add(time.Duration(i)*time.Millisecond).Format(time.RFC3339Nano)); err != nil {
+			_ = statement.Close()
+			_ = tx.Rollback()
+			b.Fatalf("insert fixture %d: %v", i, err)
+		}
+	}
+	if err := statement.Close(); err != nil {
+		b.Fatalf("statement.Close() error = %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		b.Fatalf("Commit() error = %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		b.Fatalf("checkpoint large fixture: %v", err)
+	}
+	var pageCount, pageSize, storedEvents, storedBodyBytes int64
+	if err := db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
+		b.Fatalf("read page_count: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
+		b.Fatalf("read page_size: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(SUM(length(body)), 0) FROM events").Scan(&storedEvents, &storedBodyBytes); err != nil {
+		b.Fatalf("verify large fixture: %v", err)
+	}
+	if pageCount*pageSize < minimumDBBytes || storedEvents != eventCount || storedBodyBytes < minimumDBBytes {
+		b.Fatalf("large fixture verification failed: page_count=%d page_size=%d managed_bytes=%d events=%d body_bytes=%d", pageCount, pageSize, pageCount*pageSize, storedEvents, storedBodyBytes)
+	}
+
+	criteria := apptypes.NewEventListCriteriaBuilder(50).
+		Workspace(types.Workspace("repo-current")).
+		From(base).
+		To(base.Add(time.Second)).
+		Build()
+	query, args := scopedRecentEventMetadataQuery(criteria, 0, formatMetadataOptionalTimestamp(criteria.From()), formatMetadataOptionalTimestamp(criteria.To()), criteria.Limit(), criteria.Offset())
+	durations := make([]time.Duration, 0, measurementRuns)
+	b.ResetTimer()
+	for range measurementRuns {
+		started := time.Now()
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			b.Fatalf("range query: %v", err)
+		}
+		for rows.Next() {
+			var values [16]any
+			pointers := make([]any, len(values))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			if err := rows.Scan(pointers...); err != nil {
+				_ = rows.Close()
+				b.Fatalf("scan range row: %v", err)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			b.Fatalf("rows.Close() error = %v", err)
+		}
+		durations = append(durations, time.Since(started))
+	}
+	b.StopTimer()
+	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+	p95 := durations[(len(durations)*95+99)/100-1]
+	b.ReportMetric(float64(p95)/float64(time.Millisecond), "p95_ms")
+	if p95 >= 250*time.Millisecond {
+		b.Fatalf("multi-GiB direct range p95=%s, want < 250ms", p95)
 	}
 }
 
