@@ -288,6 +288,16 @@ func (d *EventDatasource) Search(
 	limit, offset int,
 	failuresOnly bool,
 ) ([]*model.Event, error) {
+	if limit <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if offset < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+	if !from.IsZero() && !to.IsZero() && from.After(to) {
+		return nil, xerrors.Errorf("from must be earlier than to")
+	}
+
 	db, err := d.db.open(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event search: %w", err)
@@ -297,6 +307,46 @@ func (d *EventDatasource) Search(
 			slog.Debug("failed to close resource", "error", err)
 		}
 	}()
+
+	searchSchemaAvailable, err := eventSearchSchemaAvailable(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if searchSchemaAvailable {
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			return nil, xerrors.Errorf("failed to begin indexed event search: %w", err)
+		}
+		defer func() {
+			if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+				slog.Debug("failed to rollback indexed event search", "error", err)
+			}
+		}()
+		criteria := apptypes.NewEventSearchCriteriaBuilder(limit).
+			Query(query).
+			Workspace(workspace).
+			SessionID(sessionID).
+			Client(client).
+			Agent(agent).
+			Kind(kind).
+			From(from).
+			To(to).
+			Offset(offset).
+			FailuresOnly(failuresOnly).
+			Build()
+		candidateIDs, err := selectEventSearchCandidateIDs(ctx, tx, criteria)
+		if err != nil {
+			return nil, err
+		}
+		events, err := hydrateEventSearchCandidates(ctx, tx, candidateIDs)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, xerrors.Errorf("failed to finish indexed event search: %w", err)
+		}
+		return events, nil
+	}
 
 	queryValue := strings.TrimSpace(query)
 	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"

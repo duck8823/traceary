@@ -1,0 +1,64 @@
+package queryservice
+
+import (
+	"fmt"
+
+	"golang.org/x/xerrors"
+)
+
+// Event search can reject a request instead of returning an incomplete result
+// or evaluating an unbounded legacy body scan.
+var (
+	ErrEventSearchScopeTooBroad   = xerrors.New("event search scope too broad")
+	ErrEventSearchIndexIncomplete = xerrors.New("event search index incomplete")
+)
+
+// EventSearchUnavailableReason is the stable classification exposed to CLI and
+// MCP consumers through EventSearchUnavailableError.
+type EventSearchUnavailableReason string
+
+const (
+	// EventSearchUnavailableScopeTooBroad rejects a legacy fallback whose
+	// structural/time candidate set cannot be proven below the hard cap.
+	EventSearchUnavailableScopeTooBroad EventSearchUnavailableReason = "scope_too_broad"
+	// EventSearchUnavailableIndexIncomplete rejects an unbounded indexed query
+	// while historical search documents are still being backfilled.
+	EventSearchUnavailableIndexIncomplete EventSearchUnavailableReason = "index_incomplete"
+)
+
+// EventSearchUnavailableError describes why indexed search cannot safely
+// satisfy a request. CandidateLimit is the maximum body-bearing legacy scope;
+// CandidateCount is limit+1 when the cap was exceeded.
+type EventSearchUnavailableError struct {
+	Reason         EventSearchUnavailableReason
+	CandidateLimit int
+	CandidateCount int
+}
+
+func (e *EventSearchUnavailableError) Error() string {
+	switch e.Reason {
+	case EventSearchUnavailableIndexIncomplete:
+		return fmt.Sprintf(
+			"event search index backfill is incomplete; add workspace/session and from/to bounds (legacy candidate limit %d)",
+			e.CandidateLimit,
+		)
+	default:
+		if e.CandidateCount > e.CandidateLimit {
+			return fmt.Sprintf(
+				"event search scope has more than %d legacy candidates; add narrower from/to bounds",
+				e.CandidateLimit,
+			)
+		}
+		return fmt.Sprintf(
+			"event search scope is unbounded; add workspace/session and from/to bounds (legacy candidate limit %d)",
+			e.CandidateLimit,
+		)
+	}
+}
+
+func (e *EventSearchUnavailableError) Unwrap() error {
+	if e.Reason == EventSearchUnavailableIndexIncomplete {
+		return ErrEventSearchIndexIncomplete
+	}
+	return ErrEventSearchScopeTooBroad
+}

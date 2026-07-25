@@ -226,6 +226,34 @@ func (d *EventDatasource) SearchMetadata(
 	}
 	defer closeMetadataResource(db)
 
+	searchSchemaAvailable, err := eventSearchSchemaAvailable(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if searchSchemaAvailable {
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			return nil, xerrors.Errorf("failed to begin indexed event metadata search: %w", err)
+		}
+		defer func() {
+			if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+				slog.Debug("failed to rollback indexed event metadata search", "error", err)
+			}
+		}()
+		candidateIDs, err := selectEventSearchCandidateIDs(ctx, tx, criteria)
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := hydrateEventSearchMetadataCandidates(ctx, tx, criteria, candidateIDs)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, xerrors.Errorf("failed to finish indexed event metadata search: %w", err)
+		}
+		return metadata, nil
+	}
+
 	queryValue := strings.TrimSpace(criteria.Query())
 	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"
 	rows, err := db.QueryContext(
