@@ -109,6 +109,101 @@ func TestBoundedLatestEventMetadataByWorkspaceQueryPlanUsesTimestampIndex(t *tes
 	}
 }
 
+func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE events (
+			id TEXT PRIMARY KEY, kind TEXT NOT NULL, client TEXT NOT NULL,
+			agent TEXT NOT NULL, session_id TEXT NOT NULL, workspace TEXT NOT NULL,
+			source_hook TEXT, created_at TEXT NOT NULL, body_original_bytes INTEGER,
+			body_stored_bytes INTEGER NOT NULL, body_ingest_truncated BOOLEAN,
+			body_storage_truncated BOOLEAN, body_metadata_version INTEGER
+		);
+		CREATE TABLE command_audits (event_id TEXT PRIMARY KEY, exit_code INTEGER, failed BOOLEAN);
+		CREATE INDEX idx_events_ts_norm_created_at_id_desc
+			ON events(ts_norm(created_at) DESC, id DESC);
+		CREATE INDEX idx_events_workspace_ts_norm_created_at_id_desc
+			ON events(workspace, ts_norm(created_at) DESC, id DESC);
+		CREATE INDEX idx_events_session_ts_norm_created_at_id_desc
+			ON events(session_id, ts_norm(created_at) DESC, id DESC);
+		CREATE INDEX idx_events_workspace_session_ts_norm_created_at_id_desc
+			ON events(workspace, session_id, ts_norm(created_at) DESC, id DESC);
+	`); err != nil {
+		t.Fatalf("create query-plan fixture: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		query     string
+		args      []any
+		wantIndex string
+	}{
+		{
+			name:      "general list with offset",
+			query:     selectRecentEventMetadataQuery,
+			args:      []any{"", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
+			wantIndex: "idx_events_ts_norm_created_at_id_desc",
+		},
+		{
+			name:      "workspace list with offset",
+			query:     selectRecentEventMetadataByWorkspaceQuery,
+			args:      []any{"repo-current", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
+			wantIndex: "idx_events_workspace_ts_norm_created_at_id_desc",
+		},
+		{
+			name:      "session list with offset",
+			query:     selectRecentEventMetadataBySessionQuery,
+			args:      []any{"session-1", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
+			wantIndex: "idx_events_session_ts_norm_created_at_id_desc",
+		},
+		{
+			name:      "workspace session context",
+			query:     getContextEventMetadataByWorkspaceSessionQuery,
+			args:      []any{"repo-current", "session-1", 25},
+			wantIndex: "idx_events_workspace_session_ts_norm_created_at_id_desc",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := explainQueryPlan(t, db, tt.query, tt.args...)
+			joined := strings.Join(plan, "\n")
+			if !strings.Contains(joined, tt.wantIndex) {
+				t.Fatalf("query plan does not use %s:\n%s", tt.wantIndex, joined)
+			}
+			if strings.Contains(joined, "USE TEMP B-TREE FOR ORDER BY") {
+				t.Fatalf("query plan sorts metadata rows outside its ordering index:\n%s", joined)
+			}
+		})
+	}
+}
+
+func explainQueryPlan(t *testing.T, db *sql.DB, query string, args ...any) []string {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+query, args...)
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN error = %v", err)
+	}
+	t.Cleanup(func() { _ = rows.Close() })
+	plan := make([]string, 0)
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatalf("scan query plan: %v", err)
+		}
+		plan = append(plan, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate query plan: %v", err)
+	}
+	return plan
+}
+
 func TestEventMetadataQuery_BoundedLatestReportsBusyInsteadOfSlowInitialization(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	setup, err := sql.Open("sqlite", "file:"+dbPath)

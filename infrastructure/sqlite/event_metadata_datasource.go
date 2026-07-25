@@ -19,6 +19,15 @@ import (
 //go:embed sql/select_recent_event_metadata.sql
 var selectRecentEventMetadataQuery string
 
+//go:embed sql/select_recent_event_metadata_by_workspace.sql
+var selectRecentEventMetadataByWorkspaceQuery string
+
+//go:embed sql/select_recent_event_metadata_by_session.sql
+var selectRecentEventMetadataBySessionQuery string
+
+//go:embed sql/select_recent_event_metadata_by_workspace_session.sql
+var selectRecentEventMetadataByWorkspaceSessionQuery string
+
 //go:embed sql/select_latest_event_metadata_fast.sql
 var selectLatestEventMetadataFastQuery string
 
@@ -42,6 +51,15 @@ var searchEventMetadataQuery string
 
 //go:embed sql/get_context_event_metadata.sql
 var getContextEventMetadataQuery string
+
+//go:embed sql/get_context_event_metadata_by_workspace.sql
+var getContextEventMetadataByWorkspaceQuery string
+
+//go:embed sql/get_context_event_metadata_by_session.sql
+var getContextEventMetadataBySessionQuery string
+
+//go:embed sql/get_context_event_metadata_by_workspace_session.sql
+var getContextEventMetadataByWorkspaceSessionQuery string
 
 var _ queryservice.EventMetadataQueryService = (*EventDatasource)(nil)
 
@@ -259,15 +277,8 @@ func (d *EventDatasource) GetContextMetadata(
 
 	workspace := strings.TrimSpace(criteria.Workspace().String())
 	sessionID := strings.TrimSpace(criteria.SessionID().String())
-	rows, err := db.QueryContext(
-		ctx,
-		getContextEventMetadataQuery,
-		workspace,
-		workspace,
-		sessionID,
-		sessionID,
-		criteria.Limit(),
-	)
+	query, args := contextEventMetadataQuery(workspace, sessionID, criteria.Limit())
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query event metadata context: %w", err)
 	}
@@ -532,19 +543,11 @@ func queryRecentEventMetadataWith(
 		return rows, nil
 	}
 	if sourceHook == "" {
+		queryText, args := scopedRecentEventMetadataQuery(criteria, failuresFlag, fromValue, toValue, limit, offset)
 		rows, err := query(
 			ctx,
-			selectRecentEventMetadataQuery,
-			criteria.Kind().String(), criteria.Kind().String(),
-			criteria.Client().String(), criteria.Client().String(),
-			criteria.Agent().String(), criteria.Agent().String(),
-			criteria.SessionID().String(), criteria.SessionID().String(),
-			criteria.Workspace().String(), criteria.Workspace().String(),
-			failuresFlag,
-			fromValue, fromValue,
-			toValue, toValue,
-			limit,
-			offset,
+			queryText,
+			args...,
 		)
 		if err != nil {
 			return nil, xerrors.Errorf("query recent event metadata: %w", err)
@@ -595,6 +598,73 @@ func queryRecentEventMetadataWith(
 		return nil, xerrors.Errorf("query recent event metadata by source hook: %w", err)
 	}
 	return rows, nil
+}
+
+// scopedRecentEventMetadataQuery selects the most selective stable scope as a
+// top-level predicate. The public optional-filter semantics remain unchanged,
+// while SQLite can use the matching normalized-timestamp ordering index for a
+// bounded metadata page instead of sorting all matching rows.
+func scopedRecentEventMetadataQuery(
+	criteria apptypes.EventListCriteria,
+	failuresFlag int,
+	fromValue, toValue string,
+	limit, offset int,
+) (string, []any) {
+	workspace := criteria.Workspace().String()
+	sessionID := criteria.SessionID().String()
+	common := []any{
+		criteria.Kind().String(), criteria.Kind().String(),
+		criteria.Client().String(), criteria.Client().String(),
+		criteria.Agent().String(), criteria.Agent().String(),
+		failuresFlag,
+		fromValue, fromValue,
+		toValue, toValue,
+		limit, offset,
+	}
+	switch {
+	case workspace != "" && sessionID != "":
+		return selectRecentEventMetadataByWorkspaceSessionQuery, append([]any{workspace, sessionID}, common...)
+	case workspace != "":
+		// The workspace query retains session_id as an optional filter.
+		args := []any{workspace,
+			criteria.Kind().String(), criteria.Kind().String(),
+			criteria.Client().String(), criteria.Client().String(),
+			criteria.Agent().String(), criteria.Agent().String(),
+			sessionID, sessionID,
+			failuresFlag, fromValue, fromValue, toValue, toValue, limit, offset,
+		}
+		return selectRecentEventMetadataByWorkspaceQuery, args
+	case sessionID != "":
+		args := []any{sessionID,
+			criteria.Kind().String(), criteria.Kind().String(),
+			criteria.Client().String(), criteria.Client().String(),
+			criteria.Agent().String(), criteria.Agent().String(),
+			workspace, workspace,
+			failuresFlag, fromValue, fromValue, toValue, toValue, limit, offset,
+		}
+		return selectRecentEventMetadataBySessionQuery, args
+	default:
+		return selectRecentEventMetadataQuery, []any{
+			criteria.Kind().String(), criteria.Kind().String(),
+			criteria.Client().String(), criteria.Client().String(),
+			criteria.Agent().String(), criteria.Agent().String(),
+			"", "", "", "",
+			failuresFlag, fromValue, fromValue, toValue, toValue, limit, offset,
+		}
+	}
+}
+
+func contextEventMetadataQuery(workspace, sessionID string, limit int) (string, []any) {
+	switch {
+	case workspace != "" && sessionID != "":
+		return getContextEventMetadataByWorkspaceSessionQuery, []any{workspace, sessionID, limit}
+	case workspace != "":
+		return getContextEventMetadataByWorkspaceQuery, []any{workspace, limit}
+	case sessionID != "":
+		return getContextEventMetadataBySessionQuery, []any{sessionID, limit}
+	default:
+		return getContextEventMetadataQuery, []any{"", "", "", "", limit}
+	}
 }
 
 // boundedLatestMetadataWorkspace identifies the single-row, body-free CLI

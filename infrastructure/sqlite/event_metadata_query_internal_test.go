@@ -13,12 +13,18 @@ func TestMetadataQueries_DoNotSelectBodyColumns(t *testing.T) {
 	t.Parallel()
 
 	queries := map[string]string{
-		"recent":             selectRecentEventMetadataQuery,
-		"recent source hook": selectRecentEventMetadataBySourceHookQuery,
-		"recent legacy hook": selectRecentEventMetadataBySourceHookWithLegacyQuery,
-		"search":             searchEventMetadataQuery,
-		"context":            getContextEventMetadataQuery,
-		"report usage":       listReportUsageQuery,
+		"recent":                    selectRecentEventMetadataQuery,
+		"recent workspace":          selectRecentEventMetadataByWorkspaceQuery,
+		"recent session":            selectRecentEventMetadataBySessionQuery,
+		"recent workspace session":  selectRecentEventMetadataByWorkspaceSessionQuery,
+		"recent source hook":        selectRecentEventMetadataBySourceHookQuery,
+		"recent legacy hook":        selectRecentEventMetadataBySourceHookWithLegacyQuery,
+		"search":                    searchEventMetadataQuery,
+		"context":                   getContextEventMetadataQuery,
+		"context workspace":         getContextEventMetadataByWorkspaceQuery,
+		"context session":           getContextEventMetadataBySessionQuery,
+		"context workspace session": getContextEventMetadataByWorkspaceSessionQuery,
+		"report usage":              listReportUsageQuery,
 	}
 	for name, query := range queries {
 		name, query := name, query

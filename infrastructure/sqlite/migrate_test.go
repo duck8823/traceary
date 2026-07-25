@@ -142,6 +142,59 @@ func TestMigrations_usageObservationsAreAdditiveAndPreserveExistingRows(t *testi
 	}
 }
 
+func TestMigrations_NormalizedTimestampIndexesAreAdditiveAndRollbackSafe(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 31)).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-v031) error = %v", err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO events(id, kind, agent, session_id, body, created_at, client, workspace, body_availability)
+		VALUES ('pre-v031-event', 'note', 'codex', 'session-1', 'existing body', '2026-07-25T00:00:00Z', 'hook', 'workspace-1', 'available')`); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed pre-v031 event: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(v031) error = %v", err)
+	}
+	db, err = sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var eventID string
+	if err := db.QueryRow(`SELECT id FROM events WHERE id = 'pre-v031-event'`).Scan(&eventID); err != nil {
+		t.Fatalf("read upgraded event identity: %v", err)
+	}
+	if eventID != "pre-v031-event" {
+		t.Fatalf("upgraded event id = %q, want preserved identity", eventID)
+	}
+	for _, index := range []string{
+		"idx_events_ts_norm_created_at_id_desc",
+		"idx_events_workspace_ts_norm_created_at_id_desc",
+		"idx_events_session_ts_norm_created_at_id_desc",
+		"idx_events_workspace_session_ts_norm_created_at_id_desc",
+	} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(&count); err != nil {
+			t.Fatalf("look up index %q: %v", index, err)
+		}
+		if count != 1 {
+			t.Errorf("index %q count = %d, want 1", index, count)
+		}
+	}
+}
+
 func TestMigrations_RunLineageIsAdditiveAndPreservesV27Usage(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
