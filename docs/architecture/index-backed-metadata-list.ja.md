@@ -47,11 +47,11 @@ release QAのopt-in benchmarkは256 MiB bodyを持つeventを8件（body合計2 
 
 ```sh
 TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \
-  go test ./infrastructure/sqlite -run '^$' \
+  go test -v ./infrastructure/sqlite -run '^$' \
   -bench BenchmarkMetadataDirectRangeMultiGiB -benchtime=1x
 ```
 
-p95の目標は250 ms未満である。2026-07-25にこの制約付きrunnerで実行を試みたが、fixture生成の完了前にprocessが終了したため、有効なmulti-GiB p95は記録できなかった。空き容量は7.8 GiBあったが、必要な長時間benchmark processを許可しないrunner制限である。release QAでは、このcommandを実行可能なhostで実行し、release前にp95を記録する。生成物はGo testの一時ディレクトリだけに置かれ、終了後に削除されるためcommitしない。またCIでは実行しない。full-scan退行は直接rangeのplan assertionを主な検出器とし、10k smokeのp95閾値はローカル遅延を検出する。
+成功時のbenchmark出力は`managed_bytes`、`events`、`non_null_body_metadata`、`stored_body_bytes`、`p95_ms`を含むため、host環境とともに#1558へ記録する。p95の目標は250 ms未満である。2026-07-25にこの制約付きrunnerで実行を試みたが、fixture生成の完了前にprocessが終了したため、有効なmulti-GiB p95は記録できなかった。空き容量は7.8 GiBあったが、必要な長時間benchmark processを許可しないrunner制限である。release QAでは、このcommandを実行可能なhostで実行し、release前にp95を記録する。生成物はGo testの一時ディレクトリだけに置かれ、終了後に削除されるためcommitしない。またCIでは実行しない。full-scan退行は直接rangeのplan assertionを主な検出器とし、10k smokeのp95閾値はローカル遅延を検出する。
 
 ### ロールバックと残リスク
 

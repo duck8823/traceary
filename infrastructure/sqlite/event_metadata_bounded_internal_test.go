@@ -399,6 +399,10 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	if pageCount*pageSize < minimumDBBytes || storedEvents != eventCount || missingStoredBodyBytes != 0 || storedBodyBytes < minimumDBBytes {
 		b.Fatalf("large fixture verification failed: page_count=%d page_size=%d managed_bytes=%d events=%d stored_body_bytes=%d missing_stored_body_bytes=%d", pageCount, pageSize, pageCount*pageSize, storedEvents, storedBodyBytes, missingStoredBodyBytes)
 	}
+	b.ReportMetric(float64(pageCount*pageSize), "managed_bytes")
+	b.ReportMetric(float64(storedEvents), "events")
+	b.ReportMetric(float64(storedEvents-missingStoredBodyBytes), "non_null_body_metadata")
+	b.ReportMetric(float64(storedBodyBytes), "stored_body_bytes")
 
 	criteria := apptypes.NewEventListCriteriaBuilder(50).
 		Workspace(types.Workspace("repo-current")).

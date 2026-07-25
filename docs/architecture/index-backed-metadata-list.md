@@ -71,11 +71,14 @@ measuring 25 direct ranges. Run:
 
 ```sh
 TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \
-  go test ./infrastructure/sqlite -run '^$' \
+  go test -v ./infrastructure/sqlite -run '^$' \
   -bench BenchmarkMetadataDirectRangeMultiGiB -benchtime=1x
 ```
 
-Its p95 goal is below 250 ms. A 2026-07-25 attempt in this constrained runner
+Successful benchmark output reports `managed_bytes`, `events`,
+`non_null_body_metadata`, `stored_body_bytes`, and `p95_ms`; attach those
+values to #1558 with the host environment. Its p95 goal is below 250 ms. A
+2026-07-25 attempt in this constrained runner
 reached benchmark setup but was terminated before fixture completion, so it has
 no valid multi-GiB p95 to report. The runner had 7.8 GiB free but does not allow
 the required long-lived benchmark process; release QA must run the command on a
