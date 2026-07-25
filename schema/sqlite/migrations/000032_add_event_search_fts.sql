@@ -172,6 +172,38 @@ BEGIN
      WHERE event_id = NEW.event_id;
 END;
 
+CREATE TRIGGER command_audits_search_after_update
+AFTER UPDATE OF command_text, input_text, output_text ON command_audits
+BEGIN
+    INSERT INTO event_search_documents(
+        event_id, body_text, command_text, input_text, output_text
+    )
+    SELECT event_id, body_text, command_text, input_text, output_text
+      FROM event_search_projection
+     WHERE event_id = NEW.event_id
+    ON CONFLICT(event_id) DO NOTHING;
+
+    UPDATE event_search_documents
+       SET (body_text, command_text, input_text, output_text) = (
+           SELECT body_text, command_text, input_text, output_text
+             FROM event_search_projection
+            WHERE event_id = NEW.event_id
+       )
+     WHERE event_id = NEW.event_id;
+END;
+
+CREATE TRIGGER command_audits_search_after_delete
+AFTER DELETE ON command_audits
+BEGIN
+    UPDATE event_search_documents
+       SET (body_text, command_text, input_text, output_text) = (
+           SELECT body_text, command_text, input_text, output_text
+             FROM event_search_projection
+            WHERE event_id = OLD.event_id
+       )
+     WHERE event_id = OLD.event_id;
+END;
+
 CREATE TABLE event_search_backfill_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     last_event_id TEXT NOT NULL DEFAULT '',

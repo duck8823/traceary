@@ -157,6 +157,85 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 	}
 }
 
+func TestEventSearchFTS_SynchronizesCommandAuditUpdatesAndDeletes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	workspace := types.Workspace("github.com/duck8823/traceary")
+	event, audit := newSearchAuditFixture(
+		t,
+		"event-audit-mutation",
+		workspace.String(),
+		time.Date(2026, 7, 25, 1, 0, 0, 0, time.UTC),
+	)
+	if err := sut.SaveWithAudit(ctx, event, audit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
+	}
+
+	searchIDs := func(query string) []string {
+		t.Helper()
+		events, err := sut.Search(
+			ctx,
+			query,
+			workspace,
+			"",
+			"",
+			"",
+			"",
+			time.Time{},
+			time.Time{},
+			20,
+			0,
+			false,
+		)
+		if err != nil {
+			t.Fatalf("Search(%q) error = %v", query, err)
+		}
+		return eventIDs(events)
+	}
+	if diff := cmp.Diff(
+		[]string{"event-audit-mutation"},
+		searchIDs("stdout with details"),
+	); diff != "" {
+		t.Fatalf("initial audit IDs mismatch (-want +got):\n%s", diff)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(ctx, `
+		UPDATE command_audits
+		   SET output_text = 'replacement audit marker'
+		 WHERE event_id = 'event-audit-mutation'`); err != nil {
+		t.Fatalf("update command audit: %v", err)
+	}
+	if got := searchIDs("stdout with details"); len(got) != 0 {
+		t.Fatalf("old audit text IDs after update = %v, want none", got)
+	}
+	if diff := cmp.Diff(
+		[]string{"event-audit-mutation"},
+		searchIDs("replacement audit marker"),
+	); diff != "" {
+		t.Fatalf("updated audit IDs mismatch (-want +got):\n%s", diff)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		DELETE FROM command_audits
+		 WHERE event_id = 'event-audit-mutation'`); err != nil {
+		t.Fatalf("delete command audit: %v", err)
+	}
+	if got := searchIDs("replacement audit marker"); len(got) != 0 {
+		t.Fatalf("deleted audit text IDs = %v, want none", got)
+	}
+}
+
 func TestEventSearchBackfill_IsBoundedCompleteAndResumable(t *testing.T) {
 	t.Parallel()
 
