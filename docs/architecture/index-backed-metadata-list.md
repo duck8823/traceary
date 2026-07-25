@@ -54,7 +54,8 @@ membership.
    sorts.
 6. Run the opt-in multi-GiB benchmark before release. It writes actual SQLite
    pages and event bodies under a temporary directory, verifies both
-   `page_count * page_size` and `SUM(length(body))`, and is never run by CI.
+   `page_count * page_size`, non-NULL `body_stored_bytes`, and
+   `SUM(body_stored_bytes)`, and is never run by CI.
 
 ### Performance evidence
 
@@ -65,7 +66,8 @@ measured p95 **416.125us** against a 50 ms target.
 
 The release-QA benchmark is opt-in and creates 8 events with 256 MiB bodies
 (at least 2 GiB total), then verifies `page_count * page_size >= 2 GiB`, the
-event count, and the stored body total before measuring 25 direct ranges. Run:
+event count, non-NULL body metadata, and `SUM(body_stored_bytes)` before
+measuring 25 direct ranges. Run:
 
 ```sh
 TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \

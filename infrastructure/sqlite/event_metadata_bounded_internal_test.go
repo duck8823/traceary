@@ -384,18 +384,20 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	if _, err := db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		b.Fatalf("checkpoint large fixture: %v", err)
 	}
-	var pageCount, pageSize, storedEvents, storedBodyBytes int64
+	var pageCount, pageSize, storedEvents, storedBodyBytes, missingStoredBodyBytes int64
 	if err := db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
 		b.Fatalf("read page_count: %v", err)
 	}
 	if err := db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
 		b.Fatalf("read page_size: %v", err)
 	}
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(SUM(length(body)), 0) FROM events").Scan(&storedEvents, &storedBodyBytes); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(body_stored_bytes), 0),
+		SUM(CASE WHEN body_stored_bytes IS NULL THEN 1 ELSE 0 END)
+		FROM events`).Scan(&storedEvents, &storedBodyBytes, &missingStoredBodyBytes); err != nil {
 		b.Fatalf("verify large fixture: %v", err)
 	}
-	if pageCount*pageSize < minimumDBBytes || storedEvents != eventCount || storedBodyBytes < minimumDBBytes {
-		b.Fatalf("large fixture verification failed: page_count=%d page_size=%d managed_bytes=%d events=%d body_bytes=%d", pageCount, pageSize, pageCount*pageSize, storedEvents, storedBodyBytes)
+	if pageCount*pageSize < minimumDBBytes || storedEvents != eventCount || missingStoredBodyBytes != 0 || storedBodyBytes < minimumDBBytes {
+		b.Fatalf("large fixture verification failed: page_count=%d page_size=%d managed_bytes=%d events=%d stored_body_bytes=%d missing_stored_body_bytes=%d", pageCount, pageSize, pageCount*pageSize, storedEvents, storedBodyBytes, missingStoredBodyBytes)
 	}
 
 	criteria := apptypes.NewEventListCriteriaBuilder(50).
