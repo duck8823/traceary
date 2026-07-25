@@ -509,7 +509,12 @@ func TestEventMetadataQuery_BoundedLatestReportsBusyInsteadOfSlowInitialization(
 	if !strings.Contains(strings.ToLower(err.Error()), "busy") && !strings.Contains(strings.ToLower(err.Error()), "locked") {
 		t.Fatalf("ListRecentMetadata() error = %v, want busy/locked classification", err)
 	}
-	if elapsed < 800*time.Millisecond || elapsed >= 2*time.Second {
-		t.Fatalf("busy metadata read elapsed = %s, want configured short busy outcome", elapsed)
+	// SQLite's busy handler counts requested sleep durations. An interrupted
+	// platform sleep can therefore return the busy outcome before the full
+	// configured timeout has elapsed in wall-clock time. The DSN tests verify
+	// the exact pragma value; this regression only guards the upper bound.
+	maximumBusyOutcome := 2 * time.Duration(sqliteBusyTimeout) * time.Millisecond
+	if elapsed >= maximumBusyOutcome {
+		t.Fatalf("busy metadata read elapsed = %s, want < %s", elapsed, maximumBusyOutcome)
 	}
 }
