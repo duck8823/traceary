@@ -51,7 +51,7 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 			"event-envelope-tool",
 			types.EventKindTranscript,
 			workspace.String(),
-			`{"blocks":[{"type":"thinking","text":"tool-secret-thinking"},{"type":"tool_use","id":"call-1","name":"Read"},{"type":"text","text":"visible tool response"}]}`,
+			`{"blocks":[{"type":"thinking","text":"tool-secret-thinking"},{"type":"tool_use","text":"","id":"call-1","name":"Read"},{"type":"text","text":"visible tool response"}]}`,
 			base.Add(2*time.Second),
 		),
 		newSearchEventFixture(
@@ -61,6 +61,14 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 			workspace.String(),
 			`{"blocks":[{"foo":"foreign-json-marker"}]}`,
 			base.Add(3*time.Second),
+		),
+		newSearchEventFixture(
+			t,
+			"event-foreign-custom",
+			types.EventKindNote,
+			workspace.String(),
+			`{"blocks":[{"type":"custom","payload":"foreign-custom-marker"}]}`,
+			base.Add(4*time.Second),
 		),
 	}
 	for _, event := range fixtures {
@@ -93,6 +101,7 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 		{name: "thinking beside unknown block is excluded", query: "tool-secret-thinking", want: []string{}},
 		{name: "visible text beside unknown block is indexed", query: "visible tool response", want: []string{"event-envelope-tool"}},
 		{name: "foreign blocks JSON remains raw-searchable", query: "foreign-json-marker", want: []string{"event-foreign-blocks"}},
+		{name: "textless custom block remains raw-searchable", query: "foreign-custom-marker", want: []string{"event-foreign-custom"}},
 		{name: "persisted audit text is indexed", query: "stdout with details", want: []string{"event-audit"}},
 		{name: "final timestamp and ID order", query: "visible needle", want: []string{"event-envelope", "event-literal"}},
 	}
@@ -266,10 +275,10 @@ func TestEventSearchBackfill_IsBoundedCompleteAndResumable(t *testing.T) {
 	}
 	seedHistoricalSearchEvents(t, dbPath, 130, func(index int) string {
 		if index == 129 {
-			return `{"blocks":[{"type":"thinking","text":"legacy-secret-thinking"},{"type":"tool_use","id":"call-legacy"},{"type":"text","text":"historical needle visible legacy response"}]}`
+			return `{"blocks":[{"type":"thinking","text":"legacy-secret-thinking"},{"type":"tool_use","text":"","id":"call-legacy"},{"type":"text","text":"historical needle visible legacy response"}]}`
 		}
 		if index == 128 {
-			return `{"blocks":[{"foo":"legacy-foreign-json-marker"}]}`
+			return `{"blocks":[{"type":"custom","payload":"legacy-foreign-json-marker"}]}`
 		}
 		if index == 0 {
 			return "historical needle"

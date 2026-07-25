@@ -59,11 +59,9 @@ func DecodeCanonicalEnvelope(body string) ([]EventBodyBlock, bool) {
 //     (encoding/json matches tags case-insensitively, so we probe the
 //     raw key set ourselves — "Blocks" or "BLOCKS" must NOT be
 //     recognized as envelopes)
-//   - each element must be a JSON object with a string "type" field
-//   - text / thinking elements must also carry a string "text" field
-//   - unknown block types may omit "text" (for example tool_use); they
-//     remain canonical but their provider-specific fields are ignored by
-//     this text-oriented projection
+//   - each element must be a JSON object with string "type" and
+//     string "text" fields — anything else is treated as foreign JSON
+//     that happens to share the key name
 //
 // Returned ok=false means the payload is not our envelope and callers
 // should preserve the raw body. Unknown block types are preserved to
@@ -89,28 +87,16 @@ func decodeCanonicalEnvelope(body string) ([]EventBodyBlock, bool) {
 	blocks := make([]EventBodyBlock, 0, len(rawElements))
 	for _, raw := range rawElements {
 		typeRaw, hasType := raw["type"]
-		if !hasType {
+		textRaw, hasText := raw["text"]
+		if !hasType || !hasText {
 			return nil, false
 		}
-		var blockType string
+		var blockType, blockText string
 		if err := json.Unmarshal(typeRaw, &blockType); err != nil {
 			return nil, false
 		}
-		blockText := ""
-		textRaw, hasText := raw["text"]
-		switch EventBodyBlockType(blockType) {
-		case EventBodyBlockTypeText, EventBodyBlockTypeThinking:
-			if !hasText || json.Unmarshal(textRaw, &blockText) != nil {
-				return nil, false
-			}
-		default:
-			// Provider-specific blocks such as tool_use are not part of the
-			// plain-text projection. Preserve a string text value when one
-			// exists, but do not reject an otherwise canonical envelope when
-			// the unknown block omits text or stores a structured payload.
-			if hasText {
-				_ = json.Unmarshal(textRaw, &blockText)
-			}
+		if err := json.Unmarshal(textRaw, &blockText); err != nil {
+			return nil, false
 		}
 		blocks = append(blocks, EventBodyBlock{
 			Type: EventBodyBlockType(blockType),

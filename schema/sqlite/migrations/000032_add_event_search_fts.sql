@@ -40,22 +40,15 @@ SELECT
                  AND json_type(e.body, '$.blocks') = 'array'
                  AND NOT EXISTS (
                      SELECT 1
-                       FROM json_each(json_extract(e.body, '$.blocks')) AS block
-                      WHERE CASE
-                          WHEN block.type != 'object' THEN 1
-                          WHEN json_type(block.value, '$.type') IS NOT 'text' THEN 1
-                          WHEN json_extract(block.value, '$.type') IN ('text', 'thinking')
-                               AND json_type(block.value, '$.text') IS NOT 'text'
-                          THEN 1
-                          ELSE 0
-                      END = 1
+                       FROM json_each(json_extract(e.body, '$.blocks'))
+                      WHERE typeof(json_extract(value, '$.type')) != 'text'
+                         OR typeof(json_extract(value, '$.text')) != 'text'
                  )
             THEN COALESCE(
                 (
                     SELECT group_concat(json_extract(value, '$.text'), X'0A0A')
                       FROM json_each(json_extract(e.body, '$.blocks'))
                      WHERE json_extract(value, '$.type') = 'text'
-                       AND json_type(value, '$.text') = 'text'
                 ),
                 ''
             )

@@ -45,8 +45,8 @@ func TestExtractPlainBody(t *testing.T) {
 			want: "first\n\nsecond",
 		},
 		{
-			name: "unknown block without text does not expose adjacent thinking",
-			body: `{"blocks":[{"type":"thinking","text":"hidden-tool-reasoning"},{"type":"tool_use","id":"call-1"},{"type":"text","text":"visible response"}]}`,
+			name: "canonical unknown block does not expose adjacent thinking",
+			body: `{"blocks":[{"type":"thinking","text":"hidden-tool-reasoning"},{"type":"tool_use","text":"","id":"call-1"},{"type":"text","text":"visible response"}]}`,
 			want: "visible response",
 		},
 		{
@@ -63,6 +63,11 @@ func TestExtractPlainBody(t *testing.T) {
 			name: "blocks key with foreign shape elements is not treated as envelope",
 			body: `{"blocks":[{"foo":"bar"}]}`,
 			want: `{"blocks":[{"foo":"bar"}]}`,
+		},
+		{
+			name: "textless custom block remains foreign JSON",
+			body: `{"blocks":[{"type":"custom","payload":"foreign-json-marker"}]}`,
+			want: `{"blocks":[{"type":"custom","payload":"foreign-json-marker"}]}`,
 		},
 		{
 			name: "blocks:null is not treated as envelope",
@@ -97,10 +102,11 @@ func TestDecodeCanonicalEnvelope(t *testing.T) {
 		{"capital-B Blocks is not envelope", `{"Blocks":[{"type":"text","text":"hi"}]}`, false, 0},
 		{"blocks:null not envelope", `{"blocks":null}`, false, 0},
 		{"element missing type/text not envelope", `{"blocks":[{"foo":"bar"}]}`, false, 0},
+		{"textless custom block not envelope", `{"blocks":[{"type":"custom","payload":"foreign-json-marker"}]}`, false, 0},
 		{"non-string type not envelope", `{"blocks":[{"type":42,"text":"x"}]}`, false, 0},
 		{"empty blocks array is envelope", `{"blocks":[]}`, true, 0},
 		{"canonical envelope returns blocks", `{"blocks":[{"type":"thinking","text":"a"},{"type":"text","text":"b"}]}`, true, 2},
-		{"unknown block may omit text", `{"blocks":[{"type":"thinking","text":"a"},{"type":"tool_use","id":"call-1"},{"type":"text","text":"b"}]}`, true, 3},
+		{"canonical unknown block carries empty text", `{"blocks":[{"type":"thinking","text":"a"},{"type":"tool_use","text":"","id":"call-1"},{"type":"text","text":"b"}]}`, true, 3},
 	}
 
 	for _, tc := range cases {
@@ -146,8 +152,8 @@ func TestParseEventBodyBlocks(t *testing.T) {
 			want: []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: "hi"}},
 		},
 		{
-			name: "unknown block without text remains canonical",
-			body: `{"blocks":[{"type":"thinking","text":"hidden"},{"type":"tool_use","id":"call-1"},{"type":"text","text":"visible"}]}`,
+			name: "canonical unknown block is preserved",
+			body: `{"blocks":[{"type":"thinking","text":"hidden"},{"type":"tool_use","text":"","id":"call-1"},{"type":"text","text":"visible"}]}`,
 			want: []EventBodyBlock{
 				{Type: EventBodyBlockTypeThinking, Text: "hidden"},
 				{Type: EventBodyBlockType("tool_use"), Text: ""},
@@ -163,6 +169,11 @@ func TestParseEventBodyBlocks(t *testing.T) {
 			name: "non-block-shaped element falls back to legacy single text block",
 			body: `{"blocks":[{"foo":"bar"}]}`,
 			want: []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: `{"blocks":[{"foo":"bar"}]}`}},
+		},
+		{
+			name: "textless custom block falls back to raw body",
+			body: `{"blocks":[{"type":"custom","payload":"foreign-json-marker"}]}`,
+			want: []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: `{"blocks":[{"type":"custom","payload":"foreign-json-marker"}]}`}},
 		},
 	}
 

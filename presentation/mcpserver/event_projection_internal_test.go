@@ -152,7 +152,7 @@ func TestSearchAndContext_MetadataProjectionUseBodyFreeQueries(t *testing.T) {
 func TestSearchProjection_OmitsThinkingBesideUnknownBlocks(t *testing.T) {
 	t.Parallel()
 
-	body := `{"blocks":[{"type":"thinking","text":"hidden-tool-reasoning"},{"type":"tool_use","id":"call-1"},{"type":"text","text":"visible response"}]}`
+	body := `{"blocks":[{"type":"thinking","text":"hidden-tool-reasoning"},{"type":"tool_use","text":"","id":"call-1"},{"type":"text","text":"visible response"}]}`
 	event := model.EventOf(
 		types.EventID("event-tool-envelope"),
 		types.EventKindTranscript,
