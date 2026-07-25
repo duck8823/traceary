@@ -72,8 +72,8 @@ func (d *ReportDatasource) LoadReportWindow(ctx context.Context, criteria apptyp
 	events, eventsTruncated, err := loadCappedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit, offset int) ([]apptypes.EventMetadata, error) {
 		rows, err := queryRecentEventMetadataTx(
 			ctx, tx, reportEventCriteria(criteria),
-			formatOptionalTimestamp(criteria.Interval().EffectiveFromInclusive()),
-			formatOptionalTimestamp(criteria.Interval().EffectiveToExclusive()),
+			formatMetadataOptionalTimestamp(criteria.Interval().EffectiveFromInclusive()),
+			formatMetadataOptionalTimestamp(criteria.Interval().EffectiveToExclusive()),
 			limit, offset,
 		)
 		if err != nil {

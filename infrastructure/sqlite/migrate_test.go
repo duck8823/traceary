@@ -142,7 +142,7 @@ func TestMigrations_usageObservationsAreAdditiveAndPreserveExistingRows(t *testi
 	}
 }
 
-func TestMigrations_NormalizedTimestampIndexesAreAdditiveAndRollbackSafe(t *testing.T) {
+func TestMigrations_NormalizedTimestampColumnBackfillsAndMaintainsIndexes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -179,11 +179,38 @@ func TestMigrations_NormalizedTimestampIndexesAreAdditiveAndRollbackSafe(t *test
 	if eventID != "pre-v031-event" {
 		t.Fatalf("upgraded event id = %q, want preserved identity", eventID)
 	}
+	var normalized string
+	if err := db.QueryRow(`SELECT created_at_norm FROM events WHERE id = 'pre-v031-event'`).Scan(&normalized); err != nil {
+		t.Fatalf("read upgraded normalized timestamp: %v", err)
+	}
+	if normalized != "2026-07-25T00:00:00.000000000Z" {
+		t.Fatalf("upgraded normalized timestamp = %q", normalized)
+	}
+	if _, err := db.Exec(`UPDATE events SET created_at = '2026-07-25T00:00:00.5Z' WHERE id = 'pre-v031-event'`); err != nil {
+		t.Fatalf("update migrated event timestamp: %v", err)
+	}
+	if err := db.QueryRow(`SELECT created_at_norm FROM events WHERE id = 'pre-v031-event'`).Scan(&normalized); err != nil {
+		t.Fatalf("read maintained normalized timestamp: %v", err)
+	}
+	if normalized != "2026-07-25T00:00:00.500000000Z" {
+		t.Fatalf("maintained normalized timestamp = %q", normalized)
+	}
+	if _, err := db.Exec(`INSERT INTO events(id, kind, agent, session_id, body, created_at, client, workspace, body_availability)
+		VALUES ('post-v031-event', 'note', 'codex', 'session-1', 'new body', '2026-07-25T00:00:01Z', 'hook', 'workspace-1', 'available')`); err != nil {
+		t.Fatalf("insert post-v031 event: %v", err)
+	}
+	if err := db.QueryRow(`SELECT created_at_norm FROM events WHERE id = 'post-v031-event'`).Scan(&normalized); err != nil {
+		t.Fatalf("read inserted normalized timestamp: %v", err)
+	}
+	if normalized != "2026-07-25T00:00:01.000000000Z" {
+		t.Fatalf("inserted normalized timestamp = %q", normalized)
+	}
 	for _, index := range []string{
-		"idx_events_ts_norm_created_at_id_desc",
-		"idx_events_workspace_ts_norm_created_at_id_desc",
-		"idx_events_session_ts_norm_created_at_id_desc",
-		"idx_events_workspace_session_ts_norm_created_at_id_desc",
+		"idx_events_created_at_norm_id_desc",
+		"idx_events_workspace_created_at_norm_id_desc",
+		"idx_events_session_created_at_norm_id_desc",
+		"idx_events_workspace_session_created_at_norm_id_desc",
+		"idx_events_source_hook_created_at_norm_id_desc",
 	} {
 		var count int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(&count); err != nil {

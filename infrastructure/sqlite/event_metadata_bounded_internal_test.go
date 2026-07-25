@@ -75,7 +75,7 @@ func TestBoundedLatestEventMetadataByWorkspaceQueryPlanUsesTimestampIndex(t *tes
 		CREATE TABLE events (
 			id TEXT PRIMARY KEY, kind TEXT NOT NULL, client TEXT NOT NULL,
 			agent TEXT NOT NULL, session_id TEXT NOT NULL, workspace TEXT NOT NULL,
-			source_hook TEXT, created_at TEXT NOT NULL, body_original_bytes INTEGER,
+			source_hook TEXT, created_at TEXT NOT NULL, created_at_norm TEXT NOT NULL, body_original_bytes INTEGER,
 			body_stored_bytes INTEGER NOT NULL, body_ingest_truncated BOOLEAN,
 			body_storage_truncated BOOLEAN, body_metadata_version INTEGER
 		);
@@ -120,19 +120,22 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 		CREATE TABLE events (
 			id TEXT PRIMARY KEY, kind TEXT NOT NULL, client TEXT NOT NULL,
 			agent TEXT NOT NULL, session_id TEXT NOT NULL, workspace TEXT NOT NULL,
-			source_hook TEXT, created_at TEXT NOT NULL, body_original_bytes INTEGER,
+			source_hook TEXT, created_at TEXT NOT NULL, created_at_norm TEXT NOT NULL, body_original_bytes INTEGER,
 			body_stored_bytes INTEGER NOT NULL, body_ingest_truncated BOOLEAN,
 			body_storage_truncated BOOLEAN, body_metadata_version INTEGER
 		);
 		CREATE TABLE command_audits (event_id TEXT PRIMARY KEY, exit_code INTEGER, failed BOOLEAN);
-		CREATE INDEX idx_events_ts_norm_created_at_id_desc
-			ON events(ts_norm(created_at) DESC, id DESC);
-		CREATE INDEX idx_events_workspace_ts_norm_created_at_id_desc
-			ON events(workspace, ts_norm(created_at) DESC, id DESC);
-		CREATE INDEX idx_events_session_ts_norm_created_at_id_desc
-			ON events(session_id, ts_norm(created_at) DESC, id DESC);
-		CREATE INDEX idx_events_workspace_session_ts_norm_created_at_id_desc
-			ON events(workspace, session_id, ts_norm(created_at) DESC, id DESC);
+		CREATE INDEX idx_events_created_at_norm_id_desc
+			ON events(created_at_norm DESC, id DESC);
+		CREATE INDEX idx_events_workspace_created_at_norm_id_desc
+			ON events(workspace, created_at_norm DESC, id DESC);
+		CREATE INDEX idx_events_session_created_at_norm_id_desc
+			ON events(session_id, created_at_norm DESC, id DESC);
+		CREATE INDEX idx_events_workspace_session_created_at_norm_id_desc
+			ON events(workspace, session_id, created_at_norm DESC, id DESC);
+		CREATE INDEX idx_events_source_hook_created_at_norm_id_desc
+			ON events(source_hook, created_at_norm DESC, id DESC)
+			WHERE source_hook IS NOT NULL;
 	`); err != nil {
 		t.Fatalf("create query-plan fixture: %v", err)
 	}
@@ -147,25 +150,31 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 			name:      "general list with offset",
 			query:     selectRecentEventMetadataQuery,
 			args:      []any{"", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
-			wantIndex: "idx_events_ts_norm_created_at_id_desc",
+			wantIndex: "idx_events_created_at_norm_id_desc",
 		},
 		{
 			name:      "workspace list with offset",
 			query:     selectRecentEventMetadataByWorkspaceQuery,
 			args:      []any{"repo-current", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
-			wantIndex: "idx_events_workspace_ts_norm_created_at_id_desc",
+			wantIndex: "idx_events_workspace_created_at_norm_id_desc",
 		},
 		{
 			name:      "session list with offset",
 			query:     selectRecentEventMetadataBySessionQuery,
 			args:      []any{"session-1", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
-			wantIndex: "idx_events_session_ts_norm_created_at_id_desc",
+			wantIndex: "idx_events_session_created_at_norm_id_desc",
 		},
 		{
 			name:      "workspace session context",
 			query:     getContextEventMetadataByWorkspaceSessionQuery,
 			args:      []any{"repo-current", "session-1", 25},
-			wantIndex: "idx_events_workspace_session_ts_norm_created_at_id_desc",
+			wantIndex: "idx_events_workspace_session_created_at_norm_id_desc",
+		},
+		{
+			name:      "source hook list with offset",
+			query:     selectRecentEventMetadataBySourceHookQuery,
+			args:      []any{"stop", "", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
+			wantIndex: "idx_events_source_hook_created_at_norm_id_desc",
 		},
 	}
 	for _, tt := range tests {

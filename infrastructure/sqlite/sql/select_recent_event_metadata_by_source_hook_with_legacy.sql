@@ -20,8 +20,8 @@ SELECT id, kind, client, agent, session_id, workspace,
            AND (? = '' OR e.session_id = ?)
            AND (? = '' OR e.workspace = ?)
            AND (? = 0 OR ca.failed = 1 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
-           AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
-           AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
+           AND (? = '' OR e.created_at_norm >= ?)
+           AND (? = '' OR e.created_at_norm < ?)
         UNION ALL
         SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
                e.source_hook, e.created_at,
@@ -44,8 +44,8 @@ SELECT id, kind, client, agent, session_id, workspace,
            AND (? = '' OR e.session_id = ?)
            AND (? = '' OR e.workspace = ?)
            AND (? = 0 OR ca.failed = 1 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
-           AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
-           AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
+           AND (? = '' OR e.created_at_norm >= ?)
+           AND (? = '' OR e.created_at_norm < ?)
        ) events_union
  ORDER BY ts_norm(created_at) DESC, id DESC
  LIMIT ? OFFSET ?

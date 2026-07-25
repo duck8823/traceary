@@ -136,8 +136,8 @@ func (d *EventDatasource) ListRecentMetadata(
 		ctx,
 		db,
 		criteria,
-		formatOptionalTimestamp(criteria.From()),
-		formatOptionalTimestamp(criteria.To()),
+		formatMetadataOptionalTimestamp(criteria.From()),
+		formatMetadataOptionalTimestamp(criteria.To()),
 		criteria.Limit(),
 		criteria.Offset(),
 	)
@@ -180,8 +180,8 @@ func (d *EventDatasource) ListWindowMetadata(
 			ctx,
 			tx,
 			criteria,
-			formatOptionalTimestamp(criteria.From()),
-			formatOptionalTimestamp(criteria.To()),
+			formatMetadataOptionalTimestamp(criteria.From()),
+			formatMetadataOptionalTimestamp(criteria.To()),
 			batch,
 			offset,
 		)
@@ -306,6 +306,17 @@ func formatOptionalTimestamp(value time.Time) string {
 		return ""
 	}
 	return formatTimestamp(value)
+}
+
+// formatMetadataOptionalTimestamp matches events.created_at_norm, which is
+// persisted in the fixed-width form used by its ordering indexes. Other event
+// queries still normalize created_at inside SQLite and therefore keep the
+// variable-width RFC3339Nano parameter format.
+func formatMetadataOptionalTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return formatMemoryValidityTimestamp(value)
 }
 
 func closeMetadataResource(db *sql.DB) {

@@ -16,18 +16,19 @@
 
 | Concept | Owner | Invariant |
 | --- | --- | --- |
-| Normalized timestamp order | SQLite expression indexes | `ts_norm(created_at), id` is the one ordering contract |
+| Normalized timestamp order | persisted event timestamp and SQLite indexes | `created_at_norm, id` is the one ordering contract |
 | Scoped metadata page | metadata datasource | selects metadata/audit columns, never `events.body` |
-| Index rollout | migration 000031 | adds indexes only; event rows and existing indexes remain unchanged |
+| Index rollout | migration 000031 | adds and backfills `created_at_norm`, then maintains it with triggers |
 
 ### Boundaries and supported plans
 
 | Query shape | Ordered index |
 | --- | --- |
-| general metadata list (including limit/offset) | `idx_events_ts_norm_created_at_id_desc` |
-| workspace list/context | `idx_events_workspace_ts_norm_created_at_id_desc` |
-| session list/context | `idx_events_session_ts_norm_created_at_id_desc` |
-| workspace + session context | `idx_events_workspace_session_ts_norm_created_at_id_desc` |
+| general metadata list (including limit/offset) | `idx_events_created_at_norm_id_desc` |
+| workspace list/context | `idx_events_workspace_created_at_norm_id_desc` |
+| session list/context | `idx_events_session_created_at_norm_id_desc` |
+| workspace + session context | `idx_events_workspace_session_created_at_norm_id_desc` |
+| source-hook list | `idx_events_source_hook_created_at_norm_id_desc` |
 
 The list predicates remain deliberately optional so all public filters keep
 their existing semantics. The planner can scan the matching ordering index;
@@ -43,14 +44,14 @@ membership.
 2. Assert normal list and scoped/offset pages preserve timestamp order.
 3. Keep the metadata SQL select-list guard: `body` and command payload columns
    are forbidden in every metadata query.
-4. Upgrade a pre-000031 store and assert existing event data survives and all
-   four indexes exist.
+4. Upgrade a pre-000031 store and assert the fixed-width timestamp is
+   backfilled and maintained after inserts and timestamp updates.
 
 ### Rollback and residual risk
 
 Migration 000031 is additive and idempotent. Reverting application code keeps
-the store readable because older readers ignore extra indexes. Index creation
-can temporarily require disk and write-lock capacity on very large stores;
-operators should retry after freeing capacity or quiescing writers. The p95
-target is guarded structurally by index plans rather than a machine-dependent
-wall-clock benchmark.
+the store readable because older readers ignore the added column, triggers, and
+replacement indexes. Index creation can temporarily require disk and write-lock
+capacity on very large stores; operators should retry after freeing capacity or
+quiescing writers. The p95 target is guarded structurally by index plans rather
+than a machine-dependent wall-clock benchmark.

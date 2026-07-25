@@ -12,7 +12,7 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
    AND (? = '' OR e.client = ?)
    AND (? = '' OR e.agent = ?)
    AND (? = 0 OR ca.failed = 1 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
-   AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
-   AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
- ORDER BY ts_norm(e.created_at) DESC, e.id DESC
+   AND (? = '' OR e.created_at_norm >= ?)
+   AND (? = '' OR e.created_at_norm < ?)
+ ORDER BY e.created_at_norm DESC, e.id DESC
  LIMIT ? OFFSET ?
