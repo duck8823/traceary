@@ -150,6 +150,9 @@ func verifyIntegrations(root string, runCLISmoke bool) error {
 	if err := checkSharedSkillParity(root); err != nil {
 		return err
 	}
+	if err := checkSharedSkillSemanticContracts(root); err != nil {
+		return err
+	}
 	return checkDocs(root)
 }
 
@@ -244,6 +247,70 @@ func checkSharedSkillParity(root string) error {
 				return xerrors.Errorf("shared %s skill copies diverged: %s does not match %s", skill, rel, paths[0])
 			}
 		}
+	}
+	return nil
+}
+
+// checkSharedSkillSemanticContracts pins the safety-critical retrieval guidance
+// that byte parity alone cannot prove. Every host copy must tell agents to
+// discover metadata before bounded inspection, and memory recap guidance must
+// refer back to that staged flow rather than suggesting a bare context read.
+func checkSharedSkillSemanticContracts(root string) error {
+	for _, rel := range sharedSkillPaths["traceary-session-history"] {
+		data, err := os.ReadFile(filepath.Join(root, rel)) // #nosec G304 -- fixed package path under repo root
+		if err != nil {
+			return xerrors.Errorf("missing session-history skill: %s: %w", rel, err)
+		}
+		if err := validateSessionHistorySkillContract(rel, string(data)); err != nil {
+			return err
+		}
+	}
+	for _, rel := range sharedSkillPaths["traceary-memory-review"] {
+		data, err := os.ReadFile(filepath.Join(root, rel)) // #nosec G304 -- fixed package path under repo root
+		if err != nil {
+			return xerrors.Errorf("missing memory-review skill: %s: %w", rel, err)
+		}
+		if err := validateMemoryReviewRecapContract(rel, string(data)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSessionHistorySkillContract(rel, body string) error {
+	for _, required := range []string{
+		"### 1. Discovery",
+		"projection=\"metadata\"",
+		"\"limit\": 5",
+		"workspace",
+		"time range",
+		"session_id",
+		"### 2. Inspection",
+		"positive `body_limit`",
+		"`300`–`500`",
+		"### 3. Detail",
+		"single event",
+		"traceary show <event-id>",
+	} {
+		if !strings.Contains(body, required) {
+			return xerrors.Errorf("%s must include staged retrieval contract marker %q", rel, required)
+		}
+	}
+	return nil
+}
+
+func validateMemoryReviewRecapContract(rel, body string) error {
+	for _, required := range []string{
+		"traceary-session-history",
+		"Discovery → Inspection → Detail",
+		"bare `get_context`",
+	} {
+		if !strings.Contains(body, required) {
+			return xerrors.Errorf("%s must include recap retrieval contract marker %q", rel, required)
+		}
+	}
+	if strings.Contains(body, "events visible via `get_context` / `query_memory(pack)`") {
+		return xerrors.Errorf("%s must not recommend a bare get_context recap read", rel)
 	}
 	return nil
 }

@@ -33,6 +33,28 @@ Traceary が公開する MCP tool は 9 個で、golden snapshot `presentation/m
 
 `session_status(action="handoff", ...)` と `query_memory(action="pack", ...)` は互換用の `recent_commands` 文字列配列を維持し、`recent_command_items` も返します。構造化された兄弟フィールドには `event_id`、本文を安全に短縮した `summary`、応答・保存・元データの byte 数、取り込み・保存・応答時の切り詰め情報、`retrieval_hint` が含まれます。不明な過去データの情報は省略します。保存済み本文の全文取得には `traceary show <event-id>` または event detail の明示的な呼び出しが必要で、handoff 自体は上限付きの本文先頭部分だけを読みます。
 
+### 段階的な event 取得
+
+過去の session、event、command audit を調査するときは、次の順序で読み取ります。
+
+1. **Discovery:** 現在の `workspace` から始め、分かっている `from` / `to`
+   または `session_id` filter を追加します。`list_events`（または絞り込んだ
+   literal `search`）を `projection="metadata"` と `5` 程度の小さい `limit`
+   で呼びます。これにより、event body を読まずに candidate ID と metadata を
+   取得できます。
+2. **Inspection:** 選んだ filter を維持し、文脈が必要な candidate だけを
+   `300`–`500` 程度の正の `body_limit` で確認します。`get_context` は event
+   または同等に狭い scope を選んだ後にだけ使います。広い範囲の最初の read には
+   使いません。
+3. **Detail:** 保存済み body の全文は、調査理由を明示して 1 件の event を
+   選んだ場合だけ取得します。明示的な CLI detail path である
+   `traceary show <event-id>` を優先します。広い history query に対して
+   `full_body=true` や `body_limit=0` から始めてはいけません。
+
+session recap でも同じ順序を使います。metadata を発見してから選んだ context を
+確認し、上限付きの evidence だけでは recap を支えられない場合にだけ detail を
+取得します。
+
 ### Search query semantics
 
 `search.query` は literal text query であり、boolean query language ではありません。`failure OR timeout` のような文字列は `failure` または `timeout` の any-match expression として解釈されず、1つの検索文字列として扱われます。複数語を調べたい場合は、より狭い `search` call を複数回実行するか、CLI JSON output を local file に保存して `jq` などの local tools で集計してください。

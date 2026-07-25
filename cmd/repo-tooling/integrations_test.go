@@ -36,6 +36,35 @@ func TestVerifyIntegrations_FailsWhenRootIncomplete(t *testing.T) {
 	}
 }
 
+func TestSharedSkillSemanticContracts_PassOnCurrentTree(t *testing.T) {
+	t.Parallel()
+
+	root, err := findRepoRoot()
+	if err != nil {
+		t.Fatalf("findRepoRoot() error = %v", err)
+	}
+	if err := checkSharedSkillSemanticContracts(root); err != nil {
+		t.Fatalf("checkSharedSkillSemanticContracts() error = %v", err)
+	}
+}
+
+func TestValidateSessionHistorySkillContract_RejectsMissingDiscoveryMetadata(t *testing.T) {
+	t.Parallel()
+
+	if err := validateSessionHistorySkillContract("skill", "### 1. Discovery"); err == nil {
+		t.Fatal("validateSessionHistorySkillContract() error = nil, want missing marker error")
+	}
+}
+
+func TestValidateMemoryReviewRecapContract_RejectsBareContextGuidance(t *testing.T) {
+	t.Parallel()
+
+	body := "traceary-session-history Discovery → Inspection → Detail bare `get_context` events visible via `get_context` / `query_memory(pack)`"
+	if err := validateMemoryReviewRecapContract("skill", body); err == nil {
+		t.Fatal("validateMemoryReviewRecapContract() error = nil, want bare context guidance error")
+	}
+}
+
 func TestCheckNoDuplicateTracearyHookEntries_FailsOnDuplicateManagedEntry(t *testing.T) {
 	t.Parallel()
 
