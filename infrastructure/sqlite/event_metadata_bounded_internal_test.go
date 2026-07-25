@@ -84,7 +84,7 @@ func TestBoundedLatestEventMetadataByWorkspaceQueryPlanUsesTimestampIndex(t *tes
 	`); err != nil {
 		t.Fatalf("create workspace query-plan fixture: %v", err)
 	}
-	rows, err := db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+selectLatestEventMetadataFastByWorkspaceQuery, "repo-current", "repo-current")
+	rows, err := db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+selectLatestEventMetadataFastByWorkspaceQuery, "repo-current", "repo-current", "repo-current")
 	if err != nil {
 		t.Fatalf("EXPLAIN QUERY PLAN error = %v", err)
 	}
@@ -103,6 +103,9 @@ func TestBoundedLatestEventMetadataByWorkspaceQueryPlanUsesTimestampIndex(t *tes
 	}
 	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "idx_events_workspace_created_at") {
 		t.Fatalf("bounded workspace query does not use workspace timestamp index:\n%s", joined)
+	}
+	if joined := strings.Join(plan, "\n"); strings.Contains(joined, "USE TEMP B-TREE FOR LAST TERM OF ORDER BY") {
+		t.Fatalf("legacy workspace index must not sort every scoped row to choose the latest second:\n%s", joined)
 	}
 }
 

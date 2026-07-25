@@ -101,16 +101,25 @@ func (s *eventUsecaseStub) List(_ context.Context, criteria apptypes.EventListCr
 }
 
 type eventMetadataUsecaseStub struct {
-	listMetadata    []apptypes.EventMetadata
-	searchMetadata  []apptypes.EventMetadata
-	contextMetadata []apptypes.EventMetadata
-	listErr         error
-	searchErr       error
-	contextErr      error
-	listCalls       int
-	listCriteria    apptypes.EventListCriteria
-	searchCalls     int
-	contextCalls    int
+	timestampKinds        []apptypes.EventTimestampKind
+	listMetadata          []apptypes.EventMetadata
+	searchMetadata        []apptypes.EventMetadata
+	contextMetadata       []apptypes.EventMetadata
+	listErr               error
+	searchErr             error
+	contextErr            error
+	listCalls             int
+	listCriteria          apptypes.EventListCriteria
+	timestampKindCriteria apptypes.EventListCriteria
+	timestampKindCalls    int
+	searchCalls           int
+	contextCalls          int
+}
+
+func (s *eventMetadataUsecaseStub) ListTimestampKinds(_ context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventTimestampKind, error) {
+	s.timestampKindCalls++
+	s.timestampKindCriteria = criteria
+	return s.timestampKinds, nil
 }
 
 func (s *eventMetadataUsecaseStub) List(_ context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {

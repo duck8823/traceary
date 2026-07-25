@@ -32,6 +32,7 @@ type EventQueryService interface {
 // It is separate from EventQueryService so consumers cannot accidentally
 // request a partial domain Event through an include-body flag.
 type EventMetadataQueryService interface {
+	ListRecentTimestampKinds(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventTimestampKind, error)
 	// ListRecentMetadata returns body-free events in descending time order.
 	ListRecentMetadata(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error)
 	// ListWindowMetadata returns every matching body-free event under one

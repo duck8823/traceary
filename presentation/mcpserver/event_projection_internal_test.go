@@ -290,6 +290,10 @@ type projectionMetadataUsecaseStub struct {
 	contextCalls int
 }
 
+func (*projectionMetadataUsecaseStub) ListTimestampKinds(context.Context, apptypes.EventListCriteria) ([]apptypes.EventTimestampKind, error) {
+	return nil, nil
+}
+
 func (s *projectionMetadataUsecaseStub) List(context.Context, apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
 	s.listCalls++
 	return s.list, nil
