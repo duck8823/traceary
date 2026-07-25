@@ -46,6 +46,22 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 			`{"blocks":[{"type":"thinking","text":"secret-thinking needle"},{"type":"text","text":"visible needle response"}]}`,
 			base.Add(time.Second),
 		),
+		newSearchEventFixture(
+			t,
+			"event-envelope-tool",
+			types.EventKindTranscript,
+			workspace.String(),
+			`{"blocks":[{"type":"thinking","text":"tool-secret-thinking"},{"type":"tool_use","id":"call-1","name":"Read"},{"type":"text","text":"visible tool response"}]}`,
+			base.Add(2*time.Second),
+		),
+		newSearchEventFixture(
+			t,
+			"event-foreign-blocks",
+			types.EventKindNote,
+			workspace.String(),
+			`{"blocks":[{"foo":"foreign-json-marker"}]}`,
+			base.Add(3*time.Second),
+		),
 	}
 	for _, event := range fixtures {
 		if err := sut.Save(ctx, event); err != nil {
@@ -74,6 +90,9 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 		{name: "matching non-ASCII case", query: "ÄBC", want: []string{"event-literal"}},
 		{name: "non-ASCII remains case sensitive", query: "äbc", want: []string{}},
 		{name: "thinking text is excluded", query: "secret-thinking", want: []string{}},
+		{name: "thinking beside unknown block is excluded", query: "tool-secret-thinking", want: []string{}},
+		{name: "visible text beside unknown block is indexed", query: "visible tool response", want: []string{"event-envelope-tool"}},
+		{name: "foreign blocks JSON remains raw-searchable", query: "foreign-json-marker", want: []string{"event-foreign-blocks"}},
 		{name: "persisted audit text is indexed", query: "stdout with details", want: []string{"event-audit"}},
 		{name: "final timestamp and ID order", query: "visible needle", want: []string{"event-envelope", "event-literal"}},
 	}
@@ -246,7 +265,13 @@ func TestEventSearchBackfill_IsBoundedCompleteAndResumable(t *testing.T) {
 		t.Fatalf("initialize pre-32 store: %v", err)
 	}
 	seedHistoricalSearchEvents(t, dbPath, 130, func(index int) string {
-		if index == 0 || index == 129 {
+		if index == 129 {
+			return `{"blocks":[{"type":"thinking","text":"legacy-secret-thinking"},{"type":"tool_use","id":"call-legacy"},{"type":"text","text":"historical needle visible legacy response"}]}`
+		}
+		if index == 128 {
+			return `{"blocks":[{"foo":"legacy-foreign-json-marker"}]}`
+		}
+		if index == 0 {
 			return "historical needle"
 		}
 		return "ordinary historical body"
@@ -284,6 +309,46 @@ func TestEventSearchBackfill_IsBoundedCompleteAndResumable(t *testing.T) {
 	wantIDs := []string{"event-00129", "event-00000"}
 	if diff := cmp.Diff(wantIDs, eventIDs(full)); diff != "" {
 		t.Fatalf("bounded incomplete IDs mismatch (-want +got):\n%s", diff)
+	}
+	thinkingOnly, err := sut.Search(
+		ctx,
+		"legacy-secret-thinking",
+		workspace,
+		"",
+		"",
+		"",
+		"",
+		time.Time{},
+		time.Time{},
+		20,
+		0,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("bounded incomplete thinking Search() error = %v", err)
+	}
+	if len(thinkingOnly) != 0 {
+		t.Fatalf("bounded incomplete thinking IDs = %v, want none", eventIDs(thinkingOnly))
+	}
+	foreignJSON, err := sut.Search(
+		ctx,
+		"legacy-foreign-json-marker",
+		workspace,
+		"",
+		"",
+		"",
+		"",
+		time.Time{},
+		time.Time{},
+		20,
+		0,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("bounded incomplete foreign JSON Search() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"event-00128"}, eventIDs(foreignJSON)); diff != "" {
+		t.Fatalf("bounded incomplete foreign JSON IDs mismatch (-want +got):\n%s", diff)
 	}
 	metadata, err := sut.SearchMetadata(
 		ctx,

@@ -45,6 +45,11 @@ func TestExtractPlainBody(t *testing.T) {
 			want: "first\n\nsecond",
 		},
 		{
+			name: "unknown block without text does not expose adjacent thinking",
+			body: `{"blocks":[{"type":"thinking","text":"hidden-tool-reasoning"},{"type":"tool_use","id":"call-1"},{"type":"text","text":"visible response"}]}`,
+			want: "visible response",
+		},
+		{
 			name: "envelope with empty blocks array collapses to empty",
 			body: `{"blocks":[]}`,
 			want: "",
@@ -95,6 +100,7 @@ func TestDecodeCanonicalEnvelope(t *testing.T) {
 		{"non-string type not envelope", `{"blocks":[{"type":42,"text":"x"}]}`, false, 0},
 		{"empty blocks array is envelope", `{"blocks":[]}`, true, 0},
 		{"canonical envelope returns blocks", `{"blocks":[{"type":"thinking","text":"a"},{"type":"text","text":"b"}]}`, true, 2},
+		{"unknown block may omit text", `{"blocks":[{"type":"thinking","text":"a"},{"type":"tool_use","id":"call-1"},{"type":"text","text":"b"}]}`, true, 3},
 	}
 
 	for _, tc := range cases {
@@ -138,6 +144,15 @@ func TestParseEventBodyBlocks(t *testing.T) {
 			name: "envelope blocks are returned as-is",
 			body: `{"blocks":[{"type":"text","text":"hi"}]}`,
 			want: []EventBodyBlock{{Type: EventBodyBlockTypeText, Text: "hi"}},
+		},
+		{
+			name: "unknown block without text remains canonical",
+			body: `{"blocks":[{"type":"thinking","text":"hidden"},{"type":"tool_use","id":"call-1"},{"type":"text","text":"visible"}]}`,
+			want: []EventBodyBlock{
+				{Type: EventBodyBlockTypeThinking, Text: "hidden"},
+				{Type: EventBodyBlockType("tool_use"), Text: ""},
+				{Type: EventBodyBlockTypeText, Text: "visible"},
+			},
 		},
 		{
 			name: "capital-B key falls back to legacy single text block",
