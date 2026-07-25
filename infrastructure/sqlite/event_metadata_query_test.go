@@ -339,6 +339,158 @@ func TestEventMetadataQuery_ListRecentPreservesFullQueryMembership(t *testing.T)
 	}
 }
 
+func TestEventMetadataQuery_ScopedListAndContextMatchFullQueriesAtExactSecondBoundary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		workspace types.Workspace
+		sessionID types.SessionID
+	}{
+		{
+			name:      "workspace",
+			workspace: types.Workspace("workspace-target"),
+		},
+		{
+			name:      "session",
+			sessionID: types.SessionID("session-target"),
+		},
+		{
+			name:      "workspace and session",
+			workspace: types.Workspace("workspace-target"),
+			sessionID: types.SessionID("session-target"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+			sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+			if err := storeManager.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+
+			workspace := tt.workspace
+			if workspace == "" {
+				workspace = types.Workspace("workspace-in-scope")
+			}
+			sessionID := tt.sessionID
+			if sessionID == "" {
+				sessionID = types.SessionID("session-in-scope")
+			}
+			base := time.Date(2026, 7, 25, 6, 0, 0, 0, time.UTC)
+			for _, fixture := range []struct {
+				id        string
+				createdAt time.Time
+			}{
+				{id: "event-before", createdAt: base.Add(-time.Second)},
+				{id: "event-from", createdAt: base},
+				{id: "event-fraction", createdAt: base.Add(500 * time.Millisecond)},
+				{id: "event-to", createdAt: base.Add(time.Second)},
+			} {
+				event := newEventForSQLiteTest(
+					t,
+					fixture.id,
+					"cli",
+					"codex",
+					sessionID.String(),
+					workspace.String(),
+					"body",
+					fixture.createdAt,
+				)
+				if err := sut.Save(ctx, event); err != nil {
+					t.Fatalf("Save(%s) error = %v", fixture.id, err)
+				}
+			}
+
+			otherWorkspace := workspace
+			otherSessionID := sessionID
+			if tt.workspace != "" {
+				otherWorkspace = types.Workspace("workspace-out-of-scope")
+			} else {
+				otherSessionID = types.SessionID("session-out-of-scope")
+			}
+			if err := sut.Save(ctx, newEventForSQLiteTest(
+				t,
+				"event-out-of-scope",
+				"cli",
+				"codex",
+				otherSessionID.String(),
+				otherWorkspace.String(),
+				"body",
+				base.Add(750*time.Millisecond),
+			)); err != nil {
+				t.Fatalf("Save(event-out-of-scope) error = %v", err)
+			}
+
+			listBuilder := apptypes.NewEventListCriteriaBuilder(10).
+				From(base).
+				To(base.Add(time.Second))
+			contextBuilder := apptypes.NewEventContextCriteriaBuilder(10)
+			if tt.workspace != "" {
+				listBuilder.Workspace(tt.workspace)
+				contextBuilder.Workspace(tt.workspace)
+			}
+			if tt.sessionID != "" {
+				listBuilder.SessionID(tt.sessionID)
+				contextBuilder.SessionID(tt.sessionID)
+			}
+			listCriteria := listBuilder.Build()
+
+			metadataList, err := sut.ListRecentMetadata(ctx, listCriteria)
+			if err != nil {
+				t.Fatalf("ListRecentMetadata() error = %v", err)
+			}
+			fullList, err := sut.ListRecent(
+				ctx,
+				listCriteria.Limit(),
+				listCriteria.Offset(),
+				listCriteria.Kind(),
+				listCriteria.Client(),
+				listCriteria.Agent(),
+				listCriteria.SessionID(),
+				listCriteria.Workspace(),
+				listCriteria.FailuresOnly(),
+				listCriteria.From(),
+				listCriteria.To(),
+				listCriteria.SourceHook(),
+			)
+			if err != nil {
+				t.Fatalf("ListRecent() error = %v", err)
+			}
+			wantList := []string{"event-fraction", "event-from"}
+			if diff := cmp.Diff(wantList, fullEventIDs(fullList)); diff != "" {
+				t.Fatalf("full list boundary mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(fullEventIDs(fullList), metadataIDs(metadataList)); diff != "" {
+				t.Fatalf("metadata/full list mismatch (-want +got):\n%s", diff)
+			}
+
+			contextCriteria := contextBuilder.Build()
+			metadataContext, err := sut.GetContextMetadata(ctx, contextCriteria)
+			if err != nil {
+				t.Fatalf("GetContextMetadata() error = %v", err)
+			}
+			fullContext, err := sut.GetContext(
+				ctx,
+				contextCriteria.Workspace(),
+				contextCriteria.SessionID(),
+				contextCriteria.Limit(),
+			)
+			if err != nil {
+				t.Fatalf("GetContext() error = %v", err)
+			}
+			wantContext := []string{"event-to", "event-fraction", "event-from", "event-before"}
+			if diff := cmp.Diff(wantContext, fullEventIDs(fullContext)); diff != "" {
+				t.Fatalf("full context order mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(fullEventIDs(fullContext), metadataIDs(metadataContext)); diff != "" {
+				t.Fatalf("metadata/full context mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestEventMetadataQuery_ReturnsBodyFreeCommandAuditMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -626,6 +778,14 @@ CREATE TABLE events (
 func metadataIDs(metadata []apptypes.EventMetadata) []string {
 	ids := make([]string, 0, len(metadata))
 	for _, event := range metadata {
+		ids = append(ids, event.EventID().String())
+	}
+	return ids
+}
+
+func fullEventIDs(events []*model.Event) []string {
+	ids := make([]string, 0, len(events))
+	for _, event := range events {
 		ids = append(ids, event.EventID().String())
 	}
 	return ids

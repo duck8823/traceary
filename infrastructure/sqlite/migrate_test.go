@@ -222,6 +222,64 @@ func TestMigrations_NormalizedTimestampColumnBackfillsAndMaintainsIndexes(t *tes
 	}
 }
 
+func TestMigrations_NormalizedTimestampMatchesTSNormForLegacyEdgeValues(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 31)).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-v031) error = %v", err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtures := []struct {
+		id        string
+		createdAt string
+	}{
+		{id: "exact-second", createdAt: "2026-07-25T00:00:00Z"},
+		{id: "fractional-second", createdAt: "2026-07-25T00:00:00.5Z"},
+		{id: "nanosecond", createdAt: "2026-07-25T00:00:00.123456789Z"},
+		{id: "beyond-nanosecond", createdAt: "2026-07-25T00:00:00.123456789123Z"},
+		{id: "legacy-without-zone", createdAt: "2026-07-25T00:00:02.25"},
+	}
+	for _, fixture := range fixtures {
+		if _, err := db.Exec(`INSERT INTO events(id, kind, agent, session_id, body, created_at, client, workspace, body_availability)
+			VALUES (?, 'note', 'codex', 'session-1', 'legacy body', ?, 'hook', 'workspace-1', 'available')`, fixture.id, fixture.createdAt); err != nil {
+			_ = db.Close()
+			t.Fatalf("seed %s: %v", fixture.id, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(v031) error = %v", err)
+	}
+	db, err = sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	for _, fixture := range fixtures {
+		t.Run(fixture.id, func(t *testing.T) {
+			var normalized, legacyNormalized string
+			if err := db.QueryRow(
+				`SELECT created_at_norm, ts_norm(created_at) FROM events WHERE id = ?`,
+				fixture.id,
+			).Scan(&normalized, &legacyNormalized); err != nil {
+				t.Fatalf("read normalized timestamp: %v", err)
+			}
+			if normalized != legacyNormalized {
+				t.Fatalf("created_at_norm = %q, ts_norm(created_at) = %q", normalized, legacyNormalized)
+			}
+		})
+	}
+}
+
 func TestMigrations_RunLineageIsAdditiveAndPreservesV27Usage(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
