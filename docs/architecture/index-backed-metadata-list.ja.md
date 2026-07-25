@@ -36,8 +36,12 @@
 2. 通常 list と scope/offset ページの時刻順を確認する。
 3. metadata SQL の SELECT リストで `body` と command payload 列を禁止する。
 4. 000031 前のストアを更新し、固定幅時刻がバックフィルされ、insert と時刻更新後も維持されることを確認する。
-5. 10k eventのmigration済みfixtureを直接range queryで実行し、p95を回帰証跡として残す（今回の測定値は265.083us）。
+5. migration済みのbody-free 10k event fixtureに、sparse 4 GiBのファイルextentを付与して実行する。workspace直接range queryを25回測定し、CIではp95 50 ms未満を必須にする。migration済みDBのplan testでは、時刻の下限・上限が直接predicateであり、order-by用の一時B-treeがないことも確認する。
+
+### 性能証跡
+
+2026-07-25にGo 1.26.3、macOS 26.5（darwin/arm64）、modernc SQLite driverで測定した。fixtureはindex済みevent metadata 10,000行とsparse 4 GiBのDBファイルextentで構成し、大きなbody corpusは含めない。fixtureはtest用の一時ディレクトリだけに生成し、commitしない。負荷はworkspaceを絞った2秒の直接range、`limit=50`、25回反復である。目標はp95 50 ms未満、今回の測定値は**416.125us**だった。full-scan退行は構造的なplan assertionを主な検出器とし、p95閾値はCI smokeとして扱う。
 
 ### ロールバックと残リスク
 
-000031 は追加かつ冪等である。旧アプリは追加列、trigger、インデックスを無視するため、アプリのロールバック後もストアを読める。巨大ストアでのインデックス作成には一時的に容量と書込みロックが必要である。p95 は環境依存の時間計測ではなく、インデックスを使う計画で回帰を防ぐ。
+000031 は追加かつ冪等である。旧アプリは追加列、trigger、インデックスを無視するため、アプリのロールバック後もストアを読める。巨大ストアでのインデックス作成には一時的に容量と書込みロックが必要である。

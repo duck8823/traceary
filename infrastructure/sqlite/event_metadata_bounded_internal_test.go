@@ -227,13 +227,13 @@ func TestMetadataRangeAndLegacyFallbackPlansUseProductionMigrationIndexes(t *tes
 		To(time.Date(2026, 7, 25, 0, 0, 3, 0, time.UTC)).
 		Build()
 	query, args := scopedRecentEventMetadataQuery(criteria, 0, from, to, 25, 0)
-	assertPlanUsesOrderedIndex(t, explainQueryPlan(t, db, query, args...), "idx_events_workspace_created_at_norm_id_desc")
+	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, query, args...), "idx_events_workspace_created_at_norm_id_desc")
 
 	legacyQuery := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, from, to)
 	legacyArgs := metadataSourceHookLegacyQueryArgs(
 		"subagent_stop", "", "", "", "", "", 0, from, to, 25, 0,
 	)
-	assertPlanUsesOrderedIndex(t, explainQueryPlan(t, db, legacyQuery, legacyArgs...), "idx_events_created_at_norm_id_desc")
+	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, legacyQuery, legacyArgs...), "idx_events_created_at_norm_id_desc")
 }
 
 func assertPlanUsesOrderedIndex(t *testing.T, plan []string, index string) {
@@ -244,6 +244,14 @@ func assertPlanUsesOrderedIndex(t *testing.T, plan []string, index string) {
 	}
 	if strings.Contains(joined, "USE TEMP B-TREE FOR ORDER BY") {
 		t.Fatalf("query plan sorts outside its ordering index:\n%s", joined)
+	}
+}
+
+func assertPlanUsesDirectRangeIndex(t *testing.T, plan []string, index string) {
+	t.Helper()
+	assertPlanUsesOrderedIndex(t, plan, index)
+	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "created_at_norm>? AND created_at_norm<?") {
+		t.Fatalf("query plan does not seek both direct timestamp bounds:\n%s", joined)
 	}
 }
 
@@ -281,6 +289,26 @@ func TestMetadataRangeQueryP95OnLargeMigratedStore(t *testing.T) {
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Commit() error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close seeded DB: %v", err)
+	}
+	// This is a sparse 4 GiB, body-free equivalent fixture. It retains a 10k-row
+	// metadata index while avoiding a committed multi-gigabyte artifact and makes
+	// accidental whole-file reads observable during local/CI smoke testing.
+	if err := os.Truncate(dbPath, 4<<30); err != nil {
+		t.Fatalf("Truncate sparse fixture: %v", err)
+	}
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("Stat sparse fixture: %v", err)
+	}
+	if info.Size() != 4<<30 {
+		t.Fatalf("sparse fixture size = %d, want %d", info.Size(), int64(4<<30))
+	}
+	db, err = sql.Open("sqlite", sqliteDSN(dbPath))
+	if err != nil {
+		t.Fatalf("reopen sparse fixture: %v", err)
 	}
 
 	criteria := apptypes.NewEventListCriteriaBuilder(50).
@@ -320,8 +348,8 @@ func TestMetadataRangeQueryP95OnLargeMigratedStore(t *testing.T) {
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p95 := durations[(len(durations)*95+99)/100-1]
 	t.Logf("10k migrated events, workspace direct range query p95=%s", p95)
-	if p95 >= 750*time.Millisecond {
-		t.Fatalf("range query p95=%s, want < 750ms", p95)
+	if p95 >= 50*time.Millisecond {
+		t.Fatalf("range query p95=%s, want < 50ms", p95)
 	}
 }
 

@@ -48,8 +48,21 @@ membership.
    are forbidden in every metadata query.
 4. Upgrade a pre-000031 store and assert the fixed-width timestamp is
    backfilled and maintained after inserts and timestamp updates.
-5. Exercise a 10k-event migrated fixture and retain the direct-range p95 as
-   regression evidence (the current test run recorded 265.083us).
+5. Exercise a migrated, body-free 10k-event fixture with a sparse 4 GiB file
+   extent. The direct workspace-range query is measured 25 times; CI requires
+   p95 below 50 ms, while the migrated-store plan test requires direct lower
+   and upper timestamp constraints and rejects every temporary order-by tree.
+
+### Performance evidence
+
+Measured on 2026-07-25 with Go 1.26.3 on macOS 26.5 (darwin/arm64), using the
+modernc SQLite driver. The fixture contains 10,000 indexed event metadata rows
+and a sparse 4 GiB database-file extent; it deliberately contains no large body
+corpus and is created only under the test temporary directory. The workload is
+25 repetitions of a workspace-scoped, two-second direct range with `limit=50`.
+The goal is p95 below 50 ms; the measured p95 was **416.125us**. The structural
+plan assertion is the primary full-scan regression guard, and the p95 threshold
+is the CI smoke guard. No generated fixture is committed.
 
 ### Rollback and residual risk
 
@@ -57,5 +70,4 @@ Migration 000031 is additive and idempotent. Reverting application code keeps
 the store readable because older readers ignore the added column, triggers, and
 indexes. Index creation can temporarily require disk and write-lock
 capacity on very large stores; operators should retry after freeing capacity or
-quiescing writers. The p95 target is guarded structurally by index plans rather
-than a machine-dependent wall-clock benchmark.
+quiescing writers.
