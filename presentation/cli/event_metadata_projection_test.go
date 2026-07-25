@@ -95,7 +95,11 @@ func TestRootCLI_ListTextMetadataFieldsSkipsStoreInitialization(t *testing.T) {
 
 	store := &storeManagementUsecaseStub{initErr: fmt.Errorf("initialization must not run")}
 	full := &eventUsecaseStub{}
-	metadataUsecase := &eventMetadataUsecaseStub{listMetadata: []apptypes.EventMetadata{newCLIMetadataFixture(t, "event-text-metadata")}}
+	timestampKind, err := apptypes.EventTimestampKindOf(time.Date(2026, 7, 25, 6, 0, 0, 0, time.UTC), types.EventKindCommandExecuted)
+	if err != nil {
+		t.Fatalf("EventTimestampKindOf() error = %v", err)
+	}
+	metadataUsecase := &eventMetadataUsecaseStub{timestampKinds: []apptypes.EventTimestampKind{timestampKind}}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(
 		cli.WithStoreManagement(store),
@@ -112,10 +116,10 @@ func TestRootCLI_ListTextMetadataFieldsSkipsStoreInitialization(t *testing.T) {
 	if store.initCalled {
 		t.Fatal("metadata-only text list initialized the store")
 	}
-	if full.listCalls != 0 || metadataUsecase.listCalls != 1 {
+	if full.listCalls != 0 || metadataUsecase.listCalls != 0 {
 		t.Fatalf("full List() calls = %d, metadata List() calls = %d", full.listCalls, metadataUsecase.listCalls)
 	}
-	if got, want := metadataUsecase.listCriteria.Workspace().String(), "duck8823/traceary"; got != want {
+	if got, want := metadataUsecase.timestampKindCriteria.Workspace().String(), "duck8823/traceary"; got != want {
 		t.Fatalf("implicit metadata workspace = %q, want %q", got, want)
 	}
 	if got, want := stdout.String(), "06:00:00  command_executed\n"; got != want {

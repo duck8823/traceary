@@ -181,6 +181,18 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		if c.eventMetadata == nil {
 			return xerrors.New(Localize("event metadata query service is not configured", "イベントメタデータクエリサービスが設定されていません"))
 		}
+		if !input.asJSON && fromValue == "" && toValue == "" && isTimestampKindFields(resolvedFields) {
+			entries, err := c.eventMetadata.ListTimestampKinds(ctx, criteria)
+			if err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to list event timestamp/kind", "イベント時刻・種別一覧の取得に失敗しました"), err)
+			}
+			for _, entry := range entries {
+				if _, err := io.WriteString(output, formatTextTimestamp(entry.CreatedAt(), eventTextFormatOptions{utc: input.utc, location: input.location}, eventCompactTimeLayout)+"  "+string(entry.Kind())+"\n"); err != nil {
+					return xerrors.Errorf("write event timestamp/kind: %w", err)
+				}
+			}
+			return nil
+		}
 		metadata, err := c.eventMetadata.List(ctx, criteria)
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to list event metadata", "イベントメタデータ一覧の取得に失敗しました"), err)
@@ -247,6 +259,10 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 	}
 
 	return nil
+}
+
+func isTimestampKindFields(fields []readFieldID) bool {
+	return len(fields) == 2 && fields[0] == readFieldTS && fields[1] == readFieldKind
 }
 
 // resolveListKind delegates to validateSearchKind so that both list and

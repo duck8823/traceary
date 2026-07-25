@@ -105,6 +105,32 @@ func TestEventMetadataQuery_BoundedLatestUsesCreatedAtIndexAndKeepsTimestampOrde
 
 }
 
+func TestEventMetadataQuery_BoundedLatestReturnsExactSecondWhenNoFractionExists(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	base := time.Date(2026, 7, 25, 1, 2, 3, 0, time.UTC)
+	for _, event := range []*model.Event{
+		newEventForSQLiteTest(t, "event-before", "cli", "codex", "session-1", "repo-current", "body", base.Add(-time.Second)),
+		newEventForSQLiteTest(t, "event-exact", "cli", "codex", "session-1", "repo-current", "body", base),
+	} {
+		if err := sut.Save(context.Background(), event); err != nil {
+			t.Fatalf("Save(%s) error = %v", event.EventID(), err)
+		}
+	}
+
+	got, err := sut.ListRecentMetadata(context.Background(), apptypes.NewEventListCriteriaBuilder(1).Workspace(types.Workspace("repo-current")).Build())
+	if err != nil {
+		t.Fatalf("ListRecentMetadata() error = %v", err)
+	}
+	if len(got) != 1 || got[0].EventID().String() != "event-exact" {
+		t.Fatalf("bounded latest metadata = %#v, want event-exact", got)
+	}
+}
+
 func TestEventMetadataQuery_BoundedLatestRespondsOnSparseFourGiBStore(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))

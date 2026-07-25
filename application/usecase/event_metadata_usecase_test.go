@@ -52,6 +52,10 @@ type eventMetadataQueryStub struct {
 	searchCriteria types.EventSearchCriteria
 }
 
+func (*eventMetadataQueryStub) ListRecentTimestampKinds(context.Context, types.EventListCriteria) ([]types.EventTimestampKind, error) {
+	return nil, nil
+}
+
 func (s *eventMetadataQueryStub) ListRecentMetadata(context.Context, types.EventListCriteria) ([]types.EventMetadata, error) {
 	s.listCalls++
 	return nil, nil

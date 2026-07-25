@@ -25,6 +25,12 @@ var selectLatestEventMetadataFastQuery string
 //go:embed sql/select_latest_event_metadata_fast_by_workspace.sql
 var selectLatestEventMetadataFastByWorkspaceQuery string
 
+//go:embed sql/select_latest_event_timestamp_kind_by_workspace.sql
+var selectLatestEventTimestampKindByWorkspaceQuery string
+
+//go:embed sql/select_latest_event_timestamp_kind.sql
+var selectLatestEventTimestampKindQuery string
+
 //go:embed sql/select_recent_event_metadata_by_source_hook.sql
 var selectRecentEventMetadataBySourceHookQuery string
 
@@ -38,6 +44,60 @@ var searchEventMetadataQuery string
 var getContextEventMetadataQuery string
 
 var _ queryservice.EventMetadataQueryService = (*EventDatasource)(nil)
+
+// ListRecentTimestampKinds returns the minimal compact-list projection.
+func (d *EventDatasource) ListRecentTimestampKinds(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventTimestampKind, error) {
+	if err := validateMetadataListCriteria(criteria, false); err != nil {
+		return nil, err
+	}
+	// The CLI supplies a snapshot upper bound for an otherwise unbounded list.
+	// This projection is invoked only after the presentation layer verified that
+	// the operator did not request date filters, so ignore that internal bound.
+	bounded, workspace := boundedLatestMetadataWorkspace(criteria, "", "", criteria.Limit(), criteria.Offset())
+	if !bounded {
+		return nil, xerrors.Errorf("timestamp/kind projection requires a bounded list")
+	}
+	db, err := d.db.openReadOnly(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for event timestamp/kind listing: %w", err)
+	}
+	defer closeMetadataResource(db)
+	query := selectLatestEventTimestampKindQuery
+	args := []any(nil)
+	if workspace != "" {
+		query = selectLatestEventTimestampKindByWorkspaceQuery
+		args = []any{workspace, workspace, workspace}
+	}
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, xerrors.Errorf("query latest event timestamp/kind: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	result := make([]apptypes.EventTimestampKind, 0, 1)
+	for rows.Next() {
+		var kindValue, createdAtValue string
+		if err := rows.Scan(&kindValue, &createdAtValue); err != nil {
+			return nil, xerrors.Errorf("scan latest event timestamp/kind: %w", err)
+		}
+		kind, err := types.EventKindFrom(kindValue)
+		if err != nil {
+			return nil, xerrors.Errorf("restore event kind: %w", err)
+		}
+		createdAt, err := time.Parse(time.RFC3339Nano, createdAtValue)
+		if err != nil {
+			return nil, xerrors.Errorf("parse event timestamp: %w", err)
+		}
+		value, err := apptypes.EventTimestampKindOf(createdAt, kind)
+		if err != nil {
+			return nil, xerrors.Errorf("build event timestamp/kind: %w", err)
+		}
+		result = append(result, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("iterate latest event timestamp/kind: %w", err)
+	}
+	return result, nil
+}
 
 // ListRecentMetadata returns body-free event metadata in descending time order.
 func (d *EventDatasource) ListRecentMetadata(
@@ -463,7 +523,7 @@ func queryRecentEventMetadataWith(
 		args := []any(nil)
 		if workspace != "" {
 			queryText = selectLatestEventMetadataFastByWorkspaceQuery
-			args = []any{workspace, workspace}
+			args = []any{workspace, workspace, workspace}
 		}
 		rows, err := query(ctx, queryText, args...)
 		if err != nil {

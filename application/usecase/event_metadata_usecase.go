@@ -11,9 +11,24 @@ import (
 
 // EventMetadataUsecase exposes body-free event reads to presentation adapters.
 type EventMetadataUsecase interface {
+	ListTimestampKinds(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventTimestampKind, error)
 	List(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error)
 	Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error)
 	Context(ctx context.Context, criteria apptypes.EventContextCriteria) ([]apptypes.EventMetadata, error)
+}
+
+func (u *eventMetadataUsecase) ListTimestampKinds(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventTimestampKind, error) {
+	if u.query == nil {
+		return nil, xerrors.Errorf("event metadata query service is not configured")
+	}
+	if criteria.Limit() != 1 || criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("timestamp/kind projection requires limit 1 and offset 0")
+	}
+	rows, err := u.query.ListRecentTimestampKinds(ctx, criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list event timestamp/kind: %w", err)
+	}
+	return rows, nil
 }
 
 type eventMetadataUsecase struct {
