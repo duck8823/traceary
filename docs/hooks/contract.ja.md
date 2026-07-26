@@ -73,7 +73,7 @@ Grok Build の versioned かつ機械可読な live contract（fixture は 0.2.9
 - セッション開始時に解決した workspace を state ファイルに保存し、audit はそこから workspace を読み取る
 - エージェントタイプ解決: `agent_type` フィールド → 階層的エージェント名（Claude および Codex の subagent hook）
 - host が提供する場合は `tool_response.exitCode` から exit code を抽出。終了コード `0` は常に成功で、非ゼロは、より具体的な構造化根拠が `signal`、`timeout`、`hook_denied` を示さない限り `exit_code` とする
-- 失敗分類には構造化フィールドだけを使う。host の中断/timeout marker は `signal` / `timeout`、Grok の `PermissionDenied` は `hook_denied`、一般的な構造化 host error は `host_error` とする。payload 本文から失敗語を解析しない
+- 失敗分類には構造化フィールドだけを使う。host の中断/timeout marker は `signal` / `timeout`、Grok の `PermissionDenied` は `hook_denied`、一般的な構造化 host error は `host_error` とする。`🚫 [hook]` は Traceary 自身の hook runtime が出す denial marker であり、host 全般の規約ではない。Traceary は `tool_response.exitCode == 2` かつ string 型の `tool_response.stderr` の先頭 bytes がこの marker と厳密に一致する場合だけ `hook_denied` とする。stderr の trim や検索はしない。この明示 marker 以外の payload 本文から失敗語を解析せず、marker は report や他の audit field に複製しない
 - MCP ツール名 fallback: `tool_input.command` → `tool_name`
 
 Claude Task subagent capture:

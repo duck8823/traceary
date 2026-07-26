@@ -13,6 +13,8 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+const tracearyHookDeniedStderrMarker = "🚫 [hook]"
+
 func resolveHookAgent(client string, payload []byte) (types.Agent, error) {
 	agentType := hookPayloadString(payload, "agent_type", "")
 	agentValue := strings.TrimSpace(client)
@@ -382,6 +384,9 @@ func hookPayloadFailureReason(payload []byte) types.CommandFailureReason {
 			return types.CommandFailureReasonTimeout
 		}
 	}
+	if hookPayloadHasHookDeniedMarker(payload) {
+		return types.CommandFailureReasonHookDenied
+	}
 	if hasExitCode {
 		return types.CommandFailureReasonExitCode
 	}
@@ -392,6 +397,23 @@ func hookPayloadFailureReason(payload []byte) types.CommandFailureReason {
 		return types.CommandFailureReasonHostError
 	}
 	return types.CommandFailureReasonUnknown
+}
+
+// hookPayloadHasHookDeniedMarker recognizes the exact denial marker emitted by
+// Traceary's own hook runtime. This is deliberately a typed, byte-prefix check:
+// it does not trim, search, or stringify stderr, and it never retains the
+// marker text.
+func hookPayloadHasHookDeniedMarker(payload []byte) bool {
+	exitCode, ok := hookPayloadExitCode(payload).Value()
+	if !ok || exitCode != 2 {
+		return false
+	}
+	value, ok := lookupHookPayloadValue(payload, "tool_response.stderr")
+	if !ok {
+		return false
+	}
+	stderr, ok := value.(string)
+	return ok && strings.HasPrefix(stderr, tracearyHookDeniedStderrMarker)
 }
 
 func hookPayloadBool(payload []byte, path string) bool {
