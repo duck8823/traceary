@@ -1,6 +1,6 @@
 {
-  "listToolsBytes": 44684,
-  "inputSchemaBytes": 14130,
+  "listToolsBytes": 45503,
+  "inputSchemaBytes": 14949,
   "tools": [
     {
       "name": "get_context",
@@ -34,8 +34,8 @@
     },
     {
       "name": "query_memory",
-      "toolBytes": 2498,
-      "inputSchemaBytes": 2326,
+      "toolBytes": 3317,
+      "inputSchemaBytes": 3145,
       "outputSchemaBytes": 0
     },
     {
