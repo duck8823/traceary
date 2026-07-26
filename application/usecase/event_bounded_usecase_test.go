@@ -104,14 +104,58 @@ func TestEventBoundedUsecase_RejectsUnboundedBodyLimitBeforeQuery(t *testing.T) 
 	}
 }
 
+func TestEventBoundedUsecase_HydratesExactMetadataSelection(t *testing.T) {
+	t.Parallel()
+
+	first := boundedUsecaseEventFixture(t, "first", "first body", 10, false)
+	second := boundedUsecaseEventFixture(t, "second", "second body", 11, false)
+	query := &eventBoundedQueryStub{
+		hydrated: []apptypes.BoundedEvent{first, second},
+	}
+	sut := usecase.NewEventBoundedUsecase(query)
+	metadata := []apptypes.EventMetadata{first.Metadata(), second.Metadata()}
+
+	got, err := sut.HydrateSearch(context.Background(), metadata, 100)
+	if err != nil {
+		t.Fatalf("HydrateSearch() error = %v", err)
+	}
+	if len(got) != 2 || query.hydrateCalls != 1 {
+		t.Fatalf("HydrateSearch() result/calls = %d/%d, want 2/1", len(got), query.hydrateCalls)
+	}
+	if len(query.hydratedMetadata) != 2 ||
+		query.hydratedMetadata[0].EventID() != first.Metadata().EventID() ||
+		query.hydratedMetadata[1].EventID() != second.Metadata().EventID() {
+		t.Fatalf("HydrateBounded() metadata = %+v, want exact selected order", query.hydratedMetadata)
+	}
+}
+
+func TestEventBoundedUsecase_RejectsHydrationThatChangesCandidateOrder(t *testing.T) {
+	t.Parallel()
+
+	first := boundedUsecaseEventFixture(t, "first", "first body", 10, false)
+	second := boundedUsecaseEventFixture(t, "second", "second body", 11, false)
+	query := &eventBoundedQueryStub{
+		hydrated: []apptypes.BoundedEvent{second, first},
+	}
+	sut := usecase.NewEventBoundedUsecase(query)
+	metadata := []apptypes.EventMetadata{first.Metadata(), second.Metadata()}
+
+	if _, err := sut.HydrateContext(context.Background(), metadata, 100); err == nil {
+		t.Fatal("HydrateContext() accepted reordered candidates")
+	}
+}
+
 type eventBoundedQueryStub struct {
 	list               []apptypes.BoundedEvent
 	search             []apptypes.BoundedEvent
 	context            []apptypes.BoundedEvent
+	hydrated           []apptypes.BoundedEvent
 	canonicalBodies    map[types.EventID]string
 	loadedCanonicalIDs []types.EventID
+	hydratedMetadata   []apptypes.EventMetadata
 	searchCriteria     apptypes.EventSearchCriteria
 	listCalls          int
+	hydrateCalls       int
 }
 
 func (s *eventBoundedQueryStub) ListRecentBounded(
@@ -138,6 +182,16 @@ func (s *eventBoundedQueryStub) GetContextBounded(
 	int,
 ) ([]apptypes.BoundedEvent, error) {
 	return s.context, nil
+}
+
+func (s *eventBoundedQueryStub) HydrateBounded(
+	_ context.Context,
+	metadata []apptypes.EventMetadata,
+	_ int,
+) ([]apptypes.BoundedEvent, error) {
+	s.hydrateCalls++
+	s.hydratedMetadata = append([]apptypes.EventMetadata(nil), metadata...)
+	return s.hydrated, nil
 }
 
 func (s *eventBoundedQueryStub) LoadCanonicalBodies(

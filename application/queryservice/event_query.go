@@ -37,6 +37,14 @@ type EventPageQueryService interface {
 	GetContextPage(ctx context.Context, criteria apptypes.EventContextCriteria) ([]*model.Event, error)
 }
 
+// EventReadQueryService is the complete read contract required by EventUsecase.
+// Page-aware reads are mandatory instead of being discovered with a runtime
+// capability assertion that could silently fall back to offset paging.
+type EventReadQueryService interface {
+	EventQueryService
+	EventPageQueryService
+}
+
 // EventMetadataQueryService provides body-free event inspection operations.
 // It is separate from EventQueryService so consumers cannot accidentally
 // request a partial domain Event through an include-body flag.
@@ -68,6 +76,9 @@ type EventBoundedQueryService interface {
 	ListRecentBounded(ctx context.Context, criteria apptypes.EventListCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 	SearchBounded(ctx context.Context, criteria apptypes.EventSearchCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 	GetContextBounded(ctx context.Context, criteria apptypes.EventContextCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
+	// HydrateBounded projects bodies for an already-selected metadata page.
+	// It must not re-run membership filters; the supplied order is preserved.
+	HydrateBounded(ctx context.Context, metadata []apptypes.EventMetadata, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 	// LoadCanonicalBodies is the explicit list-only compatibility fallback for
 	// canonical envelopes whose visible body was not response-truncated.
 	LoadCanonicalBodies(ctx context.Context, eventIDs []types.EventID) (map[types.EventID]string, error)

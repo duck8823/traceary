@@ -17,7 +17,7 @@ import (
 var updateRegistrySnapshot = flag.Bool("update", false, "update MCP tool registry snapshot fixture")
 
 // TestServer_ToolRegistrySnapshot pins the public MCP tool registry
-// (tool names, descriptions, annotations, and input schemas) so that a
+// (tool names, descriptions, annotations, and input/output schemas) so that a
 // silent rename, removal, or addition is caught by CI before it can
 // drift away from documented and integrator-facing contracts. The
 // fixture covers every registered tool — the assertion is exact byte
@@ -62,19 +62,21 @@ func TestServer_ToolRegistrySnapshot(t *testing.T) {
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 
 	type toolSnapshot struct {
-		Name        string               `json:"name"`
-		Description string               `json:"description"`
-		Annotations *mcp.ToolAnnotations `json:"annotations,omitempty"`
-		InputSchema any                  `json:"inputSchema"`
+		Name         string               `json:"name"`
+		Description  string               `json:"description"`
+		Annotations  *mcp.ToolAnnotations `json:"annotations,omitempty"`
+		InputSchema  any                  `json:"inputSchema"`
+		OutputSchema any                  `json:"outputSchema,omitempty"`
 	}
 
 	snapshots := make([]toolSnapshot, 0, len(tools))
 	for _, tool := range tools {
 		snapshots = append(snapshots, toolSnapshot{
-			Name:        tool.Name,
-			Description: tool.Description,
-			Annotations: tool.Annotations,
-			InputSchema: tool.InputSchema,
+			Name:         tool.Name,
+			Description:  tool.Description,
+			Annotations:  tool.Annotations,
+			InputSchema:  tool.InputSchema,
+			OutputSchema: tool.OutputSchema,
 		})
 	}
 

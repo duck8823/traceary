@@ -22,13 +22,13 @@ const (
 
 type eventUsecase struct {
 	eventRepo  model.EventRepository
-	eventQuery queryservice.EventQueryService
+	eventQuery queryservice.EventReadQueryService
 }
 
 // NewEventUsecase creates an EventUsecase.
 func NewEventUsecase(
 	eventRepo model.EventRepository,
-	eventQuery queryservice.EventQueryService,
+	eventQuery queryservice.EventReadQueryService,
 ) EventUsecase {
 	return &eventUsecase{
 		eventRepo:  eventRepo,
@@ -276,17 +276,9 @@ func (u *eventUsecase) Search(ctx context.Context, criteria apptypes.EventSearch
 		FailuresOnly(criteria.FailuresOnly()).
 		PageAnchor(criteria.PageAnchor()).
 		Build()
-	if paged, ok := u.eventQuery.(queryservice.EventPageQueryService); ok {
-		events, err := paged.SearchPage(ctx, resolvedCriteria)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to search event page: %w", err)
-		}
-		return events, nil
-	}
-
-	events, err := u.eventQuery.Search(ctx, resolvedCriteria.Query(), resolvedCriteria.Workspace(), resolvedCriteria.SessionID(), resolvedCriteria.Client(), resolvedCriteria.Agent(), resolvedKind, resolvedCriteria.From(), resolvedCriteria.To(), resolvedCriteria.Limit(), resolvedCriteria.Offset(), resolvedCriteria.FailuresOnly())
+	events, err := u.eventQuery.SearchPage(ctx, resolvedCriteria)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to search events: %w", err)
+		return nil, xerrors.Errorf("failed to search event page: %w", err)
 	}
 	return events, nil
 }
@@ -302,16 +294,9 @@ func (u *eventUsecase) List(ctx context.Context, criteria apptypes.EventListCrit
 		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
 	}
 
-	if paged, ok := u.eventQuery.(queryservice.EventPageQueryService); ok {
-		events, err := paged.ListRecentPage(ctx, criteria)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to list event page: %w", err)
-		}
-		return events, nil
-	}
-	events, err := u.eventQuery.ListRecent(ctx, criteria.Limit(), criteria.Offset(), criteria.Kind(), criteria.Client(), criteria.Agent(), criteria.SessionID(), criteria.Workspace(), criteria.FailuresOnly(), criteria.From(), criteria.To(), criteria.SourceHook())
+	events, err := u.eventQuery.ListRecentPage(ctx, criteria)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to list events: %w", err)
+		return nil, xerrors.Errorf("failed to list event page: %w", err)
 	}
 	return events, nil
 }
@@ -353,16 +338,9 @@ func (u *eventUsecase) Context(ctx context.Context, criteria apptypes.EventConte
 		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
 	}
 
-	if paged, ok := u.eventQuery.(queryservice.EventPageQueryService); ok {
-		events, err := paged.GetContextPage(ctx, criteria)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get context event page: %w", err)
-		}
-		return events, nil
-	}
-	events, err := u.eventQuery.GetContext(ctx, criteria.Workspace(), criteria.SessionID(), criteria.Limit())
+	events, err := u.eventQuery.GetContextPage(ctx, criteria)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get context events: %w", err)
+		return nil, xerrors.Errorf("failed to get context event page: %w", err)
 	}
 	return events, nil
 }

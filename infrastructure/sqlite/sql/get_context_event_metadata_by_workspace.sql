@@ -8,6 +8,6 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
   LEFT JOIN command_audits ca ON ca.event_id = e.id
  WHERE e.workspace = ?
    AND (? = '' OR e.created_at_norm < ?)
-   AND (? = '' OR e.created_at_norm < ? OR (e.created_at_norm = ? AND e.id < ?))
+   /* traceary:event-page-anchor */
  ORDER BY e.created_at_norm DESC, e.id DESC
  LIMIT ? OFFSET ?

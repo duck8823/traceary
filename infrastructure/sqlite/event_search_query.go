@@ -333,8 +333,8 @@ func appendEventSearchFilters(
 	}
 	if anchor := criteria.PageAnchor(); !anchor.IsZero() {
 		createdAt := normalizeRFC3339NanoForCompare(formatTimestamp(anchor.CreatedAt()))
-		builder.WriteString(" AND (e.created_at_norm < ? OR (e.created_at_norm = ? AND e.id < ?))")
-		args = append(args, createdAt, createdAt, anchor.EventID().String())
+		builder.WriteString(" AND (e.created_at_norm, e.id) < (?, ?)")
+		args = append(args, createdAt, anchor.EventID().String())
 	}
 	if criteria.FailuresOnly() {
 		builder.WriteString(" AND (a.failed = 1 OR (a.exit_code IS NOT NULL AND a.exit_code != 0))")

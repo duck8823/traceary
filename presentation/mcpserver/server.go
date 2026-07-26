@@ -627,15 +627,15 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			return nil, eventsOutput{}, err
 		}
 		snapshotAt := time.Now().UTC()
-		cursorSnapshot, err := resolveEventContinuationSnapshot("list_events", input.Continuation)
+		continuation, err := resolveEventContinuation("list_events", input.Continuation)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
 		to := input.To
-		if !cursorSnapshot.IsZero() {
-			snapshotAt = cursorSnapshot
+		if !continuation.isZero() {
+			snapshotAt = continuation.snapshot
 			if strings.TrimSpace(to) == "" {
-				to = formatEventCursorTimestamp(cursorSnapshot)
+				to = formatEventCursorTimestamp(continuation.snapshot)
 			}
 		}
 		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, snapshotAt)
@@ -655,7 +655,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			strconv.Itoa(bodyLimit),
 			strconv.Itoa(normalizedEventPageLimit(input.Limit)),
 		)
-		page, err := resolveEventPageRequest("list_events", input.Limit, input.Offset, input.Continuation, fingerprint, bodyLimit)
+		page, err := resolveEventPageRequest("list_events", input.Limit, input.Offset, continuation, fingerprint, bodyLimit)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
@@ -680,8 +680,8 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			candidates: func(ctx context.Context, limit, offset int) ([]apptypes.EventMetadata, error) {
 				return s.eventMetadata.List(ctx, buildCriteria(limit, offset))
 			},
-			bounded: func(ctx context.Context, limit, offset, bodyLimit int) ([]apptypes.BoundedEvent, error) {
-				return s.eventBounded.List(ctx, buildCriteria(limit, offset), bodyLimit)
+			bounded: func(ctx context.Context, metadata []apptypes.EventMetadata, bodyLimit int) ([]apptypes.BoundedEvent, error) {
+				return s.eventBounded.HydrateList(ctx, metadata, bodyLimit)
 			},
 			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
 				return s.event.List(ctx, buildCriteria(limit, offset))
@@ -808,15 +808,15 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			return nil, eventsOutput{}, err
 		}
 		snapshotAt := time.Now().UTC()
-		cursorSnapshot, err := resolveEventContinuationSnapshot("search", input.Continuation)
+		continuation, err := resolveEventContinuation("search", input.Continuation)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
 		to := input.To
-		if !cursorSnapshot.IsZero() {
-			snapshotAt = cursorSnapshot
+		if !continuation.isZero() {
+			snapshotAt = continuation.snapshot
 			if strings.TrimSpace(to) == "" {
-				to = formatEventCursorTimestamp(cursorSnapshot)
+				to = formatEventCursorTimestamp(continuation.snapshot)
 			}
 		}
 		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, snapshotAt)
@@ -832,7 +832,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			strconv.Itoa(bodyLimit),
 			strconv.Itoa(normalizedEventPageLimit(input.Limit)),
 		)
-		page, err := resolveEventPageRequest("search", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
+		page, err := resolveEventPageRequest("search", input.Limit, 0, continuation, fingerprint, bodyLimit)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
@@ -853,8 +853,8 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			candidates: func(ctx context.Context, limit, offset int) ([]apptypes.EventMetadata, error) {
 				return s.eventMetadata.Search(ctx, buildCriteria(limit, offset))
 			},
-			bounded: func(ctx context.Context, limit, offset, bodyLimit int) ([]apptypes.BoundedEvent, error) {
-				return s.eventBounded.Search(ctx, buildCriteria(limit, offset), bodyLimit)
+			bounded: func(ctx context.Context, metadata []apptypes.EventMetadata, bodyLimit int) ([]apptypes.BoundedEvent, error) {
+				return s.eventBounded.HydrateSearch(ctx, metadata, bodyLimit)
 			},
 			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
 				return s.event.Search(ctx, buildCriteria(limit, offset))
@@ -888,12 +888,12 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 			return nil, eventsOutput{}, err
 		}
 		snapshotAt := time.Now().UTC()
-		cursorSnapshot, err := resolveEventContinuationSnapshot("get_context", input.Continuation)
+		continuation, err := resolveEventContinuation("get_context", input.Continuation)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		if !cursorSnapshot.IsZero() {
-			snapshotAt = cursorSnapshot
+		if !continuation.isZero() {
+			snapshotAt = continuation.snapshot
 		}
 		fingerprint := eventRequestFingerprint(
 			strings.TrimSpace(input.Workspace),
@@ -903,7 +903,7 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 			strconv.Itoa(bodyLimit),
 			strconv.Itoa(normalizedEventPageLimit(input.Limit)),
 		)
-		page, err := resolveEventPageRequest("get_context", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
+		page, err := resolveEventPageRequest("get_context", input.Limit, 0, continuation, fingerprint, bodyLimit)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
@@ -922,8 +922,8 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 			candidates: func(ctx context.Context, limit, offset int) ([]apptypes.EventMetadata, error) {
 				return s.eventMetadata.Context(ctx, buildCriteria(limit, offset))
 			},
-			bounded: func(ctx context.Context, limit, offset, bodyLimit int) ([]apptypes.BoundedEvent, error) {
-				return s.eventBounded.Context(ctx, buildCriteria(limit, offset), bodyLimit)
+			bounded: func(ctx context.Context, metadata []apptypes.EventMetadata, bodyLimit int) ([]apptypes.BoundedEvent, error) {
+				return s.eventBounded.HydrateContext(ctx, metadata, bodyLimit)
 			},
 			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
 				return s.event.Context(ctx, buildCriteria(limit, offset))

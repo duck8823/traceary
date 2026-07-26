@@ -23,6 +23,36 @@ var selectCanonicalEventBodiesQuery string
 
 var _ queryservice.EventBoundedQueryService = (*EventDatasource)(nil)
 
+// HydrateBounded projects bodies for the exact metadata page supplied by the
+// caller. It deliberately performs no membership query, so a continuation page
+// cannot drift between an initial metadata probe and bounded hydration.
+func (d *EventDatasource) HydrateBounded(
+	ctx context.Context,
+	metadata []apptypes.EventMetadata,
+	bodyRuneLimit int,
+) ([]apptypes.BoundedEvent, error) {
+	if err := validateBoundedBodyLimit(bodyRuneLimit); err != nil {
+		return nil, err
+	}
+	if len(metadata) == 0 {
+		return []apptypes.BoundedEvent{}, nil
+	}
+	db, tx, err := d.beginEventProjectionRead(ctx, "bounded event hydration")
+	if err != nil {
+		return nil, err
+	}
+	defer closeEventProjectionRead(db, tx)
+
+	events, err := hydrateBoundedEvents(ctx, tx, metadata, bodyRuneLimit)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, xerrors.Errorf("failed to finish bounded event hydration: %w", err)
+	}
+	return events, nil
+}
+
 // ListRecentBounded selects body-free event metadata first, then hydrates only
 // the requested visible-text prefix for those IDs under the same read snapshot.
 func (d *EventDatasource) ListRecentBounded(
