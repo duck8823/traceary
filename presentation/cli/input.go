@@ -533,17 +533,23 @@ type memoryImportInstructionsCommandInput struct {
 }
 
 // memoryHygieneScanCommandInput is the resolved input to the
-// `traceary memory hygiene scan` command. includeHidden expands the
+// `traceary memory admin hygiene scan` command. includeHidden expands the
 // candidate-noise pass (#864) to inspect extracted-hidden rows so an
 // operator can clean up the backlog of low-quality candidates from
 // before the extractor learned to hide them.
 type memoryHygieneScanCommandInput struct {
-	dbPath        string
-	workspace     string
-	expiryDays    int
-	similarity    float64
-	includeHidden bool
-	asJSON        bool
+	dbPath         string
+	workspace      string
+	expiryDays     int
+	similarity     float64
+	includeHidden  bool
+	cursor         string
+	maxRows        int
+	maxScanBytes   int64
+	maxResultBytes int64
+	maxComparisons int
+	maxDuration    time.Duration
+	asJSON         bool
 }
 
 // memoryHygieneApplyCommandInput is the resolved input to

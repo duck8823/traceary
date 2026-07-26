@@ -146,6 +146,50 @@ func TestServer_BuildAndTools(t *testing.T) {
 		}
 	})
 
+	t.Run("scan_memory_hygiene reports bounded completion metadata", func(t *testing.T) {
+		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "query_memory",
+			Arguments: map[string]any{
+				"action":           "scan_hygiene",
+				"max_scan_rows":    2,
+				"max_scan_bytes":   1024,
+				"max_result_bytes": 1024,
+				"max_comparisons":  1,
+				"max_duration_ms":  500,
+			},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(scan_memory_hygiene) error = %v", err)
+		}
+		if result.IsError {
+			t.Fatal("CallTool(scan_memory_hygiene) IsError = true, want false")
+		}
+		payload := decodeJSONPayload(t, result)
+		if payload["complete"] != true || payload["partial"] != false || payload["stop_reason"] != "complete" {
+			t.Fatalf("coverage = complete:%#v partial:%#v stop:%#v", payload["complete"], payload["partial"], payload["stop_reason"])
+		}
+		usage, ok := payload["usage"].(map[string]any)
+		if !ok {
+			t.Fatalf("usage = %#v, want object", payload["usage"])
+		}
+		if usage["scanned_rows"] != float64(0) || usage["comparisons"] != float64(0) {
+			t.Fatalf("empty scan usage = %#v", usage)
+		}
+	})
+
+	t.Run("scan_memory_hygiene rejects an invalid explicit row bound", func(t *testing.T) {
+		result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "query_memory",
+			Arguments: map[string]any{"action": "scan_hygiene", "max_scan_rows": 1},
+		})
+		if err != nil {
+			t.Fatalf("CallTool(scan_memory_hygiene invalid bound) error = %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("CallTool(scan_memory_hygiene invalid bound) IsError = false, want true")
+		}
+	})
+
 	t.Run("get_report enforces page size boundaries before report execution", func(t *testing.T) {
 		acceptedResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 			Name:      "get_report",
@@ -1860,6 +1904,27 @@ ALTER TABLE memories ADD COLUMN valid_from TEXT;
 ALTER TABLE memories ADD COLUMN valid_to TEXT;
 UPDATE memories SET valid_from = created_at WHERE valid_from IS NULL;
 CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
+		},
+		"000033_add_memory_hygiene_revision.sql": {
+			Data: []byte(`
+CREATE TABLE memory_hygiene_revision (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    revision INTEGER NOT NULL CHECK (revision >= 0)
+);
+INSERT INTO memory_hygiene_revision(singleton, revision) VALUES (1, 0);
+CREATE TRIGGER memories_hygiene_revision_after_insert AFTER INSERT ON memories BEGIN
+    UPDATE memory_hygiene_revision SET revision = revision + 1 WHERE singleton = 1;
+END;
+CREATE TRIGGER memories_hygiene_revision_after_update AFTER UPDATE ON memories BEGIN
+    UPDATE memory_hygiene_revision SET revision = revision + 1 WHERE singleton = 1;
+END;
+CREATE TRIGGER memories_hygiene_revision_after_delete AFTER DELETE ON memories BEGIN
+    UPDATE memory_hygiene_revision SET revision = revision + 1 WHERE singleton = 1;
+END;
+CREATE INDEX idx_memories_hygiene_status_id ON memories(status, id);
+CREATE INDEX idx_memories_hygiene_scope_id ON memories(status, scope_kind, scope_value, id);
+CREATE INDEX idx_memories_hygiene_exact ON memories(status, scope_kind, scope_value, fact, id);
+CREATE INDEX idx_memories_hygiene_candidate_source_id ON memories(status, source, id);`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")

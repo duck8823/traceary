@@ -2,14 +2,37 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
+
+func memoryHygieneTestBudget(
+	t *testing.T,
+	rows int,
+	resultBytes int64,
+	comparisons int,
+) apptypes.MemoryHygieneScanBudget {
+	t.Helper()
+	budget, err := apptypes.MemoryHygieneScanBudgetFrom(apptypes.MemoryHygieneScanBudgetParams{
+		MaxRows:        rows,
+		MaxScanBytes:   1 << 20,
+		MaxResultBytes: resultBytes,
+		MaxComparisons: comparisons,
+		MaxDuration:    time.Second,
+	})
+	if err != nil {
+		t.Fatalf("MemoryHygieneScanBudgetFrom() error = %v", err)
+	}
+	return budget
+}
 
 func acceptedSummaryAt(t *testing.T, id string, scope domtypes.MemoryScope, fact string, updatedAt time.Time) apptypes.MemorySummary {
 	t.Helper()
@@ -470,6 +493,196 @@ func TestMemoryHygieneScan_EmptyStoreReturnsEmptyResult(t *testing.T) {
 	}
 	if result.RedactionHitCount+result.ExpiryCandidateCount+result.DuplicateCount+result.LowQualityCandidateCount != 0 {
 		t.Fatalf("expected zero counts across all suggestion kinds, got r=%d e=%d d=%d l=%d", result.RedactionHitCount, result.ExpiryCandidateCount, result.DuplicateCount, result.LowQualityCandidateCount)
+	}
+}
+
+func TestMemoryHygieneScan_RowBoundContinuationHasNoDuplicateOrSkippedCandidate(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			candidateSummary(t, "mem-a", scope, "git status", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "mem-b", scope, "go test ./...", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "mem-c", scope, "gh pr checks", domtypes.MemorySourceExtracted, now),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+	budget := memoryHygieneTestBudget(t, 2, 1<<20, 100)
+	criteria := apptypes.MemoryHygieneScanCriteria{Now: now, Budget: budget}
+
+	var ids []string
+	for invocation := 0; invocation < 10; invocation++ {
+		result, err := sut.Scan(context.Background(), criteria)
+		if err != nil {
+			t.Fatalf("Scan(invocation=%d) error = %v", invocation, err)
+		}
+		if result.Usage.ScannedRows > budget.MaxRows() {
+			t.Fatalf("ScannedRows = %d, max = %d", result.Usage.ScannedRows, budget.MaxRows())
+		}
+		for _, suggestion := range result.Suggestions {
+			if suggestion.Kind == apptypes.MemoryHygieneSuggestionLowQualityCandidate {
+				ids = append(ids, suggestion.MemoryID.String())
+			}
+		}
+		if result.Complete {
+			if result.Partial || result.NextCursor != "" || result.StopReason != apptypes.MemoryHygieneStopReasonComplete {
+				t.Fatalf("complete result has inconsistent coverage: %#v", result)
+			}
+			break
+		}
+		if !result.Partial || result.StopReason != apptypes.MemoryHygieneStopReasonRowLimit || result.NextCursor == "" {
+			t.Fatalf("partial result has inconsistent coverage: %#v", result)
+		}
+		criteria.Cursor = result.NextCursor
+	}
+	want := []string{"mem-a", "mem-b", "mem-c"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("candidate ids across continuations = %v, want %v", ids, want)
+	}
+}
+
+func TestMemoryHygieneScan_ResultByteStopCanResumeWithLargerBudget(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			candidateSummary(t, "mem-noise", scope, "git status", domtypes.MemorySourceExtracted, now),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+	limited := apptypes.MemoryHygieneScanCriteria{
+		Now:    now,
+		Budget: memoryHygieneTestBudget(t, 2, 1, 100),
+	}
+	first, err := sut.Scan(context.Background(), limited)
+	if err != nil {
+		t.Fatalf("first Scan() error = %v", err)
+	}
+	if !first.Partial || first.StopReason != apptypes.MemoryHygieneStopReasonResultByteLimit || first.NextCursor == "" {
+		t.Fatalf("first result = %#v, want resumable result_byte_limit", first)
+	}
+	if len(first.Suggestions) != 0 || first.Usage.ResultBytes != 0 {
+		t.Fatalf("first result crossed byte bound: suggestions=%d bytes=%d", len(first.Suggestions), first.Usage.ResultBytes)
+	}
+
+	limited.Cursor = first.NextCursor
+	limited.Budget = memoryHygieneTestBudget(t, 2, 1<<20, 100)
+	second, err := sut.Scan(context.Background(), limited)
+	if err != nil {
+		t.Fatalf("resumed Scan() error = %v", err)
+	}
+	if len(second.Suggestions) != 1 || second.Suggestions[0].MemoryID.String() != "mem-noise" {
+		t.Fatalf("resumed suggestions = %#v, want mem-noise", second.Suggestions)
+	}
+}
+
+func TestMemoryHygieneScan_CursorIsBoundToCriteria(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			candidateSummary(t, "mem-a", scope, "git status", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "mem-b", scope, "go test ./...", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "mem-c", scope, "gh pr checks", domtypes.MemorySourceExtracted, now),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+	budget := memoryHygieneTestBudget(t, 2, 1<<20, 100)
+	first, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: now, Budget: budget})
+	if err != nil {
+		t.Fatalf("first Scan() error = %v", err)
+	}
+	if first.NextCursor == "" {
+		t.Fatal("first scan returned no cursor")
+	}
+	_, err = sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
+		Now:                     now,
+		Budget:                  budget,
+		Cursor:                  first.NextCursor,
+		IncludeHiddenCandidates: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "criteria mismatch") {
+		t.Fatalf("criteria-mismatched continuation error = %v, want mismatch", err)
+	}
+}
+
+func TestMemoryHygieneScan_TimeBoundReturnsResumablePartialAfterRevisionCapture(t *testing.T) {
+	t.Parallel()
+
+	query := &stubMemoryQueryService{scanDelay: 5 * time.Millisecond}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+	budget, err := apptypes.MemoryHygieneScanBudgetFrom(apptypes.MemoryHygieneScanBudgetParams{
+		MaxRows:        2,
+		MaxScanBytes:   1 << 20,
+		MaxResultBytes: 1 << 20,
+		MaxComparisons: 1,
+		MaxDuration:    time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("MemoryHygieneScanBudgetFrom() error = %v", err)
+	}
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
+		Now:    time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
+		Budget: budget,
+	})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if !result.Partial || result.StopReason != apptypes.MemoryHygieneStopReasonTimeLimit || result.NextCursor == "" {
+		t.Fatalf("time-bounded result = %#v, want resumable time_limit", result)
+	}
+}
+
+func TestMemoryHygieneScan_PreviewsAreSanitizedBoundedAndJSONSafe(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	const secret = "internal-token-8675309"
+	rawFact := "keep " + secret + " " + strings.Repeat("日本語", 200)
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			acceptedSummaryAt(t, "mem-secret", scope, rawFact, now),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, []string{`internal-token-\d+`})
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: now})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if !result.Complete {
+		t.Fatalf("Complete = false, stop = %s", result.StopReason)
+	}
+	if len(result.Suggestions) != 1 {
+		t.Fatalf("Suggestions = %d, want one redaction hit", len(result.Suggestions))
+	}
+	suggestion := result.Suggestions[0]
+	if suggestion.Kind != apptypes.MemoryHygieneSuggestionRedactionHit {
+		t.Fatalf("Kind = %q, want redaction_hit", suggestion.Kind)
+	}
+	if strings.Contains(suggestion.FactPreview, secret) || strings.Contains(suggestion.SanitizedFactPreview, secret) {
+		t.Fatalf("preview leaked secret: fact=%q sanitized=%q", suggestion.FactPreview, suggestion.SanitizedFactPreview)
+	}
+	if !suggestion.FactPreviewTruncated || len(suggestion.FactPreview) > 240 || !utf8.ValidString(suggestion.FactPreview) {
+		t.Fatalf("fact preview is not bounded UTF-8: bytes=%d truncated=%t valid=%t",
+			len(suggestion.FactPreview),
+			suggestion.FactPreviewTruncated,
+			utf8.ValidString(suggestion.FactPreview),
+		)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(encoded), secret) || strings.Contains(string(encoded), rawFact) {
+		t.Fatalf("serialized result leaked raw fact: %s", encoded)
 	}
 }
 

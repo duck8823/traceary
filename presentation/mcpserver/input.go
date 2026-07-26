@@ -56,6 +56,13 @@ type queryMemoryInput struct {
 	RecentCommandsLimit *int     `json:"recent_commands_limit,omitempty" jsonschema:"maximum recent commands to include"`
 	MemoryLimit         *int     `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include"`
 	ExpiryDays          int      `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
+	Similarity          float64  `json:"similarity,omitempty" jsonschema:"word-Jaccard threshold for hygiene supersede suggestions (0 uses the default 0.6)"`
+	Cursor              string   `json:"cursor,omitempty" jsonschema:"opaque continuation cursor returned by a partial hygiene scan"`
+	MaxScanRows         int      `json:"max_scan_rows,omitempty" jsonschema:"maximum source rows charged to one hygiene invocation"`
+	MaxScanBytes        int64    `json:"max_scan_bytes,omitempty" jsonschema:"maximum raw source bytes charged to one hygiene invocation"`
+	MaxResultBytes      int64    `json:"max_result_bytes,omitempty" jsonschema:"maximum serialized suggestion bytes returned by one hygiene invocation"`
+	MaxComparisons      int      `json:"max_comparisons,omitempty" jsonschema:"maximum duplicate or similarity comparisons per hygiene invocation"`
+	MaxDurationMillis   int64    `json:"max_duration_ms,omitempty" jsonschema:"maximum wall-clock duration for one hygiene invocation in milliseconds"`
 	Target              string   `json:"target,omitempty" jsonschema:"export target host (claude / codex / gemini)"`
 	IncludeGlobal       *bool    `json:"include_global,omitempty" jsonschema:"include global memories alongside a workspace export (default true)"`
 	NoGlobal            bool     `json:"no_global,omitempty" jsonschema:"export only the explicit workspace scope; do not include global memories"`
@@ -316,9 +323,16 @@ type rejectMemoriesBatchInput struct {
 // before deciding whether to drive supersede / expire / reject via the
 // single-memory tools or the candidate apply path.
 type scanMemoryHygieneInput struct {
-	Workspace     string `json:"workspace,omitempty" jsonschema:"workspace scope to scan (omitted scans every scope)"`
-	ExpiryDays    int    `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
-	IncludeHidden bool   `json:"include_hidden,omitempty" jsonschema:"include extracted-hidden candidates in the low-quality candidate pass (default omits them)"`
+	Workspace         string  `json:"workspace,omitempty" jsonschema:"workspace scope to scan (omitted scans every scope)"`
+	ExpiryDays        int     `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
+	Similarity        float64 `json:"similarity,omitempty" jsonschema:"word-Jaccard threshold for supersede suggestions (0 uses the default 0.6)"`
+	IncludeHidden     bool    `json:"include_hidden,omitempty" jsonschema:"include extracted-hidden candidates in the low-quality candidate pass (default omits them)"`
+	Cursor            string  `json:"cursor,omitempty" jsonschema:"opaque continuation cursor returned by a partial hygiene scan"`
+	MaxScanRows       int     `json:"max_scan_rows,omitempty" jsonschema:"maximum source rows charged to one invocation (0 uses the finite default)"`
+	MaxScanBytes      int64   `json:"max_scan_bytes,omitempty" jsonschema:"maximum raw source bytes charged to one invocation (0 uses the finite default)"`
+	MaxResultBytes    int64   `json:"max_result_bytes,omitempty" jsonschema:"maximum serialized suggestion bytes returned by one invocation (0 uses the finite default)"`
+	MaxComparisons    int     `json:"max_comparisons,omitempty" jsonschema:"maximum duplicate or similarity comparisons per invocation (0 uses the finite default)"`
+	MaxDurationMillis int64   `json:"max_duration_ms,omitempty" jsonschema:"maximum wall-clock duration per invocation in milliseconds (0 uses the finite default)"`
 }
 
 // exportMemoriesInput is the MCP input for the export_memories tool that

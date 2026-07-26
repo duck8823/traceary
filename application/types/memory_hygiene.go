@@ -70,14 +70,16 @@ type MemoryHygieneScanCriteria struct {
 	SimilarityThreshold     float64
 	Now                     time.Time
 	IncludeHiddenCandidates bool
+	Budget                  MemoryHygieneScanBudget
+	Cursor                  string
 }
 
-// MemoryHygieneSuggestion is the serializable view of a single scan hit.
-// SanitizedFact is populated for redaction hits so the apply path can
-// propose a supersede with the masked content; DuplicateMemoryID is set
-// on duplicate hits so the reader sees both sides of the pair;
-// ReplacementMemoryID and ReplacementFact are set on supersede_candidate
-// hits so the apply path knows which memory becomes the replacement.
+// MemoryHygieneSuggestion is one scan hit. The raw Fact, SanitizedFact, and
+// ReplacementFact fields are internal apply inputs and intentionally excluded
+// from JSON. Their corresponding Preview fields are current-rule-sanitized,
+// UTF-8-safe, bounded values suitable for CLI and MCP output.
+// DuplicateMemoryID is set on duplicate hits so the reader sees both sides of
+// the pair; ReplacementMemoryID is set on supersede candidates.
 // Similarity is the computed word-Jaccard score (0.0-1.0) — zero on
 // everything except supersede_candidate.
 //
@@ -88,20 +90,26 @@ type MemoryHygieneScanCriteria struct {
 // classified the candidate as low-quality — the same vocabulary the
 // extractor diagnostics expose (#857).
 type MemoryHygieneSuggestion struct {
-	MemoryID            domtypes.MemoryID
-	Kind                MemoryHygieneSuggestionKind
-	Reason              string
-	Fact                string
-	SanitizedFact       string
-	DuplicateMemoryID   domtypes.MemoryID
-	ReplacementMemoryID domtypes.MemoryID
-	ReplacementFact     string
-	Similarity          float64
-	Scope               domtypes.MemoryScope
-	UpdatedAt           time.Time
-	Status              domtypes.MemoryStatus
-	Source              domtypes.MemorySource
-	QualityReasons      []string
+	MemoryID                    domtypes.MemoryID           `json:"memory_id"`
+	Kind                        MemoryHygieneSuggestionKind `json:"kind"`
+	Reason                      string                      `json:"reason"`
+	Fact                        string                      `json:"-"`
+	FactPreview                 string                      `json:"fact_preview"`
+	FactPreviewTruncated        bool                        `json:"fact_preview_truncated,omitempty"`
+	SanitizedFact               string                      `json:"-"`
+	SanitizedFactPreview        string                      `json:"sanitized_fact_preview,omitempty"`
+	SanitizedPreviewTruncated   bool                        `json:"sanitized_preview_truncated,omitempty"`
+	DuplicateMemoryID           domtypes.MemoryID           `json:"duplicate_memory_id,omitempty"`
+	ReplacementMemoryID         domtypes.MemoryID           `json:"replacement_memory_id,omitempty"`
+	ReplacementFact             string                      `json:"-"`
+	ReplacementFactPreview      string                      `json:"replacement_fact_preview,omitempty"`
+	ReplacementPreviewTruncated bool                        `json:"replacement_preview_truncated,omitempty"`
+	Similarity                  float64                     `json:"similarity,omitempty"`
+	Scope                       domtypes.MemoryScope        `json:"-"`
+	UpdatedAt                   time.Time                   `json:"updated_at"`
+	Status                      domtypes.MemoryStatus       `json:"status,omitempty"`
+	Source                      domtypes.MemorySource       `json:"source,omitempty"`
+	QualityReasons              []string                    `json:"quality_reasons,omitempty"`
 }
 
 // MemoryHygieneScanResult summarises a single scan run. Suggestions keeps
@@ -116,6 +124,11 @@ type MemoryHygieneScanResult struct {
 	SupersedeCandidateCount       int
 	ValidityOverlapSupersedeCount int
 	LowQualityCandidateCount      int
+	Complete                      bool
+	Partial                       bool
+	StopReason                    MemoryHygieneStopReason
+	NextCursor                    string
+	Usage                         MemoryHygieneScanUsage
 }
 
 // MemoryHygieneApplyCriteria carries the inputs to the apply path. Ids

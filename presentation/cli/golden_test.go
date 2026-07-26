@@ -319,19 +319,30 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 		ExportedCount: 1,
 	}
 	hygieneSuggestion := apptypes.MemoryHygieneSuggestion{
-		MemoryID:            accepted.Summary().MemoryID(),
-		Kind:                apptypes.MemoryHygieneSuggestionSupersedeCandidate,
-		Reason:              "newer overlapping decision",
-		Fact:                "Accepted golden memory",
-		ReplacementMemoryID: candidate.Summary().MemoryID(),
-		ReplacementFact:     "Candidate golden memory",
-		Similarity:          0.75,
-		Scope:               accepted.Summary().Scope(),
-		UpdatedAt:           time.Date(2026, 4, 14, 15, 0, 0, 0, time.UTC),
+		MemoryID:               accepted.Summary().MemoryID(),
+		Kind:                   apptypes.MemoryHygieneSuggestionSupersedeCandidate,
+		Reason:                 "newer overlapping decision",
+		Fact:                   "Accepted golden memory",
+		FactPreview:            "Accepted golden memory",
+		ReplacementMemoryID:    candidate.Summary().MemoryID(),
+		ReplacementFact:        "Candidate golden memory",
+		ReplacementFactPreview: "Candidate golden memory",
+		Similarity:             0.75,
+		Scope:                  accepted.Summary().Scope(),
+		UpdatedAt:              time.Date(2026, 4, 14, 15, 0, 0, 0, time.UTC),
 	}
 	hygieneResult := apptypes.MemoryHygieneScanResult{
 		Suggestions:             []apptypes.MemoryHygieneSuggestion{hygieneSuggestion},
 		SupersedeCandidateCount: 1,
+		Complete:                true,
+		StopReason:              apptypes.MemoryHygieneStopReasonComplete,
+		Usage: apptypes.MemoryHygieneScanUsage{
+			ScannedRows:   2,
+			ScannedBytes:  48,
+			ResultBytes:   320,
+			Comparisons:   1,
+			ElapsedMillis: 3,
+		},
 	}
 	hygieneApplyResult := apptypes.MemoryHygieneApplyResult{
 		Applied: []apptypes.MemoryHygieneApplied{{

@@ -353,7 +353,18 @@ func (s *Server) queryMemory() mcp.ToolHandlerFor[queryMemoryInput, any] {
 			_, out, err := s.memoryPack()(ctx, req, memoryPackInput{SessionID: input.SessionID, Workspace: input.Workspace, RecentCommandsLimit: input.RecentCommandsLimit, MemoryLimit: input.MemoryLimit, Preset: input.Preset, IncludeCandidates: input.IncludeCandidates, AsOf: input.AsOf})
 			return nil, out, err
 		case "scan_hygiene":
-			_, out, err := s.scanMemoryHygiene()(ctx, req, scanMemoryHygieneInput{Workspace: input.Workspace, ExpiryDays: input.ExpiryDays, IncludeHidden: input.IncludeHidden})
+			_, out, err := s.scanMemoryHygiene()(ctx, req, scanMemoryHygieneInput{
+				Workspace:         input.Workspace,
+				ExpiryDays:        input.ExpiryDays,
+				Similarity:        input.Similarity,
+				IncludeHidden:     input.IncludeHidden,
+				Cursor:            input.Cursor,
+				MaxScanRows:       input.MaxScanRows,
+				MaxScanBytes:      input.MaxScanBytes,
+				MaxResultBytes:    input.MaxResultBytes,
+				MaxComparisons:    input.MaxComparisons,
+				MaxDurationMillis: input.MaxDurationMillis,
+			})
 			return nil, out, err
 		default:
 			return nil, nil, xerrors.Errorf("query_memory action must be one of retrieve, export, pack, scan_hygiene")
@@ -1247,7 +1258,16 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 		if s.memory == nil {
 			return nil, memoryHygieneOutput{}, xerrors.Errorf("memory usecase is not configured")
 		}
-		criteria := apptypes.MemoryHygieneScanCriteria{IncludeHiddenCandidates: input.IncludeHidden}
+		budget, err := memoryHygieneBudgetFromInput(input)
+		if err != nil {
+			return nil, memoryHygieneOutput{}, err
+		}
+		criteria := apptypes.MemoryHygieneScanCriteria{
+			SimilarityThreshold:     input.Similarity,
+			IncludeHiddenCandidates: input.IncludeHidden,
+			Budget:                  budget,
+			Cursor:                  input.Cursor,
+		}
 		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
 			resolvedWorkspace, err := types.WorkspaceFrom(workspace)
 			if err != nil {
@@ -1269,24 +1289,38 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 			SupersedeCandidateCount:       result.SupersedeCandidateCount,
 			ValidityOverlapSupersedeCount: result.ValidityOverlapSupersedeCount,
 			LowQualityCandidateCount:      result.LowQualityCandidateCount,
-			Suggestions:                   make([]memoryHygieneSuggestionOutput, 0, len(result.Suggestions)),
+			Complete:                      result.Complete,
+			Partial:                       result.Partial,
+			StopReason:                    string(result.StopReason),
+			NextCursor:                    result.NextCursor,
+			Usage: memoryHygieneUsageOutput{
+				ScannedRows:   result.Usage.ScannedRows,
+				ScannedBytes:  result.Usage.ScannedBytes,
+				ResultBytes:   result.Usage.ResultBytes,
+				Comparisons:   result.Usage.Comparisons,
+				ElapsedMillis: result.Usage.ElapsedMillis,
+			},
+			Suggestions: make([]memoryHygieneSuggestionOutput, 0, len(result.Suggestions)),
 		}
 		for _, suggestion := range result.Suggestions {
 			entry := memoryHygieneSuggestionOutput{
-				MemoryID:      suggestion.MemoryID.String(),
-				Kind:          string(suggestion.Kind),
-				Reason:        suggestion.Reason,
-				Fact:          suggestion.Fact,
-				SanitizedFact: suggestion.SanitizedFact,
-				Similarity:    suggestion.Similarity,
-				UpdatedAt:     suggestion.UpdatedAt.UTC().Format(time.RFC3339),
+				MemoryID:                  suggestion.MemoryID.String(),
+				Kind:                      string(suggestion.Kind),
+				Reason:                    suggestion.Reason,
+				Fact:                      suggestion.FactPreview,
+				FactPreviewTruncated:      suggestion.FactPreviewTruncated,
+				SanitizedFact:             suggestion.SanitizedFactPreview,
+				SanitizedPreviewTruncated: suggestion.SanitizedPreviewTruncated,
+				Similarity:                suggestion.Similarity,
+				UpdatedAt:                 suggestion.UpdatedAt.UTC().Format(time.RFC3339),
 			}
 			if suggestion.DuplicateMemoryID != "" {
 				entry.DuplicateMemoryID = suggestion.DuplicateMemoryID.String()
 			}
 			if suggestion.ReplacementMemoryID != "" {
 				entry.ReplacementMemoryID = suggestion.ReplacementMemoryID.String()
-				entry.ReplacementFact = suggestion.ReplacementFact
+				entry.ReplacementFact = suggestion.ReplacementFactPreview
+				entry.ReplacementPreviewTruncated = suggestion.ReplacementPreviewTruncated
 			}
 			if suggestion.Scope != nil {
 				entry.ScopeKind = suggestion.Scope.Kind().String()
@@ -1305,6 +1339,41 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 		}
 		return nil, out, nil
 	}
+}
+
+func memoryHygieneBudgetFromInput(input scanMemoryHygieneInput) (apptypes.MemoryHygieneScanBudget, error) {
+	defaults := apptypes.DefaultMemoryHygieneScanBudget()
+	params := apptypes.MemoryHygieneScanBudgetParams{
+		MaxRows:        defaults.MaxRows(),
+		MaxScanBytes:   defaults.MaxScanBytes(),
+		MaxResultBytes: defaults.MaxResultBytes(),
+		MaxComparisons: defaults.MaxComparisons(),
+		MaxDuration:    defaults.MaxDuration(),
+	}
+	if input.MaxScanRows != 0 {
+		params.MaxRows = input.MaxScanRows
+	}
+	if input.MaxScanBytes != 0 {
+		params.MaxScanBytes = input.MaxScanBytes
+	}
+	if input.MaxResultBytes != 0 {
+		params.MaxResultBytes = input.MaxResultBytes
+	}
+	if input.MaxComparisons != 0 {
+		params.MaxComparisons = input.MaxComparisons
+	}
+	if input.MaxDurationMillis != 0 {
+		const maxDurationMillis = int64((1<<63)-1) / int64(time.Millisecond)
+		if input.MaxDurationMillis < 0 || input.MaxDurationMillis > maxDurationMillis {
+			return apptypes.MemoryHygieneScanBudget{}, xerrors.Errorf("max_duration_ms is outside the supported range")
+		}
+		params.MaxDuration = time.Duration(input.MaxDurationMillis) * time.Millisecond
+	}
+	budget, err := apptypes.MemoryHygieneScanBudgetFrom(params)
+	if err != nil {
+		return apptypes.MemoryHygieneScanBudget{}, xerrors.Errorf("invalid memory hygiene scan budget: %w", err)
+	}
+	return budget, nil
 }
 
 // exportMemories mirrors the CLI `memory export` command over MCP. The

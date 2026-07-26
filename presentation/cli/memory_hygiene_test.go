@@ -31,6 +31,7 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 		Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
 		Reason:         "low-quality extraction: diff_fragment",
 		Fact:           "+def _required_env(name):",
+		FactPreview:    "+def _required_env(name):",
 		Scope:          scope,
 		UpdatedAt:      updatedAt,
 		Status:         domtypes.MemoryStatusCandidate,
@@ -40,6 +41,8 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 	result := apptypes.MemoryHygieneScanResult{
 		Suggestions:              []apptypes.MemoryHygieneSuggestion{suggestion},
 		LowQualityCandidateCount: 1,
+		Complete:                 true,
+		StopReason:               apptypes.MemoryHygieneStopReasonComplete,
 	}
 
 	var buf bytes.Buffer
@@ -103,6 +106,7 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 		Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
 		Reason:         "low-quality extraction: standalone_command",
 		Fact:           "git pull --ff-only origin main",
+		FactPreview:    "git pull --ff-only origin main",
 		Scope:          scope,
 		UpdatedAt:      time.Date(2026, 5, 1, 9, 30, 0, 0, time.UTC),
 		Status:         domtypes.MemoryStatusCandidate,
@@ -112,6 +116,8 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 	result := apptypes.MemoryHygieneScanResult{
 		Suggestions:              []apptypes.MemoryHygieneSuggestion{suggestion},
 		LowQualityCandidateCount: 1,
+		Complete:                 true,
+		StopReason:               apptypes.MemoryHygieneStopReasonComplete,
 	}
 
 	var buf bytes.Buffer
@@ -132,5 +138,55 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 	}
 	if !strings.Contains(out, "低品質") && !strings.Contains(out, "low_quality_candidates=1") {
 		t.Fatalf("summary line missing low-quality counter: %s", out)
+	}
+}
+
+func TestWriteMemoryHygieneScanResult_NeverRendersRawFacts(t *testing.T) {
+	t.Parallel()
+
+	const rawSecret = "raw-secret-must-not-leave-application"
+	result := apptypes.MemoryHygieneScanResult{
+		Suggestions: []apptypes.MemoryHygieneSuggestion{{
+			MemoryID:               domtypes.MemoryID("mem-private"),
+			Kind:                   apptypes.MemoryHygieneSuggestionRedactionHit,
+			Reason:                 "current redaction patterns mask this fact",
+			Fact:                   rawSecret,
+			FactPreview:            "safe [REDACTED] preview…",
+			FactPreviewTruncated:   true,
+			SanitizedFact:          rawSecret,
+			SanitizedFactPreview:   "safe [REDACTED] preview…",
+			ReplacementMemoryID:    domtypes.MemoryID("mem-replacement"),
+			ReplacementFact:        rawSecret,
+			ReplacementFactPreview: "replacement [REDACTED]",
+			UpdatedAt:              time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
+		}},
+		RedactionHitCount: 1,
+		Partial:           true,
+		StopReason:        apptypes.MemoryHygieneStopReasonResultByteLimit,
+		NextCursor:        "opaque_cursor",
+		Usage: apptypes.MemoryHygieneScanUsage{
+			ScannedRows:   2,
+			ScannedBytes:  128,
+			ResultBytes:   200,
+			Comparisons:   1,
+			ElapsedMillis: 5,
+		},
+	}
+
+	for _, asJSON := range []bool{false, true} {
+		var buf bytes.Buffer
+		if err := writeMemoryHygieneScanResult(&buf, result, asJSON); err != nil {
+			t.Fatalf("writeMemoryHygieneScanResult(json=%t) error = %v", asJSON, err)
+		}
+		output := buf.String()
+		if strings.Contains(output, rawSecret) {
+			t.Fatalf("output(json=%t) leaked raw fact: %s", asJSON, output)
+		}
+		if !strings.Contains(output, "[REDACTED]") {
+			t.Fatalf("output(json=%t) omitted safe preview: %s", asJSON, output)
+		}
+		if !strings.Contains(output, "opaque_cursor") {
+			t.Fatalf("output(json=%t) omitted continuation cursor: %s", asJSON, output)
+		}
 	}
 }

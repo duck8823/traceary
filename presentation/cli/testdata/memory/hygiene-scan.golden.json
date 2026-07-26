@@ -5,6 +5,16 @@
   "supersede_candidate_count": 1,
   "validity_overlap_supersede_count": 0,
   "low_quality_candidate_count": 0,
+  "complete": true,
+  "partial": false,
+  "stop_reason": "complete",
+  "usage": {
+    "scanned_rows": 2,
+    "scanned_bytes": 48,
+    "result_bytes": 320,
+    "comparisons": 1,
+    "elapsed_ms": 3
+  },
   "suggestions": [
     {
       "memory_id": "memory-golden-accepted",

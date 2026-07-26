@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -23,9 +24,12 @@ func (s *stubCodexSource) Load(_ context.Context, _ apptypes.CodexImportCriteria
 }
 
 type stubMemoryQueryService struct {
-	summaries []apptypes.MemorySummary
-	details   map[domtypes.MemoryID]apptypes.MemoryDetails
-	calls     []apptypes.MemoryListCriteria
+	summaries         []apptypes.MemorySummary
+	details           map[domtypes.MemoryID]apptypes.MemoryDetails
+	calls             []apptypes.MemoryListCriteria
+	scanPageCalls     int
+	scanDelay         time.Duration
+	revalidationCalls []apptypes.MemoryHygieneRevalidationCriteria
 }
 
 func (s *stubMemoryQueryService) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
@@ -75,6 +79,199 @@ func (s *stubMemoryQueryService) GetDetails(_ context.Context, memoryID domtypes
 		return details, nil
 	}
 	return apptypes.MemoryDetails{}, nil
+}
+
+func (s *stubMemoryQueryService) ScanMemoryHygienePage(
+	_ context.Context,
+	criteria apptypes.MemoryHygieneScanPageCriteria,
+) (apptypes.MemoryHygieneScanSourcePage, error) {
+	s.scanPageCalls++
+	if s.scanDelay > 0 {
+		time.Sleep(s.scanDelay)
+	}
+	page := apptypes.MemoryHygieneScanSourcePage{
+		Revision:       1,
+		ProgressKeyset: criteria.Keyset,
+	}
+	summaries := append([]apptypes.MemorySummary(nil), s.summaries...)
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].MemoryID().String() < summaries[j].MemoryID().String()
+	})
+	inScope := func(summary apptypes.MemorySummary) bool {
+		if len(criteria.Scopes) == 0 {
+			return true
+		}
+		for _, scope := range criteria.Scopes {
+			if scope != nil && summary.Scope().Kind() == scope.Kind() && summary.Scope().Key() == scope.Key() {
+				return true
+			}
+		}
+		return false
+	}
+	charge := func(rows int, bytes int64, comparisons int) bool {
+		if page.ScannedRows+rows > criteria.MaxRows {
+			page.StopReason = apptypes.MemoryHygieneStopReasonRowLimit
+			return false
+		}
+		if page.ScannedBytes+bytes > criteria.MaxScanBytes {
+			page.StopReason = apptypes.MemoryHygieneStopReasonScanByteLimit
+			return false
+		}
+		if page.Comparisons+comparisons > criteria.MaxComparisons {
+			page.StopReason = apptypes.MemoryHygieneStopReasonComparisonLimit
+			return false
+		}
+		page.ScannedRows += rows
+		page.ScannedBytes += bytes
+		page.Comparisons += comparisons
+		return true
+	}
+	rowBytes := func(summary apptypes.MemorySummary) int64 {
+		return int64(len(summary.MemoryID().String()) + len(summary.Fact()) + len(summary.Scope().Key()))
+	}
+
+	switch criteria.Phase {
+	case apptypes.MemoryHygieneScanPhaseAcceptedRows, apptypes.MemoryHygieneScanPhaseCandidateRows:
+		for _, summary := range summaries {
+			if summary.MemoryID().String() <= criteria.Keyset.AfterMemoryID || !inScope(summary) {
+				continue
+			}
+			if criteria.Phase == apptypes.MemoryHygieneScanPhaseAcceptedRows && summary.Status() != domtypes.MemoryStatusAccepted {
+				continue
+			}
+			if criteria.Phase == apptypes.MemoryHygieneScanPhaseCandidateRows {
+				if summary.Status() != domtypes.MemoryStatusCandidate || (summary.Source() != domtypes.MemorySourceExtracted &&
+					(!criteria.IncludeHiddenCandidates || summary.Source() != domtypes.MemorySourceExtractedHidden)) {
+					continue
+				}
+			}
+			if !charge(1, rowBytes(summary), 0) {
+				return page, nil
+			}
+			next := apptypes.MemoryHygieneScanKeyset{AfterMemoryID: summary.MemoryID().String()}
+			page.Units = append(page.Units, apptypes.MemoryHygieneScanUnit{
+				Row: summary, Peer: domtypes.None[apptypes.MemorySummary](),
+				RelatedMemoryID: domtypes.None[domtypes.MemoryID](), NextKeyset: next,
+			})
+			page.ProgressKeyset = next
+		}
+	case apptypes.MemoryHygieneScanPhaseExactDuplicates:
+		for _, summary := range summaries {
+			if summary.MemoryID().String() <= criteria.Keyset.AfterMemoryID ||
+				summary.Status() != domtypes.MemoryStatusAccepted || !inScope(summary) {
+				continue
+			}
+			if !charge(1, rowBytes(summary), 1) {
+				return page, nil
+			}
+			peerID := domtypes.None[domtypes.MemoryID]()
+			for _, peer := range summaries {
+				if peer.MemoryID() != summary.MemoryID() && peer.Status() == domtypes.MemoryStatusAccepted &&
+					peer.Scope().Kind() == summary.Scope().Kind() && peer.Scope().Key() == summary.Scope().Key() &&
+					peer.Fact() == summary.Fact() {
+					peerID = domtypes.Some(peer.MemoryID())
+					break
+				}
+			}
+			next := apptypes.MemoryHygieneScanKeyset{AfterMemoryID: summary.MemoryID().String()}
+			page.Units = append(page.Units, apptypes.MemoryHygieneScanUnit{
+				Row: summary, Peer: domtypes.None[apptypes.MemorySummary](),
+				RelatedMemoryID: peerID, NextKeyset: next,
+			})
+			page.ProgressKeyset = next
+		}
+	case apptypes.MemoryHygieneScanPhaseSimilarityPairs:
+		for i, anchor := range summaries {
+			if anchor.Status() != domtypes.MemoryStatusAccepted || !inScope(anchor) {
+				continue
+			}
+			if criteria.Keyset.AnchorMemoryID == "" && anchor.MemoryID().String() <= criteria.Keyset.AfterMemoryID {
+				continue
+			}
+			if criteria.Keyset.AnchorMemoryID != "" && anchor.MemoryID().String() < criteria.Keyset.AnchorMemoryID {
+				continue
+			}
+			if criteria.Keyset.AnchorMemoryID != "" && anchor.MemoryID().String() > criteria.Keyset.AnchorMemoryID {
+				criteria.Keyset.AfterPartnerID = ""
+			}
+			for j := i + 1; j < len(summaries); j++ {
+				peer := summaries[j]
+				if peer.Status() != domtypes.MemoryStatusAccepted ||
+					peer.Scope().Kind() != anchor.Scope().Kind() || peer.Scope().Key() != anchor.Scope().Key() ||
+					(anchor.MemoryID().String() == criteria.Keyset.AnchorMemoryID && peer.MemoryID().String() <= criteria.Keyset.AfterPartnerID) {
+					continue
+				}
+				if !charge(2, rowBytes(anchor)+rowBytes(peer), 1) {
+					return page, nil
+				}
+				next := apptypes.MemoryHygieneScanKeyset{
+					AfterMemoryID: criteria.Keyset.AfterMemoryID, AnchorMemoryID: anchor.MemoryID().String(),
+					AfterPartnerID: peer.MemoryID().String(),
+				}
+				page.Units = append(page.Units, apptypes.MemoryHygieneScanUnit{
+					Row: anchor, Peer: domtypes.Some(peer),
+					RelatedMemoryID: domtypes.None[domtypes.MemoryID](), NextKeyset: next,
+				})
+				page.ProgressKeyset = next
+			}
+			page.ProgressKeyset = apptypes.MemoryHygieneScanKeyset{AfterMemoryID: anchor.MemoryID().String()}
+			criteria.Keyset = page.ProgressKeyset
+		}
+	}
+	page.Done = true
+	return page, nil
+}
+
+func (s *stubMemoryQueryService) RevalidateMemoryHygiene(
+	_ context.Context,
+	criteria apptypes.MemoryHygieneRevalidationCriteria,
+) (apptypes.MemoryHygieneRevalidationSourceResult, error) {
+	s.revalidationCalls = append(s.revalidationCalls, criteria)
+	var result apptypes.MemoryHygieneRevalidationSourceResult
+	result.Revision = 1
+	for _, summary := range s.summaries {
+		if summary.MemoryID() == criteria.MemoryID {
+			result.Target = summary
+			result.ScannedRows = 1
+			result.ScannedBytes = int64(len(summary.Fact()))
+			break
+		}
+	}
+	if result.Target.MemoryID().String() == "" {
+		return result, errors.New("memory not found")
+	}
+	if result.Target.Status() == domtypes.MemoryStatusAccepted {
+		for _, peer := range s.summaries {
+			if peer.MemoryID() == result.Target.MemoryID() || peer.Status() != domtypes.MemoryStatusAccepted ||
+				peer.Scope().Kind() != result.Target.Scope().Kind() || peer.Scope().Key() != result.Target.Scope().Key() {
+				continue
+			}
+			if result.ScannedRows >= criteria.MaxRows {
+				result.StopReason = apptypes.MemoryHygieneStopReasonRowLimit
+				return result, nil
+			}
+			if result.Comparisons >= criteria.MaxComparisons {
+				result.StopReason = apptypes.MemoryHygieneStopReasonComparisonLimit
+				return result, nil
+			}
+			if result.ScannedBytes+int64(len(peer.Fact())) > criteria.MaxScanBytes {
+				result.StopReason = apptypes.MemoryHygieneStopReasonScanByteLimit
+				return result, nil
+			}
+			result.Peers = append(result.Peers, peer)
+			result.ScannedRows++
+			result.ScannedBytes += int64(len(peer.Fact()))
+			result.Comparisons++
+			if peer.Fact() == result.Target.Fact() {
+				if _, ok := result.ExactDuplicateMemoryID.Value(); !ok {
+					result.ExactDuplicateMemoryID = domtypes.Some(peer.MemoryID())
+				}
+			}
+		}
+	}
+	result.Complete = true
+	result.StopReason = apptypes.MemoryHygieneStopReasonComplete
+	return result, nil
 }
 
 type importProposeCall struct {

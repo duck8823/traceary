@@ -2,9 +2,12 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/xerrors"
 
@@ -33,400 +36,445 @@ const defaultStalenessThreshold = 90 * 24 * time.Hour
 // steering clear of shared-keyword coincidences.
 const defaultSupersedeSimilarityThreshold = 0.6
 
-// hygieneScanPageSize caps the number of accepted memories the scanner
-// walks in one run. Real memory stores stay well under this bound; the
-// ceiling is here to keep the single-shot scan deterministic.
-const hygieneScanPageSize = 2000
+const memoryHygienePreviewMaxBytes = 240
 
-// Scan loads every accepted memory in scope and emits one suggestion per
-// memory that trips any of the three hygiene rules. The function is
-// deliberately simple: each rule is independent so an operator can
-// triage the suggestions without the scanner second-guessing them.
-//
-// Candidate hygiene runs as a separate pass on status=candidate rows so
-// the deterministic low-quality classifier (#857) can flag noisy
-// auto-extractions. The candidate pass never inspects accepted memories,
-// so the apply path that consumes its suggestions cannot mutate them.
+// Scan traverses revision-stable source pages until a finite invocation budget
+// is exhausted or all four phases complete. A partial result owns an opaque
+// cursor whose keyset points after the last unit whose suggestions were
+// committed to the result.
 func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
-	if u.memoryQuery == nil {
-		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory query service is not configured")
+	source, ok := u.memoryQuery.(queryservice.MemoryHygieneScanSource)
+	if !ok {
+		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("bounded memory hygiene scan source is not configured")
 	}
-
-	now := criteria.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
+	budget := criteria.Budget
+	if budget.IsZero() {
+		budget = apptypes.DefaultMemoryHygieneScanBudget()
 	}
 	staleness := criteria.StalenessThreshold
 	if staleness <= 0 {
 		staleness = defaultStalenessThreshold
 	}
-
-	summaries, err := u.loadAcceptedSummaries(ctx, criteria.Scopes)
-	if err != nil {
-		return apptypes.MemoryHygieneScanResult{}, err
+	similarity := criteria.SimilarityThreshold
+	if similarity <= 0 {
+		similarity = defaultSupersedeSimilarityThreshold
+	}
+	if similarity > 1 {
+		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene similarity threshold must be less than or equal to 1")
 	}
 
-	result := apptypes.MemoryHygieneScanResult{
-		Suggestions: make([]apptypes.MemoryHygieneSuggestion, 0, len(summaries)),
-	}
-
-	duplicateIndex := make(map[duplicateKey][]apptypes.MemorySummary, len(summaries))
-	for _, summary := range summaries {
-		// Redaction re-scan: sanitize the stored fact with the current
-		// pattern set and flag any memory whose sanitized output is
-		// different from what the store already holds.
-		sanitizedFact, _, _, err := sanitizeMemoryPayload(summary.Fact(), nil, nil, u.extraRedactPatterns)
+	now := criteria.Now.UTC()
+	phase := apptypes.MemoryHygieneScanPhaseAcceptedRows
+	keyset := apptypes.MemoryHygieneScanKeyset{}
+	revision := domtypes.None[int64]()
+	var cursorPayload memoryHygieneCursorPayload
+	if criteria.Cursor != "" {
+		decoded, err := decodeMemoryHygieneCursor(criteria.Cursor)
 		if err != nil {
-			result.Suggestions = append(result.Suggestions, apptypes.MemoryHygieneSuggestion{
-				MemoryID:  summary.MemoryID(),
-				Kind:      apptypes.MemoryHygieneSuggestionRedactionHit,
-				Reason:    fmt.Sprintf("sanitizer failed: %v", err),
-				Fact:      summary.Fact(),
-				Scope:     summary.Scope(),
-				UpdatedAt: summary.UpdatedAt(),
-			})
-			result.RedactionHitCount++
+			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("failed to decode memory hygiene cursor: %w", err)
+		}
+		cursorPayload = decoded
+		cursorTime, _ := time.Parse(time.RFC3339Nano, decoded.ScanAt)
+		if !criteria.Now.IsZero() && !criteria.Now.UTC().Equal(cursorTime) {
+			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene cursor criteria mismatch")
+		}
+		now = cursorTime
+		phase = decoded.Phase
+		keyset = decoded.Keyset
+		revision = domtypes.Some(decoded.Revision)
+	} else if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	digest := memoryHygieneCriteriaDigest(criteria.Scopes, staleness, similarity, criteria.IncludeHiddenCandidates)
+	if criteria.Cursor != "" && cursorPayload.CriteriaDigest != digest {
+		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene cursor criteria mismatch")
+	}
+
+	result := apptypes.MemoryHygieneScanResult{Suggestions: []apptypes.MemoryHygieneSuggestion{}}
+	startedAt := time.Now()
+	scanCtx, cancel := context.WithTimeout(ctx, budget.MaxDuration())
+	defer cancel()
+
+	for {
+		if time.Since(startedAt) >= budget.MaxDuration() {
+			if _, hasRevision := revision.Value(); hasRevision {
+				return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonTimeLimit, phase, keyset, revision, digest, now, startedAt)
+			}
+		}
+		remainingRows := budget.MaxRows() - result.Usage.ScannedRows
+		remainingScanBytes := budget.MaxScanBytes() - result.Usage.ScannedBytes
+		remainingComparisons := budget.MaxComparisons() - result.Usage.Comparisons
+		if remainingRows < 1 {
+			return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonRowLimit, phase, keyset, revision, digest, now, startedAt)
+		}
+		if remainingScanBytes < 1 {
+			return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonScanByteLimit, phase, keyset, revision, digest, now, startedAt)
+		}
+		if (phase == apptypes.MemoryHygieneScanPhaseExactDuplicates || phase == apptypes.MemoryHygieneScanPhaseSimilarityPairs) && remainingComparisons < 1 {
+			return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonComparisonLimit, phase, keyset, revision, digest, now, startedAt)
+		}
+		sourceComparisons := remainingComparisons
+		if sourceComparisons < 1 {
+			sourceComparisons = 1
+		}
+		page, err := source.ScanMemoryHygienePage(scanCtx, apptypes.MemoryHygieneScanPageCriteria{
+			Phase:                   phase,
+			Keyset:                  keyset,
+			Scopes:                  criteria.Scopes,
+			IncludeHiddenCandidates: criteria.IncludeHiddenCandidates,
+			ExpectedRevision:        revision,
+			MaxRows:                 remainingRows,
+			MaxScanBytes:            remainingScanBytes,
+			MaxComparisons:          sourceComparisons,
+		})
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(scanCtx.Err(), context.DeadlineExceeded) {
+				return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonTimeLimit, phase, keyset, revision, digest, now, startedAt)
+			}
+			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("failed to scan memory hygiene source page: %w", err)
+		}
+		if _, hasRevision := revision.Value(); !hasRevision {
+			revision = domtypes.Some(page.Revision)
+		}
+		result.Usage.ScannedRows += page.ScannedRows
+		result.Usage.ScannedBytes += page.ScannedBytes
+		result.Usage.Comparisons += page.Comparisons
+
+		for _, unit := range page.Units {
+			if time.Since(startedAt) >= budget.MaxDuration() {
+				return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonTimeLimit, phase, keyset, revision, digest, now, startedAt)
+			}
+			matches := u.matchesForScanUnit(phase, unit, now, staleness, similarity)
+			safeSuggestions := make([]apptypes.MemoryHygieneSuggestion, 0, len(matches))
+			var suggestionBytes int64
+			for _, match := range matches {
+				suggestion := u.safeMemoryHygieneSuggestion(match)
+				encoded, marshalErr := json.Marshal(suggestion)
+				if marshalErr != nil {
+					return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("failed to size memory hygiene suggestion")
+				}
+				suggestionBytes += int64(len(encoded) + 1)
+				safeSuggestions = append(safeSuggestions, suggestion)
+			}
+			if result.Usage.ResultBytes+suggestionBytes > budget.MaxResultBytes() {
+				return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonResultByteLimit, phase, keyset, revision, digest, now, startedAt)
+			}
+			for _, suggestion := range safeSuggestions {
+				result.Suggestions = append(result.Suggestions, suggestion)
+				incrementMemoryHygieneCount(&result, suggestion.Kind)
+			}
+			result.Usage.ResultBytes += suggestionBytes
+			keyset = unit.NextKeyset
+		}
+		keyset = page.ProgressKeyset
+
+		if page.Done {
+			nextPhase, complete := nextMemoryHygieneScanPhase(phase)
+			if complete {
+				result.Complete = true
+				result.Partial = false
+				result.StopReason = apptypes.MemoryHygieneStopReasonComplete
+				result.Usage.Elapsed = time.Since(startedAt)
+				result.Usage.ElapsedMillis = result.Usage.Elapsed.Milliseconds()
+				return result, nil
+			}
+			phase = nextPhase
+			keyset = apptypes.MemoryHygieneScanKeyset{}
 			continue
 		}
-		if sanitizedFact != summary.Fact() {
-			result.Suggestions = append(result.Suggestions, apptypes.MemoryHygieneSuggestion{
-				MemoryID:      summary.MemoryID(),
-				Kind:          apptypes.MemoryHygieneSuggestionRedactionHit,
-				Reason:        "current redaction patterns mask this fact",
-				Fact:          summary.Fact(),
-				SanitizedFact: sanitizedFact,
-				Scope:         summary.Scope(),
-				UpdatedAt:     summary.UpdatedAt(),
-			})
-			result.RedactionHitCount++
+		if page.StopReason == "" {
+			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene scan source stopped without a reason")
 		}
-
-		// Expiry suggestion: use updated_at as a staleness proxy. The
-		// store does not yet track retrieval timestamps, so
-		// conservative-leaning updated_at is the honest signal.
-		if now.Sub(summary.UpdatedAt()) > staleness {
-			result.Suggestions = append(result.Suggestions, apptypes.MemoryHygieneSuggestion{
-				MemoryID:  summary.MemoryID(),
-				Kind:      apptypes.MemoryHygieneSuggestionExpiryCandidate,
-				Reason:    fmt.Sprintf("no updates for more than %s", staleness),
-				Fact:      summary.Fact(),
-				Scope:     summary.Scope(),
-				UpdatedAt: summary.UpdatedAt(),
-			})
-			result.ExpiryCandidateCount++
-		}
-
-		// Duplicate suggestion: group by scope + fact. Any bucket with
-		// more than one entry becomes a pair of suggestions so the
-		// reviewer sees both sides. Summaries are expected to carry a
-		// non-nil scope (MemorySummaryOf rejects nil), but the scanner
-		// falls back to a sentinel key so a malformed row still surfaces
-		// in the duplicate bucket instead of panicking here.
-		key := duplicateKey{Fact: summary.Fact()}
-		if summary.Scope() != nil {
-			key.ScopeKind = summary.Scope().Kind()
-			key.ScopeKey = summary.Scope().Key()
-		}
-		duplicateIndex[key] = append(duplicateIndex[key], summary)
+		return finishPartialMemoryHygieneResult(result, page.StopReason, phase, keyset, revision, digest, now, startedAt)
 	}
-
-	for _, bucket := range duplicateIndex {
-		if len(bucket) < 2 {
-			continue
-		}
-		for i, summary := range bucket {
-			other := bucket[(i+1)%len(bucket)]
-			result.Suggestions = append(result.Suggestions, apptypes.MemoryHygieneSuggestion{
-				MemoryID:          summary.MemoryID(),
-				Kind:              apptypes.MemoryHygieneSuggestionDuplicate,
-				Reason:            fmt.Sprintf("shares fact with %s", other.MemoryID().String()),
-				Fact:              summary.Fact(),
-				DuplicateMemoryID: other.MemoryID(),
-				Scope:             summary.Scope(),
-				UpdatedAt:         summary.UpdatedAt(),
-			})
-			result.DuplicateCount++
-		}
-	}
-
-	// Supersede candidate: pair accepted memories whose fact text differs
-	// but shares enough word-level overlap to likely be re-phrasings of
-	// the same idea. The older memory becomes the one to supersede; the
-	// newer memory's content is the suggested replacement. Memories that
-	// already collided as exact duplicates are excluded so both detectors
-	// stay additive and the reviewer sees a clean split between "same
-	// content" and "overlapping content".
-	similarityThreshold := criteria.SimilarityThreshold
-	if similarityThreshold <= 0 {
-		similarityThreshold = defaultSupersedeSimilarityThreshold
-	}
-	// Validity-annotated classifier runs first because it produces the
-	// more specific signal: (scope, type) match plus explicit temporal
-	// evidence splits pairs cleanly into "same policy, overlapping"
-	// (emit validity_overlap_supersede) and "separate historical
-	// facts, disjoint" (silent). Both outcomes are then excluded from
-	// the generic supersede_candidate pass so the reviewer never sees
-	// a temporally-bounded pair reported under the weaker kind.
-	validityOverlapSuggestions, temporalDisjointPairs := classifyValidityAnnotatedPairs(summaries, similarityThreshold)
-	validityPairs := make(map[string]struct{}, len(validityOverlapSuggestions))
-	for _, suggestion := range validityOverlapSuggestions {
-		validityPairs[pairKey(suggestion.MemoryID.String(), suggestion.ReplacementMemoryID.String())] = struct{}{}
-	}
-
-	supersedeSuggestions := detectSupersedeCandidates(summaries, duplicateIndex, similarityThreshold)
-	filteredSupersede := make([]apptypes.MemoryHygieneSuggestion, 0, len(supersedeSuggestions))
-	for _, suggestion := range supersedeSuggestions {
-		key := pairKey(suggestion.MemoryID.String(), suggestion.ReplacementMemoryID.String())
-		if _, captured := validityPairs[key]; captured {
-			continue
-		}
-		if _, disjoint := temporalDisjointPairs[key]; disjoint {
-			continue
-		}
-		filteredSupersede = append(filteredSupersede, suggestion)
-	}
-	result.Suggestions = append(result.Suggestions, filteredSupersede...)
-	result.SupersedeCandidateCount = len(filteredSupersede)
-
-	result.Suggestions = append(result.Suggestions, validityOverlapSuggestions...)
-	result.ValidityOverlapSupersedeCount = len(validityOverlapSuggestions)
-
-	candidateSuggestions, err := u.scanLowQualityCandidates(ctx, criteria)
-	if err != nil {
-		return apptypes.MemoryHygieneScanResult{}, err
-	}
-	result.Suggestions = append(result.Suggestions, candidateSuggestions...)
-	result.LowQualityCandidateCount = len(candidateSuggestions)
-
-	return result, nil
 }
 
-// scanLowQualityCandidates walks every status=candidate memory in scope
-// and emits a low_quality_candidate suggestion for each row whose fact
-// matches the deterministic extraction-noise classifier (#857). The
-// default pass restricts the source to MemorySourceExtracted because
-// extracted-hidden rows are already suppressed from the inbox; callers
-// who explicitly opt into IncludeHiddenCandidates also see those rows
-// so they can clean up backlog from before the extractor learned to
-// hide them.
-//
-// The candidate pass is a separate read so the existing redaction /
-// expiry / duplicate / supersede passes keep operating on accepted
-// memories only — there is no path through this scan that mutates an
-// accepted row, satisfying the issue's guarantee that the candidate
-// cleanup path cannot touch accepted memories.
-func (u *memoryHygieneUsecase) scanLowQualityCandidates(
-	ctx context.Context,
-	criteria apptypes.MemoryHygieneScanCriteria,
-) ([]apptypes.MemoryHygieneSuggestion, error) {
-	sources := []domtypes.MemorySource{domtypes.MemorySourceExtracted}
-	if criteria.IncludeHiddenCandidates {
-		sources = append(sources, domtypes.MemorySourceExtractedHidden)
-	}
-	candidates, err := u.loadCandidateSummaries(ctx, criteria.Scopes, sources)
-	if err != nil {
-		return nil, err
-	}
-	suggestions := make([]apptypes.MemoryHygieneSuggestion, 0, len(candidates))
-	for _, candidate := range candidates {
-		reasons := classifyExtractionNoise(candidate.Fact())
-		if len(reasons) == 0 {
-			continue
+type memoryHygieneMatch struct {
+	MemoryID            domtypes.MemoryID
+	Kind                apptypes.MemoryHygieneSuggestionKind
+	Reason              string
+	rawFact             string
+	sanitizedFact       string
+	DuplicateMemoryID   domtypes.MemoryID
+	ReplacementMemoryID domtypes.MemoryID
+	replacementFact     string
+	Similarity          float64
+	Scope               domtypes.MemoryScope
+	UpdatedAt           time.Time
+	Status              domtypes.MemoryStatus
+	Source              domtypes.MemorySource
+	QualityReasons      []string
+}
+
+func (u *memoryHygieneUsecase) matchesForScanUnit(
+	phase apptypes.MemoryHygieneScanPhase,
+	unit apptypes.MemoryHygieneScanUnit,
+	now time.Time,
+	staleness time.Duration,
+	similarity float64,
+) []memoryHygieneMatch {
+	switch phase {
+	case apptypes.MemoryHygieneScanPhaseAcceptedRows:
+		return u.acceptedRowHygieneMatches(unit.Row, now, staleness)
+	case apptypes.MemoryHygieneScanPhaseExactDuplicates:
+		peerID, ok := unit.RelatedMemoryID.Value()
+		if !ok {
+			return nil
 		}
-		suggestions = append(suggestions, apptypes.MemoryHygieneSuggestion{
-			MemoryID:       candidate.MemoryID(),
+		return []memoryHygieneMatch{{
+			MemoryID:          unit.Row.MemoryID(),
+			Kind:              apptypes.MemoryHygieneSuggestionDuplicate,
+			Reason:            fmt.Sprintf("shares fact with %s", peerID.String()),
+			rawFact:           unit.Row.Fact(),
+			DuplicateMemoryID: peerID,
+			Scope:             unit.Row.Scope(),
+			UpdatedAt:         unit.Row.UpdatedAt(),
+		}}
+	case apptypes.MemoryHygieneScanPhaseSimilarityPairs:
+		peer, ok := unit.Peer.Value()
+		if !ok {
+			return nil
+		}
+		match, matched := similarityPairHygieneMatch(unit.Row, peer, similarity)
+		if !matched {
+			return nil
+		}
+		return []memoryHygieneMatch{match}
+	case apptypes.MemoryHygieneScanPhaseCandidateRows:
+		reasons := classifyExtractionNoise(unit.Row.Fact())
+		if len(reasons) == 0 {
+			return nil
+		}
+		return []memoryHygieneMatch{{
+			MemoryID:       unit.Row.MemoryID(),
 			Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
 			Reason:         fmt.Sprintf("low-quality extraction: %s", strings.Join(reasons, ",")),
-			Fact:           candidate.Fact(),
-			Scope:          candidate.Scope(),
-			UpdatedAt:      candidate.UpdatedAt(),
-			Status:         candidate.Status(),
-			Source:         candidate.Source(),
+			rawFact:        unit.Row.Fact(),
+			Scope:          unit.Row.Scope(),
+			UpdatedAt:      unit.Row.UpdatedAt(),
+			Status:         unit.Row.Status(),
+			Source:         unit.Row.Source(),
 			QualityReasons: reasons,
-		})
-	}
-	return suggestions, nil
-}
-
-// detectSupersedeCandidates groups accepted memories by scope, computes
-// pairwise word-Jaccard similarity, and emits a supersede_candidate for
-// every pair above the threshold. The older memory is the one that gets
-// superseded; the newer memory's fact is the replacement. Pairs are
-// de-duplicated so only one direction is emitted per memory pair.
-func detectSupersedeCandidates(summaries []apptypes.MemorySummary, duplicateBuckets map[duplicateKey][]apptypes.MemorySummary, threshold float64) []apptypes.MemoryHygieneSuggestion {
-	if threshold <= 0 || threshold > 1 {
+		}}
+	default:
 		return nil
 	}
-	exactDuplicatePairs := make(map[string]struct{}, len(duplicateBuckets))
-	for _, bucket := range duplicateBuckets {
-		if len(bucket) < 2 {
-			continue
-		}
-		for i := range bucket {
-			for j := i + 1; j < len(bucket); j++ {
-				exactDuplicatePairs[pairKey(bucket[i].MemoryID().String(), bucket[j].MemoryID().String())] = struct{}{}
-			}
-		}
-	}
-
-	scopeGroups := make(map[string][]apptypes.MemorySummary, len(summaries))
-	for _, summary := range summaries {
-		if summary.Scope() == nil {
-			continue
-		}
-		key := string(summary.Scope().Kind()) + "|" + summary.Scope().Key()
-		scopeGroups[key] = append(scopeGroups[key], summary)
-	}
-
-	var suggestions []apptypes.MemoryHygieneSuggestion
-	for _, group := range scopeGroups {
-		if len(group) < 2 {
-			continue
-		}
-		wordSets := make([]map[string]struct{}, len(group))
-		for i, summary := range group {
-			wordSets[i] = toWordSet(summary.Fact())
-		}
-		for i := 0; i < len(group); i++ {
-			for j := i + 1; j < len(group); j++ {
-				if group[i].Fact() == group[j].Fact() {
-					continue
-				}
-				if _, ok := exactDuplicatePairs[pairKey(group[i].MemoryID().String(), group[j].MemoryID().String())]; ok {
-					continue
-				}
-				sim := jaccardSimilarity(wordSets[i], wordSets[j])
-				if sim < threshold {
-					continue
-				}
-				older, newer := group[i], group[j]
-				if older.UpdatedAt().After(newer.UpdatedAt()) {
-					older, newer = newer, older
-				} else if older.UpdatedAt().Equal(newer.UpdatedAt()) {
-					// Tiebreak on memory id so two memories with the
-					// exact same updated_at (common when the store is
-					// bulk-imported in a single transaction) produce
-					// deterministic suggestions on every scan run.
-					if older.MemoryID().String() > newer.MemoryID().String() {
-						older, newer = newer, older
-					}
-				}
-				suggestions = append(suggestions, apptypes.MemoryHygieneSuggestion{
-					MemoryID:            older.MemoryID(),
-					Kind:                apptypes.MemoryHygieneSuggestionSupersedeCandidate,
-					Reason:              fmt.Sprintf("scope overlap with %s at similarity %.2f", newer.MemoryID().String(), sim),
-					Fact:                older.Fact(),
-					ReplacementMemoryID: newer.MemoryID(),
-					ReplacementFact:     newer.Fact(),
-					Similarity:          sim,
-					Scope:               older.Scope(),
-					UpdatedAt:           older.UpdatedAt(),
-				})
-			}
-		}
-	}
-	return suggestions
 }
 
-// classifyValidityAnnotatedPairs groups accepted memories by
-// (scope, type), inspects each pair whose similarity meets the
-// threshold and where at least one side carries an explicit valid_to,
-// and returns:
-//
-//   - validity_overlap_supersede suggestions for pairs whose windows
-//     overlap under half-open semantics (aligned with runtime validity
-//     evaluation), and
-//   - a set of pair keys whose windows are disjoint under the same
-//     semantics. The caller excludes those pairs from the generic
-//     supersede_candidate pass: they are separate historical facts
-//     the operator intentionally time-bounded, not merge candidates.
-//
-// Pairs where neither side carries an explicit valid_to fall through
-// (not reported in either output) so the caller's supersede_candidate
-// pipeline still handles them.
-func classifyValidityAnnotatedPairs(
-	summaries []apptypes.MemorySummary,
+func (u *memoryHygieneUsecase) acceptedRowHygieneMatches(
+	summary apptypes.MemorySummary,
+	now time.Time,
+	staleness time.Duration,
+) []memoryHygieneMatch {
+	sanitized, _, _, err := sanitizeMemoryPayload(summary.Fact(), nil, nil, u.extraRedactPatterns)
+	if err != nil {
+		return []memoryHygieneMatch{{
+			MemoryID:  summary.MemoryID(),
+			Kind:      apptypes.MemoryHygieneSuggestionRedactionHit,
+			Reason:    "sanitizer could not evaluate this fact",
+			rawFact:   summary.Fact(),
+			Scope:     summary.Scope(),
+			UpdatedAt: summary.UpdatedAt(),
+		}}
+	}
+	matches := make([]memoryHygieneMatch, 0, 2)
+	if sanitized != summary.Fact() {
+		matches = append(matches, memoryHygieneMatch{
+			MemoryID:      summary.MemoryID(),
+			Kind:          apptypes.MemoryHygieneSuggestionRedactionHit,
+			Reason:        "current redaction patterns mask this fact",
+			rawFact:       summary.Fact(),
+			sanitizedFact: sanitized,
+			Scope:         summary.Scope(),
+			UpdatedAt:     summary.UpdatedAt(),
+		})
+	}
+	if now.Sub(summary.UpdatedAt()) > staleness {
+		matches = append(matches, memoryHygieneMatch{
+			MemoryID:  summary.MemoryID(),
+			Kind:      apptypes.MemoryHygieneSuggestionExpiryCandidate,
+			Reason:    fmt.Sprintf("no updates for more than %s", staleness),
+			rawFact:   summary.Fact(),
+			Scope:     summary.Scope(),
+			UpdatedAt: summary.UpdatedAt(),
+		})
+	}
+	return matches
+}
+
+func similarityPairHygieneMatch(
+	a apptypes.MemorySummary,
+	b apptypes.MemorySummary,
 	threshold float64,
-) ([]apptypes.MemoryHygieneSuggestion, map[string]struct{}) {
-	if threshold <= 0 || threshold > 1 {
-		return nil, nil
+) (memoryHygieneMatch, bool) {
+	if a.Fact() == b.Fact() || threshold <= 0 || threshold > 1 {
+		return memoryHygieneMatch{}, false
 	}
-	disjointPairs := map[string]struct{}{}
+	similarity := jaccardSimilarity(toWordSet(a.Fact()), toWordSet(b.Fact()))
+	if similarity < threshold {
+		return memoryHygieneMatch{}, false
+	}
+	older, newer := orderedMemoryHygienePair(a, b)
+	_, aHasTo := a.ValidTo().Value()
+	_, bHasTo := b.ValidTo().Value()
+	if a.MemoryType() == b.MemoryType() && (aHasTo || bHasTo) {
+		if !validityWindowsOverlap(a, b) {
+			return memoryHygieneMatch{}, false
+		}
+		return memoryHygieneMatch{
+			MemoryID:            older.MemoryID(),
+			Kind:                apptypes.MemoryHygieneSuggestionValidityOverlapSupersede,
+			Reason:              fmt.Sprintf("validity window overlaps %s at similarity %.2f", newer.MemoryID().String(), similarity),
+			rawFact:             older.Fact(),
+			ReplacementMemoryID: newer.MemoryID(),
+			replacementFact:     newer.Fact(),
+			Similarity:          similarity,
+			Scope:               older.Scope(),
+			UpdatedAt:           older.UpdatedAt(),
+		}, true
+	}
+	return memoryHygieneMatch{
+		MemoryID:            older.MemoryID(),
+		Kind:                apptypes.MemoryHygieneSuggestionSupersedeCandidate,
+		Reason:              fmt.Sprintf("scope overlap with %s at similarity %.2f", newer.MemoryID().String(), similarity),
+		rawFact:             older.Fact(),
+		ReplacementMemoryID: newer.MemoryID(),
+		replacementFact:     newer.Fact(),
+		Similarity:          similarity,
+		Scope:               older.Scope(),
+		UpdatedAt:           older.UpdatedAt(),
+	}, true
+}
 
-	type scopeTypeKey struct {
-		ScopeKind  domtypes.MemoryScopeKind
-		ScopeKey   string
-		MemoryType domtypes.MemoryType
+func orderedMemoryHygienePair(a, b apptypes.MemorySummary) (apptypes.MemorySummary, apptypes.MemorySummary) {
+	older, newer := a, b
+	if older.UpdatedAt().After(newer.UpdatedAt()) ||
+		(older.UpdatedAt().Equal(newer.UpdatedAt()) && older.MemoryID().String() > newer.MemoryID().String()) {
+		older, newer = newer, older
 	}
-	groups := make(map[scopeTypeKey][]apptypes.MemorySummary, len(summaries))
-	for _, summary := range summaries {
-		if summary.Scope() == nil {
-			continue
-		}
-		key := scopeTypeKey{
-			ScopeKind:  summary.Scope().Kind(),
-			ScopeKey:   summary.Scope().Key(),
-			MemoryType: summary.MemoryType(),
-		}
-		groups[key] = append(groups[key], summary)
-	}
+	return older, newer
+}
 
-	var suggestions []apptypes.MemoryHygieneSuggestion
-	for _, group := range groups {
-		if len(group) < 2 {
-			continue
-		}
-		wordSets := make([]map[string]struct{}, len(group))
-		for i, summary := range group {
-			wordSets[i] = toWordSet(summary.Fact())
-		}
-		for i := 0; i < len(group); i++ {
-			for j := i + 1; j < len(group); j++ {
-				if group[i].Fact() == group[j].Fact() {
-					continue
-				}
-				_, aHasTo := group[i].ValidTo().Value()
-				_, bHasTo := group[j].ValidTo().Value()
-				// Pairs without any explicit upper bound are handled
-				// by the generic supersede_candidate pipeline — the
-				// operator has not expressed temporal intent yet.
-				if !aHasTo && !bHasTo {
-					continue
-				}
-				sim := jaccardSimilarity(wordSets[i], wordSets[j])
-				if sim < threshold {
-					continue
-				}
-				older, newer := group[i], group[j]
-				if older.UpdatedAt().After(newer.UpdatedAt()) {
-					older, newer = newer, older
-				} else if older.UpdatedAt().Equal(newer.UpdatedAt()) {
-					if older.MemoryID().String() > newer.MemoryID().String() {
-						older, newer = newer, older
-					}
-				}
-				if !validityWindowsOverlap(group[i], group[j]) {
-					// Temporally-bounded but disjoint — historical
-					// fact, exclude from supersede_candidate so the
-					// generic pass cannot report it either.
-					disjointPairs[pairKey(older.MemoryID().String(), newer.MemoryID().String())] = struct{}{}
-					continue
-				}
-				suggestions = append(suggestions, apptypes.MemoryHygieneSuggestion{
-					MemoryID:            older.MemoryID(),
-					Kind:                apptypes.MemoryHygieneSuggestionValidityOverlapSupersede,
-					Reason:              fmt.Sprintf("validity window overlaps %s at similarity %.2f", newer.MemoryID().String(), sim),
-					Fact:                older.Fact(),
-					ReplacementMemoryID: newer.MemoryID(),
-					ReplacementFact:     newer.Fact(),
-					Similarity:          sim,
-					Scope:               older.Scope(),
-					UpdatedAt:           older.UpdatedAt(),
-				})
-			}
-		}
+func (u *memoryHygieneUsecase) safeMemoryHygieneSuggestion(match memoryHygieneMatch) apptypes.MemoryHygieneSuggestion {
+	factPreview, factTruncated := u.safeMemoryHygienePreview(match.rawFact)
+	sanitizedPreview, sanitizedTruncated := "", false
+	if match.sanitizedFact != "" {
+		sanitizedPreview, sanitizedTruncated = u.safeMemoryHygienePreview(match.sanitizedFact)
 	}
-	return suggestions, disjointPairs
+	replacementPreview, replacementTruncated := "", false
+	if match.replacementFact != "" {
+		replacementPreview, replacementTruncated = u.safeMemoryHygienePreview(match.replacementFact)
+	}
+	return apptypes.MemoryHygieneSuggestion{
+		MemoryID:                    match.MemoryID,
+		Kind:                        match.Kind,
+		Reason:                      match.Reason,
+		Fact:                        match.rawFact,
+		FactPreview:                 factPreview,
+		FactPreviewTruncated:        factTruncated,
+		SanitizedFact:               match.sanitizedFact,
+		SanitizedFactPreview:        sanitizedPreview,
+		SanitizedPreviewTruncated:   sanitizedTruncated,
+		DuplicateMemoryID:           match.DuplicateMemoryID,
+		ReplacementMemoryID:         match.ReplacementMemoryID,
+		ReplacementFact:             match.replacementFact,
+		ReplacementFactPreview:      replacementPreview,
+		ReplacementPreviewTruncated: replacementTruncated,
+		Similarity:                  match.Similarity,
+		Scope:                       match.Scope,
+		UpdatedAt:                   match.UpdatedAt,
+		Status:                      match.Status,
+		Source:                      match.Source,
+		QualityReasons:              append([]string(nil), match.QualityReasons...),
+	}
+}
+
+func (u *memoryHygieneUsecase) safeMemoryHygienePreview(raw string) (string, bool) {
+	sanitized, _, _, err := sanitizeMemoryPayload(raw, nil, nil, u.extraRedactPatterns)
+	if err != nil {
+		return "[preview unavailable]", false
+	}
+	return truncateMemoryHygienePreview(sanitized, memoryHygienePreviewMaxBytes)
+}
+
+func truncateMemoryHygienePreview(value string, maxBytes int) (string, bool) {
+	if len(value) <= maxBytes {
+		return value, false
+	}
+	const marker = "…"
+	cut := maxBytes - len(marker)
+	if cut < 0 {
+		cut = 0
+	}
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut] + marker, true
+}
+
+func incrementMemoryHygieneCount(result *apptypes.MemoryHygieneScanResult, kind apptypes.MemoryHygieneSuggestionKind) {
+	switch kind {
+	case apptypes.MemoryHygieneSuggestionRedactionHit:
+		result.RedactionHitCount++
+	case apptypes.MemoryHygieneSuggestionExpiryCandidate:
+		result.ExpiryCandidateCount++
+	case apptypes.MemoryHygieneSuggestionDuplicate:
+		result.DuplicateCount++
+	case apptypes.MemoryHygieneSuggestionSupersedeCandidate:
+		result.SupersedeCandidateCount++
+	case apptypes.MemoryHygieneSuggestionValidityOverlapSupersede:
+		result.ValidityOverlapSupersedeCount++
+	case apptypes.MemoryHygieneSuggestionLowQualityCandidate:
+		result.LowQualityCandidateCount++
+	}
+}
+
+func nextMemoryHygieneScanPhase(phase apptypes.MemoryHygieneScanPhase) (apptypes.MemoryHygieneScanPhase, bool) {
+	switch phase {
+	case apptypes.MemoryHygieneScanPhaseAcceptedRows:
+		return apptypes.MemoryHygieneScanPhaseExactDuplicates, false
+	case apptypes.MemoryHygieneScanPhaseExactDuplicates:
+		return apptypes.MemoryHygieneScanPhaseSimilarityPairs, false
+	case apptypes.MemoryHygieneScanPhaseSimilarityPairs:
+		return apptypes.MemoryHygieneScanPhaseCandidateRows, false
+	case apptypes.MemoryHygieneScanPhaseCandidateRows:
+		return "", true
+	default:
+		return "", true
+	}
+}
+
+func finishPartialMemoryHygieneResult(
+	result apptypes.MemoryHygieneScanResult,
+	reason apptypes.MemoryHygieneStopReason,
+	phase apptypes.MemoryHygieneScanPhase,
+	keyset apptypes.MemoryHygieneScanKeyset,
+	revision domtypes.Optional[int64],
+	digest string,
+	now time.Time,
+	startedAt time.Time,
+) (apptypes.MemoryHygieneScanResult, error) {
+	revisionValue, ok := revision.Value()
+	if !ok {
+		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene scan stopped before reading a revision")
+	}
+	cursor, err := encodeMemoryHygieneCursor(memoryHygieneCursorPayload{
+		Revision:       revisionValue,
+		CriteriaDigest: digest,
+		ScanAt:         now.UTC().Format(time.RFC3339Nano),
+		Phase:          phase,
+		Keyset:         keyset,
+	})
+	if err != nil {
+		return apptypes.MemoryHygieneScanResult{}, err
+	}
+	result.Complete = false
+	result.Partial = true
+	result.StopReason = reason
+	result.NextCursor = cursor
+	result.Usage.Elapsed = time.Since(startedAt)
+	result.Usage.ElapsedMillis = result.Usage.Elapsed.Milliseconds()
+	return result, nil
 }
 
 // validityWindowsOverlap reports whether the half-open temporal
@@ -453,16 +501,6 @@ func validityWindowsOverlap(a, b apptypes.MemorySummary) bool {
 		return false
 	}
 	return true
-}
-
-// pairKey returns a stable key for an unordered pair of memory ids so
-// the duplicate-exclusion set and future pair de-duplication do not
-// depend on traversal order.
-func pairKey(a, b string) string {
-	if a < b {
-		return a + "\x00" + b
-	}
-	return b + "\x00" + a
 }
 
 // toWordSet splits fact text into lowercase word tokens and drops empty
@@ -511,12 +549,6 @@ func jaccardSimilarity(a, b map[string]struct{}) float64 {
 	return float64(intersect) / float64(union)
 }
 
-type duplicateKey struct {
-	ScopeKind domtypes.MemoryScopeKind
-	ScopeKey  string
-	Fact      string
-}
-
 // Apply walks the requested memory ids, re-scans to confirm the
 // transition is still appropriate, and applies the lifecycle verb that
 // matches the suggestion kind. Unknown or stale ids land in Failures so
@@ -532,6 +564,9 @@ func (u *memoryHygieneUsecase) Apply(ctx context.Context, criteria apptypes.Memo
 	})
 	if err != nil {
 		return apptypes.MemoryHygieneApplyResult{}, err
+	}
+	if !scanResult.Complete {
+		return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("memory hygiene apply requires a complete revalidation scan; scan stopped at %s", scanResult.StopReason)
 	}
 	suggestionByID := make(map[string]apptypes.MemoryHygieneSuggestion, len(scanResult.Suggestions))
 	for _, suggestion := range scanResult.Suggestions {
@@ -669,60 +704,4 @@ func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.M
 	default:
 		return apptypes.MemoryHygieneApplied{}, xerrors.Errorf("unknown suggestion kind: %s", suggestion.Kind)
 	}
-}
-
-// loadAcceptedSummaries walks every accepted memory in scope in
-// hygieneScanPageSize-sized pages so a store with more than one page
-// worth of memories is still scanned in full. The scan stops when the
-// datasource returns fewer rows than the requested page size.
-func (u *memoryHygieneUsecase) loadAcceptedSummaries(ctx context.Context, scopes []domtypes.MemoryScope) ([]apptypes.MemorySummary, error) {
-	return u.loadSummariesPage(ctx, scopes, []domtypes.MemoryStatus{domtypes.MemoryStatusAccepted}, nil, "accepted")
-}
-
-// loadCandidateSummaries walks every candidate memory in scope and
-// (optional) sources in hygieneScanPageSize-sized pages. Sources is
-// applied as an inclusive filter — passing only MemorySourceExtracted
-// excludes manually-proposed candidates from the noise pass so a
-// reviewer's deliberate proposal is never tagged as low-quality.
-func (u *memoryHygieneUsecase) loadCandidateSummaries(
-	ctx context.Context,
-	scopes []domtypes.MemoryScope,
-	sources []domtypes.MemorySource,
-) ([]apptypes.MemorySummary, error) {
-	return u.loadSummariesPage(ctx, scopes, []domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}, sources, "candidate")
-}
-
-func (u *memoryHygieneUsecase) loadSummariesPage(
-	ctx context.Context,
-	scopes []domtypes.MemoryScope,
-	statuses []domtypes.MemoryStatus,
-	sources []domtypes.MemorySource,
-	label string,
-) ([]apptypes.MemorySummary, error) {
-	var all []apptypes.MemorySummary
-	offset := 0
-	for {
-		builder := apptypes.NewMemoryListCriteriaBuilder(hygieneScanPageSize).
-			Offset(offset).
-			Statuses(statuses)
-		if len(scopes) > 0 {
-			builder = builder.Scopes(scopes)
-		}
-		if len(sources) > 0 {
-			builder = builder.Sources(sources)
-		}
-		page, err := u.memoryQuery.List(ctx, builder.Build())
-		if err != nil {
-			return nil, xerrors.Errorf("failed to list %s memories: %w", label, err)
-		}
-		if len(page) == 0 {
-			break
-		}
-		all = append(all, page...)
-		if len(page) < hygieneScanPageSize {
-			break
-		}
-		offset += hygieneScanPageSize
-	}
-	return all, nil
 }
