@@ -1782,6 +1782,30 @@ CREATE TRIGGER events_body_metadata_after_body_update AFTER UPDATE OF body ON ev
     UPDATE events SET body_stored_bytes = length(CAST(NEW.body AS BLOB)) WHERE id = NEW.id;
 END;`),
 		},
+		"000031_add_event_metadata_normalized_timestamp_indexes.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN created_at_norm TEXT;
+UPDATE events SET created_at_norm = created_at;
+CREATE TRIGGER events_created_at_norm_after_insert
+AFTER INSERT ON events FOR EACH ROW BEGIN
+    UPDATE events SET created_at_norm = NEW.created_at WHERE id = NEW.id;
+END;
+CREATE TRIGGER events_created_at_norm_after_update
+AFTER UPDATE OF created_at ON events FOR EACH ROW BEGIN
+    UPDATE events SET created_at_norm = NEW.created_at WHERE id = NEW.id;
+END;
+CREATE INDEX idx_events_created_at_norm_id_desc
+    ON events(created_at_norm DESC, id DESC);
+CREATE INDEX idx_events_workspace_created_at_norm_id_desc
+    ON events(workspace, created_at_norm DESC, id DESC);
+CREATE INDEX idx_events_session_created_at_norm_id_desc
+    ON events(session_id, created_at_norm DESC, id DESC);
+CREATE INDEX idx_events_workspace_session_created_at_norm_id_desc
+    ON events(workspace, session_id, created_at_norm DESC, id DESC);
+CREATE INDEX idx_events_source_hook_created_at_norm_id_desc
+    ON events(source_hook, created_at_norm DESC, id DESC)
+    WHERE source_hook IS NOT NULL;`),
+		},
 		"000008_create_memories.sql": {
 			Data: []byte(`
 CREATE TABLE memories (
@@ -1846,6 +1870,8 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
+	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
+	eventBoundedUsecase := usecase.NewEventBoundedUsecase(eventDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, nil)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
@@ -1863,6 +1889,8 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 		memoryUsecase,
 		contextUsecase,
 		storeManagementUsecase,
+		mcpserver.WithEventMetadata(eventMetadataUsecase),
+		mcpserver.WithEventBounded(eventBoundedUsecase),
 		mcpserver.WithReport(reportUsecase),
 	)
 	if err != nil {

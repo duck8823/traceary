@@ -51,3 +51,15 @@ type EventMetadataQueryService interface {
 type EventPreviewQueryService interface {
 	ListRecentCommandPreviews(ctx context.Context, sessionID types.SessionID, limit, bodyRuneLimit int) ([]apptypes.EventBodyPreview, error)
 }
+
+// EventBoundedQueryService provides body-limited event reads without
+// materializing full domain Events. Search documents may select candidate IDs,
+// but bounded bodies always come from authoritative event rows.
+type EventBoundedQueryService interface {
+	ListRecentBounded(ctx context.Context, criteria apptypes.EventListCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
+	SearchBounded(ctx context.Context, criteria apptypes.EventSearchCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
+	GetContextBounded(ctx context.Context, criteria apptypes.EventContextCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
+	// LoadCanonicalBodies is the explicit list-only compatibility fallback for
+	// canonical envelopes whose visible body was not response-truncated.
+	LoadCanonicalBodies(ctx context.Context, eventIDs []types.EventID) (map[types.EventID]string, error)
+}

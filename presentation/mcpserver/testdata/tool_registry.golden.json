@@ -24,7 +24,7 @@
           "type": "integer"
         },
         "projection": {
-          "description": "event projection: metadata omits body fields, bounded returns a limited body, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
+          "description": "event projection: metadata omits body fields, bounded reads only a limited visible-text body from storage, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
           "type": "string"
         },
         "session_id": {
@@ -131,7 +131,7 @@
           "type": "integer"
         },
         "projection": {
-          "description": "event projection: metadata omits body fields, bounded returns a limited body, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
+          "description": "event projection: metadata omits body fields, bounded reads only a limited visible-text body from storage, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
           "type": "string"
         },
         "session_id": {
@@ -610,7 +610,7 @@
           "type": "integer"
         },
         "projection": {
-          "description": "event projection: metadata omits body fields, bounded returns a limited body, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
+          "description": "event projection: metadata omits body fields, bounded reads only a limited visible-text body from storage, full returns the full stored body; omitted preserves body_limit/full_body compatibility",
           "type": "string"
         },
         "query": {
