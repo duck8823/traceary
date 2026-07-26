@@ -653,6 +653,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 			strings.TrimSpace(input.SourceHook),
 			string(projection),
 			strconv.Itoa(bodyLimit),
+			strconv.Itoa(normalizedEventPageLimit(input.Limit)),
 		)
 		page, err := resolveEventPageRequest("list_events", input.Limit, input.Offset, input.Continuation, fingerprint, bodyLimit)
 		if err != nil {
@@ -829,6 +830,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			formatEventFingerprintTimestamp(interval.EffectiveToExclusive()),
 			string(projection),
 			strconv.Itoa(bodyLimit),
+			strconv.Itoa(normalizedEventPageLimit(input.Limit)),
 		)
 		page, err := resolveEventPageRequest("search", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
 		if err != nil {
@@ -899,6 +901,7 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 			formatEventCursorTimestamp(snapshotAt),
 			string(projection),
 			strconv.Itoa(bodyLimit),
+			strconv.Itoa(normalizedEventPageLimit(input.Limit)),
 		)
 		page, err := resolveEventPageRequest("get_context", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
 		if err != nil {
