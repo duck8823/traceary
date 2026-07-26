@@ -69,6 +69,50 @@ func TestResolveEventPageRequestRejectsUnsafeContinuations(t *testing.T) {
 	}
 }
 
+func TestListEventsContinuationRejectsChangedNormalizedPageLimit(t *testing.T) {
+	t.Parallel()
+
+	metadata := newMCPMetadataFixture(t)
+	metadataUsecase := &projectionMetadataUsecaseStub{
+		list: make([]apptypes.EventMetadata, apptypes.DefaultEventResponseItemLimit+1),
+	}
+	for i := range metadataUsecase.list {
+		metadataUsecase.list[i] = metadata
+	}
+	server := &Server{eventMetadata: metadataUsecase}
+	_, first, err := server.listEvents()(
+		context.Background(),
+		nil,
+		listEventsInput{Projection: "metadata", Workspace: " repo "},
+	)
+	if err != nil {
+		t.Fatalf("first listEvents() error = %v", err)
+	}
+	if first.Continuation == "" {
+		t.Fatal("first listEvents() continuation is empty")
+	}
+	if _, _, err := server.listEvents()(
+		context.Background(),
+		nil,
+		listEventsInput{
+			Projection: "metadata", Limit: apptypes.DefaultEventResponseItemLimit, Workspace: "repo",
+			Continuation: first.Continuation,
+		},
+	); err != nil {
+		t.Fatalf("continuation with the explicit default page limit was rejected: %v", err)
+	}
+	if _, _, err := server.listEvents()(
+		context.Background(),
+		nil,
+		listEventsInput{
+			Projection: "metadata", Limit: apptypes.DefaultEventResponseItemLimit - 1, Workspace: "repo",
+			Continuation: first.Continuation,
+		},
+	); err == nil {
+		t.Fatal("continuation with a changed normalized page limit was accepted")
+	}
+}
+
 func TestLoadEventPageCapsAggregateBodiesAndReturnsContinuation(t *testing.T) {
 	t.Parallel()
 	budget, err := apptypes.NewEventResponseBudget(5, 0)

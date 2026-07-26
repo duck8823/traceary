@@ -63,10 +63,7 @@ func resolveEventPageRequest(tool string, rawLimit, rawOffset int, continuation 
 	if rawOffset < 0 {
 		return eventPageRequest{}, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
-	limit := rawLimit
-	if limit == 0 {
-		limit = apptypes.DefaultEventResponseItemLimit
-	}
+	limit := normalizedEventPageLimit(rawLimit)
 	budget, err := apptypes.NewEventResponseBudget(limit, bodyRuneLimit)
 	if err != nil {
 		return eventPageRequest{}, xerrors.Errorf("failed to resolve event response budget: %w", err)
@@ -108,6 +105,13 @@ func resolveEventPageRequest(tool string, rawLimit, rawOffset int, continuation 
 	request.snapshot = cursor.Snapshot
 	request.pageAnchor = anchor
 	return request, nil
+}
+
+func normalizedEventPageLimit(rawLimit int) int {
+	if rawLimit == 0 {
+		return apptypes.DefaultEventResponseItemLimit
+	}
+	return rawLimit
 }
 
 func eventRequestFingerprint(parts ...string) string {
