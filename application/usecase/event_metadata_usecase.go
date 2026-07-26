@@ -50,6 +50,9 @@ func (u *eventMetadataUsecase) List(ctx context.Context, criteria apptypes.Event
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
@@ -74,8 +77,8 @@ func (u *eventMetadataUsecase) Search(ctx context.Context, criteria apptypes.Eve
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
-	if criteria.Offset() < 0 {
-		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
 	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
@@ -95,6 +98,7 @@ func (u *eventMetadataUsecase) Search(ctx context.Context, criteria apptypes.Eve
 		To(criteria.To()).
 		Offset(criteria.Offset()).
 		FailuresOnly(criteria.FailuresOnly()).
+		PageAnchor(criteria.PageAnchor()).
 		Build()
 
 	metadata, err := u.query.SearchMetadata(ctx, resolvedCriteria)
@@ -113,6 +117,9 @@ func (u *eventMetadataUsecase) Context(ctx context.Context, criteria apptypes.Ev
 	}
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
 	}
 
 	metadata, err := u.query.GetContextMetadata(ctx, criteria)

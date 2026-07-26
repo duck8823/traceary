@@ -28,6 +28,15 @@ type EventQueryService interface {
 	ListTimelineBlocks(ctx context.Context, workspace types.Workspace, from, to time.Time, gapSeconds, limit int) ([]apptypes.TimelineBlock, error)
 }
 
+// EventPageQueryService provides cursor-aware full event projections. It is a
+// separate capability so existing non-page query implementations do not need
+// to understand continuation anchors.
+type EventPageQueryService interface {
+	ListRecentPage(ctx context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error)
+	SearchPage(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error)
+	GetContextPage(ctx context.Context, criteria apptypes.EventContextCriteria) ([]*model.Event, error)
+}
+
 // EventMetadataQueryService provides body-free event inspection operations.
 // It is separate from EventQueryService so consumers cannot accidentally
 // request a partial domain Event through an include-body flag.

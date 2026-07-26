@@ -2,34 +2,59 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"strconv"
+	"io"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
+	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
-const eventContinuationVersion = 1
+const eventContinuationVersion = 2
+
+const eventContinuationAdditionalData = "traceary:mcp:event-continuation:v2"
+
+var loadEventContinuationAEAD = sync.OnceValues(func() (cipher.AEAD, error) {
+	key := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		return nil, xerrors.Errorf("failed to generate event continuation key: %w", err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to initialize event continuation cipher: %w", err)
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to initialize event continuation authentication: %w", err)
+	}
+	return aead, nil
+})
 
 type eventContinuationCursor struct {
-	Version     int    `json:"v"`
-	Tool        string `json:"t"`
-	Fingerprint string `json:"f"`
-	Offset      int    `json:"o"`
-	Snapshot    string `json:"s,omitempty"`
+	Version         int    `json:"v"`
+	Tool            string `json:"t"`
+	Fingerprint     string `json:"f"`
+	Snapshot        string `json:"s"`
+	AnchorCreatedAt string `json:"a"`
+	AnchorEventID   string `json:"i"`
 }
 
 type eventPageRequest struct {
 	budget      apptypes.EventResponseBudget
 	offset      int
 	snapshot    string
-	cursorUsed  bool
+	pageAnchor  apptypes.EventPageAnchor
 	tool        string
 	fingerprint string
 }
@@ -63,9 +88,25 @@ func resolveEventPageRequest(tool string, rawLimit, rawOffset int, continuation 
 	if cursor.Fingerprint != fingerprint {
 		return eventPageRequest{}, xerrors.Errorf("continuation does not match the requested filters or response shape")
 	}
-	request.offset = cursor.Offset
+	snapshot, err := time.Parse(time.RFC3339Nano, cursor.Snapshot)
+	if err != nil || snapshot.IsZero() {
+		return eventPageRequest{}, xerrors.Errorf("continuation has an invalid snapshot upper bound")
+	}
+	anchorCreatedAt, err := time.Parse(time.RFC3339Nano, cursor.AnchorCreatedAt)
+	if err != nil {
+		return eventPageRequest{}, xerrors.Errorf("continuation has an invalid event page anchor")
+	}
+	anchorEventID, err := domtypes.EventIDFrom(cursor.AnchorEventID)
+	if err != nil {
+		return eventPageRequest{}, xerrors.Errorf("continuation has an invalid event page anchor")
+	}
+	anchor, err := apptypes.EventPageAnchorOf(anchorCreatedAt, anchorEventID)
+	if err != nil {
+		return eventPageRequest{}, xerrors.Errorf("continuation has an invalid event page anchor")
+	}
+	request.offset = 0
 	request.snapshot = cursor.Snapshot
-	request.cursorUsed = true
+	request.pageAnchor = anchor
 	return request, nil
 }
 
@@ -78,22 +119,28 @@ func eventRequestFingerprint(parts ...string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func bodyLimitFingerprint(limit *int) string {
-	if limit == nil {
-		return "omitted"
+func encodeEventContinuation(request eventPageRequest, anchor apptypes.EventPageAnchor, snapshot string) (string, error) {
+	if anchor.IsZero() || strings.TrimSpace(snapshot) == "" {
+		return "", xerrors.Errorf("event continuation requires a snapshot and page anchor")
 	}
-	return "set:" + strconv.Itoa(*limit)
-}
-
-func encodeEventContinuation(request eventPageRequest, nextOffset int, snapshot string) string {
-	encoded, err := json.Marshal(eventContinuationCursor{
+	plaintext, err := json.Marshal(eventContinuationCursor{
 		Version: eventContinuationVersion, Tool: request.tool, Fingerprint: request.fingerprint,
-		Offset: nextOffset, Snapshot: snapshot,
+		Snapshot: snapshot, AnchorCreatedAt: formatEventCursorTimestamp(anchor.CreatedAt()),
+		AnchorEventID: anchor.EventID().String(),
 	})
 	if err != nil {
-		return ""
+		return "", xerrors.Errorf("failed to encode event continuation payload: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(encoded)
+	aead, err := loadEventContinuationAEAD()
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", xerrors.Errorf("failed to generate event continuation nonce: %w", err)
+	}
+	encoded := aead.Seal(nonce, nonce, plaintext, []byte(eventContinuationAdditionalData))
+	return base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
 func decodeEventContinuation(raw string) (eventContinuationCursor, error) {
@@ -101,14 +148,76 @@ func decodeEventContinuation(raw string) (eventContinuationCursor, error) {
 	if err != nil {
 		return eventContinuationCursor{}, xerrors.Errorf("continuation is malformed")
 	}
-	var cursor eventContinuationCursor
-	if err := json.Unmarshal(encoded, &cursor); err != nil {
+	aead, err := loadEventContinuationAEAD()
+	if err != nil {
+		return eventContinuationCursor{}, err
+	}
+	if len(encoded) < aead.NonceSize()+aead.Overhead() {
 		return eventContinuationCursor{}, xerrors.Errorf("continuation is malformed")
 	}
-	if cursor.Version != eventContinuationVersion || cursor.Tool == "" || cursor.Fingerprint == "" || cursor.Offset < 0 {
+	nonce := encoded[:aead.NonceSize()]
+	plaintext, err := aead.Open(nil, nonce, encoded[aead.NonceSize():], []byte(eventContinuationAdditionalData))
+	if err != nil {
+		return eventContinuationCursor{}, xerrors.Errorf("continuation is malformed or has been modified")
+	}
+	var cursor eventContinuationCursor
+	if err := json.Unmarshal(plaintext, &cursor); err != nil {
+		return eventContinuationCursor{}, xerrors.Errorf("continuation is malformed")
+	}
+	if cursor.Version != eventContinuationVersion ||
+		strings.TrimSpace(cursor.Tool) == "" ||
+		strings.TrimSpace(cursor.Fingerprint) == "" ||
+		strings.TrimSpace(cursor.Snapshot) == "" ||
+		strings.TrimSpace(cursor.AnchorCreatedAt) == "" ||
+		strings.TrimSpace(cursor.AnchorEventID) == "" {
 		return eventContinuationCursor{}, xerrors.Errorf("continuation has an unsupported version or invalid fields")
 	}
 	return cursor, nil
+}
+
+func resolveEventContinuationSnapshot(tool, raw string) (time.Time, error) {
+	if strings.TrimSpace(raw) == "" {
+		return time.Time{}, nil
+	}
+	cursor, err := decodeEventContinuation(raw)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if cursor.Tool != tool {
+		return time.Time{}, xerrors.Errorf("continuation is for %s, not %s", cursor.Tool, tool)
+	}
+	snapshot, err := time.Parse(time.RFC3339Nano, cursor.Snapshot)
+	if err != nil || snapshot.IsZero() {
+		return time.Time{}, xerrors.Errorf("continuation has an invalid snapshot upper bound")
+	}
+	return snapshot.UTC(), nil
+}
+
+func formatEventCursorTimestamp(value time.Time) string {
+	return value.UTC().Format("2006-01-02T15:04:05.000000000Z")
+}
+
+func formatEventFingerprintTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return formatEventCursorTimestamp(value)
+}
+
+func eventPageAnchorFromOutput(event eventOutput) (apptypes.EventPageAnchor, error) {
+	createdAt, err := time.Parse(time.RFC3339Nano, event.CreatedAt)
+	if err != nil {
+		return apptypes.EventPageAnchor{}, xerrors.Errorf("failed to parse returned event created-at: %w", err)
+	}
+	eventID, err := domtypes.EventIDFrom(event.EventID)
+	if err != nil {
+		return apptypes.EventPageAnchor{}, xerrors.Errorf("failed to parse returned event ID: %w", err)
+	}
+	anchor, err := apptypes.EventPageAnchorOf(createdAt, eventID)
+	if err != nil {
+		return apptypes.EventPageAnchor{}, xerrors.Errorf("failed to build returned event page anchor: %w", err)
+	}
+	return anchor, nil
 }
 
 type encodedEventBody struct {
@@ -223,8 +332,16 @@ func loadEventPage(ctx context.Context, request eventPageRequest, projection app
 			coverageBytes += encodedEventBodyBytes(event)
 		}
 		result := eventsOutput{Events: budgeted, Interval: interval, Coverage: eventCoverageOutput{CandidateCount: extent.CandidateCount(), ReturnedCount: extent.ReturnedCount(), AggregateBodyBytes: coverageBytes, AggregateBodyBudget: request.budget.AggregateBodyBytes()}, Partial: extent.Partial(), Reasons: extent.Reasons()}
-		if aggregatePartial {
-			result.Continuation = encodeEventContinuation(request, request.offset+len(budgeted), snapshot)
+		if aggregatePartial && len(budgeted) > 0 {
+			anchor, anchorErr := eventPageAnchorFromOutput(budgeted[len(budgeted)-1])
+			if anchorErr != nil {
+				return eventsOutput{}, anchorErr
+			}
+			continuation, encodeErr := encodeEventContinuation(request, anchor, snapshot)
+			if encodeErr != nil {
+				return eventsOutput{}, encodeErr
+			}
+			result.Continuation = continuation
 		}
 		return result, nil
 	}
@@ -285,7 +402,19 @@ func loadEventPage(ctx context.Context, request eventPageRequest, projection app
 		Partial:  extent.Partial(), Reasons: extent.Reasons(),
 	}
 	if hasMore || aggregatePartial {
-		result.Continuation = encodeEventContinuation(request, request.offset+len(budgeted), snapshot)
+		if len(returnedCandidates) == 0 {
+			return eventsOutput{}, xerrors.Errorf("cannot continue an empty event page")
+		}
+		last := returnedCandidates[len(returnedCandidates)-1]
+		anchor, anchorErr := apptypes.EventPageAnchorOf(last.CreatedAt(), last.EventID())
+		if anchorErr != nil {
+			return eventsOutput{}, xerrors.Errorf("failed to build event page anchor: %w", anchorErr)
+		}
+		continuation, encodeErr := encodeEventContinuation(request, anchor, snapshot)
+		if encodeErr != nil {
+			return eventsOutput{}, encodeErr
+		}
+		result.Continuation = continuation
 	}
 	return result, nil
 }

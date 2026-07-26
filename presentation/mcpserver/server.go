@@ -626,19 +626,39 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		fingerprint := eventRequestFingerprint("list_events", input.Kind, input.Client, input.Agent, input.SessionID, input.Workspace, input.From, input.To, input.Timezone, input.SourceHook, input.Projection, bodyLimitFingerprint(input.BodyLimit), strconv.FormatBool(input.FullBody))
-		page, err := resolveEventPageRequest("list_events", input.Limit, input.Offset, input.Continuation, fingerprint, bodyLimit)
+		snapshotAt := time.Now().UTC()
+		cursorSnapshot, err := resolveEventContinuationSnapshot("list_events", input.Continuation)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
 		to := input.To
-		if page.cursorUsed && strings.TrimSpace(to) == "" {
-			to = page.snapshot
+		if !cursorSnapshot.IsZero() {
+			snapshotAt = cursorSnapshot
+			if strings.TrimSpace(to) == "" {
+				to = formatEventCursorTimestamp(cursorSnapshot)
+			}
 		}
-		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, time.Now().UTC())
+		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, snapshotAt)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve time interval: %w", err)
 		}
+		fingerprint := eventRequestFingerprint(
+			strings.TrimSpace(input.Kind),
+			strings.TrimSpace(input.Client),
+			strings.TrimSpace(input.Agent),
+			strings.TrimSpace(input.SessionID),
+			strings.TrimSpace(input.Workspace),
+			formatEventFingerprintTimestamp(interval.EffectiveFromInclusive()),
+			formatEventFingerprintTimestamp(interval.EffectiveToExclusive()),
+			strings.TrimSpace(input.SourceHook),
+			string(projection),
+			strconv.Itoa(bodyLimit),
+		)
+		page, err := resolveEventPageRequest("list_events", input.Limit, input.Offset, input.Continuation, fingerprint, bodyLimit)
+		if err != nil {
+			return nil, eventsOutput{}, err
+		}
+		page.snapshot = formatEventCursorTimestamp(interval.EffectiveToExclusive())
 		intervalMetadata := newIntervalOutput(interval)
 		buildCriteria := func(limit, offset int) apptypes.EventListCriteria {
 			return apptypes.NewEventListCriteriaBuilder(limit).
@@ -651,6 +671,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 				SourceHook(strings.TrimSpace(input.SourceHook)).
 				From(interval.EffectiveFromInclusive()).
 				To(interval.EffectiveToExclusive()).
+				PageAnchor(page.pageAnchor).
 				Build()
 		}
 		output, err := loadEventPage(ctx, page, projection, eventPageLoaders{
@@ -678,7 +699,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 					return nil, xerrors.Errorf("event metadata usecase is not configured")
 				}
 			},
-		}, &intervalMetadata, formatOptionalRFC3339(interval.EffectiveToExclusive()))
+		}, &intervalMetadata, page.snapshot)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to load event page: %w", err)
 		}
@@ -785,19 +806,35 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		fingerprint := eventRequestFingerprint("search", input.Query, input.Workspace, input.From, input.To, input.Timezone, input.Projection, bodyLimitFingerprint(input.BodyLimit), strconv.FormatBool(input.FullBody))
-		page, err := resolveEventPageRequest("search", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
+		snapshotAt := time.Now().UTC()
+		cursorSnapshot, err := resolveEventContinuationSnapshot("search", input.Continuation)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
 		to := input.To
-		if page.cursorUsed && strings.TrimSpace(to) == "" {
-			to = page.snapshot
+		if !cursorSnapshot.IsZero() {
+			snapshotAt = cursorSnapshot
+			if strings.TrimSpace(to) == "" {
+				to = formatEventCursorTimestamp(cursorSnapshot)
+			}
 		}
-		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, time.Now().UTC())
+		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, snapshotAt)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve time interval: %w", err)
 		}
+		fingerprint := eventRequestFingerprint(
+			strings.TrimSpace(input.Query),
+			strings.TrimSpace(input.Workspace),
+			formatEventFingerprintTimestamp(interval.EffectiveFromInclusive()),
+			formatEventFingerprintTimestamp(interval.EffectiveToExclusive()),
+			string(projection),
+			strconv.Itoa(bodyLimit),
+		)
+		page, err := resolveEventPageRequest("search", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
+		if err != nil {
+			return nil, eventsOutput{}, err
+		}
+		page.snapshot = formatEventCursorTimestamp(interval.EffectiveToExclusive())
 		intervalMetadata := newIntervalOutput(interval)
 		buildCriteria := func(limit, offset int) apptypes.EventSearchCriteria {
 			return apptypes.NewEventSearchCriteriaBuilder(limit).
@@ -806,6 +843,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 				From(interval.EffectiveFromInclusive()).
 				To(interval.EffectiveToExclusive()).
 				Offset(offset).
+				PageAnchor(page.pageAnchor).
 				Build()
 		}
 		output, err := loadEventPage(ctx, page, projection, eventPageLoaders{
@@ -833,7 +871,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 					return nil, xerrors.Errorf("event metadata usecase is not configured")
 				}
 			},
-		}, &intervalMetadata, formatOptionalRFC3339(interval.EffectiveToExclusive()))
+		}, &intervalMetadata, page.snapshot)
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to load event page: %w", err)
 		}
@@ -847,16 +885,33 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		fingerprint := eventRequestFingerprint("get_context", input.Workspace, input.SessionID, input.Projection, bodyLimitFingerprint(input.BodyLimit), strconv.FormatBool(input.FullBody))
+		snapshotAt := time.Now().UTC()
+		cursorSnapshot, err := resolveEventContinuationSnapshot("get_context", input.Continuation)
+		if err != nil {
+			return nil, eventsOutput{}, err
+		}
+		if !cursorSnapshot.IsZero() {
+			snapshotAt = cursorSnapshot
+		}
+		fingerprint := eventRequestFingerprint(
+			strings.TrimSpace(input.Workspace),
+			strings.TrimSpace(input.SessionID),
+			formatEventCursorTimestamp(snapshotAt),
+			string(projection),
+			strconv.Itoa(bodyLimit),
+		)
 		page, err := resolveEventPageRequest("get_context", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
+		page.snapshot = formatEventCursorTimestamp(snapshotAt)
 		buildCriteria := func(limit, offset int) apptypes.EventContextCriteria {
 			return apptypes.NewEventContextCriteriaBuilder(limit).
 				Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
 				SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
 				Offset(offset).
+				To(snapshotAt).
+				PageAnchor(page.pageAnchor).
 				Build()
 		}
 		output, err := loadEventPage(ctx, page, projection, eventPageLoaders{
