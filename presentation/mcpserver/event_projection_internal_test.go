@@ -188,7 +188,7 @@ func TestDefaultBoundedProjectionUsesBoundedQueriesBeforeFullEvents(t *testing.T
 	}
 }
 
-func TestConvertBoundedEventsPreservesResponseAndStorageProvenance(t *testing.T) {
+func TestConvertBoundedEventsKeepsDefaultResponseLean(t *testing.T) {
 	t.Parallel()
 
 	truncated := newMCPBoundedFixture(t, "visible", 20, true)
@@ -196,16 +196,27 @@ func TestConvertBoundedEventsPreservesResponseAndStorageProvenance(t *testing.T)
 	if len(output) != 1 || output[0].Body == nil {
 		t.Fatalf("convertBoundedEvents() = %+v", output)
 	}
-	if *output[0].Body != "visible…" ||
+	if *output[0].Body != "visible"+apptypes.TruncationEllipsis ||
 		!output[0].BodyTruncated ||
 		output[0].BodyLength != 20 {
 		t.Fatalf("bounded response truncation = %+v", output[0])
 	}
-	if output[0].BodyStoredBytes == nil || *output[0].BodyStoredBytes != 8*1024*1024 {
-		t.Fatalf("bounded stored extent = %+v", output[0])
-	}
 	if len(output[0].BodyBlocks) != 0 {
 		t.Fatalf("response-truncated body_blocks = %+v, want omitted", output[0].BodyBlocks)
+	}
+	encoded, err := json.Marshal(eventsOutput{Events: output})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	for _, metadataOnlyKey := range []string{
+		"body_original_bytes",
+		"body_stored_bytes",
+		"body_ingest_truncated",
+		"body_storage_truncated",
+	} {
+		if strings.Contains(string(encoded), `"`+metadataOnlyKey+`"`) {
+			t.Fatalf("default bounded output serialized metadata-only key %q: %s", metadataOnlyKey, encoded)
+		}
 	}
 }
 

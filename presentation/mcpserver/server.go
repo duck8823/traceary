@@ -2062,26 +2062,24 @@ func convertBoundedEvents(events []apptypes.BoundedEvent) []eventOutput {
 	outputs := make([]eventOutput, 0, len(events))
 	for _, event := range events {
 		metadata := event.Metadata()
-		extent := metadata.BodyExtent()
+		// Persisted extent/truncation keys remain an explicit metadata-projection
+		// contract. Bounded is the default response, so keep its legacy lean
+		// shape and emit only request-specific body truncation below.
 		output := eventOutput{
-			EventID:              metadata.EventID().String(),
-			Kind:                 metadata.Kind().String(),
-			Client:               metadata.Client().String(),
-			Agent:                metadata.Agent().String(),
-			SessionID:            metadata.SessionID().String(),
-			Workspace:            metadata.Workspace().String(),
-			BodyBlocks:           event.BodyBlocks(),
-			BodyOriginalBytes:    optionalPointer(extent.OriginalBytes()),
-			BodyStoredBytes:      intPointer(extent.StoredBytes()),
-			BodyIngestTruncated:  optionalPointer(extent.IngestTruncated()),
-			BodyStorageTruncated: optionalPointer(extent.StorageTruncated()),
-			SourceHook:           metadata.SourceHook(),
-			CreatedAt:            metadata.CreatedAt().UTC().Format(time.RFC3339Nano),
+			EventID:    metadata.EventID().String(),
+			Kind:       metadata.Kind().String(),
+			Client:     metadata.Client().String(),
+			Agent:      metadata.Agent().String(),
+			SessionID:  metadata.SessionID().String(),
+			Workspace:  metadata.Workspace().String(),
+			BodyBlocks: event.BodyBlocks(),
+			SourceHook: metadata.SourceHook(),
+			CreatedAt:  metadata.CreatedAt().UTC().Format(time.RFC3339Nano),
 		}
 		if event.BodyAvailability().IsAvailable() {
 			body := event.Body()
 			if event.BodyResponseTruncated() {
-				body += "…"
+				body += apptypes.TruncationEllipsis
 				output.BodyTruncated = true
 				output.BodyLength = event.VisibleBodyRunes()
 			}

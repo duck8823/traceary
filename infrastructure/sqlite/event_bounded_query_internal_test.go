@@ -22,19 +22,39 @@ func TestBoundedEventBodyQuery_SelectsOnlyVisiblePrefix(t *testing.T) {
 	if !strings.Contains(normalized, "length(visible_body)") {
 		t.Fatalf("bounded query must retain response truncation provenance: %s", normalized)
 	}
+	finalSelectIndex := strings.LastIndex(normalized, ") select ")
+	if finalSelectIndex < 0 {
+		t.Fatalf("bounded query final projection not found: %s", normalized)
+	}
+	finalProjection := normalized[finalSelectIndex+2:]
 	for _, unboundedProjection := range []string{
 		"select e.body,",
 		", e.body,",
 		"select visible_body,",
 	} {
-		if strings.Contains(normalized, unboundedProjection) {
-			t.Fatalf("bounded query selects an unbounded result column %q: %s", unboundedProjection, normalized)
+		if strings.Contains(finalProjection, unboundedProjection) {
+			t.Fatalf("bounded query selects an unbounded result column %q: %s", unboundedProjection, finalProjection)
 		}
 	}
 	for _, forbidden := range []string{"command_text", "input_text", "output_text", "event_search_documents.body_text"} {
 		if strings.Contains(normalized, forbidden) {
 			t.Fatalf("bounded hydration selects forbidden payload source %q: %s", forbidden, normalized)
 		}
+	}
+	if got := strings.Count(normalized, "json_valid("); got != 1 {
+		t.Fatalf("canonical envelope predicate count = %d, want one shared classification: %s", got, normalized)
+	}
+	if !strings.Contains(
+		normalized,
+		"when classified.body_availability <> 'available' then ''",
+	) {
+		t.Fatalf("bounded query does not fail closed for unavailable bodies: %s", normalized)
+	}
+	if !strings.Contains(
+		normalized,
+		"char(10) || char(10) order by cast(key as integer)",
+	) {
+		t.Fatalf("canonical text aggregation does not own array-index order: %s", normalized)
 	}
 }
 

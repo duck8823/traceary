@@ -106,6 +106,17 @@ func TestEventBoundedQuery_MatchesCanonicalVisibleTextProjection(t *testing.T) {
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
+	orderedBlocks := make([]apptypes.EventBodyBlock, 12)
+	for index := range orderedBlocks {
+		orderedBlocks[index] = apptypes.EventBodyBlock{
+			Type: apptypes.EventBodyBlockTypeText,
+			Text: "block-" + string(rune('a'+index)),
+		}
+	}
+	orderedEnvelope, err := apptypes.MarshalEventBodyBlocks(orderedBlocks)
+	if err != nil {
+		t.Fatalf("MarshalEventBodyBlocks() error = %v", err)
+	}
 	tests := []struct {
 		name string
 		body string
@@ -125,6 +136,10 @@ func TestEventBoundedQuery_MatchesCanonicalVisibleTextProjection(t *testing.T) {
 		{
 			name: "canonical preserves nonblank block whitespace",
 			body: `{"blocks":[{"type":"text","text":"  visible  "}]}`,
+		},
+		{
+			name: "canonical preserves numeric array order beyond ten blocks",
+			body: orderedEnvelope,
 		},
 		{name: "canonical empty envelope", body: `{"blocks":[]}`},
 		{name: "foreign blocks JSON stays raw", body: `{"blocks":[{"foo":"bar"}]}`},
@@ -243,6 +258,7 @@ func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
+	const retainedCanonicalBody = `{"blocks":[{"type":"text","text":"must remain unavailable"}]}`
 	event := newEventForSQLiteTest(
 		t,
 		"event-retention-bounded",
@@ -250,7 +266,7 @@ func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 		"codex",
 		"session-retention",
 		"repo-retention",
-		"body removed later",
+		retainedCanonicalBody,
 		time.Date(2026, 7, 26, 3, 0, 0, 0, time.UTC),
 	)
 	if err := sut.Save(ctx, event); err != nil {
@@ -261,10 +277,10 @@ func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `
-		UPDATE events
-		   SET body = ?, body_availability = ?
-		 WHERE id = ?`,
-		types.EventBodyUnavailableRetentionMarker,
+			UPDATE events
+			   SET body = ?, body_availability = ?
+			 WHERE id = ?`,
+		retainedCanonicalBody,
 		types.BodyAvailabilityUnavailableRetention.String(),
 		event.EventID().String(),
 	); err != nil {
@@ -287,7 +303,8 @@ func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 		t.Fatalf("GetContextBounded() len = %d, want 1", len(got))
 	}
 	if got[0].Body() != "" || got[0].VisibleBodyRunes() != 0 ||
-		got[0].BodyAvailability() != types.BodyAvailabilityUnavailableRetention {
+		got[0].BodyAvailability() != types.BodyAvailabilityUnavailableRetention ||
+		got[0].CanonicalEnvelope() {
 		t.Fatalf("retention bounded event = %+v", got[0])
 	}
 }
