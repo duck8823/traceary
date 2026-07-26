@@ -8,14 +8,16 @@ Traceary の既定 MCP surface は一つです。`traceary mcp-server` は 9 個
 
 `TestServer_ToolRegistrySnapshot` は in-memory MCP transport 経由で実行時の `tools/list` を呼びます。レビュー対象の fixture には、各 tool の name、description、annotation、input schema、自動推論された output schema が入ります。
 
-`TestServer_ToolAdvertisementBudget` は同じ実行時応答の compact JSON を測定します。手編集で定める aggregate hard limit は二つです。
+`TestServer_ToolAdvertisementBudget` は同じ実行時応答の compact JSON を測定します。手編集で定める aggregate warning band と hard limit は二つです。
 
-| 測定値 | hard limit | warning threshold |
-| --- | ---: | ---: |
-| 完全な `tools/list` result | 45,056 B | 90%（40,550 B） |
-| input schema の合計 | 18,432 B | 90%（16,589 B） |
+| 測定値 | pass 範囲 | warning band | hard limit |
+| --- | ---: | ---: | ---: |
+| 完全な `tools/list` result | 48 KiB 未満 | 48–52 KiB（49,152–53,248 B） | 52 KiB（53,248 B） |
+| input schema の合計 | 16 KiB 未満 | 16–18 KiB（16,384–18,432 B） | 18 KiB（18,432 B） |
 
-テストには tool ごとのレビュー済み hard cap もあります。`presentation/mcpserver/testdata/tool_schema_budget.golden.json` は増加元を示します。90% 以上は warning としてログに出し、hard limit 超過は CI を失敗させます。limit は生成結果ではなく policy です。変更時は理由と report をレビューしてください。
+テストには tool ごとのレビュー済み hard cap もあります。`presentation/mcpserver/testdata/tool_schema_budget.golden.json` は増加元を示します。tool ごとの warning threshold は、手編集した hard cap の 90% のままです。warning band 内の値はログに出し、hard limit 超過は CI を失敗させます。limit は生成結果ではなく policy です。変更時は理由と report をレビューしてください。
+
+完全な応答に対する band は repository の policy であり、host の上限を示すものではありません。初期値 41,028 B とレビュー済みの pagination schema 増分のどちらも warning band 未満になり、hard limit 直前の 4 KiB が明示的な対応期間になるように定めています。
 
 focused report は次で実行します。
 
@@ -23,12 +25,15 @@ focused report は次で実行します。
 go test ./presentation/mcpserver -run TestServer_ToolAdvertisementBudget -v
 ```
 
-意図した contract 変更では両 fixture を再生成し、diff をレビューします。
+意図した contract 変更では、最終的に統合した同一 commit から両 fixture を一緒に再生成し、diff をレビューします。
 
 ```sh
-go test ./presentation/mcpserver -run TestServer_ToolRegistrySnapshot -update
-go test ./presentation/mcpserver -run TestServer_ToolAdvertisementBudget -update-tool-schema-budget
+go test ./presentation/mcpserver \
+  -run 'TestServer_Tool(RegistrySnapshot|AdvertisementBudget)$' \
+  -update -update-tool-schema-budget
 ```
+
+古い branch で片方だけを再生成し、並行する schema 変更へ fixture をコピーしてはいけません。対象の schema 変更をすべて rebase または統合してから combined command を一度実行し、同じ tree から生成された二つの diff を確認します。update flag が記録するのは観測した schema と byte 数だけであり、手編集の warning band や hard limit は変更しません。
 
 ## host の command 登録
 

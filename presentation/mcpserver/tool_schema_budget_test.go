@@ -12,27 +12,40 @@ import (
 )
 
 const (
-	maxListToolsBytes     = 45056
-	maxInputSchemaBytes   = 18432
-	budgetWarningPercent  = 90
-	toolBudgetFixturePath = "testdata/tool_schema_budget.golden.json"
+	perToolBudgetWarningPercent = 90
+	toolBudgetFixturePath       = "testdata/tool_schema_budget.golden.json"
 )
 
 var updateToolSchemaBudget = flag.Bool("update-tool-schema-budget", false, "update MCP tool schema budget fixture")
+
+// The aggregate bands are repository policy, not inferred host limits. The
+// tools/list band was calibrated against both the initial fixture and the
+// reviewed response-pagination schema expansion so known compatible growth
+// does not start CI in a warning state.
+var (
+	listToolsBudget = schemaBudgetBand{
+		warningBytes:   48 * 1024,
+		hardLimitBytes: 52 * 1024,
+	}
+	inputSchemasBudget = schemaBudgetBand{
+		warningBytes:   16 * 1024,
+		hardLimitBytes: 18 * 1024,
+	}
+)
 
 // maxToolAdvertisementBytes is deliberately hand-edited policy, not a value
 // derived from the fixture. It leaves bounded headroom for compatible schema
 // evolution while forcing a reviewed budget decision before one tool absorbs a
 // disproportionate part of tools/list.
 var maxToolAdvertisementBytes = map[string]int{
-	"get_context":    5500,
-	"get_report":     13500,
-	"list_events":    6500,
+	"get_context":    7 * 1024,
+	"get_report":     14 * 1024,
+	"list_events":    8 * 1024,
 	"manage_memory":  3200,
 	"manage_session": 3100,
 	"query_memory":   3000,
 	"record_event":   4000,
-	"search":         6000,
+	"search":         7680,
 	"session_status": 2300,
 }
 
@@ -50,6 +63,11 @@ type toolSchemaBudgetTool struct {
 }
 
 type budgetStatus string
+
+type schemaBudgetBand struct {
+	warningBytes   int
+	hardLimitBytes int
+}
 
 const (
 	budgetPass    budgetStatus = "pass"
@@ -75,42 +93,51 @@ func TestServer_ToolAdvertisementBudget(t *testing.T) {
 		t.Fatalf("read fixture %q: %v", toolBudgetFixturePath, err)
 	}
 	if diff := cmp.Diff(string(want), string(encoded)); diff != "" {
-		t.Fatalf("MCP tool schema budget report mismatch %q (-want +got):\n%s\n\nIf this change is intentional, regenerate with:\n\tgo test ./presentation/mcpserver -run TestServer_ToolAdvertisementBudget -update-tool-schema-budget\n", toolBudgetFixturePath, diff)
+		t.Fatalf("MCP tool schema budget report mismatch %q (-want +got):\n%s\n\nIf this schema change is intentional, regenerate both fixtures from the same integrated tree with:\n\tgo test ./presentation/mcpserver -run 'TestServer_Tool(RegistrySnapshot|AdvertisementBudget)$' -update -update-tool-schema-budget\n", toolBudgetFixturePath, diff)
 	}
 
-	assertToolSchemaBudget(t, "tools/list", report.ListToolsBytes, maxListToolsBytes)
-	assertToolSchemaBudget(t, "all input schemas", report.InputSchemaBytes, maxInputSchemaBytes)
+	assertToolSchemaBudget(t, "tools/list", report.ListToolsBytes, listToolsBudget)
+	assertToolSchemaBudget(t, "all input schemas", report.InputSchemaBytes, inputSchemasBudget)
 	for _, tool := range report.Tools {
 		limit, ok := maxToolAdvertisementBytes[tool.Name]
 		if !ok {
 			t.Fatalf("missing hand-edited advertisement budget for tool %q", tool.Name)
 		}
-		assertToolSchemaBudget(t, "tool "+tool.Name, tool.ToolBytes, limit)
+		assertToolSchemaBudget(t, "tool "+tool.Name, tool.ToolBytes, budgetBandAtPercent(limit, perToolBudgetWarningPercent))
 	}
 	if len(maxToolAdvertisementBytes) != len(report.Tools) {
 		t.Fatalf("tool advertisement budget count = %d, want %d", len(maxToolAdvertisementBytes), len(report.Tools))
 	}
 
-	t.Logf("MCP tool schema budget: tools/list=%d/%d B, inputSchemas=%d/%d B", report.ListToolsBytes, maxListToolsBytes, report.InputSchemaBytes, maxInputSchemaBytes)
+	t.Logf(
+		"MCP tool schema budget: tools/list=%d B (warning=%d B, hard=%d B), inputSchemas=%d B (warning=%d B, hard=%d B)",
+		report.ListToolsBytes,
+		listToolsBudget.warningBytes,
+		listToolsBudget.hardLimitBytes,
+		report.InputSchemaBytes,
+		inputSchemasBudget.warningBytes,
+		inputSchemasBudget.hardLimitBytes,
+	)
 }
 
 func TestToolSchemaBudgetStatus(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name          string
-		actual, limit int
-		want          budgetStatus
+		name   string
+		actual int
+		budget schemaBudgetBand
+		want   budgetStatus
 	}{
-		{name: "below warning", actual: 89, limit: 100, want: budgetPass},
-		{name: "at warning", actual: 90, limit: 100, want: budgetWarning},
-		{name: "below hard limit", actual: 99, limit: 100, want: budgetWarning},
-		{name: "at hard limit", actual: 100, limit: 100, want: budgetWarning},
-		{name: "over hard limit", actual: 101, limit: 100, want: budgetFailure},
+		{name: "below warning", actual: 89, budget: schemaBudgetBand{warningBytes: 90, hardLimitBytes: 100}, want: budgetPass},
+		{name: "at warning", actual: 90, budget: schemaBudgetBand{warningBytes: 90, hardLimitBytes: 100}, want: budgetWarning},
+		{name: "below hard limit", actual: 99, budget: schemaBudgetBand{warningBytes: 90, hardLimitBytes: 100}, want: budgetWarning},
+		{name: "at hard limit", actual: 100, budget: schemaBudgetBand{warningBytes: 90, hardLimitBytes: 100}, want: budgetWarning},
+		{name: "over hard limit", actual: 101, budget: schemaBudgetBand{warningBytes: 90, hardLimitBytes: 100}, want: budgetFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := classifyToolSchemaBudget(tc.actual, tc.limit); got != tc.want {
-				t.Fatalf("classifyToolSchemaBudget(%d, %d) = %q, want %q", tc.actual, tc.limit, got, tc.want)
+			if got := classifyToolSchemaBudget(tc.actual, tc.budget); got != tc.want {
+				t.Fatalf("classifyToolSchemaBudget(%d, %+v) = %q, want %q", tc.actual, tc.budget, got, tc.want)
 			}
 		})
 	}
@@ -138,24 +165,40 @@ func collectToolSchemaBudget(t *testing.T, result *mcp.ListToolsResult) toolSche
 	return report
 }
 
-func assertToolSchemaBudget(t *testing.T, name string, actual, limit int) {
+func assertToolSchemaBudget(t *testing.T, name string, actual int, budget schemaBudgetBand) {
 	t.Helper()
-	switch status := classifyToolSchemaBudget(actual, limit); status {
+	if budget.warningBytes <= 0 || budget.warningBytes > budget.hardLimitBytes {
+		t.Fatalf("invalid MCP tool schema budget for %s: warning=%d B, hard=%d B", name, budget.warningBytes, budget.hardLimitBytes)
+	}
+	switch status := classifyToolSchemaBudget(actual, budget); status {
 	case budgetFailure:
-		t.Fatalf("MCP tool schema budget exceeded for %s: %d B > %d B", name, actual, limit)
+		t.Fatalf("MCP tool schema hard limit exceeded for %s: %d B > %d B", name, actual, budget.hardLimitBytes)
 	case budgetWarning:
-		t.Logf("WARNING: MCP tool schema budget is at least %d%% for %s: %d/%d B", budgetWarningPercent, name, actual, limit)
+		t.Logf(
+			"WARNING: MCP tool schema budget entered the warning band for %s: %d B (warning=%d B, hard=%d B)",
+			name,
+			actual,
+			budget.warningBytes,
+			budget.hardLimitBytes,
+		)
 	}
 }
 
-func classifyToolSchemaBudget(actual, limit int) budgetStatus {
-	if actual > limit {
+func classifyToolSchemaBudget(actual int, budget schemaBudgetBand) budgetStatus {
+	if actual > budget.hardLimitBytes {
 		return budgetFailure
 	}
-	if actual*100 >= limit*budgetWarningPercent {
+	if actual >= budget.warningBytes {
 		return budgetWarning
 	}
 	return budgetPass
+}
+
+func budgetBandAtPercent(hardLimit, warningPercent int) schemaBudgetBand {
+	return schemaBudgetBand{
+		warningBytes:   (hardLimit*warningPercent + 99) / 100,
+		hardLimitBytes: hardLimit,
+	}
 }
 
 func encodeCompactJSON(t *testing.T, value any) []byte {
