@@ -24,12 +24,15 @@ func (s *stubCodexSource) Load(_ context.Context, _ apptypes.CodexImportCriteria
 }
 
 type stubMemoryQueryService struct {
-	summaries         []apptypes.MemorySummary
-	details           map[domtypes.MemoryID]apptypes.MemoryDetails
-	calls             []apptypes.MemoryListCriteria
-	scanPageCalls     int
-	scanDelay         time.Duration
-	revalidationCalls []apptypes.MemoryHygieneRevalidationCriteria
+	summaries             []apptypes.MemorySummary
+	details               map[domtypes.MemoryID]apptypes.MemoryDetails
+	calls                 []apptypes.MemoryListCriteria
+	scanPageCalls         int
+	scanDelay             time.Duration
+	revalidationCalls     []apptypes.MemoryHygieneRevalidationCriteria
+	revalidationResults   map[string]apptypes.MemoryHygieneRevalidationSourceResult
+	revalidationErrors    map[string]error
+	revalidationRevisions []int64
 }
 
 func (s *stubMemoryQueryService) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
@@ -227,6 +230,12 @@ func (s *stubMemoryQueryService) RevalidateMemoryHygiene(
 	criteria apptypes.MemoryHygieneRevalidationCriteria,
 ) (apptypes.MemoryHygieneRevalidationSourceResult, error) {
 	s.revalidationCalls = append(s.revalidationCalls, criteria)
+	if result, ok := s.revalidationResults[criteria.MemoryID.String()]; ok {
+		if revisions := s.revalidationRevisions; len(revisions) >= len(s.revalidationCalls) {
+			result.Revision = revisions[len(s.revalidationCalls)-1]
+		}
+		return result, s.revalidationErrors[criteria.MemoryID.String()]
+	}
 	var result apptypes.MemoryHygieneRevalidationSourceResult
 	result.Revision = 1
 	for _, summary := range s.summaries {
@@ -271,7 +280,10 @@ func (s *stubMemoryQueryService) RevalidateMemoryHygiene(
 	}
 	result.Complete = true
 	result.StopReason = apptypes.MemoryHygieneStopReasonComplete
-	return result, nil
+	if revisions := s.revalidationRevisions; len(revisions) >= len(s.revalidationCalls) {
+		result.Revision = revisions[len(s.revalidationCalls)-1]
+	}
+	return result, s.revalidationErrors[criteria.MemoryID.String()]
 }
 
 type importProposeCall struct {

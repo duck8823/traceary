@@ -952,6 +952,80 @@ func TestMemoryHygieneApply_RejectsLowQualityCandidate(t *testing.T) {
 	if len(rejected) != 1 || rejected[0] != "mem-noise" {
 		t.Fatalf("rejected ids = %v, want [mem-noise]", rejected)
 	}
+	if query.scanPageCalls != 0 || len(query.revalidationCalls) != 1 {
+		t.Fatalf("scan/revalidation calls = %d/%d, want 0/1", query.scanPageCalls, len(query.revalidationCalls))
+	}
+}
+
+func TestMemoryHygieneApply_FailsClosedBeforeMutationWhenAnyTargetIsPartial(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	first := candidateSummary(t, "mem-first", scope, "+def first():", domtypes.MemorySourceExtracted, now)
+	second := candidateSummary(t, "mem-second", scope, "+def second():", domtypes.MemorySourceExtracted, now)
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{first, second},
+		revalidationResults: map[string]apptypes.MemoryHygieneRevalidationSourceResult{
+			"mem-second": {
+				Revision:   1,
+				Target:     second,
+				Complete:   false,
+				StopReason: apptypes.MemoryHygieneStopReasonRowLimit,
+			},
+		},
+	}
+	repo := newCandidateApplyMemoryRepository(t, scope, map[string]string{
+		"mem-first":  "+def first():",
+		"mem-second": "+def second():",
+	})
+	sut := usecase.NewMemoryUsecase(repo, query, nil)
+
+	_, err := sut.Apply(context.Background(), apptypes.MemoryHygieneApplyCriteria{
+		MemoryIDs: []string{"mem-first", "mem-second"},
+		Now:       now,
+	})
+	if err == nil || !strings.Contains(err.Error(), "row_limit") {
+		t.Fatalf("Apply() error = %v, want partial row_limit failure", err)
+	}
+	if rejected := repo.rejectedIDs(); len(rejected) != 0 {
+		t.Fatalf("rejected ids = %v, want none before all revalidations complete", rejected)
+	}
+	if query.scanPageCalls != 0 || len(query.revalidationCalls) != 2 {
+		t.Fatalf("scan/revalidation calls = %d/%d, want 0/2", query.scanPageCalls, len(query.revalidationCalls))
+	}
+}
+
+func TestMemoryHygieneApply_FailsClosedWhenTargetRevisionsDiffer(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	first := candidateSummary(t, "mem-first", scope, "+def first():", domtypes.MemorySourceExtracted, now)
+	second := candidateSummary(t, "mem-second", scope, "+def second():", domtypes.MemorySourceExtracted, now)
+	query := &stubMemoryQueryService{
+		summaries:             []apptypes.MemorySummary{first, second},
+		revalidationRevisions: []int64{7, 8},
+	}
+	repo := newCandidateApplyMemoryRepository(t, scope, map[string]string{
+		"mem-first":  "+def first():",
+		"mem-second": "+def second():",
+	})
+	sut := usecase.NewMemoryUsecase(repo, query, nil)
+
+	_, err := sut.Apply(context.Background(), apptypes.MemoryHygieneApplyCriteria{
+		MemoryIDs: []string{"mem-first", "mem-second"},
+		Now:       now,
+	})
+	if err == nil || !strings.Contains(err.Error(), "revision changed") {
+		t.Fatalf("Apply() error = %v, want stale revision failure", err)
+	}
+	if rejected := repo.rejectedIDs(); len(rejected) != 0 {
+		t.Fatalf("rejected ids = %v, want none after stale revalidation", rejected)
+	}
+	if query.scanPageCalls != 0 || len(query.revalidationCalls) != 2 {
+		t.Fatalf("scan/revalidation calls = %d/%d, want 0/2", query.scanPageCalls, len(query.revalidationCalls))
+	}
 }
 
 func TestMemoryHygieneApply_AcceptedMemoriesUntouchedByCandidatePath(t *testing.T) {

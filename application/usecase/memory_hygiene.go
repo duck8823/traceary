@@ -549,50 +549,43 @@ func jaccardSimilarity(a, b map[string]struct{}) float64 {
 	return float64(intersect) / float64(union)
 }
 
-// Apply walks the requested memory ids, re-scans to confirm the
-// transition is still appropriate, and applies the lifecycle verb that
-// matches the suggestion kind. Unknown or stale ids land in Failures so
-// the caller sees exactly which memories moved.
+// Apply revalidates only requested memory IDs and their same-scope peers
+// before applying a lifecycle transition. Every requested revalidation must
+// complete at the same revision before the first mutation, so a partial or
+// stale result fails closed without applying a prefix of the request.
 func (u *memoryHygieneUsecase) Apply(ctx context.Context, criteria apptypes.MemoryHygieneApplyCriteria) (apptypes.MemoryHygieneApplyResult, error) {
 	if u.memory == nil {
 		return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("memory usecase is not configured")
 	}
-	scanResult, err := u.Scan(ctx, apptypes.MemoryHygieneScanCriteria{
-		StalenessThreshold:      criteria.StalenessThreshold,
-		Now:                     criteria.Now,
-		IncludeHiddenCandidates: criteria.IncludeHiddenCandidates,
-	})
-	if err != nil {
-		return apptypes.MemoryHygieneApplyResult{}, err
-	}
-	if !scanResult.Complete {
-		return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("memory hygiene apply requires a complete revalidation scan; scan stopped at %s", scanResult.StopReason)
-	}
-	suggestionByID := make(map[string]apptypes.MemoryHygieneSuggestion, len(scanResult.Suggestions))
-	for _, suggestion := range scanResult.Suggestions {
-		// Prefer redaction_hit when the same id has multiple
-		// suggestions — rewriting the fact is the safer default
-		// because it also satisfies the duplicate / expiry reasons.
-		if existing, ok := suggestionByID[suggestion.MemoryID.String()]; ok {
-			if existing.Kind == apptypes.MemoryHygieneSuggestionRedactionHit {
-				continue
-			}
-		}
-		suggestionByID[suggestion.MemoryID.String()] = suggestion
+	source, ok := u.memoryQuery.(queryservice.MemoryHygieneScanSource)
+	if !ok {
+		return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("bounded memory hygiene revalidation source is not configured")
 	}
 
+	now := criteria.Now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	staleness := criteria.StalenessThreshold
+	if staleness <= 0 {
+		staleness = defaultStalenessThreshold
+	}
+	budget := apptypes.DefaultMemoryHygieneScanBudget()
+	revalidationCtx, cancel := context.WithTimeout(ctx, budget.MaxDuration())
+	defer cancel()
+
 	result := apptypes.MemoryHygieneApplyResult{}
+	type applyPlan struct {
+		memoryID   domtypes.MemoryID
+		suggestion apptypes.MemoryHygieneSuggestion
+	}
+	plans := make([]applyPlan, 0, len(criteria.MemoryIDs))
+	var revision int64
+	hasRevision := false
+
 	for _, rawID := range criteria.MemoryIDs {
 		trimmed := strings.TrimSpace(rawID)
 		if trimmed == "" {
-			continue
-		}
-		suggestion, ok := suggestionByID[trimmed]
-		if !ok {
-			result.Failures = append(result.Failures, apptypes.MemoryHygieneApplyFailure{
-				MemoryID: trimmed,
-				Error:    "no current hygiene suggestion for this memory",
-			})
 			continue
 		}
 		memoryID, err := domtypes.MemoryIDFrom(trimmed)
@@ -603,10 +596,61 @@ func (u *memoryHygieneUsecase) Apply(ctx context.Context, criteria apptypes.Memo
 			})
 			continue
 		}
-		applied, err := u.applyOne(ctx, memoryID, suggestion)
+
+		revalidation, err := source.RevalidateMemoryHygiene(revalidationCtx, apptypes.MemoryHygieneRevalidationCriteria{
+			MemoryID:                memoryID,
+			IncludeHiddenCandidates: criteria.IncludeHiddenCandidates,
+			MaxRows:                 budget.MaxRows(),
+			MaxScanBytes:            budget.MaxScanBytes(),
+			MaxComparisons:          budget.MaxComparisons(),
+		})
+		if !hasRevision {
+			revision = revalidation.Revision
+			hasRevision = true
+		} else if revalidation.Revision != revision {
+			return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("%w", queryservice.ErrMemoryHygieneRevisionChanged)
+		}
 		if err != nil {
+			if errors.Is(err, queryservice.ErrMemoryHygieneRevisionChanged) {
+				return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("failed to revalidate memory hygiene: %w", err)
+			}
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(revalidationCtx.Err(), context.DeadlineExceeded) {
+				return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("memory hygiene apply revalidation stopped at %s", apptypes.MemoryHygieneStopReasonTimeLimit)
+			}
 			result.Failures = append(result.Failures, apptypes.MemoryHygieneApplyFailure{
 				MemoryID: trimmed,
+				Error:    err.Error(),
+			})
+			continue
+		}
+		if !revalidation.Complete {
+			return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("memory hygiene apply revalidation stopped at %s", revalidation.StopReason)
+		}
+		suggestion, found := u.suggestionForMemoryHygieneRevalidation(
+			revalidation,
+			now,
+			staleness,
+			defaultSupersedeSimilarityThreshold,
+			criteria.IncludeHiddenCandidates,
+		)
+		if !found {
+			result.Failures = append(result.Failures, apptypes.MemoryHygieneApplyFailure{
+				MemoryID: trimmed,
+				Error:    "no current hygiene suggestion for this memory",
+			})
+			continue
+		}
+		plans = append(plans, applyPlan{memoryID: memoryID, suggestion: suggestion})
+	}
+	if errors.Is(revalidationCtx.Err(), context.DeadlineExceeded) {
+		return apptypes.MemoryHygieneApplyResult{}, xerrors.Errorf("memory hygiene apply revalidation stopped at %s", apptypes.MemoryHygieneStopReasonTimeLimit)
+	}
+
+	for _, plan := range plans {
+		applied, err := u.applyOne(ctx, plan.memoryID, plan.suggestion)
+		if err != nil {
+			result.Failures = append(result.Failures, apptypes.MemoryHygieneApplyFailure{
+				MemoryID: plan.memoryID.String(),
 				Error:    err.Error(),
 			})
 			continue
@@ -614,6 +658,72 @@ func (u *memoryHygieneUsecase) Apply(ctx context.Context, criteria apptypes.Memo
 		result.Applied = append(result.Applied, applied)
 	}
 	return result, nil
+}
+
+func (u *memoryHygieneUsecase) suggestionForMemoryHygieneRevalidation(
+	revalidation apptypes.MemoryHygieneRevalidationSourceResult,
+	now time.Time,
+	staleness time.Duration,
+	similarity float64,
+	includeHiddenCandidates bool,
+) (apptypes.MemoryHygieneSuggestion, bool) {
+	target := revalidation.Target
+	var selected memoryHygieneMatch
+	hasSelected := false
+	selectMatch := func(match memoryHygieneMatch) {
+		if hasSelected && selected.Kind == apptypes.MemoryHygieneSuggestionRedactionHit {
+			return
+		}
+		selected = match
+		hasSelected = true
+	}
+
+	switch target.Status() {
+	case domtypes.MemoryStatusAccepted:
+		for _, match := range u.acceptedRowHygieneMatches(target, now, staleness) {
+			selectMatch(match)
+		}
+		if peerID, ok := revalidation.ExactDuplicateMemoryID.Value(); ok {
+			selectMatch(memoryHygieneMatch{
+				MemoryID:          target.MemoryID(),
+				Kind:              apptypes.MemoryHygieneSuggestionDuplicate,
+				Reason:            fmt.Sprintf("shares fact with %s", peerID.String()),
+				rawFact:           target.Fact(),
+				DuplicateMemoryID: peerID,
+				Scope:             target.Scope(),
+				UpdatedAt:         target.UpdatedAt(),
+			})
+		}
+		for _, peer := range revalidation.Peers {
+			match, matched := similarityPairHygieneMatch(target, peer, similarity)
+			if matched && match.MemoryID == target.MemoryID() {
+				selectMatch(match)
+			}
+		}
+	case domtypes.MemoryStatusCandidate:
+		if target.Source() != domtypes.MemorySourceExtracted &&
+			(!includeHiddenCandidates || target.Source() != domtypes.MemorySourceExtractedHidden) {
+			return apptypes.MemoryHygieneSuggestion{}, false
+		}
+		reasons := classifyExtractionNoise(target.Fact())
+		if len(reasons) > 0 {
+			selectMatch(memoryHygieneMatch{
+				MemoryID:       target.MemoryID(),
+				Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
+				Reason:         fmt.Sprintf("low-quality extraction: %s", strings.Join(reasons, ",")),
+				rawFact:        target.Fact(),
+				Scope:          target.Scope(),
+				UpdatedAt:      target.UpdatedAt(),
+				Status:         target.Status(),
+				Source:         target.Source(),
+				QualityReasons: reasons,
+			})
+		}
+	}
+	if !hasSelected {
+		return apptypes.MemoryHygieneSuggestion{}, false
+	}
+	return u.safeMemoryHygieneSuggestion(selected), true
 }
 
 func (u *memoryHygieneUsecase) applyOne(ctx context.Context, memoryID domtypes.MemoryID, suggestion apptypes.MemoryHygieneSuggestion) (apptypes.MemoryHygieneApplied, error) {

@@ -131,14 +131,14 @@ type MemoryHygieneScanResult struct {
 	Usage                         MemoryHygieneScanUsage
 }
 
-// MemoryHygieneApplyCriteria carries the inputs to the apply path. Ids
-// reference memories the caller already saw in a Scan result; the
-// usecase re-runs the scan to make sure the transition still applies.
+// MemoryHygieneApplyCriteria carries the inputs to the apply path. IDs
+// reference memories the caller already saw in a Scan result; the usecase
+// revalidates each requested ID and its same-scope peers before applying a
+// transition.
 //
 // IncludeHiddenCandidates mirrors the scan flag so an apply targeting a
-// previously-hidden candidate id still finds the suggestion when the
-// re-scan runs. Without it, the re-scan would miss the row and the
-// apply would fail with "no current hygiene suggestion".
+// previously-hidden candidate ID includes it in targeted revalidation. Without
+// it, the apply fails with "no current hygiene suggestion".
 type MemoryHygieneApplyCriteria struct {
 	MemoryIDs               []string
 	StalenessThreshold      time.Duration
