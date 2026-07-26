@@ -43,8 +43,19 @@ type sessionEventOutput struct {
 
 // eventsOutput is the MCP output for event listing tools (list_events, search, get_context).
 type eventsOutput struct {
-	Events   []eventOutput   `json:"events" jsonschema:"events matching the filters"`
-	Interval *intervalOutput `json:"interval,omitempty" jsonschema:"requested and effective half-open interval used by list_events or search"`
+	Events       []eventOutput       `json:"events" jsonschema:"events matching the filters"`
+	Interval     *intervalOutput     `json:"interval,omitempty" jsonschema:"requested and effective half-open interval used by list_events or search"`
+	Coverage     eventCoverageOutput `json:"coverage" jsonschema:"observed candidate and returned counts under the response budget"`
+	Partial      bool                `json:"partial" jsonschema:"whether another page or body-budget reduction remains"`
+	Reasons      []string            `json:"reasons,omitempty" jsonschema:"machine-readable partial reasons: more_results, aggregate_body_budget"`
+	Continuation string              `json:"continuation,omitempty" jsonschema:"opaque cursor for the next page; use only with the same tool and filters"`
+}
+
+type eventCoverageOutput struct {
+	CandidateCount      int `json:"candidate_count" jsonschema:"body-free candidates examined for this page"`
+	ReturnedCount       int `json:"returned_count" jsonschema:"event metadata records returned in this response"`
+	AggregateBodyBytes  int `json:"aggregate_body_bytes" jsonschema:"encoded body and body_blocks bytes returned"`
+	AggregateBodyBudget int `json:"aggregate_body_budget" jsonschema:"maximum encoded body and body_blocks bytes per response"`
 }
 
 type intervalOutput struct {

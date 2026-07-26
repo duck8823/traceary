@@ -305,7 +305,7 @@ func (d *EventDatasource) GetContextMetadata(
 
 	workspace := strings.TrimSpace(criteria.Workspace().String())
 	sessionID := strings.TrimSpace(criteria.SessionID().String())
-	query, args := contextEventMetadataQuery(workspace, sessionID, criteria.Limit())
+	query, args := contextEventMetadataQuery(workspace, sessionID, criteria.Limit(), criteria.Offset())
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query event metadata context: %w", err)
@@ -759,16 +759,16 @@ func metadataSourceHookLegacyQueryArgs(
 	return append(args, limit, offset)
 }
 
-func contextEventMetadataQuery(workspace, sessionID string, limit int) (string, []any) {
+func contextEventMetadataQuery(workspace, sessionID string, limit, offset int) (string, []any) {
 	switch {
 	case workspace != "" && sessionID != "":
-		return getContextEventMetadataByWorkspaceSessionQuery, []any{workspace, sessionID, limit}
+		return getContextEventMetadataByWorkspaceSessionQuery, []any{workspace, sessionID, limit, offset}
 	case workspace != "":
-		return getContextEventMetadataByWorkspaceQuery, []any{workspace, limit}
+		return getContextEventMetadataByWorkspaceQuery, []any{workspace, limit, offset}
 	case sessionID != "":
-		return getContextEventMetadataBySessionQuery, []any{sessionID, limit}
+		return getContextEventMetadataBySessionQuery, []any{sessionID, limit, offset}
 	default:
-		return getContextEventMetadataQuery, []any{"", "", "", "", limit}
+		return getContextEventMetadataQuery, []any{"", "", "", "", limit, offset}
 	}
 }
 
