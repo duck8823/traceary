@@ -1,7 +1,7 @@
 ---
 name: traceary-memory-review
 description: Use when the user asks to review Traceary memory candidates, pending memory inbox items, or to generate a session summary/handoff from current Traceary context. Trigger phrases — "Traceary inbox", "memory inbox", "pending memories", "review memory candidates", "記憶候補", "メモリ候補", "保留中の記憶", "session recap", "セッションまとめ", "summarize this session for next time". Do not trigger for generic status / cleanup / progress requests unless Traceary memory/session review is explicit.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Traceary memory review
@@ -25,7 +25,7 @@ Use this skill when the operator explicitly asks to look at Traceary's pending m
    - Accept: `manage_memory({"action": "accept", "ids": ["<id>", ...]})`
    - Reject: `manage_memory({"action": "reject", "ids": ["<id>", ...]})`
    - Re-scope or amend: reject the original, then call `manage_memory({"action": "remember", ...})` (or ask the operator to invoke `traceary-memory-remember`) with the corrected scope / fact text.
-5. **(Optional) session recap** when the operator says "session recap" / "summarize for next time": compose a 3–5 sentence summary from the events visible via `get_context` / `query_memory(pack)` and present it inline. Persistent storage of session summaries is wired through compact-summary events (see hook contract); a dedicated MCP write path for `sessions.summary` is not exposed today.
+5. **(Optional) session recap** when the operator says "session recap" / "summarize for next time": follow `traceary-session-history`'s Discovery → Inspection → Detail retrieval rules before composing a 3–5 sentence inline summary. Start with a workspace-scoped metadata query and inspect only selected candidates with a positive bounded `body_limit`; do not make a bare `get_context` call. Persistent storage of session summaries is wired through compact-summary events (see hook contract); a dedicated MCP write path for `sessions.summary` is not exposed today.
 
 ## Human fallback: `traceary memory inbox review`
 
@@ -65,4 +65,5 @@ traceary memory inbox reject --ids id1,id2,id3
 - **Distinguish the two CLI fallbacks.** `traceary memory inbox review` is the human-driven interactive walk; `memory inbox list` + `memory inbox accept|reject` is the script/batch path. Recommend the right one for the operator's environment instead of bundling both.
 - **Do not propose new memories here.** That is `traceary-memory-remember`'s job. If the operator says "save this", route to that skill instead of writing yourself.
 - **Stay scoped.** Default to the current workspace. Wider scopes need an explicit operator instruction.
+- **Recap in stages.** For a session recap, use `traceary-session-history`'s Discovery → Inspection → Detail rules; a bare `get_context` call is not a recap starting point.
 - **Skip empty inboxes.** If `query_memory(retrieve, status=["candidate"])` is empty, say so plainly — do not invent placeholder candidates.

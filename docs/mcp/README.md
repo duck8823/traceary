@@ -33,6 +33,33 @@ Traceary exposes 9 MCP tools, enforced by a golden snapshot (`presentation/mcpse
 
 `session_status(action="handoff", ...)` and `query_memory(action="pack", ...)` preserve the legacy `recent_commands` string array and also return `recent_command_items`. The structured sibling includes `event_id`, a body-safe `summary`, returned/stored/original byte extent, ingestion/storage/response truncation facts, and a `retrieval_hint`. Unknown historical facts are omitted. Full stored content requires explicit `traceary show <event-id>` or event-detail retrieval; handoff itself reads only a bounded body prefix.
 
+### Staged event retrieval
+
+Use a staged read when investigating prior sessions, events, or command audits:
+
+1. **Discovery:** start with the current `workspace`. For `list_events`, add
+   known `from` / `to` or `session_id` filters, then use
+   `projection="metadata"` and a small `limit` such as `5`. A narrow literal
+   `search` can use workspace and time filters, but it has no `session_id`
+   input; session filtering is available only through `list_events` and
+   `get_context`. This returns candidate IDs and metadata without reading event
+   bodies.
+2. **Inspection:** repeat `list_events` or `search` with only its supported
+   Discovery filters and a positive `body_limit` of roughly `300`–`500`.
+   Use `get_context` only for bounded surrounding context: it has no `event_id`,
+   kind, or time-range filter, so it can narrow the matched events only by
+   `workspace`, `session_id`, and `limit`. It cannot retrieve a selected event
+   ID directly and is not a broad first read.
+3. **Detail:** retrieve a full stored body only for one selected event and a
+   stated investigation reason. Prefer `traceary show <event-id>` for this
+   explicit CLI detail path because no MCP history-read tool accepts
+   `event_id`. Do not begin with `full_body=true` or `body_limit=0` across a
+   broad history query.
+
+The same order applies when composing a session recap: discover metadata first,
+inspect selected context second, and retrieve detail only when the recap cannot
+be supported by the bounded evidence.
+
 ### Search query semantics
 
 `search.query` is a literal text query, not a boolean query language. A string such as `failure OR timeout` is not interpreted as an any-match expression for `failure` or `timeout`; treat it as one search string. For multi-term inspection, issue multiple narrower `search` calls or save CLI JSON output to a local file and aggregate it with local tools such as `jq`.
