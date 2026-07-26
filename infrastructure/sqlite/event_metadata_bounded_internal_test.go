@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -505,7 +506,31 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	b.ReportMetric(0, "returned_body_bytes")
 	b.ReportMetric(measurementRuns, "measurement_runs")
 	b.ReportMetric(float64(p95)/float64(time.Millisecond), "p95_ms")
-	if p95 >= 250*time.Millisecond {
+	passed := p95 < 250*time.Millisecond
+	marker, err := json.Marshal(struct {
+		ManagedBytes        int64   `json:"managed_bytes"`
+		StoredBodyBytes     int64   `json:"stored_body_bytes"`
+		Events              int64   `json:"events"`
+		MissingBodyMetadata int64   `json:"missing_body_metadata"`
+		Runs                int     `json:"runs"`
+		P95MS               float64 `json:"p95_ms"`
+		TargetP95MS         float64 `json:"target_p95_ms"`
+		Passed              bool    `json:"passed"`
+	}{
+		ManagedBytes:        pageCount * pageSize,
+		StoredBodyBytes:     storedBodyBytes,
+		Events:              storedEvents,
+		MissingBodyMetadata: missingStoredBodyBytes,
+		Runs:                measurementRuns,
+		P95MS:               float64(p95) / float64(time.Millisecond),
+		TargetP95MS:         250,
+		Passed:              passed,
+	})
+	if err != nil {
+		b.Fatalf("marshal Phase-A evidence: %v", err)
+	}
+	b.Logf("TRACEARY_PHASE_A_EVIDENCE=%s", marker)
+	if !passed {
 		b.Fatalf("multi-GiB direct range p95=%s, want < 250ms", p95)
 	}
 }
