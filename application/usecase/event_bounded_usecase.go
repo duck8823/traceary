@@ -45,6 +45,9 @@ func (u *eventBoundedUsecase) List(
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
@@ -107,8 +110,8 @@ func (u *eventBoundedUsecase) Search(
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
-	if criteria.Offset() < 0 {
-		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
 	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
@@ -128,6 +131,7 @@ func (u *eventBoundedUsecase) Search(
 		To(criteria.To()).
 		Offset(criteria.Offset()).
 		FailuresOnly(criteria.FailuresOnly()).
+		PageAnchor(criteria.PageAnchor()).
 		Build()
 
 	events, err := u.query.SearchBounded(ctx, resolvedCriteria, bodyRuneLimit)
@@ -150,6 +154,9 @@ func (u *eventBoundedUsecase) Context(
 	}
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
 	}
 	events, err := u.query.GetContextBounded(ctx, criteria, bodyRuneLimit)
 	if err != nil {

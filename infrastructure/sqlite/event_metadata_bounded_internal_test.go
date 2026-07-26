@@ -153,31 +153,31 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 		{
 			name:      "general list with offset",
 			query:     selectRecentEventMetadataQuery,
-			args:      []any{"", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
+			args:      []any{"", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", "", "", "", "", 25, 100},
 			wantIndex: "idx_events_created_at_norm_id_desc",
 		},
 		{
 			name:      "workspace list with offset",
 			query:     selectRecentEventMetadataByWorkspaceQuery,
-			args:      []any{"repo-current", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
+			args:      []any{"repo-current", "", "", "", "", "", "", "", "", 0, "", "", "", "", "", "", "", "", 25, 100},
 			wantIndex: "idx_events_workspace_created_at_norm_id_desc",
 		},
 		{
 			name:      "session list with offset",
 			query:     selectRecentEventMetadataBySessionQuery,
-			args:      []any{"session-1", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
+			args:      []any{"session-1", "", "", "", "", "", "", "", "", 0, "", "", "", "", "", "", "", "", 25, 100},
 			wantIndex: "idx_events_session_created_at_norm_id_desc",
 		},
 		{
 			name:      "workspace session context",
 			query:     getContextEventMetadataByWorkspaceSessionQuery,
-			args:      []any{"repo-current", "session-1", 25, 0},
+			args:      []any{"repo-current", "session-1", "", "", "", "", "", "", 25, 0},
 			wantIndex: "idx_events_workspace_session_created_at_norm_id_desc",
 		},
 		{
 			name:      "source hook list with offset",
 			query:     selectRecentEventMetadataBySourceHookQuery,
-			args:      []any{"stop", "", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
+			args:      []any{"stop", "", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", "", "", "", "", 25, 100},
 			wantIndex: "idx_events_source_hook_created_at_norm_id_desc",
 		},
 	}
@@ -231,7 +231,7 @@ func TestMetadataRangeAndLegacyFallbackPlansUseProductionMigrationIndexes(t *tes
 
 	legacyQuery := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, from, to)
 	legacyArgs := metadataSourceHookLegacyQueryArgs(
-		"subagent_stop", "", "", "", "", "", 0, from, to, 25, 0,
+		"subagent_stop", "", "", "", "", "", 0, from, to, apptypes.EventPageAnchor{}, 25, 0,
 	)
 	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, legacyQuery, legacyArgs...), "idx_events_created_at_norm_id_desc")
 }

@@ -9,4 +9,4 @@
 - Encoded `body` and `body_blocks` fields together are capped at 64 KiB, including when `full_body=true` or `body_limit=0`.
 - Responses include `coverage`, `partial`, `reasons`, and an opaque `continuation` when another page or a body-budget reduction remains.
 
-A continuation is versioned, tied to one tool and request shape, and cannot be combined with `offset`. List and search continuations preserve the resolved upper time bound so an omitted `to` does not drift while paging. Clients must treat the token as opaque.
+A continuation is encrypted, authenticated, versioned, tied to one tool and normalized request shape, and cannot be combined with `offset`. All three tools preserve one resolved upper time bound and resume with the last `(created_at, event_id)` key, so concurrent newer writes and equal timestamps do not shift or duplicate later pages. Tokens are valid only for the MCP server process that issued them; clients must treat them as opaque and restart paging after a server restart.

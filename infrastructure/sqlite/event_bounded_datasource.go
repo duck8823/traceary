@@ -36,11 +36,11 @@ func (d *EventDatasource) ListRecentBounded(
 	if err := validateMetadataListCriteria(criteria, false); err != nil {
 		return nil, err
 	}
-	db, tx, err := d.beginBoundedEventRead(ctx, "event listing")
+	db, tx, err := d.beginEventProjectionRead(ctx, "bounded event listing")
 	if err != nil {
 		return nil, err
 	}
-	defer closeBoundedRead(db, tx)
+	defer closeEventProjectionRead(db, tx)
 
 	rows, err := queryRecentEventMetadataTx(
 		ctx,
@@ -84,14 +84,17 @@ func (d *EventDatasource) SearchBounded(
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
-	db, tx, err := d.beginBoundedEventRead(ctx, "event search")
+	db, tx, err := d.beginEventProjectionRead(ctx, "bounded event search")
 	if err != nil {
 		return nil, err
 	}
-	defer closeBoundedRead(db, tx)
+	defer closeEventProjectionRead(db, tx)
 
 	searchSchemaAvailable, err := eventSearchSchemaAvailable(ctx, tx)
 	if err != nil {
@@ -136,15 +139,21 @@ func (d *EventDatasource) GetContextBounded(
 	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
-	db, tx, err := d.beginBoundedEventRead(ctx, "event context")
+	if criteria.Offset() < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
+	}
+	db, tx, err := d.beginEventProjectionRead(ctx, "bounded event context")
 	if err != nil {
 		return nil, err
 	}
-	defer closeBoundedRead(db, tx)
+	defer closeEventProjectionRead(db, tx)
 
 	workspace := criteria.Workspace().String()
 	sessionID := criteria.SessionID().String()
-	query, args := contextEventMetadataQuery(workspace, sessionID, criteria.Limit(), criteria.Offset())
+	query, args := contextEventMetadataQuery(criteria, workspace, sessionID)
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query bounded context metadata: %w", err)
@@ -209,23 +218,23 @@ func (d *EventDatasource) LoadCanonicalBodies(
 	return bodies, nil
 }
 
-func (d *EventDatasource) beginBoundedEventRead(
+func (d *EventDatasource) beginEventProjectionRead(
 	ctx context.Context,
 	operation string,
 ) (*sql.DB, *sql.Tx, error) {
 	db, err := d.db.openReadOnly(ctx)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("failed to open DB for bounded %s: %w", operation, err)
+		return nil, nil, xerrors.Errorf("failed to open DB for %s: %w", operation, err)
 	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		closeMetadataResource(db)
-		return nil, nil, xerrors.Errorf("failed to begin bounded %s transaction: %w", operation, err)
+		return nil, nil, xerrors.Errorf("failed to begin %s transaction: %w", operation, err)
 	}
 	return db, tx, nil
 }
 
-func closeBoundedRead(db *sql.DB, tx *sql.Tx) {
+func closeEventProjectionRead(db *sql.DB, tx *sql.Tx) {
 	if tx != nil {
 		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 			slog.Debug("failed to rollback bounded event transaction", "error", err)

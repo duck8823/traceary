@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -100,5 +102,43 @@ func TestEventSearchFTSQuery_UsesVirtualTableIndex(t *testing.T) {
 	if !strings.Contains(normalized, "event_search_fts") ||
 		!strings.Contains(normalized, "virtual table index") {
 		t.Fatalf("query plan does not use the FTS virtual-table index:\n%s", plan.String())
+	}
+}
+
+func TestEventSearchFTSQuery_AppliesKeysetBeforeLimitWithoutOffset(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 7, 26, 1, 2, 3, 456789, time.UTC)
+	anchor, err := apptypes.EventPageAnchorOf(createdAt, types.EventID("event-anchor"))
+	if err != nil {
+		t.Fatalf("EventPageAnchorOf() error = %v", err)
+	}
+	criteria := apptypes.NewEventSearchCriteriaBuilder(20).
+		Query("literal needle").
+		Workspace(types.Workspace("github.com/duck8823/traceary")).
+		PageAnchor(anchor).
+		Build()
+	query, args := buildFTSEventIDsQuery(criteria, criteria.Query())
+	normalized := strings.Join(strings.Fields(query), " ")
+	keyset := "AND (e.created_at_norm < ? OR (e.created_at_norm = ? AND e.id < ?))"
+	keysetIndex := strings.Index(normalized, keyset)
+	limitIndex := strings.Index(normalized, "ORDER BY e.created_at_norm DESC, e.id DESC LIMIT ?")
+	if keysetIndex < 0 || limitIndex < 0 || keysetIndex > limitIndex {
+		t.Fatalf("FTS keyset is not applied before LIMIT:\n%s", normalized)
+	}
+	if strings.Contains(normalized, "OFFSET") {
+		t.Fatalf("keyset continuation retained OFFSET:\n%s", normalized)
+	}
+	wantTimestamp := normalizeRFC3339NanoForCompare(formatTimestamp(createdAt))
+	wantArgs := []any{
+		eventSearchFTSPhrase(criteria.Query()),
+		"github.com/duck8823/traceary",
+		wantTimestamp,
+		wantTimestamp,
+		"event-anchor",
+		20,
+	}
+	if diff := cmp.Diff(wantArgs, args); diff != "" {
+		t.Fatalf("FTS keyset args mismatch (-want +got):\n%s", diff)
 	}
 }

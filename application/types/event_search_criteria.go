@@ -20,6 +20,7 @@ type EventSearchCriteria struct {
 	limit        int
 	offset       int
 	failuresOnly bool
+	pageAnchor   EventPageAnchor
 }
 
 // Query returns the search query string.
@@ -54,6 +55,9 @@ func (c EventSearchCriteria) Offset() int { return c.offset }
 
 // FailuresOnly reports whether only failed commands should be returned.
 func (c EventSearchCriteria) FailuresOnly() bool { return c.failuresOnly }
+
+// PageAnchor returns the last event from the preceding descending page.
+func (c EventSearchCriteria) PageAnchor() EventPageAnchor { return c.pageAnchor }
 
 // EventSearchCriteriaBuilder builds an EventSearchCriteria value.
 type EventSearchCriteriaBuilder struct {
@@ -123,6 +127,12 @@ func (b *EventSearchCriteriaBuilder) Offset(offset int) *EventSearchCriteriaBuil
 // FailuresOnly restricts results to failed commands when set to true.
 func (b *EventSearchCriteriaBuilder) FailuresOnly(failuresOnly bool) *EventSearchCriteriaBuilder {
 	b.criteria.failuresOnly = failuresOnly
+	return b
+}
+
+// PageAnchor resumes strictly after the supplied descending-order tuple.
+func (b *EventSearchCriteriaBuilder) PageAnchor(anchor EventPageAnchor) *EventSearchCriteriaBuilder {
+	b.criteria.pageAnchor = anchor
 	return b
 }
 

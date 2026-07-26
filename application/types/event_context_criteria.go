@@ -1,18 +1,22 @@
 package types
 
 import (
+	"time"
+
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 // EventContextCriteria holds filter parameters for context event retrieval.
 // Zero-value fields are ignored (no filter applied).
 type EventContextCriteria struct {
-	workspace domtypes.Workspace
-	sessionID domtypes.SessionID
-	client    domtypes.Client
-	agent     domtypes.Agent
-	limit     int
-	offset    int
+	workspace  domtypes.Workspace
+	sessionID  domtypes.SessionID
+	client     domtypes.Client
+	agent      domtypes.Agent
+	limit      int
+	offset     int
+	to         time.Time
+	pageAnchor EventPageAnchor
 }
 
 // Workspace returns the workspace filter.
@@ -32,6 +36,12 @@ func (c EventContextCriteria) Limit() int { return c.limit }
 
 // Offset returns the number of matching context events to skip.
 func (c EventContextCriteria) Offset() int { return c.offset }
+
+// To returns the fixed snapshot upper bound (exclusive).
+func (c EventContextCriteria) To() time.Time { return c.to }
+
+// PageAnchor returns the last event from the preceding descending page.
+func (c EventContextCriteria) PageAnchor() EventPageAnchor { return c.pageAnchor }
 
 // EventContextCriteriaBuilder builds an EventContextCriteria value.
 type EventContextCriteriaBuilder struct {
@@ -71,6 +81,18 @@ func (b *EventContextCriteriaBuilder) Agent(agent domtypes.Agent) *EventContextC
 // Offset sets the number of results to skip before returning context events.
 func (b *EventContextCriteriaBuilder) Offset(offset int) *EventContextCriteriaBuilder {
 	b.criteria.offset = offset
+	return b
+}
+
+// To sets the fixed snapshot upper bound (exclusive).
+func (b *EventContextCriteriaBuilder) To(to time.Time) *EventContextCriteriaBuilder {
+	b.criteria.to = to
+	return b
+}
+
+// PageAnchor resumes strictly after the supplied descending-order tuple.
+func (b *EventContextCriteriaBuilder) PageAnchor(anchor EventPageAnchor) *EventContextCriteriaBuilder {
+	b.criteria.pageAnchor = anchor
 	return b
 }
 
