@@ -144,7 +144,7 @@ func (d *EventDatasource) GetContextBounded(
 
 	workspace := criteria.Workspace().String()
 	sessionID := criteria.SessionID().String()
-	query, args := contextEventMetadataQuery(workspace, sessionID, criteria.Limit())
+	query, args := contextEventMetadataQuery(workspace, sessionID, criteria.Limit(), criteria.Offset())
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query bounded context metadata: %w", err)

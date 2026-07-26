@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -625,51 +626,63 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		interval, err := apptypes.RequestedIntervalFrom(input.From, input.To, input.Timezone, time.Now().UTC())
+		fingerprint := eventRequestFingerprint("list_events", input.Kind, input.Client, input.Agent, input.SessionID, input.Workspace, input.From, input.To, input.Timezone, input.SourceHook, input.Projection, bodyLimitFingerprint(input.BodyLimit), strconv.FormatBool(input.FullBody))
+		page, err := resolveEventPageRequest("list_events", input.Limit, input.Offset, input.Continuation, fingerprint, bodyLimit)
+		if err != nil {
+			return nil, eventsOutput{}, err
+		}
+		to := input.To
+		if page.cursorUsed && strings.TrimSpace(to) == "" {
+			to = page.snapshot
+		}
+		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, time.Now().UTC())
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve time interval: %w", err)
 		}
 		intervalMetadata := newIntervalOutput(interval)
-
-		criteria := apptypes.NewEventListCriteriaBuilder(resolveLimit(input.Limit, defaultSearchLimit)).
-			Offset(resolveOffset(input.Offset)).
-			Kind(types.EventKind(strings.TrimSpace(input.Kind))).
-			Client(types.Client(strings.TrimSpace(input.Client))).
-			Agent(types.Agent(strings.TrimSpace(input.Agent))).
-			SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
-			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
-			SourceHook(strings.TrimSpace(input.SourceHook)).
-			From(interval.EffectiveFromInclusive()).
-			To(interval.EffectiveToExclusive()).
-			Build()
-		switch projection {
-		case apptypes.EventProjectionMetadata:
-			if s.eventMetadata == nil {
-				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
-			}
-			metadata, err := s.eventMetadata.List(ctx, criteria)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to list event metadata: %w", err)
-			}
-			return nil, eventsOutput{Events: convertEventMetadata(metadata), Interval: &intervalMetadata}, nil
-		case apptypes.EventProjectionBounded:
-			if s.eventBounded == nil {
-				return nil, eventsOutput{}, xerrors.Errorf("event bounded usecase is not configured")
-			}
-			events, err := s.eventBounded.List(ctx, criteria, bodyLimit)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to list bounded events: %w", err)
-			}
-			return nil, eventsOutput{Events: convertBoundedEvents(events), Interval: &intervalMetadata}, nil
-		case apptypes.EventProjectionFull:
-			events, err := s.event.List(ctx, criteria)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to list events: %w", err)
-			}
-			return nil, eventsOutput{Events: convertEventsWithBodyLimit(events, 0), Interval: &intervalMetadata}, nil
-		default:
-			return nil, eventsOutput{}, xerrors.Errorf("unsupported resolved event projection %q", projection)
+		buildCriteria := func(limit, offset int) apptypes.EventListCriteria {
+			return apptypes.NewEventListCriteriaBuilder(limit).
+				Offset(offset).
+				Kind(types.EventKind(strings.TrimSpace(input.Kind))).
+				Client(types.Client(strings.TrimSpace(input.Client))).
+				Agent(types.Agent(strings.TrimSpace(input.Agent))).
+				SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
+				Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+				SourceHook(strings.TrimSpace(input.SourceHook)).
+				From(interval.EffectiveFromInclusive()).
+				To(interval.EffectiveToExclusive()).
+				Build()
 		}
+		output, err := loadEventPage(ctx, page, projection, eventPageLoaders{
+			metadataAvailable: s.eventMetadata != nil,
+			candidates: func(ctx context.Context, limit, offset int) ([]apptypes.EventMetadata, error) {
+				return s.eventMetadata.List(ctx, buildCriteria(limit, offset))
+			},
+			bounded: func(ctx context.Context, limit, offset, bodyLimit int) ([]apptypes.BoundedEvent, error) {
+				return s.eventBounded.List(ctx, buildCriteria(limit, offset), bodyLimit)
+			},
+			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
+				return s.event.List(ctx, buildCriteria(limit, offset))
+			},
+			convertFull: func(events []*model.Event) []eventOutput { return convertEventsWithBodyLimit(events, 0) },
+			legacy: func(ctx context.Context, limit, offset int) ([]eventOutput, error) {
+				criteria := buildCriteria(limit, offset)
+				switch projection {
+				case apptypes.EventProjectionBounded:
+					events, err := s.eventBounded.List(ctx, criteria, bodyLimit)
+					return convertBoundedEvents(events), err
+				case apptypes.EventProjectionFull:
+					events, err := s.event.List(ctx, criteria)
+					return convertEventsWithBodyLimit(events, 0), err
+				default:
+					return nil, xerrors.Errorf("event metadata usecase is not configured")
+				}
+			},
+		}, &intervalMetadata, formatOptionalRFC3339(interval.EffectiveToExclusive()))
+		if err != nil {
+			return nil, eventsOutput{}, xerrors.Errorf("failed to load event page: %w", err)
+		}
+		return nil, output, nil
 	}
 }
 
@@ -772,48 +785,59 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		interval, err := apptypes.RequestedIntervalFrom(input.From, input.To, input.Timezone, time.Now().UTC())
+		fingerprint := eventRequestFingerprint("search", input.Query, input.Workspace, input.From, input.To, input.Timezone, input.Projection, bodyLimitFingerprint(input.BodyLimit), strconv.FormatBool(input.FullBody))
+		page, err := resolveEventPageRequest("search", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
+		if err != nil {
+			return nil, eventsOutput{}, err
+		}
+		to := input.To
+		if page.cursorUsed && strings.TrimSpace(to) == "" {
+			to = page.snapshot
+		}
+		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, time.Now().UTC())
 		if err != nil {
 			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve time interval: %w", err)
 		}
 		intervalMetadata := newIntervalOutput(interval)
-		limit := resolveLimit(input.Limit, defaultSearchLimit)
-		criteria := apptypes.NewEventSearchCriteriaBuilder(limit).
-			Query(strings.TrimSpace(input.Query)).
-			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
-			From(interval.EffectiveFromInclusive()).
-			To(interval.EffectiveToExclusive()).
-			Build()
-		switch projection {
-		case apptypes.EventProjectionMetadata:
-			if s.eventMetadata == nil {
-				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
-			}
-			metadata, err := s.eventMetadata.Search(ctx, criteria)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to search event metadata: %w", err)
-			}
-			return nil, eventsOutput{Events: convertEventMetadata(metadata), Interval: &intervalMetadata}, nil
-		case apptypes.EventProjectionBounded:
-			if s.eventBounded == nil {
-				return nil, eventsOutput{}, xerrors.Errorf("event bounded usecase is not configured")
-			}
-			events, err := s.eventBounded.Search(ctx, criteria, bodyLimit)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to search bounded events: %w", err)
-			}
-			return nil, eventsOutput{Events: convertBoundedEvents(events), Interval: &intervalMetadata}, nil
-		case apptypes.EventProjectionFull:
-			events, err := s.event.Search(ctx, criteria)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to search events: %w", err)
-			}
-			// Full search intentionally omits body_blocks so thinking content
-			// is not re-exposed through this surface.
-			return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, 0), Interval: &intervalMetadata}, nil
-		default:
-			return nil, eventsOutput{}, xerrors.Errorf("unsupported resolved event projection %q", projection)
+		buildCriteria := func(limit, offset int) apptypes.EventSearchCriteria {
+			return apptypes.NewEventSearchCriteriaBuilder(limit).
+				Query(strings.TrimSpace(input.Query)).
+				Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+				From(interval.EffectiveFromInclusive()).
+				To(interval.EffectiveToExclusive()).
+				Offset(offset).
+				Build()
 		}
+		output, err := loadEventPage(ctx, page, projection, eventPageLoaders{
+			metadataAvailable: s.eventMetadata != nil,
+			candidates: func(ctx context.Context, limit, offset int) ([]apptypes.EventMetadata, error) {
+				return s.eventMetadata.Search(ctx, buildCriteria(limit, offset))
+			},
+			bounded: func(ctx context.Context, limit, offset, bodyLimit int) ([]apptypes.BoundedEvent, error) {
+				return s.eventBounded.Search(ctx, buildCriteria(limit, offset), bodyLimit)
+			},
+			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
+				return s.event.Search(ctx, buildCriteria(limit, offset))
+			},
+			convertFull: func(events []*model.Event) []eventOutput { return convertEventsWithoutBlocksWithBodyLimit(events, 0) },
+			legacy: func(ctx context.Context, limit, offset int) ([]eventOutput, error) {
+				criteria := buildCriteria(limit, offset)
+				switch projection {
+				case apptypes.EventProjectionBounded:
+					events, err := s.eventBounded.Search(ctx, criteria, bodyLimit)
+					return convertBoundedEvents(events), err
+				case apptypes.EventProjectionFull:
+					events, err := s.event.Search(ctx, criteria)
+					return convertEventsWithoutBlocksWithBodyLimit(events, 0), err
+				default:
+					return nil, xerrors.Errorf("event metadata usecase is not configured")
+				}
+			},
+		}, &intervalMetadata, formatOptionalRFC3339(interval.EffectiveToExclusive()))
+		if err != nil {
+			return nil, eventsOutput{}, xerrors.Errorf("failed to load event page: %w", err)
+		}
+		return nil, output, nil
 	}
 }
 
@@ -823,39 +847,48 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 		if err != nil {
 			return nil, eventsOutput{}, err
 		}
-		criteria := apptypes.NewEventContextCriteriaBuilder(resolveLimit(input.Limit, defaultContextLimit)).
-			Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
-			SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
-			Build()
-		switch projection {
-		case apptypes.EventProjectionMetadata:
-			if s.eventMetadata == nil {
-				return nil, eventsOutput{}, xerrors.Errorf("event metadata usecase is not configured")
-			}
-			metadata, err := s.eventMetadata.Context(ctx, criteria)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to get context metadata: %w", err)
-			}
-			return nil, eventsOutput{Events: convertEventMetadata(metadata)}, nil
-		case apptypes.EventProjectionBounded:
-			if s.eventBounded == nil {
-				return nil, eventsOutput{}, xerrors.Errorf("event bounded usecase is not configured")
-			}
-			events, err := s.eventBounded.Context(ctx, criteria, bodyLimit)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to get bounded context: %w", err)
-			}
-			return nil, eventsOutput{Events: convertBoundedEvents(events)}, nil
-		case apptypes.EventProjectionFull:
-			events, err := s.event.Context(ctx, criteria)
-			if err != nil {
-				return nil, eventsOutput{}, xerrors.Errorf("failed to get context: %w", err)
-			}
-			// Full get_context omits body_blocks for the same reason as search.
-			return nil, eventsOutput{Events: convertEventsWithoutBlocksWithBodyLimit(events, 0)}, nil
-		default:
-			return nil, eventsOutput{}, xerrors.Errorf("unsupported resolved event projection %q", projection)
+		fingerprint := eventRequestFingerprint("get_context", input.Workspace, input.SessionID, input.Projection, bodyLimitFingerprint(input.BodyLimit), strconv.FormatBool(input.FullBody))
+		page, err := resolveEventPageRequest("get_context", input.Limit, 0, input.Continuation, fingerprint, bodyLimit)
+		if err != nil {
+			return nil, eventsOutput{}, err
 		}
+		buildCriteria := func(limit, offset int) apptypes.EventContextCriteria {
+			return apptypes.NewEventContextCriteriaBuilder(limit).
+				Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).
+				SessionID(types.SessionID(strings.TrimSpace(input.SessionID))).
+				Offset(offset).
+				Build()
+		}
+		output, err := loadEventPage(ctx, page, projection, eventPageLoaders{
+			metadataAvailable: s.eventMetadata != nil,
+			candidates: func(ctx context.Context, limit, offset int) ([]apptypes.EventMetadata, error) {
+				return s.eventMetadata.Context(ctx, buildCriteria(limit, offset))
+			},
+			bounded: func(ctx context.Context, limit, offset, bodyLimit int) ([]apptypes.BoundedEvent, error) {
+				return s.eventBounded.Context(ctx, buildCriteria(limit, offset), bodyLimit)
+			},
+			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
+				return s.event.Context(ctx, buildCriteria(limit, offset))
+			},
+			convertFull: func(events []*model.Event) []eventOutput { return convertEventsWithoutBlocksWithBodyLimit(events, 0) },
+			legacy: func(ctx context.Context, limit, offset int) ([]eventOutput, error) {
+				criteria := buildCriteria(limit, offset)
+				switch projection {
+				case apptypes.EventProjectionBounded:
+					events, err := s.eventBounded.Context(ctx, criteria, bodyLimit)
+					return convertBoundedEvents(events), err
+				case apptypes.EventProjectionFull:
+					events, err := s.event.Context(ctx, criteria)
+					return convertEventsWithoutBlocksWithBodyLimit(events, 0), err
+				default:
+					return nil, xerrors.Errorf("event metadata usecase is not configured")
+				}
+			},
+		}, nil, page.snapshot)
+		if err != nil {
+			return nil, eventsOutput{}, xerrors.Errorf("failed to load event page: %w", err)
+		}
+		return nil, output, nil
 	}
 }
 

@@ -171,7 +171,7 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 		{
 			name:      "workspace session context",
 			query:     getContextEventMetadataByWorkspaceSessionQuery,
-			args:      []any{"repo-current", "session-1", 25},
+			args:      []any{"repo-current", "session-1", 25, 0},
 			wantIndex: "idx_events_workspace_session_created_at_norm_id_desc",
 		},
 		{

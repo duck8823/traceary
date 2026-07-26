@@ -9,4 +9,4 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
  WHERE (? = '' OR e.workspace = ?)
    AND (? = '' OR e.session_id = ?)
  ORDER BY e.created_at_norm DESC, e.id DESC
- LIMIT ?
+ LIMIT ? OFFSET ?

@@ -74,6 +74,9 @@ func (u *eventMetadataUsecase) Search(ctx context.Context, criteria apptypes.Eve
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
+	if criteria.Offset() < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
@@ -107,6 +110,9 @@ func (u *eventMetadataUsecase) Context(ctx context.Context, criteria apptypes.Ev
 	}
 	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
 	metadata, err := u.query.GetContextMetadata(ctx, criteria)

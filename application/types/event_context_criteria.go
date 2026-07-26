@@ -12,6 +12,7 @@ type EventContextCriteria struct {
 	client    domtypes.Client
 	agent     domtypes.Agent
 	limit     int
+	offset    int
 }
 
 // Workspace returns the workspace filter.
@@ -28,6 +29,9 @@ func (c EventContextCriteria) Agent() domtypes.Agent { return c.agent }
 
 // Limit returns the maximum number of events to return.
 func (c EventContextCriteria) Limit() int { return c.limit }
+
+// Offset returns the number of matching context events to skip.
+func (c EventContextCriteria) Offset() int { return c.offset }
 
 // EventContextCriteriaBuilder builds an EventContextCriteria value.
 type EventContextCriteriaBuilder struct {
@@ -61,6 +65,12 @@ func (b *EventContextCriteriaBuilder) Client(client domtypes.Client) *EventConte
 // Agent sets the agent filter.
 func (b *EventContextCriteriaBuilder) Agent(agent domtypes.Agent) *EventContextCriteriaBuilder {
 	b.criteria.agent = agent
+	return b
+}
+
+// Offset sets the number of results to skip before returning context events.
+func (b *EventContextCriteriaBuilder) Offset(offset int) *EventContextCriteriaBuilder {
+	b.criteria.offset = offset
 	return b
 }
 
