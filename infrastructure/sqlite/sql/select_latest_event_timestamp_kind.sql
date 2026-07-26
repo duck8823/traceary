@@ -1,13 +1,4 @@
-WITH latest_lexical AS (
-    SELECT created_at FROM events ORDER BY created_at DESC, id DESC LIMIT 1
-), latest_second AS (
-    SELECT substr(created_at, 1, 19) AS second_prefix FROM latest_lexical
-), same_second_ids AS (
-    SELECT e.id FROM latest_second s CROSS JOIN events e WHERE e.created_at = s.second_prefix || 'Z'
-    UNION ALL
-    SELECT e.id FROM latest_second s CROSS JOIN events e
-     WHERE e.created_at >= s.second_prefix || '.' AND e.created_at <= s.second_prefix || 'Z'
-)
-SELECT e.kind, e.created_at FROM same_second_ids candidate
- CROSS JOIN events e ON e.id = candidate.id
- ORDER BY ts_norm(e.created_at) DESC, e.id DESC LIMIT 1
+SELECT e.kind, e.created_at
+  FROM event_metadata_projection e
+ ORDER BY e.created_at_norm DESC, e.id DESC
+ LIMIT 1

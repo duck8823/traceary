@@ -3,9 +3,8 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
        e.body_original_bytes, e.body_stored_bytes,
        e.body_ingest_truncated, e.body_storage_truncated,
        e.body_metadata_version,
-       ca.event_id, ca.exit_code, ca.failed
-  FROM events e
-  LEFT JOIN command_audits ca ON ca.event_id = e.id
+       e.command_audit_event_id, e.command_exit_code, e.command_failed
+  FROM event_metadata_projection e
  WHERE e.workspace = ?
    AND (? = '' OR e.created_at_norm < ?)
    /* traceary:event-page-anchor */

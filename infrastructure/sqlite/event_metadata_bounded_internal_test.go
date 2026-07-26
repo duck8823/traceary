@@ -25,7 +25,7 @@ func TestBoundedLatestEventMetadataQueryPlanUsesCreatedAtIndex(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.ExecContext(context.Background(), `
-		CREATE TABLE events (
+		CREATE TABLE event_metadata_projection (
 			id TEXT PRIMARY KEY,
 			kind TEXT NOT NULL,
 			client TEXT NOT NULL,
@@ -34,15 +34,20 @@ func TestBoundedLatestEventMetadataQueryPlanUsesCreatedAtIndex(t *testing.T) {
 			workspace TEXT NOT NULL,
 			source_hook TEXT,
 			created_at TEXT NOT NULL,
+			created_at_norm TEXT NOT NULL,
 			body_original_bytes INTEGER,
 			body_stored_bytes INTEGER NOT NULL,
 			body_ingest_truncated BOOLEAN,
 			body_storage_truncated BOOLEAN,
-			body_metadata_version INTEGER
+			body_metadata_version INTEGER,
+			command_audit_event_id TEXT,
+			command_exit_code INTEGER,
+			command_failed BOOLEAN
 		);
-		CREATE TABLE command_audits (event_id TEXT PRIMARY KEY, exit_code INTEGER, failed BOOLEAN);
-		CREATE INDEX idx_events_created_at ON events(created_at DESC, id DESC);
-		CREATE INDEX idx_events_workspace_created_at ON events(workspace, created_at DESC, id DESC);
+		CREATE INDEX idx_event_metadata_created_at_norm_id_desc
+			ON event_metadata_projection(created_at_norm DESC, id DESC);
+		CREATE INDEX idx_event_metadata_workspace_created_at_norm_id_desc
+			ON event_metadata_projection(workspace, created_at_norm DESC, id DESC);
 	`); err != nil {
 		t.Fatalf("create query-plan fixture: %v", err)
 	}
@@ -63,8 +68,8 @@ func TestBoundedLatestEventMetadataQueryPlanUsesCreatedAtIndex(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate query plan: %v", err)
 	}
-	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "idx_events_created_at") {
-		t.Fatalf("bounded latest query does not use created_at index:\n%s", joined)
+	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "idx_event_metadata_created_at_norm_id_desc") {
+		t.Fatalf("bounded latest query does not use projection timestamp index:\n%s", joined)
 	}
 }
 
@@ -76,19 +81,20 @@ func TestBoundedLatestEventMetadataByWorkspaceQueryPlanUsesTimestampIndex(t *tes
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.ExecContext(context.Background(), `
-		CREATE TABLE events (
+		CREATE TABLE event_metadata_projection (
 			id TEXT PRIMARY KEY, kind TEXT NOT NULL, client TEXT NOT NULL,
 			agent TEXT NOT NULL, session_id TEXT NOT NULL, workspace TEXT NOT NULL,
 			source_hook TEXT, created_at TEXT NOT NULL, created_at_norm TEXT NOT NULL, body_original_bytes INTEGER,
 			body_stored_bytes INTEGER NOT NULL, body_ingest_truncated BOOLEAN,
-			body_storage_truncated BOOLEAN, body_metadata_version INTEGER
+			body_storage_truncated BOOLEAN, body_metadata_version INTEGER,
+			command_audit_event_id TEXT, command_exit_code INTEGER, command_failed BOOLEAN
 		);
-		CREATE TABLE command_audits (event_id TEXT PRIMARY KEY, exit_code INTEGER, failed BOOLEAN);
-		CREATE INDEX idx_events_workspace_created_at ON events(workspace, created_at DESC, id DESC);
+		CREATE INDEX idx_event_metadata_workspace_created_at_norm_id_desc
+			ON event_metadata_projection(workspace, created_at_norm DESC, id DESC);
 	`); err != nil {
 		t.Fatalf("create workspace query-plan fixture: %v", err)
 	}
-	rows, err := db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+selectLatestEventMetadataFastByWorkspaceQuery, "repo-current", "repo-current", "repo-current")
+	rows, err := db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+selectLatestEventMetadataFastByWorkspaceQuery, "repo-current")
 	if err != nil {
 		t.Fatalf("EXPLAIN QUERY PLAN error = %v", err)
 	}
@@ -105,8 +111,8 @@ func TestBoundedLatestEventMetadataByWorkspaceQueryPlanUsesTimestampIndex(t *tes
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate query plan: %v", err)
 	}
-	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "idx_events_workspace_created_at") {
-		t.Fatalf("bounded workspace query does not use workspace timestamp index:\n%s", joined)
+	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "idx_event_metadata_workspace_created_at_norm_id_desc") {
+		t.Fatalf("bounded workspace query does not use projection timestamp index:\n%s", joined)
 	}
 	if joined := strings.Join(plan, "\n"); strings.Contains(joined, "USE TEMP B-TREE FOR LAST TERM OF ORDER BY") {
 		t.Fatalf("legacy workspace index must not sort every scoped row to choose the latest second:\n%s", joined)
@@ -121,24 +127,24 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.ExecContext(context.Background(), `
-		CREATE TABLE events (
+		CREATE TABLE event_metadata_projection (
 			id TEXT PRIMARY KEY, kind TEXT NOT NULL, client TEXT NOT NULL,
 			agent TEXT NOT NULL, session_id TEXT NOT NULL, workspace TEXT NOT NULL,
-			source_hook TEXT, created_at TEXT NOT NULL, created_at_norm TEXT NOT NULL, body_original_bytes INTEGER,
+			source_hook TEXT, legacy_source_hook TEXT, created_at TEXT NOT NULL, created_at_norm TEXT NOT NULL, body_original_bytes INTEGER,
 			body_stored_bytes INTEGER NOT NULL, body_ingest_truncated BOOLEAN,
-			body_storage_truncated BOOLEAN, body_metadata_version INTEGER
+			body_storage_truncated BOOLEAN, body_metadata_version INTEGER,
+			command_audit_event_id TEXT, command_exit_code INTEGER, command_failed BOOLEAN
 		);
-		CREATE TABLE command_audits (event_id TEXT PRIMARY KEY, exit_code INTEGER, failed BOOLEAN);
-		CREATE INDEX idx_events_created_at_norm_id_desc
-			ON events(created_at_norm DESC, id DESC);
-		CREATE INDEX idx_events_workspace_created_at_norm_id_desc
-			ON events(workspace, created_at_norm DESC, id DESC);
-		CREATE INDEX idx_events_session_created_at_norm_id_desc
-			ON events(session_id, created_at_norm DESC, id DESC);
-		CREATE INDEX idx_events_workspace_session_created_at_norm_id_desc
-			ON events(workspace, session_id, created_at_norm DESC, id DESC);
-		CREATE INDEX idx_events_source_hook_created_at_norm_id_desc
-			ON events(source_hook, created_at_norm DESC, id DESC)
+		CREATE INDEX idx_event_metadata_created_at_norm_id_desc
+			ON event_metadata_projection(created_at_norm DESC, id DESC);
+		CREATE INDEX idx_event_metadata_workspace_created_at_norm_id_desc
+			ON event_metadata_projection(workspace, created_at_norm DESC, id DESC);
+		CREATE INDEX idx_event_metadata_session_created_at_norm_id_desc
+			ON event_metadata_projection(session_id, created_at_norm DESC, id DESC);
+		CREATE INDEX idx_event_metadata_workspace_session_created_at_norm_id_desc
+			ON event_metadata_projection(workspace, session_id, created_at_norm DESC, id DESC);
+		CREATE INDEX idx_event_metadata_source_hook_created_at_norm_id_desc
+			ON event_metadata_projection(source_hook, created_at_norm DESC, id DESC)
 			WHERE source_hook IS NOT NULL;
 	`); err != nil {
 		t.Fatalf("create query-plan fixture: %v", err)
@@ -154,31 +160,31 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 			name:      "general list with offset",
 			query:     metadataPageQuery(selectRecentEventMetadataQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
-			wantIndex: "idx_events_created_at_norm_id_desc",
+			wantIndex: "idx_event_metadata_created_at_norm_id_desc",
 		},
 		{
 			name:      "workspace list with offset",
 			query:     metadataPageQuery(selectRecentEventMetadataByWorkspaceQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"repo-current", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
-			wantIndex: "idx_events_workspace_created_at_norm_id_desc",
+			wantIndex: "idx_event_metadata_workspace_created_at_norm_id_desc",
 		},
 		{
 			name:      "session list with offset",
 			query:     metadataPageQuery(selectRecentEventMetadataBySessionQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"session-1", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
-			wantIndex: "idx_events_session_created_at_norm_id_desc",
+			wantIndex: "idx_event_metadata_session_created_at_norm_id_desc",
 		},
 		{
 			name:      "workspace session context",
 			query:     metadataPageQuery(getContextEventMetadataByWorkspaceSessionQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"repo-current", "session-1", "", "", 25, 0},
-			wantIndex: "idx_events_workspace_session_created_at_norm_id_desc",
+			wantIndex: "idx_event_metadata_workspace_session_created_at_norm_id_desc",
 		},
 		{
 			name:      "source hook list with offset",
 			query:     metadataPageQuery(selectRecentEventMetadataBySourceHookQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"stop", "", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
-			wantIndex: "idx_events_source_hook_created_at_norm_id_desc",
+			wantIndex: "idx_event_metadata_source_hook_created_at_norm_id_desc",
 		},
 	}
 	for _, tt := range tests {
@@ -232,7 +238,7 @@ func TestAnchoredMetadataPageQueryPlanUsesCompositeKeysetSeek(t *testing.T) {
 	}
 
 	plan := explainQueryPlan(t, db, query, args...)
-	assertPlanUsesOrderedIndex(t, plan, "idx_events_workspace_created_at_norm_id_desc")
+	assertPlanUsesOrderedIndex(t, plan, "idx_event_metadata_workspace_created_at_norm_id_desc")
 	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "(created_at_norm,id)<(?,?)") {
 		t.Fatalf("anchored query plan does not use the composite keyset seek:\n%s", joined)
 	}
@@ -270,7 +276,7 @@ func TestMetadataRangeAndLegacyFallbackPlansUseProductionMigrationIndexes(t *tes
 		To(time.Date(2026, 7, 25, 0, 0, 3, 0, time.UTC)).
 		Build()
 	query, args := scopedRecentEventMetadataQuery(criteria, 0, from, to, 25, 0)
-	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, query, args...), "idx_events_workspace_created_at_norm_id_desc")
+	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, query, args...), "idx_event_metadata_workspace_created_at_norm_id_desc")
 
 	legacyQuery := metadataPageQuery(
 		metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, from, to),
@@ -279,7 +285,7 @@ func TestMetadataRangeAndLegacyFallbackPlansUseProductionMigrationIndexes(t *tes
 	legacyArgs := metadataSourceHookLegacyQueryArgs(
 		"subagent_stop", "", "", "", "", "", 0, from, to, apptypes.EventPageAnchor{}, 25, 0,
 	)
-	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, legacyQuery, legacyArgs...), "idx_events_created_at_norm_id_desc")
+	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, legacyQuery, legacyArgs...), "idx_event_metadata_created_at_norm_id_desc")
 }
 
 func assertPlanUsesOrderedIndex(t *testing.T, plan []string, index string) {
@@ -402,20 +408,19 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		b.Fatalf("sql.Open() error = %v", err)
 	}
 	b.Cleanup(func() { _ = db.Close() })
-	payload := strings.Repeat("x", bodyBytes)
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		b.Fatalf("BeginTx() error = %v", err)
 	}
 	statement, err := tx.PrepareContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, body_availability)
-		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', ?, ?, 'available')`)
+		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', zeroblob(?), ?, 'unavailable_retention')`)
 	if err != nil {
 		_ = tx.Rollback()
 		b.Fatalf("PrepareContext() error = %v", err)
 	}
 	base := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < eventCount; i++ {
-		if _, err := statement.ExecContext(ctx, fmt.Sprintf("large-event-%03d", i), payload, base.Add(time.Duration(i)*time.Millisecond).Format(time.RFC3339Nano)); err != nil {
+		if _, err := statement.ExecContext(ctx, fmt.Sprintf("large-event-%03d", i), bodyBytes, base.Add(time.Duration(i)*time.Millisecond).Format(time.RFC3339Nano)); err != nil {
 			_ = statement.Close()
 			_ = tx.Rollback()
 			b.Fatalf("insert fixture %d: %v", i, err)
@@ -430,7 +435,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	if _, err := db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		b.Fatalf("checkpoint large fixture: %v", err)
 	}
-	var pageCount, pageSize, storedEvents, storedBodyBytes, missingStoredBodyBytes int64
+	var pageCount, pageSize, storedEvents, storedBodyBytes, missingStoredBodyBytes, projectionRows int64
 	if err := db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
 		b.Fatalf("read page_count: %v", err)
 	}
@@ -442,20 +447,28 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		FROM events`).Scan(&storedEvents, &storedBodyBytes, &missingStoredBodyBytes); err != nil {
 		b.Fatalf("verify large fixture: %v", err)
 	}
-	if pageCount*pageSize < minimumDBBytes || storedEvents != eventCount || missingStoredBodyBytes != 0 || storedBodyBytes < minimumDBBytes {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_metadata_projection`).Scan(&projectionRows); err != nil {
+		b.Fatalf("verify metadata projection extent: %v", err)
+	}
+	if pageCount*pageSize < minimumDBBytes ||
+		storedEvents != eventCount ||
+		projectionRows != storedEvents ||
+		missingStoredBodyBytes != 0 ||
+		storedBodyBytes < minimumDBBytes {
 		b.Fatalf("large fixture verification failed: page_count=%d page_size=%d managed_bytes=%d events=%d stored_body_bytes=%d missing_stored_body_bytes=%d", pageCount, pageSize, pageCount*pageSize, storedEvents, storedBodyBytes, missingStoredBodyBytes)
 	}
-	b.ReportMetric(float64(pageCount*pageSize), "managed_bytes")
-	b.ReportMetric(float64(storedEvents), "events")
-	b.ReportMetric(float64(storedEvents-missingStoredBodyBytes), "non_null_body_metadata")
-	b.ReportMetric(float64(storedBodyBytes), "stored_body_bytes")
-
 	criteria := apptypes.NewEventListCriteriaBuilder(50).
 		Workspace(types.Workspace("repo-current")).
 		From(base).
 		To(base.Add(time.Second)).
 		Build()
 	query, args := scopedRecentEventMetadataQuery(criteria, 0, formatMetadataOptionalTimestamp(criteria.From()), formatMetadataOptionalTimestamp(criteria.To()), criteria.Limit(), criteria.Offset())
+	plan := strings.Join(explainQueryPlan(b, db, query, args...), "\n")
+	if !strings.Contains(plan, "idx_event_metadata_workspace_created_at_norm_id_desc") ||
+		strings.Contains(plan, "events") ||
+		strings.Contains(plan, "USE TEMP B-TREE") {
+		b.Fatal("multi-GiB metadata plan is not projection-only and index ordered")
+	}
 	durations := make([]time.Duration, 0, measurementRuns)
 	b.ResetTimer()
 	for range measurementRuns {
@@ -483,13 +496,21 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	b.StopTimer()
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p95 := durations[(len(durations)*95+99)/100-1]
+	b.ReportMetric(float64(pageCount*pageSize), "managed_bytes")
+	b.ReportMetric(float64(storedEvents), "events")
+	b.ReportMetric(float64(projectionRows), "projection_rows")
+	b.ReportMetric(float64(missingStoredBodyBytes), "missing_body_metadata")
+	b.ReportMetric(float64(storedBodyBytes), "stored_body_bytes")
+	b.ReportMetric(1, "projection_only")
+	b.ReportMetric(0, "returned_body_bytes")
+	b.ReportMetric(measurementRuns, "measurement_runs")
 	b.ReportMetric(float64(p95)/float64(time.Millisecond), "p95_ms")
 	if p95 >= 250*time.Millisecond {
 		b.Fatalf("multi-GiB direct range p95=%s, want < 250ms", p95)
 	}
 }
 
-func explainQueryPlan(t *testing.T, db *sql.DB, query string, args ...any) []string {
+func explainQueryPlan(t testing.TB, db *sql.DB, query string, args ...any) []string {
 	t.Helper()
 	rows, err := db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+query, args...)
 	if err != nil {

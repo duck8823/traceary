@@ -23,18 +23,16 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
  WHERE e.id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
  ORDER BY e.created_at_norm DESC, e.id DESC`
 
-// This result projection intentionally contains no e.body reference. Candidate
-// selection is shared with full search, but metadata hydration cannot
-// accidentally materialize stored event bodies.
+// Candidate selection is shared with full search, but metadata hydration uses
+// the persistent projection so it cannot open body-bearing event rows.
 const hydrateEventSearchMetadataCandidatesQuery = `
 SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
        e.source_hook, e.created_at,
        e.body_original_bytes, e.body_stored_bytes,
        e.body_ingest_truncated, e.body_storage_truncated,
        e.body_metadata_version,
-       a.event_id, a.exit_code, a.failed
-  FROM events e
-  LEFT JOIN command_audits a ON a.event_id = e.id
+       e.command_audit_event_id, e.command_exit_code, e.command_failed
+  FROM event_metadata_projection e
  WHERE e.id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
  ORDER BY e.created_at_norm DESC, e.id DESC`
 

@@ -49,6 +49,42 @@ func TestMetadataQueries_DoNotSelectBodyColumns(t *testing.T) {
 	}
 }
 
+func TestMetadataListAndContextQueriesUsePersistentProjection(t *testing.T) {
+	t.Parallel()
+
+	queries := map[string]string{
+		"latest":                    selectLatestEventMetadataFastQuery,
+		"latest workspace":          selectLatestEventMetadataFastByWorkspaceQuery,
+		"latest timestamp kind":     selectLatestEventTimestampKindQuery,
+		"latest workspace kind":     selectLatestEventTimestampKindByWorkspaceQuery,
+		"recent":                    selectRecentEventMetadataQuery,
+		"recent workspace":          selectRecentEventMetadataByWorkspaceQuery,
+		"recent session":            selectRecentEventMetadataBySessionQuery,
+		"recent workspace session":  selectRecentEventMetadataByWorkspaceSessionQuery,
+		"recent source hook":        selectRecentEventMetadataBySourceHookQuery,
+		"recent legacy hook":        selectRecentEventMetadataBySourceHookWithLegacyQuery,
+		"context":                   getContextEventMetadataQuery,
+		"context workspace":         getContextEventMetadataByWorkspaceQuery,
+		"context session":           getContextEventMetadataBySessionQuery,
+		"context workspace session": getContextEventMetadataByWorkspaceSessionQuery,
+	}
+	for name, query := range queries {
+		name, query := name, query
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			normalized := strings.Join(strings.Fields(strings.ToLower(query)), " ")
+			if !strings.Contains(normalized, "event_metadata_projection") {
+				t.Fatalf("metadata query does not use persistent projection: %s", normalized)
+			}
+			for _, forbidden := range []string{" from events ", " join events "} {
+				if strings.Contains(" "+normalized+" ", forbidden) {
+					t.Fatalf("metadata query opens body-bearing events table: %s", normalized)
+				}
+			}
+		})
+	}
+}
+
 func TestMetadataPageQueriesRenderCompositeAnchorWithoutSentinelOrOffset(t *testing.T) {
 	t.Parallel()
 

@@ -18,7 +18,11 @@ func TestEventBoundedQuery_ReturnsSmallPrefixFromLargeStoredBody(t *testing.T) {
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 32))
+	sut, store := newEventDatasource(
+		t,
+		dbPath,
+		migrationsInRangeExcluding(t, onDiskSQLiteMigrationDir(t), 1, 34, 32),
+	)
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -102,7 +106,11 @@ func TestEventBoundedQuery_MatchesCanonicalVisibleTextProjection(t *testing.T) {
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 32))
+	sut, store := newEventDatasource(
+		t,
+		dbPath,
+		migrationsInRangeExcluding(t, onDiskSQLiteMigrationDir(t), 1, 34, 32),
+	)
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -254,7 +262,11 @@ func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 32))
+	sut, store := newEventDatasource(
+		t,
+		dbPath,
+		migrationsInRangeExcluding(t, onDiskSQLiteMigrationDir(t), 1, 34, 32),
+	)
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
