@@ -115,6 +115,11 @@ func TestListEvents_MetadataProjectionOmitsBodyAndFullQuery(t *testing.T) {
 	if document.Events[0]["body_stored_bytes"] != float64(8*1024*1024) {
 		t.Fatalf("metadata output = %s", encoded)
 	}
+	if document.Events[0]["body_original_bytes"] != float64(9*1024*1024) ||
+		document.Events[0]["body_ingest_truncated"] != true ||
+		document.Events[0]["body_storage_truncated"] != false {
+		t.Fatalf("metadata extent output = %s", encoded)
+	}
 }
 
 func TestSearchAndContext_MetadataProjectionUseBodyFreeQueries(t *testing.T) {
@@ -489,7 +494,13 @@ func (s *projectionBoundedUsecaseStub) Context(
 
 func newMCPMetadataFixture(t *testing.T) apptypes.EventMetadata {
 	t.Helper()
-	extent, err := apptypes.EventBodyExtentOf(types.None[int](), 8*1024*1024, types.None[bool](), types.None[bool](), types.None[int]())
+	extent, err := apptypes.EventBodyExtentOf(
+		types.Some(9*1024*1024),
+		8*1024*1024,
+		types.Some(true),
+		types.Some(false),
+		types.None[int](),
+	)
 	if err != nil {
 		t.Fatalf("EventBodyExtentOf() error = %v", err)
 	}
