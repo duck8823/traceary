@@ -456,6 +456,16 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		To(base.Add(time.Second)).
 		Build()
 	query, args := scopedRecentEventMetadataQuery(criteria, 0, formatMetadataOptionalTimestamp(criteria.From()), formatMetadataOptionalTimestamp(criteria.To()), criteria.Limit(), criteria.Offset())
+	plan := strings.Join(explainQueryPlan(b, db, query, args...), "\n")
+	orderedIndex := strings.Contains(plan, "idx_events_workspace_created_at_norm_id_desc") &&
+		!strings.Contains(plan, "USE TEMP B-TREE")
+	coveringIndex := strings.Contains(
+		plan,
+		"USING COVERING INDEX idx_events_workspace_created_at_norm_id_desc",
+	)
+	if !orderedIndex {
+		b.Fatal("multi-GiB metadata query lost its ordered direct-range index")
+	}
 	durations := make([]time.Duration, 0, measurementRuns)
 	b.ResetTimer()
 	for range measurementRuns {
@@ -490,6 +500,8 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		StoredBodyBytes     int64   `json:"stored_body_bytes"`
 		Events              int64   `json:"events"`
 		MissingBodyMetadata int64   `json:"missing_body_metadata"`
+		OrderedIndex        bool    `json:"ordered_index"`
+		CoveringIndex       bool    `json:"covering_index"`
 		Runs                int     `json:"runs"`
 		P95MS               float64 `json:"p95_ms"`
 		TargetP95MS         float64 `json:"target_p95_ms"`
@@ -499,6 +511,8 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		StoredBodyBytes:     storedBodyBytes,
 		Events:              storedEvents,
 		MissingBodyMetadata: missingStoredBodyBytes,
+		OrderedIndex:        orderedIndex,
+		CoveringIndex:       coveringIndex,
 		Runs:                measurementRuns,
 		P95MS:               float64(p95) / float64(time.Millisecond),
 		TargetP95MS:         250,
@@ -513,7 +527,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	}
 }
 
-func explainQueryPlan(t *testing.T, db *sql.DB, query string, args ...any) []string {
+func explainQueryPlan(t testing.TB, db *sql.DB, query string, args ...any) []string {
 	t.Helper()
 	rows, err := db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+query, args...)
 	if err != nil {

@@ -101,6 +101,21 @@ func TestValidateBodyFreeEvidence_RejectsMetadataBodyBytesAndPhaseCGatesNoLatenc
 	}
 }
 
+func TestValidateBodyFreeEvidence_RequiresOrderedIndexButOnlyObservesCoveringIndex(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.PhaseA.CoveringIndex = false
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("non-covering Phase-A plan unexpectedly failed validation: %v", err)
+	}
+
+	evidence.PhaseA.OrderedIndex = false
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-A plan without its ordered index unexpectedly passed")
+	}
+}
+
 func TestValidateBodyFreeEvidence_ValidatesPresentPhasesInBlockedArtifact(t *testing.T) {
 	t.Parallel()
 
@@ -288,11 +303,12 @@ func validBodyFreeEvidenceFixture() BodyFreeEvidence {
 		},
 		PhaseA: &bodyFreeEvidencePhaseA{
 			ManagedBytes: 2 << 30, StoredBodyBytes: 2 << 30,
-			Events: 8, MissingBodyMetadata: 0, Runs: 25,
+			Events: 8, MissingBodyMetadata: 0,
+			OrderedIndex: true, CoveringIndex: true, Runs: 25,
 			P95MS: 1.5, TargetP95MS: 250, Passed: true,
 		},
 		PhaseB: &bodyFreeEvidencePhaseB{
-			SourceManagedBytes: 2 << 30, ScratchPeakBytes: 4 << 30,
+			SourceManagedBytes: 2 << 30, ScratchBytesAfterCheckpoint: 4 << 30,
 			Events: 130, MigrationMS: 25, ResumeBackfillMS: 2,
 			Migrations31And32: true, IntegrityOK: true, ForeignKeyViolations: 0,
 			SourceUnchanged: true, InitialFTSDocuments: 128, InitialFTSComplete: false,

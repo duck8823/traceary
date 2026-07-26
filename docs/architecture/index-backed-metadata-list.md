@@ -75,18 +75,37 @@ TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \
   -bench BenchmarkMetadataDirectRangeMultiGiB -benchtime=1x
 ```
 
-Successful benchmark output reports `managed_bytes`, `events`,
-`non_null_body_metadata`, `stored_body_bytes`, and `p95_ms`; attach those
-values to #1558 with the host environment. Its p95 goal is below 250 ms. A
-2026-07-25 attempt in this constrained runner
-reached benchmark setup but was terminated before fixture completion, so it has
-no valid multi-GiB p95 to report. The runner had 7.8 GiB free but does not allow
-the required long-lived benchmark process; release QA must run the command on a
-host that permits it and record the p95 before release. The command creates its
-artifact only in the Go test temporary directory and deletes it afterwards; no
-large fixture is committed or run by CI. The direct-range plan assertion is the
-primary full-scan regression guard, while the 10k smoke threshold detects local
-latency regressions.
+Benchmark output reports `managed_bytes`, `events`,
+`missing_body_metadata`, `stored_body_bytes`, `ordered_index`,
+`covering_index`, and `p95_ms`; attach those values to #1558 with the host
+environment. Its p95 goal is below 250 ms.
+
+The 2026-07-26 release-evidence run used Go 1.26.3 on darwin/arm64. It verified
+2,418,733,056 managed bytes, 2,147,483,648 stored-body bytes, eight events, zero
+missing metadata rows, and the expected ordered direct-range index. The index
+was not covering, and the canonical 25-run p95 was **4,159.414709 ms**, so
+release remains blocked. An earlier production-schema run measured 605.756875
+ms, showing that host I/O conditions affect the magnitude. The measurement
+excludes setup and plan inspection.
+
+SQLite stores `events.body` before most selected metadata columns in its table
+record. The ordered index finds the correct rows without sorting. The record
+layout, SQLite's documented [table-lookup][sqlite-query-planner] and
+[linked overflow-page][sqlite-file-format] mechanics, and the controlled result
+together support the inference that its table lookup follows each large body's
+overflow chain to restore columns after `body`. A diagnostic-only temporary
+covering index reduced the identical query to p95 **0.088750 ms**. That
+diagnostic is not release evidence and was not added to the production schema
+because rebuilding wider indexes on existing stores needs a separate
+migration-capacity and rollback decision.
+
+The command creates its large artifact only in the Go test temporary directory
+and deletes it afterwards; no fixture is committed or run by CI. The
+direct-range plan assertion remains the primary full-scan regression guard,
+while the 10k smoke threshold detects local latency regressions.
+
+[sqlite-query-planner]: https://www.sqlite.org/queryplanner.html
+[sqlite-file-format]: https://www.sqlite.org/fileformat.html
 
 ### Rollback and residual risk
 
