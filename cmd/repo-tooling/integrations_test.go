@@ -56,6 +56,55 @@ func TestValidateSessionHistorySkillContract_RejectsMissingDiscoveryMetadata(t *
 	}
 }
 
+func TestValidateSessionHistorySkillContract_AcceptsEquivalentContractWording(t *testing.T) {
+	t.Parallel()
+
+	body := `
+### 1. Discovery
+Use list_events for the workspace with projection="metadata" and a limit of 5.
+Search cannot filter by session_id; only list_events and get_context support it.
+
+### 2. Inspection
+Example tool: get_context.
+Use a positive body_limit between 300 and 500 runes.
+Get_context does not accept event_id and narrows only with workspace, session_id, and limit.
+
+### 3. Detail
+For a single event, run traceary show <event-id>.
+
+## Preferred tools
+`
+	if err := validateSessionHistorySkillContract("skill", body); err != nil {
+		t.Fatalf("validateSessionHistorySkillContract() error = %v, want nil for equivalent wording", err)
+	}
+}
+
+func TestValidateSessionHistorySkillContract_RejectsMissingGetContextScope(t *testing.T) {
+	t.Parallel()
+
+	body := `
+### 1. Discovery
+Use list_events for the workspace with projection="metadata" and a limit of 5.
+Search cannot filter by session_id; only list_events and get_context support it.
+
+### 2. Inspection
+Example tool: get_context.
+Use a positive body_limit between 300 and 500 runes.
+
+### 3. Detail
+For one event, run traceary show <event-id>.
+
+## Preferred tools
+`
+	err := validateSessionHistorySkillContract("skill", body)
+	if err == nil {
+		t.Fatal("validateSessionHistorySkillContract() error = nil, want missing get_context scope error")
+	}
+	if !strings.Contains(err.Error(), "get_context lacking event_id") {
+		t.Fatalf("error = %v, want get_context scope concept", err)
+	}
+}
+
 func TestValidateMemoryReviewRecapContract_RejectsBareContextGuidance(t *testing.T) {
 	t.Parallel()
 

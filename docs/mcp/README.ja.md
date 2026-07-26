@@ -37,18 +37,23 @@ Traceary が公開する MCP tool は 9 個で、golden snapshot `presentation/m
 
 過去の session、event、command audit を調査するときは、次の順序で読み取ります。
 
-1. **Discovery:** 現在の `workspace` から始め、分かっている `from` / `to`
-   または `session_id` filter を追加します。`list_events`（または絞り込んだ
-   literal `search`）を `projection="metadata"` と `5` 程度の小さい `limit`
-   で呼びます。これにより、event body を読まずに candidate ID と metadata を
-   取得できます。
-2. **Inspection:** 選んだ filter を維持し、文脈が必要な candidate だけを
-   `300`–`500` 程度の正の `body_limit` で確認します。`get_context` は event
-   または同等に狭い scope を選んだ後にだけ使います。広い範囲の最初の read には
-   使いません。
+1. **Discovery:** 現在の `workspace` から始めます。`list_events` では、
+   分かっている `from` / `to` または `session_id` filter を追加し、
+   `projection="metadata"` と `5` 程度の小さい `limit` を使います。絞り込んだ
+   literal `search` には workspace と time filter を使えますが、
+   `session_id` input はありません。session filter を使えるのは
+   `list_events` と `get_context` だけです。これにより、event body を読まずに
+   candidate ID と metadata を取得できます。
+2. **Inspection:** `list_events` または `search` を、各 tool が対応する
+   Discovery filter と `300`–`500` 程度の正の `body_limit` で再実行します。
+   `get_context` は上限付きの周辺 context を読む場合だけ使います。
+   `event_id`、kind、time-range filter はないため、対象 event を絞る入力は
+   `workspace`、`session_id`、`limit` だけです。選んだ event ID を直接取得する
+   tool ではなく、広い範囲の最初の read にも使いません。
 3. **Detail:** 保存済み body の全文は、調査理由を明示して 1 件の event を
    選んだ場合だけ取得します。明示的な CLI detail path である
-   `traceary show <event-id>` を優先します。広い history query に対して
+   `traceary show <event-id>` を優先します。MCP の history read tool には
+   `event_id` input がないためです。広い history query に対して
    `full_body=true` や `body_limit=0` から始めてはいけません。
 
 session recap でも同じ順序を使います。metadata を発見してから選んだ context を

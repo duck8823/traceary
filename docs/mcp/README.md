@@ -37,18 +37,24 @@ Traceary exposes 9 MCP tools, enforced by a golden snapshot (`presentation/mcpse
 
 Use a staged read when investigating prior sessions, events, or command audits:
 
-1. **Discovery:** start with the current `workspace` and add known `from` / `to`
-   or `session_id` filters. Call `list_events` (or a narrow literal `search`)
-   with `projection="metadata"` and a small `limit` such as `5`. This returns
-   candidate IDs and metadata without reading event bodies.
-2. **Inspection:** keep the selected filters and inspect only the candidates
-   that need context with a positive `body_limit` of roughly `300`–`500`.
-   `get_context` belongs here only after an event or equivalently narrow scope
-   is selected; it is not a broad first read.
+1. **Discovery:** start with the current `workspace`. For `list_events`, add
+   known `from` / `to` or `session_id` filters, then use
+   `projection="metadata"` and a small `limit` such as `5`. A narrow literal
+   `search` can use workspace and time filters, but it has no `session_id`
+   input; session filtering is available only through `list_events` and
+   `get_context`. This returns candidate IDs and metadata without reading event
+   bodies.
+2. **Inspection:** repeat `list_events` or `search` with only its supported
+   Discovery filters and a positive `body_limit` of roughly `300`–`500`.
+   Use `get_context` only for bounded surrounding context: it has no `event_id`,
+   kind, or time-range filter, so it can narrow the matched events only by
+   `workspace`, `session_id`, and `limit`. It cannot retrieve a selected event
+   ID directly and is not a broad first read.
 3. **Detail:** retrieve a full stored body only for one selected event and a
    stated investigation reason. Prefer `traceary show <event-id>` for this
-   explicit CLI detail path. Do not begin with `full_body=true` or
-   `body_limit=0` across a broad history query.
+   explicit CLI detail path because no MCP history-read tool accepts
+   `event_id`. Do not begin with `full_body=true` or `body_limit=0` across a
+   broad history query.
 
 The same order applies when composing a session recap: discover metadata first,
 inspect selected context second, and retrieve detail only when the recap cannot

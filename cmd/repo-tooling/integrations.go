@@ -278,41 +278,144 @@ func checkSharedSkillSemanticContracts(root string) error {
 }
 
 func validateSessionHistorySkillContract(rel, body string) error {
-	for _, required := range []string{
-		"### 1. Discovery",
-		"projection=\"metadata\"",
-		"\"limit\": 5",
-		"workspace",
-		"time range",
-		"session_id",
-		"### 2. Inspection",
-		"positive `body_limit`",
-		"`300`–`500`",
-		"### 3. Detail",
-		"single event",
-		"traceary show <event-id>",
+	discovery, err := markdownContractSection(rel, body, "### 1. Discovery", "### 2. Inspection")
+	if err != nil {
+		return err
+	}
+	inspection, err := markdownContractSection(rel, body, "### 2. Inspection", "### 3. Detail")
+	if err != nil {
+		return err
+	}
+	detail, err := markdownContractSection(rel, body, "### 3. Detail", "## Preferred tools")
+	if err != nil {
+		return err
+	}
+
+	for _, requirement := range []struct {
+		section  string
+		body     string
+		concept  string
+		variants [][]string
+	}{
+		{
+			section: "Discovery",
+			body:    discovery,
+			concept: "a workspace-scoped metadata-only list_events query with a small limit",
+			variants: [][]string{
+				{"list_events", "workspace", `projection="metadata"`, "limit", "5"},
+			},
+		},
+		{
+			section: "Discovery",
+			body:    discovery,
+			concept: "search rejecting session_id while list_events and get_context support it",
+			variants: [][]string{
+				{"search", "does not accept", "session_id", "only", "list_events", "get_context"},
+				{"search", "has no", "session_id", "only", "list_events", "get_context"},
+				{"search", "cannot", "session_id", "only", "list_events", "get_context"},
+			},
+		},
+		{
+			section: "Inspection",
+			body:    inspection,
+			concept: "an explicitly named get_context example",
+			variants: [][]string{
+				{"example", "get_context"},
+			},
+		},
+		{
+			section: "Inspection",
+			body:    inspection,
+			concept: "a positive bounded body_limit of approximately 300 to 500 runes",
+			variants: [][]string{
+				{"positive", "body_limit", "300", "500"},
+			},
+		},
+		{
+			section: "Inspection",
+			body:    inspection,
+			concept: "get_context lacking event_id and narrowing only by workspace, session_id, and limit",
+			variants: [][]string{
+				{"get_context", "has no", "event_id", "only", "workspace", "session_id", "limit"},
+				{"get_context", "does not accept", "event_id", "only", "workspace", "session_id", "limit"},
+				{"get_context", "cannot target", "event_id", "only", "workspace", "session_id", "limit"},
+			},
+		},
+		{
+			section: "Detail",
+			body:    detail,
+			concept: "explicit CLI detail retrieval for one selected event",
+			variants: [][]string{
+				{"one event", "traceary show <event-id>"},
+				{"single event", "traceary show <event-id>"},
+			},
+		},
 	} {
-		if !strings.Contains(body, required) {
-			return xerrors.Errorf("%s must include staged retrieval contract marker %q", rel, required)
+		if err := requireSemanticConcept(rel, requirement.section, requirement.body, requirement.concept, requirement.variants...); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 func validateMemoryReviewRecapContract(rel, body string) error {
-	for _, required := range []string{
-		"traceary-session-history",
-		"Discovery → Inspection → Detail",
-		"bare `get_context`",
-	} {
-		if !strings.Contains(body, required) {
-			return xerrors.Errorf("%s must include recap retrieval contract marker %q", rel, required)
-		}
+	if err := requireSemanticConcept(
+		rel,
+		"session recap",
+		body,
+		"the traceary-session-history staged workflow",
+		[]string{"traceary-session-history", "discovery", "inspection", "detail"},
+	); err != nil {
+		return err
+	}
+	if err := requireSemanticConcept(
+		rel,
+		"session recap",
+		body,
+		"an explicit prohibition on a bare get_context starting read",
+		[]string{"bare", "get_context", "not"},
+		[]string{"bare", "get_context", "do not"},
+	); err != nil {
+		return err
 	}
 	if strings.Contains(body, "events visible via `get_context` / `query_memory(pack)`") {
 		return xerrors.Errorf("%s must not recommend a bare get_context recap read", rel)
 	}
 	return nil
+}
+
+func markdownContractSection(rel, body, heading, nextHeading string) (string, error) {
+	start := strings.Index(body, heading)
+	if start < 0 {
+		return "", xerrors.Errorf("%s must include %s", rel, heading)
+	}
+	start += len(heading)
+	endOffset := strings.Index(body[start:], nextHeading)
+	if endOffset < 0 {
+		return "", xerrors.Errorf("%s must place %s after %s", rel, nextHeading, heading)
+	}
+	return body[start : start+endOffset], nil
+}
+
+// requireSemanticConcept checks a small set of wording variants for one
+// contract concept. This keeps the validator tied to the safety behavior rather
+// than one exact sentence while deliberately avoiding a general Markdown/NLP
+// parser for six byte-identical copies.
+func requireSemanticConcept(rel, section, body, concept string, variants ...[]string) error {
+	normalized := strings.ToLower(body)
+	for _, variant := range variants {
+		matches := true
+		for _, term := range variant {
+			if !strings.Contains(normalized, strings.ToLower(term)) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return nil
+		}
+	}
+	return xerrors.Errorf("%s %s must express %s", rel, section, concept)
 }
 
 func checkGrok(root, version string) error {
