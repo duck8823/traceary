@@ -27,19 +27,19 @@ const (
 )
 
 type v0330ReleaseEvidencePhaseB struct {
-	SourceManagedBytes   int64   `json:"source_managed_bytes"`
-	ScratchPeakBytes     int64   `json:"scratch_peak_bytes"`
-	Events               int64   `json:"events"`
-	MigrationMS          float64 `json:"migration_ms"`
-	ResumeBackfillMS     float64 `json:"resume_backfill_ms"`
-	Migrations31And32    bool    `json:"migrations_31_32_applied"`
-	IntegrityOK          bool    `json:"integrity_ok"`
-	ForeignKeyViolations int64   `json:"foreign_key_violations"`
-	SourceUnchanged      bool    `json:"source_unchanged"`
-	InitialFTSDocuments  int64   `json:"initial_fts_documents"`
-	InitialFTSComplete   bool    `json:"initial_fts_complete"`
-	FinalFTSDocuments    int64   `json:"final_fts_documents"`
-	FinalFTSComplete     bool    `json:"final_fts_complete"`
+	SourceManagedBytes          int64   `json:"source_managed_bytes"`
+	ScratchBytesAfterCheckpoint int64   `json:"scratch_bytes_after_checkpoint"`
+	Events                      int64   `json:"events"`
+	MigrationMS                 float64 `json:"migration_ms"`
+	ResumeBackfillMS            float64 `json:"resume_backfill_ms"`
+	Migrations31And32           bool    `json:"migrations_31_32_applied"`
+	IntegrityOK                 bool    `json:"integrity_ok"`
+	ForeignKeyViolations        int64   `json:"foreign_key_violations"`
+	SourceUnchanged             bool    `json:"source_unchanged"`
+	InitialFTSDocuments         int64   `json:"initial_fts_documents"`
+	InitialFTSComplete          bool    `json:"initial_fts_complete"`
+	FinalFTSDocuments           int64   `json:"final_fts_documents"`
+	FinalFTSComplete            bool    `json:"final_fts_complete"`
 }
 
 type v0330ReleaseEvidenceProbe struct {
@@ -279,26 +279,26 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 	if err != nil {
 		b.Fatalf("digest source after copy migration: %v", err)
 	}
-	scratchPeakBytes, err := v0330ReleaseEvidenceDirectoryBytes(root)
+	scratchBytesAfterCheckpoint, err := v0330ReleaseEvidenceDirectoryBytes(root)
 	if err != nil {
 		b.Fatalf("inspect scratch extent: %v", err)
 	}
 
 	evidence := v0330ReleaseEvidencePhaseBC{
 		PhaseB: v0330ReleaseEvidencePhaseB{
-			SourceManagedBytes:   sourceManagedBytes,
-			ScratchPeakBytes:     scratchPeakBytes,
-			Events:               sourceEvents,
-			MigrationMS:          float64(migrationElapsed) / float64(time.Millisecond),
-			ResumeBackfillMS:     float64(resumeElapsed) / float64(time.Millisecond),
-			Migrations31And32:    migrations31And32,
-			IntegrityOK:          integrityOK,
-			ForeignKeyViolations: foreignKeyViolations,
-			SourceUnchanged:      sourceDigestBefore == sourceDigestAfter,
-			InitialFTSDocuments:  initialDocuments,
-			InitialFTSComplete:   initialComplete,
-			FinalFTSDocuments:    finalDocuments,
-			FinalFTSComplete:     finalComplete,
+			SourceManagedBytes:          sourceManagedBytes,
+			ScratchBytesAfterCheckpoint: scratchBytesAfterCheckpoint,
+			Events:                      sourceEvents,
+			MigrationMS:                 float64(migrationElapsed) / float64(time.Millisecond),
+			ResumeBackfillMS:            float64(resumeElapsed) / float64(time.Millisecond),
+			Migrations31And32:           migrations31And32,
+			IntegrityOK:                 integrityOK,
+			ForeignKeyViolations:        foreignKeyViolations,
+			SourceUnchanged:             sourceDigestBefore == sourceDigestAfter,
+			InitialFTSDocuments:         initialDocuments,
+			InitialFTSComplete:          initialComplete,
+			FinalFTSDocuments:           finalDocuments,
+			FinalFTSComplete:            finalComplete,
 		},
 		PhaseC: probes,
 	}
@@ -313,7 +313,7 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		b.Fatalf("marshal Phase-B/C evidence: %v", err)
 	}
 	b.ReportMetric(float64(sourceManagedBytes), "source_managed_bytes")
-	b.ReportMetric(float64(scratchPeakBytes), "scratch_peak_bytes")
+	b.ReportMetric(float64(scratchBytesAfterCheckpoint), "scratch_bytes_after_checkpoint")
 	b.ReportMetric(float64(migrationElapsed)/float64(time.Millisecond), "migration_ms")
 	b.Logf("TRACEARY_PHASE_BC_EVIDENCE=%s", encoded)
 }

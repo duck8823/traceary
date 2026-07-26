@@ -465,9 +465,10 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		Build()
 	query, args := scopedRecentEventMetadataQuery(criteria, 0, formatMetadataOptionalTimestamp(criteria.From()), formatMetadataOptionalTimestamp(criteria.To()), criteria.Limit(), criteria.Offset())
 	plan := strings.Join(explainQueryPlan(b, db, query, args...), "\n")
-	if !strings.Contains(plan, "idx_event_metadata_workspace_created_at_norm_id_desc") ||
-		strings.Contains(plan, "events") ||
-		strings.Contains(plan, "USE TEMP B-TREE") {
+	projectionOnly := strings.Contains(plan, "idx_event_metadata_workspace_created_at_norm_id_desc") &&
+		!strings.Contains(plan, "events") &&
+		!strings.Contains(plan, "USE TEMP B-TREE")
+	if !projectionOnly {
 		b.Fatal("multi-GiB metadata plan is not projection-only and index ordered")
 	}
 	durations := make([]time.Duration, 0, measurementRuns)
@@ -511,7 +512,10 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		ManagedBytes        int64   `json:"managed_bytes"`
 		StoredBodyBytes     int64   `json:"stored_body_bytes"`
 		Events              int64   `json:"events"`
+		ProjectionRows      int64   `json:"projection_rows"`
 		MissingBodyMetadata int64   `json:"missing_body_metadata"`
+		ProjectionOnly      bool    `json:"projection_only"`
+		ReturnedBodyBytes   int64   `json:"returned_body_bytes"`
 		Runs                int     `json:"runs"`
 		P95MS               float64 `json:"p95_ms"`
 		TargetP95MS         float64 `json:"target_p95_ms"`
@@ -520,7 +524,10 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		ManagedBytes:        pageCount * pageSize,
 		StoredBodyBytes:     storedBodyBytes,
 		Events:              storedEvents,
+		ProjectionRows:      projectionRows,
 		MissingBodyMetadata: missingStoredBodyBytes,
+		ProjectionOnly:      projectionOnly,
+		ReturnedBodyBytes:   0,
 		Runs:                measurementRuns,
 		P95MS:               float64(p95) / float64(time.Millisecond),
 		TargetP95MS:         250,

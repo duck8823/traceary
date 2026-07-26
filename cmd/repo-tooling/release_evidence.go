@@ -67,6 +67,8 @@ type bodyFreeEvidencePhaseA struct {
 	StoredBodyBytes     int64   `json:"stored_body_bytes"`
 	Events              int64   `json:"events"`
 	MissingBodyMetadata int64   `json:"missing_body_metadata"`
+	OrderedIndex        bool    `json:"ordered_index"`
+	CoveringIndex       bool    `json:"covering_index"`
 	Runs                int     `json:"runs"`
 	P95MS               float64 `json:"p95_ms"`
 	TargetP95MS         float64 `json:"target_p95_ms"`
@@ -74,19 +76,19 @@ type bodyFreeEvidencePhaseA struct {
 }
 
 type bodyFreeEvidencePhaseB struct {
-	SourceManagedBytes   int64   `json:"source_managed_bytes"`
-	ScratchPeakBytes     int64   `json:"scratch_peak_bytes"`
-	Events               int64   `json:"events"`
-	MigrationMS          float64 `json:"migration_ms"`
-	ResumeBackfillMS     float64 `json:"resume_backfill_ms"`
-	Migrations31And32    bool    `json:"migrations_31_32_applied"`
-	IntegrityOK          bool    `json:"integrity_ok"`
-	ForeignKeyViolations int64   `json:"foreign_key_violations"`
-	SourceUnchanged      bool    `json:"source_unchanged"`
-	InitialFTSDocuments  int64   `json:"initial_fts_documents"`
-	InitialFTSComplete   bool    `json:"initial_fts_complete"`
-	FinalFTSDocuments    int64   `json:"final_fts_documents"`
-	FinalFTSComplete     bool    `json:"final_fts_complete"`
+	SourceManagedBytes          int64   `json:"source_managed_bytes"`
+	ScratchBytesAfterCheckpoint int64   `json:"scratch_bytes_after_checkpoint"`
+	Events                      int64   `json:"events"`
+	MigrationMS                 float64 `json:"migration_ms"`
+	ResumeBackfillMS            float64 `json:"resume_backfill_ms"`
+	Migrations31And32           bool    `json:"migrations_31_32_applied"`
+	IntegrityOK                 bool    `json:"integrity_ok"`
+	ForeignKeyViolations        int64   `json:"foreign_key_violations"`
+	SourceUnchanged             bool    `json:"source_unchanged"`
+	InitialFTSDocuments         int64   `json:"initial_fts_documents"`
+	InitialFTSComplete          bool    `json:"initial_fts_complete"`
+	FinalFTSDocuments           int64   `json:"final_fts_documents"`
+	FinalFTSComplete            bool    `json:"final_fts_complete"`
 }
 
 type bodyFreeEvidenceProbe struct {
@@ -631,6 +633,7 @@ func validBodyFreeEvidenceGOARCH(value string) bool {
 func validateBodyFreeEvidencePhaseA(phaseA bodyFreeEvidencePhaseA) error {
 	if phaseA.ManagedBytes < 2<<30 || phaseA.StoredBodyBytes < 2<<30 ||
 		phaseA.Events != 8 || phaseA.MissingBodyMetadata != 0 ||
+		!phaseA.OrderedIndex ||
 		phaseA.Runs != 25 || phaseA.TargetP95MS != 250 || phaseA.P95MS < 0 ||
 		phaseA.Passed != (phaseA.P95MS < phaseA.TargetP95MS) {
 		return xerrors.Errorf("body-free release evidence phase A is invalid")
@@ -639,7 +642,8 @@ func validateBodyFreeEvidencePhaseA(phaseA bodyFreeEvidencePhaseA) error {
 }
 
 func validateBodyFreeEvidencePhaseB(phaseB bodyFreeEvidencePhaseB) error {
-	if phaseB.SourceManagedBytes < 2<<30 || phaseB.ScratchPeakBytes < phaseB.SourceManagedBytes ||
+	if phaseB.SourceManagedBytes < 2<<30 ||
+		phaseB.ScratchBytesAfterCheckpoint < 2*phaseB.SourceManagedBytes ||
 		phaseB.Events != 130 || phaseB.MigrationMS < 0 || phaseB.ResumeBackfillMS < 0 ||
 		!phaseB.Migrations31And32 || !phaseB.IntegrityOK || phaseB.ForeignKeyViolations != 0 ||
 		!phaseB.SourceUnchanged || phaseB.InitialFTSDocuments != 128 || phaseB.InitialFTSComplete ||
