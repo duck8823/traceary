@@ -20,6 +20,14 @@ type EventBoundedUsecase interface {
 	Search(ctx context.Context, criteria apptypes.EventSearchCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 	// Context returns bounded visible text without canonical body-block fallback.
 	Context(ctx context.Context, criteria apptypes.EventContextCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
+	// HydrateList projects the exact metadata candidates selected by list_events
+	// and preserves its canonical body-block compatibility behavior.
+	HydrateList(ctx context.Context, metadata []apptypes.EventMetadata, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
+	// HydrateSearch projects the exact metadata candidates selected by search.
+	HydrateSearch(ctx context.Context, metadata []apptypes.EventMetadata, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
+	// HydrateContext projects the exact metadata candidates selected by
+	// get_context.
+	HydrateContext(ctx context.Context, metadata []apptypes.EventMetadata, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 }
 
 type eventBoundedUsecase struct {
@@ -45,6 +53,9 @@ func (u *eventBoundedUsecase) List(
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
@@ -53,6 +64,67 @@ func (u *eventBoundedUsecase) List(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list bounded events: %w", err)
 	}
+	return u.attachCanonicalBodyBlocks(ctx, events)
+}
+
+func (u *eventBoundedUsecase) HydrateList(
+	ctx context.Context,
+	metadata []apptypes.EventMetadata,
+	bodyRuneLimit int,
+) ([]apptypes.BoundedEvent, error) {
+	events, err := u.hydrateBounded(ctx, metadata, bodyRuneLimit)
+	if err != nil {
+		return nil, err
+	}
+	return u.attachCanonicalBodyBlocks(ctx, events)
+}
+
+func (u *eventBoundedUsecase) HydrateSearch(
+	ctx context.Context,
+	metadata []apptypes.EventMetadata,
+	bodyRuneLimit int,
+) ([]apptypes.BoundedEvent, error) {
+	return u.hydrateBounded(ctx, metadata, bodyRuneLimit)
+}
+
+func (u *eventBoundedUsecase) HydrateContext(
+	ctx context.Context,
+	metadata []apptypes.EventMetadata,
+	bodyRuneLimit int,
+) ([]apptypes.BoundedEvent, error) {
+	return u.hydrateBounded(ctx, metadata, bodyRuneLimit)
+}
+
+func (u *eventBoundedUsecase) hydrateBounded(
+	ctx context.Context,
+	metadata []apptypes.EventMetadata,
+	bodyRuneLimit int,
+) ([]apptypes.BoundedEvent, error) {
+	if err := validateBoundedRead(u.query, bodyRuneLimit); err != nil {
+		return nil, err
+	}
+	if len(metadata) == 0 {
+		return []apptypes.BoundedEvent{}, nil
+	}
+	events, err := u.query.HydrateBounded(ctx, metadata, bodyRuneLimit)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to hydrate bounded events: %w", err)
+	}
+	if len(events) != len(metadata) {
+		return nil, xerrors.Errorf("bounded hydration changed the selected event count")
+	}
+	for index := range metadata {
+		if events[index].Metadata().EventID() != metadata[index].EventID() {
+			return nil, xerrors.Errorf("bounded hydration changed the selected event order")
+		}
+	}
+	return events, nil
+}
+
+func (u *eventBoundedUsecase) attachCanonicalBodyBlocks(
+	ctx context.Context,
+	events []apptypes.BoundedEvent,
+) ([]apptypes.BoundedEvent, error) {
 	canonicalIDs := make([]types.EventID, 0)
 	for _, event := range events {
 		if event.BodyAvailability().IsAvailable() &&
@@ -107,6 +179,9 @@ func (u *eventBoundedUsecase) Search(
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
@@ -125,6 +200,7 @@ func (u *eventBoundedUsecase) Search(
 		To(criteria.To()).
 		Offset(criteria.Offset()).
 		FailuresOnly(criteria.FailuresOnly()).
+		PageAnchor(criteria.PageAnchor()).
 		Build()
 
 	events, err := u.query.SearchBounded(ctx, resolvedCriteria, bodyRuneLimit)
@@ -144,6 +220,12 @@ func (u *eventBoundedUsecase) Context(
 	}
 	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
 	}
 	events, err := u.query.GetContextBounded(ctx, criteria, bodyRuneLimit)
 	if err != nil {

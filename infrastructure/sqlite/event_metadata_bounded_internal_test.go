@@ -152,31 +152,31 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 	}{
 		{
 			name:      "general list with offset",
-			query:     selectRecentEventMetadataQuery,
+			query:     metadataPageQuery(selectRecentEventMetadataQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
 			wantIndex: "idx_events_created_at_norm_id_desc",
 		},
 		{
 			name:      "workspace list with offset",
-			query:     selectRecentEventMetadataByWorkspaceQuery,
+			query:     metadataPageQuery(selectRecentEventMetadataByWorkspaceQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"repo-current", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
 			wantIndex: "idx_events_workspace_created_at_norm_id_desc",
 		},
 		{
 			name:      "session list with offset",
-			query:     selectRecentEventMetadataBySessionQuery,
+			query:     metadataPageQuery(selectRecentEventMetadataBySessionQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"session-1", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
 			wantIndex: "idx_events_session_created_at_norm_id_desc",
 		},
 		{
 			name:      "workspace session context",
-			query:     getContextEventMetadataByWorkspaceSessionQuery,
-			args:      []any{"repo-current", "session-1", 25},
+			query:     metadataPageQuery(getContextEventMetadataByWorkspaceSessionQuery, apptypes.EventPageAnchor{}),
+			args:      []any{"repo-current", "session-1", "", "", 25, 0},
 			wantIndex: "idx_events_workspace_session_created_at_norm_id_desc",
 		},
 		{
 			name:      "source hook list with offset",
-			query:     selectRecentEventMetadataBySourceHookQuery,
+			query:     metadataPageQuery(selectRecentEventMetadataBySourceHookQuery, apptypes.EventPageAnchor{}),
 			args:      []any{"stop", "", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 25, 100},
 			wantIndex: "idx_events_source_hook_created_at_norm_id_desc",
 		},
@@ -192,6 +192,49 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 				t.Fatalf("query plan sorts metadata rows outside its ordering index:\n%s", joined)
 			}
 		})
+	}
+}
+
+func TestAnchoredMetadataPageQueryPlanUsesCompositeKeysetSeek(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	migrations := os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations"))
+	if err := NewStoreManagementDatasource(NewDatabase(dbPath, migrations)).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	anchor, err := apptypes.EventPageAnchorOf(
+		time.Date(2026, 7, 26, 1, 2, 3, 456789, time.UTC),
+		types.EventID("event-anchor"),
+	)
+	if err != nil {
+		t.Fatalf("EventPageAnchorOf() error = %v", err)
+	}
+	criteria := apptypes.NewEventListCriteriaBuilder(20).
+		Workspace(types.Workspace("repo-current")).
+		PageAnchor(anchor).
+		Build()
+	query, args := scopedRecentEventMetadataQuery(criteria, 0, "", "", criteria.Limit(), criteria.Offset())
+	normalizedQuery := strings.Join(strings.Fields(query), " ")
+	if !strings.Contains(normalizedQuery, metadataPageAnchorPredicate) {
+		t.Fatalf("anchored query does not contain composite keyset predicate:\n%s", normalizedQuery)
+	}
+	if strings.Contains(normalizedQuery, "OR (e.created_at_norm = ? AND e.id < ?)") ||
+		strings.Contains(normalizedQuery, "OFFSET") {
+		t.Fatalf("anchored query retained sentinel or offset paging:\n%s", normalizedQuery)
+	}
+
+	plan := explainQueryPlan(t, db, query, args...)
+	assertPlanUsesOrderedIndex(t, plan, "idx_events_workspace_created_at_norm_id_desc")
+	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "(created_at_norm,id)<(?,?)") {
+		t.Fatalf("anchored query plan does not use the composite keyset seek:\n%s", joined)
 	}
 }
 
@@ -229,9 +272,12 @@ func TestMetadataRangeAndLegacyFallbackPlansUseProductionMigrationIndexes(t *tes
 	query, args := scopedRecentEventMetadataQuery(criteria, 0, from, to, 25, 0)
 	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, query, args...), "idx_events_workspace_created_at_norm_id_desc")
 
-	legacyQuery := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, from, to)
+	legacyQuery := metadataPageQuery(
+		metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, from, to),
+		apptypes.EventPageAnchor{},
+	)
 	legacyArgs := metadataSourceHookLegacyQueryArgs(
-		"subagent_stop", "", "", "", "", "", 0, from, to, 25, 0,
+		"subagent_stop", "", "", "", "", "", 0, from, to, apptypes.EventPageAnchor{}, 25, 0,
 	)
 	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, legacyQuery, legacyArgs...), "idx_events_created_at_norm_id_desc")
 }

@@ -27,6 +27,7 @@ type EventListCriteria struct {
 	from         time.Time
 	to           time.Time
 	sourceHook   string
+	pageAnchor   EventPageAnchor
 }
 
 // Limit returns the maximum number of results to return.
@@ -64,6 +65,9 @@ func (c EventListCriteria) To() time.Time { return c.to }
 // hook runtime (e.g. "stop", "subagent_stop", "pre_compact"). Matching
 // includes a legacy body-prefix fallback while pre-#672 rows still exist.
 func (c EventListCriteria) SourceHook() string { return c.sourceHook }
+
+// PageAnchor returns the last event from the preceding descending page.
+func (c EventListCriteria) PageAnchor() EventPageAnchor { return c.pageAnchor }
 
 // EventListCriteriaBuilder builds an EventListCriteria value.
 type EventListCriteriaBuilder struct {
@@ -133,6 +137,12 @@ func (b *EventListCriteriaBuilder) To(to time.Time) *EventListCriteriaBuilder {
 // SourceHook sets the source-hook filter; empty string clears the filter.
 func (b *EventListCriteriaBuilder) SourceHook(sourceHook string) *EventListCriteriaBuilder {
 	b.criteria.sourceHook = sourceHook
+	return b
+}
+
+// PageAnchor resumes strictly after the supplied descending-order tuple.
+func (b *EventListCriteriaBuilder) PageAnchor(anchor EventPageAnchor) *EventListCriteriaBuilder {
+	b.criteria.pageAnchor = anchor
 	return b
 }
 

@@ -15,5 +15,6 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
    AND (? = 0 OR ca.failed = 1 OR (ca.exit_code IS NOT NULL AND ca.exit_code != 0))
    AND (? = '' OR e.created_at_norm >= ?)
    AND (? = '' OR e.created_at_norm < ?)
+   /* traceary:event-page-anchor */
  ORDER BY e.created_at_norm DESC, e.id DESC
  LIMIT ? OFFSET ?

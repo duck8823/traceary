@@ -198,8 +198,8 @@ func queryStructuralEventIDs(
 		  LEFT JOIN command_audits a ON a.event_id = e.id
 		 WHERE 1 = 1`)
 	args := appendEventSearchFilters(&builder, nil, criteria)
-	appendEventSearchOrderAndPage(&builder)
-	args = append(args, criteria.Limit(), criteria.Offset())
+	appendEventSearchOrderAndPage(&builder, criteria)
+	args = appendEventSearchPageArgs(args, criteria)
 	return collectEventSearchIDs(ctx, queryer, builder.String(), args, "structural event search")
 }
 
@@ -220,8 +220,8 @@ func queryLegacyEventIDs(
 	builder.WriteString(eventSearchLegacyContentPredicate)
 	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"
 	args = append(args, likeQuery, likeQuery, likeQuery, likeQuery)
-	appendEventSearchOrderAndPage(&builder)
-	args = append(args, criteria.Limit(), criteria.Offset())
+	appendEventSearchOrderAndPage(&builder, criteria)
+	args = appendEventSearchPageArgs(args, criteria)
 	return collectEventSearchIDs(ctx, queryer, builder.String(), args, "bounded legacy event search")
 }
 
@@ -250,8 +250,8 @@ func buildFTSEventIDsQuery(
 		 WHERE event_search_fts MATCH ?`)
 	args := []any{eventSearchFTSPhrase(queryValue)}
 	args = appendEventSearchFilters(&builder, args, criteria)
-	appendEventSearchOrderAndPage(&builder)
-	args = append(args, criteria.Limit(), criteria.Offset())
+	appendEventSearchOrderAndPage(&builder, criteria)
+	args = appendEventSearchPageArgs(args, criteria)
 	return builder.String(), args
 }
 
@@ -292,10 +292,9 @@ func queryIncompleteFTSEventIDs(
 		)
 		SELECT e.id
 		  FROM matching_event_ids matching
-		  JOIN events e ON e.id = matching.event_id
-		 ORDER BY e.created_at_norm DESC, e.id DESC
-		 LIMIT ? OFFSET ?`)
-	args = append(args, criteria.Limit(), criteria.Offset())
+		  JOIN events e ON e.id = matching.event_id`)
+	appendEventSearchOrderAndPage(&builder, criteria)
+	args = appendEventSearchPageArgs(args, criteria)
 	return collectEventSearchIDs(ctx, queryer, builder.String(), args, "incomplete indexed event search")
 }
 
@@ -332,14 +331,30 @@ func appendEventSearchFilters(
 		builder.WriteString(" AND e.created_at_norm < ?")
 		args = append(args, normalizeRFC3339NanoForCompare(formatTimestamp(criteria.To())))
 	}
+	if anchor := criteria.PageAnchor(); !anchor.IsZero() {
+		createdAt := normalizeRFC3339NanoForCompare(formatTimestamp(anchor.CreatedAt()))
+		builder.WriteString(" AND (e.created_at_norm, e.id) < (?, ?)")
+		args = append(args, createdAt, anchor.EventID().String())
+	}
 	if criteria.FailuresOnly() {
 		builder.WriteString(" AND (a.failed = 1 OR (a.exit_code IS NOT NULL AND a.exit_code != 0))")
 	}
 	return args
 }
 
-func appendEventSearchOrderAndPage(builder *strings.Builder) {
-	builder.WriteString(" ORDER BY e.created_at_norm DESC, e.id DESC LIMIT ? OFFSET ?")
+func appendEventSearchOrderAndPage(builder *strings.Builder, criteria apptypes.EventSearchCriteria) {
+	builder.WriteString(" ORDER BY e.created_at_norm DESC, e.id DESC LIMIT ?")
+	if criteria.PageAnchor().IsZero() {
+		builder.WriteString(" OFFSET ?")
+	}
+}
+
+func appendEventSearchPageArgs(args []any, criteria apptypes.EventSearchCriteria) []any {
+	args = append(args, criteria.Limit())
+	if criteria.PageAnchor().IsZero() {
+		args = append(args, criteria.Offset())
+	}
+	return args
 }
 
 func collectEventSearchIDs(

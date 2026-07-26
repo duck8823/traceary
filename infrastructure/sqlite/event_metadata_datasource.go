@@ -216,6 +216,9 @@ func (d *EventDatasource) SearchMetadata(
 	if criteria.Offset() < 0 {
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
+	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
@@ -254,38 +257,27 @@ func (d *EventDatasource) SearchMetadata(
 		return metadata, nil
 	}
 
-	queryValue := strings.TrimSpace(criteria.Query())
-	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"
-	rows, err := db.QueryContext(
-		ctx,
-		searchEventMetadataQuery,
-		queryValue,
-		likeQuery,
-		likeQuery,
-		likeQuery,
-		likeQuery,
-		criteria.Workspace().String(),
-		criteria.Workspace().String(),
-		criteria.SessionID().String(),
-		criteria.SessionID().String(),
-		criteria.Client().String(),
-		criteria.Client().String(),
-		criteria.Agent().String(),
-		criteria.Agent().String(),
-		criteria.Kind().String(),
-		criteria.Kind().String(),
-		formatOptionalTimestamp(criteria.From()),
-		formatOptionalTimestamp(criteria.From()),
-		formatOptionalTimestamp(criteria.To()),
-		formatOptionalTimestamp(criteria.To()),
-		boolToInt(criteria.FailuresOnly()),
-		criteria.Limit(),
-		criteria.Offset(),
-	)
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return nil, xerrors.Errorf("failed to query event metadata search: %w", err)
+		return nil, xerrors.Errorf("failed to begin legacy event metadata search: %w", err)
 	}
-	return collectEventMetadata(rows, criteria.Limit(), "event metadata search")
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			slog.Debug("failed to rollback legacy event metadata search", "error", err)
+		}
+	}()
+	candidateIDs, err := queryLegacyEventIDs(ctx, tx, criteria, criteria.Query())
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := hydrateEventSearchMetadataCandidates(ctx, tx, criteria, candidateIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, xerrors.Errorf("failed to finish legacy event metadata search: %w", err)
+	}
+	return metadata, nil
 }
 
 // GetContextMetadata returns body-free context membership in descending time order.
@@ -296,6 +288,12 @@ func (d *EventDatasource) GetContextMetadata(
 	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
+	if criteria.Offset() < 0 {
+		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
+	}
 
 	db, err := d.db.openReadOnly(ctx)
 	if err != nil {
@@ -305,7 +303,7 @@ func (d *EventDatasource) GetContextMetadata(
 
 	workspace := strings.TrimSpace(criteria.Workspace().String())
 	sessionID := strings.TrimSpace(criteria.SessionID().String())
-	query, args := contextEventMetadataQuery(workspace, sessionID, criteria.Limit())
+	query, args := contextEventMetadataQuery(criteria, workspace, sessionID)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query event metadata context: %w", err)
@@ -322,6 +320,9 @@ func validateMetadataListCriteria(criteria apptypes.EventListCriteria, requireZe
 	}
 	if !requireZeroOffset && criteria.Offset() < 0 {
 		return xerrors.Errorf("offset must be greater than or equal to 0")
+	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return xerrors.Errorf("event page anchor cannot be combined with offset")
 	}
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return xerrors.Errorf("from must be earlier than to")
@@ -594,7 +595,10 @@ func queryRecentEventMetadataWith(
 		return rows, nil
 	}
 	if sourceHookHasLegacyPrefix(sourceHook) {
-		queryText := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, fromValue, toValue)
+		queryText := metadataPageQuery(
+			metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, fromValue, toValue),
+			criteria.PageAnchor(),
+		)
 		rows, err := query(
 			ctx,
 			queryText,
@@ -608,6 +612,7 @@ func queryRecentEventMetadataWith(
 				failuresFlag,
 				fromValue,
 				toValue,
+				criteria.PageAnchor(),
 				limit,
 				offset,
 			)...,
@@ -617,7 +622,10 @@ func queryRecentEventMetadataWith(
 		}
 		return rows, nil
 	}
-	queryText := metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookQuery, fromValue, toValue)
+	queryText := metadataPageQuery(
+		metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookQuery, fromValue, toValue),
+		criteria.PageAnchor(),
+	)
 	rows, err := query(
 		ctx,
 		queryText,
@@ -631,6 +639,7 @@ func queryRecentEventMetadataWith(
 			failuresFlag,
 			fromValue,
 			toValue,
+			criteria.PageAnchor(),
 			limit,
 			offset,
 		)...,
@@ -660,10 +669,11 @@ func scopedRecentEventMetadataQuery(
 		failuresFlag,
 	}
 	common = append(common, metadataTimeRangeArgs(fromValue, toValue)...)
-	common = append(common, limit, offset)
+	common = append(common, metadataPageAnchorArgs(criteria.PageAnchor())...)
+	common = append(common, metadataLimitOffsetArgs(criteria.PageAnchor(), limit, offset)...)
 	switch {
 	case workspace != "" && sessionID != "":
-		return metadataTimeRangeQuery(selectRecentEventMetadataByWorkspaceSessionQuery, fromValue, toValue), append([]any{workspace, sessionID}, common...)
+		return metadataPageQuery(metadataTimeRangeQuery(selectRecentEventMetadataByWorkspaceSessionQuery, fromValue, toValue), criteria.PageAnchor()), append([]any{workspace, sessionID}, common...)
 	case workspace != "":
 		// The workspace query retains session_id as an optional filter.
 		args := []any{workspace,
@@ -674,8 +684,9 @@ func scopedRecentEventMetadataQuery(
 			failuresFlag,
 		}
 		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
-		args = append(args, limit, offset)
-		return metadataTimeRangeQuery(selectRecentEventMetadataByWorkspaceQuery, fromValue, toValue), args
+		args = append(args, metadataPageAnchorArgs(criteria.PageAnchor())...)
+		args = append(args, metadataLimitOffsetArgs(criteria.PageAnchor(), limit, offset)...)
+		return metadataPageQuery(metadataTimeRangeQuery(selectRecentEventMetadataByWorkspaceQuery, fromValue, toValue), criteria.PageAnchor()), args
 	case sessionID != "":
 		args := []any{sessionID,
 			criteria.Kind().String(), criteria.Kind().String(),
@@ -685,8 +696,9 @@ func scopedRecentEventMetadataQuery(
 			failuresFlag,
 		}
 		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
-		args = append(args, limit, offset)
-		return metadataTimeRangeQuery(selectRecentEventMetadataBySessionQuery, fromValue, toValue), args
+		args = append(args, metadataPageAnchorArgs(criteria.PageAnchor())...)
+		args = append(args, metadataLimitOffsetArgs(criteria.PageAnchor(), limit, offset)...)
+		return metadataPageQuery(metadataTimeRangeQuery(selectRecentEventMetadataBySessionQuery, fromValue, toValue), criteria.PageAnchor()), args
 	default:
 		args := []any{
 			criteria.Kind().String(), criteria.Kind().String(),
@@ -696,14 +708,17 @@ func scopedRecentEventMetadataQuery(
 			failuresFlag,
 		}
 		args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
-		args = append(args, limit, offset)
-		return metadataTimeRangeQuery(selectRecentEventMetadataQuery, fromValue, toValue), args
+		args = append(args, metadataPageAnchorArgs(criteria.PageAnchor())...)
+		args = append(args, metadataLimitOffsetArgs(criteria.PageAnchor(), limit, offset)...)
+		return metadataPageQuery(metadataTimeRangeQuery(selectRecentEventMetadataQuery, fromValue, toValue), criteria.PageAnchor()), args
 	}
 }
 
 const (
 	metadataOptionalFromPredicate = "AND (? = '' OR e.created_at_norm >= ?)"
 	metadataOptionalToPredicate   = "AND (? = '' OR e.created_at_norm < ?)"
+	metadataPageAnchorMarker      = "/* traceary:event-page-anchor */"
+	metadataPageAnchorPredicate   = "AND (e.created_at_norm, e.id) < (?, ?)"
 )
 
 // metadataTimeRangeQuery selects a SQL variant with direct range predicates
@@ -735,16 +750,44 @@ func metadataTimeRangeArgs(fromValue, toValue string) []any {
 	return args
 }
 
+func metadataPageAnchorArgs(anchor apptypes.EventPageAnchor) []any {
+	if anchor.IsZero() {
+		return nil
+	}
+	createdAt := formatMetadataOptionalTimestamp(anchor.CreatedAt())
+	return []any{createdAt, anchor.EventID().String()}
+}
+
+func metadataPageQuery(query string, anchor apptypes.EventPageAnchor) string {
+	if anchor.IsZero() {
+		return strings.Replace(query, metadataPageAnchorMarker, "", 1)
+	}
+	query = strings.Replace(query, metadataPageAnchorMarker, metadataPageAnchorPredicate, 1)
+	return strings.Replace(query, "LIMIT ? OFFSET ?", "LIMIT ?", 1)
+}
+
+func metadataLimitOffsetArgs(
+	anchor apptypes.EventPageAnchor,
+	limit, offset int,
+) []any {
+	if anchor.IsZero() {
+		return []any{limit, offset}
+	}
+	return []any{limit}
+}
+
 func metadataSourceHookPrimaryQueryArgs(
 	sourceHook string,
 	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
 	failuresFlag int,
 	fromValue, toValue string,
+	pageAnchor apptypes.EventPageAnchor,
 	limit, offset int,
 ) []any {
 	args := []any{sourceHook, kind.String(), kind.String(), client.String(), client.String(), agent.String(), agent.String(), sessionID.String(), sessionID.String(), workspace.String(), workspace.String(), failuresFlag}
 	args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
-	return append(args, limit, offset)
+	args = append(args, metadataPageAnchorArgs(pageAnchor)...)
+	return append(args, metadataLimitOffsetArgs(pageAnchor, limit, offset)...)
 }
 
 func metadataSourceHookLegacyQueryArgs(
@@ -752,24 +795,40 @@ func metadataSourceHookLegacyQueryArgs(
 	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
 	failuresFlag int,
 	fromValue, toValue string,
+	pageAnchor apptypes.EventPageAnchor,
 	limit, offset int,
 ) []any {
 	args := []any{sourceHook, sourceHook, sourceHook, kind.String(), kind.String(), client.String(), client.String(), agent.String(), agent.String(), sessionID.String(), sessionID.String(), workspace.String(), workspace.String(), failuresFlag}
 	args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
-	return append(args, limit, offset)
+	args = append(args, metadataPageAnchorArgs(pageAnchor)...)
+	return append(args, metadataLimitOffsetArgs(pageAnchor, limit, offset)...)
 }
 
-func contextEventMetadataQuery(workspace, sessionID string, limit int) (string, []any) {
+func contextEventMetadataQuery(
+	criteria apptypes.EventContextCriteria,
+	workspace, sessionID string,
+) (string, []any) {
+	toValue := formatMetadataOptionalTimestamp(criteria.To())
+	common := []any{toValue, toValue}
+	common = append(common, metadataPageAnchorArgs(criteria.PageAnchor())...)
+	common = append(common, metadataLimitOffsetArgs(criteria.PageAnchor(), criteria.Limit(), criteria.Offset())...)
+	query := ""
+	args := []any(nil)
 	switch {
 	case workspace != "" && sessionID != "":
-		return getContextEventMetadataByWorkspaceSessionQuery, []any{workspace, sessionID, limit}
+		query = getContextEventMetadataByWorkspaceSessionQuery
+		args = append([]any{workspace, sessionID}, common...)
 	case workspace != "":
-		return getContextEventMetadataByWorkspaceQuery, []any{workspace, limit}
+		query = getContextEventMetadataByWorkspaceQuery
+		args = append([]any{workspace}, common...)
 	case sessionID != "":
-		return getContextEventMetadataBySessionQuery, []any{sessionID, limit}
+		query = getContextEventMetadataBySessionQuery
+		args = append([]any{sessionID}, common...)
 	default:
-		return getContextEventMetadataQuery, []any{"", "", "", "", limit}
+		query = getContextEventMetadataQuery
+		args = append([]any{"", "", "", ""}, common...)
 	}
+	return metadataPageQuery(query, criteria.PageAnchor()), args
 }
 
 // boundedLatestMetadataWorkspace identifies the single-row, body-free CLI
@@ -785,6 +844,7 @@ func boundedLatestMetadataWorkspace(criteria apptypes.EventListCriteria, fromVal
 		criteria.SessionID() == "" &&
 		!criteria.FailuresOnly() &&
 		criteria.SourceHook() == "" &&
+		criteria.PageAnchor().IsZero() &&
 		fromValue == "" && toValue == ""
 	return bounded, criteria.Workspace().String()
 }
