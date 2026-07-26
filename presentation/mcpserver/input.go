@@ -125,7 +125,7 @@ type sessionLookupInput struct {
 
 // listEventsInput is the MCP input for the list_events tool.
 type listEventsInput struct {
-	Limit        int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
+	Limit        int    `json:"limit,omitempty" jsonschema:"result limit (default: 20, maximum: 100)"`
 	Offset       int    `json:"offset,omitempty" jsonschema:"offset from the newest result (default: 0)"`
 	Kind         string `json:"kind,omitempty" jsonschema:"filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt; alias: audit)"`
 	Client       string `json:"client,omitempty" jsonschema:"filter by client"`
@@ -137,7 +137,7 @@ type listEventsInput struct {
 	Timezone     string `json:"timezone,omitempty" jsonschema:"IANA timezone for date-only bounds (default: UTC)"`
 	SourceHook   string `json:"source_hook,omitempty" jsonschema:"filter by hook identifier that produced the event (stop, subagent_stop, pre_compact, post_compact, session_start, session_end, user_prompt_submit, post_tool_use, after_agent, after_tool)"`
 	Projection   string `json:"projection,omitempty" jsonschema:"event projection: metadata omits body fields, bounded reads only a limited visible-text body from storage, full returns the full stored body; omitted preserves body_limit/full_body compatibility"`
-	BodyLimit    *int   `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
+	BodyLimit    *int   `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500, maximum 16384. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
 	FullBody     bool   `json:"full_body,omitempty" jsonschema:"return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion"`
 	Continuation string `json:"continuation,omitempty" jsonschema:"opaque continuation returned by this same tool; cannot be combined with offset"`
 }
@@ -149,9 +149,9 @@ type searchInput struct {
 	From         string `json:"from,omitempty" jsonschema:"start time (YYYY-MM-DD or RFC3339)"`
 	To           string `json:"to,omitempty" jsonschema:"end time (YYYY-MM-DD or RFC3339)"`
 	Timezone     string `json:"timezone,omitempty" jsonschema:"IANA timezone for date-only bounds (default: UTC)"`
-	Limit        int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
+	Limit        int    `json:"limit,omitempty" jsonschema:"result limit (default: 20, maximum: 100)"`
 	Projection   string `json:"projection,omitempty" jsonschema:"event projection: metadata omits body fields, bounded reads only a limited visible-text body from storage, full returns the full stored body; omitted preserves body_limit/full_body compatibility"`
-	BodyLimit    *int   `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
+	BodyLimit    *int   `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500, maximum 16384. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
 	FullBody     bool   `json:"full_body,omitempty" jsonschema:"return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion"`
 	Continuation string `json:"continuation,omitempty" jsonschema:"opaque continuation returned by this same tool"`
 }
@@ -160,9 +160,9 @@ type searchInput struct {
 type getContextInput struct {
 	Workspace    string `json:"workspace,omitempty" jsonschema:"work context filter"`
 	SessionID    string `json:"session_id,omitempty" jsonschema:"session identifier filter"`
-	Limit        int    `json:"limit,omitempty" jsonschema:"result limit (default: 20)"`
+	Limit        int    `json:"limit,omitempty" jsonschema:"result limit (default: 20, maximum: 100)"`
 	Projection   string `json:"projection,omitempty" jsonschema:"event projection: metadata omits body fields, bounded reads only a limited visible-text body from storage, full returns the full stored body; omitted preserves body_limit/full_body compatibility"`
-	BodyLimit    *int   `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
+	BodyLimit    *int   `json:"body_limit,omitempty" jsonschema:"truncate event body in this response to this many runes; default 500, maximum 16384. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated."`
 	FullBody     bool   `json:"full_body,omitempty" jsonschema:"return the full stored body even when it is long. Equivalent to body_limit=0; does not restore audit payload bytes dropped at ingestion"`
 	Continuation string `json:"continuation,omitempty" jsonschema:"opaque continuation returned by this same tool"`
 }

@@ -717,6 +717,8 @@ func scopedRecentEventMetadataQuery(
 const (
 	metadataOptionalFromPredicate = "AND (? = '' OR e.created_at_norm >= ?)"
 	metadataOptionalToPredicate   = "AND (? = '' OR e.created_at_norm < ?)"
+	metadataPageAnchorMarker      = "/* traceary:event-page-anchor */"
+	metadataPageAnchorPredicate   = "AND (e.created_at_norm, e.id) < (?, ?)"
 )
 
 // metadataTimeRangeQuery selects a SQL variant with direct range predicates
@@ -750,16 +752,17 @@ func metadataTimeRangeArgs(fromValue, toValue string) []any {
 
 func metadataPageAnchorArgs(anchor apptypes.EventPageAnchor) []any {
 	if anchor.IsZero() {
-		return []any{"", "", "", ""}
+		return nil
 	}
 	createdAt := formatMetadataOptionalTimestamp(anchor.CreatedAt())
-	return []any{createdAt, createdAt, createdAt, anchor.EventID().String()}
+	return []any{createdAt, anchor.EventID().String()}
 }
 
 func metadataPageQuery(query string, anchor apptypes.EventPageAnchor) string {
 	if anchor.IsZero() {
-		return query
+		return strings.Replace(query, metadataPageAnchorMarker, "", 1)
 	}
+	query = strings.Replace(query, metadataPageAnchorMarker, metadataPageAnchorPredicate, 1)
 	return strings.Replace(query, "LIMIT ? OFFSET ?", "LIMIT ?", 1)
 }
 

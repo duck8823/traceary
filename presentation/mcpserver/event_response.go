@@ -59,7 +59,23 @@ type eventPageRequest struct {
 	fingerprint string
 }
 
-func resolveEventPageRequest(tool string, rawLimit, rawOffset int, continuation string, fingerprint string, bodyRuneLimit int) (eventPageRequest, error) {
+type resolvedEventContinuation struct {
+	fingerprint string
+	snapshot    time.Time
+	pageAnchor  apptypes.EventPageAnchor
+}
+
+func (c resolvedEventContinuation) isZero() bool {
+	return c.snapshot.IsZero()
+}
+
+func resolveEventPageRequest(
+	tool string,
+	rawLimit, rawOffset int,
+	continuation resolvedEventContinuation,
+	fingerprint string,
+	bodyRuneLimit int,
+) (eventPageRequest, error) {
 	if rawOffset < 0 {
 		return eventPageRequest{}, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
@@ -69,41 +85,18 @@ func resolveEventPageRequest(tool string, rawLimit, rawOffset int, continuation 
 		return eventPageRequest{}, xerrors.Errorf("failed to resolve event response budget: %w", err)
 	}
 	request := eventPageRequest{budget: budget, offset: rawOffset, tool: tool, fingerprint: fingerprint}
-	if strings.TrimSpace(continuation) == "" {
+	if continuation.isZero() {
 		return request, nil
 	}
 	if rawOffset != 0 {
 		return eventPageRequest{}, xerrors.Errorf("continuation cannot be combined with offset")
 	}
-	cursor, err := decodeEventContinuation(continuation)
-	if err != nil {
-		return eventPageRequest{}, err
-	}
-	if cursor.Tool != tool {
-		return eventPageRequest{}, xerrors.Errorf("continuation is for %s, not %s", cursor.Tool, tool)
-	}
-	if cursor.Fingerprint != fingerprint {
+	if continuation.fingerprint != fingerprint {
 		return eventPageRequest{}, xerrors.Errorf("continuation does not match the requested filters or response shape")
 	}
-	snapshot, err := time.Parse(time.RFC3339Nano, cursor.Snapshot)
-	if err != nil || snapshot.IsZero() {
-		return eventPageRequest{}, xerrors.Errorf("continuation has an invalid snapshot upper bound")
-	}
-	anchorCreatedAt, err := time.Parse(time.RFC3339Nano, cursor.AnchorCreatedAt)
-	if err != nil {
-		return eventPageRequest{}, xerrors.Errorf("continuation has an invalid event page anchor")
-	}
-	anchorEventID, err := domtypes.EventIDFrom(cursor.AnchorEventID)
-	if err != nil {
-		return eventPageRequest{}, xerrors.Errorf("continuation has an invalid event page anchor")
-	}
-	anchor, err := apptypes.EventPageAnchorOf(anchorCreatedAt, anchorEventID)
-	if err != nil {
-		return eventPageRequest{}, xerrors.Errorf("continuation has an invalid event page anchor")
-	}
 	request.offset = 0
-	request.snapshot = cursor.Snapshot
-	request.pageAnchor = anchor
+	request.snapshot = formatEventCursorTimestamp(continuation.snapshot)
+	request.pageAnchor = continuation.pageAnchor
 	return request, nil
 }
 
@@ -162,7 +155,9 @@ func decodeEventContinuation(raw string) (eventContinuationCursor, error) {
 	nonce := encoded[:aead.NonceSize()]
 	plaintext, err := aead.Open(nil, nonce, encoded[aead.NonceSize():], []byte(eventContinuationAdditionalData))
 	if err != nil {
-		return eventContinuationCursor{}, xerrors.Errorf("continuation is malformed or has been modified")
+		return eventContinuationCursor{}, xerrors.Errorf(
+			"continuation cannot be authenticated; it may have been modified or issued before the MCP server restarted",
+		)
 	}
 	var cursor eventContinuationCursor
 	if err := json.Unmarshal(plaintext, &cursor); err != nil {
@@ -179,22 +174,38 @@ func decodeEventContinuation(raw string) (eventContinuationCursor, error) {
 	return cursor, nil
 }
 
-func resolveEventContinuationSnapshot(tool, raw string) (time.Time, error) {
+func resolveEventContinuation(tool, raw string) (resolvedEventContinuation, error) {
 	if strings.TrimSpace(raw) == "" {
-		return time.Time{}, nil
+		return resolvedEventContinuation{}, nil
 	}
 	cursor, err := decodeEventContinuation(raw)
 	if err != nil {
-		return time.Time{}, err
+		return resolvedEventContinuation{}, err
 	}
 	if cursor.Tool != tool {
-		return time.Time{}, xerrors.Errorf("continuation is for %s, not %s", cursor.Tool, tool)
+		return resolvedEventContinuation{}, xerrors.Errorf("continuation is for %s, not %s", cursor.Tool, tool)
 	}
 	snapshot, err := time.Parse(time.RFC3339Nano, cursor.Snapshot)
 	if err != nil || snapshot.IsZero() {
-		return time.Time{}, xerrors.Errorf("continuation has an invalid snapshot upper bound")
+		return resolvedEventContinuation{}, xerrors.Errorf("continuation has an invalid snapshot upper bound")
 	}
-	return snapshot.UTC(), nil
+	anchorCreatedAt, err := time.Parse(time.RFC3339Nano, cursor.AnchorCreatedAt)
+	if err != nil {
+		return resolvedEventContinuation{}, xerrors.Errorf("continuation has an invalid event page anchor")
+	}
+	anchorEventID, err := domtypes.EventIDFrom(cursor.AnchorEventID)
+	if err != nil {
+		return resolvedEventContinuation{}, xerrors.Errorf("continuation has an invalid event page anchor")
+	}
+	anchor, err := apptypes.EventPageAnchorOf(anchorCreatedAt, anchorEventID)
+	if err != nil {
+		return resolvedEventContinuation{}, xerrors.Errorf("continuation has an invalid event page anchor")
+	}
+	return resolvedEventContinuation{
+		fingerprint: cursor.Fingerprint,
+		snapshot:    snapshot.UTC(),
+		pageAnchor:  anchor,
+	}, nil
 }
 
 func formatEventCursorTimestamp(value time.Time) string {
@@ -240,9 +251,19 @@ func encodedEventBodyBytes(event eventOutput) int {
 	return len(encoded)
 }
 
-// applyEventAggregateBudget keeps event identity metadata observable while
-// ensuring encoded body payload does not exceed the shared aggregate budget.
-func applyEventAggregateBudget(events []eventOutput, budget apptypes.EventResponseBudget) ([]eventOutput, bool) {
+type eventAggregateBudgetResult struct {
+	events        []eventOutput
+	partial       bool
+	hasUnreturned bool
+}
+
+// applyEventAggregateBudget returns the longest contiguous event prefix whose
+// body payload fits. It never advances past an event after stripping its body:
+// that event remains eligible on the next keyset page.
+func applyEventAggregateBudget(
+	events []eventOutput,
+	budget apptypes.EventResponseBudget,
+) eventAggregateBudgetResult {
 	outputs := make([]eventOutput, 0, len(events))
 	used := 0
 	partial := false
@@ -254,13 +275,24 @@ func applyEventAggregateBudget(events []eventOutput, budget apptypes.EventRespon
 			continue
 		}
 		partial = true
-		outputs = append(outputs, truncateEventForAggregateBudget(event, budget.AggregateBodyBytes()-used))
-		used += encodedEventBodyBytes(outputs[len(outputs)-1])
+		truncated, retained := truncateEventForAggregateBudget(
+			event,
+			budget.AggregateBodyBytes()-used,
+		)
+		if !retained {
+			break
+		}
+		outputs = append(outputs, truncated)
+		used += encodedEventBodyBytes(truncated)
 	}
-	return outputs, partial
+	return eventAggregateBudgetResult{
+		events:        outputs,
+		partial:       partial,
+		hasUnreturned: len(outputs) < len(events),
+	}
 }
 
-func truncateEventForAggregateBudget(event eventOutput, available int) eventOutput {
+func truncateEventForAggregateBudget(event eventOutput, available int) (eventOutput, bool) {
 	original := event.Body
 	originalRunes := 0
 	if original != nil {
@@ -268,14 +300,16 @@ func truncateEventForAggregateBudget(event eventOutput, available int) eventOutp
 	}
 	event.BodyBlocks = nil
 	if original == nil || available <= 0 {
-		event.Body = nil
-		return event
+		return eventOutput{}, false
 	}
 	runes := []rune(*original)
 	low, high, best := 0, len(runes), -1
 	for low <= high {
 		middle := (low + high) / 2
 		candidate := string(runes[:middle])
+		if middle < len(runes) {
+			candidate += apptypes.TruncationEllipsis
+		}
 		event.Body = &candidate
 		if encodedEventBodyBytes(event) <= available {
 			best = middle
@@ -285,12 +319,11 @@ func truncateEventForAggregateBudget(event eventOutput, available int) eventOutp
 		}
 	}
 	if best < 0 {
-		event.Body = nil
-		return event
+		return eventOutput{}, false
 	}
 	value := string(runes[:best])
 	if best < len(runes) {
-		value += "…"
+		value += apptypes.TruncationEllipsis
 		event.BodyTruncated = true
 		if event.BodyLength == 0 {
 			event.BodyLength = originalRunes
@@ -299,15 +332,15 @@ func truncateEventForAggregateBudget(event eventOutput, available int) eventOutp
 	event.Body = &value
 	// A final escaped-byte check preserves the hard aggregate invariant.
 	if encodedEventBodyBytes(event) > available {
-		event.Body = nil
+		return eventOutput{}, false
 	}
-	return event
+	return event, true
 }
 
 type eventPageLoaders struct {
 	metadataAvailable bool
 	candidates        func(context.Context, int, int) ([]apptypes.EventMetadata, error)
-	bounded           func(context.Context, int, int, int) ([]apptypes.BoundedEvent, error)
+	bounded           func(context.Context, []apptypes.EventMetadata, int) ([]apptypes.BoundedEvent, error)
 	full              func(context.Context, int, int) ([]*model.Event, error)
 	convertFull       func([]*model.Event) []eventOutput
 	legacy            func(context.Context, int, int) ([]eventOutput, error)
@@ -322,22 +355,27 @@ func loadEventPage(ctx context.Context, request eventPageRequest, projection app
 		if err != nil {
 			return eventsOutput{}, err
 		}
-		budgeted, aggregatePartial := applyEventAggregateBudget(events, request.budget)
+		aggregate := applyEventAggregateBudget(events, request.budget)
 		reasons := []string(nil)
-		if aggregatePartial {
+		if aggregate.partial {
 			reasons = append(reasons, "aggregate_body_budget")
 		}
-		extent, extentErr := apptypes.NewEventPageExtent(len(events), len(budgeted), false, aggregatePartial, reasons)
+		extent, extentErr := apptypes.NewEventPageExtent(
+			len(events), len(aggregate.events), false, aggregate.partial, reasons,
+		)
 		if extentErr != nil {
 			return eventsOutput{}, xerrors.Errorf("failed to resolve event page extent: %w", extentErr)
 		}
 		coverageBytes := 0
-		for _, event := range budgeted {
+		for _, event := range aggregate.events {
 			coverageBytes += encodedEventBodyBytes(event)
 		}
-		result := eventsOutput{Events: budgeted, Interval: interval, Coverage: eventCoverageOutput{CandidateCount: extent.CandidateCount(), ReturnedCount: extent.ReturnedCount(), AggregateBodyBytes: coverageBytes, AggregateBodyBudget: request.budget.AggregateBodyBytes()}, Partial: extent.Partial(), Reasons: extent.Reasons()}
-		if aggregatePartial && len(budgeted) > 0 {
-			anchor, anchorErr := eventPageAnchorFromOutput(budgeted[len(budgeted)-1])
+		result := eventsOutput{Events: aggregate.events, Interval: interval, Coverage: eventCoverageOutput{CandidateCount: extent.CandidateCount(), ReturnedCount: extent.ReturnedCount(), AggregateBodyBytes: coverageBytes, AggregateBodyBudget: request.budget.AggregateBodyBytes()}, Partial: extent.Partial(), Reasons: extent.Reasons()}
+		if aggregate.hasUnreturned {
+			if len(aggregate.events) == 0 {
+				return eventsOutput{}, xerrors.Errorf("cannot continue an empty event page")
+			}
+			anchor, anchorErr := eventPageAnchorFromOutput(aggregate.events[len(aggregate.events)-1])
 			if anchorErr != nil {
 				return eventsOutput{}, anchorErr
 			}
@@ -367,7 +405,7 @@ func loadEventPage(ctx context.Context, request eventPageRequest, projection app
 		if loaders.bounded == nil {
 			return eventsOutput{}, xerrors.Errorf("event bounded usecase is not configured")
 		}
-		bounded, loadErr := loaders.bounded(ctx, len(returnedCandidates), request.offset, request.budget.BodyRuneLimit())
+		bounded, loadErr := loaders.bounded(ctx, returnedCandidates, request.budget.BodyRuneLimit())
 		if loadErr != nil {
 			return eventsOutput{}, loadErr
 		}
@@ -384,35 +422,40 @@ func loadEventPage(ctx context.Context, request eventPageRequest, projection app
 	default:
 		return eventsOutput{}, xerrors.Errorf("unsupported resolved event projection %q", projection)
 	}
-	budgeted, aggregatePartial := applyEventAggregateBudget(events, request.budget)
+	aggregate := applyEventAggregateBudget(events, request.budget)
 	reasons := make([]string, 0, 2)
 	if hasMore {
 		reasons = append(reasons, "more_results")
 	}
-	if aggregatePartial {
+	if aggregate.partial {
 		reasons = append(reasons, "aggregate_body_budget")
 	}
-	extent, err := apptypes.NewEventPageExtent(len(candidates), len(budgeted), hasMore, hasMore || aggregatePartial, reasons)
+	extent, err := apptypes.NewEventPageExtent(
+		len(candidates),
+		len(aggregate.events),
+		hasMore,
+		hasMore || aggregate.partial,
+		reasons,
+	)
 	if err != nil {
 		return eventsOutput{}, xerrors.Errorf("failed to resolve event page extent: %w", err)
 	}
 	coverageBytes := 0
-	for _, event := range budgeted {
+	for _, event := range aggregate.events {
 		coverageBytes += encodedEventBodyBytes(event)
 	}
 	result := eventsOutput{
-		Events: budgeted, Interval: interval,
+		Events: aggregate.events, Interval: interval,
 		Coverage: eventCoverageOutput{CandidateCount: extent.CandidateCount(), ReturnedCount: extent.ReturnedCount(), AggregateBodyBytes: coverageBytes, AggregateBodyBudget: request.budget.AggregateBodyBytes()},
 		Partial:  extent.Partial(), Reasons: extent.Reasons(),
 	}
-	if hasMore || aggregatePartial {
-		if len(returnedCandidates) == 0 {
+	if hasMore || aggregate.hasUnreturned {
+		if len(aggregate.events) == 0 {
 			return eventsOutput{}, xerrors.Errorf("cannot continue an empty event page")
 		}
-		last := returnedCandidates[len(returnedCandidates)-1]
-		anchor, anchorErr := apptypes.EventPageAnchorOf(last.CreatedAt(), last.EventID())
+		anchor, anchorErr := eventPageAnchorFromOutput(aggregate.events[len(aggregate.events)-1])
 		if anchorErr != nil {
-			return eventsOutput{}, xerrors.Errorf("failed to build event page anchor: %w", anchorErr)
+			return eventsOutput{}, anchorErr
 		}
 		continuation, encodeErr := encodeEventContinuation(request, anchor, snapshot)
 		if encodeErr != nil {

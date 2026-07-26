@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +76,55 @@ func TestEventContinuationKeysetPreservesSnapshotAcrossToolsAndProjections(t *te
 				}
 			})
 		}
+	}
+}
+
+func TestAggregateBudgetContinuationRecoversFirstUnreturnedEvent(t *testing.T) {
+	t.Parallel()
+
+	server, datasource := newEventContinuationIntegrationServer(t)
+	createdAt := time.Date(2026, 7, 26, 4, 0, 0, 0, time.UTC)
+	body := strings.Repeat("x", 40_000)
+	for _, eventID := range []string{"event-a", "event-b", "event-c"} {
+		saveEventContinuationFixture(t, datasource, eventID, body, createdAt)
+	}
+
+	_, first, err := server.listEvents()(
+		context.Background(),
+		nil,
+		listEventsInput{Workspace: "repo", Projection: "full", Limit: 3},
+	)
+	if err != nil {
+		t.Fatalf("first listEvents() error = %v", err)
+	}
+	if got := eventOutputIDs(first.Events); cmp.Diff([]string{"event-c", "event-b"}, got) != "" {
+		t.Fatalf("first page IDs = %v, want [event-c event-b]", got)
+	}
+	if first.Continuation == "" {
+		t.Fatal("first page continuation is empty")
+	}
+	for _, event := range first.Events {
+		if event.Body == nil {
+			t.Fatalf("first page returned body-less event: %+v", event)
+		}
+	}
+
+	_, second, err := server.listEvents()(
+		context.Background(),
+		nil,
+		listEventsInput{
+			Workspace: "repo", Projection: "full", Limit: 3,
+			Continuation: first.Continuation,
+		},
+	)
+	if err != nil {
+		t.Fatalf("second listEvents() error = %v", err)
+	}
+	if got := eventOutputIDs(second.Events); cmp.Diff([]string{"event-a"}, got) != "" {
+		t.Fatalf("second page IDs = %v, want [event-a]", got)
+	}
+	if second.Events[0].Body == nil {
+		t.Fatalf("recovered event body is absent: %+v", second.Events[0])
 	}
 }
 

@@ -4,6 +4,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 var metadataSelectListPattern = regexp.MustCompile(`(?is)\bselect\b(.*?)\bfrom\b`)
@@ -40,6 +44,48 @@ func TestMetadataQueries_DoNotSelectBodyColumns(t *testing.T) {
 				if forbidden := bodyBearingColumnPattern.FindString(selectList); forbidden != "" {
 					t.Fatalf("SELECT list contains body-bearing column %q: %s", forbidden, selectList)
 				}
+			}
+		})
+	}
+}
+
+func TestMetadataPageQueriesRenderCompositeAnchorWithoutSentinelOrOffset(t *testing.T) {
+	t.Parallel()
+
+	anchor, err := apptypes.EventPageAnchorOf(
+		time.Date(2026, 7, 26, 1, 2, 3, 456789, time.UTC),
+		types.EventID("event-anchor"),
+	)
+	if err != nil {
+		t.Fatalf("EventPageAnchorOf() error = %v", err)
+	}
+	queries := map[string]string{
+		"recent":                    selectRecentEventMetadataQuery,
+		"recent workspace":          selectRecentEventMetadataByWorkspaceQuery,
+		"recent session":            selectRecentEventMetadataBySessionQuery,
+		"recent workspace session":  selectRecentEventMetadataByWorkspaceSessionQuery,
+		"recent source hook":        selectRecentEventMetadataBySourceHookQuery,
+		"recent legacy hook":        selectRecentEventMetadataBySourceHookWithLegacyQuery,
+		"context":                   getContextEventMetadataQuery,
+		"context workspace":         getContextEventMetadataByWorkspaceQuery,
+		"context session":           getContextEventMetadataBySessionQuery,
+		"context workspace session": getContextEventMetadataByWorkspaceSessionQuery,
+	}
+	for name, query := range queries {
+		name, query := name, query
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if count := strings.Count(query, metadataPageAnchorMarker); count != 1 {
+				t.Fatalf("page anchor marker count = %d, want 1:\n%s", count, query)
+			}
+			rendered := strings.Join(strings.Fields(metadataPageQuery(query, anchor)), " ")
+			if !strings.Contains(rendered, metadataPageAnchorPredicate) {
+				t.Fatalf("composite keyset predicate is absent:\n%s", rendered)
+			}
+			if strings.Contains(rendered, metadataPageAnchorMarker) ||
+				strings.Contains(rendered, "OR (e.created_at_norm = ? AND e.id < ?)") ||
+				strings.Contains(rendered, "OFFSET") {
+				t.Fatalf("anchored page retained marker, sentinel, or offset:\n%s", rendered)
 			}
 		})
 	}

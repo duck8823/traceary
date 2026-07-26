@@ -188,6 +188,55 @@ func TestDefaultBoundedProjectionUsesBoundedQueriesBeforeFullEvents(t *testing.T
 	}
 }
 
+func TestBoundedProjectionHydratesExactMetadataCandidatesWithoutRefiltering(t *testing.T) {
+	t.Parallel()
+
+	boundedEvent := newMCPBoundedFixture(t, "selected body", 20, false)
+	metadata := boundedEvent.Metadata()
+	metadataUsecase := &projectionMetadataUsecaseStub{
+		list:    []apptypes.EventMetadata{metadata, metadata},
+		search:  []apptypes.EventMetadata{metadata, metadata},
+		context: []apptypes.EventMetadata{metadata, metadata},
+	}
+	bounded := &projectionBoundedUsecaseStub{
+		list:    []apptypes.BoundedEvent{boundedEvent},
+		search:  []apptypes.BoundedEvent{boundedEvent},
+		context: []apptypes.BoundedEvent{boundedEvent},
+	}
+	server := &Server{eventMetadata: metadataUsecase, eventBounded: bounded}
+
+	if _, _, err := server.listEvents()(context.Background(), nil, listEventsInput{Limit: 1}); err != nil {
+		t.Fatalf("listEvents() error = %v", err)
+	}
+	if _, _, err := server.search()(context.Background(), nil, searchInput{Query: "selected", Limit: 1}); err != nil {
+		t.Fatalf("search() error = %v", err)
+	}
+	if _, _, err := server.getContext()(context.Background(), nil, getContextInput{SessionID: "session-1", Limit: 1}); err != nil {
+		t.Fatalf("getContext() error = %v", err)
+	}
+
+	if bounded.listCalls != 0 || bounded.searchCalls != 0 || bounded.contextCalls != 0 {
+		t.Fatalf(
+			"bounded filters were re-run: list=%d search=%d context=%d",
+			bounded.listCalls, bounded.searchCalls, bounded.contextCalls,
+		)
+	}
+	if bounded.hydrateListCalls != 1 || bounded.hydrateSearchCalls != 1 || bounded.hydrateContextCalls != 1 {
+		t.Fatalf(
+			"bounded hydration calls: list=%d search=%d context=%d, want one each",
+			bounded.hydrateListCalls, bounded.hydrateSearchCalls, bounded.hydrateContextCalls,
+		)
+	}
+	for name, selected := range map[string][]apptypes.EventMetadata{
+		"list": bounded.hydrateListMetadata, "search": bounded.hydrateSearchMetadata,
+		"context": bounded.hydrateContextMetadata,
+	} {
+		if len(selected) != 1 || selected[0].EventID() != metadata.EventID() {
+			t.Fatalf("%s hydrated metadata = %+v, want exact first candidate", name, selected)
+		}
+	}
+}
+
 func TestConvertBoundedEventsPreservesResponseAndStorageProvenance(t *testing.T) {
 	t.Parallel()
 
@@ -441,12 +490,18 @@ func (s *projectionMetadataUsecaseStub) Context(context.Context, apptypes.EventC
 }
 
 type projectionBoundedUsecaseStub struct {
-	list         []apptypes.BoundedEvent
-	search       []apptypes.BoundedEvent
-	context      []apptypes.BoundedEvent
-	listCalls    int
-	searchCalls  int
-	contextCalls int
+	list                   []apptypes.BoundedEvent
+	search                 []apptypes.BoundedEvent
+	context                []apptypes.BoundedEvent
+	hydrateListMetadata    []apptypes.EventMetadata
+	hydrateSearchMetadata  []apptypes.EventMetadata
+	hydrateContextMetadata []apptypes.EventMetadata
+	listCalls              int
+	searchCalls            int
+	contextCalls           int
+	hydrateListCalls       int
+	hydrateSearchCalls     int
+	hydrateContextCalls    int
 }
 
 func (s *projectionBoundedUsecaseStub) List(
@@ -473,6 +528,36 @@ func (s *projectionBoundedUsecaseStub) Context(
 	int,
 ) ([]apptypes.BoundedEvent, error) {
 	s.contextCalls++
+	return s.context, nil
+}
+
+func (s *projectionBoundedUsecaseStub) HydrateList(
+	_ context.Context,
+	metadata []apptypes.EventMetadata,
+	_ int,
+) ([]apptypes.BoundedEvent, error) {
+	s.hydrateListCalls++
+	s.hydrateListMetadata = append([]apptypes.EventMetadata(nil), metadata...)
+	return s.list, nil
+}
+
+func (s *projectionBoundedUsecaseStub) HydrateSearch(
+	_ context.Context,
+	metadata []apptypes.EventMetadata,
+	_ int,
+) ([]apptypes.BoundedEvent, error) {
+	s.hydrateSearchCalls++
+	s.hydrateSearchMetadata = append([]apptypes.EventMetadata(nil), metadata...)
+	return s.search, nil
+}
+
+func (s *projectionBoundedUsecaseStub) HydrateContext(
+	_ context.Context,
+	metadata []apptypes.EventMetadata,
+	_ int,
+) ([]apptypes.BoundedEvent, error) {
+	s.hydrateContextCalls++
+	s.hydrateContextMetadata = append([]apptypes.EventMetadata(nil), metadata...)
 	return s.context, nil
 }
 

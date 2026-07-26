@@ -9,7 +9,7 @@
       "additionalProperties": false,
       "properties": {
         "body_limit": {
-          "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
+          "description": "truncate event body in this response to this many runes; default 500, maximum 16384. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
           "type": [
             "null",
             "integer"
@@ -24,7 +24,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "result limit (default: 20)",
+          "description": "result limit (default: 20, maximum: 100)",
           "type": "integer"
         },
         "projection": {
@@ -40,6 +40,240 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "description": "opaque cursor for the next page; use only with the same tool and filters",
+          "type": "string"
+        },
+        "coverage": {
+          "additionalProperties": false,
+          "description": "observed candidate and returned counts under the response budget",
+          "properties": {
+            "aggregate_body_budget": {
+              "description": "maximum encoded body and body_blocks bytes per response",
+              "type": "integer"
+            },
+            "aggregate_body_bytes": {
+              "description": "encoded body and body_blocks bytes returned",
+              "type": "integer"
+            },
+            "candidate_count": {
+              "description": "body-free candidates examined for this page",
+              "type": "integer"
+            },
+            "returned_count": {
+              "description": "event metadata records returned in this response",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "candidate_count",
+            "returned_count",
+            "aggregate_body_bytes",
+            "aggregate_body_budget"
+          ],
+          "type": "object"
+        },
+        "events": {
+          "description": "events matching the filters",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "description": "actor",
+                "type": "string"
+              },
+              "body": {
+                "description": "event body as a plain-text projection; absent for projection=metadata. For transcript JSON envelopes this joins text blocks and excludes thinking blocks — use body_blocks for the canonical structured form. May be truncated to body_limit characters; check body_truncated and body_length",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "body_blocks": {
+                "description": "structured block form of the body when it is a canonical transcript envelope; populated for list_events only — search and get_context omit it so thinking-block text does not leak through those surfaces; also absent for legacy plain-text bodies, non-envelope JSON bodies, empty envelopes, and rows whose body is truncated",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "body_ingest_truncated": {
+                "description": "whether ingestion truncated the event body when known",
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "body_length": {
+                "description": "original body length in runes before any truncation; only emitted when body_truncated is true",
+                "type": "integer"
+              },
+              "body_original_bytes": {
+                "description": "original event body byte count when known",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "body_storage_truncated": {
+                "description": "whether storage policy truncated the event body when known",
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "body_stored_bytes": {
+                "description": "stored event body byte count; available for projection=metadata and projection=bounded",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "body_truncated": {
+                "description": "true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to disable response truncation; audit payloads truncated at ingestion stay visibly truncated and are not recoverable",
+                "type": "boolean"
+              },
+              "body_unavailable_reason": {
+                "description": "reason the raw body is unavailable; currently retention",
+                "type": "string"
+              },
+              "client": {
+                "description": "recording channel",
+                "type": "string"
+              },
+              "created_at": {
+                "description": "event timestamp (RFC3339Nano)",
+                "type": "string"
+              },
+              "event_id": {
+                "description": "event ID",
+                "type": "string"
+              },
+              "exit_code": {
+                "description": "command exit code when available in metadata projection",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "failed": {
+                "description": "whether the linked command audit failed",
+                "type": "boolean"
+              },
+              "kind": {
+                "description": "event kind",
+                "type": "string"
+              },
+              "session_id": {
+                "description": "session identifier",
+                "type": "string"
+              },
+              "source_hook": {
+                "description": "hook identifier that produced this event (omitted for non-hook writes)",
+                "type": "string"
+              },
+              "workspace": {
+                "description": "auxiliary work context identifier",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "kind",
+              "client",
+              "agent",
+              "session_id",
+              "created_at"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "interval": {
+          "additionalProperties": false,
+          "description": "requested and effective half-open interval used by list_events or search",
+          "properties": {
+            "effective_from_inclusive": {
+              "description": "resolved inclusive UTC lower bound",
+              "type": "string"
+            },
+            "effective_to_exclusive": {
+              "description": "resolved exclusive UTC upper bound",
+              "type": "string"
+            },
+            "requested_from": {
+              "description": "caller-supplied lower bound",
+              "type": "string"
+            },
+            "requested_to": {
+              "description": "caller-supplied upper bound",
+              "type": "string"
+            },
+            "snapshot_at": {
+              "description": "UTC snapshot used for omitted upper bounds",
+              "type": "string"
+            },
+            "timezone": {
+              "description": "IANA timezone used for date-only bounds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "requested_from",
+            "requested_to",
+            "effective_from_inclusive",
+            "effective_to_exclusive",
+            "timezone",
+            "snapshot_at"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "partial": {
+          "description": "whether another page or body-budget reduction remains",
+          "type": "boolean"
+        },
+        "reasons": {
+          "description": "machine-readable partial reasons: more_results, aggregate_body_budget",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "events",
+        "coverage",
+        "partial"
+      ],
       "type": "object"
     }
   },
@@ -88,6 +322,848 @@
         }
       },
       "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregation": {
+          "additionalProperties": false,
+          "properties": {
+            "coverage": {
+              "description": "complete only when all aggregate sources are complete",
+              "type": "string"
+            },
+            "page_size": {
+              "description": "internal database page size",
+              "type": "integer"
+            },
+            "result_cap": {
+              "description": "caller-requested per-source row cap; omitted means unlimited",
+              "type": "integer"
+            },
+            "sources": {
+              "additionalProperties": false,
+              "properties": {
+                "commands": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "coverage": {
+                      "description": "complete when the full filter was scanned; partial when result_cap truncated the source",
+                      "type": "string"
+                    },
+                    "observed_count": {
+                      "description": "rows included in this aggregate",
+                      "type": "integer"
+                    },
+                    "observed_earliest_at": {
+                      "description": "earliest included row timestamp (RFC3339Nano)",
+                      "type": "string"
+                    },
+                    "observed_latest_at": {
+                      "description": "latest included row timestamp (RFC3339Nano)",
+                      "type": "string"
+                    },
+                    "page_size": {
+                      "description": "internal database page size",
+                      "type": "integer"
+                    },
+                    "response_truncated": {
+                      "description": "whether rows beyond result_cap were excluded",
+                      "type": "boolean"
+                    },
+                    "result_cap": {
+                      "description": "caller-requested per-source row cap; omitted means unlimited",
+                      "type": "integer"
+                    },
+                    "truncation_reason": {
+                      "description": "result_cap when response_truncated is true",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "coverage",
+                    "observed_count",
+                    "page_size",
+                    "response_truncated"
+                  ],
+                  "type": "object"
+                },
+                "events": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "coverage": {
+                      "description": "complete when the full filter was scanned; partial when result_cap truncated the source",
+                      "type": "string"
+                    },
+                    "observed_count": {
+                      "description": "rows included in this aggregate",
+                      "type": "integer"
+                    },
+                    "observed_earliest_at": {
+                      "description": "earliest included row timestamp (RFC3339Nano)",
+                      "type": "string"
+                    },
+                    "observed_latest_at": {
+                      "description": "latest included row timestamp (RFC3339Nano)",
+                      "type": "string"
+                    },
+                    "page_size": {
+                      "description": "internal database page size",
+                      "type": "integer"
+                    },
+                    "response_truncated": {
+                      "description": "whether rows beyond result_cap were excluded",
+                      "type": "boolean"
+                    },
+                    "result_cap": {
+                      "description": "caller-requested per-source row cap; omitted means unlimited",
+                      "type": "integer"
+                    },
+                    "truncation_reason": {
+                      "description": "result_cap when response_truncated is true",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "coverage",
+                    "observed_count",
+                    "page_size",
+                    "response_truncated"
+                  ],
+                  "type": "object"
+                },
+                "sessions": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "coverage": {
+                      "description": "complete when the full filter was scanned; partial when result_cap truncated the source",
+                      "type": "string"
+                    },
+                    "observed_count": {
+                      "description": "rows included in this aggregate",
+                      "type": "integer"
+                    },
+                    "observed_earliest_at": {
+                      "description": "earliest included row timestamp (RFC3339Nano)",
+                      "type": "string"
+                    },
+                    "observed_latest_at": {
+                      "description": "latest included row timestamp (RFC3339Nano)",
+                      "type": "string"
+                    },
+                    "page_size": {
+                      "description": "internal database page size",
+                      "type": "integer"
+                    },
+                    "response_truncated": {
+                      "description": "whether rows beyond result_cap were excluded",
+                      "type": "boolean"
+                    },
+                    "result_cap": {
+                      "description": "caller-requested per-source row cap; omitted means unlimited",
+                      "type": "integer"
+                    },
+                    "truncation_reason": {
+                      "description": "result_cap when response_truncated is true",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "coverage",
+                    "observed_count",
+                    "page_size",
+                    "response_truncated"
+                  ],
+                  "type": "object"
+                },
+                "usage": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "coverage": {
+                      "description": "complete when the full filter was scanned; partial when result_cap truncated the source",
+                      "type": "string"
+                    },
+                    "observed_count": {
+                      "description": "rows included in this aggregate",
+                      "type": "integer"
+                    },
+                    "observed_earliest_at": {
+                      "description": "earliest included row timestamp (RFC3339Nano)",
+                      "type": "string"
+                    },
+                    "observed_latest_at": {
+                      "description": "latest included row timestamp (RFC3339Nano)",
+                      "type": "string"
+                    },
+                    "page_size": {
+                      "description": "internal database page size",
+                      "type": "integer"
+                    },
+                    "response_truncated": {
+                      "description": "whether rows beyond result_cap were excluded",
+                      "type": "boolean"
+                    },
+                    "result_cap": {
+                      "description": "caller-requested per-source row cap; omitted means unlimited",
+                      "type": "integer"
+                    },
+                    "truncation_reason": {
+                      "description": "result_cap when response_truncated is true",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "coverage",
+                    "observed_count",
+                    "page_size",
+                    "response_truncated"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "sessions",
+                "events",
+                "commands",
+                "usage"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "coverage",
+            "page_size",
+            "sources"
+          ],
+          "type": "object"
+        },
+        "capture_coverage": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "client": {
+                "type": "string"
+              },
+              "prompt_transcript_missing": {
+                "type": "integer"
+              },
+              "prompt_transcript_missing_ratio": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "sessions": {
+                "type": "integer"
+              },
+              "with_command": {
+                "type": "integer"
+              },
+              "with_prompt": {
+                "type": "integer"
+              },
+              "with_transcript": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "client",
+              "sessions",
+              "with_prompt",
+              "with_transcript",
+              "with_command",
+              "prompt_transcript_missing"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "client": {
+          "type": "string"
+        },
+        "event_scan_count": {
+          "type": "integer"
+        },
+        "failure_loops": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "sample_event_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "command",
+              "count",
+              "sample_event_ids"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "failures": {
+          "additionalProperties": false,
+          "properties": {
+            "by_client": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "by_reason": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "sample_event_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "total": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total",
+            "by_client",
+            "by_reason",
+            "sample_event_ids"
+          ],
+          "type": "object"
+        },
+        "period": {
+          "additionalProperties": false,
+          "properties": {
+            "effective_from_inclusive": {
+              "type": "string"
+            },
+            "effective_to_exclusive": {
+              "type": "string"
+            },
+            "from": {
+              "type": "string"
+            },
+            "from_date_only": {
+              "type": "boolean"
+            },
+            "requested_from": {
+              "type": "string"
+            },
+            "requested_to": {
+              "type": "string"
+            },
+            "snapshot_at": {
+              "type": "string"
+            },
+            "timezone": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "to_date_only": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "requested_from",
+            "requested_to",
+            "effective_from_inclusive",
+            "effective_to_exclusive",
+            "timezone",
+            "snapshot_at",
+            "from_date_only",
+            "to_date_only"
+          ],
+          "type": "object"
+        },
+        "session_scan_count": {
+          "type": "integer"
+        },
+        "sessions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "client": {
+                "type": "string"
+              },
+              "command_count": {
+                "type": "integer"
+              },
+              "sessions": {
+                "type": "integer"
+              },
+              "total_events": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "client",
+              "sessions",
+              "total_events",
+              "command_count"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "top_commands": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "failed_count": {
+                "type": "integer"
+              },
+              "failure_rate": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "sample_event_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "command",
+              "count",
+              "failed_count"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "usage": {
+          "additionalProperties": false,
+          "properties": {
+            "aggregates": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "accounted_observations": {
+                    "type": "integer"
+                  },
+                  "batch": {
+                    "type": "string"
+                  },
+                  "cache_write_input_tokens": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_observations": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_observations": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_observations",
+                      "unavailable_observations",
+                      "sum"
+                    ],
+                    "type": "object"
+                  },
+                  "cached_input_tokens": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_observations": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_observations": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_observations",
+                      "unavailable_observations",
+                      "sum"
+                    ],
+                    "type": "object"
+                  },
+                  "cost_unavailable_observations": {
+                    "type": "integer"
+                  },
+                  "costs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "amount_micros": {
+                          "type": "integer"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "observations": {
+                          "type": "integer"
+                        },
+                        "origin": {
+                          "description": "provider_reported or estimated",
+                          "type": "string"
+                        },
+                        "price_table_version": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "origin",
+                        "currency",
+                        "observations",
+                        "amount_micros"
+                      ],
+                      "type": "object"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "engine": {
+                    "type": "string"
+                  },
+                  "excluded_observations": {
+                    "type": "integer"
+                  },
+                  "input_tokens": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_observations": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_observations": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_observations",
+                      "unavailable_observations",
+                      "sum"
+                    ],
+                    "type": "object"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "observations": {
+                    "type": "integer"
+                  },
+                  "output_tokens": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_observations": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_observations": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_observations",
+                      "unavailable_observations",
+                      "sum"
+                    ],
+                    "type": "object"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "pull_request": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "reasoning_output_tokens": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_observations": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_observations": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_observations",
+                      "unavailable_observations",
+                      "sum"
+                    ],
+                    "type": "object"
+                  },
+                  "repository": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "role_availability": {
+                    "type": "string"
+                  },
+                  "round": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "round_availability": {
+                    "type": "string"
+                  },
+                  "terminal_classifications": {
+                    "additionalProperties": {
+                      "type": "integer"
+                    },
+                    "type": "object"
+                  },
+                  "ticket": {
+                    "type": "string"
+                  },
+                  "total_tokens": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_observations": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_observations": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_observations",
+                      "unavailable_observations",
+                      "sum"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "engine",
+                  "role_availability",
+                  "round_availability",
+                  "observations",
+                  "accounted_observations",
+                  "excluded_observations",
+                  "input_tokens",
+                  "cached_input_tokens",
+                  "cache_write_input_tokens",
+                  "output_tokens",
+                  "reasoning_output_tokens",
+                  "total_tokens",
+                  "cost_unavailable_observations",
+                  "costs",
+                  "terminal_classifications"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "runs": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "batch": {
+                    "type": "string"
+                  },
+                  "engine": {
+                    "type": "string"
+                  },
+                  "packet_bytes": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_runs": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_runs": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_runs",
+                      "unavailable_runs",
+                      "sum"
+                    ],
+                    "type": "object"
+                  },
+                  "pull_request": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "repository": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "role_availability": {
+                    "type": "string"
+                  },
+                  "round": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "round_availability": {
+                    "type": "string"
+                  },
+                  "runs": {
+                    "type": "integer"
+                  },
+                  "ticket": {
+                    "type": "string"
+                  },
+                  "tool_output_bytes": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_runs": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_runs": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_runs",
+                      "unavailable_runs",
+                      "sum"
+                    ],
+                    "type": "object"
+                  },
+                  "wall_time_ms": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "known_runs": {
+                        "type": "integer"
+                      },
+                      "sum": {
+                        "type": "integer"
+                      },
+                      "unavailable_runs": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "known_runs",
+                      "unavailable_runs",
+                      "sum"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "engine",
+                  "role_availability",
+                  "round_availability",
+                  "runs",
+                  "packet_bytes",
+                  "tool_output_bytes",
+                  "wall_time_ms"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            }
+          },
+          "required": [
+            "aggregates",
+            "runs"
+          ],
+          "type": "object"
+        },
+        "usage_scan_count": {
+          "type": "integer"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "period",
+        "aggregation",
+        "sessions",
+        "capture_coverage",
+        "failures",
+        "top_commands",
+        "usage",
+        "event_scan_count",
+        "session_scan_count",
+        "usage_scan_count"
+      ],
+      "type": "object"
     }
   },
   {
@@ -104,7 +1180,7 @@
           "type": "string"
         },
         "body_limit": {
-          "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
+          "description": "truncate event body in this response to this many runes; default 500, maximum 16384. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
           "type": [
             "null",
             "integer"
@@ -131,7 +1207,7 @@
           "type": "string"
         },
         "limit": {
-          "description": "result limit (default: 20)",
+          "description": "result limit (default: 20, maximum: 100)",
           "type": "integer"
         },
         "offset": {
@@ -163,6 +1239,240 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "description": "opaque cursor for the next page; use only with the same tool and filters",
+          "type": "string"
+        },
+        "coverage": {
+          "additionalProperties": false,
+          "description": "observed candidate and returned counts under the response budget",
+          "properties": {
+            "aggregate_body_budget": {
+              "description": "maximum encoded body and body_blocks bytes per response",
+              "type": "integer"
+            },
+            "aggregate_body_bytes": {
+              "description": "encoded body and body_blocks bytes returned",
+              "type": "integer"
+            },
+            "candidate_count": {
+              "description": "body-free candidates examined for this page",
+              "type": "integer"
+            },
+            "returned_count": {
+              "description": "event metadata records returned in this response",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "candidate_count",
+            "returned_count",
+            "aggregate_body_bytes",
+            "aggregate_body_budget"
+          ],
+          "type": "object"
+        },
+        "events": {
+          "description": "events matching the filters",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "description": "actor",
+                "type": "string"
+              },
+              "body": {
+                "description": "event body as a plain-text projection; absent for projection=metadata. For transcript JSON envelopes this joins text blocks and excludes thinking blocks — use body_blocks for the canonical structured form. May be truncated to body_limit characters; check body_truncated and body_length",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "body_blocks": {
+                "description": "structured block form of the body when it is a canonical transcript envelope; populated for list_events only — search and get_context omit it so thinking-block text does not leak through those surfaces; also absent for legacy plain-text bodies, non-envelope JSON bodies, empty envelopes, and rows whose body is truncated",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "body_ingest_truncated": {
+                "description": "whether ingestion truncated the event body when known",
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "body_length": {
+                "description": "original body length in runes before any truncation; only emitted when body_truncated is true",
+                "type": "integer"
+              },
+              "body_original_bytes": {
+                "description": "original event body byte count when known",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "body_storage_truncated": {
+                "description": "whether storage policy truncated the event body when known",
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "body_stored_bytes": {
+                "description": "stored event body byte count; available for projection=metadata and projection=bounded",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "body_truncated": {
+                "description": "true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to disable response truncation; audit payloads truncated at ingestion stay visibly truncated and are not recoverable",
+                "type": "boolean"
+              },
+              "body_unavailable_reason": {
+                "description": "reason the raw body is unavailable; currently retention",
+                "type": "string"
+              },
+              "client": {
+                "description": "recording channel",
+                "type": "string"
+              },
+              "created_at": {
+                "description": "event timestamp (RFC3339Nano)",
+                "type": "string"
+              },
+              "event_id": {
+                "description": "event ID",
+                "type": "string"
+              },
+              "exit_code": {
+                "description": "command exit code when available in metadata projection",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "failed": {
+                "description": "whether the linked command audit failed",
+                "type": "boolean"
+              },
+              "kind": {
+                "description": "event kind",
+                "type": "string"
+              },
+              "session_id": {
+                "description": "session identifier",
+                "type": "string"
+              },
+              "source_hook": {
+                "description": "hook identifier that produced this event (omitted for non-hook writes)",
+                "type": "string"
+              },
+              "workspace": {
+                "description": "auxiliary work context identifier",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "kind",
+              "client",
+              "agent",
+              "session_id",
+              "created_at"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "interval": {
+          "additionalProperties": false,
+          "description": "requested and effective half-open interval used by list_events or search",
+          "properties": {
+            "effective_from_inclusive": {
+              "description": "resolved inclusive UTC lower bound",
+              "type": "string"
+            },
+            "effective_to_exclusive": {
+              "description": "resolved exclusive UTC upper bound",
+              "type": "string"
+            },
+            "requested_from": {
+              "description": "caller-supplied lower bound",
+              "type": "string"
+            },
+            "requested_to": {
+              "description": "caller-supplied upper bound",
+              "type": "string"
+            },
+            "snapshot_at": {
+              "description": "UTC snapshot used for omitted upper bounds",
+              "type": "string"
+            },
+            "timezone": {
+              "description": "IANA timezone used for date-only bounds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "requested_from",
+            "requested_to",
+            "effective_from_inclusive",
+            "effective_to_exclusive",
+            "timezone",
+            "snapshot_at"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "partial": {
+          "description": "whether another page or body-budget reduction remains",
+          "type": "boolean"
+        },
+        "reasons": {
+          "description": "machine-readable partial reasons: more_results, aggregate_body_budget",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "events",
+        "coverage",
+        "partial"
+      ],
       "type": "object"
     }
   },
@@ -385,6 +1695,52 @@
         "action"
       ],
       "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "actor",
+          "type": "string"
+        },
+        "client": {
+          "description": "recording channel",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "event timestamp (RFC3339Nano)",
+          "type": "string"
+        },
+        "event_id": {
+          "description": "saved or referenced event ID",
+          "type": "string"
+        },
+        "kind": {
+          "description": "event kind",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "session identifier",
+          "type": "string"
+        },
+        "source_hook": {
+          "description": "hook identifier that produced this event (omitted for non-hook writes)",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "auxiliary work context identifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "kind",
+        "client",
+        "agent",
+        "session_id",
+        "created_at"
+      ],
+      "type": "object"
     }
   },
   {
@@ -587,6 +1943,139 @@
         "type"
       ],
       "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "actor",
+          "type": "string"
+        },
+        "body": {
+          "description": "event body plain-text projection",
+          "type": "string"
+        },
+        "body_blocks": {
+          "description": "structured block form of transcript body",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "client": {
+          "description": "recording channel",
+          "type": "string"
+        },
+        "command": {
+          "description": "executed command for audit records",
+          "type": "string"
+        },
+        "command_name": {
+          "description": "normalized executable used for aggregation",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "event timestamp (RFC3339Nano)",
+          "type": "string"
+        },
+        "event_id": {
+          "description": "saved event ID",
+          "type": "string"
+        },
+        "exit_code": {
+          "description": "captured command exit code",
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "failed": {
+          "description": "whether structured outcome evidence indicates failure",
+          "type": "boolean"
+        },
+        "failure_reason": {
+          "description": "structured command outcome reason",
+          "type": "string"
+        },
+        "input_original_bytes": {
+          "description": "original input byte count when input_truncated is true and known",
+          "type": "integer"
+        },
+        "input_redacted": {
+          "description": "whether input was redacted",
+          "type": "boolean"
+        },
+        "input_truncated": {
+          "description": "whether input was truncated",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "event kind",
+          "type": "string"
+        },
+        "output_original_bytes": {
+          "description": "original output byte count when output_truncated is true and known",
+          "type": "integer"
+        },
+        "output_redacted": {
+          "description": "whether output was redacted",
+          "type": "boolean"
+        },
+        "output_truncated": {
+          "description": "whether output was truncated",
+          "type": "boolean"
+        },
+        "session_id": {
+          "description": "session identifier",
+          "type": "string"
+        },
+        "source_hook": {
+          "description": "hook identifier that produced this event",
+          "type": "string"
+        },
+        "type": {
+          "description": "event write type: log or audit",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "auxiliary work context identifier",
+          "type": "string"
+        },
+        "wrapper": {
+          "description": "verified command wrapper when present",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "type",
+        "kind",
+        "client",
+        "agent",
+        "session_id",
+        "input_redacted",
+        "output_redacted",
+        "input_truncated",
+        "output_truncated",
+        "created_at"
+      ],
+      "type": "object"
     }
   },
   {
@@ -599,7 +2088,7 @@
       "additionalProperties": false,
       "properties": {
         "body_limit": {
-          "description": "truncate event body in this response to this many runes; default 500. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
+          "description": "truncate event body in this response to this many runes; default 500, maximum 16384. Set to 0 or pass full_body=true to disable response truncation. Audit payloads truncated at ingestion remain truncated.",
           "type": [
             "null",
             "integer"
@@ -618,7 +2107,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "result limit (default: 20)",
+          "description": "result limit (default: 20, maximum: 100)",
           "type": "integer"
         },
         "projection": {
@@ -644,6 +2133,240 @@
       },
       "required": [
         "query"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "description": "opaque cursor for the next page; use only with the same tool and filters",
+          "type": "string"
+        },
+        "coverage": {
+          "additionalProperties": false,
+          "description": "observed candidate and returned counts under the response budget",
+          "properties": {
+            "aggregate_body_budget": {
+              "description": "maximum encoded body and body_blocks bytes per response",
+              "type": "integer"
+            },
+            "aggregate_body_bytes": {
+              "description": "encoded body and body_blocks bytes returned",
+              "type": "integer"
+            },
+            "candidate_count": {
+              "description": "body-free candidates examined for this page",
+              "type": "integer"
+            },
+            "returned_count": {
+              "description": "event metadata records returned in this response",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "candidate_count",
+            "returned_count",
+            "aggregate_body_bytes",
+            "aggregate_body_budget"
+          ],
+          "type": "object"
+        },
+        "events": {
+          "description": "events matching the filters",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "description": "actor",
+                "type": "string"
+              },
+              "body": {
+                "description": "event body as a plain-text projection; absent for projection=metadata. For transcript JSON envelopes this joins text blocks and excludes thinking blocks — use body_blocks for the canonical structured form. May be truncated to body_limit characters; check body_truncated and body_length",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "body_blocks": {
+                "description": "structured block form of the body when it is a canonical transcript envelope; populated for list_events only — search and get_context omit it so thinking-block text does not leak through those surfaces; also absent for legacy plain-text bodies, non-envelope JSON bodies, empty envelopes, and rows whose body is truncated",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "body_ingest_truncated": {
+                "description": "whether ingestion truncated the event body when known",
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "body_length": {
+                "description": "original body length in runes before any truncation; only emitted when body_truncated is true",
+                "type": "integer"
+              },
+              "body_original_bytes": {
+                "description": "original event body byte count when known",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "body_storage_truncated": {
+                "description": "whether storage policy truncated the event body when known",
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "body_stored_bytes": {
+                "description": "stored event body byte count; available for projection=metadata and projection=bounded",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "body_truncated": {
+                "description": "true when body was truncated to fit body_limit. Re-issue the same call with full_body=true (or a larger body_limit) to disable response truncation; audit payloads truncated at ingestion stay visibly truncated and are not recoverable",
+                "type": "boolean"
+              },
+              "body_unavailable_reason": {
+                "description": "reason the raw body is unavailable; currently retention",
+                "type": "string"
+              },
+              "client": {
+                "description": "recording channel",
+                "type": "string"
+              },
+              "created_at": {
+                "description": "event timestamp (RFC3339Nano)",
+                "type": "string"
+              },
+              "event_id": {
+                "description": "event ID",
+                "type": "string"
+              },
+              "exit_code": {
+                "description": "command exit code when available in metadata projection",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "failed": {
+                "description": "whether the linked command audit failed",
+                "type": "boolean"
+              },
+              "kind": {
+                "description": "event kind",
+                "type": "string"
+              },
+              "session_id": {
+                "description": "session identifier",
+                "type": "string"
+              },
+              "source_hook": {
+                "description": "hook identifier that produced this event (omitted for non-hook writes)",
+                "type": "string"
+              },
+              "workspace": {
+                "description": "auxiliary work context identifier",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "kind",
+              "client",
+              "agent",
+              "session_id",
+              "created_at"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "interval": {
+          "additionalProperties": false,
+          "description": "requested and effective half-open interval used by list_events or search",
+          "properties": {
+            "effective_from_inclusive": {
+              "description": "resolved inclusive UTC lower bound",
+              "type": "string"
+            },
+            "effective_to_exclusive": {
+              "description": "resolved exclusive UTC upper bound",
+              "type": "string"
+            },
+            "requested_from": {
+              "description": "caller-supplied lower bound",
+              "type": "string"
+            },
+            "requested_to": {
+              "description": "caller-supplied upper bound",
+              "type": "string"
+            },
+            "snapshot_at": {
+              "description": "UTC snapshot used for omitted upper bounds",
+              "type": "string"
+            },
+            "timezone": {
+              "description": "IANA timezone used for date-only bounds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "requested_from",
+            "requested_to",
+            "effective_from_inclusive",
+            "effective_to_exclusive",
+            "timezone",
+            "snapshot_at"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "partial": {
+          "description": "whether another page or body-budget reduction remains",
+          "type": "boolean"
+        },
+        "reasons": {
+          "description": "machine-readable partial reasons: more_results, aggregate_body_budget",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "events",
+        "coverage",
+        "partial"
       ],
       "type": "object"
     }

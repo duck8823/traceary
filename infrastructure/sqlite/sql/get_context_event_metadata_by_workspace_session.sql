@@ -9,6 +9,6 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
  WHERE e.workspace = ?
    AND e.session_id = ?
    AND (? = '' OR e.created_at_norm < ?)
-   AND (? = '' OR e.created_at_norm < ? OR (e.created_at_norm = ? AND e.id < ?))
+   /* traceary:event-page-anchor */
  ORDER BY e.created_at_norm DESC, e.id DESC
  LIMIT ? OFFSET ?

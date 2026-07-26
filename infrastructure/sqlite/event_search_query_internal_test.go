@@ -120,7 +120,7 @@ func TestEventSearchFTSQuery_AppliesKeysetBeforeLimitWithoutOffset(t *testing.T)
 		Build()
 	query, args := buildFTSEventIDsQuery(criteria, criteria.Query())
 	normalized := strings.Join(strings.Fields(query), " ")
-	keyset := "AND (e.created_at_norm < ? OR (e.created_at_norm = ? AND e.id < ?))"
+	keyset := "AND (e.created_at_norm, e.id) < (?, ?)"
 	keysetIndex := strings.Index(normalized, keyset)
 	limitIndex := strings.Index(normalized, "ORDER BY e.created_at_norm DESC, e.id DESC LIMIT ?")
 	if keysetIndex < 0 || limitIndex < 0 || keysetIndex > limitIndex {
@@ -133,7 +133,6 @@ func TestEventSearchFTSQuery_AppliesKeysetBeforeLimitWithoutOffset(t *testing.T)
 	wantArgs := []any{
 		eventSearchFTSPhrase(criteria.Query()),
 		"github.com/duck8823/traceary",
-		wantTimestamp,
 		wantTimestamp,
 		"event-anchor",
 		20,

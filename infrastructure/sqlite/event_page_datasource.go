@@ -11,6 +11,7 @@ import (
 )
 
 var _ queryservice.EventPageQueryService = (*EventDatasource)(nil)
+var _ queryservice.EventReadQueryService = (*EventDatasource)(nil)
 
 // ListRecentPage selects membership and hydrates full events inside one SQLite
 // read snapshot. Continuation requests carry the same logical upper bound and
