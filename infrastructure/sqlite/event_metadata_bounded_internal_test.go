@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -402,20 +403,19 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		b.Fatalf("sql.Open() error = %v", err)
 	}
 	b.Cleanup(func() { _ = db.Close() })
-	payload := strings.Repeat("x", bodyBytes)
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		b.Fatalf("BeginTx() error = %v", err)
 	}
 	statement, err := tx.PrepareContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, body_availability)
-		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', ?, ?, 'available')`)
+		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', zeroblob(?), ?, 'unavailable_retention')`)
 	if err != nil {
 		_ = tx.Rollback()
 		b.Fatalf("PrepareContext() error = %v", err)
 	}
 	base := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < eventCount; i++ {
-		if _, err := statement.ExecContext(ctx, fmt.Sprintf("large-event-%03d", i), payload, base.Add(time.Duration(i)*time.Millisecond).Format(time.RFC3339Nano)); err != nil {
+		if _, err := statement.ExecContext(ctx, fmt.Sprintf("large-event-%03d", i), bodyBytes, base.Add(time.Duration(i)*time.Millisecond).Format(time.RFC3339Nano)); err != nil {
 			_ = statement.Close()
 			_ = tx.Rollback()
 			b.Fatalf("insert fixture %d: %v", i, err)
@@ -447,7 +447,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	}
 	b.ReportMetric(float64(pageCount*pageSize), "managed_bytes")
 	b.ReportMetric(float64(storedEvents), "events")
-	b.ReportMetric(float64(storedEvents-missingStoredBodyBytes), "non_null_body_metadata")
+	b.ReportMetric(float64(missingStoredBodyBytes), "missing_body_metadata")
 	b.ReportMetric(float64(storedBodyBytes), "stored_body_bytes")
 
 	criteria := apptypes.NewEventListCriteriaBuilder(50).
@@ -484,7 +484,31 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p95 := durations[(len(durations)*95+99)/100-1]
 	b.ReportMetric(float64(p95)/float64(time.Millisecond), "p95_ms")
-	if p95 >= 250*time.Millisecond {
+	passed := p95 < 250*time.Millisecond
+	marker, err := json.Marshal(struct {
+		ManagedBytes        int64   `json:"managed_bytes"`
+		StoredBodyBytes     int64   `json:"stored_body_bytes"`
+		Events              int64   `json:"events"`
+		MissingBodyMetadata int64   `json:"missing_body_metadata"`
+		Runs                int     `json:"runs"`
+		P95MS               float64 `json:"p95_ms"`
+		TargetP95MS         float64 `json:"target_p95_ms"`
+		Passed              bool    `json:"passed"`
+	}{
+		ManagedBytes:        pageCount * pageSize,
+		StoredBodyBytes:     storedBodyBytes,
+		Events:              storedEvents,
+		MissingBodyMetadata: missingStoredBodyBytes,
+		Runs:                measurementRuns,
+		P95MS:               float64(p95) / float64(time.Millisecond),
+		TargetP95MS:         250,
+		Passed:              passed,
+	})
+	if err != nil {
+		b.Fatalf("marshal Phase-A evidence: %v", err)
+	}
+	b.Logf("TRACEARY_PHASE_A_EVIDENCE=%s", marker)
+	if !passed {
 		b.Fatalf("multi-GiB direct range p95=%s, want < 250ms", p95)
 	}
 }

@@ -1,0 +1,134 @@
+{
+  "schema": "traceary.body-free-release-evidence.v1",
+  "status": "blocked",
+  "block_reason": "phase_a_failed",
+  "host": {
+    "goos": "darwin",
+    "goarch": "arm64",
+    "go_version": "go1.26.3"
+  },
+  "preflight": {
+    "required_scratch_bytes": 12884901888,
+    "available_scratch_bytes": 34020667392,
+    "capable": true
+  },
+  "phase_a": {
+    "managed_bytes": 2418733056,
+    "stored_body_bytes": 2147483648,
+    "events": 8,
+    "missing_body_metadata": 0,
+    "runs": 25,
+    "p95_ms": 605.756875,
+    "target_p95_ms": 250,
+    "passed": false
+  },
+  "phase_b": {
+    "source_managed_bytes": 2418642944,
+    "scratch_peak_bytes": 4837355520,
+    "events": 130,
+    "migration_ms": 35953.925333,
+    "resume_backfill_ms": 1.585,
+    "migrations_31_32_applied": true,
+    "integrity_ok": true,
+    "foreign_key_violations": 0,
+    "source_unchanged": true,
+    "initial_fts_documents": 128,
+    "initial_fts_complete": false,
+    "final_fts_documents": 130,
+    "final_fts_complete": true
+  },
+  "phase_c": [
+    {
+      "operation": "list",
+      "projection": "metadata",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 2.236417,
+      "returned_items": 20,
+      "returned_body_bytes": 0
+    },
+    {
+      "operation": "list",
+      "projection": "bounded",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 3.21025,
+      "returned_items": 20,
+      "returned_body_bytes": 920
+    },
+    {
+      "operation": "context",
+      "projection": "metadata",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 1.655833,
+      "returned_items": 20,
+      "returned_body_bytes": 0
+    },
+    {
+      "operation": "context",
+      "projection": "bounded",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 2.550958,
+      "returned_items": 20,
+      "returned_body_bytes": 920
+    },
+    {
+      "operation": "search",
+      "projection": "metadata",
+      "fts_phase": "incomplete",
+      "runs": 25,
+      "p95_ms": 10.06325,
+      "returned_items": 20,
+      "returned_body_bytes": 0
+    },
+    {
+      "operation": "search",
+      "projection": "bounded",
+      "fts_phase": "incomplete",
+      "runs": 25,
+      "p95_ms": 10.16425,
+      "returned_items": 20,
+      "returned_body_bytes": 920
+    },
+    {
+      "operation": "search",
+      "projection": "metadata",
+      "fts_phase": "complete",
+      "runs": 25,
+      "p95_ms": 4.212625,
+      "returned_items": 20,
+      "returned_body_bytes": 0
+    },
+    {
+      "operation": "search",
+      "projection": "bounded",
+      "fts_phase": "complete",
+      "runs": 25,
+      "p95_ms": 4.610834,
+      "returned_items": 20,
+      "returned_body_bytes": 920
+    }
+  ],
+  "phase_d": {
+    "max_items": 100,
+    "max_aggregate_body_bytes": 65536,
+    "observed_max_items": 35,
+    "observed_max_aggregate_body_bytes": 65536,
+    "pages": 3,
+    "total_items": 100,
+    "multibyte_observed": true,
+    "body_blocks_observed": true,
+    "continuation_no_duplicate_or_skip": true
+  },
+  "phase_e": {
+    "host_count": 6,
+    "manifest_parity": true
+  },
+  "privacy": {
+    "metrics_only": true,
+    "scratch_private": true,
+    "scratch_cleaned": true
+  }
+}

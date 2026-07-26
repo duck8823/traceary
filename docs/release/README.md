@@ -4,6 +4,10 @@
 
 Traceary supports three public CLI installation paths and release-coupled agent packages.
 
+Current release evidence:
+
+- [v0.33.0 multi-GiB release evidence](./v0.33.0-multigib-evidence.md)
+
 ## After upgrading the binary
 
 Host plugins are **not** upgraded by Homebrew or `go install`. Follow the bilingual checklist:
