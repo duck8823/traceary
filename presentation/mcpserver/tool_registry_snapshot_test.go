@@ -2,12 +2,10 @@ package mcpserver_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -25,41 +23,15 @@ var updateRegistrySnapshot = flag.Bool("update", false, "update MCP tool registr
 //
 // To intentionally update the contract — for example, after adding a
 // new MCP tool, renaming an action enum, or expanding a description —
-// re-run with `-update` and review the diff before committing:
+// regenerate both schema fixtures from the same integrated tree and review
+// the diffs before committing:
 //
-//	go test ./presentation/mcpserver -run TestServer_ToolRegistrySnapshot -update
+//	go test ./presentation/mcpserver -run 'TestServer_Tool(RegistrySnapshot|AdvertisementBudget)$' -update -update-tool-schema-budget
 //
 // See docs/operations/json-contract-tests.md for the full process.
 func TestServer_ToolRegistrySnapshot(t *testing.T) {
-	server := newTestServer(t)
-	ctx := context.Background()
-	mcpServer, err := server.Build(ctx)
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-
-	clientTransport, serverTransport := mcp.NewInMemoryTransports()
-	serverSession, err := mcpServer.Connect(ctx, serverTransport, nil)
-	if err != nil {
-		t.Fatalf("Connect(server) error = %v", err)
-	}
-	defer func() { _ = serverSession.Wait() }()
-
-	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1.0.0"}, nil)
-	clientSession, err := client.Connect(ctx, clientTransport, nil)
-	if err != nil {
-		t.Fatalf("Connect(client) error = %v", err)
-	}
-	defer func() { _ = clientSession.Close() }()
-
-	listResult, err := clientSession.ListTools(ctx, nil)
-	if err != nil {
-		t.Fatalf("ListTools() error = %v", err)
-	}
-
-	tools := make([]*mcp.Tool, len(listResult.Tools))
-	copy(tools, listResult.Tools)
-	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+	listResult := runtimeToolAdvertisement(t)
+	tools := sortedTools(listResult.Tools)
 
 	type toolSnapshot struct {
 		Name         string               `json:"name"`
@@ -103,6 +75,6 @@ func TestServer_ToolRegistrySnapshot(t *testing.T) {
 		t.Fatalf("read fixture %q: %v", fixturePath, err)
 	}
 	if diff := cmp.Diff(string(want), buf.String()); diff != "" {
-		t.Fatalf("MCP tool registry snapshot mismatch %q (-want +got):\n%s\n\nIf this drift is intentional, regenerate with:\n\tgo test ./presentation/mcpserver -run TestServer_ToolRegistrySnapshot -update\n", fixturePath, diff)
+		t.Fatalf("MCP tool registry snapshot mismatch %q (-want +got):\n%s\n\nIf this schema drift is intentional, regenerate both fixtures from the same integrated tree with:\n\tgo test ./presentation/mcpserver -run 'TestServer_Tool(RegistrySnapshot|AdvertisementBudget)$' -update -update-tool-schema-budget\n", fixturePath, diff)
 	}
 }

@@ -141,5 +141,6 @@ traceary store workspace-alias remove --session <id> --workspace <path>
 - Python 依存の縮小計画: [`./python-dependencies.ja.md`](./python-dependencies.ja.md)
 - repository tooling の方針: [`./repo-tooling.ja.md`](./repo-tooling.ja.md)
 - Memory コマンド体系の整理計画: [`./memory-command-surface.ja.md`](./memory-command-surface.ja.md)
+- MCP ツールスキーマ予算: [`./mcp-tool-schema-budget.ja.md`](./mcp-tool-schema-budget.ja.md)
 - ワークスペース識別契約: [`./workspace-identity-contract.ja.md`](./workspace-identity-contract.ja.md)
 - 証拠に基づく完結型セッション修復: [`./one-shot-repair.ja.md`](./one-shot-repair.ja.md)
