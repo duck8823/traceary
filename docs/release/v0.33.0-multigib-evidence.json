@@ -1,7 +1,6 @@
 {
   "schema": "traceary.body-free-release-evidence.v1",
-  "status": "blocked",
-  "block_reason": "phase_a_failed",
+  "status": "pass",
   "host": {
     "goos": "darwin",
     "goarch": "arm64",
@@ -9,28 +8,30 @@
   },
   "preflight": {
     "required_scratch_bytes": 12884901888,
-    "available_scratch_bytes": 33745166336,
+    "available_scratch_bytes": 69186424832,
     "capable": true
   },
   "phase_a": {
-    "managed_bytes": 2418733056,
+    "managed_bytes": 2418774016,
     "stored_body_bytes": 2147483648,
     "events": 8,
+    "projection_rows": 8,
     "missing_body_metadata": 0,
-    "ordered_index": true,
-    "covering_index": false,
+    "projection_only": true,
+    "returned_body_bytes": 0,
     "runs": 25,
-    "p95_ms": 4159.414709,
+    "p95_ms": 0.107333,
     "target_p95_ms": 250,
-    "passed": false
+    "passed": true
   },
   "phase_b": {
     "source_managed_bytes": 2418642944,
     "scratch_bytes_after_checkpoint": 4837355520,
     "events": 130,
-    "migration_ms": 246959.606292,
-    "resume_backfill_ms": 12.320959,
-    "migrations_31_32_applied": true,
+    "migration_ms": 24221.061416,
+    "resume_backfill_ms": 2.036708,
+    "migrations_31_34_applied": true,
+    "projection_rows": 130,
     "integrity_ok": true,
     "foreign_key_violations": 0,
     "source_unchanged": true,
@@ -45,7 +46,7 @@
       "projection": "metadata",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 47.614375,
+      "p95_ms": 1.661583,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -54,7 +55,7 @@
       "projection": "bounded",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 286.277792,
+      "p95_ms": 3.333792,
       "returned_items": 20,
       "returned_body_bytes": 920
     },
@@ -63,7 +64,7 @@
       "projection": "metadata",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 10.367166,
+      "p95_ms": 2.508583,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -72,7 +73,7 @@
       "projection": "bounded",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 185.714708,
+      "p95_ms": 2.537625,
       "returned_items": 20,
       "returned_body_bytes": 920
     },
@@ -81,7 +82,7 @@
       "projection": "metadata",
       "fts_phase": "incomplete",
       "runs": 25,
-      "p95_ms": 395.929291,
+      "p95_ms": 10.069708,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -90,7 +91,7 @@
       "projection": "bounded",
       "fts_phase": "incomplete",
       "runs": 25,
-      "p95_ms": 607.974292,
+      "p95_ms": 11.207792,
       "returned_items": 20,
       "returned_body_bytes": 920
     },
@@ -99,7 +100,7 @@
       "projection": "metadata",
       "fts_phase": "complete",
       "runs": 25,
-      "p95_ms": 294.954666,
+      "p95_ms": 5.192,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -108,7 +109,7 @@
       "projection": "bounded",
       "fts_phase": "complete",
       "runs": 25,
-      "p95_ms": 214.790167,
+      "p95_ms": 5.955291,
       "returned_items": 20,
       "returned_body_bytes": 920
     }

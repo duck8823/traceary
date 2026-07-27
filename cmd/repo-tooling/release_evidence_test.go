@@ -101,18 +101,41 @@ func TestValidateBodyFreeEvidence_RejectsMetadataBodyBytesAndPhaseCGatesNoLatenc
 	}
 }
 
-func TestValidateBodyFreeEvidence_RequiresOrderedIndexButOnlyObservesCoveringIndex(t *testing.T) {
+func TestValidateBodyFreeEvidence_RequiresProjectionOnlyPlanAndBodyFreeResults(t *testing.T) {
 	t.Parallel()
 
 	evidence := validBodyFreeEvidenceFixture()
-	evidence.PhaseA.CoveringIndex = false
-	if err := validateBodyFreeEvidence(evidence); err != nil {
-		t.Fatalf("non-covering Phase-A plan unexpectedly failed validation: %v", err)
+	evidence.PhaseA.ProjectionOnly = false
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-A plan using the authoritative event table unexpectedly passed")
 	}
 
-	evidence.PhaseA.OrderedIndex = false
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.PhaseA.ReturnedBodyBytes = 1
 	if err := validateBodyFreeEvidence(evidence); err == nil {
-		t.Fatal("Phase-A plan without its ordered index unexpectedly passed")
+		t.Fatal("Phase-A result containing body bytes unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.PhaseA.ProjectionRows--
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-A projection row mismatch unexpectedly passed")
+	}
+}
+
+func TestValidateBodyFreeEvidence_RequiresProjectionMigrationParity(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.PhaseB.Migrations31Through34 = false
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase B without migration 34 unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.PhaseB.ProjectionRows--
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-B projection row mismatch unexpectedly passed")
 	}
 }
 
@@ -303,14 +326,15 @@ func validBodyFreeEvidenceFixture() BodyFreeEvidence {
 		},
 		PhaseA: &bodyFreeEvidencePhaseA{
 			ManagedBytes: 2 << 30, StoredBodyBytes: 2 << 30,
-			Events: 8, MissingBodyMetadata: 0,
-			OrderedIndex: true, CoveringIndex: true, Runs: 25,
+			Events: 8, ProjectionRows: 8, MissingBodyMetadata: 0,
+			ProjectionOnly: true, ReturnedBodyBytes: 0, Runs: 25,
 			P95MS: 1.5, TargetP95MS: 250, Passed: true,
 		},
 		PhaseB: &bodyFreeEvidencePhaseB{
 			SourceManagedBytes: 2 << 30, ScratchBytesAfterCheckpoint: 4 << 30,
 			Events: 130, MigrationMS: 25, ResumeBackfillMS: 2,
-			Migrations31And32: true, IntegrityOK: true, ForeignKeyViolations: 0,
+			Migrations31Through34: true, ProjectionRows: 130,
+			IntegrityOK: true, ForeignKeyViolations: 0,
 			SourceUnchanged: true, InitialFTSDocuments: 128, InitialFTSComplete: false,
 			FinalFTSDocuments: 130, FinalFTSComplete: true,
 		},

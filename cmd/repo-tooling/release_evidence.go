@@ -66,9 +66,10 @@ type bodyFreeEvidencePhaseA struct {
 	ManagedBytes        int64   `json:"managed_bytes"`
 	StoredBodyBytes     int64   `json:"stored_body_bytes"`
 	Events              int64   `json:"events"`
+	ProjectionRows      int64   `json:"projection_rows"`
 	MissingBodyMetadata int64   `json:"missing_body_metadata"`
-	OrderedIndex        bool    `json:"ordered_index"`
-	CoveringIndex       bool    `json:"covering_index"`
+	ProjectionOnly      bool    `json:"projection_only"`
+	ReturnedBodyBytes   int64   `json:"returned_body_bytes"`
 	Runs                int     `json:"runs"`
 	P95MS               float64 `json:"p95_ms"`
 	TargetP95MS         float64 `json:"target_p95_ms"`
@@ -81,7 +82,8 @@ type bodyFreeEvidencePhaseB struct {
 	Events                      int64   `json:"events"`
 	MigrationMS                 float64 `json:"migration_ms"`
 	ResumeBackfillMS            float64 `json:"resume_backfill_ms"`
-	Migrations31And32           bool    `json:"migrations_31_32_applied"`
+	Migrations31Through34       bool    `json:"migrations_31_34_applied"`
+	ProjectionRows              int64   `json:"projection_rows"`
 	IntegrityOK                 bool    `json:"integrity_ok"`
 	ForeignKeyViolations        int64   `json:"foreign_key_violations"`
 	SourceUnchanged             bool    `json:"source_unchanged"`
@@ -632,8 +634,9 @@ func validBodyFreeEvidenceGOARCH(value string) bool {
 
 func validateBodyFreeEvidencePhaseA(phaseA bodyFreeEvidencePhaseA) error {
 	if phaseA.ManagedBytes < 2<<30 || phaseA.StoredBodyBytes < 2<<30 ||
-		phaseA.Events != 8 || phaseA.MissingBodyMetadata != 0 ||
-		!phaseA.OrderedIndex ||
+		phaseA.Events != 8 || phaseA.ProjectionRows != phaseA.Events ||
+		phaseA.MissingBodyMetadata != 0 || !phaseA.ProjectionOnly ||
+		phaseA.ReturnedBodyBytes != 0 ||
 		phaseA.Runs != 25 || phaseA.TargetP95MS != 250 || phaseA.P95MS < 0 ||
 		phaseA.Passed != (phaseA.P95MS < phaseA.TargetP95MS) {
 		return xerrors.Errorf("body-free release evidence phase A is invalid")
@@ -645,7 +648,8 @@ func validateBodyFreeEvidencePhaseB(phaseB bodyFreeEvidencePhaseB) error {
 	if phaseB.SourceManagedBytes < 2<<30 ||
 		phaseB.ScratchBytesAfterCheckpoint < 2*phaseB.SourceManagedBytes ||
 		phaseB.Events != 130 || phaseB.MigrationMS < 0 || phaseB.ResumeBackfillMS < 0 ||
-		!phaseB.Migrations31And32 || !phaseB.IntegrityOK || phaseB.ForeignKeyViolations != 0 ||
+		!phaseB.Migrations31Through34 || phaseB.ProjectionRows != phaseB.Events ||
+		!phaseB.IntegrityOK || phaseB.ForeignKeyViolations != 0 ||
 		!phaseB.SourceUnchanged || phaseB.InitialFTSDocuments != 128 || phaseB.InitialFTSComplete ||
 		phaseB.FinalFTSDocuments != phaseB.Events || !phaseB.FinalFTSComplete {
 		return xerrors.Errorf("body-free release evidence phase B failed")

@@ -32,7 +32,8 @@ type v0330ReleaseEvidencePhaseB struct {
 	Events                      int64   `json:"events"`
 	MigrationMS                 float64 `json:"migration_ms"`
 	ResumeBackfillMS            float64 `json:"resume_backfill_ms"`
-	Migrations31And32           bool    `json:"migrations_31_32_applied"`
+	Migrations31Through34       bool    `json:"migrations_31_34_applied"`
+	ProjectionRows              int64   `json:"projection_rows"`
 	IntegrityOK                 bool    `json:"integrity_ok"`
 	ForeignKeyViolations        int64   `json:"foreign_key_violations"`
 	SourceUnchanged             bool    `json:"source_unchanged"`
@@ -134,10 +135,15 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 	if err != nil {
 		b.Fatalf("open copied current store: %v", err)
 	}
-	migrations31And32, err := v0330ReleaseEvidenceMigrationsApplied(ctx, copyDB)
+	migrations31Through34, err := v0330ReleaseEvidenceMigrationsApplied(ctx, copyDB)
 	if err != nil {
 		_ = copyDB.Close()
 		b.Fatalf("inspect copied migrations: %v", err)
+	}
+	projectionRows, err := v0330ReleaseEvidenceProjectionRows(ctx, copyDB)
+	if err != nil {
+		_ = copyDB.Close()
+		b.Fatalf("inspect copied metadata projection: %v", err)
 	}
 	integrityOK, err := v0330ReleaseEvidenceIntegrityOK(ctx, copyDB)
 	if err != nil {
@@ -291,7 +297,8 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 			Events:                      sourceEvents,
 			MigrationMS:                 float64(migrationElapsed) / float64(time.Millisecond),
 			ResumeBackfillMS:            float64(resumeElapsed) / float64(time.Millisecond),
-			Migrations31And32:           migrations31And32,
+			Migrations31Through34:       migrations31Through34,
+			ProjectionRows:              projectionRows,
 			IntegrityOK:                 integrityOK,
 			ForeignKeyViolations:        foreignKeyViolations,
 			SourceUnchanged:             sourceDigestBefore == sourceDigestAfter,
@@ -302,7 +309,8 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		},
 		PhaseC: probes,
 	}
-	if !evidence.PhaseB.Migrations31And32 ||
+	if !evidence.PhaseB.Migrations31Through34 ||
+		evidence.PhaseB.ProjectionRows != evidence.PhaseB.Events ||
 		!evidence.PhaseB.IntegrityOK ||
 		evidence.PhaseB.ForeignKeyViolations != 0 ||
 		!evidence.PhaseB.SourceUnchanged {
@@ -405,11 +413,19 @@ func v0330ReleaseEvidenceMigrationsApplied(ctx context.Context, db *sql.DB) (boo
 	if err := db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		  FROM schema_migrations
-		 WHERE version IN (31, 32)`,
+		 WHERE version IN (31, 32, 33, 34)`,
 	).Scan(&count); err != nil {
 		return false, fmt.Errorf("read copied migration versions: %w", err)
 	}
-	return count == 2, nil
+	return count == 4, nil
+}
+
+func v0330ReleaseEvidenceProjectionRows(ctx context.Context, db *sql.DB) (int64, error) {
+	var rows int64
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM event_metadata_projection").Scan(&rows); err != nil {
+		return 0, fmt.Errorf("read copied metadata projection rows: %w", err)
+	}
+	return rows, nil
 }
 
 func v0330ReleaseEvidenceIntegrityOK(ctx context.Context, db *sql.DB) (bool, error) {
