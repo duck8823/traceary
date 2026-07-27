@@ -3,11 +3,13 @@ package usecase_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -543,14 +545,14 @@ func TestMemoryHygieneScan_RowBoundContinuationHasNoDuplicateOrSkippedCandidate(
 	}
 }
 
-func TestMemoryHygieneScan_ResultByteStopCanResumeWithLargerBudget(t *testing.T) {
+func TestMemoryHygieneScan_ResultByteLimitWithoutCursorProgressReturnsTypedError(t *testing.T) {
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
 	now := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
 	query := &stubMemoryQueryService{
 		summaries: []apptypes.MemorySummary{
-			candidateSummary(t, "mem-noise", scope, "git status", domtypes.MemorySourceExtracted, now),
+			acceptedSummaryAt(t, "mem-noise", scope, "git status", now.Add(-365*24*time.Hour)),
 		},
 	}
 	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
@@ -559,24 +561,11 @@ func TestMemoryHygieneScan_ResultByteStopCanResumeWithLargerBudget(t *testing.T)
 		Budget: memoryHygieneTestBudget(t, 2, 1, 100),
 	}
 	first, err := sut.Scan(context.Background(), limited)
-	if err != nil {
-		t.Fatalf("first Scan() error = %v", err)
+	if !errors.Is(err, queryservice.ErrMemoryHygieneContinuationCannotProgress) {
+		t.Fatalf("Scan() error = %v, want ErrMemoryHygieneContinuationCannotProgress", err)
 	}
-	if !first.Partial || first.StopReason != apptypes.MemoryHygieneStopReasonResultByteLimit || first.NextCursor == "" {
-		t.Fatalf("first result = %#v, want resumable result_byte_limit", first)
-	}
-	if len(first.Suggestions) != 0 || first.Usage.ResultBytes != 0 {
-		t.Fatalf("first result crossed byte bound: suggestions=%d bytes=%d", len(first.Suggestions), first.Usage.ResultBytes)
-	}
-
-	limited.Cursor = first.NextCursor
-	limited.Budget = memoryHygieneTestBudget(t, 2, 1<<20, 100)
-	second, err := sut.Scan(context.Background(), limited)
-	if err != nil {
-		t.Fatalf("resumed Scan() error = %v", err)
-	}
-	if len(second.Suggestions) != 1 || second.Suggestions[0].MemoryID.String() != "mem-noise" {
-		t.Fatalf("resumed suggestions = %#v, want mem-noise", second.Suggestions)
+	if first.NextCursor != "" || first.Partial {
+		t.Fatalf("non-progressing result = %#v, want no resumable cursor", first)
 	}
 }
 
@@ -612,10 +601,16 @@ func TestMemoryHygieneScan_CursorIsBoundToCriteria(t *testing.T) {
 	}
 }
 
-func TestMemoryHygieneScan_TimeBoundReturnsResumablePartialAfterRevisionCapture(t *testing.T) {
+func TestMemoryHygieneScan_TimeLimitWithoutCursorProgressReturnsTypedError(t *testing.T) {
 	t.Parallel()
 
-	query := &stubMemoryQueryService{scanDelay: 5 * time.Millisecond}
+	scope := workspaceScope(t, "github.com/example/repo")
+	query := &stubMemoryQueryService{
+		scanDelay: 5 * time.Millisecond,
+		summaries: []apptypes.MemorySummary{
+			acceptedSummaryAt(t, "mem-a", scope, "git status", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
+		},
+	}
 	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
 	budget, err := apptypes.MemoryHygieneScanBudgetFrom(apptypes.MemoryHygieneScanBudgetParams{
 		MaxRows:        2,
@@ -631,11 +626,11 @@ func TestMemoryHygieneScan_TimeBoundReturnsResumablePartialAfterRevisionCapture(
 		Now:    time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
 		Budget: budget,
 	})
-	if err != nil {
-		t.Fatalf("Scan() error = %v", err)
+	if !errors.Is(err, queryservice.ErrMemoryHygieneContinuationCannotProgress) {
+		t.Fatalf("Scan() error = %v, want ErrMemoryHygieneContinuationCannotProgress", err)
 	}
-	if !result.Partial || result.StopReason != apptypes.MemoryHygieneStopReasonTimeLimit || result.NextCursor == "" {
-		t.Fatalf("time-bounded result = %#v, want resumable time_limit", result)
+	if result.NextCursor != "" || result.Partial {
+		t.Fatalf("non-progressing result = %#v, want no resumable cursor", result)
 	}
 }
 

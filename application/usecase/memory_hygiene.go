@@ -89,29 +89,34 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 	if criteria.Cursor != "" && cursorPayload.CriteriaDigest != digest {
 		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene cursor criteria mismatch")
 	}
+	initialPhase := phase
+	initialKeyset := keyset
 
 	result := apptypes.MemoryHygieneScanResult{Suggestions: []apptypes.MemoryHygieneSuggestion{}}
 	startedAt := time.Now()
+	finishPartial := func(reason apptypes.MemoryHygieneStopReason) (apptypes.MemoryHygieneScanResult, error) {
+		return finishPartialMemoryHygieneResult(result, reason, phase, keyset, revision, digest, now, startedAt, initialPhase, initialKeyset)
+	}
 	scanCtx, cancel := context.WithTimeout(ctx, budget.MaxDuration())
 	defer cancel()
 
 	for {
 		if time.Since(startedAt) >= budget.MaxDuration() {
 			if _, hasRevision := revision.Value(); hasRevision {
-				return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonTimeLimit, phase, keyset, revision, digest, now, startedAt)
+				return finishPartial(apptypes.MemoryHygieneStopReasonTimeLimit)
 			}
 		}
 		remainingRows := budget.MaxRows() - result.Usage.ScannedRows
 		remainingScanBytes := budget.MaxScanBytes() - result.Usage.ScannedBytes
 		remainingComparisons := budget.MaxComparisons() - result.Usage.Comparisons
 		if remainingRows < 1 {
-			return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonRowLimit, phase, keyset, revision, digest, now, startedAt)
+			return finishPartial(apptypes.MemoryHygieneStopReasonRowLimit)
 		}
 		if remainingScanBytes < 1 {
-			return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonScanByteLimit, phase, keyset, revision, digest, now, startedAt)
+			return finishPartial(apptypes.MemoryHygieneStopReasonScanByteLimit)
 		}
 		if (phase == apptypes.MemoryHygieneScanPhaseExactDuplicates || phase == apptypes.MemoryHygieneScanPhaseSimilarityPairs) && remainingComparisons < 1 {
-			return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonComparisonLimit, phase, keyset, revision, digest, now, startedAt)
+			return finishPartial(apptypes.MemoryHygieneStopReasonComparisonLimit)
 		}
 		sourceComparisons := remainingComparisons
 		if sourceComparisons < 1 {
@@ -129,7 +134,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		})
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(scanCtx.Err(), context.DeadlineExceeded) {
-				return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonTimeLimit, phase, keyset, revision, digest, now, startedAt)
+				return finishPartial(apptypes.MemoryHygieneStopReasonTimeLimit)
 			}
 			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("failed to scan memory hygiene source page: %w", err)
 		}
@@ -142,7 +147,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 
 		for _, unit := range page.Units {
 			if time.Since(startedAt) >= budget.MaxDuration() {
-				return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonTimeLimit, phase, keyset, revision, digest, now, startedAt)
+				return finishPartial(apptypes.MemoryHygieneStopReasonTimeLimit)
 			}
 			matches := u.matchesForScanUnit(phase, unit, now, staleness, similarity)
 			safeSuggestions := make([]apptypes.MemoryHygieneSuggestion, 0, len(matches))
@@ -157,7 +162,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 				safeSuggestions = append(safeSuggestions, suggestion)
 			}
 			if result.Usage.ResultBytes+suggestionBytes > budget.MaxResultBytes() {
-				return finishPartialMemoryHygieneResult(result, apptypes.MemoryHygieneStopReasonResultByteLimit, phase, keyset, revision, digest, now, startedAt)
+				return finishPartial(apptypes.MemoryHygieneStopReasonResultByteLimit)
 			}
 			for _, suggestion := range safeSuggestions {
 				result.Suggestions = append(result.Suggestions, suggestion)
@@ -185,7 +190,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		if page.StopReason == "" {
 			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene scan source stopped without a reason")
 		}
-		return finishPartialMemoryHygieneResult(result, page.StopReason, phase, keyset, revision, digest, now, startedAt)
+		return finishPartial(page.StopReason)
 	}
 }
 
@@ -453,7 +458,12 @@ func finishPartialMemoryHygieneResult(
 	digest string,
 	now time.Time,
 	startedAt time.Time,
+	initialPhase apptypes.MemoryHygieneScanPhase,
+	initialKeyset apptypes.MemoryHygieneScanKeyset,
 ) (apptypes.MemoryHygieneScanResult, error) {
+	if phase == initialPhase && keyset == initialKeyset {
+		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("%w: %s budget stopped before advancing the cursor", queryservice.ErrMemoryHygieneContinuationCannotProgress, reason)
+	}
 	revisionValue, ok := revision.Value()
 	if !ok {
 		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene scan stopped before reading a revision")

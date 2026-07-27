@@ -11,6 +11,12 @@ import (
 // revision no longer matches. Callers must restart without the old cursor.
 var ErrMemoryHygieneRevisionChanged = errors.New("memory hygiene revision changed")
 
+// ErrMemoryHygieneContinuationCannotProgress identifies a finite scan budget
+// that stopped before its cursor position advanced. Retrying that cursor with
+// the same budget would repeat the same work indefinitely, so callers must
+// increase the relevant budget or narrow the scan instead.
+var ErrMemoryHygieneContinuationCannotProgress = errors.New("memory hygiene continuation cannot progress")
+
 // MemoryHygieneScanSource is the narrow read boundary consumed by the bounded
 // hygiene use case. Generic List cannot express a revision-stable keyset or
 // exhaustive pair continuation, so production scanners must implement this
