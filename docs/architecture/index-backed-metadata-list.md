@@ -1,4 +1,4 @@
-# Index-backed metadata list and context queries
+# Persistent metadata projection for list and context queries
 
 [日本語](index-backed-metadata-list.ja.md)
 
@@ -7,67 +7,88 @@
 ### Requirement summary
 
 - General metadata list and context reads must retain boundary-correct
-  RFC3339Nano ordering without a whole-store temporary sort.
-- Workspace/session scopes and page offsets must remain metadata-only.
-- Schema rollout must be additive; a code rollback must not make an existing
-  store unreadable.
+  RFC3339Nano ordering without opening body-bearing `events` records.
+- Workspace/session/source-hook scopes, offset pages, and keyset pages must
+  preserve their existing membership and ordering.
+- The two historical source-hook body-prefix fallbacks must remain available
+  without evaluating bodies at read time.
+- Schema rollout must be additive, and a code rollback must leave an upgraded
+  store readable and writable.
 
-### Conceptual model and responsibilities
+### Concepts and responsibilities
 
 | Concept | Owner | Invariant |
 | --- | --- | --- |
-| Normalized timestamp order | persisted event timestamp and SQLite indexes | `created_at_norm, id` is the one ordering contract |
-| Scoped metadata page | metadata datasource | selects metadata/audit columns, never `events.body` |
-| Index rollout | migration 000031 | adds and backfills `created_at_norm`, then maintains it with triggers |
+| Normalized timestamp | migration 000031 and event triggers | `created_at_norm, id` remains the one event-ordering contract |
+| Persistent metadata projection | migration 000034 | one narrow row per event contains metadata, legacy-hook classification, and optional command-audit facts, but no body or command payload |
+| Scoped metadata page | metadata datasource | list/context SQL opens only the projection and returns the existing `EventMetadata` contract |
+| Transactional maintenance | event and command-audit triggers | an authoritative committed mutation and its projection cannot diverge |
 
-### Boundaries and supported plans
+### Supported plans
 
-| Query shape | Ordered index |
+| Query shape | Projection ordering index |
 | --- | --- |
-| general metadata list (including limit/offset) | `idx_events_created_at_norm_id_desc` |
-| workspace list/context | `idx_events_workspace_created_at_norm_id_desc` |
-| session list/context | `idx_events_session_created_at_norm_id_desc` |
-| workspace + session context | `idx_events_workspace_session_created_at_norm_id_desc` |
-| source-hook list | `idx_events_source_hook_created_at_norm_id_desc` |
+| general metadata list, including limit/offset | `idx_event_metadata_created_at_norm_id_desc` |
+| workspace list/context | `idx_event_metadata_workspace_created_at_norm_id_desc` |
+| session list/context | `idx_event_metadata_session_created_at_norm_id_desc` |
+| workspace + session list/context | `idx_event_metadata_workspace_session_created_at_norm_id_desc` |
+| directly tagged source-hook list | `idx_event_metadata_source_hook_created_at_norm_id_desc` |
 
-The list predicates remain optional for public filters, but supplied timestamp
-bounds select direct SQL variants so the planner can seek within the matching
-ordering index. The planner can scan the matching ordering index;
-for an unfiltered scoped page it stops after `offset + limit`, while filters
-that are not an indexed scope are applied during that ordered scan. This is
-preferable to duplicating every filter combination or changing result
-membership.
+Supplied timestamp boundaries select direct-predicate SQL variants so SQLite
+can seek inside the matching ordering index. Filters that are not part of the
+selected scope remain post-seek predicates, preserving the public result
+semantics. Legacy hook fallback scans the narrow general projection order and
+compares a fixed classification populated during migration or event writes; it
+does not evaluate an event body.
 
-### Behavior tests and TDD plan
+### Behavior tests
 
-1. Assert representative list/context and legacy source-hook fallback
-   `EXPLAIN QUERY PLAN` output from a migrated store uses the
-   documented ordering index and does not build a temporary order-by tree.
-2. Assert normal list and scoped/offset pages preserve timestamp order.
-3. Keep the metadata SQL select-list guard: `body` and command payload columns
-   are forbidden in every metadata query.
-4. Upgrade a pre-000031 store and assert the fixed-width timestamp is
-   backfilled and maintained after inserts and timestamp updates.
-5. Keep the 10k-event direct-range p95 below 50 ms as a CI smoke test. The
-   migrated-store plan test also requires direct lower and upper timestamp
-   constraints and rejects every temporary B-tree, including partial order-by
-   sorts.
-6. Run the opt-in multi-GiB benchmark before release. It writes actual SQLite
-   pages and event bodies under a temporary directory, verifies both
-   `page_count * page_size`, non-NULL `body_stored_bytes`, and
-   `SUM(body_stored_bytes)`, and is never run by CI.
+1. Upgrade only a private copy of a pre-000034 store; require an unchanged
+   source digest, equal event/projection counts, `integrity_check=ok`, and zero
+   foreign-key violations.
+2. Verify existing-row backfill and transactional event/audit
+   insert/update/delete maintenance.
+3. Assert representative list/context SQL and plans use the projection, never
+   open `events`, and do not build a temporary order-by tree.
+4. Preserve timestamp order, filters, failures-only semantics, legacy hook
+   membership, offset paging, and composite keyset paging.
+5. Keep the 10k-event direct-range p95 below 50 ms as a CI smoke test.
+6. Exercise an external write lock, require a busy/locked result with no partial
+   projection object, then retry successfully after releasing the lock.
+7. Open an upgraded store through the pre-projection migration set and verify
+   its subsequent event write is maintained by the persisted triggers.
+8. Run both opt-in operational benchmarks before release. Their durable
+   summaries contain numeric metrics and fixed booleans only.
 
-### Performance evidence
+### Performance and migration evidence
 
-The CI smoke measurement on 2026-07-25 used Go 1.26.3 on macOS 26.5
-(darwin/arm64) with the modernc SQLite driver. It contains 10,000 indexed event
-metadata rows; 25 workspace-scoped, two-second direct ranges with `limit=50`
-measured p95 **416.125us** against a 50 ms target.
+The CI smoke measurement on 2026-07-26 used Go 1.26.3 on macOS 26.5
+(darwin/arm64, Apple M4) with the modernc SQLite driver. It contained 10,000
+projected event rows; 25 workspace-scoped two-second direct ranges with
+`limit=50` measured p95 **412.25 µs** against the 50 ms target.
 
-The release-QA benchmark is opt-in and creates 8 events with 256 MiB bodies
-(at least 2 GiB total), then verifies `page_count * page_size >= 2 GiB`, the
-event count, non-NULL body metadata, and `SUM(body_stored_bytes)` before
-measuring 25 direct ranges. Run:
+The copied-store migration benchmark creates a private synthetic 256 MiB body
+extent, copies the pre-000034 source, and migrates only the copy:
+
+```sh
+TRACEARY_RUN_METADATA_PROJECTION_MIGRATION_BENCHMARK=1 \
+  go test -v ./infrastructure/sqlite -run '^$' \
+  -bench BenchmarkEventMetadataProjectionCopiedStoreMigration -benchtime=1x
+```
+
+On the same host, migration 34 completed in **113.1 ms** for 8 events. Source,
+copy-before, and copy-after sizes were each 302,714,880 bytes; measured main-file
+growth was 0 bytes because existing free pages held the narrow projection.
+Peak scratch extent was 605,528,480 bytes and post-checkpoint scratch was
+605,429,760 bytes. Integrity passed, foreign-key violations were zero, and the
+source stayed byte-identical. An externally held write lock returned the
+expected busy outcome after **1,012.467 ms**, exposed zero partial projection
+objects, and the retry succeeded after release.
+
+The Phase-A benchmark creates eight SQLite-generated 256 MiB extents (at least
+2 GiB managed and stored body bytes), verifies equal event/projection counts,
+requires a projection-only ordered plan, and measures 25 direct metadata
+ranges:
 
 ```sh
 TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \
@@ -75,23 +96,40 @@ TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \
   -bench BenchmarkMetadataDirectRangeMultiGiB -benchtime=1x
 ```
 
-Successful benchmark output reports `managed_bytes`, `events`,
-`non_null_body_metadata`, `stored_body_bytes`, and `p95_ms`; attach those
-values to #1558 with the host environment. Its p95 goal is below 250 ms. A
-2026-07-25 attempt in this constrained runner
-reached benchmark setup but was terminated before fixture completion, so it has
-no valid multi-GiB p95 to report. The runner had 7.8 GiB free but does not allow
-the required long-lived benchmark process; release QA must run the command on a
-host that permits it and record the p95 before release. The command creates its
-artifact only in the Go test temporary directory and deletes it afterwards; no
-large fixture is committed or run by CI. The direct-range plan assertion is the
-primary full-scan regression guard, while the 10k smoke threshold detects local
-latency regressions.
+It reports managed/stored bytes, event/projection counts, missing body metadata,
+returned body bytes, plan classification, run count, and p95. The p95 gate is
+below 250 ms. The fixture lives only in the Go test temporary directory and is
+removed after the benchmark; CI never creates it.
+
+On the same host, Phase A measured 2,418,753,536 managed bytes and
+2,147,483,648 stored body bytes across 8 event/projection rows. All 25
+measurements used the projection-only plan, missing body metadata and returned
+body bytes were both zero, and p95 was **0.07242 ms**, passing the 250 ms gate.
 
 ### Rollback and residual risk
 
-Migration 000031 is additive and idempotent. Reverting application code keeps
-the store readable because older readers ignore the added column, triggers, and
-indexes. Index creation can temporarily require disk and write-lock
-capacity on very large stores; operators should retry after freeing capacity or
-quiescing writers.
+Migration 000034 is additive. Older binaries ignore its table and indexes while
+the persisted triggers continue to maintain projection rows for their writes.
+After release, application code can therefore roll back to authoritative-table
+reads without removing schema objects. Removing the projection requires a later
+forward migration after no deployed reader depends on it.
+
+Backfill and index creation are a one-time, non-resumable scan executed in one
+migration transaction. The scan reads every existing event and command-audit
+metadata row; legacy-hook classification also inspects bodies for relevant
+untagged historical events. If initialization is interrupted, SQLite rolls back
+the table, indexes, triggers, and migration record together, and the next
+initialization retries migration 000034 from the beginning. Operators should
+quiesce writers and reserve temporary disk capacity before upgrading a large
+store. Competing writers can wait up to the configured busy timeout.
+
+The projection deliberately does not duplicate `body_availability`: metadata
+consumers do not expose it, and maintenance triggers can use the authoritative
+`NEW` row. A retention prune preserves the historical `body_stored_bytes`
+extent; only an update whose resulting availability is `available` recomputes
+that extent from the new body. Adding the unused availability field or an
+unbounded projection-drift scan to the normal `doctor` path would add another
+drift surface or a large-store scan, so neither is part of this migration.
+Migration and trigger parity tests enforce the invariant. The projection still
+adds one narrow row and five ordering indexes per event, so deployments must
+monitor write latency and WAL/checkpoint growth.

@@ -1,4 +1,4 @@
-# インデックス利用のメタデータ list/context クエリ
+# list/context クエリ用の永続メタデータ投影
 
 [English](index-backed-metadata-list.md)
 
@@ -6,44 +6,84 @@
 
 ### 要求
 
-- 一般的なメタデータ list/context 読取は、RFC3339Nano の境界を正しく並べつつ全件一時ソートを行わない。
-- workspace/session 絞り込みと offset ページングでも本文を読まない。
-- スキーマ更新は追加だけで行い、アプリケーションのロールバック後も既存ストアを読める。
+- 一般的なメタデータ list/context 読取は、RFC3339Nano の境界を正しく
+  並べつつ、本文を持つ `events` レコードを開かない。
+- workspace/session/source-hook 絞り込み、offset ページ、keyset ページの
+  対象件数と順序を維持する。
+- 過去互換の2種類の source-hook 本文prefix判定は維持するが、読取時には
+  本文を評価しない。
+- スキーマ更新は追加だけで行い、アプリケーションを戻した後も更新済み
+  ストアを読み書きできる。
 
 ### 概念と責務
 
 | 概念 | 責務 | 不変条件 |
 | --- | --- | --- |
-| 正規化時刻順 | 永続化した event 時刻列と SQLite インデックス | `created_at_norm, id` を唯一の順序契約にする |
-| 絞り込み済みメタデータページ | metadata datasource | `events.body` を SELECT しない |
-| インデックス配布 | migration 000031 | `created_at_norm` を追加・バックフィルし、trigger で維持する |
+| 正規化時刻 | migration 000031 と event trigger | `created_at_norm, id` を event 順序の唯一の契約にする |
+| 永続メタデータ投影 | migration 000034 | eventごとにmetadata、過去互換hook分類、任意のcommand-audit属性を1行保持する。本文やcommand payloadは保持しない |
+| 絞り込み済みmetadata page | metadata datasource | list/context SQLは投影だけを開き、既存の`EventMetadata`契約を返す |
+| transaction内の同期 | event/command-audit trigger | authoritative rowのcommit結果と投影を乖離させない |
 
 ### 対応するクエリ計画
 
-| クエリ形状 | 順序インデックス |
+| クエリ形状 | 投影の順序インデックス |
 | --- | --- |
-| 一般メタデータ list（limit/offset を含む） | `idx_events_created_at_norm_id_desc` |
-| workspace list/context | `idx_events_workspace_created_at_norm_id_desc` |
-| session list/context | `idx_events_session_created_at_norm_id_desc` |
-| workspace + session context | `idx_events_workspace_session_created_at_norm_id_desc` |
-| source-hook list | `idx_events_source_hook_created_at_norm_id_desc` |
+| 一般metadata list（limit/offsetを含む） | `idx_event_metadata_created_at_norm_id_desc` |
+| workspace list/context | `idx_event_metadata_workspace_created_at_norm_id_desc` |
+| session list/context | `idx_event_metadata_session_created_at_norm_id_desc` |
+| workspace + session list/context | `idx_event_metadata_workspace_session_created_at_norm_id_desc` |
+| 明示source-hook list | `idx_event_metadata_source_hook_created_at_norm_id_desc` |
 
-公開済みフィルタの意味を保つため、list の条件は任意のままとする。ただし時刻境界が指定された場合は、順序インデックス内をseekできる直接範囲predicateのSQL variantを選ぶ。計画は順序インデックスを走査し、scope だけのページでは `offset + limit` に達したら終了する。scope 以外のフィルタはその順序走査中に適用する。組み合わせごとの SQL を増やして結果の意味を変えない。
+時刻境界が指定された場合は直接predicateのSQLを選び、対象の順序index内を
+seekする。scope以外のfilterはseek後に適用し、公開済みの結果を変えない。
+過去互換hookはmigration時またはevent書込み時に固定分類へ変換する。
+metadata読取はその分類だけを比較し、event本文を評価しない。
 
 ### 振る舞いテスト
 
-1. migration済みストアに対する代表的な list/context とlegacy source-hook fallbackの `EXPLAIN QUERY PLAN` が対象インデックスを使い、order-by 用の一時 B-tree を作らないことを確認する。
-2. 通常 list と scope/offset ページの時刻順を確認する。
-3. metadata SQL の SELECT リストで `body` と command payload 列を禁止する。
-4. 000031 前のストアを更新し、固定幅時刻がバックフィルされ、insert と時刻更新後も維持されることを確認する。
-5. 10k eventの直接range queryをCI smokeとしてp95 50 ms未満に保つ。migration済みDBのplan testでは、時刻の下限・上限が直接predicateであり、partial order-by sortを含む一時B-treeがないことも確認する。
-6. release QAではopt-inのmulti-GiB benchmarkを実行する。これは一時ディレクトリにSQLiteが実際に管理するpageとevent bodyを作成し、`page_count * page_size`、NULLでない`body_stored_bytes`、`SUM(body_stored_bytes)`を検証する。CIでは実行しない。
+1. 000034適用前ストアのprivate copyだけを更新し、source digest不変、
+   event/投影件数一致、`integrity_check=ok`、外部キー違反0を確認する。
+2. 既存rowのbackfillと、event/auditのinsert/update/deleteが同じtransaction
+   で投影へ反映されることを確認する。
+3. 代表的なlist/context SQLとplanが投影だけを使い、`events`を開かず、
+   ORDER BY用の一時treeを作らないことを確認する。
+4. 時刻順、filter、失敗のみの絞り込み、過去互換hook、offset、
+   composite keysetの意味を維持する。
+5. 10k eventの直接range queryをCI smokeとしてp95 50 ms未満に保つ。
+6. 外部write lock中はbusy/lockedとなり、投影objectが部分作成されない。
+   lock解除後のretryは成功する。
+7. 更新済みストアを投影導入前のmigration setで開き、その後のevent書込みも
+   永続triggerで投影へ反映されることを確認する。
+8. release前に2つのopt-in運用benchmarkを実行する。残す要約は数値と固定
+   booleanだけに限定する。
 
-### 性能証跡
+### 性能とmigration証跡
 
-2026-07-25にGo 1.26.3、macOS 26.5（darwin/arm64）、modernc SQLite driverでCI smokeを測定した。index済みevent metadata 10,000行に対し、workspaceを絞った2秒の直接range、`limit=50`、25回反復のp95は**416.125us**で、目標は50 ms未満である。
+2026-07-26にGo 1.26.3、macOS 26.5（darwin/arm64、Apple M4）、
+modernc SQLite driverでCI smokeを測定した。投影済みevent 10,000件に対し、
+workspaceを絞った2秒間の直接range、`limit=50`、25回反復のp95は
+**412.25 µs**で、50 msの目標を満たした。
 
-release QAのopt-in benchmarkは256 MiB bodyを持つeventを8件（body合計2 GiB以上）作成し、測定前に`page_count * page_size >= 2 GiB`、event件数、NULLでないbody metadata、`SUM(body_stored_bytes)`を検証する。その後、直接rangeを25回測定する。実行コマンドは次のとおり。
+copied-store migration benchmarkは、privateな256 MiBのsynthetic body領域を
+持つ000034適用前sourceを複製し、copyだけを更新する。
+
+```sh
+TRACEARY_RUN_METADATA_PROJECTION_MIGRATION_BENCHMARK=1 \
+  go test -v ./infrastructure/sqlite -run '^$' \
+  -bench BenchmarkEventMetadataProjectionCopiedStoreMigration -benchtime=1x
+```
+
+同じhostでは8 eventのmigration 34が**113.1 ms**で完了した。
+source、更新前copy、更新後copyはすべて302,714,880 bytesで、既存の空きpageに
+細い投影が収まったためmain fileの増加量は0 bytesだった。scratchのpeakは
+605,528,480 bytes、checkpoint後は605,429,760 bytesだった。integrity成功、
+外部キー違反0、sourceはbyte単位で不変だった。外部write lock中は
+**1,012.467 ms**後に想定どおりbusyとなり、部分作成objectは0件、
+lock解除後のretryは成功した。
+
+Phase-A benchmarkはSQLiteが生成する256 MiB領域を8件作り、managed/stored
+body bytesがともに2 GiB以上であること、event/投影件数一致、投影だけを使う
+順序planを確認してから、直接metadata rangeを25回測定する。
 
 ```sh
 TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \
@@ -51,8 +91,38 @@ TRACEARY_RUN_MULTI_GIB_BENCHMARK=1 \
   -bench BenchmarkMetadataDirectRangeMultiGiB -benchtime=1x
 ```
 
-成功時のbenchmark出力は`managed_bytes`、`events`、`non_null_body_metadata`、`stored_body_bytes`、`p95_ms`を含むため、host環境とともに#1558へ記録する。p95の目標は250 ms未満である。2026-07-25にこの制約付きrunnerで実行を試みたが、fixture生成の完了前にprocessが終了したため、有効なmulti-GiB p95は記録できなかった。空き容量は7.8 GiBあったが、必要な長時間benchmark processを許可しないrunner制限である。release QAでは、このcommandを実行可能なhostで実行し、release前にp95を記録する。生成物はGo testの一時ディレクトリだけに置かれ、終了後に削除されるためcommitしない。またCIでは実行しない。full-scan退行は直接rangeのplan assertionを主な検出器とし、10k smokeのp95閾値はローカル遅延を検出する。
+出力はmanaged/stored bytes、event/投影件数、body metadata欠落数、
+返却body bytes、plan分類、反復回数、p95だけである。p95基準は250 ms未満。
+fixtureはGo testの一時directoryだけに置き、終了後に削除する。CIでは実行
+しない。
+
+同じhostでのPhase Aはmanaged 2,418,753,536 bytes、stored body
+2,147,483,648 bytes、event/投影各8件だった。25回すべてが投影だけを使う
+planで、body metadata欠落と返却body bytesはいずれも0、p95は
+**0.07242 ms**で250 ms基準を満たした。
 
 ### ロールバックと残リスク
 
-000031 は追加かつ冪等である。旧アプリは追加列、trigger、インデックスを無視するため、アプリのロールバック後もストアを読める。巨大ストアでのインデックス作成には一時的に容量と書込みロックが必要である。
+000034は追加migrationである。旧binaryは追加table/indexを無視し、永続
+triggerが旧binaryの書込みも投影へ反映する。release後はschema objectを
+削除せず、applicationだけをauthoritative-table読取へ戻せる。投影を削除
+する場合は、利用中のreaderがないことを確認した後、別のforward migration
+で行う。
+
+backfillとindex作成は1回限りで、再開機能のない全件scanとして、1つの
+migration transaction内で実行する。既存eventとcommand-audit metadataを
+すべて読み、過去互換hookの分類では該当する未tagの過去event本文も検査する。
+初期化が中断された場合はtable、index、trigger、migration recordをまとめて
+rollbackし、次回の初期化で000034を最初から再実行する。巨大storeを更新する
+前にwriterを止め、一時容量を確保する必要がある。競合writerは設定済みの
+busy timeoutまで待つ可能性がある。
+
+投影には`body_availability`を重複保持しない。metadata consumerはこの値を
+公開せず、保守triggerはauthoritativeな`NEW` rowを参照できるためである。
+retentionによるpruneでは過去の`body_stored_bytes`を維持し、更新後の
+availabilityが`available`の場合だけ新しいbodyから再計算する。未使用の
+availability列を増やすと乖離面が増え、通常の`doctor`に無制限の投影乖離
+scanを加えると巨大storeの全件scanになるため、いずれもこのmigrationには
+含めない。migration/triggerのparity testで不変条件を検証する。eventごとに
+細い1 rowと5本の順序indexを追加するため、展開後もwrite latencyと
+WAL/checkpoint増加を監視する。

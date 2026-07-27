@@ -172,7 +172,7 @@ func newFullDatasources(
 
 // newStoreManagementDatasource returns a StoreManagementDatasource.
 func newStoreManagementDatasource(
-	t *testing.T,
+	t testing.TB,
 	dbPath string,
 	migrations fs.FS,
 ) *sqlite.StoreManagementDatasource {

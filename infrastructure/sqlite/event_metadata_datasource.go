@@ -84,7 +84,7 @@ func (d *EventDatasource) ListRecentTimestampKinds(ctx context.Context, criteria
 	args := []any(nil)
 	if workspace != "" {
 		query = selectLatestEventTimestampKindByWorkspaceQuery
-		args = []any{workspace, workspace, workspace}
+		args = []any{workspace}
 	}
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -574,7 +574,7 @@ func queryRecentEventMetadataWith(
 		args := []any(nil)
 		if workspace != "" {
 			queryText = selectLatestEventMetadataFastByWorkspaceQuery
-			args = []any{workspace, workspace, workspace}
+			args = []any{workspace}
 		}
 		rows, err := query(ctx, queryText, args...)
 		if err != nil {

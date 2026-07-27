@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1806,6 +1807,9 @@ CREATE INDEX idx_events_source_hook_created_at_norm_id_desc
     ON events(source_hook, created_at_norm DESC, id DESC)
     WHERE source_hook IS NOT NULL;`),
 		},
+		"000034_create_event_metadata_projection.sql": {
+			Data: readMCPServerTestMigration(t, "000034_create_event_metadata_projection.sql"),
+		},
 		"000008_create_memories.sql": {
 			Data: []byte(`
 CREATE TABLE memories (
@@ -1898,4 +1902,13 @@ CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
 	}
 
 	return server, dbPath, reportUsecase
+}
+
+func readMCPServerTestMigration(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "schema", "sqlite", "migrations", name))
+	if err != nil {
+		t.Fatalf("read test migration %q: %v", name, err)
+	}
+	return data
 }
