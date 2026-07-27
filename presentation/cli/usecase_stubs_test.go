@@ -508,6 +508,7 @@ type memoryUsecaseStub struct {
 	extractCriteria       apptypes.MemoryExtractionCriteria
 	importCalls           []apptypes.CodexImportCriteria
 	bridgeImportCalls     []apptypes.MemoryBridgeImportCriteria
+	scanCriteria          apptypes.MemoryHygieneScanCriteria
 	exportCalls           []apptypes.MemoryExportCriteria
 	activationPlanCalls   []apptypes.MemoryActivationCriteria
 	activationCalls       []apptypes.MemoryActivationCriteria
@@ -634,7 +635,8 @@ func (s *memoryUsecaseStub) ImportInstructions(_ context.Context, criteria appty
 	return s.bridgeImportResult, s.bridgeImportErr
 }
 
-func (s *memoryUsecaseStub) Scan(_ context.Context, _ apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
+func (s *memoryUsecaseStub) Scan(_ context.Context, criteria apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
+	s.scanCriteria = criteria
 	return s.scanResult, s.scanErr
 }
 

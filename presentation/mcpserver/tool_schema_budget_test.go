@@ -43,7 +43,11 @@ var maxToolAdvertisementBytes = map[string]int{
 	"list_events":    8 * 1024,
 	"manage_memory":  3200,
 	"manage_session": 3100,
-	"query_memory":   3000,
+	// Bounded hygiene scans add resumability and five explicit resource limits
+	// to this public input schema. Keep roughly the same reviewed headroom as
+	// the adjacent management tools rather than letting this intentional growth
+	// permanently occupy the warning band.
+	"query_memory":   4 * 1024,
 	"record_event":   4000,
 	"search":         7680,
 	"session_status": 2300,

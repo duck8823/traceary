@@ -603,11 +603,32 @@ traceary memory admin activate --target gemini --path /path/to/GEMINI.md --apply
 - `--workspace` — scope filter (未指定時は env/検出 workspace。空なら全 scope)
 - `--expiry-days` — staleness 閾値 (既定 90 日)
 - `--similarity` — supersede_candidate 検出の word-Jaccard 閾値 (0.0-1.0、0 は既定値 0.6)
+- `--max-scan-rows` / `--max-scan-bytes` / `--max-result-bytes` / `--max-comparisons` / `--max-duration` — 1 回の実行に対する有限の処理量・応答量上限
 - `--json` — JSON 形式で suggestion のメタデータ付きに出力
+
+すべての結果は `complete` / `partial` / `stop_reason` / `consistency` と実際の
+`usage` を返します。CLI の partial result は `rerun_guidance` も返します。
+`--workspace` を狭める、必要な有限上限だけを引き上げる、または再開可能な MCP
+surface を使ってください。store が変化しなければ `consistency=consistent` です。
+実行中の memory write により global revision が変わっても、scan は保持済みの
+phase / keyset を破棄しません。現在の revision に束縛し直し、
+`consistency=best_effort` / `consistency_reason=revision_changed` へ恒久的に
+downgrade して、同じ source page を残りの実行予算内で再試行します。再試行が
+成功した場合、後で実際に停止させた上限を `stop_reason` で返します。page が前進
+する前に revision 変更が繰り返されて duration を使い切った場合だけ、
+`stop_reason=revision_changed` を返します。
+
+hygiene cursor は、発行プロセスだけが保持する AES-GCM key で暗号化・認証されます。
+改変済み cursor、旧 checksum cursor、以前のプロセスが発行した cursor は、新しい
+scan が必要であることを明示する error になります。長時間動作する MCP server は
+再起動までページを継続できます。standalone CLI は `--cursor` を受け付けず、
+`next_cursor` も出力しません。各 command は 1 回の上限付き scan です。複数の
+process 認証済み page が必要な場合は
+`query_memory(action="scan_hygiene")` を使います。
 
 #### `traceary memory admin hygiene apply`
 
-`--ids` に指定した memory id について、該当する suggestion の lifecycle transition を適用します。usecase は内部で scan を再実行し、すでに解決済みの id は失敗一覧に回るので状態を黙って壊すことはありません。適用される transition:
+`--ids` に指定した memory id について、該当する suggestion の lifecycle transition を適用します。最初の mutation より前に、usecase は全 target と同一 scope の peer を 1 つの revision で完全に再検証します。再検証が partial、または revision が不一致なら request 全体を fail-closed にするため、scan の best-effort continuation が apply の安全性を弱めることはありません。適用される transition:
 
 - `redaction_hit` → `supersede`（sanitized fact に差し替え、scope / type / refs は継承）
 - `expiry_candidate` → `expire`（現在時刻で失効）

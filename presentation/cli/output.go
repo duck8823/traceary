@@ -387,7 +387,22 @@ type memoryHygieneScanOutput struct {
 	SupersedeCandidateCount       int                        `json:"supersede_candidate_count"`
 	ValidityOverlapSupersedeCount int                        `json:"validity_overlap_supersede_count"`
 	LowQualityCandidateCount      int                        `json:"low_quality_candidate_count"`
+	Complete                      bool                       `json:"complete"`
+	Partial                       bool                       `json:"partial"`
+	StopReason                    string                     `json:"stop_reason"`
+	Consistency                   string                     `json:"consistency"`
+	ConsistencyReason             string                     `json:"consistency_reason,omitempty"`
+	RerunGuidance                 string                     `json:"rerun_guidance,omitempty"`
+	Usage                         memoryHygieneUsageOutput   `json:"usage"`
 	Suggestions                   []memoryHygieneOutputEntry `json:"suggestions"`
+}
+
+type memoryHygieneUsageOutput struct {
+	ScannedRows   int   `json:"scanned_rows"`
+	ScannedBytes  int64 `json:"scanned_bytes"`
+	ResultBytes   int64 `json:"result_bytes"`
+	Comparisons   int   `json:"comparisons"`
+	ElapsedMillis int64 `json:"elapsed_ms"`
 }
 
 // memoryInboxBatchOutput is the JSON shape of a memory inbox batch result.

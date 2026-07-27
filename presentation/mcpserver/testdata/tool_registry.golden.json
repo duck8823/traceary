@@ -1764,6 +1764,10 @@
           "description": "evaluate content validity at this timestamp",
           "type": "string"
         },
+        "cursor": {
+          "description": "process-authenticated continuation returned by a partial hygiene scan; start a new scan if the server restarted",
+          "type": "string"
+        },
         "expiry_days": {
           "description": "staleness threshold in days (default 90)",
           "type": "integer"
@@ -1789,6 +1793,26 @@
         },
         "limit": {
           "description": "maximum number of memories to return (default: 20)",
+          "type": "integer"
+        },
+        "max_comparisons": {
+          "description": "maximum duplicate or similarity comparisons per hygiene invocation",
+          "type": "integer"
+        },
+        "max_duration_ms": {
+          "description": "maximum wall-clock duration for one hygiene invocation in milliseconds",
+          "type": "integer"
+        },
+        "max_result_bytes": {
+          "description": "maximum serialized suggestion bytes returned by one hygiene invocation",
+          "type": "integer"
+        },
+        "max_scan_bytes": {
+          "description": "maximum raw source bytes charged to one hygiene invocation",
+          "type": "integer"
+        },
+        "max_scan_rows": {
+          "description": "maximum source rows charged to one hygiene invocation",
           "type": "integer"
         },
         "memory_id": {
@@ -1832,6 +1856,10 @@
         "session_id": {
           "description": "session identifier filter",
           "type": "string"
+        },
+        "similarity": {
+          "description": "word-Jaccard threshold for hygiene supersede suggestions (0 uses the default 0.6)",
+          "type": "number"
         },
         "source": {
           "description": "memory source filters: manual, extracted, extracted-hidden, imported",

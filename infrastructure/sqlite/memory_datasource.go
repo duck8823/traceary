@@ -107,6 +107,7 @@ func NewMemoryDatasourceWithClock(db *Database, clock types.Clock) *MemoryDataso
 var (
 	_ model.MemoryRepository               = (*MemoryDatasource)(nil)
 	_ queryservice.MemoryQueryService      = (*MemoryDatasource)(nil)
+	_ queryservice.MemoryHygieneScanSource = (*MemoryDatasource)(nil)
 	_ queryservice.StaleMemoryQueryService = (*MemoryDatasource)(nil)
 )
 

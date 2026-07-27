@@ -31,6 +31,7 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 		Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
 		Reason:         "low-quality extraction: diff_fragment",
 		Fact:           "+def _required_env(name):",
+		FactPreview:    "+def _required_env(name):",
 		Scope:          scope,
 		UpdatedAt:      updatedAt,
 		Status:         domtypes.MemoryStatusCandidate,
@@ -40,6 +41,9 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 	result := apptypes.MemoryHygieneScanResult{
 		Suggestions:              []apptypes.MemoryHygieneSuggestion{suggestion},
 		LowQualityCandidateCount: 1,
+		Complete:                 true,
+		StopReason:               apptypes.MemoryHygieneStopReasonComplete,
+		Consistency:              apptypes.MemoryHygieneScanConsistencyConsistent,
 	}
 
 	var buf bytes.Buffer
@@ -48,7 +52,8 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 	}
 
 	var payload struct {
-		LowQualityCandidateCount int `json:"low_quality_candidate_count"`
+		LowQualityCandidateCount int    `json:"low_quality_candidate_count"`
+		Consistency              string `json:"consistency"`
 		Suggestions              []struct {
 			MemoryID       string   `json:"memory_id"`
 			Kind           string   `json:"kind"`
@@ -64,6 +69,9 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 	}
 	if payload.LowQualityCandidateCount != 1 {
 		t.Fatalf("low_quality_candidate_count = %d, want 1", payload.LowQualityCandidateCount)
+	}
+	if payload.Consistency != "consistent" {
+		t.Fatalf("consistency = %q, want consistent", payload.Consistency)
 	}
 	if len(payload.Suggestions) != 1 {
 		t.Fatalf("suggestions = %d, want 1", len(payload.Suggestions))
@@ -103,6 +111,7 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 		Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
 		Reason:         "low-quality extraction: standalone_command",
 		Fact:           "git pull --ff-only origin main",
+		FactPreview:    "git pull --ff-only origin main",
 		Scope:          scope,
 		UpdatedAt:      time.Date(2026, 5, 1, 9, 30, 0, 0, time.UTC),
 		Status:         domtypes.MemoryStatusCandidate,
@@ -112,6 +121,9 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 	result := apptypes.MemoryHygieneScanResult{
 		Suggestions:              []apptypes.MemoryHygieneSuggestion{suggestion},
 		LowQualityCandidateCount: 1,
+		Complete:                 true,
+		StopReason:               apptypes.MemoryHygieneStopReasonComplete,
+		Consistency:              apptypes.MemoryHygieneScanConsistencyConsistent,
 	}
 
 	var buf bytes.Buffer
@@ -124,6 +136,7 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 		"mem-noise",
 		"status=candidate",
 		"source=extracted",
+		"consistency=consistent",
 		"git pull --ff-only origin main",
 	} {
 		if !strings.Contains(out, want) {
@@ -132,5 +145,63 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 	}
 	if !strings.Contains(out, "低品質") && !strings.Contains(out, "low_quality_candidates=1") {
 		t.Fatalf("summary line missing low-quality counter: %s", out)
+	}
+}
+
+func TestWriteMemoryHygieneScanResult_NeverRendersRawFacts(t *testing.T) {
+	t.Parallel()
+
+	const rawSecret = "raw-secret-must-not-leave-application"
+	result := apptypes.MemoryHygieneScanResult{
+		Suggestions: []apptypes.MemoryHygieneSuggestion{{
+			MemoryID:               domtypes.MemoryID("mem-private"),
+			Kind:                   apptypes.MemoryHygieneSuggestionRedactionHit,
+			Reason:                 "current redaction patterns mask this fact",
+			Fact:                   rawSecret,
+			FactPreview:            "safe [REDACTED] preview…",
+			FactPreviewTruncated:   true,
+			SanitizedFact:          rawSecret,
+			SanitizedFactPreview:   "safe [REDACTED] preview…",
+			ReplacementMemoryID:    domtypes.MemoryID("mem-replacement"),
+			ReplacementFact:        rawSecret,
+			ReplacementFactPreview: "replacement [REDACTED]",
+			UpdatedAt:              time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
+		}},
+		RedactionHitCount: 1,
+		Partial:           true,
+		StopReason:        apptypes.MemoryHygieneStopReasonResultByteLimit,
+		Consistency:       apptypes.MemoryHygieneScanConsistencyBestEffort,
+		ConsistencyReason: apptypes.MemoryHygieneConsistencyReasonRevisionChanged,
+		NextCursor:        "opaque_cursor",
+		Usage: apptypes.MemoryHygieneScanUsage{
+			ScannedRows:   2,
+			ScannedBytes:  128,
+			ResultBytes:   200,
+			Comparisons:   1,
+			ElapsedMillis: 5,
+		},
+	}
+
+	for _, asJSON := range []bool{false, true} {
+		var buf bytes.Buffer
+		if err := writeMemoryHygieneScanResult(&buf, result, asJSON); err != nil {
+			t.Fatalf("writeMemoryHygieneScanResult(json=%t) error = %v", asJSON, err)
+		}
+		output := buf.String()
+		if strings.Contains(output, rawSecret) {
+			t.Fatalf("output(json=%t) leaked raw fact: %s", asJSON, output)
+		}
+		if !strings.Contains(output, "[REDACTED]") {
+			t.Fatalf("output(json=%t) omitted safe preview: %s", asJSON, output)
+		}
+		if strings.Contains(output, "opaque_cursor") || strings.Contains(output, "next_cursor") {
+			t.Fatalf("output(json=%t) exposed a process-local continuation cursor: %s", asJSON, output)
+		}
+		if !strings.Contains(output, "rerun_guidance") || !strings.Contains(output, "resumable paging") {
+			t.Fatalf("output(json=%t) omitted bounded re-run guidance: %s", asJSON, output)
+		}
+		if !strings.Contains(output, "best_effort") || !strings.Contains(output, "revision_changed") {
+			t.Fatalf("output(json=%t) omitted consistency downgrade: %s", asJSON, output)
+		}
 	}
 }

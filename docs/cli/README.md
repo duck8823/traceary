@@ -611,11 +611,32 @@ Useful flags:
 - `--workspace` — scope filter (defaults to env/detected workspace; leave empty to scan every scope)
 - `--expiry-days` — staleness threshold in days (default 90)
 - `--similarity` — word-Jaccard threshold for supersede_candidate detection, between 0.0 and 1.0 (0 uses the built-in default 0.6)
+- `--max-scan-rows`, `--max-scan-bytes`, `--max-result-bytes`, `--max-comparisons`, `--max-duration` — finite per-invocation work and response ceilings
 - `--json` — print JSON output with per-suggestion metadata
+
+Every result reports `complete`, `partial`, `stop_reason`, `consistency`, and
+actual `usage`. A partial CLI result also reports `rerun_guidance`: narrow
+`--workspace`, raise only the finite bounds that are appropriate, or use the
+MCP surface for resumable paging. An unchanged store reports
+`consistency=consistent`. If a memory write changes the global revision while
+the invocation is scanning, the scanner keeps the retained phase/keyset,
+rebinds to the current revision, permanently marks the scan `best_effort` with
+`consistency_reason=revision_changed`, and retries that same source page inside
+the remaining invocation budget. A successful retry reports the actual bound
+that later stops it. Only continuing revision churn that consumes the duration
+before page progress reports `stop_reason=revision_changed`.
+
+Hygiene cursors are encrypted and authenticated with an AES-GCM key that exists
+only in the issuing process. Modified cursors, legacy checksum cursors, and
+cursors from an earlier process fail with explicit new-scan guidance. A
+long-running MCP server can therefore resume pages until it restarts. The
+standalone CLI neither accepts `--cursor` nor emits `next_cursor`; each command
+is one bounded scan. Use `query_memory(action="scan_hygiene")` when a scan
+requires multiple process-authenticated pages.
 
 #### `traceary memory admin hygiene apply`
 
-Commit the lifecycle transition implied by each suggestion for the memories in `--ids`. The usecase re-runs the scan first so stale ids (memories the operator already resolved) land in the failure list instead of silently mutating state. Transitions applied:
+Commit the lifecycle transition implied by each suggestion for the memories in `--ids`. Before the first mutation, the usecase completely revalidates every requested target and its same-scope peers at one revision. A partial revalidation or a revision mismatch fails the whole request closed, so scan's best-effort continuation never weakens apply safety. Transitions applied:
 
 - `redaction_hit` → `supersede` with the sanitized fact, inheriting the existing scope / type / refs.
 - `expiry_candidate` → `expire` at the current time.

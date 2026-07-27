@@ -266,23 +266,41 @@ type memoryHygieneOutput struct {
 	SupersedeCandidateCount       int                             `json:"supersede_candidate_count" jsonschema:"number of accepted memories paired by word-Jaccard similarity"`
 	ValidityOverlapSupersedeCount int                             `json:"validity_overlap_supersede_count" jsonschema:"number of accepted memories paired by (scope, type) with overlapping validity windows"`
 	LowQualityCandidateCount      int                             `json:"low_quality_candidate_count" jsonschema:"number of candidate memories flagged by the deterministic low-quality classifier"`
+	Complete                      bool                            `json:"complete" jsonschema:"true only when every hygiene phase finished under the declared consistency"`
+	Partial                       bool                            `json:"partial" jsonschema:"true when a bound stopped the invocation and next_cursor can resume it"`
+	StopReason                    string                          `json:"stop_reason" jsonschema:"complete, the first resource bound that stopped this invocation, or revision_changed when revision churn exhausted the duration before page progress"`
+	Consistency                   string                          `json:"consistency" jsonschema:"consistent when the chain stayed at one revision; best_effort after a revision change"`
+	ConsistencyReason             string                          `json:"consistency_reason,omitempty" jsonschema:"revision_changed when consistency was downgraded to best_effort"`
+	NextCursor                    string                          `json:"next_cursor,omitempty" jsonschema:"process-authenticated encrypted continuation; contains no stored fact text and requires a new scan after server restart"`
+	Usage                         memoryHygieneUsageOutput        `json:"usage" jsonschema:"actual work charged to this invocation"`
 	Suggestions                   []memoryHygieneSuggestionOutput `json:"suggestions" jsonschema:"per-memory hygiene suggestions"`
 }
 
+type memoryHygieneUsageOutput struct {
+	ScannedRows   int   `json:"scanned_rows" jsonschema:"source rows charged to this invocation"`
+	ScannedBytes  int64 `json:"scanned_bytes" jsonschema:"raw source bytes charged to this invocation"`
+	ResultBytes   int64 `json:"result_bytes" jsonschema:"serialized suggestion bytes charged to this invocation"`
+	Comparisons   int   `json:"comparisons" jsonschema:"duplicate or similarity comparisons charged to this invocation"`
+	ElapsedMillis int64 `json:"elapsed_ms" jsonschema:"wall-clock milliseconds spent in this invocation"`
+}
+
 type memoryHygieneSuggestionOutput struct {
-	MemoryID            string   `json:"memory_id" jsonschema:"memory identifier"`
-	Kind                string   `json:"kind" jsonschema:"suggestion kind (redaction_hit / expiry_candidate / duplicate / supersede_candidate / validity_overlap_supersede / low_quality_candidate)"`
-	Reason              string   `json:"reason" jsonschema:"human-readable reason the scanner flagged this memory"`
-	Fact                string   `json:"fact" jsonschema:"stored fact at scan time"`
-	SanitizedFact       string   `json:"sanitized_fact,omitempty" jsonschema:"masked fact the apply path would write via supersede"`
-	DuplicateMemoryID   string   `json:"duplicate_memory_id,omitempty" jsonschema:"paired duplicate when kind=duplicate"`
-	ReplacementMemoryID string   `json:"replacement_memory_id,omitempty" jsonschema:"newer memory whose fact is suggested as the supersede replacement"`
-	ReplacementFact     string   `json:"replacement_fact,omitempty" jsonschema:"fact the apply path would write via supersede"`
-	Similarity          float64  `json:"similarity,omitempty" jsonschema:"word-Jaccard similarity score (supersede_candidate / validity_overlap_supersede only)"`
-	ScopeKind           string   `json:"scope_kind,omitempty" jsonschema:"scope kind"`
-	ScopeValue          string   `json:"scope_value,omitempty" jsonschema:"scope value"`
-	UpdatedAt           string   `json:"updated_at" jsonschema:"last update timestamp (RFC3339)"`
-	Status              string   `json:"status,omitempty" jsonschema:"memory lifecycle status (only populated for candidate-side suggestions)"`
-	Source              string   `json:"source,omitempty" jsonschema:"memory source (only populated for candidate-side suggestions)"`
-	QualityReasons      []string `json:"quality_reasons,omitempty" jsonschema:"deterministic noise markers from the extraction-quality classifier (low_quality_candidate only)"`
+	MemoryID                    string   `json:"memory_id" jsonschema:"memory identifier"`
+	Kind                        string   `json:"kind" jsonschema:"suggestion kind (redaction_hit / expiry_candidate / duplicate / supersede_candidate / validity_overlap_supersede / low_quality_candidate)"`
+	Reason                      string   `json:"reason" jsonschema:"human-readable reason the scanner flagged this memory"`
+	Fact                        string   `json:"fact" jsonschema:"bounded UTF-8-safe current-rule-sanitized fact preview; never the stored raw fact"`
+	FactPreviewTruncated        bool     `json:"fact_preview_truncated,omitempty" jsonschema:"true when the fact preview was shortened"`
+	SanitizedFact               string   `json:"sanitized_fact,omitempty" jsonschema:"bounded UTF-8-safe preview of the masked replacement"`
+	SanitizedPreviewTruncated   bool     `json:"sanitized_preview_truncated,omitempty" jsonschema:"true when the sanitized preview was shortened"`
+	DuplicateMemoryID           string   `json:"duplicate_memory_id,omitempty" jsonschema:"paired duplicate when kind=duplicate"`
+	ReplacementMemoryID         string   `json:"replacement_memory_id,omitempty" jsonschema:"newer memory whose fact is suggested as the supersede replacement"`
+	ReplacementFact             string   `json:"replacement_fact,omitempty" jsonschema:"bounded UTF-8-safe current-rule-sanitized replacement preview"`
+	ReplacementPreviewTruncated bool     `json:"replacement_preview_truncated,omitempty" jsonschema:"true when the replacement preview was shortened"`
+	Similarity                  float64  `json:"similarity,omitempty" jsonschema:"word-Jaccard similarity score (supersede_candidate / validity_overlap_supersede only)"`
+	ScopeKind                   string   `json:"scope_kind,omitempty" jsonschema:"scope kind"`
+	ScopeValue                  string   `json:"scope_value,omitempty" jsonschema:"scope value"`
+	UpdatedAt                   string   `json:"updated_at" jsonschema:"last update timestamp (RFC3339)"`
+	Status                      string   `json:"status,omitempty" jsonschema:"memory lifecycle status (only populated for candidate-side suggestions)"`
+	Source                      string   `json:"source,omitempty" jsonschema:"memory source (only populated for candidate-side suggestions)"`
+	QualityReasons              []string `json:"quality_reasons,omitempty" jsonschema:"deterministic noise markers from the extraction-quality classifier (low_quality_candidate only)"`
 }
