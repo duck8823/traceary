@@ -57,7 +57,7 @@ type queryMemoryInput struct {
 	MemoryLimit         *int     `json:"memory_limit,omitempty" jsonschema:"maximum durable memories to include"`
 	ExpiryDays          int      `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
 	Similarity          float64  `json:"similarity,omitempty" jsonschema:"word-Jaccard threshold for hygiene supersede suggestions (0 uses the default 0.6)"`
-	Cursor              string   `json:"cursor,omitempty" jsonschema:"opaque continuation cursor returned by a partial hygiene scan"`
+	Cursor              string   `json:"cursor,omitempty" jsonschema:"process-authenticated continuation returned by a partial hygiene scan; start a new scan if the server restarted"`
 	MaxScanRows         int      `json:"max_scan_rows,omitempty" jsonschema:"maximum source rows charged to one hygiene invocation"`
 	MaxScanBytes        int64    `json:"max_scan_bytes,omitempty" jsonschema:"maximum raw source bytes charged to one hygiene invocation"`
 	MaxResultBytes      int64    `json:"max_result_bytes,omitempty" jsonschema:"maximum serialized suggestion bytes returned by one hygiene invocation"`
@@ -327,7 +327,7 @@ type scanMemoryHygieneInput struct {
 	ExpiryDays        int     `json:"expiry_days,omitempty" jsonschema:"staleness threshold in days (default 90)"`
 	Similarity        float64 `json:"similarity,omitempty" jsonschema:"word-Jaccard threshold for supersede suggestions (0 uses the default 0.6)"`
 	IncludeHidden     bool    `json:"include_hidden,omitempty" jsonschema:"include extracted-hidden candidates in the low-quality candidate pass (default omits them)"`
-	Cursor            string  `json:"cursor,omitempty" jsonschema:"opaque continuation cursor returned by a partial hygiene scan"`
+	Cursor            string  `json:"cursor,omitempty" jsonschema:"process-authenticated continuation returned by a partial hygiene scan; start a new scan if the server restarted"`
 	MaxScanRows       int     `json:"max_scan_rows,omitempty" jsonschema:"maximum source rows charged to one invocation (0 uses the finite default)"`
 	MaxScanBytes      int64   `json:"max_scan_bytes,omitempty" jsonschema:"maximum raw source bytes charged to one invocation (0 uses the finite default)"`
 	MaxResultBytes    int64   `json:"max_result_bytes,omitempty" jsonschema:"maximum serialized suggestion bytes returned by one invocation (0 uses the finite default)"`

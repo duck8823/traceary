@@ -611,11 +611,31 @@ Useful flags:
 - `--workspace` — scope filter (defaults to env/detected workspace; leave empty to scan every scope)
 - `--expiry-days` — staleness threshold in days (default 90)
 - `--similarity` — word-Jaccard threshold for supersede_candidate detection, between 0.0 and 1.0 (0 uses the built-in default 0.6)
+- `--max-scan-rows`, `--max-scan-bytes`, `--max-result-bytes`, `--max-comparisons`, `--max-duration` — finite per-invocation work and response ceilings
+- `--cursor` — resume a partial scan inside the process that issued `next_cursor`
 - `--json` — print JSON output with per-suggestion metadata
+
+Every result reports `complete`, `partial`, `stop_reason`, `consistency`, and
+actual `usage`. An unchanged store reports `consistency=consistent`. If a
+memory write changes the global revision between pages, the scanner does not
+discard the retained phase/keyset: it returns a partial
+`stop_reason=revision_changed` result with
+`consistency=best_effort`, `consistency_reason=revision_changed`, and a
+continuation rebound to the current revision. The downgrade remains visible on
+all later pages because that chain can no longer represent one database
+snapshot.
+
+Hygiene cursors are encrypted and authenticated with an AES-GCM key that exists
+only in the issuing process. Modified cursors, legacy checksum cursors, and
+cursors from an earlier process fail with explicit new-scan guidance. A
+long-running MCP server can therefore resume pages until it restarts. A
+standalone CLI command starts a new process for each invocation, so its cursor
+cannot be reused by a later standalone invocation; use the MCP surface when a
+scan requires multiple process-authenticated pages.
 
 #### `traceary memory admin hygiene apply`
 
-Commit the lifecycle transition implied by each suggestion for the memories in `--ids`. The usecase re-runs the scan first so stale ids (memories the operator already resolved) land in the failure list instead of silently mutating state. Transitions applied:
+Commit the lifecycle transition implied by each suggestion for the memories in `--ids`. Before the first mutation, the usecase completely revalidates every requested target and its same-scope peers at one revision. A partial revalidation or a revision mismatch fails the whole request closed, so scan's best-effort continuation never weakens apply safety. Transitions applied:
 
 - `redaction_hit` → `supersede` with the sanitized fact, inheriting the existing scope / type / refs.
 - `expiry_candidate` → `expire` at the current time.

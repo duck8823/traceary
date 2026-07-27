@@ -3,13 +3,41 @@ package queryservice
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 // ErrMemoryHygieneRevisionChanged identifies a continuation whose store
-// revision no longer matches. Callers must restart without the old cursor.
+// revision no longer matches. Read-only scans may preserve their keyset in an
+// explicit best-effort continuation; apply callers must fail closed.
 var ErrMemoryHygieneRevisionChanged = errors.New("memory hygiene revision changed")
+
+// MemoryHygieneRevisionChangedError carries the revision a best-effort scan
+// continuation must bind before it resumes at the retained keyset.
+type MemoryHygieneRevisionChangedError struct {
+	CurrentRevision int64
+}
+
+// Error implements error without exposing any memory content.
+func (e *MemoryHygieneRevisionChangedError) Error() string {
+	return fmt.Sprintf("%s: current revision %d", ErrMemoryHygieneRevisionChanged, e.CurrentRevision)
+}
+
+// Unwrap preserves errors.Is compatibility for strict apply callers.
+func (e *MemoryHygieneRevisionChangedError) Unwrap() error {
+	return ErrMemoryHygieneRevisionChanged
+}
+
+// NewMemoryHygieneRevisionChangedError builds the typed scan-source mismatch.
+func NewMemoryHygieneRevisionChangedError(currentRevision int64) error {
+	return &MemoryHygieneRevisionChangedError{CurrentRevision: currentRevision}
+}
+
+// ErrMemoryHygieneRescanRequired identifies a cursor that cannot be
+// authenticated by this process. Retrying it cannot succeed; callers must
+// start a new scan without the cursor.
+var ErrMemoryHygieneRescanRequired = errors.New("memory hygiene rescan required")
 
 // ErrMemoryHygieneContinuationCannotProgress identifies a finite scan budget
 // that stopped before its cursor position advanced. Retrying that cursor with

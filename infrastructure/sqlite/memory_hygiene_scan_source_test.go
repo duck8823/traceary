@@ -100,6 +100,63 @@ func TestMemoryHygieneScanSource_RejectsRevisionChangedBetweenPages(t *testing.T
 	if !errors.Is(err, queryservice.ErrMemoryHygieneRevisionChanged) {
 		t.Fatalf("continuation error = %v, want ErrMemoryHygieneRevisionChanged", err)
 	}
+	var revisionChanged *queryservice.MemoryHygieneRevisionChangedError
+	if !errors.As(err, &revisionChanged) || revisionChanged.CurrentRevision != first.Revision+1 {
+		t.Fatalf("continuation error = %#v, want current revision %d", err, first.Revision+1)
+	}
+}
+
+func TestMemoryHygieneScanSource_BestEffortSkipsDeletedPairAnchor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "best-effort-deleted-anchor.db")
+	source, store := newMemoryDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db := openMemoryHygieneTestDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	insertMemoryHygieneRows(t, db, 3, "shared words")
+
+	first, err := source.ScanMemoryHygienePage(ctx, apptypes.MemoryHygieneScanPageCriteria{
+		Phase:          apptypes.MemoryHygieneScanPhaseSimilarityPairs,
+		MaxRows:        4,
+		MaxScanBytes:   1 << 20,
+		MaxComparisons: 1,
+	})
+	if err != nil {
+		t.Fatalf("first ScanMemoryHygienePage() error = %v", err)
+	}
+	if first.ProgressKeyset.AnchorMemoryID != "mem-0000" ||
+		first.ProgressKeyset.AfterPartnerID != "mem-0001" {
+		t.Fatalf("first keyset = %#v, want mem-0000/mem-0001", first.ProgressKeyset)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM memories WHERE id = ?`, "mem-0000"); err != nil {
+		t.Fatalf("DELETE anchor error = %v", err)
+	}
+	currentRevision := memoryHygieneRevisionForTest(t, db)
+
+	resumed, err := source.ScanMemoryHygienePage(ctx, apptypes.MemoryHygieneScanPageCriteria{
+		Phase:            apptypes.MemoryHygieneScanPhaseSimilarityPairs,
+		Keyset:           first.ProgressKeyset,
+		Consistency:      apptypes.MemoryHygieneScanConsistencyBestEffort,
+		ExpectedRevision: domtypes.Some(currentRevision),
+		MaxRows:          4,
+		MaxScanBytes:     1 << 20,
+		MaxComparisons:   1,
+	})
+	if err != nil {
+		t.Fatalf("best-effort ScanMemoryHygienePage() error = %v", err)
+	}
+	if len(resumed.Units) != 1 {
+		t.Fatalf("best-effort units = %d, want one remaining pair", len(resumed.Units))
+	}
+	peer, ok := resumed.Units[0].Peer.Value()
+	if !ok || resumed.Units[0].Row.MemoryID().String() != "mem-0001" ||
+		peer.MemoryID().String() != "mem-0002" {
+		t.Fatalf("best-effort pair = %#v, want mem-0001/mem-0002", resumed.Units[0])
+	}
 }
 
 func TestMemoryHygieneScanSource_SimilarityPairsResumeWithoutDuplicateOrSkip(t *testing.T) {

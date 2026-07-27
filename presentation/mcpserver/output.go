@@ -266,10 +266,12 @@ type memoryHygieneOutput struct {
 	SupersedeCandidateCount       int                             `json:"supersede_candidate_count" jsonschema:"number of accepted memories paired by word-Jaccard similarity"`
 	ValidityOverlapSupersedeCount int                             `json:"validity_overlap_supersede_count" jsonschema:"number of accepted memories paired by (scope, type) with overlapping validity windows"`
 	LowQualityCandidateCount      int                             `json:"low_quality_candidate_count" jsonschema:"number of candidate memories flagged by the deterministic low-quality classifier"`
-	Complete                      bool                            `json:"complete" jsonschema:"true only when every hygiene phase finished at the captured revision"`
-	Partial                       bool                            `json:"partial" jsonschema:"true when the invocation stopped at an explicit bound and next_cursor can resume it"`
-	StopReason                    string                          `json:"stop_reason" jsonschema:"complete or the first bound that stopped this invocation"`
-	NextCursor                    string                          `json:"next_cursor,omitempty" jsonschema:"opaque continuation cursor; contains no stored fact text"`
+	Complete                      bool                            `json:"complete" jsonschema:"true only when every hygiene phase finished under the declared consistency"`
+	Partial                       bool                            `json:"partial" jsonschema:"true when a bound or revision change stopped the invocation and next_cursor can resume it"`
+	StopReason                    string                          `json:"stop_reason" jsonschema:"complete, revision_changed, or the first bound that stopped this invocation"`
+	Consistency                   string                          `json:"consistency" jsonschema:"consistent when the chain stayed at one revision; best_effort after a revision change"`
+	ConsistencyReason             string                          `json:"consistency_reason,omitempty" jsonschema:"revision_changed when consistency was downgraded to best_effort"`
+	NextCursor                    string                          `json:"next_cursor,omitempty" jsonschema:"process-authenticated encrypted continuation; contains no stored fact text and requires a new scan after server restart"`
 	Usage                         memoryHygieneUsageOutput        `json:"usage" jsonschema:"actual work charged to this invocation"`
 	Suggestions                   []memoryHygieneSuggestionOutput `json:"suggestions" jsonschema:"per-memory hygiene suggestions"`
 }

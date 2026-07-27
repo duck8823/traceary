@@ -1765,7 +1765,7 @@
           "type": "string"
         },
         "cursor": {
-          "description": "opaque continuation cursor returned by a partial hygiene scan",
+          "description": "process-authenticated continuation returned by a partial hygiene scan; start a new scan if the server restarted",
           "type": "string"
         },
         "expiry_days": {

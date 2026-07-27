@@ -1,56 +1,84 @@
 package usecase
 
 import (
-	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"sort"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 const (
-	memoryHygieneCursorVersion   = 1
-	maxMemoryHygieneCursorLength = 4096
+	memoryHygieneCursorVersion        = 2
+	maxMemoryHygieneCursorLength      = 4096
+	memoryHygieneCursorAdditionalData = "traceary:memory-hygiene-cursor:v2"
 )
 
 type memoryHygieneCursorPayload struct {
-	Version        int                              `json:"v"`
-	Revision       int64                            `json:"r"`
-	CriteriaDigest string                           `json:"c"`
-	ScanAt         string                           `json:"at"`
-	Phase          apptypes.MemoryHygieneScanPhase  `json:"p"`
-	Keyset         apptypes.MemoryHygieneScanKeyset `json:"k"`
+	Version           int                                     `json:"v"`
+	Revision          int64                                   `json:"r"`
+	CriteriaDigest    string                                  `json:"c"`
+	ScanAt            string                                  `json:"at"`
+	Phase             apptypes.MemoryHygieneScanPhase         `json:"p"`
+	Keyset            apptypes.MemoryHygieneScanKeyset        `json:"k"`
+	Consistency       apptypes.MemoryHygieneScanConsistency   `json:"s"`
+	ConsistencyReason apptypes.MemoryHygieneConsistencyReason `json:"sr,omitempty"`
 }
 
-type memoryHygieneCursorEnvelope struct {
-	Payload  memoryHygieneCursorPayload `json:"payload"`
-	Checksum string                     `json:"checksum"`
-}
+var loadMemoryHygieneCursorAEAD = sync.OnceValues(func() (cipher.AEAD, error) {
+	key := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		return nil, xerrors.Errorf("failed to generate memory hygiene cursor key: %w", err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to initialize memory hygiene cursor cipher: %w", err)
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to initialize memory hygiene cursor authentication: %w", err)
+	}
+	return aead, nil
+})
 
 func encodeMemoryHygieneCursor(payload memoryHygieneCursorPayload) (string, error) {
 	payload.Version = memoryHygieneCursorVersion
-	checksum, err := memoryHygieneCursorChecksum(payload)
+	aead, err := loadMemoryHygieneCursorAEAD()
 	if err != nil {
 		return "", err
 	}
-	encoded, err := json.Marshal(memoryHygieneCursorEnvelope{Payload: payload, Checksum: checksum})
+	return encodeMemoryHygieneCursorWithAEAD(payload, aead)
+}
+
+func encodeMemoryHygieneCursorWithAEAD(payload memoryHygieneCursorPayload, aead cipher.AEAD) (string, error) {
+	plaintext, err := json.Marshal(payload)
 	if err != nil {
 		return "", xerrors.Errorf("failed to encode memory hygiene cursor")
 	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", xerrors.Errorf("failed to generate memory hygiene cursor nonce: %w", err)
+	}
+	encoded := aead.Seal(nonce, nonce, plaintext, []byte(memoryHygieneCursorAdditionalData))
 	return base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
 func decodeMemoryHygieneCursor(encoded string) (memoryHygieneCursorPayload, error) {
+	encoded = strings.TrimSpace(encoded)
 	if encoded == "" || len(encoded) > maxMemoryHygieneCursorLength {
 		return memoryHygieneCursorPayload{}, xerrors.Errorf("invalid memory hygiene cursor")
 	}
@@ -58,31 +86,61 @@ func decodeMemoryHygieneCursor(encoded string) (memoryHygieneCursorPayload, erro
 	if err != nil {
 		return memoryHygieneCursorPayload{}, xerrors.Errorf("invalid memory hygiene cursor")
 	}
-	var envelope memoryHygieneCursorEnvelope
-	decoder := json.NewDecoder(bytes.NewReader(raw))
+	aead, err := loadMemoryHygieneCursorAEAD()
+	if err != nil {
+		return memoryHygieneCursorPayload{}, err
+	}
+	return decodeMemoryHygieneCursorWithAEAD(raw, aead)
+}
+
+func decodeMemoryHygieneCursorWithAEAD(raw []byte, aead cipher.AEAD) (memoryHygieneCursorPayload, error) {
+	if len(raw) < aead.NonceSize()+aead.Overhead() {
+		return memoryHygieneCursorPayload{}, xerrors.Errorf("invalid memory hygiene cursor")
+	}
+	nonce := raw[:aead.NonceSize()]
+	plaintext, err := aead.Open(nil, nonce, raw[aead.NonceSize():], []byte(memoryHygieneCursorAdditionalData))
+	if err != nil {
+		return memoryHygieneCursorPayload{}, xerrors.Errorf(
+			"%w: cursor cannot be authenticated; start a new scan because it may have been modified or issued before this server or CLI process restarted",
+			queryservice.ErrMemoryHygieneRescanRequired,
+		)
+	}
+	var payload memoryHygieneCursorPayload
+	decoder := json.NewDecoder(strings.NewReader(string(plaintext)))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&envelope); err != nil {
+	if err := decoder.Decode(&payload); err != nil {
 		return memoryHygieneCursorPayload{}, xerrors.Errorf("invalid memory hygiene cursor")
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return memoryHygieneCursorPayload{}, xerrors.Errorf("invalid memory hygiene cursor")
 	}
-	payload := envelope.Payload
 	if payload.Version != memoryHygieneCursorVersion ||
 		payload.Revision < 0 ||
 		!payload.Phase.IsKnown() ||
 		!validMemoryHygieneCriteriaDigest(payload.CriteriaDigest) ||
-		!validMemoryHygieneCursorKeyset(payload.Phase, payload.Keyset) {
+		!validMemoryHygieneCursorKeyset(payload.Phase, payload.Keyset) ||
+		!validMemoryHygieneCursorConsistency(payload.Consistency, payload.ConsistencyReason) {
 		return memoryHygieneCursorPayload{}, xerrors.Errorf("unsupported memory hygiene cursor")
 	}
-	if _, err := time.Parse(time.RFC3339Nano, payload.ScanAt); err != nil {
+	scanAt, err := time.Parse(time.RFC3339Nano, payload.ScanAt)
+	if err != nil || scanAt.IsZero() {
 		return memoryHygieneCursorPayload{}, xerrors.Errorf("invalid memory hygiene cursor")
 	}
-	wantChecksum, err := memoryHygieneCursorChecksum(payload)
-	if err != nil || subtle.ConstantTimeCompare([]byte(envelope.Checksum), []byte(wantChecksum)) != 1 {
-		return memoryHygieneCursorPayload{}, xerrors.Errorf("invalid memory hygiene cursor checksum")
-	}
 	return payload, nil
+}
+
+func validMemoryHygieneCursorConsistency(
+	consistency apptypes.MemoryHygieneScanConsistency,
+	reason apptypes.MemoryHygieneConsistencyReason,
+) bool {
+	switch consistency {
+	case apptypes.MemoryHygieneScanConsistencyConsistent:
+		return reason == ""
+	case apptypes.MemoryHygieneScanConsistencyBestEffort:
+		return reason == apptypes.MemoryHygieneConsistencyReasonRevisionChanged
+	default:
+		return false
+	}
 }
 
 func validMemoryHygieneCriteriaDigest(value string) bool {
@@ -121,15 +179,6 @@ func validMemoryHygieneCursorKeyset(
 	default:
 		return false
 	}
-}
-
-func memoryHygieneCursorChecksum(payload memoryHygieneCursorPayload) (string, error) {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return "", xerrors.Errorf("failed to checksum memory hygiene cursor")
-	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:16]), nil
 }
 
 func memoryHygieneCriteriaDigest(

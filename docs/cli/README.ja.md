@@ -603,11 +603,29 @@ traceary memory admin activate --target gemini --path /path/to/GEMINI.md --apply
 - `--workspace` — scope filter (未指定時は env/検出 workspace。空なら全 scope)
 - `--expiry-days` — staleness 閾値 (既定 90 日)
 - `--similarity` — supersede_candidate 検出の word-Jaccard 閾値 (0.0-1.0、0 は既定値 0.6)
+- `--max-scan-rows` / `--max-scan-bytes` / `--max-result-bytes` / `--max-comparisons` / `--max-duration` — 1 回の実行に対する有限の処理量・応答量上限
+- `--cursor` — `next_cursor` を発行したプロセス内で途中 scan を再開
 - `--json` — JSON 形式で suggestion のメタデータ付きに出力
+
+すべての結果は `complete` / `partial` / `stop_reason` / `consistency` と実際の
+`usage` を返します。store が変化しなければ `consistency=consistent` です。
+ページ間の memory write により global revision が変わっても、scan は保持済みの
+phase / keyset を破棄しません。代わりに
+`stop_reason=revision_changed`、`consistency=best_effort`、
+`consistency_reason=revision_changed` と、現在の revision に束縛し直した
+continuation を持つ partial result を返します。この continuation chain は単一の
+database snapshot を表せないため、以後のページも downgrade を明示します。
+
+hygiene cursor は、発行プロセスだけが保持する AES-GCM key で暗号化・認証されます。
+改変済み cursor、旧 checksum cursor、以前のプロセスが発行した cursor は、新しい
+scan が必要であることを明示する error になります。長時間動作する MCP server は
+再起動までページを継続できます。一方、standalone CLI は呼び出しごとに新しい
+process を開始するため、ある CLI 呼び出しが返した cursor を次の standalone CLI
+呼び出しで再利用できません。複数ページが必要な scan には MCP surface を使います。
 
 #### `traceary memory admin hygiene apply`
 
-`--ids` に指定した memory id について、該当する suggestion の lifecycle transition を適用します。usecase は内部で scan を再実行し、すでに解決済みの id は失敗一覧に回るので状態を黙って壊すことはありません。適用される transition:
+`--ids` に指定した memory id について、該当する suggestion の lifecycle transition を適用します。最初の mutation より前に、usecase は全 target と同一 scope の peer を 1 つの revision で完全に再検証します。再検証が partial、または revision が不一致なら request 全体を fail-closed にするため、scan の best-effort continuation が apply の安全性を弱めることはありません。適用される transition:
 
 - `redaction_hit` → `supersede`（sanitized fact に差し替え、scope / type / refs は継承）
 - `expiry_candidate` → `expire`（現在時刻で失効）

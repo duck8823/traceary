@@ -78,7 +78,7 @@ func (d *MemoryDatasource) ScanMemoryHygienePage(
 		return result, err
 	}
 	if expected, ok := criteria.ExpectedRevision.Value(); ok && expected != revision {
-		return result, xerrors.Errorf("%w", queryservice.ErrMemoryHygieneRevisionChanged)
+		return result, queryservice.NewMemoryHygieneRevisionChangedError(revision)
 	}
 	result.Revision = revision
 	result.ProgressKeyset = criteria.Keyset
@@ -419,7 +419,16 @@ func scanMemoryHygienePairs(
 				return nil
 			}
 			if !found || anchor.Status() != domtypes.MemoryStatusAccepted || !memoryHygieneScopeIncluded(anchor.Scope(), criteria.Scopes) {
-				return xerrors.Errorf("%w", queryservice.ErrMemoryHygieneRevisionChanged)
+				if criteria.Consistency != apptypes.MemoryHygieneScanConsistencyBestEffort {
+					return queryservice.NewMemoryHygieneRevisionChangedError(result.Revision)
+				}
+				// A best-effort continuation may point at an anchor deleted,
+				// hidden, or moved after an earlier revision change. Treat the
+				// old anchor ID as completed so the retained keyset still makes
+				// forward progress without restarting the pair phase.
+				keyset = apptypes.MemoryHygieneScanKeyset{AfterMemoryID: criteria.Keyset.AnchorMemoryID}
+				result.ProgressKeyset = keyset
+				continue
 			}
 		} else {
 			anchor, found, oversized, anchorBytes, err = nextMemoryHygieneSummary(

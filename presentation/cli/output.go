@@ -390,6 +390,8 @@ type memoryHygieneScanOutput struct {
 	Complete                      bool                       `json:"complete"`
 	Partial                       bool                       `json:"partial"`
 	StopReason                    string                     `json:"stop_reason"`
+	Consistency                   string                     `json:"consistency"`
+	ConsistencyReason             string                     `json:"consistency_reason,omitempty"`
 	NextCursor                    string                     `json:"next_cursor,omitempty"`
 	Usage                         memoryHygieneUsageOutput   `json:"usage"`
 	Suggestions                   []memoryHygieneOutputEntry `json:"suggestions"`

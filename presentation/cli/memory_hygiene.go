@@ -161,8 +161,8 @@ func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
 		"extracted-hidden のメモリ候補も検査対象に含める (既定では visible メモリ候補のみ)",
 	))
 	cmd.Flags().StringVar(&input.cursor, "cursor", "", Localize(
-		"opaque cursor returned by a partial hygiene scan",
-		"途中で終了した hygiene scan が返した不透明カーソル",
+		"process-authenticated cursor returned by a partial hygiene scan; restart requires a new scan",
+		"途中で終了した hygiene scan が返したプロセス認証済みカーソル。プロセス再起動後は新しい scan が必要",
 	))
 	cmd.Flags().IntVar(&input.maxRows, "max-scan-rows", defaultBudget.MaxRows(), Localize(
 		"maximum source rows charged to one invocation",
@@ -223,6 +223,9 @@ func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, in
 		Budget:                  budget,
 		Cursor:                  input.cursor,
 	}
+	if input.cursor == "" {
+		criteria.Now = time.Now().UTC()
+	}
 	if scope != nil {
 		criteria.Scopes = []domtypes.MemoryScope{scope}
 	}
@@ -246,6 +249,8 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 			Complete:                      result.Complete,
 			Partial:                       result.Partial,
 			StopReason:                    string(result.StopReason),
+			Consistency:                   string(result.Consistency),
+			ConsistencyReason:             string(result.ConsistencyReason),
 			NextCursor:                    result.NextCursor,
 			Usage: memoryHygieneUsageOutput{
 				ScannedRows:   result.Usage.ScannedRows,
@@ -274,10 +279,12 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 		return xerrors.Errorf("%s: %w", Localize("failed to print hygiene summary", "hygiene サマリの出力に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output,
-		"complete=%t partial=%t stop_reason=%s scanned_rows=%d scanned_bytes=%d result_bytes=%d comparisons=%d elapsed_ms=%d\n",
+		"complete=%t partial=%t stop_reason=%s consistency=%s consistency_reason=%s scanned_rows=%d scanned_bytes=%d result_bytes=%d comparisons=%d elapsed_ms=%d\n",
 		result.Complete,
 		result.Partial,
 		result.StopReason,
+		result.Consistency,
+		memoryHygieneConsistencyReasonLabel(result.ConsistencyReason),
 		result.Usage.ScannedRows,
 		result.Usage.ScannedBytes,
 		result.Usage.ResultBytes,
@@ -320,6 +327,13 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 		}
 	}
 	return nil
+}
+
+func memoryHygieneConsistencyReasonLabel(reason apptypes.MemoryHygieneConsistencyReason) string {
+	if reason == "" {
+		return "-"
+	}
+	return string(reason)
 }
 
 type memoryHygieneOutputEntry struct {

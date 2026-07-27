@@ -336,6 +336,7 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 		SupersedeCandidateCount: 1,
 		Complete:                true,
 		StopReason:              apptypes.MemoryHygieneStopReasonComplete,
+		Consistency:             apptypes.MemoryHygieneScanConsistencyConsistent,
 		Usage: apptypes.MemoryHygieneScanUsage{
 			ScannedRows:   2,
 			ScannedBytes:  48,

@@ -38,10 +38,11 @@ const defaultSupersedeSimilarityThreshold = 0.6
 
 const memoryHygienePreviewMaxBytes = 240
 
-// Scan traverses revision-stable source pages until a finite invocation budget
-// is exhausted or all four phases complete. A partial result owns an opaque
-// cursor whose keyset points after the last unit whose suggestions were
-// committed to the result.
+// Scan traverses revision-consistent source pages until a finite invocation
+// budget is exhausted or all four phases complete. A partial result owns an
+// authenticated encrypted cursor whose keyset points after the last unit whose
+// suggestions were committed to the result. A cross-page revision change
+// preserves that keyset but permanently marks the chain best-effort.
 func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
 	source, ok := u.memoryQuery.(queryservice.MemoryHygieneScanSource)
 	if !ok {
@@ -67,6 +68,8 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 	phase := apptypes.MemoryHygieneScanPhaseAcceptedRows
 	keyset := apptypes.MemoryHygieneScanKeyset{}
 	revision := domtypes.None[int64]()
+	consistency := apptypes.MemoryHygieneScanConsistencyConsistent
+	var consistencyReason apptypes.MemoryHygieneConsistencyReason
 	var cursorPayload memoryHygieneCursorPayload
 	if criteria.Cursor != "" {
 		decoded, err := decodeMemoryHygieneCursor(criteria.Cursor)
@@ -75,13 +78,12 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		}
 		cursorPayload = decoded
 		cursorTime, _ := time.Parse(time.RFC3339Nano, decoded.ScanAt)
-		if !criteria.Now.IsZero() && !criteria.Now.UTC().Equal(cursorTime) {
-			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene cursor criteria mismatch")
-		}
 		now = cursorTime
 		phase = decoded.Phase
 		keyset = decoded.Keyset
 		revision = domtypes.Some(decoded.Revision)
+		consistency = decoded.Consistency
+		consistencyReason = decoded.ConsistencyReason
 	} else if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -91,11 +93,30 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 	}
 	initialPhase := phase
 	initialKeyset := keyset
+	initialRevision := revision
 
-	result := apptypes.MemoryHygieneScanResult{Suggestions: []apptypes.MemoryHygieneSuggestion{}}
+	result := apptypes.MemoryHygieneScanResult{
+		Suggestions:       []apptypes.MemoryHygieneSuggestion{},
+		Consistency:       consistency,
+		ConsistencyReason: consistencyReason,
+	}
 	startedAt := time.Now()
 	finishPartial := func(reason apptypes.MemoryHygieneStopReason) (apptypes.MemoryHygieneScanResult, error) {
-		return finishPartialMemoryHygieneResult(result, reason, phase, keyset, revision, digest, now, startedAt, initialPhase, initialKeyset)
+		return finishPartialMemoryHygieneResult(
+			result,
+			reason,
+			phase,
+			keyset,
+			revision,
+			consistency,
+			consistencyReason,
+			digest,
+			now,
+			startedAt,
+			initialPhase,
+			initialKeyset,
+			initialRevision,
+		)
 	}
 	scanCtx, cancel := context.WithTimeout(ctx, budget.MaxDuration())
 	defer cancel()
@@ -125,6 +146,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		page, err := source.ScanMemoryHygienePage(scanCtx, apptypes.MemoryHygieneScanPageCriteria{
 			Phase:                   phase,
 			Keyset:                  keyset,
+			Consistency:             consistency,
 			Scopes:                  criteria.Scopes,
 			IncludeHiddenCandidates: criteria.IncludeHiddenCandidates,
 			ExpectedRevision:        revision,
@@ -133,6 +155,18 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 			MaxComparisons:          sourceComparisons,
 		})
 		if err != nil {
+			var revisionChanged *queryservice.MemoryHygieneRevisionChangedError
+			if errors.As(err, &revisionChanged) {
+				if revisionChanged.CurrentRevision < 0 {
+					return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene scan source returned an invalid revision")
+				}
+				revision = domtypes.Some(revisionChanged.CurrentRevision)
+				consistency = apptypes.MemoryHygieneScanConsistencyBestEffort
+				consistencyReason = apptypes.MemoryHygieneConsistencyReasonRevisionChanged
+				result.Consistency = consistency
+				result.ConsistencyReason = consistencyReason
+				return finishPartial(apptypes.MemoryHygieneStopReasonRevisionChanged)
+			}
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(scanCtx.Err(), context.DeadlineExceeded) {
 				return finishPartial(apptypes.MemoryHygieneStopReasonTimeLimit)
 			}
@@ -179,6 +213,8 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 				result.Complete = true
 				result.Partial = false
 				result.StopReason = apptypes.MemoryHygieneStopReasonComplete
+				result.Consistency = consistency
+				result.ConsistencyReason = consistencyReason
 				result.Usage.Elapsed = time.Since(startedAt)
 				result.Usage.ElapsedMillis = result.Usage.Elapsed.Milliseconds()
 				return result, nil
@@ -455,25 +491,34 @@ func finishPartialMemoryHygieneResult(
 	phase apptypes.MemoryHygieneScanPhase,
 	keyset apptypes.MemoryHygieneScanKeyset,
 	revision domtypes.Optional[int64],
+	consistency apptypes.MemoryHygieneScanConsistency,
+	consistencyReason apptypes.MemoryHygieneConsistencyReason,
 	digest string,
 	now time.Time,
 	startedAt time.Time,
 	initialPhase apptypes.MemoryHygieneScanPhase,
 	initialKeyset apptypes.MemoryHygieneScanKeyset,
+	initialRevision domtypes.Optional[int64],
 ) (apptypes.MemoryHygieneScanResult, error) {
 	if phase == initialPhase && keyset == initialKeyset {
-		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("%w: %s budget stopped before advancing the cursor", queryservice.ErrMemoryHygieneContinuationCannotProgress, reason)
+		revisionValue, hasRevision := revision.Value()
+		initialRevisionValue, hadInitialRevision := initialRevision.Value()
+		if !hasRevision || !hadInitialRevision || revisionValue == initialRevisionValue {
+			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("%w: %s budget stopped before advancing the cursor", queryservice.ErrMemoryHygieneContinuationCannotProgress, reason)
+		}
 	}
 	revisionValue, ok := revision.Value()
 	if !ok {
 		return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("memory hygiene scan stopped before reading a revision")
 	}
 	cursor, err := encodeMemoryHygieneCursor(memoryHygieneCursorPayload{
-		Revision:       revisionValue,
-		CriteriaDigest: digest,
-		ScanAt:         now.UTC().Format(time.RFC3339Nano),
-		Phase:          phase,
-		Keyset:         keyset,
+		Revision:          revisionValue,
+		CriteriaDigest:    digest,
+		ScanAt:            now.UTC().Format(time.RFC3339Nano),
+		Phase:             phase,
+		Keyset:            keyset,
+		Consistency:       consistency,
+		ConsistencyReason: consistencyReason,
 	})
 	if err != nil {
 		return apptypes.MemoryHygieneScanResult{}, err
@@ -481,6 +526,8 @@ func finishPartialMemoryHygieneResult(
 	result.Complete = false
 	result.Partial = true
 	result.StopReason = reason
+	result.Consistency = consistency
+	result.ConsistencyReason = consistencyReason
 	result.NextCursor = cursor
 	result.Usage.Elapsed = time.Since(startedAt)
 	result.Usage.ElapsedMillis = result.Usage.Elapsed.Milliseconds()

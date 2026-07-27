@@ -8,6 +8,7 @@
   "complete": true,
   "partial": false,
   "stop_reason": "complete",
+  "consistency": "consistent",
   "usage": {
     "scanned_rows": 2,
     "scanned_bytes": 48,

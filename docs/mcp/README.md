@@ -60,6 +60,23 @@ The same order applies when composing a session recap: discover metadata first,
 inspect selected context second, and retrieve detail only when the recap cannot
 be supported by the bounded evidence.
 
+### Durable-memory hygiene continuations
+
+`query_memory(action="scan_hygiene")` applies finite row, source-byte,
+result-byte, comparison, and duration ceilings. A partial response includes an
+encrypted `next_cursor`. The cursor is authenticated by an AES-GCM key owned by
+the running MCP process, contains no plaintext memory fact, and becomes
+unusable after that server restarts. Authentication failure explicitly
+requires a new scan; legacy checksum cursors are not accepted.
+
+`consistency=consistent` means the continuation chain stayed at one memory
+revision. If a hook or another client writes memory between pages, the next
+call returns `stop_reason=revision_changed`,
+`consistency=best_effort`, `consistency_reason=revision_changed`, and a new
+cursor at the retained keyset and current revision. Later pages keep the
+best-effort marker. This behavior is read-only; mutation paths still require
+complete targeted revalidation at one revision before applying anything.
+
 ### Search query semantics
 
 `search.query` is a literal text query, not a boolean query language. A string such as `failure OR timeout` is not interpreted as an any-match expression for `failure` or `timeout`; treat it as one search string. For multi-term inspection, issue multiple narrower `search` calls or save CLI JSON output to a local file and aggregate it with local tools such as `jq`.

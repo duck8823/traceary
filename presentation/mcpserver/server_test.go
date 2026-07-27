@@ -168,6 +168,9 @@ func TestServer_BuildAndTools(t *testing.T) {
 		if payload["complete"] != true || payload["partial"] != false || payload["stop_reason"] != "complete" {
 			t.Fatalf("coverage = complete:%#v partial:%#v stop:%#v", payload["complete"], payload["partial"], payload["stop_reason"])
 		}
+		if payload["consistency"] != "consistent" {
+			t.Fatalf("consistency = %#v, want consistent", payload["consistency"])
+		}
 		usage, ok := payload["usage"].(map[string]any)
 		if !ok {
 			t.Fatalf("usage = %#v, want object", payload["usage"])
@@ -1489,6 +1492,101 @@ func TestServer_BuildAndTools(t *testing.T) {
 // passes no body_limit still gets a capped, body_truncated projection so a
 // noisy command/tool payload is not re-amplified into the next agent context.
 // The full body stays retrievable by re-issuing with full_body=true.
+func TestServer_MemoryHygieneRevisionChangeReturnsBestEffortContinuation(t *testing.T) {
+	t.Parallel()
+
+	server, _, _ := newTestServerWithDBPath(t)
+	ctx := context.Background()
+	mcpServer, err := server.Build(ctx)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := mcpServer.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("Connect(server) error = %v", err)
+	}
+	defer func() { _ = serverSession.Wait() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v1.0.0"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("Connect(client) error = %v", err)
+	}
+	defer func() { _ = clientSession.Close() }()
+
+	remember := func(fact string) {
+		t.Helper()
+		result, callErr := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "manage_memory",
+			Arguments: map[string]any{
+				"action":    "remember",
+				"type":      "decision",
+				"workspace": "github.com/duck8823/traceary",
+				"fact":      fact,
+				"evidence_refs": []any{
+					map[string]any{"kind": "issue", "value": "#1556"},
+				},
+			},
+		})
+		if callErr != nil {
+			t.Fatalf("CallTool(remember) error = %v", callErr)
+		}
+		if result.IsError {
+			t.Fatalf("CallTool(remember) returned tool error for %q", fact)
+		}
+	}
+	remember("memory hygiene revision fixture a")
+	remember("memory hygiene revision fixture b")
+	remember("memory hygiene revision fixture c")
+
+	firstResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "query_memory",
+		Arguments: map[string]any{
+			"action":        "scan_hygiene",
+			"max_scan_rows": 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("first CallTool(scan_hygiene) error = %v", err)
+	}
+	if firstResult.IsError {
+		t.Fatal("first CallTool(scan_hygiene) returned tool error")
+	}
+	first := decodeJSONPayload(t, firstResult)
+	cursor, ok := first["next_cursor"].(string)
+	if !ok || cursor == "" || first["partial"] != true || first["consistency"] != "consistent" {
+		t.Fatalf("first scan coverage = %#v", first)
+	}
+
+	remember("memory hygiene revision fixture d")
+
+	secondResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "query_memory",
+		Arguments: map[string]any{
+			"action":        "scan_hygiene",
+			"cursor":        cursor,
+			"max_scan_rows": 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("revision-changed CallTool(scan_hygiene) error = %v", err)
+	}
+	if secondResult.IsError {
+		t.Fatal("revision-changed CallTool(scan_hygiene) returned tool error")
+	}
+	second := decodeJSONPayload(t, secondResult)
+	if second["partial"] != true ||
+		second["stop_reason"] != "revision_changed" ||
+		second["consistency"] != "best_effort" ||
+		second["consistency_reason"] != "revision_changed" {
+		t.Fatalf("revision-changed scan coverage = %#v", second)
+	}
+	nextCursor, ok := second["next_cursor"].(string)
+	if !ok || nextCursor == "" || nextCursor == cursor {
+		t.Fatalf("revision-changed next_cursor = %#v, want rebound cursor", second["next_cursor"])
+	}
+}
+
 func TestServer_GetContextDefaultBodyLimitCaps(t *testing.T) {
 	t.Parallel()
 

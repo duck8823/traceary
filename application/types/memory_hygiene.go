@@ -127,6 +127,8 @@ type MemoryHygieneScanResult struct {
 	Complete                      bool
 	Partial                       bool
 	StopReason                    MemoryHygieneStopReason
+	Consistency                   MemoryHygieneScanConsistency
+	ConsistencyReason             MemoryHygieneConsistencyReason
 	NextCursor                    string
 	Usage                         MemoryHygieneScanUsage
 }

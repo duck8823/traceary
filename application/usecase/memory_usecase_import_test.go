@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -28,6 +29,8 @@ type stubMemoryQueryService struct {
 	details               map[domtypes.MemoryID]apptypes.MemoryDetails
 	calls                 []apptypes.MemoryListCriteria
 	scanPageCalls         int
+	scanPageCriteria      []apptypes.MemoryHygieneScanPageCriteria
+	scanRevision          int64
 	scanDelay             time.Duration
 	revalidationCalls     []apptypes.MemoryHygieneRevalidationCriteria
 	revalidationResults   map[string]apptypes.MemoryHygieneRevalidationSourceResult
@@ -89,11 +92,19 @@ func (s *stubMemoryQueryService) ScanMemoryHygienePage(
 	criteria apptypes.MemoryHygieneScanPageCriteria,
 ) (apptypes.MemoryHygieneScanSourcePage, error) {
 	s.scanPageCalls++
+	s.scanPageCriteria = append(s.scanPageCriteria, criteria)
 	if s.scanDelay > 0 {
 		time.Sleep(s.scanDelay)
 	}
+	revision := s.scanRevision
+	if revision == 0 {
+		revision = 1
+	}
+	if expected, ok := criteria.ExpectedRevision.Value(); ok && expected != revision {
+		return apptypes.MemoryHygieneScanSourcePage{}, queryservice.NewMemoryHygieneRevisionChangedError(revision)
+	}
 	page := apptypes.MemoryHygieneScanSourcePage{
-		Revision:       1,
+		Revision:       revision,
 		ProgressKeyset: criteria.Keyset,
 	}
 	summaries := append([]apptypes.MemorySummary(nil), s.summaries...)

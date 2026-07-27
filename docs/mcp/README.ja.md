@@ -60,6 +60,23 @@ session recap でも同じ順序を使います。metadata を発見してから
 確認し、上限付きの evidence だけでは recap を支えられない場合にだけ detail を
 取得します。
 
+### Durable memory hygiene の continuation
+
+`query_memory(action="scan_hygiene")` は row、source byte、result byte、
+comparison、duration に有限の上限を適用します。partial response には暗号化済みの
+`next_cursor` が含まれます。cursor は実行中の MCP process が所有する AES-GCM key
+で認証され、memory fact の平文を含みません。server 再起動後は利用できず、認証に
+失敗した場合は新しい scan が必要であることを明示します。旧 checksum cursor は
+受理しません。
+
+`consistency=consistent` は continuation chain が 1 つの memory revision に
+留まったことを示します。ページ間に hook または別 client が memory を書き込むと、
+次の call は `stop_reason=revision_changed`、
+`consistency=best_effort`、`consistency_reason=revision_changed` と、保持済み
+keyset / 現在 revision に束縛した新しい cursor を返します。以後のページも
+best-effort marker を維持します。これは read-only scan の振る舞いです。mutation
+path は、何かを適用する前に 1 つの revision で対象を完全に再検証します。
+
 ### Search query semantics
 
 `search.query` は literal text query であり、boolean query language ではありません。`failure OR timeout` のような文字列は `failure` または `timeout` の any-match expression として解釈されず、1つの検索文字列として扱われます。複数語を調べたい場合は、より狭い `search` call を複数回実行するか、CLI JSON output を local file に保存して `jq` などの local tools で集計してください。

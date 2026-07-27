@@ -1268,6 +1268,9 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 			Budget:                  budget,
 			Cursor:                  input.Cursor,
 		}
+		if input.Cursor == "" {
+			criteria.Now = time.Now().UTC()
+		}
 		if workspace := strings.TrimSpace(input.Workspace); workspace != "" {
 			resolvedWorkspace, err := types.WorkspaceFrom(workspace)
 			if err != nil {
@@ -1292,6 +1295,8 @@ func (s *Server) scanMemoryHygiene() mcp.ToolHandlerFor[scanMemoryHygieneInput, 
 			Complete:                      result.Complete,
 			Partial:                       result.Partial,
 			StopReason:                    string(result.StopReason),
+			Consistency:                   string(result.Consistency),
+			ConsistencyReason:             string(result.ConsistencyReason),
 			NextCursor:                    result.NextCursor,
 			Usage: memoryHygieneUsageOutput{
 				ScannedRows:   result.Usage.ScannedRows,

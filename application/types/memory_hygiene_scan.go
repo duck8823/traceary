@@ -141,6 +141,7 @@ type MemoryHygieneScanKeyset struct {
 type MemoryHygieneScanPageCriteria struct {
 	Phase                   MemoryHygieneScanPhase
 	Keyset                  MemoryHygieneScanKeyset
+	Consistency             MemoryHygieneScanConsistency
 	Scopes                  []domtypes.MemoryScope
 	IncludeHiddenCandidates bool
 	ExpectedRevision        domtypes.Optional[int64]
@@ -214,6 +215,38 @@ const (
 	MemoryHygieneStopReasonComparisonLimit MemoryHygieneStopReason = "comparison_limit"
 	// MemoryHygieneStopReasonTimeLimit means the wall-clock ceiling stopped the invocation.
 	MemoryHygieneStopReasonTimeLimit MemoryHygieneStopReason = "time_limit"
+	// MemoryHygieneStopReasonRevisionChanged means the scan preserved its
+	// keyset but rebound the continuation to a newer store revision.
+	MemoryHygieneStopReasonRevisionChanged MemoryHygieneStopReason = "revision_changed"
+)
+
+// MemoryHygieneScanConsistency states whether one continuation chain is still
+// bound to a single store revision.
+type MemoryHygieneScanConsistency string
+
+const (
+	// MemoryHygieneScanConsistencyConsistent means every completed unit was
+	// read at the revision captured by the initial scan.
+	MemoryHygieneScanConsistencyConsistent MemoryHygieneScanConsistency = "consistent"
+	// MemoryHygieneScanConsistencyBestEffort means a revision change preserved
+	// traversal progress, so the completed chain may span multiple snapshots.
+	MemoryHygieneScanConsistencyBestEffort MemoryHygieneScanConsistency = "best_effort"
+)
+
+// IsKnown reports whether the consistency value is part of the public scan
+// contract.
+func (c MemoryHygieneScanConsistency) IsKnown() bool {
+	return c == MemoryHygieneScanConsistencyConsistent ||
+		c == MemoryHygieneScanConsistencyBestEffort
+}
+
+// MemoryHygieneConsistencyReason explains why consistency was downgraded.
+type MemoryHygieneConsistencyReason string
+
+const (
+	// MemoryHygieneConsistencyReasonRevisionChanged records that the store
+	// changed after traversal had already advanced.
+	MemoryHygieneConsistencyReasonRevisionChanged MemoryHygieneConsistencyReason = "revision_changed"
 )
 
 // MemoryHygieneScanUsage reports actual work charged to one invocation.

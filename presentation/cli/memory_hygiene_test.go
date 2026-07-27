@@ -43,6 +43,7 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 		LowQualityCandidateCount: 1,
 		Complete:                 true,
 		StopReason:               apptypes.MemoryHygieneStopReasonComplete,
+		Consistency:              apptypes.MemoryHygieneScanConsistencyConsistent,
 	}
 
 	var buf bytes.Buffer
@@ -51,7 +52,8 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 	}
 
 	var payload struct {
-		LowQualityCandidateCount int `json:"low_quality_candidate_count"`
+		LowQualityCandidateCount int    `json:"low_quality_candidate_count"`
+		Consistency              string `json:"consistency"`
 		Suggestions              []struct {
 			MemoryID       string   `json:"memory_id"`
 			Kind           string   `json:"kind"`
@@ -67,6 +69,9 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 	}
 	if payload.LowQualityCandidateCount != 1 {
 		t.Fatalf("low_quality_candidate_count = %d, want 1", payload.LowQualityCandidateCount)
+	}
+	if payload.Consistency != "consistent" {
+		t.Fatalf("consistency = %q, want consistent", payload.Consistency)
 	}
 	if len(payload.Suggestions) != 1 {
 		t.Fatalf("suggestions = %d, want 1", len(payload.Suggestions))
@@ -118,6 +123,7 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 		LowQualityCandidateCount: 1,
 		Complete:                 true,
 		StopReason:               apptypes.MemoryHygieneStopReasonComplete,
+		Consistency:              apptypes.MemoryHygieneScanConsistencyConsistent,
 	}
 
 	var buf bytes.Buffer
@@ -130,6 +136,7 @@ func TestWriteMemoryHygieneScanResult_LowQualityCandidateText(t *testing.T) {
 		"mem-noise",
 		"status=candidate",
 		"source=extracted",
+		"consistency=consistent",
 		"git pull --ff-only origin main",
 	} {
 		if !strings.Contains(out, want) {
@@ -163,6 +170,8 @@ func TestWriteMemoryHygieneScanResult_NeverRendersRawFacts(t *testing.T) {
 		RedactionHitCount: 1,
 		Partial:           true,
 		StopReason:        apptypes.MemoryHygieneStopReasonResultByteLimit,
+		Consistency:       apptypes.MemoryHygieneScanConsistencyBestEffort,
+		ConsistencyReason: apptypes.MemoryHygieneConsistencyReasonRevisionChanged,
 		NextCursor:        "opaque_cursor",
 		Usage: apptypes.MemoryHygieneScanUsage{
 			ScannedRows:   2,
@@ -187,6 +196,9 @@ func TestWriteMemoryHygieneScanResult_NeverRendersRawFacts(t *testing.T) {
 		}
 		if !strings.Contains(output, "opaque_cursor") {
 			t.Fatalf("output(json=%t) omitted continuation cursor: %s", asJSON, output)
+		}
+		if !strings.Contains(output, "best_effort") || !strings.Contains(output, "revision_changed") {
+			t.Fatalf("output(json=%t) omitted consistency downgrade: %s", asJSON, output)
 		}
 	}
 }
