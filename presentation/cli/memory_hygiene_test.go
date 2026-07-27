@@ -194,8 +194,11 @@ func TestWriteMemoryHygieneScanResult_NeverRendersRawFacts(t *testing.T) {
 		if !strings.Contains(output, "[REDACTED]") {
 			t.Fatalf("output(json=%t) omitted safe preview: %s", asJSON, output)
 		}
-		if !strings.Contains(output, "opaque_cursor") {
-			t.Fatalf("output(json=%t) omitted continuation cursor: %s", asJSON, output)
+		if strings.Contains(output, "opaque_cursor") || strings.Contains(output, "next_cursor") {
+			t.Fatalf("output(json=%t) exposed a process-local continuation cursor: %s", asJSON, output)
+		}
+		if !strings.Contains(output, "rerun_guidance") || !strings.Contains(output, "resumable paging") {
+			t.Fatalf("output(json=%t) omitted bounded re-run guidance: %s", asJSON, output)
 		}
 		if !strings.Contains(output, "best_effort") || !strings.Contains(output, "revision_changed") {
 			t.Fatalf("output(json=%t) omitted consistency downgrade: %s", asJSON, output)

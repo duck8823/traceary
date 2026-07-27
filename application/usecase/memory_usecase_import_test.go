@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
@@ -31,6 +33,7 @@ type stubMemoryQueryService struct {
 	scanPageCalls         int
 	scanPageCriteria      []apptypes.MemoryHygieneScanPageCriteria
 	scanRevision          int64
+	advanceScanRevision   bool
 	scanDelay             time.Duration
 	revalidationCalls     []apptypes.MemoryHygieneRevalidationCriteria
 	revalidationResults   map[string]apptypes.MemoryHygieneRevalidationSourceResult
@@ -96,12 +99,18 @@ func (s *stubMemoryQueryService) ScanMemoryHygienePage(
 	if s.scanDelay > 0 {
 		time.Sleep(s.scanDelay)
 	}
+	if s.advanceScanRevision {
+		s.scanRevision++
+	}
 	revision := s.scanRevision
 	if revision == 0 {
 		revision = 1
 	}
 	if expected, ok := criteria.ExpectedRevision.Value(); ok && expected != revision {
-		return apptypes.MemoryHygieneScanSourcePage{}, queryservice.NewMemoryHygieneRevisionChangedError(revision)
+		return apptypes.MemoryHygieneScanSourcePage{}, xerrors.Errorf(
+			"stub memory hygiene scan revision changed: %w",
+			queryservice.NewMemoryHygieneRevisionChangedError(revision),
+		)
 	}
 	page := apptypes.MemoryHygieneScanSourcePage{
 		Revision:       revision,

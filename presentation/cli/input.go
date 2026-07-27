@@ -543,7 +543,6 @@ type memoryHygieneScanCommandInput struct {
 	expiryDays     int
 	similarity     float64
 	includeHidden  bool
-	cursor         string
 	maxRows        int
 	maxScanBytes   int64
 	maxResultBytes int64

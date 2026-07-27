@@ -612,26 +612,27 @@ Useful flags:
 - `--expiry-days` — staleness threshold in days (default 90)
 - `--similarity` — word-Jaccard threshold for supersede_candidate detection, between 0.0 and 1.0 (0 uses the built-in default 0.6)
 - `--max-scan-rows`, `--max-scan-bytes`, `--max-result-bytes`, `--max-comparisons`, `--max-duration` — finite per-invocation work and response ceilings
-- `--cursor` — resume a partial scan inside the process that issued `next_cursor`
 - `--json` — print JSON output with per-suggestion metadata
 
 Every result reports `complete`, `partial`, `stop_reason`, `consistency`, and
-actual `usage`. An unchanged store reports `consistency=consistent`. If a
-memory write changes the global revision between pages, the scanner does not
-discard the retained phase/keyset: it returns a partial
-`stop_reason=revision_changed` result with
-`consistency=best_effort`, `consistency_reason=revision_changed`, and a
-continuation rebound to the current revision. The downgrade remains visible on
-all later pages because that chain can no longer represent one database
-snapshot.
+actual `usage`. A partial CLI result also reports `rerun_guidance`: narrow
+`--workspace`, raise only the finite bounds that are appropriate, or use the
+MCP surface for resumable paging. An unchanged store reports
+`consistency=consistent`. If a memory write changes the global revision while
+the invocation is scanning, the scanner keeps the retained phase/keyset,
+rebinds to the current revision, permanently marks the scan `best_effort` with
+`consistency_reason=revision_changed`, and retries that same source page inside
+the remaining invocation budget. A successful retry reports the actual bound
+that later stops it. Only continuing revision churn that consumes the duration
+before page progress reports `stop_reason=revision_changed`.
 
 Hygiene cursors are encrypted and authenticated with an AES-GCM key that exists
 only in the issuing process. Modified cursors, legacy checksum cursors, and
 cursors from an earlier process fail with explicit new-scan guidance. A
-long-running MCP server can therefore resume pages until it restarts. A
-standalone CLI command starts a new process for each invocation, so its cursor
-cannot be reused by a later standalone invocation; use the MCP surface when a
-scan requires multiple process-authenticated pages.
+long-running MCP server can therefore resume pages until it restarts. The
+standalone CLI neither accepts `--cursor` nor emits `next_cursor`; each command
+is one bounded scan. Use `query_memory(action="scan_hygiene")` when a scan
+requires multiple process-authenticated pages.
 
 #### `traceary memory admin hygiene apply`
 

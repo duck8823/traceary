@@ -267,8 +267,8 @@ type memoryHygieneOutput struct {
 	ValidityOverlapSupersedeCount int                             `json:"validity_overlap_supersede_count" jsonschema:"number of accepted memories paired by (scope, type) with overlapping validity windows"`
 	LowQualityCandidateCount      int                             `json:"low_quality_candidate_count" jsonschema:"number of candidate memories flagged by the deterministic low-quality classifier"`
 	Complete                      bool                            `json:"complete" jsonschema:"true only when every hygiene phase finished under the declared consistency"`
-	Partial                       bool                            `json:"partial" jsonschema:"true when a bound or revision change stopped the invocation and next_cursor can resume it"`
-	StopReason                    string                          `json:"stop_reason" jsonschema:"complete, revision_changed, or the first bound that stopped this invocation"`
+	Partial                       bool                            `json:"partial" jsonschema:"true when a bound stopped the invocation and next_cursor can resume it"`
+	StopReason                    string                          `json:"stop_reason" jsonschema:"complete, the first resource bound that stopped this invocation, or revision_changed when revision churn exhausted the duration before page progress"`
 	Consistency                   string                          `json:"consistency" jsonschema:"consistent when the chain stayed at one revision; best_effort after a revision change"`
 	ConsistencyReason             string                          `json:"consistency_reason,omitempty" jsonschema:"revision_changed when consistency was downgraded to best_effort"`
 	NextCursor                    string                          `json:"next_cursor,omitempty" jsonschema:"process-authenticated encrypted continuation; contains no stored fact text and requires a new scan after server restart"`

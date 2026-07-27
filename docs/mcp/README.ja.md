@@ -71,11 +71,15 @@ comparison、duration に有限の上限を適用します。partial response �
 
 `consistency=consistent` は continuation chain が 1 つの memory revision に
 留まったことを示します。ページ間に hook または別 client が memory を書き込むと、
-次の call は `stop_reason=revision_changed`、
-`consistency=best_effort`、`consistency_reason=revision_changed` と、保持済み
-keyset / 現在 revision に束縛した新しい cursor を返します。以後のページも
-best-effort marker を維持します。これは read-only scan の振る舞いです。mutation
-path は、何かを適用する前に 1 つの revision で対象を完全に再検証します。
+次の call は保持済み keyset を維持し、現在 revision に束縛し直して、
+`consistency=best_effort` / `consistency_reason=revision_changed` へ恒久的に
+downgrade したうえで、同じ source page を残りの実行予算内で再試行します。
+再試行が成功した場合、後で実際に停止させた上限を `stop_reason` で返します。
+page が前進する前に revision 変更が繰り返されて duration を使い切った場合は、
+partial response が `stop_reason=revision_changed` と最新の確認済み revision に
+束縛した cursor を返します。以後のページも best-effort marker を維持します。
+これは read-only scan の振る舞いです。mutation path は、何かを適用する前に
+1 つの revision で対象を完全に再検証します。
 
 ### Search query semantics
 

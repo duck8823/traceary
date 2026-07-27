@@ -16,6 +16,8 @@ import (
 
 const defaultHygieneExpiryDays = 90
 
+const memoryHygieneScanRerunGuidance = `rerun with a narrower --workspace or larger finite scan bounds; use MCP query_memory(action="scan_hygiene") for resumable paging`
+
 func (c *RootCLI) newMemoryHygieneCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hygiene",
@@ -160,10 +162,6 @@ func (c *RootCLI) newMemoryHygieneScanCommand() *cobra.Command {
 		"inspect extracted-hidden candidates as well (default scans visible candidates only)",
 		"extracted-hidden のメモリ候補も検査対象に含める (既定では visible メモリ候補のみ)",
 	))
-	cmd.Flags().StringVar(&input.cursor, "cursor", "", Localize(
-		"process-authenticated cursor returned by a partial hygiene scan; restart requires a new scan",
-		"途中で終了した hygiene scan が返したプロセス認証済みカーソル。プロセス再起動後は新しい scan が必要",
-	))
 	cmd.Flags().IntVar(&input.maxRows, "max-scan-rows", defaultBudget.MaxRows(), Localize(
 		"maximum source rows charged to one invocation",
 		"1 回の実行で読み取る source row の上限",
@@ -221,10 +219,7 @@ func (c *RootCLI) runMemoryHygieneScan(ctx context.Context, output io.Writer, in
 		SimilarityThreshold:     input.similarity,
 		IncludeHiddenCandidates: input.includeHidden,
 		Budget:                  budget,
-		Cursor:                  input.cursor,
-	}
-	if input.cursor == "" {
-		criteria.Now = time.Now().UTC()
+		Now:                     time.Now().UTC(),
 	}
 	if scope != nil {
 		criteria.Scopes = []domtypes.MemoryScope{scope}
@@ -251,7 +246,6 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 			StopReason:                    string(result.StopReason),
 			Consistency:                   string(result.Consistency),
 			ConsistencyReason:             string(result.ConsistencyReason),
-			NextCursor:                    result.NextCursor,
 			Usage: memoryHygieneUsageOutput{
 				ScannedRows:   result.Usage.ScannedRows,
 				ScannedBytes:  result.Usage.ScannedBytes,
@@ -260,6 +254,9 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 				ElapsedMillis: result.Usage.ElapsedMillis,
 			},
 			Suggestions: make([]memoryHygieneOutputEntry, 0, len(result.Suggestions)),
+		}
+		if result.Partial {
+			payload.RerunGuidance = memoryHygieneScanRerunGuidance
 		}
 		for _, suggestion := range result.Suggestions {
 			payload.Suggestions = append(payload.Suggestions, newMemoryHygieneOutputEntry(suggestion))
@@ -294,8 +291,8 @@ func writeMemoryHygieneScanResult(output io.Writer, result apptypes.MemoryHygien
 		return xerrors.Errorf("%s: %w", Localize("failed to print hygiene coverage", "hygiene scan の完了状態を出力できませんでした"), err)
 	}
 	if result.Partial {
-		if _, err := fmt.Fprintf(output, "next_cursor=%s\n", result.NextCursor); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print hygiene continuation cursor", "hygiene scan の継続カーソルを出力できませんでした"), err)
+		if _, err := fmt.Fprintf(output, "rerun_guidance=%s\n", memoryHygieneScanRerunGuidance); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print hygiene re-run guidance", "hygiene scan の再実行ガイダンスを出力できませんでした"), err)
 		}
 	}
 	for _, suggestion := range result.Suggestions {

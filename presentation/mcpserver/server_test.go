@@ -1576,14 +1576,14 @@ func TestServer_MemoryHygieneRevisionChangeReturnsBestEffortContinuation(t *test
 	}
 	second := decodeJSONPayload(t, secondResult)
 	if second["partial"] != true ||
-		second["stop_reason"] != "revision_changed" ||
+		second["stop_reason"] != "row_limit" ||
 		second["consistency"] != "best_effort" ||
 		second["consistency_reason"] != "revision_changed" {
-		t.Fatalf("revision-changed scan coverage = %#v", second)
+		t.Fatalf("revision-changed same-invocation retry coverage = %#v", second)
 	}
 	nextCursor, ok := second["next_cursor"].(string)
 	if !ok || nextCursor == "" || nextCursor == cursor {
-		t.Fatalf("revision-changed next_cursor = %#v, want rebound cursor", second["next_cursor"])
+		t.Fatalf("best-effort next_cursor = %#v, want progressed cursor", second["next_cursor"])
 	}
 }
 

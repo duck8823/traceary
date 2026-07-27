@@ -71,9 +71,13 @@ requires a new scan; legacy checksum cursors are not accepted.
 
 `consistency=consistent` means the continuation chain stayed at one memory
 revision. If a hook or another client writes memory between pages, the next
-call returns `stop_reason=revision_changed`,
-`consistency=best_effort`, `consistency_reason=revision_changed`, and a new
-cursor at the retained keyset and current revision. Later pages keep the
+call retains the keyset, binds the current revision, permanently marks the
+chain `consistency=best_effort` with
+`consistency_reason=revision_changed`, and retries that same source page inside
+the remaining invocation budget. A successful retry reports the actual bound
+that later stops it. If revision churn consumes the duration before page
+progress, the partial response uses `stop_reason=revision_changed` and returns
+a cursor bound to the latest observed revision. Later pages keep the
 best-effort marker. This behavior is read-only; mutation paths still require
 complete targeted revalidation at one revision before applying anything.
 

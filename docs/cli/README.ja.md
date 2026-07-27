@@ -604,24 +604,27 @@ traceary memory admin activate --target gemini --path /path/to/GEMINI.md --apply
 - `--expiry-days` — staleness 閾値 (既定 90 日)
 - `--similarity` — supersede_candidate 検出の word-Jaccard 閾値 (0.0-1.0、0 は既定値 0.6)
 - `--max-scan-rows` / `--max-scan-bytes` / `--max-result-bytes` / `--max-comparisons` / `--max-duration` — 1 回の実行に対する有限の処理量・応答量上限
-- `--cursor` — `next_cursor` を発行したプロセス内で途中 scan を再開
 - `--json` — JSON 形式で suggestion のメタデータ付きに出力
 
 すべての結果は `complete` / `partial` / `stop_reason` / `consistency` と実際の
-`usage` を返します。store が変化しなければ `consistency=consistent` です。
-ページ間の memory write により global revision が変わっても、scan は保持済みの
-phase / keyset を破棄しません。代わりに
-`stop_reason=revision_changed`、`consistency=best_effort`、
-`consistency_reason=revision_changed` と、現在の revision に束縛し直した
-continuation を持つ partial result を返します。この continuation chain は単一の
-database snapshot を表せないため、以後のページも downgrade を明示します。
+`usage` を返します。CLI の partial result は `rerun_guidance` も返します。
+`--workspace` を狭める、必要な有限上限だけを引き上げる、または再開可能な MCP
+surface を使ってください。store が変化しなければ `consistency=consistent` です。
+実行中の memory write により global revision が変わっても、scan は保持済みの
+phase / keyset を破棄しません。現在の revision に束縛し直し、
+`consistency=best_effort` / `consistency_reason=revision_changed` へ恒久的に
+downgrade して、同じ source page を残りの実行予算内で再試行します。再試行が
+成功した場合、後で実際に停止させた上限を `stop_reason` で返します。page が前進
+する前に revision 変更が繰り返されて duration を使い切った場合だけ、
+`stop_reason=revision_changed` を返します。
 
 hygiene cursor は、発行プロセスだけが保持する AES-GCM key で暗号化・認証されます。
 改変済み cursor、旧 checksum cursor、以前のプロセスが発行した cursor は、新しい
 scan が必要であることを明示する error になります。長時間動作する MCP server は
-再起動までページを継続できます。一方、standalone CLI は呼び出しごとに新しい
-process を開始するため、ある CLI 呼び出しが返した cursor を次の standalone CLI
-呼び出しで再利用できません。複数ページが必要な scan には MCP surface を使います。
+再起動までページを継続できます。standalone CLI は `--cursor` を受け付けず、
+`next_cursor` も出力しません。各 command は 1 回の上限付き scan です。複数の
+process 認証済み page が必要な場合は
+`query_memory(action="scan_hygiene")` を使います。
 
 #### `traceary memory admin hygiene apply`
 

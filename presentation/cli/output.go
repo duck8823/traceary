@@ -392,7 +392,7 @@ type memoryHygieneScanOutput struct {
 	StopReason                    string                     `json:"stop_reason"`
 	Consistency                   string                     `json:"consistency"`
 	ConsistencyReason             string                     `json:"consistency_reason,omitempty"`
-	NextCursor                    string                     `json:"next_cursor,omitempty"`
+	RerunGuidance                 string                     `json:"rerun_guidance,omitempty"`
 	Usage                         memoryHygieneUsageOutput   `json:"usage"`
 	Suggestions                   []memoryHygieneOutputEntry `json:"suggestions"`
 }

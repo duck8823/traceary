@@ -78,7 +78,10 @@ func (d *MemoryDatasource) ScanMemoryHygienePage(
 		return result, err
 	}
 	if expected, ok := criteria.ExpectedRevision.Value(); ok && expected != revision {
-		return result, queryservice.NewMemoryHygieneRevisionChangedError(revision)
+		return result, xerrors.Errorf(
+			"memory hygiene scan revision changed before reading the source page: %w",
+			queryservice.NewMemoryHygieneRevisionChangedError(revision),
+		)
 	}
 	result.Revision = revision
 	result.ProgressKeyset = criteria.Keyset
@@ -420,7 +423,10 @@ func scanMemoryHygienePairs(
 			}
 			if !found || anchor.Status() != domtypes.MemoryStatusAccepted || !memoryHygieneScopeIncluded(anchor.Scope(), criteria.Scopes) {
 				if criteria.Consistency != apptypes.MemoryHygieneScanConsistencyBestEffort {
-					return queryservice.NewMemoryHygieneRevisionChangedError(result.Revision)
+					return xerrors.Errorf(
+						"memory hygiene pair anchor changed before continuation: %w",
+						queryservice.NewMemoryHygieneRevisionChangedError(result.Revision),
+					)
 				}
 				// A best-effort continuation may point at an anchor deleted,
 				// hidden, or moved after an earlier revision change. Treat the

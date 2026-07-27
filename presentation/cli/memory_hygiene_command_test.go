@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-func TestMemoryHygieneScanCommand_PassesExplicitBoundsAndCursor(t *testing.T) {
+func TestMemoryHygieneScanCommand_PassesExplicitBoundsWithoutCursor(t *testing.T) {
 	t.Parallel()
 
 	memoryStub := &memoryUsecaseStub{
@@ -32,7 +33,6 @@ func TestMemoryHygieneScanCommand_PassesExplicitBoundsAndCursor(t *testing.T) {
 		"--expiry-days", "30",
 		"--similarity", "0.75",
 		"--include-hidden",
-		"--cursor", "opaque-cursor",
 		"--max-scan-rows", "12",
 		"--max-scan-bytes", "4096",
 		"--max-result-bytes", "2048",
@@ -45,7 +45,7 @@ func TestMemoryHygieneScanCommand_PassesExplicitBoundsAndCursor(t *testing.T) {
 	}
 
 	got := memoryStub.scanCriteria
-	if got.Cursor != "opaque-cursor" ||
+	if got.Cursor != "" ||
 		got.Budget.MaxRows() != 12 ||
 		got.Budget.MaxScanBytes() != 4_096 ||
 		got.Budget.MaxResultBytes() != 2_048 ||
@@ -56,11 +56,36 @@ func TestMemoryHygieneScanCommand_PassesExplicitBoundsAndCursor(t *testing.T) {
 	if got.SimilarityThreshold != 0.75 || !got.IncludeHiddenCandidates {
 		t.Fatalf("scan criteria = %#v, want similarity/include-hidden", got)
 	}
-	if !got.Now.IsZero() {
-		t.Fatalf("continuation criteria Now = %s, want authenticated cursor time to remain authoritative", got.Now)
+	if got.Now.IsZero() {
+		t.Fatal("initial scan Now is zero, want boundary-owned scan time")
 	}
 	if len(got.Scopes) != 1 || got.Scopes[0].Key() != "github.com/example/repo" {
 		t.Fatalf("Scopes = %#v, want explicit workspace", got.Scopes)
+	}
+}
+
+func TestMemoryHygieneScanCommand_RejectsCursorFlag(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := &memoryUsecaseStub{}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"memory", "admin", "hygiene", "scan",
+		"--cursor", "opaque-cursor",
+	})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --cursor") {
+		t.Fatalf("Execute() error = %v, want unknown --cursor flag", err)
+	}
+	if !memoryStub.scanCriteria.Now.IsZero() {
+		t.Fatalf("Scan() was called for rejected cursor flag: %#v", memoryStub.scanCriteria)
 	}
 }
 

@@ -545,7 +545,7 @@ func TestMemoryHygieneScan_RowBoundContinuationHasNoDuplicateOrSkippedCandidate(
 	}
 }
 
-func TestMemoryHygieneScan_RevisionChangeReturnsStickyBestEffortContinuation(t *testing.T) {
+func TestMemoryHygieneScan_RevisionChangeRetriesSamePageAndKeepsBestEffort(t *testing.T) {
 	t.Parallel()
 
 	scope := workspaceScope(t, "github.com/example/repo")
@@ -575,36 +575,98 @@ func TestMemoryHygieneScan_RevisionChangeReturnsStickyBestEffortContinuation(t *
 
 	query.scanRevision = 2
 	criteria.Cursor = first.NextCursor
+	callsBeforeResume := query.scanPageCalls
 	second, err := sut.Scan(context.Background(), criteria)
 	if err != nil {
 		t.Fatalf("revision-changed Scan() error = %v", err)
 	}
-	if !second.Partial || second.StopReason != apptypes.MemoryHygieneStopReasonRevisionChanged ||
+	if !second.Complete || second.Partial || second.StopReason != apptypes.MemoryHygieneStopReasonComplete ||
 		second.Consistency != apptypes.MemoryHygieneScanConsistencyBestEffort ||
 		second.ConsistencyReason != apptypes.MemoryHygieneConsistencyReasonRevisionChanged ||
-		second.NextCursor == "" || second.NextCursor == first.NextCursor {
-		t.Fatalf("revision-changed result = %#v, want rebound best-effort continuation", second)
+		second.NextCursor != "" {
+		t.Fatalf("revision-changed result = %#v, want in-loop best-effort completion", second)
 	}
-	if second.Usage.ScannedRows != 0 || len(second.Suggestions) != 0 {
-		t.Fatalf("revision change consumed source units: %#v", second)
+	if second.Usage.ScannedRows != 1 || len(second.Suggestions) != 1 ||
+		second.Suggestions[0].MemoryID.String() != "mem-c" {
+		t.Fatalf("revision change did not retry the retained page: %#v", second)
+	}
+	if query.scanPageCalls != callsBeforeResume+2 {
+		t.Fatalf("source calls after revision change = %d, want mismatch plus same-page retry", query.scanPageCalls-callsBeforeResume)
+	}
+	mismatchCriteria := query.scanPageCriteria[callsBeforeResume]
+	retryCriteria := query.scanPageCriteria[callsBeforeResume+1]
+	if mismatchCriteria.Phase != retryCriteria.Phase ||
+		mismatchCriteria.Keyset != retryCriteria.Keyset ||
+		mismatchCriteria.MaxRows != retryCriteria.MaxRows ||
+		mismatchCriteria.MaxScanBytes != retryCriteria.MaxScanBytes ||
+		mismatchCriteria.MaxComparisons != retryCriteria.MaxComparisons {
+		t.Fatalf("same-page retry changed invocation budget/keyset: mismatch=%#v retry=%#v", mismatchCriteria, retryCriteria)
+	}
+	expectedRevision, ok := retryCriteria.ExpectedRevision.Value()
+	if !ok || expectedRevision != 2 {
+		t.Fatalf("retry expected revision = %v/%t, want 2/true", expectedRevision, ok)
+	}
+	if retryCriteria.Consistency != apptypes.MemoryHygieneScanConsistencyBestEffort {
+		t.Fatalf("retry consistency = %q, want best_effort", retryCriteria.Consistency)
+	}
+}
+
+func TestMemoryHygieneScan_RevisionChurnReturnsPartialOnlyAfterDurationExhausts(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	query := &stubMemoryQueryService{
+		scanRevision: 1,
+		summaries: []apptypes.MemorySummary{
+			candidateSummary(t, "mem-a", scope, "git status", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "mem-b", scope, "go test ./...", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "mem-c", scope, "gh pr checks", domtypes.MemorySourceExtracted, now),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+	first, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
+		Now:    now,
+		Budget: memoryHygieneTestBudget(t, 2, 1<<20, 100),
+	})
+	if err != nil {
+		t.Fatalf("first Scan() error = %v", err)
+	}
+	if first.NextCursor == "" {
+		t.Fatal("first Scan() returned no continuation cursor")
 	}
 
-	criteria.Cursor = second.NextCursor
-	third, err := sut.Scan(context.Background(), criteria)
+	shortBudget, err := apptypes.MemoryHygieneScanBudgetFrom(apptypes.MemoryHygieneScanBudgetParams{
+		MaxRows:        2,
+		MaxScanBytes:   1 << 20,
+		MaxResultBytes: 1 << 20,
+		MaxComparisons: 100,
+		MaxDuration:    time.Millisecond,
+	})
 	if err != nil {
-		t.Fatalf("best-effort resume Scan() error = %v", err)
+		t.Fatalf("MemoryHygieneScanBudgetFrom() error = %v", err)
 	}
-	if !third.Complete || third.Partial ||
-		third.Consistency != apptypes.MemoryHygieneScanConsistencyBestEffort ||
-		third.ConsistencyReason != apptypes.MemoryHygieneConsistencyReasonRevisionChanged {
-		t.Fatalf("best-effort completion did not retain downgrade: %#v", third)
+	query.advanceScanRevision = true
+	query.scanDelay = 5 * time.Millisecond
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
+		Cursor: first.NextCursor,
+		Budget: shortBudget,
+	})
+	if err != nil {
+		t.Fatalf("revision-churn Scan() error = %v", err)
 	}
-	if len(third.Suggestions) != 1 || third.Suggestions[0].MemoryID.String() != "mem-c" {
-		t.Fatalf("best-effort resume suggestions = %#v, want remaining mem-c", third.Suggestions)
+	if !result.Partial || result.Complete ||
+		result.StopReason != apptypes.MemoryHygieneStopReasonRevisionChanged ||
+		result.Consistency != apptypes.MemoryHygieneScanConsistencyBestEffort ||
+		result.ConsistencyReason != apptypes.MemoryHygieneConsistencyReasonRevisionChanged ||
+		result.NextCursor == "" {
+		t.Fatalf("revision-churn result = %#v, want bounded best-effort continuation", result)
 	}
-	lastCriteria := query.scanPageCriteria[len(query.scanPageCriteria)-1]
-	if lastCriteria.Consistency != apptypes.MemoryHygieneScanConsistencyBestEffort {
-		t.Fatalf("source consistency = %q, want best_effort", lastCriteria.Consistency)
+	if result.Usage.Elapsed < shortBudget.MaxDuration() {
+		t.Fatalf("revision-churn elapsed = %s, want exhausted duration >= %s", result.Usage.Elapsed, shortBudget.MaxDuration())
+	}
+	if result.Usage.ScannedRows != 0 || len(result.Suggestions) != 0 {
+		t.Fatalf("revision churn consumed source units before page retry: %#v", result)
 	}
 }
 

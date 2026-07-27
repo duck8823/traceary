@@ -42,7 +42,8 @@ const memoryHygienePreviewMaxBytes = 240
 // budget is exhausted or all four phases complete. A partial result owns an
 // authenticated encrypted cursor whose keyset points after the last unit whose
 // suggestions were committed to the result. A cross-page revision change
-// preserves that keyset but permanently marks the chain best-effort.
+// preserves that keyset, permanently marks the chain best-effort, and retries
+// the same source page inside the remaining invocation budget.
 func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.MemoryHygieneScanCriteria) (apptypes.MemoryHygieneScanResult, error) {
 	source, ok := u.memoryQuery.(queryservice.MemoryHygieneScanSource)
 	if !ok {
@@ -143,18 +144,24 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		if sourceComparisons < 1 {
 			sourceComparisons = 1
 		}
-		page, err := source.ScanMemoryHygienePage(scanCtx, apptypes.MemoryHygieneScanPageCriteria{
-			Phase:                   phase,
-			Keyset:                  keyset,
-			Consistency:             consistency,
-			Scopes:                  criteria.Scopes,
-			IncludeHiddenCandidates: criteria.IncludeHiddenCandidates,
-			ExpectedRevision:        revision,
-			MaxRows:                 remainingRows,
-			MaxScanBytes:            remainingScanBytes,
-			MaxComparisons:          sourceComparisons,
-		})
-		if err != nil {
+		var page apptypes.MemoryHygieneScanSourcePage
+		revisionChangedWhileRetrying := false
+		for {
+			var err error
+			page, err = source.ScanMemoryHygienePage(scanCtx, apptypes.MemoryHygieneScanPageCriteria{
+				Phase:                   phase,
+				Keyset:                  keyset,
+				Consistency:             consistency,
+				Scopes:                  criteria.Scopes,
+				IncludeHiddenCandidates: criteria.IncludeHiddenCandidates,
+				ExpectedRevision:        revision,
+				MaxRows:                 remainingRows,
+				MaxScanBytes:            remainingScanBytes,
+				MaxComparisons:          sourceComparisons,
+			})
+			if err == nil {
+				break
+			}
 			var revisionChanged *queryservice.MemoryHygieneRevisionChangedError
 			if errors.As(err, &revisionChanged) {
 				if revisionChanged.CurrentRevision < 0 {
@@ -165,9 +172,16 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 				consistencyReason = apptypes.MemoryHygieneConsistencyReasonRevisionChanged
 				result.Consistency = consistency
 				result.ConsistencyReason = consistencyReason
-				return finishPartial(apptypes.MemoryHygieneStopReasonRevisionChanged)
+				revisionChangedWhileRetrying = true
+				if errors.Is(scanCtx.Err(), context.DeadlineExceeded) || time.Since(startedAt) >= budget.MaxDuration() {
+					return finishPartial(apptypes.MemoryHygieneStopReasonRevisionChanged)
+				}
+				continue
 			}
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(scanCtx.Err(), context.DeadlineExceeded) {
+				if revisionChangedWhileRetrying {
+					return finishPartial(apptypes.MemoryHygieneStopReasonRevisionChanged)
+				}
 				return finishPartial(apptypes.MemoryHygieneStopReasonTimeLimit)
 			}
 			return apptypes.MemoryHygieneScanResult{}, xerrors.Errorf("failed to scan memory hygiene source page: %w", err)
