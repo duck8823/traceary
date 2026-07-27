@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	domtypes "github.com/duck8823/traceary/domain/types"
 	_ "modernc.org/sqlite"
 )
 
@@ -94,6 +95,7 @@ func TestMigrations_EventMetadataProjectionBackfillsAndMaintainsRows(t *testing.
 		storedBodyBytes:  int64(len("[phase:pre-compact] complete")),
 		legacySourceHook: "pre_compact",
 	})
+	assertStoredBodyBytesParity(t, db, "projection-a", int64(len("[phase:pre-compact] complete")))
 	assertProjectionRow(t, db, "projection-b", projectionRowExpectation{
 		kind:            "note",
 		workspace:       "workspace-b",
@@ -112,6 +114,34 @@ func TestMigrations_EventMetadataProjectionBackfillsAndMaintainsRows(t *testing.
 		createdAtNorm:   "2026-07-26T00:00:01.500000000Z",
 		storedBodyBytes: int64(len("metadata only")),
 	})
+
+	originalStoredBodyBytes := int64(len("metadata only"))
+	if _, err := db.ExecContext(ctx, `
+		UPDATE events
+		   SET body = ?,
+		       body_availability = 'unavailable_retention',
+		       body_pruned_at = '2026-07-26T00:00:03Z',
+		       body_pruned_plan_id = 'projection-plan'
+		 WHERE id = 'projection-b'
+		   AND body_availability = 'available'
+		   AND body = 'metadata only'
+	`, domtypes.EventBodyUnavailableRetentionMarker); err != nil {
+		t.Fatalf("prune authoritative event body: %v", err)
+	}
+	assertStoredBodyBytesParity(t, db, "projection-b", originalStoredBodyBytes)
+
+	const restoredBody = "restored body with a different byte length"
+	if _, err := db.ExecContext(ctx, `
+		UPDATE events
+		   SET body = ?,
+		       body_availability = 'available',
+		       body_pruned_at = NULL,
+		       body_pruned_plan_id = NULL
+		 WHERE id = 'projection-b'
+	`, restoredBody); err != nil {
+		t.Fatalf("restore authoritative event body: %v", err)
+	}
+	assertStoredBodyBytesParity(t, db, "projection-b", int64(len(restoredBody)))
 
 	if _, err := db.ExecContext(ctx, `DELETE FROM events WHERE id = 'projection-a'`); err != nil {
 		t.Fatalf("delete event: %v", err)
@@ -568,6 +598,28 @@ func assertProjectionRow(t *testing.T, db *sql.DB, id string, want projectionRow
 			auditEventID.Valid,
 			exitCode.Int64,
 			failed.Bool,
+		)
+	}
+}
+
+func assertStoredBodyBytesParity(t *testing.T, db *sql.DB, id string, want int64) {
+	t.Helper()
+	var eventStoredBodyBytes, projectionStoredBodyBytes int64
+	if err := db.QueryRow(`
+		SELECT events.body_stored_bytes, event_metadata_projection.body_stored_bytes
+		  FROM events
+		  JOIN event_metadata_projection
+		    ON event_metadata_projection.id = events.id
+		 WHERE events.id = ?
+	`, id).Scan(&eventStoredBodyBytes, &projectionStoredBodyBytes); err != nil {
+		t.Fatalf("read stored body byte parity: %v", err)
+	}
+	if eventStoredBodyBytes != want || projectionStoredBodyBytes != want {
+		t.Fatalf(
+			"stored body bytes = event:%d projection:%d, want %d",
+			eventStoredBodyBytes,
+			projectionStoredBodyBytes,
+			want,
 		)
 	}
 }

@@ -260,6 +260,7 @@ BEGIN
         NEW.body_original_bytes,
         CASE
             WHEN NEW.body IS NOT OLD.body
+             AND NEW.body_availability = 'available'
             THEN length(CAST(NEW.body AS BLOB))
             ELSE NEW.body_stored_bytes
         END,
@@ -293,6 +294,7 @@ BEGIN
         body_original_bytes = excluded.body_original_bytes,
         body_stored_bytes = CASE
             WHEN NEW.body IS NOT OLD.body
+             AND NEW.body_availability = 'available'
             THEN excluded.body_stored_bytes
             ELSE NEW.body_stored_bytes
         END,

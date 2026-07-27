@@ -76,7 +76,7 @@ TRACEARY_RUN_METADATA_PROJECTION_MIGRATION_BENCHMARK=1 \
   -bench BenchmarkEventMetadataProjectionCopiedStoreMigration -benchtime=1x
 ```
 
-On the same host, migration 34 completed in **309.6 ms** for 8 events. Source,
+On the same host, migration 34 completed in **113.1 ms** for 8 events. Source,
 copy-before, and copy-after sizes were each 302,714,880 bytes; measured main-file
 growth was 0 bytes because existing free pages held the narrow projection.
 Peak scratch extent was 605,528,480 bytes and post-checkpoint scratch was
@@ -104,7 +104,7 @@ removed after the benchmark; CI never creates it.
 On the same host, Phase A measured 2,418,753,536 managed bytes and
 2,147,483,648 stored body bytes across 8 event/projection rows. All 25
 measurements used the projection-only plan, missing body metadata and returned
-body bytes were both zero, and p95 was **0.2921 ms**, passing the 250 ms gate.
+body bytes were both zero, and p95 was **0.07242 ms**, passing the 250 ms gate.
 
 ### Rollback and residual risk
 
@@ -114,9 +114,22 @@ After release, application code can therefore roll back to authoritative-table
 reads without removing schema objects. Removing the projection requires a later
 forward migration after no deployed reader depends on it.
 
-Backfill and index creation execute in one migration transaction. Large stores
-therefore need temporary disk capacity and can make competing writers wait up
-to the configured busy timeout. Any migration failure rolls back the table,
-indexes, triggers, and migration record together. The projection adds one
-narrow row and five ordering indexes per event, so deployments must still
+Backfill and index creation are a one-time, non-resumable scan executed in one
+migration transaction. The scan reads every existing event and command-audit
+metadata row; legacy-hook classification also inspects bodies for relevant
+untagged historical events. If initialization is interrupted, SQLite rolls back
+the table, indexes, triggers, and migration record together, and the next
+initialization retries migration 000034 from the beginning. Operators should
+quiesce writers and reserve temporary disk capacity before upgrading a large
+store. Competing writers can wait up to the configured busy timeout.
+
+The projection deliberately does not duplicate `body_availability`: metadata
+consumers do not expose it, and maintenance triggers can use the authoritative
+`NEW` row. A retention prune preserves the historical `body_stored_bytes`
+extent; only an update whose resulting availability is `available` recomputes
+that extent from the new body. Adding the unused availability field or an
+unbounded projection-drift scan to the normal `doctor` path would add another
+drift surface or a large-store scan, so neither is part of this migration.
+Migration and trigger parity tests enforce the invariant. The projection still
+adds one narrow row and five ordering indexes per event, so deployments must
 monitor write latency and WAL/checkpoint growth.

@@ -73,7 +73,7 @@ TRACEARY_RUN_METADATA_PROJECTION_MIGRATION_BENCHMARK=1 \
   -bench BenchmarkEventMetadataProjectionCopiedStoreMigration -benchtime=1x
 ```
 
-同じhostでは8 eventのmigration 34が**309.6 ms**で完了した。
+同じhostでは8 eventのmigration 34が**113.1 ms**で完了した。
 source、更新前copy、更新後copyはすべて302,714,880 bytesで、既存の空きpageに
 細い投影が収まったためmain fileの増加量は0 bytesだった。scratchのpeakは
 605,528,480 bytes、checkpoint後は605,429,760 bytesだった。integrity成功、
@@ -99,7 +99,7 @@ fixtureはGo testの一時directoryだけに置き、終了後に削除する。
 同じhostでのPhase Aはmanaged 2,418,753,536 bytes、stored body
 2,147,483,648 bytes、event/投影各8件だった。25回すべてが投影だけを使う
 planで、body metadata欠落と返却body bytesはいずれも0、p95は
-**0.2921 ms**で250 ms基準を満たした。
+**0.07242 ms**で250 ms基準を満たした。
 
 ### ロールバックと残リスク
 
@@ -109,8 +109,20 @@ triggerが旧binaryの書込みも投影へ反映する。release後はschema ob
 する場合は、利用中のreaderがないことを確認した後、別のforward migration
 で行う。
 
-backfillとindex作成は1つのmigration transactionで実行する。巨大storeでは
-一時容量が必要で、競合writerはbusy timeoutまで待つ可能性がある。失敗時は
-table、index、trigger、migration recordをまとめてrollbackする。eventごとに
+backfillとindex作成は1回限りで、再開機能のない全件scanとして、1つの
+migration transaction内で実行する。既存eventとcommand-audit metadataを
+すべて読み、過去互換hookの分類では該当する未tagの過去event本文も検査する。
+初期化が中断された場合はtable、index、trigger、migration recordをまとめて
+rollbackし、次回の初期化で000034を最初から再実行する。巨大storeを更新する
+前にwriterを止め、一時容量を確保する必要がある。競合writerは設定済みの
+busy timeoutまで待つ可能性がある。
+
+投影には`body_availability`を重複保持しない。metadata consumerはこの値を
+公開せず、保守triggerはauthoritativeな`NEW` rowを参照できるためである。
+retentionによるpruneでは過去の`body_stored_bytes`を維持し、更新後の
+availabilityが`available`の場合だけ新しいbodyから再計算する。未使用の
+availability列を増やすと乖離面が増え、通常の`doctor`に無制限の投影乖離
+scanを加えると巨大storeの全件scanになるため、いずれもこのmigrationには
+含めない。migration/triggerのparity testで不変条件を検証する。eventごとに
 細い1 rowと5本の順序indexを追加するため、展開後もwrite latencyと
 WAL/checkpoint増加を監視する。
