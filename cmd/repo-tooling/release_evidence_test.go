@@ -149,6 +149,16 @@ func TestValidateBodyFreeEvidence_RequiresAggregateTruncationMetadata(t *testing
 	}
 }
 
+func TestValidateBodyFreeEvidence_RequiresStagedRetrievalParity(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.PhaseE.StagedRetrievalParity = false
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase E without staged-retrieval parity unexpectedly passed")
+	}
+}
+
 func TestValidateBodyFreeEvidence_ValidatesPresentPhasesInBlockedArtifact(t *testing.T) {
 	t.Parallel()
 
@@ -356,7 +366,9 @@ func validBodyFreeEvidenceFixture() BodyFreeEvidence {
 			BodyBlocksObserved: true, TruncationMetadataObserved: true,
 			ContinuationNoDuplicateOrSkip: true,
 		},
-		PhaseE: &bodyFreeEvidencePhaseE{HostCount: 6, ManifestParity: true},
+		PhaseE: &bodyFreeEvidencePhaseE{
+			HostCount: 6, ManifestParity: true, StagedRetrievalParity: true,
+		},
 		Privacy: bodyFreeEvidencePrivacy{
 			MetricsOnly: true, ScratchPrivate: true, ScratchCleaned: true,
 		},

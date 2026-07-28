@@ -117,8 +117,9 @@ type bodyFreeEvidencePhaseD struct {
 }
 
 type bodyFreeEvidencePhaseE struct {
-	HostCount      int  `json:"host_count"`
-	ManifestParity bool `json:"manifest_parity"`
+	HostCount             int  `json:"host_count"`
+	ManifestParity        bool `json:"manifest_parity"`
+	StagedRetrievalParity bool `json:"staged_retrieval_parity"`
 }
 
 type bodyFreeEvidencePrivacy struct {
@@ -288,7 +289,11 @@ func collectV0330BodyFreeEvidence(
 		if err := deps.verifyHosts(root); err != nil {
 			evidence.BlockReason = "host_parity_failed"
 		} else {
-			evidence.PhaseE = &bodyFreeEvidencePhaseE{HostCount: 6, ManifestParity: true}
+			evidence.PhaseE = &bodyFreeEvidencePhaseE{
+				HostCount:             6,
+				ManifestParity:        true,
+				StagedRetrievalParity: true,
+			}
 		}
 	}
 
@@ -673,7 +678,7 @@ func validateBodyFreeEvidencePhaseD(phaseD bodyFreeEvidencePhaseD) error {
 }
 
 func validateBodyFreeEvidencePhaseE(phaseE bodyFreeEvidencePhaseE) error {
-	if phaseE.HostCount != 6 || !phaseE.ManifestParity {
+	if phaseE.HostCount != 6 || !phaseE.ManifestParity || !phaseE.StagedRetrievalParity {
 		return xerrors.Errorf("body-free release evidence phase E failed")
 	}
 	return nil
