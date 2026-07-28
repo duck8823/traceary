@@ -112,6 +112,7 @@ type bodyFreeEvidencePhaseD struct {
 	TotalItems                    int  `json:"total_items"`
 	MultibyteObserved             bool `json:"multibyte_observed"`
 	BodyBlocksObserved            bool `json:"body_blocks_observed"`
+	TruncationMetadataObserved    bool `json:"truncation_metadata_observed"`
 	ContinuationNoDuplicateOrSkip bool `json:"continuation_no_duplicate_or_skip"`
 }
 
@@ -664,6 +665,7 @@ func validateBodyFreeEvidencePhaseD(phaseD bodyFreeEvidencePhaseD) error {
 		phaseD.ObservedMaxAggregateBodyBytes > phaseD.MaxAggregateBodyBytes ||
 		phaseD.Pages < 2 || phaseD.TotalItems != 100 ||
 		!phaseD.MultibyteObserved || !phaseD.BodyBlocksObserved ||
+		!phaseD.TruncationMetadataObserved ||
 		!phaseD.ContinuationNoDuplicateOrSkip {
 		return xerrors.Errorf("body-free release evidence phase D failed")
 	}

@@ -139,6 +139,16 @@ func TestValidateBodyFreeEvidence_RequiresProjectionMigrationParity(t *testing.T
 	}
 }
 
+func TestValidateBodyFreeEvidence_RequiresAggregateTruncationMetadata(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.PhaseD.TruncationMetadataObserved = false
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase D without observable truncation metadata unexpectedly passed")
+	}
+}
+
 func TestValidateBodyFreeEvidence_ValidatesPresentPhasesInBlockedArtifact(t *testing.T) {
 	t.Parallel()
 
@@ -343,7 +353,8 @@ func validBodyFreeEvidenceFixture() BodyFreeEvidence {
 			MaxItems: 100, MaxAggregateBodyBytes: 64 * 1024,
 			ObservedMaxItems: 24, ObservedMaxAggregateBodyBytes: 64_000,
 			Pages: 5, TotalItems: 100, MultibyteObserved: true,
-			BodyBlocksObserved: true, ContinuationNoDuplicateOrSkip: true,
+			BodyBlocksObserved: true, TruncationMetadataObserved: true,
+			ContinuationNoDuplicateOrSkip: true,
 		},
 		PhaseE: &bodyFreeEvidencePhaseE{HostCount: 6, ManifestParity: true},
 		Privacy: bodyFreeEvidencePrivacy{

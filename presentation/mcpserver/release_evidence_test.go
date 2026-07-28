@@ -20,6 +20,7 @@ type v0330AggregateReleaseEvidence struct {
 	TotalItems                    int  `json:"total_items"`
 	MultibyteObserved             bool `json:"multibyte_observed"`
 	BodyBlocksObserved            bool `json:"body_blocks_observed"`
+	TruncationMetadataObserved    bool `json:"truncation_metadata_observed"`
 	ContinuationNoDuplicateOrSkip bool `json:"continuation_no_duplicate_or_skip"`
 }
 
@@ -44,7 +45,11 @@ func TestV0330AggregateReleaseEvidence(t *testing.T) {
 	for index := 0; index < apptypes.MaxEventResponseItemLimit; index++ {
 		eventID := fmt.Sprintf("release-event-%03d", index)
 		expected[eventID] = struct{}{}
-		saveEventContinuationFixture(t, datasource, eventID, string(envelopeBytes), createdAt)
+		body := string(envelopeBytes)
+		if index == 0 {
+			body = strings.Repeat("長", 700)
+		}
+		saveEventContinuationFixture(t, datasource, eventID, body, createdAt)
 	}
 
 	bodyLimit := 500
@@ -100,6 +105,12 @@ func TestV0330AggregateReleaseEvidence(t *testing.T) {
 			if len(event.BodyBlocks) > 0 {
 				evidence.BodyBlocksObserved = true
 			}
+			if event.BodyTruncated &&
+				event.BodyLength > 0 &&
+				event.Body != nil &&
+				len([]rune(*event.Body)) < event.BodyLength {
+				evidence.TruncationMetadataObserved = true
+			}
 		}
 		if page.Continuation == "" {
 			break
@@ -116,6 +127,7 @@ func TestV0330AggregateReleaseEvidence(t *testing.T) {
 	if evidence.Pages < 2 ||
 		!evidence.MultibyteObserved ||
 		!evidence.BodyBlocksObserved ||
+		!evidence.TruncationMetadataObserved ||
 		!evidence.ContinuationNoDuplicateOrSkip {
 		t.Fatalf("aggregate release evidence invariants failed: %+v", evidence)
 	}

@@ -8,7 +8,7 @@
   },
   "preflight": {
     "required_scratch_bytes": 12884901888,
-    "available_scratch_bytes": 69186424832,
+    "available_scratch_bytes": 183564062720,
     "capable": true
   },
   "phase_a": {
@@ -20,7 +20,7 @@
     "projection_only": true,
     "returned_body_bytes": 0,
     "runs": 25,
-    "p95_ms": 0.107333,
+    "p95_ms": 0.077708,
     "target_p95_ms": 250,
     "passed": true
   },
@@ -28,8 +28,8 @@
     "source_managed_bytes": 2418642944,
     "scratch_bytes_after_checkpoint": 4837355520,
     "events": 130,
-    "migration_ms": 24221.061416,
-    "resume_backfill_ms": 2.036708,
+    "migration_ms": 19756.783292,
+    "resume_backfill_ms": 1.685667,
     "migrations_31_34_applied": true,
     "projection_rows": 130,
     "integrity_ok": true,
@@ -46,7 +46,7 @@
       "projection": "metadata",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 1.661583,
+      "p95_ms": 1.395625,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -55,7 +55,7 @@
       "projection": "bounded",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 3.333792,
+      "p95_ms": 1.809792,
       "returned_items": 20,
       "returned_body_bytes": 920
     },
@@ -64,7 +64,7 @@
       "projection": "metadata",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 2.508583,
+      "p95_ms": 1.191,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -73,7 +73,7 @@
       "projection": "bounded",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 2.537625,
+      "p95_ms": 3.267334,
       "returned_items": 20,
       "returned_body_bytes": 920
     },
@@ -82,7 +82,7 @@
       "projection": "metadata",
       "fts_phase": "incomplete",
       "runs": 25,
-      "p95_ms": 10.069708,
+      "p95_ms": 12.65575,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -91,7 +91,7 @@
       "projection": "bounded",
       "fts_phase": "incomplete",
       "runs": 25,
-      "p95_ms": 11.207792,
+      "p95_ms": 7.904375,
       "returned_items": 20,
       "returned_body_bytes": 920
     },
@@ -100,7 +100,7 @@
       "projection": "metadata",
       "fts_phase": "complete",
       "runs": 25,
-      "p95_ms": 5.192,
+      "p95_ms": 4.126625,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -109,7 +109,7 @@
       "projection": "bounded",
       "fts_phase": "complete",
       "runs": 25,
-      "p95_ms": 5.955291,
+      "p95_ms": 3.696125,
       "returned_items": 20,
       "returned_body_bytes": 920
     }
@@ -123,6 +123,7 @@
     "total_items": 100,
     "multibyte_observed": true,
     "body_blocks_observed": true,
+    "truncation_metadata_observed": true,
     "continuation_no_duplicate_or_skip": true
   },
   "phase_e": {
