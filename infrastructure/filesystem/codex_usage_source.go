@@ -61,7 +61,7 @@ func (s *codexUsageSource) Load(
 	if err != nil {
 		return application.CodexUsageLoadResult{}, err
 	}
-	paths, err := filepath.Glob(filepath.Join(root, "*", "*", "*", "*"+sessionID+".jsonl"))
+	paths, err := filepath.Glob(filepath.Join(root, "*", "*", "*", "*"+escapeFilepathGlobLiteral(sessionID)+".jsonl"))
 	if err != nil {
 		return application.CodexUsageLoadResult{}, xerrors.Errorf("failed to match Codex usage source")
 	}
@@ -76,6 +76,26 @@ func (s *codexUsageSource) Load(
 		result.BoundaryObserved = loaded.BoundaryObserved
 	}
 	return result, nil
+}
+
+// escapeFilepathGlobLiteral encodes filepath glob operators as character
+// classes. Unlike backslash escaping, character classes work on Windows too.
+func escapeFilepathGlobLiteral(value string) string {
+	var escaped strings.Builder
+	escaped.Grow(len(value))
+	for _, character := range value {
+		switch character {
+		case '*', '?':
+			escaped.WriteRune('[')
+			escaped.WriteRune(character)
+			escaped.WriteRune(']')
+		case '[':
+			escaped.WriteString("[[]")
+		default:
+			escaped.WriteRune(character)
+		}
+	}
+	return escaped.String()
 }
 
 func (s *codexUsageSource) resolveSessionsRoot() (string, error) {

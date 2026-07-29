@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,81 @@ func TestCodexUsageSource_LoadsFinalCumulativeTurnDeltasWithoutBodies(t *testing
 		if strings.Contains(sample.RecordID, "private") || strings.Contains(sample.Model, "private") {
 			t.Fatalf("private fixture field escaped: %+v", sample)
 		}
+	}
+}
+
+func TestCodexUsageSource_TreatsSessionIDAsLiteralRolloutSuffix(t *testing.T) {
+	tests := []struct {
+		name             string
+		sessionID        string
+		foreignSessionID string
+	}{
+		{
+			name:      "normal session ID",
+			sessionID: "literal-session",
+		},
+		{
+			name:             "asterisk",
+			sessionID:        "literal*session",
+			foreignSessionID: "literal-foreign-session",
+		},
+		{
+			name:             "question mark",
+			sessionID:        "literal?session",
+			foreignSessionID: "literal1session",
+		},
+		{
+			name:             "character class",
+			sessionID:        "literal[1]session",
+			foreignSessionID: "literal1session",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && strings.ContainsAny(tc.sessionID, "*?") {
+				t.Skip("Windows filenames cannot contain this glob metacharacter")
+			}
+
+			home := t.TempDir()
+			t.Setenv("CODEX_HOME", "")
+			writeRollout := func(sessionID, model string) {
+				t.Helper()
+				path := filepath.Join(home, ".codex", "sessions", "2026", "07", "23", "rollout-"+sessionID+".jsonl")
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				fixture := strings.Join([]string{
+					`{"timestamp":"2026-07-23T01:00:00Z","type":"turn_context","payload":{"turn_id":"turn-1","model":"` + model + `"}}`,
+					`{"timestamp":"2026-07-23T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":7,"output_tokens":2,"total_tokens":9}}}}`,
+					`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`,
+				}, "\n") + "\n"
+				if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writeRollout(tc.sessionID, "literal-model")
+			if tc.foreignSessionID != "" {
+				writeRollout(tc.foreignSessionID, "foreign-model")
+			}
+
+			result, err := filesystem.NewCodexUsageSourceForTest(
+				func() (string, error) { return home, nil },
+				1024*1024,
+				1024*1024,
+			).Load(
+				context.Background(),
+				application.CodexUsageLoadCriteria{SessionID: types.SessionID(tc.sessionID)},
+			)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if len(result.Samples) != 1 {
+				t.Fatalf("len(Samples) = %d, want 1: %+v", len(result.Samples), result.Samples)
+			}
+			if got := result.Samples[0].Model; got != "literal-model" {
+				t.Fatalf("Model = %q, want literal-model", got)
+			}
+		})
 	}
 }
 
