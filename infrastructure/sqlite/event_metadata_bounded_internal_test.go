@@ -472,6 +472,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		b.Fatal("multi-GiB metadata plan is not projection-only and index ordered")
 	}
 	durations := make([]time.Duration, 0, measurementRuns)
+	var returnedItems int64
 	b.ResetTimer()
 	for range measurementRuns {
 		started := time.Now()
@@ -479,6 +480,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		if err != nil {
 			b.Fatalf("range query: %v", err)
 		}
+		var currentReturnedItems int64
 		for rows.Next() {
 			var values [16]any
 			pointers := make([]any, len(values))
@@ -489,10 +491,19 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 				_ = rows.Close()
 				b.Fatalf("scan range row: %v", err)
 			}
+			currentReturnedItems++
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			b.Fatalf("iterate range rows: %v", err)
 		}
 		if err := rows.Close(); err != nil {
 			b.Fatalf("rows.Close() error = %v", err)
 		}
+		if currentReturnedItems != storedEvents {
+			b.Fatalf("range query returned %d rows, want %d", currentReturnedItems, storedEvents)
+		}
+		returnedItems = currentReturnedItems
 		durations = append(durations, time.Since(started))
 	}
 	b.StopTimer()
@@ -504,6 +515,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	b.ReportMetric(float64(missingStoredBodyBytes), "missing_body_metadata")
 	b.ReportMetric(float64(storedBodyBytes), "stored_body_bytes")
 	b.ReportMetric(1, "projection_only")
+	b.ReportMetric(float64(returnedItems), "returned_items")
 	b.ReportMetric(0, "returned_body_bytes")
 	b.ReportMetric(measurementRuns, "measurement_runs")
 	b.ReportMetric(float64(p95)/float64(time.Millisecond), "p95_ms")
@@ -515,6 +527,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		ProjectionRows      int64   `json:"projection_rows"`
 		MissingBodyMetadata int64   `json:"missing_body_metadata"`
 		ProjectionOnly      bool    `json:"projection_only"`
+		ReturnedItems       int64   `json:"returned_items"`
 		ReturnedBodyBytes   int64   `json:"returned_body_bytes"`
 		Runs                int     `json:"runs"`
 		P95MS               float64 `json:"p95_ms"`
@@ -527,6 +540,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		ProjectionRows:      projectionRows,
 		MissingBodyMetadata: missingStoredBodyBytes,
 		ProjectionOnly:      projectionOnly,
+		ReturnedItems:       returnedItems,
 		ReturnedBodyBytes:   0,
 		Runs:                measurementRuns,
 		P95MS:               float64(p95) / float64(time.Millisecond),

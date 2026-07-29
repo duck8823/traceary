@@ -24,10 +24,13 @@ const (
 	bodyFreeEvidencePhaseAMarker  = "TRACEARY_PHASE_A_EVIDENCE="
 	bodyFreeEvidencePhaseBCMarker = "TRACEARY_PHASE_BC_EVIDENCE="
 	bodyFreeEvidencePhaseDMarker  = "TRACEARY_PHASE_D_EVIDENCE="
+	bodyFreeEvidenceMaxBytes      = 1 << 20
 
 	v0330EvidenceRequiredScratchBytes uint64 = 12 << 30
 	v0330EvidenceCommandOutputBytes          = 2 << 20
 	v0330EvidenceRunTimeout                  = 45 * time.Minute
+	v0330EvidenceFixtureEvents               = 130
+	v0330EvidenceProbeLimit                  = 20
 )
 
 var bodyFreeEvidenceGoVersionRe = regexp.MustCompile(`^go[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[a-z0-9.-]+)?$`)
@@ -69,6 +72,7 @@ type bodyFreeEvidencePhaseA struct {
 	ProjectionRows      int64   `json:"projection_rows"`
 	MissingBodyMetadata int64   `json:"missing_body_metadata"`
 	ProjectionOnly      bool    `json:"projection_only"`
+	ReturnedItems       int64   `json:"returned_items"`
 	ReturnedBodyBytes   int64   `json:"returned_body_bytes"`
 	Runs                int     `json:"runs"`
 	P95MS               float64 `json:"p95_ms"`
@@ -468,9 +472,12 @@ func writeBodyFreeEvidence(out io.Writer, outputPath string, evidence BodyFreeEv
 }
 
 func decodeBodyFreeEvidence(reader io.Reader) (BodyFreeEvidence, error) {
-	data, err := io.ReadAll(io.LimitReader(reader, 1<<20))
+	data, err := io.ReadAll(io.LimitReader(reader, bodyFreeEvidenceMaxBytes+1))
 	if err != nil {
 		return BodyFreeEvidence{}, xerrors.Errorf("failed to read body-free release evidence")
+	}
+	if len(data) > bodyFreeEvidenceMaxBytes {
+		return BodyFreeEvidence{}, xerrors.Errorf("body-free release evidence exceeds size limit")
 	}
 	var generic any
 	if err := json.Unmarshal(data, &generic); err != nil {
@@ -642,7 +649,7 @@ func validateBodyFreeEvidencePhaseA(phaseA bodyFreeEvidencePhaseA) error {
 	if phaseA.ManagedBytes < 2<<30 || phaseA.StoredBodyBytes < 2<<30 ||
 		phaseA.Events != 8 || phaseA.ProjectionRows != phaseA.Events ||
 		phaseA.MissingBodyMetadata != 0 || !phaseA.ProjectionOnly ||
-		phaseA.ReturnedBodyBytes != 0 ||
+		phaseA.ReturnedItems != phaseA.Events || phaseA.ReturnedBodyBytes != 0 ||
 		phaseA.Runs != 25 || phaseA.TargetP95MS != 250 || phaseA.P95MS < 0 ||
 		phaseA.Passed != (phaseA.P95MS < phaseA.TargetP95MS) {
 		return xerrors.Errorf("body-free release evidence phase A is invalid")
@@ -653,7 +660,8 @@ func validateBodyFreeEvidencePhaseA(phaseA bodyFreeEvidencePhaseA) error {
 func validateBodyFreeEvidencePhaseB(phaseB bodyFreeEvidencePhaseB) error {
 	if phaseB.SourceManagedBytes < 2<<30 ||
 		phaseB.ScratchBytesAfterCheckpoint < 2*phaseB.SourceManagedBytes ||
-		phaseB.Events != 130 || phaseB.MigrationMS < 0 || phaseB.ResumeBackfillMS < 0 ||
+		phaseB.Events != v0330EvidenceFixtureEvents ||
+		phaseB.MigrationMS < 0 || phaseB.ResumeBackfillMS < 0 ||
 		!phaseB.Migrations31Through34 || phaseB.ProjectionRows != phaseB.Events ||
 		!phaseB.IntegrityOK || phaseB.ForeignKeyViolations != 0 ||
 		!phaseB.SourceUnchanged || phaseB.InitialFTSDocuments != 128 || phaseB.InitialFTSComplete ||
@@ -703,12 +711,15 @@ func validateBodyFreeEvidenceProbes(probes []bodyFreeEvidenceProbe) error {
 		}
 		seen[key] = true
 		if probe.Runs != 25 || probe.P95MS < 0 ||
-			probe.ReturnedItems < 0 || probe.ReturnedItems > 100 ||
+			probe.ReturnedItems != v0330EvidenceProbeLimit ||
 			probe.ReturnedBodyBytes < 0 {
 			return xerrors.Errorf("body-free release evidence phase C probe is invalid")
 		}
 		if probe.Projection == "metadata" && probe.ReturnedBodyBytes != 0 {
 			return xerrors.Errorf("body-free release evidence metadata probe returned body bytes")
+		}
+		if probe.Projection == "bounded" && probe.ReturnedBodyBytes == 0 {
+			return xerrors.Errorf("body-free release evidence bounded probe returned no body bytes")
 		}
 	}
 	if len(seen) != len(expected) {

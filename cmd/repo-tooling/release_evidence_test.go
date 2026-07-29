@@ -50,6 +50,51 @@ func TestDecodeBodyFreeEvidence_RejectsUnknownSensitiveField(t *testing.T) {
 	}
 }
 
+func TestDecodeBodyFreeEvidence_EnforcesSizeLimitBeforeDecode(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(validBodyFreeEvidenceFixture())
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if len(encoded) >= bodyFreeEvidenceMaxBytes {
+		t.Fatalf("fixture bytes = %d, want below %d", len(encoded), bodyFreeEvidenceMaxBytes)
+	}
+
+	t.Run("accepts exactly the size limit", func(t *testing.T) {
+		t.Parallel()
+
+		input := append(bytes.Clone(encoded), bytes.Repeat([]byte(" "), bodyFreeEvidenceMaxBytes-len(encoded))...)
+		if _, err := decodeBodyFreeEvidence(bytes.NewReader(input)); err != nil {
+			t.Fatalf("decodeBodyFreeEvidence() error = %v", err)
+		}
+	})
+
+	t.Run("rejects a valid prefix before padded trailing sensitive data", func(t *testing.T) {
+		t.Parallel()
+
+		input := append(
+			bytes.Clone(encoded),
+			bytes.Repeat([]byte(" "), bodyFreeEvidenceMaxBytes-len(encoded))...,
+		)
+		input = append(input, []byte(`{"path":"private-store"}`)...)
+		if _, err := decodeBodyFreeEvidence(bytes.NewReader(input)); err == nil ||
+			!strings.Contains(err.Error(), "exceeds size limit") {
+			t.Fatalf("decodeBodyFreeEvidence() error = %v, want size-limit rejection", err)
+		}
+	})
+
+	t.Run("rejects size limit plus one", func(t *testing.T) {
+		t.Parallel()
+
+		input := bytes.Repeat([]byte(" "), bodyFreeEvidenceMaxBytes+1)
+		if _, err := decodeBodyFreeEvidence(bytes.NewReader(input)); err == nil ||
+			!strings.Contains(err.Error(), "exceeds size limit") {
+			t.Fatalf("decodeBodyFreeEvidence() error = %v, want size-limit rejection", err)
+		}
+	})
+}
+
 func TestValidateBodyFreeEvidence_RejectsArbitraryStringFields(t *testing.T) {
 	t.Parallel()
 
@@ -101,6 +146,35 @@ func TestValidateBodyFreeEvidence_RejectsMetadataBodyBytesAndPhaseCGatesNoLatenc
 	}
 }
 
+func TestValidateBodyFreeEvidence_RequiresPhaseCRetrievalResults(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects zero returned items", func(t *testing.T) {
+		t.Parallel()
+
+		evidence := validBodyFreeEvidenceFixture()
+		evidence.PhaseC[0].ReturnedItems = 0
+		if err := validateBodyFreeEvidence(evidence); err == nil {
+			t.Fatal("Phase-C zero-item result unexpectedly passed")
+		}
+	})
+
+	t.Run("rejects zero bounded body bytes", func(t *testing.T) {
+		t.Parallel()
+
+		evidence := validBodyFreeEvidenceFixture()
+		for index := range evidence.PhaseC {
+			if evidence.PhaseC[index].Projection == "bounded" {
+				evidence.PhaseC[index].ReturnedBodyBytes = 0
+				break
+			}
+		}
+		if err := validateBodyFreeEvidence(evidence); err == nil {
+			t.Fatal("Phase-C bounded result with zero body bytes unexpectedly passed")
+		}
+	})
+}
+
 func TestValidateBodyFreeEvidence_RequiresProjectionOnlyPlanAndBodyFreeResults(t *testing.T) {
 	t.Parallel()
 
@@ -120,6 +194,12 @@ func TestValidateBodyFreeEvidence_RequiresProjectionOnlyPlanAndBodyFreeResults(t
 	evidence.PhaseA.ProjectionRows--
 	if err := validateBodyFreeEvidence(evidence); err == nil {
 		t.Fatal("Phase-A projection row mismatch unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.PhaseA.ReturnedItems--
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-A incomplete result set unexpectedly passed")
 	}
 }
 
@@ -347,7 +427,7 @@ func validBodyFreeEvidenceFixture() BodyFreeEvidence {
 		PhaseA: &bodyFreeEvidencePhaseA{
 			ManagedBytes: 2 << 30, StoredBodyBytes: 2 << 30,
 			Events: 8, ProjectionRows: 8, MissingBodyMetadata: 0,
-			ProjectionOnly: true, ReturnedBodyBytes: 0, Runs: 25,
+			ProjectionOnly: true, ReturnedItems: 8, ReturnedBodyBytes: 0, Runs: 25,
 			P95MS: 1.5, TargetP95MS: 250, Passed: true,
 		},
 		PhaseB: &bodyFreeEvidencePhaseB{

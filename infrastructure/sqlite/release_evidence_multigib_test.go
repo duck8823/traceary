@@ -24,6 +24,7 @@ const (
 	v0330ReleaseEvidenceBodyBytes       = 256 << 20
 	v0330ReleaseEvidenceMinimumDBBytes  = int64(2 << 30)
 	v0330ReleaseEvidenceMeasurementRuns = 25
+	v0330ReleaseEvidenceProbeLimit      = 20
 )
 
 type v0330ReleaseEvidencePhaseB struct {
@@ -62,6 +63,62 @@ type v0330ReleaseEvidenceSample struct {
 	items     int
 	bodyBytes int
 	identity  [sha256.Size]byte
+}
+
+func TestValidateV0330ReleaseEvidenceProjectionPair(t *testing.T) {
+	t.Parallel()
+
+	identity := sha256.Sum256([]byte("synthetic fixture membership"))
+	validMetadata := v0330ReleaseEvidenceSample{
+		items:    v0330ReleaseEvidenceProbeLimit,
+		identity: identity,
+	}
+	validBounded := v0330ReleaseEvidenceSample{
+		items:     v0330ReleaseEvidenceProbeLimit,
+		bodyBytes: 512,
+		identity:  identity,
+	}
+	if err := validateV0330ReleaseEvidenceProjectionPair(validMetadata, validBounded); err != nil {
+		t.Fatalf("valid projection pair rejected: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		metadata v0330ReleaseEvidenceSample
+		bounded  v0330ReleaseEvidenceSample
+	}{
+		{
+			name:     "zero metadata items",
+			metadata: v0330ReleaseEvidenceSample{identity: identity},
+			bounded:  validBounded,
+		},
+		{
+			name:     "zero bounded body bytes",
+			metadata: validMetadata,
+			bounded: v0330ReleaseEvidenceSample{
+				items:    v0330ReleaseEvidenceProbeLimit,
+				identity: identity,
+			},
+		},
+		{
+			name:     "different membership",
+			metadata: validMetadata,
+			bounded: v0330ReleaseEvidenceSample{
+				items:     v0330ReleaseEvidenceProbeLimit,
+				bodyBytes: 512,
+				identity:  sha256.Sum256([]byte("different synthetic membership")),
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if err := validateV0330ReleaseEvidenceProjectionPair(test.metadata, test.bounded); err == nil {
+				t.Fatal("invalid projection pair unexpectedly passed")
+			}
+		})
+	}
 }
 
 // BenchmarkV0330CopiedStoreReleaseEvidence is intentionally opt-in. It creates
@@ -169,23 +226,23 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 	base := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
 	workspace := domtypes.Workspace("release-evidence")
 	sessionID := domtypes.SessionID("release-session")
-	listCriteria := apptypes.NewEventListCriteriaBuilder(20).
+	listCriteria := apptypes.NewEventListCriteriaBuilder(v0330ReleaseEvidenceProbeLimit).
 		Workspace(workspace).
 		To(base.Add(v0330ReleaseEvidenceEvents * time.Second)).
 		Build()
-	contextCriteria := apptypes.NewEventContextCriteriaBuilder(20).
+	contextCriteria := apptypes.NewEventContextCriteriaBuilder(v0330ReleaseEvidenceProbeLimit).
 		Workspace(workspace).
 		SessionID(sessionID).
 		To(base.Add(v0330ReleaseEvidenceEvents * time.Second)).
 		Build()
-	searchCriteria := apptypes.NewEventSearchCriteriaBuilder(20).
+	searchCriteria := apptypes.NewEventSearchCriteriaBuilder(v0330ReleaseEvidenceProbeLimit).
 		Query("release needle").
 		Workspace(workspace).
 		To(base.Add(v0330ReleaseEvidenceEvents * time.Second)).
 		Build()
 
 	probes := make([]v0330ReleaseEvidenceProbe, 0, 8)
-	listMetadataProbe, _ := measureV0330ReleaseEvidenceProbe(
+	listMetadataProbe, listMetadata := measureV0330ReleaseEvidenceProbe(
 		b, "list", "metadata", "not_applicable",
 		func() (v0330ReleaseEvidenceSample, error) {
 			events, err := datasource.ListRecentMetadata(ctx, listCriteria)
@@ -193,7 +250,7 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		},
 	)
 	probes = append(probes, listMetadataProbe)
-	listBoundedProbe, _ := measureV0330ReleaseEvidenceProbe(
+	listBoundedProbe, listBounded := measureV0330ReleaseEvidenceProbe(
 		b, "list", "bounded", "not_applicable",
 		func() (v0330ReleaseEvidenceSample, error) {
 			events, err := datasource.ListRecentBounded(ctx, listCriteria, 500)
@@ -201,7 +258,11 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		},
 	)
 	probes = append(probes, listBoundedProbe)
-	contextMetadataProbe, _ := measureV0330ReleaseEvidenceProbe(
+	if err := validateV0330ReleaseEvidenceProjectionPair(listMetadata, listBounded); err != nil {
+		_ = copyDB.Close()
+		b.Fatalf("list retrieval correctness gate failed: %v", err)
+	}
+	contextMetadataProbe, contextMetadata := measureV0330ReleaseEvidenceProbe(
 		b, "context", "metadata", "not_applicable",
 		func() (v0330ReleaseEvidenceSample, error) {
 			events, err := datasource.GetContextMetadata(ctx, contextCriteria)
@@ -209,7 +270,7 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		},
 	)
 	probes = append(probes, contextMetadataProbe)
-	contextBoundedProbe, _ := measureV0330ReleaseEvidenceProbe(
+	contextBoundedProbe, contextBounded := measureV0330ReleaseEvidenceProbe(
 		b, "context", "bounded", "not_applicable",
 		func() (v0330ReleaseEvidenceSample, error) {
 			events, err := datasource.GetContextBounded(ctx, contextCriteria, 500)
@@ -217,6 +278,10 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		},
 	)
 	probes = append(probes, contextBoundedProbe)
+	if err := validateV0330ReleaseEvidenceProjectionPair(contextMetadata, contextBounded); err != nil {
+		_ = copyDB.Close()
+		b.Fatalf("context retrieval correctness gate failed: %v", err)
+	}
 	searchMetadataIncompleteProbe, searchMetadataIncomplete := measureV0330ReleaseEvidenceProbe(
 		b, "search", "metadata", "incomplete",
 		func() (v0330ReleaseEvidenceSample, error) {
@@ -233,6 +298,13 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		},
 	)
 	probes = append(probes, searchBoundedIncompleteProbe)
+	if err := validateV0330ReleaseEvidenceProjectionPair(
+		searchMetadataIncomplete,
+		searchBoundedIncomplete,
+	); err != nil {
+		_ = copyDB.Close()
+		b.Fatalf("incomplete search retrieval correctness gate failed: %v", err)
+	}
 
 	resumeStarted := time.Now()
 	if err := store.Initialize(ctx); err != nil {
@@ -266,6 +338,13 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		},
 	)
 	probes = append(probes, searchBoundedCompleteProbe)
+	if err := validateV0330ReleaseEvidenceProjectionPair(
+		searchMetadataComplete,
+		searchBoundedComplete,
+	); err != nil {
+		_ = copyDB.Close()
+		b.Fatalf("complete search retrieval correctness gate failed: %v", err)
+	}
 	if searchMetadataIncomplete.identity != searchMetadataComplete.identity ||
 		searchBoundedIncomplete.identity != searchBoundedComplete.identity ||
 		searchMetadataIncomplete.items != searchMetadataComplete.items ||
@@ -518,6 +597,20 @@ func measureV0330ReleaseEvidenceProbe(
 		ReturnedItems:     first.items,
 		ReturnedBodyBytes: first.bodyBytes,
 	}, first
+}
+
+func validateV0330ReleaseEvidenceProjectionPair(
+	metadata v0330ReleaseEvidenceSample,
+	bounded v0330ReleaseEvidenceSample,
+) error {
+	if metadata.items != v0330ReleaseEvidenceProbeLimit ||
+		bounded.items != v0330ReleaseEvidenceProbeLimit ||
+		metadata.bodyBytes != 0 ||
+		bounded.bodyBytes <= 0 ||
+		metadata.identity != bounded.identity {
+		return fmt.Errorf("metadata and bounded retrieval results violate the release-evidence contract")
+	}
+	return nil
 }
 
 func v0330ReleaseEvidenceMetadataSample(events []apptypes.EventMetadata) v0330ReleaseEvidenceSample {
