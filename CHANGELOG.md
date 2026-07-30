@@ -5,6 +5,22 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.33.0] - 2026-07-31
+
+### Added
+- **Scalable metadata retrieval (#1553, #1569)** — list and context queries use a trigger-maintained, persistent event-metadata projection with normalized timestamps and covering access paths. The additive migration backfills existing rows, preserves pre-projection writer compatibility, and keeps metadata reads out of large event-body overflow pages.
+- **Bounded history search and MCP retrieval (#1551, #1552, #1554)** — full-text search, list, context, and MCP event pages use bounded projections, keyset continuation, explicit response budgets, and truncation metadata instead of materializing unbounded event bodies.
+- **Token-efficient host guidance (#1555, #1557)** — packaged skills enforce staged Discovery → Inspection → Detail retrieval, and MCP schema size is budgeted and regression-tested across supported hosts.
+
+### Fixed
+- **Memory hygiene safety and cost bounds (#1556)** — scans and similarity work are resumable and bounded; apply revalidates only requested IDs and related candidates before expire, reject, or supersede mutations, failing closed on stale evidence.
+- **Hook and host-package correctness (#1526, #1574, #1575)** — command-audit policy denials are classified explicitly, the post-upgrade verifier accepts canonical Grok inventory, and Codex rollout session IDs are treated as literals rather than glob patterns.
+- **Multi-GiB release evidence (#1558)** — a private synthetic 2 GiB fixture verifies the projection-only metadata path, copied migrations 31–34, FTS progress, MCP aggregation, and bounded huge-body retrieval. The published artifact contains metrics only; it records a Phase-A p95 of 0.079708 ms against the fixed 250 ms gate.
+
+### Notes
+- Migrations 31 through 34 are additive and migration-safe. They backfill and maintain metadata access paths without deleting existing event/session data or enabling telemetry.
+- Bounded retrieval preserves canonical body availability and truncation semantics. It does not expose prompt, response, cursor, workspace, or raw spool payloads in release evidence.
+
 ## [v0.32.1] - 2026-07-25
 
 ### Fixed

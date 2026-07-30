@@ -5,6 +5,22 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.33.0] - 2026-07-31
+
+### Added
+- **スケーラブルな metadata retrieval (#1553, #1569)** — list/context query は、正規化timestampとcovering access pathを持つtrigger-maintainedな永続event metadata projectionを使います。additive migrationは既存rowをbackfillし、pre-projection writer互換を保ち、大きなevent bodyのoverflow pageをmetadata readから隔離します。
+- **上限付きhistory searchとMCP retrieval (#1551, #1552, #1554)** — full-text search、list、context、MCP event pageは、上限付きprojection、keyset continuation、明示的なresponse budget、truncation metadataを使い、上限なしのevent bodyをmaterializeしません。
+- **token効率のよいhost guidance (#1555, #1557)** — package済みskillはDiscovery → Inspection → Detailの段階的retrievalを強制し、MCP schema sizeを対応host全体でbudget化してregression testします。
+
+### Fixed
+- **memory hygieneの安全性とcost上限 (#1556)** — scanとsimilarity workはresume可能かつboundedです。applyはexpire/reject/supersedeの前に要求IDと関連candidateだけを再検証し、stale evidenceではfail closedします。
+- **hookとhost packageの正確性 (#1526, #1574, #1575)** — command-auditのpolicy denialを明示分類し、post-upgrade verifierがcanonical Grok inventoryを受理し、Codex rollout session IDをglobではなくliteralとして扱います。
+- **multi-GiB release evidence (#1558)** — privateなsynthetic 2 GiB fixtureでprojection-only metadata path、copy上のmigration 31–34、FTS progress、MCP aggregation、bounded huge-body retrievalを検証します。公開artifactはmetricsだけを含み、固定250 ms gateに対するPhase-A p95 0.079708 msを記録します。
+
+### Notes
+- migration 31から34はadditiveかつmigration-safeです。既存event/session dataを削除せず、metadata access pathをbackfill・維持し、telemetryも有効化しません。
+- bounded retrievalはcanonical body availabilityとtruncation semanticsを保持します。release evidenceにprompt、response、cursor、workspace、raw spool payloadを含めません。
+
 ## [v0.32.1] - 2026-07-25
 
 ### Fixed
