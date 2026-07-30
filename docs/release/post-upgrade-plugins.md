@@ -21,7 +21,7 @@ After every released binary upgrade:
      --skip kimi='Kimi Code is not used on this machine'
    ```
 
-   Replace the sample skips with the hosts intentionally absent from this machine. Do **not** use a skip to hide a stale installed package. The gate runs `traceary doctor --client <host> --json --warnings-ok`, reads only each `*-plugin-version` check name/status, and fails on `warn` or `fail`; it never reads prompt, transcript, command, or database-event bodies.
+   Replace the sample skips with the hosts intentionally absent from this machine. Do **not** use a skip to hide a stale installed package. The gate runs `traceary doctor --client <host> --json --warnings-ok`, reads only each host's canonical plugin check name/status (`grok-plugin` for Grok; `*-plugin-version` for the other hosts), and fails on `warn` or `fail`; it never emits prompt, transcript, command, or database-event bodies.
 
 ## Host refresh and verification matrix
 
@@ -31,7 +31,7 @@ After every released binary upgrade:
 | Codex | Reinstall the plugin from `plugins/traceary/` in the checkout that matches `traceary -v`; see the Codex plugin documentation. | Use `/plugins` to refresh/reinstall the package, then start a new Codex session. | `traceary doctor --client codex --json` → `codex-plugin-version` is `pass`. | `--skip codex='reason'` only when Codex/its Traceary package is intentionally not installed. |
 | Gemini CLI (legacy extension) | `gemini extensions update traceary`. | Restart Gemini CLI. | `traceary doctor --client gemini --json` → `gemini-plugin-version` is `pass`. | `--skip gemini='reason'` only when the legacy extension is intentionally not installed. |
 | Antigravity | Use the safe dual-path procedure below, then `agy plugin install integrations/antigravity-plugin`. | Quit and reopen Antigravity (or start a new CLI session). | `traceary doctor --client antigravity --json` → every `antigravity-plugin-version` is `pass`, or an incomplete twin is the documented `skip` while another copy passes. | `--skip antigravity='reason'` only when Antigravity/its Traceary package is intentionally not installed. |
-| Grok Build | `./scripts/install-grok-plugin.sh`. | Restart Grok Build or start a new session. | `traceary doctor --client grok --json` → `grok-plugin-version` is `pass`. | `--skip grok='reason'` only when Grok Build/its Traceary package is intentionally not installed. |
+| Grok Build | `./scripts/install-grok-plugin.sh`. | Restart Grok Build or start a new session. | `traceary doctor --client grok --json` → `grok-plugin` is `pass`. | `--skip grok='reason'` only when Grok Build/its Traceary package is intentionally not installed. |
 | Kimi Code | `./scripts/install-kimi-plugin.sh`. The installer stages a new generation and atomically flips the managed `traceary` symlink while preserving the install record. | Run `/plugins reload` **or start a new Kimi session**. | `traceary doctor --client kimi --json` → `kimi-plugin-version` and native `kimi-plugin` are healthy. | `--skip kimi='reason'` only when Kimi Code/its Traceary package is intentionally not installed. |
 
 Prefer the `FixCommand` printed by doctor when it provides an exact non-interactive command. Do not invent host CLI flags.

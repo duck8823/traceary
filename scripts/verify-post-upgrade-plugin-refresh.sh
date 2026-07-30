@@ -126,7 +126,7 @@ import json
 import sys
 
 host, report_path, pass_marker = sys.argv[1:]
-expected = f"{host}-plugin-version"
+expected = "grok-plugin" if host == "grok" else f"{host}-plugin-version"
 try:
     with open(report_path, encoding="utf-8") as source:
         report = json.load(source)
