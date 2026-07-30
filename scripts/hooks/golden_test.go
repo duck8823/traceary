@@ -17,7 +17,7 @@ func TestGolden_SessionStartDelegation(t *testing.T) {
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	env := append(os.Environ(),
+	env := append(hookScriptTestBaseEnvironment(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
 		"TRACEARY_FAKE_SESSION_OUTPUT=golden-session\n",
