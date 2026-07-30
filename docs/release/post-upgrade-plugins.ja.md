@@ -21,7 +21,7 @@ release 済みバイナリを更新するたびに、次を実行してくださ
      --skip kimi='この機械では Kimi Code を利用しない'
    ```
 
-   例の skip は、この機械に意図的に存在しないホストに置き換えてください。導入済みの古い package を隠すために skip を使ってはいけません。この gate は `traceary doctor --client <host> --json --warnings-ok` を実行し、各 `*-plugin-version` の check 名と status だけを読みます。`warn` または `fail` なら失敗します。prompt・transcript・command・database event の本文は読みません。
+   例の skip は、この機械に意図的に存在しないホストに置き換えてください。導入済みの古い package を隠すために skip を使ってはいけません。この gate は `traceary doctor --client <host> --json --warnings-ok` を実行し、各ホストの canonical plugin check 名と status だけを読みます（Grok は `grok-plugin`、他ホストは `*-plugin-version`）。`warn` または `fail` なら失敗します。prompt・transcript・command・database event の本文は出力しません。
 
 ## ホスト別の更新・有効化・検証マトリクス
 
@@ -31,7 +31,7 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 | Codex | `traceary -v` と一致する checkout の `plugins/traceary/` から再導入します。Codex plugin 文書も参照してください。 | `/plugins` で refresh / reinstall してから、新しい Codex session を開始します。 | `traceary doctor --client codex --json` の `codex-plugin-version` が `pass`。 | Codex / Traceary package を意図的に導入していない場合だけ `--skip codex='理由'`。 |
 | Gemini CLI（レガシー extension） | `gemini extensions update traceary`。 | Gemini CLI を再起動します。 | `traceary doctor --client gemini --json` の `gemini-plugin-version` が `pass`。 | レガシー extension を意図的に導入していない場合だけ `--skip gemini='理由'`。 |
 | Antigravity | 下記の安全な dual path 手順を行ってから、`agy plugin install integrations/antigravity-plugin`。 | Antigravity を終了して開き直すか、新しい CLI session を開始します。 | `traceary doctor --client antigravity --json` のすべての `antigravity-plugin-version` が `pass`。一方が pass で、もう一方が version のない不完全 twin なら、後者の `skip` は許可されます。 | Antigravity / Traceary package を意図的に導入していない場合だけ `--skip antigravity='理由'`。 |
-| Grok Build | `./scripts/install-grok-plugin.sh`。 | Grok Build を再起動するか、新しい session を開始します。 | `traceary doctor --client grok --json` の `grok-plugin-version` が `pass`。 | Grok Build / Traceary package を意図的に導入していない場合だけ `--skip grok='理由'`。 |
+| Grok Build | `./scripts/install-grok-plugin.sh`。 | Grok Build を再起動するか、新しい session を開始します。 | `traceary doctor --client grok --json` の `grok-plugin` が `pass`。 | Grok Build / Traceary package を意図的に導入していない場合だけ `--skip grok='理由'`。 |
 | Kimi Code | `./scripts/install-kimi-plugin.sh`。installer は新しい generation を stage し、managed `traceary` symlink を atomic に切り替え、install record を保持します。 | `/plugins reload` を実行するか、**新しい Kimi session を開始**します。 | `traceary doctor --client kimi --json` の `kimi-plugin-version` と native `kimi-plugin` が健全。 | Kimi Code / Traceary package を意図的に導入していない場合だけ `--skip kimi='理由'`。 |
 
 doctor が正確な非対話コマンドを `FixCommand` に出す場合は、そちらを優先してください。ホスト CLI のフラグを推測で追加してはいけません。
