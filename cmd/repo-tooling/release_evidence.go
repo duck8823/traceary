@@ -350,7 +350,14 @@ func collectV0330BodyFreeEvidence(
 	}
 	if err := validateBodyFreeEvidence(evidence); err != nil {
 		evidence.Status = "blocked"
-		evidence.BlockReason = "evidence_validation_failed"
+		// Cleanup failure remains the primary reportable condition: preserving an
+		// uncleared private scratch directory must never make the sanitized
+		// artifact itself unwritable, even when a phase marker is also invalid.
+		if evidence.Privacy.ScratchCleaned {
+			evidence.BlockReason = "evidence_validation_failed"
+		} else {
+			evidence.BlockReason = "scratch_cleanup_failed"
+		}
 		evidence.PhaseA = nil
 		evidence.PhaseB = nil
 		evidence.PhaseC = nil

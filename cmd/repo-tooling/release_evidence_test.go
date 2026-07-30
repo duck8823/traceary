@@ -448,6 +448,49 @@ func TestCollectV0330BodyFreeEvidence_PreservesScratchCleanupFailureArtifact(t *
 	}
 }
 
+func TestCollectV0330BodyFreeEvidence_PreservesCleanupFailureWhenPhaseMarkerIsInvalid(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	var scratch string
+	deps := defaultReleaseEvidenceDependencies()
+	deps.availableScratchBytes = func(string) (uint64, error) {
+		return v0330EvidenceRequiredScratchBytes, nil
+	}
+	deps.verifyHosts = func(string) error { return nil }
+	deps.runPhase = func(_ context.Context, _ string, observedScratch string, phase releaseEvidencePhase) ([]byte, error) {
+		scratch = observedScratch
+		valid := validBodyFreeEvidenceFixture()
+		switch phase {
+		case releaseEvidencePhaseA:
+			valid.PhaseA.P95MS = valid.PhaseA.TargetP95MS
+			valid.PhaseA.Passed = false
+			return markerFixture(t, bodyFreeEvidencePhaseAMarker, *valid.PhaseA), nil
+		case releaseEvidencePhaseBC:
+			return markerFixture(t, bodyFreeEvidencePhaseBCMarker, bodyFreeEvidencePhaseBC{
+				PhaseB: *valid.PhaseB,
+				PhaseC: valid.PhaseC,
+			}), nil
+		case releaseEvidencePhaseD:
+			return markerFixture(t, bodyFreeEvidencePhaseDMarker, *valid.PhaseD), nil
+		default:
+			return nil, errors.New("unsupported phase")
+		}
+	}
+	deps.removeAll = func(string) error { return errors.New("injected cleanup failure") }
+
+	evidence := collectV0330BodyFreeEvidence(context.Background(), t.TempDir(), parent, deps)
+	if evidence.Status != "blocked" || evidence.BlockReason != "scratch_cleanup_failed" || evidence.Privacy.ScratchCleaned {
+		t.Fatalf("combined cleanup and marker failure evidence = %+v", evidence)
+	}
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("combined cleanup and marker failure artifact is not serializable: %v", err)
+	}
+	if err := os.RemoveAll(scratch); err != nil {
+		t.Fatalf("RemoveAll(scratch) error = %v", err)
+	}
+}
+
 func TestCollectV0330BodyFreeEvidence_SanitizesInvalidPhaseMetrics(t *testing.T) {
 	t.Parallel()
 

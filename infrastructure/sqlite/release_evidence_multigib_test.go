@@ -63,9 +63,10 @@ type v0330ReleaseEvidencePhaseBC struct {
 }
 
 type v0330ReleaseEvidenceSample struct {
-	items     int
-	bodyBytes int
-	identity  [sha256.Size]byte
+	items           int
+	bodyBytes       int
+	sourceBodyBytes int64
+	identity        [sha256.Size]byte
 }
 
 func TestValidateV0330ReleaseEvidenceProjectionPair(t *testing.T) {
@@ -266,13 +267,14 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		b.Fatalf("list retrieval correctness gate failed: %v", err)
 	}
 	hugeCriteria := apptypes.NewEventListCriteriaBuilder(1).Workspace(workspace).From(base.Add(6500 * time.Millisecond)).To(base.Add(7500 * time.Millisecond)).Build()
-	hugeProbe, _ := measureV0330ReleaseEvidenceProbe(b, "list", "bounded_huge", "not_applicable", func() (v0330ReleaseEvidenceSample, error) {
+	hugeProbe, hugeSample := measureV0330ReleaseEvidenceProbe(b, "list", "bounded_huge", "not_applicable", func() (v0330ReleaseEvidenceSample, error) {
 		events, err := datasource.ListRecentBounded(ctx, hugeCriteria, 500)
 		return v0330ReleaseEvidenceBoundedSample(events), err
 	})
-	hugeProbe.SourceBodyBytes = v0330ReleaseEvidenceBodyBytes
+	hugeProbe.SourceBodyBytes = hugeSample.sourceBodyBytes
 	hugeProbe.BoundedBudgetBytes = 500
-	if hugeProbe.ReturnedItems != 1 || hugeProbe.ReturnedBodyBytes <= 0 || hugeProbe.ReturnedBodyBytes > hugeProbe.BoundedBudgetBytes {
+	if hugeProbe.ReturnedItems != 1 || hugeProbe.SourceBodyBytes <= int64(hugeProbe.BoundedBudgetBytes) || hugeProbe.ReturnedBodyBytes <= 0 || hugeProbe.ReturnedBodyBytes > hugeProbe.BoundedBudgetBytes {
+		_ = copyDB.Close()
 		b.Fatal("huge-body bounded probe violated its response budget")
 	}
 	probes = append(probes, hugeProbe)
@@ -691,14 +693,17 @@ func v0330ReleaseEvidenceMetadataSample(events []apptypes.EventMetadata) v0330Re
 func v0330ReleaseEvidenceBoundedSample(events []apptypes.BoundedEvent) v0330ReleaseEvidenceSample {
 	identities := make([]string, 0, len(events))
 	bodyBytes := 0
+	var sourceBodyBytes int64
 	for _, event := range events {
 		identities = append(identities, event.Metadata().EventID().String())
 		bodyBytes += len(event.Body())
+		sourceBodyBytes += int64(event.Metadata().BodyExtent().StoredBytes())
 	}
 	return v0330ReleaseEvidenceSample{
-		items:     len(events),
-		bodyBytes: bodyBytes,
-		identity:  v0330ReleaseEvidenceIdentity(identities),
+		items:           len(events),
+		bodyBytes:       bodyBytes,
+		sourceBodyBytes: sourceBodyBytes,
+		identity:        v0330ReleaseEvidenceIdentity(identities),
 	}
 }
 
