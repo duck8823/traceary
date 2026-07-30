@@ -187,7 +187,7 @@ func TestTracearyPromptScript_DelegatesToHookRuntime(t *testing.T) {
 func TestTracearyHookScripts_ReturnSuccessWhenTracearyIsMissing(t *testing.T) {
 	t.Parallel()
 
-	stdout, err := runHookScriptCapture(t, filepath.Join(".", "traceary-audit.sh"), os.Environ(), `{"tool_input":{"command":"go test ./..."}}`, "claude")
+	stdout, err := runHookScriptCapture(t, filepath.Join(".", "traceary-audit.sh"), []string{"PATH=/usr/bin:/bin"}, `{"tool_input":{"command":"go test ./..."}}`, "claude")
 	if err != nil {
 		t.Fatalf("runHookScriptCapture() error = %v", err)
 	}
@@ -231,13 +231,29 @@ func runHookScriptCapture(t *testing.T, scriptPath string, env []string, input s
 	commandArgs := append([]string{scriptPath}, args...)
 	cmd := exec.Command("bash", commandArgs...)
 	cmd.Dir = "."
-	cmd.Env = env
+	cmd.Env = hookScriptTestEnvironment(t, env)
 	cmd.Stdin = strings.NewReader(input)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", &hookScriptError{err: err, output: string(output)}
 	}
 	return string(output), nil
+}
+
+func hookScriptTestEnvironment(t *testing.T, environment []string) []string {
+	t.Helper()
+
+	filtered := make([]string, 0, len(environment)+2)
+	for _, value := range environment {
+		if strings.HasPrefix(value, "HOME=") || strings.HasPrefix(value, "TRACEARY_HOOK_STATE_DIR=") {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return append(filtered,
+		"HOME="+t.TempDir(),
+		"TRACEARY_HOOK_STATE_DIR="+t.TempDir(),
+	)
 }
 
 type hookScriptError struct {
