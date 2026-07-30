@@ -4,6 +4,10 @@
 
 Traceary では、CLI 本体の公開導線を 3 つ用意し、あわせて release と同じ version の agent package も配布します。
 
+現在のリリース証跡:
+
+- [v0.33.0 multi-GiB リリース証跡](./v0.33.0-multigib-evidence.ja.md)
+
 ## バイナリ upgrade のあと
 
 ホスト plugin は Homebrew や `go install` では更新されません。次の二言語チェックリストに従ってください。

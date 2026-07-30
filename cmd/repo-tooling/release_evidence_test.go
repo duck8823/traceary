@@ -1,0 +1,607 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestValidateBodyFreeEvidence_AcceptsCompleteMetricsOnlyArtifact(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("validateBodyFreeEvidence() error = %v", err)
+	}
+
+	var encoded bytes.Buffer
+	if err := writeBodyFreeEvidence(&encoded, "", evidence); err != nil {
+		t.Fatalf("writeBodyFreeEvidence() error = %v", err)
+	}
+	for _, forbidden := range []string{
+		`"event_id"`, `"session_id"`, `"workspace"`, `"path"`,
+		`"cursor"`, `"continuation"`, `"prompt"`, `"response"`, `"body"`,
+	} {
+		if strings.Contains(encoded.String(), forbidden) {
+			t.Fatalf("evidence contains forbidden key %s:\n%s", forbidden, encoded.String())
+		}
+	}
+	if _, err := decodeBodyFreeEvidence(bytes.NewReader(encoded.Bytes())); err != nil {
+		t.Fatalf("decodeBodyFreeEvidence() error = %v", err)
+	}
+}
+
+func TestValidateBodyFreeEvidence_EnforcesPhaseAP95Gate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		p95MS   float64
+		passed  bool
+		wantErr bool
+	}{
+		{name: "accepts a measured value below the target", p95MS: 249.999, passed: true},
+		{name: "rejects the target boundary", p95MS: 250, passed: true, wantErr: true},
+		{name: "rejects a value above the target", p95MS: 250.001, passed: true, wantErr: true},
+		{name: "rejects an omitted measurement decoded as zero", p95MS: 0, passed: true, wantErr: true},
+		{name: "rejects a negative measurement", p95MS: -1, passed: false, wantErr: true},
+		{name: "rejects NaN", p95MS: math.NaN(), passed: false, wantErr: true},
+		{name: "rejects positive infinity", p95MS: math.Inf(1), passed: true, wantErr: true},
+		{name: "rejects negative infinity", p95MS: math.Inf(-1), passed: false, wantErr: true},
+		{name: "rejects a failed under-target measurement", p95MS: 249.999, passed: false, wantErr: true},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			evidence := validBodyFreeEvidenceFixture()
+			evidence.PhaseA.P95MS = test.p95MS
+			evidence.PhaseA.Passed = test.passed
+			err := validateBodyFreeEvidence(evidence)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateBodyFreeEvidence() error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestDecodeBodyFreeEvidence_RejectsMissingPhaseAP95Measurement(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(validBodyFreeEvidenceFixture())
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	phaseA, ok := document["phase_a"].(map[string]any)
+	if !ok {
+		t.Fatal("phase_a is missing from the fixture")
+	}
+	delete(phaseA, "p95_ms")
+	encoded, err = json.Marshal(document)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if _, err := decodeBodyFreeEvidence(bytes.NewReader(encoded)); err == nil {
+		t.Fatal("evidence without a Phase-A p95 measurement unexpectedly passed")
+	}
+}
+
+func TestDecodeBodyFreeEvidence_RejectsUnknownSensitiveField(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(validBodyFreeEvidenceFixture())
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	encoded = bytes.TrimSuffix(encoded, []byte("}"))
+	encoded = append(encoded, []byte(`,"path":"/private/tmp/private-store"}`)...)
+	if _, err := decodeBodyFreeEvidence(bytes.NewReader(encoded)); err == nil {
+		t.Fatal("decodeBodyFreeEvidence() error = nil, want a sensitive-field rejection")
+	}
+}
+
+func TestDecodeBodyFreeEvidence_EnforcesSizeLimitBeforeDecode(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(validBodyFreeEvidenceFixture())
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if len(encoded) >= bodyFreeEvidenceMaxBytes {
+		t.Fatalf("fixture bytes = %d, want below %d", len(encoded), bodyFreeEvidenceMaxBytes)
+	}
+
+	t.Run("accepts exactly the size limit", func(t *testing.T) {
+		t.Parallel()
+
+		input := append(bytes.Clone(encoded), bytes.Repeat([]byte(" "), bodyFreeEvidenceMaxBytes-len(encoded))...)
+		if _, err := decodeBodyFreeEvidence(bytes.NewReader(input)); err != nil {
+			t.Fatalf("decodeBodyFreeEvidence() error = %v", err)
+		}
+	})
+
+	t.Run("rejects a valid prefix before padded trailing sensitive data", func(t *testing.T) {
+		t.Parallel()
+
+		input := append(
+			bytes.Clone(encoded),
+			bytes.Repeat([]byte(" "), bodyFreeEvidenceMaxBytes-len(encoded))...,
+		)
+		input = append(input, []byte(`{"path":"private-store"}`)...)
+		if _, err := decodeBodyFreeEvidence(bytes.NewReader(input)); err == nil ||
+			!strings.Contains(err.Error(), "exceeds size limit") {
+			t.Fatalf("decodeBodyFreeEvidence() error = %v, want size-limit rejection", err)
+		}
+	})
+
+	t.Run("rejects size limit plus one", func(t *testing.T) {
+		t.Parallel()
+
+		input := bytes.Repeat([]byte(" "), bodyFreeEvidenceMaxBytes+1)
+		if _, err := decodeBodyFreeEvidence(bytes.NewReader(input)); err == nil ||
+			!strings.Contains(err.Error(), "exceeds size limit") {
+			t.Fatalf("decodeBodyFreeEvidence() error = %v, want size-limit rejection", err)
+		}
+	})
+}
+
+func TestValidateBodyFreeEvidence_RejectsArbitraryStringFields(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.Preflight.Reason = "/private/tmp/private-store"
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("arbitrary preflight reason unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.Host.GoVersion = "private-secret"
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("arbitrary host version unexpectedly passed")
+	}
+}
+
+func TestExtractEvidenceMarker_RejectsTrailingData(t *testing.T) {
+	t.Parallel()
+
+	valid := validBodyFreeEvidenceFixture()
+	marker := markerFixture(t, bodyFreeEvidencePhaseDMarker, *valid.PhaseD)
+	marker = bytes.Replace(marker, []byte("}\n"), []byte("} unexpected\n"), 1)
+	var phase bodyFreeEvidencePhaseD
+	if err := extractEvidenceMarker(marker, bodyFreeEvidencePhaseDMarker, &phase); err == nil {
+		t.Fatal("marker with trailing data unexpectedly passed")
+	}
+}
+
+func TestValidateBodyFreeEvidence_RejectsMetadataBodyBytesAndPhaseCGatesNoLatency(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	for index := range evidence.PhaseC {
+		if evidence.PhaseC[index].Projection == "metadata" {
+			evidence.PhaseC[index].ReturnedBodyBytes = 1
+			break
+		}
+	}
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("metadata body bytes unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	for index := range evidence.PhaseC {
+		evidence.PhaseC[index].P95MS = 999_999
+	}
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("Phase-C observation-only p95 unexpectedly failed: %v", err)
+	}
+}
+
+func TestValidateBodyFreeEvidence_RequiresPhaseCRetrievalResults(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects zero returned items", func(t *testing.T) {
+		t.Parallel()
+
+		evidence := validBodyFreeEvidenceFixture()
+		evidence.PhaseC[0].ReturnedItems = 0
+		if err := validateBodyFreeEvidence(evidence); err == nil {
+			t.Fatal("Phase-C zero-item result unexpectedly passed")
+		}
+	})
+
+	t.Run("rejects zero bounded body bytes", func(t *testing.T) {
+		t.Parallel()
+
+		evidence := validBodyFreeEvidenceFixture()
+		for index := range evidence.PhaseC {
+			if evidence.PhaseC[index].Projection == "bounded" {
+				evidence.PhaseC[index].ReturnedBodyBytes = 0
+				break
+			}
+		}
+		if err := validateBodyFreeEvidence(evidence); err == nil {
+			t.Fatal("Phase-C bounded result with zero body bytes unexpectedly passed")
+		}
+	})
+}
+
+func TestValidateBodyFreeEvidence_RequiresProjectionOnlyPlanAndBodyFreeResults(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.PhaseA.ProjectionOnly = false
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-A plan using the authoritative event table unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.PhaseA.ReturnedBodyBytes = 1
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-A result containing body bytes unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.PhaseA.ProjectionRows--
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-A projection row mismatch unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.PhaseA.ReturnedItems--
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-A incomplete result set unexpectedly passed")
+	}
+}
+
+func TestValidateBodyFreeEvidence_RequiresProjectionMigrationParity(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.PhaseB.Migrations31Through34 = false
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase B without migration 34 unexpectedly passed")
+	}
+
+	evidence = validBodyFreeEvidenceFixture()
+	evidence.PhaseB.ProjectionRows--
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase-B projection row mismatch unexpectedly passed")
+	}
+}
+
+func TestValidateBodyFreeEvidence_RequiresAggregateTruncationMetadata(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.PhaseD.TruncationMetadataObserved = false
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("Phase D without observable truncation metadata unexpectedly passed")
+	}
+}
+
+func TestValidateBodyFreeEvidence_ValidatesPresentPhasesInBlockedArtifact(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.Status = "blocked"
+	evidence.BlockReason = "phase_bc_failed"
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("valid blocked evidence unexpectedly failed: %v", err)
+	}
+
+	evidence.PhaseB.Events = 0
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("blocked evidence with an invalid present phase unexpectedly passed")
+	}
+}
+
+func TestValidateBodyFreeEvidence_AcceptsOnlyDeclaredScratchCleanupFailure(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.Status = "blocked"
+	evidence.BlockReason = "scratch_cleanup_failed"
+	evidence.Privacy.ScratchCleaned = false
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("cleanup-failure evidence unexpectedly failed: %v", err)
+	}
+
+	evidence.BlockReason = "phase_a_failed"
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("non-cleanup block reason unexpectedly accepted uncleared scratch")
+	}
+}
+
+func TestCollectV0330BodyFreeEvidence_BlocksBeforeScratchWhenDiskIsInsufficient(t *testing.T) {
+	t.Parallel()
+
+	phaseCalled := false
+	deps := defaultReleaseEvidenceDependencies()
+	deps.availableScratchBytes = func(string) (uint64, error) {
+		return v0330EvidenceRequiredScratchBytes - 1, nil
+	}
+	deps.runPhase = func(context.Context, string, string, releaseEvidencePhase) ([]byte, error) {
+		phaseCalled = true
+		return nil, errors.New("must not run")
+	}
+	evidence := collectV0330BodyFreeEvidence(context.Background(), t.TempDir(), t.TempDir(), deps)
+	if evidence.Status != "blocked" || evidence.BlockReason != "insufficient_disk" {
+		t.Fatalf("blocked evidence = %+v", evidence)
+	}
+	if evidence.Preflight.Capable || !evidence.Privacy.MetricsOnly || !evidence.Privacy.ScratchCleaned {
+		t.Fatalf("blocked preflight/privacy = %+v / %+v", evidence.Preflight, evidence.Privacy)
+	}
+	if phaseCalled {
+		t.Fatal("a multi-GiB phase ran after insufficient-disk preflight")
+	}
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("sanitized blocked evidence is invalid: %v", err)
+	}
+}
+
+func TestCollectV0330BodyFreeEvidence_CleansPrivateScratchAndMergesMarkers(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	var observedScratch string
+	deps := defaultReleaseEvidenceDependencies()
+	deps.availableScratchBytes = func(string) (uint64, error) {
+		return v0330EvidenceRequiredScratchBytes, nil
+	}
+	deps.verifyHosts = func(string) error { return nil }
+	deps.runPhase = func(_ context.Context, _ string, scratch string, phase releaseEvidencePhase) ([]byte, error) {
+		observedScratch = scratch
+		info, err := os.Stat(scratch)
+		if err != nil {
+			t.Fatalf("Stat(scratch) error = %v", err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("scratch mode = %o, want 0700", info.Mode().Perm())
+		}
+		switch phase {
+		case releaseEvidencePhaseA:
+			return markerFixture(t, bodyFreeEvidencePhaseAMarker, *validBodyFreeEvidenceFixture().PhaseA), nil
+		case releaseEvidencePhaseBC:
+			valid := validBodyFreeEvidenceFixture()
+			return markerFixture(t, bodyFreeEvidencePhaseBCMarker, bodyFreeEvidencePhaseBC{
+				PhaseB: *valid.PhaseB,
+				PhaseC: valid.PhaseC,
+			}), nil
+		case releaseEvidencePhaseD:
+			return markerFixture(t, bodyFreeEvidencePhaseDMarker, *validBodyFreeEvidenceFixture().PhaseD), nil
+		default:
+			return nil, errors.New("unsupported phase")
+		}
+	}
+
+	evidence := collectV0330BodyFreeEvidence(context.Background(), t.TempDir(), parent, deps)
+	if evidence.Status != "pass" {
+		t.Fatalf("collectV0330BodyFreeEvidence() = %+v", evidence)
+	}
+	if observedScratch == "" {
+		t.Fatal("no scratch directory was observed")
+	}
+	if _, err := os.Stat(observedScratch); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("scratch still exists or returned an unexpected error: %v", err)
+	}
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("validateBodyFreeEvidence() error = %v", err)
+	}
+
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(encoded), filepath.ToSlash(observedScratch)) {
+		t.Fatalf("evidence exposed scratch path: %s", encoded)
+	}
+}
+
+func TestCollectV0330BodyFreeEvidence_PreservesScratchCleanupFailureArtifact(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	var scratch string
+	deps := defaultReleaseEvidenceDependencies()
+	deps.availableScratchBytes = func(string) (uint64, error) {
+		return v0330EvidenceRequiredScratchBytes, nil
+	}
+	deps.verifyHosts = func(string) error { return nil }
+	deps.runPhase = func(_ context.Context, _ string, observedScratch string, phase releaseEvidencePhase) ([]byte, error) {
+		scratch = observedScratch
+		valid := validBodyFreeEvidenceFixture()
+		switch phase {
+		case releaseEvidencePhaseA:
+			return markerFixture(t, bodyFreeEvidencePhaseAMarker, *valid.PhaseA), nil
+		case releaseEvidencePhaseBC:
+			return markerFixture(t, bodyFreeEvidencePhaseBCMarker, bodyFreeEvidencePhaseBC{
+				PhaseB: *valid.PhaseB,
+				PhaseC: valid.PhaseC,
+			}), nil
+		case releaseEvidencePhaseD:
+			return markerFixture(t, bodyFreeEvidencePhaseDMarker, *valid.PhaseD), nil
+		default:
+			return nil, errors.New("unsupported phase")
+		}
+	}
+	deps.removeAll = func(string) error { return errors.New("injected cleanup failure") }
+
+	evidence := collectV0330BodyFreeEvidence(context.Background(), t.TempDir(), parent, deps)
+	if evidence.Status != "blocked" || evidence.BlockReason != "scratch_cleanup_failed" || evidence.Privacy.ScratchCleaned {
+		t.Fatalf("cleanup failure evidence = %+v", evidence)
+	}
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("cleanup failure artifact is not serializable: %v", err)
+	}
+	if err := os.RemoveAll(scratch); err != nil {
+		t.Fatalf("RemoveAll(scratch) error = %v", err)
+	}
+}
+
+func TestCollectV0330BodyFreeEvidence_PreservesCleanupFailureWhenPhaseMarkerIsInvalid(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	var scratch string
+	deps := defaultReleaseEvidenceDependencies()
+	deps.availableScratchBytes = func(string) (uint64, error) {
+		return v0330EvidenceRequiredScratchBytes, nil
+	}
+	deps.verifyHosts = func(string) error { return nil }
+	deps.runPhase = func(_ context.Context, _ string, observedScratch string, phase releaseEvidencePhase) ([]byte, error) {
+		scratch = observedScratch
+		valid := validBodyFreeEvidenceFixture()
+		switch phase {
+		case releaseEvidencePhaseA:
+			valid.PhaseA.P95MS = valid.PhaseA.TargetP95MS
+			valid.PhaseA.Passed = false
+			return markerFixture(t, bodyFreeEvidencePhaseAMarker, *valid.PhaseA), nil
+		case releaseEvidencePhaseBC:
+			return markerFixture(t, bodyFreeEvidencePhaseBCMarker, bodyFreeEvidencePhaseBC{
+				PhaseB: *valid.PhaseB,
+				PhaseC: valid.PhaseC,
+			}), nil
+		case releaseEvidencePhaseD:
+			return markerFixture(t, bodyFreeEvidencePhaseDMarker, *valid.PhaseD), nil
+		default:
+			return nil, errors.New("unsupported phase")
+		}
+	}
+	deps.removeAll = func(string) error { return errors.New("injected cleanup failure") }
+
+	evidence := collectV0330BodyFreeEvidence(context.Background(), t.TempDir(), parent, deps)
+	if evidence.Status != "blocked" || evidence.BlockReason != "scratch_cleanup_failed" || evidence.Privacy.ScratchCleaned {
+		t.Fatalf("combined cleanup and marker failure evidence = %+v", evidence)
+	}
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("combined cleanup and marker failure artifact is not serializable: %v", err)
+	}
+	if err := os.RemoveAll(scratch); err != nil {
+		t.Fatalf("RemoveAll(scratch) error = %v", err)
+	}
+}
+
+func TestCollectV0330BodyFreeEvidence_SanitizesInvalidPhaseMetrics(t *testing.T) {
+	t.Parallel()
+
+	deps := defaultReleaseEvidenceDependencies()
+	deps.availableScratchBytes = func(string) (uint64, error) {
+		return v0330EvidenceRequiredScratchBytes, nil
+	}
+	deps.verifyHosts = func(string) error { return nil }
+	deps.runPhase = func(_ context.Context, _ string, _ string, phase releaseEvidencePhase) ([]byte, error) {
+		valid := validBodyFreeEvidenceFixture()
+		switch phase {
+		case releaseEvidencePhaseA:
+			valid.PhaseA.P95MS = -1
+			return markerFixture(t, bodyFreeEvidencePhaseAMarker, *valid.PhaseA), nil
+		case releaseEvidencePhaseBC:
+			return markerFixture(t, bodyFreeEvidencePhaseBCMarker, bodyFreeEvidencePhaseBC{
+				PhaseB: *valid.PhaseB,
+				PhaseC: valid.PhaseC,
+			}), nil
+		case releaseEvidencePhaseD:
+			return markerFixture(t, bodyFreeEvidencePhaseDMarker, *valid.PhaseD), nil
+		default:
+			return nil, errors.New("unsupported phase")
+		}
+	}
+
+	evidence := collectV0330BodyFreeEvidence(context.Background(), t.TempDir(), t.TempDir(), deps)
+	if evidence.Status != "blocked" || evidence.BlockReason != "evidence_validation_failed" {
+		t.Fatalf("invalid phase evidence = %+v", evidence)
+	}
+	if evidence.PhaseA != nil || evidence.PhaseB != nil || len(evidence.PhaseC) != 0 ||
+		evidence.PhaseD != nil {
+		t.Fatalf("invalid phase metrics were retained: %+v", evidence)
+	}
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("sanitized blocker is invalid: %v", err)
+	}
+}
+
+func markerFixture(t *testing.T, marker string, value any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("json.Marshal(marker) error = %v", err)
+	}
+	return append(append([]byte("test output\n"+marker), encoded...), '\n')
+}
+
+func validBodyFreeEvidenceFixture() BodyFreeEvidence {
+	probes := make([]bodyFreeEvidenceProbe, 0, 8)
+	for _, row := range []struct {
+		operation, projection, fts string
+	}{
+		{"list", "metadata", "not_applicable"},
+		{"list", "bounded", "not_applicable"},
+		{"context", "metadata", "not_applicable"},
+		{"context", "bounded", "not_applicable"},
+		{"search", "metadata", "incomplete"},
+		{"search", "bounded", "incomplete"},
+		{"search", "metadata", "complete"},
+		{"search", "bounded", "complete"},
+	} {
+		bodyBytes := 0
+		if row.projection == "bounded" {
+			bodyBytes = 512
+		}
+		probes = append(probes, bodyFreeEvidenceProbe{
+			Operation: row.operation, Projection: row.projection, FTSPhase: row.fts,
+			Runs: 25, P95MS: 1.25, ReturnedItems: 20, ReturnedBodyBytes: bodyBytes,
+		})
+	}
+	probes = append(probes, bodyFreeEvidenceProbe{
+		Operation: "list", Projection: "bounded_huge", FTSPhase: "not_applicable",
+		Runs: 25, P95MS: 1.25, ReturnedItems: 1, ReturnedBodyBytes: 500,
+		SourceBodyBytes: 256 << 20, BoundedBudgetBytes: 500,
+	})
+	return BodyFreeEvidence{
+		Schema: bodyFreeEvidenceSchema,
+		Status: "pass",
+		Host: bodyFreeEvidenceHost{
+			GOOS: "darwin", GOARCH: "arm64", GoVersion: "go1.26.3",
+		},
+		Preflight: bodyFreeEvidencePreflight{
+			RequiredScratchBytes:  v0330EvidenceRequiredScratchBytes,
+			AvailableScratchBytes: v0330EvidenceRequiredScratchBytes,
+			Capable:               true,
+		},
+		PhaseA: &bodyFreeEvidencePhaseA{
+			ManagedBytes: 2 << 30, StoredBodyBytes: 2 << 30,
+			Events: 8, ProjectionRows: 8, MissingBodyMetadata: 0,
+			ProjectionOnly: true, ReturnedItems: 8, ReturnedBodyBytes: 0, Runs: 25,
+			P95MS: 1.5, TargetP95MS: 250, Passed: true,
+		},
+		PhaseB: &bodyFreeEvidencePhaseB{
+			SourceManagedBytes: 2 << 30, ScratchBytesAfterCheckpoint: 4 << 30,
+			Events: 130, MigrationMS: 25, ResumeBackfillMS: 2,
+			Migrations31Through34: true, ProjectionRows: 130,
+			IntegrityOK: true, ForeignKeyViolations: 0,
+			SourceUnchanged: true, InitialFTSDocuments: 128, InitialFTSComplete: false,
+			FinalFTSDocuments: 130, FinalFTSComplete: true, PreProjectionWriterOK: true,
+		},
+		PhaseC: probes,
+		PhaseD: &bodyFreeEvidencePhaseD{
+			MaxItems: 100, MaxAggregateBodyBytes: 64 * 1024,
+			ObservedMaxItems: 24, ObservedMaxAggregateBodyBytes: 64_000,
+			Pages: 5, TotalItems: 100, MultibyteObserved: true,
+			BodyBlocksObserved: true, TruncationMetadataObserved: true,
+			ContinuationNoDuplicateOrSkip: true,
+		},
+		Privacy: bodyFreeEvidencePrivacy{
+			MetricsOnly: true, ScratchPrivate: true, ScratchCleaned: true,
+		},
+	}
+}

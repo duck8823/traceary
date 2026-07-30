@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -464,12 +465,14 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		Build()
 	query, args := scopedRecentEventMetadataQuery(criteria, 0, formatMetadataOptionalTimestamp(criteria.From()), formatMetadataOptionalTimestamp(criteria.To()), criteria.Limit(), criteria.Offset())
 	plan := strings.Join(explainQueryPlan(b, db, query, args...), "\n")
-	if !strings.Contains(plan, "idx_event_metadata_workspace_created_at_norm_id_desc") ||
-		strings.Contains(plan, "events") ||
-		strings.Contains(plan, "USE TEMP B-TREE") {
+	projectionOnly := strings.Contains(plan, "idx_event_metadata_workspace_created_at_norm_id_desc") &&
+		!strings.Contains(plan, "events") &&
+		!strings.Contains(plan, "USE TEMP B-TREE")
+	if !projectionOnly {
 		b.Fatal("multi-GiB metadata plan is not projection-only and index ordered")
 	}
 	durations := make([]time.Duration, 0, measurementRuns)
+	var returnedItems int64
 	b.ResetTimer()
 	for range measurementRuns {
 		started := time.Now()
@@ -477,6 +480,7 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 		if err != nil {
 			b.Fatalf("range query: %v", err)
 		}
+		var currentReturnedItems int64
 		for rows.Next() {
 			var values [16]any
 			pointers := make([]any, len(values))
@@ -487,10 +491,19 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 				_ = rows.Close()
 				b.Fatalf("scan range row: %v", err)
 			}
+			currentReturnedItems++
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			b.Fatalf("iterate range rows: %v", err)
 		}
 		if err := rows.Close(); err != nil {
 			b.Fatalf("rows.Close() error = %v", err)
 		}
+		if currentReturnedItems != storedEvents {
+			b.Fatalf("range query returned %d rows, want %d", currentReturnedItems, storedEvents)
+		}
+		returnedItems = currentReturnedItems
 		durations = append(durations, time.Since(started))
 	}
 	b.StopTimer()
@@ -502,10 +515,43 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	b.ReportMetric(float64(missingStoredBodyBytes), "missing_body_metadata")
 	b.ReportMetric(float64(storedBodyBytes), "stored_body_bytes")
 	b.ReportMetric(1, "projection_only")
+	b.ReportMetric(float64(returnedItems), "returned_items")
 	b.ReportMetric(0, "returned_body_bytes")
 	b.ReportMetric(measurementRuns, "measurement_runs")
 	b.ReportMetric(float64(p95)/float64(time.Millisecond), "p95_ms")
-	if p95 >= 250*time.Millisecond {
+	passed := p95 < 250*time.Millisecond
+	marker, err := json.Marshal(struct {
+		ManagedBytes        int64   `json:"managed_bytes"`
+		StoredBodyBytes     int64   `json:"stored_body_bytes"`
+		Events              int64   `json:"events"`
+		ProjectionRows      int64   `json:"projection_rows"`
+		MissingBodyMetadata int64   `json:"missing_body_metadata"`
+		ProjectionOnly      bool    `json:"projection_only"`
+		ReturnedItems       int64   `json:"returned_items"`
+		ReturnedBodyBytes   int64   `json:"returned_body_bytes"`
+		Runs                int     `json:"runs"`
+		P95MS               float64 `json:"p95_ms"`
+		TargetP95MS         float64 `json:"target_p95_ms"`
+		Passed              bool    `json:"passed"`
+	}{
+		ManagedBytes:        pageCount * pageSize,
+		StoredBodyBytes:     storedBodyBytes,
+		Events:              storedEvents,
+		ProjectionRows:      projectionRows,
+		MissingBodyMetadata: missingStoredBodyBytes,
+		ProjectionOnly:      projectionOnly,
+		ReturnedItems:       returnedItems,
+		ReturnedBodyBytes:   0,
+		Runs:                measurementRuns,
+		P95MS:               float64(p95) / float64(time.Millisecond),
+		TargetP95MS:         250,
+		Passed:              passed,
+	})
+	if err != nil {
+		b.Fatalf("marshal Phase-A evidence: %v", err)
+	}
+	b.Logf("TRACEARY_PHASE_A_EVIDENCE=%s", marker)
+	if !passed {
 		b.Fatalf("multi-GiB direct range p95=%s, want < 250ms", p95)
 	}
 }

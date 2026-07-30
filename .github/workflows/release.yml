@@ -67,6 +67,10 @@ jobs:
       - name: Verify landing page in sync with VERSION
         run: go run ./cmd/repo-tooling docs verify-landing
 
+      - name: Verify v0.33.0 multi-GiB release evidence
+        if: env.IS_TAG_RELEASE == 'true' && env.RELEASE_TAG == 'v0.33.0'
+        run: go run ./cmd/repo-tooling release verify-body-free-evidence --input docs/release/v0.33.0-multigib-evidence.json
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@9a127d869fb706213d29cdf8eef3a4ea2b869415 # v7
         with:

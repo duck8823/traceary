@@ -1,0 +1,147 @@
+{
+  "schema": "traceary.body-free-release-evidence.v1",
+  "status": "pass",
+  "host": {
+    "goos": "darwin",
+    "goarch": "arm64",
+    "go_version": "go1.26.3"
+  },
+  "preflight": {
+    "required_scratch_bytes": 12884901888,
+    "available_scratch_bytes": 84002865152,
+    "capable": true
+  },
+  "phase_a": {
+    "managed_bytes": 2418774016,
+    "stored_body_bytes": 2147483648,
+    "events": 8,
+    "projection_rows": 8,
+    "missing_body_metadata": 0,
+    "projection_only": true,
+    "returned_items": 8,
+    "returned_body_bytes": 0,
+    "runs": 25,
+    "p95_ms": 0.079708,
+    "target_p95_ms": 250,
+    "passed": true
+  },
+  "phase_b": {
+    "source_managed_bytes": 2418642944,
+    "scratch_bytes_after_checkpoint": 6718570496,
+    "events": 130,
+    "migration_ms": 71677.088917,
+    "resume_backfill_ms": 3.266625,
+    "migrations_31_34_applied": true,
+    "projection_rows": 130,
+    "integrity_ok": true,
+    "foreign_key_violations": 0,
+    "source_unchanged": true,
+    "initial_fts_documents": 128,
+    "initial_fts_complete": false,
+    "final_fts_documents": 130,
+    "final_fts_complete": true,
+    "pre_projection_writer_ok": true
+  },
+  "phase_c": [
+    {
+      "operation": "list",
+      "projection": "metadata",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 1.923,
+      "returned_items": 20,
+      "returned_body_bytes": 0
+    },
+    {
+      "operation": "list",
+      "projection": "bounded",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 2.827,
+      "returned_items": 20,
+      "returned_body_bytes": 920
+    },
+    {
+      "operation": "list",
+      "projection": "bounded_huge",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 206.746458,
+      "returned_items": 1,
+      "returned_body_bytes": 500,
+      "source_body_bytes": 268435456,
+      "bounded_budget_bytes": 500
+    },
+    {
+      "operation": "context",
+      "projection": "metadata",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 1.013833,
+      "returned_items": 20,
+      "returned_body_bytes": 0
+    },
+    {
+      "operation": "context",
+      "projection": "bounded",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 1.467375,
+      "returned_items": 20,
+      "returned_body_bytes": 920
+    },
+    {
+      "operation": "search",
+      "projection": "metadata",
+      "fts_phase": "incomplete",
+      "runs": 25,
+      "p95_ms": 6.759792,
+      "returned_items": 20,
+      "returned_body_bytes": 0
+    },
+    {
+      "operation": "search",
+      "projection": "bounded",
+      "fts_phase": "incomplete",
+      "runs": 25,
+      "p95_ms": 7.02725,
+      "returned_items": 20,
+      "returned_body_bytes": 920
+    },
+    {
+      "operation": "search",
+      "projection": "metadata",
+      "fts_phase": "complete",
+      "runs": 25,
+      "p95_ms": 2.630417,
+      "returned_items": 20,
+      "returned_body_bytes": 0
+    },
+    {
+      "operation": "search",
+      "projection": "bounded",
+      "fts_phase": "complete",
+      "runs": 25,
+      "p95_ms": 2.844167,
+      "returned_items": 20,
+      "returned_body_bytes": 920
+    }
+  ],
+  "phase_d": {
+    "max_items": 100,
+    "max_aggregate_body_bytes": 65536,
+    "observed_max_items": 35,
+    "observed_max_aggregate_body_bytes": 65536,
+    "pages": 3,
+    "total_items": 100,
+    "multibyte_observed": true,
+    "body_blocks_observed": true,
+    "truncation_metadata_observed": true,
+    "continuation_no_duplicate_or_skip": true
+  },
+  "privacy": {
+    "metrics_only": true,
+    "scratch_private": true,
+    "scratch_cleaned": true
+  }
+}

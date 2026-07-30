@@ -40,6 +40,7 @@ Examples that belong under `cmd/repo-tooling`:
 - docs i18n pairing checks
 - changelog coverage checks
 - release-preparation helpers such as version bumps
+- private, metrics-only release evidence probes
 
 Examples that do **not** belong there:
 
@@ -60,6 +61,8 @@ The repository should converge on subcommands shaped like these:
 - `go run ./cmd/repo-tooling docs verify-antigravity-status`
 - `go run ./cmd/repo-tooling release verify-changelog`
 - `go run ./cmd/repo-tooling release bump-version --version X.Y.Z`
+- `go run ./cmd/repo-tooling release run-v0.33.0-evidence --output FILE`
+- `go run ./cmd/repo-tooling release verify-body-free-evidence --input FILE`
 
 The exact package layout can evolve, but the documented entrypoint should stay singular.
 
