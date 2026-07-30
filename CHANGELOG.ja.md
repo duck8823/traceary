@@ -21,6 +21,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - migration 31から34はadditiveかつmigration-safeです。既存event/session dataを削除せず、metadata access pathをbackfill・維持し、telemetryも有効化しません。
 - bounded retrievalはcanonical body availabilityとtruncation semanticsを保持します。release evidenceにprompt、response、cursor、workspace、raw spool payloadを含めません。
 - PR #1587（`129fa58b`）とPR #1589（`bcda8f4a`）で完了したlocal test隔離を含むrelease QAは、[v0.33.0 release QA](docs/release/v0.33.0-qa.ja.md)に記録しています。
+- install済みhost packageは現在のTraceary versionでrefreshしてください。`traceary doctor`はstale packageとrefresh済みpackageを区別します。
 
 ## [v0.32.1] - 2026-07-25
 
