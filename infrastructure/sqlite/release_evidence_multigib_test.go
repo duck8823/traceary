@@ -585,7 +585,10 @@ func v0330ReleaseEvidencePreProjectionWriterOK(ctx context.Context, db *sql.DB) 
 	count := func(table string) (int64, error) {
 		var result int64
 		err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&result)
-		return result, err
+		if err != nil {
+			return 0, fmt.Errorf("count %s: %w", table, err)
+		}
+		return result, nil
 	}
 	eventsBefore, err := count("events")
 	if err != nil {
