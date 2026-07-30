@@ -96,6 +96,7 @@ type bodyFreeEvidencePhaseB struct {
 	InitialFTSComplete          bool    `json:"initial_fts_complete"`
 	FinalFTSDocuments           int64   `json:"final_fts_documents"`
 	FinalFTSComplete            bool    `json:"final_fts_complete"`
+	PreProjectionWriterOK       bool    `json:"pre_projection_writer_ok"`
 }
 
 type bodyFreeEvidenceProbe struct {
@@ -671,7 +672,7 @@ func validateBodyFreeEvidencePhaseB(phaseB bodyFreeEvidencePhaseB) error {
 		!phaseB.Migrations31Through34 || phaseB.ProjectionRows != phaseB.Events ||
 		!phaseB.IntegrityOK || phaseB.ForeignKeyViolations != 0 ||
 		!phaseB.SourceUnchanged || phaseB.InitialFTSDocuments != 128 || phaseB.InitialFTSComplete ||
-		phaseB.FinalFTSDocuments != phaseB.Events || !phaseB.FinalFTSComplete {
+		phaseB.FinalFTSDocuments != phaseB.Events || !phaseB.FinalFTSComplete || !phaseB.PreProjectionWriterOK {
 		return xerrors.Errorf("body-free release evidence phase B failed")
 	}
 	return nil

@@ -494,7 +494,7 @@ func validBodyFreeEvidenceFixture() BodyFreeEvidence {
 			Migrations31Through34: true, ProjectionRows: 130,
 			IntegrityOK: true, ForeignKeyViolations: 0,
 			SourceUnchanged: true, InitialFTSDocuments: 128, InitialFTSComplete: false,
-			FinalFTSDocuments: 130, FinalFTSComplete: true,
+			FinalFTSDocuments: 130, FinalFTSComplete: true, PreProjectionWriterOK: true,
 		},
 		PhaseC: probes,
 		PhaseD: &bodyFreeEvidencePhaseD{

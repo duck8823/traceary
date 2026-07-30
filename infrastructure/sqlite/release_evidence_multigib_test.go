@@ -42,6 +42,7 @@ type v0330ReleaseEvidencePhaseB struct {
 	InitialFTSComplete          bool    `json:"initial_fts_complete"`
 	FinalFTSDocuments           int64   `json:"final_fts_documents"`
 	FinalFTSComplete            bool    `json:"final_fts_complete"`
+	PreProjectionWriterOK       bool    `json:"pre_projection_writer_ok"`
 }
 
 type v0330ReleaseEvidenceProbe struct {
@@ -321,6 +322,11 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		_ = copyDB.Close()
 		b.Fatalf("final FTS progress = (%d,%v), want (%d,true)", finalDocuments, finalComplete, v0330ReleaseEvidenceEvents)
 	}
+	preProjectionWriterOK, err := v0330ReleaseEvidencePreProjectionWriterOK(ctx, copyDB)
+	if err != nil {
+		_ = copyDB.Close()
+		b.Fatalf("verify pre-projection writer compatibility: %v", err)
+	}
 
 	searchMetadataCompleteProbe, searchMetadataComplete := measureV0330ReleaseEvidenceProbe(
 		b, "search", "metadata", "complete",
@@ -385,6 +391,7 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 			InitialFTSComplete:          initialComplete,
 			FinalFTSDocuments:           finalDocuments,
 			FinalFTSComplete:            finalComplete,
+			PreProjectionWriterOK:       preProjectionWriterOK,
 		},
 		PhaseC: probes,
 	}
@@ -392,7 +399,7 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		evidence.PhaseB.ProjectionRows != evidence.PhaseB.Events ||
 		!evidence.PhaseB.IntegrityOK ||
 		evidence.PhaseB.ForeignKeyViolations != 0 ||
-		!evidence.PhaseB.SourceUnchanged {
+		!evidence.PhaseB.SourceUnchanged || !evidence.PhaseB.PreProjectionWriterOK {
 		b.Fatal("copied-store migration evidence failed its safety invariants")
 	}
 	encoded, err := json.Marshal(evidence)
@@ -559,6 +566,47 @@ func v0330ReleaseEvidenceFTSProgress(ctx context.Context, db *sql.DB) (int64, bo
 		return 0, false, fmt.Errorf("read FTS completion state: %w", err)
 	}
 	return documents, complete != 0, nil
+}
+
+func v0330ReleaseEvidencePreProjectionWriterOK(ctx context.Context, db *sql.DB) (bool, error) {
+	count := func(table string) (int64, error) {
+		var result int64
+		err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&result)
+		return result, err
+	}
+	eventsBefore, err := count("events")
+	if err != nil {
+		return false, fmt.Errorf("count events before writer probe: %w", err)
+	}
+	projectionBefore, err := count("event_metadata_projection")
+	if err != nil {
+		return false, fmt.Errorf("count projection before writer probe: %w", err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin writer probe: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events (id, kind, client, agent, session_id, workspace, body, created_at, body_availability) VALUES ('release-writer-probe', 'note', 'cli', 'codex', 'release-session', 'release-evidence', 'release needle writer probe', '2026-07-26T00:02:10Z', 'available')`); err != nil {
+		_ = tx.Rollback()
+		return false, fmt.Errorf("run writer probe: %w", err)
+	}
+	var maintained int64
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM event_metadata_projection WHERE id = 'release-writer-probe'").Scan(&maintained); err != nil {
+		_ = tx.Rollback()
+		return false, fmt.Errorf("read writer projection: %w", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		return false, fmt.Errorf("rollback writer probe: %w", err)
+	}
+	eventsAfter, err := count("events")
+	if err != nil {
+		return false, fmt.Errorf("count events after writer probe: %w", err)
+	}
+	projectionAfter, err := count("event_metadata_projection")
+	if err != nil {
+		return false, fmt.Errorf("count projection after writer probe: %w", err)
+	}
+	return maintained == 1 && eventsBefore == eventsAfter && projectionBefore == projectionAfter, nil
 }
 
 func measureV0330ReleaseEvidenceProbe(
