@@ -726,7 +726,7 @@ func validateBodyFreeEvidenceProbes(probes []bodyFreeEvidenceProbe) error {
 		}
 		if probe.Projection == "bounded_huge" {
 			if probe.ReturnedItems != 1 || probe.ReturnedBodyBytes <= 0 ||
-				probe.SourceBodyBytes != 256<<20 || probe.BoundedBudgetBytes <= 0 ||
+				probe.SourceBodyBytes != 256<<20 || probe.BoundedBudgetBytes != 500 ||
 				probe.ReturnedBodyBytes > probe.BoundedBudgetBytes ||
 				int64(probe.ReturnedBodyBytes) >= probe.SourceBodyBytes {
 				return xerrors.Errorf("body-free release evidence huge-body probe is invalid")

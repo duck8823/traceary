@@ -271,7 +271,7 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		return v0330ReleaseEvidenceBoundedSample(events), err
 	})
 	hugeProbe.SourceBodyBytes = v0330ReleaseEvidenceBodyBytes
-	hugeProbe.BoundedBudgetBytes = 64 * 1024
+	hugeProbe.BoundedBudgetBytes = 500
 	if hugeProbe.ReturnedItems != 1 || hugeProbe.ReturnedBodyBytes <= 0 || hugeProbe.ReturnedBodyBytes > hugeProbe.BoundedBudgetBytes {
 		b.Fatal("huge-body bounded probe violated its response budget")
 	}
