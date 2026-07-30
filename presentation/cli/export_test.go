@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -16,6 +17,15 @@ var ExpectedCodexPluginHookCount = expectedCodexPluginHookCount
 // SetUserHomeDirFunc replaces the home-directory lookup function for tests.
 func SetUserHomeDirFunc(f func() (string, error)) {
 	userHomeDirFunc = f
+	if os.Getenv(hookStateDirEnvKey) != testDefaultHookStateDir {
+		return
+	}
+	homeDir, err := f()
+	if err != nil {
+		_ = os.Unsetenv(hookStateDirEnvKey)
+		return
+	}
+	_ = os.Setenv(hookStateDirEnvKey, filepath.Join(homeDir, ".config", "traceary", "hooks"))
 }
 
 // CallUserHomeDirFunc exposes the current user-home-directory lookup for
@@ -28,6 +38,7 @@ func CallUserHomeDirFunc() (string, error) {
 // ResetUserHomeDirFunc restores the default home-directory lookup function for tests.
 func ResetUserHomeDirFunc() {
 	userHomeDirFunc = os.UserHomeDir
+	_ = os.Setenv(hookStateDirEnvKey, testDefaultHookStateDir)
 }
 
 // SetAntigravityBundleExistsFunc replaces the Antigravity bundle existence

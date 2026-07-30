@@ -201,6 +201,7 @@ func TestRootCLI_HookAntigravityStatusline_DelegatesToUsageCapture(t *testing.T)
 }
 
 func TestRootCLI_HookUsageCommand_DelegatesBodyFreeCodexIdentity(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "codex-usage-key")
 	store := &storeManagementUsecaseStub{}
 	usage := &codexUsageCaptureStub{}
@@ -225,6 +226,7 @@ func TestRootCLI_HookUsageCommand_DelegatesBodyFreeCodexIdentity(t *testing.T) {
 }
 
 func TestRootCLI_HookUsageCommand_DelegatesBodyFreeClaudeIdentity(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "claude-usage-key")
 	store := &storeManagementUsecaseStub{}
 	usage := &claudeUsageCaptureStub{}

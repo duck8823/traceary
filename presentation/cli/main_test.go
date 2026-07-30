@@ -2,8 +2,11 @@ package cli
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
+
+var testDefaultHookStateDir string
 
 // TestMain pins the CLI locale to English for this package's tests unless the
 // environment already sets TRACEARY_LANG. Locale resolution falls back to the
@@ -21,5 +24,21 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv(cliLanguageEnvKey, "en")
 	}
 
-	os.Exit(m.Run())
+	removeTestHookStateDir := false
+	if stateDir, ok := os.LookupEnv(hookStateDirEnvKey); ok && strings.TrimSpace(stateDir) != "" {
+		testDefaultHookStateDir = stateDir
+	} else {
+		var err error
+		testDefaultHookStateDir, err = os.MkdirTemp("", "traceary-cli-test-hooks-")
+		if err != nil || os.Setenv(hookStateDirEnvKey, testDefaultHookStateDir) != nil {
+			_ = os.RemoveAll(testDefaultHookStateDir)
+			os.Exit(1)
+		}
+		removeTestHookStateDir = true
+	}
+	code := m.Run()
+	if removeTestHookStateDir {
+		_ = os.RemoveAll(testDefaultHookStateDir)
+	}
+	os.Exit(code)
 }
