@@ -1,12 +1,17 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 )
 
-var testDefaultHookStateDir string
+var (
+	testDefaultHookStateDir    string
+	testDefaultUserHomeDir     string
+	testDefaultUserHomeDirFunc func() (string, error)
+)
 
 // TestMain pins the CLI locale to English for this package's tests unless the
 // environment already sets TRACEARY_LANG. Locale resolution falls back to the
@@ -24,14 +29,30 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv(cliLanguageEnvKey, "en")
 	}
 
+	var err error
+	testDefaultUserHomeDir, err = os.MkdirTemp("", "traceary-cli-test-home-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create isolated Traceary CLI test home: %v\n", err)
+		os.Exit(1)
+	}
+	testDefaultUserHomeDirFunc = func() (string, error) { return testDefaultUserHomeDir, nil }
+	userHomeDirFunc = testDefaultUserHomeDirFunc
+
 	removeTestHookStateDir := false
 	if stateDir, ok := os.LookupEnv(hookStateDirEnvKey); ok && strings.TrimSpace(stateDir) != "" {
 		testDefaultHookStateDir = stateDir
 	} else {
-		var err error
 		testDefaultHookStateDir, err = os.MkdirTemp("", "traceary-cli-test-hooks-")
-		if err != nil || os.Setenv(hookStateDirEnvKey, testDefaultHookStateDir) != nil {
+		if err != nil {
 			_ = os.RemoveAll(testDefaultHookStateDir)
+			_ = os.RemoveAll(testDefaultUserHomeDir)
+			fmt.Fprintf(os.Stderr, "create isolated Traceary CLI hook state: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.Setenv(hookStateDirEnvKey, testDefaultHookStateDir); err != nil {
+			_ = os.RemoveAll(testDefaultHookStateDir)
+			_ = os.RemoveAll(testDefaultUserHomeDir)
+			fmt.Fprintf(os.Stderr, "configure isolated Traceary CLI hook state: %v\n", err)
 			os.Exit(1)
 		}
 		removeTestHookStateDir = true
@@ -40,5 +61,6 @@ func TestMain(m *testing.M) {
 	if removeTestHookStateDir {
 		_ = os.RemoveAll(testDefaultHookStateDir)
 	}
+	_ = os.RemoveAll(testDefaultUserHomeDir)
 	os.Exit(code)
 }
