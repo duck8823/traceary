@@ -20,6 +20,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ### Notes
 - Migrations 31 through 34 are additive and migration-safe. They backfill and maintain metadata access paths without deleting existing event/session data or enabling telemetry.
 - Bounded retrieval preserves canonical body availability and truncation semantics. It does not expose prompt, response, cursor, workspace, or raw spool payloads in release evidence.
+- Release QA and its current local-test isolation follow-up are recorded in [v0.33.0 release QA](docs/release/v0.33.0-qa.md).
 
 ## [v0.32.1] - 2026-07-25
 
