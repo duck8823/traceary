@@ -14,7 +14,10 @@ var (
 	testDefaultUserHomeDirFunc func() (string, error)
 )
 
-const testHookStateDirEnvKey = "TRACEARY_TEST_HOOK_STATE_DIR"
+const (
+	testHookStateDirEnvKey = "TRACEARY_TEST_HOOK_STATE_DIR"
+	testDBPathEnvKey       = "TRACEARY_TEST_DB_PATH"
+)
 
 // TestMain pins the CLI locale to English for this package's tests unless the
 // environment already sets TRACEARY_LANG. Locale resolution falls back to the
@@ -55,6 +58,15 @@ func TestMain(m *testing.M) {
 		_ = os.RemoveAll(testDefaultHookStateDir)
 		_ = os.RemoveAll(testDefaultUserHomeDir)
 		fmt.Fprintf(os.Stderr, "configure isolated Traceary CLI hook state: %v\n", err)
+		os.Exit(1)
+	}
+	if dbPath := strings.TrimSpace(os.Getenv(testDBPathEnvKey)); dbPath != "" {
+		if err := os.Setenv(dbPathEnvKey, dbPath); err != nil {
+			fmt.Fprintf(os.Stderr, "configure isolated Traceary CLI database: %v\n", err)
+			os.Exit(1)
+		}
+	} else if err := os.Unsetenv(dbPathEnvKey); err != nil {
+		fmt.Fprintf(os.Stderr, "clear ambient Traceary CLI database: %v\n", err)
 		os.Exit(1)
 	}
 	code := m.Run()
