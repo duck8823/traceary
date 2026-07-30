@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"regexp"
@@ -650,9 +651,14 @@ func validateBodyFreeEvidencePhaseA(phaseA bodyFreeEvidencePhaseA) error {
 		phaseA.Events != 8 || phaseA.ProjectionRows != phaseA.Events ||
 		phaseA.MissingBodyMetadata != 0 || !phaseA.ProjectionOnly ||
 		phaseA.ReturnedItems != phaseA.Events || phaseA.ReturnedBodyBytes != 0 ||
-		phaseA.Runs != 25 || phaseA.TargetP95MS != 250 || phaseA.P95MS < 0 ||
-		phaseA.Passed != (phaseA.P95MS < phaseA.TargetP95MS) {
+		phaseA.Runs != 25 || phaseA.TargetP95MS != 250 {
 		return xerrors.Errorf("body-free release evidence phase A is invalid")
+	}
+	if math.IsNaN(phaseA.P95MS) || math.IsInf(phaseA.P95MS, 0) || phaseA.P95MS <= 0 {
+		return xerrors.Errorf("body-free release evidence phase A p95 is missing or invalid")
+	}
+	if phaseA.P95MS >= phaseA.TargetP95MS || !phaseA.Passed {
+		return xerrors.Errorf("body-free release evidence phase A did not meet the p95 target")
 	}
 	return nil
 }

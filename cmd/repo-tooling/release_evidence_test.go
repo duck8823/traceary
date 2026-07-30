@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,65 @@ func TestValidateBodyFreeEvidence_AcceptsCompleteMetricsOnlyArtifact(t *testing.
 	}
 	if _, err := decodeBodyFreeEvidence(bytes.NewReader(encoded.Bytes())); err != nil {
 		t.Fatalf("decodeBodyFreeEvidence() error = %v", err)
+	}
+}
+
+func TestValidateBodyFreeEvidence_EnforcesPhaseAP95Gate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		p95MS   float64
+		passed  bool
+		wantErr bool
+	}{
+		{name: "accepts a measured value below the target", p95MS: 249.999, passed: true},
+		{name: "rejects the target boundary", p95MS: 250, passed: true, wantErr: true},
+		{name: "rejects a value above the target", p95MS: 250.001, passed: true, wantErr: true},
+		{name: "rejects an omitted measurement decoded as zero", p95MS: 0, passed: true, wantErr: true},
+		{name: "rejects a negative measurement", p95MS: -1, passed: false, wantErr: true},
+		{name: "rejects NaN", p95MS: math.NaN(), passed: false, wantErr: true},
+		{name: "rejects positive infinity", p95MS: math.Inf(1), passed: true, wantErr: true},
+		{name: "rejects negative infinity", p95MS: math.Inf(-1), passed: false, wantErr: true},
+		{name: "rejects a failed under-target measurement", p95MS: 249.999, passed: false, wantErr: true},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			evidence := validBodyFreeEvidenceFixture()
+			evidence.PhaseA.P95MS = test.p95MS
+			evidence.PhaseA.Passed = test.passed
+			err := validateBodyFreeEvidence(evidence)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateBodyFreeEvidence() error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestDecodeBodyFreeEvidence_RejectsMissingPhaseAP95Measurement(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(validBodyFreeEvidenceFixture())
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	phaseA, ok := document["phase_a"].(map[string]any)
+	if !ok {
+		t.Fatal("phase_a is missing from the fixture")
+	}
+	delete(phaseA, "p95_ms")
+	encoded, err = json.Marshal(document)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if _, err := decodeBodyFreeEvidence(bytes.NewReader(encoded)); err == nil {
+		t.Fatal("evidence without a Phase-A p95 measurement unexpectedly passed")
 	}
 }
 
@@ -244,9 +304,7 @@ func TestValidateBodyFreeEvidence_ValidatesPresentPhasesInBlockedArtifact(t *tes
 
 	evidence := validBodyFreeEvidenceFixture()
 	evidence.Status = "blocked"
-	evidence.BlockReason = "phase_a_failed"
-	evidence.PhaseA.P95MS = 300
-	evidence.PhaseA.Passed = false
+	evidence.BlockReason = "phase_bc_failed"
 	if err := validateBodyFreeEvidence(evidence); err != nil {
 		t.Fatalf("valid blocked evidence unexpectedly failed: %v", err)
 	}
