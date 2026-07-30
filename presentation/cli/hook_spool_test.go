@@ -903,7 +903,7 @@ func TestHookSpoolSurvivesSIGTERM(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHookSpoolSurvivesSIGTERM$")
-	cmd.Env = append(os.Environ(), "TRACEARY_HOOK_SPOOL_SIGNAL_HELPER=1", hookStateDirEnvKey+"="+stateDir)
+	cmd.Env = append(os.Environ(), "TRACEARY_HOOK_SPOOL_SIGNAL_HELPER=1", testHookStateDirEnvKey+"="+stateDir)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}

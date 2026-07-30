@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -12,6 +13,8 @@ var (
 	testDefaultUserHomeDir     string
 	testDefaultUserHomeDirFunc func() (string, error)
 )
+
+const testHookStateDirEnvKey = "TRACEARY_TEST_HOOK_STATE_DIR"
 
 // TestMain pins the CLI locale to English for this package's tests unless the
 // environment already sets TRACEARY_LANG. Locale resolution falls back to the
@@ -38,29 +41,33 @@ func TestMain(m *testing.M) {
 	testDefaultUserHomeDirFunc = func() (string, error) { return testDefaultUserHomeDir, nil }
 	userHomeDirFunc = testDefaultUserHomeDirFunc
 
-	removeTestHookStateDir := false
-	if stateDir, ok := os.LookupEnv(hookStateDirEnvKey); ok && strings.TrimSpace(stateDir) != "" {
+	if stateDir := strings.TrimSpace(os.Getenv(testHookStateDirEnvKey)); stateDir != "" {
 		testDefaultHookStateDir = stateDir
 	} else {
 		testDefaultHookStateDir, err = os.MkdirTemp("", "traceary-cli-test-hooks-")
 		if err != nil {
-			_ = os.RemoveAll(testDefaultHookStateDir)
 			_ = os.RemoveAll(testDefaultUserHomeDir)
 			fmt.Fprintf(os.Stderr, "create isolated Traceary CLI hook state: %v\n", err)
 			os.Exit(1)
 		}
-		if err := os.Setenv(hookStateDirEnvKey, testDefaultHookStateDir); err != nil {
-			_ = os.RemoveAll(testDefaultHookStateDir)
-			_ = os.RemoveAll(testDefaultUserHomeDir)
-			fmt.Fprintf(os.Stderr, "configure isolated Traceary CLI hook state: %v\n", err)
-			os.Exit(1)
-		}
-		removeTestHookStateDir = true
+	}
+	if err := os.Setenv(hookStateDirEnvKey, testDefaultHookStateDir); err != nil {
+		_ = os.RemoveAll(testDefaultHookStateDir)
+		_ = os.RemoveAll(testDefaultUserHomeDir)
+		fmt.Fprintf(os.Stderr, "configure isolated Traceary CLI hook state: %v\n", err)
+		os.Exit(1)
 	}
 	code := m.Run()
-	if removeTestHookStateDir {
+	if os.Getenv(testHookStateDirEnvKey) == "" {
 		_ = os.RemoveAll(testDefaultHookStateDir)
 	}
 	_ = os.RemoveAll(testDefaultUserHomeDir)
 	os.Exit(code)
+}
+
+func TestMain_UsesTestOwnedHookStateDirectory(t *testing.T) {
+	relativePath, err := filepath.Rel(os.TempDir(), testDefaultHookStateDir)
+	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(os.PathSeparator)) {
+		t.Fatalf("testDefaultHookStateDir = %q, want a test-owned temporary directory", testDefaultHookStateDir)
+	}
 }

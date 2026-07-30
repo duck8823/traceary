@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -26,7 +27,9 @@ func TestResolveHookStateDir_UsesHomeFallbackWhenEnvironmentIsEmpty(t *testing.T
 func TestResolveHookStateDir_ErrorInjectedHomeCannotUseTestProcessHome(t *testing.T) {
 	SetUserHomeDirFunc(func() (string, error) { return "", errors.New("home unavailable") })
 	t.Cleanup(ResetUserHomeDirFunc)
-	t.Setenv(hookStateDirEnvKey, "")
+	if _, configured := os.LookupEnv(hookStateDirEnvKey); configured {
+		t.Fatal("SetUserHomeDirFunc(error) must clear the hook-state environment")
+	}
 
 	if _, err := resolveHookStateDir(); err == nil {
 		t.Fatal("resolveHookStateDir() error = nil, want home lookup error")
