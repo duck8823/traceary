@@ -49,7 +49,6 @@ type BodyFreeEvidence struct {
 	PhaseB      *bodyFreeEvidencePhaseB   `json:"phase_b,omitempty"`
 	PhaseC      []bodyFreeEvidenceProbe   `json:"phase_c,omitempty"`
 	PhaseD      *bodyFreeEvidencePhaseD   `json:"phase_d,omitempty"`
-	PhaseE      *bodyFreeEvidencePhaseE   `json:"phase_e,omitempty"`
 	Privacy     bodyFreeEvidencePrivacy   `json:"privacy"`
 }
 
@@ -122,12 +121,6 @@ type bodyFreeEvidencePhaseD struct {
 	BodyBlocksObserved            bool `json:"body_blocks_observed"`
 	TruncationMetadataObserved    bool `json:"truncation_metadata_observed"`
 	ContinuationNoDuplicateOrSkip bool `json:"continuation_no_duplicate_or_skip"`
-}
-
-type bodyFreeEvidencePhaseE struct {
-	HostCount             int  `json:"host_count"`
-	ManifestParity        bool `json:"manifest_parity"`
-	StagedRetrievalParity bool `json:"staged_retrieval_parity"`
 }
 
 type bodyFreeEvidencePrivacy struct {
@@ -293,21 +286,18 @@ func collectV0330BodyFreeEvidence(
 		evidence.Privacy.ScratchPrivate = true
 	}
 
+	hostsVerified := false
 	if evidence.BlockReason == "" {
 		if err := deps.verifyHosts(root); err != nil {
 			evidence.BlockReason = "host_parity_failed"
 		} else {
-			evidence.PhaseE = &bodyFreeEvidencePhaseE{
-				HostCount:             6,
-				ManifestParity:        true,
-				StagedRetrievalParity: true,
-			}
+			hostsVerified = true
 		}
 	}
 
 	phaseCtx, cancel := context.WithTimeout(ctx, v0330EvidenceRunTimeout)
 	defer cancel()
-	phasesAllowed := evidence.Privacy.ScratchPrivate && evidence.PhaseE != nil
+	phasesAllowed := evidence.Privacy.ScratchPrivate && hostsVerified
 	setBlockReason := func(reason string) {
 		if evidence.BlockReason == "" {
 			evidence.BlockReason = reason
@@ -365,7 +355,6 @@ func collectV0330BodyFreeEvidence(
 		evidence.PhaseB = nil
 		evidence.PhaseC = nil
 		evidence.PhaseD = nil
-		evidence.PhaseE = nil
 	}
 	return evidence
 }
@@ -548,7 +537,7 @@ func validateBodyFreeEvidence(evidence BodyFreeEvidence) error {
 		evidence.Preflight.Reason != "insufficient_disk" {
 		return xerrors.Errorf("body-free release evidence preflight reason is invalid")
 	}
-	if !evidence.Privacy.MetricsOnly || !evidence.Privacy.ScratchCleaned {
+	if !evidence.Privacy.MetricsOnly {
 		return xerrors.Errorf("body-free release evidence privacy contract is incomplete")
 	}
 
@@ -572,12 +561,6 @@ func validateBodyFreeEvidence(evidence BodyFreeEvidence) error {
 			return err
 		}
 	}
-	if evidence.PhaseE != nil {
-		if err := validateBodyFreeEvidencePhaseE(*evidence.PhaseE); err != nil {
-			return err
-		}
-	}
-
 	if evidence.Status == "blocked" {
 		allowed := map[string]bool{
 			"filesystem_preflight_unavailable": true,
@@ -608,15 +591,22 @@ func validateBodyFreeEvidence(evidence BodyFreeEvidence) error {
 				evidence.BlockReason == "insufficient_disk") {
 			return xerrors.Errorf("body-free release evidence preflight reason is missing")
 		}
+		if !evidence.Privacy.ScratchCleaned && evidence.BlockReason != "scratch_cleanup_failed" {
+			return xerrors.Errorf("body-free release evidence scratch cleanup state is inconsistent")
+		}
+		if evidence.Privacy.ScratchCleaned && evidence.BlockReason == "scratch_cleanup_failed" {
+			return xerrors.Errorf("body-free release evidence scratch cleanup state is inconsistent")
+		}
 		return nil
 	}
 
 	if evidence.BlockReason != "" || !evidence.Preflight.Capable ||
 		evidence.Preflight.AvailableScratchBytes < evidence.Preflight.RequiredScratchBytes ||
-		evidence.Preflight.Reason != "" || !evidence.Privacy.ScratchPrivate {
+		evidence.Preflight.Reason != "" || !evidence.Privacy.ScratchPrivate ||
+		!evidence.Privacy.ScratchCleaned {
 		return xerrors.Errorf("body-free release evidence pass preconditions are incomplete")
 	}
-	if evidence.PhaseA == nil || evidence.PhaseB == nil || evidence.PhaseD == nil || evidence.PhaseE == nil {
+	if evidence.PhaseA == nil || evidence.PhaseB == nil || evidence.PhaseD == nil {
 		return xerrors.Errorf("body-free release evidence is missing a phase")
 	}
 	if !evidence.PhaseA.Passed {
@@ -690,13 +680,6 @@ func validateBodyFreeEvidencePhaseD(phaseD bodyFreeEvidencePhaseD) error {
 		!phaseD.TruncationMetadataObserved ||
 		!phaseD.ContinuationNoDuplicateOrSkip {
 		return xerrors.Errorf("body-free release evidence phase D failed")
-	}
-	return nil
-}
-
-func validateBodyFreeEvidencePhaseE(phaseE bodyFreeEvidencePhaseE) error {
-	if phaseE.HostCount != 6 || !phaseE.ManifestParity || !phaseE.StagedRetrievalParity {
-		return xerrors.Errorf("body-free release evidence phase E failed")
 	}
 	return nil
 }

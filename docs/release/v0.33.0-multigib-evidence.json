@@ -8,7 +8,7 @@
   },
   "preflight": {
     "required_scratch_bytes": 12884901888,
-    "available_scratch_bytes": 181527982080,
+    "available_scratch_bytes": 84308983808,
     "capable": true
   },
   "phase_a": {
@@ -21,16 +21,16 @@
     "returned_items": 8,
     "returned_body_bytes": 0,
     "runs": 25,
-    "p95_ms": 0.074625,
+    "p95_ms": 0.083958,
     "target_p95_ms": 250,
     "passed": true
   },
   "phase_b": {
     "source_managed_bytes": 2418642944,
-    "scratch_bytes_after_checkpoint": 4837355520,
+    "scratch_bytes_after_checkpoint": 6718570496,
     "events": 130,
-    "migration_ms": 17477.897125,
-    "resume_backfill_ms": 1.8475,
+    "migration_ms": 61964.362709,
+    "resume_backfill_ms": 2.166166,
     "migrations_31_34_applied": true,
     "projection_rows": 130,
     "integrity_ok": true,
@@ -39,7 +39,8 @@
     "initial_fts_documents": 128,
     "initial_fts_complete": false,
     "final_fts_documents": 130,
-    "final_fts_complete": true
+    "final_fts_complete": true,
+    "pre_projection_writer_ok": true
   },
   "phase_c": [
     {
@@ -47,7 +48,7 @@
       "projection": "metadata",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 1.248375,
+      "p95_ms": 1.413459,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -56,16 +57,27 @@
       "projection": "bounded",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 1.491583,
+      "p95_ms": 1.549,
       "returned_items": 20,
       "returned_body_bytes": 920
+    },
+    {
+      "operation": "list",
+      "projection": "bounded_huge",
+      "fts_phase": "not_applicable",
+      "runs": 25,
+      "p95_ms": 206.701792,
+      "returned_items": 1,
+      "returned_body_bytes": 500,
+      "source_body_bytes": 268435456,
+      "bounded_budget_bytes": 500
     },
     {
       "operation": "context",
       "projection": "metadata",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 0.929292,
+      "p95_ms": 1.059917,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -74,7 +86,7 @@
       "projection": "bounded",
       "fts_phase": "not_applicable",
       "runs": 25,
-      "p95_ms": 1.311833,
+      "p95_ms": 1.393292,
       "returned_items": 20,
       "returned_body_bytes": 920
     },
@@ -83,7 +95,7 @@
       "projection": "metadata",
       "fts_phase": "incomplete",
       "runs": 25,
-      "p95_ms": 6.671917,
+      "p95_ms": 7.149292,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -92,7 +104,7 @@
       "projection": "bounded",
       "fts_phase": "incomplete",
       "runs": 25,
-      "p95_ms": 6.858,
+      "p95_ms": 7.146875,
       "returned_items": 20,
       "returned_body_bytes": 920
     },
@@ -101,7 +113,7 @@
       "projection": "metadata",
       "fts_phase": "complete",
       "runs": 25,
-      "p95_ms": 2.428042,
+      "p95_ms": 2.466041,
       "returned_items": 20,
       "returned_body_bytes": 0
     },
@@ -110,7 +122,7 @@
       "projection": "bounded",
       "fts_phase": "complete",
       "runs": 25,
-      "p95_ms": 2.761833,
+      "p95_ms": 2.779167,
       "returned_items": 20,
       "returned_body_bytes": 920
     }
@@ -126,11 +138,6 @@
     "body_blocks_observed": true,
     "truncation_metadata_observed": true,
     "continuation_no_duplicate_or_skip": true
-  },
-  "phase_e": {
-    "host_count": 6,
-    "manifest_parity": true,
-    "staged_retrieval_parity": true
   },
   "privacy": {
     "metrics_only": true,

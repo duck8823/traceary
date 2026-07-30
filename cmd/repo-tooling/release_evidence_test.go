@@ -289,16 +289,6 @@ func TestValidateBodyFreeEvidence_RequiresAggregateTruncationMetadata(t *testing
 	}
 }
 
-func TestValidateBodyFreeEvidence_RequiresStagedRetrievalParity(t *testing.T) {
-	t.Parallel()
-
-	evidence := validBodyFreeEvidenceFixture()
-	evidence.PhaseE.StagedRetrievalParity = false
-	if err := validateBodyFreeEvidence(evidence); err == nil {
-		t.Fatal("Phase E without staged-retrieval parity unexpectedly passed")
-	}
-}
-
 func TestValidateBodyFreeEvidence_ValidatesPresentPhasesInBlockedArtifact(t *testing.T) {
 	t.Parallel()
 
@@ -312,6 +302,23 @@ func TestValidateBodyFreeEvidence_ValidatesPresentPhasesInBlockedArtifact(t *tes
 	evidence.PhaseB.Events = 0
 	if err := validateBodyFreeEvidence(evidence); err == nil {
 		t.Fatal("blocked evidence with an invalid present phase unexpectedly passed")
+	}
+}
+
+func TestValidateBodyFreeEvidence_AcceptsOnlyDeclaredScratchCleanupFailure(t *testing.T) {
+	t.Parallel()
+
+	evidence := validBodyFreeEvidenceFixture()
+	evidence.Status = "blocked"
+	evidence.BlockReason = "scratch_cleanup_failed"
+	evidence.Privacy.ScratchCleaned = false
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("cleanup-failure evidence unexpectedly failed: %v", err)
+	}
+
+	evidence.BlockReason = "phase_a_failed"
+	if err := validateBodyFreeEvidence(evidence); err == nil {
+		t.Fatal("non-cleanup block reason unexpectedly accepted uncleared scratch")
 	}
 }
 
@@ -400,6 +407,47 @@ func TestCollectV0330BodyFreeEvidence_CleansPrivateScratchAndMergesMarkers(t *te
 	}
 }
 
+func TestCollectV0330BodyFreeEvidence_PreservesScratchCleanupFailureArtifact(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	var scratch string
+	deps := defaultReleaseEvidenceDependencies()
+	deps.availableScratchBytes = func(string) (uint64, error) {
+		return v0330EvidenceRequiredScratchBytes, nil
+	}
+	deps.verifyHosts = func(string) error { return nil }
+	deps.runPhase = func(_ context.Context, _ string, observedScratch string, phase releaseEvidencePhase) ([]byte, error) {
+		scratch = observedScratch
+		valid := validBodyFreeEvidenceFixture()
+		switch phase {
+		case releaseEvidencePhaseA:
+			return markerFixture(t, bodyFreeEvidencePhaseAMarker, *valid.PhaseA), nil
+		case releaseEvidencePhaseBC:
+			return markerFixture(t, bodyFreeEvidencePhaseBCMarker, bodyFreeEvidencePhaseBC{
+				PhaseB: *valid.PhaseB,
+				PhaseC: valid.PhaseC,
+			}), nil
+		case releaseEvidencePhaseD:
+			return markerFixture(t, bodyFreeEvidencePhaseDMarker, *valid.PhaseD), nil
+		default:
+			return nil, errors.New("unsupported phase")
+		}
+	}
+	deps.removeAll = func(string) error { return errors.New("injected cleanup failure") }
+
+	evidence := collectV0330BodyFreeEvidence(context.Background(), t.TempDir(), parent, deps)
+	if evidence.Status != "blocked" || evidence.BlockReason != "scratch_cleanup_failed" || evidence.Privacy.ScratchCleaned {
+		t.Fatalf("cleanup failure evidence = %+v", evidence)
+	}
+	if err := validateBodyFreeEvidence(evidence); err != nil {
+		t.Fatalf("cleanup failure artifact is not serializable: %v", err)
+	}
+	if err := os.RemoveAll(scratch); err != nil {
+		t.Fatalf("RemoveAll(scratch) error = %v", err)
+	}
+}
+
 func TestCollectV0330BodyFreeEvidence_SanitizesInvalidPhaseMetrics(t *testing.T) {
 	t.Parallel()
 
@@ -431,7 +479,7 @@ func TestCollectV0330BodyFreeEvidence_SanitizesInvalidPhaseMetrics(t *testing.T)
 		t.Fatalf("invalid phase evidence = %+v", evidence)
 	}
 	if evidence.PhaseA != nil || evidence.PhaseB != nil || len(evidence.PhaseC) != 0 ||
-		evidence.PhaseD != nil || evidence.PhaseE != nil {
+		evidence.PhaseD != nil {
 		t.Fatalf("invalid phase metrics were retained: %+v", evidence)
 	}
 	if err := validateBodyFreeEvidence(evidence); err != nil {
@@ -508,9 +556,6 @@ func validBodyFreeEvidenceFixture() BodyFreeEvidence {
 			Pages: 5, TotalItems: 100, MultibyteObserved: true,
 			BodyBlocksObserved: true, TruncationMetadataObserved: true,
 			ContinuationNoDuplicateOrSkip: true,
-		},
-		PhaseE: &bodyFreeEvidencePhaseE{
-			HostCount: 6, ManifestParity: true, StagedRetrievalParity: true,
 		},
 		Privacy: bodyFreeEvidencePrivacy{
 			MetricsOnly: true, ScratchPrivate: true, ScratchCleaned: true,
