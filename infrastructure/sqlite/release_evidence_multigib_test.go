@@ -46,13 +46,15 @@ type v0330ReleaseEvidencePhaseB struct {
 }
 
 type v0330ReleaseEvidenceProbe struct {
-	Operation         string  `json:"operation"`
-	Projection        string  `json:"projection"`
-	FTSPhase          string  `json:"fts_phase"`
-	Runs              int     `json:"runs"`
-	P95MS             float64 `json:"p95_ms"`
-	ReturnedItems     int     `json:"returned_items"`
-	ReturnedBodyBytes int     `json:"returned_body_bytes"`
+	Operation          string  `json:"operation"`
+	Projection         string  `json:"projection"`
+	FTSPhase           string  `json:"fts_phase"`
+	Runs               int     `json:"runs"`
+	P95MS              float64 `json:"p95_ms"`
+	ReturnedItems      int     `json:"returned_items"`
+	ReturnedBodyBytes  int     `json:"returned_body_bytes"`
+	SourceBodyBytes    int64   `json:"source_body_bytes,omitempty"`
+	BoundedBudgetBytes int     `json:"bounded_budget_bytes,omitempty"`
 }
 
 type v0330ReleaseEvidencePhaseBC struct {
@@ -242,7 +244,7 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		To(base.Add(v0330ReleaseEvidenceEvents * time.Second)).
 		Build()
 
-	probes := make([]v0330ReleaseEvidenceProbe, 0, 8)
+	probes := make([]v0330ReleaseEvidenceProbe, 0, 9)
 	listMetadataProbe, listMetadata := measureV0330ReleaseEvidenceProbe(
 		b, "list", "metadata", "not_applicable",
 		func() (v0330ReleaseEvidenceSample, error) {
@@ -263,6 +265,17 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 		_ = copyDB.Close()
 		b.Fatalf("list retrieval correctness gate failed: %v", err)
 	}
+	hugeCriteria := apptypes.NewEventListCriteriaBuilder(1).Workspace(workspace).From(base.Add(6500 * time.Millisecond)).To(base.Add(7500 * time.Millisecond)).Build()
+	hugeProbe, _ := measureV0330ReleaseEvidenceProbe(b, "list", "bounded_huge", "not_applicable", func() (v0330ReleaseEvidenceSample, error) {
+		events, err := datasource.ListRecentBounded(ctx, hugeCriteria, 500)
+		return v0330ReleaseEvidenceBoundedSample(events), err
+	})
+	hugeProbe.SourceBodyBytes = v0330ReleaseEvidenceBodyBytes
+	hugeProbe.BoundedBudgetBytes = 64 * 1024
+	if hugeProbe.ReturnedItems != 1 || hugeProbe.ReturnedBodyBytes <= 0 || hugeProbe.ReturnedBodyBytes > hugeProbe.BoundedBudgetBytes {
+		b.Fatal("huge-body bounded probe violated its response budget")
+	}
+	probes = append(probes, hugeProbe)
 	contextMetadataProbe, contextMetadata := measureV0330ReleaseEvidenceProbe(
 		b, "context", "metadata", "not_applicable",
 		func() (v0330ReleaseEvidenceSample, error) {
@@ -423,7 +436,7 @@ func seedV0330ReleaseEvidenceStore(ctx context.Context, db *sql.DB) error {
 			id, kind, client, agent, session_id, workspace, body, created_at,
 			body_availability
 		) VALUES (?, 'note', 'cli', 'codex', 'release-session', 'release-evidence',
-			zeroblob(?), ?, 'unavailable_retention')`)
+			zeroblob(?), ?, 'available')`)
 	if err != nil {
 		return fmt.Errorf("prepare large fixture insert: %w", err)
 	}

@@ -471,6 +471,11 @@ func validBodyFreeEvidenceFixture() BodyFreeEvidence {
 			Runs: 25, P95MS: 1.25, ReturnedItems: 20, ReturnedBodyBytes: bodyBytes,
 		})
 	}
+	probes = append(probes, bodyFreeEvidenceProbe{
+		Operation: "list", Projection: "bounded_huge", FTSPhase: "not_applicable",
+		Runs: 25, P95MS: 1.25, ReturnedItems: 1, ReturnedBodyBytes: 500,
+		SourceBodyBytes: 256 << 20, BoundedBudgetBytes: 64 * 1024,
+	})
 	return BodyFreeEvidence{
 		Schema: bodyFreeEvidenceSchema,
 		Status: "pass",

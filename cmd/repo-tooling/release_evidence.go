@@ -100,13 +100,15 @@ type bodyFreeEvidencePhaseB struct {
 }
 
 type bodyFreeEvidenceProbe struct {
-	Operation         string  `json:"operation"`
-	Projection        string  `json:"projection"`
-	FTSPhase          string  `json:"fts_phase"`
-	Runs              int     `json:"runs"`
-	P95MS             float64 `json:"p95_ms"`
-	ReturnedItems     int     `json:"returned_items"`
-	ReturnedBodyBytes int     `json:"returned_body_bytes"`
+	Operation          string  `json:"operation"`
+	Projection         string  `json:"projection"`
+	FTSPhase           string  `json:"fts_phase"`
+	Runs               int     `json:"runs"`
+	P95MS              float64 `json:"p95_ms"`
+	ReturnedItems      int     `json:"returned_items"`
+	ReturnedBodyBytes  int     `json:"returned_body_bytes"`
+	SourceBodyBytes    int64   `json:"source_body_bytes,omitempty"`
+	BoundedBudgetBytes int     `json:"bounded_budget_bytes,omitempty"`
 }
 
 type bodyFreeEvidencePhaseD struct {
@@ -701,14 +703,15 @@ func validateBodyFreeEvidencePhaseE(phaseE bodyFreeEvidencePhaseE) error {
 
 func validateBodyFreeEvidenceProbes(probes []bodyFreeEvidenceProbe) error {
 	expected := map[string]bool{
-		"list|metadata|not_applicable":    true,
-		"list|bounded|not_applicable":     true,
-		"context|metadata|not_applicable": true,
-		"context|bounded|not_applicable":  true,
-		"search|metadata|incomplete":      true,
-		"search|bounded|incomplete":       true,
-		"search|metadata|complete":        true,
-		"search|bounded|complete":         true,
+		"list|metadata|not_applicable":     true,
+		"list|bounded|not_applicable":      true,
+		"list|bounded_huge|not_applicable": true,
+		"context|metadata|not_applicable":  true,
+		"context|bounded|not_applicable":   true,
+		"search|metadata|incomplete":       true,
+		"search|bounded|incomplete":        true,
+		"search|metadata|complete":         true,
+		"search|bounded|complete":          true,
 	}
 	seen := make(map[string]bool, len(probes))
 	for _, probe := range probes {
@@ -718,8 +721,19 @@ func validateBodyFreeEvidenceProbes(probes []bodyFreeEvidenceProbe) error {
 		}
 		seen[key] = true
 		if probe.Runs != 25 || probe.P95MS < 0 ||
-			probe.ReturnedItems != v0330EvidenceProbeLimit ||
 			probe.ReturnedBodyBytes < 0 {
+			return xerrors.Errorf("body-free release evidence phase C probe is invalid")
+		}
+		if probe.Projection == "bounded_huge" {
+			if probe.ReturnedItems != 1 || probe.ReturnedBodyBytes <= 0 ||
+				probe.SourceBodyBytes != 256<<20 || probe.BoundedBudgetBytes <= 0 ||
+				probe.ReturnedBodyBytes > probe.BoundedBudgetBytes ||
+				int64(probe.ReturnedBodyBytes) >= probe.SourceBodyBytes {
+				return xerrors.Errorf("body-free release evidence huge-body probe is invalid")
+			}
+			continue
+		}
+		if probe.ReturnedItems != v0330EvidenceProbeLimit || probe.SourceBodyBytes != 0 || probe.BoundedBudgetBytes != 0 {
 			return xerrors.Errorf("body-free release evidence phase C probe is invalid")
 		}
 		if probe.Projection == "metadata" && probe.ReturnedBodyBytes != 0 {
