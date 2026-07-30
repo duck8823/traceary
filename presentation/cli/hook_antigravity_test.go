@@ -229,9 +229,9 @@ func TestRootCLI_HookAntigravityConcurrentPreInvocationsProtectAllActiveSessions
 		cmd.Env = append(os.Environ(),
 			"TRACEARY_ANTIGRAVITY_GC_HELPER=1",
 			"TRACEARY_ANTIGRAVITY_GC_PAYLOAD={\"conversationId\":\""+sessionID+"\",\"workspacePaths\":[\"/repo\"]}",
-			"TRACEARY_HOOK_STATE_DIR="+stateDir,
+			"TRACEARY_TEST_HOOK_STATE_DIR="+stateDir,
 			"TRACEARY_HOOK_STATE_KEY="+key,
-			"TRACEARY_DB_PATH="+dbPath,
+			"TRACEARY_TEST_DB_PATH="+dbPath,
 			"TRACEARY_WORKSPACE=github.com/duck8823/traceary",
 		)
 		output := &bytes.Buffer{}
