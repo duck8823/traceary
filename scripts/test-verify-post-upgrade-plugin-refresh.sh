@@ -8,9 +8,17 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/traceary-plugin-refresh-test.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 HOSTS=(claude codex gemini antigravity grok kimi)
 
+check_name_for() {
+  if [[ "$1" == grok ]]; then
+    printf '%s\n' 'grok-plugin'
+  else
+    printf '%s-plugin-version\n' "$1"
+  fi
+}
+
 write_report() {
   local host="$1" status="$2"
-  printf '{"checks":[{"name":"%s-plugin-version","status":"%s","message":"must not be parsed"}]}\n' "${host}" "${status}" >"${TMP_DIR}/${host}.json"
+  printf '{"checks":[{"name":"%s","status":"%s","message":"must not be parsed"}]}\n' "$(check_name_for "${host}")" "${status}" >"${TMP_DIR}/${host}.json"
 }
 
 for host in "${HOSTS[@]}"; do write_report "${host}" pass; done
@@ -73,3 +81,10 @@ echo 'ok: rejects an Antigravity skip-only report'
 printf '{"checks":[{"name":"antigravity-plugin-version","status":"pass"},{"name":"antigravity-plugin-version","status":"skip"}]}' >"${TMP_DIR}/antigravity.json"
 run_fixture "${args[@]}" >/dev/null
 echo 'ok: accepts Antigravity pass plus incomplete-twin skip'
+
+printf '{"checks":[{"name":"grok-plugin-version","status":"pass","message":"must not be parsed"}]}\n' >"${TMP_DIR}/grok.json"
+if run_fixture "${args[@]}" >/dev/null 2>&1; then
+  echo 'error: legacy Grok check unexpectedly passed' >&2
+  exit 1
+fi
+echo 'ok: rejects a legacy grok-plugin-version report'
