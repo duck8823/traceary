@@ -20,7 +20,7 @@ func TestTracearySessionScript_StartDelegatesToHookRuntime(t *testing.T) {
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	env := append(os.Environ(),
+	env := append(hookScriptTestBaseEnvironment(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
 		"TRACEARY_FAKE_SESSION_OUTPUT=generated-session\n",
@@ -49,7 +49,7 @@ func TestTracearySessionScript_StopAppendsDBPathAndSuppressesStdout(t *testing.T
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	env := append(os.Environ(),
+	env := append(hookScriptTestBaseEnvironment(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
 		"TRACEARY_DB_PATH=/tmp/traceary.db",
@@ -78,7 +78,7 @@ func TestTracearyAuditScript_DelegatesToHookRuntime(t *testing.T) {
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	env := append(os.Environ(),
+	env := append(hookScriptTestBaseEnvironment(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
 	)
@@ -106,7 +106,7 @@ func TestTracearyCompactScript_PostCompactSuppressesStdout(t *testing.T) {
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	env := append(os.Environ(),
+	env := append(hookScriptTestBaseEnvironment(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
 		"TRACEARY_FAKE_COMPACT_OUTPUT=context-pack\n",
@@ -135,7 +135,7 @@ func TestTracearyCompactScript_SessionStartCompactPreservesStdout(t *testing.T) 
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	env := append(os.Environ(),
+	env := append(hookScriptTestBaseEnvironment(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
 		"TRACEARY_FAKE_COMPACT_OUTPUT=context-pack\n",
@@ -164,7 +164,7 @@ func TestTracearyPromptScript_DelegatesToHookRuntime(t *testing.T) {
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	env := append(os.Environ(),
+	env := append(hookScriptTestBaseEnvironment(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
 	)
@@ -187,7 +187,14 @@ func TestTracearyPromptScript_DelegatesToHookRuntime(t *testing.T) {
 func TestTracearyHookScripts_ReturnSuccessWhenTracearyIsMissing(t *testing.T) {
 	t.Parallel()
 
-	stdout, err := runHookScriptCapture(t, filepath.Join(".", "traceary-audit.sh"), []string{"PATH=/usr/bin:/bin"}, `{"tool_input":{"command":"go test ./..."}}`, "claude")
+	env := []string{"PATH=/usr/bin:/bin"}
+	command := exec.Command("bash", "-c", "command -v traceary")
+	command.Env = hookScriptTestEnvironment(t, env)
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("test precondition violated: traceary resolves under isolated PATH: %s", output)
+	}
+
+	stdout, err := runHookScriptCapture(t, filepath.Join(".", "traceary-audit.sh"), env, `{"tool_input":{"command":"go test ./..."}}`, "claude")
 	if err != nil {
 		t.Fatalf("runHookScriptCapture() error = %v", err)
 	}
@@ -204,7 +211,7 @@ func TestTracearyHookScripts_SwallowTracearyFailures(t *testing.T) {
 	fakeTracearyPath := filepath.Join(tempDir, "traceary")
 	writeFakeTraceary(t, fakeTracearyPath)
 
-	env := append(os.Environ(),
+	env := append(hookScriptTestBaseEnvironment(),
 		"TRACEARY_BIN="+fakeTracearyPath,
 		"TRACEARY_FAKE_LOG="+fakeLogPath,
 		"TRACEARY_FAKE_EXIT_CODE=23",
@@ -245,7 +252,7 @@ func hookScriptTestEnvironment(t *testing.T, environment []string) []string {
 
 	filtered := make([]string, 0, len(environment)+2)
 	for _, value := range environment {
-		if strings.HasPrefix(value, "HOME=") || strings.HasPrefix(value, "TRACEARY_HOOK_STATE_DIR=") {
+		if !isHookScriptTestEnvironmentVariable(value) {
 			continue
 		}
 		filtered = append(filtered, value)
@@ -254,6 +261,22 @@ func hookScriptTestEnvironment(t *testing.T, environment []string) []string {
 		"HOME="+t.TempDir(),
 		"TRACEARY_HOOK_STATE_DIR="+t.TempDir(),
 	)
+}
+
+func hookScriptTestBaseEnvironment() []string {
+	return []string{"PATH=" + os.Getenv("PATH")}
+}
+
+func isHookScriptTestEnvironmentVariable(value string) bool {
+	name, _, found := strings.Cut(value, "=")
+	if !found {
+		return false
+	}
+
+	if name == "PATH" || name == "TRACEARY_BIN" || name == "TRACEARY_DB_PATH" {
+		return true
+	}
+	return strings.HasPrefix(name, "TRACEARY_FAKE_")
 }
 
 type hookScriptError struct {
