@@ -30,6 +30,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if stdout.String() != "Candidates: 3\n" {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), "Candidates: 3\n")
 		}
+		if storeMaint.initCalled {
+			t.Fatal("Initialize() was called for dry-run")
+		}
 	})
 
 	t.Run("displays deletion count", func(t *testing.T) {
@@ -47,6 +50,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 		if stdout.String() != "Deleted: 2\n" {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), "Deleted: 2\n")
+		}
+		if !storeMaint.initCalled {
+			t.Fatal("Initialize() was not called for apply")
 		}
 	})
 }

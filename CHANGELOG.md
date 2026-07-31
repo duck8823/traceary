@@ -13,6 +13,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Token-efficient host guidance (#1555, #1557)** — packaged skills enforce staged Discovery → Inspection → Detail retrieval, and MCP schema size is budgeted and regression-tested across supported hosts.
 
 ### Fixed
+- **Read-only garbage-collection preview (#1571)** — `traceary store gc --dry-run` no longer initializes, migrates, deletes, updates, or vacuums the store. It uses count-only queries over a read-only SQLite connection and preserves apply-order semantics across events, sessions, memories, and memory edges. Previewing a missing or unmigrated store now fails without creating or migrating it; run `traceary store init` explicitly first.
 - **Memory hygiene safety and cost bounds (#1556)** — scans and similarity work are resumable and bounded; apply revalidates only requested IDs and related candidates before expire, reject, or supersede mutations, failing closed on stale evidence.
 - **Hook and host-package correctness (#1526, #1574, #1575)** — command-audit policy denials are classified explicitly, the post-upgrade verifier accepts canonical Grok inventory, and Codex rollout session IDs are treated as literals rather than glob patterns.
 - **Multi-GiB release evidence (#1558)** — a private synthetic 2 GiB fixture verifies the projection-only metadata path, copied migrations 31–34, FTS progress, MCP aggregation, and bounded huge-body retrieval. The published artifact contains metrics only; it records a Phase-A p95 of 0.079708 ms against the fixed 250 ms gate.

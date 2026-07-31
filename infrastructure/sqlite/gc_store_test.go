@@ -2,7 +2,9 @@ package sqlite_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
@@ -37,6 +39,84 @@ func TestDatasource_CollectGarbage_DryRun(t *testing.T) {
 
 	if diff := cmp.Diff(2, countEvents(t, dbPath)); diff != "" {
 		t.Fatalf("event count mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestDatasource_CollectGarbage_DryRunSucceedsOnReadOnlyStore(t *testing.T) {
+	t.Parallel()
+
+	dbPath, fixture := prepareGCFixture(t)
+	before, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("ReadFile() before dry-run error = %v", err)
+	}
+	beforeDigest := sha256.Sum256(before)
+
+	if err := os.Chmod(dbPath, 0o400); err != nil {
+		t.Fatalf("Chmod(read-only) error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dbPath, 0o600); err != nil {
+			t.Errorf("Chmod(restore) error = %v", err)
+		}
+	})
+	beforeInfo, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("Stat() before dry-run error = %v", err)
+	}
+
+	deletedCount, err := fixture.storeManager.CollectGarbage(
+		context.Background(),
+		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
+		apptypes.GarbageCollectionTargetEvents,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if diff := cmp.Diff(1, deletedCount); diff != "" {
+		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
+	}
+
+	after, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("ReadFile() after dry-run error = %v", err)
+	}
+	afterDigest := sha256.Sum256(after)
+	if diff := cmp.Diff(beforeDigest, afterDigest); diff != "" {
+		t.Fatalf("database digest changed during dry-run (-before +after):\n%s", diff)
+	}
+	afterInfo, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("Stat() after dry-run error = %v", err)
+	}
+	if beforeInfo.Size() != afterInfo.Size() {
+		t.Fatalf("database size changed during dry-run: before=%d after=%d", beforeInfo.Size(), afterInfo.Size())
+	}
+	if beforeInfo.Mode() != afterInfo.Mode() {
+		t.Fatalf("database mode changed during dry-run: before=%s after=%s", beforeInfo.Mode(), afterInfo.Mode())
+	}
+	if !beforeInfo.ModTime().Equal(afterInfo.ModTime()) {
+		t.Fatalf("database mtime changed during dry-run: before=%s after=%s", beforeInfo.ModTime(), afterInfo.ModTime())
+	}
+}
+
+func TestDatasource_CollectGarbage_DryRunDoesNotCreateMissingStore(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "missing", "traceary.db")
+	storeManager := sqlite.NewStoreManagementDatasource(sqlite.NewDatabase(dbPath, fstest.MapFS{}))
+
+	if _, err := storeManager.CollectGarbage(
+		context.Background(),
+		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
+		apptypes.GarbageCollectionTargetEvents,
+		true,
+	); err == nil {
+		t.Fatal("CollectGarbage() error = nil, want missing-store error")
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("Stat() error = %v, want store to remain absent", err)
 	}
 }
 
@@ -247,6 +327,14 @@ func TestDatasource_CollectGarbage_deletesOldEmptySessionsButProtectsActiveAndRe
 	execRetentionSQL(t, db, `INSERT INTO events (id, kind, agent, session_id, body, created_at, source_hook, client, workspace) VALUES
 		('event-recent', 'note', 'codex', 'with-event-old', 'recent', '2026-04-08T00:00:00Z', NULL, 'cli', 'repo')`)
 
+	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetSessions, true)
+	if err != nil {
+		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
+	}
+	if diff := cmp.Diff(1, previewCount); diff != "" {
+		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
+	}
+
 	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetSessions, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
@@ -269,6 +357,16 @@ func TestDatasource_CollectGarbageAll_deletesEventsThenEmptySessions(t *testing.
 		('old-only', '2026-04-01T00:00:00Z', '2026-04-02T00:00:00Z', 'cli', 'codex', 'repo')`)
 	execRetentionSQL(t, db, `INSERT INTO events (id, kind, agent, session_id, body, created_at, source_hook, client, workspace) VALUES
 		('event-old', 'note', 'codex', 'old-only', 'old', '2026-04-02T00:00:00Z', NULL, 'cli', 'repo')`)
+
+	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetAll, true)
+	if err != nil {
+		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
+	}
+	if diff := cmp.Diff(2, previewCount); diff != "" {
+		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
+	}
+	assertRetentionIDs(t, db, "events", "id", []string{"event-old"})
+	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-only"})
 
 	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetAll, false)
 	if err != nil {
@@ -301,6 +399,15 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredSupersededAndRejectedMemori
 	execRetentionSQL(t, db, `INSERT INTO memory_edges (id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at) VALUES
 		('edge-cascade-from', 'mem-expired-old', 'mem-accepted-old', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
 		('edge-cascade-to', 'mem-accepted-old', 'mem-superseded-old', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z')`)
+
+	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemories, true)
+	if err != nil {
+		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
+	}
+	if diff := cmp.Diff(3, previewCount); diff != "" {
+		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
+	}
+	assertRetentionIDs(t, db, "memory_edges", "id", []string{"edge-cascade-from", "edge-cascade-to"})
 
 	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemories, false)
 	if err != nil {
@@ -351,9 +458,23 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 	// Use a `before` cutoff far in the past so the operator-controlled
 	// retention does not delete anything; only the 14-day extracted
 	// auto-decay should fire (status update, not hard delete).
+	before := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	previewCount, err := storeManager.CollectGarbage(
+		context.Background(),
+		before,
+		apptypes.GarbageCollectionTargetMemories,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
+	}
+	if diff := cmp.Diff(3, previewCount); diff != "" {
+		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
+	}
+
 	deletedCount, err := storeManager.CollectGarbage(
 		context.Background(),
-		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		before,
 		apptypes.GarbageCollectionTargetMemories,
 		false,
 	)
@@ -446,6 +567,14 @@ func TestDatasource_CollectGarbage_deletesOldClosedMemoryEdges(t *testing.T) {
 		('edge-recent-closed', 'mem-a', 'mem-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-08T00:00:00.000000000Z', '2026-04-01T00:00:00Z'),
 		('edge-open', 'mem-a', 'mem-b', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z')`)
 
+	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemoryEdges, true)
+	if err != nil {
+		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
+	}
+	if diff := cmp.Diff(1, previewCount); diff != "" {
+		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
+	}
+
 	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemoryEdges, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
@@ -455,6 +584,110 @@ func TestDatasource_CollectGarbage_deletesOldClosedMemoryEdges(t *testing.T) {
 	}
 	assertRetentionIDs(t, db, "memory_edges", "id", []string{"edge-open", "edge-recent-closed"})
 	assertRetentionIDs(t, db, "memories", "id", []string{"mem-a", "mem-b"})
+	assertNoForeignKeyViolations(t, db)
+}
+
+func TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets(t *testing.T) {
+	t.Parallel()
+
+	dbPath, storeManager := prepareRetentionFixture(t)
+	db := openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+
+	cutoff := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
+	staleCandidate := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339Nano)
+
+	execRetentionSQL(t, db, `INSERT INTO sessions (session_id, started_at, ended_at, client, agent, repo) VALUES
+		('old-session', '2026-04-01T00:00:00Z', '2026-04-02T00:00:00Z', 'cli', 'codex', 'repo')`)
+	execRetentionSQL(t, db, `INSERT INTO events (id, kind, agent, session_id, body, created_at, source_hook, client, workspace) VALUES
+		('old-event', 'note', 'codex', 'old-session', 'old', '2026-04-02T00:00:00Z', NULL, 'cli', 'repo')`)
+
+	insertRetentionMemory(t, db, "old-memory", "expired", "", "2026-04-01T00:00:00Z")
+	insertRetentionMemory(t, db, "accepted-a", "accepted", "", "2026-04-01T00:00:00Z")
+	insertRetentionMemory(t, db, "accepted-b", "accepted", "", "2026-04-01T00:00:00Z")
+	insertRetentionMemoryWithSource(t, db, "stale-candidate", "candidate", "extracted", "", staleCandidate)
+	execRetentionSQL(t, db, `INSERT INTO memory_edges (id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at) VALUES
+		('cascade-edge', 'old-memory', 'accepted-a', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
+		('independent-old-edge', 'accepted-a', 'accepted-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-02T00:00:00.000000000Z', '2026-04-01T00:00:00Z')`)
+
+	previewCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, true)
+	if err != nil {
+		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
+	}
+	if diff := cmp.Diff(5, previewCount); diff != "" {
+		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
+	}
+	assertRetentionIDs(t, db, "events", "id", []string{"old-event"})
+	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-session"})
+	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "old-memory", "stale-candidate"})
+	assertRetentionIDs(t, db, "memory_edges", "id", []string{"cascade-edge", "independent-old-edge"})
+
+	deletedCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, false)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if diff := cmp.Diff(previewCount, deletedCount); diff != "" {
+		t.Fatalf("preview/apply count mismatch (-preview +apply):\n%s", diff)
+	}
+	assertRetentionIDs(t, db, "events", "id", nil)
+	assertRetentionIDs(t, db, "sessions", "session_id", nil)
+	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "stale-candidate"})
+	assertRetentionIDs(t, db, "memory_edges", "id", nil)
+
+	var status string
+	if err := db.QueryRow(`SELECT status FROM memories WHERE id = 'stale-candidate'`).Scan(&status); err != nil {
+		t.Fatalf("query stale-candidate status: %v", err)
+	}
+	if status != "expired" {
+		t.Fatalf("stale-candidate status = %q, want expired", status)
+	}
+	assertNoForeignKeyViolations(t, db)
+}
+
+func TestDatasource_CollectGarbageAll_PreviewMatchesApplyWithProductionMigrations(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	storeManager := sqlite.NewStoreManagementDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t)))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db := openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+
+	cutoff := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
+	staleCandidate := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339Nano)
+
+	execRetentionSQL(t, db, `INSERT INTO sessions (session_id, started_at, ended_at, client, agent, workspace) VALUES
+		('old-session', '2026-04-01T00:00:00Z', '2026-04-02T00:00:00Z', 'cli', 'codex', 'repo')`)
+	execRetentionSQL(t, db, `INSERT INTO events (id, kind, agent, session_id, body, created_at, source_hook, client, workspace) VALUES
+		('old-event', 'note', 'codex', 'old-session', 'old', '2026-04-02T00:00:00Z', NULL, 'cli', 'repo')`)
+	insertRetentionMemory(t, db, "old-memory", "expired", "", "2026-04-01T00:00:00Z")
+	insertRetentionMemory(t, db, "accepted-a", "accepted", "", "2026-04-01T00:00:00Z")
+	insertRetentionMemory(t, db, "accepted-b", "accepted", "", "2026-04-01T00:00:00Z")
+	insertRetentionMemoryWithSource(t, db, "stale-candidate", "candidate", "extracted", "", staleCandidate)
+	execRetentionSQL(t, db, `INSERT INTO memory_edges (id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at) VALUES
+		('cascade-edge', 'old-memory', 'accepted-a', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
+		('independent-old-edge', 'accepted-a', 'accepted-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-02T00:00:00.000000000Z', '2026-04-01T00:00:00Z')`)
+
+	previewCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, true)
+	if err != nil {
+		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
+	}
+	deletedCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, false)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if diff := cmp.Diff(5, previewCount); diff != "" {
+		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(previewCount, deletedCount); diff != "" {
+		t.Fatalf("preview/apply count mismatch (-preview +apply):\n%s", diff)
+	}
+	assertRetentionIDs(t, db, "events", "id", nil)
+	assertRetentionIDs(t, db, "sessions", "session_id", nil)
+	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "stale-candidate"})
+	assertRetentionIDs(t, db, "memory_edges", "id", nil)
 	assertNoForeignKeyViolations(t, db)
 }
 

@@ -26,8 +26,17 @@ import (
 //go:embed sql/delete_old_events.sql
 var deleteOldEventsQuery string
 
+//go:embed sql/count_old_events.sql
+var countOldEventsQuery string
+
 //go:embed sql/delete_empty_sessions.sql
 var deleteEmptySessionsQuery string
+
+//go:embed sql/count_empty_sessions.sql
+var countEmptySessionsQuery string
+
+//go:embed sql/count_empty_sessions_after_event_gc.sql
+var countEmptySessionsAfterEventGCQuery string
 
 //go:embed sql/clear_deleted_memory_supersedes_refs.sql
 var clearDeletedMemorySupersedesRefsQuery string
@@ -35,8 +44,14 @@ var clearDeletedMemorySupersedesRefsQuery string
 //go:embed sql/delete_old_memories.sql
 var deleteOldMemoriesQuery string
 
+//go:embed sql/count_old_memories.sql
+var countOldMemoriesQuery string
+
 //go:embed sql/delete_stale_extracted_candidates.sql
 var deleteStaleExtractedCandidatesQuery string
+
+//go:embed sql/count_stale_extracted_candidates.sql
+var countStaleExtractedCandidatesQuery string
 
 //go:embed sql/clear_stale_extracted_candidate_supersedes_refs.sql
 var clearStaleExtractedCandidateSupersedesRefsQuery string
@@ -54,6 +69,12 @@ const staleExtractedCandidateRetention = 14 * 24 * time.Hour
 
 //go:embed sql/delete_old_memory_edges.sql
 var deleteOldMemoryEdgesQuery string
+
+//go:embed sql/count_old_memory_edges.sql
+var countOldMemoryEdgesQuery string
+
+//go:embed sql/count_old_memory_edges_after_memory_gc.sql
+var countOldMemoryEdgesAfterMemoryGCQuery string
 
 //go:embed sql/count_stale_sessions.sql
 var countStaleSessionsQuery string
@@ -275,6 +296,10 @@ func (d *StoreManagementDatasource) CollectGarbage(
 	target apptypes.GarbageCollectionTarget,
 	dryRun bool,
 ) (int, error) {
+	if dryRun {
+		return d.previewGarbage(ctx, before, target)
+	}
+
 	db, err := d.db.open(ctx)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to open DB for garbage collection: %w", err)
@@ -303,9 +328,6 @@ func (d *StoreManagementDatasource) CollectGarbage(
 	if err != nil {
 		return 0, xerrors.Errorf("failed to collect garbage: %w", err)
 	}
-	if dryRun {
-		return deleteCount, nil
-	}
 	if err := tx.Commit(); err != nil {
 		return 0, xerrors.Errorf("failed to commit garbage-collection transaction: %w", err)
 	}
@@ -318,6 +340,130 @@ func (d *StoreManagementDatasource) CollectGarbage(
 	}
 
 	return deleteCount, nil
+}
+
+func (d *StoreManagementDatasource) previewGarbage(
+	ctx context.Context,
+	before time.Time,
+	target apptypes.GarbageCollectionTarget,
+) (int, error) {
+	db, err := d.db.openReadOnly(ctx)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to open DB for garbage-collection preview: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return 0, xerrors.Errorf("failed to begin garbage-collection preview transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			slog.Debug("failed to rollback resource", "error", err)
+		}
+	}()
+
+	count, err := d.countGarbageInTx(ctx, tx, before, target)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to preview garbage collection: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, xerrors.Errorf("failed to finish garbage-collection preview: %w", err)
+	}
+	return count, nil
+}
+
+func (d *StoreManagementDatasource) countGarbageInTx(
+	ctx context.Context,
+	tx interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	},
+	before time.Time,
+	target apptypes.GarbageCollectionTarget,
+) (int, error) {
+	if _, ok := apptypes.GarbageCollectionTargetFrom(target.String()); !ok {
+		return 0, xerrors.Errorf("unsupported garbage-collection target: %s", target)
+	}
+
+	beforeValue := formatTimestamp(before)
+	memoryEdgeBeforeValue := formatMemoryValidityTimestamp(before)
+	total := 0
+	matched := false
+
+	if target == apptypes.GarbageCollectionTargetEvents || target == apptypes.GarbageCollectionTargetAll {
+		matched = true
+		count, err := queryCount(ctx, tx, countOldEventsQuery, beforeValue)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to count old events: %w", err)
+		}
+		total += count
+	}
+	if target == apptypes.GarbageCollectionTargetSessions || target == apptypes.GarbageCollectionTargetAll {
+		matched = true
+		query := countEmptySessionsQuery
+		args := []any{beforeValue}
+		if target == apptypes.GarbageCollectionTargetAll {
+			query = countEmptySessionsAfterEventGCQuery
+			args = append(args, beforeValue)
+		}
+		count, err := queryCount(ctx, tx, query, args...)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to count empty sessions: %w", err)
+		}
+		total += count
+	}
+	if target == apptypes.GarbageCollectionTargetMemories || target == apptypes.GarbageCollectionTargetAll {
+		matched = true
+		count, err := queryCount(ctx, tx, countOldMemoriesQuery, beforeValue)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to count old memories: %w", err)
+		}
+		total += count
+
+		extractedCutoff := formatTimestamp(time.Now().Add(-staleExtractedCandidateRetention))
+		extractedCount, err := queryCount(ctx, tx, countStaleExtractedCandidatesQuery, extractedCutoff)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to count stale extracted candidates: %w", err)
+		}
+		total += extractedCount
+	}
+	if target == apptypes.GarbageCollectionTargetMemoryEdges || target == apptypes.GarbageCollectionTargetAll {
+		matched = true
+		query := countOldMemoryEdgesQuery
+		args := []any{memoryEdgeBeforeValue}
+		if target == apptypes.GarbageCollectionTargetAll {
+			query = countOldMemoryEdgesAfterMemoryGCQuery
+			args = append(args, beforeValue, beforeValue)
+		}
+		count, err := queryCount(ctx, tx, query, args...)
+		if err != nil {
+			return 0, xerrors.Errorf("failed to count old memory edges: %w", err)
+		}
+		total += count
+	}
+	if !matched {
+		return 0, xerrors.Errorf("unsupported garbage-collection target: %s", target)
+	}
+	return total, nil
+}
+
+func queryCount(
+	ctx context.Context,
+	queryer interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	},
+	query string,
+	args ...any,
+) (int, error) {
+	var count int
+	if err := queryer.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, xerrors.Errorf("failed to execute count query: %w", err)
+	}
+	return count, nil
 }
 
 func (d *StoreManagementDatasource) collectGarbageInTx(
@@ -336,7 +482,9 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 	}
 
 	total := 0
+	matched := false
 	if target == apptypes.GarbageCollectionTargetEvents || target == apptypes.GarbageCollectionTargetAll {
+		matched = true
 		count, err := execRowsAffected(ctx, tx, deleteOldEventsQuery, beforeValue)
 		if err != nil {
 			return 0, xerrors.Errorf("failed to delete old events: %w", err)
@@ -344,6 +492,7 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 		total += count
 	}
 	if target == apptypes.GarbageCollectionTargetSessions || target == apptypes.GarbageCollectionTargetAll {
+		matched = true
 		count, err := execRowsAffected(ctx, tx, deleteEmptySessionsQuery, beforeValue)
 		if err != nil {
 			return 0, xerrors.Errorf("failed to delete empty sessions: %w", err)
@@ -351,6 +500,7 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 		total += count
 	}
 	if target == apptypes.GarbageCollectionTargetMemories || target == apptypes.GarbageCollectionTargetAll {
+		matched = true
 		if _, err := tx.ExecContext(ctx, clearDeletedMemorySupersedesRefsQuery, beforeValue); err != nil {
 			return 0, xerrors.Errorf("failed to clear deleted memory supersedes references: %w", err)
 		}
@@ -376,11 +526,15 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 		total += extractedCount
 	}
 	if target == apptypes.GarbageCollectionTargetMemoryEdges || target == apptypes.GarbageCollectionTargetAll {
+		matched = true
 		count, err := execRowsAffected(ctx, tx, deleteOldMemoryEdgesQuery, memoryEdgeBeforeValue)
 		if err != nil {
 			return 0, xerrors.Errorf("failed to delete old memory edges: %w", err)
 		}
 		total += count
+	}
+	if !matched {
+		return 0, xerrors.Errorf("unsupported garbage-collection target: %s", target)
 	}
 
 	return total, nil
