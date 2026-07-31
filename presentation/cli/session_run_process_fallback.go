@@ -14,3 +14,7 @@ func configureOneShotProcess(command *exec.Cmd) {
 }
 
 func oneShotSignalExitCode(*exec.ExitError) (int, bool) { return 0, false }
+
+// oneShotOwnExitCode cannot prove on this platform whether an exit status
+// came from the child itself, so context errors keep priority there.
+func oneShotOwnExitCode(*exec.ExitError) (int, bool) { return 0, false }

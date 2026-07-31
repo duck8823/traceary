@@ -35,3 +35,15 @@ func oneShotSignalExitCode(exitErr *exec.ExitError) (int, bool) {
 	}
 	return 128 + int(status.Signal()), true
 }
+
+// oneShotOwnExitCode reports the exit code when the child provably exited on
+// its own with a real exit status. A concurrently expired deadline or
+// cancellation must not reclassify that outcome as a timeout or aborted
+// stream.
+func oneShotOwnExitCode(exitErr *exec.ExitError) (int, bool) {
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok || !status.Exited() {
+		return 0, false
+	}
+	return status.ExitStatus(), true
+}

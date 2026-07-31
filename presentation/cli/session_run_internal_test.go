@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
+
+	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -86,16 +89,33 @@ func TestClassifyOneShotOutcome(t *testing.T) {
 			reason: types.TerminalReasonSuccess, exitCode: 0,
 		},
 		{
-			name:   "deadline classifies killed process as timeout",
+			name:   "child failure wins over expired deadline",
 			ctxErr: context.DeadlineExceeded,
-			runErr: errors.New("signal: killed"),
+			runErr: oneShotTestExitError(t, "exit 7"),
+			reason: types.TerminalReasonFailure, exitCode: 7, wantErr: true,
+		},
+		{
+			name:   "child failure wins over canceled context",
+			ctxErr: context.Canceled,
+			runErr: oneShotTestExitError(t, "exit 3"),
+			reason: types.TerminalReasonFailure, exitCode: 3, wantErr: true,
+		},
+		{
+			name:   "deadline classifies signal-killed process as timeout",
+			ctxErr: context.DeadlineExceeded,
+			runErr: oneShotTestExitError(t, "kill -KILL $$"),
 			reason: types.TerminalReasonTimeout, exitCode: oneShotTimeoutExitCode, wantErr: true,
 		},
 		{
-			name:   "canceled context classifies killed process as aborted stream",
+			name:   "canceled context classifies signal-killed process as aborted stream",
 			ctxErr: context.Canceled,
-			runErr: errors.New("signal: killed"),
+			runErr: oneShotTestExitError(t, "kill -KILL $$"),
 			reason: types.TerminalReasonAbortedStream, exitCode: oneShotStreamExitCode, wantErr: true,
+		},
+		{
+			name:   "signal without context error",
+			runErr: oneShotTestExitError(t, "kill -TERM $$"),
+			reason: types.TerminalReasonSignal, exitCode: 143, wantErr: true,
 		},
 		{
 			name:   "start failure",
@@ -120,6 +140,21 @@ func TestClassifyOneShotOutcome(t *testing.T) {
 			}
 		})
 	}
+}
+
+// oneShotTestExitError runs a command that fails so tests can classify a
+// real *exec.ExitError instead of a fabricated error value.
+func oneShotTestExitError(t *testing.T, command string) error {
+	t.Helper()
+	err := exec.Command("sh", "-c", command).Run()
+	if err == nil {
+		t.Fatalf("sh -c %q error = nil, want exit error", command)
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("sh -c %q error = %T, want *exec.ExitError", command, err)
+	}
+	return xerrors.Errorf("test command failed: %w", err)
 }
 
 func TestIsClaudeHeadlessUsageCommand_RequiresPrintAndJSONOutput(t *testing.T) {
