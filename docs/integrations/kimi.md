@@ -65,18 +65,18 @@ or cost. These Kimi records do not contribute to usage aggregates.
 
 ### Platform support
 
-Kimi usage capture is supported only on Unix platforms: macOS and Linux.
-The source expects `session_index.jsonl` directly below the Kimi config home
-and each session's `agents/main/wire.jsonl` below its `sessions` tree. The
-config home is selected by `KIMI_CODE_HOME` and defaults to `~/.kimi-code`.
+The Kimi usage source is supported on platforms covered by Go's `unix`
+build constraint, including macOS, Linux, and other Unix systems. It
+expects `session_index.jsonl` under the Kimi config home and each
+session's `agents/main/wire.jsonl` under its `sessions` tree. The config
+home is set by `KIMI_CODE_HOME` and defaults to `~/.kimi-code`.
 
-On unsupported platforms, including Windows, the source fails closed with an
-explicit unsupported-platform error. No usage data is recorded, and Traceary
-never fabricates samples.
+On all other platforms, including Windows, the source fails closed with
+the explicit error `Kimi usage source requires Unix contained file-open
+primitives`. It records no usage data and never fabricates samples.
 
-On supported platforms, missing local data returns an empty result without an
-error. A missing config home, session index, target session, or wire file
-produces zero samples. Traceary never fills gaps with zeros or guesses.
+On supported platforms, missing local data produces an empty result
+without error. Gaps are never filled with zeros or guesses.
 
 ## Install
 
