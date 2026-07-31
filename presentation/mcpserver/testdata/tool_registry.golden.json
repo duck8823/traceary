@@ -994,6 +994,9 @@
                       "sum"
                     ],
                     "type": "object"
+                  },
+                  "unavailable_observations": {
+                    "type": "integer"
                   }
                 },
                 "required": [
@@ -1003,6 +1006,7 @@
                   "observations",
                   "accounted_observations",
                   "excluded_observations",
+                  "unavailable_observations",
                   "input_tokens",
                   "cached_input_tokens",
                   "cache_write_input_tokens",

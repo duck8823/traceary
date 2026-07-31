@@ -213,12 +213,12 @@ func writeReportText(output io.Writer, report apptypes.ReportSnapshot) error {
 	}
 	for _, row := range report.Usage.Aggregates {
 		fmt.Fprintf(&b,
-			"- provider=%s engine=%s model=%s role=%s repo=%s ticket=%s pr=%s batch=%s round=%s observations=%d accounted=%d excluded=%d input_tokens=%s output_tokens=%s total_tokens=%s terminal=%s\n",
+			"- provider=%s engine=%s model=%s role=%s repo=%s ticket=%s pr=%s batch=%s round=%s observations=%d accounted=%d excluded=%d unavailable=%d input_tokens=%s output_tokens=%s total_tokens=%s terminal=%s\n",
 			textValueOrUnavailable(row.Provider), row.Engine, textValueOrUnavailable(row.Model),
 			textAvailability(row.Role, row.RoleAvailability), textValueOrUnavailable(row.Repository),
 			textValueOrUnavailable(row.TicketRef), textOptionalInt64(row.PullRequest),
 			textValueOrUnavailable(row.BatchID), textOptionalAvailability(row.Round, row.RoundAvailability),
-			row.Observations, row.Accounted, row.Excluded,
+			row.Observations, row.Accounted, row.Excluded, row.Unavailable,
 			textUsageMetric(row.InputTokens), textUsageMetric(row.OutputTokens),
 			textUsageMetric(row.TotalTokens), textCounts(row.TerminalCodes),
 		)

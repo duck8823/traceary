@@ -1094,7 +1094,7 @@ AI クライアント連携向けに MCP サーバーを stdio で起動しま�
 
 既定では全件を集計します。`--page-size` は 1 以上 100,000 以下で、本文を含まない SQLite 内部読み取りのページサイズだけを制御し、集計件数の上限にはなりません。正の `--result-cap` を指定した場合だけ、データ源ごとの部分集計を明示的に要求します。その場合、JSON は `aggregation.coverage=partial`、session/event/command/usage ごとの観測件数と時刻範囲、`truncation_reason=result_cap` を返し、不完全な分母から割合を計算せず該当フィールドを省略します。非推奨の `--limit` は `--page-size` の別名としてだけ動作し、併用できません。
 
-`usage` オブジェクトは、現在有効な確定済み観測を provider、engine、model、repository、ticket、pull request、batch ごとに集計します。token フィールドは既知の観測件数と取得不能な観測件数を分けるため、既知の 0 と証拠不足を混同しません。`accounted_observations` は加算対象外の代替証拠を除き、`excluded_observations` はその証拠の存在を可視化します。cost 行は `origin` ごとに分離し、`estimated` を `provider_reported` として表示しません。run の packet bytes と tool output bytes は run identity で重複排除し、`usage.runs` に出力します。role、round、wall time は正式な値が永続化されていないため、現在は `unavailable` と表示します。
+`usage` オブジェクトは、現在有効な確定済み観測を provider、engine、model、repository、ticket、pull request、batch ごとに集計します。token フィールドは既知の観測件数と取得不能な観測件数を分けるため、既知の 0 と証拠不足を混同しません。`accounted_observations` は加算対象外の代替証拠を除き、`excluded_observations` はその証拠の存在を可視化します。`unavailable_observations` はデータ源をまったく読めなかった観測を数えるため、取得不能を収集成功の 0 と見なしません。cost 行は `origin` ごとに分離し、`estimated` を `provider_reported` として表示しません。run の packet bytes と tool output bytes は run identity で重複排除し、`usage.runs` に出力します。role、round、wall time は正式な値が永続化されていないため、現在は `unavailable` と表示します。
 
 主な flag: `--from`、`--to`、`--timezone`、`--workspace`、`--client`、`--page-size`、`--result-cap`、`--json`。
 
