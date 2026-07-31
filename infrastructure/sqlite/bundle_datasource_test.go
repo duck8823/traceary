@@ -406,3 +406,147 @@ func TestBundleDatasource_LaterTableFailureRollsBackImportedUsageObservation(t *
 		t.Fatal("usage observation survived rolled-back bundle transaction")
 	}
 }
+
+func TestBundleDatasource_UsageObservationImportPreservesExclusivityClaims(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := sqlite.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	bundles := sqlite.NewBundleDatasource(db, sqlite.NewEventDatasource(db))
+	key, err := types.UsageExclusivityKeyFrom("codex:headless_stream:thread-1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, err := types.UsageExclusivityKeyFrom("codex:headless_stream:thread-1:2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exclusive := func(id string, claimKey types.UsageExclusivityKey, accounting types.UsageAccounting) *model.UsageObservation {
+		t.Helper()
+		descriptor := sqliteUsageDescriptor(t, id)
+		if descriptor.Accounting() != accounting {
+			descriptor, err = model.NewUsageObservationDescriptor(
+				descriptor.ObservationID(), descriptor.SessionID(), descriptor.Source(),
+				descriptor.Scope(), accounting, descriptor.ObservedAt(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		descriptor, err = descriptor.WithExclusivityKey(claimKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sqliteFinalizedUsage(t, descriptor, 10)
+	}
+	winner := exclusive("usage-winner", key, types.UsageAccountingAdditive)
+	alternative := exclusive("usage-alternative", key, types.UsageAccountingExcluded)
+
+	tx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, observation := range []*model.UsageObservation{winner, alternative} {
+		imported, err := tx.ImportUsageObservation(ctx, observation, usecase.BundleConflictSkip)
+		if err != nil || !imported {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("ImportUsageObservation(%s) = %t/%v", observation.Descriptor().ObservationID(), imported, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	replayTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := replayTx.ImportUsageObservation(ctx, winner, usecase.BundleConflictSkip); err != nil || imported {
+		_ = replayTx.Rollback(ctx)
+		t.Fatalf("exact replay = %t/%v, want skipped", imported, err)
+	}
+	if err := replayTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// A different additive observation claiming the same key must never
+	// become a second owner. Skip keeps the destination claim; error and
+	// replace fail closed.
+	doubleWinner := exclusive("usage-double-winner", key, types.UsageAccountingAdditive)
+	skipTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := skipTx.ImportUsageObservation(ctx, doubleWinner, usecase.BundleConflictSkip); err != nil || imported {
+		_ = skipTx.Rollback(ctx)
+		t.Fatalf("double-claim under skip = %t/%v, want skipped", imported, err)
+	}
+	if err := skipTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range []usecase.BundleConflictPolicy{usecase.BundleConflictError, usecase.BundleConflictReplace} {
+		policyTx, err := bundles.BeginBundleImport(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = policyTx.ImportUsageObservation(ctx, doubleWinner, policy)
+		if err == nil || !errors.Is(err, model.ErrConflictingUsageObservation) {
+			_ = policyTx.Rollback(ctx)
+			t.Fatalf("double-claim under %s error = %v, want ErrConflictingUsageObservation", policy, err)
+		}
+		if err := policyTx.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	storedDoubleWinner, err := sqlite.NewUsageObservationDatasource(db).FindByID(ctx, doubleWinner.Descriptor().ObservationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := storedDoubleWinner.Value(); present {
+		t.Fatal("double-claim observation reached the store")
+	}
+
+	// Re-owning the stored winner under a different key conflicts on
+	// identity metadata: skip retains the original claim, error fails closed.
+	rekeyed := exclusive("usage-winner", otherKey, types.UsageAccountingAdditive)
+	rekeySkipTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := rekeySkipTx.ImportUsageObservation(ctx, rekeyed, usecase.BundleConflictSkip); err != nil || imported {
+		_ = rekeySkipTx.Rollback(ctx)
+		t.Fatalf("re-keyed winner under skip = %t/%v, want skipped", imported, err)
+	}
+	if err := rekeySkipTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rekeyErrorTx, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rekeyErrorTx.ImportUsageObservation(ctx, rekeyed, usecase.BundleConflictError)
+	if err == nil || !errors.Is(err, model.ErrConflictingUsageObservation) {
+		_ = rekeyErrorTx.Rollback(ctx)
+		t.Fatalf("re-keyed winner under error = %v, want ErrConflictingUsageObservation", err)
+	}
+	if err := rekeyErrorTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := bundles.ListBundleUsageObservations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("listed %d usage observations, want winner and excluded alternative", len(listed))
+	}
+	for _, observation := range listed {
+		claimKey, present := observation.Descriptor().ExclusivityKey().Value()
+		if !present || claimKey != key {
+			t.Fatalf("observation %s exclusivity key = %q/%t, want %q", observation.Descriptor().ObservationID(), claimKey, present, key)
+		}
+	}
+}
