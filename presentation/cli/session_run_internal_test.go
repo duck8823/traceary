@@ -4,8 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"strconv"
 	"testing"
 	"time"
+
+	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -61,6 +66,92 @@ func TestRunOneShotProcess_ClassifiesStartFailure(t *testing.T) {
 	if reason != types.TerminalReasonFailure || exitCode != oneShotStartExitCode {
 		t.Fatalf("runOneShotProcess() = (%q, %d), want (failure, %d)", reason, exitCode, oneShotStartExitCode)
 	}
+}
+
+func TestClassifyOneShotOutcome(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		ctxErr   error
+		runErr   error
+		reason   types.TerminalReason
+		exitCode int
+		wantErr  bool
+	}{
+		{name: "clean exit", reason: types.TerminalReasonSuccess, exitCode: 0},
+		{
+			name:   "clean exit wins over expired deadline",
+			ctxErr: context.DeadlineExceeded,
+			reason: types.TerminalReasonSuccess, exitCode: 0,
+		},
+		{
+			name:   "clean exit wins over canceled context",
+			ctxErr: context.Canceled,
+			reason: types.TerminalReasonSuccess, exitCode: 0,
+		},
+		{
+			name:   "deadline classifies unfinished process as timeout",
+			ctxErr: context.DeadlineExceeded,
+			runErr: errors.New("signal: killed"),
+			reason: types.TerminalReasonTimeout, exitCode: oneShotTimeoutExitCode, wantErr: true,
+		},
+		{
+			name:   "canceled context classifies unfinished process as aborted stream",
+			ctxErr: context.Canceled,
+			runErr: errors.New("signal: killed"),
+			reason: types.TerminalReasonAbortedStream, exitCode: oneShotStreamExitCode, wantErr: true,
+		},
+		{
+			name:   "start failure",
+			runErr: &os.PathError{Op: "fork/exec", Path: "/missing", Err: errors.New("no such file or directory")},
+			reason: types.TerminalReasonFailure, exitCode: oneShotStartExitCode, wantErr: true,
+		},
+		{
+			name:   "stream error",
+			runErr: errors.New("broken pipe"),
+			reason: types.TerminalReasonAbortedStream, exitCode: oneShotStreamExitCode, wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reason, exitCode, err := classifyOneShotOutcome(tt.ctxErr, tt.runErr)
+			if reason != tt.reason || exitCode != tt.exitCode {
+				t.Fatalf("classifyOneShotOutcome() = (%q, %d), want (%q, %d)", reason, exitCode, tt.reason, tt.exitCode)
+			}
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("classifyOneShotOutcome() error = %v, wantErr %t", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestOneShotHelperProcess is not a test: it runs as the child of
+// oneShotTestExitError and exits with the requested code so tests can
+// classify a real *exec.ExitError on any platform.
+func TestOneShotHelperProcess(_ *testing.T) {
+	code, err := strconv.Atoi(os.Getenv("TRACEARY_TEST_ONESHOT_HELPER_EXIT"))
+	if err != nil {
+		return
+	}
+	os.Exit(code)
+}
+
+// oneShotTestExitError re-executes the test binary as a failing helper
+// process, producing a real *exec.ExitError with the given exit code.
+func oneShotTestExitError(t *testing.T, exitCode int) error {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestOneShotHelperProcess$")
+	cmd.Env = append(os.Environ(), "TRACEARY_TEST_ONESHOT_HELPER_EXIT="+strconv.Itoa(exitCode))
+	err := cmd.Run()
+	if err == nil {
+		t.Fatalf("helper process error = nil, want exit code %d", exitCode)
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("helper process error = %T, want *exec.ExitError", err)
+	}
+	return xerrors.Errorf("test command failed: %w", err)
 }
 
 func TestIsClaudeHeadlessUsageCommand_RequiresPrintAndJSONOutput(t *testing.T) {

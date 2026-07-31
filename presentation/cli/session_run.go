@@ -238,28 +238,46 @@ func runOneShotProcess(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 	child.Stderr = stderr
 	child.Env = env
 	configureOneShotProcess(child)
-	err := child.Run()
-	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-		return types.TerminalReasonTimeout, oneShotTimeoutExitCode, xerrors.Errorf("one-shot process deadline: %w", runCtx.Err())
-	}
-	if errors.Is(runCtx.Err(), context.Canceled) {
-		return types.TerminalReasonAbortedStream, oneShotStreamExitCode, xerrors.Errorf("one-shot process canceled: %w", runCtx.Err())
-	}
-	if err == nil {
+	runErr := child.Run()
+	return classifyOneShotOutcome(runCtx.Err(), runErr)
+}
+
+// classifyOneShotOutcome maps the supervised process outcome to the single
+// typed terminal reason documented for one-shot sessions. A child that ran to
+// completion is always success, even when the deadline or cancellation fired
+// concurrently: the context error only classifies a process that actually
+// failed to finish on its own. Where the platform can prove the child exited
+// on its own with a real exit status (Unix wait status), an ExitError
+// carrying that status stays the child's failure even when the context
+// expired at the same time; platforms without that proof conservatively let
+// the context error keep priority (see oneShotOwnExitCode).
+func classifyOneShotOutcome(ctxErr, runErr error) (types.TerminalReason, int, error) {
+	if runErr == nil {
 		return types.TerminalReasonSuccess, 0, nil
 	}
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		if exitCode, signaled := oneShotSignalExitCode(exitErr); signaled {
-			return types.TerminalReasonSignal, exitCode, xerrors.Errorf("one-shot process terminated by signal: %w", err)
+	if errors.As(runErr, &exitErr) {
+		if exitCode, own := oneShotOwnExitCode(exitErr); own {
+			return types.TerminalReasonFailure, exitCode, runErr
 		}
-		return types.TerminalReasonFailure, exitErr.ExitCode(), err
+	}
+	if errors.Is(ctxErr, context.DeadlineExceeded) {
+		return types.TerminalReasonTimeout, oneShotTimeoutExitCode, xerrors.Errorf("one-shot process deadline: %w", ctxErr)
+	}
+	if errors.Is(ctxErr, context.Canceled) {
+		return types.TerminalReasonAbortedStream, oneShotStreamExitCode, xerrors.Errorf("one-shot process canceled: %w", ctxErr)
+	}
+	if exitErr != nil {
+		if exitCode, signaled := oneShotSignalExitCode(exitErr); signaled {
+			return types.TerminalReasonSignal, exitCode, xerrors.Errorf("one-shot process terminated by signal: %w", runErr)
+		}
+		return types.TerminalReasonFailure, exitErr.ExitCode(), runErr
 	}
 	var pathErr *os.PathError
-	if errors.As(err, &pathErr) {
-		return types.TerminalReasonFailure, oneShotStartExitCode, xerrors.Errorf("failed to start one-shot process: %w", err)
+	if errors.As(runErr, &pathErr) {
+		return types.TerminalReasonFailure, oneShotStartExitCode, xerrors.Errorf("failed to start one-shot process: %w", runErr)
 	}
-	return types.TerminalReasonAbortedStream, oneShotStreamExitCode, xerrors.Errorf("one-shot process stream aborted: %w", err)
+	return types.TerminalReasonAbortedStream, oneShotStreamExitCode, xerrors.Errorf("one-shot process stream aborted: %w", runErr)
 }
 
 func oneShotProcessEnvironment(

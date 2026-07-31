@@ -19,7 +19,7 @@ func TestNewHookDeliveryEvidence_SeparatesDeliveryAndAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHookDeliveryEvidence(second) error = %v", err)
 	}
-	if left.ReportedID() != "codex:post_tool_use:session-1:tool-1" {
+	if left.ReportedID() != "5:codex|13:post_tool_use|9:session-1|6:tool-1" {
 		t.Fatalf("ReportedID() = %q", left.ReportedID())
 	}
 	if left.DeliveryFingerprint() != right.DeliveryFingerprint() {
@@ -72,6 +72,83 @@ func TestNewHookDeliveryEvidence_PreservesRawWorkspace(t *testing.T) {
 	if got := model.WorkspaceAttributionFingerprint(event.Workspace(), "/repo/with-space"); got == evidence.AttributionFingerprint() {
 		t.Fatal("attribution fingerprint ignored raw workspace bytes")
 	}
+}
+
+func TestNewHookDeliveryEvidence_ReportedIDIsUnambiguousAcrossIndependentDeliveries(t *testing.T) {
+	tests := []struct {
+		name  string
+		left  deliveryIdentity
+		right deliveryIdentity
+	}{
+		{
+			name:  "colon shifts between session and native ID",
+			left:  deliveryIdentity{agent: "codex", hook: "post_tool_use", sessionID: "session:a", nativeID: "tool-1"},
+			right: deliveryIdentity{agent: "codex", hook: "post_tool_use", sessionID: "session", nativeID: "a:tool-1"},
+		},
+		{
+			name:  "colon shifts between host and hook kind",
+			left:  deliveryIdentity{agent: "codex:exec", hook: "stop", sessionID: "session-1", nativeID: "tool-1"},
+			right: deliveryIdentity{agent: "codex", hook: "exec:stop", sessionID: "session-1", nativeID: "tool-1"},
+		},
+		{
+			name:  "colon shifts between hook kind and session",
+			left:  deliveryIdentity{agent: "codex", hook: "post:tool", sessionID: "use", nativeID: "tool-1"},
+			right: deliveryIdentity{agent: "codex", hook: "post", sessionID: "tool:use", nativeID: "tool-1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			left := tt.left.evidence(t)
+			right := tt.right.evidence(t)
+			if left.ReportedID() == right.ReportedID() {
+				t.Fatalf("ReportedID() collided for independent deliveries: %q", left.ReportedID())
+			}
+			if left.DeliveryRecordID() == right.DeliveryRecordID() {
+				t.Fatalf("DeliveryRecordID() collided for independent deliveries: %q", left.DeliveryRecordID())
+			}
+		})
+	}
+}
+
+func TestNewHookDeliveryEvidence_ReportedIDStaysStableForOneLogicalDelivery(t *testing.T) {
+	identity := deliveryIdentity{agent: "codex", hook: "post_tool_use", sessionID: "session-1", nativeID: "event_id:delivery-1"}
+	first := identity.evidence(t)
+	second := identity.evidence(t)
+	if first.ReportedID() != second.ReportedID() {
+		t.Fatalf("ReportedID() changed for one logical delivery: %q != %q", first.ReportedID(), second.ReportedID())
+	}
+	if first.DeliveryRecordID() != second.DeliveryRecordID() {
+		t.Fatalf("DeliveryRecordID() changed for one logical delivery: %q != %q", first.DeliveryRecordID(), second.DeliveryRecordID())
+	}
+}
+
+type deliveryIdentity struct {
+	agent     string
+	hook      string
+	sessionID string
+	nativeID  string
+}
+
+func (d deliveryIdentity) evidence(t *testing.T) model.HookDeliveryEvidence {
+	t.Helper()
+	event, err := model.NewEvent(
+		types.EventID("event-1"),
+		types.EventKindCommandExecuted,
+		types.Client("hook"),
+		types.Agent(d.agent),
+		types.SessionID(d.sessionID),
+		types.Workspace("/repo"),
+		"go test ./...",
+	)
+	if err != nil {
+		t.Fatalf("NewEvent() error = %v", err)
+	}
+	event.SetSourceHook(d.hook)
+	evidence, err := model.NewHookDeliveryEvidence(event, d.nativeID, "/repo")
+	if err != nil {
+		t.Fatalf("NewHookDeliveryEvidence() error = %v", err)
+	}
+	return evidence
 }
 
 func TestClassifyWorkspaceRelationship(t *testing.T) {
