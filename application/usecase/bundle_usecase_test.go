@@ -1164,6 +1164,84 @@ func TestBundleUsecase_ImportRejectsSnapshotRunAttribution(t *testing.T) {
 	}
 }
 
+func TestBundleUsecase_ImportRejectsMalformedUsageExclusivityRows(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	key, err := types.UsageExclusivityKeyFrom("codex:headless_stream:thread-1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		tamper  func(row map[string]any)
+		wantErr string
+	}{
+		{
+			name: "whitespace-only exclusivity key",
+			tamper: func(row map[string]any) {
+				row["exclusivity_key"] = "   "
+			},
+			wantErr: "exclusivity key must not be empty",
+		},
+		{
+			name: "exclusivity key with non-exclusive accounting",
+			tamper: func(row map[string]any) {
+				row["accounting"] = "latest_snapshot"
+			},
+			wantErr: `unsupported accounting "latest_snapshot"`,
+		},
+		{
+			name: "exclusivity key on session snapshot",
+			tamper: func(row map[string]any) {
+				row["scope"] = "session_snapshot"
+				row["accounting"] = "latest_snapshot"
+				row["snapshot_series"] = "codex:session-1"
+				row["snapshot_revision"] = float64(1)
+			},
+			wantErr: "session snapshot cannot carry an exclusivity key",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observation := mustBundleExclusiveUsage(t, "codex:headless_stream:thread-1:1", key, types.UsageAccountingAdditive, ts)
+			out := filepath.Join(t.TempDir(), "exclusive.tbun")
+			repo := &fakeBundleRepo{schema: 29, exportUsageObservations: []*model.UsageObservation{observation}}
+			if err := usecase.NewBundleUsecase(fakeEventQuery{}, repo, nil).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+				t.Fatal(err)
+			}
+			files := openTestBundle(t, out, []byte("pass1"))
+			var row map[string]any
+			if err := json.Unmarshal(bytes.TrimSpace(files["usage_observations.ndjson"]), &row); err != nil {
+				t.Fatal(err)
+			}
+			tt.tamper(row)
+			usage, err := json.Marshal(row)
+			if err != nil {
+				t.Fatal(err)
+			}
+			usage = append(usage, '\n')
+			bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{"usage_observations.ndjson": usage}, map[string]any{
+				"usage_observations": map[string]any{"table_name": "usage_observations", "file": "usage_observations.ndjson", "row_count": 1, "checksum": hashForTest(usage)},
+			})
+			in := filepath.Join(t.TempDir(), "malformed.tbun")
+			if err := os.WriteFile(in, bundle, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			importRepo := &fakeBundleRepo{schema: 29}
+			_, err = usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Import error = %v, want %q", err, tt.wantErr)
+			}
+			if len(importRepo.usageObservations) != 0 {
+				t.Fatalf("malformed row imported %d usage observations", len(importRepo.usageObservations))
+			}
+		})
+	}
+}
+
 func TestBundleUsecase_ImportRequiresUsageRunInsideBundle(t *testing.T) {
 	t.Parallel()
 	ts := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)

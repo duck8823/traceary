@@ -434,9 +434,39 @@ func (t *bundleImportTx) ImportUsageObservation(
 		}
 	}
 	if err := insertUsageObservation(ctx, t.tx, observation); err != nil {
+		if isSQLiteUniqueOrPKConflict(err) {
+			// The observation ID was verified absent above, so a unique
+			// violation here means the additive exclusivity claim is already
+			// owned by a different observation (or a concurrent writer won
+			// the identity). Import must never create a second additive
+			// owner: skip keeps the destination claim, every other policy
+			// fails closed.
+			if policy == usecase.BundleConflictSkip {
+				slog.WarnContext(
+					ctx,
+					"bundle import skipped usage observation with conflicting exclusivity claim",
+					"observation_id", observation.Descriptor().ObservationID().String(),
+					"exclusivity_key", optionalUsageExclusivityKey(observation),
+					"policy", string(usecase.BundleConflictSkip),
+				)
+				return false, nil
+			}
+			return false, xerrors.Errorf(
+				"usage observation %s conflicts with an existing exclusivity claim: %w",
+				observation.Descriptor().ObservationID(),
+				errors.Join(model.ErrConflictingUsageObservation, err),
+			)
+		}
 		return false, xerrors.Errorf("failed to import usage observation: %w", err)
 	}
 	return true, nil
+}
+
+func optionalUsageExclusivityKey(observation *model.UsageObservation) string {
+	if key, present := observation.Descriptor().ExclusivityKey().Value(); present {
+		return key.String()
+	}
+	return ""
 }
 
 func sameOptionalRunIdentity(left, right types.Optional[types.RunIdentity]) bool {
