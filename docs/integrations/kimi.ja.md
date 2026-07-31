@@ -53,6 +53,24 @@ evidence**として保存します。source identity は
 します。合計 token、retry 回数、compact token、subagent attribution、
 cost は推測しません。これらの Kimi record は利用量集計に加算されません。
 
+### プラットフォームサポート
+
+Kimi の使用量キャプチャは Unix プラットフォーム（macOS と Linux）のみを
+サポートします。ソースは、Kimi の設定ホーム直下に
+`session_index.jsonl` があり、各セッションの
+`agents/main/wire.jsonl` がその `sessions` ツリー内にあることを前提とします。
+設定ホームは `KIMI_CODE_HOME` で指定し、デフォルトは
+`~/.kimi-code` です。
+
+Windows などの未サポートプラットフォームでは、ソースは明示的な
+未サポートプラットフォームエラーを返してフェイルクローズします。
+使用量データは記録されず、Traceary がサンプルを捏造することもありません。
+
+サポート対象プラットフォームでローカルデータが見つからない場合は、
+エラーではなく空の結果を返します。設定ホーム、セッションインデックス、
+対象セッション、または wire ファイルがない場合、サンプル数は 0 です。
+Traceary が欠落をゼロ値や推測で補完することはありません。
+
 ## インストール
 
 1. Traceary CLI をインストールし、`traceary` が `PATH` 上にあることを確認します（plugin の hook と MCP server がこれを呼び出します）。

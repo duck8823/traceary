@@ -63,6 +63,21 @@ Absent counters stay unavailable and known zero stays zero. Traceary does not
 infer total tokens, retry counts, compact-token usage, subagent attribution,
 or cost. These Kimi records do not contribute to usage aggregates.
 
+### Platform support
+
+Kimi usage capture is supported only on Unix platforms: macOS and Linux.
+The source expects `session_index.jsonl` directly below the Kimi config home
+and each session's `agents/main/wire.jsonl` below its `sessions` tree. The
+config home is selected by `KIMI_CODE_HOME` and defaults to `~/.kimi-code`.
+
+On unsupported platforms, including Windows, the source fails closed with an
+explicit unsupported-platform error. No usage data is recorded, and Traceary
+never fabricates samples.
+
+On supported platforms, missing local data returns an empty result without an
+error. A missing config home, session index, target session, or wire file
+produces zero samples. Traceary never fills gaps with zeros or guesses.
+
 ## Install
 
 1. Install the Traceary CLI and confirm that `traceary` is on `PATH` (the
