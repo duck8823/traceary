@@ -1,3 +1,5 @@
+//go:build unix
+
 package filesystem
 
 import (
@@ -35,6 +37,15 @@ type kimiUsageSource struct {
 }
 
 // NewKimiUsageSource creates the contained, body-free Kimi wire adapter.
+//
+// Platform-support policy: the source is supported on Unix platforms (macOS
+// and Linux), where Kimi Code writes session_index.jsonl and per-session
+// agents/main/wire.jsonl under the Kimi config home (KIMI_CODE_HOME or
+// ~/.kimi-code). On unsupported platforms NewKimiUsageSource returns an
+// adapter whose Load fails closed with an explicit error and never returns
+// fabricated usage data. On supported platforms a missing config home,
+// missing session index, or unknown session yields an empty result, not an
+// error and not fabricated data.
 func NewKimiUsageSource() application.KimiUsageSource {
 	return &kimiUsageSource{
 		root:          defaultKimiUsageRoot,
