@@ -40,7 +40,15 @@ func (c *RootCLI) newStoreGCCommand() *cobra.Command {
 	gcCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	gcCmd.Flags().IntVar(&keepDays, "keep-days", defaultRetentionDays, Localize("number of days to retain", "保持する日数"))
 	gcCmd.Flags().StringVar(&target, "target", "all", Localize("records to prune (events | sessions | memories | memory_edges | all)", "削除対象 (events | sessions | memories | memory_edges | all)"))
-	gcCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("print the number of candidate records only", "削除対象件数のみ表示する"))
+	gcCmd.Flags().BoolVar(
+		&dryRun,
+		"dry-run",
+		false,
+		Localize(
+			"count candidates using a read-only connection without initializing or migrating the store",
+			"storeをinitialize・migrationせず、read-only connectionで削除対象件数だけを表示する",
+		),
+	)
 
 	return gcCmd
 }
@@ -58,8 +66,10 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	c.applyDatabasePath(resolvedDBPath)
-	if err := c.storeManagement.Initialize(ctx); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
+	if !input.dryRun {
+		if err := c.storeManagement.Initialize(ctx); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
+		}
 	}
 
 	target, ok := apptypes.GarbageCollectionTargetFrom(input.target)

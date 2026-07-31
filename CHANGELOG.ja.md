@@ -13,6 +13,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **token効率のよいhost guidance (#1555, #1557)** — package済みskillはDiscovery → Inspection → Detailの段階的retrievalを強制し、MCP schema sizeを対応host全体でbudget化してregression testします。
 
 ### Fixed
+- **read-onlyなgarbage-collection preview (#1571)** — `traceary store gc --dry-run`はstoreをinitialize、migrate、delete、update、vacuumしません。read-only SQLite connection上のcount-only queryを使い、event、session、memory、memory edgeに対するapply順序のsemanticsを保持します。未作成または未migrationのstoreに対するpreviewはstoreを作成・migrationせず失敗するため、先に`traceary store init`を明示実行してください。
 - **memory hygieneの安全性とcost上限 (#1556)** — scanとsimilarity workはresume可能かつboundedです。applyはexpire/reject/supersedeの前に要求IDと関連candidateだけを再検証し、stale evidenceではfail closedします。
 - **hookとhost packageの正確性 (#1526, #1574, #1575)** — command-auditのpolicy denialを明示分類し、post-upgrade verifierがcanonical Grok inventoryを受理し、Codex rollout session IDをglobではなくliteralとして扱います。
 - **multi-GiB release evidence (#1558)** — privateなsynthetic 2 GiB fixtureでprojection-only metadata path、copy上のmigration 31–34、FTS progress、MCP aggregation、bounded huge-body retrievalを検証します。公開artifactはmetricsだけを含み、固定250 ms gateに対するPhase-A p95 0.079708 msを記録します。
