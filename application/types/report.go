@@ -303,7 +303,8 @@ type ReportUsageCostRow struct {
 
 // ReportUsageAggregateRow is one comparable provider/run-attribution group.
 // Role and round remain explicitly unavailable until their authoritative
-// values are persisted.
+// values are persisted. Unavailable counts observations whose source data
+// could not be read at all, separately from excluded alternative evidence.
 type ReportUsageAggregateRow struct {
 	Provider          string               `json:"provider,omitempty"`
 	Engine            string               `json:"engine"`
@@ -319,6 +320,7 @@ type ReportUsageAggregateRow struct {
 	Observations      int                  `json:"observations"`
 	Accounted         int                  `json:"accounted_observations"`
 	Excluded          int                  `json:"excluded_observations"`
+	Unavailable       int                  `json:"unavailable_observations"`
 	InputTokens       ReportUsageMetric    `json:"input_tokens"`
 	CachedInputTokens ReportUsageMetric    `json:"cached_input_tokens"`
 	CacheWriteTokens  ReportUsageMetric    `json:"cache_write_input_tokens"`

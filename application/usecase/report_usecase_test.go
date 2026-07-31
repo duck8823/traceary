@@ -182,6 +182,9 @@ func TestReportUsecaseGenerate_AggregatesUsageWithoutExcludedOrRunDuplicates(t *
 	if aggregate.Observations != 3 || aggregate.Accounted != 2 || aggregate.Excluded != 1 {
 		t.Fatalf("usage counts = %+v", aggregate)
 	}
+	if aggregate.Unavailable != 0 {
+		t.Fatalf("known excluded evidence must not count as unavailable: %+v", aggregate)
+	}
 	if aggregate.InputTokens.KnownObservations != 2 ||
 		aggregate.InputTokens.UnavailableObservations != 0 ||
 		aggregate.InputTokens.Sum != 15 {
@@ -204,6 +207,70 @@ func TestReportUsecaseGenerate_AggregatesUsageWithoutExcludedOrRunDuplicates(t *
 	if aggregate.RoleAvailability != "unavailable" || aggregate.RoundAvailability != "unavailable" ||
 		run.RoleAvailability != "unavailable" || run.RoundAvailability != "unavailable" {
 		t.Fatalf("unrecorded dimensions were not explicit: aggregate=%+v run=%+v", aggregate, run)
+	}
+}
+
+func TestReportUsecaseGenerate_SurfacesUnavailableUsageObservations(t *testing.T) {
+	t.Parallel()
+	criteria := reportCriteria(t, 0)
+	knownTen, err := types.KnownUsageValue(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := types.UnavailableUsageValue()
+	knownCounters, err := types.UsageCountersOf(
+		knownTen, unavailable, unavailable, knownTen, unavailable, unavailable,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailableCounters, err := types.UsageCountersOf(
+		unavailable, unavailable, unavailable, unavailable, unavailable, unavailable,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedAt := time.Date(2026, 7, 21, 2, 0, 0, 0, time.UTC)
+	base := apptypes.ReportUsageRecord{
+		ObservedAt: observedAt, Engine: "kimi", Provider: "moonshot",
+		TerminalCode: types.UsageTerminalUnknown, Cost: types.UnavailableUsageCost(),
+	}
+	collected := base
+	collected.ObservationID = "usage-collected"
+	collected.Accounting = types.UsageAccountingAdditive
+	collected.Counters = knownCounters
+	boundaryUnavailable := base
+	boundaryUnavailable.ObservationID = "usage-boundary-unavailable"
+	boundaryUnavailable.Accounting = types.UsageAccountingExcluded
+	boundaryUnavailable.Counters = unavailableCounters
+
+	window := reportWindow(t, criteria, nil, nil, nil, false)
+	window.Usage = []apptypes.ReportUsageRecord{collected, boundaryUnavailable}
+	usageExtent, err := apptypes.ReportSourceExtentOf(
+		[]time.Time{observedAt, observedAt}, criteria.PageSize(), criteria.ResultCap(), false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window.Extents.Usage = usageExtent
+
+	got, err := usecase.NewReportUsecase(&reportQueryStub{window: window}).Generate(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if len(got.Usage.Aggregates) != 1 {
+		t.Fatalf("usage aggregates = %+v", got.Usage.Aggregates)
+	}
+	aggregate := got.Usage.Aggregates[0]
+	if aggregate.Observations != 2 || aggregate.Accounted != 1 || aggregate.Excluded != 1 {
+		t.Fatalf("usage counts = %+v", aggregate)
+	}
+	if aggregate.Unavailable != 1 {
+		t.Fatalf("unavailable observation was not explicit: %+v", aggregate)
+	}
+	if aggregate.InputTokens.KnownObservations != 1 || aggregate.InputTokens.UnavailableObservations != 0 ||
+		aggregate.InputTokens.Sum != 10 {
+		t.Fatalf("unavailable observation must not read as collected zero: %+v", aggregate.InputTokens)
 	}
 }
 

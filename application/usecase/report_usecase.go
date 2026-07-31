@@ -292,6 +292,9 @@ func accumulateReportUsageObservation(
 	row := &accumulator.row
 	row.Observations++
 	row.TerminalCodes[record.TerminalCode.String()]++
+	if record.Counters.Availability() == domtypes.UsageAvailabilityUnavailable {
+		row.Unavailable++
+	}
 	if record.Accounting == domtypes.UsageAccountingExcluded {
 		row.Excluded++
 		return nil

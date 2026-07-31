@@ -95,6 +95,7 @@ func TestRootCLI_Report_JSONGolden(t *testing.T) {
 				RoleAvailability: "unavailable", Repository: "duck8823/traceary",
 				TicketRef: "#1449", PullRequest: &pullRequest, BatchID: "release-v0.32",
 				RoundAvailability: "unavailable", Observations: 2, Accounted: 1, Excluded: 1,
+				Unavailable:     1,
 				InputTokens:     apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 100},
 				OutputTokens:    apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 25},
 				TotalTokens:     apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 125},
@@ -280,7 +281,7 @@ func TestRootCLI_Report_TextMakesUsageAvailabilityAndCostOriginExplicit(t *testi
 		Usage: apptypes.ReportUsageSnapshot{Aggregates: []apptypes.ReportUsageAggregateRow{{
 			Provider: "openai", Engine: "codex", Model: "gpt-5.6-sol",
 			RoleAvailability: "unavailable", RoundAvailability: "unavailable",
-			Observations: 1, Accounted: 1,
+			Observations: 2, Accounted: 1, Excluded: 1, Unavailable: 1,
 			InputTokens:  apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 10},
 			OutputTokens: apptypes.ReportUsageMetric{UnavailableObservations: 1},
 			Costs: []apptypes.ReportUsageCostRow{{
@@ -289,7 +290,7 @@ func TestRootCLI_Report_TextMakesUsageAvailabilityAndCostOriginExplicit(t *testi
 			}},
 			TerminalCodes: map[string]int{"success": 1},
 		}}},
-		UsageScanCount: 1,
+		UsageScanCount: 2,
 	}}
 	stdout := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
@@ -300,6 +301,7 @@ func TestRootCLI_Report_TextMakesUsageAvailabilityAndCostOriginExplicit(t *testi
 		t.Fatalf("Execute() error = %v", err)
 	}
 	for _, want := range []string{
+		"observations=2 accounted=1 excluded=1 unavailable=1",
 		"input_tokens=10(known=1 unavailable=0)",
 		"output_tokens=0(known=0 unavailable=1)",
 		"role=unavailable",

@@ -1,5 +1,5 @@
 {
-  "listToolsBytes": 45553,
+  "listToolsBytes": 45626,
   "inputSchemaBytes": 14999,
   "tools": [
     {
@@ -10,9 +10,9 @@
     },
     {
       "name": "get_report",
-      "toolBytes": 12370,
+      "toolBytes": 12443,
       "inputSchemaBytes": 756,
-      "outputSchemaBytes": 11406
+      "outputSchemaBytes": 11479
     },
     {
       "name": "list_events",
