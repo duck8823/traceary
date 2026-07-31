@@ -150,6 +150,83 @@ func TestCodexUsageSource_TreatsSessionIDAsLiteralRolloutSuffix(t *testing.T) {
 	}
 }
 
+func TestCodexUsageSource_IgnoresForeignRolloutMatchingOnlySuffixTail(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	sessionID := "tail-session"
+	path := filepath.Join(home, ".codex", "sessions", "2026", "07", "23", "rollout-2026-07-23T01-00-00-foreign"+sessionID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := strings.Join([]string{
+		`{"timestamp":"2026-07-23T01:00:00Z","type":"session_meta","payload":{"id":"foreign-` + sessionID + `","cli_version":"0.145.0"}}`,
+		`{"timestamp":"2026-07-23T01:00:01Z","type":"turn_context","payload":{"turn_id":"turn-foreign","model":"gpt"}}`,
+		`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":7,"output_tokens":2,"total_tokens":9}}}}`,
+		`{"timestamp":"2026-07-23T01:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-foreign"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := filesystem.NewCodexUsageSourceForTest(func() (string, error) { return home, nil }, 1024*1024, 1024*1024).Load(context.Background(), application.CodexUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(result.Samples) != 0 {
+		t.Fatalf("Samples = %+v, want no claims from a foreign rollout", result.Samples)
+	}
+}
+
+func TestCodexUsageSource_RejectsConflictingSessionMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	sessionID := "renamed-rollout-session"
+	foreignID := "private-foreign-session"
+	path := filepath.Join(home, ".codex", "sessions", "2026", "07", "23", "rollout-"+sessionID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := strings.Join([]string{
+		`{"timestamp":"2026-07-23T01:00:00Z","type":"session_meta","payload":{"id":"` + foreignID + `","cli_version":"0.145.0"}}`,
+		`{"timestamp":"2026-07-23T01:00:01Z","type":"turn_context","payload":{"turn_id":"turn-1","model":"gpt"}}`,
+		`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":7,"output_tokens":2,"total_tokens":9}}}}`,
+		`{"timestamp":"2026-07-23T01:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := filesystem.NewCodexUsageSourceForTest(func() (string, error) { return home, nil }, 1024*1024, 1024*1024).Load(context.Background(), application.CodexUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err == nil || !strings.Contains(err.Error(), "does not match the requested session") || strings.Contains(err.Error(), foreignID) {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestCodexUsageSource_RejectsMultipleMatchingRollouts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	sessionID := "duplicated-rollout-session"
+	writeRollout := func(month, day string) {
+		t.Helper()
+		path := filepath.Join(home, ".codex", "sessions", "2026", month, day, "rollout-2026-"+month+"-"+day+"T01-00-00-"+sessionID+".jsonl")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		fixture := strings.Join([]string{
+			`{"timestamp":"2026-07-23T01:00:00Z","type":"turn_context","payload":{"turn_id":"turn-1","model":"gpt"}}`,
+			`{"timestamp":"2026-07-23T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":7,"output_tokens":2,"total_tokens":9}}}}`,
+			`{"timestamp":"2026-07-23T01:00:02Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`,
+		}, "\n") + "\n"
+		if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeRollout("07", "23")
+	writeRollout("07", "24")
+	_, err := filesystem.NewCodexUsageSourceForTest(func() (string, error) { return home, nil }, 1024*1024, 1024*1024).Load(context.Background(), application.CodexUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err == nil || !strings.Contains(err.Error(), "ambiguous Codex usage source") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
 func TestCodexUsageSource_CounterRegressionBecomesUnavailable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", "")

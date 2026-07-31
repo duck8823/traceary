@@ -66,8 +66,25 @@ func (s *codexUsageSource) Load(
 		return application.CodexUsageLoadResult{}, xerrors.Errorf("failed to match Codex usage source")
 	}
 	sort.Strings(paths)
-	result := application.CodexUsageLoadResult{}
+	// A bare suffix match can select another session's rollout whose file name
+	// merely ends with the requested session ID. Require a name boundary so
+	// exclusivity is derived only from the intended rollout evidence.
+	nameSuffix := sessionID + ".jsonl"
+	matched := make([]string, 0, len(paths))
 	for _, path := range paths {
+		base := filepath.Base(path)
+		if base == nameSuffix || strings.HasSuffix(base, "-"+nameSuffix) {
+			matched = append(matched, path)
+		}
+	}
+	// Multiple matching rollouts are ambiguous evidence: per-file turn ordinals
+	// would collide under one suppression identity. Fail closed instead of
+	// silently merging claims or masking an unterminated rollout.
+	if len(matched) > 1 {
+		return application.CodexUsageLoadResult{}, xerrors.Errorf("ambiguous Codex usage source: %d rollouts match the session", len(matched))
+	}
+	result := application.CodexUsageLoadResult{}
+	for _, path := range matched {
 		loaded, err := s.loadFile(ctx, root, path, sessionID)
 		if err != nil {
 			return application.CodexUsageLoadResult{}, err
@@ -196,6 +213,7 @@ type codexUsageEnvelope struct {
 }
 
 type codexSessionMetaPayload struct {
+	ID         string `json:"id"`
 	CLIVersion string `json:"cli_version"`
 }
 
@@ -272,6 +290,12 @@ func parseCodexRolloutUsageJSONL(
 			var payload codexSessionMetaPayload
 			if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
 				return application.CodexUsageLoadResult{}, xerrors.Errorf("invalid Codex session metadata at line %d", lineNumber)
+			}
+			// A declared session identity that conflicts with the requested
+			// session means this rollout is not the intended evidence. Fail
+			// closed without echoing the foreign identity.
+			if id := strings.TrimSpace(payload.ID); id != "" && id != sessionID {
+				return application.CodexUsageLoadResult{}, xerrors.Errorf("Codex session metadata at line %d does not match the requested session", lineNumber)
 			}
 			if strings.TrimSpace(payload.CLIVersion) != "" {
 				version = strings.TrimSpace(payload.CLIVersion)
