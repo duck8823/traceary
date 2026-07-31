@@ -246,9 +246,11 @@ func runOneShotProcess(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 // typed terminal reason documented for one-shot sessions. A child that ran to
 // completion is always success, even when the deadline or cancellation fired
 // concurrently: the context error only classifies a process that actually
-// failed to finish on its own. Likewise, an ExitError carrying a real exit
-// code proves the child exited by itself, so a concurrently expired context
-// cannot reclassify that failure as a timeout or aborted stream.
+// failed to finish on its own. Where the platform can prove the child exited
+// on its own with a real exit status (Unix wait status), an ExitError
+// carrying that status stays the child's failure even when the context
+// expired at the same time; platforms without that proof conservatively let
+// the context error keep priority (see oneShotOwnExitCode).
 func classifyOneShotOutcome(ctxErr, runErr error) (types.TerminalReason, int, error) {
 	if runErr == nil {
 		return types.TerminalReasonSuccess, 0, nil
