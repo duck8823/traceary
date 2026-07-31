@@ -776,6 +776,49 @@ Useful flags:
 - `--id-only`
 - `--json`
 
+### `traceary session run`
+
+`traceary session run` starts a one-shot session, supervises one child
+process, captures its usage, and finalizes the session when that process
+terminates. The wrapper is the sole owner of the terminal transition and
+writes the typed terminal reason. A nested host `SessionEnd` hook is a no-op
+while running under the wrapper, so it cannot finalize the session first or
+replace the wrapper's reason.
+
+| Terminal reason | Process result | Wrapper exit code |
+| --- | --- | ---: |
+| `success` | Child exits successfully | `0` |
+| `failure` | Child exits unsuccessfully | Child exit code |
+| `failure` | Child cannot be started | `127` |
+| `timeout` | Deadline expires | `124` |
+| `signal` | Child terminates from signal `N` on Unix | `128 + N` |
+| `aborted_stream` | Execution is canceled or its stream is aborted | `74` |
+| `legacy_unknown` | Legacy session without a typed reason | Not assigned by a new one-shot run |
+
+Classification accounts for races between child exit and supervisor
+cancellation. A clean child exit is `success` even if a deadline or
+cancellation becomes ready concurrently. On Unix, a child that can be shown
+to have exited on its own retains its non-zero exit code and is classified as
+`failure`. Otherwise, deadline expiration takes precedence over cancellation,
+followed by signal termination and other child exit errors.
+
+The non-Unix fallback cannot distinguish a supervisor termination reported as
+exit code 1 from a child's own exit with code 1. When that result races with
+the context, it conservatively uses the context result and classifies the run
+as `timeout` or `aborted_stream`.
+
+Session finalization has a five-second budget. If finalization fails after an
+otherwise successful child exit, the wrapper raises the exit code from `0` to
+`1`. A pre-existing non-zero child or supervisor exit code is preserved.
+Usage-capture failure exits with code `1`.
+
+The terminal-reason taxonomy above is distinct from the command-audit
+`--failure-reason` enum.
+
+Use [`traceary session repair-one-shot`](../operations/one-shot-repair.md) to
+inspect and repair stale one-shot sessions. The command is dry-run by default;
+applying a repair requires a backup and a validated evidence manifest.
+
 <a id="traceary-top"></a>
 
 ### `traceary sessions`
@@ -1107,6 +1150,37 @@ Full aggregation is the default. `--page-size` accepts 1 through 100,000, contro
 The `usage` object groups current finalized observations by provider, engine, model, repository, ticket, pull request, and batch. Token fields report known and unavailable observation counts separately, so a known zero is not confused with missing evidence. `accounted_observations` excludes alternative evidence marked for non-additive accounting, while `excluded_observations` keeps that evidence visible. `unavailable_observations` counts observations whose source data could not be read at all, so unavailable collection is never implied to be a successful zero. Cost rows remain separated by `origin`: `estimated` is never presented as `provider_reported`. Run packet and tool-output bytes are deduplicated by run identity and appear under `usage.runs`. Role, round, and wall time currently report `unavailable` because their authoritative values are not persisted.
 
 Useful flags: `--from`, `--to`, `--timezone`, `--workspace`, `--client`, `--page-size`, `--result-cap`, `--json`.
+
+#### Report lineage
+
+The report loads four source families. The sessions section comes from
+`sessions`, with per-session event counts from `events`. The events section
+comes from recent event metadata and summarizes prompt, transcript, and
+command coverage by client. The commands section comes from command-audit
+records and summarizes failure rates by client. Ratios and failure rates are
+reported only when their source coverage is complete.
+
+The usage section comes from finalized `usage_observations`, joined to
+`usage_observation_runs` for the run identity and to `run_lineages` for the
+repository, ticket, pull request, and batch attribution. Superseded
+observations are excluded: only the latest, non-superseded snapshot for an
+observation is aggregated.
+
+Packet and tool-output byte counts are immutable run facts from
+`run_lineages`. They are deduplicated by run identity and reported under
+`usage.runs`, so multiple usage observations for the same run do not multiply
+those byte counts.
+
+Sessions, events, commands, and usage are loaded in one read-only
+transaction. Each family has an independent coverage extent containing its
+observed count and time range. Coverage is `complete` or `partial`; when a
+result cap truncates a family, its `truncation_reason` is `result_cap`.
+
+Each usage aggregate includes `terminal_classifications`, a map from the
+recorded usage terminal classification to the number of matching
+observations. The text report renders this map as `terminal=...`.
+`unavailable_observations` counts observations for which all usage counters
+are unavailable, including observations excluded from counter totals.
 
 ### `traceary report workspace-identity`
 

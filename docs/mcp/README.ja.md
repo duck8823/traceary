@@ -27,6 +27,17 @@ Traceary が公開する MCP tool は 9 個で、golden snapshot `presentation/m
 
 `get_report` は CLI の `traceary report --json` と同じ応答スキーマを使い、usage と重複排除済み run fact の集計も含みます。`page_size` は 1 以上 100,000 以下で、本文を含まない SQLite 内部読み取りのページサイズだけを変え、既定は全件集計です。正の `result_cap` を指定した場合だけ、データ源ごとの部分集計を明示的に要求します。部分集計は観測件数・時刻範囲と `truncation_reason=result_cap` を返し、不完全な分母に基づく割合は省略します。usage 値は既知・取得不能の件数、加算対象外の会計証拠、provider reported と estimated の cost origin の分離を保持します。
 
+`get_report` は、`traceary report` と同じレポート生成パスとスキーマを使用します。
+sessions、events、commands、usage は、ファミリーごとに独立したカバレッジ範囲を
+持ち、1つの読み取り専用トランザクション内で読み込まれます。usage observation は、
+確定済みで最新かつ置き換えられていないスナップショットに限定されます。また、
+`usage_observation_runs` と `run_lineages` から、リポジトリ、チケット、
+プルリクエスト、バッチの来歴を含む実行の帰属情報を結合します。不変のパケットと
+ツール出力のバイト情報は、実行の識別情報ごとに1回だけカウントされます。
+`terminal_classifications` には、記録された usage の terminal classification ごとに
+グループ化した observation 数が含まれます。一方、`unavailable_observations` は、
+すべての usage カウンターが利用できない observation の件数です。
+
 `session_status(action="tree", session_id="...", depth=N)` は `session_id` を root とする session subtree を `traceary session tree --json` と同じ node array shape で返します。`depth` は任意で、`0` は root のみを返します。
 
 `session_status(action="active", ...)` は end marker 後にイベントを受け取った session を引き続き active として扱い、CLI `sessions --snapshot` の `ended_with_late_events` ルールと一致します。単独の `session_ended` の後に prompt や audit が続く場合、その session は active 結果から除外されません。

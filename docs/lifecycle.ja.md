@@ -74,6 +74,21 @@ SessionStart → [AfterTool]* → SessionEnd
 
 > **v0.21 注**: Gemini CLI はレガシー互換パスです。後継ホストの Antigravity は v0.21.1 で Traceary のサポート対象 hook クライアントになりました（v0.21.0 は capability 診断のみ）。詳細は [Antigravity 統合状況](./integrations/antigravity.ja.md) を参照してください。
 
+### 単発セッションのライフサイクル
+
+単発セッションは、`traceary session run` が監視対象の子プロセスを起動した時点で
+開始します。通常の完了を所有するのは wrapper だけであり、型付きの terminal
+reason を記録してセッションを終了します。古いセッションは
+`traceary session gc` で終了できます。証拠に基づく修正が必要な古い単発レコードは、
+[`traceary session repair-one-shot`](operations/one-shot-repair.ja.md) で処理できます。
+
+| ライフサイクル遷移 | 所有者 | 結果 |
+| --- | --- | --- |
+| 単発セッションを開始 | `traceary session run` | 監視対象の単発セッションを作成 |
+| 単発セッションを終了 | 単発 wrapper | 型付きの terminal reason を記録 |
+| 古いセッションを終了 | `traceary session gc` | 古いセッションの終了処理を実行 |
+| 古い単発セッションを修復 | `traceary session repair-one-shot` | 証拠に裏付けられた修復を適用 |
+
 ## イベント種別
 
 | 種別 | 説明 | ソース |
