@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/unix"
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
@@ -183,8 +182,8 @@ func relativeKimiUsageWire(sessionsRoot, sessionDir string) (string, error) {
 
 func openKimiUsageRegularFile(root *os.Root, name string) (*os.File, bool, error) {
 	// os.Root keeps every path component inside root across renames and symlink
-	// changes. O_NONBLOCK prevents a hostile FIFO from blocking before fstat.
-	file, err := root.OpenFile(name, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	// changes; kimiUsageOpenFlags adds the platform-specific hardening flags.
+	file, err := root.OpenFile(name, kimiUsageOpenFlags, 0)
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}
