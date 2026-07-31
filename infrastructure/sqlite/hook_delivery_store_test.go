@@ -129,6 +129,34 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		assertSQLiteCount(t, dbPath, "hook_delivery_attempts", 2)
 	})
 
+	t.Run("colon-bearing identity components stay distinct in the ledger", func(t *testing.T) {
+		t.Parallel()
+		dbPath, eventDS := newHookDeliveryTestStore(t)
+		// A plain ":" join would give both deliveries the reported identity
+		// "codex:user_prompt_submit:session:a:event_id:delivery-1".
+		for _, event := range []*model.Event{
+			hookDeliveryTestEvent(t, "event-1", "session:a", "/repo", "/repo", "same body", "event_id:delivery-1"),
+			hookDeliveryTestEvent(t, "event-2", "session", "/repo", "/repo", "same body", "a:event_id:delivery-1"),
+		} {
+			if err := eventDS.Save(context.Background(), event); err != nil {
+				t.Fatalf("Save(%s) error = %v", event.EventID(), err)
+			}
+		}
+		assertSQLiteCount(t, dbPath, "events", 2)
+		assertSQLiteCount(t, dbPath, "hook_deliveries", 2)
+		assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'accepted'", 2)
+
+		db := openHookDeliveryTestDB(t, dbPath)
+		defer func() { _ = db.Close() }()
+		var distinctReportedIDs int
+		if err := db.QueryRow(`SELECT COUNT(DISTINCT reported_delivery_id) FROM hook_deliveries`).Scan(&distinctReportedIDs); err != nil {
+			t.Fatalf("count distinct reported IDs: %v", err)
+		}
+		if distinctReportedIDs != 2 {
+			t.Fatalf("distinct reported_delivery_id count = %d, want 2 for independent deliveries", distinctReportedIDs)
+		}
+	})
+
 	t.Run("same native ID is isolated by hook kind", func(t *testing.T) {
 		t.Parallel()
 		dbPath, eventDS := newHookDeliveryTestStore(t)

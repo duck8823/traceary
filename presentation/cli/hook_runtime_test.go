@@ -532,6 +532,32 @@ func TestRootCLI_HookSessionCommand_OneShotWrapperOverridesHostIdentity(t *testi
 	}
 }
 
+func TestRootCLI_HookSessionCommand_OneShotWrapperSkipsNestedSessionEnd(t *testing.T) {
+	t.Setenv("TRACEARY_RUNTIME_MODE", "one_shot")
+	t.Setenv("TRACEARY_RUNTIME_SESSION_ID", "wrapper-session")
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	sessionStub := &sessionUsecaseStub{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"host-session","cwd":"duck8823/traceary"}`))
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hook", "session", "claude", "end"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, want nested session end to stay a no-op under the one-shot wrapper", err)
+	}
+	if len(sessionStub.endCalls) != 0 {
+		t.Fatalf("session End calls = %d, want 0 so the wrapper keeps the only terminal transition", len(sessionStub.endCalls))
+	}
+}
+
 func TestRootCLI_HookSessionCommand_StartRunsRateLimitedSessionGC(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "gc-key")
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())

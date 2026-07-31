@@ -150,6 +150,14 @@ func (c *RootCLI) runHookSession(
 		}
 		return nil
 	case "end":
+		if explicitOneShotRuntimeSessionID() != "" {
+			// A nested host SessionEnd fires while the supervised child is
+			// still exiting. Only the one-shot wrapper writes the typed
+			// terminal reason after the child exits; recording a host end
+			// here would either fail on the unknown host session or pre-empt
+			// the wrapper's reason with an untyped success.
+			return nil
+		}
 		agent, err := resolveHookAgent(client, payload)
 		if err != nil {
 			return err

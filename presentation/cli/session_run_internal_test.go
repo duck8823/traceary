@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -60,6 +61,64 @@ func TestRunOneShotProcess_ClassifiesStartFailure(t *testing.T) {
 	}
 	if reason != types.TerminalReasonFailure || exitCode != oneShotStartExitCode {
 		t.Fatalf("runOneShotProcess() = (%q, %d), want (failure, %d)", reason, exitCode, oneShotStartExitCode)
+	}
+}
+
+func TestClassifyOneShotOutcome(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		ctxErr   error
+		runErr   error
+		reason   types.TerminalReason
+		exitCode int
+		wantErr  bool
+	}{
+		{name: "clean exit", reason: types.TerminalReasonSuccess, exitCode: 0},
+		{
+			name:   "clean exit wins over expired deadline",
+			ctxErr: context.DeadlineExceeded,
+			reason: types.TerminalReasonSuccess, exitCode: 0,
+		},
+		{
+			name:   "clean exit wins over canceled context",
+			ctxErr: context.Canceled,
+			reason: types.TerminalReasonSuccess, exitCode: 0,
+		},
+		{
+			name:   "deadline classifies killed process as timeout",
+			ctxErr: context.DeadlineExceeded,
+			runErr: errors.New("signal: killed"),
+			reason: types.TerminalReasonTimeout, exitCode: oneShotTimeoutExitCode, wantErr: true,
+		},
+		{
+			name:   "canceled context classifies killed process as aborted stream",
+			ctxErr: context.Canceled,
+			runErr: errors.New("signal: killed"),
+			reason: types.TerminalReasonAbortedStream, exitCode: oneShotStreamExitCode, wantErr: true,
+		},
+		{
+			name:   "start failure",
+			runErr: &os.PathError{Op: "fork/exec", Path: "/missing", Err: errors.New("no such file or directory")},
+			reason: types.TerminalReasonFailure, exitCode: oneShotStartExitCode, wantErr: true,
+		},
+		{
+			name:   "stream error",
+			runErr: errors.New("broken pipe"),
+			reason: types.TerminalReasonAbortedStream, exitCode: oneShotStreamExitCode, wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reason, exitCode, err := classifyOneShotOutcome(tt.ctxErr, tt.runErr)
+			if reason != tt.reason || exitCode != tt.exitCode {
+				t.Fatalf("classifyOneShotOutcome() = (%q, %d), want (%q, %d)", reason, exitCode, tt.reason, tt.exitCode)
+			}
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("classifyOneShotOutcome() error = %v, wantErr %t", err, tt.wantErr)
+			}
+		})
 	}
 }
 

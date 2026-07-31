@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"strconv"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -37,7 +38,7 @@ func NewHookDeliveryEvidence(event *Event, nativeID, rawWorkspace string, semant
 	if host == "" || strings.TrimSpace(event.SourceHook()) == "" || event.SessionID().String() == "" {
 		return HookDeliveryEvidence{}, xerrors.Errorf("hook delivery requires host, source hook, and session ID")
 	}
-	reportedID := strings.Join([]string{host, event.SourceHook(), event.SessionID().String(), trimmedNativeID}, ":")
+	reportedID := joinReportedIdentityFields(host, event.SourceHook(), event.SessionID().String(), trimmedNativeID)
 	deliveryFields := []string{
 		event.Kind().String(),
 		event.Client().String(),
@@ -83,6 +84,20 @@ func (e HookDeliveryEvidence) ObservationID() string {
 func rootAgentName(value string) string {
 	root, _, _ := strings.Cut(strings.TrimSpace(value), "/")
 	return strings.TrimSpace(root)
+}
+
+// joinReportedIdentityFields encodes identity components with byte-length
+// prefixes. A plain delimiter join is ambiguous because every component is
+// host-controlled text that may itself contain the delimiter: ("a:b", "c")
+// and ("a", "b:c") would collapse into one reported identity. The length
+// prefix makes each component self-delimiting, so independent deliveries can
+// never collide in the persisted ledger identity.
+func joinReportedIdentityFields(fields ...string) string {
+	encoded := make([]string, 0, len(fields))
+	for _, field := range fields {
+		encoded = append(encoded, strconv.Itoa(len(field))+":"+field)
+	}
+	return strings.Join(encoded, "|")
 }
 
 func digestFields(values ...string) string {
