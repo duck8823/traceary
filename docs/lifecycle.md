@@ -74,6 +74,22 @@ SessionStart → [AfterTool]* → SessionEnd
 
 > **v0.21 note**: Gemini CLI is the legacy compatibility path. The successor host, Antigravity, became a supported Traceary hook client in v0.21.1 (capability diagnostics only in v0.21.0). See [Antigravity integration status](./integrations/antigravity.md).
 
+### One-shot lifecycle
+
+A one-shot session starts when `traceary session run` launches its supervised
+child process. The wrapper is the sole owner of normal completion and ends
+the session with a typed terminal reason. Stale sessions can be closed by
+`traceary session gc`; stale one-shot records that require evidence-based
+correction can be handled by
+[`traceary session repair-one-shot`](operations/one-shot-repair.md).
+
+| Lifecycle transition | Owner | Result |
+| --- | --- | --- |
+| Start a one-shot session | `traceary session run` | Creates the supervised one-shot session |
+| End a one-shot session | One-shot wrapper | Records the typed terminal reason |
+| Close a stale session | `traceary session gc` | Performs stale-session closure |
+| Repair a stale one-shot session | `traceary session repair-one-shot` | Applies an evidence-backed repair |
+
 ## Event Kinds
 
 | Kind | Description | Source |

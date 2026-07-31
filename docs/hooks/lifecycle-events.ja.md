@@ -68,6 +68,20 @@ Traceary が終了まで監督できる単発プロセスには `traceary sessio
 
 たとえば `traceary session run -- codex exec "Review this change"` は `codex exec` プロセスの終了を根拠にセッションを閉じる。対話型 Codex の挙動は変わらず、通常の `Stop` はターン境界のままでセッション終了を合成しない。Traceary は transcript の文言やアイドル時間から完了を推測しない。
 
+`traceary session run` によって開始されたセッションでは、terminal transition と
+その型付き reason を所有するのは wrapper だけです。成功時は `0`、失敗時は
+子プロセスの code、timeout 時は `124`、Unix の signal `N` では `128 + N`、
+stream の中断時は `74`、子プロセスを起動できない場合は `127` で終了します。
+wrapper 配下のネストしたホストの `SessionEnd` hook は何も行わず、wrapper の
+terminal reason に先行することはできません。
+
+子プロセスの正常終了は、競合する deadline またはキャンセルより優先されます。
+Unix では、子プロセスが非ゼロで終了したことを確認できる場合、その結果は
+failure のままです。非 Unix のフォールバックでは、その終了と supervisor による
+終了を区別できない場合、保守的に context の結果を使用します。古い単発セッションは、
+[`traceary session repair-one-shot`](../operations/one-shot-repair.ja.md) を使用して
+調査および修復できます。
+
 ## Antigravity（v0.21.1+）
 
 Antigravity は Gemini CLI に代わる Traceary 連携ホストです。v0.21.1 からサポート対象の hook クライアントになりました（v0.21.0 は capability 診断のみ）。Tier 2 host と同様に canonical event kind へマッピングされます。

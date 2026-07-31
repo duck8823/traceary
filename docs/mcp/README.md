@@ -27,6 +27,17 @@ Traceary exposes 9 MCP tools, enforced by a golden snapshot (`presentation/mcpse
 
 `get_report` shares the CLI `traceary report --json` response schema, including usage and deduplicated run-fact aggregates. Its `page_size` accepts 1 through 100,000 and changes only internal body-free SQLite paging; full aggregation remains the default. A positive `result_cap` explicitly requests a per-source partial aggregate. Partial output includes observed counts/ranges and `truncation_reason=result_cap`, and omits percentages whose denominator is incomplete. Usage values preserve known/unavailable counts, excluded accounting evidence, and separate provider-reported versus estimated cost origins.
 
+`get_report` uses the same report-generation path and schema as
+`traceary report`. Sessions, events, commands, and usage are loaded in one
+read-only transaction with an independent coverage extent for each family.
+Usage observations are limited to finalized, latest non-superseded snapshots
+and join run attribution from `usage_observation_runs` and `run_lineages`,
+including repository, ticket, pull request, and batch provenance. Immutable
+packet and tool-output byte facts are counted once per run identity.
+`terminal_classifications` contains observation counts grouped by recorded
+usage terminal classification, while `unavailable_observations` counts
+observations for which every usage counter is unavailable.
+
 `session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` using the same node array shape as `traceary session tree --json`; `depth` is optional and `0` returns only the root.
 
 `session_status(action="active", ...)` treats a session that received events after its end marker as still active, matching the CLI `sessions --snapshot` `ended_with_late_events` rule. A lone `session_ended` followed by later prompts or audits does not exclude the session from the active result.

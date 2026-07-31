@@ -768,6 +768,50 @@ session end 境界を記録し、生成された event ID を出力します。
 - `--id-only`
 - `--json`
 
+### `traceary session run`
+
+`traceary session run` は、単発セッションを開始し、1つの子プロセスを監視して、
+その usage を取得し、プロセスの終了時にセッションを確定します。terminal
+transition を所有するのは wrapper だけであり、型付きの terminal reason を
+書き込みます。wrapper 配下で実行されるネストしたホストの `SessionEnd` hook は
+何も行わないため、wrapper より先にセッションを確定したり、wrapper の reason を
+置き換えたりすることはできません。
+
+| Terminal reason | プロセスの結果 | Wrapper の exit code |
+| --- | --- | ---: |
+| `success` | 子プロセスが正常終了 | `0` |
+| `failure` | 子プロセスが異常終了 | 子プロセスの exit code |
+| `failure` | 子プロセスを起動できない | `127` |
+| `timeout` | deadline が経過 | `124` |
+| `signal` | Unix で子プロセスが signal `N` により終了 | `128 + N` |
+| `aborted_stream` | 実行がキャンセルされたか、stream が中断された | `74` |
+| `legacy_unknown` | 型付き reason のない従来のセッション | 新しい単発実行では割り当てられない |
+
+分類では、子プロセスの終了と supervisor のキャンセルが競合する場合を考慮します。
+子プロセスが正常終了した場合は、deadline またはキャンセルが同時に ready に
+なっても `success` です。Unix では、子プロセスが自発的に終了したことを確認
+できる場合、非ゼロの exit code を維持し、`failure` に分類します。それ以外では、
+deadline の経過がキャンセルより優先され、続いて signal による終了、その他の
+子プロセス終了エラーの順に扱われます。
+
+非 Unix のフォールバックでは、supervisor による終了として報告された exit code 1
+と、子プロセス自身が code 1 で終了した場合を区別できません。その結果が context
+と競合する場合は、保守的に context の結果を使用し、実行を `timeout` または
+`aborted_stream` に分類します。
+
+セッションの確定処理には5秒の制限があります。それ以外は正常に終了した
+子プロセスについて確定処理が失敗した場合、wrapper は exit code を `0` から
+`1` に引き上げます。既存の非ゼロの子プロセスまたは supervisor の exit code は
+維持されます。usage の取得に失敗した場合は code `1` で終了します。
+
+上記の terminal-reason taxonomy は、コマンド監査の `--failure-reason` enum とは
+異なります。
+
+古い単発セッションの調査と修復には、
+[`traceary session repair-one-shot`](../operations/one-shot-repair.ja.md) を使用します。
+このコマンドはデフォルトでは dry-run です。修復を適用するには、バックアップと
+検証済みの evidence manifest が必要です。
+
 <a id="traceary-top"></a>
 
 ### `traceary sessions`
@@ -1097,6 +1141,38 @@ AI クライアント連携向けに MCP サーバーを stdio で起動しま�
 `usage` オブジェクトは、現在有効な確定済み観測を provider、engine、model、repository、ticket、pull request、batch ごとに集計します。token フィールドは既知の観測件数と取得不能な観測件数を分けるため、既知の 0 と証拠不足を混同しません。`accounted_observations` は加算対象外の代替証拠を除き、`excluded_observations` はその証拠の存在を可視化します。`unavailable_observations` はデータ源をまったく読めなかった観測を数えるため、取得不能を収集成功の 0 と見なしません。cost 行は `origin` ごとに分離し、`estimated` を `provider_reported` として表示しません。run の packet bytes と tool output bytes は run identity で重複排除し、`usage.runs` に出力します。role、round、wall time は正式な値が永続化されていないため、現在は `unavailable` と表示します。
 
 主な flag: `--from`、`--to`、`--timezone`、`--workspace`、`--client`、`--page-size`、`--result-cap`、`--json`。
+
+#### レポートの系譜
+
+レポートは、4つのソースファミリーを読み込みます。sessions セクションは
+`sessions` をソースとし、セッションごとのイベント数は `events` から取得します。
+events セクションは直近のイベントメタデータをソースとし、クライアント別に
+プロンプト、トランスクリプト、コマンドのカバレッジを要約します。commands
+セクションはコマンド監査レコードをソースとし、クライアント別に失敗率を
+要約します。比率と失敗率は、ソースのカバレッジが完全な場合にのみ報告されます。
+
+usage セクションは、確定済みの `usage_observations` をソースとし、実行の識別情報を
+取得するために `usage_observation_runs` と、リポジトリ、チケット、プルリクエスト、
+バッチの帰属情報を取得するために `run_lineages` と結合します。置き換えられた
+observation は除外され、各 observation の最新かつ置き換えられていない
+スナップショットだけが集計されます。
+
+パケットとツール出力のバイト数は、`run_lineages` に記録された不変の実行情報です。
+これらは実行の識別情報によって重複排除され、`usage.runs` 配下に報告されます。
+そのため、同一実行に対して複数の usage observation が存在しても、バイト数が
+重複して加算されることはありません。
+
+sessions、events、commands、usage は、1つの読み取り専用トランザクション内で
+読み込まれます。各ファミリーには、観測件数と時間範囲を含む独立した
+カバレッジ範囲があります。カバレッジは `complete` または `partial` です。
+結果件数の上限によってファミリーが切り詰められた場合、その
+`truncation_reason` は `result_cap` になります。
+
+各 usage 集計には、記録された usage の terminal classification から、それに
+該当する observation 数へのマップである `terminal_classifications` が含まれます。
+テキストレポートでは、このマップを `terminal=...` として表示します。
+`unavailable_observations` は、usage カウンターがすべて利用できない observation の
+件数です。これには、カウンターの合計から除外された observation も含まれます。
 
 ### `traceary report workspace-identity`
 

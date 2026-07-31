@@ -68,6 +68,19 @@ Use `traceary session run -- <command> [args...]` when Traceary can supervise a 
 
 For example, `traceary session run -- codex exec "Review this change"` closes when the `codex exec` process exits. This does not change interactive Codex behavior: a normal Codex `Stop` remains a turn boundary and never becomes synthetic session completion. Traceary does not infer completion from transcript text or idle time.
 
+For a session started by `traceary session run`, the wrapper alone owns the
+terminal transition and its typed reason. It exits with `0` for success, the
+child code for failure, `124` for timeout, `128 + N` for Unix signal `N`,
+`74` for an aborted stream, or `127` when the child cannot be started.
+Nested host `SessionEnd` hooks are no-ops under the wrapper and cannot preempt
+its terminal reason.
+
+A clean child exit wins over a racing deadline or cancellation. On Unix, a
+child's proven non-zero exit remains a failure; the non-Unix fallback uses the
+context result conservatively when it cannot distinguish that exit from
+supervisor termination. Stale one-shot sessions can be inspected and repaired
+with [`traceary session repair-one-shot`](../operations/one-shot-repair.md).
+
 ## Antigravity (v0.21.1+)
 
 Antigravity is the successor to Gemini CLI as a Traceary-integrated host. As of v0.21.1 it is a supported hook client (capability diagnostics only in v0.21.0). It maps onto the canonical event kinds like a Tier 2 host:
