@@ -269,6 +269,64 @@ func TestKimiUsageSource_LoadRejectsFIFOWithoutBlocking(t *testing.T) {
 	}
 }
 
+func TestKimiUsageSource_LoadRejectsOversizedSourceWithoutLeakingBody(t *testing.T) {
+	t.Run("wire", func(t *testing.T) {
+		root, sessionDir := writeKimiUsageTestSession(t, "provider-session")
+		if err := os.WriteFile(
+			filepath.Join(sessionDir, "agents", "main", "wire.jsonl"),
+			[]byte(strings.Repeat("PRIVATE-SENTINEL", 256)), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		indexInfo, err := os.Stat(filepath.Join(root, kimiUsageSessionIndex))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = newKimiUsageSourceForBoundTest(root, indexInfo.Size(), 1024).
+			Load(context.Background(), "provider-session")
+		if err == nil || strings.Contains(err.Error(), "PRIVATE-SENTINEL") {
+			t.Fatalf("Load() error = %v, want oversized wire rejection without body leak", err)
+		}
+	})
+	t.Run("session index", func(t *testing.T) {
+		root, _ := writeKimiUsageTestSession(t, "provider-session")
+		if err := os.WriteFile(
+			filepath.Join(root, kimiUsageSessionIndex),
+			[]byte(strings.Repeat("PRIVATE-SENTINEL", 256)), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		_, err := newKimiUsageSourceForBoundTest(root, 16, 1024).
+			Load(context.Background(), "provider-session")
+		if err == nil || strings.Contains(err.Error(), "PRIVATE-SENTINEL") {
+			t.Fatalf("Load() error = %v, want oversized index rejection without body leak", err)
+		}
+	})
+}
+
+func TestKimiUsageSource_LoadRejectsOversizedLine(t *testing.T) {
+	root, sessionDir := writeKimiUsageTestSession(t, "provider-session")
+	line := `{"type":"turn.prompt","padding":"` + strings.Repeat("x", 128*1024) + `"}`
+	if err := os.WriteFile(
+		filepath.Join(sessionDir, "agents", "main", "wire.jsonl"), []byte(line+"\n"), 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	_, err := newKimiUsageSourceForBoundTest(root, 1<<20, 1024).
+		Load(context.Background(), "provider-session")
+	if err == nil {
+		t.Fatal("Load() error = nil, want oversized line rejection")
+	}
+}
+
+func newKimiUsageSourceForBoundTest(root string, maxSourceSize int64, maxLineBytes int) *kimiUsageSource {
+	return &kimiUsageSource{
+		root:          func() (string, error) { return root, nil },
+		maxSourceSize: maxSourceSize,
+		maxLineBytes:  maxLineBytes,
+	}
+}
+
 func writeKimiUsageTestSession(t *testing.T, providerSessionID string) (string, string) {
 	t.Helper()
 	root := t.TempDir()

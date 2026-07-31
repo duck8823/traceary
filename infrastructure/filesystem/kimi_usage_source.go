@@ -30,16 +30,26 @@ const (
 )
 
 type kimiUsageSource struct {
-	root func() (string, error)
+	root          func() (string, error)
+	maxSourceSize int64
+	maxLineBytes  int
 }
 
 // NewKimiUsageSource creates the contained, body-free Kimi wire adapter.
 func NewKimiUsageSource() application.KimiUsageSource {
-	return &kimiUsageSource{root: defaultKimiUsageRoot}
+	return &kimiUsageSource{
+		root:          defaultKimiUsageRoot,
+		maxSourceSize: kimiUsageMaxSourceSize,
+		maxLineBytes:  kimiUsageMaxLineBytes,
+	}
 }
 
 func newKimiUsageSourceWithRoot(root string) *kimiUsageSource {
-	return &kimiUsageSource{root: func() (string, error) { return root, nil }}
+	return &kimiUsageSource{
+		root:          func() (string, error) { return root, nil },
+		maxSourceSize: kimiUsageMaxSourceSize,
+		maxLineBytes:  kimiUsageMaxLineBytes,
+	}
 }
 
 func defaultKimiUsageRoot() (string, error) {
@@ -110,7 +120,7 @@ func (s *kimiUsageSource) Load(
 	}
 	defer func() { _ = sessionsRoot.Close() }()
 
-	sessionDir, found, err := findKimiUsageSessionDir(ctx, homeRoot, providerSessionID)
+	sessionDir, found, err := s.findKimiUsageSessionDir(ctx, homeRoot, providerSessionID)
 	if err != nil {
 		return application.KimiUsageLoadResult{}, err
 	}
@@ -122,7 +132,7 @@ func (s *kimiUsageSource) Load(
 	if err != nil {
 		return application.KimiUsageLoadResult{}, err
 	}
-	file, found, err := openKimiUsageRegularFile(sessionsRoot, wirePath)
+	file, found, err := s.openKimiUsageRegularFile(sessionsRoot, wirePath)
 	if err != nil {
 		return application.KimiUsageLoadResult{}, xerrors.Errorf("failed to open Kimi usage wire")
 	}
@@ -130,15 +140,15 @@ func (s *kimiUsageSource) Load(
 		return application.KimiUsageLoadResult{}, nil
 	}
 	defer func() { _ = file.Close() }()
-	return loadKimiUsageWire(ctx, file, providerSessionID)
+	return s.loadKimiUsageWire(ctx, file, providerSessionID)
 }
 
-func findKimiUsageSessionDir(
+func (s *kimiUsageSource) findKimiUsageSessionDir(
 	ctx context.Context,
 	root *os.Root,
 	providerSessionID string,
 ) (string, bool, error) {
-	file, found, err := openKimiUsageRegularFile(root, kimiUsageSessionIndex)
+	file, found, err := s.openKimiUsageRegularFile(root, kimiUsageSessionIndex)
 	if err != nil {
 		return "", false, xerrors.Errorf("failed to open Kimi usage session index")
 	}
@@ -148,7 +158,7 @@ func findKimiUsageSessionDir(
 	defer func() { _ = file.Close() }()
 
 	sessionDir := ""
-	scanner, limited := boundedKimiUsageScanner(file)
+	scanner, limited := s.boundedKimiUsageScanner(file)
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return "", false, xerrors.Errorf("Kimi usage session index scan cancelled: %w", err)
@@ -181,7 +191,7 @@ func relativeKimiUsageWire(sessionsRoot, sessionDir string) (string, error) {
 	return filepath.Join(rel, "agents", "main", "wire.jsonl"), nil
 }
 
-func openKimiUsageRegularFile(root *os.Root, name string) (*os.File, bool, error) {
+func (s *kimiUsageSource) openKimiUsageRegularFile(root *os.Root, name string) (*os.File, bool, error) {
 	// os.Root keeps every path component inside root across renames and symlink
 	// changes. O_NONBLOCK prevents a hostile FIFO from blocking before fstat.
 	file, err := root.OpenFile(name, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
@@ -192,14 +202,14 @@ func openKimiUsageRegularFile(root *os.Root, name string) (*os.File, bool, error
 		return nil, false, xerrors.Errorf("failed to open contained Kimi usage source")
 	}
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > kimiUsageMaxSourceSize {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > s.maxSourceSize {
 		_ = file.Close()
 		return nil, false, xerrors.Errorf("Kimi usage source is not a bounded regular file")
 	}
 	return file, true, nil
 }
 
-func loadKimiUsageWire(
+func (s *kimiUsageSource) loadKimiUsageWire(
 	ctx context.Context,
 	file *os.File,
 	providerSessionID string,
@@ -207,7 +217,7 @@ func loadKimiUsageWire(
 	result := application.KimiUsageLoadResult{}
 	usageOrdinal := int64(0)
 	turnOrdinal := int64(0)
-	scanner, limited := boundedKimiUsageScanner(file)
+	scanner, limited := s.boundedKimiUsageScanner(file)
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return application.KimiUsageLoadResult{}, xerrors.Errorf("Kimi usage wire scan cancelled: %w", err)
@@ -287,10 +297,10 @@ func decodeKimiUsageRecord(
 	}, nil
 }
 
-func boundedKimiUsageScanner(reader io.Reader) (*bufio.Scanner, *io.LimitedReader) {
-	limited := &io.LimitedReader{R: reader, N: kimiUsageMaxSourceSize + 1}
+func (s *kimiUsageSource) boundedKimiUsageScanner(reader io.Reader) (*bufio.Scanner, *io.LimitedReader) {
+	limited := &io.LimitedReader{R: reader, N: s.maxSourceSize + 1}
 	scanner := bufio.NewScanner(limited)
-	scanner.Buffer(make([]byte, 0, 64*1024), kimiUsageMaxLineBytes)
+	scanner.Buffer(make([]byte, 0, 64*1024), s.maxLineBytes)
 	return scanner, limited
 }
 
