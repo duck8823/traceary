@@ -63,6 +63,21 @@ Absent counters stay unavailable and known zero stays zero. Traceary does not
 infer total tokens, retry counts, compact-token usage, subagent attribution,
 or cost. These Kimi records do not contribute to usage aggregates.
 
+### Platform support
+
+The Kimi usage source is supported on platforms covered by Go's `unix`
+build constraint, including macOS, Linux, and other Unix systems. It
+expects `session_index.jsonl` under the Kimi config home and each
+session's `agents/main/wire.jsonl` under its `sessions` tree. The config
+home is set by `KIMI_CODE_HOME` and defaults to `~/.kimi-code`.
+
+On all other platforms, including Windows, the source fails closed with
+the explicit error `Kimi usage source requires Unix contained file-open
+primitives`. It records no usage data and never fabricates samples.
+
+On supported platforms, missing local data produces an empty result
+without error. Gaps are never filled with zeros or guesses.
+
 ## Install
 
 1. Install the Traceary CLI and confirm that `traceary` is on `PATH` (the
