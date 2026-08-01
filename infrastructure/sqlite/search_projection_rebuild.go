@@ -161,13 +161,21 @@ func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.Proje
 	var q string
 	var args []any
 	if out.Phase == "eviction" {
-		q = `SELECT document_id,decoded_bytes FROM search_projection_recent_documents WHERE generation_id=? AND (created_at_norm<? OR (SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?)>?) ORDER BY created_at_norm,event_rowid LIMIT ?`
-		args = []any{out.Generation.GenerationID, projectionCutoff(now.Add(-b.RecentAge)), out.Generation.GenerationID, b.RecentBytes, b.Rows + 1}
+		q = `WITH ordered AS (
+ SELECT document_id,created_at_norm,event_id,
+ length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 logical_bytes,
+ COALESCE(SUM(decoded_bytes) OVER (ORDER BY created_at_norm,event_id,document_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) removed_before,
+ SUM(decoded_bytes) OVER () total_bytes
+ FROM search_projection_recent_documents WHERE generation_id=?
+) SELECT document_id,logical_bytes FROM ordered
+ WHERE created_at_norm<? OR total_bytes-removed_before>?
+ ORDER BY created_at_norm,event_id,document_id LIMIT ?`
+		args = []any{out.Generation.GenerationID, projectionCutoff(now.Add(-b.RecentAge)), b.RecentBytes, b.Rows + 1}
 	} else if out.CleanupAll {
-		q = `SELECT 'recent',rowid,length(CAST(COALESCE(body_text,'') AS BLOB)) FROM search_projection_recent_documents UNION ALL SELECT 'summary',rowid,length(CAST(summary_text AS BLOB)) FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',rowid,32 FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',rowid,length(CAST(keyword AS BLOB))+24 FROM search_projection_session_keywords LIMIT ?`
+		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords LIMIT ?`
 		args = []any{b.Rows + 1}
 	} else {
-		q = `SELECT 'recent',rowid,length(CAST(COALESCE(body_text,'') AS BLOB)) FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',rowid,length(CAST(summary_text AS BLOB)) FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',rowid,32 FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',rowid,length(CAST(keyword AS BLOB))+24 FROM search_projection_session_keywords WHERE generation_id<>? LIMIT ?`
+		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords WHERE generation_id<>? LIMIT ?`
 		args = []any{out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, b.Rows + 1}
 	}
 	rows, e := db.QueryContext(ctx, q, args...)
@@ -346,7 +354,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	out.GenerationID = p.GenerationID
 	out.StoredBytes = p.Ledger.StoredBytes
 	out.DecodedBytes = p.Ledger.DecodedBytes
-	out.WrittenBytes = p.Ledger.LogicalWriteBytes + p.Ledger.WALReservationBytes
+	out.WrittenBytes = p.Ledger.LogicalWriteBytes
 	return out, nil
 }
 

@@ -13,19 +13,28 @@ import (
 )
 
 type wallBudgetStore struct {
-	budget  apptypes.SearchProjectionBudget
-	applied bool
+	budget      apptypes.SearchProjectionBudget
+	applied     bool
+	delayStatus bool
+	selected    bool
 }
 
 func (s *wallBudgetStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
 	return apptypes.SearchProjectionGeneration{}, nil
 }
-func (s *wallBudgetStore) SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error) {
+
+//nolint:wrapcheck // Test fake preserves context cancellation identity.
+func (s *wallBudgetStore) SearchProjectionStatus(ctx context.Context) (apptypes.SearchProjectionStatus, error) {
+	if s.delayStatus {
+		<-ctx.Done()
+		return apptypes.SearchProjectionStatus{}, ctx.Err()
+	}
 	return apptypes.SearchProjectionStatus{State: "rebuilding", ConfigHash: s.budget.ConfigHash()}, nil
 }
 
 //nolint:wrapcheck // Test fake preserves context cancellation identity.
 func (s *wallBudgetStore) SelectSnapshot(ctx context.Context, _ apptypes.SearchProjectionBudget, _ time.Time) (apptypes.ProjectionSnapshot, error) {
+	s.selected = true
 	<-ctx.Done()
 	return apptypes.ProjectionSnapshot{}, ctx.Err()
 }
@@ -41,7 +50,7 @@ func (*wallBudgetStore) MarkFailed(context.Context, string, int64, string, time.
 	return nil
 }
 
-func TestProjectionBatchPlanEnforcesCombinedLogicalAndWALHardCap(t *testing.T) {
+func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 	t.Parallel()
 	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1000, DecodedBytes: 1000, WriteBytes: 100, RecentAge: time.Hour, RecentBytes: 1000}
 	s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{{Sequence: 1, Text: "small", StoredBytes: 5, DecodedBytes: 5}}}
@@ -55,8 +64,24 @@ func TestProjectionBatchPlanEnforcesCombinedLogicalAndWALHardCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.Ledger.LogicalWriteBytes + p.Ledger.WALReservationBytes; got > b.WriteBytes {
+	if got := p.Ledger.LogicalWriteBytes; got > b.WriteBytes {
 		t.Fatalf("reserved bytes = %d > %d", got, b.WriteBytes)
+	}
+	if len(p.Writes) != 1 || p.Writes[0].LogicalBytes != 47 {
+		t.Fatalf("logical formula = %+v, want one 47-byte mutation", p.Writes)
+	}
+}
+
+func TestResumeStatusConsumesSameWallBudgetAndPreventsSelectionOrMutation(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, RecentBytes: 1}
+	store := &wallBudgetStore{budget: b, delayStatus: true}
+	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error=%v", err)
+	}
+	if store.selected || store.applied {
+		t.Fatalf("post-deadline calls: selected=%v applied=%v", store.selected, store.applied)
 	}
 }
 

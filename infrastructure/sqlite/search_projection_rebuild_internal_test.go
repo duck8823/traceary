@@ -392,3 +392,45 @@ func TestCompletedMutationDefersPayloadCleanupToBoundedPhase(t *testing.T) {
 		t.Fatalf("probe=%+v err=%v", status, err)
 	}
 }
+
+func TestRecentEvictionDeletesOnlyStableMinimalOldestPrefix(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, migrations)
+	if err := store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	// Reverse insertion proves the timestamp tie is resolved by event ID, not row ID.
+	for _, id := range []string{"b", "a"} {
+		if _, err := db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'note','a',?,'0123456789',?,'c','w')`, id, id, formatTimestamp(now)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := projectionBudget()
+	b.Rows = 10
+	b.RecentBytes = 10
+	b.WriteBytes = 1 << 20
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8; i++ {
+		p, err := resumeProjection(ctx, store, b, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Completed {
+			break
+		}
+	}
+	var ids string
+	if err := db.QueryRow(`SELECT group_concat(event_id,',') FROM search_projection_recent_documents`).Scan(&ids); err != nil {
+		t.Fatal(err)
+	}
+	if ids != "b" {
+		t.Fatalf("retained IDs=%q, want newest stable tie b", ids)
+	}
+}

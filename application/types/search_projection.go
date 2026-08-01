@@ -7,11 +7,14 @@ import (
 )
 
 type SearchProjectionBudget struct {
-	Rows                                  int
-	WallTime, LockTime                    time.Duration
-	StoredBytes, DecodedBytes, WriteBytes int64
-	RecentAge                             time.Duration
-	RecentBytes                           int64
+	Rows                      int
+	WallTime, LockTime        time.Duration
+	StoredBytes, DecodedBytes int64
+	// WriteBytes is a strict logical mutation-byte budget. It is not a
+	// physical database, page, journal, or WAL growth bound.
+	WriteBytes  int64
+	RecentAge   time.Duration
+	RecentBytes int64
 }
 
 func (b SearchProjectionBudget) Valid() bool {
@@ -91,11 +94,10 @@ type ProjectionBatchPlan struct {
 	Ledger                                               BudgetLedger
 }
 
-// BudgetLedger accounts every bounded resource class, including conservative
-// SQLite WAL amplification for writes and deletes.
+// BudgetLedger accounts source reads and strict logical mutation bytes.
 type BudgetLedger struct {
-	Rows                                                              int
-	StoredBytes, DecodedBytes, LogicalWriteBytes, WALReservationBytes int64
+	Rows                                         int
+	StoredBytes, DecodedBytes, LogicalWriteBytes int64
 }
 
 // ReserveSource is the application-owned hard-cap rule used before hydration.

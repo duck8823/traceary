@@ -45,7 +45,9 @@ func (u *SearchProjectionUsecase) StartGeneration(ctx context.Context, b apptype
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.
 func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
-	status, err := u.store.SearchProjectionStatus(ctx)
+	wallCtx, cancel := context.WithTimeout(ctx, b.WallTime)
+	defer cancel()
+	status, err := u.store.SearchProjectionStatus(wallCtx)
 	if err != nil {
 		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("inspect projection before resume: %w", err)
 	}
@@ -55,8 +57,6 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 	if status.ConfigHash != b.ConfigHash() {
 		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "budget does not match generation configuration"}
 	}
-	wallCtx, cancel := context.WithTimeout(ctx, b.WallTime)
-	defer cancel()
 	snapshot, err := u.store.SelectSnapshot(wallCtx, b, now.UTC())
 	if err != nil {
 		var oversized *apptypes.SearchProjectionOversizeError

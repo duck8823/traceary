@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-const projectionWALFactor int64 = 2
+const projectionIntegerBytes int64 = 8
 
 // PlanProjectionBatch is pure: the same snapshot and budget produce the same plan.
 func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProjectionBudget) (apptypes.ProjectionBatchPlan, error) {
@@ -16,12 +16,23 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 	if s.CleanupAll {
 		p.ContinueState = "drifted"
 	}
+	p.Ledger.LogicalWriteBytes = projectionCheckpointLogicalBytes(p)
+	if p.Ledger.LogicalWriteBytes > b.WriteBytes {
+		return p, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: p.Ledger.LogicalWriteBytes, Limit: b.WriteBytes}
+	}
 	if s.Phase != "source" {
-		rp, err := PlanProjectionRetention(s.Cleanup, b)
+		retentionBudget := b
+		retentionBudget.WriteBytes -= p.Ledger.LogicalWriteBytes
+		rp, err := PlanProjectionRetention(s.Cleanup, retentionBudget)
 		if err != nil {
 			return p, err
 		}
-		p.Cleanup, p.Ledger = rp.Candidates, rp.Ledger
+		p.Cleanup = rp.Candidates
+		p.Ledger.Rows = rp.Ledger.Rows
+		p.Ledger.LogicalWriteBytes += rp.Ledger.LogicalWriteBytes
+		if p.Ledger.LogicalWriteBytes > b.WriteBytes {
+			return p, &apptypes.SearchProjectionOversizeError{Class: "cleanup_bytes", Bytes: p.Ledger.LogicalWriteBytes, Limit: b.WriteBytes}
+		}
 		if s.CleanupDone && len(s.Cleanup) == len(p.Cleanup) {
 			if s.Phase == "eviction" {
 				p.NextPhase = "cleanup"
@@ -61,15 +72,11 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		for _, k := range projectionTokens(strings.ToLower(d.Text)) {
 			w.Keywords[k]++
 		}
-		w.LogicalBytes = int64(len(d.Text)*2 + len(w.Summary) + len(d.SessionID) + 32)
-		for k := range w.Keywords {
-			w.LogicalBytes += int64(len(k) + 24)
-		}
-		wal := w.LogicalBytes * projectionWALFactor
+		w.LogicalBytes = projectionWriteLogicalBytes(p.GenerationID, w)
 		if w.LogicalBytes > b.WriteBytes {
 			return p, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: w.LogicalBytes, Limit: b.WriteBytes}
 		}
-		if p.Ledger.LogicalWriteBytes+w.LogicalBytes+p.Ledger.WALReservationBytes+wal > b.WriteBytes {
+		if p.Ledger.LogicalWriteBytes+w.LogicalBytes > b.WriteBytes {
 			break
 		}
 		p.Writes = append(p.Writes, w)
@@ -78,7 +85,6 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		p.Ledger.StoredBytes += d.StoredBytes
 		p.Ledger.DecodedBytes += d.DecodedBytes
 		p.Ledger.LogicalWriteBytes += w.LogicalBytes
-		p.Ledger.WALReservationBytes += wal
 	}
 	if len(s.Documents) > 0 && len(p.Writes) == 0 {
 		return p, &apptypes.SearchProjectionNoProgressError{Reason: "resource budget prevented the first row"}
@@ -93,19 +99,39 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 func PlanProjectionRetention(in []apptypes.ProjectionCleanupCandidate, b apptypes.SearchProjectionBudget) (apptypes.ProjectionRetentionPlan, error) {
 	out := apptypes.ProjectionRetentionPlan{}
 	for _, c := range in {
-		wal := c.LogicalBytes * projectionWALFactor
-		if out.Ledger.Rows >= b.Rows || out.Ledger.LogicalWriteBytes+c.LogicalBytes+out.Ledger.WALReservationBytes+wal > b.WriteBytes {
+		if out.Ledger.Rows >= b.Rows || out.Ledger.LogicalWriteBytes+c.LogicalBytes > b.WriteBytes {
 			break
 		}
 		out.Candidates = append(out.Candidates, c)
 		out.Ledger.Rows++
 		out.Ledger.LogicalWriteBytes += c.LogicalBytes
-		out.Ledger.WALReservationBytes += wal
 	}
 	if len(in) > 0 && len(out.Candidates) == 0 {
-		return out, &apptypes.SearchProjectionOversizeError{Class: "cleanup_bytes", Bytes: in[0].LogicalBytes * (1 + projectionWALFactor), Limit: b.WriteBytes}
+		return out, &apptypes.SearchProjectionOversizeError{Class: "cleanup_bytes", Bytes: in[0].LogicalBytes, Limit: b.WriteBytes}
 	}
 	return out, nil
+}
+
+// projectionWriteLogicalBytes counts every logical column mutation. Recent
+// text is counted once for its source row and once for the external FTS index.
+func projectionWriteLogicalBytes(generation string, w apptypes.ProjectionWrite) int64 {
+	d := w.Document
+	// Summary mutates generation/session, event_count, summary, and two
+	// versions. Aggregate mutates generation/session and two counters.
+	n := int64(len(generation)+len(d.SessionID))*2 + projectionIntegerBytes*5 + int64(len(w.Summary))
+	if w.RetainRecent {
+		n += int64(len(generation)+len(d.EventID)+len(d.CreatedAt)+len(d.Text)*2) + projectionIntegerBytes*4
+	}
+	for keyword := range w.Keywords {
+		n += int64(len(generation)+len(d.SessionID)+len(keyword)) + projectionIntegerBytes*2
+	}
+	return n
+}
+
+// projectionCheckpointLogicalBytes counts checkpoint, phase, state, elapsed
+// milliseconds, and the normalized timestamp updated by every batch.
+func projectionCheckpointLogicalBytes(p apptypes.ProjectionBatchPlan) int64 {
+	return projectionIntegerBytes*2 + int64(len(p.GenerationID)+len(p.Phase)+len(p.ContinueState)+30)
 }
 func truncateProjection(v string, n int) string {
 	if len(v) <= n {
