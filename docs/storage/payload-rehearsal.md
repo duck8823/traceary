@@ -1,0 +1,23 @@
+# Payload compression rehearsal (v0.34)
+
+[日本語](payload-rehearsal.ja.md)
+
+v0.34 provides a copied-store rehearsal only. It never activates compressed
+canonical writes and never modifies the configured live store.
+
+1. Stop writers and create a checkpointed, single-file SQLite copy. The copied
+   target must have no `-wal` or `-shm` sidecars.
+2. Run `traceary store payload-rehearsal preview --target COPY --live-db LIVE`.
+   Preview opens the copy immutable/query-only and fails unless DB/WAL/SHM
+   snapshots are identical before and after inspection.
+3. Run `... run --target COPY --live-db LIVE --backup ROLLBACK`. Compression is
+   written only to `payload_rehearsal_rows`; canonical event and audit payloads
+   remain unchanged. Required row, byte, time, and lock caps are always active.
+4. If interrupted or capped, use `... resume` with the identical configuration
+   and rollback artifact. Checkpoints and shadow inserts commit atomically.
+5. Use `... scrub` to decode and checksum the bounded shadow range, then
+   `... rollback --backup ROLLBACK` to rehearse physical restoration.
+
+Targets that alias the live store by path, symlink, hardlink, or file identity
+are rejected. Output contains aggregate metrics and opaque hashes only. There
+is deliberately no activation command in v0.34; activation belongs to v0.35.

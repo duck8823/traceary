@@ -229,6 +229,9 @@ func VerifyStoreCompatibility(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version, maximum_payload_format FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader, &maximumPayload); err != nil {
 		return xerrors.Errorf("read store format state: %w", err)
 	}
+	if minimumReader < 0 || maximumPayload < 0 {
+		return xerrors.New("store format state contains invalid negative versions")
+	}
 	if minimumReader > currentReaderVersion {
 		return xerrors.Errorf("store requires reader version %d; this reader supports %d", minimumReader, currentReaderVersion)
 	}

@@ -79,6 +79,7 @@ func TestStoreCompatibilityGate(t *testing.T) {
 		wantErr     bool
 	}{
 		{"supported", 34, 1, false}, {"future reader", 35, 1, true}, {"future format", 34, 2, true},
+		{"invalid reader", -1, 1, true}, {"invalid format", 34, -1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := sql.Open("sqlite", ":memory:")
@@ -94,6 +95,17 @@ func TestStoreCompatibilityGate(t *testing.T) {
 				t.Fatalf("error = %v, wantErr=%v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestStoreCompatibilityGateAcceptsLegacyWithoutStateTable(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err = VerifyStoreCompatibility(context.Background(), db); err != nil {
+		t.Fatalf("legacy store: %v", err)
 	}
 }
 
