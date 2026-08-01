@@ -333,10 +333,8 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	configHash := hashConfig(c, id.opaque)
 	guard := rehearsalMutationGuard(func() error { return a.recheckExpectedTarget(id, c, true) })
 	resumePeak := peakWAL
-	reserveResumeLease := func() error {
-		return ensureControlWALBudget(ctx, db, id.canonical, minimumWAL, c.MaxWALBytes, 4, &resumePeak)
-	}
-	runID, eventHigh, auditHigh, leaseToken, err := loadOrCreateRun(ctx, db, id, configHash, backupDigest, resume, guard, reserveResumeLease)
+	startSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &resumePeak}
+	runID, eventHigh, auditHigh, leaseToken, err := loadOrCreateRun(ctx, startSession, id, configHash, backupDigest, resume, guard)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}

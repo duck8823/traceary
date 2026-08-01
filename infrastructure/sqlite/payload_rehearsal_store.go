@@ -148,7 +148,8 @@ func randomRunID() (string, error) {
 }
 
 //nolint:wrapcheck // SQL details stay inside this adapter and public boundaries add context.
-func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity, configHash, backupDigest string, resume bool, guard rehearsalMutationGuard, reserveResume func() error) (string, string, string, string, error) {
+func loadOrCreateRun(ctx context.Context, session walBudgetedMutationSession, identity rehearsalIdentity, configHash, backupDigest string, resume bool, guard rehearsalMutationGuard) (string, string, string, string, error) {
+	db := session.db
 	lease, leaseErr := randomRunID()
 	if leaseErr != nil {
 		return "", "", "", "", leaseErr
@@ -160,20 +161,21 @@ func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity
 			return "", "", "", "", errors.New("rehearsal run state does not permit this operation")
 		}
 		now := time.Now().UTC()
-		if reserveResume == nil {
-			return "", "", "", "", ErrUnsafeRehearsalTarget
-		}
-		if e := reserveResume(); e != nil {
-			return "", "", "", "", e
-		}
 		if e := requireSafeRehearsalMutation(guard); e != nil {
 			return "", "", "", "", e
 		}
-		result, e := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state='running',lease_token=?,lease_expires_at=?,updated_at=? WHERE run_id=? AND (lease_token IS NULL OR lease_expires_at<?)`, lease, now.Add(30*time.Second).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), run, now.Format(time.RFC3339Nano))
+		var affected int64
+		e := session.run(ctx, 4, func(tx *sql.Conn) error {
+			result, updateErr := tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state='running',lease_token=?,lease_expires_at=?,updated_at=? WHERE run_id=? AND (lease_token IS NULL OR lease_expires_at<?)`, lease, now.Add(30*time.Second).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), run, now.Format(time.RFC3339Nano))
+			if updateErr != nil {
+				return updateErr
+			}
+			affected, _ = result.RowsAffected()
+			return nil
+		})
 		if e != nil {
 			return "", "", "", "", e
 		}
-		affected, _ := result.RowsAffected()
 		if affected != 1 {
 			return "", "", "", "", errors.New("rehearsal run is leased by another worker")
 		}
@@ -192,27 +194,25 @@ func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity
 	if e := requireSafeRehearsalMutation(guard); e != nil {
 		return "", "", "", "", e
 	}
-	tx, e := db.BeginTx(ctx, nil)
-	if e != nil {
-		return "", "", "", "", e
-	}
-	defer func() { _ = tx.Rollback() }()
-	if e := tx.QueryRowContext(ctx, `SELECT coalesce(max(id),'') FROM events`).Scan(&eventHigh); e != nil {
-		return "", "", "", "", e
-	}
-	if e := tx.QueryRowContext(ctx, `SELECT coalesce(max(event_id),'') FROM command_audits`).Scan(&auditHigh); e != nil {
-		return "", "", "", "", e
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, e = tx.ExecContext(ctx, `INSERT INTO payload_rehearsal_runs(run_id,target_fingerprint,config_hash,state,event_high_water,audit_high_water,started_at,updated_at,rollback_digest,target_device,target_inode,lease_token,lease_expires_at) VALUES(?,?,?,'running',?,?,?,?,?,?,?,?,?)`, run, identity.opaque, configHash, eventHigh, auditHigh, now, now, backupDigest, identity.device, identity.inode, lease, time.Now().UTC().Add(30*time.Second).Format(time.RFC3339Nano)); e != nil {
-		return "", "", "", "", e
-	}
-	for _, f := range rehearsalFields {
-		if _, e = tx.ExecContext(ctx, `INSERT INTO payload_rehearsal_checkpoints(run_id,table_kind,field_kind,state) VALUES(?,?,?,'pending')`, run, f.table, f.field); e != nil {
-			return "", "", "", "", e
+	e := session.run(ctx, 12, func(tx *sql.Conn) error {
+		if queryErr := tx.QueryRowContext(ctx, `SELECT coalesce(max(id),'') FROM events`).Scan(&eventHigh); queryErr != nil {
+			return queryErr
 		}
-	}
-	if e = tx.Commit(); e != nil {
+		if queryErr := tx.QueryRowContext(ctx, `SELECT coalesce(max(event_id),'') FROM command_audits`).Scan(&auditHigh); queryErr != nil {
+			return queryErr
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		if _, insertErr := tx.ExecContext(ctx, `INSERT INTO payload_rehearsal_runs(run_id,target_fingerprint,config_hash,state,event_high_water,audit_high_water,started_at,updated_at,rollback_digest,target_device,target_inode,lease_token,lease_expires_at) VALUES(?,?,?,'running',?,?,?,?,?,?,?,?,?)`, run, identity.opaque, configHash, eventHigh, auditHigh, now, now, backupDigest, identity.device, identity.inode, lease, time.Now().UTC().Add(30*time.Second).Format(time.RFC3339Nano)); insertErr != nil {
+			return insertErr
+		}
+		for _, f := range rehearsalFields {
+			if _, insertErr := tx.ExecContext(ctx, `INSERT INTO payload_rehearsal_checkpoints(run_id,table_kind,field_kind,state) VALUES(?,?,?,'pending')`, run, f.table, f.field); insertErr != nil {
+				return insertErr
+			}
+		}
+		return nil
+	})
+	if e != nil {
 		return "", "", "", "", e
 	}
 	return run, eventHigh, auditHigh, lease, nil
