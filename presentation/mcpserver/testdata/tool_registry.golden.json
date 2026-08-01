@@ -3,6 +3,7 @@
     "name": "get_context",
     "description": "Get recent context events, logs, audits, prompts, transcripts, and summaries for a session or workspace.",
     "annotations": {
+      "idempotentHint": false,
       "readOnlyHint": true
     },
     "inputSchema": {
@@ -281,6 +282,7 @@
     "name": "get_report",
     "description": "Aggregate sessions, capture, failures, commands, usage, and run facts with complete/partial provenance.",
     "annotations": {
+      "idempotentHint": false,
       "readOnlyHint": true
     },
     "inputSchema": {
@@ -1174,6 +1176,7 @@
     "name": "list_events",
     "description": "List recent events, logs, audits, prompts, transcripts, and summaries.",
     "annotations": {
+      "idempotentHint": false,
       "readOnlyHint": true
     },
     "inputSchema": {
@@ -1484,7 +1487,9 @@
     "name": "manage_memory",
     "description": "Dispatch durable memory writes by action; reject and expire are destructive actions.",
     "annotations": {
-      "destructiveHint": true
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "readOnlyHint": false
     },
     "inputSchema": {
       "additionalProperties": false,
@@ -1617,7 +1622,9 @@
     "name": "manage_session",
     "description": "Dispatch session lifecycle writes by action: start or end. action=end is destructive (closes the session).",
     "annotations": {
-      "destructiveHint": true
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "readOnlyHint": false
     },
     "inputSchema": {
       "additionalProperties": false,
@@ -1751,6 +1758,7 @@
     "name": "query_memory",
     "description": "Dispatch durable memory reads by action: retrieve, export, pack, or scan_hygiene.",
     "annotations": {
+      "idempotentHint": false,
       "readOnlyHint": true
     },
     "inputSchema": {
@@ -1914,7 +1922,9 @@
     "name": "record_event",
     "description": "Record a log or command audit event by type, returning one uniform event shape.",
     "annotations": {
-      "destructiveHint": false
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "readOnlyHint": false
     },
     "inputSchema": {
       "additionalProperties": false,
@@ -2114,6 +2124,7 @@
     "name": "search",
     "description": "Search events by literal text/time/workspace; boolean OR is not parsed as any-match syntax.",
     "annotations": {
+      "idempotentHint": false,
       "readOnlyHint": true
     },
     "inputSchema": {
@@ -2407,6 +2418,7 @@
     "name": "session_status",
     "description": "Dispatch session status reads by action: active, latest, handoff, lineage, or tree.",
     "annotations": {
+      "idempotentHint": false,
       "readOnlyHint": true
     },
     "inputSchema": {
