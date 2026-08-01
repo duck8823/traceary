@@ -256,6 +256,7 @@ func run() error {
 		cli.WithContext(contextUsecase),
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
+		cli.WithCapacityInspector(sqlite.NewCapacityInspector(db)),
 		cli.WithRawBodyRetention(rawBodyRetentionUsecase),
 		cli.WithFileRetention(fileRetentionUsecase),
 		cli.WithOneShotRepair(oneShotRepairUsecase),
