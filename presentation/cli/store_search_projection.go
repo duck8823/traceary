@@ -10,6 +10,7 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
+//nolint:wrapcheck // Cobra boundary intentionally preserves typed usecase errors.
 func (c *RootCLI) newStoreSearchProjectionCommand() *cobra.Command {
 	group := &cobra.Command{Use: "search-projection", Short: "Manage the non-authoritative derived search projection"}
 	group.AddCommand(c.newStoreSearchProjectionRunCommand("start", true), c.newStoreSearchProjectionRunCommand("resume", false))
@@ -42,6 +43,7 @@ func (c *RootCLI) newStoreSearchProjectionCommand() *cobra.Command {
 	return group
 }
 
+//nolint:wrapcheck // Cobra boundary intentionally preserves typed usecase errors.
 func (c *RootCLI) newStoreSearchProjectionRunCommand(name string, start bool) *cobra.Command {
 	var rows int
 	var wall, lock, timeAge time.Duration

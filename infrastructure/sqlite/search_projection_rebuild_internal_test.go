@@ -12,7 +12,13 @@ import (
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 )
+
+//nolint:wrapcheck // Test helper preserves the public usecase error.
+func resumeProjection(ctx context.Context, store *Database, budget apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	return usecase.NewSearchProjectionUsecase(store).Resume(ctx, budget, now)
+}
 
 func TestBundledSQLiteContentlessDeleteSemantics(t *testing.T) {
 	t.Parallel()
@@ -63,11 +69,11 @@ func TestSearchProjectionRebuildIsBoundedResumableAndEvictsDeterministically(t *
 		}
 	}
 	budget := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Minute, LockTime: time.Second, StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20, RecentAge: 90 * time.Minute, RecentBytes: 25}
-	if _, err = store.StartSearchProjectionGeneration(ctx, budget, now); err != nil {
+	if _, err = store.Start(ctx, budget, now); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
-		got, e := rebuildSearchProjections(ctx, db, budget, now)
+		got, e := resumeProjection(ctx, store, budget, now)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -75,9 +81,15 @@ func TestSearchProjectionRebuildIsBoundedResumableAndEvictsDeterministically(t *
 			t.Fatalf("batch %d selected=%d", i, got.Selected)
 		}
 	}
-	got, err := rebuildSearchProjections(ctx, db, budget, now)
-	if err != nil || !got.Completed {
-		t.Fatalf("idempotent completed rebuild=%+v err=%v", got, err)
+	var got apptypes.SearchProjectionProgress
+	for i := 0; i < 10 && !got.Completed; i++ {
+		got, err = resumeProjection(ctx, store, budget, now)
+		if err != nil || got.WrittenBytes > budget.WriteBytes || got.Cleaned > budget.Rows {
+			t.Fatalf("cleanup batch=%+v err=%v", got, err)
+		}
+	}
+	if !got.Completed {
+		t.Fatalf("cleanup did not resume to completion: %+v", got)
 	}
 	var ids string
 	if err = db.QueryRow(`SELECT group_concat(event_id,',') FROM search_projection_recent_documents ORDER BY created_at_norm,event_rowid`).Scan(&ids); err != nil {
@@ -122,12 +134,12 @@ func TestSearchProjectionGenerationFreezesInsertsAndDetectsMutation(t *testing.T
 	insert("random-z")
 	insert("random-y")
 	b := projectionBudget()
-	g, err := store.StartSearchProjectionGeneration(ctx, b, now)
+	g, err := store.Start(ctx, b, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	insert("random-a")
-	p, err := store.RebuildSearchProjections(ctx, b, now)
+	p, err := resumeProjection(ctx, store, b, now)
 	if err != nil || p.Completed || p.Written != 1 {
 		t.Fatalf("progress=%+v err=%v", p, err)
 	}
@@ -139,12 +151,12 @@ func TestSearchProjectionGenerationFreezesInsertsAndDetectsMutation(t *testing.T
 	if _, err = db.Exec(`UPDATE events SET body='changed' WHERE id='random-z'`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.RebuildSearchProjections(ctx, b, now)
+	_, err = resumeProjection(ctx, store, b, now)
 	var drift *apptypes.SearchProjectionDriftError
 	if !errors.As(err, &drift) {
 		t.Fatalf("error=%T %v", err, err)
 	}
-	ng, err := store.StartSearchProjectionGeneration(ctx, b, now)
+	ng, err := store.Start(ctx, b, now)
 	if err != nil || ng.GenerationID == g.GenerationID {
 		t.Fatalf("new generation=%+v err=%v", ng, err)
 	}
@@ -166,11 +178,23 @@ func TestSearchProjectionUnavailableBodyAndOversizeArePublicBehavior(t *testing.
 		t.Fatal(err)
 	}
 	b := projectionBudget()
-	if _, err = store.StartSearchProjectionGeneration(ctx, b, now); err != nil {
+	if _, err = store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.RebuildSearchProjections(ctx, b, now); err != nil {
+	if _, err = resumeProjection(ctx, store, b, now); err != nil {
 		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		status, statusErr := store.SearchProjectionStatus(ctx)
+		if statusErr != nil {
+			t.Fatal(statusErr)
+		}
+		if status.Completed {
+			break
+		}
+		if _, err = resumeProjection(ctx, store, b, now); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var body string
 	_ = db.QueryRow(`SELECT body_text FROM search_projection_recent_documents`).Scan(&body)
@@ -178,10 +202,10 @@ func TestSearchProjectionUnavailableBodyAndOversizeArePublicBehavior(t *testing.
 		t.Fatal("unavailable body leaked")
 	}
 	b.StoredBytes = 1
-	if _, err = store.StartSearchProjectionGeneration(ctx, b, now); err != nil {
+	if _, err = store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.RebuildSearchProjections(ctx, b, now)
+	_, err = resumeProjection(ctx, store, b, now)
 	var oversized *apptypes.SearchProjectionOversizeError
 	if !errors.As(err, &oversized) {
 		t.Fatalf("error=%T %v", err, err)
@@ -206,19 +230,24 @@ func TestSearchProjectionResumeSurvivesVacuumAndExcludesThinking(t *testing.T) {
 		}
 	}
 	b := projectionBudget()
-	if _, err := store.StartSearchProjectionGeneration(ctx, b, now); err != nil {
+	if _, err := store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	p, err := store.RebuildSearchProjections(ctx, b, now)
+	p, err := resumeProjection(ctx, store, b, now)
 	if err != nil || p.Completed {
 		t.Fatalf("first=%+v %v", p, err)
 	}
 	if _, err = db.Exec(`VACUUM`); err != nil {
 		t.Fatal(err)
 	}
-	p, err = store.RebuildSearchProjections(ctx, b, now)
-	if err != nil || !p.Completed {
-		t.Fatalf("resume=%+v %v", p, err)
+	for i := 0; i < 5 && !p.Completed; i++ {
+		p, err = resumeProjection(ctx, store, b, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !p.Completed {
+		t.Fatalf("resume=%+v", p)
 	}
 	var bodies, summaries string
 	if err = db.QueryRow(`SELECT group_concat(body_text), (SELECT group_concat(summary_text) FROM search_projection_session_summaries) FROM search_projection_recent_documents`).Scan(&bodies, &summaries); err != nil {

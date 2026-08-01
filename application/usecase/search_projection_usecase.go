@@ -12,8 +12,10 @@ import (
 // SearchProjectionStore is the narrow persistence boundary for the explicit
 // projection state machine. Policy and generation lifecycle stay here.
 type SearchProjectionStore interface {
-	StartSearchProjectionGeneration(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error)
-	RebuildSearchProjections(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionProgress, error)
+	Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error)
+	SelectSnapshot(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.ProjectionSnapshot, error)
+	ApplyBatch(context.Context, apptypes.ProjectionBatchPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error)
+	CleanupBatch(context.Context, apptypes.ProjectionBatchPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error)
 	SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error)
 }
 
@@ -36,7 +38,7 @@ func (u *SearchProjectionUsecase) StartGeneration(ctx context.Context, b apptype
 	if status.State == "rebuilding" {
 		return apptypes.SearchProjectionGeneration{}, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
 	}
-	return u.store.StartSearchProjectionGeneration(ctx, b, now.UTC())
+	return u.store.Start(ctx, b, now.UTC())
 }
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.
@@ -51,7 +53,20 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 	if status.ConfigHash != b.ConfigHash() {
 		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "budget does not match generation configuration"}
 	}
-	return u.store.RebuildSearchProjections(ctx, b, now.UTC())
+	wallCtx, cancel := context.WithTimeout(ctx, b.WallTime)
+	defer cancel()
+	snapshot, err := u.store.SelectSnapshot(wallCtx, b, now.UTC())
+	if err != nil {
+		return apptypes.SearchProjectionProgress{}, err
+	}
+	plan, err := PlanProjectionBatch(snapshot, b)
+	if err != nil {
+		return apptypes.SearchProjectionProgress{}, err
+	}
+	if snapshot.Phase == "source" {
+		return u.store.ApplyBatch(ctx, plan, b.LockTime, now.UTC())
+	}
+	return u.store.CleanupBatch(ctx, plan, b.LockTime, now.UTC())
 }
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.

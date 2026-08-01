@@ -27,10 +27,92 @@ type SearchProjectionGeneration struct {
 	SourceRevision, HighWater, Checkpoint int64
 }
 type SearchProjectionProgress struct {
-	Selected, Written, Evicted              int
+	Selected, Written, Evicted, Cleaned     int
 	StoredBytes, DecodedBytes, WrittenBytes int64
+	CleanupBytes                            int64
 	Completed                               bool
 	GenerationID                            string
+}
+
+// ProjectionDocument is canonical, hydrated input. It deliberately contains no
+// SQLite identity or DTO; Sequence is the stable application checkpoint.
+type ProjectionDocument struct {
+	Sequence                                             int64
+	EventID, SessionID, CreatedAt, Text, PreviousSummary string
+	StoredBytes, DecodedBytes                            int64
+	Deleted                                              bool
+	CommandCount, FailureCount                           int
+}
+
+type ProjectionSnapshot struct {
+	Generation    SearchProjectionGeneration
+	Phase         string
+	Documents     []ProjectionDocument
+	SourceDone    bool
+	RetainedBytes int64
+	Cleanup       []ProjectionCleanupCandidate
+	CleanupDone   bool
+	Now           time.Time
+}
+
+type ProjectionCleanupCandidate struct {
+	Class               string
+	RowID, LogicalBytes int64
+}
+
+type ProjectionWrite struct {
+	Document     ProjectionDocument
+	Summary      string
+	Keywords     map[string]int
+	LogicalBytes int64
+	RetainRecent bool
+}
+
+// ProjectionBatchPlan is a pure application-owned decision. Adapters may only
+// persist this decision; they must not extend it with additional rows.
+type ProjectionBatchPlan struct {
+	GenerationID, Phase                                  string
+	ExpectedRevision, ExpectedCheckpoint, NextCheckpoint int64
+	Writes                                               []ProjectionWrite
+	Cleanup                                              []ProjectionCleanupCandidate
+	NextPhase                                            string
+	Completed                                            bool
+	Ledger                                               BudgetLedger
+}
+
+// BudgetLedger accounts every bounded resource class, including conservative
+// SQLite WAL amplification for writes and deletes.
+type BudgetLedger struct {
+	Rows                                                              int
+	StoredBytes, DecodedBytes, LogicalWriteBytes, WALReservationBytes int64
+}
+
+// ReserveSource is the application-owned hard-cap rule used before hydration.
+func (l *BudgetLedger) ReserveSource(b SearchProjectionBudget, stored, decoded int64) bool {
+	if l.Rows >= b.Rows || l.StoredBytes+stored > b.StoredBytes || l.DecodedBytes+decoded > b.DecodedBytes {
+		return false
+	}
+	l.Rows++
+	l.StoredBytes += stored
+	l.DecodedBytes += decoded
+	return true
+}
+
+// AdmitSource distinguishes an impossible first row from a resumable prefix.
+func (l *BudgetLedger) AdmitSource(b SearchProjectionBudget, stored, decoded int64) (bool, error) {
+	if stored > b.StoredBytes {
+		return false, &SearchProjectionOversizeError{Class: "stored_bytes", Bytes: stored, Limit: b.StoredBytes}
+	}
+	if decoded > b.DecodedBytes {
+		return false, &SearchProjectionOversizeError{Class: "decoded_bytes", Bytes: decoded, Limit: b.DecodedBytes}
+	}
+	return l.ReserveSource(b, stored, decoded), nil
+}
+
+// RetentionPlan is the pure eviction/old-generation cleanup decision.
+type ProjectionRetentionPlan struct {
+	Candidates []ProjectionCleanupCandidate
+	Ledger     BudgetLedger
 }
 
 type SearchProjectionOversizeError struct {

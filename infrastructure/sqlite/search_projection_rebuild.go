@@ -6,11 +6,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"regexp"
-	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	domaintypes "github.com/duck8823/traceary/domain/types"
@@ -19,9 +16,6 @@ import (
 const searchProjectionVersion = 1
 const searchProjectionKeywordVersion = 1
 const searchProjectionSummaryVersion = 1
-const searchProjectionSummaryBytes = 4096
-
-var searchProjectionToken = regexp.MustCompile(`[[:alnum:]_./:@+-]+`)
 
 func generationID() string {
 	var b [16]byte
@@ -31,11 +25,11 @@ func generationID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// StartSearchProjectionGeneration freezes monotonic SQLite rowid membership.
+// Start freezes monotonic SQLite rowid membership.
 // Inserts after this point belong to the next generation; updates/deletes cause drift.
 //
 //nolint:wrapcheck,errcheck // SQL errors are returned without losing typed projection errors.
-func (d *Database) StartSearchProjectionGeneration(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionGeneration, error) {
+func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionGeneration, error) {
 	if !b.Valid() {
 		return apptypes.SearchProjectionGeneration{}, errors.New("search projection budgets must all be positive")
 	}
@@ -44,16 +38,18 @@ func (d *Database) StartSearchProjectionGeneration(ctx context.Context, b apptyp
 		return apptypes.SearchProjectionGeneration{}, e
 	}
 	defer db.Close()
-	tx, e := db.BeginTx(ctx, nil)
+	lockCtx, cancel := context.WithTimeout(ctx, b.LockTime)
+	defer cancel()
+	tx, e := db.BeginTx(lockCtx, nil)
 	if e != nil {
 		return apptypes.SearchProjectionGeneration{}, e
 	}
 	defer tx.Rollback()
 	g := apptypes.SearchProjectionGeneration{GenerationID: generationID(), ConfigHash: b.ConfigHash()}
-	if e = tx.QueryRowContext(ctx, `SELECT revision,(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) FROM search_projection_source_revision WHERE singleton=1`).Scan(&g.SourceRevision, &g.HighWater); e != nil {
+	if e = tx.QueryRowContext(lockCtx, `SELECT revision,(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) FROM search_projection_source_revision WHERE singleton=1`).Scan(&g.SourceRevision, &g.HighWater); e != nil {
 		return g, e
 	}
-	result, e := tx.ExecContext(ctx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
+	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
 	if e == nil {
 		if n, x := result.RowsAffected(); x != nil || n != 1 {
 			return g, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
@@ -63,258 +59,247 @@ func (d *Database) StartSearchProjectionGeneration(ctx context.Context, b apptyp
 	return g, e
 }
 
-// RebuildSearchProjections resumes one bounded generation batch.
+// SelectSnapshot performs bounded reads and canonical hydration. Every read uses
+// the caller's wall-time context; no transaction or lock is held.
 //
-//nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
-func (d *Database) RebuildSearchProjections(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
+//nolint:wrapcheck,errcheck // SQL and typed application errors cross this adapter unchanged.
+func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (out apptypes.ProjectionSnapshot, err error) {
 	db, e := d.open(ctx)
-	if e != nil {
-		return apptypes.SearchProjectionProgress{}, e
-	}
-	defer db.Close()
-	return rebuildSearchProjections(ctx, db, b, now)
-}
-
-type projectionSource struct {
-	rowid                                    int64
-	id, session, created, availability, kind string
-	stored, decoded                          int64
-	deleted                                  bool
-}
-type projectionDoc struct {
-	projectionSource
-	text, summary              string
-	commandCount, failureCount int
-	keywords                   map[string]int
-	write                      int64
-}
-
-//nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
-func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.SearchProjectionBudget, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
-	if !b.Valid() {
-		return out, errors.New("search projection budgets must all be positive")
-	}
-	started := time.Now()
-	var g apptypes.SearchProjectionGeneration
-	var state string
-	if err = db.QueryRowContext(ctx, `SELECT generation_id,config_hash,source_revision,high_water,checkpoint,state FROM search_projection_state WHERE singleton=1`).Scan(&g.GenerationID, &g.ConfigHash, &g.SourceRevision, &g.HighWater, &g.Checkpoint, &state); err != nil {
-		return out, err
-	}
-	out.GenerationID = g.GenerationID
-	if state == "idle" || g.GenerationID == "" {
-		return out, &apptypes.SearchProjectionNoProgressError{Reason: "no generation has been started"}
-	}
-	if g.ConfigHash != b.ConfigHash() {
-		return out, &apptypes.SearchProjectionNoProgressError{Reason: "budget does not match generation configuration"}
-	}
-	var revision int64
-	if err = db.QueryRowContext(ctx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&revision); err != nil {
-		return out, err
-	}
-	if revision != g.SourceRevision {
-		if err = markProjectionDrifted(ctx, db, g.GenerationID); err != nil {
-			return out, err
-		}
-		return out, &apptypes.SearchProjectionDriftError{}
-	}
-	// Selection is bounded before payload materialization. Stored and decoded metadata reserve every payload field.
-	rows, e := db.QueryContext(ctx, `SELECT q.sequence,COALESCE(e.id,q.event_id),COALESCE(e.session_id,''),COALESCE(e.created_at_norm,''),COALESCE(e.body_availability,''),COALESCE(e.kind,''),e.id IS NULL,
-	 COALESCE(length(CAST(e.body AS BLOB)),0)+COALESCE(length(CAST(a.command_text AS BLOB)),0)+COALESCE(length(CAST(a.input_text AS BLOB)),0)+COALESCE(length(CAST(a.output_text AS BLOB)),0),
-	 CASE WHEN e.body_availability='available' THEN COALESCE(e.body_plaintext_bytes,e.body_stored_bytes,length(CAST(e.body AS BLOB)),0) ELSE 0 END+COALESCE(a.command_plaintext_bytes,length(CAST(a.command_text AS BLOB)),0)+COALESCE(a.input_plaintext_bytes,length(CAST(a.input_text AS BLOB)),0)+COALESCE(a.output_plaintext_bytes,length(CAST(a.output_text AS BLOB)),0)
-	 FROM search_projection_source_sequence q LEFT JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence>? AND q.sequence<=? ORDER BY q.sequence LIMIT ?`, g.Checkpoint, g.HighWater, b.Rows)
 	if e != nil {
 		return out, e
 	}
-	var src []projectionSource
-	for rows.Next() {
-		var s projectionSource
-		if e = rows.Scan(&s.rowid, &s.id, &s.session, &s.created, &s.availability, &s.kind, &s.deleted, &s.stored, &s.decoded); e != nil {
-			rows.Close()
+	defer db.Close()
+	var state string
+	if e = db.QueryRowContext(ctx, `SELECT generation_id,config_hash,source_revision,high_water,checkpoint,state,phase FROM search_projection_state WHERE singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Generation.HighWater, &out.Generation.Checkpoint, &state, &out.Phase); e != nil {
+		return out, e
+	}
+	out.Now = now.UTC()
+	if state != "rebuilding" {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "no generation has been started"}
+	}
+	if out.Generation.ConfigHash != b.ConfigHash() {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "budget does not match generation configuration"}
+	}
+	var revision int64
+	if e = db.QueryRowContext(ctx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&revision); e != nil {
+		return out, e
+	}
+	if revision != out.Generation.SourceRevision {
+		if e = markProjectionDrifted(ctx, db, out.Generation.GenerationID); e != nil {
 			return out, e
 		}
-		if s.stored > b.StoredBytes {
-			_ = rows.Close()
-			if x := markProjectionDrifted(ctx, db, g.GenerationID); x != nil {
-				return out, x
-			}
-			return out, &apptypes.SearchProjectionOversizeError{Class: "stored_bytes", Bytes: s.stored, Limit: b.StoredBytes}
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	if out.Phase != "source" {
+		return selectProjectionCleanup(ctx, db, out, b, now)
+	}
+	rows, e := db.QueryContext(ctx, `SELECT q.sequence,COALESCE(e.id,q.event_id),COALESCE(e.session_id,''),COALESCE(e.created_at_norm,''),COALESCE(e.body_availability,''),e.id IS NULL,COALESCE(length(CAST(e.body AS BLOB)),0)+COALESCE(length(CAST(a.command_text AS BLOB)),0)+COALESCE(length(CAST(a.input_text AS BLOB)),0)+COALESCE(length(CAST(a.output_text AS BLOB)),0),CASE WHEN e.body_availability='available' THEN COALESCE(e.body_plaintext_bytes,e.body_stored_bytes,length(CAST(e.body AS BLOB)),0) ELSE 0 END+COALESCE(a.command_plaintext_bytes,length(CAST(a.command_text AS BLOB)),0)+COALESCE(a.input_plaintext_bytes,length(CAST(a.input_text AS BLOB)),0)+COALESCE(a.output_plaintext_bytes,length(CAST(a.output_text AS BLOB)),0) FROM search_projection_source_sequence q LEFT JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence>? AND q.sequence<=? ORDER BY q.sequence LIMIT ?`, out.Generation.Checkpoint, out.Generation.HighWater, b.Rows)
+	if e != nil {
+		return out, e
+	}
+	defer rows.Close()
+	var selection apptypes.BudgetLedger
+	for rows.Next() {
+		var x apptypes.ProjectionDocument
+		var avail string
+		if e = rows.Scan(&x.Sequence, &x.EventID, &x.SessionID, &x.CreatedAt, &avail, &x.Deleted, &x.StoredBytes, &x.DecodedBytes); e != nil {
+			return out, e
 		}
-		if s.decoded > b.DecodedBytes {
-			_ = rows.Close()
-			if x := markProjectionDrifted(ctx, db, g.GenerationID); x != nil {
-				return out, x
-			}
-			return out, &apptypes.SearchProjectionOversizeError{Class: "decoded_bytes", Bytes: s.decoded, Limit: b.DecodedBytes}
+		admitted, admissionErr := selection.AdmitSource(b, x.StoredBytes, x.DecodedBytes)
+		if admissionErr != nil {
+			return out, admissionErr
 		}
-		if out.StoredBytes+s.stored > b.StoredBytes || out.DecodedBytes+s.decoded > b.DecodedBytes {
+		if !admitted {
 			break
 		}
-		src = append(src, s)
-		out.StoredBytes += s.stored
-		out.DecodedBytes += s.decoded
+		if !x.Deleted {
+			var body string
+			if avail == "available" {
+				plain, xerr := loadEventPlaintext(ctx, db, x.EventID)
+				if xerr != nil {
+					return out, xerr
+				}
+				body, _ = visibleEventBody(string(plain), domaintypes.BodyAvailabilityAvailable)
+			}
+			cmd, xerr := hydrateAuditPayload(ctx, db, x.EventID, "command")
+			if xerr != nil {
+				return out, xerr
+			}
+			in, xerr := hydrateAuditPayload(ctx, db, x.EventID, "input")
+			if xerr != nil {
+				return out, xerr
+			}
+			output, xerr := hydrateAuditPayload(ctx, db, x.EventID, "output")
+			if xerr != nil {
+				return out, xerr
+			}
+			parts := []string{}
+			for _, v := range []string{body, cmd.String, in.String, output.String} {
+				if v != "" {
+					parts = append(parts, v)
+				}
+			}
+			x.Text = strings.Join(parts, "\n")
+			if cmd.Valid && cmd.String != "" {
+				x.CommandCount = 1
+			}
+			_ = db.QueryRowContext(ctx, `SELECT COALESCE(failed,0) FROM command_audits WHERE event_id=?`, x.EventID).Scan(&x.FailureCount)
+			_ = db.QueryRowContext(ctx, `SELECT summary_text FROM search_projection_session_summaries WHERE generation_id=? AND session_id=?`, out.Generation.GenerationID, x.SessionID).Scan(&x.PreviousSummary)
+		}
+		out.Documents = append(out.Documents, x)
 	}
-	rows.Close()
-	deadline := started.Add(b.WallTime)
-	docs := make([]projectionDoc, 0, len(src))
-	summaries := map[string]string{}
-	for _, s := range src {
-		if time.Now().After(deadline) {
-			break
-		}
-		p := projectionDoc{projectionSource: s, keywords: map[string]int{}}
-		if s.deleted {
-			docs = append(docs, p)
-			continue
-		}
-		var body string
-		if s.availability == "available" {
-			plain, x := loadEventPlaintext(ctx, db, s.id)
-			if x != nil {
-				return out, x
-			}
-			body, _ = visibleEventBody(string(plain), domaintypes.BodyAvailabilityAvailable)
-		}
-		cmd, x := hydrateAuditPayload(ctx, db, s.id, "command")
-		if x != nil {
-			return out, x
-		}
-		in, x := hydrateAuditPayload(ctx, db, s.id, "input")
-		if x != nil {
-			return out, x
-		}
-		output, x := hydrateAuditPayload(ctx, db, s.id, "output")
-		if x != nil {
-			return out, x
-		}
-		parts := make([]string, 0, 4)
-		for _, v := range []string{body, cmd.String, in.String, output.String} {
-			if v != "" {
-				parts = append(parts, v)
-			}
-		}
-		p.text = strings.Join(parts, "\n")
-		previousSummary, loaded := summaries[s.session]
-		if !loaded {
-			if x := db.QueryRowContext(ctx, `SELECT summary_text FROM search_projection_session_summaries WHERE generation_id=? AND session_id=?`, g.GenerationID, s.session).Scan(&previousSummary); x != nil && !errors.Is(x, sql.ErrNoRows) {
-				return out, x
-			}
-		}
-		p.summary = truncateUTF8(strings.TrimSpace(previousSummary+"\n"+body), searchProjectionSummaryBytes)
-		summaries[s.session] = p.summary
-		p.write = int64(len(p.text) + len(p.summary))
-		if cmd.Valid && cmd.String != "" {
-			p.commandCount = 1
-		}
-		_ = db.QueryRowContext(ctx, `SELECT COALESCE(failed,0) FROM command_audits WHERE event_id=?`, s.id).Scan(&p.failureCount)
-		for _, token := range searchProjectionToken.FindAllString(strings.ToLower(p.text), -1) {
-			if highEntropyKeyword(token) {
-				p.keywords[token]++
-			}
-		}
-		// Include aggregate/index amplification in the write reservation.
-		p.write += int64(len(p.text) + len(s.session))
-		for k := range p.keywords {
-			p.write += int64(len(k) + 24)
-		}
-		if p.write > b.WriteBytes {
-			if x := markProjectionDrifted(ctx, db, g.GenerationID); x != nil {
-				return out, x
-			}
-			return out, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: p.write, Limit: b.WriteBytes}
-		}
-		if out.WrittenBytes+p.write > b.WriteBytes {
-			break
-		}
-		out.WrittenBytes += p.write
-		docs = append(docs, p)
+	if e = rows.Err(); e != nil {
+		return out, e
 	}
-	if len(src) > 0 && len(docs) == 0 {
-		return out, &apptypes.SearchProjectionNoProgressError{Reason: "wall or write budget prevented the first row"}
+	out.SourceDone = len(out.Documents) == 0 || out.Documents[len(out.Documents)-1].Sequence == out.Generation.HighWater
+	return out, nil
+}
+
+//nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
+func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.ProjectionSnapshot, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.ProjectionSnapshot, error) {
+	var q string
+	var args []any
+	if out.Phase == "eviction" {
+		q = `SELECT document_id,decoded_bytes FROM search_projection_recent_documents WHERE generation_id=? AND (created_at_norm<? OR (SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?)>?) ORDER BY created_at_norm,event_rowid LIMIT ?`
+		args = []any{out.Generation.GenerationID, projectionCutoff(now.Add(-b.RecentAge)), out.Generation.GenerationID, b.RecentBytes, b.Rows + 1}
+	} else {
+		q = `SELECT 'recent',rowid,length(CAST(COALESCE(body_text,'') AS BLOB)) FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',rowid,length(CAST(summary_text AS BLOB)) FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',rowid,32 FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',rowid,length(CAST(keyword AS BLOB))+24 FROM search_projection_session_keywords WHERE generation_id<>? LIMIT ?`
+		args = []any{out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, b.Rows + 1}
 	}
-	lockCtx, cancel := context.WithTimeout(ctx, b.LockTime)
+	rows, e := db.QueryContext(ctx, q, args...)
+	if e != nil {
+		return out, e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c apptypes.ProjectionCleanupCandidate
+		if out.Phase == "cleanup" {
+			e = rows.Scan(&c.Class, &c.RowID, &c.LogicalBytes)
+		} else {
+			e = rows.Scan(&c.RowID, &c.LogicalBytes)
+			c.Class = out.Phase
+		}
+		if e != nil {
+			return out, e
+		}
+		out.Cleanup = append(out.Cleanup, c)
+	}
+	if len(out.Cleanup) <= b.Rows {
+		out.CleanupDone = true
+	} else {
+		out.Cleanup = out.Cleanup[:b.Rows]
+	}
+	return out, rows.Err()
+}
+
+// ApplyBatch starts the lock deadline immediately before BeginTx and persists
+// writes, cleanup and phase/checkpoint advancement atomically.
+func (d *Database) ApplyBatch(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	if p.Phase != "source" {
+		return apptypes.SearchProjectionProgress{}, errors.New("apply batch requires source phase")
+	}
+	return d.applyProjectionPlan(ctx, p, lock, now)
+}
+
+// CleanupBatch applies only an application-planned eviction or old-generation batch.
+func (d *Database) CleanupBatch(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	if p.Phase == "source" {
+		return apptypes.SearchProjectionProgress{}, errors.New("cleanup batch requires cleanup phase")
+	}
+	return d.applyProjectionPlan(ctx, p, lock, now)
+}
+
+//nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
+func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
+	db, e := d.open(ctx)
+	if e != nil {
+		return out, e
+	}
+	defer db.Close()
+	lockCtx, cancel := context.WithTimeout(ctx, lock)
 	defer cancel()
 	tx, e := db.BeginTx(lockCtx, nil)
 	if e != nil {
 		return out, e
 	}
 	defer tx.Rollback()
-	var current int64
-	if e = tx.QueryRowContext(lockCtx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&current); e != nil {
+	var rev, checkpoint int64
+	var phase string
+	if e = tx.QueryRowContext(lockCtx, `SELECT source_revision,checkpoint,phase FROM search_projection_state WHERE generation_id=?`, p.GenerationID).Scan(&rev, &checkpoint, &phase); e != nil {
 		return out, e
 	}
-	if current != g.SourceRevision {
-		_ = tx.Rollback()
-		if e = markProjectionDrifted(ctx, db, g.GenerationID); e != nil {
-			return out, e
-		}
+	if rev != p.ExpectedRevision || checkpoint != p.ExpectedCheckpoint || phase != p.Phase {
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
-	last := g.Checkpoint
-	for _, p := range docs {
-		if p.deleted {
-			last = p.rowid
-			out.Selected++
+	for _, w := range p.Writes {
+		d := w.Document
+		if !d.Deleted {
+			if w.RetainRecent {
+				if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, p.GenerationID, d.Sequence, d.EventID, d.CreatedAt, d.Text, len(d.Text)); e != nil {
+					return out, e
+				}
+			}
+			if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_summaries VALUES(?,?,1,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET event_count=event_count+1,summary_text=excluded.summary_text`, p.GenerationID, d.SessionID, w.Summary, searchProjectionVersion, searchProjectionSummaryVersion); e != nil {
+				return out, e
+			}
+			if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_command_aggregates VALUES(?,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET command_count=command_count+excluded.command_count,failure_count=failure_count+excluded.failure_count`, p.GenerationID, d.SessionID, d.CommandCount, d.FailureCount); e != nil {
+				return out, e
+			}
+			for k, n := range w.Keywords {
+				if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_keywords VALUES(?,?,?,?,?) ON CONFLICT(generation_id,session_id,keyword) DO UPDATE SET occurrences=occurrences+excluded.occurrences`, p.GenerationID, d.SessionID, k, n, searchProjectionKeywordVersion); e != nil {
+					return out, e
+				}
+			}
+			out.Written++
+		}
+		out.Selected++
+	}
+	for _, c := range p.Cleanup {
+		var table string
+		switch c.Class {
+		case "eviction", "recent":
+			table = "search_projection_recent_documents"
+		case "summary":
+			table = "search_projection_session_summaries"
+		case "aggregate":
+			table = "search_projection_command_aggregates"
+		case "keyword":
+			table = "search_projection_session_keywords"
+		default:
 			continue
 		}
-		if p.created != "" && p.created >= projectionCutoff(now.UTC().Add(-b.RecentAge)) {
-			_, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, g.GenerationID, p.rowid, p.id, p.created, p.text, len(p.text))
-			if e != nil {
-				return out, e
-			}
+		r, x := tx.ExecContext(lockCtx, `DELETE FROM `+table+` WHERE rowid=?`, c.RowID)
+		if x != nil {
+			return out, x
 		}
-		_, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_summaries VALUES(?,?,1,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET event_count=event_count+1,summary_text=excluded.summary_text,summary_version=excluded.summary_version`, g.GenerationID, p.session, p.summary, searchProjectionVersion, searchProjectionSummaryVersion)
-		if e != nil {
-			return out, e
-		}
-		_, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_command_aggregates VALUES(?,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET command_count=command_count+excluded.command_count,failure_count=failure_count+excluded.failure_count`, g.GenerationID, p.session, p.commandCount, p.failureCount)
-		if e != nil {
-			return out, e
-		}
-		keys := make([]string, 0, len(p.keywords))
-		for k := range p.keywords {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_keywords VALUES(?,?,?,?,?) ON CONFLICT(generation_id,session_id,keyword) DO UPDATE SET occurrences=occurrences+excluded.occurrences`, g.GenerationID, p.session, k, p.keywords[k], searchProjectionKeywordVersion); e != nil {
-				return out, e
-			}
-		}
-		last = p.rowid
-		out.Selected++
-		out.Written++
+		n, _ := r.RowsAffected()
+		out.Evicted += int(n)
+		out.Cleaned += int(n)
+		out.CleanupBytes += c.LogicalBytes
 	}
-	res, e := tx.ExecContext(lockCtx, `DELETE FROM search_projection_recent_documents WHERE rowid IN (SELECT rowid FROM search_projection_recent_documents WHERE created_at_norm<? OR (SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents)>? ORDER BY (generation_id=?) ASC,created_at_norm,generation_id,document_id LIMIT ?)`, projectionCutoff(now.UTC().Add(-b.RecentAge)), b.RecentBytes, g.GenerationID, b.Rows)
+	next := p.Phase
+	if p.NextPhase != "" {
+		next = p.NextPhase
+	}
+	state := "rebuilding"
+	if p.Completed {
+		state = "complete"
+	}
+	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? THEN generation_id ELSE active_generation_id END,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=?`, p.NextCheckpoint, next, state, p.Completed, formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase)
 	if e != nil {
 		return out, e
 	}
-	n, _ := res.RowsAffected()
-	out.Evicted = int(n)
-	var retained int64
-	_ = tx.QueryRowContext(lockCtx, `SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?`, g.GenerationID).Scan(&retained)
-	if last == g.HighWater {
-		for _, table := range []string{"search_projection_recent_documents", "search_projection_session_summaries", "search_projection_command_aggregates", "search_projection_session_keywords"} {
-			q := `DELETE FROM ` + table + ` WHERE rowid IN (SELECT rowid FROM ` + table + ` WHERE generation_id<>? LIMIT ?)`
-			if _, e = tx.ExecContext(lockCtx, q, g.GenerationID, b.Rows); e != nil {
-				return out, e
-			}
-		}
-	}
-	var old int64
-	if e = tx.QueryRowContext(lockCtx, `SELECT (SELECT count(*) FROM search_projection_recent_documents WHERE generation_id<>?)+(SELECT count(*) FROM search_projection_session_summaries WHERE generation_id<>?)+(SELECT count(*) FROM search_projection_command_aggregates WHERE generation_id<>?)+(SELECT count(*) FROM search_projection_session_keywords WHERE generation_id<>?)`, g.GenerationID, g.GenerationID, g.GenerationID, g.GenerationID).Scan(&old); e != nil {
-		return out, e
-	}
-	out.Completed = last == g.HighWater && retained <= b.RecentBytes && old == 0
-	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,state=?,active_generation_id=CASE WHEN ? THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE singleton=1 AND generation_id=? AND source_revision=? AND checkpoint=?`, last, map[bool]string{true: "complete", false: "rebuilding"}[out.Completed], out.Completed, time.Since(started).Milliseconds(), formatTimestamp(now.UTC()), g.GenerationID, g.SourceRevision, g.Checkpoint)
-	if e != nil {
-		return out, e
-	}
-	if changed, x := result.RowsAffected(); x != nil || changed != 1 {
+	if n, x := r.RowsAffected(); x != nil || n != 1 {
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	if e = tx.Commit(); e != nil {
 		return out, e
 	}
+	out.Completed = p.Completed
+	out.GenerationID = p.GenerationID
+	out.StoredBytes = p.Ledger.StoredBytes
+	out.DecodedBytes = p.Ledger.DecodedBytes
+	out.WrittenBytes = p.Ledger.LogicalWriteBytes + p.Ledger.WALReservationBytes
 	return out, nil
 }
 
@@ -357,17 +342,6 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	return s, e
 }
 
-func truncateUTF8(value string, limit int) string {
-	if len(value) <= limit {
-		return value
-	}
-	value = value[:limit]
-	for !utf8.ValidString(value) {
-		value = value[:len(value)-1]
-	}
-	return value
-}
-
 func projectionCutoff(timestamp time.Time) string {
 	return timestamp.UTC().Format("2006-01-02T15:04:05.000000000Z")
 }
@@ -386,22 +360,4 @@ func markProjectionDrifted(ctx context.Context, db *sql.DB, generation string) e
 		return &apptypes.SearchProjectionNoProgressError{Reason: "generation state changed concurrently"}
 	}
 	return nil
-}
-
-func highEntropyKeyword(s string) bool {
-	if utf8.RuneCountInString(s) < 12 {
-		return false
-	}
-	var a, d, y bool
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z':
-			a = true
-		case r >= '0' && r <= '9':
-			d = true
-		default:
-			y = true
-		}
-	}
-	return a && (d || y)
 }
