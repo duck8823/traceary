@@ -213,13 +213,31 @@ func verifySQLiteArtifact(path string) error {
 	return nil
 }
 
-func restoreVerifiedRehearsalBackup(target, backup string) error {
+func restoreVerifiedRehearsalBackup(target, backup string, expected rehearsalIdentity, expectedDigest string) error {
+	current, err := secureFileIdentity(backup)
+	if err != nil || !os.SameFile(expected.info, current.info) || expected.device != current.device || expected.inode != current.inode {
+		return ErrUnsafeRehearsalTarget
+	}
+	digest, err := fileDigest(backup)
+	if err != nil || digest != expectedDigest {
+		return errors.New("rollback artifact changed before recovery")
+	}
+	if err = verifySQLiteArtifact(backup); err != nil {
+		return err
+	}
 	for _, suffix := range []string{"-wal", "-shm"} {
 		if err := os.Remove(target + suffix); err != nil && !os.IsNotExist(err) {
 			return xerrors.Errorf("remove rehearsal recovery sidecar: %w", err)
 		}
 	}
-	return copyFileAtomic(backup, target)
+	if err = copyFileAtomic(backup, target); err != nil {
+		return err
+	}
+	restoredDigest, err := fileDigest(target)
+	if err != nil || restoredDigest != expectedDigest {
+		return errors.New("restored rehearsal target digest mismatch")
+	}
+	return verifySQLiteArtifact(target)
 }
 
 func validateBackupIndependence(backup string, forbidden ...string) error {

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
 
 func TestLiveCompatibilityReplaysWAL(t *testing.T) {
@@ -174,5 +175,64 @@ func TestPhysicalBackupRejectsCopyCorruptionAndSourceDrift(t *testing.T) {
 				t.Fatal("unstable/corrupt copy was verified")
 			}
 		})
+	}
+}
+
+func TestMigrationRecoveryRejectsTamperedValidSQLiteBackup(t *testing.T) {
+	adapter, config, _ := newSwapRehearsalFixture(t)
+	db, err := sql.Open("sqlite", config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`DROP TABLE payload_rehearsal_rows`,
+		`DROP TABLE payload_rehearsal_checkpoints`,
+		`DROP TABLE payload_rehearsal_runs`,
+		`DELETE FROM schema_migrations WHERE version=37`,
+	} {
+		if _, err = db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := minimumWALFrameBytes(context.Background(), config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MaxWALBytes = frame
+	adapter.beforeMigrationRecovery = func() {
+		tampered := filepath.Join(t.TempDir(), "valid-but-different.db")
+		migrations, migrationErr := sqliteschema.Migrations()
+		if migrationErr != nil {
+			t.Error(migrationErr)
+			return
+		}
+		if migrationErr = NewStoreManagementDatasource(NewDatabase(tampered, migrations)).Initialize(context.Background()); migrationErr != nil {
+			t.Error(migrationErr)
+			return
+		}
+		if migrationErr = copyFileAtomic(tampered, config.BackupPath); migrationErr != nil {
+			t.Error(migrationErr)
+		}
+	}
+	metrics, err := adapter.Run(context.Background(), config, false)
+	if err == nil {
+		t.Fatal("tampered valid SQLite rollback artifact was accepted")
+	}
+	if metrics.RollbackVerified {
+		t.Fatalf("tampered rollback artifact reported verified: %#v", metrics)
+	}
+}
+
+func TestObserveWALPeakRejectsNonRegularSidecar(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "target.db")
+	if err := os.Symlink("missing", path+"-wal"); err != nil {
+		t.Fatal(err)
+	}
+	var peak int64
+	if err := observeWALPeak(path, 0, 1<<20, &peak); err == nil {
+		t.Fatal("non-regular WAL sidecar was treated as absent")
 	}
 }

@@ -52,7 +52,7 @@ func randomRunID() (string, error) {
 }
 
 //nolint:wrapcheck // SQL details stay inside this adapter and public boundaries add context.
-func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity, configHash, backupDigest string, resume bool, guard rehearsalMutationGuard) (string, string, string, string, error) {
+func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity, configHash, backupDigest string, resume bool, guard rehearsalMutationGuard, reserveResume func() error) (string, string, string, string, error) {
 	lease, leaseErr := randomRunID()
 	if leaseErr != nil {
 		return "", "", "", "", leaseErr
@@ -64,6 +64,12 @@ func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity
 			return "", "", "", "", errors.New("rehearsal run state does not permit this operation")
 		}
 		now := time.Now().UTC()
+		if reserveResume == nil {
+			return "", "", "", "", ErrUnsafeRehearsalTarget
+		}
+		if e := reserveResume(); e != nil {
+			return "", "", "", "", e
+		}
 		if e := requireSafeRehearsalMutation(guard); e != nil {
 			return "", "", "", "", e
 		}
