@@ -20,8 +20,8 @@ func (f *rehearsalBackendFake) Preview(context.Context, apptypes.PayloadRehearsa
 	f.calls = append(f.calls, "preview")
 	return f.preview, nil
 }
-func (f *rehearsalBackendFake) Run(_ context.Context, _ apptypes.PayloadRehearsalConfig, resume bool) (apptypes.PayloadRehearsalMetrics, error) {
-	if resume {
+func (f *rehearsalBackendFake) Run(_ context.Context, _ apptypes.PayloadRehearsalConfig, command apptypes.PayloadRehearsalRunCommand) (apptypes.PayloadRehearsalMetrics, error) {
+	if command.IsResume() {
 		f.calls = append(f.calls, "resume")
 	} else {
 		f.calls = append(f.calls, "run")

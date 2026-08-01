@@ -33,7 +33,7 @@ func TestPayloadRehearsalRejectsTargetSwapAtWriteBoundaries(t *testing.T) {
 					}
 				}
 			}
-			if _, err := adapter.Run(context.Background(), config, false); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+			if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 				t.Fatalf("error=%v", err)
 			}
 		})
@@ -44,7 +44,7 @@ func TestPayloadRehearsalRejectsTargetSwapAtScrubWriteBoundaries(t *testing.T) {
 	for _, boundary := range []string{"scrub-progress", "scrub-complete"} {
 		t.Run(boundary, func(t *testing.T) {
 			adapter, config, swap := newSwapRehearsalFixture(t)
-			if _, err := adapter.Run(context.Background(), config, false); err != nil {
+			if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err != nil {
 				t.Fatal(err)
 			}
 			adapter.beforePersistence = func(kind string) {
@@ -67,14 +67,14 @@ func TestPayloadRehearsalRejectsTargetSwapBeforeWallTimePause(t *testing.T) {
 			swap()
 		}
 	}
-	if _, err := adapter.Run(context.Background(), config, false); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+	if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 		t.Fatalf("error=%v", err)
 	}
 }
 
 func TestRehearsalRecoveryMutationsDoNotWriteWhenGuardFails(t *testing.T) {
 	adapter, config, _ := newSwapRehearsalFixture(t)
-	metrics, err := adapter.Run(context.Background(), config, false)
+	metrics, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestPayloadRehearsalRollbackRejectsTargetSwapBeforeRename(t *testing.T) {
 	if err = db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = adapter.Run(context.Background(), config, false); err != nil {
+	if _, err = adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err != nil {
 		t.Fatal(err)
 	}
 	adapter.duringRollbackHeavyVerify = swap

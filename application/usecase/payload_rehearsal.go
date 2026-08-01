@@ -64,7 +64,7 @@ func (u *payloadRehearsalUsecase) Run(ctx context.Context, c types.PayloadRehear
 	if preflight.FreeBytes < preflight.EstimatedHeadroom {
 		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
 	}
-	result, err := u.runner.Run(ctx, c, false)
+	result, err := u.runner.Run(ctx, c, types.PayloadRehearsalRunCommand{Mode: types.PayloadRehearsalStart})
 	if err != nil {
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("run payload rehearsal: %w", err)
 	}
@@ -77,7 +77,7 @@ func (u *payloadRehearsalUsecase) Resume(ctx context.Context, c types.PayloadReh
 	if err := validateRehearsal(c); err != nil {
 		return types.PayloadRehearsalMetrics{}, err
 	}
-	result, err := u.runner.Run(ctx, c, true)
+	result, err := u.runner.Run(ctx, c, types.PayloadRehearsalRunCommand{Mode: types.PayloadRehearsalResume})
 	if err != nil {
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("resume payload rehearsal: %w", err)
 	}

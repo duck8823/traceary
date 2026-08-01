@@ -61,7 +61,7 @@ func TestMigrationPreflightRejectsLowCapWithoutTargetMutation(t *testing.T) {
 	}
 	config := apptypes.PayloadRehearsalConfig{TargetPath: target, LivePath: live, BackupPath: filepath.Join(dir, "backup.db"), BatchRows: 2, StoredByteLimit: 1 << 20, DecodedByteLimit: 1 << 20, WallTimeLimit: time.Minute, LockTimeLimit: time.Second, ScrubByteLimit: 1 << 20, ScrubTimeLimit: time.Minute}
 	config.MaxWALBytes = frame
-	if _, err = adapter.Run(ctx, config, false); err == nil {
+	if _, err = adapter.Run(ctx, config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err == nil {
 		t.Fatal("migration exceeded the cap without failing")
 	}
 	after, err := os.ReadFile(target)
@@ -109,7 +109,7 @@ func TestLiveCompatibilityReplaysWAL(t *testing.T) {
 func TestPayloadRehearsalRejectsLiveDatabaseAsBackup(t *testing.T) {
 	adapter, config, _ := newSwapRehearsalFixture(t)
 	config.BackupPath = config.LivePath
-	if _, err := adapter.Run(context.Background(), config, false); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+	if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 		t.Fatalf("error=%v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestPayloadRehearsalRejectsFutureTargetBeforeMigrationWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = adapter.Run(context.Background(), config, false); err == nil {
+	if _, err = adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err == nil {
 		t.Fatal("future target was accepted")
 	}
 	after, err := fileDigest(config.TargetPath)
@@ -150,7 +150,7 @@ func TestPayloadRehearsalRejectsBackupThroughSymlinkedAncestor(t *testing.T) {
 		t.Fatal(err)
 	}
 	config.BackupPath = filepath.Join(link, "backup.db")
-	if _, err := adapter.Run(context.Background(), config, false); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+	if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 		t.Fatalf("error=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(realDir, "backup.db")); !os.IsNotExist(err) {
@@ -177,7 +177,7 @@ func TestPayloadRehearsalRejectsOversizePayloadBeforeBlobMaterialization(t *test
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	_, err = adapter.Run(context.Background(), config, false)
+	_, err = adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart})
 	runtime.ReadMemStats(&after)
 	if err == nil {
 		t.Fatal("oversize source payload was accepted")
@@ -191,7 +191,7 @@ func TestTerminalTransitionDoesNotCommitWithoutReservedWALFrame(t *testing.T) {
 	for _, maximum := range []int64{42000, 43000, 44000, 45000} {
 		t.Run(fmt.Sprint(maximum), func(t *testing.T) {
 			adapter, config, _ := newSwapRehearsalFixture(t)
-			metrics, err := adapter.Run(context.Background(), config, false)
+			metrics, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -293,7 +293,7 @@ func TestMigrationRecoveryRejectsTamperedValidSQLiteBackup(t *testing.T) {
 			t.Error(migrationErr)
 		}
 	}
-	metrics, err := adapter.Run(context.Background(), config, false)
+	metrics, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart})
 	if err == nil {
 		t.Fatal("tampered valid SQLite rollback artifact was accepted")
 	}

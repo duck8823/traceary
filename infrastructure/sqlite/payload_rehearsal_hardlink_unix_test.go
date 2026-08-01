@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 func TestPayloadRehearsalResumeRejectsHardLinkedSidecarsWithoutMutatingAlias(t *testing.T) {
@@ -24,7 +26,7 @@ func TestPayloadRehearsalResumeRejectsHardLinkedSidecarsWithoutMutatingAlias(t *
 			if err := os.Link(victim, config.TargetPath+suffix); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := adapter.Run(context.Background(), config, true); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+			if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalResume}); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 				t.Fatalf("error=%v", err)
 			}
 			afterBytes, err := os.ReadFile(victim)

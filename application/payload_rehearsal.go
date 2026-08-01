@@ -13,7 +13,7 @@ type PayloadRehearsalPreview interface {
 
 // PayloadRehearsalRunner persists bounded shadow rows and resumable checkpoints.
 type PayloadRehearsalRunner interface {
-	Run(context.Context, types.PayloadRehearsalConfig, bool) (types.PayloadRehearsalMetrics, error)
+	Run(context.Context, types.PayloadRehearsalConfig, types.PayloadRehearsalRunCommand) (types.PayloadRehearsalMetrics, error)
 	Scrub(context.Context, types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error)
 	Rollback(context.Context, types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error)
 }

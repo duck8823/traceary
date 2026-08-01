@@ -5,6 +5,25 @@ import "time"
 // PayloadRehearsalState is the persisted copied-store workflow state.
 type PayloadRehearsalState string
 
+// PayloadRehearsalRunMode makes start/resume intent explicit at the port boundary.
+type PayloadRehearsalRunMode string
+
+const (
+	PayloadRehearsalStart  PayloadRehearsalRunMode = "start"
+	PayloadRehearsalResume PayloadRehearsalRunMode = "resume"
+)
+
+// PayloadRehearsalRunCommand describes the lifecycle entry requested by the use case.
+type PayloadRehearsalRunCommand struct{ Mode PayloadRehearsalRunMode }
+
+// Valid reports whether the command names a supported lifecycle entry.
+func (c PayloadRehearsalRunCommand) Valid() bool {
+	return c.Mode == PayloadRehearsalStart || c.Mode == PayloadRehearsalResume
+}
+
+// IsResume reports whether an existing resumable run is required.
+func (c PayloadRehearsalRunCommand) IsResume() bool { return c.Mode == PayloadRehearsalResume }
+
 const (
 	// PayloadRehearsalRunning owns an active writer lease.
 	PayloadRehearsalRunning PayloadRehearsalState = "running"

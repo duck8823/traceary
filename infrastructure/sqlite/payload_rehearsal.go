@@ -189,7 +189,11 @@ func transitionTerminalWithinWALBudget(ctx context.Context, session walBudgetedM
 }
 
 // Run creates or resumes bounded zstd shadow rows without changing canonical payloads.
-func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadRehearsalConfig, resume bool) (apptypes.PayloadRehearsalMetrics, error) {
+func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadRehearsalConfig, command apptypes.PayloadRehearsalRunCommand) (apptypes.PayloadRehearsalMetrics, error) {
+	if !command.Valid() {
+		return apptypes.PayloadRehearsalMetrics{}, errors.New("invalid payload rehearsal run command")
+	}
+	resume := command.IsResume()
 	id, err := a.inspectTarget(c.TargetPath, c.LivePath)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
