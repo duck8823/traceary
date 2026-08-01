@@ -23,12 +23,14 @@ func TestCapacityInspectorReturnsMetadataOnlyAggregates(t *testing.T) {
 	statements := []string{
 		`PRAGMA journal_mode=WAL`,
 		`CREATE TABLE events (id TEXT PRIMARY KEY, kind TEXT, agent TEXT, session_id TEXT, body TEXT, created_at TEXT)`,
+		`CREATE TABLE event_metadata_projection (id TEXT PRIMARY KEY, body_stored_bytes INTEGER NOT NULL)`,
 		`CREATE INDEX idx_events_created_at ON events(created_at)`,
 		`INSERT INTO events VALUES (?, 'prompt', 'agent', 'session-secret', ?, '2026-01-01T00:00:00Z')`,
+		`INSERT INTO event_metadata_projection VALUES ('opaque-projection-key', 3300)`,
 	}
 	for index, statement := range statements {
 		var execErr error
-		if index == len(statements)-1 {
+		if index == len(statements)-2 {
 			_, execErr = db.Exec(statement, secret, strings.Repeat(secret, 100))
 		} else {
 			_, execErr = db.Exec(statement)
@@ -51,7 +53,7 @@ func TestCapacityInspectorReturnsMetadataOnlyAggregates(t *testing.T) {
 	if report.SchemaVersion != "traceary.capacity/v1" || report.PageCount == 0 {
 		t.Fatalf("unexpected report: %+v", report)
 	}
-	if len(report.PayloadClasses) != 1 || report.PayloadClasses[0].Rows != 1 {
+	if len(report.PayloadClasses) != 1 || report.PayloadClasses[0].Rows != 1 || report.PayloadEvidence.Status != "complete" {
 		t.Fatalf("unexpected payload classes: %+v", report.PayloadClasses)
 	}
 	if report.Evidence.Status != "complete" && report.Evidence.Status != "partial" {

@@ -2,16 +2,17 @@ package types
 
 // CapacityReport is a metadata-only snapshot of SQLite allocation.
 type CapacityReport struct {
-	SchemaVersion  string                 `json:"schema_version"`
-	Evidence       CapacityEvidence       `json:"evidence"`
-	PageSizeBytes  int64                  `json:"page_size_bytes"`
-	PageCount      int64                  `json:"page_count"`
-	DatabaseBytes  int64                  `json:"database_bytes"`
-	FreePages      int64                  `json:"free_pages"`
-	FreeBytes      int64                  `json:"free_bytes"`
-	WALBytes       int64                  `json:"wal_bytes"`
-	Objects        []CapacityObject       `json:"objects"`
-	PayloadClasses []CapacityPayloadClass `json:"payload_classes"`
+	SchemaVersion   string                 `json:"schema_version"`
+	Evidence        CapacityEvidence       `json:"evidence"`
+	PayloadEvidence CapacityEvidence       `json:"payload_evidence"`
+	PageSizeBytes   int64                  `json:"page_size_bytes"`
+	PageCount       int64                  `json:"page_count"`
+	DatabaseBytes   int64                  `json:"database_bytes"`
+	FreePages       int64                  `json:"free_pages"`
+	FreeBytes       int64                  `json:"free_bytes"`
+	WALBytes        int64                  `json:"wal_bytes"`
+	Objects         []CapacityObject       `json:"objects"`
+	PayloadClasses  []CapacityPayloadClass `json:"payload_classes"`
 }
 
 // CapacityEvidence states whether the optional dbstat attribution is available.

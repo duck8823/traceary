@@ -14,10 +14,19 @@ import (
 )
 
 // CapacityInspector reads only SQLite metadata and aggregate lengths.
-type CapacityInspector struct{ db *Database }
+type CapacityInspector struct {
+	db          *Database
+	dbstatQuery func(context.Context, *sql.DB, int64) ([]apptypes.CapacityObject, error)
+}
 
 // NewCapacityInspector creates a metadata-only store capacity inspector.
-func NewCapacityInspector(db *Database) *CapacityInspector { return &CapacityInspector{db: db} }
+func NewCapacityInspector(db *Database) *CapacityInspector {
+	return &CapacityInspector{db: db, dbstatQuery: inspectDBStat}
+}
+
+func newCapacityInspectorWithDBStatQuery(db *Database, query func(context.Context, *sql.DB, int64) ([]apptypes.CapacityObject, error)) *CapacityInspector {
+	return &CapacityInspector{db: db, dbstatQuery: query}
+}
 
 // InspectCapacity returns a metadata-only capacity snapshot.
 func (i *CapacityInspector) InspectCapacity(ctx context.Context) (_ apptypes.CapacityReport, err error) {
@@ -48,19 +57,28 @@ func (i *CapacityInspector) InspectCapacity(ctx context.Context) (_ apptypes.Cap
 		return report, xerrors.Errorf("failed to stat WAL sidecar: %w", statErr)
 	}
 
-	objects, statErr := inspectDBStat(ctx, db, report.PageSizeBytes)
+	objects, statErr := i.dbstatQuery(ctx, db, report.PageSizeBytes)
 	if statErr != nil {
-		report.Evidence = apptypes.CapacityEvidence{Status: "partial", Method: "pragma", Reason: "dbstat unavailable; object attribution omitted"}
+		if !isDBStatUnavailable(statErr) {
+			return report, xerrors.Errorf("failed to inspect dbstat allocation: %w", statErr)
+		}
+		report.Evidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "pragma", Reason: "dbstat unavailable; object attribution omitted"}
 	} else {
 		report.Evidence = apptypes.CapacityEvidence{Status: "complete", Method: "dbstat"}
 		report.Objects = objects
 	}
-	payloads, payloadErr := inspectPayloadClasses(ctx, db)
+	payloads, payloadEvidence, payloadErr := inspectPayloadClasses(ctx, db)
 	if payloadErr != nil {
 		return report, payloadErr
 	}
 	report.PayloadClasses = payloads
+	report.PayloadEvidence = payloadEvidence
 	return report, nil
+}
+
+func isDBStatUnavailable(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no such table: dbstat") || strings.Contains(message, "no such module: dbstat")
 }
 
 // SQLite driver errors are internal adapter details and are contextualized by the caller.
@@ -88,17 +106,17 @@ func inspectDBStat(ctx context.Context, db *sql.DB, pageSize int64) (_ []apptype
 	return result, rows.Err()
 }
 
-func inspectPayloadClasses(ctx context.Context, db *sql.DB) (_ []apptypes.CapacityPayloadClass, err error) {
+func inspectPayloadClasses(ctx context.Context, db *sql.DB) (_ []apptypes.CapacityPayloadClass, evidence apptypes.CapacityEvidence, err error) {
 	var exists int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='events'`).Scan(&exists); err != nil {
-		return nil, xerrors.Errorf("failed to inspect events schema: %w", err)
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='event_metadata_projection'`).Scan(&exists); err != nil {
+		return nil, evidence, xerrors.Errorf("failed to inspect event metadata schema: %w", err)
 	}
 	if exists == 0 {
-		return []apptypes.CapacityPayloadClass{}, nil
+		return []apptypes.CapacityPayloadClass{}, apptypes.CapacityEvidence{Status: "unavailable", Method: "event_metadata_projection", Reason: "metadata projection unavailable"}, nil
 	}
-	rows, err := db.QueryContext(ctx, `SELECT CASE WHEN length(CAST(body AS BLOB)) < 1024 THEN 'lt_1_kib' WHEN length(CAST(body AS BLOB)) < 65536 THEN '1_to_64_kib' WHEN length(CAST(body AS BLOB)) < 1048576 THEN '64_kib_to_1_mib' ELSE 'gte_1_mib' END, count(*), coalesce(sum(length(CAST(body AS BLOB))),0) FROM events GROUP BY 1`)
+	rows, err := db.QueryContext(ctx, `SELECT CASE WHEN body_stored_bytes < 1024 THEN 'lt_1_kib' WHEN body_stored_bytes < 65536 THEN '1_to_64_kib' WHEN body_stored_bytes < 1048576 THEN '64_kib_to_1_mib' ELSE 'gte_1_mib' END, count(*), coalesce(sum(body_stored_bytes),0) FROM event_metadata_projection GROUP BY 1`)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to aggregate payload classes: %w", err)
+		return nil, evidence, xerrors.Errorf("failed to aggregate payload classes: %w", err)
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil && err == nil {
@@ -109,13 +127,22 @@ func inspectPayloadClasses(ctx context.Context, db *sql.DB) (_ []apptypes.Capaci
 	for rows.Next() {
 		var item apptypes.CapacityPayloadClass
 		if err := rows.Scan(&item.Name, &item.Rows, &item.Bytes); err != nil {
-			return nil, xerrors.Errorf("failed to scan payload-class aggregate: %w", err)
+			return nil, evidence, xerrors.Errorf("failed to scan payload-class aggregate: %w", err)
 		}
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("failed to iterate payload-class aggregates: %w", err)
+		return nil, evidence, xerrors.Errorf("failed to iterate payload-class aggregates: %w", err)
 	}
 	sort.Slice(result, func(a, b int) bool { return strings.Compare(result[a].Name, result[b].Name) < 0 })
-	return result, nil
+	var eventCount, projectionCount int64
+	if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM events), (SELECT count(*) FROM event_metadata_projection)`).Scan(&eventCount, &projectionCount); err != nil {
+		return nil, evidence, xerrors.Errorf("failed to inspect payload metadata coverage: %w", err)
+	}
+	evidence = apptypes.CapacityEvidence{Status: "complete", Method: "event_metadata_projection"}
+	if projectionCount < eventCount {
+		evidence.Status = "partial"
+		evidence.Reason = "event metadata projection backfill incomplete"
+	}
+	return result, evidence, nil
 }

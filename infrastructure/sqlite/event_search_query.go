@@ -259,6 +259,11 @@ func queryIncompleteFTSEventIDs(
 	criteria apptypes.EventSearchCriteria,
 	queryValue string,
 ) ([]string, error) {
+	query, args := buildIncompleteFTSEventIDsQuery(criteria, queryValue)
+	return collectEventSearchIDs(ctx, queryer, query, args, "incomplete indexed event search")
+}
+
+func buildIncompleteFTSEventIDsQuery(criteria apptypes.EventSearchCriteria, queryValue string) (string, []any) {
 	var builder strings.Builder
 	builder.WriteString(`
 		WITH matching_event_ids(event_id) AS (
@@ -293,7 +298,7 @@ func queryIncompleteFTSEventIDs(
 		  JOIN events e ON e.id = matching.event_id`)
 	appendEventSearchOrderAndPage(&builder, criteria)
 	args = appendEventSearchPageArgs(args, criteria)
-	return collectEventSearchIDs(ctx, queryer, builder.String(), args, "incomplete indexed event search")
+	return builder.String(), args
 }
 
 func appendEventSearchFilters(

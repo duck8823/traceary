@@ -1,0 +1,19 @@
+{
+  "schema_version": "traceary.capacity-baseline/v1",
+  "capacity": {
+    "schema_version": "traceary.capacity/v1",
+    "database_bytes": 22978910618,
+    "evidence": { "status": "complete" }
+  },
+  "benchmark": {
+    "schema_version": "traceary.store-benchmark/v1",
+    "fixture": { "kind": "copied_store" },
+    "iterations": 25,
+    "cases": [
+      { "name": "active", "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] },
+      { "name": "latest", "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] },
+      { "name": "handoff", "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] },
+      { "name": "search", "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] }
+    ]
+  }
+}

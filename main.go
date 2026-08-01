@@ -4,11 +4,9 @@ package main
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"log/slog"
 	"os"
@@ -30,10 +28,8 @@ import (
 	"github.com/duck8823/traceary/presentation"
 	"github.com/duck8823/traceary/presentation/cli"
 	"github.com/duck8823/traceary/presentation/mcpserver"
+	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
-
-//go:embed schema/sqlite/migrations/*.sql
-var migrationsFS embed.FS
 
 var (
 	version = "dev"
@@ -136,7 +132,7 @@ func run() error {
 
 	resolvedVersion, _, _ := resolveBuildMetadata(version, commit, date, readBuildInfo)
 
-	migrationsSubFS, err := fs.Sub(migrationsFS, "schema/sqlite/migrations")
+	migrationsSubFS, err := sqliteschema.Migrations()
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to read migration files", "マイグレーションファイルの読み込みに失敗しました"), err)
 	}
