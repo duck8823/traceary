@@ -24,6 +24,22 @@ func (c PayloadRehearsalRunCommand) Valid() bool {
 // IsResume reports whether an existing resumable run is required.
 func (c PayloadRehearsalRunCommand) IsResume() bool { return c.Mode == PayloadRehearsalResume }
 
+// PayloadRehearsalField identifies one payload lane without exposing SQLite
+// table or column names to orchestration.
+type PayloadRehearsalField string
+
+const (
+	PayloadRehearsalEventBody   PayloadRehearsalField = "event_body"
+	PayloadRehearsalCommandText PayloadRehearsalField = "command_text"
+	PayloadRehearsalInputText   PayloadRehearsalField = "input_text"
+	PayloadRehearsalOutputText  PayloadRehearsalField = "output_text"
+)
+
+// OrderedPayloadRehearsalFields is the application-owned workflow order.
+func OrderedPayloadRehearsalFields() []PayloadRehearsalField {
+	return []PayloadRehearsalField{PayloadRehearsalEventBody, PayloadRehearsalCommandText, PayloadRehearsalInputText, PayloadRehearsalOutputText}
+}
+
 const (
 	// PayloadRehearsalRunning owns an active writer lease.
 	PayloadRehearsalRunning PayloadRehearsalState = "running"

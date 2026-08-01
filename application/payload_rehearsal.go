@@ -17,3 +17,18 @@ type PayloadRehearsalRunner interface {
 	Scrub(context.Context, types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error)
 	Rollback(context.Context, types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error)
 }
+
+// PayloadRehearsalRunHandle keeps connection, identity, lease, codec and WAL
+// state opaque to application orchestration.
+type PayloadRehearsalRunHandle interface{ PayloadRehearsalRunHandle() }
+
+// PayloadRehearsalRunWorkflow exposes one bounded field advance at a time.
+// Implementations own persistence primitives; callers own ordering, deadline,
+// pause and completion policy.
+type PayloadRehearsalRunWorkflow interface {
+	Prepare(context.Context, types.PayloadRehearsalConfig, types.PayloadRehearsalRunCommand) (PayloadRehearsalRunHandle, types.PayloadRehearsalMetrics, error)
+	AdvanceField(context.Context, PayloadRehearsalRunHandle, types.PayloadRehearsalField) (types.PayloadRehearsalMetrics, bool, error)
+	Pause(context.Context, PayloadRehearsalRunHandle) (types.PayloadRehearsalMetrics, error)
+	Complete(context.Context, PayloadRehearsalRunHandle) (types.PayloadRehearsalMetrics, error)
+	Close(PayloadRehearsalRunHandle) error
+}
