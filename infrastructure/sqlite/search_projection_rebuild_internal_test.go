@@ -120,6 +120,7 @@ func TestSearchProjectionGenerationFreezesInsertsAndDetectsMutation(t *testing.T
 		}
 	}
 	insert("random-z")
+	insert("random-y")
 	b := projectionBudget()
 	g, err := store.StartSearchProjectionGeneration(ctx, b, now)
 	if err != nil {
@@ -127,7 +128,7 @@ func TestSearchProjectionGenerationFreezesInsertsAndDetectsMutation(t *testing.T
 	}
 	insert("random-a")
 	p, err := store.RebuildSearchProjections(ctx, b, now)
-	if err != nil || !p.Completed || p.Written != 1 {
+	if err != nil || p.Completed || p.Written != 1 {
 		t.Fatalf("progress=%+v err=%v", p, err)
 	}
 	var count int
@@ -184,5 +185,50 @@ func TestSearchProjectionUnavailableBodyAndOversizeArePublicBehavior(t *testing.
 	var oversized *apptypes.SearchProjectionOversizeError
 	if !errors.As(err, &oversized) {
 		t.Fatalf("error=%T %v", err, err)
+	}
+}
+
+func TestSearchProjectionResumeSurvivesVacuumAndExcludesThinking(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, migrations)
+	if err := store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	envelope := `{"blocks":[{"type":"thinking","text":"PRIVATE-THOUGHT-123456"},{"type":"text","text":"PUBLIC-TEXT-123456"}]}`
+	for _, id := range []string{"first", "second"} {
+		if _, err := db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'note','a','s',?,?,'c','w')`, id, envelope, formatTimestamp(now)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := projectionBudget()
+	if _, err := store.StartSearchProjectionGeneration(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	p, err := store.RebuildSearchProjections(ctx, b, now)
+	if err != nil || p.Completed {
+		t.Fatalf("first=%+v %v", p, err)
+	}
+	if _, err = db.Exec(`VACUUM`); err != nil {
+		t.Fatal(err)
+	}
+	p, err = store.RebuildSearchProjections(ctx, b, now)
+	if err != nil || !p.Completed {
+		t.Fatalf("resume=%+v %v", p, err)
+	}
+	var bodies, summaries string
+	if err = db.QueryRow(`SELECT group_concat(body_text), (SELECT group_concat(summary_text) FROM search_projection_session_summaries) FROM search_projection_recent_documents`).Scan(&bodies, &summaries); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(bodies+summaries, "PRIVATE-THOUGHT") || !strings.Contains(bodies+summaries, "PUBLIC-TEXT") {
+		t.Fatalf("visible projection=%q %q", bodies, summaries)
+	}
+	var matches int
+	if err = db.QueryRow(`SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH ?`, `"PUBLIC-TEXT"`).Scan(&matches); err != nil || matches != 2 {
+		t.Fatalf("matches=%d err=%v", matches, err)
 	}
 }

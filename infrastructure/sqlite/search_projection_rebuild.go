@@ -13,10 +13,13 @@ import (
 	"unicode/utf8"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	domaintypes "github.com/duck8823/traceary/domain/types"
 )
 
 const searchProjectionVersion = 1
 const searchProjectionKeywordVersion = 1
+const searchProjectionSummaryVersion = 1
+const searchProjectionSummaryBytes = 4096
 
 var searchProjectionToken = regexp.MustCompile(`[[:alnum:]_./:@+-]+`)
 
@@ -47,7 +50,7 @@ func (d *Database) StartSearchProjectionGeneration(ctx context.Context, b apptyp
 	}
 	defer tx.Rollback()
 	g := apptypes.SearchProjectionGeneration{GenerationID: generationID(), ConfigHash: b.ConfigHash()}
-	if e = tx.QueryRowContext(ctx, `SELECT revision,(SELECT COALESCE(MAX(rowid),0) FROM events) FROM search_projection_source_revision WHERE singleton=1`).Scan(&g.SourceRevision, &g.HighWater); e != nil {
+	if e = tx.QueryRowContext(ctx, `SELECT revision,(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) FROM search_projection_source_revision WHERE singleton=1`).Scan(&g.SourceRevision, &g.HighWater); e != nil {
 		return g, e
 	}
 	_, e = tx.ExecContext(ctx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
@@ -108,10 +111,10 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	// Selection is bounded before payload materialization. Stored and decoded metadata reserve every payload field.
-	rows, e := db.QueryContext(ctx, `SELECT e.rowid,e.id,e.session_id,e.created_at_norm,e.body_availability,e.kind,
+	rows, e := db.QueryContext(ctx, `SELECT q.sequence,e.id,e.session_id,e.created_at_norm,e.body_availability,e.kind,
 	 COALESCE(length(CAST(e.body AS BLOB)),0)+COALESCE(length(CAST(a.command_text AS BLOB)),0)+COALESCE(length(CAST(a.input_text AS BLOB)),0)+COALESCE(length(CAST(a.output_text AS BLOB)),0),
 	 CASE WHEN e.body_availability='available' THEN COALESCE(e.body_plaintext_bytes,e.body_stored_bytes,length(CAST(e.body AS BLOB)),0) ELSE 0 END+COALESCE(a.command_plaintext_bytes,length(CAST(a.command_text AS BLOB)),0)+COALESCE(a.input_plaintext_bytes,length(CAST(a.input_text AS BLOB)),0)+COALESCE(a.output_plaintext_bytes,length(CAST(a.output_text AS BLOB)),0)
-	 FROM events e LEFT JOIN command_audits a ON a.event_id=e.id WHERE e.rowid>? AND e.rowid<=? ORDER BY e.rowid LIMIT ?`, g.Checkpoint, g.HighWater, b.Rows)
+	 FROM search_projection_source_sequence q JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence>? AND q.sequence<=? ORDER BY q.sequence LIMIT ?`, g.Checkpoint, g.HighWater, b.Rows)
 	if e != nil {
 		return out, e
 	}
@@ -149,7 +152,7 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 			if x != nil {
 				return out, x
 			}
-			body = string(plain)
+			body, _ = visibleEventBody(string(plain), domaintypes.BodyAvailabilityAvailable)
 		}
 		cmd, x := hydrateAuditPayload(ctx, db, s.id, "command")
 		if x != nil {
@@ -170,7 +173,11 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 			}
 		}
 		p.text = strings.Join(parts, "\n")
-		p.summary = body
+		var previousSummary string
+		if x := db.QueryRowContext(ctx, `SELECT summary_text FROM search_projection_session_summaries WHERE generation_id=? AND session_id=?`, g.GenerationID, s.session).Scan(&previousSummary); x != nil && !errors.Is(x, sql.ErrNoRows) {
+			return out, x
+		}
+		p.summary = truncateUTF8(strings.TrimSpace(previousSummary+"\n"+body), searchProjectionSummaryBytes)
 		p.write = int64(len(p.text) + len(p.summary))
 		if cmd.Valid && cmd.String != "" {
 			p.commandCount = 1
@@ -220,7 +227,7 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 				return out, e
 			}
 		}
-		_, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_summaries VALUES(?,?,1,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET event_count=event_count+1,summary_text=trim(summary_text||char(10)||excluded.summary_text)`, g.GenerationID, p.session, p.summary, searchProjectionVersion)
+		_, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_summaries VALUES(?,?,1,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET event_count=event_count+1,summary_text=excluded.summary_text,summary_version=excluded.summary_version`, g.GenerationID, p.session, p.summary, searchProjectionVersion, searchProjectionSummaryVersion)
 		if e != nil {
 			return out, e
 		}
@@ -242,7 +249,7 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 		out.Selected++
 		out.Written++
 	}
-	res, e := tx.ExecContext(lockCtx, `DELETE FROM search_projection_recent_documents WHERE rowid IN (SELECT rowid FROM search_projection_recent_documents WHERE generation_id=? AND (created_at_norm<? OR (SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?)>?) ORDER BY created_at_norm,event_rowid LIMIT ?)`, g.GenerationID, formatTimestamp(now.UTC().Add(-b.RecentAge)), g.GenerationID, b.RecentBytes, b.Rows)
+	res, e := tx.ExecContext(lockCtx, `DELETE FROM search_projection_recent_documents WHERE rowid IN (SELECT rowid FROM search_projection_recent_documents WHERE created_at_norm<? OR (SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents)>? ORDER BY created_at_norm,event_rowid LIMIT ?)`, formatTimestamp(now.UTC().Add(-b.RecentAge)), b.RecentBytes, b.Rows)
 	if e != nil {
 		return out, e
 	}
@@ -250,10 +257,25 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 	out.Evicted = int(n)
 	var retained int64
 	_ = tx.QueryRowContext(lockCtx, `SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?`, g.GenerationID).Scan(&retained)
-	out.Completed = last == g.HighWater && retained <= b.RecentBytes
-	_, e = tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,state=?,last_batch_milliseconds=?,updated_at=? WHERE singleton=1 AND generation_id=? AND source_revision=?`, last, map[bool]string{true: "complete", false: "rebuilding"}[out.Completed], time.Since(started).Milliseconds(), formatTimestamp(now.UTC()), g.GenerationID, g.SourceRevision)
+	if last == g.HighWater {
+		for _, table := range []string{"search_projection_recent_documents", "search_projection_session_summaries", "search_projection_command_aggregates", "search_projection_session_keywords"} {
+			q := `DELETE FROM ` + table + ` WHERE rowid IN (SELECT rowid FROM ` + table + ` WHERE generation_id<>? LIMIT ?)`
+			if _, e = tx.ExecContext(lockCtx, q, g.GenerationID, b.Rows); e != nil {
+				return out, e
+			}
+		}
+	}
+	var old int64
+	if e = tx.QueryRowContext(lockCtx, `SELECT (SELECT count(*) FROM search_projection_recent_documents WHERE generation_id<>?)+(SELECT count(*) FROM search_projection_session_summaries WHERE generation_id<>?)+(SELECT count(*) FROM search_projection_command_aggregates WHERE generation_id<>?)+(SELECT count(*) FROM search_projection_session_keywords WHERE generation_id<>?)`, g.GenerationID, g.GenerationID, g.GenerationID, g.GenerationID).Scan(&old); e != nil {
+		return out, e
+	}
+	out.Completed = last == g.HighWater && retained <= b.RecentBytes && old == 0
+	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,state=?,active_generation_id=CASE WHEN ? THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE singleton=1 AND generation_id=? AND source_revision=? AND checkpoint=?`, last, map[bool]string{true: "complete", false: "rebuilding"}[out.Completed], out.Completed, time.Since(started).Milliseconds(), formatTimestamp(now.UTC()), g.GenerationID, g.SourceRevision, g.Checkpoint)
 	if e != nil {
 		return out, e
+	}
+	if changed, x := result.RowsAffected(); x != nil || changed != 1 {
+		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	if e = tx.Commit(); e != nil {
 		return out, e
@@ -265,6 +287,7 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 //
 //nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
 func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.SearchProjectionStatus, err error) {
+	started := time.Now()
 	db, e := d.openReadOnly(ctx)
 	if e != nil {
 		return s, e
@@ -276,20 +299,38 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if e != nil {
 		return s, e
 	}
-	_ = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0),COUNT(*) FROM search_projection_recent_documents WHERE generation_id=(SELECT generation_id FROM search_projection_state)`).Scan(&s.RecentBytes, &s.RecentDocuments)
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(summary_text AS BLOB))),0) FROM search_projection_session_summaries WHERE generation_id=(SELECT generation_id FROM search_projection_state)`).Scan(&s.SummarySessions, &s.SummaryLogicalBytes)
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(keyword AS BLOB))),0) FROM search_projection_session_keywords WHERE generation_id=(SELECT generation_id FROM search_projection_state)`).Scan(&s.KeywordRows, &s.KeywordLogicalBytes)
+	if e = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0),COUNT(*) FROM search_projection_recent_documents WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.RecentBytes, &s.RecentDocuments); e != nil {
+		return s, e
+	}
+	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(summary_text AS BLOB))),0) FROM search_projection_session_summaries WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.SummarySessions, &s.SummaryLogicalBytes); e != nil {
+		return s, e
+	}
+	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(keyword AS BLOB))),0) FROM search_projection_session_keywords WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.KeywordRows, &s.KeywordLogicalBytes); e != nil {
+		return s, e
+	}
 	s.FTSLogicalBytes = s.RecentBytes
 	var page int64
 	if db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&page) == nil {
-		if e = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name LIKE 'search_projection_%'`).Scan(&s.PhysicalBytes); e == nil {
+		if e = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name IN (SELECT name FROM sqlite_schema WHERE name LIKE 'search_projection_%' OR tbl_name LIKE 'search_projection_%')`).Scan(&s.PhysicalBytes); e == nil {
 			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "complete", Method: "dbstat"}
 		} else {
 			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "pragma", Reason: "dbstat unavailable"}
 			e = nil
 		}
 	}
+	s.InspectionMilliseconds = time.Since(started).Milliseconds()
 	return s, e
+}
+
+func truncateUTF8(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	value = value[:limit]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
 }
 
 func highEntropyKeyword(s string) bool {

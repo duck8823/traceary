@@ -55,18 +55,27 @@ func (*SearchProjectionDriftError) Error() string {
 }
 
 type SearchProjectionStatus struct {
-	SchemaVersion                                                                                 string `json:"schema_version"`
-	State                                                                                         string `json:"state"`
-	ProjectionVersion                                                                             int    `json:"projection_version"`
-	FTSDesign                                                                                     string `json:"fts_design"`
-	ConfigHash                                                                                    string `json:"config_hash"`
-	SourceRevision                                                                                int64  `json:"source_revision"`
-	HighWater                                                                                     int64  `json:"high_water"`
-	Checkpoint                                                                                    int64  `json:"checkpoint"`
-	Completed                                                                                     bool   `json:"completed"`
-	RecentAgeSeconds, RecentByteLimit, RecentBytes, RecentDocuments, SummarySessions, KeywordRows int64
-	SummaryLogicalBytes, KeywordLogicalBytes, FTSLogicalBytes, PhysicalBytes                      int64
-	PhysicalEvidence                                                                              CapacityEvidence `json:"physical_evidence"`
-	LastBatchMilliseconds                                                                         int64            `json:"last_batch_milliseconds"`
-	KeywordVersion                                                                                int              `json:"keyword_version"`
+	SchemaVersion          string           `json:"schema_version"`
+	State                  string           `json:"state"`
+	ProjectionVersion      int              `json:"projection_version"`
+	FTSDesign              string           `json:"fts_design"`
+	ConfigHash             string           `json:"config_hash"`
+	SourceRevision         int64            `json:"source_revision"`
+	HighWater              int64            `json:"high_water"`
+	Checkpoint             int64            `json:"checkpoint"`
+	Completed              bool             `json:"completed"`
+	RecentAgeSeconds       int64            `json:"recent_age_seconds"`
+	RecentByteLimit        int64            `json:"recent_byte_limit"`
+	RecentBytes            int64            `json:"recent_bytes"`
+	RecentDocuments        int64            `json:"recent_documents"`
+	SummarySessions        int64            `json:"summary_sessions"`
+	KeywordRows            int64            `json:"keyword_rows"`
+	SummaryLogicalBytes    int64            `json:"summary_logical_bytes"`
+	KeywordLogicalBytes    int64            `json:"keyword_logical_bytes"`
+	FTSLogicalBytes        int64            `json:"fts_logical_bytes"`
+	PhysicalBytes          int64            `json:"physical_bytes"`
+	PhysicalEvidence       CapacityEvidence `json:"physical_evidence"`
+	LastBatchMilliseconds  int64            `json:"last_batch_milliseconds"`
+	InspectionMilliseconds int64            `json:"inspection_milliseconds"`
+	KeywordVersion         int              `json:"keyword_version"`
 }

@@ -3,6 +3,7 @@ package usecase
 
 import (
 	"context"
+	"golang.org/x/xerrors"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -25,11 +26,31 @@ func NewSearchProjectionUsecase(store SearchProjectionStore) *SearchProjectionUs
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.
 func (u *SearchProjectionUsecase) StartGeneration(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionGeneration, error) {
+	if !b.Valid() {
+		return apptypes.SearchProjectionGeneration{}, &apptypes.SearchProjectionNoProgressError{Reason: "invalid generation budget"}
+	}
+	status, err := u.store.SearchProjectionStatus(ctx)
+	if err != nil {
+		return apptypes.SearchProjectionGeneration{}, xerrors.Errorf("inspect projection before start: %w", err)
+	}
+	if status.State == "rebuilding" {
+		return apptypes.SearchProjectionGeneration{}, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
+	}
 	return u.store.StartSearchProjectionGeneration(ctx, b, now.UTC())
 }
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.
 func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	status, err := u.store.SearchProjectionStatus(ctx)
+	if err != nil {
+		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("inspect projection before resume: %w", err)
+	}
+	if status.State != "rebuilding" {
+		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "no generation is rebuilding"}
+	}
+	if status.ConfigHash != b.ConfigHash() {
+		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "budget does not match generation configuration"}
+	}
 	return u.store.RebuildSearchProjections(ctx, b, now.UTC())
 }
 
