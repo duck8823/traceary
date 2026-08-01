@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -85,7 +86,7 @@ func main() {
 		}
 		dbPath = synthetic
 	}
-	queryDB, err := sql.Open("sqlite", readOnlyDSN(dbPath))
+	queryDB, err := openCompatibleReadOnly(ctx, dbPath)
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -181,7 +182,7 @@ func timeoutResult(name string, limit, elapsed time.Duration, plan []string) cas
 }
 
 func explainCase(ctx context.Context, path, query string, args []any) ([]string, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	db, err := openCompatibleReadOnly(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("open plan store: %w", err)
 	}
@@ -190,7 +191,7 @@ func explainCase(ctx context.Context, path, query string, args []any) ([]string,
 }
 
 func explainHandoff(ctx context.Context, path string) ([]string, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	db, err := openCompatibleReadOnly(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("open handoff plan store: %w", err)
 	}
@@ -209,7 +210,7 @@ func explainHandoff(ctx context.Context, path string) ([]string, error) {
 }
 
 func queryHasRows(ctx context.Context, path, query string, args []any) (bool, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	db, err := openCompatibleReadOnly(ctx, path)
 	if err != nil {
 		return false, fmt.Errorf("open preflight store: %w", err)
 	}
@@ -223,7 +224,7 @@ func queryHasRows(ctx context.Context, path, query string, args []any) (bool, er
 }
 
 func queryRowCount(ctx context.Context, path, query string, args []any) (int64, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	db, err := openCompatibleReadOnly(ctx, path)
 	if err != nil {
 		return 0, fmt.Errorf("open match-count store: %w", err)
 	}
@@ -282,7 +283,7 @@ func benchmarkHandoff(ctx context.Context, path string, iterations int, expected
 			return caseResult{}, fmt.Errorf("close immutable handoff group: %w", err)
 		}
 	}
-	planDB, err := sql.Open("sqlite", readOnlyDSN(path))
+	planDB, err := openCompatibleReadOnly(ctx, path)
 	if err != nil {
 		return caseResult{}, fmt.Errorf("open handoff plan store: %w", err)
 	}
@@ -302,12 +303,30 @@ func benchmarkHandoff(ctx context.Context, path string, iterations int, expected
 
 func readOnlyDSN(path string) string { return "file:" + url.PathEscape(path) + "?immutable=1&mode=ro" }
 
+func openCompatibleReadOnly(ctx context.Context, path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	if err != nil {
+		return nil, fmt.Errorf("open read-only store: %w", err)
+	}
+	if err := infra.VerifyStoreCompatibility(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("verify store compatibility: %w", err)
+	}
+	return db, nil
+}
+
+func identityPayloadMetadata(payload string) (string, int, int, int, string) {
+	bytes := []byte(payload)
+	digest := sha256.Sum256(bytes)
+	return "identity", 1, len(bytes), len(bytes), fmt.Sprintf("%x", digest)
+}
+
 //nolint:wrapcheck // command boundary adds the benchmark case name before display.
 func benchmark(ctx context.Context, path string, iterations int, name, query string, args []any) (caseResult, error) {
 	cold, warm := make([]int64, 0, iterations), make([]int64, 0, iterations)
 	var plan []string
 	for index := 0; index < iterations; index++ {
-		db, err := sql.Open("sqlite", readOnlyDSN(path))
+		db, err := openCompatibleReadOnly(ctx, path)
 		if err != nil {
 			return caseResult{}, err
 		}
@@ -413,6 +432,9 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 		return fixtureInfo{}, err
 	}
 	defer func() { _ = db.Close() }()
+	if err := infra.VerifyStoreCompatibility(ctx, db); err != nil {
+		return fixtureInfo{}, fmt.Errorf("verify synthetic store compatibility: %w", err)
+	}
 	for _, stmt := range []string{`PRAGMA journal_mode=WAL`, `PRAGMA wal_autocheckpoint=0`} {
 		if _, err = db.ExecContext(ctx, stmt); err != nil {
 			return fixtureInfo{}, err
@@ -421,16 +443,31 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if _, err = db.ExecContext(ctx, `INSERT INTO sessions(session_id,started_at,ended_at,client,agent,workspace) VALUES('synthetic-active','2026-01-01T00:00:00Z',NULL,'cli','codex','synthetic'),('synthetic-ended','2025-01-01T00:00:00Z','2025-01-02T00:00:00Z','cli','codex','synthetic')`); err != nil {
 		return fixtureInfo{}, err
 	}
-	if _, err = db.ExecContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('synthetic-active-start','session_started','codex','synthetic-active','synthetic lifecycle','2026-01-01T00:00:00Z','cli','synthetic'),('synthetic-ended-start','session_started','codex','synthetic-ended','synthetic lifecycle','2025-01-01T00:00:00Z','cli','synthetic'),('synthetic-ended-end','session_ended','codex','synthetic-ended','synthetic lifecycle','2025-01-02T00:00:00Z','cli','synthetic')`); err != nil {
-		return fixtureInfo{}, err
+	insertEvent := func(id, kind, sessionID, body, createdAt string) error {
+		codec, version, plaintextBytes, encodedBytes, digest := identityPayloadMetadata(body)
+		_, execErr := db.ExecContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace,body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256) VALUES(?,?,'codex',?,?,?,'cli','synthetic',?,?,?,?,?)`, id, kind, sessionID, body, createdAt, codec, version, plaintextBytes, encodedBytes, digest)
+		return execErr
+	}
+	for _, event := range []struct{ id, kind, sessionID, body, createdAt string }{
+		{"synthetic-active-start", "session_started", "synthetic-active", "synthetic lifecycle", "2026-01-01T00:00:00Z"},
+		{"synthetic-ended-start", "session_started", "synthetic-ended", "synthetic lifecycle", "2025-01-01T00:00:00Z"},
+		{"synthetic-ended-end", "session_ended", "synthetic-ended", "synthetic lifecycle", "2025-01-02T00:00:00Z"},
+	} {
+		if err = insertEvent(event.id, event.kind, event.sessionID, event.body, event.createdAt); err != nil {
+			return fixtureInfo{}, err
+		}
 	}
 	for index := 0; index < 10; index++ {
 		eventID := fmt.Sprintf("synthetic-command-%02d", index)
 		created := time.Date(2026, 1, 2, 0, 0, index, 0, time.UTC).Format(time.RFC3339Nano)
-		if _, err = db.ExecContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'command_executed','codex','synthetic-active',?,?, 'cli','synthetic')`, eventID, "synthetic command", created); err != nil {
+		if err = insertEvent(eventID, "command_executed", "synthetic-active", "synthetic command", created); err != nil {
 			return fixtureInfo{}, err
 		}
-		if _, err = db.ExecContext(ctx, `INSERT INTO command_audits(event_id,command_text,input_text,output_text) VALUES(?,?,?,?)`, eventID, fmt.Sprintf("echo synthetic-%02d", index), "", "synthetic output"); err != nil {
+		command, input, output := fmt.Sprintf("echo synthetic-%02d", index), "", "synthetic output"
+		commandCodec, commandVersion, commandPlaintextBytes, commandEncodedBytes, commandDigest := identityPayloadMetadata(command)
+		inputCodec, inputVersion, inputPlaintextBytes, inputEncodedBytes, inputDigest := identityPayloadMetadata(input)
+		outputCodec, outputVersion, outputPlaintextBytes, outputEncodedBytes, outputDigest := identityPayloadMetadata(output)
+		if _, err = db.ExecContext(ctx, `INSERT INTO command_audits(event_id,command_text,input_text,output_text,command_codec,command_format_version,command_plaintext_bytes,command_encoded_bytes,command_sha256,input_codec,input_format_version,input_plaintext_bytes,input_encoded_bytes,input_sha256,output_codec,output_format_version,output_plaintext_bytes,output_encoded_bytes,output_sha256) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, eventID, command, input, output, commandCodec, commandVersion, commandPlaintextBytes, commandEncodedBytes, commandDigest, inputCodec, inputVersion, inputPlaintextBytes, inputEncodedBytes, inputDigest, outputCodec, outputVersion, outputPlaintextBytes, outputEncodedBytes, outputDigest); err != nil {
 			return fixtureInfo{}, err
 		}
 	}
@@ -444,7 +481,7 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if err != nil {
 		return fixtureInfo{}, err
 	}
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'prompt','codex',?,?,?,'cli','synthetic')`)
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace,body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256) VALUES(?,'prompt','codex',?,?,?,'cli','synthetic',?,?,?,?,?)`)
 	if err != nil {
 		return fixtureInfo{}, err
 	}
@@ -462,7 +499,8 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 			body = strings.Repeat("L", 1<<20)
 		}
 		createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(index) * time.Millisecond).Format(time.RFC3339Nano)
-		if _, err = stmt.ExecContext(ctx, fmt.Sprintf("%s-%09d", idPrefix, index), "synthetic-active", body, createdAt); err != nil {
+		codec, version, plaintextBytes, encodedBytes, digest := identityPayloadMetadata(body)
+		if _, err = stmt.ExecContext(ctx, fmt.Sprintf("%s-%09d", idPrefix, index), "synthetic-active", body, createdAt, codec, version, plaintextBytes, encodedBytes, digest); err != nil {
 			return fixtureInfo{}, err
 		}
 	}

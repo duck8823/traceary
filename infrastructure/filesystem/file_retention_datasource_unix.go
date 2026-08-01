@@ -30,6 +30,7 @@ import (
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
 	domtypes "github.com/duck8823/traceary/domain/types"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 const (
@@ -469,6 +470,9 @@ func sqliteFileRetentionGeneration(path string) (string, string, error) {
 		return "", "", xerrors.Errorf("open SQLite verification database: %w", err)
 	}
 	defer func() { _ = database.Close() }()
+	if err := sqliteinfra.VerifyStoreCompatibility(context.Background(), database); err != nil {
+		return "", "", xerrors.Errorf("verify SQLite store compatibility: %w", err)
+	}
 	var integrity string
 	if err := database.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return "", "", xerrors.Errorf("run SQLite integrity check: %w", err)
