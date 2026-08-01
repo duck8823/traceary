@@ -33,19 +33,21 @@ func TestSyntheticFixtureAndBenchmarkEvidence(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for _, benchmarkCase := range benchmarkCases {
-		if benchmarkCase.Name == "active" || benchmarkCase.Name == "latest" {
-			matched, err := queryHasRows(context.Background(), path, benchmarkCase.SQL, benchmarkCase.Args)
-			if err != nil || !matched {
-				t.Fatalf("%s preflight matched=%v error=%v", benchmarkCase.Name, matched, err)
+	for cycle := 0; cycle < 2; cycle++ {
+		for _, benchmarkCase := range benchmarkCases {
+			if benchmarkCase.Name == "active" || benchmarkCase.Name == "latest" {
+				matched, err := queryHasRows(context.Background(), path, benchmarkCase.SQL, benchmarkCase.Args)
+				if err != nil || !matched {
+					t.Fatalf("%s preflight matched=%v error=%v", benchmarkCase.Name, matched, err)
+				}
 			}
-		}
-		result, err := benchmark(context.Background(), path, 2, benchmarkCase.Name, benchmarkCase.SQL, benchmarkCase.Args)
-		if err != nil {
-			t.Fatalf("benchmark(%s) error = %v", benchmarkCase.Name, err)
-		}
-		if len(result.QueryPlan) == 0 {
-			t.Fatalf("benchmark(%s) has no query-plan evidence", benchmarkCase.Name)
+			result, err := benchmark(context.Background(), path, 2, benchmarkCase.Name, benchmarkCase.SQL, benchmarkCase.Args)
+			if err != nil {
+				t.Fatalf("benchmark(%s) error = %v", benchmarkCase.Name, err)
+			}
+			if len(result.QueryPlan) == 0 {
+				t.Fatalf("benchmark cycle %d (%s) has no query-plan evidence", cycle, benchmarkCase.Name)
+			}
 		}
 	}
 	before := snapshotStoreFiles(t, path)

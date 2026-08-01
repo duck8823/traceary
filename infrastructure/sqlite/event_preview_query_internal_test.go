@@ -11,6 +11,9 @@ func TestEventPreviewQuery_SelectsOnlyBoundedBodyPrefix(t *testing.T) {
 	if !strings.Contains(normalized, "substr(e.body, 1, ?)") {
 		t.Fatalf("preview query must select a bounded body prefix: %s", normalized)
 	}
+	if !strings.Contains(normalized, "from event_metadata_projection m") || !strings.Contains(normalized, "join events e on e.id = selected.id") {
+		t.Fatalf("preview query must select metadata candidates before hydrating bounded bodies: %s", normalized)
+	}
 	if strings.Contains(normalized, "select e.body,") || strings.Contains(normalized, ", e.body,") {
 		t.Fatalf("preview query selects an unbounded body column: %s", normalized)
 	}

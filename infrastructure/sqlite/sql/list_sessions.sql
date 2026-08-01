@@ -5,13 +5,13 @@ WITH
     WHERE (? = '' OR s.session_id = ?)
       AND (? = '' OR s.workspace = ?)
       AND (? = '' OR s.client = ?)
-      AND (? = '' OR s.agent = ? OR s.subagent_kind = ? OR EXISTS (SELECT 1 FROM events agent_events WHERE agent_events.session_id = s.session_id AND agent_events.agent = ?))
+      AND (? = '' OR s.agent = ? OR s.subagent_kind = ? OR EXISTS (SELECT 1 FROM event_metadata_projection agent_events WHERE agent_events.session_id = s.session_id AND agent_events.agent = ?))
       AND (? = '' OR s.label = ?)
       AND (? = 0 OR s.ended_at IS NULL OR EXISTS (
             SELECT 1
-              FROM events late_ev
+              FROM event_metadata_projection late_ev
              WHERE late_ev.session_id = s.session_id
-               AND ts_norm(late_ev.created_at) > ts_norm(s.ended_at)
+               AND late_ev.created_at_norm > ts_norm(s.ended_at)
           ))
       AND (? = '' OR ts_norm(s.started_at) >= ts_norm(?))
       AND (? = '' OR ts_norm(s.started_at) < ts_norm(?))
@@ -24,25 +24,24 @@ WITH
       COUNT(*) AS total_events,
       SUM(CASE WHEN e.kind = 'command_executed' THEN 1 ELSE 0 END) AS command_count,
       GROUP_CONCAT(DISTINCT e.agent) AS agents
-    FROM events e
-    JOIN filtered_sessions fs ON fs.session_id = e.session_id
+    FROM filtered_sessions fs
+    CROSS JOIN event_metadata_projection e ON e.session_id = fs.session_id
     GROUP BY e.session_id
   ),
   latest_events AS (
-    SELECT session_id, id AS latest_event_id, created_at AS latest_event_at, kind AS latest_event_kind, body AS latest_event_body
+    SELECT session_id, id AS latest_event_id, created_at AS latest_event_at, kind AS latest_event_kind
     FROM (
       SELECT
         e.session_id,
         e.id,
         e.created_at,
         e.kind,
-        e.body,
         ROW_NUMBER() OVER (
           PARTITION BY e.session_id
-          ORDER BY ts_norm(e.created_at) DESC, e.id DESC
+          ORDER BY e.created_at_norm DESC, e.id DESC
         ) AS rn
-      FROM events e
-      JOIN filtered_sessions fs ON fs.session_id = e.session_id
+      FROM filtered_sessions fs
+      CROSS JOIN event_metadata_projection e ON e.session_id = fs.session_id
     )
     WHERE rn = 1
   )
@@ -65,8 +64,9 @@ SELECT
   COALESCE(s.model, '') AS model,
   COALESCE(latest.latest_event_kind, '') AS latest_event_kind,
   COALESCE(latest.latest_event_id, '') AS latest_event_id,
-  COALESCE(latest.latest_event_body, '') AS latest_event_body
+  COALESCE(latest_body.body, '') AS latest_event_body
 FROM filtered_sessions s
 LEFT JOIN event_agg agg ON agg.session_id = s.session_id
 LEFT JOIN latest_events latest ON latest.session_id = s.session_id
+LEFT JOIN events latest_body ON latest_body.id = latest.latest_event_id
 ORDER BY s.started_at DESC

@@ -27,9 +27,10 @@ func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchm
 	if !complete {
 		searchSQL, searchArgs = buildIncompleteFTSEventIDsQuery(searchCriteria, searchCriteria.Query())
 	}
+	latestSQL := latestSessionBoundarySQL(ctx, db)
 	return []CapacityBenchmarkQuery{
-		{Name: "active", SQL: findLatestSessionQuery, Args: []any{"session_started", "session_ended", "session_started", "session_ended", "session_started", "", "", "", "", "", "", "session_started", true, "session_ended", true, true}},
-		{Name: "latest", SQL: findLatestSessionQuery, Args: []any{"session_started", "session_ended", "session_started", "session_ended", "session_started", "", "", "", "", "", "", "session_started", false, "session_ended", false, false}},
+		{Name: "active", SQL: findActiveSessionQuery, Args: []any{"session_started", "", "", "", "", "", "", "session_started", "session_ended"}},
+		{Name: "latest", SQL: latestSQL, Args: []any{"session_started", "", "", "", "", "", "", "session_started"}},
 		{Name: "search", SQL: searchSQL, Args: searchArgs},
 	}, nil
 }
@@ -38,6 +39,7 @@ func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchm
 func CapacityHandoffPlanQueries() []CapacityBenchmarkQuery {
 	return []CapacityBenchmarkQuery{
 		{Name: "session_resolution", SQL: listSessionsQuery, Args: []any{"", "", "", "", "", "", "", "", "", "", "", "", false, "", "", "", "", 1, 0}},
-		{Name: "recent_command_previews", SQL: selectRecentCommandPreviewsQuery, Args: []any{512, "", "", 5}},
+		{Name: "recent_command_previews", SQL: selectRecentCommandPreviewsQuery, Args: []any{"", "", 5, 512}},
+		{Name: "compact_summary", SQL: selectLatestPostCompactSummaryQuery, Args: []any{"", "", "", "", "", "", "", 32}},
 	}
 }

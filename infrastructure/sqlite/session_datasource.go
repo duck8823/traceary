@@ -38,6 +38,12 @@ var selectSessionByIDQuery string
 //go:embed sql/find_latest_session.sql
 var findLatestSessionQuery string
 
+//go:embed sql/find_active_session.sql
+var findActiveSessionQuery string
+
+//go:embed sql/find_latest_session_boundary.sql
+var findLatestSessionBoundaryQuery string
+
 //go:embed sql/list_sessions.sql
 var listSessionsQuery string
 
@@ -521,6 +527,17 @@ func (d *SessionDatasource) UpdateModelIfEmpty(ctx context.Context, sessionID ty
 	return rows > 0, nil
 }
 
+const latestSessionBoundaryIndex = "idx_event_metadata_boundary_time_context"
+
+func latestSessionBoundarySQL(ctx context.Context, db *sql.DB) string {
+	var exists int
+	err := db.QueryRowContext(ctx, "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?", latestSessionBoundaryIndex).Scan(&exists)
+	if err != nil || exists != 1 {
+		return findLatestSessionBoundaryQuery
+	}
+	return strings.Replace(findLatestSessionBoundaryQuery, "event_metadata_projection boundary", "event_metadata_projection boundary INDEXED BY "+latestSessionBoundaryIndex, 1)
+}
+
 // FindLatest returns the session_started event for the latest matching
 // session. Returns an empty Optional when no matching session exists.
 func (d *SessionDatasource) FindLatest(
@@ -538,22 +555,26 @@ func (d *SessionDatasource) FindLatest(
 		}
 	}()
 
-	row := db.QueryRowContext(
-		ctx,
-		findLatestSessionQuery,
+	if !activeOnly {
+		row := db.QueryRowContext(ctx, latestSessionBoundarySQL(ctx, db),
+			types.EventKindSessionStarted.String(),
+			client.String(), client.String(), agent.String(), agent.String(), workspace.String(), workspace.String(),
+			types.EventKindSessionStarted.String(),
+		)
+		event, scanErr := scanEvent(row)
+		if errors.Is(scanErr, sql.ErrNoRows) {
+			return types.None[*model.Event](), nil
+		}
+		if scanErr != nil {
+			return types.None[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", scanErr)
+		}
+		return types.Some(event), nil
+	}
+
+	row := db.QueryRowContext(ctx, findActiveSessionQuery,
 		types.EventKindSessionStarted.String(),
-		types.EventKindSessionEnded.String(),
-		types.EventKindSessionStarted.String(),
-		types.EventKindSessionEnded.String(),
-		types.EventKindSessionStarted.String(),
-		client.String(), client.String(),
-		agent.String(), agent.String(),
-		workspace.String(), workspace.String(),
-		types.EventKindSessionStarted.String(),
-		activeOnly,
-		types.EventKindSessionEnded.String(),
-		activeOnly,
-		activeOnly,
+		client.String(), client.String(), agent.String(), agent.String(), workspace.String(), workspace.String(),
+		types.EventKindSessionStarted.String(), types.EventKindSessionEnded.String(),
 	)
 
 	event, err := scanEvent(row)
