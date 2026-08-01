@@ -126,7 +126,7 @@ func TestPayloadRehearsalRollbackRejectsTargetSwapBeforeRename(t *testing.T) {
 	if _, err = adapter.Run(context.Background(), config, false); err != nil {
 		t.Fatal(err)
 	}
-	adapter.beforeRollbackRename = swap
+	adapter.duringRollbackHeavyVerify = swap
 	if _, err = adapter.Rollback(context.Background(), config); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 		t.Fatalf("rollback error=%v", err)
 	}

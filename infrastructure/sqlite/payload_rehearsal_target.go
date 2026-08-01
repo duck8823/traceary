@@ -249,7 +249,7 @@ func restoreVerifiedRehearsalBackup(target, backup string, expectedTarget, expec
 			return xerrors.Errorf("remove rehearsal recovery sidecar: %w", err)
 		}
 	}
-	if err = copyFileAtomicWithHook(backup, target, verifyTarget); err != nil {
+	if err = copyFileAtomicVerifiedWithHook(backup, target, expectedDigest, verifyTarget); err != nil {
 		return err
 	}
 	restoredDigest, err := fileDigest(target)
@@ -308,6 +308,11 @@ func copyFileAtomic(source, dest string) error {
 
 //nolint:wrapcheck // callers classify copy and recovery failures without exposing paths.
 func copyFileAtomicWithHook(source, dest string, beforeRename func() error) error {
+	return copyFileAtomicVerifiedWithHook(source, dest, "", beforeRename)
+}
+
+//nolint:wrapcheck // callers classify copy and recovery failures without exposing paths.
+func copyFileAtomicVerifiedWithHook(source, dest, expectedDigest string, beforeRename func() error) error {
 	in, err := os.Open(source)
 	if err != nil {
 		return err
@@ -342,6 +347,12 @@ func copyFileAtomicWithHook(source, dest string, beforeRename func() error) erro
 	}
 	if err = out.Close(); err != nil {
 		return err
+	}
+	if expectedDigest != "" {
+		copiedDigest, digestErr := fileDigest(tmp)
+		if digestErr != nil || copiedDigest != expectedDigest {
+			return errors.New("atomic copy digest verification failed")
+		}
 	}
 	if beforeRename != nil {
 		if err = beforeRename(); err != nil {

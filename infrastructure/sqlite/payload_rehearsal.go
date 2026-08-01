@@ -31,13 +31,14 @@ var (
 
 // PayloadRehearsalAdapter implements copied-store SQLite rehearsal operations.
 type PayloadRehearsalAdapter struct {
-	migrations              fs.FS
-	configuredLivePath      string
-	beforeInitialize        func()
-	beforeStartRun          func()
-	beforePersistence       func(string)
-	beforeMigrationRecovery func()
-	beforeRollbackRename    func()
+	migrations                fs.FS
+	configuredLivePath        string
+	beforeInitialize          func()
+	beforeStartRun            func()
+	beforePersistence         func(string)
+	beforeMigrationRecovery   func()
+	beforeRollbackRename      func()
+	duringRollbackHeavyVerify func()
 }
 
 func (a *PayloadRehearsalAdapter) recheckExpectedTarget(expected rehearsalIdentity, c apptypes.PayloadRehearsalConfig, allowSidecars bool) error {
@@ -664,6 +665,16 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 			return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
 		}
 	}
+	verifiedDigest, verifiedDigestErr := fileDigest(c.BackupPath)
+	if verifiedDigestErr != nil || verifiedDigest != digest {
+		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact changed before restore")
+	}
+	if err = verifySQLiteArtifact(c.BackupPath); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	if a.duringRollbackHeavyVerify != nil {
+		a.duringRollbackHeavyVerify()
+	}
 	verifyBeforeRename := func() error {
 		if a.beforeRollbackRename != nil {
 			a.beforeRollbackRename()
@@ -678,13 +689,9 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 				return ErrRehearsalNeedsCleanDB
 			}
 		}
-		currentDigest, digestErr := fileDigest(c.BackupPath)
-		if digestErr != nil || currentDigest != digest {
-			return ErrUnsafeRehearsalTarget
-		}
-		return verifySQLiteArtifact(c.BackupPath)
+		return nil
 	}
-	if err = copyFileAtomicWithHook(c.BackupPath, id.canonical, verifyBeforeRename); err != nil {
+	if err = copyFileAtomicVerifiedWithHook(c.BackupPath, id.canonical, digest, verifyBeforeRename); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("restore rollback artifact: %w", err)
 	}
 	restoredIdentity, restoredIdentityErr := secureFileIdentity(id.canonical)
