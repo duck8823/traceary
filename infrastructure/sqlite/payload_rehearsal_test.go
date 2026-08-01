@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	}
 	copyTestFile(t, live, target)
 
-	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
+	adapter := newRehearsalAdapter(t, migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	preview, err := adapter.Preview(ctx, config)
 	if err != nil {
@@ -86,7 +87,7 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	if !result.ActivationReadiness.RehearsalComplete || result.ActivationReadiness.ActivationAllowed {
 		t.Fatalf("completion readiness = %#v", result.ActivationReadiness)
 	}
-	if recovered, rollbackErr := adapter.Rollback(ctx, config); rollbackErr != nil || !recovered.RollbackVerified {
+	if recovered, rollbackErr := adapter.Rollback(ctx, config); rollbackErr != nil || !recovered.RollbackVerified || recovered.ActivationReadiness.ScrubPassed || recovered.ActivationReadiness.ScrubStatus != apptypes.ReadinessUnknown {
 		t.Fatalf("rollback from completed recovery state: %#v %v", recovered, rollbackErr)
 	}
 	result, err = adapter.Run(ctx, config, false)
@@ -275,7 +276,7 @@ func TestPayloadRehearsalResumesAfterArbitraryCommittedBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	copyTestFile(t, live, target)
-	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
+	adapter := newRehearsalAdapter(t, migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	config.BatchRows = 1
 	config.WallTimeLimit = time.Minute
@@ -289,6 +290,7 @@ func TestPayloadRehearsalResumesAfterArbitraryCommittedBatch(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
+	time.Sleep(50 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		probe, openErr := sql.Open("sqlite", target)
 		if openErr == nil {
@@ -333,6 +335,18 @@ func TestPayloadRehearsalResumesAfterArbitraryCommittedBatch(t *testing.T) {
 	if err = os.Rename(originalPath, target); err != nil {
 		t.Fatal(err)
 	}
+	keeper, err := sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = keeper.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		t.Fatal(err)
+	}
+	var sidecarProbe int
+	if err = keeper.QueryRow(`SELECT count(*) FROM payload_rehearsal_rows`).Scan(&sidecarProbe); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = keeper.Close() }()
 	type resumeResult struct {
 		metrics apptypes.PayloadRehearsalMetrics
 		err     error
@@ -407,7 +421,7 @@ func TestPayloadRehearsalCommitsBoundedPrefixBeforeOversizeRow(t *testing.T) {
 	}
 	_ = db.Close()
 	copyTestFile(t, live, target)
-	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
+	adapter := newRehearsalAdapter(t, migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	config.StoredByteLimit = 10
 	if _, err = adapter.Run(ctx, config, false); err == nil {
@@ -437,7 +451,7 @@ func TestPayloadRehearsalBindsClaimedLiveToConfiguredCanonicalStore(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	adapter := infra.NewPayloadRehearsalAdapter(migrations, actual)
+	adapter := newRehearsalAdapter(t, migrations, actual)
 	config := rehearsalTestConfig(actual, decoy, filepath.Join(dir, "backup.db"))
 	if _, err = adapter.Run(ctx, config, false); !errors.Is(err, infra.ErrUnsafeRehearsalTarget) {
 		t.Fatalf("decoy live binding error=%v", err)
@@ -462,7 +476,7 @@ func TestPayloadRehearsalEnforcesWALHardCap(t *testing.T) {
 	}
 	_ = db.Close()
 	copyTestFile(t, live, target)
-	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
+	adapter := newRehearsalAdapter(t, migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	config.MaxWALBytes = 1
 	result, err := adapter.Run(ctx, config, false)
@@ -496,7 +510,7 @@ func TestPayloadRehearsalScrubPersistsCappedPrefixAndLeasesWorkers(t *testing.T)
 	}
 	_ = db.Close()
 	copyTestFile(t, live, target)
-	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
+	adapter := newRehearsalAdapter(t, migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	if _, err = adapter.Run(ctx, config, false); err != nil {
 		t.Fatal(err)
@@ -573,7 +587,7 @@ func TestPayloadRehearsalPreviewReportsMigrationRequiredWithoutWriting(t *testin
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
+	adapter := newRehearsalAdapter(t, migrations, live)
 	config := rehearsalTestConfig(target, live, filepath.Join(dir, "backup.db"))
 	before, err := os.Stat(target)
 	if err != nil {
@@ -598,7 +612,7 @@ func TestPayloadRehearsalRejectsLiveAliases(t *testing.T) {
 	if err := os.WriteFile(live, []byte("not sqlite"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	adapter := infra.NewPayloadRehearsalAdapter(nil, live)
+	adapter := newRehearsalAdapter(t, nil, live)
 	for _, tc := range []struct {
 		name, target string
 		prepare      func() error
@@ -636,7 +650,7 @@ func TestPayloadRehearsalAppliesCommonCompatibilityGateToLiveAndTarget(t *testin
 			t.Fatal(err)
 		}
 	}
-	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
+	adapter := newRehearsalAdapter(t, migrations, live)
 	config := rehearsalTestConfig(target, live, filepath.Join(dir, "backup.db"))
 	mutate := func(t *testing.T, path, statement string) {
 		t.Helper()
@@ -684,10 +698,19 @@ func TestPayloadRehearsalAppliesCommonCompatibilityGateToLiveAndTarget(t *testin
 	}
 	legacyConfig := config
 	legacyConfig.LivePath = legacy
-	legacyAdapter := infra.NewPayloadRehearsalAdapter(migrations, legacy)
+	legacyAdapter := newRehearsalAdapter(t, migrations, legacy)
 	if _, err = legacyAdapter.Preview(ctx, legacyConfig); err != nil {
 		t.Fatalf("legacy live compatibility: %v", err)
 	}
+}
+
+func newRehearsalAdapter(t *testing.T, migrations fs.FS, live string) *infra.PayloadRehearsalAdapter {
+	t.Helper()
+	adapter, err := infra.NewPayloadRehearsalAdapter(migrations, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return adapter
 }
 
 func rehearsalTestConfig(target, live, backup string) apptypes.PayloadRehearsalConfig {

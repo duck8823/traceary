@@ -146,7 +146,10 @@ func run() error {
 	sessionDatasource := sqlite.NewSessionDatasource(db)
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
-	payloadRehearsalAdapter := sqlite.NewPayloadRehearsalAdapter(migrationsSubFS, dbPath)
+	payloadRehearsalAdapter, err := sqlite.NewPayloadRehearsalAdapter(migrationsSubFS, dbPath)
+	if err != nil {
+		return xerrors.Errorf("configure payload rehearsal: %w", err)
+	}
 	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
 	reportDatasource := sqlite.NewReportDatasource(db)
 	codexCaptureDiagnosticDatasource := sqlite.NewCodexCaptureDiagnosticDatasource(db)

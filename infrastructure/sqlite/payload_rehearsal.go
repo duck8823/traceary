@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -32,11 +33,35 @@ var (
 type PayloadRehearsalAdapter struct {
 	migrations         fs.FS
 	configuredLivePath string
+	beforeInitialize   func()
+	beforeStartRun     func()
+}
+
+func (a *PayloadRehearsalAdapter) recheckExpectedTarget(expected rehearsalIdentity, c apptypes.PayloadRehearsalConfig, allowSidecars bool) error {
+	current, err := a.inspectTarget(c.TargetPath, c.LivePath)
+	if err != nil || !os.SameFile(expected.info, current.info) || expected.device != current.device || expected.inode != current.inode {
+		return ErrUnsafeRehearsalTarget
+	}
+	parts, err := componentSnapshots(current.canonical)
+	if err != nil {
+		return err
+	}
+	if !allowSidecars && (parts[1].Exists || parts[2].Exists) {
+		return ErrRehearsalNeedsCleanDB
+	}
+	return nil
 }
 
 // NewPayloadRehearsalAdapter binds the migration set used by copied targets.
-func NewPayloadRehearsalAdapter(migrations fs.FS, configuredLivePath string) *PayloadRehearsalAdapter {
-	return &PayloadRehearsalAdapter{migrations: migrations, configuredLivePath: configuredLivePath}
+func NewPayloadRehearsalAdapter(migrations fs.FS, configuredLivePath string) (*PayloadRehearsalAdapter, error) {
+	if strings.TrimSpace(configuredLivePath) == "" || strings.ContainsRune(configuredLivePath, '\x00') {
+		return nil, errors.New("configured canonical live path is required")
+	}
+	absolute, err := filepath.Abs(filepath.Clean(configuredLivePath))
+	if err != nil {
+		return nil, errors.New("configured canonical live path is invalid")
+	}
+	return &PayloadRehearsalAdapter{migrations: migrations, configuredLivePath: absolute}, nil
 }
 
 var _ application.PayloadRehearsalPreview = (*PayloadRehearsalAdapter)(nil)
@@ -162,6 +187,12 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	if a.beforeInitialize != nil {
+		a.beforeInitialize()
+	}
+	if err = a.recheckExpectedTarget(id, c, resume); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	// Installing migration 37 is allowed only on the verified copied target.
 	database := NewDatabase(id.canonical, a.migrations)
 	if err = NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
@@ -173,6 +204,12 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	}
 	defer func() { _ = db.Close() }()
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	if a.beforeStartRun != nil {
+		a.beforeStartRun()
+	}
+	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	configHash := hashConfig(c, id.opaque)
@@ -436,7 +473,9 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 			return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback retained rehearsal state")
 		}
 	}
-	return apptypes.PayloadRehearsalMetrics{State: "rolled_back", RollbackDigest: digest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, ActivationReadiness: activationReadiness(liveIdentity, true, true, true, true, true)}, nil
+	scrubPassed := runState == "scrubbed"
+	rehearsalComplete := runState == "completed" || scrubPassed
+	return apptypes.PayloadRehearsalMetrics{State: "rolled_back", RollbackDigest: digest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, ActivationReadiness: activationReadiness(liveIdentity, true, true, rehearsalComplete, scrubPassed, true)}, nil
 }
 
 func activationReadiness(liveIdentity, backup, headroom, complete, scrub, rollback bool) apptypes.PayloadActivationReadiness {

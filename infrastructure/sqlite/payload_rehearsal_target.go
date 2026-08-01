@@ -16,19 +16,18 @@ import (
 )
 
 func (a *PayloadRehearsalAdapter) inspectTarget(target, claimedLive string) (rehearsalIdentity, error) {
-	trustedLive := claimedLive
-	if a.configuredLivePath != "" {
-		configured, err := secureFileIdentity(a.configuredLivePath)
-		if err != nil {
-			return rehearsalIdentity{}, ErrUnsafeRehearsalTarget
-		}
-		claimed, err := secureFileIdentity(claimedLive)
-		if err != nil || !os.SameFile(configured.info, claimed.info) {
-			return rehearsalIdentity{}, ErrUnsafeRehearsalTarget
-		}
-		trustedLive = a.configuredLivePath
+	if a == nil || a.configuredLivePath == "" {
+		return rehearsalIdentity{}, ErrUnsafeRehearsalTarget
 	}
-	return inspectRehearsalTarget(target, trustedLive)
+	configured, err := secureFileIdentity(a.configuredLivePath)
+	if err != nil {
+		return rehearsalIdentity{}, ErrUnsafeRehearsalTarget
+	}
+	claimed, err := secureFileIdentity(claimedLive)
+	if err != nil || !os.SameFile(configured.info, claimed.info) {
+		return rehearsalIdentity{}, ErrUnsafeRehearsalTarget
+	}
+	return inspectRehearsalTarget(target, a.configuredLivePath)
 }
 
 type rehearsalIdentity struct {
@@ -127,7 +126,7 @@ func componentSnapshots(path string) ([]apptypes.PayloadRehearsalFileState, erro
 			result = append(result, apptypes.PayloadRehearsalFileState{Component: component.name})
 			continue
 		}
-		if err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
 			return nil, ErrUnsafeRehearsalTarget
 		}
 		device, inode, ok := physicalFileIdentity(fi)
