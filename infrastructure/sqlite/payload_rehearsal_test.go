@@ -87,6 +87,40 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	if !result.ActivationReadiness.RehearsalComplete || result.ActivationReadiness.ActivationAllowed {
 		t.Fatalf("completion readiness = %#v", result.ActivationReadiness)
 	}
+	for _, tc := range []struct{ invalid, restore string }{
+		{`UPDATE store_format_state SET minimum_reader_version=999`, `UPDATE store_format_state SET minimum_reader_version=34`},
+		{`UPDATE store_format_state SET maximum_payload_format=999`, `UPDATE store_format_state SET maximum_payload_format=1`},
+		{`DELETE FROM store_format_state`, `INSERT INTO store_format_state VALUES(1,34,1)`},
+		{`UPDATE store_format_state SET minimum_reader_version=-1`, `UPDATE store_format_state SET minimum_reader_version=34`},
+	} {
+		db, openErr := sql.Open("sqlite", target)
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		if _, execErr := db.Exec(tc.invalid); execErr != nil {
+			t.Fatal(execErr)
+		}
+		_ = db.Close()
+		if _, rollbackErr := adapter.Rollback(ctx, config); rollbackErr == nil {
+			t.Fatalf("rollback accepted incompatible current target: %s", tc.invalid)
+		}
+		db, openErr = sql.Open("sqlite", target)
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		if _, execErr := db.Exec(tc.restore); execErr != nil {
+			t.Fatal(execErr)
+		}
+		_ = db.Close()
+	}
+	legacyCurrent, openErr := sql.Open("sqlite", target)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	if _, execErr := legacyCurrent.Exec(`DROP TABLE store_format_state`); execErr != nil {
+		t.Fatal(execErr)
+	}
+	_ = legacyCurrent.Close()
 	if recovered, rollbackErr := adapter.Rollback(ctx, config); rollbackErr != nil || !recovered.RollbackVerified || recovered.ActivationReadiness.ScrubPassed || recovered.ActivationReadiness.ScrubStatus != apptypes.ReadinessUnknown {
 		t.Fatalf("rollback from completed recovery state: %#v %v", recovered, rollbackErr)
 	}

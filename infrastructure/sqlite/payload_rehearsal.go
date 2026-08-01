@@ -427,6 +427,10 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if openErr != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("cannot inspect rollback state")
 	}
+	if compatibilityErr := VerifyStoreCompatibility(ctx, currentDB); compatibilityErr != nil {
+		_ = currentDB.Close()
+		return apptypes.PayloadRehearsalMetrics{}, compatibilityErr
+	}
 	var recordedDigest, runState string
 	var activeLease int
 	stateErr := currentDB.QueryRowContext(ctx, `SELECT rollback_digest,state,lease_token IS NOT NULL FROM payload_rehearsal_runs ORDER BY started_at DESC LIMIT 1`).Scan(&recordedDigest, &runState, &activeLease)
