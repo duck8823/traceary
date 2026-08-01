@@ -110,6 +110,60 @@ func TestRehearsalRecoveryMutationsDoNotWriteWhenGuardFails(t *testing.T) {
 	}
 }
 
+func TestPayloadRehearsalRollbackRejectsTargetSwapBeforeRename(t *testing.T) {
+	adapter, config, swap := newSwapRehearsalFixture(t)
+	config.MaxWALBytes = 16 << 20
+	db, err := sql.Open("sqlite", config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE events SET body=zeroblob(1048576)`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adapter.Run(context.Background(), config, false); err != nil {
+		t.Fatal(err)
+	}
+	adapter.beforeRollbackRename = swap
+	if _, err = adapter.Rollback(context.Background(), config); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+		t.Fatalf("rollback error=%v", err)
+	}
+}
+
+func TestAtomicCopyRejectsTemporaryPathSubstitution(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	destination := filepath.Join(dir, "destination")
+	if err := os.WriteFile(source, []byte("source-data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("destination-data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hook := func() error {
+		matches, err := filepath.Glob(filepath.Join(dir, ".traceary-atomic-copy-*.tmp"))
+		if err != nil || len(matches) != 1 {
+			return errors.New("atomic temporary file not found")
+		}
+		if err = os.Rename(matches[0], matches[0]+".stolen"); err != nil {
+			return err
+		}
+		return os.Symlink(source, matches[0])
+	}
+	if err := copyFileAtomicWithHook(source, destination, hook); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+		t.Fatalf("copy error=%v", err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "destination-data" {
+		t.Fatalf("destination changed: %q", contents)
+	}
+}
+
 func newSwapRehearsalFixture(t *testing.T) (*PayloadRehearsalAdapter, apptypes.PayloadRehearsalConfig, func()) {
 	t.Helper()
 	ctx := context.Background()

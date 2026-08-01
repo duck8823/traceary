@@ -313,9 +313,14 @@ func copyFileAtomicWithHook(source, dest string, beforeRename func() error) erro
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	tmp := dest + ".tmp"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	out, err := os.CreateTemp(filepath.Dir(dest), ".traceary-atomic-copy-*.tmp")
 	if err != nil {
+		return err
+	}
+	tmp := out.Name()
+	if err = out.Chmod(0o600); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
 		return err
 	}
 	ok := false
@@ -331,6 +336,10 @@ func copyFileAtomicWithHook(source, dest string, beforeRename func() error) erro
 	if err = out.Sync(); err != nil {
 		return err
 	}
+	openedInfo, err := out.Stat()
+	if err != nil || !openedInfo.Mode().IsRegular() || !fileLinkCountOne(openedInfo) {
+		return ErrUnsafeRehearsalTarget
+	}
 	if err = out.Close(); err != nil {
 		return err
 	}
@@ -339,8 +348,16 @@ func copyFileAtomicWithHook(source, dest string, beforeRename func() error) erro
 			return err
 		}
 	}
+	tempInfo, err := os.Lstat(tmp)
+	if err != nil || tempInfo.Mode()&os.ModeSymlink != 0 || !tempInfo.Mode().IsRegular() || !fileLinkCountOne(tempInfo) || !os.SameFile(openedInfo, tempInfo) {
+		return ErrUnsafeRehearsalTarget
+	}
 	if err = os.Rename(tmp, dest); err != nil {
 		return err
+	}
+	destInfo, err := os.Lstat(dest)
+	if err != nil || destInfo.Mode()&os.ModeSymlink != 0 || !destInfo.Mode().IsRegular() || !fileLinkCountOne(destInfo) || !os.SameFile(openedInfo, destInfo) {
+		return ErrUnsafeRehearsalTarget
 	}
 	ok = true
 	return nil

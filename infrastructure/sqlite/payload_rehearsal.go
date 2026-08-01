@@ -37,6 +37,7 @@ type PayloadRehearsalAdapter struct {
 	beforeStartRun          func()
 	beforePersistence       func(string)
 	beforeMigrationRecovery func()
+	beforeRollbackRename    func()
 }
 
 func (a *PayloadRehearsalAdapter) recheckExpectedTarget(expected rehearsalIdentity, c apptypes.PayloadRehearsalConfig, allowSidecars bool) error {
@@ -121,8 +122,12 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 		return apptypes.PayloadRehearsalMetrics{}, ErrDryRunMutation
 	}
 	free, _ := filesystemFreeBytes(filepath.Dir(id.canonical))
-	readiness := activationReadiness(liveIdentity, false, free >= uint64(eventBytes+auditBytes), false, false, false)
-	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: uint64(eventBytes + auditBytes), DryRunZeroWrite: true, MigrationRequired: migrationRequired, LiveIdentityOnly: liveIdentity, Before: before, After: after, ActivationReadiness: readiness}, nil
+	headroom := uint64(eventBytes + auditBytes)
+	if migrationRequired {
+		headroom += uint64(id.info.Size()) + uint64(max(0, c.MaxWALBytes))
+	}
+	readiness := activationReadiness(liveIdentity, false, free >= headroom, false, false, false)
+	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: headroom, DryRunZeroWrite: true, MigrationRequired: migrationRequired, LiveIdentityOnly: liveIdentity, Before: before, After: after, ActivationReadiness: readiness}, nil
 }
 
 func snapshotsEqual(a, b []apptypes.PayloadRehearsalFileState) bool {
@@ -213,6 +218,8 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if _, backupErr := os.Stat(c.BackupPath); os.IsNotExist(backupErr) {
 		requiredHeadroom += uint64(id.info.Size())
 	}
+	// Exact migration preflight needs a byte clone plus its bounded WAL.
+	requiredHeadroom += uint64(id.info.Size()) + uint64(max(0, c.MaxWALBytes))
 	if freeBytes < requiredHeadroom {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("insufficient disk headroom for rehearsal and rollback")
 	}
@@ -657,8 +664,33 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 			return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
 		}
 	}
-	if err = copyFileAtomic(c.BackupPath, id.canonical); err != nil {
+	verifyBeforeRename := func() error {
+		if a.beforeRollbackRename != nil {
+			a.beforeRollbackRename()
+		}
+		currentTarget, targetErr := a.inspectTarget(c.TargetPath, c.LivePath)
+		currentBackup, backupErr := secureFileIdentity(c.BackupPath)
+		if targetErr != nil || backupErr != nil || !os.SameFile(rechecked.info, currentTarget.info) || !os.SameFile(backupIdentity.info, currentBackup.info) || currentTarget.device != rechecked.device || currentTarget.inode != rechecked.inode || currentBackup.device != backupIdentity.device || currentBackup.inode != backupIdentity.inode {
+			return ErrUnsafeRehearsalTarget
+		}
+		for _, suffix := range []string{"-wal", "-shm"} {
+			if _, sidecarErr := os.Lstat(currentTarget.canonical + suffix); !os.IsNotExist(sidecarErr) {
+				return ErrRehearsalNeedsCleanDB
+			}
+		}
+		currentDigest, digestErr := fileDigest(c.BackupPath)
+		if digestErr != nil || currentDigest != digest {
+			return ErrUnsafeRehearsalTarget
+		}
+		return verifySQLiteArtifact(c.BackupPath)
+	}
+	if err = copyFileAtomicWithHook(c.BackupPath, id.canonical, verifyBeforeRename); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("restore rollback artifact: %w", err)
+	}
+	restoredIdentity, restoredIdentityErr := secureFileIdentity(id.canonical)
+	postBackupIdentity, postBackupErr := secureFileIdentity(c.BackupPath)
+	if restoredIdentityErr != nil || postBackupErr != nil || os.SameFile(restoredIdentity.info, postBackupIdentity.info) {
+		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
 	restored, err := fileDigest(id.canonical)
 	if err != nil || restored != digest {
