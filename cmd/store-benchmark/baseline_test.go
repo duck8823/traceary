@@ -14,7 +14,12 @@ func TestValidateBaselineRequiresMeasuredFourCaseEvidence(t *testing.T) {
 	artifact.Benchmark.SchemaVersion = "traceary.store-benchmark/v1"
 	artifact.Benchmark.Status = "passed"
 	for _, name := range []string{"active", "latest", "handoff", "search"} {
-		artifact.Benchmark.Cases = append(artifact.Benchmark.Cases, caseResult{Name: name, Status: "passed", ColdP50US: 1, ColdP95US: 2, WarmP50US: 1, WarmP95US: 2, QueryPlan: []string{"SCAN production_index"}})
+		item := caseResult{Name: name, Status: "passed", ColdP50US: 1, ColdP95US: 2, WarmP50US: 1, WarmP95US: 2, QueryPlan: []string{"SCAN production_index"}}
+		if name == "search" {
+			matched := int64(0)
+			item.MatchedRows = &matched
+		}
+		artifact.Benchmark.Cases = append(artifact.Benchmark.Cases, item)
 	}
 	if err := validateBaseline(artifact); err != nil {
 		t.Fatalf("validateBaseline() error = %v", err)

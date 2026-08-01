@@ -50,6 +50,7 @@ type caseResult struct {
 	WarmP50US           int64    `json:"warm_p50_us"`
 	WarmP95US           int64    `json:"warm_p95_us"`
 	QueryPlan           []string `json:"query_plan"`
+	MatchedRows         *int64   `json:"matched_rows,omitempty"`
 }
 
 func main() {
@@ -104,6 +105,23 @@ func main() {
 		}
 		started := time.Now()
 		caseCtx, cancel := context.WithTimeout(ctx, caseTimeout)
+		var matchedRows *int64
+		if benchmarkCase.Name == "search" {
+			count, countErr := queryRowCount(caseCtx, dbPath, benchmarkCase.SQL, benchmarkCase.Args)
+			if errors.Is(countErr, context.DeadlineExceeded) {
+				results = append(results, timeoutResult(benchmarkCase.Name, caseTimeout, time.Since(started), plan))
+				overallStatus = "timeout"
+				cancel()
+				continue
+			}
+			if countErr != nil {
+				fatal(fmt.Sprintf("search matched rows: %v", countErr))
+			}
+			if info.Kind == "synthetic" && count == 0 {
+				fatal("synthetic search preflight returned zero matches")
+			}
+			matchedRows = &count
+		}
 		if benchmarkCase.Name == "active" || benchmarkCase.Name == "latest" {
 			matched, err := queryHasRows(caseCtx, dbPath, benchmarkCase.SQL, benchmarkCase.Args)
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -126,6 +144,7 @@ func main() {
 		if err != nil {
 			fatal(fmt.Sprintf("%s: %v", benchmarkCase.Name, err))
 		}
+		result.MatchedRows = matchedRows
 		results = append(results, result)
 	}
 	var expected *handoffCardinality
@@ -198,6 +217,27 @@ func queryHasRows(ctx context.Context, path, query string, args []any) (bool, er
 	}
 	defer func() { _ = rows.Close() }()
 	return rows.Next(), rows.Err()
+}
+
+func queryRowCount(ctx context.Context, path, query string, args []any) (int64, error) {
+	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	if err != nil {
+		return 0, fmt.Errorf("open match-count store: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("query match count: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var count int64
+	for rows.Next() {
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("iterate match count: %w", err)
+	}
+	return count, nil
 }
 
 type handoffCardinality struct{ Commands, Memories int }

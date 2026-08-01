@@ -69,6 +69,9 @@ func validateBaseline(artifact baselineArtifact) error {
 				return fmt.Errorf("benchmark case %q timeout has no positive limit", item.Name)
 			}
 		case "passed":
+			if item.Name == "search" && (item.MatchedRows == nil || *item.MatchedRows < 0) {
+				return fmt.Errorf("passed search case requires non-negative matched_rows")
+			}
 			if item.ColdP50US <= 0 || item.ColdP95US <= 0 || item.WarmP50US <= 0 || item.WarmP95US <= 0 {
 				return fmt.Errorf("benchmark case %q has placeholder timing", item.Name)
 			}

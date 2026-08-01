@@ -16,7 +16,7 @@
       { "name": "active", "status": "passed", "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] },
       { "name": "latest", "status": "passed", "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] },
       { "name": "handoff", "status": "passed", "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] },
-      { "name": "search", "status": "passed", "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] }
+      { "name": "search", "status": "passed", "matched_rows": 0, "cold_p50_us": 0, "cold_p95_us": 0, "warm_p50_us": 0, "warm_p95_us": 0, "query_plan": ["replace with sanitized actual plan"] }
     ]
   }
 }

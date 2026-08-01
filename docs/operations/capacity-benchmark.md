@@ -37,3 +37,5 @@ The pre-migration reference shape is **21.4 GiB allocated database bytes**. Capt
 Copy `capacity-baseline.sample.json`, replace every placeholder timing and plan with sanitized measured evidence, then validate it with `go run ./cmd/store-benchmark --validate-baseline ./capacity-baseline.json`. The validator requires the 21.4 GiB shape (within 256 MiB), explicit capacity evidence, positive timings, and all four production-query plans. Do not add paths, bound values, host names, or identifiers.
 
 Each case is bounded by `--case-timeout` (default `2m`, minimum `1ms`). Plans are captured before timed execution, so a timeout still includes sanitized `query_plan`, `timeout_ms`, and right-censored `elapsed_lower_bound_us`. Its p50/p95 fields remain unobserved rather than fabricated as completion evidence. The report status must be `timeout` whenever any case times out. The validator accepts this as diagnostic evidence, but only `status: "passed"` with observed p50/p95 satisfies the release performance target.
+
+A completed `search` case includes privacy-safe aggregate `matched_rows`. Zero is valid; no body, query value, or identifier is emitted.
