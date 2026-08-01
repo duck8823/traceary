@@ -38,6 +38,9 @@ var selectSessionByIDQuery string
 //go:embed sql/find_latest_session.sql
 var findLatestSessionQuery string
 
+//go:embed sql/find_active_session.sql
+var findActiveSessionQuery string
+
 //go:embed sql/find_latest_session_boundary.sql
 var findLatestSessionBoundaryQuery string
 
@@ -557,22 +560,10 @@ func (d *SessionDatasource) FindLatest(
 		return types.Some(event), nil
 	}
 
-	row := db.QueryRowContext(
-		ctx,
-		findLatestSessionQuery,
+	row := db.QueryRowContext(ctx, findActiveSessionQuery,
 		types.EventKindSessionStarted.String(),
-		types.EventKindSessionEnded.String(),
-		types.EventKindSessionStarted.String(),
-		types.EventKindSessionEnded.String(),
-		types.EventKindSessionStarted.String(),
-		client.String(), client.String(),
-		agent.String(), agent.String(),
-		workspace.String(), workspace.String(),
-		types.EventKindSessionStarted.String(),
-		activeOnly,
-		types.EventKindSessionEnded.String(),
-		activeOnly,
-		activeOnly,
+		client.String(), client.String(), agent.String(), agent.String(), workspace.String(), workspace.String(),
+		types.EventKindSessionStarted.String(), types.EventKindSessionEnded.String(),
 	)
 
 	event, err := scanEvent(row)
