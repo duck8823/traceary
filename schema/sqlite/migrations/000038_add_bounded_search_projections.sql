@@ -51,6 +51,16 @@ BEGIN
  DELETE FROM search_projection_command_aggregates WHERE session_id=(SELECT session_id FROM events WHERE id=new.event_id);
  DELETE FROM search_projection_session_keywords WHERE session_id=(SELECT session_id FROM events WHERE id=new.event_id);
 END;
+CREATE TRIGGER search_projection_complete_audit_insert AFTER INSERT ON command_audits
+WHEN (SELECT state FROM search_projection_state WHERE singleton=1)='complete'
+ AND EXISTS(SELECT 1 FROM search_projection_source_sequence q,search_projection_state s WHERE q.event_id=new.event_id AND q.sequence<=s.high_water)
+BEGIN
+ UPDATE search_projection_state SET state='drifted' WHERE singleton=1;
+ DELETE FROM search_projection_recent_documents WHERE event_id=new.event_id;
+ DELETE FROM search_projection_session_summaries WHERE session_id=(SELECT session_id FROM events WHERE id=new.event_id);
+ DELETE FROM search_projection_command_aggregates WHERE session_id=(SELECT session_id FROM events WHERE id=new.event_id);
+ DELETE FROM search_projection_session_keywords WHERE session_id=(SELECT session_id FROM events WHERE id=new.event_id);
+END;
 CREATE TRIGGER search_projection_complete_audit_delete AFTER DELETE ON command_audits
 WHEN (SELECT state FROM search_projection_state WHERE singleton=1)='complete'
 BEGIN

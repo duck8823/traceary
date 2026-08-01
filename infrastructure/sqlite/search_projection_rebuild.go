@@ -53,8 +53,11 @@ func (d *Database) StartSearchProjectionGeneration(ctx context.Context, b apptyp
 	if e = tx.QueryRowContext(ctx, `SELECT revision,(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) FROM search_projection_source_revision WHERE singleton=1`).Scan(&g.SourceRevision, &g.HighWater); e != nil {
 		return g, e
 	}
-	_, e = tx.ExecContext(ctx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
+	result, e := tx.ExecContext(ctx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
 	if e == nil {
+		if n, x := result.RowsAffected(); x != nil || n != 1 {
+			return g, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
+		}
 		e = tx.Commit()
 	}
 	return g, e
@@ -109,7 +112,9 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 		return out, err
 	}
 	if revision != g.SourceRevision {
-		_, _ = db.ExecContext(ctx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=?`, g.GenerationID)
+		if err = markProjectionDrifted(ctx, db, g.GenerationID); err != nil {
+			return out, err
+		}
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	// Selection is bounded before payload materialization. Stored and decoded metadata reserve every payload field.
@@ -128,9 +133,17 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 			return out, e
 		}
 		if s.stored > b.StoredBytes {
+			_ = rows.Close()
+			if x := markProjectionDrifted(ctx, db, g.GenerationID); x != nil {
+				return out, x
+			}
 			return out, &apptypes.SearchProjectionOversizeError{Class: "stored_bytes", Bytes: s.stored, Limit: b.StoredBytes}
 		}
 		if s.decoded > b.DecodedBytes {
+			_ = rows.Close()
+			if x := markProjectionDrifted(ctx, db, g.GenerationID); x != nil {
+				return out, x
+			}
 			return out, &apptypes.SearchProjectionOversizeError{Class: "decoded_bytes", Bytes: s.decoded, Limit: b.DecodedBytes}
 		}
 		if out.StoredBytes+s.stored > b.StoredBytes || out.DecodedBytes+s.decoded > b.DecodedBytes {
@@ -204,6 +217,9 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 			p.write += int64(len(k) + 24)
 		}
 		if p.write > b.WriteBytes {
+			if x := markProjectionDrifted(ctx, db, g.GenerationID); x != nil {
+				return out, x
+			}
 			return out, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: p.write, Limit: b.WriteBytes}
 		}
 		if out.WrittenBytes+p.write > b.WriteBytes {
@@ -228,7 +244,9 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 	}
 	if current != g.SourceRevision {
 		_ = tx.Rollback()
-		_, _ = db.ExecContext(ctx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=?`, g.GenerationID)
+		if e = markProjectionDrifted(ctx, db, g.GenerationID); e != nil {
+			return out, e
+		}
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	last := g.Checkpoint
@@ -352,6 +370,22 @@ func truncateUTF8(value string, limit int) string {
 
 func projectionCutoff(timestamp time.Time) string {
 	return timestamp.UTC().Format("2006-01-02T15:04:05.000000000Z")
+}
+
+//nolint:wrapcheck // SQL errors remain inside the SQLite adapter.
+func markProjectionDrifted(ctx context.Context, db *sql.DB, generation string) error {
+	r, e := db.ExecContext(ctx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, generation)
+	if e != nil {
+		return e
+	}
+	n, e := r.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n != 1 {
+		return &apptypes.SearchProjectionNoProgressError{Reason: "generation state changed concurrently"}
+	}
+	return nil
 }
 
 func highEntropyKeyword(s string) bool {
