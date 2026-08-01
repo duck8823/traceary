@@ -82,9 +82,41 @@ func normalizeRFC3339NanoForCompare(raw string) string {
 // snapshot at entry and then works with the snapshot, so a path switch
 // midway through cannot split the check and the use.
 type Database struct {
-	mu         sync.RWMutex
-	dbPath     string
-	migrations fs.FS
+	mu             sync.RWMutex
+	dbPath         string
+	migrations     fs.FS
+	sharedReadOnly *sql.DB
+}
+
+// NewImmutableReadDatabase opens one shared immutable connection group for benchmark orchestration.
+func NewImmutableReadDatabase(ctx context.Context, dbPath string) (*Database, error) {
+	db, err := sql.Open("sqlite", sqliteImmutableDSN(dbPath))
+	if err != nil {
+		return nil, xerrors.Errorf("open immutable SQLite store: %w", err)
+	}
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, xerrors.Errorf("ping immutable SQLite store: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	return &Database{dbPath: strings.TrimSpace(dbPath), sharedReadOnly: db}, nil
+}
+
+// CloseSharedReadOnly closes the benchmark-only shared immutable connection group.
+func (d *Database) CloseSharedReadOnly() error {
+	if d.sharedReadOnly == nil {
+		return nil
+	}
+	if err := d.sharedReadOnly.Close(); err != nil {
+		return xerrors.Errorf("close shared immutable SQLite store: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) release(db *sql.DB) {
+	if db != d.sharedReadOnly {
+		_ = db.Close()
+	}
 }
 
 // NewDatabase creates a new Database bound to the given database path.
@@ -134,6 +166,9 @@ func (d *Database) openAt(ctx context.Context, dbPath string) (_ *sql.DB, err er
 
 // open opens a new SQLite connection at the current Path() and pings it.
 func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
+	if d.sharedReadOnly != nil {
+		return d.sharedReadOnly, nil
+	}
 	return d.openAt(ctx, d.Path())
 }
 
@@ -142,6 +177,9 @@ func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
 // migrate a store, change database content, or change file permissions. SQLite
 // may still create WAL shared-memory sidecars while reading a WAL-mode store.
 func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
+	if d.sharedReadOnly != nil {
+		return d.sharedReadOnly, nil
+	}
 	db, err := sql.Open("sqlite", sqliteReadOnlyDSN(d.Path()))
 	if err != nil {
 		return nil, xerrors.Errorf("failed to initialize read-only SQLite connection: %w", err)
@@ -157,6 +195,14 @@ func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
 		return nil, xerrors.Errorf("failed to ping read-only SQLite DB: %w", err)
 	}
 	return db, nil
+}
+
+func sqliteImmutableDSN(dbPath string) string {
+	values := url.Values{}
+	values.Add("mode", "ro")
+	values.Add("immutable", "1")
+	values.Add("_pragma", "query_only(1)")
+	return (&url.URL{Scheme: "file", Path: dbPath, RawQuery: values.Encode()}).String()
 }
 
 // initialize creates the store directory, ensures permissions, and applies

@@ -128,11 +128,7 @@ func (d *EventDatasource) ListRecent(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event listing: %w", err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
+	defer d.db.release(db)
 
 	fromValue := ""
 	if !from.IsZero() {

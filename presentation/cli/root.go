@@ -38,6 +38,7 @@ type RootCLI struct {
 	context                    usecase.ContextUsecase
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
+	capacityInspector          application.CapacityInspector
 	rawBodyRetention           usecase.RawBodyRetentionUsecase
 	fileRetention              usecase.FileRetentionUsecase
 	fileRetentionCapacity      usecase.FileRetentionCapacityInspector
@@ -190,6 +191,11 @@ func WithReplay(replay usecase.ReplayUsecase) RootCLIOption {
 // backup, gc, and doctor commands.
 func WithStoreManagement(storeManagement usecase.StoreManagementUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.storeManagement = storeManagement }
+}
+
+// WithCapacityInspector injects metadata-only SQLite capacity diagnostics.
+func WithCapacityInspector(inspector application.CapacityInspector) RootCLIOption {
+	return func(c *RootCLI) { c.capacityInspector = inspector }
 }
 
 // WithRawBodyRetention injects the opt-in reviewed raw-body retention workflow.

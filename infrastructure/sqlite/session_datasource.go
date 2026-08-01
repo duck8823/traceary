@@ -77,9 +77,7 @@ func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) er
 		return xerrors.Errorf("failed to open DB for session save: %w", err)
 	}
 	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
+		d.db.release(db)
 	}()
 
 	return saveSessionLabel(ctx, db, session)
@@ -580,11 +578,7 @@ func (d *SessionDatasource) ListSummaries(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for session list: %w", err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
+	defer d.db.release(db)
 
 	fromValue := ""
 	if fromTime, ok := from.Value(); ok {

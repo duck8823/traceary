@@ -1,0 +1,131 @@
+{
+  "schema_version": "traceary.capacity-baseline/v1",
+  "capacity": {
+    "schema_version": "traceary.capacity/v1",
+    "database_bytes": 23065001984,
+    "free_pages": 0,
+    "wal_bytes": 0,
+    "evidence": {
+      "status": "complete"
+    }
+  },
+  "benchmark": {
+    "schema_version": "traceary.store-benchmark/v1",
+    "status": "timeout",
+    "fixture": {
+      "kind": "copied_store"
+    },
+    "iterations": 15,
+    "cases": [
+      {
+        "name": "active",
+        "status": "timeout",
+        "timeout_ms": 30000,
+        "elapsed_lower_bound_us": 30000954,
+        "cold_p50_us": 0,
+        "cold_p95_us": 0,
+        "warm_p50_us": 0,
+        "warm_p95_us": 0,
+        "query_plan": [
+          "SCAN started",
+          "CORRELATED SCALAR SUBQUERY 3",
+          "SEARCH newer_started USING INDEX idx_events_workspace_session_created_at_norm_id_desc (workspace=? AND session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 5",
+          "SEARCH ended USING INDEX idx_events_workspace_session_created_at_norm_id_desc (workspace=? AND session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 4",
+          "SEARCH later_ev USING COVERING INDEX idx_events_session_created_at_id_desc (session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 7",
+          "SEARCH ended_row USING INDEX sqlite_autoindex_sessions_1 (session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 6",
+          "SEARCH row_later USING COVERING INDEX idx_events_session_created_at_id_desc (session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 1",
+          "SEARCH boundary USING INDEX idx_events_workspace_session_created_at_norm_id_desc (workspace=? AND session_id=?)",
+          "USE TEMP B-TREE FOR ORDER BY",
+          "CORRELATED SCALAR SUBQUERY 2",
+          "SEARCH boundary USING INDEX idx_events_workspace_session_created_at_norm_id_desc (workspace=? AND session_id=?)",
+          "USE TEMP B-TREE FOR ORDER BY",
+          "USE TEMP B-TREE FOR ORDER BY"
+        ]
+      },
+      {
+        "name": "latest",
+        "status": "timeout",
+        "timeout_ms": 30000,
+        "elapsed_lower_bound_us": 30000930,
+        "cold_p50_us": 0,
+        "cold_p95_us": 0,
+        "warm_p50_us": 0,
+        "warm_p95_us": 0,
+        "query_plan": [
+          "SCAN started",
+          "CORRELATED SCALAR SUBQUERY 3",
+          "SEARCH newer_started USING INDEX idx_events_workspace_session_created_at_norm_id_desc (workspace=? AND session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 5",
+          "SEARCH ended USING INDEX idx_events_workspace_session_created_at_norm_id_desc (workspace=? AND session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 4",
+          "SEARCH later_ev USING COVERING INDEX idx_events_session_created_at_id_desc (session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 7",
+          "SEARCH ended_row USING INDEX sqlite_autoindex_sessions_1 (session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 6",
+          "SEARCH row_later USING COVERING INDEX idx_events_session_created_at_id_desc (session_id=?)",
+          "CORRELATED SCALAR SUBQUERY 1",
+          "SEARCH boundary USING INDEX idx_events_workspace_session_created_at_norm_id_desc (workspace=? AND session_id=?)",
+          "USE TEMP B-TREE FOR ORDER BY",
+          "CORRELATED SCALAR SUBQUERY 2",
+          "SEARCH boundary USING INDEX idx_events_workspace_session_created_at_norm_id_desc (workspace=? AND session_id=?)",
+          "USE TEMP B-TREE FOR ORDER BY",
+          "USE TEMP B-TREE FOR ORDER BY"
+        ]
+      },
+      {
+        "name": "search",
+        "status": "passed",
+        "cold_p50_us": 62873,
+        "cold_p95_us": 173979,
+        "warm_p50_us": 28006,
+        "warm_p95_us": 100052,
+        "query_plan": [
+          "SCAN event_search_fts VIRTUAL TABLE INDEX 0:M4",
+          "SEARCH d USING INTEGER PRIMARY KEY (rowid=?)",
+          "SEARCH e USING INDEX sqlite_autoindex_events_1 (id=?)",
+          "USE TEMP B-TREE FOR ORDER BY"
+        ],
+        "matched_rows": 20
+      },
+      {
+        "name": "handoff",
+        "status": "timeout",
+        "timeout_ms": 30000,
+        "elapsed_lower_bound_us": 29997971,
+        "cold_p50_us": 0,
+        "cold_p95_us": 0,
+        "warm_p50_us": 0,
+        "warm_p95_us": 0,
+        "query_plan": [
+          "session_resolution: MATERIALIZE filtered_sessions",
+          "session_resolution: SCAN s USING INDEX idx_sessions_started_at",
+          "session_resolution: CORRELATED SCALAR SUBQUERY 1",
+          "session_resolution: SEARCH agent_events USING INDEX idx_events_session_created_at_norm_id_desc (session_id=?)",
+          "session_resolution: CORRELATED SCALAR SUBQUERY 2",
+          "session_resolution: SEARCH late_ev USING COVERING INDEX idx_events_session_created_at_id_desc (session_id=?)",
+          "session_resolution: MATERIALIZE event_agg",
+          "session_resolution: SCAN e USING INDEX idx_events_session_created_at",
+          "session_resolution: SEARCH fs USING AUTOMATIC COVERING INDEX (session_id=?)",
+          "session_resolution: USE TEMP B-TREE FOR group_concat(DISTINCT)",
+          "session_resolution: MATERIALIZE (subquery-5)",
+          "session_resolution: CO-ROUTINE (subquery-8)",
+          "session_resolution: SCAN e USING INDEX idx_events_session_created_at",
+          "session_resolution: SEARCH fs USING AUTOMATIC COVERING INDEX (session_id=?)",
+          "session_resolution: USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY",
+          "session_resolution: SCAN (subquery-8)",
+          "session_resolution: SCAN s",
+          "session_resolution: SCAN agg LEFT-JOIN",
+          "session_resolution: BLOOM FILTER ON (subquery-5) (rn=? AND session_id=?)",
+          "session_resolution: SEARCH (subquery-5) USING AUTOMATIC PARTIAL COVERING INDEX (rn=? AND session_id=?) LEFT-JOIN",
+          "recent_command_previews: SCAN e",
+          "recent_command_previews: USE TEMP B-TREE FOR ORDER BY"
+        ]
+      }
+    ]
+  }
+}
