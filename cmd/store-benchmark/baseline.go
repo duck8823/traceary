@@ -39,6 +39,9 @@ func validateBaseline(artifact baselineArtifact) error {
 	if artifact.SchemaVersion != "traceary.capacity-baseline/v1" || artifact.Capacity.SchemaVersion != "traceary.capacity/v1" || artifact.Benchmark.SchemaVersion != "traceary.store-benchmark/v1" {
 		return fmt.Errorf("baseline schema versions are incomplete")
 	}
+	if artifact.Benchmark.Status != "passed" && artifact.Benchmark.Status != "timeout" {
+		return fmt.Errorf("benchmark status must be passed or timeout")
+	}
 	const target int64 = 22_978_910_618
 	const tolerance int64 = 256 << 20
 	if artifact.Capacity.DatabaseBytes < target-tolerance || artifact.Capacity.DatabaseBytes > target+tolerance {
@@ -55,11 +58,20 @@ func validateBaseline(artifact baselineArtifact) error {
 		if _, ok := wanted[item.Name]; !ok {
 			return fmt.Errorf("unexpected benchmark case %q", item.Name)
 		}
-		if len(item.QueryPlan) == 0 {
-			return fmt.Errorf("benchmark case %q has no query plan", item.Name)
-		}
-		if item.ColdP50US <= 0 || item.ColdP95US <= 0 || item.WarmP50US <= 0 || item.WarmP95US <= 0 {
-			return fmt.Errorf("benchmark case %q has placeholder timing", item.Name)
+		switch item.Status {
+		case "timeout":
+			if item.TimeoutMS <= 0 {
+				return fmt.Errorf("benchmark case %q timeout has no positive limit", item.Name)
+			}
+		case "passed":
+			if len(item.QueryPlan) == 0 {
+				return fmt.Errorf("benchmark case %q has no query plan", item.Name)
+			}
+			if item.ColdP50US <= 0 || item.ColdP95US <= 0 || item.WarmP50US <= 0 || item.WarmP95US <= 0 {
+				return fmt.Errorf("benchmark case %q has placeholder timing", item.Name)
+			}
+		default:
+			return fmt.Errorf("benchmark case %q has invalid status", item.Name)
 		}
 		wanted[item.Name] = true
 	}

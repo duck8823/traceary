@@ -49,7 +49,7 @@ func TestSyntheticFixtureAndBenchmarkEvidence(t *testing.T) {
 		}
 	}
 	before := snapshotStoreFiles(t, path)
-	handoff, err := benchmarkHandoff(context.Background(), path, 2)
+	handoff, err := benchmarkHandoff(context.Background(), path, 2, &handoffCardinality{Commands: 10, Memories: 10})
 	if err != nil {
 		t.Fatalf("benchmarkHandoff() error = %v", err)
 	}
@@ -59,6 +59,30 @@ func TestSyntheticFixtureAndBenchmarkEvidence(t *testing.T) {
 	after := snapshotStoreFiles(t, path)
 	if fmt.Sprint(before) != fmt.Sprint(after) {
 		t.Fatalf("handoff mutated source files: before=%v after=%v", before, after)
+	}
+}
+
+func TestCopiedStoreHandoffAllowsZeroOptionalWorkload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "copied.db")
+	if _, err := createSynthetic(context.Background(), path, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM command_audits; DELETE FROM events WHERE kind='command_executed'; DELETE FROM memories`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := benchmarkHandoff(context.Background(), path, 1, nil)
+	if err != nil {
+		t.Fatalf("copied-store zero workload error = %v", err)
+	}
+	if result.Name != "handoff" {
+		t.Fatalf("result = %+v", result)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"math"
@@ -24,6 +25,7 @@ import (
 
 type report struct {
 	SchemaVersion string       `json:"schema_version"`
+	Status        string       `json:"status"`
 	Fixture       fixtureInfo  `json:"fixture"`
 	Iterations    int          `json:"iterations"`
 	Cases         []caseResult `json:"cases"`
@@ -40,6 +42,8 @@ type fixtureInfo struct {
 }
 type caseResult struct {
 	Name      string   `json:"name"`
+	Status    string   `json:"status"`
+	TimeoutMS int64    `json:"timeout_ms,omitempty"`
 	ColdP50US int64    `json:"cold_p50_us"`
 	ColdP95US int64    `json:"cold_p95_us"`
 	WarmP50US int64    `json:"warm_p50_us"`
@@ -51,12 +55,14 @@ func main() {
 	var dbPath, synthetic string
 	var validateBaseline string
 	var iterations, smallRows, largeRows int
+	var caseTimeout time.Duration
 	flag.StringVar(&dbPath, "db", "", "path to an operator-created store copy (opened immutable/read-only)")
 	flag.StringVar(&synthetic, "synthetic", "", "create and benchmark a synthetic store at this new path")
 	flag.StringVar(&validateBaseline, "validate-baseline", "", "validate a sanitized capacity baseline artifact and exit")
 	flag.IntVar(&iterations, "iterations", 15, "samples per cold and warm series")
 	flag.IntVar(&smallRows, "small-rows", 10000, "synthetic small event rows")
 	flag.IntVar(&largeRows, "large-rows", 8, "synthetic 1 MiB event rows")
+	flag.DurationVar(&caseTimeout, "case-timeout", 2*time.Minute, "maximum duration for each benchmark case")
 	flag.Parse()
 	if validateBaseline != "" {
 		if err := validateBaselineFile(validateBaseline); err != nil {
@@ -64,7 +70,7 @@ func main() {
 		}
 		return
 	}
-	if (dbPath == "") == (synthetic == "") || iterations < 1 || smallRows < 1 || largeRows < 1 {
+	if (dbPath == "") == (synthetic == "") || iterations < 1 || smallRows < 1 || largeRows < 1 || caseTimeout <= 0 {
 		fatal("specify exactly one of --db or --synthetic and positive counts")
 	}
 	ctx := context.Background()
@@ -89,27 +95,56 @@ func main() {
 		fatal(err.Error())
 	}
 	results := make([]caseResult, 0, len(benchmarkCases))
+	overallStatus := "passed"
 	for _, benchmarkCase := range benchmarkCases {
+		caseCtx, cancel := context.WithTimeout(ctx, caseTimeout)
 		if benchmarkCase.Name == "active" || benchmarkCase.Name == "latest" {
-			matched, err := queryHasRows(ctx, dbPath, benchmarkCase.SQL, benchmarkCase.Args)
+			matched, err := queryHasRows(caseCtx, dbPath, benchmarkCase.SQL, benchmarkCase.Args)
+			if errors.Is(err, context.DeadlineExceeded) {
+				results = append(results, timeoutResult(benchmarkCase.Name, caseTimeout))
+				overallStatus = "timeout"
+				cancel()
+				continue
+			}
 			if err != nil || !matched {
 				fatal(fmt.Sprintf("%s preflight returned no matching production row: %v", benchmarkCase.Name, err))
 			}
 		}
-		result, err := benchmark(ctx, dbPath, iterations, benchmarkCase.Name, benchmarkCase.SQL, benchmarkCase.Args)
+		result, err := benchmark(caseCtx, dbPath, iterations, benchmarkCase.Name, benchmarkCase.SQL, benchmarkCase.Args)
+		cancel()
+		if errors.Is(err, context.DeadlineExceeded) {
+			results = append(results, timeoutResult(benchmarkCase.Name, caseTimeout))
+			overallStatus = "timeout"
+			continue
+		}
 		if err != nil {
 			fatal(fmt.Sprintf("%s: %v", benchmarkCase.Name, err))
 		}
 		results = append(results, result)
 	}
-	handoff, err := benchmarkHandoff(ctx, dbPath, iterations)
+	var expected *handoffCardinality
+	if info.Kind == "synthetic" {
+		expected = &handoffCardinality{Commands: info.CommandRows, Memories: info.AcceptedMemories}
+	}
+	handoffCtx, cancelHandoff := context.WithTimeout(ctx, caseTimeout)
+	handoff, err := benchmarkHandoff(handoffCtx, dbPath, iterations, expected)
+	cancelHandoff()
+	if errors.Is(err, context.DeadlineExceeded) {
+		handoff = timeoutResult("handoff", caseTimeout)
+		overallStatus = "timeout"
+		err = nil
+	}
 	if err != nil {
 		fatal(fmt.Sprintf("handoff: %v", err))
 	}
 	results = append(results, handoff)
-	if err := json.NewEncoder(os.Stdout).Encode(report{SchemaVersion: "traceary.store-benchmark/v1", Fixture: info, Iterations: iterations, Cases: results}); err != nil {
+	if err := json.NewEncoder(os.Stdout).Encode(report{SchemaVersion: "traceary.store-benchmark/v1", Status: overallStatus, Fixture: info, Iterations: iterations, Cases: results}); err != nil {
 		fatal(err.Error())
 	}
+}
+
+func timeoutResult(name string, limit time.Duration) caseResult {
+	return caseResult{Name: name, Status: "timeout", TimeoutMS: limit.Milliseconds()}
 }
 
 func queryHasRows(ctx context.Context, path, query string, args []any) (bool, error) {
@@ -126,7 +161,9 @@ func queryHasRows(ctx context.Context, path, query string, args []any) (bool, er
 	return rows.Next(), rows.Err()
 }
 
-func benchmarkHandoff(ctx context.Context, path string, iterations int) (caseResult, error) {
+type handoffCardinality struct{ Commands, Memories int }
+
+func benchmarkHandoff(ctx context.Context, path string, iterations int, expected *handoffCardinality) (caseResult, error) {
 	operation := func(database *infra.Database) error {
 		pack, err := usecase.NewContextUsecase(infra.NewSessionDatasource(database), infra.NewEventDatasource(database), infra.NewMemoryDatasource(database)).Handoff(ctx, apptypes.NewContextPackCriteriaBuilder().AllowStale(true).RecentCommandsLimit(10).MemoryLimit(10).Build())
 		if err != nil {
@@ -136,8 +173,8 @@ func benchmarkHandoff(ctx context.Context, path string, iterations int) (caseRes
 		if !ok {
 			return fmt.Errorf("production handoff returned no context pack")
 		}
-		if len(value.RecentCommands()) != 10 || len(value.Memories()) != 10 {
-			return fmt.Errorf("production handoff cardinality commands=%d memories=%d, want 10/10", len(value.RecentCommands()), len(value.Memories()))
+		if expected != nil && (len(value.RecentCommands()) != expected.Commands || len(value.Memories()) != expected.Memories) {
+			return fmt.Errorf("production handoff cardinality commands=%d memories=%d, want %d/%d", len(value.RecentCommands()), len(value.Memories()), expected.Commands, expected.Memories)
 		}
 		return nil
 	}
@@ -178,7 +215,7 @@ func benchmarkHandoff(ctx context.Context, path string, iterations int) (caseRes
 			plans = append(plans, step.Name+": "+detail)
 		}
 	}
-	return caseResult{Name: "handoff", ColdP50US: percentile(cold, .5), ColdP95US: percentile(cold, .95), WarmP50US: percentile(warm, .5), WarmP95US: percentile(warm, .95), QueryPlan: plans}, nil
+	return caseResult{Name: "handoff", Status: "passed", ColdP50US: percentile(cold, .5), ColdP95US: percentile(cold, .95), WarmP50US: percentile(warm, .5), WarmP95US: percentile(warm, .95), QueryPlan: plans}, nil
 }
 
 func readOnlyDSN(path string) string { return "file:" + url.PathEscape(path) + "?immutable=1&mode=ro" }
@@ -215,7 +252,7 @@ func benchmark(ctx context.Context, path string, iterations int, name, query str
 			return caseResult{}, err
 		}
 	}
-	return caseResult{Name: name, ColdP50US: percentile(cold, .50), ColdP95US: percentile(cold, .95), WarmP50US: percentile(warm, .50), WarmP95US: percentile(warm, .95), QueryPlan: plan}, nil
+	return caseResult{Name: name, Status: "passed", ColdP50US: percentile(cold, .50), ColdP95US: percentile(cold, .95), WarmP50US: percentile(warm, .50), WarmP95US: percentile(warm, .95), QueryPlan: plan}, nil
 }
 
 //nolint:wrapcheck // fixed internal query; caller adds the benchmark case name.
