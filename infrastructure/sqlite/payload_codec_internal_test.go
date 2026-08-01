@@ -14,6 +14,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	domtypes "github.com/duck8823/traceary/domain/types"
@@ -467,6 +468,11 @@ ON CONFLICT(event_id) DO UPDATE SET body_text=excluded.body_text, command_text=e
 	auditSearched, err := datasource.Search(ctx, "redacted", "", "zstd-session", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
 	if err != nil || len(auditSearched) != 1 || auditSearched[0].EventID().String() != "zstd" {
 		t.Fatalf("audit decoded search = %#v, %v", auditSearched, err)
+	}
+	_, err = datasource.Search(ctx, "compressed", "", "", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
+	var unavailable *queryservice.EventSearchUnavailableError
+	if !errors.As(err, &unavailable) || unavailable.Reason != queryservice.EventSearchUnavailableIndexIncomplete {
+		t.Fatalf("unbounded stale projection error = %v, want explicit index-incomplete error", err)
 	}
 	details, err := datasource.GetDetails(ctx, "zstd")
 	if err != nil {

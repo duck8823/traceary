@@ -104,10 +104,12 @@ func selectEventSearchCandidateIDs(
 	shortQuery := utf8.RuneCountInString(queryValue) < 3
 	missingProjection := false
 	nonIdentityPayload := false
-	if complete && hasBoundedLegacySearchScope(criteria) {
-		missingProjection, err = boundedSearchProjectionMissing(ctx, queryer, criteria)
-		if err != nil {
-			return nil, err
+	if complete {
+		if hasBoundedLegacySearchScope(criteria) {
+			missingProjection, err = boundedSearchProjectionMissing(ctx, queryer, criteria)
+			if err != nil {
+				return nil, err
+			}
 		}
 		nonIdentityPayload, err = boundedSearchHasNonIdentityPayload(ctx, queryer, criteria)
 		if err != nil {
@@ -161,6 +163,17 @@ func boundedSearchHasNonIdentityPayload(
 	}
 	if codecColumns == 0 {
 		return false, nil
+	}
+	if !hasBoundedLegacySearchScope(criteria) {
+		var found int
+		if err := queryer.QueryRowContext(ctx, `SELECT
+			EXISTS(SELECT 1 FROM events INDEXED BY idx_events_nonidentity_body_codec WHERE body_codec <> 'identity') OR
+			EXISTS(SELECT 1 FROM command_audits INDEXED BY idx_command_audits_nonidentity_command_codec WHERE command_codec <> 'identity') OR
+			EXISTS(SELECT 1 FROM command_audits INDEXED BY idx_command_audits_nonidentity_input_codec WHERE input_codec <> 'identity') OR
+			EXISTS(SELECT 1 FROM command_audits INDEXED BY idx_command_audits_nonidentity_output_codec WHERE output_codec <> 'identity')`).Scan(&found); err != nil {
+			return false, xerrors.Errorf("failed to inspect global payload codecs: %w", err)
+		}
+		return found != 0, nil
 	}
 	var builder strings.Builder
 	builder.WriteString(`SELECT EXISTS(
