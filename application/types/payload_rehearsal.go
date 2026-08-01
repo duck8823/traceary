@@ -2,6 +2,32 @@ package types
 
 import "time"
 
+// PayloadRehearsalState is the persisted copied-store workflow state.
+type PayloadRehearsalState string
+
+const (
+	PayloadRehearsalRunning    PayloadRehearsalState = "running"
+	PayloadRehearsalPaused     PayloadRehearsalState = "paused"
+	PayloadRehearsalCompleted  PayloadRehearsalState = "completed"
+	PayloadRehearsalScrubbed   PayloadRehearsalState = "scrubbed"
+	PayloadRehearsalRolledBack PayloadRehearsalState = "rolled_back"
+)
+
+// FreezesCanonical reports whether source rows must remain immutable.
+func (s PayloadRehearsalState) FreezesCanonical() bool {
+	return s == PayloadRehearsalRunning || s == PayloadRehearsalPaused || s == PayloadRehearsalCompleted
+}
+
+// CanResume reports whether another leased worker may resume the run.
+func (s PayloadRehearsalState) CanResume() bool {
+	return s == PayloadRehearsalRunning || s == PayloadRehearsalPaused
+}
+
+// CanScrub reports whether shadow rows are complete and eligible for verification.
+func (s PayloadRehearsalState) CanScrub() bool {
+	return s == PayloadRehearsalCompleted || s == PayloadRehearsalScrubbed
+}
+
 // PayloadRehearsalConfig contains mandatory bounds for a copied-store rehearsal.
 type PayloadRehearsalConfig struct {
 	TargetPath       string        `json:"-"`
@@ -14,13 +40,26 @@ type PayloadRehearsalConfig struct {
 	LockTimeLimit    time.Duration `json:"lock_time_limit"`
 	ScrubByteLimit   int64         `json:"scrub_byte_limit"`
 	ScrubTimeLimit   time.Duration `json:"scrub_time_limit"`
+	MaxWALBytes      int64         `json:"max_wal_bytes"`
 }
 
 // Valid reports whether every safety/resource bound is explicit and positive.
 func (c PayloadRehearsalConfig) Valid() bool {
 	return c.TargetPath != "" && c.LivePath != "" && c.BatchRows > 0 && c.StoredByteLimit > 0 &&
 		c.DecodedByteLimit > 0 && c.WallTimeLimit > 0 && c.LockTimeLimit > 0 &&
-		c.ScrubByteLimit > 0 && c.ScrubTimeLimit > 0
+		c.ScrubByteLimit > 0 && c.ScrubTimeLimit > 0 && c.MaxWALBytes > 0
+}
+
+// PayloadActivationReadiness reports v0.35 prerequisites without activating them.
+type PayloadActivationReadiness struct {
+	CompatibleReader   bool `json:"compatible_reader"`
+	LiveIdentityOnly   bool `json:"live_identity_only"`
+	BackupVerified     bool `json:"backup_verified"`
+	HeadroomSufficient bool `json:"headroom_sufficient"`
+	RehearsalComplete  bool `json:"rehearsal_complete"`
+	ScrubPassed        bool `json:"scrub_passed"`
+	RollbackVerified   bool `json:"rollback_verified"`
+	ActivationAllowed  bool `json:"activation_allowed"`
 }
 
 // PayloadRehearsalFileState is a body-free DB/WAL/SHM snapshot.
@@ -52,4 +91,5 @@ type PayloadRehearsalMetrics struct {
 	RollbackVerified       bool                        `json:"rollback_verified"`
 	Before                 []PayloadRehearsalFileState `json:"before,omitempty"`
 	After                  []PayloadRehearsalFileState `json:"after,omitempty"`
+	ActivationReadiness    PayloadActivationReadiness  `json:"activation_readiness"`
 }

@@ -15,11 +15,12 @@ type payloadRehearsalFlags struct {
 	target, live, backup                  string
 	batchRows                             int
 	storedBytes, decodedBytes, scrubBytes int64
+	maxWALBytes                           int64
 	wall, lock, scrubTime                 time.Duration
 }
 
 func (f *payloadRehearsalFlags) config() apptypes.PayloadRehearsalConfig {
-	return apptypes.PayloadRehearsalConfig{TargetPath: f.target, LivePath: f.live, BackupPath: f.backup, BatchRows: f.batchRows, StoredByteLimit: f.storedBytes, DecodedByteLimit: f.decodedBytes, WallTimeLimit: f.wall, LockTimeLimit: f.lock, ScrubByteLimit: f.scrubBytes, ScrubTimeLimit: f.scrubTime}
+	return apptypes.PayloadRehearsalConfig{TargetPath: f.target, LivePath: f.live, BackupPath: f.backup, BatchRows: f.batchRows, StoredByteLimit: f.storedBytes, DecodedByteLimit: f.decodedBytes, WallTimeLimit: f.wall, LockTimeLimit: f.lock, ScrubByteLimit: f.scrubBytes, ScrubTimeLimit: f.scrubTime, MaxWALBytes: f.maxWALBytes}
 }
 func bindPayloadRehearsalFlags(cmd *cobra.Command, f *payloadRehearsalFlags, backup bool) {
 	cmd.Flags().StringVar(&f.target, "target", "", "explicit copied SQLite target")
@@ -34,6 +35,7 @@ func bindPayloadRehearsalFlags(cmd *cobra.Command, f *payloadRehearsalFlags, bac
 	cmd.Flags().DurationVar(&f.lock, "lock-time-limit", time.Second, "maximum write lock duration")
 	cmd.Flags().Int64Var(&f.scrubBytes, "scrub-byte-limit", 1<<30, "maximum stored bytes scrubbed")
 	cmd.Flags().DurationVar(&f.scrubTime, "scrub-time-limit", 30*time.Minute, "maximum scrub duration")
+	cmd.Flags().Int64Var(&f.maxWALBytes, "max-wal-bytes", 1<<30, "hard WAL growth cap")
 	_ = cmd.MarkFlagRequired("target")
 	_ = cmd.MarkFlagRequired("live-db")
 	if backup {

@@ -9,7 +9,11 @@ CREATE TABLE payload_rehearsal_runs (
   started_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT,
-  rollback_digest TEXT
+  rollback_digest TEXT,
+  target_device TEXT NOT NULL,
+  target_inode TEXT NOT NULL,
+  lease_token TEXT,
+  lease_expires_at TEXT
 );
 CREATE UNIQUE INDEX idx_payload_rehearsal_active_target ON payload_rehearsal_runs(target_fingerprint)
 WHERE state IN ('running','paused','completed','scrubbed');
@@ -32,8 +36,8 @@ CREATE TABLE payload_rehearsal_checkpoints (
 
 CREATE TABLE payload_rehearsal_rows (
   run_id TEXT NOT NULL REFERENCES payload_rehearsal_runs(run_id) ON DELETE CASCADE,
-  table_kind TEXT NOT NULL,
-  field_kind TEXT NOT NULL,
+  table_kind TEXT NOT NULL CHECK(table_kind IN ('events','command_audits')),
+  field_kind TEXT NOT NULL CHECK(field_kind IN ('body','command','input','output')),
   source_primary_key TEXT NOT NULL,
   source_sha256 TEXT NOT NULL,
   payload BLOB NOT NULL,
@@ -42,24 +46,25 @@ CREATE TABLE payload_rehearsal_rows (
   plaintext_bytes INTEGER NOT NULL CHECK(plaintext_bytes >= 0),
   stored_bytes INTEGER NOT NULL CHECK(stored_bytes >= 0),
   payload_sha256 TEXT NOT NULL,
+  CHECK((table_kind='events' AND field_kind='body') OR (table_kind='command_audits' AND field_kind IN ('command','input','output'))),
   PRIMARY KEY(run_id, table_kind, field_kind, source_primary_key)
 );
 
 CREATE TRIGGER payload_rehearsal_freeze_events_update BEFORE UPDATE ON events
-WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused') AND OLD.id <= event_high_water)
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed') AND OLD.id <= event_high_water)
 BEGIN SELECT RAISE(ABORT, 'payload rehearsal source is frozen'); END;
 CREATE TRIGGER payload_rehearsal_freeze_events_insert BEFORE INSERT ON events
-WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused'))
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed'))
 BEGIN SELECT RAISE(ABORT, 'payload rehearsal source is frozen'); END;
 CREATE TRIGGER payload_rehearsal_freeze_events_delete BEFORE DELETE ON events
-WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused') AND OLD.id <= event_high_water)
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed') AND OLD.id <= event_high_water)
 BEGIN SELECT RAISE(ABORT, 'payload rehearsal source is frozen'); END;
 CREATE TRIGGER payload_rehearsal_freeze_audits_update BEFORE UPDATE ON command_audits
-WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused') AND OLD.event_id <= audit_high_water)
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed') AND OLD.event_id <= audit_high_water)
 BEGIN SELECT RAISE(ABORT, 'payload rehearsal source is frozen'); END;
 CREATE TRIGGER payload_rehearsal_freeze_audits_insert BEFORE INSERT ON command_audits
-WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused'))
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed'))
 BEGIN SELECT RAISE(ABORT, 'payload rehearsal source is frozen'); END;
 CREATE TRIGGER payload_rehearsal_freeze_audits_delete BEFORE DELETE ON command_audits
-WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused') AND OLD.event_id <= audit_high_water)
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed') AND OLD.event_id <= audit_high_water)
 BEGIN SELECT RAISE(ABORT, 'payload rehearsal source is frozen'); END;

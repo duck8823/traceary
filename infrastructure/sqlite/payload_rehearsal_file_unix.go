@@ -3,9 +3,18 @@
 package sqlite
 
 import (
+	"fmt"
 	"os"
 	"syscall"
 )
+
+func physicalFileIdentity(info os.FileInfo) (string, string, bool) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", "", false
+	}
+	return fmt.Sprint(stat.Dev), fmt.Sprint(stat.Ino), true
+}
 
 func fileLinkCountOne(info os.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)

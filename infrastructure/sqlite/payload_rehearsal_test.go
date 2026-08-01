@@ -58,6 +58,9 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	if !preview.DryRunZeroWrite || !preview.LiveIdentityOnly {
 		t.Fatalf("preview = %#v", preview)
 	}
+	if preview.ActivationReadiness.ActivationAllowed {
+		t.Fatal("v0.34 preview allowed activation")
+	}
 	if err = os.WriteFile(target+"-wal", []byte("unexpected"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +70,11 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	if err = os.Remove(target + "-wal"); err != nil {
 		t.Fatal(err)
 	}
+	runAliasConfig := config
+	runAliasConfig.BackupPath = target
+	if _, err = adapter.Run(ctx, runAliasConfig, false); !errors.Is(err, infra.ErrUnsafeRehearsalTarget) {
+		t.Fatalf("run backup alias error=%v", err)
+	}
 
 	result, err := adapter.Run(ctx, config, false)
 	if err != nil {
@@ -75,11 +83,13 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	if result.State != "completed" || result.EncodedRows != 4 {
 		t.Fatalf("result = %#v", result)
 	}
+	if !result.ActivationReadiness.RehearsalComplete || result.ActivationReadiness.ActivationAllowed {
+		t.Fatalf("completion readiness = %#v", result.ActivationReadiness)
+	}
 	check, err := sql.Open("sqlite", target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = check.Close() }()
 	var body string
 	if err = check.QueryRow(`SELECT body FROM events WHERE id='event-1'`).Scan(&body); err != nil {
 		t.Fatal(err)
@@ -93,6 +103,17 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	}
 	if shadow != 4 {
 		t.Fatalf("shadow rows = %d", shadow)
+	}
+	var runID string
+	if err = check.QueryRow(`SELECT run_id FROM payload_rehearsal_runs LIMIT 1`).Scan(&runID); err != nil {
+		t.Fatal(err)
+	}
+	invalidRow := `INSERT INTO payload_rehearsal_rows(run_id,table_kind,field_kind,source_primary_key,source_sha256,payload,codec,format_version,plaintext_bytes,stored_bytes,payload_sha256) VALUES(?,?,?,?,?,x'00','zstd',1,0,1,?)`
+	if _, err = check.Exec(invalidRow, runID, "unknown", "body", "x", "00", "00"); err == nil {
+		t.Fatal("unknown rehearsal lane was accepted")
+	}
+	if _, err = check.Exec(invalidRow, runID, "events", "output", "x", "00", "00"); err == nil {
+		t.Fatal("inconsistent rehearsal lane was accepted")
 	}
 	if err = check.Close(); err != nil {
 		t.Fatal(err)
@@ -127,12 +148,34 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	if err = check.Close(); err != nil {
 		t.Fatal(err)
 	}
+	check, err = sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = check.Exec(`UPDATE payload_rehearsal_checkpoints SET changed_rows=changed_rows+1 WHERE rowid=(SELECT min(rowid) FROM payload_rehearsal_checkpoints)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = check.Close()
+	if _, err = adapter.Scrub(ctx, config); err == nil {
+		t.Fatal("checkpoint cardinality drift was accepted")
+	}
+	check, err = sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = check.Exec(`UPDATE payload_rehearsal_checkpoints SET changed_rows=changed_rows-1 WHERE rowid=(SELECT min(rowid) FROM payload_rehearsal_checkpoints)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = check.Close()
 	scrub, err := adapter.Scrub(ctx, config)
 	if err != nil {
 		t.Fatalf("scrub: %v", err)
 	}
 	if scrub.State != "scrubbed" {
 		t.Fatalf("scrub = %#v", scrub)
+	}
+	if !scrub.ActivationReadiness.ScrubPassed || scrub.ActivationReadiness.ActivationAllowed {
+		t.Fatalf("scrub readiness = %#v", scrub.ActivationReadiness)
 	}
 	check, err = sql.Open("sqlite", target)
 	if err != nil {
@@ -147,6 +190,28 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	}
 	if scrubbedRows != 4 {
 		t.Fatalf("persisted scrub rows = %d", scrubbedRows)
+	}
+	backupBytes, err := os.ReadFile(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetBytes, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(backup, targetBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adapter.Rollback(ctx, config); err == nil {
+		t.Fatal("swapped rollback artifact was accepted")
+	}
+	if err = os.WriteFile(backup, backupBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	aliasConfig := config
+	aliasConfig.BackupPath = target
+	if _, err = adapter.Rollback(ctx, aliasConfig); !errors.Is(err, infra.ErrUnsafeRehearsalTarget) {
+		t.Fatalf("target backup alias error = %v", err)
 	}
 	rolledBack, err := adapter.Rollback(ctx, config)
 	if err != nil {
@@ -243,9 +308,45 @@ func TestPayloadRehearsalResumesAfterArbitraryCommittedBatch(t *testing.T) {
 	if freezeErr == nil {
 		t.Fatal("paused rehearsal did not freeze canonical inserts")
 	}
-	resumed, err := adapter.Run(ctx, config, true)
-	if err != nil {
-		t.Fatalf("resume: %v", err)
+	originalPath := target + ".original"
+	replacement := target + ".replacement"
+	copyTestFile(t, target, replacement)
+	if err = os.Rename(target, originalPath); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Rename(replacement, target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adapter.Run(ctx, config, true); err == nil {
+		t.Fatal("replacement inode resumed")
+	}
+	if err = os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Rename(originalPath, target); err != nil {
+		t.Fatal(err)
+	}
+	type resumeResult struct {
+		metrics apptypes.PayloadRehearsalMetrics
+		err     error
+	}
+	results := make(chan resumeResult, 2)
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		go func() { <-start; m, e := adapter.Run(ctx, config, true); results <- resumeResult{m, e} }()
+	}
+	close(start)
+	first, second := <-results, <-results
+	successes := 0
+	var resumed apptypes.PayloadRehearsalMetrics
+	for _, r := range []resumeResult{first, second} {
+		if r.err == nil {
+			successes++
+			resumed = r.metrics
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("concurrent resume successes=%d errors=%v/%v", successes, first.err, second.err)
 	}
 	if resumed.State != "completed" {
 		t.Fatalf("resume state = %s", resumed.State)
@@ -262,8 +363,107 @@ func TestPayloadRehearsalResumesAfterArbitraryCommittedBatch(t *testing.T) {
 	if count != 200 || distinct != count {
 		t.Fatalf("shadow count/distinct = %d/%d", count, distinct)
 	}
-	if _, err = check.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES('after-complete','prompt','test','session','body','2026-08-01T00:00:00Z')`); err != nil {
-		t.Fatalf("terminal rehearsal kept freeze active: %v", err)
+	if _, err = check.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES('blocked-complete','prompt','test','session','body','2026-08-01T00:00:00Z')`); err == nil {
+		t.Fatal("completed rehearsal released canonical freeze before scrub")
+	}
+	if err = check.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adapter.Scrub(ctx, config); err != nil {
+		t.Fatalf("final scrub: %v", err)
+	}
+	check, err = sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = check.Close() }()
+	if _, err = check.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES('after-scrub','prompt','test','session','body','2026-08-01T00:00:00Z')`); err != nil {
+		t.Fatalf("scrubbed rehearsal kept freeze active: %v", err)
+	}
+}
+
+func TestPayloadRehearsalCommitsBoundedPrefixBeforeOversizeRow(t *testing.T) {
+	ctx := context.Background()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, target, backup := filepath.Join(dir, "live.db"), filepath.Join(dir, "target.db"), filepath.Join(dir, "backup.db")
+	migrations, _ := sqliteschema.Migrations()
+	if err = infra.NewStoreManagementDatasource(infra.NewDatabase(live, migrations)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", live)
+	_, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES('a','prompt','t','s','12345','2026-08-01T00:00:00Z'),('b','prompt','t','s','12345678901234567890','2026-08-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	copyTestFile(t, live, target)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	config := rehearsalTestConfig(target, live, backup)
+	config.StoredByteLimit = 10
+	if _, err = adapter.Run(ctx, config, false); err == nil {
+		t.Fatal("oversize row did not pause")
+	}
+	check, _ := sql.Open("sqlite", target)
+	defer func() { _ = check.Close() }()
+	var rows int
+	if err = check.QueryRow(`SELECT count(*) FROM payload_rehearsal_rows`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("bounded prefix rows=%d", rows)
+	}
+}
+
+func TestPayloadRehearsalBindsClaimedLiveToConfiguredCanonicalStore(t *testing.T) {
+	ctx := context.Background()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, decoy := filepath.Join(dir, "actual.db"), filepath.Join(dir, "decoy.db")
+	migrations, _ := sqliteschema.Migrations()
+	for _, p := range []string{actual, decoy} {
+		if err = infra.NewStoreManagementDatasource(infra.NewDatabase(p, migrations)).Initialize(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	adapter := infra.NewPayloadRehearsalAdapter(migrations, actual)
+	config := rehearsalTestConfig(actual, decoy, filepath.Join(dir, "backup.db"))
+	if _, err = adapter.Run(ctx, config, false); !errors.Is(err, infra.ErrUnsafeRehearsalTarget) {
+		t.Fatalf("decoy live binding error=%v", err)
+	}
+}
+
+func TestPayloadRehearsalEnforcesWALHardCap(t *testing.T) {
+	ctx := context.Background()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, target, backup := filepath.Join(dir, "live.db"), filepath.Join(dir, "target.db"), filepath.Join(dir, "backup.db")
+	migrations, _ := sqliteschema.Migrations()
+	if err = infra.NewStoreManagementDatasource(infra.NewDatabase(live, migrations)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", live)
+	_, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES('a','prompt','t','s','payload','2026-08-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	copyTestFile(t, live, target)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	config := rehearsalTestConfig(target, live, backup)
+	config.MaxWALBytes = 1
+	result, err := adapter.Run(ctx, config, false)
+	if err == nil {
+		t.Fatal("WAL hard cap was not enforced")
+	}
+	if result.PeakWALBytes <= config.MaxWALBytes {
+		t.Fatalf("peak WAL=%d", result.PeakWALBytes)
 	}
 }
 
@@ -365,7 +565,7 @@ func TestPayloadRehearsalAppliesCommonCompatibilityGateToLiveAndTarget(t *testin
 }
 
 func rehearsalTestConfig(target, live, backup string) apptypes.PayloadRehearsalConfig {
-	return apptypes.PayloadRehearsalConfig{TargetPath: target, LivePath: live, BackupPath: backup, BatchRows: 2, StoredByteLimit: 1 << 20, DecodedByteLimit: 1 << 20, WallTimeLimit: time.Minute, LockTimeLimit: time.Second, ScrubByteLimit: 1 << 20, ScrubTimeLimit: time.Minute}
+	return apptypes.PayloadRehearsalConfig{TargetPath: target, LivePath: live, BackupPath: backup, BatchRows: 2, StoredByteLimit: 1 << 20, DecodedByteLimit: 1 << 20, WallTimeLimit: time.Minute, LockTimeLimit: time.Second, ScrubByteLimit: 1 << 20, ScrubTimeLimit: time.Minute, MaxWALBytes: 1 << 30}
 }
 func copyTestFile(t *testing.T, source, dest string) {
 	t.Helper()

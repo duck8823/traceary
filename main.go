@@ -146,7 +146,7 @@ func run() error {
 	sessionDatasource := sqlite.NewSessionDatasource(db)
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
-	payloadRehearsalAdapter := sqlite.NewPayloadRehearsalAdapter(migrationsSubFS)
+	payloadRehearsalAdapter := sqlite.NewPayloadRehearsalAdapter(migrationsSubFS, dbPath)
 	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
 	reportDatasource := sqlite.NewReportDatasource(db)
 	codexCaptureDiagnosticDatasource := sqlite.NewCodexCaptureDiagnosticDatasource(db)
