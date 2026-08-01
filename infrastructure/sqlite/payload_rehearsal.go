@@ -35,12 +35,8 @@ type PayloadRehearsalAdapter struct {
 }
 
 // NewPayloadRehearsalAdapter binds the migration set used by copied targets.
-func NewPayloadRehearsalAdapter(migrations fs.FS, configuredLivePath ...string) *PayloadRehearsalAdapter {
-	adapter := &PayloadRehearsalAdapter{migrations: migrations}
-	if len(configuredLivePath) > 0 {
-		adapter.configuredLivePath = configuredLivePath[0]
-	}
-	return adapter
+func NewPayloadRehearsalAdapter(migrations fs.FS, configuredLivePath string) *PayloadRehearsalAdapter {
+	return &PayloadRehearsalAdapter{migrations: migrations, configuredLivePath: configuredLivePath}
 }
 
 var _ application.PayloadRehearsalPreview = (*PayloadRehearsalAdapter)(nil)
@@ -122,6 +118,7 @@ func writableRehearsalDSN(path string, lock time.Duration) string {
 	q := url.Values{}
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", max(1, lock.Milliseconds())))
+	q.Set("_txlock", "immediate")
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: q.Encode()}).String()
 }
 
@@ -235,12 +232,12 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 		}
 		if !time.Now().Before(deadline) {
 			metrics.State = "paused"
-			_ = setRunStateWithLease(ctx, db, runID, leaseToken, "paused")
+			_ = pauseRunState(ctx, db, runID, leaseToken)
 			metrics.After, _ = componentSnapshots(id.canonical)
 			return metrics, nil
 		}
 	}
-	if err = setRunStateWithLease(ctx, db, runID, leaseToken, "completed"); err != nil {
+	if err = completeRunState(ctx, db, runID, leaseToken); err != nil {
 		return metrics, err
 	}
 	metrics.State = "completed"
@@ -353,7 +350,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_rows WHERE run_id=?`, run).Scan(&shadowTotal); err != nil || changedTotal != shadowTotal {
 		return m, errors.New("scrub shadow total mismatch")
 	}
-	if err = setRunStateWithLease(ctx, db, run, lease, "scrubbed"); err != nil {
+	if err = completeScrubState(ctx, db, run, lease); err != nil {
 		return m, err
 	}
 	m.State = "scrubbed"
@@ -384,8 +381,10 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact unavailable")
 	}
-	if _, err = os.Stat(id.canonical + "-wal"); !os.IsNotExist(err) {
-		return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, statErr := os.Lstat(id.canonical + suffix); !os.IsNotExist(statErr) {
+			return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
+		}
 	}
 	currentDB, openErr := sql.Open("sqlite", immutableRehearsalDSN(id.canonical))
 	if openErr != nil {
@@ -398,6 +397,16 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	safeState := runState == "paused" || runState == "completed" || runState == "scrubbed" || runState == "failed"
 	if stateErr != nil || !safeState || activeLease != 0 || recordedDigest != digest {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact does not match a safe rehearsal state")
+	}
+	rechecked, recheckErr := a.inspectTarget(c.TargetPath, c.LivePath)
+	freshBackup, backupErr := secureFileIdentity(c.BackupPath)
+	if recheckErr != nil || backupErr != nil || !os.SameFile(id.info, rechecked.info) || !os.SameFile(backupIdentity.info, freshBackup.info) {
+		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, statErr := os.Lstat(rechecked.canonical + suffix); !os.IsNotExist(statErr) {
+			return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
+		}
 	}
 	if err = copyFileAtomic(c.BackupPath, id.canonical); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("restore rollback artifact: %w", err)
@@ -431,7 +440,17 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 }
 
 func activationReadiness(liveIdentity, backup, headroom, complete, scrub, rollback bool) apptypes.PayloadActivationReadiness {
-	return apptypes.PayloadActivationReadiness{CompatibleReader: true, LiveIdentityOnly: liveIdentity, BackupVerified: backup, HeadroomSufficient: headroom, RehearsalComplete: complete, ScrubPassed: scrub, RollbackVerified: rollback, ActivationAllowed: false}
+	status := func(value bool) apptypes.ReadinessGateStatus {
+		if value {
+			return apptypes.ReadinessPassed
+		}
+		return apptypes.ReadinessUnknown
+	}
+	headroomStatus := apptypes.ReadinessFailed
+	if headroom {
+		headroomStatus = apptypes.ReadinessPassed
+	}
+	return apptypes.PayloadActivationReadiness{CompatibleReader: true, LiveIdentityOnly: liveIdentity, BackupVerified: backup, HeadroomSufficient: headroom, RehearsalComplete: complete, ScrubPassed: scrub, RollbackVerified: rollback, ActivationAllowed: false, MinimumReaderStatus: apptypes.ReadinessPassed, OldProcessesStoppedStatus: apptypes.ReadinessUnknown, BackupStatus: status(backup), HeadroomStatus: headroomStatus, ScrubStatus: status(scrub), RollbackStatus: status(rollback), EvidenceAt: time.Now().UTC()}
 }
 
 func inspectLiveCompatibility(ctx context.Context, path string) (bool, error) {

@@ -7,6 +7,7 @@ import "os"
 func physicalFileIdentity(info os.FileInfo) (string, string, bool) {
 	return info.Name(), "portable-samefile", true
 }
+func physicalLinkCount(os.FileInfo) uint64 { return 1 }
 
 // os.SameFile remains the authoritative alias check on non-Unix hosts. The
 // portable os.FileInfo contract does not expose a hard-link count.

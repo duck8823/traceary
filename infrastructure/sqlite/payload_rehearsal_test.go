@@ -49,7 +49,7 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	}
 	copyTestFile(t, live, target)
 
-	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	preview, err := adapter.Preview(ctx, config)
 	if err != nil {
@@ -275,7 +275,7 @@ func TestPayloadRehearsalResumesAfterArbitraryCommittedBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	copyTestFile(t, live, target)
-	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	config.BatchRows = 1
 	config.WallTimeLimit = time.Minute
@@ -407,7 +407,7 @@ func TestPayloadRehearsalCommitsBoundedPrefixBeforeOversizeRow(t *testing.T) {
 	}
 	_ = db.Close()
 	copyTestFile(t, live, target)
-	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	config.StoredByteLimit = 10
 	if _, err = adapter.Run(ctx, config, false); err == nil {
@@ -462,7 +462,7 @@ func TestPayloadRehearsalEnforcesWALHardCap(t *testing.T) {
 	}
 	_ = db.Close()
 	copyTestFile(t, live, target)
-	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	config.MaxWALBytes = 1
 	result, err := adapter.Run(ctx, config, false)
@@ -496,7 +496,7 @@ func TestPayloadRehearsalScrubPersistsCappedPrefixAndLeasesWorkers(t *testing.T)
 	}
 	_ = db.Close()
 	copyTestFile(t, live, target)
-	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
 	config := rehearsalTestConfig(target, live, backup)
 	if _, err = adapter.Run(ctx, config, false); err != nil {
 		t.Fatal(err)
@@ -573,7 +573,7 @@ func TestPayloadRehearsalPreviewReportsMigrationRequiredWithoutWriting(t *testin
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
 	config := rehearsalTestConfig(target, live, filepath.Join(dir, "backup.db"))
 	before, err := os.Stat(target)
 	if err != nil {
@@ -598,7 +598,7 @@ func TestPayloadRehearsalRejectsLiveAliases(t *testing.T) {
 	if err := os.WriteFile(live, []byte("not sqlite"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	adapter := infra.NewPayloadRehearsalAdapter(nil)
+	adapter := infra.NewPayloadRehearsalAdapter(nil, live)
 	for _, tc := range []struct {
 		name, target string
 		prepare      func() error
@@ -636,7 +636,7 @@ func TestPayloadRehearsalAppliesCommonCompatibilityGateToLiveAndTarget(t *testin
 			t.Fatal(err)
 		}
 	}
-	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations, live)
 	config := rehearsalTestConfig(target, live, filepath.Join(dir, "backup.db"))
 	mutate := func(t *testing.T, path, statement string) {
 		t.Helper()
@@ -684,7 +684,8 @@ func TestPayloadRehearsalAppliesCommonCompatibilityGateToLiveAndTarget(t *testin
 	}
 	legacyConfig := config
 	legacyConfig.LivePath = legacy
-	if _, err = adapter.Preview(ctx, legacyConfig); err != nil {
+	legacyAdapter := infra.NewPayloadRehearsalAdapter(migrations, legacy)
+	if _, err = legacyAdapter.Preview(ctx, legacyConfig); err != nil {
 		t.Fatalf("legacy live compatibility: %v", err)
 	}
 }

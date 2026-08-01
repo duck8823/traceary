@@ -130,7 +130,11 @@ func componentSnapshots(path string) ([]apptypes.PayloadRehearsalFileState, erro
 		if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 			return nil, ErrUnsafeRehearsalTarget
 		}
-		s := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%d", component.name, fi.Size(), fi.ModTime().UnixNano())))
+		device, inode, ok := physicalFileIdentity(fi)
+		if !ok {
+			return nil, ErrUnsafeRehearsalTarget
+		}
+		s := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%d:%d:%d", component.name, device, inode, physicalLinkCount(fi), fi.Size(), fi.ModTime().UnixNano())))
 		result = append(result, apptypes.PayloadRehearsalFileState{Component: component.name, Exists: true, SizeBytes: fi.Size(), ModUnixNS: fi.ModTime().UnixNano(), Identity: hex.EncodeToString(s[:])})
 	}
 	return result, nil

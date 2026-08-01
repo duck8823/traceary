@@ -11,6 +11,7 @@ const (
 	PayloadRehearsalCompleted  PayloadRehearsalState = "completed"
 	PayloadRehearsalScrubbed   PayloadRehearsalState = "scrubbed"
 	PayloadRehearsalRolledBack PayloadRehearsalState = "rolled_back"
+	PayloadRehearsalFailed     PayloadRehearsalState = "failed"
 )
 
 // FreezesCanonical reports whether source rows must remain immutable.
@@ -51,15 +52,30 @@ func (c PayloadRehearsalConfig) Valid() bool {
 }
 
 // PayloadActivationReadiness reports v0.35 prerequisites without activating them.
+type ReadinessGateStatus string
+
+const (
+	ReadinessUnknown ReadinessGateStatus = "unknown"
+	ReadinessPassed  ReadinessGateStatus = "passed"
+	ReadinessFailed  ReadinessGateStatus = "failed"
+)
+
 type PayloadActivationReadiness struct {
-	CompatibleReader   bool `json:"compatible_reader"`
-	LiveIdentityOnly   bool `json:"live_identity_only"`
-	BackupVerified     bool `json:"backup_verified"`
-	HeadroomSufficient bool `json:"headroom_sufficient"`
-	RehearsalComplete  bool `json:"rehearsal_complete"`
-	ScrubPassed        bool `json:"scrub_passed"`
-	RollbackVerified   bool `json:"rollback_verified"`
-	ActivationAllowed  bool `json:"activation_allowed"`
+	CompatibleReader          bool                `json:"compatible_reader"`
+	LiveIdentityOnly          bool                `json:"live_identity_only"`
+	BackupVerified            bool                `json:"backup_verified"`
+	HeadroomSufficient        bool                `json:"headroom_sufficient"`
+	RehearsalComplete         bool                `json:"rehearsal_complete"`
+	ScrubPassed               bool                `json:"scrub_passed"`
+	RollbackVerified          bool                `json:"rollback_verified"`
+	ActivationAllowed         bool                `json:"activation_allowed"`
+	MinimumReaderStatus       ReadinessGateStatus `json:"minimum_reader_status"`
+	OldProcessesStoppedStatus ReadinessGateStatus `json:"old_processes_stopped_status"`
+	BackupStatus              ReadinessGateStatus `json:"backup_status"`
+	HeadroomStatus            ReadinessGateStatus `json:"headroom_status"`
+	ScrubStatus               ReadinessGateStatus `json:"scrub_status"`
+	RollbackStatus            ReadinessGateStatus `json:"rollback_status"`
+	EvidenceAt                time.Time           `json:"evidence_at"`
 }
 
 // PayloadRehearsalFileState is a body-free DB/WAL/SHM snapshot.

@@ -15,6 +15,13 @@ func physicalFileIdentity(info os.FileInfo) (string, string, bool) {
 	}
 	return fmt.Sprint(stat.Dev), fmt.Sprint(stat.Ino), true
 }
+func physicalLinkCount(info os.FileInfo) uint64 {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0
+	}
+	return uint64(stat.Nlink)
+}
 
 func fileLinkCountOne(info os.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)

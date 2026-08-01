@@ -75,18 +75,18 @@ func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity
 	if err != nil {
 		return "", "", "", "", xerrors.Errorf("generate opaque rehearsal run: %w", err)
 	}
-	if e := db.QueryRowContext(ctx, `SELECT coalesce(max(id),'') FROM events`).Scan(&eventHigh); e != nil {
-		return "", "", "", "", e
-	}
-	if e := db.QueryRowContext(ctx, `SELECT coalesce(max(event_id),'') FROM command_audits`).Scan(&auditHigh); e != nil {
-		return "", "", "", "", e
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
 	tx, e := db.BeginTx(ctx, nil)
 	if e != nil {
 		return "", "", "", "", e
 	}
 	defer func() { _ = tx.Rollback() }()
+	if e := tx.QueryRowContext(ctx, `SELECT coalesce(max(id),'') FROM events`).Scan(&eventHigh); e != nil {
+		return "", "", "", "", e
+	}
+	if e := tx.QueryRowContext(ctx, `SELECT coalesce(max(event_id),'') FROM command_audits`).Scan(&auditHigh); e != nil {
+		return "", "", "", "", e
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, e = tx.ExecContext(ctx, `INSERT INTO payload_rehearsal_runs(run_id,target_fingerprint,config_hash,state,event_high_water,audit_high_water,started_at,updated_at,rollback_digest,target_device,target_inode,lease_token,lease_expires_at) VALUES(?,?,?,'running',?,?,?,?,?,?,?,?,?)`, run, identity.opaque, configHash, eventHigh, auditHigh, now, now, backupDigest, identity.device, identity.inode, lease, time.Now().UTC().Add(30*time.Second).Format(time.RFC3339Nano)); e != nil {
 		return "", "", "", "", e
 	}
@@ -195,13 +195,8 @@ func commitRehearsalBatch(ctx context.Context, db *sql.DB, run, lease string, f 
 	return tx.Commit()
 }
 
-//nolint:wrapcheck // fixed SQL state mutation is internal to the adapter.
-func setRunState(ctx context.Context, db *sql.DB, run, state string) error {
-	_, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?,completed_at=CASE WHEN ? IN ('completed','scrubbed','rolled_back') THEN ? ELSE completed_at END WHERE run_id=?`, state, time.Now().UTC().Format(time.RFC3339Nano), state, time.Now().UTC().Format(time.RFC3339Nano), run)
-	return err
-}
-func setRunStateWithLease(ctx context.Context, db *sql.DB, run, lease, state string) error {
-	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?,completed_at=CASE WHEN ?='completed' THEN ? ELSE completed_at END WHERE run_id=? AND lease_token=?`, state, time.Now().UTC().Format(time.RFC3339Nano), state, time.Now().UTC().Format(time.RFC3339Nano), run, lease)
+func transitionRunWithLease(ctx context.Context, db *sql.DB, run, lease string, state apptypes.PayloadRehearsalState) error {
+	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?,completed_at=CASE WHEN ? IN ('completed','scrubbed') THEN ? ELSE completed_at END WHERE run_id=? AND lease_token=?`, string(state), time.Now().UTC().Format(time.RFC3339Nano), string(state), time.Now().UTC().Format(time.RFC3339Nano), run, lease)
 	if err != nil {
 		return err
 	}
@@ -211,10 +206,19 @@ func setRunStateWithLease(ctx context.Context, db *sql.DB, run, lease, state str
 	}
 	return nil
 }
+func completeRunState(ctx context.Context, db *sql.DB, run, lease string) error {
+	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalCompleted)
+}
+func completeScrubState(ctx context.Context, db *sql.DB, run, lease string) error {
+	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalScrubbed)
+}
+func pauseRunState(ctx context.Context, db *sql.DB, run, lease string) error {
+	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalPaused)
+}
 func pauseRun(ctx context.Context, db *sql.DB, run, lease string, cause error) error {
 	pauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	_ = setRunStateWithLease(pauseCtx, db, run, lease, "paused")
+	_ = pauseRunState(pauseCtx, db, run, lease)
 	return cause
 }
 
