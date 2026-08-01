@@ -388,6 +388,9 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if err != nil || recheckedMigrationIdentity != preMigrationIdentity {
 		return nil, apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
+	if err = requireLiveIdentityOnly(ctx, c.LivePath); err != nil {
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
+	}
 	if measuredMigrationWAL > 0 {
 		pageBytes := minimumWAL - 32
 		reservedFrames := max(int64(1), (measuredMigrationWAL-32+pageBytes-1)/pageBytes)
