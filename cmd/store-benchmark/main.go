@@ -41,14 +41,15 @@ type fixtureInfo struct {
 	AcceptedMemories int    `json:"accepted_memories,omitempty"`
 }
 type caseResult struct {
-	Name      string   `json:"name"`
-	Status    string   `json:"status"`
-	TimeoutMS int64    `json:"timeout_ms,omitempty"`
-	ColdP50US int64    `json:"cold_p50_us"`
-	ColdP95US int64    `json:"cold_p95_us"`
-	WarmP50US int64    `json:"warm_p50_us"`
-	WarmP95US int64    `json:"warm_p95_us"`
-	QueryPlan []string `json:"query_plan"`
+	Name                string   `json:"name"`
+	Status              string   `json:"status"`
+	TimeoutMS           int64    `json:"timeout_ms,omitempty"`
+	ElapsedLowerBoundUS int64    `json:"elapsed_lower_bound_us,omitempty"`
+	ColdP50US           int64    `json:"cold_p50_us"`
+	ColdP95US           int64    `json:"cold_p95_us"`
+	WarmP50US           int64    `json:"warm_p50_us"`
+	WarmP95US           int64    `json:"warm_p95_us"`
+	QueryPlan           []string `json:"query_plan"`
 }
 
 func main() {
@@ -70,7 +71,7 @@ func main() {
 		}
 		return
 	}
-	if (dbPath == "") == (synthetic == "") || iterations < 1 || smallRows < 1 || largeRows < 1 || caseTimeout <= 0 {
+	if (dbPath == "") == (synthetic == "") || iterations < 1 || smallRows < 1 || largeRows < 1 || caseTimeout < time.Millisecond {
 		fatal("specify exactly one of --db or --synthetic and positive counts")
 	}
 	ctx := context.Background()
@@ -97,11 +98,16 @@ func main() {
 	results := make([]caseResult, 0, len(benchmarkCases))
 	overallStatus := "passed"
 	for _, benchmarkCase := range benchmarkCases {
+		plan, err := explainCase(ctx, dbPath, benchmarkCase.SQL, benchmarkCase.Args)
+		if err != nil {
+			fatal(fmt.Sprintf("%s plan: %v", benchmarkCase.Name, err))
+		}
+		started := time.Now()
 		caseCtx, cancel := context.WithTimeout(ctx, caseTimeout)
 		if benchmarkCase.Name == "active" || benchmarkCase.Name == "latest" {
 			matched, err := queryHasRows(caseCtx, dbPath, benchmarkCase.SQL, benchmarkCase.Args)
 			if errors.Is(err, context.DeadlineExceeded) {
-				results = append(results, timeoutResult(benchmarkCase.Name, caseTimeout))
+				results = append(results, timeoutResult(benchmarkCase.Name, caseTimeout, time.Since(started), plan))
 				overallStatus = "timeout"
 				cancel()
 				continue
@@ -113,7 +119,7 @@ func main() {
 		result, err := benchmark(caseCtx, dbPath, iterations, benchmarkCase.Name, benchmarkCase.SQL, benchmarkCase.Args)
 		cancel()
 		if errors.Is(err, context.DeadlineExceeded) {
-			results = append(results, timeoutResult(benchmarkCase.Name, caseTimeout))
+			results = append(results, timeoutResult(benchmarkCase.Name, caseTimeout, time.Since(started), plan))
 			overallStatus = "timeout"
 			continue
 		}
@@ -127,10 +133,15 @@ func main() {
 		expected = &handoffCardinality{Commands: info.CommandRows, Memories: info.AcceptedMemories}
 	}
 	handoffCtx, cancelHandoff := context.WithTimeout(ctx, caseTimeout)
+	handoffPlan, err := explainHandoff(ctx, dbPath)
+	if err != nil {
+		fatal(fmt.Sprintf("handoff plan: %v", err))
+	}
+	handoffStarted := time.Now()
 	handoff, err := benchmarkHandoff(handoffCtx, dbPath, iterations, expected)
 	cancelHandoff()
 	if errors.Is(err, context.DeadlineExceeded) {
-		handoff = timeoutResult("handoff", caseTimeout)
+		handoff = timeoutResult("handoff", caseTimeout, time.Since(handoffStarted), handoffPlan)
 		overallStatus = "timeout"
 		err = nil
 	}
@@ -143,8 +154,36 @@ func main() {
 	}
 }
 
-func timeoutResult(name string, limit time.Duration) caseResult {
-	return caseResult{Name: name, Status: "timeout", TimeoutMS: limit.Milliseconds()}
+func timeoutResult(name string, limit, elapsed time.Duration, plan []string) caseResult {
+	return caseResult{Name: name, Status: "timeout", TimeoutMS: limit.Milliseconds(), ElapsedLowerBoundUS: elapsed.Microseconds(), QueryPlan: plan}
+}
+
+func explainCase(ctx context.Context, path, query string, args []any) ([]string, error) {
+	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	if err != nil {
+		return nil, fmt.Errorf("open plan store: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	return queryPlan(ctx, db, query, args)
+}
+
+func explainHandoff(ctx context.Context, path string) ([]string, error) {
+	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	if err != nil {
+		return nil, fmt.Errorf("open handoff plan store: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	var plans []string
+	for _, step := range infra.CapacityHandoffPlanQueries() {
+		details, err := queryPlan(ctx, db, step.SQL, step.Args)
+		if err != nil {
+			return nil, err
+		}
+		for _, detail := range details {
+			plans = append(plans, step.Name+": "+detail)
+		}
+	}
+	return plans, nil
 }
 
 func queryHasRows(ctx context.Context, path, query string, args []any) (bool, error) {

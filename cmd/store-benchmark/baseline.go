@@ -54,19 +54,21 @@ func validateBaseline(artifact baselineArtifact) error {
 		return fmt.Errorf("capacity evidence status must be explicit")
 	}
 	wanted := map[string]bool{"active": false, "latest": false, "handoff": false, "search": false}
+	hasTimeout := false
 	for _, item := range artifact.Benchmark.Cases {
 		if _, ok := wanted[item.Name]; !ok {
 			return fmt.Errorf("unexpected benchmark case %q", item.Name)
 		}
+		if len(item.QueryPlan) == 0 {
+			return fmt.Errorf("benchmark case %q has no query plan", item.Name)
+		}
 		switch item.Status {
 		case "timeout":
-			if item.TimeoutMS <= 0 {
+			hasTimeout = true
+			if item.TimeoutMS <= 0 || item.ElapsedLowerBoundUS <= 0 {
 				return fmt.Errorf("benchmark case %q timeout has no positive limit", item.Name)
 			}
 		case "passed":
-			if len(item.QueryPlan) == 0 {
-				return fmt.Errorf("benchmark case %q has no query plan", item.Name)
-			}
 			if item.ColdP50US <= 0 || item.ColdP95US <= 0 || item.WarmP50US <= 0 || item.WarmP95US <= 0 {
 				return fmt.Errorf("benchmark case %q has placeholder timing", item.Name)
 			}
@@ -74,6 +76,9 @@ func validateBaseline(artifact baselineArtifact) error {
 			return fmt.Errorf("benchmark case %q has invalid status", item.Name)
 		}
 		wanted[item.Name] = true
+	}
+	if hasTimeout != (artifact.Benchmark.Status == "timeout") {
+		return fmt.Errorf("benchmark report status does not match case statuses")
 	}
 	for name, found := range wanted {
 		if !found {

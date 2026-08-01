@@ -36,4 +36,4 @@ fixture は canonical production migration と query source を使います。`-
 
 `capacity-baseline.sample.json` をコピーし、placeholder の timing と plan を sanitized な実測値へ置き換え、`go run ./cmd/store-benchmark --validate-baseline ./capacity-baseline.json` で検証します。validator は 21.4 GiB shape（許容差 256 MiB）、明示的な容量 evidence、正の timing、4 つの production query plan を要求します。path、bind value、host name、識別子を追加しません。
 
-各 case は `--case-timeout`（default `2m`）で制限します。timeout は `status: "timeout"` と `timeout_ms` を持つ machine-readable evidenceとして出力されます。validator は再現可能な診断証跡として受理しますが、release target の性能証跡として扱うのは `status: "passed"` だけです。
+各 case は `--case-timeout`（default `2m`、minimum `1ms`）で制限します。plan は timed execution より先に取得するため、timeout でも sanitized `query_plan`、`timeout_ms`、right-censored `elapsed_lower_bound_us` を出力します。未完走の p50/p95 は捏造しません。case が1件でもtimeoutならreportもtimeoutです。診断証跡としては有効ですが、release performance targetを満たすのは観測済みp50/p95を持つ`passed`だけです。

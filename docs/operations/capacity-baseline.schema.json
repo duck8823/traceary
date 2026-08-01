@@ -33,15 +33,20 @@
   "$defs": {
     "case": {
       "type": "object", "additionalProperties": false,
-      "required": ["name", "status"],
+      "required": ["name", "status", "query_plan"],
       "properties": {
         "name": { "enum": ["active", "latest", "handoff", "search"] },
         "status": { "enum": ["passed", "timeout"] },
         "timeout_ms": { "type": "integer", "minimum": 1 },
+        "elapsed_lower_bound_us": { "type": "integer", "minimum": 1 },
         "cold_p50_us": { "type": "integer", "minimum": 1 }, "cold_p95_us": { "type": "integer", "minimum": 1 },
         "warm_p50_us": { "type": "integer", "minimum": 1 }, "warm_p95_us": { "type": "integer", "minimum": 1 },
         "query_plan": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
-      }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "timeout" } } }, "then": { "required": ["timeout_ms", "elapsed_lower_bound_us"] } },
+        { "if": { "properties": { "status": { "const": "passed" } } }, "then": { "required": ["cold_p50_us", "cold_p95_us", "warm_p50_us", "warm_p95_us"] } }
+      ]
     }
   }
 }

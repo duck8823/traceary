@@ -24,7 +24,7 @@ func TestValidateBaselineRequiresMeasuredFourCaseEvidence(t *testing.T) {
 		t.Fatal("placeholder timing accepted")
 	}
 	artifact.Benchmark.Status = "timeout"
-	artifact.Benchmark.Cases[0] = caseResult{Name: "active", Status: "timeout", TimeoutMS: 120000}
+	artifact.Benchmark.Cases[0] = caseResult{Name: "active", Status: "timeout", TimeoutMS: 120000, ElapsedLowerBoundUS: 120000000, QueryPlan: []string{"SCAN production_index"}}
 	artifact.Benchmark.Cases[1].ColdP50US = 1
 	if err := validateBaseline(artifact); err != nil {
 		t.Fatalf("timeout baseline rejected: %v", err)
