@@ -175,6 +175,26 @@ func ensurePhysicalBackup(source, dest string) (string, error) {
 	return fileDigest(dest)
 }
 
+func validateBackupIndependence(backup string, forbidden ...string) error {
+	backupInfo, err := os.Stat(backup)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return ErrUnsafeRehearsalTarget
+	}
+	if linkInfo, linkErr := os.Lstat(backup); linkErr != nil || linkInfo.Mode()&os.ModeSymlink != 0 || !backupInfo.Mode().IsRegular() || !fileLinkCountOne(backupInfo) {
+		return ErrUnsafeRehearsalTarget
+	}
+	for _, path := range forbidden {
+		info, statErr := os.Stat(path)
+		if statErr == nil && os.SameFile(backupInfo, info) {
+			return ErrUnsafeRehearsalTarget
+		}
+	}
+	return nil
+}
+
 //nolint:wrapcheck // caller provides the safe rollback operation context.
 func copyFileAtomic(source, dest string) error {
 	in, err := os.Open(source)

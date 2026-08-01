@@ -149,6 +149,26 @@ func writableRehearsalDSN(path string, lock time.Duration) string {
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: q.Encode()}).String()
 }
 
+func liveReadOnlyDSN(path string) string {
+	q := url.Values{}
+	q.Set("mode", "ro")
+	q.Add("_pragma", "query_only(1)")
+	return (&url.URL{Scheme: "file", Path: path, RawQuery: q.Encode()}).String()
+}
+
+func observeWALPeak(path string, minimum, maximum int64, peak *int64) error {
+	if minimum > *peak {
+		*peak = minimum
+	}
+	if info, err := os.Stat(path + "-wal"); err == nil && info.Size() > *peak {
+		*peak = info.Size()
+	}
+	if *peak > maximum {
+		return errors.New("rehearsal WAL hard cap exceeded")
+	}
+	return nil
+}
+
 // Run creates or resumes bounded zstd shadow rows without changing canonical payloads.
 func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadRehearsalConfig, resume bool) (apptypes.PayloadRehearsalMetrics, error) {
 	id, err := a.inspectTarget(c.TargetPath, c.LivePath)
@@ -168,6 +188,9 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	}
 	if c.BackupPath == "" {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("payload rehearsal run requires a physical rollback artifact")
+	}
+	if err = validateBackupIndependence(c.BackupPath, id.canonical, c.LivePath, a.configuredLivePath); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	freeBytes, freeErr := filesystemFreeBytes(filepath.Dir(id.canonical))
 	if freeErr != nil {
@@ -189,6 +212,14 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	minimumWAL, walErr := minimumWALFrameBytes(ctx, id.canonical)
+	if walErr != nil {
+		return apptypes.PayloadRehearsalMetrics{}, walErr
+	}
+	if c.MaxWALBytes < minimumWAL {
+		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: minimumWAL, RollbackDigest: backupDigest, RollbackVerified: true}, errors.New("rehearsal WAL hard cap is smaller than one SQLite WAL frame")
+	}
+	peakWAL := minimumWAL
 	if a.beforeInitialize != nil {
 		a.beforeInitialize()
 	}
@@ -200,11 +231,17 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err = NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
 	}
+	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &peakWAL); err != nil {
+		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: true}, err
+	}
 	db, err := sql.Open("sqlite", writableRehearsalDSN(id.canonical, c.LockTimeLimit))
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("open rehearsal target: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+	if _, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
@@ -220,7 +257,10 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
+	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, PeakWALBytes: peakWAL, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
+	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); err != nil {
+		return metrics, pauseRun(ctx, db, runID, leaseToken, err, guard)
+	}
 	deadline := time.Now().Add(c.WallTimeLimit)
 	for _, f := range rehearsalFields {
 		high := eventHigh
@@ -243,6 +283,9 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 					return metrics, e
 				}
 				if e = markRehearsalLaneComplete(ctx, db, runID, leaseToken, f, guard); e != nil {
+					return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard)
+				}
+				if e = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); e != nil {
 					return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard)
 				}
 				break
@@ -308,6 +351,9 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err = completeRunState(ctx, db, runID, leaseToken, guard); err != nil {
 		return metrics, err
 	}
+	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); err != nil {
+		return metrics, err
+	}
 	metrics.State = "completed"
 	metrics.ActivationReadiness = activationReadiness(liveIdentity, true, true, true, false, false)
 	metrics.After, _ = componentSnapshots(id.canonical)
@@ -334,6 +380,13 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	minimumWAL, err := minimumWALFrameBytes(ctx, id.canonical)
+	if err != nil || c.MaxWALBytes < minimumWAL {
+		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: minimumWAL}, errors.New("scrub WAL hard cap is smaller than one SQLite WAL frame")
+	}
+	if _, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	var run string
 	if err = db.QueryRowContext(ctx, `SELECT run_id FROM payload_rehearsal_runs WHERE target_fingerprint=? AND state='completed'`, id.opaque).Scan(&run); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
@@ -348,7 +401,10 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	}
 	defer releaseScrubLease(db, run, lease, guard)
 	deadline := time.Now().Add(c.ScrubTimeLimit)
-	m := apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity}
+	m := apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity, PeakWALBytes: minimumWAL}
+	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
+		return m, err
+	}
 	var bytes int64
 	for _, f := range rehearsalFields {
 		var last string
@@ -359,17 +415,22 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 			if time.Now().After(deadline) || bytes >= c.ScrubByteLimit {
 				return m, errors.New("scrub resource cap reached; resume scrub with the persisted checkpoint")
 			}
-			rows, queryErr := db.QueryContext(ctx, `SELECT source_primary_key,source_sha256,payload,codec,format_version,plaintext_bytes,stored_bytes,payload_sha256 FROM payload_rehearsal_rows WHERE run_id=? AND table_kind=? AND field_kind=? AND source_primary_key>? ORDER BY source_primary_key LIMIT ?`, run, f.table, f.field, last, c.BatchRows)
+			rows, queryErr := db.QueryContext(ctx, `SELECT source_primary_key,source_sha256,length(payload),CASE WHEN length(payload)<=? THEN payload ELSE NULL END,codec,format_version,plaintext_bytes,stored_bytes,payload_sha256 FROM payload_rehearsal_rows WHERE run_id=? AND table_kind=? AND field_kind=? AND source_primary_key>? ORDER BY source_primary_key LIMIT ?`, c.ScrubByteLimit, run, f.table, f.field, last, c.BatchRows)
 			if queryErr != nil {
 				return m, queryErr
 			}
 			count := 0
 			for rows.Next() {
 				var key, sourceSHA string
+				var payloadLength int64
 				var p payloadRow
-				if err = rows.Scan(&key, &sourceSHA, &p.Stored, &p.Codec, &p.FormatVersion, &p.PlaintextBytes, &p.StoredBytes, &p.SHA256); err != nil {
+				if err = rows.Scan(&key, &sourceSHA, &payloadLength, &p.Stored, &p.Codec, &p.FormatVersion, &p.PlaintextBytes, &p.StoredBytes, &p.SHA256); err != nil {
 					_ = rows.Close()
 					return m, err
+				}
+				if payloadLength > c.ScrubByteLimit {
+					_ = rows.Close()
+					return m, errors.New("single shadow payload exceeds scrub hard cap")
 				}
 				if bytes+int64(len(p.Stored)) > c.ScrubByteLimit {
 					_ = rows.Close()
@@ -381,6 +442,9 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 					}
 					if persistErr := persistScrubProgress(ctx, db, run, lease, f, last, count, guard); persistErr != nil {
 						return m, persistErr
+					}
+					if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
+						return m, err
 					}
 					if bytes == 0 {
 						return m, errors.New("single shadow payload exceeds scrub hard cap")
@@ -421,6 +485,9 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 			if err = persistScrubProgress(ctx, db, run, lease, f, last, count, guard); err != nil {
 				return m, err
 			}
+			if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
+				return m, err
+			}
 		}
 	}
 	var mismatched int
@@ -441,6 +508,9 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 		return m, err
 	}
 	if err = completeScrubState(ctx, db, run, lease, guard); err != nil {
+		return m, err
+	}
+	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
 		return m, err
 	}
 	m.State = "scrubbed"
@@ -550,7 +620,7 @@ func activationReadiness(liveIdentity, backup, headroom, complete, scrub, rollba
 }
 
 func inspectLiveCompatibility(ctx context.Context, path string) (bool, error) {
-	db, err := sql.Open("sqlite", immutableRehearsalDSN(path))
+	db, err := sql.Open("sqlite", liveReadOnlyDSN(path))
 	if err != nil {
 		return false, xerrors.Errorf("open immutable live compatibility check: %w", err)
 	}
@@ -575,4 +645,17 @@ func inspectLiveCompatibility(ctx context.Context, path string) (bool, error) {
 		return false, xerrors.Errorf("inspect live payload codecs: %w", err)
 	}
 	return n == 0, nil
+}
+
+func minimumWALFrameBytes(ctx context.Context, path string) (int64, error) {
+	db, err := sql.Open("sqlite", immutableRehearsalDSN(path))
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = db.Close() }()
+	var pageSize int64
+	if err = db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize); err != nil || pageSize <= 0 {
+		return 0, errors.New("cannot determine SQLite WAL frame size")
+	}
+	return 32 + 24 + pageSize, nil
 }

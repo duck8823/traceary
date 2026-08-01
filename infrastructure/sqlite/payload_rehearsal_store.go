@@ -125,8 +125,8 @@ func selectRehearsalBatch(ctx context.Context, db *sql.DB, run string, f rehears
 	if state == "complete" {
 		return nil, true, nil
 	}
-	q := fmt.Sprintf(`SELECT %s,%s,%s_codec,%s_format_version,%s_plaintext_bytes,%s_encoded_bytes,%s_sha256 FROM %s WHERE %s>? AND %s<=? ORDER BY %s LIMIT ?`, f.pk, f.column, f.codecPrefix, f.codecPrefix, f.codecPrefix, f.codecPrefix, f.codecPrefix, f.table, f.pk, f.pk, f.pk)
-	rows, err := db.QueryContext(ctx, q, last, high, c.BatchRows)
+	q := fmt.Sprintf(`SELECT %s,length(%s),CASE WHEN length(%s)<=? THEN %s ELSE NULL END,%s_codec,%s_format_version,%s_plaintext_bytes,%s_encoded_bytes,%s_sha256 FROM %s WHERE %s>? AND %s<=? ORDER BY %s LIMIT ?`, f.pk, f.column, f.column, f.column, f.codecPrefix, f.codecPrefix, f.codecPrefix, f.codecPrefix, f.codecPrefix, f.table, f.pk, f.pk, f.pk)
+	rows, err := db.QueryContext(ctx, q, c.StoredByteLimit, last, high, c.BatchRows)
 	if err != nil {
 		return nil, false, err
 	}
@@ -135,9 +135,16 @@ func selectRehearsalBatch(ctx context.Context, db *sql.DB, run string, f rehears
 	var stored, decoded int64
 	for rows.Next() {
 		var key string
+		var payloadLength int64
 		var p payloadRow
-		if err = rows.Scan(&key, &p.Stored, &p.Codec, &p.FormatVersion, &p.PlaintextBytes, &p.StoredBytes, &p.SHA256); err != nil {
+		if err = rows.Scan(&key, &payloadLength, &p.Stored, &p.Codec, &p.FormatVersion, &p.PlaintextBytes, &p.StoredBytes, &p.SHA256); err != nil {
 			return nil, false, err
+		}
+		if payloadLength > c.StoredByteLimit {
+			if len(batch) > 0 {
+				break
+			}
+			return nil, false, errors.New("stored byte cap is smaller than one source payload")
 		}
 		if int64(len(p.Stored)) > c.StoredByteLimit-stored {
 			if len(batch) > 0 {

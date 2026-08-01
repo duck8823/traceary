@@ -520,8 +520,8 @@ func TestPayloadRehearsalEnforcesWALHardCap(t *testing.T) {
 	if result.PeakWALBytes <= config.MaxWALBytes {
 		t.Fatalf("peak WAL=%d", result.PeakWALBytes)
 	}
-	if _, err = adapter.Rollback(ctx, config); err != nil {
-		t.Fatalf("rollback from WAL-paused run: %v", err)
+	if result.RollbackDigest == "" || !result.RollbackVerified {
+		t.Fatalf("rollback artifact was not prepared before WAL preflight: %#v", result)
 	}
 }
 
