@@ -1,0 +1,66 @@
+{
+  "schema_version": "traceary.capacity-baseline/v1",
+  "capacity": {
+    "schema_version": "traceary.capacity/v1",
+    "database_bytes": 23065001984,
+    "free_pages": 0,
+    "wal_bytes": 0,
+    "evidence": {
+      "status": "complete"
+    }
+  },
+  "benchmark": {
+    "schema_version": "traceary.store-benchmark/v1",
+    "status": "timeout",
+    "fixture": {
+      "kind": "copied_store"
+    },
+    "iterations": 15,
+    "cases": [
+      {
+        "name": "active",
+        "status": "timeout",
+        "timeout_ms": 30000,
+        "cold_p50_us": 0,
+        "cold_p95_us": 0,
+        "warm_p50_us": 0,
+        "warm_p95_us": 0,
+        "query_plan": null
+      },
+      {
+        "name": "latest",
+        "status": "timeout",
+        "timeout_ms": 30000,
+        "cold_p50_us": 0,
+        "cold_p95_us": 0,
+        "warm_p50_us": 0,
+        "warm_p95_us": 0,
+        "query_plan": null
+      },
+      {
+        "name": "search",
+        "status": "passed",
+        "cold_p50_us": 13870,
+        "cold_p95_us": 182168,
+        "warm_p50_us": 12151,
+        "warm_p95_us": 14604,
+        "query_plan": [
+          "SCAN event_search_fts VIRTUAL TABLE INDEX 0:M4",
+          "SEARCH d USING INTEGER PRIMARY KEY (rowid=?)",
+          "SEARCH e USING INDEX sqlite_autoindex_events_1 (id=?)",
+          "USE TEMP B-TREE FOR ORDER BY"
+        ]
+      },
+      {
+        "name": "handoff",
+        "status": "timeout",
+        "timeout_ms": 30000,
+        "cold_p50_us": 0,
+        "cold_p95_us": 0,
+        "warm_p50_us": 0,
+        "warm_p95_us": 0,
+        "query_plan": null
+      }
+    ]
+  }
+}
