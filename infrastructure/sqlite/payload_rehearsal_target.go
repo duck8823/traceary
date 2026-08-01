@@ -176,6 +176,9 @@ func ensurePhysicalBackup(source, dest string) (string, error) {
 }
 
 func validateBackupIndependence(backup string, forbidden ...string) error {
+	if err := rejectSymlinkAncestors(backup); err != nil {
+		return err
+	}
 	backupInfo, err := os.Stat(backup)
 	if os.IsNotExist(err) {
 		return nil
@@ -193,6 +196,25 @@ func validateBackupIndependence(backup string, forbidden ...string) error {
 		}
 	}
 	return nil
+}
+
+func rejectSymlinkAncestors(path string) error {
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return ErrUnsafeRehearsalTarget
+	}
+	current := filepath.Dir(abs)
+	for {
+		info, statErr := os.Lstat(current)
+		if statErr != nil || info.Mode()&os.ModeSymlink != 0 {
+			return ErrUnsafeRehearsalTarget
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil
+		}
+		current = parent
+	}
 }
 
 //nolint:wrapcheck // caller provides the safe rollback operation context.

@@ -169,6 +169,26 @@ func observeWALPeak(path string, minimum, maximum int64, peak *int64) error {
 	return nil
 }
 
+func ensureTerminalWALBudget(path string, frameBytes, maximum int64, peak *int64) error {
+	if err := observeWALPeak(path, frameBytes, maximum, peak); err != nil {
+		return err
+	}
+	if *peak > maximum-frameBytes {
+		return errors.New("rehearsal WAL hard cap cannot accommodate terminal transition")
+	}
+	return nil
+}
+
+func transitionTerminalWithinWALBudget(ctx context.Context, db *sql.DB, path, run, lease string, state apptypes.PayloadRehearsalState, frameBytes, maximum int64, peak *int64, guard rehearsalMutationGuard) error {
+	if err := ensureTerminalWALBudget(path, frameBytes, maximum, peak); err != nil {
+		return err
+	}
+	if err := transitionRunWithLease(ctx, db, run, lease, state, guard); err != nil {
+		return err
+	}
+	return observeWALPeak(path, frameBytes, maximum, peak)
+}
+
 // Run creates or resumes bounded zstd shadow rows without changing canonical payloads.
 func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadRehearsalConfig, resume bool) (apptypes.PayloadRehearsalMetrics, error) {
 	id, err := a.inspectTarget(c.TargetPath, c.LivePath)
@@ -212,6 +232,9 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	if err = validateBackupIndependence(c.BackupPath, id.canonical, c.LivePath, a.configuredLivePath); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	minimumWAL, walErr := minimumWALFrameBytes(ctx, id.canonical)
 	if walErr != nil {
 		return apptypes.PayloadRehearsalMetrics{}, walErr
@@ -226,21 +249,26 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err = a.recheckExpectedTarget(id, c, resume); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	// Installing migration 37 is allowed only on the verified copied target.
-	database := NewDatabase(id.canonical, a.migrations)
-	if err = NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
-	}
-	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &peakWAL); err != nil {
-		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: true}, err
-	}
 	db, err := sql.Open("sqlite", writableRehearsalDSN(id.canonical, c.LockTimeLimit))
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("open rehearsal target: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+	db.SetMaxOpenConns(1)
 	if _, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	// Rehearsal migrations share the guarded, single-connection WAL session so
+	// their uncheckpointed peak remains observable before any later mutation.
+	if err = a.recheckExpectedTarget(id, c, resume); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	database := NewDatabase(id.canonical, a.migrations)
+	if err = database.migrate(ctx, db); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
+	}
+	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &peakWAL); err != nil {
+		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: true}, err
 	}
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
@@ -348,10 +376,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return metrics, err
 	}
-	if err = completeRunState(ctx, db, runID, leaseToken, guard); err != nil {
-		return metrics, err
-	}
-	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); err != nil {
+	if err = transitionTerminalWithinWALBudget(ctx, db, id.canonical, runID, leaseToken, apptypes.PayloadRehearsalCompleted, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes, guard); err != nil {
 		return metrics, err
 	}
 	metrics.State = "completed"
@@ -507,10 +532,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return m, err
 	}
-	if err = completeScrubState(ctx, db, run, lease, guard); err != nil {
-		return m, err
-	}
-	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
+	if err = transitionTerminalWithinWALBudget(ctx, db, id.canonical, run, lease, apptypes.PayloadRehearsalScrubbed, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes, guard); err != nil {
 		return m, err
 	}
 	m.State = "scrubbed"
