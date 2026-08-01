@@ -87,9 +87,12 @@ type PayloadRehearsalConfig struct {
 	MaxWALBytes      int64         `json:"max_wal_bytes"`
 }
 
+// MaxPayloadRehearsalBatchRows bounds query and in-memory page cardinality.
+const MaxPayloadRehearsalBatchRows = 4096
+
 // Valid reports whether every safety/resource bound is explicit and positive.
 func (c PayloadRehearsalConfig) Valid() bool {
-	return c.TargetPath != "" && c.LivePath != "" && c.BatchRows > 0 && c.StoredByteLimit > 0 &&
+	return c.TargetPath != "" && c.LivePath != "" && c.BatchRows > 0 && c.BatchRows <= MaxPayloadRehearsalBatchRows && c.StoredByteLimit > 0 &&
 		c.DecodedByteLimit > 0 && c.WallTimeLimit > 0 && c.LockTimeLimit > 0 &&
 		c.ScrubByteLimit > 0 && c.ScrubTimeLimit > 0 && c.MaxWALBytes > 0
 }

@@ -240,7 +240,7 @@ func selectRehearsalBatch(ctx context.Context, db *sql.DB, run string, f rehears
 		return nil, false, err
 	}
 	defer func() { _ = rows.Close() }()
-	batch := make([]selectedPayload, 0, c.BatchRows)
+	batch := make([]selectedPayload, 0, min(c.BatchRows, 64))
 	var stored, decoded int64
 	for rows.Next() {
 		var key string

@@ -122,6 +122,53 @@ func TestPayloadRehearsalFreezesVerifiedShadowRowsAcrossScrubTransactions(t *tes
 	}
 }
 
+func TestPayloadRehearsalScrubDoesNotCheckpointRowsBeyondResourceCaps(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		configure func(*apptypes.PayloadRehearsalConfig)
+	}{
+		{"decoded bytes", func(c *apptypes.PayloadRehearsalConfig) { c.DecodedByteLimit = 3 }},
+		{"deadline", func(c *apptypes.PayloadRehearsalConfig) { c.ScrubTimeLimit = time.Nanosecond }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			adapter, config, _ := newSwapRehearsalFixture(t)
+			if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err != nil {
+				t.Fatal(err)
+			}
+			tc.configure(&config)
+			handle, _, err := adapter.PrepareScrub(context.Background(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "deadline" {
+				time.Sleep(time.Millisecond)
+			}
+			_, done, err := adapter.AdvanceScrubField(context.Background(), handle, apptypes.PayloadRehearsalEventBody)
+			if err == nil || done {
+				t.Fatalf("advance = done %v, error %v", done, err)
+			}
+			if err = adapter.ReleaseScrub(context.Background(), handle); err != nil {
+				t.Fatal(err)
+			}
+			if err = adapter.CloseScrub(handle); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", config.TargetPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			var scrubbed int
+			if err = db.QueryRow(`SELECT scrubbed_rows FROM payload_rehearsal_checkpoints WHERE table_kind='events' AND field_kind='body'`).Scan(&scrubbed); err != nil {
+				t.Fatal(err)
+			}
+			if scrubbed != 0 {
+				t.Fatalf("scrubbed rows = %d", scrubbed)
+			}
+		})
+	}
+}
+
 func TestPayloadRehearsalRejectsTargetSwapBeforeWallTimePause(t *testing.T) {
 	adapter, config, swap := newSwapRehearsalFixture(t)
 	config.WallTimeLimit = time.Nanosecond

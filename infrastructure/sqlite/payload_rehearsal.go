@@ -113,6 +113,7 @@ type payloadRehearsalScrubHandle struct {
 	session           walBudgetedMutationSession
 	metrics           apptypes.PayloadRehearsalMetrics
 	leaseActive       bool
+	deadline          time.Time
 }
 
 func (*payloadRehearsalScrubHandle) PayloadRehearsalScrubHandle() {}
@@ -638,7 +639,7 @@ func (a *PayloadRehearsalAdapter) PrepareScrub(ctx context.Context, c apptypes.P
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	m := apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity, PeakWALBytes: acquirePeak}
-	h := &payloadRehearsalScrubHandle{adapter: a, config: c, id: id, db: db, minimumWAL: minimumWAL, liveIdentity: liveIdentity, runID: run, leaseToken: lease, guard: guard, metrics: m, leaseActive: true}
+	h := &payloadRehearsalScrubHandle{adapter: a, config: c, id: id, db: db, minimumWAL: minimumWAL, liveIdentity: liveIdentity, runID: run, leaseToken: lease, guard: guard, metrics: m, leaseActive: true, deadline: time.Now().Add(c.ScrubTimeLimit)}
 	h.session = walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &h.metrics.PeakWALBytes, lockLimit: c.LockTimeLimit}
 	prepared = true
 	return h, h.metrics, nil
@@ -668,9 +669,13 @@ func (a *PayloadRehearsalAdapter) AdvanceScrubField(ctx context.Context, opaque 
 	}
 	defer func() { _ = rows.Close() }()
 	count := 0
-	var pageBytes int64
+	var pageDecoded int64
 	resourceCapped := false
 	for rows.Next() {
+		if !time.Now().Before(h.deadline) {
+			resourceCapped = true
+			break
+		}
 		var key, sourceSHA string
 		var payloadLength int64
 		var p payloadRow
@@ -684,9 +689,18 @@ func (a *PayloadRehearsalAdapter) AdvanceScrubField(ctx context.Context, opaque 
 			resourceCapped = true
 			break
 		}
-		plain, decodeErr := p.decode(h.config.DecodedByteLimit)
+		remainingDecoded := h.config.DecodedByteLimit - pageDecoded
+		if remainingDecoded <= 0 || (p.PlaintextBytes.Valid && p.PlaintextBytes.Int64 > remainingDecoded) {
+			resourceCapped = true
+			break
+		}
+		plain, decodeErr := p.decode(remainingDecoded)
 		if decodeErr != nil {
 			return h.metrics, false, decodeErr
+		}
+		if !time.Now().Before(h.deadline) {
+			resourceCapped = true
+			break
 		}
 		sum := sha256.Sum256(plain)
 		if hex.EncodeToString(sum[:]) != sourceSHA {
@@ -694,7 +708,7 @@ func (a *PayloadRehearsalAdapter) AdvanceScrubField(ctx context.Context, opaque 
 		}
 		last = key
 		count++
-		pageBytes += int64(len(p.Stored))
+		pageDecoded += int64(len(plain))
 		h.metrics.ScannedRows++
 		h.metrics.StoredBytes += int64(len(p.Stored))
 		h.metrics.PlaintextBytes += int64(len(plain))

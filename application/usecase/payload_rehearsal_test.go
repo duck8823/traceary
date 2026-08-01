@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -111,6 +112,18 @@ func TestPayloadRehearsalUsecaseRejectsUnsafeBackendTransitions(t *testing.T) {
 	u := usecase.NewPayloadRehearsalUsecase(f, f, f, f)
 	if _, err := u.Preview(context.Background(), validRehearsalConfig()); !errors.Is(err, usecase.ErrUnsafePayloadRehearsalTransition) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestPayloadRehearsalUsecaseRejectsUnboundedBatchBeforeBackend(t *testing.T) {
+	f := &rehearsalBackendFake{}
+	c := validRehearsalConfig()
+	c.BatchRows = math.MaxInt
+	if _, err := usecase.NewPayloadRehearsalUsecase(f, f, f, f).Run(context.Background(), c); !errors.Is(err, usecase.ErrInvalidPayloadRehearsalConfig) {
+		t.Fatalf("error = %v", err)
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("backend calls = %v", f.calls)
 	}
 }
 
