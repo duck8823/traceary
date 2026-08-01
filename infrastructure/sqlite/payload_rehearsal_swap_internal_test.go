@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -148,9 +149,12 @@ func TestAtomicCopyRejectsTemporaryPathSubstitution(t *testing.T) {
 			return errors.New("atomic temporary file not found")
 		}
 		if err = os.Rename(matches[0], matches[0]+".stolen"); err != nil {
-			return err
+			return fmt.Errorf("replace atomic temporary path: %w", err)
 		}
-		return os.Symlink(source, matches[0])
+		if err = os.Symlink(source, matches[0]); err != nil {
+			return fmt.Errorf("substitute atomic temporary path: %w", err)
+		}
+		return nil
 	}
 	if err := copyFileAtomicWithHook(source, destination, hook); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 		t.Fatalf("copy error=%v", err)
