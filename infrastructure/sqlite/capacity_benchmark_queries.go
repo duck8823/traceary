@@ -39,5 +39,6 @@ func CapacityHandoffPlanQueries() []CapacityBenchmarkQuery {
 	return []CapacityBenchmarkQuery{
 		{Name: "session_resolution", SQL: listSessionsQuery, Args: []any{"", "", "", "", "", "", "", "", "", "", "", "", false, "", "", "", "", 1, 0}},
 		{Name: "recent_command_previews", SQL: selectRecentCommandPreviewsQuery, Args: []any{"", "", 5, 512}},
+		{Name: "compact_summary", SQL: selectLatestPostCompactSummaryQuery, Args: []any{"", "", ""}},
 	}
 }

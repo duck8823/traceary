@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -11,11 +12,15 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
 //go:embed sql/select_recent_command_previews.sql
 var selectRecentCommandPreviewsQuery string
+
+//go:embed sql/select_latest_post_compact_summary.sql
+var selectLatestPostCompactSummaryQuery string
 
 var _ queryservice.EventPreviewQueryService = (*EventDatasource)(nil)
 
@@ -87,4 +92,23 @@ func scanEventBodyPreview(row interface{ Scan(...any) error }) (apptypes.EventBo
 		return apptypes.EventBodyPreview{}, xerrors.Errorf("failed to restore event body preview: %w", err)
 	}
 	return preview, nil
+}
+
+// FindLatestPostCompactSummary selects the newest usable compact summary on
+// the body-free projection and hydrates only that event.
+func (d *EventDatasource) FindLatestPostCompactSummary(ctx context.Context, sessionID types.SessionID, workspace types.Workspace) (types.Optional[*model.Event], error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return types.None[*model.Event](), xerrors.Errorf("failed to open DB for compact summary preview: %w", err)
+	}
+	defer d.db.release(db)
+	row := db.QueryRowContext(ctx, selectLatestPostCompactSummaryQuery, sessionID.String(), workspace.String(), workspace.String())
+	event, err := scanEvent(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.None[*model.Event](), nil
+	}
+	if err != nil {
+		return types.None[*model.Event](), xerrors.Errorf("failed to restore compact summary preview: %w", err)
+	}
+	return types.Some(event), nil
 }

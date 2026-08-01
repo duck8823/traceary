@@ -10,8 +10,13 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
+
+type compactSummaryPreviewQuery interface {
+	FindLatestPostCompactSummary(context.Context, domtypes.SessionID, domtypes.Workspace) (domtypes.Optional[*model.Event], error)
+}
 
 type contextPackBuilder struct {
 	sessionQuery queryservice.SessionQueryService
@@ -148,6 +153,16 @@ func (b *contextPackBuilder) loadRecentCommands(ctx context.Context, session app
 }
 
 func (b *contextPackBuilder) loadCompactSummary(ctx context.Context, session apptypes.SessionSummary) (string, error) {
+	if previewQuery, ok := b.eventQuery.(compactSummaryPreviewQuery); ok {
+		result, err := previewQuery.FindLatestPostCompactSummary(ctx, session.SessionID(), session.Workspace())
+		if err != nil {
+			return "", xerrors.Errorf("failed to find compact summary preview for context pack: %w", err)
+		}
+		if event, found := result.Value(); found {
+			return extractCompactSummarySignal(event.Body()), nil
+		}
+		return "", nil
+	}
 	// Pull a small window of compact_summary events and skip
 	// pre-compact snapshots so the handoff path always returns the
 	// most recent POST-compact digest even when a cancelled compact
