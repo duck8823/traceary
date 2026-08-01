@@ -76,6 +76,7 @@ type projectionSource struct {
 	rowid                                    int64
 	id, session, created, availability, kind string
 	stored, decoded                          int64
+	deleted                                  bool
 }
 type projectionDoc struct {
 	projectionSource
@@ -108,20 +109,21 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 		return out, err
 	}
 	if revision != g.SourceRevision {
+		_, _ = db.ExecContext(ctx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=?`, g.GenerationID)
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	// Selection is bounded before payload materialization. Stored and decoded metadata reserve every payload field.
-	rows, e := db.QueryContext(ctx, `SELECT q.sequence,e.id,e.session_id,e.created_at_norm,e.body_availability,e.kind,
+	rows, e := db.QueryContext(ctx, `SELECT q.sequence,COALESCE(e.id,q.event_id),COALESCE(e.session_id,''),COALESCE(e.created_at_norm,''),COALESCE(e.body_availability,''),COALESCE(e.kind,''),e.id IS NULL,
 	 COALESCE(length(CAST(e.body AS BLOB)),0)+COALESCE(length(CAST(a.command_text AS BLOB)),0)+COALESCE(length(CAST(a.input_text AS BLOB)),0)+COALESCE(length(CAST(a.output_text AS BLOB)),0),
 	 CASE WHEN e.body_availability='available' THEN COALESCE(e.body_plaintext_bytes,e.body_stored_bytes,length(CAST(e.body AS BLOB)),0) ELSE 0 END+COALESCE(a.command_plaintext_bytes,length(CAST(a.command_text AS BLOB)),0)+COALESCE(a.input_plaintext_bytes,length(CAST(a.input_text AS BLOB)),0)+COALESCE(a.output_plaintext_bytes,length(CAST(a.output_text AS BLOB)),0)
-	 FROM search_projection_source_sequence q JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence>? AND q.sequence<=? ORDER BY q.sequence LIMIT ?`, g.Checkpoint, g.HighWater, b.Rows)
+	 FROM search_projection_source_sequence q LEFT JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence>? AND q.sequence<=? ORDER BY q.sequence LIMIT ?`, g.Checkpoint, g.HighWater, b.Rows)
 	if e != nil {
 		return out, e
 	}
 	var src []projectionSource
 	for rows.Next() {
 		var s projectionSource
-		if e = rows.Scan(&s.rowid, &s.id, &s.session, &s.created, &s.availability, &s.kind, &s.stored, &s.decoded); e != nil {
+		if e = rows.Scan(&s.rowid, &s.id, &s.session, &s.created, &s.availability, &s.kind, &s.deleted, &s.stored, &s.decoded); e != nil {
 			rows.Close()
 			return out, e
 		}
@@ -141,11 +143,16 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 	rows.Close()
 	deadline := started.Add(b.WallTime)
 	docs := make([]projectionDoc, 0, len(src))
+	summaries := map[string]string{}
 	for _, s := range src {
 		if time.Now().After(deadline) {
 			break
 		}
 		p := projectionDoc{projectionSource: s, keywords: map[string]int{}}
+		if s.deleted {
+			docs = append(docs, p)
+			continue
+		}
 		var body string
 		if s.availability == "available" {
 			plain, x := loadEventPlaintext(ctx, db, s.id)
@@ -173,11 +180,14 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 			}
 		}
 		p.text = strings.Join(parts, "\n")
-		var previousSummary string
-		if x := db.QueryRowContext(ctx, `SELECT summary_text FROM search_projection_session_summaries WHERE generation_id=? AND session_id=?`, g.GenerationID, s.session).Scan(&previousSummary); x != nil && !errors.Is(x, sql.ErrNoRows) {
-			return out, x
+		previousSummary, loaded := summaries[s.session]
+		if !loaded {
+			if x := db.QueryRowContext(ctx, `SELECT summary_text FROM search_projection_session_summaries WHERE generation_id=? AND session_id=?`, g.GenerationID, s.session).Scan(&previousSummary); x != nil && !errors.Is(x, sql.ErrNoRows) {
+				return out, x
+			}
 		}
 		p.summary = truncateUTF8(strings.TrimSpace(previousSummary+"\n"+body), searchProjectionSummaryBytes)
+		summaries[s.session] = p.summary
 		p.write = int64(len(p.text) + len(p.summary))
 		if cmd.Valid && cmd.String != "" {
 			p.commandCount = 1
@@ -217,11 +227,18 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 		return out, e
 	}
 	if current != g.SourceRevision {
+		_ = tx.Rollback()
+		_, _ = db.ExecContext(ctx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=?`, g.GenerationID)
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	last := g.Checkpoint
 	for _, p := range docs {
-		if p.created != "" && p.created >= formatTimestamp(now.UTC().Add(-b.RecentAge)) {
+		if p.deleted {
+			last = p.rowid
+			out.Selected++
+			continue
+		}
+		if p.created != "" && p.created >= projectionCutoff(now.UTC().Add(-b.RecentAge)) {
 			_, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, g.GenerationID, p.rowid, p.id, p.created, p.text, len(p.text))
 			if e != nil {
 				return out, e
@@ -249,7 +266,7 @@ func rebuildSearchProjections(ctx context.Context, db *sql.DB, b apptypes.Search
 		out.Selected++
 		out.Written++
 	}
-	res, e := tx.ExecContext(lockCtx, `DELETE FROM search_projection_recent_documents WHERE rowid IN (SELECT rowid FROM search_projection_recent_documents WHERE created_at_norm<? OR (SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents)>? ORDER BY created_at_norm,event_rowid LIMIT ?)`, formatTimestamp(now.UTC().Add(-b.RecentAge)), b.RecentBytes, b.Rows)
+	res, e := tx.ExecContext(lockCtx, `DELETE FROM search_projection_recent_documents WHERE rowid IN (SELECT rowid FROM search_projection_recent_documents WHERE created_at_norm<? OR (SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents)>? ORDER BY (generation_id=?) ASC,created_at_norm,generation_id,document_id LIMIT ?)`, projectionCutoff(now.UTC().Add(-b.RecentAge)), b.RecentBytes, g.GenerationID, b.Rows)
 	if e != nil {
 		return out, e
 	}
@@ -331,6 +348,10 @@ func truncateUTF8(value string, limit int) string {
 		value = value[:len(value)-1]
 	}
 	return value
+}
+
+func projectionCutoff(timestamp time.Time) string {
+	return timestamp.UTC().Format("2006-01-02T15:04:05.000000000Z")
 }
 
 func highEntropyKeyword(s string) bool {
