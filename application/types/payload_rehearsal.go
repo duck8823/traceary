@@ -86,6 +86,7 @@ type PayloadRehearsalMetrics struct {
 	FreeBytes              uint64                      `json:"free_bytes"`
 	EstimatedHeadroom      uint64                      `json:"estimated_headroom_bytes"`
 	DryRunZeroWrite        bool                        `json:"dry_run_zero_write"`
+	MigrationRequired      bool                        `json:"migration_required"`
 	LiveIdentityOnly       bool                        `json:"live_identity_only"`
 	RollbackDigest         string                      `json:"rollback_digest,omitempty"`
 	RollbackVerified       bool                        `json:"rollback_verified"`

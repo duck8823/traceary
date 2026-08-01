@@ -77,9 +77,7 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='payload_rehearsal_runs')`).Scan(&bookkeeping); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect rehearsal schema: %w", err)
 	}
-	if bookkeeping == 0 {
-		return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalMigrationRequired
-	}
+	migrationRequired := bookkeeping == 0
 	var eventRows, auditRows, eventBytes, auditBytes int64
 	if err = db.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(length(body)),0) FROM events`).Scan(&eventRows, &eventBytes); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect event aggregates: %w", err)
@@ -100,7 +98,7 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 	}
 	free, _ := filesystemFreeBytes(filepath.Dir(id.canonical))
 	readiness := activationReadiness(liveIdentity, false, free >= uint64(eventBytes+auditBytes), false, false, false)
-	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: uint64(eventBytes + auditBytes), DryRunZeroWrite: true, LiveIdentityOnly: liveIdentity, Before: before, After: after, ActivationReadiness: readiness}, nil
+	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: uint64(eventBytes + auditBytes), DryRunZeroWrite: true, MigrationRequired: migrationRequired, LiveIdentityOnly: liveIdentity, Before: before, After: after, ActivationReadiness: readiness}, nil
 }
 
 func snapshotsEqual(a, b []apptypes.PayloadRehearsalFileState) bool {
@@ -272,9 +270,14 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	var run string
-	if err = db.QueryRowContext(ctx, `SELECT run_id FROM payload_rehearsal_runs WHERE target_fingerprint=? AND state IN ('completed','scrubbed')`, id.opaque).Scan(&run); err != nil {
+	if err = db.QueryRowContext(ctx, `SELECT run_id FROM payload_rehearsal_runs WHERE target_fingerprint=? AND state='completed'`, id.opaque).Scan(&run); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
 	}
+	lease, err := acquireScrubLease(ctx, db, run)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	defer releaseScrubLease(db, run, lease)
 	deadline := time.Now().Add(c.ScrubTimeLimit)
 	m := apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity}
 	var bytes int64
@@ -301,6 +304,9 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 				}
 				if bytes+int64(len(p.Stored)) > c.ScrubByteLimit {
 					_ = rows.Close()
+					if persistErr := persistScrubProgress(ctx, db, run, lease, f, last, count); persistErr != nil {
+						return m, persistErr
+					}
 					if bytes == 0 {
 						return m, errors.New("single shadow payload exceeds scrub hard cap")
 					}
@@ -331,13 +337,13 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 			if count == 0 {
 				break
 			}
-			if _, err = db.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET scrub_last_primary_key=?,scrubbed_rows=scrubbed_rows+? WHERE run_id=? AND table_kind=? AND field_kind=?`, last, count, run, f.table, f.field); err != nil {
+			if err = persistScrubProgress(ctx, db, run, lease, f, last, count); err != nil {
 				return m, err
 			}
 		}
 	}
 	var mismatched int
-	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_checkpoints c WHERE c.run_id=? AND c.changed_rows<>(SELECT count(*) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind)`, run).Scan(&mismatched); err != nil || mismatched != 0 {
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_checkpoints c WHERE c.run_id=? AND (c.changed_rows<>(SELECT count(*) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind) OR c.scrubbed_rows<>c.changed_rows OR c.scrub_last_primary_key<>coalesce((SELECT max(r.source_primary_key) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind),''))`, run).Scan(&mismatched); err != nil || mismatched != 0 {
 		return m, errors.New("scrub shadow/checkpoint cardinality mismatch")
 	}
 	var changedTotal, shadowTotal int64
@@ -347,7 +353,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_rows WHERE run_id=?`, run).Scan(&shadowTotal); err != nil || changedTotal != shadowTotal {
 		return m, errors.New("scrub shadow total mismatch")
 	}
-	if err = setRunState(ctx, db, run, "scrubbed"); err != nil {
+	if err = setRunStateWithLease(ctx, db, run, lease, "scrubbed"); err != nil {
 		return m, err
 	}
 	m.State = "scrubbed"
@@ -386,10 +392,12 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("cannot inspect rollback state")
 	}
 	var recordedDigest, runState string
-	stateErr := currentDB.QueryRowContext(ctx, `SELECT rollback_digest,state FROM payload_rehearsal_runs ORDER BY started_at DESC LIMIT 1`).Scan(&recordedDigest, &runState)
+	var activeLease int
+	stateErr := currentDB.QueryRowContext(ctx, `SELECT rollback_digest,state,lease_token IS NOT NULL FROM payload_rehearsal_runs ORDER BY started_at DESC LIMIT 1`).Scan(&recordedDigest, &runState, &activeLease)
 	_ = currentDB.Close()
-	if stateErr != nil || runState != "scrubbed" || recordedDigest != digest {
-		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact does not match the scrubbed rehearsal run")
+	safeState := runState == "paused" || runState == "completed" || runState == "scrubbed" || runState == "failed"
+	if stateErr != nil || !safeState || activeLease != 0 || recordedDigest != digest {
+		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact does not match a safe rehearsal state")
 	}
 	if err = copyFileAtomic(c.BackupPath, id.canonical); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("restore rollback artifact: %w", err)

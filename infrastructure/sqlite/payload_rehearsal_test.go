@@ -86,6 +86,13 @@ func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T)
 	if !result.ActivationReadiness.RehearsalComplete || result.ActivationReadiness.ActivationAllowed {
 		t.Fatalf("completion readiness = %#v", result.ActivationReadiness)
 	}
+	if recovered, rollbackErr := adapter.Rollback(ctx, config); rollbackErr != nil || !recovered.RollbackVerified {
+		t.Fatalf("rollback from completed recovery state: %#v %v", recovered, rollbackErr)
+	}
+	result, err = adapter.Run(ctx, config, false)
+	if err != nil || result.State != "completed" {
+		t.Fatalf("rerun after recovery rollback: %#v %v", result, err)
+	}
 	check, err := sql.Open("sqlite", target)
 	if err != nil {
 		t.Fatal(err)
@@ -464,6 +471,124 @@ func TestPayloadRehearsalEnforcesWALHardCap(t *testing.T) {
 	}
 	if result.PeakWALBytes <= config.MaxWALBytes {
 		t.Fatalf("peak WAL=%d", result.PeakWALBytes)
+	}
+	if _, err = adapter.Rollback(ctx, config); err != nil {
+		t.Fatalf("rollback from WAL-paused run: %v", err)
+	}
+}
+
+func TestPayloadRehearsalScrubPersistsCappedPrefixAndLeasesWorkers(t *testing.T) {
+	ctx := context.Background()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, target, backup := filepath.Join(dir, "live.db"), filepath.Join(dir, "target.db"), filepath.Join(dir, "backup.db")
+	migrations, _ := sqliteschema.Migrations()
+	if err = infra.NewStoreManagementDatasource(infra.NewDatabase(live, migrations)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", live)
+	for i, body := range []string{"abcdefghijklmnopqrstuvwxyz0123456789AAAA", "abcdefghijklmnopqrstuvwxyz0123456789BBBB"} {
+		if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES(?,'prompt','t','s',?,'2026-08-01T00:00:00Z')`, fmt.Sprintf("e%d", i), body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = db.Close()
+	copyTestFile(t, live, target)
+	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	config := rehearsalTestConfig(target, live, backup)
+	if _, err = adapter.Run(ctx, config, false); err != nil {
+		t.Fatal(err)
+	}
+	check, _ := sql.Open("sqlite", target)
+	var first, second int64
+	if err = check.QueryRow(`SELECT stored_bytes FROM payload_rehearsal_rows ORDER BY source_primary_key LIMIT 1`).Scan(&first); err != nil {
+		t.Fatal(err)
+	}
+	if err = check.QueryRow(`SELECT stored_bytes FROM payload_rehearsal_rows ORDER BY source_primary_key LIMIT 1 OFFSET 1`).Scan(&second); err != nil {
+		t.Fatal(err)
+	}
+	_ = check.Close()
+	config.ScrubByteLimit = max(first, second) + 1
+	check, _ = sql.Open("sqlite", target)
+	if _, err = check.Exec(`UPDATE payload_rehearsal_checkpoints SET scrub_last_primary_key='zzzz',scrubbed_rows=changed_rows WHERE table_kind='events' AND field_kind='body'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = check.Close()
+	if _, err = adapter.Scrub(ctx, config); err == nil {
+		t.Fatal("ahead scrub checkpoint skipped unverified rows")
+	}
+	check, _ = sql.Open("sqlite", target)
+	if _, err = check.Exec(`UPDATE payload_rehearsal_checkpoints SET scrub_last_primary_key='',scrubbed_rows=0 WHERE table_kind='events' AND field_kind='body'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = check.Close()
+	if _, err = adapter.Scrub(ctx, config); err == nil {
+		t.Fatal("scrub cap did not pause")
+	}
+	check, _ = sql.Open("sqlite", target)
+	var last string
+	var scrubbed int
+	if err = check.QueryRow(`SELECT scrub_last_primary_key,scrubbed_rows FROM payload_rehearsal_checkpoints WHERE table_kind='events' AND field_kind='body'`).Scan(&last, &scrubbed); err != nil {
+		t.Fatal(err)
+	}
+	_ = check.Close()
+	if last == "" || scrubbed != 1 {
+		t.Fatalf("scrub progress last=%q rows=%d", last, scrubbed)
+	}
+	type result struct{ err error }
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		go func() { <-start; _, e := adapter.Scrub(ctx, config); results <- result{e} }()
+	}
+	close(start)
+	a, b := <-results, <-results
+	success := 0
+	if a.err == nil {
+		success++
+	}
+	if b.err == nil {
+		success++
+	}
+	if success != 1 {
+		t.Fatalf("concurrent scrub successes=%d errors=%v/%v", success, a.err, b.err)
+	}
+}
+
+func TestPayloadRehearsalPreviewReportsMigrationRequiredWithoutWriting(t *testing.T) {
+	ctx := context.Background()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, target := filepath.Join(dir, "live.db"), filepath.Join(dir, "raw-copy.db")
+	migrations, _ := sqliteschema.Migrations()
+	if err = infra.NewStoreManagementDatasource(infra.NewDatabase(live, migrations)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", target)
+	if _, err = db.Exec(`CREATE TABLE events(id TEXT PRIMARY KEY,body TEXT NOT NULL);CREATE TABLE command_audits(event_id TEXT PRIMARY KEY,command_text TEXT NOT NULL,input_text TEXT NOT NULL,output_text TEXT NOT NULL);INSERT INTO events VALUES('e','body')`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	config := rehearsalTestConfig(target, live, filepath.Join(dir, "backup.db"))
+	before, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := adapter.Preview(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metrics.MigrationRequired || !metrics.DryRunZeroWrite || before.Size() != after.Size() || before.ModTime() != after.ModTime() {
+		t.Fatalf("raw preview metrics=%#v", metrics)
 	}
 }
 

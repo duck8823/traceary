@@ -11,6 +11,7 @@ import (
 
 // ErrInvalidPayloadRehearsalConfig indicates missing mandatory safety bounds.
 var ErrInvalidPayloadRehearsalConfig = errors.New("payload rehearsal requires an explicit copied target, live store, and positive resource caps")
+var ErrUnsafePayloadRehearsalTransition = errors.New("payload rehearsal backend returned an unsafe workflow transition")
 
 // PayloadRehearsalUsecase separates preview from every mutating operation.
 type PayloadRehearsalUsecase interface {
@@ -45,15 +46,28 @@ func (u *payloadRehearsalUsecase) Preview(ctx context.Context, c types.PayloadRe
 	if err != nil {
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("preview payload rehearsal: %w", err)
 	}
+	if result.State != "planned" || !result.DryRunZeroWrite || !result.LiveIdentityOnly || result.ActivationReadiness.ActivationAllowed {
+		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
+	}
 	return result, nil
 }
 func (u *payloadRehearsalUsecase) Run(ctx context.Context, c types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error) {
 	if err := validateRehearsal(c); err != nil {
 		return types.PayloadRehearsalMetrics{}, err
 	}
+	preflight, err := u.Preview(ctx, c)
+	if err != nil {
+		return types.PayloadRehearsalMetrics{}, err
+	}
+	if preflight.FreeBytes < preflight.EstimatedHeadroom {
+		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
+	}
 	result, err := u.runner.Run(ctx, c, false)
 	if err != nil {
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("run payload rehearsal: %w", err)
+	}
+	if result.State != "completed" && result.State != "paused" {
+		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
 	}
 	return result, nil
 }
@@ -65,6 +79,9 @@ func (u *payloadRehearsalUsecase) Resume(ctx context.Context, c types.PayloadReh
 	if err != nil {
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("resume payload rehearsal: %w", err)
 	}
+	if result.State != "completed" && result.State != "paused" {
+		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
+	}
 	return result, nil
 }
 func (u *payloadRehearsalUsecase) Scrub(ctx context.Context, c types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error) {
@@ -75,6 +92,9 @@ func (u *payloadRehearsalUsecase) Scrub(ctx context.Context, c types.PayloadRehe
 	if err != nil {
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("scrub payload rehearsal: %w", err)
 	}
+	if result.State != "scrubbed" || !result.ActivationReadiness.ScrubPassed || result.ActivationReadiness.ActivationAllowed {
+		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
+	}
 	return result, nil
 }
 func (u *payloadRehearsalUsecase) Rollback(ctx context.Context, c types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error) {
@@ -84,6 +104,9 @@ func (u *payloadRehearsalUsecase) Rollback(ctx context.Context, c types.PayloadR
 	result, err := u.runner.Rollback(ctx, c)
 	if err != nil {
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("rollback payload rehearsal: %w", err)
+	}
+	if result.State != "rolled_back" || !result.RollbackVerified || result.ActivationReadiness.ActivationAllowed {
+		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
 	}
 	return result, nil
 }

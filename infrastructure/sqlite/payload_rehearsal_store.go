@@ -217,3 +217,51 @@ func pauseRun(ctx context.Context, db *sql.DB, run, lease string, cause error) e
 	_ = setRunStateWithLease(pauseCtx, db, run, lease, "paused")
 	return cause
 }
+
+//nolint:wrapcheck // internal SQL lease errors are classified by Scrub.
+func acquireScrubLease(ctx context.Context, db *sql.DB, run string) (string, error) {
+	lease, err := randomRunID()
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_token=?,lease_expires_at=?,updated_at=? WHERE run_id=? AND state='completed' AND (lease_token IS NULL OR lease_expires_at<?)`, lease, now.Add(30*time.Second).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), run, now.Format(time.RFC3339Nano))
+	if err != nil {
+		return "", err
+	}
+	affected, _ := result.RowsAffected()
+	if affected != 1 {
+		return "", errors.New("rehearsal scrub is leased or not completed")
+	}
+	return lease, nil
+}
+
+//nolint:wrapcheck // internal SQL progress is guarded by the scrub lease.
+func persistScrubProgress(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, last string, count int) error {
+	if count == 0 {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var held string
+	if err = tx.QueryRowContext(ctx, `SELECT coalesce(lease_token,'') FROM payload_rehearsal_runs WHERE run_id=?`, run).Scan(&held); err != nil {
+		return err
+	}
+	if held != lease {
+		return errors.New("rehearsal scrub lease was lost")
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET scrub_last_primary_key=?,scrubbed_rows=scrubbed_rows+? WHERE run_id=? AND table_kind=? AND field_kind=?`, last, count, run, f.table, f.field); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_expires_at=? WHERE run_id=? AND lease_token=?`, time.Now().UTC().Add(30*time.Second).Format(time.RFC3339Nano), run, lease); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func releaseScrubLease(db *sql.DB, run, lease string) {
+	_, _ = db.Exec(`UPDATE payload_rehearsal_runs SET lease_token=NULL,lease_expires_at=NULL WHERE run_id=? AND lease_token=?`, run, lease)
+}
