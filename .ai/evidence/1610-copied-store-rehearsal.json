@@ -1,0 +1,152 @@
+{
+  "schema": "traceary.payload-rehearsal-evidence/v1",
+  "scope": "sanitized copied-store rehearsal",
+  "commit": "db8f8bba69cee4a6e75c23bbb4b4bd2684b972da",
+  "baseline": {
+    "database_bytes": 23107399680
+  },
+  "preview": {
+    "payload_fields_scanned": 1066440,
+    "plaintext_bytes": 5163189515,
+    "free_bytes": 73792536576,
+    "headroom_bytes": 70395940864,
+    "zero_write_verified": true,
+    "components_before_after_equal": {
+      "database": true,
+      "wal": true,
+      "shm": true
+    },
+    "migration_required": true,
+    "live_identity_only": true,
+    "activation_allowed": false,
+    "external_activation_evidence": "unknown"
+  },
+  "tuning": {
+    "rejected_attempts": [
+      {
+        "constraint": "migration_preflight_lock",
+        "cap_milliseconds": 1000,
+        "outcome": "rejected",
+        "target_migration_unchanged": true
+      },
+      {
+        "constraint": "stored_bytes",
+        "cap_bytes": 8388608,
+        "outcome": "paused",
+        "committed_rows": 156302,
+        "largest_source_row_bytes": 8388646,
+        "rollback_verified": true
+      },
+      {
+        "constraint": "wal_bytes",
+        "cap_bytes": 1073741824,
+        "outcome": "paused",
+        "committed_rows": 215040,
+        "stored_bytes": 849840786,
+        "rollback_verified": true
+      }
+    ],
+    "final_configuration": {
+      "batch_rows": 256,
+      "stored_bytes_cap": 16777216,
+      "decoded_bytes_cap": 16777216,
+      "lock_cap_milliseconds": 30000,
+      "wal_cap_bytes": 4294967296,
+      "wall_cap_seconds": 1800
+    }
+  },
+  "kill_resume": {
+    "checkpoint_before_kill": {
+      "state": "running",
+      "committed_rows": 146944,
+      "stored_bytes": 583640367,
+      "read_only_observation": true
+    },
+    "interruption": "SIGKILL",
+    "resumed_after_lease_expiry": true,
+    "configuration_unchanged": true,
+    "resume_segment": {
+      "payload_fields_scanned": 875720,
+      "payload_fields_encoded": 875720,
+      "plaintext_bytes": 4098624993,
+      "stored_bytes": 1673336655,
+      "batches": 3422,
+      "batch_duration_histogram": {
+        "lt_10ms": 2220,
+        "lt_100ms": 1202,
+        "gte_100ms": 0
+      },
+      "conflicts": 0,
+      "peak_wal_bytes": 3315998512,
+      "headroom_bytes": 50509766656,
+      "free_bytes": 51994562560,
+      "live_identity_only": true,
+      "state": "completed"
+    }
+  },
+  "scrub": {
+    "state": "scrubbed",
+    "payload_fields_scanned": 1066440,
+    "plaintext_bytes": 6036151589,
+    "stored_bytes": 2428546437,
+    "compression_ratio": 2.4854997611,
+    "conflicts": 0,
+    "peak_wal_bytes": 34348472,
+    "scrub_passed": true,
+    "live_identity_only": true,
+    "activation_allowed": false
+  },
+  "rollback": {
+    "state": "rolled_back",
+    "digest_sha256": "0640f25e80b2a5f2ad93054f3f8e32e4e3c0afad4c05e41032738e445bf5adeb",
+    "verified": true,
+    "target_bytes": 23107399680,
+    "backup_bytes": 23107399680,
+    "target_regular_file": true,
+    "target_link_count": 1,
+    "live_identity_only": true,
+    "activation_allowed": false
+  },
+  "validation": {
+    "validated_commit": "db8f8bba69cee4a6e75c23bbb4b4bd2684b972da",
+    "commands": [
+      "go test ./...",
+      "go vet ./...",
+      "go tool golangci-lint run",
+      "go test -race ./application/usecase ./infrastructure/sqlite ./presentation/cli"
+    ],
+    "results": "passed",
+    "independent_reviews": [
+      {
+        "reviewer": "GPT-5.6 Sol",
+        "result": "APPROVE"
+      },
+      {
+        "reviewer": "Structure-Behavior reviewer",
+        "result": "APPROVE"
+      }
+    ],
+    "fallbacks": [
+      {
+        "reviewer": "Claude Fable 5",
+        "classification": "timeout",
+        "fallback": "independent Sol and Structure-Behavior reviews"
+      },
+      {
+        "reviewer": "Kimi",
+        "classification": "auth_failure",
+        "fallback": "local validation and independent reviews"
+      }
+    ]
+  },
+  "privacy": {
+    "payloads_in_evidence": false,
+    "identifiers_in_evidence": false,
+    "absolute_paths_in_evidence": false,
+    "filesystem_inode_values_in_evidence": false
+  },
+  "process_friction": {
+    "summary": "Bounded-cap tuning required two rollback-verified pauses; cleanup was limited to regenerable caches before the final run.",
+    "follow_up_required": false
+  }
+}
