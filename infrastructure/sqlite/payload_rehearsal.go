@@ -215,7 +215,8 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	configHash := hashConfig(c, id.opaque)
-	runID, eventHigh, auditHigh, leaseToken, err := loadOrCreateRun(ctx, db, id, configHash, backupDigest, resume)
+	guard := rehearsalMutationGuard(func() error { return a.recheckExpectedTarget(id, c, true) })
+	runID, eventHigh, auditHigh, leaseToken, err := loadOrCreateRun(ctx, db, id, configHash, backupDigest, resume, guard)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
@@ -232,7 +233,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			}
 			batch, done, e := selectRehearsalBatch(ctx, db, runID, f, high, c)
 			if e != nil {
-				return metrics, pauseRun(ctx, db, runID, leaseToken, e)
+				return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard)
 			}
 			if done {
 				if a.beforePersistence != nil {
@@ -241,15 +242,15 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 				if e = a.recheckExpectedTarget(id, c, true); e != nil {
 					return metrics, e
 				}
-				if e = markRehearsalLaneComplete(ctx, db, runID, leaseToken, f); e != nil {
-					return metrics, pauseRun(ctx, db, runID, leaseToken, e)
+				if e = markRehearsalLaneComplete(ctx, db, runID, leaseToken, f, guard); e != nil {
+					return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard)
 				}
 				break
 			}
 			for i := range batch {
 				batch[i].encoded, e = encodePayload(batch[i].plaintext, payloadCodecZstd)
 				if e != nil {
-					return metrics, pauseRun(ctx, db, runID, leaseToken, e)
+					return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard)
 				}
 			}
 			if identityErr := a.recheckExpectedTarget(id, c, true); identityErr != nil {
@@ -262,14 +263,14 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			if e = a.recheckExpectedTarget(id, c, true); e != nil {
 				return metrics, e
 			}
-			e = commitRehearsalBatch(ctx, db, runID, leaseToken, f, batch)
+			e = commitRehearsalBatch(ctx, db, runID, leaseToken, f, batch, guard)
 			if e != nil {
-				return metrics, pauseRun(ctx, db, runID, leaseToken, e)
+				return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard)
 			}
 			batchDuration := time.Since(start)
 			recordBatchDuration(metrics.BatchDurationHistogram, batchDuration)
 			if batchDuration > c.LockTimeLimit {
-				return metrics, pauseRun(ctx, db, runID, leaseToken, errors.New("rehearsal lock duration cap exceeded"))
+				return metrics, pauseRun(ctx, db, runID, leaseToken, errors.New("rehearsal lock duration cap exceeded"), guard)
 			}
 			metrics.BatchCount++
 			for _, r := range batch {
@@ -283,12 +284,17 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 				metrics.PeakWALBytes = wal.Size()
 			}
 			if metrics.PeakWALBytes > c.MaxWALBytes {
-				return metrics, pauseRun(ctx, db, runID, leaseToken, errors.New("rehearsal WAL hard cap exceeded"))
+				return metrics, pauseRun(ctx, db, runID, leaseToken, errors.New("rehearsal WAL hard cap exceeded"), guard)
 			}
 		}
 		if !time.Now().Before(deadline) {
+			if a.beforePersistence != nil {
+				a.beforePersistence("pause")
+			}
+			if err = pauseRunState(ctx, db, runID, leaseToken, guard); err != nil {
+				return metrics, err
+			}
 			metrics.State = "paused"
-			_ = pauseRunState(ctx, db, runID, leaseToken)
 			metrics.After, _ = componentSnapshots(id.canonical)
 			return metrics, nil
 		}
@@ -299,7 +305,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return metrics, err
 	}
-	if err = completeRunState(ctx, db, runID, leaseToken); err != nil {
+	if err = completeRunState(ctx, db, runID, leaseToken, guard); err != nil {
 		return metrics, err
 	}
 	metrics.State = "completed"
@@ -332,14 +338,15 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err = db.QueryRowContext(ctx, `SELECT run_id FROM payload_rehearsal_runs WHERE target_fingerprint=? AND state='completed'`, id.opaque).Scan(&run); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
 	}
-	if err = a.recheckExpectedTarget(id, c, true); err != nil {
+	guard := rehearsalMutationGuard(func() error { return a.recheckExpectedTarget(id, c, true) })
+	if err = guard(); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	lease, err := acquireScrubLease(ctx, db, run)
+	lease, err := acquireScrubLease(ctx, db, run, guard)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	defer releaseScrubLease(db, run, lease)
+	defer releaseScrubLease(db, run, lease, guard)
 	deadline := time.Now().Add(c.ScrubTimeLimit)
 	m := apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity}
 	var bytes int64
@@ -372,7 +379,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 					if guardErr := a.recheckExpectedTarget(id, c, true); guardErr != nil {
 						return m, guardErr
 					}
-					if persistErr := persistScrubProgress(ctx, db, run, lease, f, last, count); persistErr != nil {
+					if persistErr := persistScrubProgress(ctx, db, run, lease, f, last, count, guard); persistErr != nil {
 						return m, persistErr
 					}
 					if bytes == 0 {
@@ -411,7 +418,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 			if err = a.recheckExpectedTarget(id, c, true); err != nil {
 				return m, err
 			}
-			if err = persistScrubProgress(ctx, db, run, lease, f, last, count); err != nil {
+			if err = persistScrubProgress(ctx, db, run, lease, f, last, count, guard); err != nil {
 				return m, err
 			}
 		}
@@ -433,7 +440,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return m, err
 	}
-	if err = completeScrubState(ctx, db, run, lease); err != nil {
+	if err = completeScrubState(ctx, db, run, lease, guard); err != nil {
 		return m, err
 	}
 	m.State = "scrubbed"

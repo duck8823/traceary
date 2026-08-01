@@ -58,6 +58,48 @@ func TestPayloadRehearsalRejectsTargetSwapAtScrubWriteBoundaries(t *testing.T) {
 	}
 }
 
+func TestPayloadRehearsalRejectsTargetSwapBeforeWallTimePause(t *testing.T) {
+	adapter, config, swap := newSwapRehearsalFixture(t)
+	config.WallTimeLimit = 0
+	adapter.beforePersistence = func(kind string) {
+		if kind == "pause" {
+			swap()
+		}
+	}
+	if _, err := adapter.Run(context.Background(), config, false); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestRehearsalRecoveryMutationsDoNotWriteWhenGuardFails(t *testing.T) {
+	adapter, config, _ := newSwapRehearsalFixture(t)
+	metrics, err := adapter.Run(context.Background(), config, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", writableRehearsalDSN(config.TargetPath, time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	const lease = "retained-lease"
+	if _, err = db.Exec(`UPDATE payload_rehearsal_runs SET state='running',lease_token=? WHERE run_id=?`, lease, metrics.RunID); err != nil {
+		t.Fatal(err)
+	}
+	reject := rehearsalMutationGuard(func() error { return ErrUnsafeRehearsalTarget })
+	if err = pauseRunState(context.Background(), db, metrics.RunID, lease, reject); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+		t.Fatalf("pause error=%v", err)
+	}
+	releaseScrubLease(db, metrics.RunID, lease, reject)
+	var state, retained string
+	if err = db.QueryRow(`SELECT state,coalesce(lease_token,'') FROM payload_rehearsal_runs WHERE run_id=?`, metrics.RunID).Scan(&state, &retained); err != nil {
+		t.Fatal(err)
+	}
+	if state != "running" || retained != lease {
+		t.Fatalf("guarded recovery mutated state=%q lease=%q", state, retained)
+	}
+}
+
 func newSwapRehearsalFixture(t *testing.T) (*PayloadRehearsalAdapter, apptypes.PayloadRehearsalConfig, func()) {
 	t.Helper()
 	ctx := context.Background()

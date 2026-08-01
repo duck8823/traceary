@@ -14,6 +14,15 @@ import (
 	"golang.org/x/xerrors"
 )
 
+type rehearsalMutationGuard func() error
+
+func requireSafeRehearsalMutation(guard rehearsalMutationGuard) error {
+	if guard == nil {
+		return ErrUnsafeRehearsalTarget
+	}
+	return guard()
+}
+
 func recordBatchDuration(histogram map[string]int64, duration time.Duration) {
 	switch {
 	case duration < time.Millisecond:
@@ -43,7 +52,7 @@ func randomRunID() (string, error) {
 }
 
 //nolint:wrapcheck // SQL details stay inside this adapter and public boundaries add context.
-func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity, configHash, backupDigest string, resume bool) (string, string, string, string, error) {
+func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity, configHash, backupDigest string, resume bool, guard rehearsalMutationGuard) (string, string, string, string, error) {
 	lease, leaseErr := randomRunID()
 	if leaseErr != nil {
 		return "", "", "", "", leaseErr
@@ -55,6 +64,9 @@ func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity
 			return "", "", "", "", errors.New("rehearsal run state does not permit this operation")
 		}
 		now := time.Now().UTC()
+		if e := requireSafeRehearsalMutation(guard); e != nil {
+			return "", "", "", "", e
+		}
 		result, e := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state='running',lease_token=?,lease_expires_at=?,updated_at=? WHERE run_id=? AND (lease_token IS NULL OR lease_expires_at<?)`, lease, now.Add(30*time.Second).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), run, now.Format(time.RFC3339Nano))
 		if e != nil {
 			return "", "", "", "", e
@@ -74,6 +86,9 @@ func loadOrCreateRun(ctx context.Context, db *sql.DB, identity rehearsalIdentity
 	run, err = randomRunID()
 	if err != nil {
 		return "", "", "", "", xerrors.Errorf("generate opaque rehearsal run: %w", err)
+	}
+	if e := requireSafeRehearsalMutation(guard); e != nil {
+		return "", "", "", "", e
 	}
 	tx, e := db.BeginTx(ctx, nil)
 	if e != nil {
@@ -159,7 +174,10 @@ func selectRehearsalBatch(ctx context.Context, db *sql.DB, run string, f rehears
 }
 
 //nolint:wrapcheck // caller performs target guard immediately before this primitive.
-func markRehearsalLaneComplete(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField) error {
+func markRehearsalLaneComplete(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, guard rehearsalMutationGuard) error {
+	if err := requireSafeRehearsalMutation(guard); err != nil {
+		return err
+	}
 	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET state='complete' WHERE run_id=? AND table_kind=? AND field_kind=? AND EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE run_id=? AND lease_token=?)`, run, f.table, f.field, run, lease)
 	if err != nil {
 		return err
@@ -172,7 +190,10 @@ func markRehearsalLaneComplete(ctx context.Context, db *sql.DB, run, lease strin
 }
 
 //nolint:wrapcheck // fixed SQL lane failures are classified by the public operation.
-func commitRehearsalBatch(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, batch []selectedPayload) error {
+func commitRehearsalBatch(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, batch []selectedPayload, guard rehearsalMutationGuard) error {
+	if err := requireSafeRehearsalMutation(guard); err != nil {
+		return err
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -207,7 +228,10 @@ func commitRehearsalBatch(ctx context.Context, db *sql.DB, run, lease string, f 
 	return tx.Commit()
 }
 
-func transitionRunWithLease(ctx context.Context, db *sql.DB, run, lease string, state apptypes.PayloadRehearsalState) error {
+func transitionRunWithLease(ctx context.Context, db *sql.DB, run, lease string, state apptypes.PayloadRehearsalState, guard rehearsalMutationGuard) error {
+	if err := requireSafeRehearsalMutation(guard); err != nil {
+		return err
+	}
 	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?,completed_at=CASE WHEN ? IN ('completed','scrubbed') THEN ? ELSE completed_at END WHERE run_id=? AND lease_token=?`, string(state), time.Now().UTC().Format(time.RFC3339Nano), string(state), time.Now().UTC().Format(time.RFC3339Nano), run, lease)
 	if err != nil {
 		return xerrors.Errorf("transition rehearsal run with lease: %w", err)
@@ -218,29 +242,32 @@ func transitionRunWithLease(ctx context.Context, db *sql.DB, run, lease string, 
 	}
 	return nil
 }
-func completeRunState(ctx context.Context, db *sql.DB, run, lease string) error {
-	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalCompleted)
+func completeRunState(ctx context.Context, db *sql.DB, run, lease string, guard rehearsalMutationGuard) error {
+	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalCompleted, guard)
 }
-func completeScrubState(ctx context.Context, db *sql.DB, run, lease string) error {
-	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalScrubbed)
+func completeScrubState(ctx context.Context, db *sql.DB, run, lease string, guard rehearsalMutationGuard) error {
+	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalScrubbed, guard)
 }
-func pauseRunState(ctx context.Context, db *sql.DB, run, lease string) error {
-	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalPaused)
+func pauseRunState(ctx context.Context, db *sql.DB, run, lease string, guard rehearsalMutationGuard) error {
+	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalPaused, guard)
 }
-func pauseRun(ctx context.Context, db *sql.DB, run, lease string, cause error) error {
+func pauseRun(ctx context.Context, db *sql.DB, run, lease string, cause error, guard rehearsalMutationGuard) error {
 	pauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	_ = pauseRunState(pauseCtx, db, run, lease)
+	_ = pauseRunState(pauseCtx, db, run, lease, guard)
 	return cause
 }
 
 //nolint:wrapcheck // internal SQL lease errors are classified by Scrub.
-func acquireScrubLease(ctx context.Context, db *sql.DB, run string) (string, error) {
+func acquireScrubLease(ctx context.Context, db *sql.DB, run string, guard rehearsalMutationGuard) (string, error) {
 	lease, err := randomRunID()
 	if err != nil {
 		return "", err
 	}
 	now := time.Now().UTC()
+	if err = requireSafeRehearsalMutation(guard); err != nil {
+		return "", err
+	}
 	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_token=?,lease_expires_at=?,updated_at=? WHERE run_id=? AND state='completed' AND (lease_token IS NULL OR lease_expires_at<?)`, lease, now.Add(30*time.Second).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), run, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return "", err
@@ -253,9 +280,12 @@ func acquireScrubLease(ctx context.Context, db *sql.DB, run string) (string, err
 }
 
 //nolint:wrapcheck // internal SQL progress is guarded by the scrub lease.
-func persistScrubProgress(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, last string, count int) error {
+func persistScrubProgress(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, last string, count int, guard rehearsalMutationGuard) error {
 	if count == 0 {
 		return nil
+	}
+	if err := requireSafeRehearsalMutation(guard); err != nil {
+		return err
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -278,6 +308,9 @@ func persistScrubProgress(ctx context.Context, db *sql.DB, run, lease string, f 
 	return tx.Commit()
 }
 
-func releaseScrubLease(db *sql.DB, run, lease string) {
+func releaseScrubLease(db *sql.DB, run, lease string, guard rehearsalMutationGuard) {
+	if requireSafeRehearsalMutation(guard) != nil {
+		return
+	}
 	_, _ = db.Exec(`UPDATE payload_rehearsal_runs SET lease_token=NULL,lease_expires_at=NULL WHERE run_id=? AND lease_token=?`, run, lease)
 }
