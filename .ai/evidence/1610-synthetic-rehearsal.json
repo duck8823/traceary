@@ -1,0 +1,17 @@
+{
+  "schema": "traceary.payload-rehearsal-evidence/v1",
+  "scope": "sanitized synthetic fixture",
+  "fixture": {"events": 1, "audits": 1, "payload_fields": 4},
+  "result": {
+    "canonical_rows_modified": 0,
+    "shadow_rows": 4,
+    "plaintext_bytes": 25,
+    "zstd_bytes": 77,
+    "scrubbed_rows": 4,
+    "rollback_digest_verified": true,
+    "live_identity_only": true,
+    "dry_run_zero_write": true
+  },
+  "privacy": {"payloads_in_evidence": false, "identifiers_in_evidence": false},
+  "validation": "go test ./infrastructure/sqlite -run PayloadRehearsal -count=1"
+}

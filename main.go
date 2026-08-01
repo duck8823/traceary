@@ -146,6 +146,7 @@ func run() error {
 	sessionDatasource := sqlite.NewSessionDatasource(db)
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
+	payloadRehearsalAdapter := sqlite.NewPayloadRehearsalAdapter(migrationsSubFS)
 	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
 	reportDatasource := sqlite.NewReportDatasource(db)
 	codexCaptureDiagnosticDatasource := sqlite.NewCodexCaptureDiagnosticDatasource(db)
@@ -193,6 +194,7 @@ func run() error {
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
+	payloadRehearsalUsecase := usecase.NewPayloadRehearsalUsecase(payloadRehearsalAdapter, payloadRehearsalAdapter)
 	rawBodyRetentionUsecase := usecase.NewRawBodyRetentionUsecase(storeManagementDatasource, storeManagementDatasource)
 	fileRetentionDatasource := filesystem.NewFileRetentionDatasource()
 	fileRetentionUsecase := usecase.NewFileRetentionUsecase(fileRetentionDatasource, fileRetentionDatasource)
@@ -253,6 +255,7 @@ func run() error {
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithCapacityInspector(sqlite.NewCapacityInspector(db)),
+		cli.WithPayloadRehearsal(payloadRehearsalUsecase),
 		cli.WithRawBodyRetention(rawBodyRetentionUsecase),
 		cli.WithFileRetention(fileRetentionUsecase),
 		cli.WithOneShotRepair(oneShotRepairUsecase),
