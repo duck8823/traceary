@@ -216,7 +216,7 @@ func verifySQLiteArtifact(path string) error {
 func restoreVerifiedRehearsalBackup(target, backup string) error {
 	for _, suffix := range []string{"-wal", "-shm"} {
 		if err := os.Remove(target + suffix); err != nil && !os.IsNotExist(err) {
-			return err
+			return xerrors.Errorf("remove rehearsal recovery sidecar: %w", err)
 		}
 	}
 	return copyFileAtomic(backup, target)

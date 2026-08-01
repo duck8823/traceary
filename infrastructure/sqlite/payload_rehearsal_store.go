@@ -250,26 +250,17 @@ func transitionRunWithLease(ctx context.Context, db *sql.DB, run, lease string, 
 	return nil
 }
 
-func compensateTerminalWALOverflow(ctx context.Context, db *sql.DB, run string, terminal apptypes.PayloadRehearsalState, guard rehearsalMutationGuard) error {
-	if err := requireSafeRehearsalMutation(guard); err != nil {
-		return err
-	}
-	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state='paused',completed_at=NULL,updated_at=? WHERE run_id=? AND state=? AND lease_token IS NULL`, time.Now().UTC().Format(time.RFC3339Nano), run, string(terminal))
-	if err != nil {
-		return xerrors.Errorf("recover terminal WAL overflow: %w", err)
-	}
-	affected, _ := result.RowsAffected()
-	if affected != 1 {
-		return errors.New("terminal WAL overflow recovery state changed concurrently")
-	}
-	return nil
-}
 func pauseRunState(ctx context.Context, db *sql.DB, run, lease string, guard rehearsalMutationGuard) error {
 	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalPaused, guard)
 }
-func pauseRun(ctx context.Context, db *sql.DB, run, lease string, cause error, guard rehearsalMutationGuard, afterMutation func() error) error {
+func pauseRun(ctx context.Context, db *sql.DB, run, lease string, cause error, guard rehearsalMutationGuard, beforeMutation, afterMutation func() error) error {
 	pauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
+	if beforeMutation != nil {
+		if err := beforeMutation(); err != nil {
+			return err
+		}
+	}
 	if err := pauseRunState(pauseCtx, db, run, lease, guard); err == nil && afterMutation != nil {
 		if observationErr := afterMutation(); observationErr != nil {
 			return observationErr

@@ -136,7 +136,7 @@ func TestTerminalTransitionDoesNotCommitWithoutReservedWALFrame(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			peak := int64(30000)
+			peak := int64(38000)
 			guard := rehearsalMutationGuard(func() error { return nil })
 			if err = transitionTerminalWithinWALBudget(context.Background(), db, config.TargetPath, metrics.RunID, lease, apptypes.PayloadRehearsalCompleted, frame, maximum, &peak, guard); err == nil {
 				t.Fatal("terminal transition ignored WAL reservation")
