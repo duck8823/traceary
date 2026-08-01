@@ -3,11 +3,29 @@
   "scope": "sanitized copied-store rehearsal",
   "commit": "db8f8bba69cee4a6e75c23bbb4b4bd2684b972da",
   "baseline": {
-    "database_bytes": 23107399680
+    "database_bytes": 23107399680,
+    "verified_backup_read_only_aggregation": {
+      "events": {
+        "rows": 433107,
+        "payload_fields": 433107,
+        "utf8_bytes": 4389860363,
+        "text_characters": 3681432240
+      },
+      "audits": {
+        "rows": 211111,
+        "payload_fields_per_row": 3,
+        "payload_fields": 633333,
+        "utf8_bytes": 1646291226,
+        "text_characters": 1481757275
+      },
+      "payload_fields": 1066440,
+      "utf8_bytes": 6036151589,
+      "text_characters": 5163189515
+    }
   },
   "preview": {
     "payload_fields_scanned": 1066440,
-    "plaintext_bytes": 5163189515,
+    "sqlite_text_characters": 5163189515,
     "free_bytes": 73792536576,
     "headroom_bytes": 70395940864,
     "zero_write_verified": true,
@@ -47,12 +65,19 @@
       }
     ],
     "final_configuration": {
+      "config_identity_sha256": "68e0b754f494adb70200e9f2b5f7e60dbd7390047c00509e575e6551fefb1ace",
+      "target_identity_sha256": "e5f39367cfeba6128f73304db42020b77178fd34b2d81fbb55ca0285d2a4041b",
       "batch_rows": 256,
       "stored_bytes_cap": 16777216,
       "decoded_bytes_cap": 16777216,
       "lock_cap_milliseconds": 30000,
       "wal_cap_bytes": 4294967296,
-      "wall_cap_seconds": 1800
+      "wall_cap_seconds": 1800,
+      "migration_preflight_lock_observation": {
+        "cap_milliseconds": 30000,
+        "outcome": "succeeded",
+        "exact_duration_observed": false
+      }
     }
   },
   "kill_resume": {
@@ -60,9 +85,21 @@
       "state": "running",
       "committed_rows": 146944,
       "stored_bytes": 583640367,
-      "read_only_observation": true
+      "read_only_observation": true,
+      "observation_is_kill_instant": false
     },
     "interruption": "SIGKILL",
+    "post_kill_durable_checkpoint_reconciliation": {
+      "method": "completed frozen totals minus resume segment",
+      "directly_observed": false,
+      "committed_rows": 190720,
+      "plaintext_bytes": 1937526596,
+      "stored_bytes": 755209782,
+      "additional_since_read_only_observation": {
+        "committed_rows": 43776,
+        "stored_bytes": 171569415
+      }
+    },
     "resumed_after_lease_expiry": true,
     "configuration_unchanged": true,
     "resume_segment": {
@@ -72,9 +109,11 @@
       "stored_bytes": 1673336655,
       "batches": 3422,
       "batch_duration_histogram": {
+        "measurement": "lock/batch duration",
         "lt_10ms": 2220,
         "lt_100ms": 1202,
-        "gte_100ms": 0
+        "gte_100ms": 0,
+        "maximum_bucket": "lt_100ms"
       },
       "conflicts": 0,
       "peak_wal_bytes": 3315998512,
@@ -86,6 +125,16 @@
   },
   "scrub": {
     "state": "scrubbed",
+    "configuration": {
+      "batch_rows": 256,
+      "stored_bytes_per_page_cap": 16777216,
+      "decoded_bytes_per_page_cap": 16777216,
+      "total_bytes_cap": 4294967296,
+      "time_cap_seconds": 1800,
+      "lock_cap_milliseconds": 30000,
+      "wal_cap_bytes": 4294967296
+    },
+    "elapsed_seconds": 27.857731334,
     "payload_fields_scanned": 1066440,
     "plaintext_bytes": 6036151589,
     "stored_bytes": 2428546437,
@@ -104,6 +153,11 @@
     "backup_bytes": 23107399680,
     "target_regular_file": true,
     "target_link_count": 1,
+    "duration_seconds_approximate": 674.3,
+    "duration_measurement": "orchestrator wall-clock",
+    "integrity": "ok",
+    "integrity_check": "built-in verified rollback SQLite integrity check before and after copy",
+    "backup_digest_equals_restored_target": true,
     "live_identity_only": true,
     "activation_allowed": false
   },
@@ -113,7 +167,9 @@
       "go test ./...",
       "go vet ./...",
       "go tool golangci-lint run",
-      "go test -race ./application/usecase ./infrastructure/sqlite ./presentation/cli"
+      "go test -race ./application/usecase ./infrastructure/sqlite ./presentation/cli",
+      "jq empty .ai/evidence/1610-copied-store-rehearsal.json",
+      "python3 semantic assertions over .ai/evidence/1610-copied-store-rehearsal.json"
     ],
     "results": "passed",
     "independent_reviews": [
@@ -138,6 +194,26 @@
         "fallback": "local validation and independent reviews"
       }
     ]
+  },
+  "machine_checks": {
+    "kill_resume_rows_sum_matches_final": true,
+    "kill_resume_plaintext_bytes_sum_matches_final": true,
+    "kill_resume_stored_bytes_sum_matches_final": true,
+    "kill_resume_row_equation": "190720 + 875720 = 1066440",
+    "kill_resume_plaintext_bytes_equation": "1937526596 + 4098624993 = 6036151589",
+    "kill_resume_stored_bytes_equation": "755209782 + 1673336655 = 2428546437",
+    "backup_payload_field_counts_sum_matches_final": true,
+    "backup_utf8_bytes_sum_matches_scrub_plaintext": true,
+    "backup_text_characters_sum_matches_preview": true,
+    "scrub_stored_bytes_within_total_cap": true,
+    "scrub_peak_wal_within_cap": true,
+    "run_peak_wal_within_cap": true,
+    "scrub_integrity_ok": true,
+    "rollback_integrity_ok": true,
+    "backup_digest_equals_restored_target": true,
+    "duplicate_shadow_rows": 0,
+    "duplicate_reason": "unique shadow primary-key and immutable source constraints with zero conflicts",
+    "semantic_validation": "local jq syntax check and Python arithmetic, cap, digest, integrity, and privacy assertions"
   },
   "privacy": {
     "payloads_in_evidence": false,
