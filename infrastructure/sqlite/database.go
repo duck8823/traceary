@@ -2,8 +2,10 @@ package sqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -40,6 +42,22 @@ func init() {
 		1,
 		normalizeTimestampSQLFunc,
 	)
+	sqlite.MustRegisterDeterministicScalarFunction("traceary_sha256", 1, func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+		if len(args) != 1 {
+			return nil, xerrors.Errorf("traceary_sha256 expects one argument")
+		}
+		var data []byte
+		switch value := args[0].(type) {
+		case string:
+			data = []byte(value)
+		case []byte:
+			data = value
+		default:
+			return nil, xerrors.Errorf("traceary_sha256 expects text or blob")
+		}
+		digest := sha256.Sum256(data)
+		return hex.EncodeToString(digest[:]), nil
+	})
 }
 
 // normalizeTimestampSQLFunc adapts normalizeRFC3339NanoForCompare to the
@@ -103,7 +121,9 @@ func NewImmutableReadDatabase(ctx context.Context, dbPath string) (*Database, er
 		_ = db.Close()
 		return nil, xerrors.Errorf("ping immutable SQLite store: %w", err)
 	}
-	db.SetMaxOpenConns(1)
+	// Immutable benchmark stores cannot change while the group is open. A
+	// small pool permits row hydration while a metadata cursor is active.
+	db.SetMaxOpenConns(4)
 	if err := checkStoreCompatibility(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -212,10 +232,10 @@ func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
 	return db, nil
 }
 
-// checkStoreCompatibility is the single policy boundary used by every
-// Database connection mode. A missing state table denotes a legacy store and
-// is supported so initialize can apply migration 36.
-func checkStoreCompatibility(ctx context.Context, db *sql.DB) error {
+// VerifyStoreCompatibility applies the store-format policy to direct SQLite
+// consumers that intentionally do not use Database. A missing state table
+// denotes a supported legacy store so initialize can apply migration 36.
+func VerifyStoreCompatibility(ctx context.Context, db *sql.DB) error {
 	var exists int
 	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='store_format_state')`).Scan(&exists); err != nil {
 		return xerrors.Errorf("check store format state: %w", err)
@@ -234,6 +254,10 @@ func checkStoreCompatibility(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("store payload format %d is unsupported; maximum supported is %d", maximumPayload, maximumPayloadFormatVersion)
 	}
 	return nil
+}
+
+func checkStoreCompatibility(ctx context.Context, db *sql.DB) error {
+	return VerifyStoreCompatibility(ctx, db)
 }
 
 func sqliteImmutableDSN(dbPath string) string {

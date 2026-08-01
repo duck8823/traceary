@@ -3,17 +3,14 @@ package sqlite
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/klauspost/compress/zstd"
 )
-
-const payloadEnvelopePrefix = "traceary-payload-v1:"
 
 const (
 	payloadFormatVersion         = 1
@@ -27,10 +24,24 @@ const (
 type PayloadIntegrityError struct {
 	Codec  string
 	Reason string
+	RowID  string
+	Field  string
 }
 
 func (e *PayloadIntegrityError) Error() string {
-	return fmt.Sprintf("payload integrity error (codec=%s): %s", e.Codec, e.Reason)
+	location := ""
+	if e.RowID != "" {
+		location = fmt.Sprintf(", row=%s, field=%s", e.RowID, e.Field)
+	}
+	return fmt.Sprintf("payload integrity error (codec=%s%s): %s", e.Codec, location, e.Reason)
+}
+
+func annotatePayloadError(err error, rowID, field string) error {
+	var integrity *PayloadIntegrityError
+	if errors.As(err, &integrity) {
+		integrity.RowID, integrity.Field = rowID, field
+	}
+	return err
 }
 
 type encodedPayload struct {
@@ -42,40 +53,32 @@ type encodedPayload struct {
 	SHA256         string
 }
 
-type payloadEnvelope struct {
-	Codec          string `json:"codec"`
-	FormatVersion  int    `json:"format_version"`
-	PlaintextBytes int64  `json:"plaintext_bytes"`
-	SHA256         string `json:"sha256"`
-	Stored         []byte `json:"stored"`
+// payloadRow is the only persisted payload contract. Legacy rows have NULL
+// metadata and are interpreted as identity; no plaintext prefix is reserved.
+type payloadRow struct {
+	Stored         []byte
+	Codec          sql.NullString
+	FormatVersion  sql.NullInt64
+	PlaintextBytes sql.NullInt64
+	StoredBytes    sql.NullInt64
+	SHA256         sql.NullString
 }
 
-// marshalPayloadEnvelope is reserved for zstd shadow rows in v0.34. Identity
-// canonical rows deliberately remain plain text for downgrade-safe rollout.
-func marshalPayloadEnvelope(payload encodedPayload) (string, error) {
-	data, err := json.Marshal(payloadEnvelope{Codec: payload.Codec, FormatVersion: payload.FormatVersion, PlaintextBytes: payload.PlaintextBytes, SHA256: payload.SHA256, Stored: payload.Bytes})
-	if err != nil {
-		return "", fmt.Errorf("marshal payload envelope: %w", err)
-	}
-	return payloadEnvelopePrefix + string(data), nil
+func (r *payloadRow) scanDestinations() []any {
+	return []any{&r.Stored, &r.Codec, &r.FormatVersion, &r.PlaintextBytes, &r.StoredBytes, &r.SHA256}
 }
 
-// decodeStoredPayload accepts both legacy/plain identity text and the
-// self-describing shadow envelope, allowing existing query shapes to hydrate
-// mixed rows through one bounded adapter.
-func decodeStoredPayload(stored string, limit int64) (string, error) {
-	if !strings.HasPrefix(stored, payloadEnvelopePrefix) {
-		return stored, nil
+func (r payloadRow) decode(limit int64) ([]byte, error) {
+	if !r.Codec.Valid {
+		return bytes.Clone(r.Stored), nil
 	}
-	var envelope payloadEnvelope
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(stored, payloadEnvelopePrefix)), &envelope); err != nil {
-		return "", &PayloadIntegrityError{Codec: "unknown", Reason: "invalid envelope"}
+	if !r.FormatVersion.Valid || !r.PlaintextBytes.Valid || !r.StoredBytes.Valid || !r.SHA256.Valid {
+		return nil, &PayloadIntegrityError{Codec: r.Codec.String, Reason: "incomplete metadata"}
 	}
-	decoded, err := decodePayload(envelope.Stored, envelope.Codec, envelope.FormatVersion, envelope.PlaintextBytes, envelope.SHA256, limit)
-	if err != nil {
-		return "", err
+	if r.StoredBytes.Int64 != int64(len(r.Stored)) {
+		return nil, &PayloadIntegrityError{Codec: r.Codec.String, Reason: "stored length mismatch"}
 	}
-	return string(decoded), nil
+	return decodePayload(r.Stored, r.Codec.String, int(r.FormatVersion.Int64), r.PlaintextBytes.Int64, r.SHA256.String, limit)
 }
 
 func encodePayload(plaintext []byte, codec string) (encodedPayload, error) {

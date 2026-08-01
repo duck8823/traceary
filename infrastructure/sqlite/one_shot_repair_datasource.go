@@ -280,7 +280,11 @@ func applyOneShotRepairRecord(ctx context.Context, tx *sql.Tx, evidenceHash stri
 		candidate.CompletedAt,
 	)
 	event.SetSourceHook("one_shot_repair")
-	if err := insertEventAndAudit(ctx, tx, event, nil); err != nil {
+	codecMetadata, err := transactionColumnExists(ctx, tx, "events", "body_codec")
+	if err != nil {
+		return err
+	}
+	if err := insertEventAndAudit(ctx, tx, event, nil, codecMetadata); err != nil {
 		return xerrors.Errorf("failed to append one-shot repair boundary for %s: %w", candidate.SessionID, err)
 	}
 	candidate.Applied = true

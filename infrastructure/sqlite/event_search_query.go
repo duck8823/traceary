@@ -428,6 +428,10 @@ func hydrateEventSearchCandidates(
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore event search candidate: %w", err)
 		}
+		event, err = hydrateEventPayload(ctx, queryer, event)
+		if err != nil {
+			return nil, err
+		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {

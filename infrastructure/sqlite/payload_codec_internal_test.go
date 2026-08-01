@@ -7,10 +7,16 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
+	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 func TestPayloadCodecRoundTripsIdentityAndZstd(t *testing.T) {
@@ -205,23 +211,209 @@ func TestMixedPayloadRowsKeepHealthyRowsAndMetadataAvailable(t *testing.T) {
 	}
 }
 
-func TestStoredPayloadHydrationSupportsLegacyIdentityAndZstdEnvelope(t *testing.T) {
-	if got, err := decodeStoredPayload("legacy identity", maxDecodedPayloadBytes); err != nil || got != "legacy identity" {
+func TestPayloadRowHydratesLegacyIdentityAndZstdWithoutReservedPrefix(t *testing.T) {
+	legacy := payloadRow{Stored: []byte("traceary-payload-v1:{legitimate plaintext}")}
+	got, err := legacy.decode(maxDecodedPayloadBytes)
+	if err != nil || string(got) != string(legacy.Stored) {
 		t.Fatalf("legacy = %q, %v", got, err)
 	}
 	encoded, err := encodePayload([]byte("zstd shadow row"), payloadCodecZstd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	envelope, err := marshalPayloadEnvelope(encoded)
+	row := payloadRow{Stored: encoded.Bytes,
+		Codec:          sql.NullString{String: encoded.Codec, Valid: true},
+		FormatVersion:  sql.NullInt64{Int64: int64(encoded.FormatVersion), Valid: true},
+		PlaintextBytes: sql.NullInt64{Int64: encoded.PlaintextBytes, Valid: true},
+		StoredBytes:    sql.NullInt64{Int64: encoded.StoredBytes, Valid: true},
+		SHA256:         sql.NullString{String: encoded.SHA256, Valid: true}}
+	got, err = row.decode(maxDecodedPayloadBytes)
+	if err != nil || string(got) != "zstd shadow row" {
+		t.Fatalf("zstd = %q, %v", got, err)
+	}
+	row.StoredBytes.Int64++
+	if _, err := row.decode(maxDecodedPayloadBytes); !isPayloadIntegrityError(err) {
+		t.Fatalf("corrupt error = %v", err)
+	}
+}
+
+func TestProductionQueriesHydrateMixedRowsAndMetadataSurvivesCorruption(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/mixed.db"
+	database := NewDatabase(path, os.DirFS("../../schema/sqlite/migrations"))
+	if err := database.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := database.open(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := decodeStoredPayload(envelope, maxDecodedPayloadBytes)
-	if err != nil || got != "zstd shadow row" {
-		t.Fatalf("zstd = %q, %v", got, err)
+	defer func() { _ = raw.Close() }()
+	insert := func(id, session, plaintext, codec string, corrupt bool) {
+		t.Helper()
+		payload, err := encodePayload([]byte(plaintext), codec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checksum := payload.SHA256
+		if corrupt {
+			checksum = strings.Repeat("0", 64)
+		}
+		_, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at,source_hook,
+body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256)
+VALUES(?, 'prompt','hook','codex',?,'/repo',?,'2026-08-01T00:00:00Z','user_prompt_submit',?,?,?,?,?)`,
+			id, session, payload.Bytes, payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, checksum)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := decodeStoredPayload(payloadEnvelopePrefix+"{", maxDecodedPayloadBytes); !isPayloadIntegrityError(err) {
-		t.Fatalf("corrupt error = %v", err)
+	insert("identity", "identity-session", "identity body", payloadCodecIdentity, false)
+	insert("zstd", "zstd-session", "compressed body", payloadCodecZstd, false)
+	insert("timeline-zstd", "tree-root", "timeline compressed prompt", payloadCodecZstd, false)
+	if _, err := raw.ExecContext(ctx, `UPDATE events SET workspace='/timeline', created_at='2026-08-01T01:00:00Z' WHERE id='timeline-zstd'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, `INSERT INTO sessions(session_id,started_at,client,agent,workspace,label,summary) VALUES('tree-root','2026-08-01T00:00:00Z','hook','codex','/timeline','','')`); err != nil {
+		t.Fatal(err)
+	}
+	command, _ := encodePayload([]byte("echo redacted"), payloadCodecZstd)
+	input, _ := encodePayload([]byte("input"), payloadCodecIdentity)
+	output, _ := encodePayload([]byte("output"), payloadCodecZstd)
+	_, err = raw.ExecContext(ctx, `INSERT INTO command_audits(event_id,command_text,command_wrapper,command_name,input_text,output_text,input_truncated,output_truncated,input_original_bytes,output_original_bytes,failed,failure_reason,
+command_codec,command_format_version,command_plaintext_bytes,command_encoded_bytes,command_sha256,
+input_codec,input_format_version,input_plaintext_bytes,input_encoded_bytes,input_sha256,
+output_codec,output_format_version,output_plaintext_bytes,output_encoded_bytes,output_sha256)
+VALUES('zstd',?,'','echo',?,?,0,0,5,6,0,'unknown',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		command.Bytes, input.Bytes, output.Bytes,
+		command.Codec, command.FormatVersion, command.PlaintextBytes, command.StoredBytes, command.SHA256,
+		input.Codec, input.FormatVersion, input.PlaintextBytes, input.StoredBytes, input.SHA256,
+		output.Codec, output.FormatVersion, output.PlaintextBytes, output.StoredBytes, output.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insert("corrupt", "corrupt-session", "corrupt body", payloadCodecZstd, true)
+	if _, err := raw.ExecContext(ctx, `UPDATE events SET created_at='2030-01-01T00:00:00Z' WHERE id='corrupt'`); err != nil {
+		t.Fatal(err)
+	}
+	datasource := NewEventDatasource(database)
+	eventUC := usecase.NewEventUsecase(datasource, datasource)
+	redacted, err := eventUC.Log(ctx, "Authorization: Bearer secret-token-value", domtypes.EventKindTranscript, "hook", "codex", "redaction-session", "/repo", apptypes.NewLogRedactionBuilder().Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedBody, checksum string
+	if err := raw.QueryRowContext(ctx, `SELECT CAST(body AS TEXT), body_sha256 FROM events WHERE id=?`, redacted.EventID().String()).Scan(&storedBody, &checksum); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(storedBody, "secret-token-value") || !strings.Contains(storedBody, "[REDACTED]") {
+		t.Fatalf("stored redaction body = %q", storedBody)
+	}
+	digest := sha256.Sum256([]byte(storedBody))
+	if checksum != hex.EncodeToString(digest[:]) {
+		t.Fatal("checksum was not computed after redaction")
+	}
+	timeline, err := datasource.ListTimelineBlocks(ctx, "/timeline", time.Time{}, time.Time{}, 1800, 10)
+	if err != nil || len(timeline) != 1 || timeline[0].WorkspaceBreakdown()[0].Summary() != "timeline compressed prompt" {
+		t.Fatalf("timeline = %#v, %v", timeline, err)
+	}
+	sessions := NewSessionDatasource(database)
+	tree, err := sessions.ListTreeSummaries(ctx, 10, "/timeline", "tree-root")
+	if err != nil || len(tree) != 1 || tree[0].LatestEventMessage() != "timeline compressed prompt" {
+		t.Fatalf("tree = %#v, %v", tree, err)
+	}
+	got, err := datasource.ListRecent(ctx, 10, 0, "", "", "", "zstd-session", "", false, time.Time{}, time.Time{}, "")
+	if err != nil || len(got) != 1 || got[0].Body() != "compressed body" {
+		t.Fatalf("zstd query = %#v, %v", got, err)
+	}
+	if _, err := raw.ExecContext(ctx, `UPDATE event_search_documents SET body_text='compressed body' WHERE event_id='zstd'`); err != nil {
+		t.Fatal(err)
+	}
+	searched, err := datasource.Search(ctx, "compressed", "", "zstd-session", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
+	if err != nil || len(searched) != 1 || searched[0].Body() != "compressed body" {
+		t.Fatalf("search = %#v, %v", searched, err)
+	}
+	details, err := datasource.GetDetails(ctx, "zstd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit, ok := details.CommandAudit().Value()
+	if !ok || audit.Command() != "echo redacted" || audit.Output() != "output" {
+		t.Fatalf("audit = %#v", audit)
+	}
+	_, err = datasource.ListRecent(ctx, 10, 0, "", "", "", "corrupt-session", "", false, time.Time{}, time.Time{}, "")
+	var integrity *PayloadIntegrityError
+	if !errors.As(err, &integrity) || integrity.RowID != "corrupt" || integrity.Field != "body" {
+		t.Fatalf("corrupt error = %#v, %v", integrity, err)
+	}
+	metadata, err := datasource.ListRecentMetadata(ctx, apptypes.NewEventListCriteriaBuilder(10).Build())
+	if err != nil || len(metadata) != 5 {
+		t.Fatalf("metadata = %d, %v", len(metadata), err)
+	}
+	bundle := NewBundleDatasource(database, datasource)
+	audits, err := bundle.ListBundleCommandAudits(ctx)
+	if err != nil || len(audits) != 1 || audits[0].Output() != "output" {
+		t.Fatalf("bundle audits = %#v, %v", audits, err)
+	}
+	manager := NewStoreManagementDatasource(database)
+	tables, err := manager.ListArchiveEligible(ctx, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetEvents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundZstd := false
+	for _, table := range tables {
+		if table.Name == "events" {
+			for _, row := range table.Rows {
+				if row["id"] == "zstd" && row["body"] == "compressed body" {
+					foundZstd = true
+				}
+			}
+		}
+	}
+	if !foundZstd {
+		t.Fatal("archive export did not expose decoded zstd body")
+	}
+	if _, err := manager.DeleteArchiveRows(ctx, map[string][]string{"events": {"identity", "zstd"}}); err != nil {
+		t.Fatal(err)
+	}
+	inserted, _, _, err := manager.RestoreArchiveRows(ctx, tables, false)
+	if err != nil || inserted < 3 {
+		t.Fatalf("archive restore = %d, %v", inserted, err)
+	}
+	restored, err := datasource.GetDetails(ctx, "zstd")
+	if err != nil || restored.Event().Body() != "compressed body" {
+		t.Fatalf("restored = %#v, %v", restored, err)
+	}
+}
+
+func TestPayloadDecodeBoundaryAndHighRatioBomb(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), int(maxDecodedPayloadBytes))
+	encoded, err := encodePayload(payload, payloadCodecZstd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodePayload(encoded.Bytes, encoded.Codec, encoded.FormatVersion, encoded.PlaintextBytes, encoded.SHA256, maxDecodedPayloadBytes); err != nil {
+		t.Fatalf("exact boundary: %v", err)
+	}
+	if _, err := decodePayload(encoded.Bytes, encoded.Codec, encoded.FormatVersion, encoded.PlaintextBytes, encoded.SHA256, maxDecodedPayloadBytes-1); !isPayloadIntegrityError(err) {
+		t.Fatalf("limit-1 error = %v", err)
+	}
+	bomb := encoded
+	bomb.PlaintextBytes = maxDecodedPayloadBytes + 1
+	if _, err := decodePayload(bomb.Bytes, bomb.Codec, bomb.FormatVersion, bomb.PlaintextBytes, bomb.SHA256, maxDecodedPayloadBytes); !isPayloadIntegrityError(err) {
+		t.Fatalf("bomb error = %v", err)
+	}
+}
+
+func TestStoreCompatibilityRejectsMissingStateRow(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL, maximum_payload_format INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyStoreCompatibility(context.Background(), db); err == nil {
+		t.Fatal("missing singleton state was accepted")
 	}
 }

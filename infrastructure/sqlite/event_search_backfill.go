@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/domain/types"
 )
 
 // eventSearchBackfillBatchSize bounds the body-bearing work performed by one
@@ -140,24 +142,34 @@ func catchUpEventSearchDocuments(
 	}
 
 	result.LastEventID = selectedIDs[len(selectedIDs)-1]
-	insertResult, err := tx.ExecContext(ctx, `
-		INSERT INTO event_search_documents(
-			event_id, body_text, command_text, input_text, output_text
-		)
-		SELECT event_id, body_text, command_text, input_text, output_text
-		  FROM event_search_projection
-		 WHERE event_id > ? AND event_id <= ?
-		 ORDER BY event_id
-		ON CONFLICT(event_id) DO NOTHING`,
-		lastEventID,
-		result.LastEventID,
-	)
-	if err != nil {
-		return result, xerrors.Errorf("failed to materialize event search backfill batch: %w", err)
-	}
-	result.Inserted, err = insertResult.RowsAffected()
-	if err != nil {
-		return result, xerrors.Errorf("failed to count event search backfill inserts: %w", err)
+	for _, eventID := range selectedIDs {
+		plain, err := loadEventPlaintext(ctx, tx, eventID)
+		if err != nil {
+			return result, xerrors.Errorf("decode event search backfill body: %w", err)
+		}
+		bodyText, _ := visibleEventBody(string(plain), types.BodyAvailabilityAvailable)
+		command, err := hydrateAuditPayload(ctx, tx, eventID, "command")
+		if err != nil {
+			return result, err
+		}
+		input, err := hydrateAuditPayload(ctx, tx, eventID, "input")
+		if err != nil {
+			return result, err
+		}
+		output, err := hydrateAuditPayload(ctx, tx, eventID, "output")
+		if err != nil {
+			return result, err
+		}
+		insertResult, err := tx.ExecContext(ctx, `INSERT INTO event_search_documents(event_id, body_text, command_text, input_text, output_text)
+VALUES (?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING`, eventID, bodyText, command.String, input.String, output.String)
+		if err != nil {
+			return result, xerrors.Errorf("materialize event search backfill row: %w", err)
+		}
+		inserted, err := insertResult.RowsAffected()
+		if err != nil {
+			return result, xerrors.Errorf("count materialized event search row: %w", err)
+		}
+		result.Inserted += inserted
 	}
 
 	result.Completed = result.LastEventID >= result.TargetID

@@ -61,6 +61,7 @@ prompt_ranked AS (
   SELECT
     block_num,
     workspace,
+    id,
     body,
     ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm, id) AS rn
   FROM blocks
@@ -68,7 +69,7 @@ prompt_ranked AS (
     AND TRIM(body) != ''
 ),
 first_prompt AS (
-  SELECT block_num, workspace, body AS first_prompt_body
+  SELECT block_num, workspace, id AS first_prompt_id, body AS first_prompt_body
   FROM prompt_ranked
   WHERE rn = 1
 ),
@@ -76,6 +77,7 @@ compact_ranked AS (
   SELECT
     block_num,
     workspace,
+    id,
     body,
     ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm DESC, id DESC) AS rn
   FROM blocks
@@ -83,7 +85,7 @@ compact_ranked AS (
     AND TRIM(body) != ''
 ),
 last_compact AS (
-  SELECT block_num, workspace, body AS compact_summary_body
+  SELECT block_num, workspace, id AS compact_summary_id, body AS compact_summary_body
   FROM compact_ranked
   WHERE rn = 1
 ),
@@ -91,6 +93,7 @@ transcript_ranked AS (
   SELECT
     block_num,
     workspace,
+    id,
     body,
     ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm, id) AS rn
   FROM blocks
@@ -98,7 +101,7 @@ transcript_ranked AS (
     AND TRIM(body) != ''
 ),
 first_transcript AS (
-  SELECT block_num, workspace, body AS first_transcript_body
+  SELECT block_num, workspace, id AS first_transcript_id, body AS first_transcript_body
   FROM transcript_ranked
   WHERE rn = 1
 ),
@@ -109,6 +112,9 @@ ws_rows AS (
     COUNT(*) AS ws_event_count,
     GROUP_CONCAT(b.kind, '|') AS kinds,
     GROUP_CONCAT(DISTINCT b.agent) AS ws_agents,
+    MAX(fp.first_prompt_id) AS first_prompt_id,
+    MAX(lc.compact_summary_id) AS compact_summary_id,
+    MAX(ft.first_transcript_id) AS first_transcript_id,
     MAX(fp.first_prompt_body) AS first_prompt_body,
     MAX(lc.compact_summary_body) AS compact_summary_body,
     MAX(ft.first_transcript_body) AS first_transcript_body
@@ -133,6 +139,9 @@ SELECT
   wr.ws_event_count,
   wr.kinds,
   COALESCE(wr.ws_agents, '') AS ws_agents,
+  COALESCE(wr.first_prompt_id, '') AS first_prompt_id,
+  COALESCE(wr.compact_summary_id, '') AS compact_summary_id,
+  COALESCE(wr.first_transcript_id, '') AS first_transcript_id,
   COALESCE(wr.first_prompt_body, '') AS first_prompt_body,
   COALESCE(wr.compact_summary_body, '') AS compact_summary_body,
   COALESCE(wr.first_transcript_body, '') AS first_transcript_body

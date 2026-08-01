@@ -109,7 +109,11 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 		}
 	}()
 
-	return saveEventTransaction(ctx, db, event, nil, func(ctx context.Context, tx *sql.Tx) error {
+	codecMetadata, err := databaseColumnExists(ctx, db, "events", "body_codec")
+	if err != nil {
+		return err
+	}
+	return saveEventTransaction(ctx, db, event, nil, codecMetadata, func(ctx context.Context, tx *sql.Tx) error {
 		if err := saveSessionBoundary(ctx, tx, session); err != nil {
 			return xerrors.Errorf("failed to save session: %w", err)
 		}
@@ -568,6 +572,10 @@ func (d *SessionDatasource) FindLatest(
 		if scanErr != nil {
 			return types.None[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", scanErr)
 		}
+		event, scanErr = hydrateEventPayload(ctx, db, event)
+		if scanErr != nil {
+			return types.None[*model.Event](), scanErr
+		}
 		return types.Some(event), nil
 	}
 
@@ -583,6 +591,10 @@ func (d *SessionDatasource) FindLatest(
 			return types.None[*model.Event](), nil
 		}
 		return types.None[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", err)
+	}
+	event, err = hydrateEventPayload(ctx, db, event)
+	if err != nil {
+		return types.None[*model.Event](), err
 	}
 
 	return types.Some(event), nil
@@ -634,7 +646,7 @@ func (d *SessionDatasource) ListSummaries(
 
 	summaries := make([]apptypes.SessionSummary, 0)
 	for rows.Next() {
-		summary, err := scanSessionSummary(rows)
+		summary, err := scanSessionSummary(ctx, db, rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan session summary row: %w", err)
 		}
@@ -690,7 +702,7 @@ func (d *SessionDatasource) ListTreeSummaries(
 
 	summaries := make([]apptypes.SessionSummary, 0)
 	for rows.Next() {
-		summary, err := scanSessionSummary(rows)
+		summary, err := scanSessionSummary(ctx, db, rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan session tree summary row: %w", err)
 		}
@@ -728,7 +740,7 @@ func (d *SessionDatasource) LineageOf(ctx context.Context, sessionID types.Sessi
 
 	summaries := make([]apptypes.SessionSummary, 0)
 	for rows.Next() {
-		summary, err := scanSessionSummary(rows)
+		summary, err := scanSessionSummary(ctx, db, rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan session lineage row: %w", err)
 		}
@@ -741,7 +753,7 @@ func (d *SessionDatasource) LineageOf(ctx context.Context, sessionID types.Sessi
 	return summaries, nil
 }
 
-func scanSessionSummary(row interface {
+func scanSessionSummary(ctx context.Context, q queryRowContexter, row interface {
 	Scan(dest ...any) error
 }) (apptypes.SessionSummary, error) {
 	var (
@@ -788,6 +800,13 @@ func scanSessionSummary(row interface {
 		&latestEventRawBody,
 	); err != nil {
 		return apptypes.SessionSummary{}, xerrors.Errorf("failed to scan session summary: %w", err)
+	}
+	if latestEventID != "" {
+		plain, err := loadEventPlaintext(ctx, q, latestEventID)
+		if err != nil {
+			return apptypes.SessionSummary{}, err
+		}
+		latestEventRawBody = string(plain)
 	}
 
 	startedAt, err := time.Parse(time.RFC3339Nano, startedAtStr)
