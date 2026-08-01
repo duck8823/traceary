@@ -13,8 +13,19 @@ type PayloadRehearsalPreview interface {
 
 // PayloadRehearsalRunner persists bounded shadow rows and resumable checkpoints.
 type PayloadRehearsalRunner interface {
-	Scrub(context.Context, types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error)
 	Rollback(context.Context, types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error)
+}
+
+// PayloadRehearsalScrubHandle keeps a scrub lease and SQLite state opaque.
+type PayloadRehearsalScrubHandle interface{ PayloadRehearsalScrubHandle() }
+
+// PayloadRehearsalScrubWorkflow exposes one bounded verification page at a time.
+type PayloadRehearsalScrubWorkflow interface {
+	PrepareScrub(context.Context, types.PayloadRehearsalConfig) (PayloadRehearsalScrubHandle, types.PayloadRehearsalMetrics, error)
+	AdvanceScrubField(context.Context, PayloadRehearsalScrubHandle, types.PayloadRehearsalField) (types.PayloadRehearsalMetrics, bool, error)
+	CompleteScrub(context.Context, PayloadRehearsalScrubHandle) (types.PayloadRehearsalMetrics, error)
+	ReleaseScrub(context.Context, PayloadRehearsalScrubHandle) error
+	CloseScrub(PayloadRehearsalScrubHandle) error
 }
 
 // PayloadRehearsalRunHandle keeps connection, identity, lease, codec and WAL

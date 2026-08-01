@@ -134,6 +134,15 @@ type PayloadRehearsalFileState struct {
 	Identity  string `json:"identity"`
 }
 
+// RehearsalDiskPlan names every conservative disk reservation used by preview and run.
+type RehearsalDiskPlan struct {
+	BackupBytes         uint64 `json:"backup_bytes"`
+	MigrationCloneBytes uint64 `json:"migration_clone_bytes"`
+	MigrationWALBytes   uint64 `json:"migration_wal_bytes"`
+	ShadowGrowthBytes   uint64 `json:"shadow_growth_bytes"`
+	TotalBytes          uint64 `json:"total_bytes"`
+}
+
 // PayloadRehearsalMetrics contains sanitized aggregate rehearsal evidence.
 type PayloadRehearsalMetrics struct {
 	RunID                  string                      `json:"run_id,omitempty"`
@@ -148,6 +157,7 @@ type PayloadRehearsalMetrics struct {
 	PeakWALBytes           int64                       `json:"peak_wal_bytes"`
 	FreeBytes              uint64                      `json:"free_bytes"`
 	EstimatedHeadroom      uint64                      `json:"estimated_headroom_bytes"`
+	DiskPlan               RehearsalDiskPlan           `json:"disk_plan"`
 	DryRunZeroWrite        bool                        `json:"dry_run_zero_write"`
 	MigrationRequired      bool                        `json:"migration_required"`
 	LiveIdentityOnly       bool                        `json:"live_identity_only"`

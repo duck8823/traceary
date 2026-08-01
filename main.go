@@ -197,7 +197,7 @@ func run() error {
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
-	payloadRehearsalUsecase := usecase.NewPayloadRehearsalUsecase(payloadRehearsalAdapter, payloadRehearsalAdapter, payloadRehearsalAdapter)
+	payloadRehearsalUsecase := usecase.NewPayloadRehearsalUsecase(payloadRehearsalAdapter, payloadRehearsalAdapter, payloadRehearsalAdapter, payloadRehearsalAdapter)
 	rawBodyRetentionUsecase := usecase.NewRawBodyRetentionUsecase(storeManagementDatasource, storeManagementDatasource)
 	fileRetentionDatasource := filesystem.NewFileRetentionDatasource()
 	fileRetentionUsecase := usecase.NewFileRetentionUsecase(fileRetentionDatasource, fileRetentionDatasource)

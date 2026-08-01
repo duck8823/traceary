@@ -71,6 +71,7 @@ func NewPayloadRehearsalAdapter(migrations fs.FS, configuredLivePath string) (*P
 var _ application.PayloadRehearsalPreview = (*PayloadRehearsalAdapter)(nil)
 var _ application.PayloadRehearsalRunner = (*PayloadRehearsalAdapter)(nil)
 var _ application.PayloadRehearsalRunWorkflow = (*PayloadRehearsalAdapter)(nil)
+var _ application.PayloadRehearsalScrubWorkflow = (*PayloadRehearsalAdapter)(nil)
 
 type payloadRehearsalRunHandle struct {
 	adapter              *PayloadRehearsalAdapter
@@ -88,6 +89,30 @@ type payloadRehearsalRunHandle struct {
 
 func (*payloadRehearsalRunHandle) PayloadRehearsalRunHandle() {}
 
+type payloadRehearsalScrubHandle struct {
+	adapter           *PayloadRehearsalAdapter
+	config            apptypes.PayloadRehearsalConfig
+	id                rehearsalIdentity
+	db                *sql.DB
+	minimumWAL        int64
+	liveIdentity      bool
+	runID, leaseToken string
+	guard             rehearsalMutationGuard
+	session           walBudgetedMutationSession
+	metrics           apptypes.PayloadRehearsalMetrics
+	leaseActive       bool
+}
+
+func (*payloadRehearsalScrubHandle) PayloadRehearsalScrubHandle() {}
+
+func ownedScrubHandle(owner *PayloadRehearsalAdapter, opaque application.PayloadRehearsalScrubHandle) (*payloadRehearsalScrubHandle, error) {
+	h, ok := opaque.(*payloadRehearsalScrubHandle)
+	if !ok || h == nil || h.adapter != owner || h.db == nil {
+		return nil, errors.New("invalid payload rehearsal scrub handle")
+	}
+	return h, nil
+}
+
 func rehearsalFieldFor(field apptypes.PayloadRehearsalField) (rehearsalField, bool) {
 	for i, candidate := range apptypes.OrderedPayloadRehearsalFields() {
 		if candidate == field {
@@ -103,6 +128,21 @@ func ownedRehearsalHandle(owner *PayloadRehearsalAdapter, opaque application.Pay
 		return nil, errors.New("invalid payload rehearsal run handle")
 	}
 	return h, nil
+}
+
+func rehearsalDiskPlan(targetBytes int64, maxWALBytes int64, backupExists bool) apptypes.RehearsalDiskPlan {
+	target := uint64(max(0, targetBytes))
+	wal := uint64(max(0, maxWALBytes))
+	plan := apptypes.RehearsalDiskPlan{
+		MigrationCloneBytes: target,
+		MigrationWALBytes:   wal,
+		ShadowGrowthBytes:   target,
+	}
+	if !backupExists {
+		plan.BackupBytes = target
+	}
+	plan.TotalBytes = plan.BackupBytes + plan.MigrationCloneBytes + plan.MigrationWALBytes + plan.ShadowGrowthBytes
+	return plan
 }
 
 // Preview performs an immutable copied-store preflight and zero-write proof.
@@ -157,12 +197,11 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 		return apptypes.PayloadRehearsalMetrics{}, ErrDryRunMutation
 	}
 	free, _ := filesystemFreeBytes(filepath.Dir(id.canonical))
-	headroom := uint64(eventBytes + auditBytes)
-	if migrationRequired {
-		headroom += uint64(id.info.Size()) + uint64(max(0, c.MaxWALBytes))
-	}
+	_, backupErr := os.Stat(c.BackupPath)
+	plan := rehearsalDiskPlan(id.info.Size(), c.MaxWALBytes, c.BackupPath != "" && backupErr == nil)
+	headroom := plan.TotalBytes
 	readiness := activationReadiness(liveIdentity, false, free >= headroom, false, false, false)
-	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: headroom, DryRunZeroWrite: true, MigrationRequired: migrationRequired, LiveIdentityOnly: liveIdentity, Before: before, After: after, ActivationReadiness: readiness}, nil
+	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: headroom, DiskPlan: plan, DryRunZeroWrite: true, MigrationRequired: migrationRequired, LiveIdentityOnly: liveIdentity, Before: before, After: after, ActivationReadiness: readiness}, nil
 }
 
 func snapshotsEqual(a, b []apptypes.PayloadRehearsalFileState) bool {
@@ -253,12 +292,9 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if freeErr != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("cannot verify rehearsal disk headroom")
 	}
-	requiredHeadroom := uint64(id.info.Size())
-	if _, backupErr := os.Stat(c.BackupPath); os.IsNotExist(backupErr) {
-		requiredHeadroom += uint64(id.info.Size())
-	}
-	// Exact migration preflight needs a byte clone plus its bounded WAL.
-	requiredHeadroom += uint64(id.info.Size()) + uint64(max(0, c.MaxWALBytes))
+	_, backupErr := os.Stat(c.BackupPath)
+	diskPlan := rehearsalDiskPlan(id.info.Size(), c.MaxWALBytes, backupErr == nil)
+	requiredHeadroom := diskPlan.TotalBytes
 	if freeBytes < requiredHeadroom {
 		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("insufficient disk headroom for rehearsal and rollback")
 	}
@@ -373,7 +409,7 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
-	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, PeakWALBytes: resumePeak, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
+	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, DiskPlan: diskPlan, PeakWALBytes: resumePeak, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
 	batchSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &metrics.PeakWALBytes, lockLimit: c.LockTimeLimit}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); err != nil {
 		return nil, metrics, pauseRun(ctx, batchSession, runID, leaseToken, err, guard)
@@ -512,182 +548,201 @@ func (a *PayloadRehearsalAdapter) Close(opaque application.PayloadRehearsalRunHa
 	return nil
 }
 
-// Scrub decodes and verifies shadow payloads under persisted bounded checkpoints.
+// PrepareScrub acquires a scrub lease and fixes the copied target identity.
 //
 //nolint:wrapcheck // public errors are payload-free and already operation scoped.
-func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadRehearsalConfig) (m apptypes.PayloadRehearsalMetrics, resultErr error) {
+func (a *PayloadRehearsalAdapter) PrepareScrub(ctx context.Context, c apptypes.PayloadRehearsalConfig) (application.PayloadRehearsalScrubHandle, apptypes.PayloadRehearsalMetrics, error) {
 	id, err := a.inspectTarget(c.TargetPath, c.LivePath)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	liveIdentity, err := inspectLiveCompatibility(ctx, c.LivePath)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	db, err := sql.Open("sqlite", writableRehearsalDSN(id.canonical, c.LockTimeLimit))
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
-	defer func() { _ = db.Close() }()
+	prepared := false
+	defer func() {
+		if !prepared {
+			_ = db.Close()
+		}
+	}()
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	minimumWAL, err := minimumWALFrameBytes(ctx, id.canonical)
 	if err != nil || c.MaxWALBytes < minimumWAL {
-		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: minimumWAL}, errors.New("scrub WAL hard cap is smaller than one SQLite WAL frame")
+		return nil, apptypes.PayloadRehearsalMetrics{PeakWALBytes: minimumWAL}, errors.New("scrub WAL hard cap is smaller than one SQLite WAL frame")
 	}
 	if _, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("disable scrub WAL autocheckpoint: %w", err)
+		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("disable scrub WAL autocheckpoint: %w", err)
 	}
 	var run string
 	if err = db.QueryRowContext(ctx, `SELECT run_id FROM payload_rehearsal_runs WHERE target_fingerprint=? AND state='completed'`, id.opaque).Scan(&run); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
+		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
 	}
 	guard := rehearsalMutationGuard(func() error { return a.recheckExpectedTarget(id, c, true) })
 	if err = guard(); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	acquirePeak := minimumWAL
 	rehearsalSchemaSHA, err := rehearsalSchemaFingerprint(ctx, db)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	scrubSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &acquirePeak, lockLimit: c.LockTimeLimit}
 	lease, err := acquireScrubLease(ctx, scrubSession, run, guard)
 	if err != nil {
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
+	}
+	m := apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity, PeakWALBytes: acquirePeak}
+	h := &payloadRehearsalScrubHandle{adapter: a, config: c, id: id, db: db, minimumWAL: minimumWAL, liveIdentity: liveIdentity, runID: run, leaseToken: lease, guard: guard, metrics: m, leaseActive: true}
+	h.session = walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &h.metrics.PeakWALBytes, lockLimit: c.LockTimeLimit}
+	prepared = true
+	return h, h.metrics, nil
+}
+
+// AdvanceScrubField verifies and checkpoints at most one bounded page.
+func (a *PayloadRehearsalAdapter) AdvanceScrubField(ctx context.Context, opaque application.PayloadRehearsalScrubHandle, field apptypes.PayloadRehearsalField) (apptypes.PayloadRehearsalMetrics, bool, error) {
+	h, err := ownedScrubHandle(a, opaque)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, false, err
+	}
+	f, ok := rehearsalFieldFor(field)
+	if !ok {
+		return h.metrics, false, errors.New("invalid payload rehearsal field")
+	}
+	var last string
+	if err = h.db.QueryRowContext(ctx, `SELECT scrub_last_primary_key FROM payload_rehearsal_checkpoints WHERE run_id=? AND table_kind=? AND field_kind=?`, h.runID, f.table, f.field).Scan(&last); err != nil {
+		return h.metrics, false, xerrors.Errorf("load scrub checkpoint: %w", err)
+	}
+	rows, err := h.db.QueryContext(ctx, `SELECT source_primary_key,source_sha256,length(payload),CASE WHEN length(payload)<=? THEN payload ELSE NULL END,codec,format_version,plaintext_bytes,stored_bytes,payload_sha256 FROM payload_rehearsal_rows WHERE run_id=? AND table_kind=? AND field_kind=? AND source_primary_key>? ORDER BY source_primary_key LIMIT ?`, h.config.ScrubByteLimit, h.runID, f.table, f.field, last, h.config.BatchRows)
+	if err != nil {
+		return h.metrics, false, xerrors.Errorf("select scrub page: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	count := 0
+	var pageBytes int64
+	resourceCapped := false
+	for rows.Next() {
+		var key, sourceSHA string
+		var payloadLength int64
+		var p payloadRow
+		if err = rows.Scan(&key, &sourceSHA, &payloadLength, &p.Stored, &p.Codec, &p.FormatVersion, &p.PlaintextBytes, &p.StoredBytes, &p.SHA256); err != nil {
+			return h.metrics, false, xerrors.Errorf("scan scrub row: %w", err)
+		}
+		if payloadLength > h.config.ScrubByteLimit {
+			return h.metrics, false, errors.New("single scrub page exceeds scrub hard cap")
+		}
+		if h.metrics.StoredBytes+int64(len(p.Stored)) > h.config.ScrubByteLimit {
+			resourceCapped = true
+			break
+		}
+		plain, decodeErr := p.decode(h.config.DecodedByteLimit)
+		if decodeErr != nil {
+			return h.metrics, false, decodeErr
+		}
+		sum := sha256.Sum256(plain)
+		if hex.EncodeToString(sum[:]) != sourceSHA {
+			return h.metrics, false, errors.New("scrub source checksum mismatch")
+		}
+		last = key
+		count++
+		pageBytes += int64(len(p.Stored))
+		h.metrics.ScannedRows++
+		h.metrics.StoredBytes += int64(len(p.Stored))
+		h.metrics.PlaintextBytes += int64(len(plain))
+	}
+	if err = rows.Err(); err != nil {
+		return h.metrics, false, xerrors.Errorf("iterate scrub page: %w", err)
+	}
+	if count == 0 {
+		if resourceCapped {
+			return h.metrics, false, errors.New("scrub resource cap reached; resume scrub with the persisted checkpoint")
+		}
+		return h.metrics, true, nil
+	}
+	if a.beforePersistence != nil {
+		a.beforePersistence("scrub-progress")
+	}
+	if err = a.recheckExpectedTarget(h.id, h.config, true); err != nil {
+		return h.metrics, false, err
+	}
+	if err = persistScrubProgress(ctx, h.session, h.runID, h.leaseToken, f, last, count, h.guard); err != nil {
+		return h.metrics, false, err
+	}
+	if err = observeWALPeak(h.id.canonical, h.minimumWAL, h.config.MaxWALBytes, &h.metrics.PeakWALBytes); err != nil {
+		return h.metrics, false, err
+	}
+	if resourceCapped {
+		return h.metrics, false, errors.New("scrub resource cap reached; resume scrub with the persisted checkpoint")
+	}
+	return h.metrics, false, nil
+}
+
+// CompleteScrub verifies cardinality and transitions a fully scrubbed run.
+func (a *PayloadRehearsalAdapter) CompleteScrub(ctx context.Context, opaque application.PayloadRehearsalScrubHandle) (apptypes.PayloadRehearsalMetrics, error) {
+	h, err := ownedScrubHandle(a, opaque)
+	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	deadline := time.Now().Add(c.ScrubTimeLimit)
-	m = apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity, PeakWALBytes: acquirePeak}
-	scrubSession.peak = &m.PeakWALBytes
-	leaseActive := true
-	observeScrubWAL := func() error {
-		return observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes)
-	}
-	defer func() {
-		if leaseActive {
-			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-			defer cancel()
-			if releaseErr := releaseScrubLease(releaseCtx, scrubSession, run, lease, guard); releaseErr != nil && resultErr == nil {
-				resultErr = releaseErr
-			}
-		}
-		if observationErr := observeScrubWAL(); observationErr != nil && resultErr == nil {
-			resultErr = observationErr
-		}
-	}()
-	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
-		return m, err
-	}
-	var bytes int64
-	for _, f := range rehearsalFields {
-		var last string
-		if err = db.QueryRowContext(ctx, `SELECT scrub_last_primary_key FROM payload_rehearsal_checkpoints WHERE run_id=? AND table_kind=? AND field_kind=?`, run, f.table, f.field).Scan(&last); err != nil {
-			return m, err
-		}
-		for {
-			if time.Now().After(deadline) || bytes >= c.ScrubByteLimit {
-				return m, errors.New("scrub resource cap reached; resume scrub with the persisted checkpoint")
-			}
-			rows, queryErr := db.QueryContext(ctx, `SELECT source_primary_key,source_sha256,length(payload),CASE WHEN length(payload)<=? THEN payload ELSE NULL END,codec,format_version,plaintext_bytes,stored_bytes,payload_sha256 FROM payload_rehearsal_rows WHERE run_id=? AND table_kind=? AND field_kind=? AND source_primary_key>? ORDER BY source_primary_key LIMIT ?`, c.ScrubByteLimit, run, f.table, f.field, last, c.BatchRows)
-			if queryErr != nil {
-				return m, queryErr
-			}
-			count := 0
-			for rows.Next() {
-				var key, sourceSHA string
-				var payloadLength int64
-				var p payloadRow
-				if err = rows.Scan(&key, &sourceSHA, &payloadLength, &p.Stored, &p.Codec, &p.FormatVersion, &p.PlaintextBytes, &p.StoredBytes, &p.SHA256); err != nil {
-					_ = rows.Close()
-					return m, err
-				}
-				if payloadLength > c.ScrubByteLimit {
-					_ = rows.Close()
-					return m, errors.New("single shadow payload exceeds scrub hard cap")
-				}
-				if bytes+int64(len(p.Stored)) > c.ScrubByteLimit {
-					_ = rows.Close()
-					if a.beforePersistence != nil {
-						a.beforePersistence("scrub-progress")
-					}
-					if guardErr := a.recheckExpectedTarget(id, c, true); guardErr != nil {
-						return m, guardErr
-					}
-					if persistErr := persistScrubProgress(ctx, scrubSession, run, lease, f, last, count, guard); persistErr != nil {
-						return m, persistErr
-					}
-					if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
-						return m, err
-					}
-					if bytes == 0 {
-						return m, errors.New("single shadow payload exceeds scrub hard cap")
-					}
-					return m, errors.New("scrub resource cap reached; resume scrub with the persisted checkpoint")
-				}
-				plain, decodeErr := p.decode(c.DecodedByteLimit)
-				if decodeErr != nil {
-					_ = rows.Close()
-					return m, decodeErr
-				}
-				sum := sha256.Sum256(plain)
-				if hex.EncodeToString(sum[:]) != sourceSHA {
-					_ = rows.Close()
-					return m, errors.New("scrub source checksum mismatch")
-				}
-				last = key
-				count++
-				bytes += int64(len(p.Stored))
-				m.ScannedRows++
-				m.StoredBytes += int64(len(p.Stored))
-				m.PlaintextBytes += int64(len(plain))
-			}
-			if err = rows.Err(); err != nil {
-				_ = rows.Close()
-				return m, err
-			}
-			_ = rows.Close()
-			if count == 0 {
-				break
-			}
-			if a.beforePersistence != nil {
-				a.beforePersistence("scrub-progress")
-			}
-			if err = a.recheckExpectedTarget(id, c, true); err != nil {
-				return m, err
-			}
-			if err = persistScrubProgress(ctx, scrubSession, run, lease, f, last, count, guard); err != nil {
-				return m, err
-			}
-			if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
-				return m, err
-			}
-		}
-	}
 	var mismatched int
-	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_checkpoints c WHERE c.run_id=? AND (c.changed_rows<>(SELECT count(*) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind) OR c.scrubbed_rows<>c.changed_rows OR c.scrub_last_primary_key<>coalesce((SELECT max(r.source_primary_key) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind),''))`, run).Scan(&mismatched); err != nil || mismatched != 0 {
-		return m, errors.New("scrub shadow/checkpoint cardinality mismatch")
+	if err = h.db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_checkpoints c WHERE c.run_id=? AND (c.changed_rows<>(SELECT count(*) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind) OR c.scrubbed_rows<>c.changed_rows OR c.scrub_last_primary_key<>coalesce((SELECT max(r.source_primary_key) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind),''))`, h.runID).Scan(&mismatched); err != nil || mismatched != 0 {
+		return h.metrics, errors.New("scrub shadow/checkpoint cardinality mismatch")
 	}
 	var changedTotal, shadowTotal int64
-	if err = db.QueryRowContext(ctx, `SELECT coalesce(sum(changed_rows),0) FROM payload_rehearsal_checkpoints WHERE run_id=?`, run).Scan(&changedTotal); err != nil {
-		return m, err
+	if err = h.db.QueryRowContext(ctx, `SELECT coalesce(sum(changed_rows),0) FROM payload_rehearsal_checkpoints WHERE run_id=?`, h.runID).Scan(&changedTotal); err != nil {
+		return h.metrics, xerrors.Errorf("count scrubbed rows: %w", err)
 	}
-	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_rows WHERE run_id=?`, run).Scan(&shadowTotal); err != nil || changedTotal != shadowTotal {
-		return m, errors.New("scrub shadow total mismatch")
+	if err = h.db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_rows WHERE run_id=?`, h.runID).Scan(&shadowTotal); err != nil || changedTotal != shadowTotal {
+		return h.metrics, errors.New("scrub shadow total mismatch")
 	}
 	if a.beforePersistence != nil {
 		a.beforePersistence("scrub-complete")
 	}
-	if err = a.recheckExpectedTarget(id, c, true); err != nil {
-		return m, err
+	if err = a.recheckExpectedTarget(h.id, h.config, true); err != nil {
+		return h.metrics, err
 	}
-	if err = transitionTerminalWithinWALBudget(ctx, scrubSession, run, lease, apptypes.PayloadRehearsalScrubbed, guard); err != nil {
-		return m, err
+	if err = transitionTerminalWithinWALBudget(ctx, h.session, h.runID, h.leaseToken, apptypes.PayloadRehearsalScrubbed, h.guard); err != nil {
+		return h.metrics, err
 	}
-	leaseActive = false
-	m.State = "scrubbed"
-	m.ActivationReadiness = activationReadiness(liveIdentity, true, true, true, true, false)
-	return m, nil
+	h.leaseActive = false
+	h.metrics.State = "scrubbed"
+	h.metrics.ActivationReadiness = activationReadiness(h.liveIdentity, true, true, true, true, false)
+	return h.metrics, nil
+}
+
+// ReleaseScrub releases an active lease without completing the run.
+func (a *PayloadRehearsalAdapter) ReleaseScrub(ctx context.Context, opaque application.PayloadRehearsalScrubHandle) error {
+	h, err := ownedScrubHandle(a, opaque)
+	if err != nil {
+		return err
+	}
+	if !h.leaseActive {
+		return nil
+	}
+	if err = releaseScrubLease(ctx, h.session, h.runID, h.leaseToken, h.guard); err != nil {
+		return err
+	}
+	h.leaseActive = false
+	return nil
+}
+
+// CloseScrub releases the database connection held by a scrub handle.
+func (a *PayloadRehearsalAdapter) CloseScrub(opaque application.PayloadRehearsalScrubHandle) error {
+	h, err := ownedScrubHandle(a, opaque)
+	if err != nil {
+		return err
+	}
+	err = h.db.Close()
+	h.db = nil
+	if err != nil {
+		return xerrors.Errorf("close payload rehearsal scrub database: %w", err)
+	}
+	return nil
 }
 
 // Rollback restores and verifies the physical artifact for the copied target.

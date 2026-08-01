@@ -28,12 +28,13 @@ type PayloadRehearsalUsecase interface {
 type payloadRehearsalUsecase struct {
 	preview  application.PayloadRehearsalPreview
 	workflow application.PayloadRehearsalRunWorkflow
+	scrubber application.PayloadRehearsalScrubWorkflow
 	runner   application.PayloadRehearsalRunner
 }
 
 // NewPayloadRehearsalUsecase constructs the copied-store rehearsal orchestrator.
-func NewPayloadRehearsalUsecase(p application.PayloadRehearsalPreview, w application.PayloadRehearsalRunWorkflow, r application.PayloadRehearsalRunner) PayloadRehearsalUsecase {
-	return &payloadRehearsalUsecase{preview: p, workflow: w, runner: r}
+func NewPayloadRehearsalUsecase(p application.PayloadRehearsalPreview, w application.PayloadRehearsalRunWorkflow, s application.PayloadRehearsalScrubWorkflow, r application.PayloadRehearsalRunner) PayloadRehearsalUsecase {
+	return &payloadRehearsalUsecase{preview: p, workflow: w, scrubber: s, runner: r}
 }
 
 func validateRehearsal(c types.PayloadRehearsalConfig) error {
@@ -119,10 +120,40 @@ func (u *payloadRehearsalUsecase) Scrub(ctx context.Context, c types.PayloadRehe
 	if err := validateRehearsal(c); err != nil {
 		return types.PayloadRehearsalMetrics{}, err
 	}
-	result, err := u.runner.Scrub(ctx, c)
+	handle, result, err := u.scrubber.PrepareScrub(ctx, c)
 	if err != nil {
-		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("scrub payload rehearsal: %w", err)
+		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("prepare payload rehearsal scrub: %w", err)
 	}
+	defer func() { _ = u.scrubber.CloseScrub(handle) }()
+	completed := false
+	defer func() {
+		if !completed {
+			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer cancel()
+			_ = u.scrubber.ReleaseScrub(releaseCtx, handle)
+		}
+	}()
+	deadline := time.Now().Add(c.ScrubTimeLimit)
+	for _, field := range types.OrderedPayloadRehearsalFields() {
+		for time.Now().Before(deadline) && result.StoredBytes < c.ScrubByteLimit {
+			var done bool
+			result, done, err = u.scrubber.AdvanceScrubField(ctx, handle, field)
+			if err != nil {
+				return result, xerrors.Errorf("advance payload rehearsal scrub: %w", err)
+			}
+			if done {
+				break
+			}
+		}
+		if !time.Now().Before(deadline) || result.StoredBytes >= c.ScrubByteLimit {
+			return result, errors.New("scrub resource cap reached; resume scrub with the persisted checkpoint")
+		}
+	}
+	result, err = u.scrubber.CompleteScrub(ctx, handle)
+	if err != nil {
+		return result, xerrors.Errorf("complete payload rehearsal scrub: %w", err)
+	}
+	completed = true
 	if result.State != "scrubbed" || !result.ActivationReadiness.ScrubPassed || result.ActivationReadiness.ActivationAllowed {
 		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
 	}
