@@ -213,9 +213,9 @@ func verifySQLiteArtifact(path string) error {
 	return nil
 }
 
-func restoreVerifiedRehearsalBackup(target, backup string, expected rehearsalIdentity, expectedDigest string) error {
+func restoreVerifiedRehearsalBackup(target, backup string, expectedTarget, expectedBackup rehearsalIdentity, expectedDigest string) error {
 	current, err := secureFileIdentity(backup)
-	if err != nil || !os.SameFile(expected.info, current.info) || expected.device != current.device || expected.inode != current.inode {
+	if err != nil || !os.SameFile(expectedBackup.info, current.info) || expectedBackup.device != current.device || expectedBackup.inode != current.inode {
 		return ErrUnsafeRehearsalTarget
 	}
 	digest, err := fileDigest(backup)
@@ -225,12 +225,31 @@ func restoreVerifiedRehearsalBackup(target, backup string, expected rehearsalIde
 	if err = verifySQLiteArtifact(backup); err != nil {
 		return err
 	}
+	verifyTarget := func() error {
+		currentTarget, targetErr := secureFileIdentity(target)
+		if targetErr != nil || !os.SameFile(expectedTarget.info, currentTarget.info) || expectedTarget.device != currentTarget.device || expectedTarget.inode != currentTarget.inode {
+			return ErrUnsafeRehearsalTarget
+		}
+		for _, suffix := range []string{"-wal", "-shm"} {
+			info, sidecarErr := os.Lstat(target + suffix)
+			if sidecarErr == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || !fileLinkCountOne(info)) {
+				return ErrUnsafeRehearsalTarget
+			}
+			if sidecarErr != nil && !os.IsNotExist(sidecarErr) {
+				return ErrUnsafeRehearsalTarget
+			}
+		}
+		return nil
+	}
+	if err = verifyTarget(); err != nil {
+		return err
+	}
 	for _, suffix := range []string{"-wal", "-shm"} {
 		if err := os.Remove(target + suffix); err != nil && !os.IsNotExist(err) {
 			return xerrors.Errorf("remove rehearsal recovery sidecar: %w", err)
 		}
 	}
-	if err = copyFileAtomic(backup, target); err != nil {
+	if err = copyFileAtomicWithHook(backup, target, verifyTarget); err != nil {
 		return err
 	}
 	restoredDigest, err := fileDigest(target)
@@ -284,6 +303,10 @@ func rejectSymlinkAncestors(path string) error {
 
 //nolint:wrapcheck // caller provides the safe rollback operation context.
 func copyFileAtomic(source, dest string) error {
+	return copyFileAtomicWithHook(source, dest, nil)
+}
+
+func copyFileAtomicWithHook(source, dest string, beforeRename func() error) error {
 	in, err := os.Open(source)
 	if err != nil {
 		return err
@@ -309,6 +332,11 @@ func copyFileAtomic(source, dest string) error {
 	}
 	if err = out.Close(); err != nil {
 		return err
+	}
+	if beforeRename != nil {
+		if err = beforeRename(); err != nil {
+			return err
+		}
 	}
 	if err = os.Rename(tmp, dest); err != nil {
 		return err

@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -15,6 +17,100 @@ import (
 )
 
 type rehearsalMutationGuard func() error
+
+// walBudgetedMutationSession serializes the schema proof, WAL reservation and
+// mutation under one BEGIN IMMEDIATE lock.  Keeping these operations on a
+// dedicated connection closes the check/use window that exists when a WAL
+// stat and a later database/sql transaction can use different connections.
+type walBudgetedMutationSession struct {
+	db                *sql.DB
+	path              string
+	expectedSchemaSHA string
+	frameBytes        int64
+	maximum           int64
+	peak              *int64
+}
+
+func rehearsalSchemaFingerprint(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}) (string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT type,name,tbl_name,coalesce(sql,'') FROM sqlite_schema ORDER BY type,name,tbl_name,sql`)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rows.Close() }()
+	h := sha256.New()
+	for rows.Next() {
+		var typ, name, table, statement string
+		if err = rows.Scan(&typ, &name, &table, &statement); err != nil {
+			return "", err
+		}
+		_, _ = fmt.Fprintf(h, "%d:%s%d:%s%d:%s%d:%s\n", len(typ), typ, len(name), name, len(table), table, len(statement), statement)
+	}
+	if err = rows.Err(); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int64, mutate func(*sql.Conn) error) (err error) {
+	if reservedFrames <= 0 || s.peak == nil || strings.TrimSpace(s.expectedSchemaSHA) == "" {
+		return ErrUnsafeRehearsalTarget
+	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), `ROLLBACK`) }()
+	fingerprint, err := rehearsalSchemaFingerprint(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if fingerprint != s.expectedSchemaSHA {
+		return errors.New("rehearsal schema changed before budgeted mutation")
+	}
+	if err = observeWALPeak(s.path, s.frameBytes, s.maximum, s.peak); err != nil {
+		return err
+	}
+	current := int64(0)
+	if info, statErr := os.Stat(s.path + "-wal"); statErr == nil {
+		current = info.Size()
+	} else if !os.IsNotExist(statErr) {
+		return errors.New("cannot inspect rehearsal WAL before mutation")
+	}
+	frame := s.frameBytes - 32
+	reservation := reservedFrames * frame
+	if current == 0 {
+		reservation += 32
+	}
+	if max(current, *s.peak) > s.maximum-reservation {
+		return errors.New("rehearsal WAL hard cap cannot accommodate mutation")
+	}
+	if err = mutate(conn); err != nil {
+		return err
+	}
+	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return err
+	}
+	return observeWALPeak(s.path, s.frameBytes, s.maximum, s.peak)
+}
+
+func batchWALFrames(batch []selectedPayload, frameBytes int64) int64 {
+	pageBytes := frameBytes - 32
+	var stored, decoded int64
+	for _, row := range batch {
+		stored += row.encoded.StoredBytes
+		decoded += int64(len(row.plaintext))
+	}
+	// Payload overflow pages are bounded by the actual encoded bytes.  Include
+	// decoded bytes as a conservative bound for transient/index record growth,
+	// two b-tree pages per row, and the checkpoint/run control pages.
+	return (stored+decoded+pageBytes-1)/pageBytes + int64(len(batch))*2 + 4
+}
 
 func requireSafeRehearsalMutation(guard rehearsalMutationGuard) error {
 	if guard == nil {
@@ -203,42 +299,35 @@ func markRehearsalLaneComplete(ctx context.Context, db *sql.DB, run, lease strin
 }
 
 //nolint:wrapcheck // fixed SQL lane failures are classified by the public operation.
-func commitRehearsalBatch(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, batch []selectedPayload, guard rehearsalMutationGuard) error {
+func commitRehearsalBatch(ctx context.Context, session walBudgetedMutationSession, run, lease string, f rehearsalField, batch []selectedPayload, guard rehearsalMutationGuard) error {
 	if err := requireSafeRehearsalMutation(guard); err != nil {
 		return err
 	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	var heldLease string
-	if err = tx.QueryRowContext(ctx, `SELECT coalesce(lease_token,'') FROM payload_rehearsal_runs WHERE run_id=?`, run).Scan(&heldLease); err != nil {
-		return err
-	}
-	if heldLease != lease {
-		return errors.New("rehearsal run lease was lost")
-	}
-	for _, r := range batch {
-		_, err = tx.ExecContext(ctx, `INSERT INTO payload_rehearsal_rows(run_id,table_kind,field_kind,source_primary_key,source_sha256,payload,codec,format_version,plaintext_bytes,stored_bytes,payload_sha256) VALUES(?,?,?,?,?,?,'zstd',1,?,?,?) ON CONFLICT(run_id,table_kind,field_kind,source_primary_key) DO NOTHING`, run, f.table, f.field, r.key, r.sourceSHA, r.encoded.Bytes, r.encoded.PlaintextBytes, r.encoded.StoredBytes, r.encoded.SHA256)
-		if err != nil {
+	return session.run(ctx, batchWALFrames(batch, session.frameBytes), func(tx *sql.Conn) error {
+		var heldLease string
+		if err := tx.QueryRowContext(ctx, `SELECT coalesce(lease_token,'') FROM payload_rehearsal_runs WHERE run_id=?`, run).Scan(&heldLease); err != nil {
 			return err
 		}
-	}
-	last := batch[len(batch)-1].key
-	var plain, stored int64
-	for _, r := range batch {
-		plain += int64(len(r.plaintext))
-		stored += r.encoded.StoredBytes
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET last_primary_key=?,state='advancing',scanned_rows=scanned_rows+?,changed_rows=changed_rows+?,plaintext_bytes=plaintext_bytes+?,stored_bytes=stored_bytes+? WHERE run_id=? AND table_kind=? AND field_kind=?`, last, len(batch), len(batch), plain, stored, run, f.table, f.field)
-	if err != nil {
+		if heldLease != lease {
+			return errors.New("rehearsal run lease was lost")
+		}
+		for _, r := range batch {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO payload_rehearsal_rows(run_id,table_kind,field_kind,source_primary_key,source_sha256,payload,codec,format_version,plaintext_bytes,stored_bytes,payload_sha256) VALUES(?,?,?,?,?,?,'zstd',1,?,?,?) ON CONFLICT(run_id,table_kind,field_kind,source_primary_key) DO NOTHING`, run, f.table, f.field, r.key, r.sourceSHA, r.encoded.Bytes, r.encoded.PlaintextBytes, r.encoded.StoredBytes, r.encoded.SHA256); err != nil {
+				return err
+			}
+		}
+		last := batch[len(batch)-1].key
+		var plain, stored int64
+		for _, r := range batch {
+			plain += int64(len(r.plaintext))
+			stored += r.encoded.StoredBytes
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET last_primary_key=?,state='advancing',scanned_rows=scanned_rows+?,changed_rows=changed_rows+?,plaintext_bytes=plaintext_bytes+?,stored_bytes=stored_bytes+? WHERE run_id=? AND table_kind=? AND field_kind=?`, last, len(batch), len(batch), plain, stored, run, f.table, f.field); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_expires_at=?,updated_at=? WHERE run_id=? AND lease_token=?`, time.Now().UTC().Add(30*time.Second).Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), run, lease)
 		return err
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_expires_at=?,updated_at=? WHERE run_id=? AND lease_token=?`, time.Now().UTC().Add(30*time.Second).Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), run, lease); err != nil {
-		return err
-	}
-	return tx.Commit()
+	})
 }
 
 func transitionRunWithLease(ctx context.Context, db *sql.DB, run, lease string, state apptypes.PayloadRehearsalState, guard rehearsalMutationGuard) error {

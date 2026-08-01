@@ -312,13 +312,17 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 		if a.beforeMigrationRecovery != nil {
 			a.beforeMigrationRecovery()
 		}
-		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, backupIdentity, backupDigest); recoveryErr != nil {
+		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
 			return apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: false}, xerrors.Errorf("migration WAL cap exceeded and rollback failed: %w", recoveryErr)
 		}
 		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: true}, err
 	}
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	rehearsalSchemaSHA, err := rehearsalSchemaFingerprint(ctx, db)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fingerprint rehearsal schema: %w", err)
 	}
 	if a.beforeStartRun != nil {
 		a.beforeStartRun()
@@ -337,6 +341,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, PeakWALBytes: resumePeak, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
+	batchSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &metrics.PeakWALBytes}
 	observeRunWAL := func() error {
 		return observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes)
 	}
@@ -393,7 +398,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			if e = a.recheckExpectedTarget(id, c, true); e != nil {
 				return metrics, e
 			}
-			e = commitRehearsalBatch(ctx, db, runID, leaseToken, f, batch, guard)
+			e = commitRehearsalBatch(ctx, batchSession, runID, leaseToken, f, batch, guard)
 			if e != nil {
 				return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard, reserveRunControlWAL, observeRunWAL)
 			}
