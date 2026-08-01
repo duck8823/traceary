@@ -27,9 +27,10 @@ func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchm
 	if !complete {
 		searchSQL, searchArgs = buildIncompleteFTSEventIDsQuery(searchCriteria, searchCriteria.Query())
 	}
+	latestSQL := latestSessionBoundarySQL(ctx, db)
 	return []CapacityBenchmarkQuery{
 		{Name: "active", SQL: findActiveSessionQuery, Args: []any{"session_started", "", "", "", "", "", "", "session_started", "session_ended"}},
-		{Name: "latest", SQL: findLatestSessionBoundaryQuery, Args: []any{"session_started", "", "", "", "", "", "", "session_started"}},
+		{Name: "latest", SQL: latestSQL, Args: []any{"session_started", "", "", "", "", "", "", "session_started"}},
 		{Name: "search", SQL: searchSQL, Args: searchArgs},
 	}, nil
 }

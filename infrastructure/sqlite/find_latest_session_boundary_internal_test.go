@@ -40,6 +40,10 @@ func TestLatestSessionBoundaryQueryUsesBodyFreeBoundaryIndex(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
+	selectedSQL := latestSessionBoundarySQL(ctx, db)
+	if !strings.Contains(selectedSQL, "INDEXED BY "+latestSessionBoundaryIndex) {
+		t.Fatalf("migration-35 store did not select the deterministic boundary index")
+	}
 	normalized := strings.ToLower(plan.String())
 	if !strings.Contains(normalized, "idx_event_metadata_kind_created_at_norm_id_desc") || !strings.Contains(normalized, "idx_event_metadata_workspace_session_created_at_norm_id_desc") {
 		t.Fatalf("latest lookup candidate phases are not index-backed on the body-free projection:\n%s", plan.String())

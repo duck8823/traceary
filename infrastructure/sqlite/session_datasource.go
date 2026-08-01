@@ -527,6 +527,17 @@ func (d *SessionDatasource) UpdateModelIfEmpty(ctx context.Context, sessionID ty
 	return rows > 0, nil
 }
 
+const latestSessionBoundaryIndex = "idx_event_metadata_boundary_time_context"
+
+func latestSessionBoundarySQL(ctx context.Context, db *sql.DB) string {
+	var exists int
+	err := db.QueryRowContext(ctx, "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?", latestSessionBoundaryIndex).Scan(&exists)
+	if err != nil || exists != 1 {
+		return findLatestSessionBoundaryQuery
+	}
+	return strings.Replace(findLatestSessionBoundaryQuery, "event_metadata_projection boundary", "event_metadata_projection boundary INDEXED BY "+latestSessionBoundaryIndex, 1)
+}
+
 // FindLatest returns the session_started event for the latest matching
 // session. Returns an empty Optional when no matching session exists.
 func (d *SessionDatasource) FindLatest(
@@ -545,7 +556,7 @@ func (d *SessionDatasource) FindLatest(
 	}()
 
 	if !activeOnly {
-		row := db.QueryRowContext(ctx, findLatestSessionBoundaryQuery,
+		row := db.QueryRowContext(ctx, latestSessionBoundarySQL(ctx, db),
 			types.EventKindSessionStarted.String(),
 			client.String(), client.String(), agent.String(), agent.String(), workspace.String(), workspace.String(),
 			types.EventKindSessionStarted.String(),
