@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -38,6 +39,34 @@ func TestPayloadRehearsalRejectsLiveDatabaseAsBackup(t *testing.T) {
 	config.BackupPath = config.LivePath
 	if _, err := adapter.Run(context.Background(), config, false); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestPayloadRehearsalRejectsFutureTargetBeforeMigrationWrite(t *testing.T) {
+	adapter, config, _ := newSwapRehearsalFixture(t)
+	db, err := sql.Open("sqlite", config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE store_format_state SET minimum_reader_version=999 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := fileDigest(config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adapter.Run(context.Background(), config, false); err == nil {
+		t.Fatal("future target was accepted")
+	}
+	after, err := fileDigest(config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatal("future target was mutated before compatibility rejection")
 	}
 }
 
@@ -87,35 +116,63 @@ func TestPayloadRehearsalRejectsOversizePayloadBeforeBlobMaterialization(t *test
 }
 
 func TestTerminalTransitionDoesNotCommitWithoutReservedWALFrame(t *testing.T) {
-	adapter, config, _ := newSwapRehearsalFixture(t)
-	metrics, err := adapter.Run(context.Background(), config, false)
-	if err != nil {
-		t.Fatal(err)
+	for _, maximum := range []int64{42000, 43000, 44000, 45000} {
+		t.Run(fmt.Sprint(maximum), func(t *testing.T) {
+			adapter, config, _ := newSwapRehearsalFixture(t)
+			metrics, err := adapter.Run(context.Background(), config, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", writableRehearsalDSN(config.TargetPath, config.LockTimeLimit))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			const lease = "terminal-budget-lease"
+			if _, err = db.Exec(`UPDATE payload_rehearsal_runs SET state='running',lease_token=? WHERE run_id=?`, lease, metrics.RunID); err != nil {
+				t.Fatal(err)
+			}
+			frame, err := minimumWALFrameBytes(context.Background(), config.TargetPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			peak := int64(30000)
+			guard := rehearsalMutationGuard(func() error { return nil })
+			if err = transitionTerminalWithinWALBudget(context.Background(), db, config.TargetPath, metrics.RunID, lease, apptypes.PayloadRehearsalCompleted, frame, maximum, &peak, guard); err == nil {
+				t.Fatal("terminal transition ignored WAL reservation")
+			}
+			var state string
+			if err = db.QueryRow(`SELECT state FROM payload_rehearsal_runs WHERE run_id=?`, metrics.RunID).Scan(&state); err != nil {
+				t.Fatal(err)
+			}
+			if state == "completed" || state == "scrubbed" {
+				t.Fatalf("terminal state persisted after WAL budget failure: %s", state)
+			}
+		})
 	}
-	db, err := sql.Open("sqlite", writableRehearsalDSN(config.TargetPath, config.LockTimeLimit))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	const lease = "terminal-budget-lease"
-	if _, err = db.Exec(`UPDATE payload_rehearsal_runs SET state='running',lease_token=? WHERE run_id=?`, lease, metrics.RunID); err != nil {
-		t.Fatal(err)
-	}
-	frame, err := minimumWALFrameBytes(context.Background(), config.TargetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	peak := frame
-	rejectingMaximum := 2*frame - 1
-	guard := rehearsalMutationGuard(func() error { return nil })
-	if err = transitionTerminalWithinWALBudget(context.Background(), db, config.TargetPath, metrics.RunID, lease, apptypes.PayloadRehearsalCompleted, frame, rejectingMaximum, &peak, guard); err == nil {
-		t.Fatal("terminal transition ignored WAL reservation")
-	}
-	var state string
-	if err = db.QueryRow(`SELECT state FROM payload_rehearsal_runs WHERE run_id=?`, metrics.RunID).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state == "completed" || state == "scrubbed" {
-		t.Fatalf("terminal state persisted after WAL budget failure: %s", state)
+}
+
+func TestPhysicalBackupRejectsCopyCorruptionAndSourceDrift(t *testing.T) {
+	for _, mode := range []string{"destination", "source"} {
+		t.Run(mode, func(t *testing.T) {
+			_, config, _ := newSwapRehearsalFixture(t)
+			destination := filepath.Join(t.TempDir(), "backup.db")
+			hook := func() {
+				path := destination
+				if mode == "source" {
+					path = config.TargetPath
+				}
+				file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0600)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				_, _ = file.Write([]byte("corruption"))
+				_ = file.Close()
+			}
+			if _, err := ensurePhysicalBackupWithHook(config.TargetPath, destination, hook); err == nil {
+				t.Fatal("unstable/corrupt copy was verified")
+			}
+		})
 	}
 }

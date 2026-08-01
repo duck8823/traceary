@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -149,6 +150,10 @@ func immutableRehearsalDSN(path string) string {
 
 // Preview proves a strictly immutable, zero-write inspection.
 func ensurePhysicalBackup(source, dest string) (string, error) {
+	return ensurePhysicalBackupWithHook(source, dest, nil)
+}
+
+func ensurePhysicalBackupWithHook(source, dest string, afterCopy func()) (string, error) {
 	sourceAbs, _ := filepath.Abs(filepath.Clean(source))
 	destAbs, _ := filepath.Abs(filepath.Clean(dest))
 	if sourceAbs == destAbs {
@@ -167,12 +172,54 @@ func ensurePhysicalBackup(source, dest string) (string, error) {
 		if existing != sourceDigest {
 			return "", errors.New("existing rollback artifact does not match the copied target")
 		}
+		if err := verifySQLiteArtifact(dest); err != nil {
+			return "", err
+		}
 		return existing, nil
 	}
 	if err := copyFileAtomic(source, dest); err != nil {
 		return "", xerrors.Errorf("create rollback artifact: %w", err)
 	}
-	return fileDigest(dest)
+	if afterCopy != nil {
+		afterCopy()
+	}
+	sourceAfter, err := fileDigest(source)
+	if err != nil || sourceAfter != sourceDigest {
+		return "", errors.New("source changed while creating rollback artifact")
+	}
+	destDigest, err := fileDigest(dest)
+	if err != nil || destDigest != sourceDigest {
+		return "", errors.New("rollback artifact digest verification failed")
+	}
+	if _, err = secureFileIdentity(dest); err != nil {
+		return "", ErrUnsafeRehearsalTarget
+	}
+	if err = verifySQLiteArtifact(dest); err != nil {
+		return "", err
+	}
+	return destDigest, nil
+}
+
+func verifySQLiteArtifact(path string) error {
+	db, err := sql.Open("sqlite", immutableRehearsalDSN(path))
+	if err != nil {
+		return xerrors.Errorf("open rollback artifact: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	var result string
+	if err = db.QueryRow(`PRAGMA integrity_check`).Scan(&result); err != nil || result != "ok" {
+		return errors.New("rollback artifact integrity check failed")
+	}
+	return nil
+}
+
+func restoreVerifiedRehearsalBackup(target, backup string) error {
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if err := os.Remove(target + suffix); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return copyFileAtomic(backup, target)
 }
 
 func validateBackupIndependence(backup string, forbidden ...string) error {
