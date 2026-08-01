@@ -295,6 +295,75 @@ func TestPayloadRehearsalRejectsLiveAliases(t *testing.T) {
 	}
 }
 
+func TestPayloadRehearsalAppliesCommonCompatibilityGateToLiveAndTarget(t *testing.T) {
+	ctx := context.Background()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, target := filepath.Join(dir, "live.db"), filepath.Join(dir, "target.db")
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{live, target} {
+		if err = infra.NewStoreManagementDatasource(infra.NewDatabase(path, migrations)).Initialize(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	adapter := infra.NewPayloadRehearsalAdapter(migrations)
+	config := rehearsalTestConfig(target, live, filepath.Join(dir, "backup.db"))
+	mutate := func(t *testing.T, path, statement string) {
+		t.Helper()
+		db, openErr := sql.Open("sqlite", path)
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		if _, execErr := db.Exec(statement); execErr != nil {
+			_ = db.Close()
+			t.Fatal(execErr)
+		}
+		if closeErr := db.Close(); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	}
+	for _, tc := range []struct{ name, path, invalid, restore string }{
+		{"live future reader", live, `UPDATE store_format_state SET minimum_reader_version=999`, `UPDATE store_format_state SET minimum_reader_version=34`},
+		{"live future format", live, `UPDATE store_format_state SET maximum_payload_format=999`, `UPDATE store_format_state SET maximum_payload_format=1`},
+		{"live missing state", live, `DELETE FROM store_format_state`, `INSERT INTO store_format_state VALUES(1,34,1)`},
+		{"live invalid state", live, `UPDATE store_format_state SET minimum_reader_version=-1`, `UPDATE store_format_state SET minimum_reader_version=34`},
+		{"target future reader", target, `UPDATE store_format_state SET minimum_reader_version=999`, `UPDATE store_format_state SET minimum_reader_version=34`},
+		{"target future format", target, `UPDATE store_format_state SET maximum_payload_format=999`, `UPDATE store_format_state SET maximum_payload_format=1`},
+		{"target missing state", target, `DELETE FROM store_format_state`, `INSERT INTO store_format_state VALUES(1,34,1)`},
+		{"target invalid state", target, `UPDATE store_format_state SET maximum_payload_format=-1`, `UPDATE store_format_state SET maximum_payload_format=1`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutate(t, tc.path, tc.invalid)
+			if _, previewErr := adapter.Preview(ctx, config); previewErr == nil {
+				t.Fatal("incompatible store was accepted")
+			}
+			mutate(t, tc.path, tc.restore)
+		})
+	}
+
+	legacy := filepath.Join(dir, "legacy-live.db")
+	legacyDB, err := sql.Open("sqlite", legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = legacyDB.Exec(`CREATE TABLE events(id TEXT PRIMARY KEY,body TEXT NOT NULL); CREATE TABLE command_audits(event_id TEXT PRIMARY KEY,command_text TEXT NOT NULL,input_text TEXT NOT NULL,output_text TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err = legacyDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	legacyConfig := config
+	legacyConfig.LivePath = legacy
+	if _, err = adapter.Preview(ctx, legacyConfig); err != nil {
+		t.Fatalf("legacy live compatibility: %v", err)
+	}
+}
+
 func rehearsalTestConfig(target, live, backup string) apptypes.PayloadRehearsalConfig {
 	return apptypes.PayloadRehearsalConfig{TargetPath: target, LivePath: live, BackupPath: backup, BatchRows: 2, StoredByteLimit: 1 << 20, DecodedByteLimit: 1 << 20, WallTimeLimit: time.Minute, LockTimeLimit: time.Second, ScrubByteLimit: 1 << 20, ScrubTimeLimit: time.Minute}
 }

@@ -155,6 +155,10 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	liveIdentity, err := inspectLiveCompatibility(ctx, c.LivePath)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	before, err := componentSnapshots(id.canonical)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
@@ -199,7 +203,7 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 		return apptypes.PayloadRehearsalMetrics{}, ErrDryRunMutation
 	}
 	free, _ := filesystemFreeBytes(filepath.Dir(id.canonical))
-	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: uint64(eventBytes + auditBytes), DryRunZeroWrite: true, LiveIdentityOnly: liveIdentityOnly(ctx, c.LivePath), Before: before, After: after}, nil
+	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: uint64(eventBytes + auditBytes), DryRunZeroWrite: true, LiveIdentityOnly: liveIdentity, Before: before, After: after}, nil
 }
 
 func snapshotsEqual(a, b []apptypes.PayloadRehearsalFileState) bool {
@@ -229,6 +233,10 @@ func writableRehearsalDSN(path string, lock time.Duration) string {
 // Run creates or resumes bounded zstd shadow rows without changing canonical payloads.
 func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadRehearsalConfig, resume bool) (apptypes.PayloadRehearsalMetrics, error) {
 	id, err := inspectRehearsalTarget(c.TargetPath, c.LivePath)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	liveIdentity, err := inspectLiveCompatibility(ctx, c.LivePath)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
@@ -272,12 +280,15 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("open rehearsal target: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+	if err = VerifyStoreCompatibility(ctx, db); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	configHash := hashConfig(c, id.opaque)
 	runID, eventHigh, auditHigh, err := loadOrCreateRun(ctx, db, id.opaque, configHash, backupDigest, resume)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentityOnly(ctx, c.LivePath), Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
+	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
 	deadline := time.Now().Add(c.WallTimeLimit)
 	for _, f := range rehearsalFields {
 		high := eventHigh
@@ -510,17 +521,24 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	liveIdentity, err := inspectLiveCompatibility(ctx, c.LivePath)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	db, err := sql.Open("sqlite", writableRehearsalDSN(id.canonical, c.LockTimeLimit))
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	defer func() { _ = db.Close() }()
+	if err = VerifyStoreCompatibility(ctx, db); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	var run string
 	if err = db.QueryRowContext(ctx, `SELECT run_id FROM payload_rehearsal_runs WHERE target_fingerprint=? AND state IN ('completed','scrubbed')`, id.opaque).Scan(&run); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
 	}
 	deadline := time.Now().Add(c.ScrubTimeLimit)
-	m := apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentityOnly(ctx, c.LivePath)}
+	m := apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity}
 	var bytes int64
 	for _, f := range rehearsalFields {
 		var last string
@@ -592,6 +610,10 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	liveIdentity, err := inspectLiveCompatibility(ctx, c.LivePath)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	if c.BackupPath == "" {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact is required")
 	}
@@ -614,11 +636,14 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	defer func() { _ = db.Close() }()
+	if err = VerifyStoreCompatibility(ctx, db); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	var integrity string
 	if err = db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback integrity verification failed")
 	}
-	return apptypes.PayloadRehearsalMetrics{State: "rolled_back", RollbackDigest: digest, RollbackVerified: true, LiveIdentityOnly: liveIdentityOnly(ctx, c.LivePath)}, nil
+	return apptypes.PayloadRehearsalMetrics{State: "rolled_back", RollbackDigest: digest, RollbackVerified: true, LiveIdentityOnly: liveIdentity}, nil
 }
 
 func ensurePhysicalBackup(source, dest string) (string, error) {
@@ -686,13 +711,30 @@ func fileDigest(path string) (string, error) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
-func liveIdentityOnly(ctx context.Context, path string) bool {
+func inspectLiveCompatibility(ctx context.Context, path string) (bool, error) {
 	db, err := sql.Open("sqlite", immutableRehearsalDSN(path))
 	if err != nil {
-		return false
+		return false, xerrors.Errorf("open immutable live compatibility check: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+	if err = db.PingContext(ctx); err != nil {
+		return false, xerrors.Errorf("inspect live store compatibility: %w", err)
+	}
+	if err = VerifyStoreCompatibility(ctx, db); err != nil {
+		return false, err
+	}
+	var codecColumns int
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('events') WHERE name='body_codec'`).Scan(&codecColumns); err != nil {
+		return false, xerrors.Errorf("inspect live payload schema: %w", err)
+	}
+	// A legacy pre-codec store contains plaintext canonical values only.
+	if codecColumns == 0 {
+		return true, nil
+	}
 	var n int64
 	err = db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM events WHERE body_codec IS NOT NULL AND body_codec<>'identity')+(SELECT count(*) FROM command_audits WHERE (command_codec IS NOT NULL AND command_codec<>'identity') OR (input_codec IS NOT NULL AND input_codec<>'identity') OR (output_codec IS NOT NULL AND output_codec<>'identity'))`).Scan(&n)
-	return err == nil && n == 0
+	if err != nil {
+		return false, xerrors.Errorf("inspect live payload codecs: %w", err)
+	}
+	return n == 0, nil
 }
