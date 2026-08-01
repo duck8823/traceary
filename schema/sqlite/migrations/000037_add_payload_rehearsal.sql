@@ -50,6 +50,19 @@ CREATE TABLE payload_rehearsal_rows (
   PRIMARY KEY(run_id, table_kind, field_kind, source_primary_key)
 );
 
+-- Once encoding has completed, scrub readers may span multiple bounded read
+-- transactions. Freeze the shadow evidence so a writer cannot change an
+-- already verified page before its checkpoint/final transition commits.
+CREATE TRIGGER payload_rehearsal_freeze_rows_insert BEFORE INSERT ON payload_rehearsal_rows
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE run_id=NEW.run_id AND state IN ('completed','scrubbed'))
+BEGIN SELECT RAISE(ABORT, 'completed payload rehearsal rows are immutable'); END;
+CREATE TRIGGER payload_rehearsal_freeze_rows_update BEFORE UPDATE ON payload_rehearsal_rows
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE run_id=OLD.run_id AND state IN ('completed','scrubbed'))
+BEGIN SELECT RAISE(ABORT, 'completed payload rehearsal rows are immutable'); END;
+CREATE TRIGGER payload_rehearsal_freeze_rows_delete BEFORE DELETE ON payload_rehearsal_rows
+WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE run_id=OLD.run_id AND state IN ('completed','scrubbed'))
+BEGIN SELECT RAISE(ABORT, 'completed payload rehearsal rows are immutable'); END;
+
 CREATE TRIGGER payload_rehearsal_freeze_events_update BEFORE UPDATE ON events
 WHEN EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed') AND OLD.id <= event_high_water)
 BEGIN SELECT RAISE(ABORT, 'payload rehearsal source is frozen'); END;

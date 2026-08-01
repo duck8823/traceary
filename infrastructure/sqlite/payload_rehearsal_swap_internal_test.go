@@ -10,9 +10,42 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
+
+type liveDriftAfterPreview struct {
+	application.PayloadRehearsalPreview
+	live string
+}
+
+//nolint:wrapcheck // test fault injector preserves the underlying failure.
+func (p liveDriftAfterPreview) Preview(ctx context.Context, c apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
+	m, err := p.PayloadRehearsalPreview.Preview(ctx, c)
+	if err != nil {
+		return m, err
+	}
+	db, openErr := sql.Open("sqlite", p.live)
+	if openErr != nil {
+		return m, openErr
+	}
+	_, driftErr := db.Exec(`UPDATE events SET body_codec='zstd' WHERE id=(SELECT min(id) FROM events)`)
+	_ = db.Close()
+	return m, driftErr
+}
+
+func TestPayloadRehearsalRealSQLiteRejectsLiveDriftAfterPreviewBeforeBackup(t *testing.T) {
+	adapter, config, _ := newSwapRehearsalFixture(t)
+	u := usecase.NewPayloadRehearsalUsecase(liveDriftAfterPreview{PayloadRehearsalPreview: adapter, live: config.LivePath}, adapter, adapter, adapter)
+	if _, err := u.Run(context.Background(), config); !errors.Is(err, ErrLivePayloadNotIdentityOnly) {
+		t.Fatalf("error = %v", err)
+	}
+	if _, err := os.Stat(config.BackupPath); !os.IsNotExist(err) {
+		t.Fatalf("backup created after live drift: %v", err)
+	}
+}
 
 func TestPayloadRehearsalRejectsTargetSwapAtWriteBoundaries(t *testing.T) {
 	if _, err := NewPayloadRehearsalAdapter(nil, ""); err == nil {
@@ -59,9 +92,39 @@ func TestPayloadRehearsalRejectsTargetSwapAtScrubWriteBoundaries(t *testing.T) {
 	}
 }
 
+func TestPayloadRehearsalFreezesVerifiedShadowRowsAcrossScrubTransactions(t *testing.T) {
+	adapter, config, _ := newSwapRehearsalFixture(t)
+	if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err != nil {
+		t.Fatal(err)
+	}
+	var mutationErr error
+	adapter.beforePersistence = func(kind string) {
+		if kind != "scrub-progress" || mutationErr != nil {
+			return
+		}
+		db, err := sql.Open("sqlite", writableRehearsalDSN(config.TargetPath, time.Second))
+		if err != nil {
+			mutationErr = err
+			return
+		}
+		_, mutationErr = db.Exec(`UPDATE payload_rehearsal_rows SET payload=x'00' WHERE rowid=(SELECT min(rowid) FROM payload_rehearsal_rows)`)
+		_ = db.Close()
+	}
+	result, err := adapter.Scrub(context.Background(), config)
+	if err != nil {
+		t.Fatalf("scrub after rejected mutation: %v", err)
+	}
+	if mutationErr == nil {
+		t.Fatal("same-inode shadow mutation between scrub read and checkpoint was accepted")
+	}
+	if result.State != "scrubbed" || !result.ActivationReadiness.ScrubPassed {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestPayloadRehearsalRejectsTargetSwapBeforeWallTimePause(t *testing.T) {
 	adapter, config, swap := newSwapRehearsalFixture(t)
-	config.WallTimeLimit = 0
+	config.WallTimeLimit = time.Nanosecond
 	adapter.beforePersistence = func(kind string) {
 		if kind == "pause" {
 			swap()

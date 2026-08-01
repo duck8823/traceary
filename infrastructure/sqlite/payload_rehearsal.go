@@ -27,7 +27,19 @@ var (
 	ErrDryRunMutation             = errors.New("payload rehearsal preview changed a database component")
 	ErrRehearsalNeedsCleanDB      = errors.New("payload rehearsal requires a checkpointed copy without WAL or SHM sidecars")
 	ErrRehearsalMigrationRequired = errors.New("payload rehearsal bookkeeping migration is required on the copied target")
+	ErrLivePayloadNotIdentityOnly = errors.New("live store contains non-identity payloads")
 )
+
+func requireLiveIdentityOnly(ctx context.Context, path string) error {
+	ok, err := inspectLiveCompatibility(ctx, path)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrLivePayloadNotIdentityOnly
+	}
+	return nil
+}
 
 // PayloadRehearsalAdapter implements copied-store SQLite rehearsal operations.
 type PayloadRehearsalAdapter struct {
@@ -200,8 +212,7 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 	_, backupErr := os.Stat(c.BackupPath)
 	plan := rehearsalDiskPlan(id.info.Size(), c.MaxWALBytes, c.BackupPath != "" && backupErr == nil)
 	headroom := plan.TotalBytes
-	readiness := activationReadiness(liveIdentity, false, free >= headroom, false, false, false)
-	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: headroom, DiskPlan: plan, DryRunZeroWrite: true, MigrationRequired: migrationRequired, LiveIdentityOnly: liveIdentity, Before: before, After: after, ActivationReadiness: readiness}, nil
+	return apptypes.PayloadRehearsalMetrics{State: "planned", ScannedRows: eventRows + auditRows*3, PlaintextBytes: eventBytes + auditBytes, FreeBytes: free, EstimatedHeadroom: headroom, DiskPlan: plan, DryRunZeroWrite: true, MigrationRequired: migrationRequired, LiveIdentityOnly: liveIdentity, Before: before, After: after}, nil
 }
 
 func snapshotsEqual(a, b []apptypes.PayloadRehearsalFileState) bool {
@@ -275,6 +286,9 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
+	if !liveIdentity {
+		return nil, apptypes.PayloadRehearsalMetrics{}, ErrLivePayloadNotIdentityOnly
+	}
 	parts, err := componentSnapshots(id.canonical)
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
@@ -297,6 +311,9 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	requiredHeadroom := diskPlan.TotalBytes
 	if freeBytes < requiredHeadroom {
 		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("insufficient disk headroom for rehearsal and rollback")
+	}
+	if err = requireLiveIdentityOnly(ctx, c.LivePath); err != nil {
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	var backupDigest string
 	if resume {
@@ -326,6 +343,9 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 		a.beforeInitialize()
 	}
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
+	}
+	if err = requireLiveIdentityOnly(ctx, c.LivePath); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	db, err := sql.Open("sqlite", writableRehearsalDSN(id.canonical, c.LockTimeLimit))
@@ -398,6 +418,9 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if a.beforeStartRun != nil {
 		a.beforeStartRun()
 	}
+	if err = requireLiveIdentityOnly(ctx, c.LivePath); err != nil {
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
+	}
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
@@ -425,6 +448,10 @@ func (a *PayloadRehearsalAdapter) AdvanceField(ctx context.Context, opaque appli
 	h, err := ownedRehearsalHandle(a, opaque)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, false, err
+	}
+	if err = requireLiveIdentityOnly(ctx, h.config.LivePath); err != nil {
+		h.metrics.LiveIdentityOnly = false
+		return h.metrics, false, err
 	}
 	f, ok := rehearsalFieldFor(field)
 	if !ok {
@@ -499,6 +526,9 @@ func (a *PayloadRehearsalAdapter) Pause(ctx context.Context, opaque application.
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	if liveErr := requireLiveIdentityOnly(ctx, h.config.LivePath); liveErr != nil {
+		h.metrics.LiveIdentityOnly = false
+	}
 	if a.beforePersistence != nil {
 		a.beforePersistence("pause")
 	}
@@ -519,6 +549,10 @@ func (a *PayloadRehearsalAdapter) Complete(ctx context.Context, opaque applicati
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	if err = requireLiveIdentityOnly(ctx, h.config.LivePath); err != nil {
+		h.metrics.LiveIdentityOnly = false
+		return h.metrics, err
+	}
 	if a.beforePersistence != nil {
 		a.beforePersistence("run-complete")
 	}
@@ -529,7 +563,6 @@ func (a *PayloadRehearsalAdapter) Complete(ctx context.Context, opaque applicati
 		return h.metrics, err
 	}
 	h.metrics.State = "completed"
-	h.metrics.ActivationReadiness = activationReadiness(h.liveIdentity, true, true, true, false, false)
 	h.metrics.After, _ = componentSnapshots(h.id.canonical)
 	return h.metrics, nil
 }
@@ -559,6 +592,9 @@ func (a *PayloadRehearsalAdapter) PrepareScrub(ctx context.Context, c apptypes.P
 	liveIdentity, err := inspectLiveCompatibility(ctx, c.LivePath)
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
+	}
+	if !liveIdentity {
+		return nil, apptypes.PayloadRehearsalMetrics{}, ErrLivePayloadNotIdentityOnly
 	}
 	db, err := sql.Open("sqlite", writableRehearsalDSN(id.canonical, c.LockTimeLimit))
 	if err != nil {
@@ -610,6 +646,10 @@ func (a *PayloadRehearsalAdapter) AdvanceScrubField(ctx context.Context, opaque 
 	h, err := ownedScrubHandle(a, opaque)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, false, err
+	}
+	if err = requireLiveIdentityOnly(ctx, h.config.LivePath); err != nil {
+		h.metrics.LiveIdentityOnly = false
+		return h.metrics, false, err
 	}
 	f, ok := rehearsalFieldFor(field)
 	if !ok {
@@ -689,6 +729,10 @@ func (a *PayloadRehearsalAdapter) CompleteScrub(ctx context.Context, opaque appl
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
+	if err = requireLiveIdentityOnly(ctx, h.config.LivePath); err != nil {
+		h.metrics.LiveIdentityOnly = false
+		return h.metrics, err
+	}
 	var mismatched int
 	if err = h.db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_checkpoints c WHERE c.run_id=? AND (c.changed_rows<>(SELECT count(*) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind) OR c.scrubbed_rows<>c.changed_rows OR c.scrub_last_primary_key<>coalesce((SELECT max(r.source_primary_key) FROM payload_rehearsal_rows r WHERE r.run_id=c.run_id AND r.table_kind=c.table_kind AND r.field_kind=c.field_kind),''))`, h.runID).Scan(&mismatched); err != nil || mismatched != 0 {
 		return h.metrics, errors.New("scrub shadow/checkpoint cardinality mismatch")
@@ -711,7 +755,6 @@ func (a *PayloadRehearsalAdapter) CompleteScrub(ctx context.Context, opaque appl
 	}
 	h.leaseActive = false
 	h.metrics.State = "scrubbed"
-	h.metrics.ActivationReadiness = activationReadiness(h.liveIdentity, true, true, true, true, false)
 	return h.metrics, nil
 }
 
@@ -858,23 +901,7 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 			return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback retained rehearsal state")
 		}
 	}
-	scrubPassed := runState == "scrubbed"
-	rehearsalComplete := runState == "completed" || scrubPassed
-	return apptypes.PayloadRehearsalMetrics{State: "rolled_back", RollbackDigest: digest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, ActivationReadiness: activationReadiness(liveIdentity, true, true, rehearsalComplete, scrubPassed, true)}, nil
-}
-
-func activationReadiness(liveIdentity, backup, headroom, complete, scrub, rollback bool) apptypes.PayloadActivationReadiness {
-	status := func(value bool) apptypes.ReadinessGateStatus {
-		if value {
-			return apptypes.ReadinessPassed
-		}
-		return apptypes.ReadinessUnknown
-	}
-	headroomStatus := apptypes.ReadinessFailed
-	if headroom {
-		headroomStatus = apptypes.ReadinessPassed
-	}
-	return apptypes.PayloadActivationReadiness{CompatibleReader: true, LiveIdentityOnly: liveIdentity, BackupVerified: backup, HeadroomSufficient: headroom, RehearsalComplete: complete, ScrubPassed: scrub, RollbackVerified: rollback, ActivationAllowed: false, MinimumReaderStatus: apptypes.ReadinessPassed, OldProcessesStoppedStatus: apptypes.ReadinessUnknown, BackupStatus: status(backup), HeadroomStatus: headroomStatus, ScrubStatus: status(scrub), RollbackStatus: status(rollback), EvidenceAt: time.Now().UTC()}
+	return apptypes.PayloadRehearsalMetrics{State: "rolled_back", RollbackDigest: digest, RollbackVerified: true, LiveIdentityOnly: liveIdentity}, nil
 }
 
 func inspectLiveCompatibility(ctx context.Context, path string) (bool, error) {

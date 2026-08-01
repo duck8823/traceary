@@ -17,6 +17,9 @@ type rehearsalBackendFake struct {
 	run, scrub, rollback apptypes.PayloadRehearsalMetrics
 	calls                []string
 	fields               []apptypes.PayloadRehearsalField
+	driftRunAdvance      bool
+	driftRunComplete     bool
+	driftScrubAdvance    bool
 }
 type fakeRunHandle struct{}
 type fakeScrubHandle struct{}
@@ -38,6 +41,9 @@ func (f *rehearsalBackendFake) Prepare(_ context.Context, _ apptypes.PayloadRehe
 }
 func (f *rehearsalBackendFake) AdvanceField(_ context.Context, _ application.PayloadRehearsalRunHandle, field apptypes.PayloadRehearsalField) (apptypes.PayloadRehearsalMetrics, bool, error) {
 	f.fields = append(f.fields, field)
+	if f.driftRunAdvance {
+		f.run.LiveIdentityOnly = false
+	}
 	return f.run, true, nil
 }
 func (f *rehearsalBackendFake) Pause(context.Context, application.PayloadRehearsalRunHandle) (apptypes.PayloadRehearsalMetrics, error) {
@@ -46,6 +52,9 @@ func (f *rehearsalBackendFake) Pause(context.Context, application.PayloadRehears
 }
 func (f *rehearsalBackendFake) Complete(context.Context, application.PayloadRehearsalRunHandle) (apptypes.PayloadRehearsalMetrics, error) {
 	f.run.State = "completed"
+	if f.driftRunComplete {
+		f.run.LiveIdentityOnly = false
+	}
 	return f.run, nil
 }
 func (f *rehearsalBackendFake) Close(application.PayloadRehearsalRunHandle) error {
@@ -57,6 +66,9 @@ func (f *rehearsalBackendFake) PrepareScrub(context.Context, apptypes.PayloadReh
 	return &fakeScrubHandle{}, f.scrub, nil
 }
 func (f *rehearsalBackendFake) AdvanceScrubField(context.Context, application.PayloadRehearsalScrubHandle, apptypes.PayloadRehearsalField) (apptypes.PayloadRehearsalMetrics, bool, error) {
+	if f.driftScrubAdvance {
+		f.scrub.LiveIdentityOnly = false
+	}
 	return f.scrub, true, nil
 }
 func (f *rehearsalBackendFake) CompleteScrub(context.Context, application.PayloadRehearsalScrubHandle) (apptypes.PayloadRehearsalMetrics, error) {
@@ -74,7 +86,7 @@ func (f *rehearsalBackendFake) Rollback(context.Context, apptypes.PayloadRehears
 }
 
 func TestPayloadRehearsalUsecaseOwnsPreflightAndTransitionPolicy(t *testing.T) {
-	f := &rehearsalBackendFake{preview: apptypes.PayloadRehearsalMetrics{State: "planned", DryRunZeroWrite: true, LiveIdentityOnly: true, FreeBytes: 100, EstimatedHeadroom: 50}, run: apptypes.PayloadRehearsalMetrics{State: "completed"}, scrub: apptypes.PayloadRehearsalMetrics{State: "scrubbed", ActivationReadiness: apptypes.PayloadActivationReadiness{ScrubPassed: true}}, rollback: apptypes.PayloadRehearsalMetrics{State: "rolled_back", RollbackVerified: true}}
+	f := &rehearsalBackendFake{preview: apptypes.PayloadRehearsalMetrics{State: "planned", DryRunZeroWrite: true, LiveIdentityOnly: true, FreeBytes: 100, EstimatedHeadroom: 50}, run: apptypes.PayloadRehearsalMetrics{State: "completed", LiveIdentityOnly: true}, scrub: apptypes.PayloadRehearsalMetrics{State: "scrubbed", LiveIdentityOnly: true, ActivationReadiness: apptypes.PayloadActivationReadiness{ScrubPassed: true}}, rollback: apptypes.PayloadRehearsalMetrics{State: "rolled_back", LiveIdentityOnly: true, RollbackVerified: true}}
 	u := usecase.NewPayloadRehearsalUsecase(f, f, f, f)
 	c := validRehearsalConfig()
 	if _, err := u.Run(context.Background(), c); err != nil {
@@ -99,6 +111,49 @@ func TestPayloadRehearsalUsecaseRejectsUnsafeBackendTransitions(t *testing.T) {
 	u := usecase.NewPayloadRehearsalUsecase(f, f, f, f)
 	if _, err := u.Preview(context.Background(), validRehearsalConfig()); !errors.Is(err, usecase.ErrUnsafePayloadRehearsalTransition) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+//nolint:wrapcheck // table closures intentionally preserve sentinel identity.
+func TestPayloadRehearsalUsecaseStopsWhenLiveIdentityDrifts(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		act  func(*rehearsalBackendFake) error
+	}{
+		{"run advance", func(f *rehearsalBackendFake) error {
+			f.driftRunAdvance = true
+			_, err := usecase.NewPayloadRehearsalUsecase(f, f, f, f).Run(context.Background(), validRehearsalConfig())
+			return err
+		}},
+		{"resume complete", func(f *rehearsalBackendFake) error {
+			f.driftRunComplete = true
+			_, err := usecase.NewPayloadRehearsalUsecase(f, f, f, f).Resume(context.Background(), validRehearsalConfig())
+			return err
+		}},
+		{"scrub advance", func(f *rehearsalBackendFake) error {
+			f.driftScrubAdvance = true
+			_, err := usecase.NewPayloadRehearsalUsecase(f, f, f, f).Scrub(context.Background(), validRehearsalConfig())
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &rehearsalBackendFake{
+				preview: apptypes.PayloadRehearsalMetrics{State: "planned", DryRunZeroWrite: true, LiveIdentityOnly: true, FreeBytes: 100, EstimatedHeadroom: 50},
+				run:     apptypes.PayloadRehearsalMetrics{State: "running", LiveIdentityOnly: true},
+				scrub:   apptypes.PayloadRehearsalMetrics{State: "scrubbing", LiveIdentityOnly: true},
+			}
+			if err := tc.act(f); !errors.Is(err, usecase.ErrUnsafePayloadRehearsalTransition) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPayloadActivationReadinessRequiresExternalEvidence(t *testing.T) {
+	m := apptypes.PayloadRehearsalMetrics{State: "scrubbed", LiveIdentityOnly: true, RollbackVerified: true, FreeBytes: 100, EstimatedHeadroom: 1}
+	r := application.EvaluatePayloadActivationReadiness(m)
+	if r.MinimumReaderStatus != apptypes.ReadinessUnknown || r.OldProcessesStoppedStatus != apptypes.ReadinessUnknown || r.CompatibleReader || r.ActivationAllowed {
+		t.Fatalf("missing external evidence passed readiness: %#v", r)
 	}
 }
 
