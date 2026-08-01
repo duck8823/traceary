@@ -283,15 +283,22 @@ func selectRehearsalBatch(ctx context.Context, db *sql.DB, run string, f rehears
 }
 
 //nolint:wrapcheck // caller performs target guard immediately before this primitive.
-func markRehearsalLaneComplete(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, guard rehearsalMutationGuard) error {
+func markRehearsalLaneComplete(ctx context.Context, session walBudgetedMutationSession, run, lease string, f rehearsalField, guard rehearsalMutationGuard) error {
 	if err := requireSafeRehearsalMutation(guard); err != nil {
 		return err
 	}
-	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET state='complete' WHERE run_id=? AND table_kind=? AND field_kind=? AND EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE run_id=? AND lease_token=?)`, run, f.table, f.field, run, lease)
+	var affected int64
+	err := session.run(ctx, 4, func(tx *sql.Conn) error {
+		result, updateErr := tx.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET state='complete' WHERE run_id=? AND table_kind=? AND field_kind=? AND EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE run_id=? AND lease_token=?)`, run, f.table, f.field, run, lease)
+		if updateErr != nil {
+			return updateErr
+		}
+		affected, _ = result.RowsAffected()
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	affected, _ := result.RowsAffected()
 	if affected != 1 {
 		return errors.New("rehearsal run lease was lost")
 	}
@@ -330,42 +337,43 @@ func commitRehearsalBatch(ctx context.Context, session walBudgetedMutationSessio
 	})
 }
 
-func transitionRunWithLease(ctx context.Context, db *sql.DB, run, lease string, state apptypes.PayloadRehearsalState, guard rehearsalMutationGuard) error {
+func transitionRunWithLease(ctx context.Context, session walBudgetedMutationSession, run, lease string, state apptypes.PayloadRehearsalState, guard rehearsalMutationGuard) error {
 	if err := requireSafeRehearsalMutation(guard); err != nil {
 		return err
 	}
-	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?,completed_at=CASE WHEN ? IN ('completed','scrubbed') THEN ? ELSE completed_at END WHERE run_id=? AND lease_token=?`, string(state), time.Now().UTC().Format(time.RFC3339Nano), string(state), time.Now().UTC().Format(time.RFC3339Nano), run, lease)
+	var affected int64
+	err := session.run(ctx, 4, func(tx *sql.Conn) error {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		result, updateErr := tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?,completed_at=CASE WHEN ? IN ('completed','scrubbed') THEN ? ELSE completed_at END WHERE run_id=? AND lease_token=?`, string(state), now, string(state), now, run, lease)
+		if updateErr != nil {
+			return updateErr
+		}
+		affected, _ = result.RowsAffected()
+		return nil
+	})
 	if err != nil {
 		return xerrors.Errorf("transition rehearsal run with lease: %w", err)
 	}
-	affected, _ := result.RowsAffected()
 	if affected != 1 {
 		return errors.New("rehearsal run lease was lost")
 	}
 	return nil
 }
 
-func pauseRunState(ctx context.Context, db *sql.DB, run, lease string, guard rehearsalMutationGuard) error {
-	return transitionRunWithLease(ctx, db, run, lease, apptypes.PayloadRehearsalPaused, guard)
+func pauseRunState(ctx context.Context, session walBudgetedMutationSession, run, lease string, guard rehearsalMutationGuard) error {
+	return transitionRunWithLease(ctx, session, run, lease, apptypes.PayloadRehearsalPaused, guard)
 }
-func pauseRun(ctx context.Context, db *sql.DB, run, lease string, cause error, guard rehearsalMutationGuard, beforeMutation, afterMutation func() error) error {
+func pauseRun(ctx context.Context, session walBudgetedMutationSession, run, lease string, cause error, guard rehearsalMutationGuard) error {
 	pauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	if beforeMutation != nil {
-		if err := beforeMutation(); err != nil {
-			return err
-		}
-	}
-	if err := pauseRunState(pauseCtx, db, run, lease, guard); err == nil && afterMutation != nil {
-		if observationErr := afterMutation(); observationErr != nil {
-			return observationErr
-		}
+	if err := pauseRunState(pauseCtx, session, run, lease, guard); err != nil {
+		return err
 	}
 	return cause
 }
 
 //nolint:wrapcheck // internal SQL lease errors are classified by Scrub.
-func acquireScrubLease(ctx context.Context, db *sql.DB, run string, guard rehearsalMutationGuard) (string, error) {
+func acquireScrubLease(ctx context.Context, session walBudgetedMutationSession, run string, guard rehearsalMutationGuard) (string, error) {
 	lease, err := randomRunID()
 	if err != nil {
 		return "", err
@@ -374,11 +382,18 @@ func acquireScrubLease(ctx context.Context, db *sql.DB, run string, guard rehear
 	if err = requireSafeRehearsalMutation(guard); err != nil {
 		return "", err
 	}
-	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_token=?,lease_expires_at=?,updated_at=? WHERE run_id=? AND state='completed' AND (lease_token IS NULL OR lease_expires_at<?)`, lease, now.Add(30*time.Second).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), run, now.Format(time.RFC3339Nano))
+	var affected int64
+	err = session.run(ctx, 4, func(tx *sql.Conn) error {
+		result, updateErr := tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_token=?,lease_expires_at=?,updated_at=? WHERE run_id=? AND state='completed' AND (lease_token IS NULL OR lease_expires_at<?)`, lease, now.Add(30*time.Second).Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), run, now.Format(time.RFC3339Nano))
+		if updateErr != nil {
+			return updateErr
+		}
+		affected, _ = result.RowsAffected()
+		return nil
+	})
 	if err != nil {
 		return "", err
 	}
-	affected, _ := result.RowsAffected()
 	if affected != 1 {
 		return "", errors.New("rehearsal scrub is leased or not completed")
 	}
@@ -386,37 +401,35 @@ func acquireScrubLease(ctx context.Context, db *sql.DB, run string, guard rehear
 }
 
 //nolint:wrapcheck // internal SQL progress is guarded by the scrub lease.
-func persistScrubProgress(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField, last string, count int, guard rehearsalMutationGuard) error {
+func persistScrubProgress(ctx context.Context, session walBudgetedMutationSession, run, lease string, f rehearsalField, last string, count int, guard rehearsalMutationGuard) error {
 	if count == 0 {
 		return nil
 	}
 	if err := requireSafeRehearsalMutation(guard); err != nil {
 		return err
 	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
+	return session.run(ctx, 6, func(tx *sql.Conn) error {
+		var held string
+		if err := tx.QueryRowContext(ctx, `SELECT coalesce(lease_token,'') FROM payload_rehearsal_runs WHERE run_id=?`, run).Scan(&held); err != nil {
+			return err
+		}
+		if held != lease {
+			return errors.New("rehearsal scrub lease was lost")
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET scrub_last_primary_key=?,scrubbed_rows=scrubbed_rows+? WHERE run_id=? AND table_kind=? AND field_kind=?`, last, count, run, f.table, f.field); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_expires_at=? WHERE run_id=? AND lease_token=?`, time.Now().UTC().Add(30*time.Second).Format(time.RFC3339Nano), run, lease)
 		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	var held string
-	if err = tx.QueryRowContext(ctx, `SELECT coalesce(lease_token,'') FROM payload_rehearsal_runs WHERE run_id=?`, run).Scan(&held); err != nil {
-		return err
-	}
-	if held != lease {
-		return errors.New("rehearsal scrub lease was lost")
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET scrub_last_primary_key=?,scrubbed_rows=scrubbed_rows+? WHERE run_id=? AND table_kind=? AND field_kind=?`, last, count, run, f.table, f.field); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_expires_at=? WHERE run_id=? AND lease_token=?`, time.Now().UTC().Add(30*time.Second).Format(time.RFC3339Nano), run, lease); err != nil {
-		return err
-	}
-	return tx.Commit()
+	})
 }
 
-func releaseScrubLease(db *sql.DB, run, lease string, guard rehearsalMutationGuard) {
-	if requireSafeRehearsalMutation(guard) != nil {
-		return
+func releaseScrubLease(ctx context.Context, session walBudgetedMutationSession, run, lease string, guard rehearsalMutationGuard) error {
+	if err := requireSafeRehearsalMutation(guard); err != nil {
+		return err
 	}
-	_, _ = db.Exec(`UPDATE payload_rehearsal_runs SET lease_token=NULL,lease_expires_at=NULL WHERE run_id=? AND lease_token=?`, run, lease)
+	return session.run(ctx, 4, func(tx *sql.Conn) error {
+		_, err := tx.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET lease_token=NULL,lease_expires_at=NULL WHERE run_id=? AND lease_token=?`, run, lease)
+		return err
+	})
 }

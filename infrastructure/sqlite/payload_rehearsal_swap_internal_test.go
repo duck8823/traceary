@@ -87,10 +87,20 @@ func TestRehearsalRecoveryMutationsDoNotWriteWhenGuardFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	reject := rehearsalMutationGuard(func() error { return ErrUnsafeRehearsalTarget })
-	if err = pauseRunState(context.Background(), db, metrics.RunID, lease, reject); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+	frame, frameErr := minimumWALFrameBytes(context.Background(), config.TargetPath)
+	if frameErr != nil {
+		t.Fatal(frameErr)
+	}
+	fingerprint, fingerprintErr := rehearsalSchemaFingerprint(context.Background(), db)
+	if fingerprintErr != nil {
+		t.Fatal(fingerprintErr)
+	}
+	peak := frame
+	session := walBudgetedMutationSession{db: db, path: config.TargetPath, expectedSchemaSHA: fingerprint, frameBytes: frame, maximum: config.MaxWALBytes, peak: &peak}
+	if err = pauseRunState(context.Background(), session, metrics.RunID, lease, reject); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 		t.Fatalf("pause error=%v", err)
 	}
-	releaseScrubLease(db, metrics.RunID, lease, reject)
+	_ = releaseScrubLease(context.Background(), session, metrics.RunID, lease, reject)
 	var state, retained string
 	if err = db.QueryRow(`SELECT state,coalesce(lease_token,'') FROM payload_rehearsal_runs WHERE run_id=?`, metrics.RunID).Scan(&state, &retained); err != nil {
 		t.Fatal(err)

@@ -178,48 +178,8 @@ func observeWALPeak(path string, minimum, maximum int64, peak *int64) error {
 	return nil
 }
 
-func ensureControlWALBudget(ctx context.Context, db *sql.DB, path string, frameBytes, maximum, dirtyFrames int64, peak *int64) error {
-	if err := observeWALPeak(path, frameBytes, maximum, peak); err != nil {
-		return err
-	}
-	var triggers, indexes int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND tbl_name='payload_rehearsal_runs'`).Scan(&triggers); err != nil {
-		return xerrors.Errorf("verify control transition trigger bound: %w", err)
-	}
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='payload_rehearsal_runs' AND sql IS NOT NULL`).Scan(&indexes); err != nil {
-		return xerrors.Errorf("verify control transition index bound: %w", err)
-	}
-	if triggers != 0 || indexes != 1 {
-		return errors.New("rehearsal control transition schema exceeds WAL page bound")
-	}
-	current := int64(0)
-	if info, err := os.Stat(path + "-wal"); err == nil {
-		current = info.Size()
-	} else if !os.IsNotExist(err) {
-		return errors.New("cannot inspect rehearsal WAL before terminal transition")
-	}
-	// The UPDATE dirties exactly the run-table leaf and its one partial-index
-	// leaf. A WAL header is added only when the file is empty/nonexistent.
-	frame := frameBytes - 32
-	reservation := dirtyFrames * frame
-	if current == 0 {
-		reservation += 32
-	}
-	effectiveCurrent := max(current, *peak)
-	if effectiveCurrent > maximum-reservation {
-		return errors.New("rehearsal WAL hard cap cannot accommodate terminal transition")
-	}
-	return nil
-}
-
-func transitionTerminalWithinWALBudget(ctx context.Context, db *sql.DB, path, run, lease string, state apptypes.PayloadRehearsalState, frameBytes, maximum int64, peak *int64, guard rehearsalMutationGuard) error {
-	if err := ensureControlWALBudget(ctx, db, path, frameBytes, maximum, 2, peak); err != nil {
-		return err
-	}
-	if err := transitionRunWithLease(ctx, db, run, lease, state, guard); err != nil {
-		return err
-	}
-	return observeWALPeak(path, frameBytes, maximum, peak)
+func transitionTerminalWithinWALBudget(ctx context.Context, session walBudgetedMutationSession, run, lease string, state apptypes.PayloadRehearsalState, guard rehearsalMutationGuard) error {
+	return transitionRunWithLease(ctx, session, run, lease, state, guard)
 }
 
 // Run creates or resumes bounded zstd shadow rows without changing canonical payloads.
@@ -343,13 +303,8 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	observeRunWAL := func() error {
 		return observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes)
 	}
-	reserveRunControlWAL := func() error {
-		reserveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-		defer cancel()
-		return ensureControlWALBudget(reserveCtx, db, id.canonical, minimumWAL, c.MaxWALBytes, 2, &metrics.PeakWALBytes)
-	}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); err != nil {
-		return metrics, pauseRun(ctx, db, runID, leaseToken, err, guard, reserveRunControlWAL, observeRunWAL)
+		return metrics, pauseRun(ctx, batchSession, runID, leaseToken, err, guard)
 	}
 	deadline := time.Now().Add(c.WallTimeLimit)
 	for _, f := range rehearsalFields {
@@ -363,7 +318,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			}
 			batch, done, e := selectRehearsalBatch(ctx, db, runID, f, high, c)
 			if e != nil {
-				return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard, reserveRunControlWAL, observeRunWAL)
+				return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
 			}
 			if done {
 				if a.beforePersistence != nil {
@@ -372,18 +327,18 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 				if e = a.recheckExpectedTarget(id, c, true); e != nil {
 					return metrics, e
 				}
-				if e = markRehearsalLaneComplete(ctx, db, runID, leaseToken, f, guard); e != nil {
-					return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard, reserveRunControlWAL, observeRunWAL)
+				if e = markRehearsalLaneComplete(ctx, batchSession, runID, leaseToken, f, guard); e != nil {
+					return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
 				}
 				if e = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); e != nil {
-					return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard, reserveRunControlWAL, observeRunWAL)
+					return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
 				}
 				break
 			}
 			for i := range batch {
 				batch[i].encoded, e = encodePayload(batch[i].plaintext, payloadCodecZstd)
 				if e != nil {
-					return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard, reserveRunControlWAL, observeRunWAL)
+					return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
 				}
 			}
 			if identityErr := a.recheckExpectedTarget(id, c, true); identityErr != nil {
@@ -398,12 +353,12 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			}
 			e = commitRehearsalBatch(ctx, batchSession, runID, leaseToken, f, batch, guard)
 			if e != nil {
-				return metrics, pauseRun(ctx, db, runID, leaseToken, e, guard, reserveRunControlWAL, observeRunWAL)
+				return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
 			}
 			batchDuration := time.Since(start)
 			recordBatchDuration(metrics.BatchDurationHistogram, batchDuration)
 			if batchDuration > c.LockTimeLimit {
-				return metrics, pauseRun(ctx, db, runID, leaseToken, errors.New("rehearsal lock duration cap exceeded"), guard, reserveRunControlWAL, observeRunWAL)
+				return metrics, pauseRun(ctx, batchSession, runID, leaseToken, errors.New("rehearsal lock duration cap exceeded"), guard)
 			}
 			metrics.BatchCount++
 			for _, r := range batch {
@@ -420,10 +375,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			if a.beforePersistence != nil {
 				a.beforePersistence("pause")
 			}
-			if err = reserveRunControlWAL(); err != nil {
-				return metrics, err
-			}
-			if err = pauseRunState(ctx, db, runID, leaseToken, guard); err != nil {
+			if err = pauseRunState(ctx, batchSession, runID, leaseToken, guard); err != nil {
 				return metrics, err
 			}
 			if err = observeRunWAL(); err != nil {
@@ -440,7 +392,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return metrics, err
 	}
-	if err = transitionTerminalWithinWALBudget(ctx, db, id.canonical, runID, leaseToken, apptypes.PayloadRehearsalCompleted, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes, guard); err != nil {
+	if err = transitionTerminalWithinWALBudget(ctx, batchSession, runID, leaseToken, apptypes.PayloadRehearsalCompleted, guard); err != nil {
 		return metrics, err
 	}
 	metrics.State = "completed"
@@ -485,23 +437,29 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	acquirePeak := minimumWAL
-	if err = ensureControlWALBudget(ctx, db, id.canonical, minimumWAL, c.MaxWALBytes, 4, &acquirePeak); err != nil {
-		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: acquirePeak}, err
+	rehearsalSchemaSHA, err := rehearsalSchemaFingerprint(ctx, db)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	lease, err := acquireScrubLease(ctx, db, run, guard)
+	scrubSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &acquirePeak}
+	lease, err := acquireScrubLease(ctx, scrubSession, run, guard)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	deadline := time.Now().Add(c.ScrubTimeLimit)
 	m = apptypes.PayloadRehearsalMetrics{RunID: run, State: "scrubbing", LiveIdentityOnly: liveIdentity, PeakWALBytes: acquirePeak}
+	scrubSession.peak = &m.PeakWALBytes
+	leaseActive := true
 	observeScrubWAL := func() error {
 		return observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes)
 	}
 	defer func() {
-		if reserveErr := ensureControlWALBudget(ctx, db, id.canonical, minimumWAL, c.MaxWALBytes, 2, &m.PeakWALBytes); reserveErr == nil {
-			releaseScrubLease(db, run, lease, guard)
-		} else if resultErr == nil {
-			resultErr = reserveErr
+		if leaseActive {
+			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer cancel()
+			if releaseErr := releaseScrubLease(releaseCtx, scrubSession, run, lease, guard); releaseErr != nil && resultErr == nil {
+				resultErr = releaseErr
+			}
 		}
 		if observationErr := observeScrubWAL(); observationErr != nil && resultErr == nil {
 			resultErr = observationErr
@@ -545,7 +503,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 					if guardErr := a.recheckExpectedTarget(id, c, true); guardErr != nil {
 						return m, guardErr
 					}
-					if persistErr := persistScrubProgress(ctx, db, run, lease, f, last, count, guard); persistErr != nil {
+					if persistErr := persistScrubProgress(ctx, scrubSession, run, lease, f, last, count, guard); persistErr != nil {
 						return m, persistErr
 					}
 					if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
@@ -587,7 +545,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 			if err = a.recheckExpectedTarget(id, c, true); err != nil {
 				return m, err
 			}
-			if err = persistScrubProgress(ctx, db, run, lease, f, last, count, guard); err != nil {
+			if err = persistScrubProgress(ctx, scrubSession, run, lease, f, last, count, guard); err != nil {
 				return m, err
 			}
 			if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes); err != nil {
@@ -612,9 +570,10 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return m, err
 	}
-	if err = transitionTerminalWithinWALBudget(ctx, db, id.canonical, run, lease, apptypes.PayloadRehearsalScrubbed, minimumWAL, c.MaxWALBytes, &m.PeakWALBytes, guard); err != nil {
+	if err = transitionTerminalWithinWALBudget(ctx, scrubSession, run, lease, apptypes.PayloadRehearsalScrubbed, guard); err != nil {
 		return m, err
 	}
+	leaseActive = false
 	m.State = "scrubbed"
 	m.ActivationReadiness = activationReadiness(liveIdentity, true, true, true, true, false)
 	return m, nil

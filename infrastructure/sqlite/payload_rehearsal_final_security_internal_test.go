@@ -139,7 +139,12 @@ func TestTerminalTransitionDoesNotCommitWithoutReservedWALFrame(t *testing.T) {
 			}
 			peak := int64(38000)
 			guard := rehearsalMutationGuard(func() error { return nil })
-			if err = transitionTerminalWithinWALBudget(context.Background(), db, config.TargetPath, metrics.RunID, lease, apptypes.PayloadRehearsalCompleted, frame, maximum, &peak, guard); err == nil {
+			fingerprint, fingerprintErr := rehearsalSchemaFingerprint(context.Background(), db)
+			if fingerprintErr != nil {
+				t.Fatal(fingerprintErr)
+			}
+			session := walBudgetedMutationSession{db: db, path: config.TargetPath, expectedSchemaSHA: fingerprint, frameBytes: frame, maximum: maximum, peak: &peak}
+			if err = transitionTerminalWithinWALBudget(context.Background(), session, metrics.RunID, lease, apptypes.PayloadRehearsalCompleted, guard); err == nil {
 				t.Fatal("terminal transition ignored WAL reservation")
 			}
 			var state string
