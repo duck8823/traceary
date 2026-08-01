@@ -34,7 +34,7 @@ fixture は canonical production migration と query source を使います。`-
 
 移行前の基準 shape は **database allocation 21.4 GiB** です。整合したコピーから証跡を採取し、copy や raw row は commit しません。有効な baseline は、`capacity.json` に約 22,978,910,618 bytes の `database_bytes`、WAL/free-page、明示的な `dbstat` 完全性を記録し、`benchmark.json` に 4 case と plan を含めます。host、path、識別子、query value は意図的に除外します。timing は環境依存であり、hardware/cache 条件が異なる machine 間で単純比較しません。
 
-`capacity-baseline.sample.json` をコピーし、placeholder の timing と plan を sanitized な実測値へ置き換え、`go run ./cmd/store-benchmark --validate-baseline ./capacity-baseline.json` で検証します。validator は 21.4 GiB shape（許容差 256 MiB）、明示的な容量 evidence、正の timing、4 つの production query plan を要求します。path、bind value、host name、識別子を追加しません。
+`capacity-baseline.sample.json` をコピーし、placeholder の timing と plan を sanitized な実測値へ置き換え、`go run ./cmd/store-benchmark --validate-baseline ./capacity-baseline.json` で検証します。validator は 21.4 GiB shape（許容差 256 MiB）、明示的な容量 evidence、passed case の正の timing、4 つの production query plan を要求します。path、bind value、host name、識別子を追加しません。
 
 各 case は `--case-timeout`（default `2m`、minimum `1ms`）で制限します。plan は timed execution より先に取得するため、timeout でも sanitized `query_plan`、`timeout_ms`、right-censored `elapsed_lower_bound_us` を出力します。未完走の p50/p95 は捏造しません。case が1件でもtimeoutならreportもtimeoutです。診断証跡としては有効ですが、release performance targetを満たすのは観測済みp50/p95を持つ`passed`だけです。
 

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestValidateBaselineRequiresMeasuredFourCaseEvidence(t *testing.T) {
 	var artifact baselineArtifact
@@ -33,5 +36,12 @@ func TestValidateBaselineRequiresMeasuredFourCaseEvidence(t *testing.T) {
 	artifact.Benchmark.Cases[1].ColdP50US = 1
 	if err := validateBaseline(artifact); err != nil {
 		t.Fatalf("timeout baseline rejected: %v", err)
+	}
+}
+
+func TestTimeoutResultReportsAtLeastConfiguredLowerBound(t *testing.T) {
+	result := timeoutResult("search", time.Millisecond, 100*time.Microsecond, []string{"SCAN"})
+	if result.ElapsedLowerBoundUS < 1000 {
+		t.Fatalf("elapsed lower bound = %d", result.ElapsedLowerBoundUS)
 	}
 }

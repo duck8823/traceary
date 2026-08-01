@@ -151,11 +151,11 @@ func main() {
 	if info.Kind == "synthetic" {
 		expected = &handoffCardinality{Commands: info.CommandRows, Memories: info.AcceptedMemories}
 	}
-	handoffCtx, cancelHandoff := context.WithTimeout(ctx, caseTimeout)
 	handoffPlan, err := explainHandoff(ctx, dbPath)
 	if err != nil {
 		fatal(fmt.Sprintf("handoff plan: %v", err))
 	}
+	handoffCtx, cancelHandoff := context.WithTimeout(ctx, caseTimeout)
 	handoffStarted := time.Now()
 	handoff, err := benchmarkHandoff(handoffCtx, dbPath, iterations, expected)
 	cancelHandoff()
@@ -174,6 +174,9 @@ func main() {
 }
 
 func timeoutResult(name string, limit, elapsed time.Duration, plan []string) caseResult {
+	if elapsed < limit {
+		elapsed = limit
+	}
 	return caseResult{Name: name, Status: "timeout", TimeoutMS: limit.Milliseconds(), ElapsedLowerBoundUS: elapsed.Microseconds(), QueryPlan: plan}
 }
 
