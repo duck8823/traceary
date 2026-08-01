@@ -19,8 +19,8 @@ func (c *RootCLI) newStoreCapacityCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Long = Localize(
-		"Emits traceary.capacity/v1 JSON containing only aggregate page, object, payload-size-class, free-page, and WAL measurements. It never emits stored values or identifiers. If SQLite dbstat is unavailable, evidence.status is partial and object attribution is omitted.",
-		"保存値や識別子を含めず、ページ、オブジェクト、payload サイズ区分、空きページ、WAL の集計だけを traceary.capacity/v1 JSON で出力します。SQLite dbstat が利用できない場合は evidence.status が partial となり、オブジェクト内訳を省略します。",
+		"Emits traceary.capacity/v1 JSON containing only aggregate page, object, payload-size-class, free-page, and WAL measurements. It never emits stored values or identifiers. If SQLite dbstat is unavailable, evidence.status is unavailable and object attribution is omitted.",
+		"保存値や識別子を含めず、ページ、オブジェクト、payload サイズ区分、空きページ、WAL の集計だけを traceary.capacity/v1 JSON で出力します。SQLite dbstat が利用できない場合は evidence.status が unavailable となり、オブジェクト内訳を省略します。",
 	)
 	return cmd
 }

@@ -12,6 +12,8 @@ type baselineArtifact struct {
 	Capacity      struct {
 		SchemaVersion string `json:"schema_version"`
 		DatabaseBytes int64  `json:"database_bytes"`
+		FreePages     *int64 `json:"free_pages"`
+		WALBytes      *int64 `json:"wal_bytes"`
 		Evidence      struct {
 			Status string `json:"status"`
 		} `json:"evidence"`
@@ -41,6 +43,9 @@ func validateBaseline(artifact baselineArtifact) error {
 	const tolerance int64 = 256 << 20
 	if artifact.Capacity.DatabaseBytes < target-tolerance || artifact.Capacity.DatabaseBytes > target+tolerance {
 		return fmt.Errorf("database_bytes is outside the sanitized 21.4 GiB shape")
+	}
+	if artifact.Capacity.FreePages == nil || artifact.Capacity.WALBytes == nil || *artifact.Capacity.FreePages < 0 || *artifact.Capacity.WALBytes < 0 {
+		return fmt.Errorf("capacity free_pages and wal_bytes are required and must be non-negative")
 	}
 	if artifact.Capacity.Evidence.Status != "complete" && artifact.Capacity.Evidence.Status != "unavailable" {
 		return fmt.Errorf("capacity evidence status must be explicit")

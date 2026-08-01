@@ -28,7 +28,7 @@ go run ./cmd/store-benchmark --synthetic /private/tmp/traceary-synthetic.db \
   --small-rows 10000 --large-rows 8 --iterations 25 > synthetic-benchmark.json
 ```
 
-fixture は canonical production migration と query source を使います。1,001 以上の小 row、少数の 1 MiB row、未 checkpoint の WAL、削除により生じる空きページを含みます。空きページを保証できない小さい `--small-rows` は拒否します。値はすべて生成文字列です。
+fixture は canonical production migration と query source を使います。`--small-rows` 件の小 row と `--large-rows` 件の 1 MiB row を保持し、別に disposable row 1,000 件を作成・削除して metadata を偽らず空きページを保証します。`handoff` timing は production の `ContextUsecase.Handoff` orchestration を実行し、plan evidence は共有 production session-resolution/command-preview SQL を label 付きで記録します。
 
 ## Sanitized 21.4 GiB shape baseline
 

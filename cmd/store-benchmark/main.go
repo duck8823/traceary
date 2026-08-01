@@ -16,6 +16,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
@@ -59,8 +61,8 @@ func main() {
 		}
 		return
 	}
-	if (dbPath == "") == (synthetic == "") || iterations < 1 || smallRows < 1001 || largeRows < 1 {
-		fatal("specify exactly one of --db or --synthetic; --small-rows must be at least 1001 and other counts positive")
+	if (dbPath == "") == (synthetic == "") || iterations < 1 || smallRows < 1 || largeRows < 1 {
+		fatal("specify exactly one of --db or --synthetic and positive counts")
 	}
 	ctx := context.Background()
 	info := fixtureInfo{Kind: "copied_store"}
@@ -91,9 +93,54 @@ func main() {
 		}
 		results = append(results, result)
 	}
+	handoff, err := benchmarkHandoff(ctx, dbPath, iterations)
+	if err != nil {
+		fatal(fmt.Sprintf("handoff: %v", err))
+	}
+	results = append(results, handoff)
 	if err := json.NewEncoder(os.Stdout).Encode(report{SchemaVersion: "traceary.store-benchmark/v1", Fixture: info, Iterations: iterations, Cases: results}); err != nil {
 		fatal(err.Error())
 	}
+}
+
+func benchmarkHandoff(ctx context.Context, path string, iterations int) (caseResult, error) {
+	database := infra.NewDatabase(path, nil)
+	operation := func() error {
+		_, err := usecase.NewContextUsecase(infra.NewSessionDatasource(database), infra.NewEventDatasource(database), infra.NewMemoryDatasource(database)).Handoff(ctx, apptypes.NewContextPackCriteriaBuilder().AllowStale(true).Build())
+		if err != nil {
+			return fmt.Errorf("execute production handoff orchestration: %w", err)
+		}
+		return nil
+	}
+	cold, warm := make([]int64, 0, iterations), make([]int64, 0, iterations)
+	for i := 0; i < iterations; i++ {
+		start := time.Now()
+		if err := operation(); err != nil {
+			return caseResult{}, err
+		}
+		cold = append(cold, time.Since(start).Microseconds())
+		start = time.Now()
+		if err := operation(); err != nil {
+			return caseResult{}, err
+		}
+		warm = append(warm, time.Since(start).Microseconds())
+	}
+	planDB, err := sql.Open("sqlite", readOnlyDSN(path))
+	if err != nil {
+		return caseResult{}, fmt.Errorf("open handoff plan store: %w", err)
+	}
+	defer func() { _ = planDB.Close() }()
+	var plans []string
+	for _, step := range infra.CapacityHandoffPlanQueries() {
+		details, err := queryPlan(ctx, planDB, step.SQL, step.Args)
+		if err != nil {
+			return caseResult{}, err
+		}
+		for _, detail := range details {
+			plans = append(plans, step.Name+": "+detail)
+		}
+	}
+	return caseResult{Name: "handoff", ColdP50US: percentile(cold, .5), ColdP95US: percentile(cold, .95), WarmP50US: percentile(warm, .5), WarmP95US: percentile(warm, .95), QueryPlan: plans}, nil
 }
 
 func readOnlyDSN(path string) string { return "file:" + url.PathEscape(path) + "?immutable=1&mode=ro" }
@@ -190,8 +237,8 @@ func percentile(values []int64, quantile float64) int64 {
 
 //nolint:wrapcheck // errors terminate this standalone operator tool with a fixed destination.
 func createSynthetic(ctx context.Context, path string, smallRows, largeRows int) (fixtureInfo, error) {
-	if smallRows < 1001 || largeRows < 1 {
-		return fixtureInfo{}, fmt.Errorf("synthetic fixture requires at least 1001 small rows and one large row")
+	if smallRows < 1 || largeRows < 1 {
+		return fixtureInfo{}, fmt.Errorf("synthetic fixture requires at least one small and one large row")
 	}
 	if _, err := os.Stat(path); err == nil {
 		return fixtureInfo{}, fmt.Errorf("synthetic destination already exists")
@@ -225,15 +272,21 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if err != nil {
 		return fixtureInfo{}, err
 	}
-	for index := 0; index < smallRows+largeRows; index++ {
+	const disposableRows = 1000
+	for index := 0; index < smallRows+disposableRows+largeRows; index++ {
 		body := "synthetic-small"
 		if index == 0 {
 			body = "synthetic-needle"
 		}
-		if index >= smallRows {
+		idPrefix := "synthetic-keep"
+		if index >= smallRows && index < smallRows+disposableRows {
+			idPrefix = "synthetic-disposable"
+		}
+		if index >= smallRows+disposableRows {
 			body = strings.Repeat("L", 1<<20)
 		}
-		if _, err = stmt.ExecContext(ctx, fmt.Sprintf("synthetic-%09d", index), "synthetic-active", body, fmt.Sprintf("2026-01-01T00:00:%09dZ", index)); err != nil {
+		createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(index) * time.Millisecond).Format(time.RFC3339Nano)
+		if _, err = stmt.ExecContext(ctx, fmt.Sprintf("%s-%09d", idPrefix, index), "synthetic-active", body, createdAt); err != nil {
 			return fixtureInfo{}, err
 		}
 	}
@@ -243,7 +296,7 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if err = tx.Commit(); err != nil {
 		return fixtureInfo{}, err
 	}
-	if _, err = db.ExecContext(ctx, `DELETE FROM events WHERE id IN (SELECT id FROM events WHERE length(body)<1024 AND body != 'synthetic-needle' LIMIT 1000)`); err != nil {
+	if _, err = db.ExecContext(ctx, `DELETE FROM events WHERE id LIKE 'synthetic-disposable-%'`); err != nil {
 		return fixtureInfo{}, err
 	}
 	var free int64

@@ -7,6 +7,9 @@ func TestValidateBaselineRequiresMeasuredFourCaseEvidence(t *testing.T) {
 	artifact.SchemaVersion = "traceary.capacity-baseline/v1"
 	artifact.Capacity.SchemaVersion = "traceary.capacity/v1"
 	artifact.Capacity.DatabaseBytes = 22_978_910_618
+	metric := int64(1)
+	artifact.Capacity.FreePages = &metric
+	artifact.Capacity.WALBytes = &metric
 	artifact.Capacity.Evidence.Status = "complete"
 	artifact.Benchmark.SchemaVersion = "traceary.store-benchmark/v1"
 	for _, name := range []string{"active", "latest", "handoff", "search"} {

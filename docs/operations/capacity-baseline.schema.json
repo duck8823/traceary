@@ -9,10 +9,12 @@
     "schema_version": { "const": "traceary.capacity-baseline/v1" },
     "capacity": {
       "type": "object", "additionalProperties": false,
-      "required": ["schema_version", "database_bytes", "evidence"],
+      "required": ["schema_version", "database_bytes", "free_pages", "wal_bytes", "evidence"],
       "properties": {
         "schema_version": { "const": "traceary.capacity/v1" },
         "database_bytes": { "type": "integer", "minimum": 22710475178, "maximum": 23247346058 },
+        "free_pages": { "type": "integer", "minimum": 0 },
+        "wal_bytes": { "type": "integer", "minimum": 0 },
         "evidence": { "type": "object", "additionalProperties": false, "required": ["status"], "properties": { "status": { "enum": ["complete", "unavailable"] } } }
       }
     },

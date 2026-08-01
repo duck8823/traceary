@@ -3,6 +3,8 @@
   "capacity": {
     "schema_version": "traceary.capacity/v1",
     "database_bytes": 22978910618,
+    "free_pages": 0,
+    "wal_bytes": 0,
     "evidence": { "status": "complete" }
   },
   "benchmark": {

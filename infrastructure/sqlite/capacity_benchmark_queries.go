@@ -29,8 +29,15 @@ func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchm
 	}
 	return []CapacityBenchmarkQuery{
 		{Name: "active", SQL: findLatestSessionQuery, Args: []any{"session_started", "session_ended", "session_started", "session_ended", "session_started", "", "", "", "", "", "", "session_started", true, "session_ended", true, true}},
-		{Name: "latest", SQL: selectLatestEventMetadataFastQuery},
-		{Name: "handoff", SQL: getContextEventsQuery, Args: []any{"", "", "", "", 50}},
+		{Name: "latest", SQL: findLatestSessionQuery, Args: []any{"session_started", "session_ended", "session_started", "session_ended", "session_started", "", "", "", "", "", "", "session_started", false, "session_ended", false, false}},
 		{Name: "search", SQL: searchSQL, Args: searchArgs},
 	}, nil
+}
+
+// CapacityHandoffPlanQueries returns fixed SQL constituents selected by the production ContextPackBuilder path.
+func CapacityHandoffPlanQueries() []CapacityBenchmarkQuery {
+	return []CapacityBenchmarkQuery{
+		{Name: "session_resolution", SQL: listSessionsQuery, Args: []any{"", "", "", "", "", "", "", "", "", "", "", "", false, "", "", "", "", 1, 0}},
+		{Name: "recent_command_previews", SQL: selectRecentCommandPreviewsQuery, Args: []any{512, "", "", 5}},
+	}
 }
