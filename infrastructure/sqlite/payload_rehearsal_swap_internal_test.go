@@ -3,10 +3,12 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +94,17 @@ func TestPayloadRehearsalRejectsTargetSwapAtScrubWriteBoundaries(t *testing.T) {
 	}
 }
 
+func TestPayloadRehearsalRejectsCompletedRunCopiedToNewInodeBeforeScrub(t *testing.T) {
+	adapter, config, swap := newSwapRehearsalFixture(t)
+	if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err != nil {
+		t.Fatal(err)
+	}
+	swap()
+	if _, _, err := adapter.PrepareScrub(context.Background(), config); !errors.Is(err, ErrUnsafeRehearsalTarget) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestPayloadRehearsalFreezesVerifiedShadowRowsAcrossScrubTransactions(t *testing.T) {
 	adapter, config, _ := newSwapRehearsalFixture(t)
 	if _, err := adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err != nil {
@@ -166,6 +179,110 @@ func TestPayloadRehearsalScrubDoesNotCheckpointRowsBeyondResourceCaps(t *testing
 				t.Fatalf("scrubbed rows = %d", scrubbed)
 			}
 		})
+	}
+}
+
+func TestPayloadRehearsalScrubCapDoesNotAutoCheckpointWAL(t *testing.T) {
+	adapter, config, _ := newSwapRehearsalFixture(t)
+	db, err := sql.Open("sqlite", config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3002; i++ {
+		id := fmt.Sprintf("bulk-%04d", i)
+		if _, err = tx.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES(?,'prompt','test','session','body','2026-08-01T00:00:00Z')`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	config.BatchRows = apptypes.MaxPayloadRehearsalBatchRows
+	config.MaxWALBytes = 64 << 20
+	if _, err = adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err != nil {
+		t.Fatal(err)
+	}
+	db, err = sql.Open("sqlite", config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	config.DecodedByteLimit = 3001 * 4
+	handle, _, err := adapter.PrepareScrub(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = adapter.AdvanceScrubField(context.Background(), handle, apptypes.PayloadRehearsalEventBody); err == nil {
+		t.Fatal("decoded cap did not stop scrub page")
+	}
+	shm, err := os.ReadFile(config.TargetPath + "-shm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shm) < 100 {
+		t.Fatalf("short WAL index: %d", len(shm))
+	}
+	if nBackfill := binary.LittleEndian.Uint32(shm[96:100]); nBackfill != 0 {
+		t.Fatalf("WAL auto-checkpoint backfilled %d frames before cap return", nBackfill)
+	}
+	if err = adapter.ReleaseScrub(context.Background(), handle); err != nil {
+		t.Fatal(err)
+	}
+	if err = adapter.CloseScrub(handle); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPayloadRehearsalScrubCheckpointsVerifiedPrefixBeforeDecodedCap(t *testing.T) {
+	adapter, config, _ := newSwapRehearsalFixture(t)
+	db, err := sql.Open("sqlite", config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ id, body string }{{"a", strings.Repeat("a", 700)}, {"b", strings.Repeat("b", 400)}} {
+		if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES(?,'prompt','test','session',?,'2026-08-01T00:00:00Z')`, row.id, row.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = db.Close()
+	config.BatchRows = 3
+	config.DecodedByteLimit = 1025
+	if _, err = adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err != nil {
+		t.Fatal(err)
+	}
+	handle, _, err := adapter.PrepareScrub(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = adapter.AdvanceScrubField(context.Background(), handle, apptypes.PayloadRehearsalEventBody); err == nil {
+		t.Fatal("decoded page cap was not reported")
+	}
+	if err = adapter.ReleaseScrub(context.Background(), handle); err != nil {
+		t.Fatal(err)
+	}
+	if err = adapter.CloseScrub(handle); err != nil {
+		t.Fatal(err)
+	}
+	db, err = sql.Open("sqlite", config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var scrubbed int
+	var last string
+	if err = db.QueryRow(`SELECT scrubbed_rows,scrub_last_primary_key FROM payload_rehearsal_checkpoints WHERE table_kind='events' AND field_kind='body'`).Scan(&scrubbed, &last); err != nil {
+		t.Fatal(err)
+	}
+	if scrubbed != 1 || last != "a" {
+		t.Fatalf("verified prefix = %d/%q", scrubbed, last)
 	}
 }
 

@@ -66,6 +66,13 @@ func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int6
 	}
 	defer func() { _ = conn.Close() }()
 	started := time.Now()
+	if _, err = conn.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
+		return err
+	}
+	var autoCheckpoint int
+	if err = conn.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&autoCheckpoint); err != nil || autoCheckpoint != 0 {
+		return errors.New("cannot disable rehearsal WAL autocheckpoint")
+	}
 	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		return err
 	}

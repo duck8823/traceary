@@ -604,6 +604,7 @@ func (a *PayloadRehearsalAdapter) PrepareScrub(ctx context.Context, c apptypes.P
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
+	db.SetMaxOpenConns(1)
 	prepared := false
 	defer func() {
 		if !prepared {
@@ -620,9 +621,12 @@ func (a *PayloadRehearsalAdapter) PrepareScrub(ctx context.Context, c apptypes.P
 	if _, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("disable scrub WAL autocheckpoint: %w", err)
 	}
-	var run string
-	if err = db.QueryRowContext(ctx, `SELECT run_id FROM payload_rehearsal_runs WHERE target_fingerprint=? AND state='completed'`, id.opaque).Scan(&run); err != nil {
+	var run, recordedFingerprint, recordedDevice, recordedInode string
+	if err = db.QueryRowContext(ctx, `SELECT run_id,target_fingerprint,target_device,target_inode FROM payload_rehearsal_runs WHERE state='completed' ORDER BY started_at DESC LIMIT 1`).Scan(&run, &recordedFingerprint, &recordedDevice, &recordedInode); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
+	}
+	if recordedFingerprint != id.opaque || recordedDevice != id.device || recordedInode != id.inode {
+		return nil, apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
 	guard := rehearsalMutationGuard(func() error { return a.recheckExpectedTarget(id, c, true) })
 	if err = guard(); err != nil {
@@ -694,9 +698,13 @@ func (a *PayloadRehearsalAdapter) AdvanceScrubField(ctx context.Context, opaque 
 			resourceCapped = true
 			break
 		}
-		plain, decodeErr := p.decode(remainingDecoded)
+		plain, decodeErr := p.decode(h.config.DecodedByteLimit)
 		if decodeErr != nil {
 			return h.metrics, false, decodeErr
+		}
+		if int64(len(plain)) > remainingDecoded {
+			resourceCapped = true
+			break
 		}
 		if !time.Now().Before(h.deadline) {
 			resourceCapped = true
@@ -715,6 +723,9 @@ func (a *PayloadRehearsalAdapter) AdvanceScrubField(ctx context.Context, opaque 
 	}
 	if err = rows.Err(); err != nil {
 		return h.metrics, false, xerrors.Errorf("iterate scrub page: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return h.metrics, false, xerrors.Errorf("close scrub page: %w", err)
 	}
 	if count == 0 {
 		if resourceCapped {
