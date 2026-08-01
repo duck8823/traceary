@@ -1039,6 +1039,13 @@ func scanBundleCommandAudit(row interface {
 	); err != nil {
 		return nil, xerrors.Errorf("scan command audit: %w", err)
 	}
+	for name, value := range map[string]*string{"command": &commandText, "input": &inputText, "output": &outputText} {
+		decoded, err := decodeStoredPayload(*value, maxDecodedPayloadBytes)
+		if err != nil {
+			return nil, xerrors.Errorf("decode bundle audit %s %s: %w", eventID, name, err)
+		}
+		*value = decoded
+	}
 	wrapper := types.None[types.CommandName]()
 	if commandWrapper != "" {
 		wrapper = types.Some(types.CommandName(commandWrapper))

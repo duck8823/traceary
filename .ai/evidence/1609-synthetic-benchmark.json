@@ -1,0 +1,30 @@
+{
+  "schema": "traceary-payload-codec-benchmark/v1",
+  "ticket": 1609,
+  "data_classification": "deterministic-synthetic",
+  "command": "go test ./infrastructure/sqlite -run '^$' -bench BenchmarkPayloadCodecSynthetic -benchtime=10x -count=1",
+  "payload_generator": "16384 repetitions of a fixed redacted JSON fragment",
+  "metrics": [
+    "identity write ns/op",
+    "zstd write ns/op",
+    "zstd stored/plain ratio",
+    "maximum bounded decode ns/op"
+  ],
+  "invariants": [
+    "no private data",
+    "decoder limit equals declared plaintext size",
+    "canonical writer remains identity"
+  ],
+  "environment": {
+    "goos": "darwin",
+    "goarch": "arm64",
+    "cpu": "Apple M4",
+    "benchtime": "10x"
+  },
+  "results": {
+    "identity_write_ns_per_op": 401854,
+    "zstd_write_ns_per_op": 1199788,
+    "zstd_stored_plain_ratio": 0.0001852,
+    "maximum_bounded_decode_ns_per_op": 678425
+  }
+}

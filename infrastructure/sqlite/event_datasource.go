@@ -737,6 +737,10 @@ func scanEvent(rowScanner interface {
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan event row: %w", err)
 	}
+	bodyValue, err := decodeStoredPayload(bodyValue, maxDecodedPayloadBytes)
+	if err != nil {
+		return nil, xerrors.Errorf("decode event %s body: %w", eventIDValue, err)
+	}
 
 	return restoreEvent(
 		eventIDValue,
@@ -809,6 +813,19 @@ func scanEventWithAudit(
 		failureReasonValue,
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan event details row: %w", err)
+	}
+	bodyValue, err := decodeStoredPayload(bodyValue, maxDecodedPayloadBytes)
+	if err != nil {
+		return nil, xerrors.Errorf("decode event %s body: %w", eventIDValue, err)
+	}
+	for name, value := range map[string]*sql.NullString{"command": commandTextValue, "input": inputTextValue, "output": outputTextValue} {
+		if !value.Valid {
+			continue
+		}
+		value.String, err = decodeStoredPayload(value.String, maxDecodedPayloadBytes)
+		if err != nil {
+			return nil, xerrors.Errorf("decode event %s audit %s: %w", eventIDValue, name, err)
+		}
 	}
 
 	return restoreEvent(

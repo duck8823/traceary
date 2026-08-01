@@ -172,6 +172,13 @@ func insertHookDeliveryAttempt(ctx context.Context, tx *sql.Tx, event *model.Eve
 }
 
 func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, audit *model.CommandAudit) error {
+	// v0.34 deliberately encodes canonical writes as identity. The same adapter
+	// is used for zstd shadow/benchmark coverage, preventing a later activation
+	// from bypassing integrity metadata or the pre-existing redaction boundary.
+	eventPayload, err := encodePayload([]byte(event.Body()), payloadCodecIdentity)
+	if err != nil {
+		return xerrors.Errorf("encode event payload: %w", err)
+	}
 	if _, err := tx.ExecContext(
 		ctx,
 		insertEventQuery,
@@ -181,14 +188,29 @@ func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, au
 		event.Agent().String(),
 		event.SessionID().String(),
 		event.Workspace().String(),
-		event.Body(),
+		string(eventPayload.Bytes),
 		formatTimestamp(event.CreatedAt()),
 		nullableString(event.SourceHook()),
 	); err != nil {
 		return xerrors.Errorf("failed to insert event: %w", err)
 	}
+	if err := recordEventPayloadMetadata(ctx, tx, event.EventID().String(), eventPayload); err != nil {
+		return err
+	}
 	if audit == nil {
 		return nil
+	}
+	commandPayload, err := encodePayload([]byte(audit.Command()), payloadCodecIdentity)
+	if err != nil {
+		return xerrors.Errorf("encode command payload: %w", err)
+	}
+	inputPayload, err := encodePayload([]byte(audit.Input()), payloadCodecIdentity)
+	if err != nil {
+		return xerrors.Errorf("encode command input payload: %w", err)
+	}
+	outputPayload, err := encodePayload([]byte(audit.Output()), payloadCodecIdentity)
+	if err != nil {
+		return xerrors.Errorf("encode command output payload: %w", err)
 	}
 	var exitCodeSQL *int
 	if exitCode, ok := audit.ExitCode().Value(); ok {
@@ -202,11 +224,11 @@ func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, au
 		ctx,
 		insertCommandAuditQuery,
 		audit.EventID().String(),
-		audit.Command(),
+		string(commandPayload.Bytes),
 		wrapper,
 		audit.CommandIdentity().Command().String(),
-		audit.Input(),
-		audit.Output(),
+		string(inputPayload.Bytes),
+		string(outputPayload.Bytes),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
 		audit.InputOriginalBytes(),
@@ -217,7 +239,51 @@ func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, au
 	); err != nil {
 		return xerrors.Errorf("failed to insert command audit: %w", err)
 	}
+	if err := recordAuditPayloadMetadata(ctx, tx, audit.EventID().String(), commandPayload, inputPayload, outputPayload); err != nil {
+		return err
+	}
 	return nil
+}
+
+func recordEventPayloadMetadata(ctx context.Context, tx *sql.Tx, eventID string, payload encodedPayload) error {
+	enabled, err := transactionColumnExists(ctx, tx, "events", "body_codec")
+	if err != nil || !enabled {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE events SET body_codec=?, body_format_version=?, body_plaintext_bytes=?, body_encoded_bytes=?, body_sha256=? WHERE id=?`,
+		payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256, eventID); err != nil {
+		return xerrors.Errorf("record event payload metadata: %w", err)
+	}
+	return nil
+}
+
+func recordAuditPayloadMetadata(ctx context.Context, tx *sql.Tx, eventID string, payloads ...encodedPayload) error {
+	enabled, err := transactionColumnExists(ctx, tx, "command_audits", "command_codec")
+	if err != nil || !enabled {
+		return err
+	}
+	if len(payloads) != 3 {
+		return xerrors.Errorf("command audit requires three payloads")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE command_audits SET
+command_codec=?, command_format_version=?, command_plaintext_bytes=?, command_encoded_bytes=?, command_sha256=?,
+input_codec=?, input_format_version=?, input_plaintext_bytes=?, input_encoded_bytes=?, input_sha256=?,
+output_codec=?, output_format_version=?, output_plaintext_bytes=?, output_encoded_bytes=?, output_sha256=? WHERE event_id=?`,
+		payloads[0].Codec, payloads[0].FormatVersion, payloads[0].PlaintextBytes, payloads[0].StoredBytes, payloads[0].SHA256,
+		payloads[1].Codec, payloads[1].FormatVersion, payloads[1].PlaintextBytes, payloads[1].StoredBytes, payloads[1].SHA256,
+		payloads[2].Codec, payloads[2].FormatVersion, payloads[2].PlaintextBytes, payloads[2].StoredBytes, payloads[2].SHA256, eventID); err != nil {
+		return xerrors.Errorf("record command audit payload metadata: %w", err)
+	}
+	return nil
+}
+
+func transactionColumnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM pragma_table_info(?) WHERE name = ?`, table, column)
+	if err != nil {
+		return false, xerrors.Errorf("inspect payload metadata column: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return rows.Next(), rows.Err()
 }
 
 func findHookDeliveryByFingerprint(
