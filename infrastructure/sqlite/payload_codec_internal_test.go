@@ -259,6 +259,40 @@ func TestPayloadRowRejectsEveryPartialMetadataCombination(t *testing.T) {
 	}
 }
 
+func TestPayloadRowLegacyIdentityEnforcesDecodedLimit(t *testing.T) {
+	exact := payloadRow{Stored: make([]byte, maxDecodedPayloadBytes)}
+	if _, err := exact.decode(maxDecodedPayloadBytes); err != nil {
+		t.Fatalf("exact legacy limit: %v", err)
+	}
+	over := payloadRow{Stored: make([]byte, maxDecodedPayloadBytes+1)}
+	if _, err := over.decode(maxDecodedPayloadBytes); !isPayloadIntegrityError(err) {
+		t.Fatalf("oversized legacy error = %v", err)
+	}
+}
+
+func TestLegacySchemaHydrationEnforcesExactDecodedLimit(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`CREATE TABLE events(id TEXT PRIMARY KEY, body BLOB NOT NULL);
+INSERT INTO events VALUES('exact', zeroblob(16777216));
+INSERT INTO events VALUES('over', zeroblob(16777217));`); err != nil {
+		t.Fatal(err)
+	}
+	exact, err := loadEventPlaintext(ctx, db, "exact")
+	if err != nil || int64(len(exact)) != maxDecodedPayloadBytes {
+		t.Fatalf("exact legacy body = %d bytes, %v", len(exact), err)
+	}
+	_, err = loadEventPlaintext(ctx, db, "over")
+	var integrity *PayloadIntegrityError
+	if !errors.As(err, &integrity) || integrity.RowID != "over" || integrity.Reason != "stored length exceeds limit" {
+		t.Fatalf("oversized legacy error = %v", err)
+	}
+}
+
 func TestLoadEventPlaintextRejectsOversizedPhysicalValueBeforeScan(t *testing.T) {
 	ctx := context.Background()
 	path := t.TempDir() + "/oversized.db"

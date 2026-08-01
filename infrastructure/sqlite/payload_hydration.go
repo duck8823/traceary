@@ -25,6 +25,9 @@ func hydrateEventPayload(ctx context.Context, q queryRowContexter, event *model.
 		return nil, xerrors.Errorf("inspect event payload metadata: %w", err)
 	}
 	if has == 0 {
+		if int64(len(event.Body())) > maxDecodedPayloadBytes {
+			return nil, &PayloadIntegrityError{Codec: payloadCodecIdentity, RowID: event.EventID().String(), Field: "body", Reason: "decoded length exceeds limit"}
+		}
 		return event, nil
 	}
 	var row payloadRow
@@ -63,12 +66,12 @@ func hydrateAuditPayload(ctx context.Context, q queryRowContexter, eventID strin
 	if has == 0 {
 		var value sql.NullString
 		var storedLength sql.NullInt64
-		if err := q.QueryRowContext(ctx, `SELECT CASE WHEN length(CAST(CASE ? WHEN 'command' THEN command_text WHEN 'input' THEN input_text ELSE output_text END AS BLOB)) <= ? THEN CASE ? WHEN 'command' THEN command_text WHEN 'input' THEN input_text ELSE output_text END END, length(CAST(CASE ? WHEN 'command' THEN command_text WHEN 'input' THEN input_text ELSE output_text END AS BLOB)) FROM command_audits WHERE event_id=?`, column, maxStoredPayloadBytes, column, column, eventID).Scan(&value, &storedLength); errors.Is(err, sql.ErrNoRows) {
+		if err := q.QueryRowContext(ctx, `SELECT CASE WHEN length(CAST(CASE ? WHEN 'command' THEN command_text WHEN 'input' THEN input_text ELSE output_text END AS BLOB)) <= ? THEN CASE ? WHEN 'command' THEN command_text WHEN 'input' THEN input_text ELSE output_text END END, length(CAST(CASE ? WHEN 'command' THEN command_text WHEN 'input' THEN input_text ELSE output_text END AS BLOB)) FROM command_audits WHERE event_id=?`, column, maxDecodedPayloadBytes, column, column, eventID).Scan(&value, &storedLength); errors.Is(err, sql.ErrNoRows) {
 			return sql.NullString{}, nil
 		} else if err != nil {
 			return sql.NullString{}, xerrors.Errorf("read legacy audit payload: %w", err)
 		}
-		if storedLength.Valid && storedLength.Int64 > maxStoredPayloadBytes {
+		if storedLength.Valid && storedLength.Int64 > maxDecodedPayloadBytes {
 			return sql.NullString{}, &PayloadIntegrityError{Codec: "identity", RowID: eventID, Field: column, Reason: "stored length exceeds limit"}
 		}
 		return value, nil
@@ -133,10 +136,10 @@ func loadEventPlaintext(ctx context.Context, q queryRowContexter, eventID string
 	if has == 0 {
 		var body []byte
 		var storedLength sql.NullInt64
-		if err := q.QueryRowContext(ctx, `SELECT CASE WHEN length(CAST(body AS BLOB)) <= ? THEN body END, length(CAST(body AS BLOB)) FROM events WHERE id=?`, maxStoredPayloadBytes, eventID).Scan(&body, &storedLength); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT CASE WHEN length(CAST(body AS BLOB)) <= ? THEN body END, length(CAST(body AS BLOB)) FROM events WHERE id=?`, maxDecodedPayloadBytes, eventID).Scan(&body, &storedLength); err != nil {
 			return nil, xerrors.Errorf("read legacy event payload: %w", err)
 		}
-		if storedLength.Valid && storedLength.Int64 > maxStoredPayloadBytes {
+		if storedLength.Valid && storedLength.Int64 > maxDecodedPayloadBytes {
 			return nil, &PayloadIntegrityError{Codec: "identity", RowID: eventID, Field: "body", Reason: "stored length exceeds limit"}
 		}
 		return body, nil

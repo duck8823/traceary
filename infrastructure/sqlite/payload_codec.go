@@ -80,6 +80,9 @@ func (r payloadRow) decode(limit int64) ([]byte, error) {
 		}
 	}
 	if metadataCount == 0 {
+		if int64(len(r.Stored)) > limit {
+			return nil, &PayloadIntegrityError{Codec: payloadCodecIdentity, Reason: "decoded length exceeds limit"}
+		}
 		return bytes.Clone(r.Stored), nil
 	}
 	if metadataCount != 5 {
