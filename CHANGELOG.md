@@ -5,6 +5,18 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [v0.33.1] - 2026-07-31
+
+### Fixed
+- **Hook delivery identity and one-shot lifecycle contracts (#1576, #1582)** — hook delivery IDs now use length-prefixed identity fields so delimiter-bearing components cannot collide. `traceary session run` preserves distinguishable child-owned exits across cancellation and timeout races, ignores nested session-end hooks while the wrapper owns finalization, and documents terminal reasons, exit codes, lifecycle ownership, repair procedures, and report lineage.
+- **Usage evidence exclusivity (#1580, #1581)** — Codex rollout discovery now requires filename boundaries, rejects conflicting session metadata, and fails closed on ambiguous matches. Bundle import preserves additive exclusivity claims, skips conflicts only under the `skip` policy, rejects malformed exclusivity metadata, and reports other conflicts as `ErrConflictingUsageObservation`.
+- **Bounded and platform-safe Kimi capture (#1577, #1579)** — Kimi usage loading now has regression coverage for oversized sources and lines without exposing their contents. The filesystem-backed source is explicitly supported on Unix platforms and fails closed with no fabricated samples on unsupported platforms.
+- **Explicit unavailable usage reporting (#1578)** — usage reports now expose `unavailable_observations` in JSON, MCP schemas, and text output, distinguishing observations with entirely unavailable counters from known alternative evidence excluded by accounting rules.
+
+### Notes
+- This patch strengthens hook delivery identity, one-shot exit behavior, usage-source exclusivity and bounds, platform handling, report lineage, and unavailable-observation classification. It does not enable network interception, billing-dashboard scraping, or storage of prompt/response bodies; the privacy boundary is unchanged.
+- Release artifacts and Homebrew Formula checksums are generated and committed only by the tagged release workflow; this preparation change intentionally does not predict or hand-write them. See `docs/release/v0.33.1-qa.md` for the candidate verification boundary.
+
 ## [v0.33.0] - 2026-07-31
 
 ### Added

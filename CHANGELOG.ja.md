@@ -5,6 +5,18 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [v0.33.1] - 2026-07-31
+
+### Fixed
+- **フック配信 ID と one-shot ライフサイクル契約 (#1576, #1582)** — フック配信 ID が長さプレフィックス付きの ID フィールドを使用するようになり、区切り文字を含む構成要素同士の衝突を防止します。`traceary session run` はキャンセルまたはタイムアウトとの競合時にも識別可能な子プロセス所有の終了結果を保持し、ラッパーが終了処理を所有している間はネストした session-end フックを無視します。終了理由、終了コード、ライフサイクル所有権、修復手順、レポートのリネージも文書化しました。
+- **使用量エビデンスの排他性 (#1580, #1581)** — Codex rollout の探索がファイル名境界を必須とし、競合するセッションメタデータを拒否し、複数候補が一致した場合は fail closed するようになりました。bundle import は加算型の排他性 claim を保持し、競合をスキップするのは `skip` ポリシーの場合だけに限定します。不正な排他性メタデータを拒否し、それ以外の競合を `ErrConflictingUsageObservation` として報告します。
+- **境界付きでプラットフォーム安全な Kimi capture (#1577, #1579)** — Kimi 使用量の読み込みに、内容を露出せずにサイズ超過の source と行を拒否する回帰テストを追加しました。ファイルシステムベースの source は Unix プラットフォームを明示的なサポート対象とし、未対応プラットフォームでは使用量 sample を捏造せず fail closed します。
+- **利用不能な使用量の明示的なレポート (#1578)** — 使用量レポートが JSON、MCP schema、text output に `unavailable_observations` を公開し、counter がすべて利用不能な observation と、accounting rule によって除外された既知の代替 evidence を区別するようになりました。
+
+### Notes
+- このパッチは、フック配信 ID、one-shot の終了動作、使用量 source の排他性と境界、プラットフォーム処理、レポートのリネージ、利用不能 observation の分類を強化します。ネットワーク傍受、billing dashboard のスクレイピング、prompt/response body の保存は有効化せず、privacy boundary は変更しません。
+- リリース成果物と Homebrew Formula の checksum は、tagged release workflow だけが生成して commit します。この準備変更では、それらを予測または手書きしません。candidate verification boundary については `docs/release/v0.33.1-qa.ja.md` を参照してください。
+
 ## [v0.33.0] - 2026-07-31
 
 ### Added
