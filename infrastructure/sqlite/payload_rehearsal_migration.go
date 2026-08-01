@@ -93,8 +93,12 @@ func (d *Database) measureRehearsalMigrationWAL(ctx context.Context, target stri
 	if _, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
 		return 0, err
 	}
+	started := time.Now()
 	if err = d.migrate(ctx, db); err != nil {
 		return 0, err
+	}
+	if time.Since(started) > lock {
+		return 0, errors.New("migration preflight lock duration cap exceeded")
 	}
 	info, err := os.Stat(clonePath + "-wal")
 	if errors.Is(err, os.ErrNotExist) {

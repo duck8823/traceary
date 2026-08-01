@@ -29,6 +29,7 @@ type walBudgetedMutationSession struct {
 	frameBytes        int64
 	maximum           int64
 	peak              *int64
+	lockLimit         time.Duration
 }
 
 //nolint:wrapcheck // callers add the rehearsal operation classification.
@@ -56,7 +57,7 @@ func rehearsalSchemaFingerprint(ctx context.Context, q interface {
 
 //nolint:wrapcheck // the bounded session is an internal adapter primitive.
 func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int64, mutate func(*sql.Conn) error) (err error) {
-	if reservedFrames <= 0 || s.peak == nil || strings.TrimSpace(s.expectedSchemaSHA) == "" {
+	if reservedFrames <= 0 || s.peak == nil || strings.TrimSpace(s.expectedSchemaSHA) == "" || s.lockLimit <= 0 {
 		return ErrUnsafeRehearsalTarget
 	}
 	conn, err := s.db.Conn(ctx)
@@ -64,6 +65,7 @@ func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int6
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	started := time.Now()
 	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		return err
 	}
@@ -94,6 +96,9 @@ func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int6
 	}
 	if err = mutate(conn); err != nil {
 		return err
+	}
+	if time.Since(started) > s.lockLimit {
+		return errors.New("rehearsal lock duration cap exceeded before commit")
 	}
 	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
 		return err

@@ -83,6 +83,30 @@ func TestMigrationPreflightRejectsLowCapWithoutTargetMutation(t *testing.T) {
 	if rehearsalTable != 0 {
 		t.Fatal("migration 37 was committed despite failed reservation")
 	}
+
+	timeoutTarget := filepath.Join(dir, "timeout-target.db")
+	if err = NewStoreManagementDatasource(NewDatabase(timeoutTarget, legacy)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	timeoutBefore, err := os.ReadFile(timeoutTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeoutConfig := config
+	timeoutConfig.TargetPath = timeoutTarget
+	timeoutConfig.BackupPath = filepath.Join(dir, "timeout-backup.db")
+	timeoutConfig.MaxWALBytes = 1 << 30
+	timeoutConfig.LockTimeLimit = time.Nanosecond
+	if _, err = adapter.Run(ctx, timeoutConfig, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err == nil {
+		t.Fatal("migration clone duration ignored the lock cap")
+	}
+	timeoutAfter, err := os.ReadFile(timeoutTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(timeoutAfter) != string(timeoutBefore) {
+		t.Fatal("migration clone timeout mutated the target database")
+	}
 }
 
 func TestLiveCompatibilityReplaysWAL(t *testing.T) {
@@ -214,7 +238,7 @@ func TestTerminalTransitionDoesNotCommitWithoutReservedWALFrame(t *testing.T) {
 			if fingerprintErr != nil {
 				t.Fatal(fingerprintErr)
 			}
-			session := walBudgetedMutationSession{db: db, path: config.TargetPath, expectedSchemaSHA: fingerprint, frameBytes: frame, maximum: maximum, peak: &peak}
+			session := walBudgetedMutationSession{db: db, path: config.TargetPath, expectedSchemaSHA: fingerprint, frameBytes: frame, maximum: maximum, peak: &peak, lockLimit: time.Second}
 			if err = transitionTerminalWithinWALBudget(context.Background(), session, metrics.RunID, lease, apptypes.PayloadRehearsalCompleted, guard); err == nil {
 				t.Fatal("terminal transition ignored WAL reservation")
 			}

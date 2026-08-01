@@ -97,7 +97,7 @@ func TestRehearsalRecoveryMutationsDoNotWriteWhenGuardFails(t *testing.T) {
 		t.Fatal(fingerprintErr)
 	}
 	peak := frame
-	session := walBudgetedMutationSession{db: db, path: config.TargetPath, expectedSchemaSHA: fingerprint, frameBytes: frame, maximum: config.MaxWALBytes, peak: &peak}
+	session := walBudgetedMutationSession{db: db, path: config.TargetPath, expectedSchemaSHA: fingerprint, frameBytes: frame, maximum: config.MaxWALBytes, peak: &peak, lockLimit: time.Second}
 	if err = pauseRunState(context.Background(), session, metrics.RunID, lease, reject); !errors.Is(err, ErrUnsafeRehearsalTarget) {
 		t.Fatalf("pause error=%v", err)
 	}

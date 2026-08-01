@@ -296,7 +296,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if measuredMigrationWAL > 0 {
 		pageBytes := minimumWAL - 32
 		reservedFrames := max(int64(1), (measuredMigrationWAL-32+pageBytes-1)/pageBytes)
-		migrationSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: preMigrationIdentity.schema, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &peakWAL}
+		migrationSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: preMigrationIdentity.schema, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &peakWAL, lockLimit: c.LockTimeLimit}
 		if err = migrationSession.run(ctx, reservedFrames, func(conn *sql.Conn) error {
 			return database.migrateOnBudgetedConnection(ctx, conn)
 		}); err != nil {
@@ -329,13 +329,13 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	configHash := hashConfig(c, id.opaque)
 	guard := rehearsalMutationGuard(func() error { return a.recheckExpectedTarget(id, c, true) })
 	resumePeak := peakWAL
-	startSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &resumePeak}
+	startSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &resumePeak, lockLimit: c.LockTimeLimit}
 	runID, eventHigh, auditHigh, leaseToken, err := loadOrCreateRun(ctx, startSession, id, configHash, backupDigest, resume, guard)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, PeakWALBytes: resumePeak, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
-	batchSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &metrics.PeakWALBytes}
+	batchSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &metrics.PeakWALBytes, lockLimit: c.LockTimeLimit}
 	observeRunWAL := func() error {
 		return observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes)
 	}
@@ -477,7 +477,7 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	scrubSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &acquirePeak}
+	scrubSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &acquirePeak, lockLimit: c.LockTimeLimit}
 	lease, err := acquireScrubLease(ctx, scrubSession, run, guard)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
