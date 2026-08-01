@@ -19,7 +19,7 @@ func TestSyntheticFixtureAndBenchmarkEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createSynthetic() error = %v", err)
 	}
-	if fixture.SmallRows != 1200 || fixture.LargeRows != 2 || fixture.WALBytes == 0 || fixture.FreePages == 0 {
+	if fixture.SmallRows != 1200 || fixture.LargeRows != 2 || fixture.WALBytes == 0 || fixture.FreePages == 0 || fixture.ActiveSessions != 1 || fixture.CommandRows != 10 || fixture.AcceptedMemories != 10 {
 		t.Fatalf("fixture does not cover required storage shapes: %+v", fixture)
 	}
 	db, err := sql.Open("sqlite", readOnlyDSN(path))
@@ -34,6 +34,12 @@ func TestSyntheticFixtureAndBenchmarkEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, benchmarkCase := range benchmarkCases {
+		if benchmarkCase.Name == "active" || benchmarkCase.Name == "latest" {
+			matched, err := queryHasRows(context.Background(), path, benchmarkCase.SQL, benchmarkCase.Args)
+			if err != nil || !matched {
+				t.Fatalf("%s preflight matched=%v error=%v", benchmarkCase.Name, matched, err)
+			}
+		}
 		result, err := benchmark(context.Background(), path, 2, benchmarkCase.Name, benchmarkCase.SQL, benchmarkCase.Args)
 		if err != nil {
 			t.Fatalf("benchmark(%s) error = %v", benchmarkCase.Name, err)
@@ -92,7 +98,7 @@ func TestSyntheticFixtureKeepsRequestedRowsWhileCreatingFreePages(t *testing.T) 
 	}
 	defer func() { _ = db.Close() }()
 	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM events WHERE length(body)<1024`).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM events WHERE id LIKE 'synthetic-keep-%' AND length(body)<1024`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {

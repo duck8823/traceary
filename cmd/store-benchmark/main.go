@@ -29,11 +29,14 @@ type report struct {
 	Cases         []caseResult `json:"cases"`
 }
 type fixtureInfo struct {
-	Kind      string `json:"kind"`
-	SmallRows int    `json:"small_rows,omitempty"`
-	LargeRows int    `json:"large_rows,omitempty"`
-	WALBytes  int64  `json:"wal_bytes,omitempty"`
-	FreePages int64  `json:"free_pages,omitempty"`
+	Kind             string `json:"kind"`
+	SmallRows        int    `json:"small_rows,omitempty"`
+	LargeRows        int    `json:"large_rows,omitempty"`
+	WALBytes         int64  `json:"wal_bytes,omitempty"`
+	FreePages        int64  `json:"free_pages,omitempty"`
+	ActiveSessions   int    `json:"active_sessions,omitempty"`
+	CommandRows      int    `json:"command_rows,omitempty"`
+	AcceptedMemories int    `json:"accepted_memories,omitempty"`
 }
 type caseResult struct {
 	Name      string   `json:"name"`
@@ -87,6 +90,12 @@ func main() {
 	}
 	results := make([]caseResult, 0, len(benchmarkCases))
 	for _, benchmarkCase := range benchmarkCases {
+		if benchmarkCase.Name == "active" || benchmarkCase.Name == "latest" {
+			matched, err := queryHasRows(ctx, dbPath, benchmarkCase.SQL, benchmarkCase.Args)
+			if err != nil || !matched {
+				fatal(fmt.Sprintf("%s preflight returned no matching production row: %v", benchmarkCase.Name, err))
+			}
+		}
 		result, err := benchmark(ctx, dbPath, iterations, benchmarkCase.Name, benchmarkCase.SQL, benchmarkCase.Args)
 		if err != nil {
 			fatal(fmt.Sprintf("%s: %v", benchmarkCase.Name, err))
@@ -103,11 +112,32 @@ func main() {
 	}
 }
 
+func queryHasRows(ctx context.Context, path, query string, args []any) (bool, error) {
+	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	if err != nil {
+		return false, fmt.Errorf("open preflight store: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return false, fmt.Errorf("query preflight: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	return rows.Next(), rows.Err()
+}
+
 func benchmarkHandoff(ctx context.Context, path string, iterations int) (caseResult, error) {
 	operation := func(database *infra.Database) error {
-		_, err := usecase.NewContextUsecase(infra.NewSessionDatasource(database), infra.NewEventDatasource(database), infra.NewMemoryDatasource(database)).Handoff(ctx, apptypes.NewContextPackCriteriaBuilder().AllowStale(true).Build())
+		pack, err := usecase.NewContextUsecase(infra.NewSessionDatasource(database), infra.NewEventDatasource(database), infra.NewMemoryDatasource(database)).Handoff(ctx, apptypes.NewContextPackCriteriaBuilder().AllowStale(true).RecentCommandsLimit(10).MemoryLimit(10).Build())
 		if err != nil {
 			return fmt.Errorf("execute production handoff orchestration: %w", err)
+		}
+		value, ok := pack.Value()
+		if !ok {
+			return fmt.Errorf("production handoff returned no context pack")
+		}
+		if len(value.RecentCommands()) != 10 || len(value.Memories()) != 10 {
+			return fmt.Errorf("production handoff cardinality commands=%d memories=%d, want 10/10", len(value.RecentCommands()), len(value.Memories()))
 		}
 		return nil
 	}
@@ -272,6 +302,25 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if _, err = db.ExecContext(ctx, `INSERT INTO sessions(session_id,started_at,ended_at,client,agent,workspace) VALUES('synthetic-active','2026-01-01T00:00:00Z',NULL,'cli','codex','synthetic'),('synthetic-ended','2025-01-01T00:00:00Z','2025-01-02T00:00:00Z','cli','codex','synthetic')`); err != nil {
 		return fixtureInfo{}, err
 	}
+	if _, err = db.ExecContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('synthetic-active-start','session_started','codex','synthetic-active','synthetic lifecycle','2026-01-01T00:00:00Z','cli','synthetic'),('synthetic-ended-start','session_started','codex','synthetic-ended','synthetic lifecycle','2025-01-01T00:00:00Z','cli','synthetic'),('synthetic-ended-end','session_ended','codex','synthetic-ended','synthetic lifecycle','2025-01-02T00:00:00Z','cli','synthetic')`); err != nil {
+		return fixtureInfo{}, err
+	}
+	for index := 0; index < 10; index++ {
+		eventID := fmt.Sprintf("synthetic-command-%02d", index)
+		created := time.Date(2026, 1, 2, 0, 0, index, 0, time.UTC).Format(time.RFC3339Nano)
+		if _, err = db.ExecContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'command_executed','codex','synthetic-active',?,?, 'cli','synthetic')`, eventID, "synthetic command", created); err != nil {
+			return fixtureInfo{}, err
+		}
+		if _, err = db.ExecContext(ctx, `INSERT INTO command_audits(event_id,command_text,input_text,output_text) VALUES(?,?,?,?)`, eventID, fmt.Sprintf("echo synthetic-%02d", index), "", "synthetic output"); err != nil {
+			return fixtureInfo{}, err
+		}
+	}
+	for index := 0; index < 10; index++ {
+		now := time.Date(2026, 1, 1, 0, index, 0, 0, time.UTC).Format(time.RFC3339Nano)
+		if _, err = db.ExecContext(ctx, `INSERT INTO memories(id,type,scope_kind,scope_value,fact,status,confidence,source,created_at,updated_at,valid_from) VALUES(?,'decision','workspace','synthetic',?,'accepted','high','manual',?,?,?)`, fmt.Sprintf("synthetic-memory-%02d", index), fmt.Sprintf("synthetic durable fact %02d", index), now, now, now); err != nil {
+			return fixtureInfo{}, err
+		}
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fixtureInfo{}, err
@@ -315,6 +364,6 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if stat, statErr := os.Stat(path + "-wal"); statErr == nil {
 		wal = stat.Size()
 	}
-	return fixtureInfo{Kind: "synthetic", SmallRows: smallRows, LargeRows: largeRows, WALBytes: wal, FreePages: free}, nil
+	return fixtureInfo{Kind: "synthetic", SmallRows: smallRows, LargeRows: largeRows, WALBytes: wal, FreePages: free, ActiveSessions: 1, CommandRows: 10, AcceptedMemories: 10}, nil
 }
 func fatal(message string) { fmt.Fprintln(os.Stderr, message); os.Exit(2) }

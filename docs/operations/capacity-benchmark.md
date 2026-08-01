@@ -28,7 +28,7 @@ go run ./cmd/store-benchmark --synthetic /private/tmp/traceary-synthetic.db \
   --small-rows 10000 --large-rows 8 --iterations 25 > synthetic-benchmark.json
 ```
 
-The fixture uses the canonical production migrations and query sources. It retains exactly `--small-rows` small rows and `--large-rows` 1 MiB rows, and separately creates then deletes 1,000 disposable rows to guarantee free-page pressure without falsifying fixture metadata. The `handoff` timing executes the production `ContextUsecase.Handoff` orchestration; its plan evidence labels the shared production session-resolution and command-preview SQL constituents.
+The fixture uses the canonical production migrations and query sources. It retains exactly `--small-rows` generic small rows and `--large-rows` 1 MiB rows, separately creates then deletes 1,000 disposable rows, and adds one active lifecycle, ten command/audit rows, and ten accepted workspace memories. Fixture JSON records these post-delete workload cardinalities. Preflight fails unless active/latest return a matching row and production handoff returns exactly ten recent commands and ten memories.
 
 ## Sanitized 21.4 GiB-shape baseline
 

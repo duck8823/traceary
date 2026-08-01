@@ -28,7 +28,7 @@ go run ./cmd/store-benchmark --synthetic /private/tmp/traceary-synthetic.db \
   --small-rows 10000 --large-rows 8 --iterations 25 > synthetic-benchmark.json
 ```
 
-fixture は canonical production migration と query source を使います。`--small-rows` 件の小 row と `--large-rows` 件の 1 MiB row を保持し、別に disposable row 1,000 件を作成・削除して metadata を偽らず空きページを保証します。`handoff` timing は production の `ContextUsecase.Handoff` orchestration を実行し、plan evidence は共有 production session-resolution/command-preview SQL を label 付きで記録します。
+fixture は canonical production migration と query source を使います。`--small-rows` 件の汎用小 row と `--large-rows` 件の 1 MiB row を保持し、別に disposable row 1,000 件を作成・削除します。さらに active lifecycle 1 件、command/audit 10 件、accepted workspace memory 10 件を含み、post-delete workload cardinality を JSON に記録します。active/latest が一致せず、または production handoff が command 10 件・memory 10 件を返さない場合、preflight は失敗します。
 
 ## Sanitized 21.4 GiB shape baseline
 
