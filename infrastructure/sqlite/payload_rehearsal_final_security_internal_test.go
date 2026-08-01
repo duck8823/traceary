@@ -5,14 +5,85 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"testing/fstest"
+	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
+
+func TestMigrationPreflightRejectsLowCapWithoutTargetMutation(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	live, target := filepath.Join(dir, "live.db"), filepath.Join(dir, "target.db")
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := fstest.MapFS{}
+	paths, err := fs.Glob(migrations, "*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if strings.HasPrefix(filepath.Base(path), "000037_") {
+			continue
+		}
+		body, readErr := fs.ReadFile(migrations, path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		legacy[path] = &fstest.MapFile{Data: body}
+	}
+	if err = NewStoreManagementDatasource(NewDatabase(live, migrations)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = NewStoreManagementDatasource(NewDatabase(target, legacy)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewPayloadRehearsalAdapter(migrations, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, err := minimumWALFrameBytes(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := apptypes.PayloadRehearsalConfig{TargetPath: target, LivePath: live, BackupPath: filepath.Join(dir, "backup.db"), BatchRows: 2, StoredByteLimit: 1 << 20, DecodedByteLimit: 1 << 20, WallTimeLimit: time.Minute, LockTimeLimit: time.Second, ScrubByteLimit: 1 << 20, ScrubTimeLimit: time.Minute}
+	config.MaxWALBytes = frame
+	if _, err = adapter.Run(ctx, config, false); err == nil {
+		t.Fatal("migration exceeded the cap without failing")
+	}
+	after, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("low-cap migration preflight mutated the target database")
+	}
+	check, err := sql.Open("sqlite", immutableRehearsalDSN(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = check.Close() }()
+	var rehearsalTable int
+	if err = check.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='payload_rehearsal_runs')`).Scan(&rehearsalTable); err != nil {
+		t.Fatal(err)
+	}
+	if rehearsalTable != 0 {
+		t.Fatal("migration 37 was committed despite failed reservation")
+	}
+}
 
 func TestLiveCompatibilityReplaysWAL(t *testing.T) {
 	_, config, _ := newSwapRehearsalFixture(t)

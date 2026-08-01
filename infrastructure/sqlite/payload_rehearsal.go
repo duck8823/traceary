@@ -258,14 +258,38 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	// Rehearsal migrations share the guarded, single-connection WAL session so
-	// their uncheckpointed peak remains observable before any later mutation.
+	// Prove the migration's WAL extent on an exact byte clone before allowing
+	// the copied target to change. The target identity is then fixed again and
+	// the measured reservation is consumed under the same BEGIN IMMEDIATE as
+	// the migration itself.
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	database := NewDatabase(id.canonical, a.migrations)
-	if err = database.migrate(ctx, db); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
+	preMigrationIdentity, err := inspectRehearsalMigrationIdentity(ctx, db, id.canonical)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fix migration target identity: %w", err)
+	}
+	measuredMigrationWAL, err := database.measureRehearsalMigrationWAL(ctx, id.canonical, c.LockTimeLimit)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("preflight rehearsal bookkeeping migration: %w", err)
+	}
+	if err = a.recheckExpectedTarget(id, c, true); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	recheckedMigrationIdentity, err := inspectRehearsalMigrationIdentity(ctx, db, id.canonical)
+	if err != nil || recheckedMigrationIdentity != preMigrationIdentity {
+		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
+	}
+	if measuredMigrationWAL > 0 {
+		pageBytes := minimumWAL - 32
+		reservedFrames := max(int64(1), (measuredMigrationWAL-32+pageBytes-1)/pageBytes)
+		migrationSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: preMigrationIdentity.schema, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &peakWAL}
+		if err = migrationSession.run(ctx, reservedFrames, func(conn *sql.Conn) error {
+			return database.migrateOnBudgetedConnection(ctx, conn)
+		}); err != nil {
+			return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
+		}
 	}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &peakWAL); err != nil {
 		_ = db.Close()

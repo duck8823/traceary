@@ -306,6 +306,7 @@ func copyFileAtomic(source, dest string) error {
 	return copyFileAtomicWithHook(source, dest, nil)
 }
 
+//nolint:wrapcheck // callers classify copy and recovery failures without exposing paths.
 func copyFileAtomicWithHook(source, dest string, beforeRename func() error) error {
 	in, err := os.Open(source)
 	if err != nil {

@@ -31,6 +31,7 @@ type walBudgetedMutationSession struct {
 	peak              *int64
 }
 
+//nolint:wrapcheck // callers add the rehearsal operation classification.
 func rehearsalSchemaFingerprint(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }) (string, error) {
@@ -53,6 +54,7 @@ func rehearsalSchemaFingerprint(ctx context.Context, q interface {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+//nolint:wrapcheck // the bounded session is an internal adapter primitive.
 func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int64, mutate func(*sql.Conn) error) (err error) {
 	if reservedFrames <= 0 || s.peak == nil || strings.TrimSpace(s.expectedSchemaSHA) == "" {
 		return ErrUnsafeRehearsalTarget
@@ -337,6 +339,7 @@ func commitRehearsalBatch(ctx context.Context, session walBudgetedMutationSessio
 	})
 }
 
+//nolint:wrapcheck // fixed SQL transition failures are classified by the caller.
 func transitionRunWithLease(ctx context.Context, session walBudgetedMutationSession, run, lease string, state apptypes.PayloadRehearsalState, guard rehearsalMutationGuard) error {
 	if err := requireSafeRehearsalMutation(guard); err != nil {
 		return err
@@ -424,6 +427,7 @@ func persistScrubProgress(ctx context.Context, session walBudgetedMutationSessio
 	})
 }
 
+//nolint:wrapcheck // best-effort lease cleanup is classified at the Scrub boundary.
 func releaseScrubLease(ctx context.Context, session walBudgetedMutationSession, run, lease string, guard rehearsalMutationGuard) error {
 	if err := requireSafeRehearsalMutation(guard); err != nil {
 		return err
