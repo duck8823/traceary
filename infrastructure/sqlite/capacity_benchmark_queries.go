@@ -29,7 +29,7 @@ func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchm
 	}
 	return []CapacityBenchmarkQuery{
 		{Name: "active", SQL: findLatestSessionQuery, Args: []any{"session_started", "session_ended", "session_started", "session_ended", "session_started", "", "", "", "", "", "", "session_started", true, "session_ended", true, true}},
-		{Name: "latest", SQL: findLatestSessionQuery, Args: []any{"session_started", "session_ended", "session_started", "session_ended", "session_started", "", "", "", "", "", "", "session_started", false, "session_ended", false, false}},
+		{Name: "latest", SQL: findLatestSessionBoundaryQuery, Args: []any{"session_started", "", "", "", "", "", "", "session_started"}},
 		{Name: "search", SQL: searchSQL, Args: searchArgs},
 	}, nil
 }

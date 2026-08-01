@@ -38,6 +38,9 @@ var selectSessionByIDQuery string
 //go:embed sql/find_latest_session.sql
 var findLatestSessionQuery string
 
+//go:embed sql/find_latest_session_boundary.sql
+var findLatestSessionBoundaryQuery string
+
 //go:embed sql/list_sessions.sql
 var listSessionsQuery string
 
@@ -537,6 +540,22 @@ func (d *SessionDatasource) FindLatest(
 			slog.Debug("failed to close resource", "error", err)
 		}
 	}()
+
+	if !activeOnly {
+		row := db.QueryRowContext(ctx, findLatestSessionBoundaryQuery,
+			types.EventKindSessionStarted.String(),
+			client.String(), client.String(), agent.String(), agent.String(), workspace.String(), workspace.String(),
+			types.EventKindSessionStarted.String(),
+		)
+		event, scanErr := scanEvent(row)
+		if errors.Is(scanErr, sql.ErrNoRows) {
+			return types.None[*model.Event](), nil
+		}
+		if scanErr != nil {
+			return types.None[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", scanErr)
+		}
+		return types.Some(event), nil
+	}
 
 	row := db.QueryRowContext(
 		ctx,

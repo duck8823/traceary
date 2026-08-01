@@ -26,11 +26,8 @@ func TestCapacityBenchmarkQueriesShareProductionSources(t *testing.T) {
 	if len(queries) != 3 {
 		t.Fatalf("query count = %d", len(queries))
 	}
-	if queries[0].SQL != findLatestSessionQuery || queries[1].SQL != findLatestSessionQuery {
-		t.Fatal("active/latest do not share production FindLatest source")
-	}
-	if queries[1].Args[12] != false {
-		t.Fatal("latest must use production activeOnly=false binding")
+	if queries[0].SQL != findLatestSessionQuery || queries[1].SQL != findLatestSessionBoundaryQuery {
+		t.Fatal("active/latest do not use their production FindLatest sources")
 	}
 	plans := CapacityHandoffPlanQueries()
 	if plans[0].SQL != listSessionsQuery || plans[1].SQL != selectRecentCommandPreviewsQuery {
