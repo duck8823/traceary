@@ -274,12 +274,12 @@ func TestLoadEventPlaintextRejectsOversizedPhysicalValueBeforeScan(t *testing.T)
 		id := "oversized-" + codec
 		metadata := []any{nil, nil, nil, nil, nil}
 		if codec != "legacy" {
-			metadata = []any{codec, 1, maxDecodedPayloadBytes + 1, maxDecodedPayloadBytes + 1, strings.Repeat("0", 64)}
+			metadata = []any{codec, 1, maxDecodedPayloadBytes + 1, maxStoredPayloadBytes + 1, strings.Repeat("0", 64)}
 		}
 		_, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at,source_hook,
 body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256)
 VALUES(?, 'prompt','hook','codex',?,'/repo',zeroblob(?),'2026-08-01T00:00:00Z','user_prompt_submit',?,?,?,?,?)`,
-			id, id, maxDecodedPayloadBytes+1, metadata[0], metadata[1], metadata[2], metadata[3], metadata[4])
+			id, id, maxStoredPayloadBytes+1, metadata[0], metadata[1], metadata[2], metadata[3], metadata[4])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -288,6 +288,49 @@ VALUES(?, 'prompt','hook','codex',?,'/repo',zeroblob(?),'2026-08-01T00:00:00Z','
 		if !errors.As(err, &integrity) || integrity.RowID != id || integrity.Field != "body" || integrity.Reason != "stored length exceeds limit" {
 			t.Fatalf("%s error = %#v", codec, err)
 		}
+	}
+}
+
+func TestLoadEventPlaintextHydratesIncompressibleExactDecodedLimit(t *testing.T) {
+	ctx := context.Background()
+	plaintext := make([]byte, maxDecodedPayloadBytes)
+	state := uint64(0x9e3779b97f4a7c15)
+	for index := range plaintext {
+		state ^= state << 13
+		state ^= state >> 7
+		state ^= state << 17
+		plaintext[index] = byte(state)
+	}
+	encoded, err := encodePayload(plaintext, payloadCodecZstd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encoded.StoredBytes <= maxDecodedPayloadBytes || encoded.StoredBytes > maxStoredPayloadBytes {
+		t.Fatalf("stored bytes = %d, want (%d, %d]", encoded.StoredBytes, maxDecodedPayloadBytes, maxStoredPayloadBytes)
+	}
+	path := t.TempDir() + "/exact-limit.db"
+	database := NewDatabase(path, os.DirFS("../../schema/sqlite/migrations"))
+	if err := database.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	_, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at,source_hook,
+body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256)
+VALUES('exact-limit','prompt','hook','codex','exact-limit','/repo',?,'2026-08-01T00:00:00Z','user_prompt_submit',?,?,?,?,?)`,
+		encoded.Bytes, encoded.Codec, encoded.FormatVersion, encoded.PlaintextBytes, encoded.StoredBytes, encoded.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadEventPlaintext(ctx, raw, "exact-limit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, plaintext) {
+		t.Fatal("hydrated payload differs at exact decoded limit")
 	}
 }
 
@@ -406,9 +449,11 @@ VALUES('zstd',?,'','echo',?,?,0,0,5,6,0,'unknown',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	if err != nil || len(got) != 1 || got[0].Body() != "compressed body" {
 		t.Fatalf("zstd query = %#v, %v", got, err)
 	}
-	// Simulate a missing FTS projection. Bounded fallback must select IDs in
-	// SQL, then decode both the event and audit payloads before matching.
-	if _, err := raw.ExecContext(ctx, `DELETE FROM event_search_documents WHERE event_id='zstd'`); err != nil {
+	// Simulate a stale trigger-produced projection that contains only physical
+	// compressed bytes. Its presence must not prevent canonical decoded search.
+	if _, err := raw.ExecContext(ctx, `INSERT INTO event_search_documents(event_id,body_text,command_text,input_text,output_text)
+VALUES('zstd','stale projection','stale command','stale input','stale output')
+ON CONFLICT(event_id) DO UPDATE SET body_text=excluded.body_text, command_text=excluded.command_text, input_text=excluded.input_text, output_text=excluded.output_text`); err != nil {
 		t.Fatal(err)
 	}
 	searched, err := datasource.Search(ctx, "compressed", "", "zstd-session", "", "", "", time.Time{}, time.Time{}, 10, 0, false)

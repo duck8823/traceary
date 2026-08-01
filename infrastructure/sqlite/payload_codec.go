@@ -17,6 +17,10 @@ const (
 	payloadCodecIdentity         = "identity"
 	payloadCodecZstd             = "zstd"
 	maxDecodedPayloadBytes int64 = 16 << 20
+	// zstd's MaxEncodedSize adds frame and block overhead to the plaintext.
+	// Keep a bounded margin larger than that overhead for a 16 MiB frame while
+	// retaining a hard allocation ceiling for corrupt physical values.
+	maxStoredPayloadBytes int64 = maxDecodedPayloadBytes + (64 << 10)
 )
 
 // PayloadIntegrityError identifies corruption or an unsupported row without

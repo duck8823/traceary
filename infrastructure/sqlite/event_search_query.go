@@ -103,13 +103,18 @@ func selectEventSearchCandidateIDs(
 	}
 	shortQuery := utf8.RuneCountInString(queryValue) < 3
 	missingProjection := false
+	nonIdentityPayload := false
 	if complete && hasBoundedLegacySearchScope(criteria) {
 		missingProjection, err = boundedSearchProjectionMissing(ctx, queryer, criteria)
 		if err != nil {
 			return nil, err
 		}
+		nonIdentityPayload, err = boundedSearchHasNonIdentityPayload(ctx, queryer, criteria)
+		if err != nil {
+			return nil, err
+		}
 	}
-	needsLegacyCompleteness := shortQuery || !complete || missingProjection
+	needsLegacyCompleteness := shortQuery || !complete || missingProjection || nonIdentityPayload
 	if needsLegacyCompleteness {
 		if !hasBoundedLegacySearchScope(criteria) {
 			reason := queryservice.EventSearchUnavailableScopeTooBroad
@@ -141,6 +146,36 @@ func selectEventSearchCandidateIDs(
 		return queryFTSEventIDs(ctx, queryer, criteria, queryValue)
 	}
 	return queryIncompleteFTSEventIDs(ctx, queryer, criteria, queryValue)
+}
+
+func boundedSearchHasNonIdentityPayload(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+) (bool, error) {
+	var codecColumns int
+	if err := queryer.QueryRowContext(ctx, `
+		SELECT count(*) FROM pragma_table_info('events')
+		 WHERE name='body_codec'`).Scan(&codecColumns); err != nil {
+		return false, xerrors.Errorf("failed to inspect event payload codec column: %w", err)
+	}
+	if codecColumns == 0 {
+		return false, nil
+	}
+	var builder strings.Builder
+	builder.WriteString(`SELECT EXISTS(
+		SELECT 1 FROM events e LEFT JOIN command_audits a ON a.event_id=e.id
+		 WHERE (COALESCE(e.body_codec, 'identity') <> 'identity'
+		    OR COALESCE(a.command_codec, 'identity') <> 'identity'
+		    OR COALESCE(a.input_codec, 'identity') <> 'identity'
+		    OR COALESCE(a.output_codec, 'identity') <> 'identity')`)
+	args := appendEventSearchFilters(&builder, nil, criteria)
+	builder.WriteString(")")
+	var found int
+	if err := queryer.QueryRowContext(ctx, builder.String(), args...).Scan(&found); err != nil {
+		return false, xerrors.Errorf("failed to inspect bounded payload codecs: %w", err)
+	}
+	return found != 0, nil
 }
 
 func boundedSearchProjectionMissing(
