@@ -237,6 +237,85 @@ func TestPayloadRowHydratesLegacyIdentityAndZstdWithoutReservedPrefix(t *testing
 	}
 }
 
+func TestPayloadRowRejectsEveryPartialMetadataCombination(t *testing.T) {
+	fields := []func(*payloadRow){
+		func(row *payloadRow) { row.Codec = sql.NullString{String: payloadCodecIdentity, Valid: true} },
+		func(row *payloadRow) { row.FormatVersion = sql.NullInt64{Int64: 1, Valid: true} },
+		func(row *payloadRow) { row.PlaintextBytes = sql.NullInt64{Int64: 1, Valid: true} },
+		func(row *payloadRow) { row.StoredBytes = sql.NullInt64{Int64: 1, Valid: true} },
+		func(row *payloadRow) { row.SHA256 = sql.NullString{String: strings.Repeat("0", 64), Valid: true} },
+	}
+	for index, set := range fields {
+		row := payloadRow{Stored: []byte("x")}
+		set(&row)
+		_, err := row.decode(maxDecodedPayloadBytes)
+		var integrity *PayloadIntegrityError
+		if !errors.As(err, &integrity) || integrity.Reason != "incomplete metadata" {
+			t.Fatalf("partial metadata %d error = %v", index, err)
+		}
+	}
+}
+
+func TestLoadEventPlaintextRejectsOversizedPhysicalValueBeforeScan(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/oversized.db"
+	database := NewDatabase(path, os.DirFS("../../schema/sqlite/migrations"))
+	if err := database.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	for _, codec := range []string{"legacy", payloadCodecIdentity, payloadCodecZstd} {
+		id := "oversized-" + codec
+		metadata := []any{nil, nil, nil, nil, nil}
+		if codec != "legacy" {
+			metadata = []any{codec, 1, maxDecodedPayloadBytes + 1, maxDecodedPayloadBytes + 1, strings.Repeat("0", 64)}
+		}
+		_, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at,source_hook,
+body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256)
+VALUES(?, 'prompt','hook','codex',?,'/repo',zeroblob(?),'2026-08-01T00:00:00Z','user_prompt_submit',?,?,?,?,?)`,
+			id, id, maxDecodedPayloadBytes+1, metadata[0], metadata[1], metadata[2], metadata[3], metadata[4])
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = loadEventPlaintext(ctx, raw, id)
+		var integrity *PayloadIntegrityError
+		if !errors.As(err, &integrity) || integrity.RowID != id || integrity.Field != "body" || integrity.Reason != "stored length exceeds limit" {
+			t.Fatalf("%s error = %#v", codec, err)
+		}
+	}
+}
+
+func TestMigrationDoesNotInstallApplicationFunctionDependentPayloadTrigger(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/external-writer.db"
+	database := NewDatabase(path, os.DirFS("../../schema/sqlite/migrations"))
+	if err := database.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	var count int
+	if err := raw.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name='events_identity_payload_metadata_after_update'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("application-dependent triggers = %d", count)
+	}
+	if _, err := raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at,source_hook) VALUES('external','prompt','legacy','legacy','s','/repo','before','2026-08-01T00:00:00Z','user_prompt_submit')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, `UPDATE events SET body='after' WHERE id='external'`); err != nil {
+		t.Fatalf("external SQLite update failed: %v", err)
+	}
+}
+
 func TestProductionQueriesHydrateMixedRowsAndMetadataSurvivesCorruption(t *testing.T) {
 	ctx := context.Background()
 	path := t.TempDir() + "/mixed.db"
@@ -325,12 +404,22 @@ VALUES('zstd',?,'','echo',?,?,0,0,5,6,0,'unknown',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	if err != nil || len(got) != 1 || got[0].Body() != "compressed body" {
 		t.Fatalf("zstd query = %#v, %v", got, err)
 	}
-	if _, err := raw.ExecContext(ctx, `UPDATE event_search_documents SET body_text='compressed body' WHERE event_id='zstd'`); err != nil {
+	// Simulate a missing FTS projection. Bounded fallback must select IDs in
+	// SQL, then decode both the event and audit payloads before matching.
+	if _, err := raw.ExecContext(ctx, `DELETE FROM event_search_documents WHERE event_id='zstd'`); err != nil {
 		t.Fatal(err)
 	}
 	searched, err := datasource.Search(ctx, "compressed", "", "zstd-session", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
 	if err != nil || len(searched) != 1 || searched[0].Body() != "compressed body" {
 		t.Fatalf("search = %#v, %v", searched, err)
+	}
+	shortSearched, err := datasource.Search(ctx, "ed", "", "zstd-session", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
+	if err != nil || len(shortSearched) != 1 || shortSearched[0].EventID().String() != "zstd" {
+		t.Fatalf("short decoded search = %#v, %v", shortSearched, err)
+	}
+	auditSearched, err := datasource.Search(ctx, "redacted", "", "zstd-session", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
+	if err != nil || len(auditSearched) != 1 || auditSearched[0].EventID().String() != "zstd" {
+		t.Fatalf("audit decoded search = %#v, %v", auditSearched, err)
 	}
 	details, err := datasource.GetDetails(ctx, "zstd")
 	if err != nil {

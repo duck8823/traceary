@@ -69,11 +69,21 @@ func (r *payloadRow) scanDestinations() []any {
 }
 
 func (r payloadRow) decode(limit int64) ([]byte, error) {
-	if !r.Codec.Valid {
+	metadataCount := 0
+	for _, valid := range []bool{r.Codec.Valid, r.FormatVersion.Valid, r.PlaintextBytes.Valid, r.StoredBytes.Valid, r.SHA256.Valid} {
+		if valid {
+			metadataCount++
+		}
+	}
+	if metadataCount == 0 {
 		return bytes.Clone(r.Stored), nil
 	}
-	if !r.FormatVersion.Valid || !r.PlaintextBytes.Valid || !r.StoredBytes.Valid || !r.SHA256.Valid {
-		return nil, &PayloadIntegrityError{Codec: r.Codec.String, Reason: "incomplete metadata"}
+	if metadataCount != 5 {
+		codec := r.Codec.String
+		if !r.Codec.Valid {
+			codec = "unknown"
+		}
+		return nil, &PayloadIntegrityError{Codec: codec, Reason: "incomplete metadata"}
 	}
 	if r.StoredBytes.Int64 != int64(len(r.Stored)) {
 		return nil, &PayloadIntegrityError{Codec: r.Codec.String, Reason: "stored length mismatch"}

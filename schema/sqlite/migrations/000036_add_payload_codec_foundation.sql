@@ -29,18 +29,3 @@ ALTER TABLE command_audits ADD COLUMN output_format_version INTEGER;
 ALTER TABLE command_audits ADD COLUMN output_plaintext_bytes INTEGER;
 ALTER TABLE command_audits ADD COLUMN output_encoded_bytes INTEGER;
 ALTER TABLE command_audits ADD COLUMN output_sha256 TEXT;
-
--- Compatibility for tools that directly edit legacy identity payload text.
--- Codec-aware writers update body and metadata atomically, so the checksum
--- equality guard prevents this trigger from overriding their values.
-CREATE TRIGGER events_identity_payload_metadata_after_update
-AFTER UPDATE OF body ON events
-WHEN OLD.body_codec = 'identity' AND NEW.body_codec = 'identity'
- AND NEW.body_sha256 = OLD.body_sha256
-BEGIN
-  UPDATE events SET
-    body_plaintext_bytes = length(CAST(NEW.body AS BLOB)),
-    body_encoded_bytes = length(CAST(NEW.body AS BLOB)),
-    body_sha256 = traceary_sha256(NEW.body)
-  WHERE id = NEW.id;
-END;

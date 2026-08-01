@@ -2,10 +2,8 @@ package sqlite
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -42,22 +40,6 @@ func init() {
 		1,
 		normalizeTimestampSQLFunc,
 	)
-	sqlite.MustRegisterDeterministicScalarFunction("traceary_sha256", 1, func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
-		if len(args) != 1 {
-			return nil, xerrors.Errorf("traceary_sha256 expects one argument")
-		}
-		var data []byte
-		switch value := args[0].(type) {
-		case string:
-			data = []byte(value)
-		case []byte:
-			data = value
-		default:
-			return nil, xerrors.Errorf("traceary_sha256 expects text or blob")
-		}
-		digest := sha256.Sum256(data)
-		return hex.EncodeToString(digest[:]), nil
-	})
 }
 
 // normalizeTimestampSQLFunc adapts normalizeRFC3339NanoForCompare to the
