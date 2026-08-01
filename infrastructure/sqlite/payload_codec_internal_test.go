@@ -114,7 +114,9 @@ func TestIdentityMetadataChecksum(t *testing.T) {
 }
 
 func BenchmarkPayloadCodecSynthetic(b *testing.B) {
-	payload := bytes.Repeat([]byte(`{"type":"text","text":"synthetic redacted trace payload"}`), 16384)
+	fragment := []byte(`{"type":"text","text":"synthetic redacted trace payload"}`)
+	payload := bytes.Repeat(fragment, int(maxDecodedPayloadBytes)/len(fragment)+1)
+	payload = payload[:maxDecodedPayloadBytes]
 	b.Run("identity-write", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			if _, err := encodePayload(payload, payloadCodecIdentity); err != nil {
