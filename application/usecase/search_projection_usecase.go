@@ -3,6 +3,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"golang.org/x/xerrors"
 	"time"
 
@@ -16,6 +17,7 @@ type SearchProjectionStore interface {
 	SelectSnapshot(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.ProjectionSnapshot, error)
 	ApplyBatch(context.Context, apptypes.ProjectionBatchPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error)
 	CleanupBatch(context.Context, apptypes.ProjectionBatchPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error)
+	MarkFailed(context.Context, string, int64, string, time.Time) error
 	SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error)
 }
 
@@ -47,7 +49,7 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 	if err != nil {
 		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("inspect projection before resume: %w", err)
 	}
-	if status.State != "rebuilding" {
+	if status.State != "rebuilding" && (status.State != "drifted" || status.Phase != "cleanup") {
 		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "no generation is rebuilding"}
 	}
 	if status.ConfigHash != b.ConfigHash() {
@@ -57,16 +59,31 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 	defer cancel()
 	snapshot, err := u.store.SelectSnapshot(wallCtx, b, now.UTC())
 	if err != nil {
+		var oversized *apptypes.SearchProjectionOversizeError
+		if errors.As(err, &oversized) && snapshot.Generation.GenerationID != "" {
+			if markErr := u.store.MarkFailed(wallCtx, snapshot.Generation.GenerationID, snapshot.Generation.SourceRevision, oversized.Class, now.UTC()); markErr != nil {
+				return apptypes.SearchProjectionProgress{}, markErr
+			}
+		}
 		return apptypes.SearchProjectionProgress{}, err
 	}
 	plan, err := PlanProjectionBatch(snapshot, b)
 	if err != nil {
+		var oversized *apptypes.SearchProjectionOversizeError
+		if errors.As(err, &oversized) {
+			if markErr := u.store.MarkFailed(wallCtx, snapshot.Generation.GenerationID, snapshot.Generation.SourceRevision, oversized.Class, now.UTC()); markErr != nil {
+				return apptypes.SearchProjectionProgress{}, markErr
+			}
+		}
+		return apptypes.SearchProjectionProgress{}, err
+	}
+	if err = wallCtx.Err(); err != nil {
 		return apptypes.SearchProjectionProgress{}, err
 	}
 	if snapshot.Phase == "source" {
-		return u.store.ApplyBatch(ctx, plan, b.LockTime, now.UTC())
+		return u.store.ApplyBatch(wallCtx, plan, b.LockTime, now.UTC())
 	}
-	return u.store.CleanupBatch(ctx, plan, b.LockTime, now.UTC())
+	return u.store.CleanupBatch(wallCtx, plan, b.LockTime, now.UTC())
 }
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.

@@ -12,7 +12,10 @@ const projectionWALFactor int64 = 2
 
 // PlanProjectionBatch is pure: the same snapshot and budget produce the same plan.
 func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProjectionBudget) (apptypes.ProjectionBatchPlan, error) {
-	p := apptypes.ProjectionBatchPlan{GenerationID: s.Generation.GenerationID, Phase: s.Phase, ExpectedRevision: s.Generation.SourceRevision, ExpectedCheckpoint: s.Generation.Checkpoint, NextCheckpoint: s.Generation.Checkpoint}
+	p := apptypes.ProjectionBatchPlan{GenerationID: s.Generation.GenerationID, Phase: s.Phase, ExpectedRevision: s.Generation.SourceRevision, ExpectedCheckpoint: s.Generation.Checkpoint, NextCheckpoint: s.Generation.Checkpoint, AllowRevisionDrift: s.CleanupAll, ContinueState: "rebuilding"}
+	if s.CleanupAll {
+		p.ContinueState = "drifted"
+	}
 	if s.Phase != "source" {
 		rp, err := PlanProjectionRetention(s.Cleanup, b)
 		if err != nil {
@@ -25,6 +28,11 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 			} else {
 				p.NextPhase = "complete"
 				p.Completed = true
+				if s.CleanupAll {
+					p.FinalState = "drifted"
+				} else {
+					p.FinalState = "complete"
+				}
 			}
 		}
 		return p, nil

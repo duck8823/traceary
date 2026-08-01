@@ -37,8 +37,9 @@ func (c *RootCLI) newStoreSearchProjectionCommand() *cobra.Command {
 			SchemaVersion          string `json:"schema_version"`
 			FTSDesign              string `json:"fts_design"`
 			InspectionMilliseconds int64  `json:"inspection_milliseconds"`
+			MatchProbeMilliseconds int64  `json:"match_probe_milliseconds"`
 			Authoritative          bool   `json:"authoritative"`
-		}{"traceary.search-projection-probe/v1", status.FTSDesign, time.Since(started).Milliseconds(), false})
+		}{"traceary.search-projection-probe/v1", status.FTSDesign, time.Since(started).Milliseconds(), status.MatchProbeMilliseconds, false})
 	}})
 	return group
 }

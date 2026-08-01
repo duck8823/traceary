@@ -49,7 +49,7 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 	if e = tx.QueryRowContext(lockCtx, `SELECT revision,(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) FROM search_projection_source_revision WHERE singleton=1`).Scan(&g.SourceRevision, &g.HighWater); e != nil {
 		return g, e
 	}
-	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
+	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
 	if e == nil {
 		if n, x := result.RowsAffected(); x != nil || n != 1 {
 			return g, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
@@ -69,12 +69,13 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 		return out, e
 	}
 	defer db.Close()
-	var state string
-	if e = db.QueryRowContext(ctx, `SELECT generation_id,config_hash,source_revision,high_water,checkpoint,state,phase FROM search_projection_state WHERE singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Generation.HighWater, &out.Generation.Checkpoint, &state, &out.Phase); e != nil {
+	var state, cleanupScope string
+	if e = db.QueryRowContext(ctx, `SELECT generation_id,config_hash,source_revision,high_water,checkpoint,state,phase,cleanup_scope FROM search_projection_state WHERE singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Generation.HighWater, &out.Generation.Checkpoint, &state, &out.Phase, &cleanupScope); e != nil {
 		return out, e
 	}
 	out.Now = now.UTC()
-	if state != "rebuilding" {
+	out.CleanupAll = cleanupScope == "all"
+	if state != "rebuilding" && (state != "drifted" || out.Phase != "cleanup") {
 		return out, &apptypes.SearchProjectionNoProgressError{Reason: "no generation has been started"}
 	}
 	if out.Generation.ConfigHash != b.ConfigHash() {
@@ -84,7 +85,7 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 	if e = db.QueryRowContext(ctx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&revision); e != nil {
 		return out, e
 	}
-	if revision != out.Generation.SourceRevision {
+	if revision != out.Generation.SourceRevision && !out.CleanupAll {
 		if e = markProjectionDrifted(ctx, db, out.Generation.GenerationID); e != nil {
 			return out, e
 		}
@@ -162,6 +163,9 @@ func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.Proje
 	if out.Phase == "eviction" {
 		q = `SELECT document_id,decoded_bytes FROM search_projection_recent_documents WHERE generation_id=? AND (created_at_norm<? OR (SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?)>?) ORDER BY created_at_norm,event_rowid LIMIT ?`
 		args = []any{out.Generation.GenerationID, projectionCutoff(now.Add(-b.RecentAge)), out.Generation.GenerationID, b.RecentBytes, b.Rows + 1}
+	} else if out.CleanupAll {
+		q = `SELECT 'recent',rowid,length(CAST(COALESCE(body_text,'') AS BLOB)) FROM search_projection_recent_documents UNION ALL SELECT 'summary',rowid,length(CAST(summary_text AS BLOB)) FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',rowid,32 FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',rowid,length(CAST(keyword AS BLOB))+24 FROM search_projection_session_keywords LIMIT ?`
+		args = []any{b.Rows + 1}
 	} else {
 		q = `SELECT 'recent',rowid,length(CAST(COALESCE(body_text,'') AS BLOB)) FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',rowid,length(CAST(summary_text AS BLOB)) FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',rowid,32 FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',rowid,length(CAST(keyword AS BLOB))+24 FROM search_projection_session_keywords WHERE generation_id<>? LIMIT ?`
 		args = []any{out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, b.Rows + 1}
@@ -209,8 +213,33 @@ func (d *Database) CleanupBatch(ctx context.Context, p apptypes.ProjectionBatchP
 	return d.applyProjectionPlan(ctx, p, lock, now)
 }
 
+// MarkFailed makes an oversize generation recoverable without advancing its checkpoint.
+//
+//nolint:wrapcheck,errcheck // Typed failure transition is preserved.
+func (d *Database) MarkFailed(ctx context.Context, generation string, revision int64, class string, now time.Time) error {
+	db, err := d.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	r, err := tx.ExecContext(ctx, `UPDATE search_projection_state SET state='failed',phase='complete',failure_class=?,updated_at=? WHERE generation_id=? AND source_revision=? AND EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?)`, class, formatTimestamp(now), generation, revision, revision)
+	if err != nil {
+		return err
+	}
+	if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
+		return &apptypes.SearchProjectionDriftError{}
+	}
+	return tx.Commit()
+}
+
 //nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
 func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
+	started := time.Now()
 	db, e := d.open(ctx)
 	if e != nil {
 		return out, e
@@ -223,12 +252,24 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		return out, e
 	}
 	defer tx.Rollback()
-	var rev, checkpoint int64
+	var rev, checkpoint, globalRevision int64
 	var phase string
 	if e = tx.QueryRowContext(lockCtx, `SELECT source_revision,checkpoint,phase FROM search_projection_state WHERE generation_id=?`, p.GenerationID).Scan(&rev, &checkpoint, &phase); e != nil {
 		return out, e
 	}
 	if rev != p.ExpectedRevision || checkpoint != p.ExpectedCheckpoint || phase != p.Phase {
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	if e = tx.QueryRowContext(lockCtx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&globalRevision); e != nil {
+		return out, e
+	}
+	if globalRevision != p.ExpectedRevision && !p.AllowRevisionDrift {
+		if _, e = tx.ExecContext(lockCtx, `UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE generation_id=? AND source_revision=?`, p.GenerationID, p.ExpectedRevision); e != nil {
+			return out, e
+		}
+		if e = tx.Commit(); e != nil {
+			return out, e
+		}
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	for _, w := range p.Writes {
@@ -281,11 +322,17 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	if p.NextPhase != "" {
 		next = p.NextPhase
 	}
-	state := "rebuilding"
-	if p.Completed {
-		state = "complete"
+	state := p.ContinueState
+	if state == "" {
+		state = "rebuilding"
 	}
-	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? THEN generation_id ELSE active_generation_id END,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=?`, p.NextCheckpoint, next, state, p.Completed, formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase)
+	if p.Completed {
+		state = p.FinalState
+		if state == "" {
+			state = "complete"
+		}
+	}
+	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?))`, p.NextCheckpoint, next, state, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision)
 	if e != nil {
 		return out, e
 	}
@@ -315,7 +362,7 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	defer db.Close()
 	s.SchemaVersion = "traceary.search-projection-status/v1"
 	s.KeywordVersion = searchProjectionKeywordVersion
-	e = db.QueryRowContext(ctx, `SELECT state,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,recent_byte_limit,last_batch_milliseconds FROM search_projection_state WHERE singleton=1`).Scan(&s.State, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed, &s.RecentAgeSeconds, &s.RecentByteLimit, &s.LastBatchMilliseconds)
+	e = db.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,recent_byte_limit,last_batch_milliseconds FROM search_projection_state WHERE singleton=1`).Scan(&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed, &s.RecentAgeSeconds, &s.RecentByteLimit, &s.LastBatchMilliseconds)
 	if e != nil {
 		return s, e
 	}
@@ -329,6 +376,12 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 		return s, e
 	}
 	s.FTSLogicalBytes = s.RecentBytes
+	probeStarted := time.Now()
+	var ignored int
+	if probeErr := db.QueryRowContext(ctx, `SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH 'traceary_projection_probe_no_payload_7f42'`).Scan(&ignored); probeErr != nil {
+		return s, probeErr
+	}
+	s.MatchProbeMilliseconds = time.Since(probeStarted).Milliseconds()
 	var page int64
 	if db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&page) == nil {
 		if e = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name IN (SELECT name FROM sqlite_schema WHERE name LIKE 'search_projection_%' OR tbl_name LIKE 'search_projection_%')`).Scan(&s.PhysicalBytes); e == nil {

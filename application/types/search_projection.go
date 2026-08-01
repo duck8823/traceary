@@ -22,16 +22,23 @@ func (b SearchProjectionBudget) ConfigHash() string {
 }
 
 type SearchProjectionGeneration struct {
-	GenerationID                          string
-	ConfigHash                            string
-	SourceRevision, HighWater, Checkpoint int64
+	GenerationID   string `json:"generation_id"`
+	ConfigHash     string `json:"config_hash"`
+	SourceRevision int64  `json:"source_revision"`
+	HighWater      int64  `json:"high_water"`
+	Checkpoint     int64  `json:"checkpoint"`
 }
 type SearchProjectionProgress struct {
-	Selected, Written, Evicted, Cleaned     int
-	StoredBytes, DecodedBytes, WrittenBytes int64
-	CleanupBytes                            int64
-	Completed                               bool
-	GenerationID                            string
+	Selected     int    `json:"selected"`
+	Written      int    `json:"written"`
+	Evicted      int    `json:"evicted"`
+	Cleaned      int    `json:"cleaned"`
+	StoredBytes  int64  `json:"stored_bytes"`
+	DecodedBytes int64  `json:"decoded_bytes"`
+	WrittenBytes int64  `json:"written_bytes"`
+	CleanupBytes int64  `json:"cleanup_bytes"`
+	Completed    bool   `json:"completed"`
+	GenerationID string `json:"generation_id"`
 }
 
 // ProjectionDocument is canonical, hydrated input. It deliberately contains no
@@ -52,6 +59,7 @@ type ProjectionSnapshot struct {
 	RetainedBytes int64
 	Cleanup       []ProjectionCleanupCandidate
 	CleanupDone   bool
+	CleanupAll    bool
 	Now           time.Time
 }
 
@@ -77,6 +85,9 @@ type ProjectionBatchPlan struct {
 	Cleanup                                              []ProjectionCleanupCandidate
 	NextPhase                                            string
 	Completed                                            bool
+	FinalState                                           string
+	AllowRevisionDrift                                   bool
+	ContinueState                                        string
 	Ledger                                               BudgetLedger
 }
 
@@ -139,6 +150,7 @@ func (*SearchProjectionDriftError) Error() string {
 type SearchProjectionStatus struct {
 	SchemaVersion          string           `json:"schema_version"`
 	State                  string           `json:"state"`
+	Phase                  string           `json:"phase"`
 	ProjectionVersion      int              `json:"projection_version"`
 	FTSDesign              string           `json:"fts_design"`
 	ConfigHash             string           `json:"config_hash"`
@@ -159,5 +171,6 @@ type SearchProjectionStatus struct {
 	PhysicalEvidence       CapacityEvidence `json:"physical_evidence"`
 	LastBatchMilliseconds  int64            `json:"last_batch_milliseconds"`
 	InspectionMilliseconds int64            `json:"inspection_milliseconds"`
+	MatchProbeMilliseconds int64            `json:"match_probe_milliseconds"`
 	KeywordVersion         int              `json:"keyword_version"`
 }

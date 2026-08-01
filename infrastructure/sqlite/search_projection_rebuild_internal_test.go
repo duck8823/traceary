@@ -261,3 +261,134 @@ func TestSearchProjectionResumeSurvivesVacuumAndExcludesThinking(t *testing.T) {
 		t.Fatalf("matches=%d err=%v", matches, err)
 	}
 }
+
+func TestSearchProjectionMutationBetweenSnapshotAndApplyCommitsOnlyDriftMarker(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, migrations)
+	if err := store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	if _, err := db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('race','note','a','s','visible',?,'c','w')`, formatTimestamp(now)); err != nil {
+		t.Fatal(err)
+	}
+	b := projectionBudget()
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.SelectSnapshot(ctx, b, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := usecase.PlanProjectionBatch(snapshot, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE events SET body='changed' WHERE id='race'`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.ApplyBatch(ctx, plan, b.LockTime, now)
+	var drift *apptypes.SearchProjectionDriftError
+	if !errors.As(err, &drift) {
+		t.Fatalf("error=%T %v", err, err)
+	}
+	var checkpoint, rows int
+	var phase string
+	if err = db.QueryRow(`SELECT checkpoint,phase,(SELECT count(*) FROM search_projection_recent_documents) FROM search_projection_state`).Scan(&checkpoint, &phase, &rows); err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint != 0 || rows != 0 || phase != "cleanup" {
+		t.Fatalf("checkpoint=%d rows=%d phase=%s", checkpoint, rows, phase)
+	}
+}
+
+func TestSearchProjectionOversizeFailureAllowsLargerGeneration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, migrations)
+	if err := store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	if _, err := db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('large','note','a','s','payload-too-large',?,'c','w')`, formatTimestamp(now)); err != nil {
+		t.Fatal(err)
+	}
+	b := projectionBudget()
+	b.StoredBytes = 1
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resumeProjection(ctx, store, b, now)
+	var oversized *apptypes.SearchProjectionOversizeError
+	if !errors.As(err, &oversized) {
+		t.Fatalf("error=%T %v", err, err)
+	}
+	var state string
+	if err = db.QueryRow(`SELECT state FROM search_projection_state`).Scan(&state); err != nil || state != "failed" {
+		t.Fatalf("state=%q err=%v", state, err)
+	}
+	b.StoredBytes = 1 << 20
+	if _, err = store.Start(ctx, b, now); err != nil {
+		t.Fatalf("larger start: %v", err)
+	}
+}
+
+func TestCompletedMutationDefersPayloadCleanupToBoundedPhase(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, migrations)
+	if err := store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	for _, id := range []string{"one", "two"} {
+		if _, err := db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'note','a',?,'visible-text',?,'c','w')`, id, id, formatTimestamp(now)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := projectionBudget()
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10; i++ {
+		p, err := resumeProjection(ctx, store, b, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Completed {
+			break
+		}
+	}
+	var before int
+	_ = db.QueryRow(`SELECT count(*) FROM search_projection_session_summaries`).Scan(&before)
+	if _, err := db.Exec(`UPDATE events SET body='mutated' WHERE id='one'`); err != nil {
+		t.Fatal(err)
+	}
+	var after int
+	var phase string
+	_ = db.QueryRow(`SELECT (SELECT count(*) FROM search_projection_session_summaries),phase FROM search_projection_state`).Scan(&after, &phase)
+	if after != before || phase != "cleanup" {
+		t.Fatalf("trigger deleted rows: before=%d after=%d phase=%s", before, after, phase)
+	}
+	p, err := resumeProjection(ctx, store, b, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Cleaned > b.Rows || p.WrittenBytes > b.WriteBytes {
+		t.Fatalf("unbounded cleanup: %+v", p)
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil || status.MatchProbeMilliseconds < 0 {
+		t.Fatalf("probe=%+v err=%v", status, err)
+	}
+}
