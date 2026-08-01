@@ -8,6 +8,7 @@ type PayloadRehearsalState string
 // PayloadRehearsalRunMode makes start/resume intent explicit at the port boundary.
 type PayloadRehearsalRunMode string
 
+// Supported payload rehearsal run modes.
 const (
 	PayloadRehearsalStart  PayloadRehearsalRunMode = "start"
 	PayloadRehearsalResume PayloadRehearsalRunMode = "resume"
@@ -28,6 +29,7 @@ func (c PayloadRehearsalRunCommand) IsResume() bool { return c.Mode == PayloadRe
 // table or column names to orchestration.
 type PayloadRehearsalField string
 
+// Supported payload rehearsal fields.
 const (
 	PayloadRehearsalEventBody   PayloadRehearsalField = "event_body"
 	PayloadRehearsalCommandText PayloadRehearsalField = "command_text"

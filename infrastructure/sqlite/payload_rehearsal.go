@@ -70,6 +70,40 @@ func NewPayloadRehearsalAdapter(migrations fs.FS, configuredLivePath string) (*P
 
 var _ application.PayloadRehearsalPreview = (*PayloadRehearsalAdapter)(nil)
 var _ application.PayloadRehearsalRunner = (*PayloadRehearsalAdapter)(nil)
+var _ application.PayloadRehearsalRunWorkflow = (*PayloadRehearsalAdapter)(nil)
+
+type payloadRehearsalRunHandle struct {
+	adapter              *PayloadRehearsalAdapter
+	config               apptypes.PayloadRehearsalConfig
+	id                   rehearsalIdentity
+	db                   *sql.DB
+	minimumWAL           int64
+	liveIdentity         bool
+	runID, leaseToken    string
+	eventHigh, auditHigh string
+	guard                rehearsalMutationGuard
+	session              walBudgetedMutationSession
+	metrics              apptypes.PayloadRehearsalMetrics
+}
+
+func (*payloadRehearsalRunHandle) PayloadRehearsalRunHandle() {}
+
+func rehearsalFieldFor(field apptypes.PayloadRehearsalField) (rehearsalField, bool) {
+	for i, candidate := range apptypes.OrderedPayloadRehearsalFields() {
+		if candidate == field {
+			return rehearsalFields[i], true
+		}
+	}
+	return rehearsalField{}, false
+}
+
+func ownedRehearsalHandle(owner *PayloadRehearsalAdapter, opaque application.PayloadRehearsalRunHandle) (*payloadRehearsalRunHandle, error) {
+	h, ok := opaque.(*payloadRehearsalRunHandle)
+	if !ok || h == nil || h.adapter != owner || h.db == nil {
+		return nil, errors.New("invalid payload rehearsal run handle")
+	}
+	return h, nil
+}
 
 // Preview performs an immutable copied-store preflight and zero-write proof.
 func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
@@ -188,36 +222,36 @@ func transitionTerminalWithinWALBudget(ctx context.Context, session walBudgetedM
 	return transitionRunWithLease(ctx, session, run, lease, state, guard)
 }
 
-// Run creates or resumes bounded zstd shadow rows without changing canonical payloads.
-func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadRehearsalConfig, command apptypes.PayloadRehearsalRunCommand) (apptypes.PayloadRehearsalMetrics, error) {
+// Prepare fixes the target identity and owns all SQLite resources for a run.
+func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.PayloadRehearsalConfig, command apptypes.PayloadRehearsalRunCommand) (application.PayloadRehearsalRunHandle, apptypes.PayloadRehearsalMetrics, error) {
 	if !command.Valid() {
-		return apptypes.PayloadRehearsalMetrics{}, errors.New("invalid payload rehearsal run command")
+		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("invalid payload rehearsal run command")
 	}
 	resume := command.IsResume()
 	id, err := a.inspectTarget(c.TargetPath, c.LivePath)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	liveIdentity, err := inspectLiveCompatibility(ctx, c.LivePath)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	parts, err := componentSnapshots(id.canonical)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	if !resume && (parts[1].Exists || parts[2].Exists) {
-		return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
+		return nil, apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
 	}
 	if c.BackupPath == "" {
-		return apptypes.PayloadRehearsalMetrics{}, errors.New("payload rehearsal run requires a physical rollback artifact")
+		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("payload rehearsal run requires a physical rollback artifact")
 	}
 	if err = validateBackupIndependence(c.BackupPath, id.canonical, c.LivePath, a.configuredLivePath); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	freeBytes, freeErr := filesystemFreeBytes(filepath.Dir(id.canonical))
 	if freeErr != nil {
-		return apptypes.PayloadRehearsalMetrics{}, errors.New("cannot verify rehearsal disk headroom")
+		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("cannot verify rehearsal disk headroom")
 	}
 	requiredHeadroom := uint64(id.info.Size())
 	if _, backupErr := os.Stat(c.BackupPath); os.IsNotExist(backupErr) {
@@ -226,7 +260,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	// Exact migration preflight needs a byte clone plus its bounded WAL.
 	requiredHeadroom += uint64(id.info.Size()) + uint64(max(0, c.MaxWALBytes))
 	if freeBytes < requiredHeadroom {
-		return apptypes.PayloadRehearsalMetrics{}, errors.New("insufficient disk headroom for rehearsal and rollback")
+		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("insufficient disk headroom for rehearsal and rollback")
 	}
 	var backupDigest string
 	if resume {
@@ -235,63 +269,68 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 		backupDigest, err = ensurePhysicalBackup(id.canonical, c.BackupPath)
 	}
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	if err = validateBackupIndependence(c.BackupPath, id.canonical, c.LivePath, a.configuredLivePath); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	backupIdentity, err := secureFileIdentity(c.BackupPath)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
+		return nil, apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
 	minimumWAL, walErr := minimumWALFrameBytes(ctx, id.canonical)
 	if walErr != nil {
-		return apptypes.PayloadRehearsalMetrics{}, walErr
+		return nil, apptypes.PayloadRehearsalMetrics{}, walErr
 	}
 	if c.MaxWALBytes < minimumWAL {
-		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: minimumWAL, RollbackDigest: backupDigest, RollbackVerified: true}, errors.New("rehearsal WAL hard cap is smaller than one SQLite WAL frame")
+		return nil, apptypes.PayloadRehearsalMetrics{PeakWALBytes: minimumWAL, RollbackDigest: backupDigest, RollbackVerified: true}, errors.New("rehearsal WAL hard cap is smaller than one SQLite WAL frame")
 	}
 	peakWAL := minimumWAL
 	if a.beforeInitialize != nil {
 		a.beforeInitialize()
 	}
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	db, err := sql.Open("sqlite", writableRehearsalDSN(id.canonical, c.LockTimeLimit))
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("open rehearsal target: %w", err)
+		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("open rehearsal target: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	prepared := false
+	defer func() {
+		if !prepared {
+			_ = db.Close()
+		}
+	}()
 	db.SetMaxOpenConns(1)
 	if _, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("disable rehearsal WAL autocheckpoint: %w", err)
+		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("disable rehearsal WAL autocheckpoint: %w", err)
 	}
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	// Prove the migration's WAL extent on an exact byte clone before allowing
 	// the copied target to change. The target identity is then fixed again and
 	// the measured reservation is consumed under the same BEGIN IMMEDIATE as
 	// the migration itself.
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	database := NewDatabase(id.canonical, a.migrations)
 	preMigrationIdentity, err := inspectRehearsalMigrationIdentity(ctx, db, id.canonical)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fix migration target identity: %w", err)
+		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fix migration target identity: %w", err)
 	}
 	measuredMigrationWAL, err := database.measureRehearsalMigrationWAL(ctx, id.canonical, c.LockTimeLimit)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("preflight rehearsal bookkeeping migration: %w", err)
+		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("preflight rehearsal bookkeeping migration: %w", err)
 	}
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	recheckedMigrationIdentity, err := inspectRehearsalMigrationIdentity(ctx, db, id.canonical)
 	if err != nil || recheckedMigrationIdentity != preMigrationIdentity {
-		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
+		return nil, apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
 	if measuredMigrationWAL > 0 {
 		pageBytes := minimumWAL - 32
@@ -300,7 +339,7 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 		if err = migrationSession.run(ctx, reservedFrames, func(conn *sql.Conn) error {
 			return database.migrateOnBudgetedConnection(ctx, conn)
 		}); err != nil {
-			return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
+			return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
 		}
 	}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &peakWAL); err != nil {
@@ -309,22 +348,22 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			a.beforeMigrationRecovery()
 		}
 		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
-			return apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: false}, xerrors.Errorf("migration WAL cap exceeded and rollback failed: %w", recoveryErr)
+			return nil, apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: false}, xerrors.Errorf("migration WAL cap exceeded and rollback failed: %w", recoveryErr)
 		}
-		return apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: true}, err
+		return nil, apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: true}, err
 	}
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	rehearsalSchemaSHA, err := rehearsalSchemaFingerprint(ctx, db)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fingerprint rehearsal schema: %w", err)
+		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fingerprint rehearsal schema: %w", err)
 	}
 	if a.beforeStartRun != nil {
 		a.beforeStartRun()
 	}
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	configHash := hashConfig(c, id.opaque)
 	guard := rehearsalMutationGuard(func() error { return a.recheckExpectedTarget(id, c, true) })
@@ -332,109 +371,145 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 	startSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &resumePeak, lockLimit: c.LockTimeLimit}
 	runID, eventHigh, auditHigh, leaseToken, err := loadOrCreateRun(ctx, startSession, id, configHash, backupDigest, resume, guard)
 	if err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, err
+		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
 	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, PeakWALBytes: resumePeak, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
 	batchSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &metrics.PeakWALBytes, lockLimit: c.LockTimeLimit}
-	observeRunWAL := func() error {
-		return observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes)
-	}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); err != nil {
-		return metrics, pauseRun(ctx, batchSession, runID, leaseToken, err, guard)
+		return nil, metrics, pauseRun(ctx, batchSession, runID, leaseToken, err, guard)
 	}
-	deadline := time.Now().Add(c.WallTimeLimit)
-	for _, f := range rehearsalFields {
-		high := eventHigh
-		if f.table == "command_audits" {
-			high = auditHigh
+	h := &payloadRehearsalRunHandle{adapter: a, config: c, id: id, db: db, minimumWAL: minimumWAL, liveIdentity: liveIdentity, runID: runID, leaseToken: leaseToken, eventHigh: eventHigh, auditHigh: auditHigh, guard: guard, metrics: metrics}
+	h.session = walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &h.metrics.PeakWALBytes, lockLimit: c.LockTimeLimit}
+	prepared = true
+	return h, h.metrics, nil
+}
+
+// AdvanceField persists at most one bounded batch for a field.
+func (a *PayloadRehearsalAdapter) AdvanceField(ctx context.Context, opaque application.PayloadRehearsalRunHandle, field apptypes.PayloadRehearsalField) (apptypes.PayloadRehearsalMetrics, bool, error) {
+	h, err := ownedRehearsalHandle(a, opaque)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, false, err
+	}
+	f, ok := rehearsalFieldFor(field)
+	if !ok {
+		return h.metrics, false, errors.New("invalid payload rehearsal field")
+	}
+	high := h.eventHigh
+	if f.table == "command_audits" {
+		high = h.auditHigh
+	}
+	if err = a.recheckExpectedTarget(h.id, h.config, true); err != nil {
+		return h.metrics, false, err
+	}
+	batch, done, err := selectRehearsalBatch(ctx, h.db, h.runID, f, high, h.config)
+	if err != nil {
+		return h.metrics, false, err
+	}
+	if done {
+		if a.beforePersistence != nil {
+			a.beforePersistence("lane-complete")
 		}
-		for time.Now().Before(deadline) {
-			if e := a.recheckExpectedTarget(id, c, true); e != nil {
-				return metrics, e
-			}
-			batch, done, e := selectRehearsalBatch(ctx, db, runID, f, high, c)
-			if e != nil {
-				return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
-			}
-			if done {
-				if a.beforePersistence != nil {
-					a.beforePersistence("lane-complete")
-				}
-				if e = a.recheckExpectedTarget(id, c, true); e != nil {
-					return metrics, e
-				}
-				if e = markRehearsalLaneComplete(ctx, batchSession, runID, leaseToken, f, guard); e != nil {
-					return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
-				}
-				if e = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); e != nil {
-					return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
-				}
-				break
-			}
-			for i := range batch {
-				batch[i].encoded, e = encodePayload(batch[i].plaintext, payloadCodecZstd)
-				if e != nil {
-					return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
-				}
-			}
-			if identityErr := a.recheckExpectedTarget(id, c, true); identityErr != nil {
-				return metrics, ErrUnsafeRehearsalTarget
-			}
-			start := time.Now()
-			if a.beforePersistence != nil {
-				a.beforePersistence("batch")
-			}
-			if e = a.recheckExpectedTarget(id, c, true); e != nil {
-				return metrics, e
-			}
-			e = commitRehearsalBatch(ctx, batchSession, runID, leaseToken, f, batch, guard)
-			if e != nil {
-				return metrics, pauseRun(ctx, batchSession, runID, leaseToken, e, guard)
-			}
-			batchDuration := time.Since(start)
-			recordBatchDuration(metrics.BatchDurationHistogram, batchDuration)
-			if batchDuration > c.LockTimeLimit {
-				return metrics, pauseRun(ctx, batchSession, runID, leaseToken, errors.New("rehearsal lock duration cap exceeded"), guard)
-			}
-			metrics.BatchCount++
-			for _, r := range batch {
-				metrics.ScannedRows++
-				metrics.EncodedRows++
-				metrics.PlaintextBytes += int64(len(r.plaintext))
-				metrics.StoredBytes += r.encoded.StoredBytes
-			}
-			if err = observeRunWAL(); err != nil {
-				return metrics, err
-			}
+		if err = a.recheckExpectedTarget(h.id, h.config, true); err != nil {
+			return h.metrics, false, err
 		}
-		if !time.Now().Before(deadline) {
-			if a.beforePersistence != nil {
-				a.beforePersistence("pause")
-			}
-			if err = pauseRunState(ctx, batchSession, runID, leaseToken, guard); err != nil {
-				return metrics, err
-			}
-			if err = observeRunWAL(); err != nil {
-				return metrics, err
-			}
-			metrics.State = "paused"
-			metrics.After, _ = componentSnapshots(id.canonical)
-			return metrics, nil
+		if err = markRehearsalLaneComplete(ctx, h.session, h.runID, h.leaseToken, f, h.guard); err != nil {
+			return h.metrics, false, err
 		}
+		if err = observeWALPeak(h.id.canonical, h.minimumWAL, h.config.MaxWALBytes, &h.metrics.PeakWALBytes); err != nil {
+			return h.metrics, false, err
+		}
+		return h.metrics, true, nil
+	}
+	for i := range batch {
+		batch[i].encoded, err = encodePayload(batch[i].plaintext, payloadCodecZstd)
+		if err != nil {
+			return h.metrics, false, err
+		}
+	}
+	if err = a.recheckExpectedTarget(h.id, h.config, true); err != nil {
+		return h.metrics, false, ErrUnsafeRehearsalTarget
+	}
+	start := time.Now()
+	if a.beforePersistence != nil {
+		a.beforePersistence("batch")
+	}
+	if err = a.recheckExpectedTarget(h.id, h.config, true); err != nil {
+		return h.metrics, false, err
+	}
+	if err = commitRehearsalBatch(ctx, h.session, h.runID, h.leaseToken, f, batch, h.guard); err != nil {
+		return h.metrics, false, err
+	}
+	duration := time.Since(start)
+	recordBatchDuration(h.metrics.BatchDurationHistogram, duration)
+	if duration > h.config.LockTimeLimit {
+		return h.metrics, false, errors.New("rehearsal lock duration cap exceeded")
+	}
+	h.metrics.BatchCount++
+	for _, row := range batch {
+		h.metrics.ScannedRows++
+		h.metrics.EncodedRows++
+		h.metrics.PlaintextBytes += int64(len(row.plaintext))
+		h.metrics.StoredBytes += row.encoded.StoredBytes
+	}
+	if err = observeWALPeak(h.id.canonical, h.minimumWAL, h.config.MaxWALBytes, &h.metrics.PeakWALBytes); err != nil {
+		return h.metrics, false, err
+	}
+	return h.metrics, false, nil
+}
+
+// Pause releases the active lease while preserving resumable checkpoints.
+func (a *PayloadRehearsalAdapter) Pause(ctx context.Context, opaque application.PayloadRehearsalRunHandle) (apptypes.PayloadRehearsalMetrics, error) {
+	h, err := ownedRehearsalHandle(a, opaque)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	if a.beforePersistence != nil {
+		a.beforePersistence("pause")
+	}
+	if err = pauseRunState(ctx, h.session, h.runID, h.leaseToken, h.guard); err != nil {
+		return h.metrics, err
+	}
+	if err = observeWALPeak(h.id.canonical, h.minimumWAL, h.config.MaxWALBytes, &h.metrics.PeakWALBytes); err != nil {
+		return h.metrics, err
+	}
+	h.metrics.State = "paused"
+	h.metrics.After, _ = componentSnapshots(h.id.canonical)
+	return h.metrics, nil
+}
+
+// Complete makes a fully advanced run terminal.
+func (a *PayloadRehearsalAdapter) Complete(ctx context.Context, opaque application.PayloadRehearsalRunHandle) (apptypes.PayloadRehearsalMetrics, error) {
+	h, err := ownedRehearsalHandle(a, opaque)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	if a.beforePersistence != nil {
 		a.beforePersistence("run-complete")
 	}
-	if err = a.recheckExpectedTarget(id, c, true); err != nil {
-		return metrics, err
+	if err = a.recheckExpectedTarget(h.id, h.config, true); err != nil {
+		return h.metrics, err
 	}
-	if err = transitionTerminalWithinWALBudget(ctx, batchSession, runID, leaseToken, apptypes.PayloadRehearsalCompleted, guard); err != nil {
-		return metrics, err
+	if err = transitionTerminalWithinWALBudget(ctx, h.session, h.runID, h.leaseToken, apptypes.PayloadRehearsalCompleted, h.guard); err != nil {
+		return h.metrics, err
 	}
-	metrics.State = "completed"
-	metrics.ActivationReadiness = activationReadiness(liveIdentity, true, true, true, false, false)
-	metrics.After, _ = componentSnapshots(id.canonical)
-	return metrics, nil
+	h.metrics.State = "completed"
+	h.metrics.ActivationReadiness = activationReadiness(h.liveIdentity, true, true, true, false, false)
+	h.metrics.After, _ = componentSnapshots(h.id.canonical)
+	return h.metrics, nil
+}
+
+// Close releases the database connection held by an opaque run handle.
+func (a *PayloadRehearsalAdapter) Close(opaque application.PayloadRehearsalRunHandle) error {
+	h, err := ownedRehearsalHandle(a, opaque)
+	if err != nil {
+		return err
+	}
+	err = h.db.Close()
+	h.db = nil
+	if err != nil {
+		return xerrors.Errorf("close payload rehearsal database: %w", err)
+	}
+	return nil
 }
 
 // Scrub decodes and verifies shadow payloads under persisted bounded checkpoints.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"golang.org/x/xerrors"
+	"time"
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/types"
@@ -25,13 +26,14 @@ type PayloadRehearsalUsecase interface {
 }
 
 type payloadRehearsalUsecase struct {
-	preview application.PayloadRehearsalPreview
-	runner  application.PayloadRehearsalRunner
+	preview  application.PayloadRehearsalPreview
+	workflow application.PayloadRehearsalRunWorkflow
+	runner   application.PayloadRehearsalRunner
 }
 
 // NewPayloadRehearsalUsecase constructs the copied-store rehearsal orchestrator.
-func NewPayloadRehearsalUsecase(p application.PayloadRehearsalPreview, r application.PayloadRehearsalRunner) PayloadRehearsalUsecase {
-	return &payloadRehearsalUsecase{preview: p, runner: r}
+func NewPayloadRehearsalUsecase(p application.PayloadRehearsalPreview, w application.PayloadRehearsalRunWorkflow, r application.PayloadRehearsalRunner) PayloadRehearsalUsecase {
+	return &payloadRehearsalUsecase{preview: p, workflow: w, runner: r}
 }
 
 func validateRehearsal(c types.PayloadRehearsalConfig) error {
@@ -64,24 +66,51 @@ func (u *payloadRehearsalUsecase) Run(ctx context.Context, c types.PayloadRehear
 	if preflight.FreeBytes < preflight.EstimatedHeadroom {
 		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
 	}
-	result, err := u.runner.Run(ctx, c, types.PayloadRehearsalRunCommand{Mode: types.PayloadRehearsalStart})
-	if err != nil {
-		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("run payload rehearsal: %w", err)
-	}
-	if result.State != "completed" && result.State != "paused" {
-		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
-	}
-	return result, nil
+	return u.run(ctx, c, types.PayloadRehearsalRunCommand{Mode: types.PayloadRehearsalStart})
 }
 func (u *payloadRehearsalUsecase) Resume(ctx context.Context, c types.PayloadRehearsalConfig) (types.PayloadRehearsalMetrics, error) {
 	if err := validateRehearsal(c); err != nil {
 		return types.PayloadRehearsalMetrics{}, err
 	}
-	result, err := u.runner.Run(ctx, c, types.PayloadRehearsalRunCommand{Mode: types.PayloadRehearsalResume})
+	return u.run(ctx, c, types.PayloadRehearsalRunCommand{Mode: types.PayloadRehearsalResume})
+}
+
+func (u *payloadRehearsalUsecase) run(ctx context.Context, c types.PayloadRehearsalConfig, command types.PayloadRehearsalRunCommand) (result types.PayloadRehearsalMetrics, resultErr error) {
+	handle, result, err := u.workflow.Prepare(ctx, c, command)
 	if err != nil {
-		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("resume payload rehearsal: %w", err)
+		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("prepare payload rehearsal: %w", err)
 	}
-	if result.State != "completed" && result.State != "paused" {
+	defer func() {
+		if closeErr := u.workflow.Close(handle); resultErr == nil && closeErr != nil {
+			resultErr = xerrors.Errorf("close payload rehearsal: %w", closeErr)
+		}
+	}()
+	deadline := time.Now().Add(c.WallTimeLimit)
+	for _, field := range types.OrderedPayloadRehearsalFields() {
+		for time.Now().Before(deadline) {
+			var done bool
+			result, done, err = u.workflow.AdvanceField(ctx, handle, field)
+			if err != nil {
+				_, _ = u.workflow.Pause(ctx, handle)
+				return result, xerrors.Errorf("advance payload rehearsal: %w", err)
+			}
+			if done {
+				break
+			}
+		}
+		if !time.Now().Before(deadline) {
+			result, err = u.workflow.Pause(ctx, handle)
+			if err != nil {
+				return result, xerrors.Errorf("pause payload rehearsal: %w", err)
+			}
+			return result, nil
+		}
+	}
+	result, err = u.workflow.Complete(ctx, handle)
+	if err != nil {
+		return result, xerrors.Errorf("complete payload rehearsal: %w", err)
+	}
+	if result.State != "completed" {
 		return types.PayloadRehearsalMetrics{}, ErrUnsafePayloadRehearsalTransition
 	}
 	return result, nil
