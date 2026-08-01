@@ -170,7 +170,7 @@ func TestRawBodyRetention_rejectsStaleCandidateWithoutPruning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if _, err := db.Exec(`UPDATE events SET body = 'changed' WHERE id = 'stale-event'`); err != nil {
+	if _, err := db.Exec(`UPDATE events SET body = 'changed', body_codec=NULL, body_format_version=NULL, body_plaintext_bytes=NULL, body_encoded_bytes=NULL, body_sha256=NULL WHERE id = 'stale-event'`); err != nil {
 		t.Fatalf("mutate body: %v", err)
 	}
 	_ = db.Close()
@@ -364,7 +364,7 @@ func TestRawBodyRetention_partialExecutionCanBeRestored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if _, err := db.Exec(`UPDATE events SET body = 'post-plan-change' WHERE id = 'partial-b'`); err != nil {
+	if _, err := db.Exec(`UPDATE events SET body = 'post-plan-change', body_codec=NULL, body_format_version=NULL, body_plaintext_bytes=NULL, body_encoded_bytes=NULL, body_sha256=NULL WHERE id = 'partial-b'`); err != nil {
 		t.Fatalf("update unprocessed candidate: %v", err)
 	}
 	_ = db.Close()

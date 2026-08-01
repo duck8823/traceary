@@ -43,6 +43,14 @@ SELECT id, kind, client, agent, session_id, workspace, body, created_at, source_
 		if err != nil {
 			return nil, xerrors.Errorf("list archive events: %w", err)
 		}
+		for _, row := range events {
+			id, _ := row["id"].(string)
+			plain, err := loadEventPlaintext(ctx, db, id)
+			if err != nil {
+				return nil, xerrors.Errorf("decode archive event %s: %w", id, err)
+			}
+			row["body"] = string(plain)
+		}
 		tables = append(tables, application.ArchiveTableData{
 			Name: "events", PrimaryKey: []string{"id"}, Rows: events,
 		})
@@ -61,6 +69,16 @@ SELECT event_id, command_text, command_wrapper, command_name, input_text, output
  ORDER BY event_id`, ids)
 			if err != nil {
 				return nil, xerrors.Errorf("list archive command_audits: %w", err)
+			}
+			for _, row := range audits {
+				id, _ := row["event_id"].(string)
+				for _, field := range []string{"command", "input", "output"} {
+					plain, err := hydrateAuditPayload(ctx, db, id, field)
+					if err != nil {
+						return nil, xerrors.Errorf("decode archive audit %s: %w", id, err)
+					}
+					row[field+"_text"] = plain.String
+				}
 			}
 			tables = append(tables, application.ArchiveTableData{
 				Name: "command_audits", PrimaryKey: []string{"event_id"}, Rows: audits,
@@ -479,21 +497,64 @@ func archiveRowExistsQuerier(ctx context.Context, q queryRower, table applicatio
 func insertArchiveRow(ctx context.Context, tx *sql.Tx, table string, row map[string]any) error {
 	switch table {
 	case "events":
-		_, err := tx.ExecContext(ctx, insertEventQuery,
+		body := fmt.Sprint(nullStr(row["body"]))
+		payload, err := encodePayload([]byte(body), payloadCodecIdentity)
+		if err != nil {
+			return err
+		}
+		hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
+		if err != nil {
+			return err
+		}
+		query := insertEventQuery
+		args := []any{
 			row["id"], row["kind"], nullStr(row["client"]), row["agent"], row["session_id"],
-			nullStr(row["workspace"]), row["body"], row["created_at"], nullStr(row["source_hook"]),
-		)
+			nullStr(row["workspace"]), string(payload.Bytes), row["created_at"], nullStr(row["source_hook"])}
+		if hasCodec {
+			query = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook,
+body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			args = append(args, payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256)
+		}
+		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return xerrors.Errorf("insert events: %w", err)
 		}
 		return nil
 	case "command_audits":
-		_, err := tx.ExecContext(ctx, insertCommandAuditQuery,
-			row["event_id"], row["command_text"], nullStr(row["command_wrapper"]), archiveStringOr(row, "command_name", "unknown"), row["input_text"], row["output_text"],
+		command, err := encodePayload([]byte(fmt.Sprint(nullStr(row["command_text"]))), payloadCodecIdentity)
+		if err != nil {
+			return err
+		}
+		input, err := encodePayload([]byte(fmt.Sprint(nullStr(row["input_text"]))), payloadCodecIdentity)
+		if err != nil {
+			return err
+		}
+		output, err := encodePayload([]byte(fmt.Sprint(nullStr(row["output_text"]))), payloadCodecIdentity)
+		if err != nil {
+			return err
+		}
+		hasCodec, err := transactionColumnExists(ctx, tx, "command_audits", "command_codec")
+		if err != nil {
+			return err
+		}
+		query := insertCommandAuditQuery
+		args := []any{row["event_id"], string(command.Bytes), nullStr(row["command_wrapper"]), archiveStringOr(row, "command_name", "unknown"), string(input.Bytes), string(output.Bytes),
 			asInt(row["input_truncated"]), asInt(row["output_truncated"]),
 			row["input_original_bytes"], row["output_original_bytes"],
-			row["exit_code"], asInt(row["failed"]), archiveStringOr(row, "failure_reason", "unknown"),
-		)
+			row["exit_code"], asInt(row["failed"]), archiveStringOr(row, "failure_reason", "unknown")}
+		if hasCodec {
+			query = `INSERT INTO command_audits(event_id, command_text, command_wrapper, command_name, input_text, output_text,
+input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed, failure_reason,
+command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
+input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
+output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			args = append(args,
+				command.Codec, command.FormatVersion, command.PlaintextBytes, command.StoredBytes, command.SHA256,
+				input.Codec, input.FormatVersion, input.PlaintextBytes, input.StoredBytes, input.SHA256,
+				output.Codec, output.FormatVersion, output.PlaintextBytes, output.StoredBytes, output.SHA256)
+		}
+		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return xerrors.Errorf("insert command_audits: %w", err)
 		}

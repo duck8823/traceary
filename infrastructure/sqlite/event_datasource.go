@@ -79,7 +79,11 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 		}
 	}()
 
-	return saveEventTransaction(ctx, db, event, nil, nil)
+	codecMetadata, err := databaseColumnExists(ctx, db, "events", "body_codec")
+	if err != nil {
+		return err
+	}
+	return saveEventTransaction(ctx, db, event, nil, codecMetadata, nil)
 }
 
 // SaveWithAudit persists an event together with its command audit.
@@ -105,7 +109,11 @@ func (d *EventDatasource) SaveWithAudit(
 		}
 	}()
 
-	return saveEventTransaction(ctx, db, event, audit, nil)
+	codecMetadata, err := databaseColumnExists(ctx, db, "events", "body_codec")
+	if err != nil {
+		return err
+	}
+	return saveEventTransaction(ctx, db, event, audit, codecMetadata, nil)
 }
 
 // ListRecent returns events in descending time order.
@@ -160,6 +168,10 @@ func (d *EventDatasource) ListRecent(
 		event, err := scanEvent(rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore event row: %w", err)
+		}
+		event, err = hydrateEventPayload(ctx, db, event)
+		if err != nil {
+			return nil, err
 		}
 		events = append(events, event)
 	}
@@ -250,6 +262,11 @@ func (d *EventDatasource) ListWindow(
 					slog.Debug("failed to close resource", "error", closeErr)
 				}
 				return nil, xerrors.Errorf("failed to restore event window row: %w", err)
+			}
+			event, err = hydrateEventPayload(ctx, tx, event)
+			if err != nil {
+				_ = rows.Close()
+				return nil, err
 			}
 			events = append(events, event)
 			pageCount++
@@ -396,6 +413,10 @@ func (d *EventDatasource) Search(
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore search result row: %w", err)
 		}
+		event, err = hydrateEventPayload(ctx, db, event)
+		if err != nil {
+			return nil, err
+		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
@@ -447,6 +468,10 @@ func (d *EventDatasource) GetContext(
 		event, err := scanEvent(rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore context event row: %w", err)
+		}
+		event, err = hydrateEventPayload(ctx, db, event)
+		if err != nil {
+			return nil, err
 		}
 		events = append(events, event)
 	}
@@ -513,6 +538,24 @@ func (d *EventDatasource) GetDetails(
 			return apptypes.EventDetails{}, xerrors.Errorf("event not found: %s", eventID)
 		}
 		return apptypes.EventDetails{}, xerrors.Errorf("failed to restore event details row: %w", err)
+	}
+	event, err = hydrateEventPayload(ctx, db, event)
+	if err != nil {
+		return apptypes.EventDetails{}, err
+	}
+	if commandTextValue.Valid {
+		commandTextValue, err = hydrateAuditPayload(ctx, db, eventID.String(), "command")
+		if err != nil {
+			return apptypes.EventDetails{}, err
+		}
+		inputTextValue, err = hydrateAuditPayload(ctx, db, eventID.String(), "input")
+		if err != nil {
+			return apptypes.EventDetails{}, err
+		}
+		outputTextValue, err = hydrateAuditPayload(ctx, db, eventID.String(), "output")
+		if err != nil {
+			return apptypes.EventDetails{}, err
+		}
 	}
 
 	commandAuditOpt := types.None[*model.CommandAudit]()
@@ -616,6 +659,9 @@ func (d *EventDatasource) ListTimelineBlocks(
 			wsEventCount        int
 			kinds               string
 			wsAgents            string
+			firstPromptID       string
+			compactSummaryID    string
+			firstTranscriptID   string
 			firstPromptBody     string
 			compactSummaryBody  string
 			firstTranscriptBody string
@@ -630,11 +676,24 @@ func (d *EventDatasource) ListTimelineBlocks(
 			&wsEventCount,
 			&kinds,
 			&wsAgents,
+			&firstPromptID,
+			&compactSummaryID,
+			&firstTranscriptID,
 			&firstPromptBody,
 			&compactSummaryBody,
 			&firstTranscriptBody,
 		); err != nil {
 			return nil, xerrors.Errorf("failed to scan timeline block: %w", err)
+		}
+		for id, target := range map[string]*string{firstPromptID: &firstPromptBody, compactSummaryID: &compactSummaryBody, firstTranscriptID: &firstTranscriptBody} {
+			if id == "" {
+				continue
+			}
+			plain, err := loadEventPlaintext(ctx, db, id)
+			if err != nil {
+				return nil, err
+			}
+			*target = string(plain)
 		}
 
 		accum, ok := blockMap[blockNum]
@@ -737,7 +796,6 @@ func scanEvent(rowScanner interface {
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan event row: %w", err)
 	}
-
 	return restoreEvent(
 		eventIDValue,
 		eventKindValue,
@@ -810,7 +868,6 @@ func scanEventWithAudit(
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan event details row: %w", err)
 	}
-
 	return restoreEvent(
 		eventIDValue,
 		eventKindValue,

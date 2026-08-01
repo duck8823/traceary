@@ -56,6 +56,18 @@ func (d *EventDatasource) ListRecentCommandPreviews(ctx context.Context, session
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore command preview row: %w", err)
 		}
+		plain, err := loadEventPlaintext(ctx, db, preview.EventID().String())
+		if err != nil {
+			return nil, xerrors.Errorf("decode command preview: %w", err)
+		}
+		runes := []rune(string(plain))
+		if len(runes) > bodyRuneLimit {
+			runes = runes[:bodyRuneLimit]
+		}
+		preview, err = apptypes.EventBodyPreviewOf(preview.EventID(), string(runes), preview.StoredBytes(), preview.OriginalBytes(), preview.IngestTruncated(), preview.StorageTruncated(), preview.CreatedAt())
+		if err != nil {
+			return nil, xerrors.Errorf("rebuild decoded command preview: %w", err)
+		}
 		previews = append(previews, preview)
 	}
 	if err := rows.Err(); err != nil {
@@ -138,6 +150,10 @@ func (d *EventDatasource) FindLatestPostCompactSummary(ctx context.Context, sess
 			event, scanErr := scanEvent(db.QueryRowContext(ctx, selectEventByIDQuery, item.id))
 			if scanErr != nil {
 				return types.None[*model.Event](), xerrors.Errorf("failed to restore compact summary candidate: %w", scanErr)
+			}
+			event, scanErr = hydrateEventPayload(ctx, db, event)
+			if scanErr != nil {
+				return types.None[*model.Event](), scanErr
 			}
 			body := strings.TrimSpace(event.Body())
 			if event.SourceHook() == "pre_compact" || strings.HasPrefix(body, types.EventBodyMarkerCompactPreSnapshot) {

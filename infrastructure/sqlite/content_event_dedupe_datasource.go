@@ -289,6 +289,11 @@ func (d *StoreManagementDatasource) loadDedupeCandidates(
 		); err != nil {
 			return nil, xerrors.Errorf("failed to scan content-event dedupe candidate: %w", err)
 		}
+		plain, err := loadEventPlaintext(ctx, tx, row.id)
+		if err != nil {
+			return nil, xerrors.Errorf("decode dedupe candidate %s: %w", row.id, err)
+		}
+		row.body = string(plain)
 		parsed, parseErr := time.Parse(time.RFC3339Nano, row.createdAt)
 		row.parsedAt = parsed
 		row.parseOK = parseErr == nil
@@ -594,11 +599,22 @@ func (d *StoreManagementDatasource) RestoreContentEventDedupeRun(
 			return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to check existing event %s: %w", r.id, err)
 		}
 
-		if _, err := tx.ExecContext(
-			ctx,
-			insertEventQuery,
-			r.id, r.kind, r.client, r.agent, r.sessionID, r.workspace, r.body, r.createdAt, r.sourceHook,
-		); err != nil {
+		payload, err := encodePayload([]byte(r.body), payloadCodecIdentity)
+		if err != nil {
+			return apptypes.ContentEventDedupeRestoreResult{}, err
+		}
+		hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
+		if err != nil {
+			return apptypes.ContentEventDedupeRestoreResult{}, err
+		}
+		query := insertEventQuery
+		args := []any{r.id, r.kind, r.client, r.agent, r.sessionID, r.workspace, string(payload.Bytes), r.createdAt, r.sourceHook}
+		if hasCodec {
+			query = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook,
+body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			args = append(args, payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256)
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to restore event %s: %w", r.id, err)
 		}
 		if _, err := tx.ExecContext(

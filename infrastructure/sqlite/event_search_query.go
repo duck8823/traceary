@@ -12,6 +12,7 @@ import (
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 const eventSearchLegacyCandidateLimit = 10_000
@@ -101,7 +102,21 @@ func selectEventSearchCandidateIDs(
 		return nil, err
 	}
 	shortQuery := utf8.RuneCountInString(queryValue) < 3
-	needsLegacyCompleteness := shortQuery || !complete
+	missingProjection := false
+	nonIdentityPayload := false
+	if complete {
+		if hasBoundedLegacySearchScope(criteria) {
+			missingProjection, err = boundedSearchProjectionMissing(ctx, queryer, criteria)
+			if err != nil {
+				return nil, err
+			}
+		}
+		nonIdentityPayload, err = boundedSearchHasNonIdentityPayload(ctx, queryer, criteria)
+		if err != nil {
+			return nil, err
+		}
+	}
+	needsLegacyCompleteness := shortQuery || !complete || missingProjection || nonIdentityPayload
 	if needsLegacyCompleteness {
 		if !hasBoundedLegacySearchScope(criteria) {
 			reason := queryservice.EventSearchUnavailableScopeTooBroad
@@ -126,13 +141,72 @@ func selectEventSearchCandidateIDs(
 		}
 	}
 
-	if shortQuery {
-		return queryLegacyEventIDs(ctx, queryer, criteria, queryValue)
+	if needsLegacyCompleteness {
+		return queryDecodedLegacyEventIDs(ctx, queryer, criteria, queryValue)
 	}
 	if complete {
 		return queryFTSEventIDs(ctx, queryer, criteria, queryValue)
 	}
 	return queryIncompleteFTSEventIDs(ctx, queryer, criteria, queryValue)
+}
+
+func boundedSearchHasNonIdentityPayload(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+) (bool, error) {
+	var codecColumns int
+	if err := queryer.QueryRowContext(ctx, `
+		SELECT count(*) FROM pragma_table_info('events')
+		 WHERE name='body_codec'`).Scan(&codecColumns); err != nil {
+		return false, xerrors.Errorf("failed to inspect event payload codec column: %w", err)
+	}
+	if codecColumns == 0 {
+		return false, nil
+	}
+	if !hasBoundedLegacySearchScope(criteria) {
+		var found int
+		if err := queryer.QueryRowContext(ctx, `SELECT
+			EXISTS(SELECT 1 FROM events INDEXED BY idx_events_nonidentity_body_codec WHERE body_codec <> 'identity') OR
+			EXISTS(SELECT 1 FROM command_audits INDEXED BY idx_command_audits_nonidentity_command_codec WHERE command_codec <> 'identity') OR
+			EXISTS(SELECT 1 FROM command_audits INDEXED BY idx_command_audits_nonidentity_input_codec WHERE input_codec <> 'identity') OR
+			EXISTS(SELECT 1 FROM command_audits INDEXED BY idx_command_audits_nonidentity_output_codec WHERE output_codec <> 'identity')`).Scan(&found); err != nil {
+			return false, xerrors.Errorf("failed to inspect global payload codecs: %w", err)
+		}
+		return found != 0, nil
+	}
+	var builder strings.Builder
+	builder.WriteString(`SELECT EXISTS(
+		SELECT 1 FROM events e LEFT JOIN command_audits a ON a.event_id=e.id
+		 WHERE (COALESCE(e.body_codec, 'identity') <> 'identity'
+		    OR COALESCE(a.command_codec, 'identity') <> 'identity'
+		    OR COALESCE(a.input_codec, 'identity') <> 'identity'
+		    OR COALESCE(a.output_codec, 'identity') <> 'identity')`)
+	args := appendEventSearchFilters(&builder, nil, criteria)
+	builder.WriteString(")")
+	var found int
+	if err := queryer.QueryRowContext(ctx, builder.String(), args...).Scan(&found); err != nil {
+		return false, xerrors.Errorf("failed to inspect bounded payload codecs: %w", err)
+	}
+	return found != 0, nil
+}
+
+func boundedSearchProjectionMissing(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+) (bool, error) {
+	var builder strings.Builder
+	builder.WriteString(`SELECT EXISTS(
+		SELECT 1 FROM events e LEFT JOIN command_audits a ON a.event_id=e.id
+		 WHERE NOT EXISTS (SELECT 1 FROM event_search_documents d WHERE d.event_id=e.id)`)
+	args := appendEventSearchFilters(&builder, nil, criteria)
+	builder.WriteString(")")
+	var missing int
+	if err := queryer.QueryRowContext(ctx, builder.String(), args...).Scan(&missing); err != nil {
+		return false, xerrors.Errorf("failed to inspect bounded event search projection: %w", err)
+	}
+	return missing != 0, nil
 }
 
 func hasBoundedLegacySearchScope(criteria apptypes.EventSearchCriteria) bool {
@@ -221,6 +295,92 @@ func queryLegacyEventIDs(
 	appendEventSearchOrderAndPage(&builder, criteria)
 	args = appendEventSearchPageArgs(args, criteria)
 	return collectEventSearchIDs(ctx, queryer, builder.String(), args, "bounded legacy event search")
+}
+
+// queryDecodedLegacyEventIDs keeps fallback search independent of the physical
+// payload representation. SQL selects only a bounded set of IDs; payloads are
+// then decoded through the same adapter boundary as normal reads before
+// literal matching and pagination are applied.
+func queryDecodedLegacyEventIDs(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+	queryValue string,
+) ([]string, error) {
+	var builder strings.Builder
+	builder.WriteString("SELECT e.id FROM events e INDEXED BY ")
+	builder.WriteString(eventSearchScopeIndex(criteria))
+	builder.WriteString(" LEFT JOIN command_audits a ON a.event_id=e.id WHERE 1=1")
+	args := appendEventSearchFilters(&builder, nil, criteria)
+	builder.WriteString(" ORDER BY e.created_at_norm DESC, e.id DESC LIMIT ?")
+	args = append(args, eventSearchLegacyCandidateLimit+1)
+	ids, err := collectEventSearchIDs(ctx, queryer, builder.String(), args, "bounded decoded event search")
+	if err != nil {
+		return nil, err
+	}
+
+	matched := make([]string, 0)
+	for _, eventID := range ids {
+		matches, err := decodedEventSearchMatch(ctx, queryer, eventID, queryValue)
+		if err != nil {
+			return nil, err
+		}
+		if matches {
+			matched = append(matched, eventID)
+		}
+	}
+	start := criteria.Offset()
+	if start >= len(matched) {
+		return []string{}, nil
+	}
+	end := min(start+criteria.Limit(), len(matched))
+	return matched[start:end], nil
+}
+
+func decodedEventSearchMatch(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	eventID string,
+	queryValue string,
+) (bool, error) {
+	var availability string
+	if err := queryer.QueryRowContext(ctx, `SELECT body_availability FROM events WHERE id=?`, eventID).Scan(&availability); err != nil {
+		return false, xerrors.Errorf("read event search body availability: %w", err)
+	}
+	parts := make([]string, 0, 4)
+	if availability != "unavailable_retention" {
+		body, err := loadEventPlaintext(ctx, queryer, eventID)
+		if err != nil {
+			return false, xerrors.Errorf("decode event search body: %w", err)
+		}
+		visible, _ := visibleEventBody(string(body), types.BodyAvailability(availability))
+		parts = append(parts, visible)
+	}
+	for _, column := range []string{"command", "input", "output"} {
+		value, err := hydrateAuditPayload(ctx, queryer, eventID, column)
+		if err != nil {
+			return false, err
+		}
+		if value.Valid {
+			parts = append(parts, value.String)
+		}
+	}
+	needle := foldSearchASCII(queryValue)
+	for _, part := range parts {
+		if strings.Contains(foldSearchASCII(part), needle) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func foldSearchASCII(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, value)
 }
 
 func queryFTSEventIDs(
@@ -427,6 +587,10 @@ func hydrateEventSearchCandidates(
 		event, err := scanEvent(rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore event search candidate: %w", err)
+		}
+		event, err = hydrateEventPayload(ctx, queryer, event)
+		if err != nil {
+			return nil, err
 		}
 		events = append(events, event)
 	}

@@ -240,7 +240,11 @@ func (d *EventDatasource) LoadCanonicalBodies(
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore canonical event ID: %w", err)
 		}
-		bodies[eventID] = body
+		plain, err := loadEventPlaintext(ctx, db, eventID.String())
+		if err != nil {
+			return nil, err
+		}
+		bodies[eventID] = string(plain)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate canonical event bodies: %w", err)
@@ -293,6 +297,7 @@ func hydrateBoundedEvents(
 	ctx context.Context,
 	queryer interface {
 		QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+		QueryRowContext(context.Context, string, ...any) *sql.Row
 	},
 	metadata []apptypes.EventMetadata,
 	bodyRuneLimit int,
@@ -336,13 +341,22 @@ func hydrateBoundedEvents(
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore bounded event ID: %w", err)
 		}
-		visibleRunes, err := checkedInt(visibleRunesValue, "visible body runes")
-		if err != nil {
-			return nil, err
+		if visibleRunesValue < 0 {
+			return nil, xerrors.Errorf("visible body runes must not be negative")
 		}
 		availability, err := types.BodyAvailabilityFrom(availabilityValue)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore bounded body availability: %w", err)
+		}
+		plain, err := loadEventPlaintext(ctx, queryer, eventID.String())
+		if err != nil {
+			return nil, err
+		}
+		body, canonicalEnvelope = visibleEventBody(string(plain), availability)
+		bodyRunes := []rune(body)
+		visibleRunes := len(bodyRunes)
+		if len(bodyRunes) > bodyRuneLimit {
+			body = string(bodyRunes[:bodyRuneLimit])
 		}
 		bodyRows[eventID] = boundedEventBodyRow{
 			body:              body,
@@ -375,6 +389,14 @@ func hydrateBoundedEvents(
 		events = append(events, event)
 	}
 	return events, nil
+}
+
+func visibleEventBody(body string, availability types.BodyAvailability) (string, bool) {
+	if !availability.IsAvailable() {
+		return "", false
+	}
+	_, canonical := apptypes.DecodeCanonicalEnvelope(body)
+	return apptypes.ExtractPlainBody(body), canonical
 }
 
 func marshalBoundedEventIDs(eventIDs []types.EventID) (string, error) {

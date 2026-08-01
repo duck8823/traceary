@@ -74,12 +74,17 @@ SELECT e.id, e.created_at, e.body_stored_bytes, e.body
 		if !stored.Valid || stored.Int64 < 0 {
 			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("event %s has indeterminate stored body bytes", id)
 		}
+		plain, err := loadEventPlaintext(ctx, tx, id)
+		if err != nil {
+			return apptypes.RawBodyRetentionSnapshot{}, err
+		}
+		body = string(plain)
 		createdAt, err := time.Parse(time.RFC3339Nano, createdAtValue)
 		if err != nil {
 			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to parse candidate created_at: %w", err)
 		}
 		digest := sha256.Sum256([]byte(body))
-		storedBytes, err := checkedInt(stored.Int64, "stored body bytes")
+		storedBytes, err := checkedInt(int64(len(plain)), "stored body bytes")
 		if err != nil {
 			return apptypes.RawBodyRetentionSnapshot{}, err
 		}
@@ -233,9 +238,25 @@ func applyRawBodyCandidate(ctx context.Context, db *sql.DB, sourcePath, database
 	if executionStatus != "running" {
 		return false, xerrors.Errorf("completed raw-body execution contains an unpruned candidate %s", candidate.EventID)
 	}
-	res, err := tx.ExecContext(ctx, `UPDATE events
-SET body = ?, body_availability = 'unavailable_retention', body_pruned_at = ?, body_pruned_plan_id = ?
-WHERE id = ? AND body_availability = 'available' AND body = ?`, domtypes.EventBodyUnavailableRetentionMarker, stamp, planID, candidate.EventID, body)
+	marker, err := encodePayload([]byte(domtypes.EventBodyUnavailableRetentionMarker), payloadCodecIdentity)
+	if err != nil {
+		return false, err
+	}
+	hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
+	if err != nil {
+		return false, err
+	}
+	query := `UPDATE events SET body = ?, body_availability = 'unavailable_retention', body_pruned_at = ?, body_pruned_plan_id = ?
+WHERE id = ? AND body_availability = 'available' AND body = ?`
+	args := []any{string(marker.Bytes), stamp, planID, candidate.EventID, body}
+	if hasCodec {
+		query = `UPDATE events SET body=?, body_codec=?, body_format_version=?, body_plaintext_bytes=?, body_encoded_bytes=?, body_sha256=?,
+body_availability='unavailable_retention', body_pruned_at=?, body_pruned_plan_id=?
+WHERE id=? AND body_availability='available' AND body_sha256=?`
+		args = []any{string(marker.Bytes), marker.Codec, marker.FormatVersion, marker.PlaintextBytes, marker.StoredBytes, marker.SHA256,
+			stamp, planID, candidate.EventID, candidate.BodySHA256}
+	}
+	res, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return false, xerrors.Errorf("failed to prune raw body %s: %w", candidate.EventID, err)
 	}
@@ -303,6 +324,12 @@ FROM events AS e WHERE e.id = ?`, candidate.EventID).Scan(&body, &createdAt, &av
 	if activeSession {
 		return "", false, xerrors.Errorf("raw-body plan is stale because event %s belongs to an active session", candidate.EventID)
 	}
+	plain, decodeErr := loadEventPlaintext(ctx, tx, candidate.EventID)
+	if decodeErr != nil {
+		return "", false, decodeErr
+	}
+	body = string(plain)
+	stored = len(plain)
 	persistedCreatedAt, parseErr := time.Parse(time.RFC3339Nano, createdAt)
 	if parseErr != nil {
 		return "", false, xerrors.Errorf("failed to parse raw-body candidate timestamp %s: %w", candidate.EventID, parseErr)
@@ -425,7 +452,11 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 			if !ledgerRestoredAt.Valid {
 				return result, xerrors.Errorf("event %s is available before its restore was recorded", recovery.Candidate.EventID)
 			}
-			current := sha256.Sum256([]byte(body))
+			plain, err := loadEventPlaintext(ctx, tx, recovery.Candidate.EventID)
+			if err != nil {
+				return result, err
+			}
+			current := sha256.Sum256(plain)
 			if hex.EncodeToString(current[:]) != recovery.Candidate.BodySHA256 {
 				return result, xerrors.Errorf("available body conflicts with recovery for event %s", recovery.Candidate.EventID)
 			}
@@ -435,7 +466,22 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 		if availability != domtypes.BodyAvailabilityUnavailableRetention.String() || prunedPlan.String != planID {
 			return result, xerrors.Errorf("event %s was not pruned by plan %s", recovery.Candidate.EventID, planID)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE events SET body = ?, body_availability = 'available', body_pruned_at = NULL, body_pruned_plan_id = NULL WHERE id = ?`, recovery.Body, recovery.Candidate.EventID); err != nil {
+		payload, err := encodePayload([]byte(recovery.Body), payloadCodecIdentity)
+		if err != nil {
+			return result, err
+		}
+		hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
+		if err != nil {
+			return result, err
+		}
+		query := `UPDATE events SET body=?, body_availability='available', body_pruned_at=NULL, body_pruned_plan_id=NULL WHERE id=?`
+		args := []any{string(payload.Bytes), recovery.Candidate.EventID}
+		if hasCodec {
+			query = `UPDATE events SET body=?, body_codec=?, body_format_version=?, body_plaintext_bytes=?, body_encoded_bytes=?, body_sha256=?,
+body_availability='available', body_pruned_at=NULL, body_pruned_plan_id=NULL WHERE id=?`
+			args = []any{string(payload.Bytes), payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256, recovery.Candidate.EventID}
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return result, xerrors.Errorf("failed to restore raw body %s: %w", recovery.Candidate.EventID, err)
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_entries SET restored_at = ? WHERE plan_id = ? AND event_id = ?`, stamp, planID, recovery.Candidate.EventID); err != nil {

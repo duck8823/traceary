@@ -25,6 +25,11 @@ import (
 // normalizeRFC3339NanoForCompare and #1185.
 const sqlTimestampNormalizeFunc = "ts_norm"
 
+const (
+	currentReaderVersion        = 34
+	maximumPayloadFormatVersion = 1
+)
+
 // init registers ts_norm on the modernc SQLite driver. Registration is global
 // and applies to every connection opened afterwards, so the per-operation
 // connections this package opens all expose the function. It is registered as
@@ -98,7 +103,13 @@ func NewImmutableReadDatabase(ctx context.Context, dbPath string) (*Database, er
 		_ = db.Close()
 		return nil, xerrors.Errorf("ping immutable SQLite store: %w", err)
 	}
-	db.SetMaxOpenConns(1)
+	// Immutable benchmark stores cannot change while the group is open. A
+	// small pool permits row hydration while a metadata cursor is active.
+	db.SetMaxOpenConns(4)
+	if err := checkStoreCompatibility(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Database{dbPath: strings.TrimSpace(dbPath), sharedReadOnly: db}, nil
 }
 
@@ -160,6 +171,9 @@ func (d *Database) openAt(ctx context.Context, dbPath string) (_ *sql.DB, err er
 	if err := db.PingContext(ctx); err != nil {
 		return nil, xerrors.Errorf("failed to ping SQLite DB: %w", err)
 	}
+	if err := checkStoreCompatibility(ctx, db); err != nil {
+		return nil, err
+	}
 
 	return db, nil
 }
@@ -194,7 +208,38 @@ func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
 	if err := db.PingContext(ctx); err != nil {
 		return nil, xerrors.Errorf("failed to ping read-only SQLite DB: %w", err)
 	}
+	if err := checkStoreCompatibility(ctx, db); err != nil {
+		return nil, err
+	}
 	return db, nil
+}
+
+// VerifyStoreCompatibility applies the store-format policy to direct SQLite
+// consumers that intentionally do not use Database. A missing state table
+// denotes a supported legacy store so initialize can apply migration 36.
+func VerifyStoreCompatibility(ctx context.Context, db *sql.DB) error {
+	var exists int
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='store_format_state')`).Scan(&exists); err != nil {
+		return xerrors.Errorf("check store format state: %w", err)
+	}
+	if exists == 0 {
+		return nil
+	}
+	var minimumReader, maximumPayload int
+	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version, maximum_payload_format FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader, &maximumPayload); err != nil {
+		return xerrors.Errorf("read store format state: %w", err)
+	}
+	if minimumReader > currentReaderVersion {
+		return xerrors.Errorf("store requires reader version %d; this reader supports %d", minimumReader, currentReaderVersion)
+	}
+	if maximumPayload > maximumPayloadFormatVersion {
+		return xerrors.Errorf("store payload format %d is unsupported; maximum supported is %d", maximumPayload, maximumPayloadFormatVersion)
+	}
+	return nil
+}
+
+func checkStoreCompatibility(ctx context.Context, db *sql.DB) error {
+	return VerifyStoreCompatibility(ctx, db)
 }
 
 func sqliteImmutableDSN(dbPath string) string {

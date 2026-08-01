@@ -137,6 +137,10 @@ ORDER BY event_id`)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan bundle command audit row: %w", err)
 		}
+		audit, err = hydrateCommandAudit(ctx, db, audit)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, audit)
 	}
 	if err := rows.Err(); err != nil {
@@ -534,8 +538,20 @@ func (t *bundleImportTx) ImportEvent(ctx context.Context, event *model.Event, po
 	if event == nil {
 		return false, xerrors.Errorf("event must not be nil")
 	}
+	payload, err := encodePayload([]byte(event.Body()), payloadCodecIdentity)
+	if err != nil {
+		return false, err
+	}
+	hasCodec, err := transactionColumnExists(ctx, t.tx, "events", "body_codec")
+	if err != nil {
+		return false, err
+	}
 	query := insertEventQuery
-	if policy == usecase.BundleConflictReplace {
+	if hasCodec {
+		query = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook,
+body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	}
+	if policy == usecase.BundleConflictReplace && !hasCodec {
 		query = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
@@ -547,20 +563,26 @@ ON CONFLICT(id) DO UPDATE SET
   body = excluded.body,
   created_at = excluded.created_at,
   source_hook = excluded.source_hook`
+	} else if policy == usecase.BundleConflictReplace {
+		query += ` ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, client=excluded.client, agent=excluded.agent,
+session_id=excluded.session_id, workspace=excluded.workspace, body=excluded.body, created_at=excluded.created_at,
+source_hook=excluded.source_hook, body_codec=excluded.body_codec, body_format_version=excluded.body_format_version,
+body_plaintext_bytes=excluded.body_plaintext_bytes, body_encoded_bytes=excluded.body_encoded_bytes, body_sha256=excluded.body_sha256`
 	}
-	_, err := t.tx.ExecContext(
-		ctx,
-		query,
+	args := []any{
 		event.EventID().String(),
 		event.Kind().String(),
 		event.Client().String(),
 		event.Agent().String(),
 		event.SessionID().String(),
 		event.Workspace().String(),
-		event.Body(),
+		string(payload.Bytes),
 		formatTimestamp(event.CreatedAt()),
-		nullableString(event.SourceHook()),
-	)
+		nullableString(event.SourceHook())}
+	if hasCodec {
+		args = append(args, payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256)
+	}
+	_, err = t.tx.ExecContext(ctx, query, args...)
 	if err == nil {
 		return true, nil
 	}
@@ -589,8 +611,32 @@ func (t *bundleImportTx) ImportCommandAudit(ctx context.Context, audit *model.Co
 			return false, xerrors.Errorf("command audit conflict")
 		}
 	}
+	commandPayload, err := encodePayload([]byte(audit.Command()), payloadCodecIdentity)
+	if err != nil {
+		return false, err
+	}
+	inputPayload, err := encodePayload([]byte(audit.Input()), payloadCodecIdentity)
+	if err != nil {
+		return false, err
+	}
+	outputPayload, err := encodePayload([]byte(audit.Output()), payloadCodecIdentity)
+	if err != nil {
+		return false, err
+	}
+	hasCodec, err := transactionColumnExists(ctx, t.tx, "command_audits", "command_codec")
+	if err != nil {
+		return false, err
+	}
 	query := insertCommandAuditQuery
-	if policy == usecase.BundleConflictReplace {
+	if hasCodec {
+		query = `INSERT INTO command_audits(event_id, command_text, command_wrapper, command_name, input_text, output_text,
+input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed, failure_reason,
+command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
+input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
+output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	}
+	if policy == usecase.BundleConflictReplace && !hasCodec {
 		query = `INSERT INTO command_audits(event_id, command_text, command_wrapper, command_name, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed, failure_reason)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(event_id) DO UPDATE SET
@@ -606,6 +652,18 @@ ON CONFLICT(event_id) DO UPDATE SET
   exit_code = excluded.exit_code,
   failed = excluded.failed,
   failure_reason = excluded.failure_reason`
+	} else if policy == usecase.BundleConflictReplace {
+		query += ` ON CONFLICT(event_id) DO UPDATE SET command_text=excluded.command_text, command_wrapper=excluded.command_wrapper,
+command_name=excluded.command_name, input_text=excluded.input_text, output_text=excluded.output_text,
+input_truncated=excluded.input_truncated, output_truncated=excluded.output_truncated,
+input_original_bytes=excluded.input_original_bytes, output_original_bytes=excluded.output_original_bytes,
+exit_code=excluded.exit_code, failed=excluded.failed, failure_reason=excluded.failure_reason,
+command_codec=excluded.command_codec, command_format_version=excluded.command_format_version,
+command_plaintext_bytes=excluded.command_plaintext_bytes, command_encoded_bytes=excluded.command_encoded_bytes, command_sha256=excluded.command_sha256,
+input_codec=excluded.input_codec, input_format_version=excluded.input_format_version,
+input_plaintext_bytes=excluded.input_plaintext_bytes, input_encoded_bytes=excluded.input_encoded_bytes, input_sha256=excluded.input_sha256,
+output_codec=excluded.output_codec, output_format_version=excluded.output_format_version,
+output_plaintext_bytes=excluded.output_plaintext_bytes, output_encoded_bytes=excluded.output_encoded_bytes, output_sha256=excluded.output_sha256`
 	}
 	var exitCodeSQL *int
 	if exitCode, ok := audit.ExitCode().Value(); ok {
@@ -615,23 +673,27 @@ ON CONFLICT(event_id) DO UPDATE SET
 	if value, ok := audit.CommandIdentity().Wrapper().Value(); ok {
 		wrapper = value.String()
 	}
-	_, err = t.tx.ExecContext(
-		ctx,
-		query,
+	args := []any{
 		audit.EventID().String(),
-		audit.Command(),
+		string(commandPayload.Bytes),
 		wrapper,
 		audit.CommandIdentity().Command().String(),
-		audit.Input(),
-		audit.Output(),
+		string(inputPayload.Bytes),
+		string(outputPayload.Bytes),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
 		audit.InputOriginalBytes(),
 		audit.OutputOriginalBytes(),
 		exitCodeSQL,
 		audit.Failed(),
-		audit.FailureReason().String(),
-	)
+		audit.FailureReason().String()}
+	if hasCodec {
+		args = append(args,
+			commandPayload.Codec, commandPayload.FormatVersion, commandPayload.PlaintextBytes, commandPayload.StoredBytes, commandPayload.SHA256,
+			inputPayload.Codec, inputPayload.FormatVersion, inputPayload.PlaintextBytes, inputPayload.StoredBytes, inputPayload.SHA256,
+			outputPayload.Codec, outputPayload.FormatVersion, outputPayload.PlaintextBytes, outputPayload.StoredBytes, outputPayload.SHA256)
+	}
+	_, err = t.tx.ExecContext(ctx, query, args...)
 	if err == nil {
 		return true, nil
 	}
