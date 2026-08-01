@@ -25,6 +25,10 @@ func TestCompactSummaryPreviewSkipsLeadingWhitespaceLegacyMarkersAcrossPages(t *
 	if err := events.Save(ctx, post); err != nil {
 		t.Fatal(err)
 	}
+	knownPre := model.EventOfWithSourceHook("known-pre", types.EventKindCompactSummary, "cli", "codex", "session", "workspace", "known private snapshot", base.Add(40*time.Second), "pre_compact")
+	if err := events.Save(ctx, knownPre); err != nil {
+		t.Fatal(err)
+	}
 	// More than one candidate page proves continuation cannot false-select a
 	// whitespace-prefixed legacy pre-compact snapshot.
 	for index := 0; index < 33; index++ {
@@ -48,6 +52,9 @@ func TestCompactSummaryPreviewSelectsMetadataBeforeHydration(t *testing.T) {
 	candidate := strings.Join(strings.Fields(strings.ToLower(selectLatestPostCompactSummaryQuery)), " ")
 	if !strings.Contains(candidate, "from event_metadata_projection m") || strings.Contains(candidate, " from events ") || strings.Contains(candidate, ".body") {
 		t.Fatalf("candidate query is not body-free: %s", candidate)
+	}
+	if !strings.Contains(candidate, "coalesce(m.source_hook, m.legacy_source_hook, '') <> 'pre_compact'") {
+		t.Fatalf("known pre-compact candidates are not excluded by metadata: %s", candidate)
 	}
 	if !strings.Contains(candidate, "m.created_at_norm < ?") || !strings.Contains(candidate, "m.id < ?") || !strings.Contains(candidate, "limit ?") {
 		t.Fatalf("candidate query lacks bounded keyset continuation: %s", candidate)
