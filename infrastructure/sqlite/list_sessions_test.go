@@ -108,6 +108,25 @@ ON events(session_id, created_at DESC, id DESC);`),
 ALTER TABLE sessions ADD COLUMN terminal_reason TEXT NOT NULL DEFAULT '' CHECK (terminal_reason IN ('', 'success', 'failure', 'timeout', 'signal', 'aborted_stream', 'legacy_unknown'));
 UPDATE sessions SET terminal_reason = 'legacy_unknown' WHERE ended_at IS NOT NULL AND terminal_reason = '';`),
 		},
+		"000025_add_normalized_event_timestamp.sql": {
+			Data: []byte(`ALTER TABLE events ADD COLUMN created_at_norm TEXT;
+UPDATE events SET created_at_norm = ts_norm(created_at);`),
+		},
+		"000034_create_event_metadata_projection.sql": {
+			Data: []byte(`CREATE TABLE event_metadata_projection (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, client TEXT NOT NULL, agent TEXT NOT NULL,
+    session_id TEXT NOT NULL, workspace TEXT NOT NULL, created_at TEXT NOT NULL,
+    created_at_norm TEXT NOT NULL
+);
+INSERT INTO event_metadata_projection
+SELECT id, kind, client, agent, session_id, workspace, created_at, created_at_norm FROM events;
+CREATE INDEX idx_event_metadata_created_at_norm_id_desc ON event_metadata_projection(created_at_norm DESC, id DESC);
+CREATE INDEX idx_event_metadata_session_created_at_norm_id_desc ON event_metadata_projection(session_id, created_at_norm DESC, id DESC);
+CREATE INDEX idx_event_metadata_kind_created_at_norm_id_desc ON event_metadata_projection(kind, created_at_norm DESC, id DESC);
+CREATE TRIGGER event_metadata_projection_events_after_insert AFTER INSERT ON events BEGIN
+    INSERT INTO event_metadata_projection VALUES (NEW.id, NEW.kind, NEW.client, NEW.agent, NEW.session_id, NEW.workspace, NEW.created_at, ts_norm(NEW.created_at));
+END;`),
+		},
 	}
 }
 

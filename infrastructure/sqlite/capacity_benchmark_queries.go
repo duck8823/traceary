@@ -38,6 +38,6 @@ func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchm
 func CapacityHandoffPlanQueries() []CapacityBenchmarkQuery {
 	return []CapacityBenchmarkQuery{
 		{Name: "session_resolution", SQL: listSessionsQuery, Args: []any{"", "", "", "", "", "", "", "", "", "", "", "", false, "", "", "", "", 1, 0}},
-		{Name: "recent_command_previews", SQL: selectRecentCommandPreviewsQuery, Args: []any{512, "", "", 5}},
+		{Name: "recent_command_previews", SQL: selectRecentCommandPreviewsQuery, Args: []any{"", "", 5, 512}},
 	}
 }
