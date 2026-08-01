@@ -6,12 +6,18 @@ import "time"
 type PayloadRehearsalState string
 
 const (
-	PayloadRehearsalRunning    PayloadRehearsalState = "running"
-	PayloadRehearsalPaused     PayloadRehearsalState = "paused"
-	PayloadRehearsalCompleted  PayloadRehearsalState = "completed"
-	PayloadRehearsalScrubbed   PayloadRehearsalState = "scrubbed"
+	// PayloadRehearsalRunning owns an active writer lease.
+	PayloadRehearsalRunning PayloadRehearsalState = "running"
+	// PayloadRehearsalPaused is resumable and keeps canonical rows frozen.
+	PayloadRehearsalPaused PayloadRehearsalState = "paused"
+	// PayloadRehearsalCompleted awaits a verified scrub.
+	PayloadRehearsalCompleted PayloadRehearsalState = "completed"
+	// PayloadRehearsalScrubbed is verified and releases the source freeze.
+	PayloadRehearsalScrubbed PayloadRehearsalState = "scrubbed"
+	// PayloadRehearsalRolledBack records physical recovery completion.
 	PayloadRehearsalRolledBack PayloadRehearsalState = "rolled_back"
-	PayloadRehearsalFailed     PayloadRehearsalState = "failed"
+	// PayloadRehearsalFailed is a recoverable terminal processing failure.
+	PayloadRehearsalFailed PayloadRehearsalState = "failed"
 )
 
 // FreezesCanonical reports whether source rows must remain immutable.
@@ -51,15 +57,19 @@ func (c PayloadRehearsalConfig) Valid() bool {
 		c.ScrubByteLimit > 0 && c.ScrubTimeLimit > 0 && c.MaxWALBytes > 0
 }
 
-// PayloadActivationReadiness reports v0.35 prerequisites without activating them.
+// ReadinessGateStatus is an evidence-backed prerequisite outcome.
 type ReadinessGateStatus string
 
 const (
+	// ReadinessUnknown means the prerequisite has not been evidenced.
 	ReadinessUnknown ReadinessGateStatus = "unknown"
-	ReadinessPassed  ReadinessGateStatus = "passed"
-	ReadinessFailed  ReadinessGateStatus = "failed"
+	// ReadinessPassed means current evidence proves the prerequisite.
+	ReadinessPassed ReadinessGateStatus = "passed"
+	// ReadinessFailed means current evidence disproves the prerequisite.
+	ReadinessFailed ReadinessGateStatus = "failed"
 )
 
+// PayloadActivationReadiness reports v0.35 prerequisites without activating them.
 type PayloadActivationReadiness struct {
 	CompatibleReader          bool                `json:"compatible_reader"`
 	LiveIdentityOnly          bool                `json:"live_identity_only"`

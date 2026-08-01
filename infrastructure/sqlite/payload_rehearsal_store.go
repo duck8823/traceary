@@ -153,10 +153,22 @@ func selectRehearsalBatch(ctx context.Context, db *sql.DB, run string, f rehears
 		return nil, false, err
 	}
 	if len(batch) == 0 {
-		_, err = db.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET state='complete' WHERE run_id=? AND table_kind=? AND field_kind=?`, run, f.table, f.field)
-		return nil, true, err
+		return nil, true, nil
 	}
 	return batch, false, nil
+}
+
+//nolint:wrapcheck // caller performs target guard immediately before this primitive.
+func markRehearsalLaneComplete(ctx context.Context, db *sql.DB, run, lease string, f rehearsalField) error {
+	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_checkpoints SET state='complete' WHERE run_id=? AND table_kind=? AND field_kind=? AND EXISTS(SELECT 1 FROM payload_rehearsal_runs WHERE run_id=? AND lease_token=?)`, run, f.table, f.field, run, lease)
+	if err != nil {
+		return err
+	}
+	affected, _ := result.RowsAffected()
+	if affected != 1 {
+		return errors.New("rehearsal run lease was lost")
+	}
+	return nil
 }
 
 //nolint:wrapcheck // fixed SQL lane failures are classified by the public operation.
@@ -198,7 +210,7 @@ func commitRehearsalBatch(ctx context.Context, db *sql.DB, run, lease string, f 
 func transitionRunWithLease(ctx context.Context, db *sql.DB, run, lease string, state apptypes.PayloadRehearsalState) error {
 	result, err := db.ExecContext(ctx, `UPDATE payload_rehearsal_runs SET state=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?,completed_at=CASE WHEN ? IN ('completed','scrubbed') THEN ? ELSE completed_at END WHERE run_id=? AND lease_token=?`, string(state), time.Now().UTC().Format(time.RFC3339Nano), string(state), time.Now().UTC().Format(time.RFC3339Nano), run, lease)
 	if err != nil {
-		return err
+		return xerrors.Errorf("transition rehearsal run with lease: %w", err)
 	}
 	affected, _ := result.RowsAffected()
 	if affected != 1 {

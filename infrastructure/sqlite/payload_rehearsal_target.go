@@ -126,7 +126,7 @@ func componentSnapshots(path string) ([]apptypes.PayloadRehearsalFileState, erro
 			result = append(result, apptypes.PayloadRehearsalFileState{Component: component.name})
 			continue
 		}
-		if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
+		if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || !fileLinkCountOne(fi) {
 			return nil, ErrUnsafeRehearsalTarget
 		}
 		device, inode, ok := physicalFileIdentity(fi)

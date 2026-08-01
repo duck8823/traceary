@@ -35,6 +35,7 @@ type PayloadRehearsalAdapter struct {
 	configuredLivePath string
 	beforeInitialize   func()
 	beforeStartRun     func()
+	beforePersistence  func(string)
 }
 
 func (a *PayloadRehearsalAdapter) recheckExpectedTarget(expected rehearsalIdentity, c apptypes.PayloadRehearsalConfig, allowSidecars bool) error {
@@ -67,6 +68,7 @@ func NewPayloadRehearsalAdapter(migrations fs.FS, configuredLivePath string) (*P
 var _ application.PayloadRehearsalPreview = (*PayloadRehearsalAdapter)(nil)
 var _ application.PayloadRehearsalRunner = (*PayloadRehearsalAdapter)(nil)
 
+// Preview performs an immutable copied-store preflight and zero-write proof.
 func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
 	id, err := a.inspectTarget(c.TargetPath, c.LivePath)
 	if err != nil {
@@ -225,11 +227,23 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			high = auditHigh
 		}
 		for time.Now().Before(deadline) {
+			if e := a.recheckExpectedTarget(id, c, true); e != nil {
+				return metrics, e
+			}
 			batch, done, e := selectRehearsalBatch(ctx, db, runID, f, high, c)
 			if e != nil {
 				return metrics, pauseRun(ctx, db, runID, leaseToken, e)
 			}
 			if done {
+				if a.beforePersistence != nil {
+					a.beforePersistence("lane-complete")
+				}
+				if e = a.recheckExpectedTarget(id, c, true); e != nil {
+					return metrics, e
+				}
+				if e = markRehearsalLaneComplete(ctx, db, runID, leaseToken, f); e != nil {
+					return metrics, pauseRun(ctx, db, runID, leaseToken, e)
+				}
 				break
 			}
 			for i := range batch {
@@ -238,11 +252,16 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 					return metrics, pauseRun(ctx, db, runID, leaseToken, e)
 				}
 			}
-			currentIdentity, identityErr := secureFileIdentity(id.canonical)
-			if identityErr != nil || !os.SameFile(id.info, currentIdentity.info) {
-				return metrics, pauseRun(ctx, db, runID, leaseToken, ErrUnsafeRehearsalTarget)
+			if identityErr := a.recheckExpectedTarget(id, c, true); identityErr != nil {
+				return metrics, ErrUnsafeRehearsalTarget
 			}
 			start := time.Now()
+			if a.beforePersistence != nil {
+				a.beforePersistence("batch")
+			}
+			if e = a.recheckExpectedTarget(id, c, true); e != nil {
+				return metrics, e
+			}
 			e = commitRehearsalBatch(ctx, db, runID, leaseToken, f, batch)
 			if e != nil {
 				return metrics, pauseRun(ctx, db, runID, leaseToken, e)
@@ -273,6 +292,12 @@ func (a *PayloadRehearsalAdapter) Run(ctx context.Context, c apptypes.PayloadReh
 			metrics.After, _ = componentSnapshots(id.canonical)
 			return metrics, nil
 		}
+	}
+	if a.beforePersistence != nil {
+		a.beforePersistence("run-complete")
+	}
+	if err = a.recheckExpectedTarget(id, c, true); err != nil {
+		return metrics, err
 	}
 	if err = completeRunState(ctx, db, runID, leaseToken); err != nil {
 		return metrics, err
@@ -307,6 +332,9 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	if err = db.QueryRowContext(ctx, `SELECT run_id FROM payload_rehearsal_runs WHERE target_fingerprint=? AND state='completed'`, id.opaque).Scan(&run); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
 	}
+	if err = a.recheckExpectedTarget(id, c, true); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
 	lease, err := acquireScrubLease(ctx, db, run)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
@@ -338,6 +366,12 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 				}
 				if bytes+int64(len(p.Stored)) > c.ScrubByteLimit {
 					_ = rows.Close()
+					if a.beforePersistence != nil {
+						a.beforePersistence("scrub-progress")
+					}
+					if guardErr := a.recheckExpectedTarget(id, c, true); guardErr != nil {
+						return m, guardErr
+					}
 					if persistErr := persistScrubProgress(ctx, db, run, lease, f, last, count); persistErr != nil {
 						return m, persistErr
 					}
@@ -371,6 +405,12 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 			if count == 0 {
 				break
 			}
+			if a.beforePersistence != nil {
+				a.beforePersistence("scrub-progress")
+			}
+			if err = a.recheckExpectedTarget(id, c, true); err != nil {
+				return m, err
+			}
 			if err = persistScrubProgress(ctx, db, run, lease, f, last, count); err != nil {
 				return m, err
 			}
@@ -386,6 +426,12 @@ func (a *PayloadRehearsalAdapter) Scrub(ctx context.Context, c apptypes.PayloadR
 	}
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_rows WHERE run_id=?`, run).Scan(&shadowTotal); err != nil || changedTotal != shadowTotal {
 		return m, errors.New("scrub shadow total mismatch")
+	}
+	if a.beforePersistence != nil {
+		a.beforePersistence("scrub-complete")
+	}
+	if err = a.recheckExpectedTarget(id, c, true); err != nil {
+		return m, err
 	}
 	if err = completeScrubState(ctx, db, run, lease); err != nil {
 		return m, err

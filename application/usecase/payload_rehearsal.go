@@ -11,6 +11,8 @@ import (
 
 // ErrInvalidPayloadRehearsalConfig indicates missing mandatory safety bounds.
 var ErrInvalidPayloadRehearsalConfig = errors.New("payload rehearsal requires an explicit copied target, live store, and positive resource caps")
+
+// ErrUnsafePayloadRehearsalTransition rejects backend state/readiness drift.
 var ErrUnsafePayloadRehearsalTransition = errors.New("payload rehearsal backend returned an unsafe workflow transition")
 
 // PayloadRehearsalUsecase separates preview from every mutating operation.
