@@ -104,8 +104,7 @@ func main() {
 }
 
 func benchmarkHandoff(ctx context.Context, path string, iterations int) (caseResult, error) {
-	database := infra.NewDatabase(path, nil)
-	operation := func() error {
+	operation := func(database *infra.Database) error {
 		_, err := usecase.NewContextUsecase(infra.NewSessionDatasource(database), infra.NewEventDatasource(database), infra.NewMemoryDatasource(database)).Handoff(ctx, apptypes.NewContextPackCriteriaBuilder().AllowStale(true).Build())
 		if err != nil {
 			return fmt.Errorf("execute production handoff orchestration: %w", err)
@@ -114,16 +113,25 @@ func benchmarkHandoff(ctx context.Context, path string, iterations int) (caseRes
 	}
 	cold, warm := make([]int64, 0, iterations), make([]int64, 0, iterations)
 	for i := 0; i < iterations; i++ {
+		database, err := infra.NewImmutableReadDatabase(ctx, path)
+		if err != nil {
+			return caseResult{}, fmt.Errorf("open cold immutable handoff group: %w", err)
+		}
 		start := time.Now()
-		if err := operation(); err != nil {
+		if err := operation(database); err != nil {
+			_ = database.CloseSharedReadOnly()
 			return caseResult{}, err
 		}
 		cold = append(cold, time.Since(start).Microseconds())
 		start = time.Now()
-		if err := operation(); err != nil {
+		if err := operation(database); err != nil {
+			_ = database.CloseSharedReadOnly()
 			return caseResult{}, err
 		}
 		warm = append(warm, time.Since(start).Microseconds())
+		if err := database.CloseSharedReadOnly(); err != nil {
+			return caseResult{}, fmt.Errorf("close immutable handoff group: %w", err)
+		}
 	}
 	planDB, err := sql.Open("sqlite", readOnlyDSN(path))
 	if err != nil {

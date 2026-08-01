@@ -177,9 +177,7 @@ func (d *MemoryDatasource) runMemoryWriteTx(ctx context.Context, fn func(tx *sql
 		return xerrors.Errorf("failed to open DB for memory save: %w", err)
 	}
 	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
+		d.db.release(db)
 	}()
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -342,11 +340,7 @@ func (d *MemoryDatasource) List(ctx context.Context, criteria apptypes.MemoryLis
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for memory list: %w", err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
+	defer d.db.release(db)
 
 	query, args, err := buildMemoryListQuery(criteria, d.clock)
 	if err != nil {

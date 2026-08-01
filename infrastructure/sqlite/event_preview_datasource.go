@@ -31,7 +31,7 @@ func (d *EventDatasource) ListRecentCommandPreviews(ctx context.Context, session
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for command previews: %w", err)
 	}
-	defer closeMetadataResource(db)
+	defer d.db.release(db)
 	rows, err := db.QueryContext(ctx, selectRecentCommandPreviewsQuery, bodyRuneLimit, sessionID.String(), sessionID.String(), limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query recent command previews: %w", err)

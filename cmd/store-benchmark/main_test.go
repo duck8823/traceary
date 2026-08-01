@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -38,6 +42,7 @@ func TestSyntheticFixtureAndBenchmarkEvidence(t *testing.T) {
 			t.Fatalf("benchmark(%s) has no query-plan evidence", benchmarkCase.Name)
 		}
 	}
+	before := snapshotStoreFiles(t, path)
 	handoff, err := benchmarkHandoff(context.Background(), path, 2)
 	if err != nil {
 		t.Fatalf("benchmarkHandoff() error = %v", err)
@@ -45,6 +50,31 @@ func TestSyntheticFixtureAndBenchmarkEvidence(t *testing.T) {
 	if len(handoff.QueryPlan) < 2 {
 		t.Fatalf("handoff query plans = %v", handoff.QueryPlan)
 	}
+	after := snapshotStoreFiles(t, path)
+	if fmt.Sprint(before) != fmt.Sprint(after) {
+		t.Fatalf("handoff mutated source files: before=%v after=%v", before, after)
+	}
+}
+
+func snapshotStoreFiles(t *testing.T, path string) map[string]string {
+	t.Helper()
+	result := map[string]string{}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		name := path + suffix
+		data, err := os.ReadFile(name)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result[suffix] = fmt.Sprintf("%x:%d:%d", sha256.Sum256(data), info.Size(), info.ModTime().UnixNano())
+	}
+	return result
 }
 
 func TestSyntheticFixtureKeepsRequestedRowsWhileCreatingFreePages(t *testing.T) {

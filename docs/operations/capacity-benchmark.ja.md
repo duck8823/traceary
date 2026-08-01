@@ -19,7 +19,7 @@ traceary store backup create /private/tmp/traceary-benchmark.db
 go run ./cmd/store-benchmark --db /private/tmp/traceary-benchmark.db --iterations 25 > benchmark.json
 ```
 
-copy mode は `immutable=1&mode=ro` で入力を開きます。cold はサンプルごとの新規 SQLite connection を意味し、OS cache の cold start を意味しません。host cache の消去も行いません。warm は同一 connection で直後に反復した query です。`traceary.store-benchmark/v1` JSON に `active`、`latest`、`handoff`、`search` の p50/p95（microseconds）と `EXPLAIN QUERY PLAN` を含めます。
+copy mode は `immutable=1&mode=ro` で入力を開きます。handoff の cold sample は production `ContextUsecase.Handoff` の全 datasource が共有する immutable connection group を毎回新規作成し、warm は同じ group 上で全 orchestration を直後に反復します。OS cache の cold start を意味せず、host cache も消去しません。`traceary.store-benchmark/v1` JSON に `active`、`latest`、`handoff`、`search` の p50/p95 と plan を含めます。
 
 合成 fixture は次のコマンドで作成します。
 

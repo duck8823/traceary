@@ -19,7 +19,7 @@ traceary store backup create /private/tmp/traceary-benchmark.db
 go run ./cmd/store-benchmark --db /private/tmp/traceary-benchmark.db --iterations 25 > benchmark.json
 ```
 
-Copy mode opens the input with SQLite `immutable=1&mode=ro`. “Cold” means a new SQLite connection per sample; it does **not** claim an OS-cache cold start and never attempts to clear host caches. “Warm” is the immediately repeated query on that connection. Output uses `traceary.store-benchmark/v1` and includes p50/p95 microseconds plus `EXPLAIN QUERY PLAN` details for `active`, `latest`, `handoff`, and `search`.
+Copy mode opens the input with SQLite `immutable=1&mode=ro`. For handoff, each cold sample creates one fresh immutable connection group shared by every production datasource in `ContextUsecase.Handoff`; warm immediately repeats the full orchestration on that same group. It does **not** claim an OS-cache cold start and never clears host caches. Output uses `traceary.store-benchmark/v1` and includes p50/p95 microseconds plus `EXPLAIN QUERY PLAN` details for `active`, `latest`, `handoff`, and `search`.
 
 Create the bounded synthetic fixture with:
 
