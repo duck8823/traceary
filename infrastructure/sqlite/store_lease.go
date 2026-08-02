@@ -1,3 +1,4 @@
+//nolint:revive,wrapcheck // Optional driver interfaces must preserve sentinel errors unchanged.
 package sqlite
 
 import (
@@ -6,8 +7,6 @@ import (
 	"database/sql/driver"
 	"path/filepath"
 	"sync"
-
-	modernsqlite "modernc.org/sqlite"
 )
 
 var storeLeaseRegistry = struct {
@@ -58,7 +57,7 @@ func canonicalLeasePath(path string) string {
 // unsafe because database/sql pools connections after a call returns.
 func openCoordinatedDB(path, dsn string) *sql.DB {
 	return sql.OpenDB(&storeLeaseConnector{
-		driver: &modernsqlite.Driver{},
+		driver: coordinatedSQLiteDriver,
 		dsn:    dsn,
 		lease:  coordinatedStoreLease(path),
 	})

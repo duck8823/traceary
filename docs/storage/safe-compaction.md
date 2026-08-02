@@ -1,5 +1,7 @@
 # Safe store compaction
 
+[日本語](safe-compaction.ja.md)
+
 Garbage collection and archive deletion reclaim logical rows only. They no
 longer run an in-place `VACUUM`. To reclaim filesystem space, stop all Traceary
 processes (including older versions that do not participate in the lease) and
@@ -22,4 +24,3 @@ After interruption, use `resume`; it derives file orientation from identities.
 Use `rollback` to atomically restore the retained original. Never delete the
 external `.traceary-compaction` journal or rollback artifact until the run has
 been inspected and accepted.
-

@@ -66,3 +66,38 @@ func TestAtomicExchangePreservesBothInodes(t *testing.T) {
 		t.Fatalf("exchange = %q/%q", gotLeft, gotRight)
 	}
 }
+
+func TestStoreReplacementFilesRejectsCandidateReplacementAfterVerification(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "store.db")
+	candidate := filepath.Join(dir, "candidate")
+	rollback := filepath.Join(dir, "rollback")
+	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := (StoreReplacementFiles{}).Plan(context.Background(), domain.CompactionRun{SourcePath: source, CandidatePath: candidate, RollbackPath: rollback})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidate, []byte("candidate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err = (StoreReplacementFiles{}).FenceCandidate(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(candidate); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidate, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run.Phase = domain.CompactionSwapIntent
+	if err := (StoreReplacementFiles{}).Exchange(context.Background(), run); err == nil {
+		t.Fatal("Exchange accepted replaced candidate")
+	}
+	got, _ := os.ReadFile(source)
+	if string(got) != "source" {
+		t.Fatal("source changed after rejected exchange")
+	}
+}

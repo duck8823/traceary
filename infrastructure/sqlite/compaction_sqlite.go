@@ -1,3 +1,4 @@
+//nolint:wrapcheck,errcheck,revive // Scrub diagnostics retain the exact SQLite operation that failed.
 package sqlite
 
 import (

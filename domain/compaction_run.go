@@ -1,3 +1,4 @@
+//nolint:revive // Phase constants form one documented state-machine block.
 package domain
 
 import (
@@ -9,6 +10,7 @@ import (
 type CompactionPhase string
 
 const (
+	// CompactionPlanned starts the durable protocol.
 	CompactionPlanned               CompactionPhase = "planned"
 	CompactionCopyIntent            CompactionPhase = "copy_intent"
 	CompactionCopyComplete          CompactionPhase = "copy_complete"

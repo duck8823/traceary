@@ -1,3 +1,4 @@
+//nolint:wrapcheck // This orchestrator preserves typed adapter failures at the CLI boundary.
 package usecase
 
 import (
@@ -73,6 +74,9 @@ func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.C
 		case domain.CompactionScrubInProgress:
 			err = u.builder.VerifyPair(ctx, run.SourcePath, run.CandidatePath)
 			if err == nil {
+				run, err = u.files.FenceCandidate(ctx, run)
+			}
+			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionCandidateVerified)
 			}
 		case domain.CompactionCandidateVerified:
@@ -111,12 +115,43 @@ func (u *storeCompactionUsecase) Resume(ctx context.Context, id string) (domain.
 		return run, err
 	}
 	if orientation != run.Phase {
-		run.Phase, run.UpdatedAt = orientation, u.now().UTC()
-		if err := u.journal.Append(ctx, run); err != nil {
-			return run, err
+		transitions := recoveryTransitions(run.Phase, orientation)
+		if len(transitions) == 0 {
+			return run, fmt.Errorf("unsafe compaction recovery %q -> %q", run.Phase, orientation)
+		}
+		for _, phase := range transitions {
+			run, err = u.advance(ctx, run, phase)
+			if err != nil {
+				return run, err
+			}
 		}
 	}
+	if run.Phase == domain.CompactionRollbackSwapped {
+		return u.advance(ctx, run, domain.CompactionRolledBack)
+	}
+	if run.Phase == domain.CompactionRolledBack {
+		return run, nil
+	}
 	return u.Apply(ctx, id)
+}
+
+func recoveryTransitions(from, to domain.CompactionPhase) []domain.CompactionPhase {
+	if from == domain.CompactionCandidateVerified && to == domain.CompactionSwapped {
+		return []domain.CompactionPhase{domain.CompactionSwapIntent, domain.CompactionSwapped}
+	}
+	if from == domain.CompactionSwapIntent && to == domain.CompactionSwapped {
+		return []domain.CompactionPhase{domain.CompactionSwapped}
+	}
+	if from == domain.CompactionSwapped && to == domain.CompactionRollbackReady {
+		return []domain.CompactionPhase{domain.CompactionRollbackPublishIntent, domain.CompactionRollbackReady}
+	}
+	if from == domain.CompactionRollbackPublishIntent && to == domain.CompactionRollbackReady {
+		return []domain.CompactionPhase{domain.CompactionRollbackReady}
+	}
+	if from == domain.CompactionRollbackSwapIntent && to == domain.CompactionRollbackSwapped {
+		return []domain.CompactionPhase{domain.CompactionRollbackSwapped}
+	}
+	return nil
 }
 
 func (u *storeCompactionUsecase) Status(ctx context.Context, id string) (domain.CompactionRun, error) {

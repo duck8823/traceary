@@ -1,3 +1,4 @@
+//nolint:wrapcheck // Cobra boundary preserves typed compaction errors.
 package cli
 
 import (

@@ -1,5 +1,6 @@
 //go:build darwin
 
+//nolint:wrapcheck // Caller adds atomic-exchange protocol context.
 package sqlite
 
 import "golang.org/x/sys/unix"

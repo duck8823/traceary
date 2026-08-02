@@ -1,5 +1,6 @@
 //go:build unix
 
+//nolint:wrapcheck // Caller adds path and protocol context.
 package sqlite
 
 import (

@@ -31,6 +31,8 @@ const (
 	maximumPayloadFormatVersion = 1
 )
 
+var coordinatedSQLiteDriver driver.Driver
+
 // init registers ts_norm on the modernc SQLite driver. Registration is global
 // and applies to every connection opened afterwards, so the per-operation
 // connections this package opens all expose the function. It is registered as
@@ -42,6 +44,12 @@ func init() {
 		normalizeTimestampSQLFunc,
 	)
 	sqlite.MustRegisterDeterministicScalarFunction(sqlPayloadDecodeFunc, 6, decodePayloadSQLFunc)
+	probe, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		panic("registered SQLite driver unavailable: " + err.Error())
+	}
+	coordinatedSQLiteDriver = probe.Driver()
+	_ = probe.Close()
 }
 
 // decodePayloadSQLFunc exposes the persisted payload contract to derived SQL
@@ -152,10 +160,7 @@ func (d *Database) runSearchMaintenanceHook(point string) error {
 
 // NewImmutableReadDatabase opens one shared immutable connection group for benchmark orchestration.
 func NewImmutableReadDatabase(ctx context.Context, dbPath string) (*Database, error) {
-	db, err := sql.Open("sqlite", sqliteImmutableDSN(dbPath))
-	if err != nil {
-		return nil, xerrors.Errorf("open immutable SQLite store: %w", err)
-	}
+	db := openCoordinatedDB(dbPath, sqliteImmutableDSN(dbPath))
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, xerrors.Errorf("ping immutable SQLite store: %w", err)
@@ -213,10 +218,7 @@ func (d *Database) Path() string {
 // Callers snapshot Database.Path() at entry and pass the snapshot here
 // so a racing SetPath cannot split the snapshot and the connection.
 func (d *Database) openAt(ctx context.Context, dbPath string) (_ *sql.DB, err error) {
-	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
-	if err != nil {
-		return nil, xerrors.Errorf("failed to initialize SQLite connection: %w", err)
-	}
+	db := openCoordinatedDB(dbPath, sqliteDSN(dbPath))
 	defer func() {
 		if err != nil {
 			if closeErr := db.Close(); closeErr != nil {
@@ -251,10 +253,8 @@ func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
 	if d.sharedReadOnly != nil {
 		return d.sharedReadOnly, nil
 	}
-	db, err := sql.Open("sqlite", sqliteReadOnlyDSN(d.Path()))
-	if err != nil {
-		return nil, xerrors.Errorf("failed to initialize read-only SQLite connection: %w", err)
-	}
+	dbPath := d.Path()
+	db := openCoordinatedDB(dbPath, sqliteReadOnlyDSN(dbPath))
 	defer func() {
 		if err != nil {
 			if closeErr := db.Close(); closeErr != nil {

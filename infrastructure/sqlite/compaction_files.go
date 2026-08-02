@@ -1,3 +1,4 @@
+//nolint:wrapcheck,errcheck,revive // Protocol methods deliberately preserve syscall failure identity.
 package sqlite
 
 import (
@@ -188,6 +189,25 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 	return run, nil
 }
 
+// FenceCandidate captures the verified candidate identity before swap intent.
+func (StoreReplacementFiles) FenceCandidate(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+	if err := ctx.Err(); err != nil {
+		return run, err
+	}
+	if err := rejectSQLiteSidecars(run.CandidatePath); err != nil {
+		return run, err
+	}
+	identity, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		return run, err
+	}
+	if identity.Device != run.SourceIdentity.Device {
+		return run, errors.New("candidate is not on source filesystem")
+	}
+	run.Candidate = identity
+	return run, nil
+}
+
 func (StoreReplacementFiles) Exchange(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -200,11 +220,23 @@ func (StoreReplacementFiles) Exchange(ctx context.Context, run domain.Compaction
 	if err != nil {
 		return err
 	}
-	if run.Phase != domain.CompactionRollbackSwapIntent && current != run.SourceIdentity {
+	if run.Phase == domain.CompactionRollbackSwapIntent {
+		if current != run.Candidate {
+			return errors.New("compacted source identity fence changed")
+		}
+	} else if current != run.SourceIdentity {
 		return errors.New("source identity fence changed")
 	}
-	if _, err := inspectRegularFile(right); err != nil {
+	rightIdentity, err := inspectRegularFile(right)
+	if err != nil {
 		return err
+	}
+	if run.Phase == domain.CompactionRollbackSwapIntent {
+		if rightIdentity != run.SourceIdentity {
+			return errors.New("rollback identity fence changed")
+		}
+	} else if rightIdentity != run.Candidate {
+		return errors.New("candidate identity fence changed")
 	}
 	if err := rejectSQLiteSidecars(left); err != nil {
 		return err
@@ -248,6 +280,9 @@ func (StoreReplacementFiles) Orientation(_ context.Context, run domain.Compactio
 	_, candidateErr := inspectRegularFile(run.CandidatePath)
 	_, rollbackErr := inspectRegularFile(run.RollbackPath)
 	if source == run.SourceIdentity {
+		if run.Phase == domain.CompactionRollbackSwapIntent {
+			return domain.CompactionRollbackSwapped, nil
+		}
 		return run.Phase, nil
 	}
 	if candidateErr == nil {
