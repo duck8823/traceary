@@ -178,3 +178,27 @@ func TestStoreGrowthMessageDistinguishesUnknownAndMeasuredZeroFree(t *testing.T)
 		t.Fatalf("zero=%q", zero.Message)
 	}
 }
+
+func TestRatioAtLeastIsOverflowSafe(t *testing.T) {
+	maximum := int64(^uint64(0) >> 1)
+	for _, tc := range []struct {
+		name                     string
+		part, total, denominator int64
+		want                     bool
+	}{
+		{"max denominator one equal", maximum, maximum, 1, true},
+		{"max denominator one below", maximum - 1, maximum, 1, false},
+		{"max denominator ten equal", maximum/10 + 1, maximum, 10, true},
+		{"max denominator ten below", maximum / 10, maximum, 10, false},
+		{"max minus nine exact", (maximum-9)/10 + 1, maximum - 9, 10, true},
+		{"max minus nine below", (maximum - 9) / 10, maximum - 9, 10, false},
+		{"zero denominator", 1, maximum, 0, false},
+		{"negative total", 1, -1, 10, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ratioAtLeast(tc.part, tc.total, tc.denominator); got != tc.want {
+				t.Fatalf("got=%t want=%t", got, tc.want)
+			}
+		})
+	}
+}

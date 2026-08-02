@@ -137,7 +137,11 @@ func ratioAtLeast(part, total, denominator int64) bool {
 	if part <= 0 || total <= 0 || denominator <= 0 {
 		return false
 	}
-	return part >= (total+denominator-1)/denominator
+	threshold := total / denominator
+	if total%denominator > 0 {
+		threshold++
+	}
+	return part >= threshold
 }
 
 func maxInt64(a, b int64) int64 {
