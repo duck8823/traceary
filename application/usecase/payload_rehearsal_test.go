@@ -21,6 +21,7 @@ type rehearsalBackendFake struct {
 	driftRunAdvance      bool
 	driftRunComplete     bool
 	driftScrubAdvance    bool
+	advancesRemaining    int
 }
 type fakeRunHandle struct{}
 type fakeScrubHandle struct{}
@@ -45,7 +46,30 @@ func (f *rehearsalBackendFake) AdvanceField(_ context.Context, _ application.Pay
 	if f.driftRunAdvance {
 		f.run.LiveIdentityOnly = false
 	}
+	if f.advancesRemaining > 0 {
+		f.advancesRemaining--
+		f.run.BatchCount++
+		f.run.EncodedRows++
+		return f.run, false, nil
+	}
 	return f.run, true, nil
+}
+
+func TestPayloadRehearsalStopsAfterCommittedBatchBoundary(t *testing.T) {
+	backend := &rehearsalBackendFake{
+		preview: apptypes.PayloadRehearsalMetrics{State: "planned", DryRunZeroWrite: true, LiveIdentityOnly: true, FreeBytes: 100, EstimatedHeadroom: 50},
+		run:     apptypes.PayloadRehearsalMetrics{State: "running", LiveIdentityOnly: true},
+	}
+	backend.advancesRemaining = 3
+	config := validRehearsalConfig()
+	config.StopAfterBatches = 2
+	result, err := usecase.NewPayloadRehearsalUsecase(backend, backend, backend, backend).Run(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != "paused" || result.BatchCount != 2 || result.EncodedRows != 2 || !result.MorePending {
+		t.Fatalf("unexpected deterministic stop result: %+v", result)
+	}
 }
 func (f *rehearsalBackendFake) Pause(context.Context, application.PayloadRehearsalRunHandle) (apptypes.PayloadRehearsalMetrics, error) {
 	f.run.State = "paused"

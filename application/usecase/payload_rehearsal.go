@@ -106,7 +106,9 @@ func (u *payloadRehearsalUsecase) run(ctx context.Context, c types.PayloadRehear
 		}
 	}()
 	deadline := time.Now().Add(c.WallTimeLimit)
-	for _, field := range types.OrderedPayloadRehearsalFields() {
+	initialBatches := result.BatchCount
+	fields := types.OrderedPayloadRehearsalFields()
+	for fieldIndex, field := range fields {
 		for time.Now().Before(deadline) {
 			var done bool
 			result, done, err = u.workflow.AdvanceField(ctx, handle, field)
@@ -119,6 +121,14 @@ func (u *payloadRehearsalUsecase) run(ctx context.Context, c types.PayloadRehear
 			if result, err = liveResult(result); err != nil {
 				_, _ = u.workflow.Pause(context.WithoutCancel(ctx), handle)
 				return result, err
+			}
+			if c.StopAfterBatches > 0 && result.BatchCount-initialBatches >= c.StopAfterBatches && !(done && fieldIndex == len(fields)-1) {
+				result, err = u.workflow.Pause(ctx, handle)
+				if err != nil {
+					return result, xerrors.Errorf("pause payload rehearsal at committed batch boundary: %w", err)
+				}
+				result.MorePending = true
+				return liveResult(result)
 			}
 			if done {
 				break
