@@ -5,6 +5,11 @@
 v0.34が提供するのは、コピーしたストア上のリハーサルだけです。
 canonical圧縮書き込みを有効化せず、設定済みのliveストアを変更しません。
 
+codec互換性preflightは、新たにupgradeしたstoreではevent body、command、input、outputの4 laneをconstant-sizeのtransactional counterで管理します。
+このためcodec column追加時に保存済みhistoryをscanしません。
+旧migrationを適用済みの開発storeは、明示的なlegacy互換modeで既存partial indexを利用します。
+互換性証跡がunknown、invalid、または不整合の場合、rehearsal run作成前にfail closedします。
+
 1. writerを停止し、checkpoint済みの単一SQLiteファイルをコピーします。
    コピーには`-wal`と`-shm`を残しません。
 2. `traceary store payload-rehearsal preview --target COPY --live-db LIVE`を実行します。
