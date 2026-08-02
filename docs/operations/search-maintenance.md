@@ -12,6 +12,9 @@ Retirement is an operator-only workflow:
    This rotates the copied cursor key and marks the projection stale. Then
    complete the bounded search projection and same-head parity-v2 run. A
    copied-store artifact is compatibility evidence, not authorization.
+   Combine the passed `fingerprint_eligible` and `bounded_verification`
+   artifacts with `store-benchmark --authorize-search-parity MANIFEST`; the
+   private 0600 manifest names the actual DB and both private artifacts.
 2. Run `traceary store search-maintenance start-retire --evidence ARTIFACT
    --expected-revision COMMIT`. Traceary re-reads projection state, source
    high-water, aggregates, and the store-owned key in one fresh snapshot and

@@ -2028,6 +2028,9 @@ CREATE INDEX idx_memories_hygiene_scope_id ON memories(status, scope_kind, scope
 CREATE INDEX idx_memories_hygiene_exact ON memories(status, scope_kind, scope_value, fact, id);
 CREATE INDEX idx_memories_hygiene_candidate_source_id ON memories(status, source, id);`),
 		},
+		"000040_add_search_authority.sql": {
+			Data: []byte(`CREATE TABLE search_maintenance_control(singleton INTEGER PRIMARY KEY,authority TEXT NOT NULL,phase TEXT NOT NULL,progress INTEGER NOT NULL DEFAULT 0); INSERT INTO search_maintenance_control(singleton,authority,phase) VALUES(1,'legacy','active');`),
+		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	db := sqlite.NewDatabase(dbPath, migrations)

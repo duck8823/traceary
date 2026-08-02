@@ -22,7 +22,7 @@ const MaxSearchParityEvidenceBytes = 1 << 20
 type SearchMaintenanceStore interface {
 	AdoptSearchRetirementTarget(context.Context) (apptypes.SearchMaintenanceReport, error)
 	SearchRetirementSnapshot(context.Context) (apptypes.SearchRetirementSnapshot, error)
-	BeginSearchRetirement(context.Context, string, apptypes.SearchRetirementSnapshot) (apptypes.SearchMaintenanceReport, error)
+	BeginSearchRetirement(context.Context, apptypes.SearchParityV2Evidence, apptypes.SearchRetirementSnapshot) (apptypes.SearchMaintenanceReport, error)
 	RetireLegacySearchBatch(context.Context, int) (apptypes.SearchMaintenanceReport, error)
 	BeginSearchRestore(context.Context) (apptypes.SearchMaintenanceReport, error)
 	RestoreLegacySearchBatch(context.Context, int) (apptypes.SearchMaintenanceReport, error)
@@ -87,7 +87,7 @@ func (u *SearchMaintenanceUsecase) StartRetire(ctx context.Context, artifact []b
 			return apptypes.SearchMaintenanceReport{}, xerrors.New("tiered recent-search latency materially regressed")
 		}
 	}
-	return u.store.BeginSearchRetirement(ctx, evidence.TargetStoreBinding, snapshot)
+	return u.store.BeginSearchRetirement(ctx, evidence, snapshot)
 }
 
 func (u *SearchMaintenanceUsecase) ResumeRetire(ctx context.Context, rows int) (apptypes.SearchMaintenanceReport, error) {

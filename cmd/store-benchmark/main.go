@@ -57,7 +57,7 @@ type caseResult struct {
 func main() {
 	var dbPath, synthetic string
 	var validateBaseline string
-	var searchParityManifestPath, validateSearchParity string
+	var searchParityManifestPath, validateSearchParity, authorizeSearchParity string
 	var iterations, smallRows, largeRows int
 	var caseTimeout time.Duration
 	flag.StringVar(&dbPath, "db", "", "path to an operator-created store copy (opened immutable/read-only)")
@@ -65,13 +65,14 @@ func main() {
 	flag.StringVar(&validateBaseline, "validate-baseline", "", "validate a sanitized capacity baseline artifact and exit")
 	flag.StringVar(&searchParityManifestPath, "search-parity-manifest", "", "run exhaustive parity from a private 0600 manifest, or - for stdin")
 	flag.StringVar(&validateSearchParity, "validate-search-parity", "", "strictly validate a sanitized search parity artifact and exit")
+	flag.StringVar(&authorizeSearchParity, "authorize-search-parity", "", "combine two passed parity artifacts into actual-target v2 evidence")
 	flag.IntVar(&iterations, "iterations", 15, "samples per cold and warm series")
 	flag.IntVar(&smallRows, "small-rows", 10000, "synthetic small event rows")
 	flag.IntVar(&largeRows, "large-rows", 8, "synthetic 1 MiB event rows")
 	flag.DurationVar(&caseTimeout, "case-timeout", 2*time.Minute, "maximum duration for each benchmark case")
 	flag.Parse()
 	selectedModes := 0
-	for _, selected := range []bool{validateBaseline != "", validateSearchParity != "", searchParityManifestPath != "", dbPath != "", synthetic != ""} {
+	for _, selected := range []bool{validateBaseline != "", validateSearchParity != "", authorizeSearchParity != "", searchParityManifestPath != "", dbPath != "", synthetic != ""} {
 		if selected {
 			selectedModes++
 		}
@@ -88,6 +89,16 @@ func main() {
 	if validateSearchParity != "" {
 		if err := validateSearchParityFile(validateSearchParity); err != nil {
 			fatal(err.Error())
+		}
+		return
+	}
+	if authorizeSearchParity != "" {
+		evidence, err := buildActualTargetParityEvidence(context.Background(), authorizeSearchParity)
+		if err != nil {
+			fatal(err.Error())
+		}
+		if err = json.NewEncoder(os.Stdout).Encode(evidence); err != nil {
+			fatal("artifact_write")
 		}
 		return
 	}

@@ -3,7 +3,10 @@ package sqlite
 
 import (
 	"context"
+	"crypto/hmac"
 	"database/sql"
+	"encoding/base64"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
+	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
 
 func (d *Database) SearchRetirementSnapshot(ctx context.Context) (apptypes.SearchRetirementSnapshot, error) {
@@ -99,7 +103,7 @@ func (d *Database) AdoptSearchRetirementTarget(ctx context.Context) (apptypes.Se
 	return d.SearchMaintenanceStatus(ctx)
 }
 
-func (d *Database) BeginSearchRetirement(ctx context.Context, binding string, expected apptypes.SearchRetirementSnapshot) (apptypes.SearchMaintenanceReport, error) {
+func (d *Database) BeginSearchRetirement(ctx context.Context, evidence apptypes.SearchParityV2Evidence, expected apptypes.SearchRetirementSnapshot) (apptypes.SearchMaintenanceReport, error) {
 	db, err := d.open(ctx)
 	if err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
@@ -120,6 +124,38 @@ func (d *Database) BeginSearchRetirement(ctx context.Context, binding string, ex
 	if !fresh.TargetAdopted || !expected.TargetAdopted {
 		return apptypes.SearchMaintenanceReport{}, xerrors.New("retirement target has not been explicitly adopted")
 	}
+	nextState, stateErr := fresh.State.StartRetire()
+	if stateErr != nil {
+		return apptypes.SearchMaintenanceReport{}, stateErr
+	}
+	var boundedState, boundedGeneration string
+	if err = tx.QueryRowContext(ctx, `SELECT state,COALESCE(active_generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&boundedState, &boundedGeneration); err != nil {
+		return apptypes.SearchMaintenanceReport{}, xerrors.Errorf("read bounded projection authorization state: %w", err)
+	}
+	if boundedState != "complete" || boundedGeneration == "" || boundedGeneration != fresh.ProjectionGeneration {
+		return apptypes.SearchMaintenanceReport{}, xerrors.New("bounded and literal projections are not the same complete active generation")
+	}
+	currentProjection := apptypes.SearchParityProjection{Revision: fresh.ProjectionRevision, HighWater: fresh.ProjectionHighWater, LogicalBytes: fresh.CanonicalLogicalBytes, PhysicalBytes: fresh.PhysicalBytes}
+	want, bindErr := apptypes.KeyedSearchParityBinding(fresh.CursorKey, "target-store", apptypes.SearchParityTargetFields(evidence.Revision, currentProjection, fresh.EventCount, fresh.AuditCount, fresh.CanonicalLogicalBytes)...)
+	if bindErr != nil {
+		return apptypes.SearchMaintenanceReport{}, bindErr
+	}
+	wantBytes, _ := base64.RawURLEncoding.DecodeString(want)
+	gotBytes, decodeErr := base64.RawURLEncoding.DecodeString(evidence.TargetStoreBinding)
+	if decodeErr != nil || !hmac.Equal(gotBytes, wantBytes) {
+		return apptypes.SearchMaintenanceReport{}, xerrors.New("parity evidence changed before atomic authority switch")
+	}
+	for _, criterion := range evidence.Criteria {
+		criterionWant, criterionErr := apptypes.KeyedSearchParityBinding(fresh.CursorKey, "criterion", criterion.QueryClass, evidence.TargetStoreBinding)
+		if criterionErr != nil {
+			return apptypes.SearchMaintenanceReport{}, criterionErr
+		}
+		expectedBytes, _ := base64.RawURLEncoding.DecodeString(criterionWant)
+		observedBytes, observedErr := base64.RawURLEncoding.DecodeString(criterion.CriterionBinding)
+		if observedErr != nil || !hmac.Equal(observedBytes, expectedBytes) {
+			return apptypes.SearchMaintenanceReport{}, xerrors.New("criterion binding changed before atomic authority switch")
+		}
+	}
 	logical, err := legacySearchLogicalBytes(ctx, tx)
 	if err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
@@ -130,7 +166,7 @@ func (d *Database) BeginSearchRetirement(ctx context.Context, binding string, ex
 			return apptypes.SearchMaintenanceReport{}, xerrors.Errorf("disable legacy search writer: %w", err)
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE search_maintenance_control SET authority='tiered',phase='retiring',progress=0,evidence_binding=?,logical_bytes_before=?,physical_bytes_before=?,updated_at=? WHERE singleton=1 AND authority='legacy' AND phase='active'`, binding, logical, fresh.PhysicalBytes, formatTimestamp(time.Now().UTC()))
+	_, err = tx.ExecContext(ctx, `UPDATE search_maintenance_control SET authority=?,phase=?,progress=0,evidence_binding=?,logical_bytes_before=?,physical_bytes_before=?,updated_at=? WHERE singleton=1 AND authority=? AND phase=?`, nextState.Authority(), nextState.Phase(), evidence.TargetStoreBinding, logical, fresh.PhysicalBytes, formatTimestamp(time.Now().UTC()), fresh.State.Authority(), fresh.State.Phase())
 	if err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
@@ -180,14 +216,21 @@ func (d *Database) RetireLegacySearchBatch(ctx context.Context, rows int) (appty
 	if err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
-	next := "retiring"
+	currentState, stateErr := model.SearchMaintenanceOf(model.SearchAuthority(authority), model.SearchMaintenancePhase(phase), progress)
+	if stateErr != nil {
+		return apptypes.SearchMaintenanceReport{}, stateErr
+	}
+	next := currentState
 	if remaining == 0 {
-		next = "retired"
+		next, stateErr = currentState.FinishRetire()
+		if stateErr != nil {
+			return apptypes.SearchMaintenanceReport{}, stateErr
+		}
 		if err = dropLegacySearchProjection(ctx, tx); err != nil {
 			return apptypes.SearchMaintenanceReport{}, err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE search_maintenance_control SET phase=?,progress=?,logical_bytes_after=?,physical_bytes_after=?,updated_at=? WHERE singleton=1`, next, progress, logical, physical, formatTimestamp(time.Now().UTC())); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE search_maintenance_control SET authority=?,phase=?,progress=?,logical_bytes_after=?,physical_bytes_after=?,updated_at=? WHERE singleton=1`, next.Authority(), next.Phase(), progress, logical, physical, formatTimestamp(time.Now().UTC())); err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -209,10 +252,29 @@ func (d *Database) BeginSearchRestore(ctx context.Context) (apptypes.SearchMaint
 		return apptypes.SearchMaintenanceReport{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	var currentAuthority, currentPhase string
+	var currentProgress int64
+	if err = tx.QueryRowContext(ctx, `SELECT authority,phase,progress FROM search_maintenance_control WHERE singleton=1`).Scan(&currentAuthority, &currentPhase, &currentProgress); err != nil {
+		return apptypes.SearchMaintenanceReport{}, err
+	}
+	current, err := model.SearchMaintenanceOf(model.SearchAuthority(currentAuthority), model.SearchMaintenancePhase(currentPhase), currentProgress)
+	if err != nil {
+		return apptypes.SearchMaintenanceReport{}, err
+	}
+	if current.Phase() == model.SearchMaintenanceRestoring {
+		if err = tx.Commit(); err != nil {
+			return apptypes.SearchMaintenanceReport{}, err
+		}
+		return d.SearchMaintenanceStatus(ctx)
+	}
+	next, err := current.StartRestore()
+	if err != nil {
+		return apptypes.SearchMaintenanceReport{}, err
+	}
 	if err = createLegacySearchProjection(ctx, tx); err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE search_maintenance_control SET phase='restoring',progress=0,transition_revision=(SELECT query_revision FROM literal_search_projection_state WHERE singleton=1),updated_at=? WHERE singleton=1 AND authority='tiered' AND phase IN('retired','retiring','restoring')`, formatTimestamp(time.Now().UTC()))
+	result, err := tx.ExecContext(ctx, `UPDATE search_maintenance_control SET authority=?,phase=?,progress=0,transition_revision=(SELECT query_revision FROM literal_search_projection_state WHERE singleton=1),updated_at=? WHERE singleton=1 AND authority=? AND phase=?`, next.Authority(), next.Phase(), formatTimestamp(time.Now().UTC()), current.Authority(), current.Phase())
 	if err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
@@ -236,20 +298,23 @@ func dropLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
 }
 
 func createLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS event_search_documents(search_document_id INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,body_text TEXT NOT NULL DEFAULT '',command_text TEXT NOT NULL DEFAULT '',input_text TEXT NOT NULL DEFAULT '',output_text TEXT NOT NULL DEFAULT '')`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS event_search_fts USING fts5(body_text,command_text,input_text,output_text,content='event_search_documents',content_rowid='search_document_id',tokenize='trigram case_sensitive 1')`,
-		`CREATE VIEW IF NOT EXISTS event_search_projection AS SELECT e.id event_id,lower(CASE WHEN e.body_availability='unavailable_retention' THEN '' ELSE e.body END) body_text,lower(COALESCE(a.command_text,'')) command_text,lower(COALESCE(a.input_text,'')) input_text,lower(COALESCE(a.output_text,'')) output_text FROM events e LEFT JOIN command_audits a ON a.event_id=e.id`,
-		`CREATE TRIGGER IF NOT EXISTS event_search_documents_after_insert AFTER INSERT ON event_search_documents BEGIN INSERT INTO event_search_fts(rowid,body_text,command_text,input_text,output_text) VALUES(NEW.search_document_id,NEW.body_text,NEW.command_text,NEW.input_text,NEW.output_text); END`,
-		`CREATE TRIGGER IF NOT EXISTS event_search_documents_after_delete AFTER DELETE ON event_search_documents BEGIN INSERT INTO event_search_fts(event_search_fts,rowid,body_text,command_text,input_text,output_text) VALUES('delete',OLD.search_document_id,OLD.body_text,OLD.command_text,OLD.input_text,OLD.output_text); END`,
-		`CREATE TRIGGER IF NOT EXISTS event_search_documents_after_update AFTER UPDATE OF body_text,command_text,input_text,output_text ON event_search_documents BEGIN INSERT INTO event_search_fts(event_search_fts,rowid,body_text,command_text,input_text,output_text) VALUES('delete',OLD.search_document_id,OLD.body_text,OLD.command_text,OLD.input_text,OLD.output_text); INSERT INTO event_search_fts(rowid,body_text,command_text,input_text,output_text) VALUES(NEW.search_document_id,NEW.body_text,NEW.command_text,NEW.input_text,NEW.output_text); END`,
-		`CREATE TABLE IF NOT EXISTS event_search_backfill_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1),last_event_id TEXT NOT NULL DEFAULT '',target_event_id TEXT,completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN(0,1)),updated_at TEXT NOT NULL)`,
-		`INSERT OR IGNORE INTO event_search_backfill_state(singleton,last_event_id,completed,updated_at) VALUES(1,'',0,strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='event_search_documents'`).Scan(&exists); err != nil {
+		return err
 	}
-	for _, statement := range statements {
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return xerrors.Errorf("create legacy search projection for restore: %w", err)
-		}
+	if exists == 1 {
+		return nil
+	}
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		return xerrors.Errorf("open canonical migration for restore: %w", err)
+	}
+	script, err := fs.ReadFile(migrations, "000032_add_event_search_fts.sql")
+	if err != nil {
+		return xerrors.Errorf("read canonical legacy search schema: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, string(script)); err != nil {
+		return xerrors.Errorf("recreate canonical legacy search schema: %w", err)
 	}
 	return nil
 }
@@ -326,7 +391,17 @@ func (d *Database) RestoreLegacySearchBatch(ctx context.Context, limit int) (app
 	}
 	complete := len(batch) < limit
 	if complete {
-		if err = createLegacySearchWriterTriggers(ctx, tx); err != nil {
+		var events, documents int64
+		if err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM events),(SELECT COUNT(*) FROM event_search_documents)`).Scan(&events, &documents); err != nil {
+			return apptypes.SearchMaintenanceReport{}, err
+		}
+		if events != documents {
+			return apptypes.SearchMaintenanceReport{}, xerrors.New("legacy search rebuild membership is incomplete")
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO event_search_fts(event_search_fts) VALUES('integrity-check')`); err != nil {
+			return apptypes.SearchMaintenanceReport{}, xerrors.Errorf("verify rebuilt legacy FTS: %w", err)
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE event_search_backfill_state SET last_event_id=(SELECT COALESCE(MAX(id),'') FROM events),target_event_id=(SELECT MAX(id) FROM events),completed=1,updated_at=? WHERE singleton=1`, formatTimestamp(time.Now().UTC())); err != nil {
 			return apptypes.SearchMaintenanceReport{}, err
 		}
 	}
@@ -338,9 +413,14 @@ func (d *Database) RestoreLegacySearchBatch(ctx context.Context, limit int) (app
 	if err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
-	nextAuthority, nextPhase := "tiered", "restoring"
+	nextAuthority, nextPhase := model.SearchAuthorityTiered, model.SearchMaintenanceRestoring
 	if complete {
-		nextAuthority, nextPhase = "legacy", "active"
+		state, _ := model.SearchMaintenanceOf(model.SearchAuthorityTiered, model.SearchMaintenanceRestoring, progress)
+		finished, finishErr := state.FinishRestore()
+		if finishErr != nil {
+			return apptypes.SearchMaintenanceReport{}, finishErr
+		}
+		nextAuthority, nextPhase = finished.Authority(), finished.Phase()
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE search_maintenance_control SET authority=?,phase=?,progress=?,logical_bytes_after=?,physical_bytes_after=?,updated_at=? WHERE singleton=1`, nextAuthority, nextPhase, progress, logical, physical, formatTimestamp(time.Now().UTC())); err != nil {
 		return apptypes.SearchMaintenanceReport{}, err

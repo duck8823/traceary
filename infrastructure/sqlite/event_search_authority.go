@@ -3,10 +3,7 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"log/slog"
-	"strings"
+	"sort"
 
 	"golang.org/x/xerrors"
 
@@ -14,23 +11,56 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
-// searchByPersistedAuthority is the only normal full-event authority selector.
-// CLI and MCP both reach it through EventUsecase, so presentation flags cannot
-// accidentally choose a storage implementation.
-func (d *EventDatasource) searchByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
-	db, err := d.db.open(ctx)
+func validateSearchCriteriaForAuthority(criteria apptypes.EventSearchCriteria) error {
+	if criteria.Limit() <= 0 {
+		return xerrors.New("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() < 0 {
+		return xerrors.New("offset must be greater than or equal to 0")
+	}
+	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
+		return xerrors.New("event page anchor cannot be combined with offset")
+	}
+	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
+		return xerrors.New("from must be earlier than to")
+	}
+	return nil
+}
+
+// searchMetadataByPersistedAuthority is the shared projection-neutral boundary
+// for full, metadata, and bounded normal search surfaces.
+func (d *EventDatasource) searchMetadataByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
+	authority, err := d.readSearchAuthority(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("open search authority: %w", err)
+		return nil, err
+	}
+	switch authority {
+	case "legacy":
+		return d.searchLegacyMetadata(ctx, criteria)
+	case "tiered":
+		return d.searchTieredMetadata(ctx, criteria)
+	default:
+		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
+	}
+}
+
+func (d *EventDatasource) readSearchAuthority(ctx context.Context) (string, error) {
+	db, err := d.db.openReadOnly(ctx)
+	if err != nil {
+		return "", xerrors.Errorf("open persisted search authority: %w", err)
 	}
 	defer d.db.release(db)
 	var authority string
-	err = db.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority)
+	if err = db.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
+		return "", xerrors.Errorf("read explicit persisted search authority: %w", err)
+	}
+	return authority, nil
+}
+
+func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	authority, err := d.readSearchAuthority(ctx)
 	if err != nil {
-		// Focused historical-schema tests and pre-v40 readers preserve legacy.
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table") {
-			return d.searchLegacyPageAware(ctx, criteria)
-		}
-		return nil, xerrors.Errorf("read persisted search authority: %w", err)
+		return nil, err
 	}
 	if authority == "legacy" {
 		return d.searchLegacyPageAware(ctx, criteria)
@@ -38,81 +68,106 @@ func (d *EventDatasource) searchByPersistedAuthority(ctx context.Context, criter
 	if authority != "tiered" {
 		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
 	}
-	return d.searchTieredCanonical(ctx, criteria)
+	metadata, err := d.searchTieredMetadata(ctx, criteria)
+	if err != nil {
+		return nil, err
+	}
+	return hydrateFullSearchMetadata(ctx, d, metadata)
 }
 
-// searchTieredCanonical verifies literal membership against codec-decoded
-// canonical history. Fingerprints/recent FTS are accelerators only; selecting
-// from the source sequence keeps the result complete after legacy retirement.
-func (d *EventDatasource) searchTieredCanonical(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
-	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
-	if len(query.Canonical()) > apptypes.MaxLiteralSearchQueryBytes {
-		return nil, apptypes.ErrLiteralSearchQueryTooLarge
+func (d *EventDatasource) searchTieredMetadata(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
+	if criteria.Offset() < 0 {
+		return nil, xerrors.New("offset must be greater than or equal to 0")
 	}
-	if query.Canonical() == "" {
-		return nil, xerrors.New("tiered search requires a non-empty literal query")
+	continuation := ""
+	stateDB, err := d.db.openReadOnly(ctx)
+	if err != nil {
+		return nil, err
 	}
-	db, tx, err := d.beginEventProjectionRead(ctx, "tiered canonical search")
+	var literalState, literalGeneration, boundedState, boundedGeneration string
+	var literalHigh, sourceHigh int64
+	if err = stateDB.QueryRowContext(ctx, `SELECT generation_id,high_water,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalHigh, &literalState); err == nil {
+		err = stateDB.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,''),state FROM search_projection_state WHERE singleton=1`).Scan(&boundedGeneration, &boundedState)
+	}
+	if err == nil {
+		err = stateDB.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&sourceHigh)
+	}
+	d.db.release(stateDB)
+	if err != nil {
+		return nil, xerrors.Errorf("read tiered authority projection state: %w", err)
+	}
+	if literalState != "complete" || boundedState != "complete" || literalGeneration == "" || literalGeneration != boundedGeneration || literalHigh != sourceHigh {
+		return nil, xerrors.New("tiered search projection is incomplete or stale")
+	}
+	matches := make(map[string]apptypes.EventMetadata)
+	literalCriteria := apptypes.NewEventSearchCriteriaBuilder(apptypes.MaxLiteralSearchLimit).Query(criteria.Query()).
+		Workspace(criteria.Workspace()).SessionID(criteria.SessionID()).Client(criteria.Client()).Agent(criteria.Agent()).
+		Kind(criteria.Kind()).From(criteria.From()).To(criteria.To()).FailuresOnly(criteria.FailuresOnly()).Build()
+	for {
+		page, err := d.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{
+			Criteria: literalCriteria, Budget: apptypes.DeepLiteralSearchBudget,
+			Continuation: continuation, BodyRuneLimit: 1,
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("read bounded tiered search page: %w", err)
+		}
+		for _, event := range page.Events {
+			metadata := event.Metadata()
+			matches[metadata.EventID().String()] = metadata
+		}
+		if page.Coverage.Complete {
+			if page.Continuation != "" {
+				return nil, xerrors.New("complete tiered page returned continuation")
+			}
+			break
+		}
+		if page.Continuation == "" || page.Continuation == continuation {
+			return nil, xerrors.New("tiered search continuation made no progress")
+		}
+		continuation = page.Continuation
+	}
+	ordered := make([]apptypes.EventMetadata, 0, len(matches))
+	for _, metadata := range matches {
+		ordered = append(ordered, metadata)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].CreatedAt().Equal(ordered[j].CreatedAt()) {
+			return ordered[i].EventID().String() > ordered[j].EventID().String()
+		}
+		return ordered[i].CreatedAt().After(ordered[j].CreatedAt())
+	})
+	if anchor := criteria.PageAnchor(); !anchor.IsZero() {
+		filtered := ordered[:0]
+		for _, m := range ordered {
+			if m.CreatedAt().Before(anchor.CreatedAt()) || (m.CreatedAt().Equal(anchor.CreatedAt()) && m.EventID().String() < anchor.EventID().String()) {
+				filtered = append(filtered, m)
+			}
+		}
+		ordered = filtered
+	}
+	start := criteria.Offset()
+	if start > len(ordered) {
+		start = len(ordered)
+	}
+	end := start + criteria.Limit()
+	if end > len(ordered) {
+		end = len(ordered)
+	}
+	return append([]apptypes.EventMetadata(nil), ordered[start:end]...), nil
+}
+
+func hydrateFullSearchMetadata(ctx context.Context, d *EventDatasource, metadata []apptypes.EventMetadata) ([]*model.Event, error) {
+	db, tx, err := d.beginEventProjectionRead(ctx, "full tiered search hydration")
 	if err != nil {
 		return nil, err
 	}
 	defer closeEventProjectionRead(db, tx)
-	var generation, literalState, projectionState, activeGeneration string
-	var projectionHigh, sourceHigh int64
-	if err = tx.QueryRowContext(ctx, `SELECT generation_id,high_water,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&generation, &projectionHigh, &literalState); err != nil {
-		return nil, xerrors.Errorf("read tiered literal state: %w", err)
-	}
-	if err = tx.QueryRowContext(ctx, `SELECT state,COALESCE(active_generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&projectionState, &activeGeneration); err != nil {
-		return nil, xerrors.Errorf("read tiered projection state: %w", err)
-	}
-	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&sourceHigh); err != nil {
-		return nil, err
-	}
-	if literalState != "complete" || projectionState != "complete" || generation == "" || generation != activeGeneration || projectionHigh != sourceHigh {
-		return nil, xerrors.New("tiered search projection is incomplete or stale")
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT q.event_id FROM search_projection_source_sequence q JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE (?='' OR e.workspace=?) AND (?='' OR e.session_id=?) AND (?='' OR e.client=?) AND (?='' OR e.agent=?) AND (?='' OR e.kind=?) AND (?='' OR ts_norm(e.created_at)>=ts_norm(?)) AND (?='' OR ts_norm(e.created_at)<ts_norm(?)) AND (?=0 OR COALESCE(a.failed,0)=1) AND (?='' OR ts_norm(e.created_at)<ts_norm(?) OR (ts_norm(e.created_at)=ts_norm(?) AND e.id<?)) ORDER BY ts_norm(e.created_at) DESC,e.id DESC`, criteria.Workspace().String(), criteria.Workspace().String(), criteria.SessionID().String(), criteria.SessionID().String(), criteria.Client().String(), criteria.Client().String(), criteria.Agent().String(), criteria.Agent().String(), criteria.Kind().String(), criteria.Kind().String(), formatMetadataOptionalTimestamp(criteria.From()), formatMetadataOptionalTimestamp(criteria.From()), formatMetadataOptionalTimestamp(criteria.To()), formatMetadataOptionalTimestamp(criteria.To()), boolToInt(criteria.FailuresOnly()), formatMetadataOptionalTimestamp(criteria.PageAnchor().CreatedAt()), formatMetadataOptionalTimestamp(criteria.PageAnchor().CreatedAt()), formatMetadataOptionalTimestamp(criteria.PageAnchor().CreatedAt()), criteria.PageAnchor().EventID().String())
-	if err != nil {
-		return nil, xerrors.Errorf("select tiered canonical candidates: %w", err)
-	}
-	ids := make([]string, 0, criteria.Limit())
-	skipped := 0
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-		matched, matchErr := decodedEventSearchMatch(ctx, tx, id, query.Canonical())
-		if matchErr != nil {
-			_ = rows.Close()
-			return nil, matchErr
-		}
-		if !matched {
-			continue
-		}
-		if skipped < criteria.Offset() {
-			skipped++
-			continue
-		}
-		ids = append(ids, id)
-		if len(ids) == criteria.Limit() {
-			break
-		}
-	}
-	if err = rows.Err(); err != nil {
-		_ = rows.Close()
-		return nil, xerrors.Errorf("iterate tiered canonical candidates: %w", err)
-	}
-	if closeErr := rows.Close(); closeErr != nil {
-		slog.Debug("failed to close tiered candidates", "error", closeErr)
-	}
-	events, err := hydrateEventSearchCandidates(ctx, tx, ids)
+	events, err := hydrateFullEventMetadata(ctx, tx, metadata)
 	if err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("finish tiered canonical search: %w", err)
+		return nil, xerrors.Errorf("finish full tiered search hydration: %w", err)
 	}
 	return events, nil
 }

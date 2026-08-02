@@ -14,6 +14,10 @@ DROP、VACUUM しません。
    なります。その後 bounded search projection と同一 HEAD の parity-v2 を
    完了します。copy store の artifact は互換性証跡であり、退役の認可には
    使用できません。
+   合格した `fingerprint_eligible` と `bounded_verification` artifact は、
+   private mode 0600 の manifest から
+   `store-benchmark --authorize-search-parity MANIFEST` で actual-target v2
+   evidence に結合します。
 2. `traceary store search-maintenance start-retire --evidence ARTIFACT
    --expected-revision COMMIT` を実行します。Traceary は projection state、
    source high-water、集計値、store 固有鍵を fresh snapshot で再取得し、

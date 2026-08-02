@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
+	infra "github.com/duck8823/traceary/infrastructure/sqlite"
+	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
 
 func TestSearchParitySyntheticExhaustsBothChainsWithoutPrivateOutput(t *testing.T) {
@@ -48,6 +51,66 @@ func TestSearchParitySyntheticExhaustsBothChainsWithoutPrivateOutput(t *testing.
 		if strings.Contains(string(data), private) {
 			t.Fatalf("artifact exposed private value/field %q: %s", private, data)
 		}
+	}
+}
+
+func TestActualTargetV2EvidenceAuthorizesAtomicRetirement(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "target.db")
+	if _, err := createSynthetic(ctx, path, 3, 1); err != nil {
+		t.Fatal(err)
+	}
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := infra.NewDatabase(path, migrations)
+	if _, err = database.AdoptSearchRetirementTarget(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.Exec(`UPDATE literal_search_projection_state SET generation_id='authorized',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete'; UPDATE search_projection_state SET generation_id='authorized',active_generation_id='authorized',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete',phase='complete'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	snapshot, err := database.SearchRetirementSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeArtifact := func(class, tier string) searchParityArtifact {
+		a := validSearchParityArtifact()
+		a.Revision = parityRevision{Commit: strings.Repeat("a", 40)}
+		a.Projection = parityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
+		a.Tiered.QueryClass = class
+		a.Tiered.ObservedTier = tier
+		a.Tiered.Coverage = parityCoverage{Processed: snapshot.ProjectionHighWater, Examined: snapshot.ProjectionHighWater, HighWater: snapshot.ProjectionHighWater, Complete: true}
+		a.Legacy.LatencyUS = 100
+		a.Tiered.LatencyUS = 120
+		return a
+	}
+	dir := t.TempDir()
+	fingerprintPath := filepath.Join(dir, "fingerprint.json")
+	boundedPath := filepath.Join(dir, "bounded.json")
+	manifestPath := filepath.Join(dir, "manifest.json")
+	write := func(path string, v any) {
+		data, _ := json.Marshal(v)
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(fingerprintPath, makeArtifact("fingerprint_eligible", string(apptypes.LiteralSearchTierFingerprint)))
+	write(boundedPath, makeArtifact("bounded_verification", string(apptypes.LiteralSearchTierBoundedVerification)))
+	write(manifestPath, parityAuthorizationManifest{DBPath: path, FingerprintArtifact: fingerprintPath, BoundedArtifact: boundedPath})
+	evidence, err := buildActualTargetParityEvidence(ctx, manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(evidence)
+	if _, err = usecase.NewSearchMaintenanceUsecase(database).StartRetire(ctx, encoded, strings.Repeat("a", 40)); err != nil {
+		t.Fatalf("StartRetire(actual target v2)=%v", err)
 	}
 }
 

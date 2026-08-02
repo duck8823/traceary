@@ -210,6 +210,16 @@ func (d *EventDatasource) SearchMetadata(
 	ctx context.Context,
 	criteria apptypes.EventSearchCriteria,
 ) ([]apptypes.EventMetadata, error) {
+	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
+		return nil, err
+	}
+	return d.searchMetadataByPersistedAuthority(ctx, criteria)
+}
+
+func (d *EventDatasource) searchLegacyMetadata(
+	ctx context.Context,
+	criteria apptypes.EventSearchCriteria,
+) ([]apptypes.EventMetadata, error) {
 	if criteria.Limit() <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}

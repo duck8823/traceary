@@ -306,7 +306,7 @@ func (d *EventDatasource) Search(
 		Query(query).Workspace(workspace).SessionID(sessionID).Client(client).
 		Agent(agent).Kind(kind).From(from).To(to).Offset(offset).
 		FailuresOnly(failuresOnly).Build()
-	return d.searchByPersistedAuthority(ctx, criteria)
+	return d.searchFullByPersistedAuthority(ctx, criteria)
 }
 
 // SearchLegacyPage executes the pre-tiered event search implementation. It is

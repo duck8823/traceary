@@ -73,7 +73,7 @@ func (d *EventDatasource) SearchPage(
 	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
-	return d.searchByPersistedAuthority(ctx, criteria)
+	return d.searchFullByPersistedAuthority(ctx, criteria)
 }
 
 func (d *EventDatasource) searchLegacyPageAware(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {

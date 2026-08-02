@@ -49,3 +49,17 @@ func TestSearchMaintenanceRejectsImpossibleStates(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchMaintenanceRestoreResendPreservesProgress(t *testing.T) {
+	state, err := model.SearchMaintenanceOf(model.SearchAuthorityTiered, model.SearchMaintenanceRestoring, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resent, err := state.StartRestore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resent.Progress() != 42 || resent.Phase() != model.SearchMaintenanceRestoring {
+		t.Fatalf("resent=%s/%d", resent.Phase(), resent.Progress())
+	}
+}

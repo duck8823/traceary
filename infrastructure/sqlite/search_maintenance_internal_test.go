@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = database.BeginSearchRetirement(ctx, "opaque", snapshot); err != nil {
+	if _, err = database.BeginSearchRetirement(ctx, retirementEvidence(t, snapshot), snapshot); err != nil {
 		t.Fatal(err)
 	}
 	first, err := database.RetireLegacySearchBatch(ctx, 1)
@@ -108,6 +109,23 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if docs != 5 {
 		t.Fatalf("restored writer documents=%d", docs)
 	}
+	var completed int
+	if err = raw.QueryRowContext(ctx, `SELECT completed FROM event_search_backfill_state WHERE singleton=1`).Scan(&completed); err != nil || completed != 1 {
+		t.Fatalf("backfill completed=%d err=%v", completed, err)
+	}
+	if _, err = raw.ExecContext(ctx, `UPDATE events SET body='updated marker' WHERE id='e5'`); err != nil {
+		t.Fatal(err)
+	}
+	var indexed string
+	if err = raw.QueryRowContext(ctx, `SELECT body_text FROM event_search_documents WHERE event_id='e5'`).Scan(&indexed); err != nil || indexed != "updated marker" {
+		t.Fatalf("updated document=%q err=%v", indexed, err)
+	}
+	if _, err = raw.ExecContext(ctx, `DELETE FROM events WHERE id='e5'`); err != nil {
+		t.Fatal(err)
+	}
+	if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_search_documents`).Scan(&docs); err != nil || docs != 4 {
+		t.Fatalf("delete propagation docs=%d err=%v", docs, err)
+	}
 }
 
 func TestPersistedTieredAuthorityPreservesDescendingContinuationAndFailsClosed(t *testing.T) {
@@ -151,6 +169,33 @@ func TestPersistedTieredAuthorityPreservesDescendingContinuationAndFailsClosed(t
 	if len(page) != 1 || page[0].EventID().String() != "older" {
 		t.Fatalf("continuation=%v", eventIDs(page))
 	}
+	metadata, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil || len(metadata) != 1 || metadata[0].EventID().String() != "newer" {
+		t.Fatalf("tiered metadata=%v err=%v", metadata, err)
+	}
+	bounded, err := datasource.SearchBounded(ctx, criteria, 100)
+	if err != nil || len(bounded) != 1 || bounded[0].Metadata().EventID().String() != "newer" {
+		t.Fatalf("tiered bounded=%v err=%v", bounded, err)
+	}
+	raw, err = database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{"DROP VIEW event_search_projection", "DROP TABLE event_search_fts", "DROP TABLE event_search_documents", "DROP TABLE event_search_backfill_state"} {
+		if _, err = raw.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = raw.Close()
+	if _, err = datasource.SearchPage(ctx, criteria); err != nil {
+		t.Fatalf("full search referenced retired legacy schema: %v", err)
+	}
+	if _, err = datasource.SearchMetadata(ctx, criteria); err != nil {
+		t.Fatalf("metadata search referenced retired legacy schema: %v", err)
+	}
+	if _, err = datasource.SearchBounded(ctx, criteria, 100); err != nil {
+		t.Fatalf("bounded search referenced retired legacy schema: %v", err)
+	}
 	raw, err = database.open(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +228,7 @@ func TestSearchMaintenanceRestoreFailureDoesNotSwitchAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at,body_codec,body_plaintext_bytes,body_encoded_bytes) VALUES('bad','note','codex','codex','s','w',X'00','2026-01-01T00:00:00Z','zstd',1,1); UPDATE literal_search_projection_state SET generation_id='g',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete'; UPDATE search_maintenance_control SET target_adopted=1`)
+	_, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at,body_codec,body_plaintext_bytes,body_encoded_bytes) VALUES('bad','note','codex','codex','s','w',X'00','2026-01-01T00:00:00Z','zstd',1,1); UPDATE literal_search_projection_state SET generation_id='g',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete'; UPDATE search_projection_state SET generation_id='g',active_generation_id='g',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete',phase='complete'; UPDATE search_maintenance_control SET target_adopted=1`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +237,7 @@ func TestSearchMaintenanceRestoreFailureDoesNotSwitchAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = database.BeginSearchRetirement(ctx, "opaque", snapshot); err != nil {
+	if _, err = database.BeginSearchRetirement(ctx, retirementEvidence(t, snapshot), snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = database.RetireLegacySearchBatch(ctx, 10); err != nil {
@@ -271,4 +316,17 @@ func TestAdoptSearchRetirementTargetRotatesKeyAndInvalidatesProjection(t *testin
 	if !after.TargetAdopted || string(before.CursorKey) == string(after.CursorKey) || after.ProjectionState != "stale" {
 		t.Fatalf("target adoption did not rotate and invalidate")
 	}
+}
+
+func retirementEvidence(t *testing.T, snapshot apptypes.SearchRetirementSnapshot) apptypes.SearchParityV2Evidence {
+	t.Helper()
+	revision := apptypes.SearchParityRevision{Commit: strings.Repeat("a", 40)}
+	projection := apptypes.SearchParityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
+	binding, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(revision, projection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", "fingerprint_eligible", binding)
+	b, _ := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", "bounded_verification", binding)
+	return apptypes.SearchParityV2Evidence{SchemaVersion: apptypes.SearchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: revision, Projection: projection, Criteria: []apptypes.SearchParityCriterion{{QueryClass: "fingerprint_eligible", CriterionBinding: a, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 1, TieredLatencyUS: 1}, {QueryClass: "bounded_verification", CriterionBinding: b, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 1, TieredLatencyUS: 1}}}
 }

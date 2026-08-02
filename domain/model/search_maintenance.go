@@ -70,6 +70,9 @@ func (m SearchMaintenance) FinishRetire() (SearchMaintenance, error) {
 }
 
 func (m SearchMaintenance) StartRestore() (SearchMaintenance, error) {
+	if m.authority == SearchAuthorityTiered && m.phase == SearchMaintenanceRestoring {
+		return m, nil
+	}
 	if m.authority != SearchAuthorityTiered || (m.phase != SearchMaintenanceRetired && m.phase != SearchMaintenanceRetiring) {
 		return SearchMaintenance{}, xerrors.Errorf("cannot restore search from %s/%s", m.authority, m.phase)
 	}

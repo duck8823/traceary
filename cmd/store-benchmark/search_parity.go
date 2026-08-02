@@ -45,6 +45,94 @@ type parityV2EvidenceSuite struct {
 	Criteria           []parityCriterionEvidence `json:"criteria"`
 }
 
+type parityAuthorizationManifest struct {
+	DBPath              string `json:"db_path"`
+	FingerprintArtifact string `json:"fingerprint_artifact"`
+	BoundedArtifact     string `json:"bounded_artifact"`
+}
+
+func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2EvidenceSuite, error) {
+	data, err := readPrivateParityFile(path, maxParityManifestBytes)
+	if err != nil {
+		return parityV2EvidenceSuite{}, errors.New("authorization_manifest_invalid")
+	}
+	var manifest parityAuthorizationManifest
+	if decodeStrictJSON(data, &manifest) != nil || manifest.DBPath == "" || manifest.FingerprintArtifact == "" || manifest.BoundedArtifact == "" {
+		return parityV2EvidenceSuite{}, errors.New("authorization_manifest_invalid")
+	}
+	read := func(artifactPath string) (searchParityArtifact, error) {
+		raw, readErr := readPrivateParityFile(artifactPath, maxParityArtifactBytes)
+		if readErr != nil || validateSearchParityJSON(raw) != nil {
+			return searchParityArtifact{}, errors.New("authorization_artifact_invalid")
+		}
+		var artifact searchParityArtifact
+		if decodeStrictJSON(raw, &artifact) != nil || artifact.Status != "passed" || !artifact.Comparison.Equal || !artifact.Tiered.Coverage.Complete {
+			return artifact, errors.New("authorization_artifact_invalid")
+		}
+		return artifact, nil
+	}
+	fingerprint, err := read(manifest.FingerprintArtifact)
+	if err != nil {
+		return parityV2EvidenceSuite{}, err
+	}
+	bounded, err := read(manifest.BoundedArtifact)
+	if err != nil {
+		return parityV2EvidenceSuite{}, err
+	}
+	if fingerprint.Tiered.QueryClass != "fingerprint_eligible" || bounded.Tiered.QueryClass != "bounded_verification" || fingerprint.Revision != bounded.Revision || fingerprint.Projection != bounded.Projection {
+		return parityV2EvidenceSuite{}, errors.New("authorization_artifact_mismatch")
+	}
+	database, err := infra.NewImmutableReadDatabase(ctx, manifest.DBPath)
+	if err != nil {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	defer database.CloseSharedReadOnly()
+	snapshot, err := database.SearchRetirementSnapshot(ctx)
+	if err != nil || !snapshot.TargetAdopted || snapshot.ProjectionState != "complete" || snapshot.ProjectionRevision != fingerprint.Projection.Revision || snapshot.ProjectionHighWater != fingerprint.Projection.HighWater {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	revision := apptypes.SearchParityRevision{Commit: fingerprint.Revision.Commit, Dirty: fingerprint.Revision.Dirty}
+	projection := apptypes.SearchParityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
+	binding, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(revision, projection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes)...)
+	if err != nil {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	criterion := func(class string, artifact searchParityArtifact) (parityCriterionEvidence, error) {
+		b, e := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", class, binding)
+		return parityCriterionEvidence{QueryClass: class, CriterionBinding: b, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: artifact.Legacy.LatencyUS, TieredLatencyUS: artifact.Tiered.LatencyUS}, e
+	}
+	a, err := criterion("fingerprint_eligible", fingerprint)
+	if err != nil {
+		return parityV2EvidenceSuite{}, err
+	}
+	b, err := criterion("bounded_verification", bounded)
+	if err != nil {
+		return parityV2EvidenceSuite{}, err
+	}
+	return parityV2EvidenceSuite{SchemaVersion: searchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: fingerprint.Revision, Projection: parityProjection{Revision: projection.Revision, HighWater: projection.HighWater, LogicalBytes: projection.LogicalBytes, PhysicalBytes: projection.PhysicalBytes}, Criteria: []parityCriterionEvidence{a, b}}, nil
+}
+
+func readPrivateParityFile(path string, limit int) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > int64(limit) {
+		return nil, errors.New("private parity file permissions")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return nil, errors.New("private parity file changed")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
+	if err != nil || len(data) > limit {
+		return nil, errors.New("private parity file exceeds limit")
+	}
+	return data, nil
+}
+
 type parityCriterionEvidence struct {
 	QueryClass       string `json:"query_class"`
 	CriterionBinding string `json:"criterion_binding"`

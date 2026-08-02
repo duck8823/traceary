@@ -22,7 +22,7 @@ func (*searchMaintenanceStoreFake) AdoptSearchRetirementTarget(context.Context) 
 func (f *searchMaintenanceStoreFake) SearchRetirementSnapshot(context.Context) (apptypes.SearchRetirementSnapshot, error) {
 	return f.snapshot, nil
 }
-func (f *searchMaintenanceStoreFake) BeginSearchRetirement(context.Context, string, apptypes.SearchRetirementSnapshot) (apptypes.SearchMaintenanceReport, error) {
+func (f *searchMaintenanceStoreFake) BeginSearchRetirement(context.Context, apptypes.SearchParityV2Evidence, apptypes.SearchRetirementSnapshot) (apptypes.SearchMaintenanceReport, error) {
 	f.began++
 	return apptypes.SearchMaintenanceReport{}, nil
 }
