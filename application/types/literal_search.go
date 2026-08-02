@@ -19,6 +19,10 @@ const (
 	maxLiteralQueryFingerprints = 128
 	// MaxLiteralSearchQueryBytes bounds normalization and gram allocation.
 	MaxLiteralSearchQueryBytes = 64 << 10
+	// MaxLiteralSearchLimit bounds result allocation independently of protocols.
+	MaxLiteralSearchLimit = 100
+	// MaxLiteralSearchSourceRows bounds source-page allocation and SQL LIMIT.
+	MaxLiteralSearchSourceRows = 4096
 )
 
 // LiteralQuery owns the normalization shared by candidate construction and
@@ -130,6 +134,26 @@ type LiteralSearchRequest struct {
 	Budget        LiteralSearchBudget
 	Continuation  string
 	BodyRuneLimit int
+}
+
+// Validate checks caller-controlled allocation and paging invariants.
+func (r LiteralSearchRequest) Validate() error {
+	if !r.Budget.Valid() {
+		return fmt.Errorf("%w: budget must be positive", ErrLiteralSearchInvalidRequest)
+	}
+	if r.Budget.SourceRows > MaxLiteralSearchSourceRows {
+		return fmt.Errorf("%w: source rows exceed maximum", ErrLiteralSearchInvalidRequest)
+	}
+	if r.Criteria.Limit() <= 0 || r.Criteria.Limit() > MaxLiteralSearchLimit {
+		return fmt.Errorf("%w: limit is outside the supported range", ErrLiteralSearchInvalidRequest)
+	}
+	if !r.Criteria.From().IsZero() && !r.Criteria.To().IsZero() && r.Criteria.From().After(r.Criteria.To()) {
+		return fmt.Errorf("%w: from must not be after to", ErrLiteralSearchInvalidRequest)
+	}
+	if r.Criteria.Offset() != 0 || !r.Criteria.PageAnchor().IsZero() {
+		return fmt.Errorf("%w: offset and page anchor are unsupported", ErrLiteralSearchInvalidRequest)
+	}
+	return nil
 }
 
 // LiteralSearchPage exposes matches and honest completeness metadata.

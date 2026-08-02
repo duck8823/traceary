@@ -21,17 +21,8 @@ var _ queryservice.TieredEventSearchQuery = (*EventDatasource)(nil)
 // fingerprints are deliberately treated as an optional candidate accelerator:
 // until a complete matching generation exists, every source remains eligible.
 func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
-	if !request.Budget.Valid() {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("%w: budget must be positive", apptypes.ErrLiteralSearchInvalidRequest)
-	}
-	if request.Criteria.Limit() <= 0 {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("%w: limit must be positive", apptypes.ErrLiteralSearchInvalidRequest)
-	}
-	if !request.Criteria.From().IsZero() && !request.Criteria.To().IsZero() && request.Criteria.From().After(request.Criteria.To()) {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("%w: from must not be after to", apptypes.ErrLiteralSearchInvalidRequest)
-	}
-	if request.Criteria.Offset() != 0 || !request.Criteria.PageAnchor().IsZero() {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("%w: offset and page anchor are unsupported", apptypes.ErrLiteralSearchInvalidRequest)
+	if validateErr := request.Validate(); validateErr != nil {
+		return apptypes.LiteralSearchPage{}, xerrors.Errorf("validate literal search request: %w", validateErr)
 	}
 	query := apptypes.CharacterizeLiteralQuery(request.Criteria.Query())
 	if len(query.Canonical()) > apptypes.MaxLiteralSearchQueryBytes {
@@ -89,8 +80,9 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		return apptypes.LiteralSearchPage{}, xerrors.Errorf("iterate literal verification sources: %w", err)
 	}
 
-	matched := make([]string, 0, request.Criteria.Limit())
-	matchContinuations := make([]string, 0, request.Criteria.Limit())
+	resultCapacity := min(request.Criteria.Limit(), request.Budget.SourceRows, apptypes.MaxLiteralSearchLimit)
+	matched := make([]string, 0, resultCapacity)
+	matchContinuations := make([]string, 0, resultCapacity)
 	var usedStored, usedDecoded int64
 	last := after
 	var examined int64

@@ -1,7 +1,9 @@
 package types_test
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -137,5 +139,19 @@ func TestLiteralQueryOversizeFingerprintSetFallsBackToInclusiveVerification(t *t
 	}
 	if apptypes.CharacterizeLiteralQuery(b.String()).Filterable() {
 		t.Fatal("oversize query remained filterable")
+	}
+}
+
+func TestLiteralSearchRequestAllocationBounds(t *testing.T) {
+	t.Parallel()
+	validBudget := apptypes.LiteralSearchBudget{SourceRows: apptypes.MaxLiteralSearchSourceRows, StoredBytes: 1, DecodedBytes: 1}
+	boundary := apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(apptypes.MaxLiteralSearchLimit).Query("needle").Build(), Budget: validBudget}
+	if err := boundary.Validate(); err != nil {
+		t.Fatalf("boundary error=%v", err)
+	}
+	for _, request := range []apptypes.LiteralSearchRequest{{Criteria: apptypes.NewEventSearchCriteriaBuilder(math.MaxInt).Query("needle").Build(), Budget: validBudget}, {Criteria: apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Build(), Budget: apptypes.LiteralSearchBudget{SourceRows: math.MaxInt, StoredBytes: 1, DecodedBytes: 1}}} {
+		if err := request.Validate(); !errors.Is(err, apptypes.ErrLiteralSearchInvalidRequest) {
+			t.Fatalf("error=%v", err)
+		}
 	}
 }

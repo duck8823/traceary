@@ -467,6 +467,17 @@ VALUES('zstd',?,'','echo',?,?,0,0,5,6,0,'unknown',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		t.Fatal(err)
 	}
 	datasource := NewEventDatasource(database)
+	literalCriteria := apptypes.NewEventSearchCriteriaBuilder(2).Query("echo redacted").SessionID(domtypes.SessionID("zstd-session")).Build()
+	if _, literalErr := datasource.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: literalCriteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 20, StoredBytes: 1, DecodedBytes: 1}, BodyRuneLimit: 100}); literalErr == nil {
+		t.Fatal("compressed literal search ignored decode ledger")
+	}
+	literalPage, literalErr := datasource.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: literalCriteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 20, StoredBytes: 1 << 20, DecodedBytes: 1 << 20}, BodyRuneLimit: 100})
+	if literalErr != nil {
+		t.Fatal(literalErr)
+	}
+	if len(literalPage.Events) != 1 || literalPage.Events[0].Metadata().EventID().String() != "zstd" {
+		t.Fatalf("compressed literal events=%+v", literalPage.Events)
+	}
 	eventUC := usecase.NewEventUsecase(datasource, datasource)
 	redacted, err := eventUC.Log(ctx, "Authorization: Bearer secret-token-value", domtypes.EventKindTranscript, "hook", "codex", "redaction-session", "/repo", apptypes.NewLogRedactionBuilder().Build())
 	if err != nil {
