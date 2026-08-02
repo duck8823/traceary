@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -127,6 +128,71 @@ func TestSearchParityArtifactValidatorIsStrictAndPrivacyFailClosed(t *testing.T)
 				t.Fatal("invalid artifact accepted")
 			}
 		})
+	}
+}
+
+func TestSearchParityArtifactRequiresEmittedScalarFields(t *testing.T) {
+	data, _ := json.Marshal(validSearchParityArtifact())
+	for _, field := range []string{`"dirty":false`, `"duplicate_count":0`, `"continuation_count":0`} {
+		t.Run(field, func(t *testing.T) {
+			without := bytes.Replace(data, append([]byte(","), []byte(field)...), nil, 1)
+			if bytes.Equal(without, data) {
+				without = bytes.Replace(data, append([]byte(field), ','), nil, 1)
+			}
+			if validateSearchParityJSON(without) == nil {
+				t.Fatalf("artifact without %s accepted: %s", field, without)
+			}
+		})
+	}
+}
+
+func TestParityBudgetValidationUsesManifestBounds(t *testing.T) {
+	valid := parityBudget{SourceRows: apptypes.MaxLiteralSearchSourceRows, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: maxParityTimeoutMS}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("boundary budget rejected: %v", err)
+	}
+	for name, budget := range map[string]parityBudget{
+		"source rows oversized": {SourceRows: apptypes.MaxLiteralSearchSourceRows + 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1},
+		"timeout oversized":     {SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: maxParityTimeoutMS + 1},
+		"stored bytes zero":     {SourceRows: 1, DecodedBytes: 1, TimeoutMS: 1},
+		"decoded bytes zero":    {SourceRows: 1, StoredBytes: 1, TimeoutMS: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if budget.Validate() == nil {
+				t.Fatal("invalid budget accepted")
+			}
+		})
+	}
+}
+
+func TestSearchParityProjectionAllowsZeroLogicalBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zero-logical.db")
+	if _, err := createSynthetic(context.Background(), path, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE events SET body='', body_plaintext_bytes=0; UPDATE command_audits SET command_text='', input_text='', output_text='', command_plaintext_bytes=0, input_plaintext_bytes=0, output_plaintext_bytes=0`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	projection, err := readParityProjection(context.Background(), path)
+	if err != nil {
+		t.Fatalf("read zero logical projection: %v", err)
+	}
+	if projection.LogicalBytes != 0 || projection.PhysicalBytes <= 0 || projection.Revision <= 0 {
+		t.Fatalf("projection=%+v", projection)
+	}
+	artifact := validSearchParityArtifact()
+	artifact.Projection.LogicalBytes = 0
+	data, _ := json.Marshal(artifact)
+	if err := validateSearchParityJSON(data); err != nil {
+		t.Fatalf("zero logical artifact rejected: %v", err)
 	}
 }
 

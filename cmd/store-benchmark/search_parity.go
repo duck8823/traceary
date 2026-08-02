@@ -56,12 +56,12 @@ type parityChain struct {
 	ContinuationCount   int            `json:"continuation_count"`
 	Members             int            `json:"members"`
 	DuplicateCount      int            `json:"duplicate_count"`
-	LatencyUS           int64          `json:"latency_us,omitempty"`
-	ElapsedLowerBoundUS int64          `json:"elapsed_lower_bound_us,omitempty"`
-	QueryClass          string         `json:"query_class,omitempty"`
-	ObservedTier        string         `json:"observed_tier,omitempty"`
-	Coverage            parityCoverage `json:"coverage,omitempty"`
-	PartialReason       string         `json:"partial_reason,omitempty"`
+	LatencyUS           int64          `json:"latency_us"`
+	ElapsedLowerBoundUS int64          `json:"elapsed_lower_bound_us"`
+	QueryClass          string         `json:"query_class"`
+	ObservedTier        string         `json:"observed_tier"`
+	Coverage            parityCoverage `json:"coverage"`
+	PartialReason       string         `json:"partial_reason"`
 }
 
 type parityCoverage struct {
@@ -85,6 +85,31 @@ type parityBudget struct {
 	TimeoutMS    int64 `json:"timeout_ms"`
 }
 
+func (b parityBudget) Validate() error {
+	if b.SourceRows < 1 || b.SourceRows > apptypes.MaxLiteralSearchSourceRows || b.StoredBytes < 1 || b.DecodedBytes < 1 || b.TimeoutMS < 1 || b.TimeoutMS > maxParityTimeoutMS {
+		return errors.New("invalid parity budget")
+	}
+	return nil
+}
+
+type validatedSearchParityManifest struct {
+	manifest searchParityManifest
+	criteria parityCriteria
+}
+
+func validateSearchParityManifest(m searchParityManifest) (validatedSearchParityManifest, error) {
+	budget := parityBudget{SourceRows: m.SourceRows, StoredBytes: m.StoredBytes, DecodedBytes: m.DecodedBytes, TimeoutMS: m.TimeoutMS}
+	if m.DBPath == "" || strings.TrimSpace(m.Query) == "" || len(m.Query) > apptypes.MaxLiteralSearchQueryBytes || !validCommit(m.ExpectedRevision) || m.ExpectedDirty == nil || *m.ExpectedDirty ||
+		m.LegacyPageSize < 1 || m.LegacyPageSize > maxParityPageSize || m.TieredPageSize < 1 || m.TieredPageSize > apptypes.MaxLiteralSearchLimit || budget.Validate() != nil {
+		return validatedSearchParityManifest{}, errors.New("manifest_invalid")
+	}
+	criteria, err := parseParityCriteria(m)
+	if err != nil {
+		return validatedSearchParityManifest{}, err
+	}
+	return validatedSearchParityManifest{manifest: m, criteria: criteria}, nil
+}
+
 type parityComparison struct {
 	LegacyOnly int  `json:"legacy_only"`
 	TieredOnly int  `json:"tiered_only"`
@@ -101,8 +126,8 @@ type searchParityArtifact struct {
 	Comparison          parityComparison `json:"comparison"`
 	Projection          parityProjection `json:"projection"`
 	Budget              parityBudget     `json:"budget"`
-	ErrorClass          string           `json:"error_class,omitempty"`
-	ElapsedLowerBoundUS int64            `json:"elapsed_lower_bound_us,omitempty"`
+	ErrorClass          string           `json:"error_class"`
+	ElapsedLowerBoundUS int64            `json:"elapsed_lower_bound_us"`
 }
 
 type parityCriteria struct {
@@ -145,44 +170,58 @@ func readSearchParityManifest(path string, stdin io.Reader) (searchParityManifes
 	if err := validateJSONObjectKeys(data, manifestJSONKeys()); err != nil {
 		return searchParityManifest{}, errors.New("manifest_invalid")
 	}
-	if manifest.DBPath == "" || strings.TrimSpace(manifest.Query) == "" || len(manifest.Query) > apptypes.MaxLiteralSearchQueryBytes || !validCommit(manifest.ExpectedRevision) || manifest.ExpectedDirty == nil || *manifest.ExpectedDirty ||
-		manifest.LegacyPageSize < 1 || manifest.LegacyPageSize > maxParityPageSize || manifest.TieredPageSize < 1 || manifest.TieredPageSize > apptypes.MaxLiteralSearchLimit ||
-		manifest.SourceRows < 1 || manifest.SourceRows > apptypes.MaxLiteralSearchSourceRows || manifest.StoredBytes < 1 ||
-		manifest.DecodedBytes < 1 || manifest.TimeoutMS < 1 || manifest.TimeoutMS > maxParityTimeoutMS {
+	if _, err := validateSearchParityManifest(manifest); err != nil {
 		return searchParityManifest{}, errors.New("manifest_invalid")
 	}
 	return manifest, nil
 }
 
-func manifestJSONKeys() map[string]any {
-	keys := map[string]any{}
-	for _, key := range []string{"db_path", "query", "workspace", "session_id", "client", "agent", "kind", "from", "to", "failures_only", "legacy_page_size", "tiered_page_size", "source_rows", "stored_bytes", "decoded_bytes", "timeout_ms", "expected_revision", "expected_dirty"} {
-		keys[key] = nil
+func manifestJSONKeys() jsonObjectSchema {
+	required := map[string]any{}
+	optional := map[string]any{}
+	for _, key := range []string{"db_path", "query", "legacy_page_size", "tiered_page_size", "source_rows", "stored_bytes", "decoded_bytes", "timeout_ms", "expected_revision", "expected_dirty"} {
+		required[key] = nil
 	}
-	return keys
+	for _, key := range []string{"workspace", "session_id", "client", "agent", "kind", "from", "to", "failures_only"} {
+		optional[key] = nil
+	}
+	return jsonObjectSchema{required: required, optional: optional}
 }
 
 // validateJSONObjectKeys closes encoding/json's case-insensitive field-name
 // matching. Each object is checked against its exact, case-sensitive schema.
-func validateJSONObjectKeys(data []byte, schema map[string]any) error {
+type jsonObjectSchema struct {
+	required map[string]any
+	optional map[string]any
+}
+
+func validateJSONObjectKeys(data []byte, schema jsonObjectSchema) error {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&value); err != nil {
 		return fmt.Errorf("decode JSON key schema: %w", err)
 	}
-	var walk func(any, map[string]any) error
-	walk = func(node any, allowed map[string]any) error {
+	var walk func(any, jsonObjectSchema) error
+	walk = func(node any, allowed jsonObjectSchema) error {
 		object, ok := node.(map[string]any)
 		if !ok {
 			return errors.New("JSON object required")
 		}
+		for key := range allowed.required {
+			if _, exists := object[key]; !exists {
+				return errors.New("required JSON field missing")
+			}
+		}
 		for key, child := range object {
-			nested, exists := allowed[key]
+			nested, exists := allowed.required[key]
+			if !exists {
+				nested, exists = allowed.optional[key]
+			}
 			if !exists {
 				return errors.New("unknown JSON field")
 			}
-			if nestedSchema, ok := nested.(map[string]any); ok {
+			if nestedSchema, ok := nested.(jsonObjectSchema); ok {
 				if err := walk(child, nestedSchema); err != nil {
 					return err
 				}
@@ -351,18 +390,14 @@ func runSearchParity(ctx context.Context, manifest searchParityManifest) searchP
 	started := time.Now()
 	artifact := searchParityArtifact{SchemaVersion: searchParitySchema, ComparisonContract: membershipSetContract,
 		Budget: parityBudget{SourceRows: manifest.SourceRows, StoredBytes: manifest.StoredBytes, DecodedBytes: manifest.DecodedBytes, TimeoutMS: manifest.TimeoutMS}}
-	criteria, err := parseParityCriteria(manifest)
-	if err == nil {
-		if manifest.DBPath == "" || strings.TrimSpace(manifest.Query) == "" || len(manifest.Query) > apptypes.MaxLiteralSearchQueryBytes || !validCommit(manifest.ExpectedRevision) || manifest.ExpectedDirty == nil || *manifest.ExpectedDirty || manifest.LegacyPageSize < 1 || manifest.LegacyPageSize > maxParityPageSize || manifest.TieredPageSize < 1 || manifest.TieredPageSize > apptypes.MaxLiteralSearchLimit || manifest.SourceRows < 1 || manifest.SourceRows > apptypes.MaxLiteralSearchSourceRows || manifest.StoredBytes < 1 || manifest.DecodedBytes < 1 || manifest.TimeoutMS < 1 || manifest.TimeoutMS > maxParityTimeoutMS {
-			err = errors.New("manifest_invalid")
-		}
-	}
+	validated, err := validateSearchParityManifest(manifest)
 	if err != nil {
 		artifact.Budget = parityBudget{SourceRows: max(manifest.SourceRows, 1), StoredBytes: max(manifest.StoredBytes, 1), DecodedBytes: max(manifest.DecodedBytes, 1), TimeoutMS: max(manifest.TimeoutMS, 1)}
 		artifact.Status = "failed"
 		artifact.ErrorClass = fixedErrorClass(err)
 		return finalizeParityOutcome(artifact)
 	}
+	criteria := validated.criteria
 	revision, err := parityRevisionReader(ctx)
 	artifact.Revision = revision
 	if err != nil {
@@ -655,23 +690,23 @@ func validateSearchParityJSON(data []byte) error {
 	if err := walk(raw); err != nil {
 		return err
 	}
-	leaf := func(keys ...string) map[string]any {
+	leaf := func(keys ...string) jsonObjectSchema {
 		m := map[string]any{}
 		for _, key := range keys {
 			m[key] = nil
 		}
-		return m
+		return jsonObjectSchema{required: m, optional: map[string]any{}}
 	}
 	coverageSchema := leaf("processed", "examined", "high_water", "complete")
 	chainSchema := leaf("pages", "continuation_count", "members", "duplicate_count", "latency_us", "elapsed_lower_bound_us", "query_class", "observed_tier", "partial_reason")
-	chainSchema["coverage"] = coverageSchema
-	artifactSchema := map[string]any{
+	chainSchema.required["coverage"] = coverageSchema
+	artifactSchema := jsonObjectSchema{required: map[string]any{
 		"schema_version": nil, "comparison_contract": nil, "status": nil, "error_class": nil, "elapsed_lower_bound_us": nil,
 		"revision": leaf("commit", "dirty"), "legacy": chainSchema, "tiered": chainSchema,
 		"comparison": leaf("legacy_only", "tiered_only", "equal"),
 		"projection": leaf("revision", "high_water", "logical_bytes", "physical_bytes"),
 		"budget":     leaf("source_rows", "stored_bytes", "decoded_bytes", "timeout_ms"),
-	}
+	}, optional: map[string]any{}}
 	if err := validateJSONObjectKeys(data, artifactSchema); err != nil {
 		return errors.New("invalid search parity schema")
 	}
@@ -682,7 +717,7 @@ func validateSearchParityJSON(data []byte) error {
 	if artifact.SchemaVersion != searchParitySchema || artifact.ComparisonContract != membershipSetContract {
 		return errors.New("unsupported search parity contract")
 	}
-	if artifact.Budget.SourceRows < 1 || artifact.Budget.StoredBytes < 1 || artifact.Budget.DecodedBytes < 1 || artifact.Budget.TimeoutMS < 1 {
+	if artifact.Budget.Validate() != nil {
 		return errors.New("incomplete search parity evidence")
 	}
 	commitValid := validCommit(artifact.Revision.Commit)
@@ -733,7 +768,7 @@ func validCensoredEvidence(a searchParityArtifact) bool {
 }
 
 func validPassedProjection(a searchParityArtifact) bool {
-	return a.Projection.Revision > 0 && a.Projection.HighWater >= 0 && a.Projection.LogicalBytes > 0 && a.Projection.PhysicalBytes > 0 && a.Projection.HighWater == a.Tiered.Coverage.HighWater
+	return a.Projection.Revision > 0 && a.Projection.HighWater >= 0 && a.Projection.LogicalBytes >= 0 && a.Projection.PhysicalBytes > 0 && a.Projection.HighWater == a.Tiered.Coverage.HighWater
 }
 
 func validTieredDiagnostics(chain parityChain) bool {
