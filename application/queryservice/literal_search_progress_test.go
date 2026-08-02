@@ -1,7 +1,6 @@
 package queryservice
 
 import (
-	"errors"
 	"testing"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -9,13 +8,12 @@ import (
 
 func TestLiteralSearchProgressCharacterization(t *testing.T) {
 	budget := apptypes.LiteralSearchBudget{SourceRows: 2, StoredBytes: 10, DecodedBytes: 10}
-	t.Run("initial oversize is retryable error", func(t *testing.T) {
+	t.Run("initial oversize is retryable partial", func(t *testing.T) {
 		p := NewLiteralSearchProgress(0, 2, budget, 2)
 		_, _ = p.BeginSource(LiteralSource{Sequence: 1, Stored: 11, Decoded: 1})
-		_, err := p.ObserveDisposition(LiteralSourceEligible)
-		var oversized *apptypes.SearchProjectionOversizeError
-		if !errors.As(err, &oversized) {
-			t.Fatalf("error=%v", err)
+		d, err := p.ObserveDisposition(LiteralSourceEligible)
+		if err != nil || d.Action != LiteralProgressStop || d.PartialReason != "stored_bytes" {
+			t.Fatalf("decision=%+v error=%v", d, err)
 		}
 	})
 	t.Run("skip then oversize returns partial anchored at skip", func(t *testing.T) {
@@ -40,8 +38,7 @@ func TestLiteralSearchProgressCharacterization(t *testing.T) {
 			t.Fatalf("decision=%+v", d)
 		}
 		d, err := p.FinishVerification(2, true)
-		var oversized *apptypes.SearchProjectionOversizeError
-		if !errors.As(err, &oversized) || d.Action == LiteralProgressStop {
+		if err != nil || d.Action != LiteralProgressStop || d.PartialReason != "verified_hydration_bytes" {
 			t.Fatalf("decision=%+v error=%v", d, err)
 		}
 		if got := p.FinishPage(); got.Processed != 1 {

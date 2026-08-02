@@ -179,6 +179,13 @@ func TestLiteralSearchPageExcludesHydrationOversizeAfterProgress(t *testing.T) {
 	if len(page.Events) != 0 || page.PartialReason != "verified_hydration_bytes" || page.Coverage.ProcessedSources != 1 || page.Coverage.ExaminedSources != 2 {
 		t.Fatalf("page=%+v", page)
 	}
+	retry, err := sut.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: apptypes.DeepLiteralSearchBudget, Continuation: page.Continuation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retry.Events) != 1 || retry.Events[0].Metadata().EventID().String() != "literal-oversize" {
+		t.Fatalf("deep retry=%+v", retry)
+	}
 }
 
 func TestLiteralSearchPageVerifiesUnicodeCaseAgainstCanonicalVisibleText(t *testing.T) {

@@ -75,7 +75,6 @@ const (
 
 type literalSearchProgress struct {
 	ledger      apptypes.LiteralVerificationLedger
-	start       int64
 	highWater   int64
 	sourceLimit int
 	resultLimit int
@@ -88,7 +87,7 @@ type literalSearchProgress struct {
 
 // NewLiteralSearchProgress creates the private application state machine.
 func NewLiteralSearchProgress(start, highWater int64, budget apptypes.LiteralSearchBudget, resultLimit int) LiteralSearchProgress {
-	return &literalSearchProgress{ledger: apptypes.LiteralVerificationLedger{Budget: budget, FullyProcessed: start}, start: start, highWater: highWater, sourceLimit: budget.SourceRows, resultLimit: resultLimit}
+	return &literalSearchProgress{ledger: apptypes.LiteralVerificationLedger{Budget: budget, FullyProcessed: start}, highWater: highWater, sourceLimit: budget.SourceRows, resultLimit: resultLimit}
 }
 
 func (p *literalSearchProgress) BeginSource(source LiteralSource) (LiteralProgressDecision, error) {
@@ -118,9 +117,6 @@ func (p *literalSearchProgress) ObserveDisposition(disposition LiteralSourceDisp
 	}
 	source := p.pending
 	if err := p.ledger.AdmitVerification(source.Stored, source.Decoded); err != nil {
-		if p.ledger.FullyProcessed == p.start {
-			return LiteralProgressDecision{}, fmt.Errorf("admit literal verification: %w", err)
-		}
 		return p.stop(progressBudgetReason(err)), nil
 	}
 	p.phase = literalProgressVerifying
@@ -132,9 +128,6 @@ func (p *literalSearchProgress) FinishVerification(sequence int64, matched bool)
 		return LiteralProgressDecision{}, fmt.Errorf("literal search progress: verification completed out of phase")
 	}
 	if err := p.ledger.FinishVerification(sequence, p.pending.Stored, p.pending.Decoded, matched); err != nil {
-		if p.ledger.FullyProcessed == p.start {
-			return LiteralProgressDecision{}, fmt.Errorf("finish matched literal verification: %w", err)
-		}
 		return p.stop(progressBudgetReason(err)), nil
 	}
 	p.phase = literalProgressReady
