@@ -1,0 +1,52 @@
+-- Additive, rebuildable projection. Legacy search remains authoritative.
+CREATE TABLE search_projection_source_revision(singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL);
+INSERT INTO search_projection_source_revision VALUES(1,0);
+CREATE TABLE search_projection_source_sequence(sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT NOT NULL UNIQUE);
+INSERT INTO search_projection_source_sequence(event_id) SELECT id FROM events ORDER BY rowid;
+CREATE TRIGGER search_projection_events_insert AFTER INSERT ON events BEGIN INSERT OR IGNORE INTO search_projection_source_sequence(event_id) VALUES(new.id); UPDATE search_projection_source_revision SET revision=revision+1 WHERE EXISTS(SELECT 1 FROM search_projection_source_sequence q,search_projection_state s WHERE q.event_id=new.id AND q.sequence<=s.high_water AND s.state='rebuilding'); END;
+CREATE TRIGGER search_projection_events_update AFTER UPDATE OF body,body_availability,session_id,kind,created_at ON events WHEN EXISTS(SELECT 1 FROM search_projection_source_sequence q,search_projection_state s WHERE q.event_id=new.id AND q.sequence<=s.high_water AND s.state='rebuilding') BEGIN UPDATE search_projection_source_revision SET revision=revision+1; END;
+CREATE TRIGGER search_projection_events_delete BEFORE DELETE ON events WHEN EXISTS(SELECT 1 FROM search_projection_source_sequence q,search_projection_state s WHERE q.event_id=old.id AND q.sequence<=s.high_water AND s.state='rebuilding') BEGIN UPDATE search_projection_source_revision SET revision=revision+1; END;
+CREATE TRIGGER search_projection_audits_insert AFTER INSERT ON command_audits WHEN EXISTS(SELECT 1 FROM search_projection_source_sequence q,search_projection_state s WHERE q.event_id=new.event_id AND q.sequence<=s.high_water AND s.state='rebuilding') BEGIN UPDATE search_projection_source_revision SET revision=revision+1; END;
+CREATE TRIGGER search_projection_audits_update AFTER UPDATE ON command_audits WHEN EXISTS(SELECT 1 FROM search_projection_source_sequence q,search_projection_state s WHERE q.event_id=new.event_id AND q.sequence<=s.high_water AND s.state='rebuilding') BEGIN UPDATE search_projection_source_revision SET revision=revision+1; END;
+CREATE TRIGGER search_projection_audits_delete AFTER DELETE ON command_audits WHEN EXISTS(SELECT 1 FROM search_projection_source_sequence q,search_projection_state s WHERE q.event_id=old.event_id AND q.sequence<=s.high_water AND s.state='rebuilding') BEGIN UPDATE search_projection_source_revision SET revision=revision+1; END;
+
+CREATE TABLE search_projection_recent_documents(document_id INTEGER PRIMARY KEY AUTOINCREMENT,generation_id TEXT NOT NULL,event_rowid INTEGER NOT NULL,event_id TEXT NOT NULL,created_at_norm TEXT NOT NULL,body_text TEXT NOT NULL,decoded_bytes INTEGER NOT NULL,UNIQUE(generation_id,event_rowid));
+CREATE INDEX idx_search_projection_recent_eviction ON search_projection_recent_documents(generation_id,created_at_norm,event_rowid);
+CREATE VIRTUAL TABLE search_projection_recent_fts USING fts5(body_text,content='search_projection_recent_documents',content_rowid='document_id',tokenize='trigram case_sensitive 1');
+CREATE TRIGGER search_projection_recent_ai AFTER INSERT ON search_projection_recent_documents BEGIN INSERT INTO search_projection_recent_fts(rowid,body_text) VALUES(new.document_id,new.body_text); END;
+CREATE TRIGGER search_projection_recent_ad AFTER DELETE ON search_projection_recent_documents BEGIN INSERT INTO search_projection_recent_fts(search_projection_recent_fts,rowid,body_text) VALUES('delete',old.document_id,old.body_text); END;
+
+CREATE TABLE search_projection_session_summaries(generation_id TEXT NOT NULL,session_id TEXT NOT NULL,event_count INTEGER NOT NULL,summary_text TEXT NOT NULL,projection_version INTEGER NOT NULL,summary_version INTEGER NOT NULL,PRIMARY KEY(generation_id,session_id));
+CREATE TABLE search_projection_command_aggregates(generation_id TEXT NOT NULL,session_id TEXT NOT NULL,command_count INTEGER NOT NULL,failure_count INTEGER NOT NULL,PRIMARY KEY(generation_id,session_id));
+CREATE TABLE search_projection_session_keywords(generation_id TEXT NOT NULL,session_id TEXT NOT NULL,keyword TEXT NOT NULL,occurrences INTEGER NOT NULL,keyword_version INTEGER NOT NULL,PRIMARY KEY(generation_id,session_id,keyword));
+CREATE TABLE search_projection_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1),generation_id TEXT,active_generation_id TEXT,config_hash TEXT NOT NULL DEFAULT '',source_revision INTEGER NOT NULL DEFAULT 0,high_water INTEGER NOT NULL DEFAULT 0,checkpoint INTEGER NOT NULL DEFAULT 0,phase TEXT NOT NULL DEFAULT 'source' CHECK(phase IN('source','eviction','cleanup','complete')),cleanup_scope TEXT NOT NULL DEFAULT 'old',failure_class TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'idle' CHECK(state IN('idle','rebuilding','complete','drifted','failed')),projection_version INTEGER NOT NULL DEFAULT 1,fts_design TEXT NOT NULL DEFAULT 'external_content',recent_age_seconds INTEGER NOT NULL DEFAULT 0,recent_byte_limit INTEGER NOT NULL DEFAULT 0,last_batch_milliseconds INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL);
+INSERT INTO search_projection_state(singleton,updated_at) VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+-- A completed generation is immutable. Canonical mutation records a bounded
+-- cleanup phase; triggers never perform unbounded payload deletion.
+CREATE TRIGGER search_projection_complete_event_update AFTER UPDATE OF body,body_availability,session_id,kind,created_at ON events
+WHEN (SELECT state FROM search_projection_state WHERE singleton=1)='complete'
+BEGIN
+ UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE singleton=1;
+END;
+CREATE TRIGGER search_projection_complete_event_delete BEFORE DELETE ON events
+WHEN (SELECT state FROM search_projection_state WHERE singleton=1)='complete'
+BEGIN
+ UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE singleton=1;
+END;
+CREATE TRIGGER search_projection_complete_audit_update AFTER UPDATE ON command_audits
+WHEN (SELECT state FROM search_projection_state WHERE singleton=1)='complete'
+BEGIN
+ UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE singleton=1;
+END;
+CREATE TRIGGER search_projection_complete_audit_insert AFTER INSERT ON command_audits
+WHEN (SELECT state FROM search_projection_state WHERE singleton=1)='complete'
+ AND EXISTS(SELECT 1 FROM search_projection_source_sequence q,search_projection_state s WHERE q.event_id=new.event_id AND q.sequence<=s.high_water)
+BEGIN
+ UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE singleton=1;
+END;
+CREATE TRIGGER search_projection_complete_audit_delete AFTER DELETE ON command_audits
+WHEN (SELECT state FROM search_projection_state WHERE singleton=1)='complete'
+BEGIN
+ UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE singleton=1;
+END;
