@@ -4,17 +4,263 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 )
+
+func migrationsBeforeSearchProjection(t *testing.T) fs.FS {
+	t.Helper()
+	entries, err := os.ReadDir("../../schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := fstest.MapFS{}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() >= "000038" {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join("../../schema/sqlite/migrations", entry.Name()))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		out[entry.Name()] = &fstest.MapFile{Data: data}
+	}
+	return out
+}
+
+func TestSearchProjectionMigrationIsSchemaOnlyUnderOneSecond(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	legacy := NewDatabase(path, migrationsBeforeSearchProjection(t))
+	if err := legacy.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tx.Prepare(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'note','agent','session','body','2026-08-03T00:00:00Z','client','workspace')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20_000; i++ {
+		if _, err = stmt.Exec(fmt.Sprintf("historical-%08d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = stmt.Close()
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	all, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	if err = NewDatabase(path, all).initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("schema-only projection migration took %s, want <1s", elapsed)
+	}
+	db, err = sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var sequenceRows, requires int
+	if err = db.QueryRow(`SELECT COUNT(*),(SELECT requires_inventory FROM search_projection_inventory_compat) FROM search_projection_source_sequence`).Scan(&sequenceRows, &requires); err != nil {
+		t.Fatal(err)
+	}
+	if sequenceRows != 0 || requires != 1 {
+		t.Fatalf("source sequence rows=%d requires_inventory=%d", sequenceRows, requires)
+	}
+}
+
+func TestSearchProjectionHistoricalInventoryIsBoundedCancelableAndFreshResumable(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	legacy := NewDatabase(path, migrationsBeforeSearchProjection(t))
+	if err := legacy.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"historical-a", "historical-b", "historical-c"} {
+		if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'note','a','s','body','2026-08-03T00:00:00Z','c','w')`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = db.Close()
+	all, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, all)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b := projectionBudget()
+	b.Rows = 1
+	if _, err = store.Start(ctx, b, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.SelectInventory(ctx, b)
+	if err != nil || len(snapshot.Items) != 1 || snapshot.Done {
+		t.Fatalf("first inventory=%+v err=%v", snapshot, err)
+	}
+	plan := apptypes.SearchProjectionInventoryPlan{GenerationID: snapshot.Generation.GenerationID, ExpectedRevision: snapshot.Generation.SourceRevision, ExpectedCursor: snapshot.Cursor, ExpectedCursorStarted: snapshot.CursorStarted, NextCursor: snapshot.Items[0].EventID, NextCursorStarted: true, Items: snapshot.Items}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err = store.ApplyInventoryBatch(canceled, plan, b.LockTime, time.Now()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled apply error=%T %v", err, err)
+	}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, applyErr := store.ApplyInventoryBatch(ctx, plan, b.LockTime, time.Now())
+			results <- applyErr
+		}()
+	}
+	winners, losers := 0, 0
+	for range 2 {
+		applyErr := <-results
+		if applyErr == nil {
+			winners++
+			continue
+		}
+		var drift *apptypes.SearchProjectionDriftError
+		if errors.As(applyErr, &drift) {
+			losers++
+			continue
+		}
+		t.Fatalf("concurrent inventory CAS leaked %T %v", applyErr, applyErr)
+	}
+	if winners != 1 || losers != 1 {
+		t.Fatalf("concurrent inventory winner/loser=%d/%d", winners, losers)
+	}
+	next, err := store.SelectInventory(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftPlan := apptypes.SearchProjectionInventoryPlan{GenerationID: next.Generation.GenerationID, ExpectedRevision: next.Generation.SourceRevision, ExpectedCursor: next.Cursor, ExpectedCursorStarted: next.CursorStarted, NextCursor: next.Items[0].EventID, NextCursorStarted: true, Items: next.Items}
+	mutationDB, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = mutationDB.Exec(`UPDATE events SET body='changed' WHERE id='historical-a'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = mutationDB.Close()
+	if _, err = store.ApplyInventoryBatch(ctx, driftPlan, b.LockTime, time.Now()); err == nil {
+		t.Fatal("canonical mutation did not invalidate historical inventory")
+	} else {
+		var drift *apptypes.SearchProjectionDriftError
+		if !errors.As(err, &drift) {
+			t.Fatalf("mutation error=%T %v, want drift", err, err)
+		}
+	}
+	var mainState, inventoryState string
+	stateDB, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = stateDB.QueryRow(`SELECT s.state,i.state FROM search_projection_state s JOIN search_projection_inventory_state i ON i.singleton=s.singleton`).Scan(&mainState, &inventoryState); err != nil {
+		t.Fatal(err)
+	}
+	_ = stateDB.Close()
+	if mainState != "drifted" || inventoryState != "drifted" {
+		t.Fatalf("persisted drift state=%q/%q", mainState, inventoryState)
+	}
+	if _, err = store.Start(ctx, b, time.Now()); err != nil {
+		t.Fatalf("restart drifted inventory: %v", err)
+	}
+
+	// A new use case/store value resumes solely from the durable state.
+	fresh := NewDatabase(path, all)
+	workflow := usecase.NewSearchProjectionUsecase(fresh)
+	totalWritten := 0
+	for i := 0; i < 3; i++ {
+		progress, resumeErr := workflow.Resume(ctx, b, time.Now())
+		if resumeErr != nil || progress.Selected != 1 {
+			t.Fatalf("inventory batch %d progress=%+v err=%v", i, progress, resumeErr)
+		}
+		totalWritten += progress.Written
+	}
+	status, err := fresh.SearchProjectionStatus(ctx)
+	if err != nil || status.Phase != "source" || status.HighWater != 3 || totalWritten != 2 {
+		t.Fatalf("post-inventory status=%+v err=%v", status, err)
+	}
+}
+
+func TestSearchProjectionInventoryAdvancesAcrossRegisteredAndEmptyIdentities(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	legacy := NewDatabase(path, migrationsBeforeSearchProjection(t))
+	if err := legacy.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"", "already", "zmissing"} {
+		if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'note','a','s','body','2026-08-03T00:00:00Z','c','w')`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = db.Close()
+	all, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, all)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err = sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO search_projection_source_sequence(event_id) VALUES('already')`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	b := projectionBudget()
+	b.Rows = 1
+	if _, err = store.Start(ctx, b, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	workflow := usecase.NewSearchProjectionUsecase(store)
+	first, err := workflow.Resume(ctx, b, time.Now())
+	if err != nil || first.Selected != 1 || first.Written != 1 {
+		t.Fatalf("empty identity batch=%+v err=%v", first, err)
+	}
+	snapshot, err := store.SelectInventory(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.CursorStarted || snapshot.Cursor != "" || len(snapshot.Items) != 1 || snapshot.Items[0].EventID != "already" {
+		t.Fatalf("empty cursor continuation=%+v", snapshot)
+	}
+	// The registered identity follows later lexically and is scanned in its own
+	// bounded batch rather than causing an unbounded NOT EXISTS search.
+	if snapshot.Items[0].Missing {
+		t.Fatalf("missing identity classification=%+v", snapshot.Items[0])
+	}
+}
 
 //nolint:wrapcheck // Test helper preserves the public usecase error.
 func resumeProjection(ctx context.Context, store *Database, budget apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {

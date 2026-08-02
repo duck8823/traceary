@@ -46,13 +46,27 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 	}
 	defer tx.Rollback()
 	g := apptypes.SearchProjectionGeneration{GenerationID: generationID(), ConfigHash: b.ConfigHash()}
-	if e = tx.QueryRowContext(lockCtx, `SELECT revision,(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) FROM search_projection_source_revision WHERE singleton=1`).Scan(&g.SourceRevision, &g.HighWater); e != nil {
+	if e = tx.QueryRowContext(lockCtx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&g.SourceRevision); e != nil {
 		return g, e
+	}
+	var requiresInventory int
+	if e = tx.QueryRowContext(lockCtx, `SELECT requires_inventory,(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) FROM search_projection_inventory_compat WHERE singleton=1`).Scan(&requiresInventory, &g.HighWater); e != nil {
+		return g, e
+	}
+	if requiresInventory != 0 {
+		g.HighWater = 0
 	}
 	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
 	if e == nil {
 		if n, x := result.RowsAffected(); x != nil || n != 1 {
 			return g, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
+		}
+		inventoryState := "complete"
+		if requiresInventory != 0 {
+			inventoryState = "rebuilding"
+		}
+		if _, x := tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET generation_id=?,cursor='',cursor_started=0,state=? WHERE singleton=1`, g.GenerationID, inventoryState); x != nil {
+			return g, x
 		}
 		if _, x := tx.ExecContext(lockCtx, `UPDATE literal_search_projection_state SET generation_id=?,high_water=?,fingerprint_version=1,state='rebuilding',updated_at=? WHERE singleton=1`, g.GenerationID, g.HighWater, formatTimestamp(now.UTC())); x != nil {
 			return g, x
@@ -63,6 +77,241 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 		e = tx.Commit()
 	}
 	return g, e
+}
+
+// SelectInventory reads a stable event-ID keyset without holding a write lock.
+// Identity bytes use StoredBytes and insertion bytes use WriteBytes, keeping
+// this phase under the same reviewed generation budget as payload projection.
+//
+//nolint:wrapcheck,errcheck // SQL errors preserve the typed inventory contract.
+func (d *Database) SelectInventory(ctx context.Context, b apptypes.SearchProjectionBudget) (out apptypes.SearchProjectionInventorySnapshot, err error) {
+	db, err := d.open(ctx)
+	if err != nil {
+		return out, err
+	}
+	defer db.Close()
+	var state, phase string
+	if err = db.QueryRowContext(ctx, `SELECT s.generation_id,s.config_hash,s.source_revision,i.cursor,i.cursor_started,s.state,i.state FROM search_projection_state s JOIN search_projection_inventory_state i ON i.singleton=s.singleton WHERE s.singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Cursor, &out.CursorStarted, &state, &phase); err != nil {
+		return out, err
+	}
+	if state != "rebuilding" || phase != "rebuilding" {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "historical inventory is not rebuilding"}
+	}
+	if out.Generation.ConfigHash != b.ConfigHash() {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "budget does not match generation configuration"}
+	}
+	var revision int64
+	if err = db.QueryRowContext(ctx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&revision); err != nil {
+		return out, err
+	}
+	if revision != out.Generation.SourceRevision {
+		if err = markProjectionDrifted(ctx, db, out.Generation.GenerationID); err != nil {
+			return out, err
+		}
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	query := `SELECT e.id,q.event_id IS NULL FROM events e LEFT JOIN search_projection_source_sequence q ON q.event_id=e.id ORDER BY e.id LIMIT ?`
+	args := []any{b.Rows + 1}
+	if out.CursorStarted {
+		query = `SELECT e.id,q.event_id IS NULL FROM events e LEFT JOIN search_projection_source_sequence q ON q.event_id=e.id WHERE e.id>? ORDER BY e.id LIMIT ?`
+		args = []any{out.Cursor, b.Rows + 1}
+	}
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	var stored, written int64
+	for rows.Next() {
+		var id string
+		var missing bool
+		if err = rows.Scan(&id, &missing); err != nil {
+			return out, err
+		}
+		identityBytes := int64(len(id))
+		logicalBytes := int64(0)
+		if missing {
+			logicalBytes = identityBytes + 16
+		}
+		if len(out.Items) >= b.Rows || stored+identityBytes > b.StoredBytes || written+logicalBytes > b.WriteBytes {
+			break
+		}
+		out.Items = append(out.Items, apptypes.SearchProjectionInventoryItem{EventID: id, LogicalBytes: logicalBytes, Missing: missing})
+		stored += identityBytes
+		written += logicalBytes
+	}
+	if err = rows.Err(); err != nil {
+		return out, err
+	}
+	if len(out.Items) == 0 {
+		var next string
+		var missing bool
+		nextQuery := `SELECT e.id,q.event_id IS NULL FROM events e LEFT JOIN search_projection_source_sequence q ON q.event_id=e.id ORDER BY e.id LIMIT 1`
+		nextArgs := []any{}
+		if out.CursorStarted {
+			nextQuery = `SELECT e.id,q.event_id IS NULL FROM events e LEFT JOIN search_projection_source_sequence q ON q.event_id=e.id WHERE e.id>? ORDER BY e.id LIMIT 1`
+			nextArgs = []any{out.Cursor}
+		}
+		err = db.QueryRowContext(ctx, nextQuery, nextArgs...).Scan(&next, &missing)
+		if err == nil {
+			class, bytes, limit := "inventory_stored_bytes", int64(len(next)), b.StoredBytes
+			if bytes <= limit && missing {
+				class, bytes, limit = "inventory_write_bytes", int64(len(next))+16, b.WriteBytes
+			}
+			return out, &apptypes.SearchProjectionOversizeError{Class: class, Bytes: bytes, Limit: limit}
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return out, err
+		}
+		out.Done = true
+		return out, nil
+	}
+	var remaining int
+	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE id>? LIMIT 1)`, out.Items[len(out.Items)-1].EventID).Scan(&remaining); err != nil {
+		return out, err
+	}
+	out.Done = remaining == 0
+	return out, nil
+}
+
+// ApplyInventoryBatch atomically persists the admitted identities and cursor.
+// The final batch freezes high-water in the same transaction.
+//
+//nolint:wrapcheck,errcheck // SQL errors preserve the typed inventory contract; rollback is best effort.
+func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchProjectionInventoryPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
+	lockCtx, cancel := context.WithTimeout(ctx, lock)
+	defer cancel()
+	for {
+		remaining := lock
+		if deadline, ok := lockCtx.Deadline(); ok {
+			remaining = time.Until(deadline)
+		}
+		if remaining <= 0 {
+			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
+		}
+		out, err = d.applyInventoryBatchOnce(lockCtx, p, remaining, now)
+		if err == nil || !isSearchProjectionSQLiteBusy(err) {
+			return out, err
+		}
+		select {
+		case <-lockCtx.Done():
+			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
+		case <-time.After(min(5*time.Millisecond, remaining)):
+		}
+	}
+}
+
+//nolint:wrapcheck,errcheck // SQL errors preserve the typed inventory contract; rollback is best effort.
+func (d *Database) applyInventoryBatchOnce(ctx context.Context, p apptypes.SearchProjectionInventoryPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
+	lockCtx, cancel := context.WithTimeout(ctx, lock)
+	defer cancel()
+	db, err := d.open(lockCtx)
+	if err != nil {
+		return out, err
+	}
+	defer db.Close()
+	tx, err := db.BeginTx(lockCtx, nil)
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback()
+	var revision int64
+	var cursor, phase string
+	var cursorStarted bool
+	if err = tx.QueryRowContext(lockCtx, `SELECT s.source_revision,i.cursor,i.cursor_started,i.state FROM search_projection_state s JOIN search_projection_inventory_state i ON i.singleton=s.singleton WHERE s.generation_id=? AND s.state='rebuilding' AND i.generation_id=s.generation_id`, p.GenerationID).Scan(&revision, &cursor, &cursorStarted, &phase); err != nil {
+		return out, err
+	}
+	var globalRevision int64
+	if err = tx.QueryRowContext(lockCtx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&globalRevision); err != nil {
+		return out, err
+	}
+	if phase != "rebuilding" || revision != p.ExpectedRevision || cursor != p.ExpectedCursor || cursorStarted != p.ExpectedCursorStarted {
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	if globalRevision != p.ExpectedRevision {
+		var driftResult sql.Result
+		if driftResult, err = tx.ExecContext(lockCtx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, p.GenerationID); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := driftResult.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if driftResult, err = tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET state='drifted' WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, p.GenerationID); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := driftResult.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if driftResult, err = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='drifted' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := driftResult.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if err = tx.Commit(); err != nil {
+			return out, err
+		}
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	for _, item := range p.Items {
+		if !item.Missing {
+			continue
+		}
+		if _, err = tx.ExecContext(lockCtx, `INSERT OR IGNORE INTO search_projection_source_sequence(event_id) SELECT id FROM events WHERE id=?`, item.EventID); err != nil {
+			return out, err
+		}
+	}
+	nextCursor := p.ExpectedCursor
+	if p.NextCursor != "" {
+		nextCursor = p.NextCursor
+	}
+	if p.Done {
+		var result sql.Result
+		if result, err = tx.ExecContext(lockCtx, `UPDATE search_projection_state SET high_water=(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence),checkpoint=0,phase='source',updated_at=? WHERE generation_id=? AND source_revision=? AND state='rebuilding'`, formatTimestamp(now), p.GenerationID, p.ExpectedRevision); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if result, err = tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET cursor='',cursor_started=0,state='complete' WHERE singleton=1 AND generation_id=? AND cursor=? AND cursor_started=? AND state='rebuilding'`, p.GenerationID, p.ExpectedCursor, p.ExpectedCursorStarted); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if result, err = tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_compat SET requires_inventory=0 WHERE singleton=1 AND requires_inventory=1`); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if _, err = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET high_water=(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); err != nil {
+			return out, err
+		}
+		if _, err = tx.ExecContext(lockCtx, `UPDATE literal_search_projection_state SET high_water=(SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence) WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, p.GenerationID); err != nil {
+			return out, err
+		}
+	} else {
+		result, updateErr := tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET cursor=?,cursor_started=? WHERE singleton=1 AND generation_id=? AND cursor=? AND cursor_started=? AND state='rebuilding'`, nextCursor, p.NextCursorStarted, p.GenerationID, p.ExpectedCursor, p.ExpectedCursorStarted)
+		if updateErr != nil {
+			return out, updateErr
+		}
+		if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return out, err
+	}
+	out.Selected = len(p.Items)
+	for _, item := range p.Items {
+		if item.Missing {
+			out.Written++
+		}
+	}
+	out.StoredBytes, out.WrittenBytes = p.Ledger.StoredBytes, p.Ledger.LogicalWriteBytes
+	out.GenerationID = p.GenerationID
+	return out, nil
 }
 
 // SelectSnapshot performs bounded reads and canonical hydration. Every read uses
@@ -501,6 +750,13 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if e != nil {
 		return s, e
 	}
+	var inventoryState string
+	if e = db.QueryRowContext(ctx, `SELECT state FROM search_projection_inventory_state WHERE singleton=1`).Scan(&inventoryState); e != nil {
+		return s, e
+	}
+	if s.State == "rebuilding" && inventoryState == "rebuilding" {
+		s.Phase = "inventory"
+	}
 	if e = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0),COUNT(*) FROM search_projection_recent_documents WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.RecentBytes, &s.RecentDocuments); e != nil {
 		return s, e
 	}
@@ -554,6 +810,9 @@ func markProjectionDrifted(ctx context.Context, db *sql.DB, generation string) e
 	}
 	if n != 1 {
 		return &apptypes.SearchProjectionNoProgressError{Reason: "generation state changed concurrently"}
+	}
+	if _, e = tx.ExecContext(ctx, `UPDATE search_projection_inventory_state SET state='drifted' WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, generation); e != nil {
+		return e
 	}
 	r, e = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='drifted' WHERE generation_id=? AND state='rebuilding'`, generation)
 	if e != nil {

@@ -44,6 +44,31 @@ type SearchProjectionProgress struct {
 	GenerationID string `json:"generation_id"`
 }
 
+// SearchProjectionInventoryItem is a canonical identity admitted by the
+// explicit historical inventory phase. EventID is also the stable keyset.
+type SearchProjectionInventoryItem struct {
+	EventID      string
+	LogicalBytes int64
+	Missing      bool
+}
+
+type SearchProjectionInventorySnapshot struct {
+	Generation    SearchProjectionGeneration
+	Cursor        string
+	CursorStarted bool
+	Items         []SearchProjectionInventoryItem
+	Done          bool
+}
+
+type SearchProjectionInventoryPlan struct {
+	GenerationID, ExpectedCursor, NextCursor string
+	ExpectedCursorStarted, NextCursorStarted bool
+	ExpectedRevision                         int64
+	Items                                    []SearchProjectionInventoryItem
+	Done                                     bool
+	Ledger                                   BudgetLedger
+}
+
 type SearchProjectionRunOptions struct {
 	MaxBatches    int
 	TotalWallTime time.Duration
