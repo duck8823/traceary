@@ -138,6 +138,16 @@ type Database struct {
 	dbPath         string
 	migrations     fs.FS
 	sharedReadOnly *sql.DB
+	// searchMaintenanceHook is a package-private transaction-boundary seam used
+	// by deterministic atomicity tests. Production databases leave it nil.
+	searchMaintenanceHook func(string) error
+}
+
+func (d *Database) runSearchMaintenanceHook(point string) error {
+	if d.searchMaintenanceHook != nil {
+		return d.searchMaintenanceHook(point)
+	}
+	return nil
 }
 
 // NewImmutableReadDatabase opens one shared immutable connection group for benchmark orchestration.

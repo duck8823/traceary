@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,9 +117,49 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = database.BeginSearchRetirement(ctx, retirementEvidence(t, snapshot), snapshot); err != nil {
+	authorityRead := make(chan struct{})
+	releaseRead := make(chan struct{})
+	database.searchMaintenanceHook = func(point string) error {
+		if point == "authority-after-read" {
+			close(authorityRead)
+			<-releaseRead
+		}
+		return nil
+	}
+	searchDone := make(chan error, 1)
+	go func() {
+		criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("body").Build()
+		found, searchErr := NewEventDatasource(database).SearchMetadata(ctx, criteria)
+		if searchErr == nil && len(found) != 3 {
+			searchErr = errors.New("authority snapshot returned mixed membership")
+		}
+		searchDone <- searchErr
+	}()
+	<-authorityRead
+	retireDone := make(chan error, 1)
+	go func() {
+		_, beginErr := database.BeginSearchRetirement(ctx, retirementEvidence(t, snapshot), snapshot)
+		retireDone <- beginErr
+	}()
+	close(releaseRead)
+	if err = <-searchDone; err != nil {
 		t.Fatal(err)
 	}
+	if err = <-retireDone; err != nil {
+		t.Fatal(err)
+	}
+	database.searchMaintenanceHook = nil
+	database.searchMaintenanceHook = func(point string) error {
+		if point == "retire-before-commit" {
+			return errors.New("injected retire commit fault")
+		}
+		return nil
+	}
+	if _, err = database.RetireLegacySearchBatch(ctx, 1); err == nil {
+		t.Fatal("retire commit fault returned nil")
+	}
+	database.searchMaintenanceHook = nil
+	assertSearchMaintenanceStorage(t, database, "tiered", "retiring", 0, 3)
 	first, err := database.RetireLegacySearchBatch(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -156,6 +197,17 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if _, err = database.BeginSearchRestore(ctx); err != nil {
 		t.Fatal(err)
 	}
+	database.searchMaintenanceHook = func(point string) error {
+		if point == "restore-before-commit" {
+			return errors.New("injected restore commit fault")
+		}
+		return nil
+	}
+	if _, err = database.RestoreLegacySearchBatch(ctx, 2); err == nil {
+		t.Fatal("restore commit fault returned nil")
+	}
+	database.searchMaintenanceHook = nil
+	assertSearchMaintenanceStorage(t, database, "tiered", "restoring", 0, 0)
 	partial, err := database.RestoreLegacySearchBatch(ctx, 2)
 	if err != nil || partial.Complete {
 		t.Fatalf("partial restore=%+v err=%v", partial, err)
@@ -236,6 +288,23 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	}
 	if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_search_documents`).Scan(&docs); err != nil || docs != 5 {
 		t.Fatalf("delete propagation docs=%d err=%v", docs, err)
+	}
+}
+
+func assertSearchMaintenanceStorage(t *testing.T, database *Database, authority, phase string, progress, documents int64) {
+	t.Helper()
+	db, err := database.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.release(db)
+	var gotAuthority, gotPhase string
+	var gotProgress, gotDocuments int64
+	if err = db.QueryRow(`SELECT authority,phase,progress,(SELECT COUNT(*) FROM event_search_documents) FROM search_maintenance_control WHERE singleton=1`).Scan(&gotAuthority, &gotPhase, &gotProgress, &gotDocuments); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuthority != authority || gotPhase != phase || gotProgress != progress || gotDocuments != documents {
+		t.Fatalf("maintenance storage=(%s,%s,%d,%d), want (%s,%s,%d,%d)", gotAuthority, gotPhase, gotProgress, gotDocuments, authority, phase, progress, documents)
 	}
 }
 

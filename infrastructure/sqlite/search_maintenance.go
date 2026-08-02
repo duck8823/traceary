@@ -233,6 +233,9 @@ func (d *Database) RetireLegacySearchBatch(ctx context.Context, rows int) (appty
 	if _, err = tx.ExecContext(ctx, `UPDATE search_maintenance_control SET authority=?,phase=?,progress=?,logical_bytes_after=?,physical_bytes_after=?,updated_at=? WHERE singleton=1`, next.Authority(), next.Phase(), progress, logical, physical, formatTimestamp(time.Now().UTC())); err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
+	if err = d.runSearchMaintenanceHook("retire-before-commit"); err != nil {
+		return apptypes.SearchMaintenanceReport{}, err
+	}
 	if err = tx.Commit(); err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
@@ -468,6 +471,9 @@ func (d *Database) RestoreLegacySearchBatch(ctx context.Context, limit int) (app
 		nextAuthority, nextPhase = finished.Authority(), finished.Phase()
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE search_maintenance_control SET authority=?,phase=?,progress=?,logical_bytes_after=?,physical_bytes_after=?,updated_at=? WHERE singleton=1`, nextAuthority, nextPhase, progress, logical, physical, formatTimestamp(time.Now().UTC())); err != nil {
+		return apptypes.SearchMaintenanceReport{}, err
+	}
+	if err = d.runSearchMaintenanceHook("restore-before-commit"); err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
 	if err = tx.Commit(); err != nil {

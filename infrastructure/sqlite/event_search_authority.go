@@ -53,6 +53,9 @@ func (d *EventDatasource) searchMetadataByPersistedAuthorityTx(ctx context.Conte
 	if err := tx.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
 		return nil, xerrors.Errorf("read explicit persisted search authority: %w", err)
 	}
+	if err := d.db.runSearchMaintenanceHook("authority-after-read"); err != nil {
+		return nil, err
+	}
 	switch authority {
 	case "legacy":
 		available, err := eventSearchSchemaAvailable(ctx, tx)
