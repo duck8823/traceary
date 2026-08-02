@@ -59,6 +59,33 @@ func TestPayloadRehearsalDeterministicStopResumeScrubRollback(t *testing.T) {
 	if stopped.State != "paused" || stopped.BatchCount != 1 || !stopped.MorePending {
 		t.Fatalf("stop result=%+v", stopped)
 	}
+	modeDB, err := sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = modeDB.Exec(`PRAGMA journal_mode=DELETE`); err != nil {
+		t.Fatal(err)
+	}
+	_ = modeDB.Close()
+	if _, err = u.Resume(ctx, config); err == nil {
+		t.Fatal("resume unexpectedly normalized a non-WAL paused target")
+	}
+	stateDB, err := sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pausedState string
+	var pausedRows int
+	if err = stateDB.QueryRow(`SELECT state,(SELECT count(*) FROM payload_rehearsal_rows) FROM payload_rehearsal_runs`).Scan(&pausedState, &pausedRows); err != nil {
+		t.Fatal(err)
+	}
+	if pausedState != "paused" || pausedRows == 0 {
+		t.Fatalf("failed resume erased paused overlay state=%q rows=%d", pausedState, pausedRows)
+	}
+	if _, err = stateDB.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		t.Fatal(err)
+	}
+	_ = stateDB.Close()
 	config.StopAfterBatches = 0
 	resumed, err := u.Resume(ctx, config)
 	if err != nil {
