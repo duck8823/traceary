@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -152,6 +153,52 @@ func TestSearchAndContext_MetadataProjectionUseBodyFreeQueries(t *testing.T) {
 			t.Fatalf("%s metadata output = %+v", name, events)
 		}
 	}
+}
+
+func TestSearchTieredPreviewExposesZeroMatchProgressAndDeepBudget(t *testing.T) {
+	t.Parallel()
+	stub := &tieredSearchStub{page: apptypes.LiteralSearchPage{Tier: apptypes.LiteralSearchTierBoundedVerification, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: 7, HighWater: 20}, PartialReason: "source_rows", Continuation: "next"}}
+	server := &Server{tieredSearch: stub}
+	_, output, err := server.search()(context.Background(), nil, searchInput{Query: "needle", TieredPreview: true, Deep: true, Continuation: "previous"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Events) != 0 || !output.Partial || output.Continuation != "next" || output.Tier != "bounded_verification" || len(output.Reasons) != 1 || output.Reasons[0] != "source_rows" {
+		t.Fatalf("output = %+v", output)
+	}
+	if stub.request.Continuation != "previous" || stub.request.Budget != apptypes.DeepLiteralSearchBudget {
+		t.Fatalf("request = %+v", stub.request)
+	}
+}
+
+func TestSearchTieredMetadataOmitsAllBodyDerivedKeys(t *testing.T) {
+	t.Parallel()
+	bounded := newMCPBoundedFixture(t, "visible secret", 20, false)
+	stub := &tieredSearchStub{page: apptypes.LiteralSearchPage{Events: []apptypes.BoundedEvent{bounded}, Tier: apptypes.LiteralSearchTierBoundedVerification, Coverage: apptypes.LiteralSearchCoverage{ExaminedSources: 1, ProcessedSources: 1, HighWater: 1, Complete: true}}}
+	server := &Server{tieredSearch: stub}
+	_, output, err := server.search()(context.Background(), nil, searchInput{Query: "visible", TieredPreview: true, Projection: "metadata"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{`"body"`, `"body_blocks"`, `"body_unavailable_reason"`, `"body_response_truncated"`, `"visible_body_runes"`} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("metadata contains %s: %s", forbidden, encoded)
+		}
+	}
+}
+
+type tieredSearchStub struct {
+	page    apptypes.LiteralSearchPage
+	request apptypes.LiteralSearchRequest
+}
+
+func (s *tieredSearchStub) SearchLiteralPage(_ context.Context, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
+	s.request = request
+	return s.page, nil
 }
 
 func TestDefaultBoundedProjectionUsesBoundedQueriesBeforeFullEvents(t *testing.T) {

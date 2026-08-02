@@ -21,6 +21,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
@@ -203,6 +204,7 @@ func run() error {
 	fileRetentionUsecase := usecase.NewFileRetentionUsecase(fileRetentionDatasource, fileRetentionDatasource)
 	oneShotRepairUsecase := usecase.NewOneShotRepairUsecase(storeManagementDatasource, storeManagementDatasource)
 	workspaceIdentityUsecase := usecase.NewWorkspaceIdentityUsecase(workspaceIdentityDatasource, workspaceIdentityDatasource, types.SystemClock{})
+	tieredSearchService := queryservice.NewLiteralSearchService(eventDatasource)
 
 	mcpServer, err := mcpserver.NewServer(
 		resolvedVersion,
@@ -217,6 +219,7 @@ func run() error {
 		storeManagementUsecase,
 		mcpserver.WithEventMetadata(eventMetadataUsecase),
 		mcpserver.WithEventBounded(eventBoundedUsecase),
+		mcpserver.WithTieredEventSearch(tieredSearchService),
 		mcpserver.WithReport(reportUsecase),
 	)
 	if err != nil {
@@ -238,6 +241,7 @@ func run() error {
 	rootCmd := cli.NewRootCLI(
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
+		cli.WithTieredEventSearch(tieredSearchService),
 		cli.WithReport(reportUsecase),
 		cli.WithCodexCaptureDiagnostic(codexCaptureDiagnosticUsecase),
 		cli.WithSession(sessionUsecase),

@@ -8,6 +8,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/redaction"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/presentation"
@@ -17,6 +18,7 @@ import (
 type RootCLI struct {
 	event                      usecase.EventUsecase
 	eventMetadata              usecase.EventMetadataUsecase
+	tieredSearch               queryservice.TieredEventSearchQuery
 	reportCommand              usecase.ReportCommandUsecase
 	report                     usecase.ReportUsecase
 	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
@@ -83,6 +85,11 @@ func WithEvent(event usecase.EventUsecase) RootCLIOption {
 // WithEventMetadata injects body-free event reads used by metadata projections.
 func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.eventMetadata = eventMetadata }
+}
+
+// WithTieredEventSearch injects the explicit historical literal preview.
+func WithTieredEventSearch(search queryservice.TieredEventSearchQuery) RootCLIOption {
+	return func(c *RootCLI) { c.tieredSearch = search }
 }
 
 // WithReportCommand injects structured command-audit aggregation for report.

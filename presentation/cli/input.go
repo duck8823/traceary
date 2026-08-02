@@ -202,6 +202,9 @@ type searchCommandInput struct {
 	failuresOnlySet bool
 	color           string
 	colorSet        bool
+	tieredPreview   bool
+	deep            bool
+	continuation    string
 }
 
 // sessionBoundaryCommandInput is the resolved input to

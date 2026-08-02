@@ -67,8 +67,8 @@ func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 	if got := p.Ledger.LogicalWriteBytes; got > b.WriteBytes {
 		t.Fatalf("reserved bytes = %d > %d", got, b.WriteBytes)
 	}
-	if len(p.Writes) != 1 || p.Writes[0].LogicalBytes != 47 {
-		t.Fatalf("logical formula = %+v, want one 47-byte mutation", p.Writes)
+	if len(p.Writes) != 1 || p.Writes[0].LogicalBytes != 146 {
+		t.Fatalf("logical formula = %+v, want one 146-byte mutation including fingerprints", p.Writes)
 	}
 }
 
