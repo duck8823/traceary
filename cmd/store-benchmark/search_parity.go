@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -536,17 +536,27 @@ func parseParityCriteria(m searchParityManifest) (parityCriteria, error) {
 }
 
 func repositoryRevision(ctx context.Context) (parityRevision, error) {
-	// Only fixed Git state is returned; command stderr is deliberately discarded.
-	head, err := exec.CommandContext(ctx, "git", "rev-parse", "HEAD").Output()
-	if err != nil {
+	if err := ctx.Err(); err != nil {
+		return parityRevision{}, err
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info == nil {
 		return parityRevision{}, errors.New("revision_unavailable")
 	}
-	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain", "--untracked-files=normal")
-	status, err := cmd.Output()
-	if err != nil {
+	var revision string
+	modified := true // missing provenance is never treated as a clean build
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = strings.TrimSpace(setting.Value)
+		case "vcs.modified":
+			modified = setting.Value != "false"
+		}
+	}
+	if !validCommit(revision) {
 		return parityRevision{}, errors.New("revision_unavailable")
 	}
-	return parityRevision{Commit: strings.TrimSpace(string(head)), Dirty: len(bytes.TrimSpace(status)) != 0}, nil
+	return parityRevision{Commit: revision, Dirty: modified}, nil
 }
 
 var parityRevisionReader = repositoryRevision

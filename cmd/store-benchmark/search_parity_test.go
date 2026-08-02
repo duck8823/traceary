@@ -117,6 +117,11 @@ func TestActualTargetV2EvidenceAuthorizesAtomicRetirement(t *testing.T) {
 }
 
 func TestSearchParityRejectsRevisionMismatchBeforeStoreAccess(t *testing.T) {
+	originalRevisionReader := parityRevisionReader
+	parityRevisionReader = func(context.Context) (parityRevision, error) {
+		return parityRevision{Commit: strings.Repeat("a", 40), Dirty: false}, nil
+	}
+	t.Cleanup(func() { parityRevisionReader = originalRevisionReader })
 	artifact := runSearchParity(context.Background(), searchParityManifest{
 		DBPath: "/private/path-must-not-be-opened", Query: "private-query", LegacyPageSize: 1, TieredPageSize: 1,
 		SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1, ExpectedRevision: strings.Repeat("b", 40), ExpectedDirty: boolPointer(false),
