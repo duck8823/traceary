@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -130,7 +131,7 @@ func decodeStrictJSON(data []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return err
+		return fmt.Errorf("decode strict JSON: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return errors.New("trailing JSON value")
@@ -261,14 +262,14 @@ func collectLegacyParity(ctx context.Context, path string, c parityCriteria, pag
 	for offset := 0; ; {
 		database, openErr := infra.NewImmutableReadDatabase(ctx, path)
 		if openErr != nil {
-			return members, openErr
+			return members, fmt.Errorf("open immutable legacy page: %w", openErr)
 		}
 		datasource := infra.NewEventDatasource(database)
 		page, err := datasource.Search(ctx, c.query, types.Workspace(c.workspace), types.SessionID(c.sessionID), types.Client(c.client), types.Agent(c.agent), types.EventKind(c.kind), c.from, c.to, pageSize, offset, c.failuresOnly)
 		_ = database.CloseSharedReadOnly()
 		if err != nil {
 			setCensoredLatency(metrics, started, err)
-			return members, err
+			return members, fmt.Errorf("read legacy page: %w", err)
 		}
 		metrics.Pages++
 		if len(page) == 0 {
@@ -303,7 +304,7 @@ func collectTieredParity(ctx context.Context, path string, c parityCriteria, m s
 	for {
 		database, openErr := infra.NewImmutableReadDatabase(ctx, path)
 		if openErr != nil {
-			return members, openErr
+			return members, fmt.Errorf("open immutable tiered page: %w", openErr)
 		}
 		datasource := infra.NewEventDatasource(database)
 		builder := apptypes.NewEventSearchCriteriaBuilder(m.TieredPageSize).Query(c.query).
@@ -317,7 +318,7 @@ func collectTieredParity(ctx context.Context, path string, c parityCriteria, m s
 		_ = database.CloseSharedReadOnly()
 		if err != nil {
 			setCensoredLatency(metrics, started, err)
-			return members, err
+			return members, fmt.Errorf("read tiered page: %w", err)
 		}
 		metrics.Pages++
 		for _, event := range page.Events {
