@@ -14,6 +14,11 @@ codec互換性preflightは、新たにupgradeしたstoreではevent body、comma
    コピーには`-wal`と`-shm`を残しません。
 2. `traceary store payload-rehearsal preview --target COPY --live-db LIVE`を実行します。
    previewはimmutable/query-onlyで開き、検査前後のDB/WAL/SHM snapshotが一致しなければ失敗します。
+
+migrationの要否はembedded versionと`schema_migrations`の差分から判定します。
+run前にexact cloneを独立した1秒上限内で検証済みWAL modeへ切り替え、pending migration一式を単一の`BEGIN IMMEDIATE`/`COMMIT`で実行し、live WAL bytesとlock durationを記録します。
+コピーtargetは同じpending状態、journal mode、WAL予約を再現しなければなりません。
+targetのjournal変更後に失敗した場合は検証済みphysical backupを復元し、明示的なno-pending planの場合だけmigration実行を省略します。
 3. `... run --target COPY --live-db LIVE --backup ROLLBACK`を実行します。
    圧縮結果は`payload_rehearsal_rows`だけに保存し、event/auditのcanonical payloadは変更しません。
 4. 中断または上限到達後は、同じ設定とrollback artifactで`... resume`を実行します。

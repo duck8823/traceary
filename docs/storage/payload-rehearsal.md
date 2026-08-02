@@ -17,6 +17,14 @@ compatibility evidence fails closed before a rehearsal run is created.
 2. Run `traceary store payload-rehearsal preview --target COPY --live-db LIVE`.
    Preview opens the copy immutable/query-only and fails unless DB/WAL/SHM
    snapshots are identical before and after inspection.
+
+Migration readiness is derived from embedded versions versus
+`schema_migrations`. Before a run, Traceary switches an exact clone to verified
+WAL mode under a separate one-second cap, executes the exact pending set in one
+`BEGIN IMMEDIATE`/`COMMIT`, and records its live WAL bytes and lock duration.
+The copied target must reproduce that pending state, journal mode, and WAL
+reservation. Any failure after target journal mutation restores the verified
+physical backup; only an explicit no-pending plan skips migration execution.
 3. Run `... run --target COPY --live-db LIVE --backup ROLLBACK`. Compression is
    written only to `payload_rehearsal_rows`; canonical event and audit payloads
    remain unchanged. Required row, byte, time, and lock caps are always active.

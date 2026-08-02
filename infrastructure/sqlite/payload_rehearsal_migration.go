@@ -63,18 +63,89 @@ func exactFileClone(source, destination string) error {
 	return out.Close()
 }
 
-// measureRehearsalMigrationWAL executes the exact migration set on a byte clone.
-// The clone's uncheckpointed WAL is a strict reservation input for the target.
+type rehearsalMigrationPlan struct {
+	pending     bool
+	walBytes    int64
+	elapsed     time.Duration
+	journalMode string
+}
+
+//nolint:wrapcheck // internal migration inventory is classified by callers.
+func (d *Database) rehearsalMigrationsPending(ctx context.Context, db *sql.DB) (bool, error) {
+	var migrationTable int
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations')`).Scan(&migrationTable); err != nil {
+		return false, err
+	}
+	if migrationTable == 0 {
+		return true, nil
+	}
+	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations`)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rows.Close() }()
+	applied := map[int64]struct{}{}
+	for rows.Next() {
+		var version int64
+		if err = rows.Scan(&version); err != nil {
+			return false, err
+		}
+		applied[version] = struct{}{}
+	}
+	if err = rows.Err(); err != nil {
+		return false, err
+	}
+	paths, err := fs.Glob(d.migrations, "*.sql")
+	if err != nil {
+		return false, err
+	}
+	for _, path := range paths {
+		version, parseErr := parseMigrationVersion(path)
+		if parseErr != nil {
+			return false, parseErr
+		}
+		if _, ok := applied[version]; !ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+//nolint:wrapcheck // journal normalization is classified by callers.
+func normalizeRehearsalJournal(ctx context.Context, db *sql.DB, limit time.Duration) (string, time.Duration, error) {
+	if limit <= 0 || limit > time.Second {
+		limit = time.Second
+	}
+	opCtx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	started := time.Now()
+	var mode string
+	if err := db.QueryRowContext(opCtx, `PRAGMA journal_mode=WAL`).Scan(&mode); err != nil {
+		return "", time.Since(started), err
+	}
+	elapsed := time.Since(started)
+	if elapsed > limit {
+		return mode, elapsed, errors.New("rehearsal journal normalization duration cap exceeded")
+	}
+	if mode != "wal" {
+		return mode, elapsed, fmt.Errorf("rehearsal journal mode mismatch: %s", mode)
+	}
+	return mode, elapsed, nil
+}
+
+// measureRehearsalMigrationWAL executes the exact pending migration set in one
+// BEGIN IMMEDIATE/COMMIT on a byte clone and observes its live WAL.
 //
 //nolint:wrapcheck // internal preflight errors are classified at the Run boundary.
-func (d *Database) measureRehearsalMigrationWAL(ctx context.Context, target string, lock time.Duration) (int64, error) {
+func (d *Database) measureRehearsalMigrationWAL(ctx context.Context, target string, lock time.Duration) (rehearsalMigrationPlan, error) {
+	plan := rehearsalMigrationPlan{}
 	clone, err := os.CreateTemp(filepath.Dir(target), ".traceary-migration-preflight-*.db")
 	if err != nil {
-		return 0, err
+		return plan, err
 	}
 	clonePath := clone.Name()
 	if err = clone.Close(); err != nil {
-		return 0, err
+		return plan, err
 	}
 	defer func() {
 		for _, suffix := range []string{"", "-wal", "-shm"} {
@@ -82,32 +153,61 @@ func (d *Database) measureRehearsalMigrationWAL(ctx context.Context, target stri
 		}
 	}()
 	if err = exactFileClone(target, clonePath); err != nil {
-		return 0, err
+		return plan, err
 	}
 	db, err := sql.Open("sqlite", writableRehearsalDSN(clonePath, lock))
 	if err != nil {
-		return 0, err
+		return plan, err
 	}
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
+	plan.pending, err = d.rehearsalMigrationsPending(ctx, db)
+	if err != nil {
+		return plan, err
+	}
+	plan.journalMode, _, err = normalizeRehearsalJournal(ctx, db, lock)
+	if err != nil {
+		return plan, err
+	}
 	if _, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
-		return 0, err
+		return plan, err
 	}
+	if !plan.pending {
+		return plan, nil
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return plan, err
+	}
+	defer func() { _ = conn.Close() }()
 	started := time.Now()
-	if err = d.migrate(ctx, db); err != nil {
-		return 0, err
+	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return plan, err
 	}
-	if time.Since(started) > lock {
-		return 0, errors.New("migration preflight lock duration cap exceeded")
+	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), `ROLLBACK`) }()
+	if err = d.migrateOnBudgetedConnection(ctx, conn); err != nil {
+		return plan, err
 	}
-	info, err := os.Stat(clonePath + "-wal")
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, nil
+	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return plan, err
 	}
-	if err != nil || !info.Mode().IsRegular() {
-		return 0, errors.New("cannot measure migration preflight WAL")
+	plan.elapsed = time.Since(started)
+	if plan.elapsed > lock {
+		return plan, errors.New("migration preflight lock duration cap exceeded")
 	}
-	return info.Size(), nil
+	info, statErr := os.Stat(clonePath + "-wal")
+	if statErr != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
+		return plan, errors.New("pending migration produced no valid WAL")
+	}
+	plan.walBytes = info.Size()
+	var pageSize int64
+	if err = conn.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize); err != nil || pageSize <= 0 {
+		return plan, errors.New("cannot inspect migration preflight WAL frame")
+	}
+	if plan.walBytes < 32+24+pageSize {
+		return plan, errors.New("pending migration WAL is smaller than one frame")
+	}
+	return plan, nil
 }
 
 // migrateOnBudgetedConnection applies pending migrations inside the caller's
