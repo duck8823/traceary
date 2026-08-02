@@ -3,13 +3,19 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -30,6 +36,56 @@ func TestRootCLI_SearchTieredPreviewExposesZeroMatchContinuation(t *testing.T) {
 	if stub.request.Continuation != "previous" || stub.request.Budget != apptypes.DeepLiteralSearchBudget {
 		t.Fatalf("request = %+v", stub.request)
 	}
+}
+
+func TestRootCLI_SearchTieredPreviewResumesWithoutImplicitTo(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	eventUC := usecase.NewEventUsecase(eventDS, eventDS)
+	if err := storeUC.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"cli-tiered-a", "cli-tiered-b"} {
+		eventID, _ := types.EventIDFrom(id)
+		agent, _ := types.AgentFrom("codex")
+		sessionID, _ := types.SessionIDFrom("cli-tiered-session")
+		if err := eventDS.Save(ctx, model.EventOf(eventID, types.EventKindNote, types.Client("cli"), agent, sessionID, types.Workspace("repo"), "needle", time.Now().UTC())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	search := queryservice.NewLiteralSearchService(eventDS)
+	run := func(continuation string) string {
+		t.Helper()
+		stdout := &bytes.Buffer{}
+		root := cli.NewRootCLI(cli.WithStoreManagement(storeUC), cli.WithEvent(eventUC), cli.WithTieredEventSearch(search), cli.WithDatabasePathSetter(db.SetPath)).Command()
+		root.SetOut(stdout)
+		root.SetErr(&bytes.Buffer{})
+		args := []string{"search", "needle", "--tiered-preview", "--json", "--workspace", "repo", "--limit", "1", "--db-path", dbPath}
+		if continuation != "" {
+			args = append(args, "--continuation", continuation)
+		}
+		root.SetArgs(args)
+		if err := root.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		var output struct {
+			Continuation string `json:"continuation"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+			t.Fatal(err)
+		}
+		return output.Continuation
+	}
+	continuation := run("")
+	if continuation == "" {
+		t.Fatal("missing continuation")
+	}
+	time.Sleep(time.Millisecond)
+	_ = run(continuation)
 }
 
 type cliTieredSearchStub struct {

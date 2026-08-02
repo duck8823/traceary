@@ -179,6 +179,10 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		return err
 	}
 
+	criteriaTo := interval.EffectiveToExclusive()
+	if input.tieredPreview && !interval.HasRequestedTo() {
+		criteriaTo = time.Time{}
+	}
 	criteria := apptypes.NewEventSearchCriteriaBuilder(input.limit).
 		Query(input.query).
 		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
@@ -187,7 +191,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		Agent(types.Agent(input.agent)).
 		Kind(types.EventKind(resolvedKind)).
 		From(interval.EffectiveFromInclusive()).
-		To(interval.EffectiveToExclusive()).
+		To(criteriaTo).
 		Offset(input.offset).
 		FailuresOnly(input.failuresOnly).
 		Build()
