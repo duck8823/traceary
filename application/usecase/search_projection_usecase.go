@@ -61,7 +61,7 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 	if err != nil {
 		var oversized *apptypes.SearchProjectionOversizeError
 		if errors.As(err, &oversized) && snapshot.Generation.GenerationID != "" {
-			if markErr := u.store.MarkFailed(wallCtx, snapshot.Generation.GenerationID, snapshot.Generation.SourceRevision, oversized.Class, now.UTC()); markErr != nil {
+			if markErr := u.markFailed(ctx, b.LockTime, snapshot.Generation, oversized.Class, now.UTC()); markErr != nil {
 				return apptypes.SearchProjectionProgress{}, markErr
 			}
 		}
@@ -71,7 +71,7 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 	if err != nil {
 		var oversized *apptypes.SearchProjectionOversizeError
 		if errors.As(err, &oversized) {
-			if markErr := u.store.MarkFailed(wallCtx, snapshot.Generation.GenerationID, snapshot.Generation.SourceRevision, oversized.Class, now.UTC()); markErr != nil {
+			if markErr := u.markFailed(ctx, b.LockTime, snapshot.Generation, oversized.Class, now.UTC()); markErr != nil {
 				return apptypes.SearchProjectionProgress{}, markErr
 			}
 		}
@@ -84,6 +84,17 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 		return u.store.ApplyBatch(wallCtx, plan, b.LockTime, now.UTC())
 	}
 	return u.store.CleanupBatch(wallCtx, plan, b.LockTime, now.UTC())
+}
+
+// markFailed is an explicit recovery transition. It uses the original parent
+// and its own lock deadline so an exhausted batch wall budget cannot strand the
+// generation in rebuilding.
+//
+//nolint:wrapcheck // Preserve typed recovery-transition errors.
+func (u *SearchProjectionUsecase) markFailed(ctx context.Context, lock time.Duration, generation apptypes.SearchProjectionGeneration, class string, now time.Time) error {
+	failureCtx, cancel := context.WithTimeout(ctx, lock)
+	defer cancel()
+	return u.store.MarkFailed(failureCtx, generation.GenerationID, generation.SourceRevision, class, now)
 }
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.

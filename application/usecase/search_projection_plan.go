@@ -77,6 +77,9 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 			return p, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: w.LogicalBytes, Limit: b.WriteBytes}
 		}
 		if p.Ledger.LogicalWriteBytes+w.LogicalBytes > b.WriteBytes {
+			if len(p.Writes) == 0 {
+				return p, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: p.Ledger.LogicalWriteBytes + w.LogicalBytes, Limit: b.WriteBytes}
+			}
 			break
 		}
 		p.Writes = append(p.Writes, w)

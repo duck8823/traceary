@@ -340,6 +340,44 @@ func TestSearchProjectionOversizeFailureAllowsLargerGeneration(t *testing.T) {
 	}
 }
 
+func TestSearchProjectionWritePlusCheckpointOversizeIsRecoverable(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, migrations)
+	if err := store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	if _, err := db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('e','note','a','s','x',?,'c','w')`, formatTimestamp(now)); err != nil {
+		t.Fatal(err)
+	}
+	b := projectionBudget()
+	b.WriteBytes = 250
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resumeProjection(ctx, store, b, now)
+	var oversized *apptypes.SearchProjectionOversizeError
+	if !errors.As(err, &oversized) || oversized.Bytes <= b.WriteBytes {
+		t.Fatalf("error=%T %+v", err, oversized)
+	}
+	var state string
+	if err = db.QueryRow(`SELECT state FROM search_projection_state`).Scan(&state); err != nil || state != "failed" {
+		t.Fatalf("state=%q err=%v", state, err)
+	}
+	b.WriteBytes = 1000
+	if _, err = store.Start(ctx, b, now); err != nil {
+		t.Fatalf("larger start: %v", err)
+	}
+	p, err := resumeProjection(ctx, store, b, now)
+	if err != nil || p.Written != 1 {
+		t.Fatalf("larger resume=%+v err=%v", p, err)
+	}
+}
+
 func TestCompletedMutationDefersPayloadCleanupToBoundedPhase(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
