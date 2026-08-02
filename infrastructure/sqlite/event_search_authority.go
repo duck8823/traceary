@@ -3,6 +3,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"sort"
 
 	"golang.org/x/xerrors"
@@ -30,15 +31,30 @@ func validateSearchCriteriaForAuthority(criteria apptypes.EventSearchCriteria) e
 // searchMetadataByPersistedAuthority is the shared projection-neutral boundary
 // for full, metadata, and bounded normal search surfaces.
 func (d *EventDatasource) searchMetadataByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	authority, err := d.readSearchAuthority(ctx)
+	db, tx, err := d.beginEventProjectionRead(ctx, "persisted search authority")
 	if err != nil {
 		return nil, err
 	}
+	defer closeEventProjectionRead(db, tx)
+	var authority string
+	if err = tx.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
+		return nil, xerrors.Errorf("read explicit persisted search authority: %w", err)
+	}
 	switch authority {
 	case "legacy":
+		if err = tx.Commit(); err != nil {
+			return nil, xerrors.Errorf("finish persisted search authority read: %w", err)
+		}
 		return d.searchLegacyMetadata(ctx, criteria)
 	case "tiered":
-		return d.searchTieredMetadata(ctx, criteria)
+		metadata, searchErr := d.searchTieredMetadataTx(ctx, tx, criteria)
+		if searchErr != nil {
+			return nil, searchErr
+		}
+		if err = tx.Commit(); err != nil {
+			return nil, xerrors.Errorf("finish persisted tiered search: %w", err)
+		}
+		return metadata, nil
 	default:
 		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
 	}
@@ -76,24 +92,37 @@ func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, cr
 }
 
 func (d *EventDatasource) searchTieredMetadata(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
+	db, tx, err := d.beginEventProjectionRead(ctx, "tiered search metadata")
+	if err != nil {
+		return nil, err
+	}
+	defer closeEventProjectionRead(db, tx)
+	metadata, err := d.searchTieredMetadataTx(ctx, tx, criteria)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, xerrors.Errorf("finish tiered search metadata: %w", err)
+	}
+	return metadata, nil
+}
+
+func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
 	if criteria.Offset() < 0 {
 		return nil, xerrors.New("offset must be greater than or equal to 0")
 	}
 	continuation := ""
-	stateDB, err := d.db.openReadOnly(ctx)
-	if err != nil {
-		return nil, err
-	}
 	var literalState, literalGeneration, boundedState, boundedGeneration string
 	var literalHigh, sourceHigh int64
-	if err = stateDB.QueryRowContext(ctx, `SELECT generation_id,high_water,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalHigh, &literalState); err == nil {
-		err = stateDB.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,''),state FROM search_projection_state WHERE singleton=1`).Scan(&boundedGeneration, &boundedState)
-	}
-	if err == nil {
-		err = stateDB.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&sourceHigh)
-	}
-	d.db.release(stateDB)
-	if err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT generation_id,high_water,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalHigh, &literalState); err == nil {
+		err = tx.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,''),state FROM search_projection_state WHERE singleton=1`).Scan(&boundedGeneration, &boundedState)
+		if err == nil {
+			err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&sourceHigh)
+		}
+		if err != nil {
+			return nil, xerrors.Errorf("read tiered authority projection state: %w", err)
+		}
+	} else {
 		return nil, xerrors.Errorf("read tiered authority projection state: %w", err)
 	}
 	if literalState != "complete" || boundedState != "complete" || literalGeneration == "" || literalGeneration != boundedGeneration || literalHigh != sourceHigh {
@@ -104,7 +133,7 @@ func (d *EventDatasource) searchTieredMetadata(ctx context.Context, criteria app
 		Workspace(criteria.Workspace()).SessionID(criteria.SessionID()).Client(criteria.Client()).Agent(criteria.Agent()).
 		Kind(criteria.Kind()).From(criteria.From()).To(criteria.To()).FailuresOnly(criteria.FailuresOnly()).Build()
 	for {
-		page, err := d.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{
+		page, err := d.searchLiteralPageTx(ctx, tx, apptypes.LiteralSearchRequest{
 			Criteria: literalCriteria, Budget: apptypes.DeepLiteralSearchBudget,
 			Continuation: continuation, BodyRuneLimit: 1,
 		})

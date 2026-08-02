@@ -21,21 +21,48 @@ var _ queryservice.TieredEventSearchQuery = (*EventDatasource)(nil)
 // fingerprints are deliberately treated as an optional candidate accelerator:
 // until a complete matching generation exists, every source remains eligible.
 func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("validate literal search request: %w", validateErr)
-	}
-	query := apptypes.CharacterizeLiteralQuery(request.Criteria.Query())
-	if len(query.Canonical()) > apptypes.MaxLiteralSearchQueryBytes {
-		return apptypes.LiteralSearchPage{}, apptypes.ErrLiteralSearchQueryTooLarge
-	}
-	if query.Canonical() == "" {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("literal search query must not be empty")
+	if err := validateLiteralSearchRequest(request); err != nil {
+		return apptypes.LiteralSearchPage{}, err
 	}
 	db, tx, err := d.beginEventProjectionRead(ctx, "tiered literal search")
 	if err != nil {
 		return apptypes.LiteralSearchPage{}, err
 	}
 	defer closeEventProjectionRead(db, tx)
+	page, err := d.searchLiteralPageTx(ctx, tx, request)
+	if err != nil {
+		return apptypes.LiteralSearchPage{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return apptypes.LiteralSearchPage{}, xerrors.Errorf("finish tiered literal search: %w", err)
+	}
+	return page, nil
+}
+
+// validateLiteralSearchRequest deliberately runs before opening SQLite so
+// malformed public requests cannot allocate a connection or transaction.
+func validateLiteralSearchRequest(request apptypes.LiteralSearchRequest) error {
+	if validateErr := request.Validate(); validateErr != nil {
+		return xerrors.Errorf("validate literal search request: %w", validateErr)
+	}
+	query := apptypes.CharacterizeLiteralQuery(request.Criteria.Query())
+	if len(query.Canonical()) > apptypes.MaxLiteralSearchQueryBytes {
+		return apptypes.ErrLiteralSearchQueryTooLarge
+	}
+	if query.Canonical() == "" {
+		return xerrors.Errorf("literal search query must not be empty")
+	}
+	return nil
+}
+
+// searchLiteralPageTx keeps authority selection, projection validation, source
+// traversal, and match hydration on one SQLite snapshot when called by the
+// normal-search authority boundary.
+func (d *EventDatasource) searchLiteralPageTx(ctx context.Context, tx *sql.Tx, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
+	if err := validateLiteralSearchRequest(request); err != nil {
+		return apptypes.LiteralSearchPage{}, err
+	}
+	query := apptypes.CharacterizeLiteralQuery(request.Criteria.Query())
 
 	var generation, state string
 	var highWater, revision int64
@@ -162,9 +189,6 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		if err != nil {
 			return apptypes.LiteralSearchPage{}, xerrors.Errorf("encode literal search continuation: %w", err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("finish tiered literal search: %w", err)
 	}
 	return page, nil
 }

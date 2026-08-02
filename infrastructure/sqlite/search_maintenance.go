@@ -433,22 +433,6 @@ func (d *Database) RestoreLegacySearchBatch(ctx context.Context, limit int) (app
 	return report, err
 }
 
-func createLegacySearchWriterTriggers(ctx context.Context, tx *sql.Tx) error {
-	statements := []string{
-		`CREATE TRIGGER IF NOT EXISTS events_search_after_insert AFTER INSERT ON events BEGIN INSERT INTO event_search_documents(event_id,body_text,command_text,input_text,output_text) SELECT event_id,body_text,command_text,input_text,output_text FROM event_search_projection WHERE event_id=NEW.id ON CONFLICT(event_id) DO NOTHING; END`,
-		`CREATE TRIGGER IF NOT EXISTS events_search_after_body_update AFTER UPDATE OF body,body_availability ON events BEGIN INSERT INTO event_search_documents(event_id,body_text,command_text,input_text,output_text) SELECT event_id,body_text,command_text,input_text,output_text FROM event_search_projection WHERE event_id=NEW.id ON CONFLICT(event_id) DO UPDATE SET body_text=excluded.body_text,command_text=excluded.command_text,input_text=excluded.input_text,output_text=excluded.output_text; END`,
-		`CREATE TRIGGER IF NOT EXISTS command_audits_search_after_insert AFTER INSERT ON command_audits BEGIN INSERT INTO event_search_documents(event_id,body_text,command_text,input_text,output_text) SELECT event_id,body_text,command_text,input_text,output_text FROM event_search_projection WHERE event_id=NEW.event_id ON CONFLICT(event_id) DO UPDATE SET body_text=excluded.body_text,command_text=excluded.command_text,input_text=excluded.input_text,output_text=excluded.output_text; END`,
-		`CREATE TRIGGER IF NOT EXISTS command_audits_search_after_update AFTER UPDATE OF command_text,input_text,output_text ON command_audits BEGIN UPDATE event_search_documents SET (body_text,command_text,input_text,output_text)=(SELECT body_text,command_text,input_text,output_text FROM event_search_projection WHERE event_id=NEW.event_id) WHERE event_id=NEW.event_id; END`,
-		`CREATE TRIGGER IF NOT EXISTS command_audits_search_after_delete AFTER DELETE ON command_audits BEGIN UPDATE event_search_documents SET (body_text,command_text,input_text,output_text)=(SELECT body_text,command_text,input_text,output_text FROM event_search_projection WHERE event_id=OLD.event_id) WHERE event_id=OLD.event_id; END`,
-	}
-	for _, statement := range statements {
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return xerrors.Errorf("restore legacy search writer: %w", err)
-		}
-	}
-	return nil
-}
-
 func (d *Database) SearchMaintenanceStatus(ctx context.Context) (apptypes.SearchMaintenanceReport, error) {
 	db, err := d.open(ctx)
 	if err != nil {

@@ -86,7 +86,7 @@ func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2
 	if err != nil {
 		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
 	}
-	defer database.CloseSharedReadOnly()
+	defer func() { _ = database.CloseSharedReadOnly() }()
 	snapshot, err := database.SearchRetirementSnapshot(ctx)
 	if err != nil || !snapshot.TargetAdopted || snapshot.ProjectionState != "complete" || snapshot.ProjectionRevision != fingerprint.Projection.Revision || snapshot.ProjectionHighWater != fingerprint.Projection.HighWater {
 		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
@@ -99,7 +99,10 @@ func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2
 	}
 	criterion := func(class string, artifact searchParityArtifact) (parityCriterionEvidence, error) {
 		b, e := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", class, binding)
-		return parityCriterionEvidence{QueryClass: class, CriterionBinding: b, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: artifact.Legacy.LatencyUS, TieredLatencyUS: artifact.Tiered.LatencyUS}, e
+		if e != nil {
+			return parityCriterionEvidence{}, errors.New("authorization_criterion_invalid")
+		}
+		return parityCriterionEvidence{QueryClass: class, CriterionBinding: b, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: artifact.Legacy.LatencyUS, TieredLatencyUS: artifact.Tiered.LatencyUS}, nil
 	}
 	a, err := criterion("fingerprint_eligible", fingerprint)
 	if err != nil {
@@ -119,7 +122,7 @@ func readPrivateParityFile(path string, limit int) ([]byte, error) {
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("open private parity file")
 	}
 	defer func() { _ = file.Close() }()
 	opened, err := file.Stat()
