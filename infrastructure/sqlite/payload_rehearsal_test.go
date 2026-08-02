@@ -15,9 +15,79 @@ import (
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
+
+func TestPayloadRehearsalDeterministicStopResumeScrubRollback(t *testing.T) {
+	ctx := context.Background()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, target, backup := filepath.Join(dir, "live.db"), filepath.Join(dir, "target.db"), filepath.Join(dir, "backup.db")
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = infra.NewStoreManagementDatasource(infra.NewDatabase(live, migrations)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES(?,'prompt','test','session','body','2026-08-01T00:00:00Z')`, fmt.Sprintf("event-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	copyTestFile(t, live, target)
+	adapter := newRehearsalAdapter(t, migrations, live)
+	u := usecase.NewPayloadRehearsalUsecase(adapter, adapter, adapter, adapter)
+	config := rehearsalTestConfig(target, live, backup)
+	config.BatchRows = 1
+	config.StopAfterBatches = 1
+	stopped, err := u.Run(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.State != "paused" || stopped.BatchCount != 1 || !stopped.MorePending {
+		t.Fatalf("stop result=%+v", stopped)
+	}
+	config.StopAfterBatches = 0
+	resumed, err := u.Resume(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.State != "completed" || resumed.EncodedRows <= stopped.EncodedRows {
+		t.Fatalf("resume=%+v", resumed)
+	}
+	check, err := sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count, distinct int
+	if err = check.QueryRow(`SELECT count(*),count(DISTINCT table_kind||':'||field_kind||':'||source_primary_key) FROM payload_rehearsal_rows`).Scan(&count, &distinct); err != nil {
+		t.Fatal(err)
+	}
+	_ = check.Close()
+	if count != 3 || distinct != count {
+		t.Fatalf("shadow count/distinct=%d/%d", count, distinct)
+	}
+	scrubbed, err := u.Scrub(ctx, config)
+	if err != nil || !scrubbed.ActivationReadiness.ScrubPassed || scrubbed.ActivationReadiness.ActivationAllowed {
+		t.Fatalf("scrub=%+v err=%v", scrubbed, err)
+	}
+	rolledBack, err := u.Rollback(ctx, config)
+	if err != nil || !rolledBack.RollbackVerified {
+		t.Fatalf("rollback=%+v err=%v", rolledBack, err)
+	}
+}
 
 func TestPayloadRehearsalPreservesCanonicalRowsAndScrubsShadowRows(t *testing.T) {
 	ctx := context.Background()

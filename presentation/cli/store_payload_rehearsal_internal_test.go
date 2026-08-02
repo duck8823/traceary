@@ -73,6 +73,28 @@ func (b neverCalledRehearsalBackend) Rollback(context.Context, apptypes.PayloadR
 
 type readinessRehearsalStub struct{}
 
+type recordingRehearsalStub struct {
+	configs []apptypes.PayloadRehearsalConfig
+}
+
+func (r *recordingRehearsalStub) Preview(context.Context, apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
+	return apptypes.PayloadRehearsalMetrics{}, nil
+}
+func (r *recordingRehearsalStub) Run(_ context.Context, c apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
+	r.configs = append(r.configs, c)
+	return apptypes.PayloadRehearsalMetrics{}, nil
+}
+func (r *recordingRehearsalStub) Resume(_ context.Context, c apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
+	r.configs = append(r.configs, c)
+	return apptypes.PayloadRehearsalMetrics{}, nil
+}
+func (*recordingRehearsalStub) Scrub(context.Context, apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
+	return apptypes.PayloadRehearsalMetrics{}, nil
+}
+func (*recordingRehearsalStub) Rollback(context.Context, apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
+	return apptypes.PayloadRehearsalMetrics{}, nil
+}
+
 func (readinessRehearsalStub) Preview(context.Context, apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
 	return apptypes.PayloadRehearsalMetrics{}, nil
 }
@@ -142,5 +164,30 @@ func TestPayloadRehearsalCLIRejectsUnboundedBatchWithoutWritesOrPanic(t *testing
 	}
 	if _, err := os.Stat(backup); !os.IsNotExist(err) {
 		t.Fatalf("backup created: %v", err)
+	}
+}
+
+func TestPayloadRehearsalCLIRejectsNegativeStopBeforeBackend(t *testing.T) {
+	b := neverCalledRehearsalBackend{}
+	root := NewRootCLI(WithPayloadRehearsal(usecase.NewPayloadRehearsalUsecase(b, b, b, b)))
+	cmd := root.newStorePayloadRehearsalCommand()
+	cmd.SetArgs([]string{"run", "--target", "target", "--live-db", "live", "--backup", "backup", "--stop-after-batches", "-1"})
+	if err := cmd.Execute(); !errors.Is(err, usecase.ErrInvalidPayloadRehearsalConfig) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestPayloadRehearsalCLIPropagatesPositiveStopToRunAndResume(t *testing.T) {
+	stub := &recordingRehearsalStub{}
+	for _, operation := range []string{"run", "resume"} {
+		root := NewRootCLI(WithPayloadRehearsal(stub))
+		cmd := root.newStorePayloadRehearsalCommand()
+		cmd.SetArgs([]string{operation, "--target", "target", "--live-db", "live", "--backup", "backup", "--stop-after-batches", "3"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(stub.configs) != 2 || stub.configs[0].StopAfterBatches != 3 || stub.configs[1].StopAfterBatches != 3 {
+		t.Fatalf("configs=%+v", stub.configs)
 	}
 }

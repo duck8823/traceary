@@ -85,6 +85,9 @@ type PayloadRehearsalConfig struct {
 	ScrubByteLimit   int64         `json:"scrub_byte_limit"`
 	ScrubTimeLimit   time.Duration `json:"scrub_time_limit"`
 	MaxWALBytes      int64         `json:"max_wal_bytes"`
+	// StopAfterBatches is a rehearsal-only orchestration boundary. It is not
+	// part of the persisted codec configuration and zero means no batch limit.
+	StopAfterBatches int64 `json:"-"`
 }
 
 // MaxPayloadRehearsalBatchRows bounds query and in-memory page cardinality.
@@ -94,7 +97,7 @@ const MaxPayloadRehearsalBatchRows = 4096
 func (c PayloadRehearsalConfig) Valid() bool {
 	return c.TargetPath != "" && c.LivePath != "" && c.BatchRows > 0 && c.BatchRows <= MaxPayloadRehearsalBatchRows && c.StoredByteLimit > 0 &&
 		c.DecodedByteLimit > 0 && c.WallTimeLimit > 0 && c.LockTimeLimit > 0 &&
-		c.ScrubByteLimit > 0 && c.ScrubTimeLimit > 0 && c.MaxWALBytes > 0
+		c.ScrubByteLimit > 0 && c.ScrubTimeLimit > 0 && c.MaxWALBytes > 0 && c.StopAfterBatches >= 0
 }
 
 // ReadinessGateStatus is an evidence-backed prerequisite outcome.
@@ -155,6 +158,7 @@ type PayloadRehearsalMetrics struct {
 	PlaintextBytes         int64                       `json:"plaintext_bytes"`
 	StoredBytes            int64                       `json:"stored_bytes"`
 	BatchCount             int64                       `json:"batch_count"`
+	MorePending            bool                        `json:"more_pending"`
 	BatchDurationHistogram map[string]int64            `json:"batch_duration_histogram"`
 	ConflictRows           int64                       `json:"conflict_rows"`
 	PeakWALBytes           int64                       `json:"peak_wal_bytes"`
