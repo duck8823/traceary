@@ -148,11 +148,33 @@ func (u *storeCompactionUsecase) resumeLeased(ctx context.Context, run domain.Co
 	if err != nil {
 		return run, err
 	}
+	if run.Phase == domain.CompactionCopyIntent && observation.Orientation == domain.OrientationCandidateReady {
+		observation.CandidateCondition, err = u.builder.ClassifyCandidate(ctx, run.SourcePath, run.CandidatePath)
+		if err != nil {
+			return run, err
+		}
+	}
 	actions, err := run.RecoveryActions(observation)
 	if err != nil {
 		return run, err
 	}
 	for _, action := range actions {
+		if action == domain.ActionRemoveOwnedPartialCandidate {
+			if err := u.files.Recheck(ctx, run); err != nil {
+				return run, err
+			}
+			if err := u.files.RemoveOwnedPartialCandidate(ctx, run, observation); err != nil {
+				return run, err
+			}
+			continue
+		}
+		if action == domain.ActionRecordCopyComplete {
+			run, err = u.advance(ctx, run, domain.CompactionCopyComplete)
+			if err != nil {
+				return run, err
+			}
+			continue
+		}
 		if action == domain.ActionExchange {
 			if err := u.files.Exchange(ctx, run); err != nil {
 				return run, err

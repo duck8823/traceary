@@ -61,34 +61,46 @@ const (
 
 // CompactionObservation is a complete filesystem snapshot used by aggregate decisions.
 type CompactionObservation struct {
-	Orientation     CompactionOrientation
-	Source          StoreFileIdentity
-	Candidate       StoreFileIdentity
-	Rollback        StoreFileIdentity
-	CandidateExists bool
-	RollbackExists  bool
+	Orientation        CompactionOrientation
+	Source             StoreFileIdentity
+	Candidate          StoreFileIdentity
+	Rollback           StoreFileIdentity
+	CandidateExists    bool
+	RollbackExists     bool
+	CandidateCondition CandidateCondition
 }
+
+// CandidateCondition classifies an observed run-owned candidate.
+type CandidateCondition string
+
+const (
+	CandidateConditionUnknown         CandidateCondition = "unknown"
+	CandidateConditionComplete        CandidateCondition = "complete"
+	CandidateConditionOwnedIncomplete CandidateCondition = "owned_incomplete"
+)
 
 // CompactionAction is an aggregate-issued recovery action.
 type CompactionAction string
 
 const (
-	ActionRecheckPlan           CompactionAction = "recheck_plan"
-	ActionBuildCandidate        CompactionAction = "build_candidate"
-	ActionRecordSyncIntent      CompactionAction = "record_sync_intent"
-	ActionSyncCandidate         CompactionAction = "sync_candidate"
-	ActionRecordScrubInProgress CompactionAction = "record_scrub_in_progress"
-	ActionVerifyCandidate       CompactionAction = "verify_candidate"
-	ActionRecordSwapIntent      CompactionAction = "record_swap_intent"
-	ActionExchange              CompactionAction = "exchange"
-	ActionRecordSwapped         CompactionAction = "record_swapped"
-	ActionRecordPublishIntent   CompactionAction = "record_publish_intent"
-	ActionPublishRollback       CompactionAction = "publish_rollback"
-	ActionRecordRollbackReady   CompactionAction = "record_rollback_ready"
-	ActionCommit                CompactionAction = "commit"
-	ActionRollbackExchange      CompactionAction = "rollback_exchange"
-	ActionRecordRollbackSwapped CompactionAction = "record_rollback_swapped"
-	ActionRecordRolledBack      CompactionAction = "record_rolled_back"
+	ActionRecheckPlan                 CompactionAction = "recheck_plan"
+	ActionBuildCandidate              CompactionAction = "build_candidate"
+	ActionRemoveOwnedPartialCandidate CompactionAction = "remove_owned_partial_candidate"
+	ActionRecordCopyComplete          CompactionAction = "record_copy_complete"
+	ActionRecordSyncIntent            CompactionAction = "record_sync_intent"
+	ActionSyncCandidate               CompactionAction = "sync_candidate"
+	ActionRecordScrubInProgress       CompactionAction = "record_scrub_in_progress"
+	ActionVerifyCandidate             CompactionAction = "verify_candidate"
+	ActionRecordSwapIntent            CompactionAction = "record_swap_intent"
+	ActionExchange                    CompactionAction = "exchange"
+	ActionRecordSwapped               CompactionAction = "record_swapped"
+	ActionRecordPublishIntent         CompactionAction = "record_publish_intent"
+	ActionPublishRollback             CompactionAction = "publish_rollback"
+	ActionRecordRollbackReady         CompactionAction = "record_rollback_ready"
+	ActionCommit                      CompactionAction = "commit"
+	ActionRollbackExchange            CompactionAction = "rollback_exchange"
+	ActionRecordRollbackSwapped       CompactionAction = "record_rollback_swapped"
+	ActionRecordRolledBack            CompactionAction = "record_rolled_back"
 )
 
 // NextAction is the aggregate decision for the next normal apply step.
@@ -164,7 +176,16 @@ func (r CompactionRun) RecoveryActions(observation CompactionObservation) ([]Com
 		}
 	case OrientationCandidateReady:
 		switch r.Phase {
-		case CompactionCopyIntent, CompactionCopyComplete, CompactionCandidateSyncIntent, CompactionCandidateSynced, CompactionScrubInProgress, CompactionCandidateVerified:
+		case CompactionCopyIntent:
+			switch observation.CandidateCondition {
+			case CandidateConditionComplete:
+				return []CompactionAction{ActionRecordCopyComplete}, nil
+			case CandidateConditionOwnedIncomplete:
+				return []CompactionAction{ActionRemoveOwnedPartialCandidate}, nil
+			default:
+				return nil, fmt.Errorf("candidate ownership/completeness is unknown")
+			}
+		case CompactionCopyComplete, CompactionCandidateSyncIntent, CompactionCandidateSynced, CompactionScrubInProgress, CompactionCandidateVerified:
 			return nil, nil
 		case CompactionSwapIntent:
 			return []CompactionAction{ActionExchange, ActionRecordSwapped}, nil

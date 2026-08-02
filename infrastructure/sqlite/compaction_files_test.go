@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,5 +202,46 @@ func TestCompactionRequiredBytesIsOverflowSafe(t *testing.T) {
 	}
 	if required != uint64(100)+(64<<20) || margin != 64<<20 {
 		t.Fatalf("required=%d margin=%d", required, margin)
+	}
+}
+
+func TestRemoveOwnedPartialCandidateFaultBoundaries(t *testing.T) {
+	for _, point := range []string{"before_unlink", "after_unlink", "after_dir_sync"} {
+		t.Run(point, func(t *testing.T) {
+			dir := t.TempDir()
+			source := filepath.Join(dir, "store.db")
+			id := "0123456789abcdef0123456789abcdef"
+			candidate := source + ".compact-" + id
+			if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(candidate, make([]byte, 1024*1024), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			sourceID, _ := inspectRegularFile(source)
+			candidateID, _ := inspectRegularFile(candidate)
+			run := domain.CompactionRun{ID: id, SourcePath: source, CandidatePath: candidate, RollbackPath: source + ".rollback-" + id, SourceIdentity: sourceID, Phase: domain.CompactionCopyIntent}
+			obs := domain.CompactionObservation{Orientation: domain.OrientationCandidateReady, Source: sourceID, Candidate: candidateID, CandidateExists: true, CandidateCondition: domain.CandidateConditionOwnedIncomplete}
+			files := StoreReplacementFiles{recoveryHook: func(got string) error {
+				if got == point {
+					return errors.New("stop")
+				}
+				return nil
+			}}
+			if err := files.RemoveOwnedPartialCandidate(context.Background(), run, obs); err == nil {
+				t.Fatal("fault was not returned")
+			}
+			_, statErr := os.Lstat(candidate)
+			if point == "before_unlink" && statErr != nil {
+				t.Fatal("candidate removed before authorized unlink")
+			}
+			if point != "before_unlink" && !os.IsNotExist(statErr) {
+				t.Fatal("candidate still exists after unlink boundary")
+			}
+			gotSource, _ := os.ReadFile(source)
+			if string(gotSource) != "source" {
+				t.Fatal("source mutated")
+			}
+		})
 	}
 }

@@ -219,7 +219,7 @@ func writeJournalRecord(w io.Writer, run domain.CompactionRun) error {
 }
 
 // StoreReplacementFiles implements fenced, same-directory replacement.
-type StoreReplacementFiles struct{}
+type StoreReplacementFiles struct{ recoveryHook func(string) error }
 
 func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
 	if err := ctx.Err(); err != nil {
@@ -285,6 +285,54 @@ func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionR
 		return errors.New("planned filesystem capability drift")
 	}
 	return rejectSQLiteSidecars(run.SourcePath)
+}
+
+func (f StoreReplacementFiles) RemoveOwnedPartialCandidate(ctx context.Context, run domain.CompactionRun, observation domain.CompactionObservation) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if run.Phase != domain.CompactionCopyIntent || observation.Orientation != domain.OrientationCandidateReady || observation.CandidateCondition != domain.CandidateConditionOwnedIncomplete {
+		return errors.New("partial candidate cleanup is not aggregate-authorized")
+	}
+	if run.CandidatePath != run.SourcePath+".compact-"+run.ID {
+		return errors.New("candidate path is not owned by run")
+	}
+	if observation.RollbackExists {
+		return errors.New("rollback path exists during copy recovery")
+	}
+	source, err := inspectRegularFile(run.SourcePath)
+	if err != nil {
+		return err
+	}
+	candidate, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		return err
+	}
+	if source != run.SourceIdentity || candidate != observation.Candidate || candidate.Device != source.Device {
+		return errors.New("partial candidate identity fence changed")
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("before_unlink"); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(run.CandidatePath); err != nil {
+		return fmt.Errorf("unlink owned partial candidate: %w", err)
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_unlink"); err != nil {
+			return err
+		}
+	}
+	if err := syncDirectory(filepath.Dir(run.CandidatePath)); err != nil {
+		return fmt.Errorf("sync directory after partial candidate unlink: %w", err)
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_dir_sync"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func compactionRequiredBytes(destination int64, temporary uint64) (uint64, uint64, error) {

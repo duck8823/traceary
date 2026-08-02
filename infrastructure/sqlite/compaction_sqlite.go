@@ -15,6 +15,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/duck8823/traceary/domain"
 )
 
 // SQLiteCompactionBuilder deliberately bypasses Database initialization.
@@ -25,21 +27,7 @@ func (SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate stri
 		return errors.New("VACUUM INTO candidate must be beside source")
 	}
 	if _, err := os.Lstat(candidate); err == nil {
-		if verifyErr := (SQLiteCompactionBuilder{}).VerifyPair(ctx, source, candidate); verifyErr == nil {
-			return nil
-		}
-		sourceID, sourceErr := inspectRegularFile(source)
-		candidateID, candidateErr := inspectRegularFile(candidate)
-		if sourceErr != nil || candidateErr != nil || sourceID.Device != candidateID.Device {
-			return errors.New("refuse unsafe partial candidate recovery")
-		}
-		if err := rejectSQLiteSidecars(candidate); err != nil {
-			return err
-		}
-		quarantine := fmt.Sprintf("%s.partial-%d", candidate, candidateID.Inode)
-		if err := renameNoReplace(candidate, quarantine); err != nil {
-			return fmt.Errorf("quarantine partial compaction candidate: %w", err)
-		}
+		return errors.New("compaction candidate already exists; explicit recovery action required")
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect compaction candidate: %w", err)
 	}
@@ -62,6 +50,22 @@ func (SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate stri
 		return fmt.Errorf("VACUUM INTO candidate: %w", err)
 	}
 	return nil
+}
+
+func (SQLiteCompactionBuilder) ClassifyCandidate(ctx context.Context, source, candidate string) (domain.CandidateCondition, error) {
+	if err := (SQLiteCompactionBuilder{}).VerifyPair(ctx, source, candidate); err == nil {
+		return domain.CandidateConditionComplete, nil
+	}
+	db, err := openDirectReadOnly(ctx, candidate)
+	if err != nil {
+		return domain.CandidateConditionOwnedIncomplete, nil
+	}
+	defer func() { _ = db.Close() }()
+	var result string
+	if err := db.QueryRowContext(ctx, `PRAGMA quick_check`).Scan(&result); err != nil || result != "ok" {
+		return domain.CandidateConditionOwnedIncomplete, nil
+	}
+	return domain.CandidateConditionUnknown, nil
 }
 
 func (SQLiteCompactionBuilder) Sync(_ context.Context, candidate string) error {

@@ -38,6 +38,9 @@ func (b faultBuilder) Build(context.Context, string, string) error {
 	}
 	return nil
 }
+func (b faultBuilder) ClassifyCandidate(context.Context, string, string) (domain.CandidateCondition, error) {
+	return domain.CandidateConditionComplete, nil
+}
 func (b faultBuilder) Sync(context.Context, string) error {
 	if b.fail == "sync" {
 		return errors.New("sync fault")
@@ -62,6 +65,12 @@ func (f faultFiles) Plan(_ context.Context, r domain.CompactionRun) (domain.Comp
 func (f faultFiles) Recheck(context.Context, domain.CompactionRun) error {
 	if f.fail == "recheck" {
 		return errors.New("recheck fault")
+	}
+	return nil
+}
+func (f faultFiles) RemoveOwnedPartialCandidate(context.Context, domain.CompactionRun, domain.CompactionObservation) error {
+	if f.fail == "cleanup" {
+		return errors.New("cleanup fault")
 	}
 	return nil
 }

@@ -16,6 +16,7 @@ type StoreCompactionJournal interface {
 // StoreCompactionBuilder creates and verifies a compact SQLite candidate.
 type StoreCompactionBuilder interface {
 	Build(context.Context, string, string) error
+	ClassifyCandidate(context.Context, string, string) (domain.CandidateCondition, error)
 	Sync(context.Context, string) error
 	VerifyPair(context.Context, string, string) error
 }
@@ -24,6 +25,7 @@ type StoreCompactionBuilder interface {
 type StoreReplacementCoordinator interface {
 	Plan(context.Context, domain.CompactionRun) (domain.CompactionRun, error)
 	Recheck(context.Context, domain.CompactionRun) error
+	RemoveOwnedPartialCandidate(context.Context, domain.CompactionRun, domain.CompactionObservation) error
 	FenceCandidate(context.Context, domain.CompactionRun) (domain.CompactionRun, error)
 	Exchange(context.Context, domain.CompactionRun) error
 	PublishRollback(context.Context, domain.CompactionRun) error
