@@ -83,6 +83,12 @@ type LiteralSearchBudget struct {
 	StoredBytes, DecodedBytes int64
 }
 
+// NormalLiteralSearchBudget is the default preview resource envelope.
+var NormalLiteralSearchBudget = LiteralSearchBudget{SourceRows: 512, StoredBytes: 8 << 20, DecodedBytes: 16 << 20}
+
+// DeepLiteralSearchBudget increases resources without changing semantics.
+var DeepLiteralSearchBudget = LiteralSearchBudget{SourceRows: 4096, StoredBytes: 64 << 20, DecodedBytes: 128 << 20}
+
 // Valid reports whether every hard bound is positive.
 func (b LiteralSearchBudget) Valid() bool {
 	return b.SourceRows > 0 && b.StoredBytes > 0 && b.DecodedBytes > 0

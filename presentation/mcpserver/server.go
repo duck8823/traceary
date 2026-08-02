@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/redaction"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
@@ -45,6 +46,7 @@ type Server struct {
 	context               usecase.ContextUsecase
 	storeManagement       usecase.StoreManagementUsecase
 	report                usecase.ReportUsecase
+	tieredSearch          queryservice.TieredEventSearchQuery
 }
 
 // NewServer creates a new MCP server.
@@ -116,6 +118,11 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) ServerOption 
 // hydration for the default MCP projection.
 func WithEventBounded(eventBounded usecase.EventBoundedUsecase) ServerOption {
 	return func(server *Server) { server.eventBounded = eventBounded }
+}
+
+// WithTieredEventSearch configures the explicit historical literal preview.
+func WithTieredEventSearch(search queryservice.TieredEventSearchQuery) ServerOption {
+	return func(server *Server) { server.tieredSearch = search }
 }
 
 // WithReport configures the shared body-free aggregate report.
@@ -817,6 +824,38 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		projection, bodyLimit, err := resolveEventProjection(input.Projection, input.BodyLimit, input.FullBody)
 		if err != nil {
 			return nil, eventsOutput{}, err
+		}
+		if input.TieredPreview {
+			if s.tieredSearch == nil {
+				return nil, eventsOutput{}, xerrors.Errorf("tiered event search is not configured")
+			}
+			interval, intervalErr := apptypes.RequestedIntervalFrom(input.From, input.To, input.Timezone, time.Now().UTC())
+			if intervalErr != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to resolve time interval: %w", intervalErr)
+			}
+			from, to := interval.EffectiveFromInclusive(), interval.EffectiveToExclusive()
+			if strings.TrimSpace(input.From) == "" {
+				from = time.Time{}
+			}
+			if strings.TrimSpace(input.To) == "" {
+				to = time.Time{}
+			}
+			criteria := apptypes.NewEventSearchCriteriaBuilder(normalizedEventPageLimit(input.Limit)).Query(strings.TrimSpace(input.Query)).Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).From(from).To(to).Build()
+			budget := apptypes.NormalLiteralSearchBudget
+			if input.Deep {
+				budget = apptypes.DeepLiteralSearchBudget
+			}
+			literalPage, searchErr := s.tieredSearch.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: budget, Continuation: input.Continuation})
+			if searchErr != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("failed to search tiered literal preview: %w", searchErr)
+			}
+			reasons := []string{}
+			if literalPage.PartialReason != "" {
+				reasons = append(reasons, literalPage.PartialReason)
+			}
+			converted := convertBoundedEvents(literalPage.Events)
+			intervalOut := newIntervalOutput(interval)
+			return nil, eventsOutput{Events: converted, Interval: &intervalOut, Coverage: eventCoverageOutput{CandidateCount: int(literalPage.Coverage.ProcessedSources), ReturnedCount: len(converted)}, Partial: !literalPage.Coverage.Complete, Reasons: reasons, Continuation: literalPage.Continuation, Tier: string(literalPage.Tier)}, nil
 		}
 		snapshotAt := time.Now().UTC()
 		continuation, err := resolveEventContinuation("search", input.Continuation)

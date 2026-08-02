@@ -217,6 +217,7 @@ func run() error {
 		storeManagementUsecase,
 		mcpserver.WithEventMetadata(eventMetadataUsecase),
 		mcpserver.WithEventBounded(eventBoundedUsecase),
+		mcpserver.WithTieredEventSearch(eventDatasource),
 		mcpserver.WithReport(reportUsecase),
 	)
 	if err != nil {
@@ -238,6 +239,7 @@ func run() error {
 	rootCmd := cli.NewRootCLI(
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
+		cli.WithTieredEventSearch(eventDatasource),
 		cli.WithReport(reportUsecase),
 		cli.WithCodexCaptureDiagnostic(codexCaptureDiagnosticUsecase),
 		cli.WithSession(sessionUsecase),

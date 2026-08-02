@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"time"
@@ -15,26 +16,29 @@ import (
 
 func (c *RootCLI) newSearchCommand() *cobra.Command {
 	var (
-		dbPath       string
-		repo         string
-		sessionID    string
-		client       string
-		agent        string
-		kind         string
-		from         string
-		since        string
-		to           string
-		until        string
-		timezone     string
-		limit        int
-		offset       int
-		failuresOnly bool
-		asJSON       bool
-		wide         bool
-		utc          bool
-		fields       []string
-		preset       string
-		color        string
+		dbPath        string
+		repo          string
+		sessionID     string
+		client        string
+		agent         string
+		kind          string
+		from          string
+		since         string
+		to            string
+		until         string
+		timezone      string
+		limit         int
+		offset        int
+		failuresOnly  bool
+		asJSON        bool
+		wide          bool
+		utc           bool
+		fields        []string
+		preset        string
+		color         string
+		tieredPreview bool
+		deep          bool
+		continuation  string
 	)
 
 	searchCmd := &cobra.Command{
@@ -77,6 +81,9 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 				failuresOnlySet: cmd.Flags().Changed("failures"),
 				color:           color,
 				colorSet:        cmd.Flags().Changed("color"),
+				tieredPreview:   tieredPreview,
+				deep:            deep,
+				continuation:    continuation,
 			})
 		},
 	}
@@ -108,6 +115,9 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	searchCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
 	searchCmd.Flags().StringVar(&color, "color", "", readColorFlagUsage())
+	searchCmd.Flags().BoolVar(&tieredPreview, "tiered-preview", false, "use bounded historical literal preview with explicit coverage")
+	searchCmd.Flags().BoolVar(&deep, "deep", false, "increase tiered preview resource budgets without changing search semantics")
+	searchCmd.Flags().StringVar(&continuation, "continuation", "", "resume an incomplete tiered preview")
 
 	return searchCmd
 }
@@ -181,6 +191,42 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		Offset(input.offset).
 		FailuresOnly(input.failuresOnly).
 		Build()
+	if input.tieredPreview {
+		if !input.asJSON {
+			return xerrors.New("--tiered-preview requires --json")
+		}
+		if c.tieredSearch == nil {
+			return xerrors.New("tiered event search is not configured")
+		}
+		budget := apptypes.NormalLiteralSearchBudget
+		if input.deep {
+			budget = apptypes.DeepLiteralSearchBudget
+		}
+		page, searchErr := c.tieredSearch.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: budget, Continuation: input.continuation})
+		if searchErr != nil {
+			return xerrors.Errorf("failed to search tiered literal preview: %w", searchErr)
+		}
+		type event struct {
+			EventID               string `json:"event_id"`
+			Body                  string `json:"body"`
+			BodyResponseTruncated bool   `json:"body_response_truncated"`
+		}
+		events := make([]event, 0, len(page.Events))
+		for _, e := range page.Events {
+			events = append(events, event{EventID: e.Metadata().EventID().String(), Body: e.Body(), BodyResponseTruncated: e.BodyResponseTruncated()})
+		}
+		out := struct {
+			Events        []event                        `json:"events"`
+			Tier          apptypes.LiteralSearchTier     `json:"tier"`
+			Coverage      apptypes.LiteralSearchCoverage `json:"coverage"`
+			PartialReason string                         `json:"partial_reason,omitempty"`
+			Continuation  string                         `json:"continuation,omitempty"`
+		}{events, page.Tier, page.Coverage, page.PartialReason, page.Continuation}
+		if err := json.NewEncoder(output).Encode(out); err != nil {
+			return xerrors.Errorf("failed to print tiered literal preview: %w", err)
+		}
+		return nil
+	}
 	resolvedFields, err := c.resolveReadFieldsForCommand(input.fields, input.fieldsSet, input.wide, input.asJSON, preset.fields)
 	if err != nil {
 		return err

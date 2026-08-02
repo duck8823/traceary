@@ -43,7 +43,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&highWater); err != nil {
 		return apptypes.LiteralSearchPage{}, xerrors.Errorf("read literal search source high-water: %w", err)
 	}
-	criteriaHash := literalCriteriaHash(request.Criteria, query.Canonical())
+	criteriaHash := literalCriteriaHash(request.Criteria, query.Canonical(), request.Budget)
 	var after int64
 	if request.Continuation != "" {
 		cursor, decodeErr := apptypes.DecodeLiteralSearchCursor(request.Continuation)
@@ -52,7 +52,8 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		}
 		after = cursor.LastSequence
 	}
-	rows, err := queryLiteralSources(ctx, tx, request.Criteria, after, request.Budget.SourceRows+1)
+	useFingerprints := state == "complete" && query.Filterable()
+	rows, err := queryLiteralSources(ctx, tx, request.Criteria, after, request.Budget.SourceRows+1, generation, query.Fingerprints(), useFingerprints)
 	if err != nil {
 		return apptypes.LiteralSearchPage{}, err
 	}
@@ -120,7 +121,11 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	if err != nil {
 		return apptypes.LiteralSearchPage{}, err
 	}
-	page := apptypes.LiteralSearchPage{Events: events, Tier: apptypes.LiteralSearchTierBoundedVerification, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: last, HighWater: highWater, Complete: complete}, PartialReason: partialReason}
+	tier := apptypes.LiteralSearchTierBoundedVerification
+	if useFingerprints {
+		tier = apptypes.LiteralSearchTierFingerprint
+	}
+	page := apptypes.LiteralSearchPage{Events: events, Tier: tier, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: last, HighWater: highWater, Complete: complete}, PartialReason: partialReason}
 	if !complete {
 		page.Continuation, err = (apptypes.LiteralSearchCursor{Version: apptypes.LiteralSearchCursorVersion, LastSequence: last, CriteriaHash: criteriaHash, Generation: generation, HighWater: highWater, QueryRevision: revision}).Encode()
 		if err != nil {
@@ -130,15 +135,27 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	if err := tx.Commit(); err != nil {
 		return apptypes.LiteralSearchPage{}, xerrors.Errorf("finish tiered literal search: %w", err)
 	}
-	_ = state // retained for future complete-generation fingerprint selection.
 	return page, nil
 }
 
-func queryLiteralSources(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria, after int64, limit int) (*sql.Rows, error) {
+func queryLiteralSources(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria, after int64, limit int, generation string, fingerprints []string, useFingerprints bool) (*sql.Rows, error) {
 	var b strings.Builder
 	b.WriteString(`SELECT q.sequence,e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0) FROM search_projection_source_sequence q JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence>?`)
 	args := []any{after}
 	args = appendEventSearchFilters(&b, args, criteria)
+	if useFingerprints {
+		b.WriteString(" AND (NOT EXISTS(SELECT 1 FROM literal_search_fingerprints known WHERE known.generation_id=? AND known.event_id=e.id AND known.fingerprint_version=1) OR (SELECT COUNT(DISTINCT matched.fingerprint) FROM literal_search_fingerprints matched WHERE matched.generation_id=? AND matched.event_id=e.id AND matched.fingerprint_version=1 AND matched.fingerprint IN (")
+		args = append(args, generation, generation)
+		for i, fingerprint := range fingerprints {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteByte('?')
+			args = append(args, []byte(fingerprint))
+		}
+		b.WriteString("))=?)")
+		args = append(args, len(fingerprints))
+	}
 	b.WriteString(" ORDER BY q.sequence LIMIT ?")
 	args = append(args, limit)
 	rows, err := tx.QueryContext(ctx, b.String(), args...)
@@ -148,8 +165,8 @@ func queryLiteralSources(ctx context.Context, tx *sql.Tx, criteria apptypes.Even
 	return rows, nil
 }
 
-func literalCriteriaHash(c apptypes.EventSearchCriteria, canonical string) string {
-	raw := fmt.Sprintf("v1\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%t", canonical, c.Workspace(), c.SessionID(), c.Client(), c.Agent(), c.Kind(), c.From().UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), c.To().UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), c.FailuresOnly())
+func literalCriteriaHash(c apptypes.EventSearchCriteria, canonical string, budget apptypes.LiteralSearchBudget) string {
+	raw := fmt.Sprintf("v1\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%t\x00%d\x00%d\x00%d", canonical, c.Workspace(), c.SessionID(), c.Client(), c.Agent(), c.Kind(), c.From().UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), c.To().UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), c.FailuresOnly(), budget.SourceRows, budget.StoredBytes, budget.DecodedBytes)
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }

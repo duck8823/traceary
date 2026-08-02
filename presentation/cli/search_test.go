@@ -3,13 +3,44 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
+
+func TestRootCLI_SearchTieredPreviewExposesZeroMatchContinuation(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	stub := &cliTieredSearchStub{page: apptypes.LiteralSearchPage{Tier: apptypes.LiteralSearchTierBoundedVerification, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: 4, HighWater: 9}, PartialReason: "source_rows", Continuation: "next"}}
+	stdout := &bytes.Buffer{}
+	root := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(&eventUsecaseStub{}), cli.WithTieredEventSearch(stub)).Command()
+	root.SetOut(stdout)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"search", "needle", "--tiered-preview", "--deep", "--continuation", "previous", "--json", "--workspace", "repo"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := stdout.String(); !strings.Contains(got, `"tier":"bounded_verification"`) || !strings.Contains(got, `"continuation":"next"`) || !strings.Contains(got, `"partial_reason":"source_rows"`) {
+		t.Fatalf("stdout = %s", got)
+	}
+	if stub.request.Continuation != "previous" || stub.request.Budget != apptypes.DeepLiteralSearchBudget {
+		t.Fatalf("request = %+v", stub.request)
+	}
+}
+
+type cliTieredSearchStub struct {
+	page    apptypes.LiteralSearchPage
+	request apptypes.LiteralSearchRequest
+}
+
+func (s *cliTieredSearchStub) SearchLiteralPage(_ context.Context, r apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
+	s.request = r
+	return s.page, nil
+}
 
 func TestRootCLI_SearchCommand(t *testing.T) {
 	t.Setenv("TRACEARY_WORKSPACE", "")
