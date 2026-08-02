@@ -95,11 +95,34 @@ func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, cr
 		return nil, err
 	}
 	defer closeEventProjectionRead(db, tx)
-	metadata, err := d.searchMetadataByPersistedAuthorityTx(ctx, tx, criteria)
-	if err != nil {
-		return nil, err
+	var authority string
+	if err = tx.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
+		return nil, xerrors.Errorf("read explicit persisted search authority: %w", err)
 	}
-	events, err := hydrateFullEventMetadata(ctx, tx, metadata)
+	var events []*model.Event
+	if authority == "legacy" {
+		available, schemaErr := eventSearchSchemaAvailable(ctx, tx)
+		if schemaErr != nil {
+			return nil, schemaErr
+		}
+		var ids []string
+		if available {
+			ids, err = selectEventSearchCandidateIDs(ctx, tx, criteria)
+		} else {
+			ids, err = queryLegacyEventIDs(ctx, tx, criteria, criteria.Query())
+		}
+		if err == nil {
+			events, err = hydrateEventSearchCandidates(ctx, tx, ids)
+		}
+	} else if authority == "tiered" {
+		var metadata []apptypes.EventMetadata
+		metadata, err = d.searchTieredMetadataTx(ctx, tx, criteria)
+		if err == nil {
+			events, err = hydrateFullEventMetadata(ctx, tx, metadata)
+		}
+	} else {
+		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
+	}
 	if err != nil {
 		return nil, err
 	}
