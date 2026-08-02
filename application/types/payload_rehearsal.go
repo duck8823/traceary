@@ -149,28 +149,37 @@ type RehearsalDiskPlan struct {
 	TotalBytes          uint64 `json:"total_bytes"`
 }
 
+// PayloadRehearsalMigrationPlan records exact preflight and execution evidence.
+type PayloadRehearsalMigrationPlan struct {
+	Pending                      bool   `json:"pending"`
+	WALBytes                     int64  `json:"wal_bytes"`
+	MigrationElapsedMilliseconds int64  `json:"migration_elapsed_milliseconds"`
+	JournalMode                  string `json:"journal_mode"`
+}
+
 // PayloadRehearsalMetrics contains sanitized aggregate rehearsal evidence.
 type PayloadRehearsalMetrics struct {
-	RunID                  string                      `json:"run_id,omitempty"`
-	State                  string                      `json:"state"`
-	ScannedRows            int64                       `json:"scanned_rows"`
-	EncodedRows            int64                       `json:"encoded_rows"`
-	PlaintextBytes         int64                       `json:"plaintext_bytes"`
-	StoredBytes            int64                       `json:"stored_bytes"`
-	BatchCount             int64                       `json:"batch_count"`
-	MorePending            bool                        `json:"more_pending"`
-	BatchDurationHistogram map[string]int64            `json:"batch_duration_histogram"`
-	ConflictRows           int64                       `json:"conflict_rows"`
-	PeakWALBytes           int64                       `json:"peak_wal_bytes"`
-	FreeBytes              uint64                      `json:"free_bytes"`
-	EstimatedHeadroom      uint64                      `json:"estimated_headroom_bytes"`
-	DiskPlan               RehearsalDiskPlan           `json:"disk_plan"`
-	DryRunZeroWrite        bool                        `json:"dry_run_zero_write"`
-	MigrationRequired      bool                        `json:"migration_required"`
-	LiveIdentityOnly       bool                        `json:"live_identity_only"`
-	RollbackDigest         string                      `json:"rollback_digest,omitempty"`
-	RollbackVerified       bool                        `json:"rollback_verified"`
-	Before                 []PayloadRehearsalFileState `json:"before,omitempty"`
-	After                  []PayloadRehearsalFileState `json:"after,omitempty"`
-	ActivationReadiness    PayloadActivationReadiness  `json:"activation_readiness"`
+	RunID                  string                        `json:"run_id,omitempty"`
+	State                  string                        `json:"state"`
+	ScannedRows            int64                         `json:"scanned_rows"`
+	EncodedRows            int64                         `json:"encoded_rows"`
+	PlaintextBytes         int64                         `json:"plaintext_bytes"`
+	StoredBytes            int64                         `json:"stored_bytes"`
+	BatchCount             int64                         `json:"batch_count"`
+	MorePending            bool                          `json:"more_pending"`
+	BatchDurationHistogram map[string]int64              `json:"batch_duration_histogram"`
+	ConflictRows           int64                         `json:"conflict_rows"`
+	PeakWALBytes           int64                         `json:"peak_wal_bytes"`
+	FreeBytes              uint64                        `json:"free_bytes"`
+	EstimatedHeadroom      uint64                        `json:"estimated_headroom_bytes"`
+	DiskPlan               RehearsalDiskPlan             `json:"disk_plan"`
+	DryRunZeroWrite        bool                          `json:"dry_run_zero_write"`
+	MigrationRequired      bool                          `json:"migration_required"`
+	MigrationPlan          PayloadRehearsalMigrationPlan `json:"migration_plan"`
+	LiveIdentityOnly       bool                          `json:"live_identity_only"`
+	RollbackDigest         string                        `json:"rollback_digest,omitempty"`
+	RollbackVerified       bool                          `json:"rollback_verified"`
+	Before                 []PayloadRehearsalFileState   `json:"before,omitempty"`
+	After                  []PayloadRehearsalFileState   `json:"after,omitempty"`
+	ActivationReadiness    PayloadActivationReadiness    `json:"activation_readiness"`
 }

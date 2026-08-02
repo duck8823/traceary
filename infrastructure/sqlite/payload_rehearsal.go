@@ -186,11 +186,10 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
-	var bookkeeping int
-	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='payload_rehearsal_runs')`).Scan(&bookkeeping); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect rehearsal schema: %w", err)
+	migrationRequired, err := NewDatabase(id.canonical, a.migrations).rehearsalMigrationsPending(ctx, db)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect pending rehearsal migrations: %w", err)
 	}
-	migrationRequired := bookkeeping == 0
 	var eventRows, auditRows, eventBytes, auditBytes int64
 	if err = db.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(length(body)),0) FROM events`).Scan(&eventRows, &eventBytes); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect event aggregates: %w", err)
@@ -378,7 +377,7 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fix migration target identity: %w", err)
 	}
-	measuredMigrationWAL, err := database.measureRehearsalMigrationWAL(ctx, id.canonical, c.LockTimeLimit)
+	migrationPlan, err := database.measureRehearsalMigrationWAL(ctx, id.canonical, c.LockTimeLimit)
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("preflight rehearsal bookkeeping migration: %w", err)
 	}
@@ -392,41 +391,89 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if err = requireLiveIdentityOnly(ctx, c.LivePath); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
-	if measuredMigrationWAL > 0 {
+	actualPending, pendingErr := database.rehearsalMigrationsPending(ctx, db)
+	if pendingErr != nil || actualPending != migrationPlan.pending {
+		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("rehearsal migration plan changed after preflight")
+	}
+	actualMode := ""
+	var modeErr error
+	if resume {
+		modeErr = db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&actualMode)
+	} else {
+		actualMode, _, modeErr = normalizeRehearsalJournal(ctx, db, c.LockTimeLimit)
+	}
+	if modeErr != nil || actualMode != "wal" || actualMode != migrationPlan.journalMode || (resume && actualPending) {
+		if resume {
+			return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("resume requires no pending migration and existing WAL journal mode")
+		}
+		_ = db.Close()
+		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
+			return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("journal normalization failed and rollback failed: %w", recoveryErr)
+		}
+		return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, errors.New("rehearsal journal mode does not match preflight")
+	}
+	recoverMutatedTarget := func(cause error) (apptypes.PayloadRehearsalMetrics, error) {
+		if resume {
+			return apptypes.PayloadRehearsalMetrics{}, cause
+		}
+		_ = db.Close()
+		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
+			return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("%v; restore verified backup: %w", cause, recoveryErr)
+		}
+		return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, cause
+	}
+	if migrationPlan.pending {
 		pageBytes := minimumWAL - 32
-		reservedFrames := max(int64(1), (measuredMigrationWAL-32+pageBytes-1)/pageBytes)
-		migrationSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: preMigrationIdentity.schema, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &peakWAL, lockLimit: c.LockTimeLimit}
+		if migrationPlan.walBytes < minimumWAL {
+			metrics, recoveryErr := recoverMutatedTarget(errors.New("pending migration WAL is smaller than one frame"))
+			return nil, metrics, recoveryErr
+		}
+		reservedFrames := max(int64(1), (migrationPlan.walBytes-32+pageBytes-1)/pageBytes)
+		migrationSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: preMigrationIdentity.schema, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &peakWAL, lockLimit: c.LockTimeLimit, mutationElapsed: &migrationPlan.elapsed}
 		if err = migrationSession.run(ctx, reservedFrames, func(conn *sql.Conn) error {
 			return database.migrateOnBudgetedConnection(ctx, conn)
 		}); err != nil {
-			return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
+			_ = db.Close()
+			if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
+				return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("migration failed and rollback failed: %w", recoveryErr)
+			}
+			return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
+		}
+		if migrationPlan.elapsed > c.LockTimeLimit {
+			_ = db.Close()
+			if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
+				return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("migration commit exceeded lock cap and rollback failed: %w", recoveryErr)
+			}
+			return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, errors.New("rehearsal migration lock duration cap exceeded through commit")
 		}
 	}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &peakWAL); err != nil {
-		_ = db.Close()
-		if a.beforeMigrationRecovery != nil {
+		if !resume && a.beforeMigrationRecovery != nil {
 			a.beforeMigrationRecovery()
 		}
-		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
-			return nil, apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: false}, xerrors.Errorf("migration WAL cap exceeded and rollback failed: %w", recoveryErr)
-		}
-		return nil, apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: true}, err
+		metrics, recoveryErr := recoverMutatedTarget(err)
+		metrics.PeakWALBytes = peakWAL
+		return nil, metrics, recoveryErr
 	}
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
-		return nil, apptypes.PayloadRehearsalMetrics{}, err
+		metrics, recoveryErr := recoverMutatedTarget(err)
+		return nil, metrics, recoveryErr
 	}
 	rehearsalSchemaSHA, err := rehearsalSchemaFingerprint(ctx, db)
 	if err != nil {
-		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fingerprint rehearsal schema: %w", err)
+		metrics, recoveryErr := recoverMutatedTarget(xerrors.Errorf("fingerprint rehearsal schema: %w", err))
+		return nil, metrics, recoveryErr
 	}
 	if a.beforeStartRun != nil {
 		a.beforeStartRun()
 	}
 	if err = requireLiveIdentityOnly(ctx, c.LivePath); err != nil {
-		return nil, apptypes.PayloadRehearsalMetrics{}, err
+		metrics, recoveryErr := recoverMutatedTarget(err)
+		return nil, metrics, recoveryErr
 	}
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
-		return nil, apptypes.PayloadRehearsalMetrics{}, err
+		metrics, recoveryErr := recoverMutatedTarget(err)
+		return nil, metrics, recoveryErr
 	}
 	configHash := hashConfig(c, id.opaque)
 	guard := rehearsalMutationGuard(func() error { return a.recheckExpectedTarget(id, c, true) })
@@ -434,9 +481,13 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	startSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &resumePeak, lockLimit: c.LockTimeLimit}
 	runID, eventHigh, auditHigh, leaseToken, err := loadOrCreateRun(ctx, startSession, id, configHash, backupDigest, resume, guard)
 	if err != nil {
-		return nil, apptypes.PayloadRehearsalMetrics{}, err
+		if resume {
+			return nil, apptypes.PayloadRehearsalMetrics{}, err
+		}
+		metrics, recoveryErr := recoverMutatedTarget(err)
+		return nil, metrics, recoveryErr
 	}
-	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, DiskPlan: diskPlan, PeakWALBytes: resumePeak, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
+	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, DiskPlan: diskPlan, PeakWALBytes: resumePeak, MigrationRequired: migrationPlan.pending, MigrationPlan: apptypes.PayloadRehearsalMigrationPlan{Pending: migrationPlan.pending, WALBytes: migrationPlan.walBytes, MigrationElapsedMilliseconds: migrationPlan.elapsed.Milliseconds(), JournalMode: migrationPlan.journalMode}, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
 	batchSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &metrics.PeakWALBytes, lockLimit: c.LockTimeLimit}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); err != nil {
 		return nil, metrics, pauseRun(ctx, batchSession, runID, leaseToken, err, guard)

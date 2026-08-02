@@ -30,6 +30,9 @@ type walBudgetedMutationSession struct {
 	maximum           int64
 	peak              *int64
 	lockLimit         time.Duration
+	// mutationElapsed, when configured for schema migration, measures exactly
+	// BEGIN IMMEDIATE acquisition through COMMIT completion.
+	mutationElapsed *time.Duration
 }
 
 //nolint:wrapcheck // callers add the rehearsal operation classification.
@@ -73,6 +76,7 @@ func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int6
 	if err = conn.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&autoCheckpoint); err != nil || autoCheckpoint != 0 {
 		return errors.New("cannot disable rehearsal WAL autocheckpoint")
 	}
+	mutationStarted := time.Now()
 	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		return err
 	}
@@ -104,11 +108,18 @@ func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int6
 	if err = mutate(conn); err != nil {
 		return err
 	}
-	if time.Since(started) > s.lockLimit {
+	lockStarted := started
+	if s.mutationElapsed != nil {
+		lockStarted = mutationStarted
+	}
+	if time.Since(lockStarted) > s.lockLimit {
 		return errors.New("rehearsal lock duration cap exceeded before commit")
 	}
 	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
 		return err
+	}
+	if s.mutationElapsed != nil {
+		*s.mutationElapsed = time.Since(mutationStarted)
 	}
 	return observeWALPeak(s.path, s.frameBytes, s.maximum, s.peak)
 }
