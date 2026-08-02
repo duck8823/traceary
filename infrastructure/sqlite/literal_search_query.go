@@ -22,7 +22,16 @@ var _ queryservice.TieredEventSearchQuery = (*EventDatasource)(nil)
 // until a complete matching generation exists, every source remains eligible.
 func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
 	if !request.Budget.Valid() {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("literal search budget must be positive")
+		return apptypes.LiteralSearchPage{}, xerrors.Errorf("%w: budget must be positive", apptypes.ErrLiteralSearchInvalidRequest)
+	}
+	if request.Criteria.Limit() <= 0 {
+		return apptypes.LiteralSearchPage{}, xerrors.Errorf("%w: limit must be positive", apptypes.ErrLiteralSearchInvalidRequest)
+	}
+	if !request.Criteria.From().IsZero() && !request.Criteria.To().IsZero() && request.Criteria.From().After(request.Criteria.To()) {
+		return apptypes.LiteralSearchPage{}, xerrors.Errorf("%w: from must not be after to", apptypes.ErrLiteralSearchInvalidRequest)
+	}
+	if request.Criteria.Offset() != 0 || !request.Criteria.PageAnchor().IsZero() {
+		return apptypes.LiteralSearchPage{}, xerrors.Errorf("%w: offset and page anchor are unsupported", apptypes.ErrLiteralSearchInvalidRequest)
 	}
 	query := apptypes.CharacterizeLiteralQuery(request.Criteria.Query())
 	if len(query.Canonical()) > apptypes.MaxLiteralSearchQueryBytes {
@@ -47,9 +56,6 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	// candidate projection. Bind cursors to its high-water for honest coverage.
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&highWater); err != nil {
 		return apptypes.LiteralSearchPage{}, xerrors.Errorf("read literal search source high-water: %w", err)
-	}
-	if request.Criteria.Offset() != 0 || !request.Criteria.PageAnchor().IsZero() {
-		return apptypes.LiteralSearchPage{}, xerrors.Errorf("tiered literal search does not support offset or page anchor")
 	}
 	criteriaHash := literalCriteriaHash(request.Criteria, query.Canonical(), request.BodyRuneLimit)
 	var after int64
@@ -159,6 +165,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	if err != nil {
 		return apptypes.LiteralSearchPage{}, err
 	}
+	metadata = orderLiteralMetadata(metadata, matched)
 	bodyLimit := request.BodyRuneLimit
 	if bodyLimit <= 0 {
 		bodyLimit = 500
@@ -182,6 +189,20 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		return apptypes.LiteralSearchPage{}, xerrors.Errorf("finish tiered literal search: %w", err)
 	}
 	return page, nil
+}
+
+func orderLiteralMetadata(metadata []apptypes.EventMetadata, ids []string) []apptypes.EventMetadata {
+	byID := make(map[string]apptypes.EventMetadata, len(metadata))
+	for _, item := range metadata {
+		byID[item.EventID().String()] = item
+	}
+	ordered := make([]apptypes.EventMetadata, 0, len(metadata))
+	for _, id := range ids {
+		if item, ok := byID[id]; ok {
+			ordered = append(ordered, item)
+		}
+	}
+	return ordered
 }
 
 func queryLiteralSources(ctx context.Context, tx *sql.Tx, after int64, limit int) (*sql.Rows, error) {

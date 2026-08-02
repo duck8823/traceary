@@ -11,7 +11,26 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
+
+func TestLiteralSearchPageValidatesBeforeDatabaseAndAllocation(t *testing.T) {
+	t.Parallel()
+	sut := infra.NewEventDatasource(nil)
+	budget := apptypes.LiteralSearchBudget{SourceRows: 1, StoredBytes: 1, DecodedBytes: 1}
+	now := time.Now().UTC()
+	tests := []struct {
+		name    string
+		request apptypes.LiteralSearchRequest
+	}{{"zero limit", apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(0).Query("needle").Build(), Budget: budget}}, {"negative limit", apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(-1).Query("needle").Build(), Budget: budget}}, {"negative budget", apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Build(), Budget: apptypes.LiteralSearchBudget{SourceRows: -1, StoredBytes: 1, DecodedBytes: 1}}}, {"reversed interval", apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").From(now).To(now.Add(-time.Second)).Build(), Budget: budget}}, {"offset", apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Offset(1).Build(), Budget: budget}}}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := sut.SearchLiteralPage(context.Background(), tc.request); !errors.Is(err, apptypes.ErrLiteralSearchInvalidRequest) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
 
 func TestLiteralSearchPageFingerprintCandidatesRemainInclusiveForMissingRows(t *testing.T) {
 	t.Parallel()
@@ -54,6 +73,9 @@ func TestLiteralSearchPageFingerprintCandidatesRemainInclusiveForMissingRows(t *
 	}
 	if page.Tier != apptypes.LiteralSearchTierFingerprint || len(page.Events) != 2 {
 		t.Fatalf("page = %+v", page)
+	}
+	if page.Events[0].Metadata().EventID().String() != "literal-fp-match" || page.Events[1].Metadata().EventID().String() != "literal-fp-missing" || len(page.MatchContinuations) != 2 {
+		t.Fatalf("source order/continuations=%v/%d", []string{page.Events[0].Metadata().EventID().String(), page.Events[1].Metadata().EventID().String()}, len(page.MatchContinuations))
 	}
 }
 

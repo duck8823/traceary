@@ -148,6 +148,9 @@ var ErrLiteralSearchCursorMismatch = errors.New("literal search continuation doe
 // ErrLiteralSearchQueryTooLarge rejects input before rune/gram allocation.
 var ErrLiteralSearchQueryTooLarge = errors.New("literal search query exceeds byte limit")
 
+// ErrLiteralSearchInvalidRequest identifies caller-controlled invariants.
+var ErrLiteralSearchInvalidRequest = errors.New("invalid literal search request")
+
 // LiteralSearchCursor binds progress to query and projection identity.
 type LiteralSearchCursor struct {
 	Version       int    `json:"v"`
