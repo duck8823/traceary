@@ -57,23 +57,55 @@ type caseResult struct {
 func main() {
 	var dbPath, synthetic string
 	var validateBaseline string
+	var searchParityManifestPath, validateSearchParity string
 	var iterations, smallRows, largeRows int
 	var caseTimeout time.Duration
 	flag.StringVar(&dbPath, "db", "", "path to an operator-created store copy (opened immutable/read-only)")
 	flag.StringVar(&synthetic, "synthetic", "", "create and benchmark a synthetic store at this new path")
 	flag.StringVar(&validateBaseline, "validate-baseline", "", "validate a sanitized capacity baseline artifact and exit")
+	flag.StringVar(&searchParityManifestPath, "search-parity-manifest", "", "run exhaustive parity from a private 0600 manifest, or - for stdin")
+	flag.StringVar(&validateSearchParity, "validate-search-parity", "", "strictly validate a sanitized search parity artifact and exit")
 	flag.IntVar(&iterations, "iterations", 15, "samples per cold and warm series")
 	flag.IntVar(&smallRows, "small-rows", 10000, "synthetic small event rows")
 	flag.IntVar(&largeRows, "large-rows", 8, "synthetic 1 MiB event rows")
 	flag.DurationVar(&caseTimeout, "case-timeout", 2*time.Minute, "maximum duration for each benchmark case")
 	flag.Parse()
+	selectedModes := 0
+	for _, selected := range []bool{validateBaseline != "", validateSearchParity != "", searchParityManifestPath != "", dbPath != "", synthetic != ""} {
+		if selected {
+			selectedModes++
+		}
+	}
+	if selectedModes != 1 {
+		fatal("specify exactly one benchmark, parity, or validation mode")
+	}
 	if validateBaseline != "" {
 		if err := validateBaselineFile(validateBaseline); err != nil {
 			fatal(err.Error())
 		}
 		return
 	}
-	if (dbPath == "") == (synthetic == "") || iterations < 1 || smallRows < 1 || largeRows < 1 || caseTimeout < time.Millisecond {
+	if validateSearchParity != "" {
+		if err := validateSearchParityFile(validateSearchParity); err != nil {
+			fatal(err.Error())
+		}
+		return
+	}
+	if searchParityManifestPath != "" {
+		manifest, err := readSearchParityManifest(searchParityManifestPath, os.Stdin)
+		if err != nil {
+			fatal(fixedErrorClass(err))
+		}
+		artifact := runSearchParity(context.Background(), manifest)
+		if err := json.NewEncoder(os.Stdout).Encode(artifact); err != nil {
+			fatal("artifact_write")
+		}
+		if artifact.Status != "passed" {
+			os.Exit(1)
+		}
+		return
+	}
+	if iterations < 1 || smallRows < 1 || largeRows < 1 || caseTimeout < time.Millisecond {
 		fatal("specify exactly one of --db or --synthetic and positive counts")
 	}
 	ctx := context.Background()
