@@ -20,6 +20,10 @@ func validateSearchCriteriaForAuthority(criteria apptypes.EventSearchCriteria) e
 	if criteria.Offset() < 0 {
 		return xerrors.New("offset must be greater than or equal to 0")
 	}
+	maxWindow := apptypes.DeepLiteralSearchBudget.SourceRows
+	if criteria.Limit() > maxWindow || criteria.Offset() > maxWindow-criteria.Limit() {
+		return xerrors.Errorf("offset plus limit must not exceed bounded search window %d", maxWindow)
+	}
 	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
 		return xerrors.New("event page anchor cannot be combined with offset")
 	}
@@ -186,7 +190,7 @@ func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sq
 	}
 	defer func() { _ = rows.Close() }()
 	wanted := criteria.Offset() + criteria.Limit()
-	matched := make([]string, 0, min(wanted, criteria.Limit()+criteria.Offset()))
+	matched := make([]string, 0, wanted)
 	var examined int
 	var storedBytes, decodedBytes int64
 	for rows.Next() {

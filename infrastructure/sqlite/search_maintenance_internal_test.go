@@ -59,6 +59,23 @@ func TestPersistedTieredAuthorityBroadQueryKeepsResultLimitSeparateFromCoverage(
 	if err != nil || len(next) != 1 || next[0].EventID().String() != "broad-099" {
 		t.Fatalf("broad continuation=%v err=%v", eventIDs(next), err)
 	}
+	for name, invalid := range map[string]apptypes.EventSearchCriteria{
+		"max limit":  apptypes.NewEventSearchCriteriaBuilder(int(^uint(0) >> 1)).Query("needle").Build(),
+		"max offset": apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Offset(int(^uint(0) >> 1)).Build(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			checks := []func() error{
+				func() error { _, checkErr := datasource.SearchPage(ctx, invalid); return checkErr },
+				func() error { _, checkErr := datasource.SearchMetadata(ctx, invalid); return checkErr },
+				func() error { _, checkErr := datasource.SearchBounded(ctx, invalid, 32); return checkErr },
+			}
+			for i, check := range checks {
+				if checkErr := check(); checkErr == nil {
+					t.Fatalf("surface %d accepted an unbounded search window", i)
+				}
+			}
+		})
+	}
 }
 
 func TestRestoredLegacyWriterDecodesCanonicalEnvelopeAndAuditPayloads(t *testing.T) {
