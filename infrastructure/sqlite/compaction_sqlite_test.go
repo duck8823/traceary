@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -333,14 +334,18 @@ func TestStoreCompactionResumeRejectsReplacedPreparedCandidateInode(t *testing.T
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT)`)
 	_ = db.Close()
 	run, journal := prepareCompactionCandidateForResumeTest(ctx, t, source, dir)
-	if err := os.Remove(run.CandidatePath); err != nil {
-		t.Fatal(err)
-	}
-	other, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(run.CandidatePath))
+	replacementPath := run.CandidatePath + ".replacement"
+	other, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(replacementPath))
 	_, _ = other.Exec(`CREATE TABLE unrelated(v TEXT)`)
 	_ = other.Close()
-	replacement, err := inspectRegularFile(run.CandidatePath)
+	replacement, err := inspectRegularFile(replacementPath)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement.SameInode(run.PreparedCandidateIdentity) {
+		t.Fatal("replacement was not allocated as a distinct inode")
+	}
+	if err := os.Rename(replacementPath, run.CandidatePath); err != nil {
 		t.Fatal(err)
 	}
 	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
@@ -520,11 +525,23 @@ func (b replacingAfterVerifyBuilder) VerifyPair(ctx context.Context, source, can
 	if err != nil {
 		return fmt.Errorf("read verified candidate: %w", err)
 	}
-	if err := os.Remove(candidate); err != nil {
-		return fmt.Errorf("remove verified candidate: %w", err)
-	}
-	if err := os.WriteFile(candidate, contents, 0o600); err != nil {
+	replacement := candidate + ".replacement"
+	if err := os.WriteFile(replacement, contents, 0o600); err != nil {
 		return fmt.Errorf("replace verified candidate: %w", err)
+	}
+	originalID, err := inspectRegularFile(candidate)
+	if err != nil {
+		return fmt.Errorf("inspect verified candidate: %w", err)
+	}
+	replacementID, err := inspectRegularFile(replacement)
+	if err != nil {
+		return fmt.Errorf("inspect replacement candidate: %w", err)
+	}
+	if replacementID.SameInode(originalID) {
+		return errors.New("replacement candidate reused original inode")
+	}
+	if err := os.Rename(replacement, candidate); err != nil {
+		return fmt.Errorf("rename replacement candidate: %w", err)
 	}
 	return nil
 }
