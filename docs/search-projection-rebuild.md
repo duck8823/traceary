@@ -6,6 +6,15 @@ The search projection is derived and non-authoritative. Canonical events and com
 
 Start a generation with `traceary store search-projection start`. Resume one durable bounded batch with `resume`, or run multiple independently committed batches:
 
+On a store upgraded from before the projection schema, the first resume
+batches inventory historical event identities before any payload is decoded.
+This phase is explicit in `status`, uses a stable event-ID cursor, and obeys
+the same row, stored-byte, logical-write-byte, wall-time, and lock-time caps.
+Restarting the process resumes from the last atomic cursor. A concurrent
+canonical mutation invalidates the generation instead of accepting a partial
+inventory. Stores populated by the former migration-38 behavior and new empty
+stores skip this phase without scanning the canonical table.
+
 ```sh
 traceary store search-projection resume --until-complete --max-batches 4000 --total-wall-time 8h
 ```

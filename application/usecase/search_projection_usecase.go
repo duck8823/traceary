@@ -21,6 +21,11 @@ type SearchProjectionStore interface {
 	SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error)
 }
 
+type SearchProjectionInventoryStore interface {
+	SelectInventory(context.Context, apptypes.SearchProjectionBudget) (apptypes.SearchProjectionInventorySnapshot, error)
+	ApplyInventoryBatch(context.Context, apptypes.SearchProjectionInventoryPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error)
+}
+
 type SearchProjectionUsecase struct{ store SearchProjectionStore }
 
 type SearchProjectionAbandonStore interface {
@@ -60,6 +65,30 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 	}
 	if status.ConfigHash != b.ConfigHash() {
 		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "budget does not match generation configuration"}
+	}
+	if status.Phase == "inventory" {
+		inventoryStore, ok := u.store.(SearchProjectionInventoryStore)
+		if !ok {
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection store does not support historical inventory"}
+		}
+		inventory, inventoryErr := inventoryStore.SelectInventory(wallCtx, b)
+		if inventoryErr != nil {
+			return apptypes.SearchProjectionProgress{}, inventoryErr
+		}
+		plan := apptypes.SearchProjectionInventoryPlan{
+			GenerationID: inventory.Generation.GenerationID, ExpectedRevision: inventory.Generation.SourceRevision,
+			ExpectedCursor: inventory.Cursor, Items: inventory.Items, Done: inventory.Done,
+		}
+		for _, item := range inventory.Items {
+			plan.Ledger.Rows++
+			plan.Ledger.StoredBytes += int64(len(item.EventID))
+			plan.Ledger.LogicalWriteBytes += item.LogicalBytes
+			plan.NextCursor = item.EventID
+		}
+		if err = wallCtx.Err(); err != nil {
+			return apptypes.SearchProjectionProgress{}, err
+		}
+		return inventoryStore.ApplyInventoryBatch(wallCtx, plan, b.LockTime, now.UTC())
 	}
 	snapshot, err := u.store.SelectSnapshot(wallCtx, b, now.UTC())
 	if err != nil {
