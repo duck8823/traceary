@@ -5,6 +5,13 @@
 v0.34 provides a copied-store rehearsal only. It never activates compressed
 canonical writes and never modifies the configured live store.
 
+Codec compatibility preflight uses constant-size transactional counters for
+the event-body, command, input, and output lanes on newly upgraded stores.
+Adding codec columns therefore does not scan retained history. Development
+stores that already applied the former migration keep their partial indexes
+under an explicit legacy compatibility mode. Unknown, invalid, or inconsistent
+compatibility evidence fails closed before a rehearsal run is created.
+
 1. Stop writers and create a checkpointed, single-file SQLite copy. The copied
    target must have no `-wal` or `-shm` sidecars.
 2. Run `traceary store payload-rehearsal preview --target COPY --live-db LIVE`.

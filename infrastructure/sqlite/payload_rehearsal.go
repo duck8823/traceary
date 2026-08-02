@@ -953,12 +953,11 @@ func inspectLiveCompatibility(ctx context.Context, path string) (bool, error) {
 	if codecColumns == 0 {
 		return true, nil
 	}
-	var n int64
-	err = db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM events WHERE body_codec IS NOT NULL AND body_codec<>'identity')+(SELECT count(*) FROM command_audits WHERE (command_codec IS NOT NULL AND command_codec<>'identity') OR (input_codec IS NOT NULL AND input_codec<>'identity') OR (output_codec IS NOT NULL AND output_codec<>'identity'))`).Scan(&n)
-	if err != nil {
-		return false, xerrors.Errorf("inspect live payload codecs: %w", err)
+	nonIdentity, inspectErr := globalNonIdentityPayload(ctx, db)
+	if inspectErr != nil {
+		return false, xerrors.Errorf("inspect live payload codecs: %w", inspectErr)
 	}
-	return n == 0, nil
+	return !nonIdentity, nil
 }
 
 func minimumWALFrameBytes(ctx context.Context, path string) (int64, error) {
