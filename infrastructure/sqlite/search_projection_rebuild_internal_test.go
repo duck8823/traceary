@@ -129,6 +129,59 @@ func TestSearchProjectionRebuildIsBoundedResumableAndEvictsDeterministically(t *
 	}
 }
 
+func TestSearchProjectionAbandonIsIdempotentAndRestartKeepsCanonicalHistory(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewDatabase(dbPath, migrations)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('canonical','note','agent','s','body','2026-08-03T00:00:00Z','client','repo')`); err != nil {
+		t.Fatal(err)
+	}
+	b := projectionBudget()
+	first, err := store.Start(ctx, b, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	abandoned, err := store.AbandonSearchProjection(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := store.AbandonSearchProjection(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if abandoned.GenerationID != first.GenerationID || !again.AlreadyAbandoned {
+		t.Fatalf("abandon=%+v again=%+v", abandoned, again)
+	}
+	var active sql.NullString
+	var count int
+	if err = db.QueryRow(`SELECT active_generation_id,(SELECT COUNT(*) FROM events) FROM search_projection_state`).Scan(&active, &count); err != nil {
+		t.Fatal(err)
+	}
+	if active.Valid || count != 1 {
+		t.Fatalf("active=%v canonical=%d", active, count)
+	}
+	b.Rows = 2
+	second, err := store.Start(ctx, b, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.GenerationID == first.GenerationID || second.ConfigHash == first.ConfigHash {
+		t.Fatalf("restart did not create immutable generation: %+v %+v", first, second)
+	}
+}
+
 func projectionBudget() apptypes.SearchProjectionBudget {
 	return apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Minute, LockTime: time.Second, StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20, RecentAge: time.Hour, RecentBytes: 1 << 20}
 }

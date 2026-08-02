@@ -57,6 +57,9 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 		if _, x := tx.ExecContext(lockCtx, `UPDATE literal_search_projection_state SET generation_id=?,high_water=?,fingerprint_version=1,state='rebuilding',updated_at=? WHERE singleton=1`, g.GenerationID, g.HighWater, formatTimestamp(now.UTC())); x != nil {
 			return g, x
 		}
+		if _, x := tx.ExecContext(lockCtx, `INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water) VALUES(?,'rebuilding',?,?,?)`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater); x != nil {
+			return g, x
+		}
 		e = tx.Commit()
 	}
 	return g, e
@@ -355,6 +358,11 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 			return out, e
 		}
 	}
+	if p.Completed && state == "complete" {
+		if _, e = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='complete' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); e != nil {
+			return out, e
+		}
+	}
 	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?))`, p.NextCheckpoint, next, state, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision)
 	if e != nil {
 		return out, e
@@ -373,6 +381,53 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	return out, nil
 }
 
+// AbandonSearchProjection idempotently retires the current incomplete generation.
+//
+//nolint:wrapcheck,errcheck // Transaction errors remain adapter-owned and typed state errors pass through.
+func (d *Database) AbandonSearchProjection(ctx context.Context, now time.Time) (out apptypes.SearchProjectionAbandonResult, err error) {
+	db, e := d.open(ctx)
+	if e != nil {
+		return out, e
+	}
+	defer db.Close()
+	tx, e := db.BeginTx(ctx, nil)
+	if e != nil {
+		return out, e
+	}
+	defer tx.Rollback()
+	var generation, state, active string
+	if e = tx.QueryRowContext(ctx, `SELECT COALESCE(generation_id,''),state,COALESCE(active_generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&generation, &state, &active); e != nil {
+		return out, e
+	}
+	out.GenerationID = generation
+	out.State = "abandoned"
+	if generation == "" {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "no derived generation exists"}
+	}
+	var lifecycle string
+	if e = tx.QueryRowContext(ctx, `SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=?`, generation).Scan(&lifecycle); e == nil && lifecycle == "abandoned" {
+		out.AlreadyAbandoned = true
+		return out, tx.Commit()
+	}
+	if generation == active || state == "complete" {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "active complete generation cannot be abandoned"}
+	}
+	r, e := tx.ExecContext(ctx, `UPDATE search_projection_state SET state='failed',phase='complete',failure_class='abandoned',updated_at=? WHERE singleton=1 AND generation_id=? AND state<>'complete'`, formatTimestamp(now), generation)
+	if e != nil {
+		return out, e
+	}
+	if n, _ := r.RowsAffected(); n != 1 {
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	if _, e = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='abandoned',abandoned_at=? WHERE generation_id=? AND state<>'complete'`, formatTimestamp(now), generation); e != nil {
+		return out, e
+	}
+	if _, e = tx.ExecContext(ctx, `UPDATE literal_search_projection_state SET state='stale',updated_at=? WHERE singleton=1 AND generation_id=?`, formatTimestamp(now), generation); e != nil {
+		return out, e
+	}
+	return out, tx.Commit()
+}
+
 // SearchProjectionStatus returns payload-free operational evidence.
 //
 //nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
@@ -382,6 +437,7 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if e != nil {
 		return s, e
 	}
+	_ = db.QueryRowContext(ctx, `SELECT state,abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=(SELECT generation_id FROM search_projection_state WHERE singleton=1)`).Scan(&s.LifecycleState, &s.AbandonedAt)
 	defer db.Close()
 	s.SchemaVersion = "traceary.search-projection-status/v1"
 	s.KeywordVersion = searchProjectionKeywordVersion

@@ -23,6 +23,10 @@ type SearchProjectionStore interface {
 
 type SearchProjectionUsecase struct{ store SearchProjectionStore }
 
+type SearchProjectionAbandonStore interface {
+	AbandonSearchProjection(context.Context, time.Time) (apptypes.SearchProjectionAbandonResult, error)
+}
+
 // NewSearchProjectionUsecase constructs the projection workflow.
 func NewSearchProjectionUsecase(store SearchProjectionStore) *SearchProjectionUsecase {
 	return &SearchProjectionUsecase{store: store}
@@ -84,6 +88,59 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 		return u.store.ApplyBatch(wallCtx, plan, b.LockTime, now.UTC())
 	}
 	return u.store.CleanupBatch(wallCtx, plan, b.LockTime, now.UTC())
+}
+
+func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions, now time.Time) (apptypes.SearchProjectionRunResult, error) {
+	started := time.Now()
+	result := apptypes.SearchProjectionRunResult{}
+	if opts.MaxBatches <= 0 || opts.TotalWallTime <= 0 {
+		return result, &apptypes.SearchProjectionNoProgressError{Reason: "multi-batch bounds must be positive"}
+	}
+	runCtx, cancel := context.WithTimeout(ctx, opts.TotalWallTime)
+	defer cancel()
+	for result.Batches < opts.MaxBatches {
+		if err := runCtx.Err(); err != nil {
+			result.StopReason = "total_wall_time"
+			result.ElapsedMilliseconds = time.Since(started).Milliseconds()
+			return result, nil
+		}
+		progress, err := u.Resume(runCtx, b, now.UTC())
+		if err != nil {
+			return result, err
+		}
+		result.Batches++
+		result.Progress.Selected += progress.Selected
+		result.Progress.Written += progress.Written
+		result.Progress.Evicted += progress.Evicted
+		result.Progress.Cleaned += progress.Cleaned
+		result.Progress.StoredBytes += progress.StoredBytes
+		result.Progress.DecodedBytes += progress.DecodedBytes
+		result.Progress.WrittenBytes += progress.WrittenBytes
+		result.Progress.CleanupBytes += progress.CleanupBytes
+		result.Progress.Completed = progress.Completed
+		result.Progress.GenerationID = progress.GenerationID
+		if progress.Completed {
+			result.StopReason = "complete"
+			break
+		}
+	}
+	if result.StopReason == "" {
+		result.StopReason = "max_batches"
+	}
+	result.ElapsedMilliseconds = time.Since(started).Milliseconds()
+	return result, nil
+}
+
+func (u *SearchProjectionUsecase) Abandon(ctx context.Context, now time.Time) (apptypes.SearchProjectionAbandonResult, error) {
+	store, ok := u.store.(SearchProjectionAbandonStore)
+	if !ok {
+		return apptypes.SearchProjectionAbandonResult{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection store does not support abandon"}
+	}
+	result, err := store.AbandonSearchProjection(ctx, now.UTC())
+	if err != nil {
+		return result, xerrors.Errorf("abandon search projection: %w", err)
+	}
+	return result, nil
 }
 
 // markFailed is an explicit recovery transition. It uses the original parent

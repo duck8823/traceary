@@ -14,6 +14,16 @@ import (
 func (c *RootCLI) newStoreSearchProjectionCommand() *cobra.Command {
 	group := &cobra.Command{Use: "search-projection", Short: "Manage the non-authoritative derived search projection"}
 	group.AddCommand(c.newStoreSearchProjectionRunCommand("start", true), c.newStoreSearchProjectionRunCommand("resume", false))
+	group.AddCommand(&cobra.Command{Use: "abort", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if c.searchProjection == nil {
+			return xerrors.New("search projection usecase is not configured")
+		}
+		got, err := c.searchProjection.Abandon(cmd.Context(), time.Now())
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(got)
+	}})
 	group.AddCommand(&cobra.Command{Use: "status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if c.searchProjection == nil {
 			return xerrors.New("search projection usecase is not configured")
@@ -49,6 +59,9 @@ func (c *RootCLI) newStoreSearchProjectionRunCommand(name string, start bool) *c
 	var rows int
 	var wall, lock, timeAge time.Duration
 	var stored, decoded, written, recent int64
+	var untilComplete bool
+	var maxBatches int
+	var totalWall time.Duration
 	cmd := &cobra.Command{Use: name, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if c.searchProjection == nil {
 			return xerrors.New("search projection usecase is not configured")
@@ -57,6 +70,13 @@ func (c *RootCLI) newStoreSearchProjectionRunCommand(name string, start bool) *c
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		if start {
 			got, err := c.searchProjection.StartGeneration(cmd.Context(), b, time.Now())
+			if err != nil {
+				return err
+			}
+			return enc.Encode(got)
+		}
+		if untilComplete {
+			got, err := c.searchProjection.ResumeUntil(cmd.Context(), b, apptypes.SearchProjectionRunOptions{MaxBatches: maxBatches, TotalWallTime: totalWall}, time.Now())
 			if err != nil {
 				return err
 			}
@@ -76,5 +96,10 @@ func (c *RootCLI) newStoreSearchProjectionRunCommand(name string, start bool) *c
 	cmd.Flags().Int64Var(&written, "write-bytes", 8<<20, "maximum logical write bytes")
 	cmd.Flags().DurationVar(&timeAge, "recent-age", 30*24*time.Hour, "recent projection age")
 	cmd.Flags().Int64Var(&recent, "recent-bytes", 64<<20, "recent projection byte ceiling")
+	if !start {
+		cmd.Flags().BoolVar(&untilComplete, "until-complete", false, "resume bounded batches until complete or a command bound is reached")
+		cmd.Flags().IntVar(&maxBatches, "max-batches", 100, "maximum durable batches in one command")
+		cmd.Flags().DurationVar(&totalWall, "total-wall-time", 10*time.Minute, "maximum total multi-batch command duration")
+	}
 	return cmd
 }
