@@ -19,6 +19,7 @@ type LiteralProgressDecision struct {
 	Verify        bool
 	Stop          bool
 	PartialReason string
+	ResumeBefore  int64
 }
 
 // LiteralSearchProgress is the narrow driver-facing view of application search progress.
@@ -82,7 +83,7 @@ func (p *literalSearchProgress) ObserveSource(source LiteralSourceObservation) (
 	}
 	p.pending = source
 	p.phase = literalProgressVerifying
-	return LiteralProgressDecision{Verify: true}, nil
+	return LiteralProgressDecision{Verify: true, ResumeBefore: p.ledger.FullyProcessed}, nil
 }
 
 func (p *literalSearchProgress) FinishVerification(sequence int64, matched bool) (LiteralProgressDecision, error) {
@@ -105,10 +106,13 @@ func (p *literalSearchProgress) FinishVerification(sequence int64, matched bool)
 	return LiteralProgressDecision{}, nil
 }
 
-func (p *literalSearchProgress) FinishPage(moreSources bool) LiteralProgressResult {
+func (p *literalSearchProgress) FinishPage(_ bool) LiteralProgressResult {
 	complete := p.ledger.FullyProcessed >= p.highWater
 	partial := p.partial
-	if !complete && partial == "" && moreSources {
+	if complete {
+		partial = ""
+	}
+	if !complete && partial == "" {
 		partial = "source_rows"
 	}
 	return LiteralProgressResult{Processed: p.ledger.FullyProcessed, Examined: p.examined, Complete: complete, PartialReason: partial}
