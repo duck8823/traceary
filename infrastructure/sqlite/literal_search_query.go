@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"time"
 
@@ -87,7 +87,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	for _, s := range sources {
 		begin, progressErr := progress.BeginSource(queryservice.LiteralSource{Sequence: s.sequence, Stored: s.stored, Decoded: s.decoded})
 		if progressErr != nil {
-			return apptypes.LiteralSearchPage{}, progressErr
+			return apptypes.LiteralSearchPage{}, xerrors.Errorf("begin literal search source: %w", progressErr)
 		}
 		if begin.Action == queryservice.LiteralProgressStop {
 			break
@@ -102,7 +102,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		}
 		decision, progressErr := progress.ObserveDisposition(disposition)
 		if progressErr != nil {
-			return apptypes.LiteralSearchPage{}, progressErr
+			return apptypes.LiteralSearchPage{}, xerrors.Errorf("observe literal source disposition: %w", progressErr)
 		}
 		if decision.Action == queryservice.LiteralProgressStop {
 			break
@@ -116,7 +116,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		}
 		finish, finishErr := progress.FinishVerification(s.sequence, ok)
 		if finishErr != nil {
-			return apptypes.LiteralSearchPage{}, finishErr
+			return apptypes.LiteralSearchPage{}, xerrors.Errorf("finish literal source verification: %w", finishErr)
 		}
 		includeMatch := finish.Action == queryservice.LiteralProgressRecordMatch || finish.Action == queryservice.LiteralProgressRecordMatchAndStop
 		if includeMatch {
@@ -226,7 +226,34 @@ func literalSourceEligible(ctx context.Context, tx *sql.Tx, eventID string, crit
 }
 
 func literalCriteriaHash(c apptypes.EventSearchCriteria, canonical string, bodyLimit int) string {
-	raw := fmt.Sprintf("v2\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%t\x00%d\x00%d\x00%d", canonical, c.Workspace(), c.SessionID(), c.Client(), c.Agent(), c.Kind(), c.From().UTC().Format(time.RFC3339Nano), c.To().UTC().Format(time.RFC3339Nano), c.FailuresOnly(), c.Limit(), c.Offset(), bodyLimit)
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
+	h := sha256.New()
+	writeString := func(value string) {
+		var size [8]byte
+		binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+		_, _ = h.Write(size[:])
+		_, _ = h.Write([]byte(value))
+	}
+	writeInt := func(value int64) {
+		var encoded [8]byte
+		binary.BigEndian.PutUint64(encoded[:], uint64(value))
+		_, _ = h.Write(encoded[:])
+	}
+	writeString("v3")
+	writeString(canonical)
+	writeString(c.Workspace().String())
+	writeString(c.SessionID().String())
+	writeString(c.Client().String())
+	writeString(c.Agent().String())
+	writeString(c.Kind().String())
+	writeString(c.From().UTC().Format(time.RFC3339Nano))
+	writeString(c.To().UTC().Format(time.RFC3339Nano))
+	if c.FailuresOnly() {
+		_, _ = h.Write([]byte{1})
+	} else {
+		_, _ = h.Write([]byte{0})
+	}
+	writeInt(int64(c.Limit()))
+	writeInt(int64(c.Offset()))
+	writeInt(int64(bodyLimit))
+	return hex.EncodeToString(h.Sum(nil))
 }

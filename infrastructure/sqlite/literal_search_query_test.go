@@ -247,3 +247,31 @@ func TestLiteralSearchContinuationRejectsMembershipRevisionAndUnsupportedOffset(
 		t.Fatal("offset accepted")
 	}
 }
+
+func TestLiteralSearchContinuationRejectsFormerNULFieldCollision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sut, store := newEventDatasource(t, filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"literal-collision-a", "literal-collision-b"} {
+		event := model.EventOf(mustEventIDForSQLite(t, id), types.EventKindNote, types.Client("hook"), mustAgentForSQLite(t, "codex"), mustSessionIDForSQLite(t, "literal-session"), types.Workspace("c"), "body", time.Now().UTC())
+		if err := sut.Save(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	budget := apptypes.LiteralSearchBudget{SourceRows: 1, StoredBytes: 1024, DecodedBytes: 1024}
+	first := apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(1).Query("a\x00b").Workspace(types.Workspace("c")).Build(), Budget: budget}
+	page, err := sut.SearchLiteralPage(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Continuation == "" {
+		t.Fatal("missing continuation")
+	}
+	second := apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(1).Query("a").Workspace(types.Workspace("b\x00c")).Build(), Budget: budget, Continuation: page.Continuation}
+	if _, err := sut.SearchLiteralPage(ctx, second); !errors.Is(err, apptypes.ErrLiteralSearchCursorMismatch) {
+		t.Fatalf("formerly colliding continuation error=%v", err)
+	}
+}
