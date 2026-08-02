@@ -42,6 +42,10 @@ type parityV2EvidenceSuite struct {
 	TargetStoreBinding string                    `json:"target_store_binding"`
 	Revision           parityRevision            `json:"revision"`
 	Projection         parityProjection          `json:"projection"`
+	LiteralGeneration  string                    `json:"literal_generation"`
+	BoundedGeneration  string                    `json:"bounded_generation"`
+	RunID              string                    `json:"run_id"`
+	ComparisonContract string                    `json:"comparison_contract"`
 	Criteria           []parityCriterionEvidence `json:"criteria"`
 }
 
@@ -93,12 +97,15 @@ func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2
 	}
 	revision := apptypes.SearchParityRevision{Commit: fingerprint.Revision.Commit, Dirty: fingerprint.Revision.Dirty}
 	projection := apptypes.SearchParityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
-	binding, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(revision, projection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes)...)
+	binding, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(revision, projection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes, snapshot.ProjectionGeneration, snapshot.ProjectionGeneration)...)
 	if err != nil {
 		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
 	}
+	runID := fmt.Sprintf("%d-%s", time.Now().UTC().UnixNano(), snapshot.ProjectionGeneration)
+	base := apptypes.SearchParityV2Evidence{TargetStoreBinding: binding, LiteralGeneration: snapshot.ProjectionGeneration, BoundedGeneration: snapshot.ProjectionGeneration, RunID: runID, ComparisonContract: membershipSetContract}
 	criterion := func(class string, artifact searchParityArtifact) (parityCriterionEvidence, error) {
-		b, e := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", class, binding)
+		claim := apptypes.SearchParityCriterion{QueryClass: class, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: artifact.Legacy.LatencyUS, TieredLatencyUS: artifact.Tiered.LatencyUS}
+		b, e := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", apptypes.SearchParityCriterionFields(base, claim)...)
 		if e != nil {
 			return parityCriterionEvidence{}, errors.New("authorization_criterion_invalid")
 		}
@@ -112,7 +119,7 @@ func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2
 	if err != nil {
 		return parityV2EvidenceSuite{}, err
 	}
-	return parityV2EvidenceSuite{SchemaVersion: searchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: fingerprint.Revision, Projection: parityProjection{Revision: projection.Revision, HighWater: projection.HighWater, LogicalBytes: projection.LogicalBytes, PhysicalBytes: projection.PhysicalBytes}, Criteria: []parityCriterionEvidence{a, b}}, nil
+	return parityV2EvidenceSuite{SchemaVersion: searchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: fingerprint.Revision, Projection: parityProjection{Revision: projection.Revision, HighWater: projection.HighWater, LogicalBytes: projection.LogicalBytes, PhysicalBytes: projection.PhysicalBytes}, LiteralGeneration: snapshot.ProjectionGeneration, BoundedGeneration: snapshot.ProjectionGeneration, RunID: runID, ComparisonContract: membershipSetContract, Criteria: []parityCriterionEvidence{a, b}}, nil
 }
 
 func readPrivateParityFile(path string, limit int) ([]byte, error) {
@@ -161,7 +168,7 @@ func keyedParityBinding(key []byte, purpose string, fields ...string) (string, e
 
 func validParityV2EvidenceShape(s parityV2EvidenceSuite) bool {
 	if s.SchemaVersion != searchParityV2Schema || (s.AuthorizationScope != "actual_target" && s.AuthorizationScope != "compatibility_only") || !validOpaqueBinding(s.TargetStoreBinding) ||
-		!validCommit(s.Revision.Commit) || s.Revision.Dirty || !validPassedProjection(searchParityArtifact{Projection: s.Projection, Tiered: parityChain{Coverage: parityCoverage{HighWater: s.Projection.HighWater}}}) || len(s.Criteria) != 2 {
+		!validCommit(s.Revision.Commit) || s.Revision.Dirty || s.LiteralGeneration == "" || s.BoundedGeneration == "" || s.RunID == "" || s.ComparisonContract == "" || !validPassedProjection(searchParityArtifact{Projection: s.Projection, Tiered: parityChain{Coverage: parityCoverage{HighWater: s.Projection.HighWater}}}) || len(s.Criteria) != 2 {
 		return false
 	}
 	required := map[string]bool{"fingerprint_eligible": false, "bounded_verification": false}
@@ -978,6 +985,7 @@ func validateParityV2JSON(data []byte) error {
 	criteriaArray := jsonObjectSchema{required: map[string]any{}, optional: map[string]any{}, arrayElement: &criterion}
 	schema := jsonObjectSchema{required: map[string]any{
 		"schema_version": nil, "authorization_scope": nil, "target_store_binding": nil,
+		"literal_generation": nil, "bounded_generation": nil, "run_id": nil, "comparison_contract": nil,
 		"revision":   leaf("commit", "dirty"),
 		"projection": leaf("revision", "high_water", "logical_bytes", "physical_bytes"),
 		// Array element semantics are checked after strict decoding.

@@ -64,7 +64,7 @@ func (u *SearchMaintenanceUsecase) StartRetire(ctx context.Context, artifact []b
 		return apptypes.SearchMaintenanceReport{}, xerrors.New("search projection is incomplete, stale, or differs from parity evidence")
 	}
 	currentProjection := apptypes.SearchParityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
-	want, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(evidence.Revision, currentProjection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes)...)
+	want, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(evidence.Revision, currentProjection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes, snapshot.ProjectionGeneration, snapshot.ProjectionGeneration)...)
 	if err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
@@ -73,8 +73,11 @@ func (u *SearchMaintenanceUsecase) StartRetire(ctx context.Context, artifact []b
 	if decodeErr != nil || wantErr != nil || !hmac.Equal(got, wantBytes) {
 		return apptypes.SearchMaintenanceReport{}, xerrors.New("parity evidence is not bound to the current store")
 	}
+	if evidence.LiteralGeneration != snapshot.ProjectionGeneration || evidence.BoundedGeneration != snapshot.ProjectionGeneration {
+		return apptypes.SearchMaintenanceReport{}, xerrors.New("parity evidence does not bind the active projection generation")
+	}
 	for _, criterion := range evidence.Criteria {
-		expected, bindErr := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", criterion.QueryClass, evidence.TargetStoreBinding)
+		expected, bindErr := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", apptypes.SearchParityCriterionFields(evidence, criterion)...)
 		if bindErr != nil {
 			return apptypes.SearchMaintenanceReport{}, bindErr
 		}
@@ -127,7 +130,7 @@ func parseSearchParityV2Evidence(data []byte) (apptypes.SearchParityV2Evidence, 
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return evidence, xerrors.New("invalid trailing parity evidence")
 	}
-	if evidence.SchemaVersion != apptypes.SearchParityV2Schema || evidence.AuthorizationScope != "actual_target" || !commitPattern.MatchString(evidence.Revision.Commit) || evidence.Revision.Dirty || len(evidence.Criteria) != 2 {
+	if evidence.SchemaVersion != apptypes.SearchParityV2Schema || evidence.AuthorizationScope != "actual_target" || !commitPattern.MatchString(evidence.Revision.Commit) || evidence.Revision.Dirty || len(evidence.Criteria) != 2 || evidence.LiteralGeneration == "" || evidence.BoundedGeneration == "" || evidence.RunID == "" || evidence.ComparisonContract == "" {
 		return evidence, xerrors.New("parity v2 evidence is not authorizing")
 	}
 	required := map[string]bool{"fingerprint_eligible": false, "bounded_verification": false}
@@ -147,7 +150,7 @@ func validateSearchEvidenceObjectKeys(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return xerrors.New("invalid parity v2 evidence")
 	}
-	if !exactKeys(raw, "schema_version", "authorization_scope", "target_store_binding", "revision", "projection", "criteria") {
+	if !exactKeys(raw, "schema_version", "authorization_scope", "target_store_binding", "revision", "projection", "literal_generation", "bounded_generation", "run_id", "comparison_contract", "criteria") {
 		return xerrors.New("invalid parity v2 evidence keys")
 	}
 	var revision map[string]json.RawMessage

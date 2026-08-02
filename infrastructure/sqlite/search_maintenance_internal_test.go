@@ -413,11 +413,13 @@ func retirementEvidence(t *testing.T, snapshot apptypes.SearchRetirementSnapshot
 	t.Helper()
 	revision := apptypes.SearchParityRevision{Commit: strings.Repeat("a", 40)}
 	projection := apptypes.SearchParityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
-	binding, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(revision, projection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes)...)
+	binding, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(revision, projection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes, snapshot.ProjectionGeneration, snapshot.ProjectionGeneration)...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, _ := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", "fingerprint_eligible", binding)
-	b, _ := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", "bounded_verification", binding)
-	return apptypes.SearchParityV2Evidence{SchemaVersion: apptypes.SearchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: revision, Projection: projection, Criteria: []apptypes.SearchParityCriterion{{QueryClass: "fingerprint_eligible", CriterionBinding: a, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 1, TieredLatencyUS: 1}, {QueryClass: "bounded_verification", CriterionBinding: b, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 1, TieredLatencyUS: 1}}}
+	evidence := apptypes.SearchParityV2Evidence{SchemaVersion: apptypes.SearchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: revision, Projection: projection, LiteralGeneration: snapshot.ProjectionGeneration, BoundedGeneration: snapshot.ProjectionGeneration, RunID: "test-run", ComparisonContract: "membership_set/v1", Criteria: []apptypes.SearchParityCriterion{{QueryClass: "fingerprint_eligible", Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 1, TieredLatencyUS: 1}, {QueryClass: "bounded_verification", Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 1, TieredLatencyUS: 1}}}
+	for i := range evidence.Criteria {
+		evidence.Criteria[i].CriterionBinding, _ = apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", apptypes.SearchParityCriterionFields(evidence, evidence.Criteria[i])...)
+	}
+	return evidence
 }

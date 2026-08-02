@@ -132,11 +132,11 @@ func (d *Database) BeginSearchRetirement(ctx context.Context, evidence apptypes.
 	if err = tx.QueryRowContext(ctx, `SELECT state,COALESCE(active_generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&boundedState, &boundedGeneration); err != nil {
 		return apptypes.SearchMaintenanceReport{}, xerrors.Errorf("read bounded projection authorization state: %w", err)
 	}
-	if boundedState != "complete" || boundedGeneration == "" || boundedGeneration != fresh.ProjectionGeneration {
+	if boundedState != "complete" || boundedGeneration == "" || boundedGeneration != fresh.ProjectionGeneration || evidence.LiteralGeneration != fresh.ProjectionGeneration || evidence.BoundedGeneration != boundedGeneration {
 		return apptypes.SearchMaintenanceReport{}, xerrors.New("bounded and literal projections are not the same complete active generation")
 	}
 	currentProjection := apptypes.SearchParityProjection{Revision: fresh.ProjectionRevision, HighWater: fresh.ProjectionHighWater, LogicalBytes: fresh.CanonicalLogicalBytes, PhysicalBytes: fresh.PhysicalBytes}
-	want, bindErr := apptypes.KeyedSearchParityBinding(fresh.CursorKey, "target-store", apptypes.SearchParityTargetFields(evidence.Revision, currentProjection, fresh.EventCount, fresh.AuditCount, fresh.CanonicalLogicalBytes)...)
+	want, bindErr := apptypes.KeyedSearchParityBinding(fresh.CursorKey, "target-store", apptypes.SearchParityTargetFields(evidence.Revision, currentProjection, fresh.EventCount, fresh.AuditCount, fresh.CanonicalLogicalBytes, fresh.ProjectionGeneration, fresh.ProjectionGeneration)...)
 	if bindErr != nil {
 		return apptypes.SearchMaintenanceReport{}, bindErr
 	}
@@ -146,7 +146,7 @@ func (d *Database) BeginSearchRetirement(ctx context.Context, evidence apptypes.
 		return apptypes.SearchMaintenanceReport{}, xerrors.New("parity evidence changed before atomic authority switch")
 	}
 	for _, criterion := range evidence.Criteria {
-		criterionWant, criterionErr := apptypes.KeyedSearchParityBinding(fresh.CursorKey, "criterion", criterion.QueryClass, evidence.TargetStoreBinding)
+		criterionWant, criterionErr := apptypes.KeyedSearchParityBinding(fresh.CursorKey, "criterion", apptypes.SearchParityCriterionFields(evidence, criterion)...)
 		if criterionErr != nil {
 			return apptypes.SearchMaintenanceReport{}, criterionErr
 		}

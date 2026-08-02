@@ -605,6 +605,7 @@ func TestParityV2BindingIsKeyedAndEvidenceIsCriterionScoped(t *testing.T) {
 	criterionB, _ := keyedParityBinding([]byte("first-store-cursor-key"), "criterion", "bounded_verification", "fixed-criterion-b")
 	suite := parityV2EvidenceSuite{
 		SchemaVersion: searchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: first,
+		LiteralGeneration: "generation-1", BoundedGeneration: "generation-1", RunID: "run-1", ComparisonContract: membershipSetContract,
 		Revision:   parityRevision{Commit: strings.Repeat("a", 40)},
 		Projection: parityProjection{Revision: 3, HighWater: 16, LogicalBytes: 1, PhysicalBytes: 1},
 		Criteria: []parityCriterionEvidence{

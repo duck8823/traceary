@@ -38,7 +38,25 @@ type SearchParityV2Evidence struct {
 	TargetStoreBinding string                  `json:"target_store_binding"`
 	Revision           SearchParityRevision    `json:"revision"`
 	Projection         SearchParityProjection  `json:"projection"`
+	LiteralGeneration  string                  `json:"literal_generation"`
+	BoundedGeneration  string                  `json:"bounded_generation"`
+	RunID              string                  `json:"run_id"`
+	ComparisonContract string                  `json:"comparison_contract"`
 	Criteria           []SearchParityCriterion `json:"criteria"`
+}
+
+// SearchParityCriterionFields is the canonical authorization representation.
+// Every claim that can influence acceptance is authenticated; callers must not
+// construct criterion bindings from a subset of these fields.
+func SearchParityCriterionFields(e SearchParityV2Evidence, c SearchParityCriterion) []string {
+	return []string{
+		"run_id=" + e.RunID, "comparison_contract=" + e.ComparisonContract,
+		"literal_generation=" + e.LiteralGeneration, "bounded_generation=" + e.BoundedGeneration,
+		"query_class=" + c.QueryClass, "target_store_binding=" + e.TargetStoreBinding,
+		"status=" + c.Status, fmt.Sprintf("comparison_equal=%t", c.ComparisonEqual),
+		fmt.Sprintf("coverage_complete=%t", c.CoverageComplete),
+		fmt.Sprintf("legacy_latency_us=%d", c.LegacyLatencyUS), fmt.Sprintf("tiered_latency_us=%d", c.TieredLatencyUS),
+	}
 }
 
 // SearchRetirementSnapshot is a fresh, same-connection authorization input.
@@ -78,10 +96,11 @@ func KeyedSearchParityBinding(key []byte, purpose string, fields ...string) (str
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
-func SearchParityTargetFields(revision SearchParityRevision, projection SearchParityProjection, events, audits, canonicalBytes int64) []string {
+func SearchParityTargetFields(revision SearchParityRevision, projection SearchParityProjection, events, audits, canonicalBytes int64, generations ...string) []string {
 	return []string{
 		fmt.Sprintf("aggregate=events:%d,audits:%d,canonical_bytes:%d", events, audits, canonicalBytes),
 		fmt.Sprintf("revision=%s:%t", revision.Commit, revision.Dirty),
 		fmt.Sprintf("projection=%d:%d:%d:%d", projection.Revision, projection.HighWater, projection.LogicalBytes, projection.PhysicalBytes),
+		fmt.Sprintf("generations=%v", generations),
 	}
 }

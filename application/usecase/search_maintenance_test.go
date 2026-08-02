@@ -47,15 +47,17 @@ func TestSearchMaintenanceStartRetireRequiresFreshStoreBoundV2(t *testing.T) {
 	revision := apptypes.SearchParityRevision{Commit: strings.Repeat("a", 40)}
 	projection := apptypes.SearchParityProjection{Revision: 7, HighWater: 11, LogicalBytes: 99, PhysicalBytes: 202}
 	key := []byte("0123456789abcdef0123456789abcdef")
-	binding, err := apptypes.KeyedSearchParityBinding(key, "target-store", apptypes.SearchParityTargetFields(revision, projection, 3, 2, 99)...)
+	binding, err := apptypes.KeyedSearchParityBinding(key, "target-store", apptypes.SearchParityTargetFields(revision, projection, 3, 2, 99, "generation-1", "generation-1")...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	criterionA, _ := apptypes.KeyedSearchParityBinding(key, "criterion", "fingerprint_eligible", binding)
-	criterionB, _ := apptypes.KeyedSearchParityBinding(key, "criterion", "bounded_verification", binding)
-	evidence := apptypes.SearchParityV2Evidence{SchemaVersion: apptypes.SearchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: revision, Projection: projection, Criteria: []apptypes.SearchParityCriterion{{QueryClass: "fingerprint_eligible", CriterionBinding: criterionA, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 150}, {QueryClass: "bounded_verification", CriterionBinding: criterionB, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 150}}}
+	evidence := apptypes.SearchParityV2Evidence{SchemaVersion: apptypes.SearchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: revision, Projection: projection, LiteralGeneration: "generation-1", BoundedGeneration: "generation-1", RunID: "run-1", ComparisonContract: "membership_set/v1", Criteria: []apptypes.SearchParityCriterion{{QueryClass: "fingerprint_eligible", Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 150}, {QueryClass: "bounded_verification", Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 150}}}
+	for i := range evidence.Criteria {
+		evidence.Criteria[i].CriterionBinding, _ = apptypes.KeyedSearchParityBinding(key, "criterion", apptypes.SearchParityCriterionFields(evidence, evidence.Criteria[i])...)
+	}
+	criterionA := evidence.Criteria[0].CriterionBinding
 	data, _ := json.Marshal(evidence)
-	fake := &searchMaintenanceStoreFake{snapshot: apptypes.SearchRetirementSnapshot{State: state, CursorKey: key, ProjectionRevision: 7, ProjectionHighWater: 11, SourceHighWater: 11, ProjectionState: "complete", EventCount: 3, AuditCount: 2, CanonicalLogicalBytes: 99, PhysicalBytes: 202, TargetAdopted: true}}
+	fake := &searchMaintenanceStoreFake{snapshot: apptypes.SearchRetirementSnapshot{State: state, CursorKey: key, ProjectionGeneration: "generation-1", ProjectionRevision: 7, ProjectionHighWater: 11, SourceHighWater: 11, ProjectionState: "complete", EventCount: 3, AuditCount: 2, CanonicalLogicalBytes: 99, PhysicalBytes: 202, TargetAdopted: true}}
 	if _, err = NewSearchMaintenanceUsecase(fake).StartRetire(context.Background(), data, revision.Commit); err != nil {
 		t.Fatalf("StartRetire() error=%v", err)
 	}
