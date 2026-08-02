@@ -133,7 +133,7 @@ func (datasource *FileRetentionDatasource) inspectFileRetentionEntries(
 			return nil, xerrors.Errorf("inspect file retention root: %w", err)
 		}
 		name := dirEntry.Name()
-		if strings.HasPrefix(name, fileRetentionReservedPrefix) || strings.HasSuffix(name, ".partial") {
+		if strings.HasPrefix(name, fileRetentionReservedPrefix) || strings.HasSuffix(name, ".partial") || strings.HasSuffix(name, ".traceary.lock") {
 			continue
 		}
 		entry, err := datasource.inspectFileRetentionEntry(rootFD, rootStat, rootIdentity, request, liveGeneration, backupManifests, name)
@@ -446,7 +446,7 @@ func fileRetentionLiveGeneration(ctx context.Context, class, databasePath string
 	if err != nil {
 		return "", xerrors.Errorf("derive file retention lineage: %w", err)
 	}
-	_, integrity, err := sqliteFileRetentionGeneration(databasePath)
+	_, integrity, err := sqliteFileRetentionGenerationWithLease(ctx, databasePath, true)
 	if err != nil {
 		return "", xerrors.Errorf("inspect live SQLite generation: %w", err)
 	}
@@ -460,28 +460,39 @@ func fileRetentionLiveGeneration(ctx context.Context, class, databasePath string
 }
 
 func sqliteFileRetentionGeneration(path string) (string, string, error) {
+	// Copied backup FD verification is a bounded synchronous inspection and is
+	// intentionally independent from the live-operation cancellation context.
+	return sqliteFileRetentionGenerationWithLease(context.Background(), path, false)
+}
+
+func sqliteFileRetentionGenerationWithLease(ctx context.Context, path string, live bool) (string, string, error) {
 	absolute, err := filepath.Abs(strings.TrimSpace(path))
 	if err != nil {
 		return "", "", xerrors.Errorf("resolve SQLite verification path: %w", err)
 	}
 	dsn := (&url.URL{Scheme: "file", Path: absolute, RawQuery: "mode=ro&immutable=1"}).String()
-	database, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return "", "", xerrors.Errorf("open SQLite verification database: %w", err)
+	var database *sql.DB
+	if live {
+		database = sqliteinfra.OpenCoordinatedSQLite(absolute, dsn)
+	} else {
+		database, err = sql.Open("sqlite", dsn)
+		if err != nil {
+			return "", "", xerrors.Errorf("open copied SQLite verification database: %w", err)
+		}
 	}
 	defer func() { _ = database.Close() }()
-	if err := sqliteinfra.VerifyStoreCompatibility(context.Background(), database); err != nil {
+	if err := sqliteinfra.VerifyStoreCompatibility(ctx, database); err != nil {
 		return "", "", xerrors.Errorf("verify SQLite store compatibility: %w", err)
 	}
 	var integrity string
-	if err := database.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil {
+	if err := database.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return "", "", xerrors.Errorf("run SQLite integrity check: %w", err)
 	}
 	var userVersion int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil {
+	if err := database.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil {
 		return "", "", xerrors.Errorf("read SQLite user version: %w", err)
 	}
-	rows, err := database.Query(`SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master ORDER BY type, name, tbl_name, sql`)
+	rows, err := database.QueryContext(ctx, `SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master ORDER BY type, name, tbl_name, sql`)
 	if err != nil {
 		return "", "", xerrors.Errorf("read SQLite schema objects: %w", err)
 	}

@@ -1,0 +1,296 @@
+package sqlite
+
+import (
+	"bufio"
+	"context"
+	"database/sql/driver"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+)
+
+func TestStoreLeaseMultiprocessContentionAndCrashRelease(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("advisory lease unsupported")
+	}
+	path := filepath.Join(t.TempDir(), "store.db")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreLeaseHelperProcess$")
+	cmd.Env = append(os.Environ(), "TRACEARY_STORE_LEASE_HELPER=1", "TRACEARY_STORE_LEASE_PATH="+path)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stdin.Close() }()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	scanner := bufio.NewScanner(stdout)
+	ready := false
+	for scanner.Scan() {
+		if scanner.Text() == "ready" {
+			ready = true
+			break
+		}
+	}
+	if !ready {
+		t.Fatal("helper did not acquire shared lease")
+	}
+	candidate := path + ".candidate"
+	if err := os.WriteFile(candidate, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicExchange(path, candidate); err != nil {
+		t.Skipf("atomic exchange unavailable: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, path); err == nil {
+		t.Fatal("exclusive lease bypassed another process")
+	}
+	otherRelease, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path+".other")
+	if err != nil {
+		t.Fatalf("unrelated store was blocked: %v", err)
+	}
+	otherRelease()
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	release, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+	if err != nil {
+		t.Fatalf("crashed process retained lease: %v", err)
+	}
+	release()
+}
+
+func TestStoreLeaseMultiprocessSymlinkAliasSharesNamespace(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("advisory lease unsupported")
+	}
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+	realPath := filepath.Join(realDir, "store.db")
+	aliasPath := filepath.Join(aliasDir, "store.db")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreLeaseHelperProcess$")
+	cmd.Env = append(os.Environ(), "TRACEARY_STORE_LEASE_HELPER=1", "TRACEARY_STORE_LEASE_PATH="+aliasPath)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stdin.Close(); _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		if scanner.Text() == "ready" {
+			break
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, realPath); err == nil {
+		t.Fatal("real path exclusive bypassed symlink alias shared lease")
+	}
+}
+
+func TestLiveConnectionCannotOpenDuringExclusiveMaintenance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	release, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreLeaseHelperProcess$")
+	cmd.Env = append(os.Environ(), "TRACEARY_STORE_LEASE_HELPER=1", "TRACEARY_STORE_LEASE_PATH="+path)
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		release()
+		t.Fatal(err)
+	}
+	defer func() { _ = stdin.Close(); _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	ready := make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			if scanner.Text() == "ready" {
+				close(ready)
+				return
+			}
+		}
+	}()
+	select {
+	case <-ready:
+		release()
+		t.Fatal("live connection opened during exclusive maintenance")
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("live connection did not open after maintenance")
+	}
+}
+
+func TestCoordinatedDatabaseRejectsHardLinkAlias(t *testing.T) {
+	dir := t.TempDir()
+	realPath := filepath.Join(dir, "store.db")
+	aliasPath := filepath.Join(dir, "alias.db")
+	if err := os.WriteFile(realPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(realPath, aliasPath); err != nil {
+		t.Fatal(err)
+	}
+	db := openCoordinatedDB(aliasPath, sqliteDSN(aliasPath))
+	defer func() { _ = db.Close() }()
+	if _, err := db.Conn(context.Background()); err == nil {
+		t.Fatal("normal SQLite connection accepted hard-linked store")
+	}
+}
+
+func TestStoreLeaseHelperProcess(t *testing.T) {
+	if os.Getenv("TRACEARY_STORE_LEASE_HELPER") != "1" {
+		t.Skip("helper only")
+	}
+	path := os.Getenv("TRACEARY_STORE_LEASE_PATH")
+	db := openCoordinatedDB(path, sqliteDSN(path))
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	fmt.Println("ready")
+	_, _ = io.ReadAll(os.Stdin)
+}
+
+func TestStoreLeaseConnector_HoldsSharedLeaseForPhysicalConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	db := openCoordinatedDB(path, sqliteDSN(path))
+	db.SetMaxIdleConns(0)
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquired := make(chan struct{})
+	go func() {
+		release, acquireErr := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+		if acquireErr != nil {
+			return
+		}
+		close(acquired)
+		release()
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("exclusive lease acquired while physical connection was open")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("exclusive lease did not acquire after close")
+	}
+}
+
+func TestDatabaseOpenParticipatesInExclusiveStoreLease(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	database := NewDatabase(path, nil)
+	db, err := database.openAt(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxIdleConns(0)
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquired := make(chan struct{})
+	go func() {
+		release, acquireErr := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+		if acquireErr != nil {
+			return
+		}
+		close(acquired)
+		release()
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("exclusive lease bypassed a normal Database connection")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("exclusive lease did not acquire")
+	}
+}
+
+func TestStoreLeaseExclusiveAcquisitionHonorsContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	db := openCoordinatedDB(path, sqliteDSN(path))
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if _, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, path); err == nil {
+		t.Fatal("exclusive acquisition ignored shared holder")
+	}
+	_ = conn.Close()
+	_ = db.Close()
+}
+
+func TestStoreLeaseConn_PreservesOptionalInterfaces(t *testing.T) {
+	var conn any = &storeLeaseConn{}
+	for name, ok := range map[string]bool{
+		"ConnBeginTx":        implements[driver.ConnBeginTx](conn),
+		"ConnPrepareContext": implements[driver.ConnPrepareContext](conn),
+		"ExecerContext":      implements[driver.ExecerContext](conn),
+		"QueryerContext":     implements[driver.QueryerContext](conn),
+		"Pinger":             implements[driver.Pinger](conn),
+		"SessionResetter":    implements[driver.SessionResetter](conn),
+		"Validator":          implements[driver.Validator](conn),
+		"NamedValueChecker":  implements[driver.NamedValueChecker](conn),
+	} {
+		if !ok {
+			t.Errorf("optional interface %s was lost", name)
+		}
+	}
+}
+
+func implements[T any](value any) bool { _, ok := value.(T); return ok }

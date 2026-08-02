@@ -347,10 +347,7 @@ func benchmarkHandoff(ctx context.Context, path string, iterations int, expected
 func readOnlyDSN(path string) string { return "file:" + url.PathEscape(path) + "?immutable=1&mode=ro" }
 
 func openCompatibleReadOnly(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(path))
-	if err != nil {
-		return nil, fmt.Errorf("open read-only store: %w", err)
-	}
+	db := infra.OpenCoordinatedSQLite(path, readOnlyDSN(path))
 	if err := infra.VerifyStoreCompatibility(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("verify store compatibility: %w", err)
@@ -470,10 +467,7 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if err := infra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
 		return fixtureInfo{}, err
 	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return fixtureInfo{}, err
-	}
+	db := infra.OpenCoordinatedSQLite(path, path)
 	defer func() { _ = db.Close() }()
 	if err := infra.VerifyStoreCompatibility(ctx, db); err != nil {
 		return fixtureInfo{}, fmt.Errorf("verify synthetic store compatibility: %w", err)

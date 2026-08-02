@@ -23,5 +23,6 @@ func (c *RootCLI) newStoreCommand() *cobra.Command {
 	storeCmd.AddCommand(c.newStoreSearchProjectionCommand())
 	storeCmd.AddCommand(c.newStoreSearchMaintenanceCommand())
 	storeCmd.AddCommand(c.newStorePayloadRehearsalCommand())
+	storeCmd.AddCommand(c.newStoreCompactionCommand())
 	return storeCmd
 }

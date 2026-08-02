@@ -933,7 +933,8 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 }
 
 func inspectLiveCompatibility(ctx context.Context, path string) (bool, error) {
-	db, err := sql.Open("sqlite", liveReadOnlyDSN(path))
+	db := OpenCoordinatedSQLite(path, liveReadOnlyDSN(path))
+	var err error
 	if err != nil {
 		return false, xerrors.Errorf("open immutable live compatibility check: %w", err)
 	}
