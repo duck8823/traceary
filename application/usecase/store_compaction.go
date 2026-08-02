@@ -16,17 +16,15 @@ import (
 type storeCompactionUsecase struct {
 	journal       application.StoreCompactionJournal
 	builder       application.StoreCompactionBuilder
-	files         application.StoreReplacementCoordinator
-	workspace     application.CandidateWorkspace
+	files         application.StoreCompactionFiles
 	lease         application.StoreCompactionLease
 	now           func() time.Time
 	expectedStore string
 }
 
 // NewStoreCompactionUsecase composes the dedicated compaction protocol.
-func NewStoreCompactionUsecase(expectedStore string, j application.StoreCompactionJournal, b application.StoreCompactionBuilder, f application.StoreReplacementCoordinator, l application.StoreCompactionLease) application.StoreCompactionUsecase {
-	workspace, _ := f.(application.CandidateWorkspace)
-	return &storeCompactionUsecase{journal: j, builder: b, files: f, workspace: workspace, lease: l, now: time.Now, expectedStore: filepath.Clean(expectedStore)}
+func NewStoreCompactionUsecase(expectedStore string, j application.StoreCompactionJournal, b application.StoreCompactionBuilder, f application.StoreCompactionFiles, l application.StoreCompactionLease) application.StoreCompactionUsecase {
+	return &storeCompactionUsecase{journal: j, builder: b, files: f, lease: l, now: time.Now, expectedStore: filepath.Clean(expectedStore)}
 }
 
 func (u *storeCompactionUsecase) Plan(ctx context.Context, source string) (domain.CompactionRun, error) {
@@ -80,10 +78,7 @@ func (u *storeCompactionUsecase) applyLeased(ctx context.Context, run domain.Com
 				run, err = u.advance(ctx, run, domain.CompactionCopyIntent)
 			}
 		case domain.ActionPrepareCandidate:
-			if u.workspace == nil {
-				return run, fmt.Errorf("candidate workspace is not configured")
-			}
-			identity, prepareErr := u.workspace.PrepareCandidate(ctx, run)
+			identity, prepareErr := u.files.PrepareCandidate(ctx, run)
 			if prepareErr != nil {
 				return run, prepareErr
 			}
@@ -176,10 +171,7 @@ func (u *storeCompactionUsecase) resumeLeased(ctx context.Context, run domain.Co
 			if err := u.files.Recheck(ctx, run); err != nil {
 				return run, err
 			}
-			if u.workspace == nil {
-				return run, fmt.Errorf("candidate workspace is not configured")
-			}
-			if err := u.workspace.RemoveOwnedPartialCandidate(ctx, run, observation); err != nil {
+			if err := u.files.RemoveOwnedPartialCandidate(ctx, run, observation); err != nil {
 				return run, err
 			}
 			continue

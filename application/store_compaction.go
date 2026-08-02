@@ -37,6 +37,13 @@ type StoreReplacementCoordinator interface {
 	Observe(context.Context, domain.CompactionRun) (domain.CompactionObservation, error)
 }
 
+// StoreCompactionFiles is the complete consumer-facing file protocol required
+// by compaction. Implementations cannot omit prepared-candidate ownership.
+type StoreCompactionFiles interface {
+	StoreReplacementCoordinator
+	CandidateWorkspace
+}
+
 // StoreCompactionLease excludes every cooperating normal connection for apply.
 type StoreCompactionLease interface {
 	AcquireExclusive(context.Context, string) (func(), error)

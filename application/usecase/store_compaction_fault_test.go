@@ -85,7 +85,7 @@ func (f faultFiles) FenceCandidate(_ context.Context, r domain.CompactionRun) (d
 	if f.fail == "fence" {
 		return r, errors.New("fence fault")
 	}
-	r.Candidate = domain.StoreFileIdentity{Device: 1, Inode: 2}
+	r.Candidate = domain.StoreFileIdentity{Device: 1, Inode: 9}
 	return r, nil
 }
 func (f faultFiles) Exchange(context.Context, domain.CompactionRun) error {

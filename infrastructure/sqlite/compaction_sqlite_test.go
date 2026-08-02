@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -390,6 +391,65 @@ func TestStoreCompactionResumeRebuildsValidIncompletePreparedCandidate(t *testin
 	if got.Phase != domain.CompactionCommitted {
 		t.Fatalf("phase=%s", got.Phase)
 	}
+}
+
+func TestStoreCompactionApplyRejectsSameContentReplacementAfterVerification(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	_, _ = db.Exec(`CREATE TABLE expected(v TEXT); INSERT INTO expected VALUES('source')`)
+	_ = db.Close()
+	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "journal")}
+	planner := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	run, err := planner.Plan(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Resources.LeaseCapability = true
+	// Recreate the test journal with the test-only lease capability.
+	journal = &CompactionFileJournal{Dir: filepath.Join(dir, "apply")}
+	if err := journal.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	builder := replacingAfterVerifyBuilder{SQLiteCompactionBuilder: SQLiteCompactionBuilder{}}
+	service := usecase.NewStoreCompactionUsecase(source, journal, builder, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	if _, err := service.Apply(ctx, run.ID); err == nil {
+		t.Fatal("Apply accepted a same-content replacement inode")
+	}
+	loaded, err := journal.Load(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Phase != domain.CompactionScrubInProgress || loaded.Candidate != (domain.StoreFileIdentity{}) {
+		t.Fatalf("journal advanced past fence: phase=%s candidate=%+v", loaded.Phase, loaded.Candidate)
+	}
+	observed, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.SameInode(loaded.PreparedCandidateIdentity) {
+		t.Fatal("test did not replace the prepared inode")
+	}
+}
+
+type replacingAfterVerifyBuilder struct{ SQLiteCompactionBuilder }
+
+func (b replacingAfterVerifyBuilder) VerifyPair(ctx context.Context, source, candidate string) error {
+	if err := b.SQLiteCompactionBuilder.VerifyPair(ctx, source, candidate); err != nil {
+		return err
+	}
+	contents, err := os.ReadFile(candidate)
+	if err != nil {
+		return fmt.Errorf("read verified candidate: %w", err)
+	}
+	if err := os.Remove(candidate); err != nil {
+		return fmt.Errorf("remove verified candidate: %w", err)
+	}
+	if err := os.WriteFile(candidate, contents, 0o600); err != nil {
+		return fmt.Errorf("replace verified candidate: %w", err)
+	}
+	return nil
 }
 
 func prepareCompactionCandidateForResumeTest(ctx context.Context, t *testing.T, source, dir string) (domain.CompactionRun, *CompactionFileJournal) {

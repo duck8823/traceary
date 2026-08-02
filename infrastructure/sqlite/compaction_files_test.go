@@ -155,6 +155,10 @@ func TestStoreReplacementFilesRejectsCandidateReplacementAfterVerification(t *te
 	if err := os.WriteFile(candidate, []byte("candidate"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	run.PreparedCandidateIdentity, err = inspectRegularFile(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
 	run, err = (StoreReplacementFiles{}).FenceCandidate(context.Background(), run)
 	if err != nil {
 		t.Fatal(err)

@@ -203,6 +203,9 @@ func validateRunAppend(previous, next domain.CompactionRun) error {
 	if previous.Candidate == (domain.StoreFileIdentity{}) && next.Candidate != (domain.StoreFileIdentity{}) && next.Phase != domain.CompactionCandidateVerified {
 		return errors.New("candidate identity appeared outside verification")
 	}
+	if next.Phase == domain.CompactionCandidateVerified && !next.Candidate.SameInode(next.PreparedCandidateIdentity) {
+		return errors.New("verified candidate differs from prepared inode")
+	}
 	if next.Phase == domain.CompactionCandidatePrepared && (previous.Phase == domain.CompactionCopyIntent || previous.Phase == domain.CompactionCopyRetryIntent) {
 		if next.PreparedCandidateIdentity == (domain.StoreFileIdentity{}) || next.PreparedCandidateIdentity.Size != 0 || next.PreparedAttempt != previous.PreparedAttempt+1 {
 			return errors.New("prepared candidate identity/attempt is invalid")
@@ -473,6 +476,9 @@ func (StoreReplacementFiles) FenceCandidate(ctx context.Context, run domain.Comp
 	if identity.Device != run.SourceIdentity.Device {
 		return run, errors.New("candidate is not on source filesystem")
 	}
+	if !identity.SameInode(run.PreparedCandidateIdentity) {
+		return run, errors.New("candidate inode differs from prepared identity")
+	}
 	run.Candidate = identity
 	return run, nil
 }
@@ -552,6 +558,13 @@ func (StoreReplacementFiles) Observe(_ context.Context, run domain.CompactionRun
 		return domain.CompactionObservation{}, err
 	}
 	obs := domain.CompactionObservation{Source: source, Candidate: candidate, Rollback: rollback, CandidateExists: candidateExists, RollbackExists: rollbackExists}
+	switch run.Phase {
+	case domain.CompactionCopyComplete, domain.CompactionCandidateSyncIntent, domain.CompactionCandidateSynced,
+		domain.CompactionScrubInProgress:
+		if !candidateExists || !candidate.SameInode(run.PreparedCandidateIdentity) {
+			return obs, errors.New("candidate inode differs from prepared identity")
+		}
+	}
 	identities := map[[2]uint64]string{}
 	for path, id := range map[string]domain.StoreFileIdentity{"source": source, "candidate": candidate, "rollback": rollback} {
 		if id == (domain.StoreFileIdentity{}) {
