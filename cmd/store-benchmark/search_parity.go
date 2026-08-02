@@ -51,8 +51,8 @@ type parityV2EvidenceSuite struct {
 
 type parityAuthorizationManifest struct {
 	DBPath              string `json:"db_path"`
-	FingerprintArtifact string `json:"fingerprint_artifact"`
-	BoundedArtifact     string `json:"bounded_artifact"`
+	FingerprintManifest string `json:"fingerprint_manifest"`
+	BoundedManifest     string `json:"bounded_manifest"`
 }
 
 func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2EvidenceSuite, error) {
@@ -61,27 +61,47 @@ func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2
 		return parityV2EvidenceSuite{}, errors.New("authorization_manifest_invalid")
 	}
 	var manifest parityAuthorizationManifest
-	if decodeStrictJSON(data, &manifest) != nil || manifest.DBPath == "" || manifest.FingerprintArtifact == "" || manifest.BoundedArtifact == "" {
+	if decodeStrictJSON(data, &manifest) != nil || validateJSONObjectKeys(data, jsonObjectSchema{required: map[string]any{"db_path": nil, "fingerprint_manifest": nil, "bounded_manifest": nil}}) != nil || manifest.DBPath == "" || manifest.FingerprintManifest == "" || manifest.BoundedManifest == "" {
 		return parityV2EvidenceSuite{}, errors.New("authorization_manifest_invalid")
 	}
-	read := func(artifactPath string) (searchParityArtifact, error) {
-		raw, readErr := readPrivateParityFile(artifactPath, maxParityArtifactBytes)
-		if readErr != nil || validateSearchParityJSON(raw) != nil {
-			return searchParityArtifact{}, errors.New("authorization_artifact_invalid")
-		}
-		var artifact searchParityArtifact
-		if decodeStrictJSON(raw, &artifact) != nil || artifact.Status != "passed" || !artifact.Comparison.Equal || !artifact.Tiered.Coverage.Complete {
-			return artifact, errors.New("authorization_artifact_invalid")
-		}
-		return artifact, nil
+	target, err := os.Lstat(manifest.DBPath)
+	if err != nil || !target.Mode().IsRegular() || target.Mode()&os.ModeSymlink != 0 {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
 	}
-	fingerprint, err := read(manifest.FingerprintArtifact)
+	beforeDB, err := infra.NewImmutableReadDatabase(ctx, manifest.DBPath)
+	if err != nil {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	before, beforeErr := beforeDB.SearchRetirementSnapshot(ctx)
+	_ = beforeDB.CloseSharedReadOnly()
+	if beforeErr != nil || !before.TargetAdopted || before.ProjectionState != "complete" {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	readAndBind := func(manifestPath string) (searchParityManifest, error) {
+		parityManifest, readErr := readSearchParityManifest(manifestPath, nil)
+		if readErr != nil {
+			return searchParityManifest{}, errors.New("authorization_manifest_invalid")
+		}
+		candidate, statErr := os.Stat(parityManifest.DBPath)
+		if statErr != nil || !os.SameFile(target, candidate) {
+			return searchParityManifest{}, errors.New("authorization_store_mismatch")
+		}
+		return parityManifest, nil
+	}
+	fingerprintManifest, err := readAndBind(manifest.FingerprintManifest)
 	if err != nil {
 		return parityV2EvidenceSuite{}, err
 	}
-	bounded, err := read(manifest.BoundedArtifact)
+	boundedManifest, err := readAndBind(manifest.BoundedManifest)
 	if err != nil {
 		return parityV2EvidenceSuite{}, err
+	}
+	// The two criteria are collected here from the target itself. Historical v1
+	// artifacts are never accepted as authorization input or re-signed.
+	fingerprint := runSearchParity(ctx, fingerprintManifest)
+	bounded := runSearchParity(ctx, boundedManifest)
+	if fingerprint.Status != "passed" || bounded.Status != "passed" || !fingerprint.Comparison.Equal || !bounded.Comparison.Equal || !fingerprint.Tiered.Coverage.Complete || !bounded.Tiered.Coverage.Complete {
+		return parityV2EvidenceSuite{}, errors.New("authorization_parity_failed")
 	}
 	if fingerprint.Tiered.QueryClass != "fingerprint_eligible" || bounded.Tiered.QueryClass != "bounded_verification" || fingerprint.Revision != bounded.Revision || fingerprint.Projection != bounded.Projection {
 		return parityV2EvidenceSuite{}, errors.New("authorization_artifact_mismatch")
@@ -94,6 +114,13 @@ func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2
 	snapshot, err := database.SearchRetirementSnapshot(ctx)
 	if err != nil || !snapshot.TargetAdopted || snapshot.ProjectionState != "complete" || snapshot.ProjectionRevision != fingerprint.Projection.Revision || snapshot.ProjectionHighWater != fingerprint.Projection.HighWater {
 		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	if !sameRetirementSnapshot(before, snapshot) {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_changed")
+	}
+	after, statErr := os.Stat(manifest.DBPath)
+	if statErr != nil || !os.SameFile(target, after) || target.Size() != after.Size() || !target.ModTime().Equal(after.ModTime()) {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_changed")
 	}
 	revision := apptypes.SearchParityRevision{Commit: fingerprint.Revision.Commit, Dirty: fingerprint.Revision.Dirty}
 	projection := apptypes.SearchParityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
@@ -120,6 +147,14 @@ func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2
 		return parityV2EvidenceSuite{}, err
 	}
 	return parityV2EvidenceSuite{SchemaVersion: searchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: fingerprint.Revision, Projection: parityProjection{Revision: projection.Revision, HighWater: projection.HighWater, LogicalBytes: projection.LogicalBytes, PhysicalBytes: projection.PhysicalBytes}, LiteralGeneration: snapshot.ProjectionGeneration, BoundedGeneration: snapshot.ProjectionGeneration, RunID: runID, ComparisonContract: membershipSetContract, Criteria: []parityCriterionEvidence{a, b}}, nil
+}
+
+func sameRetirementSnapshot(a, b apptypes.SearchRetirementSnapshot) bool {
+	return hmac.Equal(a.CursorKey, b.CursorKey) && a.State == b.State &&
+		a.ProjectionGeneration == b.ProjectionGeneration && a.ProjectionRevision == b.ProjectionRevision &&
+		a.ProjectionHighWater == b.ProjectionHighWater && a.SourceHighWater == b.SourceHighWater &&
+		a.ProjectionState == b.ProjectionState && a.EventCount == b.EventCount && a.AuditCount == b.AuditCount &&
+		a.CanonicalLogicalBytes == b.CanonicalLogicalBytes && a.PhysicalBytes == b.PhysicalBytes && a.TargetAdopted == b.TargetAdopted
 }
 
 func readPrivateParityFile(path string, limit int) ([]byte, error) {

@@ -65,7 +65,7 @@ func main() {
 	flag.StringVar(&validateBaseline, "validate-baseline", "", "validate a sanitized capacity baseline artifact and exit")
 	flag.StringVar(&searchParityManifestPath, "search-parity-manifest", "", "run exhaustive parity from a private 0600 manifest, or - for stdin")
 	flag.StringVar(&validateSearchParity, "validate-search-parity", "", "strictly validate a sanitized search parity artifact and exit")
-	flag.StringVar(&authorizeSearchParity, "authorize-search-parity", "", "combine two passed parity artifacts into actual-target v2 evidence")
+	flag.StringVar(&authorizeSearchParity, "authorize-search-parity", "", "run two target-bound parity manifests and emit actual-target v2 evidence")
 	flag.IntVar(&iterations, "iterations", 15, "samples per cold and warm series")
 	flag.IntVar(&smallRows, "small-rows", 10000, "synthetic small event rows")
 	flag.IntVar(&largeRows, "large-rows", 8, "synthetic 1 MiB event rows")

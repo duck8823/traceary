@@ -57,7 +57,7 @@ func TestSearchParitySyntheticExhaustsBothChainsWithoutPrivateOutput(t *testing.
 func TestActualTargetV2EvidenceAuthorizesAtomicRetirement(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "target.db")
-	if _, err := createSynthetic(ctx, path, 3, 1); err != nil {
+	if _, err := createSynthetic(ctx, path, 200, 1); err != nil {
 		t.Fatal(err)
 	}
 	migrations, err := sqliteschema.Migrations()
@@ -76,24 +76,17 @@ func TestActualTargetV2EvidenceAuthorizesAtomicRetirement(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = raw.Close()
-	snapshot, err := database.SearchRetirementSnapshot(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	makeArtifact := func(class, tier string) searchParityArtifact {
-		a := validSearchParityArtifact()
-		a.Revision = parityRevision{Commit: strings.Repeat("a", 40)}
-		a.Projection = parityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
-		a.Tiered.QueryClass = class
-		a.Tiered.ObservedTier = tier
-		a.Tiered.Coverage = parityCoverage{Processed: snapshot.ProjectionHighWater, Examined: snapshot.ProjectionHighWater, HighWater: snapshot.ProjectionHighWater, Complete: true}
-		a.Legacy.LatencyUS = 100
-		a.Tiered.LatencyUS = 120
-		return a
+	revision := parityRevision{Commit: strings.Repeat("a", 40)}
+	originalRevisionReader := parityRevisionReader
+	parityRevisionReader = func(context.Context) (parityRevision, error) { return revision, nil }
+	t.Cleanup(func() { parityRevisionReader = originalRevisionReader })
+	clean := false
+	makeManifest := func(query string) searchParityManifest {
+		return searchParityManifest{DBPath: path, Query: query, Workspace: "synthetic", LegacyPageSize: 2, TieredPageSize: 2, SourceRows: 10, StoredBytes: 8 << 20, DecodedBytes: 8 << 20, TimeoutMS: 30_000, ExpectedRevision: revision.Commit, ExpectedDirty: &clean}
 	}
 	dir := t.TempDir()
-	fingerprintPath := filepath.Join(dir, "fingerprint.json")
-	boundedPath := filepath.Join(dir, "bounded.json")
+	fingerprintPath := filepath.Join(dir, "fingerprint-manifest.json")
+	boundedPath := filepath.Join(dir, "bounded-manifest.json")
 	manifestPath := filepath.Join(dir, "manifest.json")
 	write := func(path string, v any) {
 		data, _ := json.Marshal(v)
@@ -101,9 +94,9 @@ func TestActualTargetV2EvidenceAuthorizesAtomicRetirement(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(fingerprintPath, makeArtifact("fingerprint_eligible", string(apptypes.LiteralSearchTierFingerprint)))
-	write(boundedPath, makeArtifact("bounded_verification", string(apptypes.LiteralSearchTierBoundedVerification)))
-	write(manifestPath, parityAuthorizationManifest{DBPath: path, FingerprintArtifact: fingerprintPath, BoundedArtifact: boundedPath})
+	write(fingerprintPath, makeManifest("synthetic"))
+	write(boundedPath, makeManifest("s"))
+	write(manifestPath, parityAuthorizationManifest{DBPath: path, FingerprintManifest: fingerprintPath, BoundedManifest: boundedPath})
 	evidence, err := buildActualTargetParityEvidence(ctx, manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -111,6 +104,15 @@ func TestActualTargetV2EvidenceAuthorizesAtomicRetirement(t *testing.T) {
 	encoded, _ := json.Marshal(evidence)
 	if _, err = usecase.NewSearchMaintenanceUsecase(database).StartRetire(ctx, encoded, strings.Repeat("a", 40)); err != nil {
 		t.Fatalf("StartRetire(actual target v2)=%v", err)
+	}
+
+	otherPath := filepath.Join(t.TempDir(), "other.db")
+	if _, err = createSynthetic(ctx, otherPath, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	write(boundedPath, searchParityManifest{DBPath: otherPath, Query: "s", Workspace: "synthetic", LegacyPageSize: 2, TieredPageSize: 2, SourceRows: 10, StoredBytes: 8 << 20, DecodedBytes: 8 << 20, TimeoutMS: 30_000, ExpectedRevision: revision.Commit, ExpectedDirty: &clean})
+	if _, err = buildActualTargetParityEvidence(ctx, manifestPath); err == nil || err.Error() != "authorization_store_mismatch" {
+		t.Fatalf("mixed-store authorization error=%v", err)
 	}
 }
 
