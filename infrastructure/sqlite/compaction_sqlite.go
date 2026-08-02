@@ -32,22 +32,34 @@ func (SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate stri
 	if candidateID.Size != 0 {
 		return errors.New("prepared compaction candidate must be empty before VACUUM INTO")
 	}
-	db, err := sql.Open("sqlite", directSQLiteRWDSN(source))
+	sourceDB, err := openDirectReadOnly(ctx, source)
+	if err != nil {
+		return err
+	}
+	if err := VerifyStoreCompatibility(ctx, sourceDB); err != nil {
+		_ = sourceDB.Close()
+		return fmt.Errorf("source compatibility: %w", err)
+	}
+	if err := requireStaticSearchState(ctx, sourceDB); err != nil {
+		_ = sourceDB.Close()
+		return err
+	}
+	if err := sourceDB.Close(); err != nil {
+		return err
+	}
+	// Run VACUUM from a transient writable database with the source attached as
+	// immutable. This lets SQLite write the candidate without ever opening the
+	// WAL-mode source as a writer (and therefore without creating WAL/SHM).
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		return err
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	if err := db.PingContext(ctx); err != nil {
-		return err
+	if _, err := db.ExecContext(ctx, `ATTACH DATABASE `+quoteSQLiteStringLiteral(sqliteImmutableDSN(source))+` AS compact_source`); err != nil {
+		return fmt.Errorf("attach immutable compaction source: %w", err)
 	}
-	if err := VerifyStoreCompatibility(ctx, db); err != nil {
-		return fmt.Errorf("source compatibility: %w", err)
-	}
-	if err := requireStaticSearchState(ctx, db); err != nil {
-		return err
-	}
-	if _, err := db.ExecContext(ctx, `VACUUM INTO `+quoteSQLiteStringLiteral(candidate)); err != nil {
+	if _, err := db.ExecContext(ctx, `VACUUM compact_source INTO `+quoteSQLiteStringLiteral(candidate)); err != nil {
 		return fmt.Errorf("VACUUM INTO candidate: %w", err)
 	}
 	return nil
@@ -330,7 +342,7 @@ func requireStaticSearchState(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 func openDirectReadOnly(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", sqliteReadOnlyDSN(path))
+	db, err := sql.Open("sqlite", sqliteImmutableDSN(path))
 	if err != nil {
 		return nil, err
 	}
