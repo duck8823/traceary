@@ -123,7 +123,9 @@ func (u *payloadRehearsalUsecase) run(ctx context.Context, c types.PayloadRehear
 				return result, err
 			}
 			if c.StopAfterBatches > 0 && result.BatchCount-initialBatches >= c.StopAfterBatches && (!done || fieldIndex != len(fields)-1) {
-				result, err = u.workflow.Pause(ctx, handle)
+				pauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+				result, err = u.workflow.Pause(pauseCtx, handle)
+				cancel()
 				if err != nil {
 					return result, xerrors.Errorf("pause payload rehearsal at committed batch boundary: %w", err)
 				}
