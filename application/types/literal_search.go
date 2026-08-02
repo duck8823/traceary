@@ -17,6 +17,8 @@ const (
 	// LiteralSearchCursorVersion identifies the continuation envelope.
 	LiteralSearchCursorVersion  = 1
 	maxLiteralQueryFingerprints = 128
+	// MaxLiteralSearchQueryBytes bounds normalization and gram allocation.
+	MaxLiteralSearchQueryBytes = 64 << 10
 )
 
 // LiteralQuery owns the normalization shared by candidate construction and
@@ -31,6 +33,9 @@ type LiteralQuery struct {
 // CharacterizeLiteralQuery normalizes a literal and derives safe fingerprints.
 func CharacterizeLiteralQuery(raw string) LiteralQuery {
 	canonical := foldLiteralASCII(strings.TrimSpace(raw))
+	if len(canonical) > MaxLiteralSearchQueryBytes {
+		return LiteralQuery{canonical: canonical}
+	}
 	runes := []rune(canonical)
 	caseStable := true
 	for _, r := range runes {
@@ -129,15 +134,19 @@ type LiteralSearchRequest struct {
 
 // LiteralSearchPage exposes matches and honest completeness metadata.
 type LiteralSearchPage struct {
-	Events        []BoundedEvent        `json:"events"`
-	Tier          LiteralSearchTier     `json:"tier"`
-	Coverage      LiteralSearchCoverage `json:"coverage"`
-	PartialReason string                `json:"partial_reason,omitempty"`
-	Continuation  string                `json:"continuation,omitempty"`
+	Events             []BoundedEvent        `json:"events"`
+	Tier               LiteralSearchTier     `json:"tier"`
+	Coverage           LiteralSearchCoverage `json:"coverage"`
+	PartialReason      string                `json:"partial_reason,omitempty"`
+	Continuation       string                `json:"continuation,omitempty"`
+	MatchContinuations []string              `json:"-"`
 }
 
 // ErrLiteralSearchCursorMismatch rejects replay against changed inputs.
 var ErrLiteralSearchCursorMismatch = errors.New("literal search continuation does not match the request or active projection")
+
+// ErrLiteralSearchQueryTooLarge rejects input before rune/gram allocation.
+var ErrLiteralSearchQueryTooLarge = errors.New("literal search query exceeds byte limit")
 
 // LiteralSearchCursor binds progress to query and projection identity.
 type LiteralSearchCursor struct {

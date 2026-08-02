@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -167,6 +168,26 @@ func TestSearchTieredPreviewExposesZeroMatchProgressAndDeepBudget(t *testing.T) 
 	}
 	if stub.request.Continuation != "previous" || stub.request.Budget != apptypes.DeepLiteralSearchBudget {
 		t.Fatalf("request = %+v", stub.request)
+	}
+}
+
+func TestSearchTieredMetadataOmitsAllBodyDerivedKeys(t *testing.T) {
+	t.Parallel()
+	bounded := newMCPBoundedFixture(t, "visible secret", 20, false)
+	stub := &tieredSearchStub{page: apptypes.LiteralSearchPage{Events: []apptypes.BoundedEvent{bounded}, Tier: apptypes.LiteralSearchTierBoundedVerification, Coverage: apptypes.LiteralSearchCoverage{ExaminedSources: 1, ProcessedSources: 1, HighWater: 1, Complete: true}}}
+	server := &Server{tieredSearch: stub}
+	_, output, err := server.search()(context.Background(), nil, searchInput{Query: "visible", TieredPreview: true, Projection: "metadata"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{`"body"`, `"body_blocks"`, `"body_unavailable_reason"`, `"body_response_truncated"`, `"visible_body_runes"`} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("metadata contains %s: %s", forbidden, encoded)
+		}
 	}
 }
 

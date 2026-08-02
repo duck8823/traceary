@@ -874,17 +874,33 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			}
 			converted := convertBoundedEvents(literalPage.Events)
 			if projection == apptypes.EventProjectionMetadata {
-				for i := range converted {
-					converted[i].Body = nil
-					converted[i].BodyBlocks = nil
+				metadata := make([]apptypes.EventMetadata, 0, len(literalPage.Events))
+				for _, event := range literalPage.Events {
+					metadata = append(metadata, event.Metadata())
 				}
+				converted = convertEventMetadata(metadata)
 			}
+			aggregate := applyEventAggregateBudget(converted, responseBudget)
+			if aggregate.partial {
+				reasons = append(reasons, "aggregate_body_budget")
+			}
+			if aggregate.hasUnreturned {
+				idx := len(aggregate.events)
+				if idx >= len(literalPage.MatchContinuations) {
+					return nil, eventsOutput{}, xerrors.Errorf("tiered aggregate continuation is unavailable")
+				}
+				literalPage.Continuation = literalPage.MatchContinuations[idx]
+			}
+			converted = aggregate.events
 			intervalOut := newIntervalOutput(interval)
 			bodyBytes := 0
 			for _, event := range converted {
 				bodyBytes += encodedEventBodyBytes(event)
 			}
-			return nil, eventsOutput{Events: converted, Interval: &intervalOut, Coverage: eventCoverageOutput{CandidateCount: int(literalPage.Coverage.ExaminedSources), ReturnedCount: len(converted), AggregateBodyBytes: bodyBytes, AggregateBodyBudget: responseBudget.AggregateBodyBytes()}, Partial: !literalPage.Coverage.Complete, Reasons: reasons, Continuation: literalPage.Continuation, Tier: string(literalPage.Tier)}, nil
+			if bodyBytes > responseBudget.AggregateBodyBytes() {
+				return nil, eventsOutput{}, xerrors.Errorf("tiered aggregate body budget exceeded")
+			}
+			return nil, eventsOutput{Events: converted, Interval: &intervalOut, Coverage: eventCoverageOutput{CandidateCount: int(literalPage.Coverage.ExaminedSources), ReturnedCount: len(converted), AggregateBodyBytes: bodyBytes, AggregateBodyBudget: responseBudget.AggregateBodyBytes()}, Partial: !literalPage.Coverage.Complete || aggregate.partial, Reasons: reasons, Continuation: literalPage.Continuation, Tier: string(literalPage.Tier)}, nil
 		}
 		snapshotAt := time.Now().UTC()
 		continuation, err := resolveEventContinuation("search", input.Continuation)

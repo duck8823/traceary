@@ -25,6 +25,9 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		return apptypes.LiteralSearchPage{}, xerrors.Errorf("literal search budget must be positive")
 	}
 	query := apptypes.CharacterizeLiteralQuery(request.Criteria.Query())
+	if len(query.Canonical()) > apptypes.MaxLiteralSearchQueryBytes {
+		return apptypes.LiteralSearchPage{}, apptypes.ErrLiteralSearchQueryTooLarge
+	}
 	if query.Canonical() == "" {
 		return apptypes.LiteralSearchPage{}, xerrors.Errorf("literal search query must not be empty")
 	}
@@ -81,6 +84,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	}
 
 	matched := make([]string, 0, request.Criteria.Limit())
+	matchContinuations := make([]string, 0, request.Criteria.Limit())
 	var usedStored, usedDecoded int64
 	last := after
 	var examined int64
@@ -90,13 +94,14 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 			partialReason = "source_rows"
 			break
 		}
-		last = s.sequence
 		examined++
+		before := last
 		eligible, eligibleErr := literalSourceEligible(ctx, tx, s.id, request.Criteria, generation, query.Fingerprints(), useFingerprints)
 		if eligibleErr != nil {
 			return apptypes.LiteralSearchPage{}, eligibleErr
 		}
 		if !eligible {
+			last = s.sequence
 			continue
 		}
 		if usedStored+s.stored > request.Budget.StoredBytes {
@@ -120,13 +125,30 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		usedStored += s.stored
 		usedDecoded += s.decoded
 		if ok {
+			if usedStored+s.stored > request.Budget.StoredBytes || usedDecoded+s.decoded > request.Budget.DecodedBytes {
+				if before == after {
+					return apptypes.LiteralSearchPage{}, &apptypes.SearchProjectionOversizeError{Class: "verified_hydration_bytes", Bytes: max(usedStored+s.stored, usedDecoded+s.decoded), Limit: max(request.Budget.StoredBytes, request.Budget.DecodedBytes)}
+				}
+				partialReason = "verified_hydration_bytes"
+				break
+			}
+			usedStored += s.stored
+			usedDecoded += s.decoded
+			resume, encodeErr := (apptypes.LiteralSearchCursor{Version: apptypes.LiteralSearchCursorVersion, LastSequence: before, CriteriaHash: criteriaHash, Generation: generation, HighWater: highWater, QueryRevision: revision}).EncodeAuthenticated(cursorKey)
+			if encodeErr != nil {
+				return apptypes.LiteralSearchPage{}, xerrors.Errorf("encode match continuation: %w", encodeErr)
+			}
 			matched = append(matched, s.id)
+			matchContinuations = append(matchContinuations, resume)
+			last = s.sequence
 			if len(matched) >= request.Criteria.Limit() {
 				if i+1 < len(sources) {
 					partialReason = "result_limit"
 				}
 				break
 			}
+		} else {
+			last = s.sequence
 		}
 	}
 	complete := last >= highWater
@@ -149,7 +171,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	if useFingerprints {
 		tier = apptypes.LiteralSearchTierFingerprint
 	}
-	page := apptypes.LiteralSearchPage{Events: events, Tier: tier, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: last, ExaminedSources: examined, HighWater: highWater, Complete: complete}, PartialReason: partialReason}
+	page := apptypes.LiteralSearchPage{Events: events, Tier: tier, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: last, ExaminedSources: examined, HighWater: highWater, Complete: complete}, PartialReason: partialReason, MatchContinuations: matchContinuations}
 	if !complete {
 		page.Continuation, err = (apptypes.LiteralSearchCursor{Version: apptypes.LiteralSearchCursorVersion, LastSequence: last, CriteriaHash: criteriaHash, Generation: generation, HighWater: highWater, QueryRevision: revision}).EncodeAuthenticated(cursorKey)
 		if err != nil {
