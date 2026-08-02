@@ -57,6 +57,8 @@
 - large-store checkpoint: 2 GiB以上の既定doctorはcapacity inspectorより先に分岐し、SQLite openを0回にする。詳細signalはreview済みcopyで取得する。
 - latency definition: capacity inspectorのopen開始からPRAGMA/dbstat/event-payload aggregate完了まで。warning 1.5s、hard timeout 2s。
 - free-space model: availabilityとvalueを分離し、取得成功時の0/1/threshold以下はwarning、unsupported/errorだけunknownとする。DB×2はsaturating計算する。
+- stat snapshot: doctorはDB pathを1回だけstatし、同じimmutable snapshotでregular/size/large/reportを決める。直後のdelete/renameでもpanicやSQLite openへfallbackしない。
+- message contract: Statfs成功0 bytesは`free=0 B`、unsupported/errorは`free=unknown`。signed rangeと乗算overflowを事前拒否する。
 
 ### Self-review checklist
 - [x] 固定DB sizeだけでseverityを決めない

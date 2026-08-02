@@ -26,17 +26,39 @@ type storeGrowthEvidence struct {
 	MeasuredLatency                                                                          time.Duration
 }
 
-func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string) doctorCheck {
-	return c.inspectStoreGrowthBudgetWithClock(ctx, dbPath, time.Now)
+type storeFileSnapshot struct {
+	Size            int64
+	Regular, Exists bool
+	Err             error
 }
 
-func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath string, now func() time.Time) doctorCheck {
-	info, err := os.Stat(dbPath)
+func inspectStoreFileSnapshot(path string, stat func(string) (os.FileInfo, error)) storeFileSnapshot {
+	info, err := stat(path)
 	if err != nil {
-		return inspectStoreSizeBudget(dbPath)
+		if os.IsNotExist(err) {
+			return storeFileSnapshot{}
+		}
+		return storeFileSnapshot{Err: err}
+	}
+	return storeFileSnapshot{Size: info.Size(), Regular: info.Mode().IsRegular(), Exists: true}
+}
+
+func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string, snapshot storeFileSnapshot) doctorCheck {
+	return c.inspectStoreGrowthBudgetWithClock(ctx, dbPath, snapshot, time.Now)
+}
+
+func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath string, snapshot storeFileSnapshot, now func() time.Time) doctorCheck {
+	if snapshot.Err != nil {
+		return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("failed to inspect SQLite store metadata: %v", "SQLite store metadataを確認できません: %v", snapshot.Err)}
+	}
+	if !snapshot.Exists {
+		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: Localize("SQLite store file does not exist yet (no size budget concern)", "SQLite ストアファイルはまだありません（サイズ予算の懸念なし）")}
+	}
+	if !snapshot.Regular {
+		return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: Localize("SQLite store path is not a regular file", "SQLite store pathはregular fileではありません")}
 	}
 	if c.capacityInspector == nil {
-		return unknownStoreGrowthCheck(info.Size(), dbPath, "capacity inspector unavailable")
+		return unknownStoreGrowthCheck(snapshot.Size, dbPath, "capacity inspector unavailable")
 	}
 	inspectCtx, cancel := context.WithTimeout(ctx, doctorGrowthInspectTimeout)
 	defer cancel()
@@ -44,11 +66,11 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	report, err := c.capacityInspector.InspectCapacity(inspectCtx)
 	latency := now().Sub(started)
 	if err != nil {
-		return unknownStoreGrowthCheck(info.Size(), dbPath, "bounded capacity signals unavailable or timed out")
+		return unknownStoreGrowthCheck(snapshot.Size, dbPath, "bounded capacity signals unavailable or timed out")
 	}
 	evidence := storeGrowthEvidence{DatabaseBytes: report.DatabaseBytes, ReclaimableBytes: report.FreeBytes, MeasuredLatency: latency}
 	if evidence.DatabaseBytes == 0 {
-		evidence.DatabaseBytes = info.Size()
+		evidence.DatabaseBytes = snapshot.Size
 	}
 	for _, payload := range report.PayloadClasses {
 		evidence.EventPayloadBytes += payload.Bytes
@@ -92,9 +114,16 @@ func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
 		reasons = append(reasons, "latency")
 	}
 	if len(reasons) == 0 {
-		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s event_payload=%s projection=%s free=%s latency=%s", "store growth signal は予算内です: database=%s event_payload=%s projection=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatByteSize(e.FilesystemFreeBytes), e.MeasuredLatency.Round(time.Millisecond))}
+		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s event_payload=%s projection=%s free=%s latency=%s", "store growth signal は予算内です: database=%s event_payload=%s projection=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond))}
 	}
-	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatByteSize(e.FilesystemFreeBytes), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("preview safe compaction first, then follow the reviewed copy/preflight/scrub/compact/swap workflow; retain rollback artifacts until verification succeeds", "まずsafe compactionをpreviewし、その後review済みのcopy/preflight/scrub/compact/swap手順を実行してください。検証成功までrollback artifactを保持してください"), FixCommand: "traceary store compact plan"}
+	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("preview safe compaction first, then follow the reviewed copy/preflight/scrub/compact/swap workflow; retain rollback artifacts until verification succeeds", "まずsafe compactionをpreviewし、その後review済みのcopy/preflight/scrub/compact/swap手順を実行してください。検証成功までrollback artifactを保持してください"), FixCommand: "traceary store compact plan"}
+}
+
+func formatDoctorFree(e storeGrowthEvidence) string {
+	if !e.FilesystemFreeAvailable {
+		return "unknown"
+	}
+	return formatByteSize(e.FilesystemFreeBytes)
 }
 
 func compactionHeadroomThreshold(databaseBytes int64) int64 {
@@ -130,18 +159,16 @@ const (
 // isLargeStoreForBoundedDoctor uses only filesystem metadata. It must remain
 // independent of SQLite so the bounded doctor outcome is still available when
 // a writer holds the database lock or the store is otherwise unhealthy.
-func isLargeStoreForBoundedDoctor(dbPath string) bool {
-	info, err := os.Stat(dbPath)
-	return err == nil && info.Mode().IsRegular() && info.Size() >= doctorLargeStoreMetadataOnlyBytes
+func isLargeStoreForBoundedDoctor(snapshot storeFileSnapshot) bool {
+	return snapshot.Err == nil && snapshot.Exists && snapshot.Regular && snapshot.Size >= doctorLargeStoreMetadataOnlyBytes
 }
 
-func boundedLargeStoreDoctorCheck(dbPath string) doctorCheck {
-	info, err := os.Stat(dbPath)
-	if err != nil {
+func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot) doctorCheck {
+	if snapshot.Err != nil || !snapshot.Exists || !snapshot.Regular {
 		return doctorCheck{
 			Name:    "large-store-diagnostics",
 			Status:  doctorStatusFail,
-			Message: localizef("failed to stat large SQLite store metadata: %v", "大容量 SQLite ストアの metadata を確認できませんでした: %v", err),
+			Message: Localize("failed to use large SQLite store metadata snapshot", "大容量SQLite storeのmetadata snapshotを使用できません"),
 		}
 	}
 	return doctorCheck{
@@ -150,7 +177,7 @@ func boundedLargeStoreDoctorCheck(dbPath string) doctorCheck {
 		Message: localizef(
 			"bounded metadata-only doctor result for %s store: SQLite open, migrations, event bodies, command payloads, hook spools, credentials, and identifier samples were not read",
 			"%s のストアに対する bounded metadata-only doctor 結果です。SQLite の open、migration、event body、command payload、hook spool、credential、identifier sample は読み取りませんでした",
-			formatByteSize(info.Size()),
+			formatByteSize(snapshot.Size),
 		),
 		Hint: Localize(
 			"this is capacity-safe, not a lock diagnosis. Stop competing writers or use a reviewed bounded copy, then retry diagnostics. Preview safe remediation with `traceary store compact plan --db-path PATH`.",

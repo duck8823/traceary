@@ -282,16 +282,16 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Status:  doctorStatusPass,
 		Message: localizef("resolved DB path: %s", "解決した DB パス: %s", resolvedDBPath),
 	})
-	if isLargeStoreForBoundedDoctor(resolvedDBPath) {
-		info, _ := os.Stat(resolvedDBPath)
-		report.Checks = append(report.Checks, unknownStoreGrowthCheck(info.Size(), resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
+	snapshot := inspectStoreFileSnapshot(resolvedDBPath, os.Stat)
+	if isLargeStoreForBoundedDoctor(snapshot) {
+		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
 	} else {
-		report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath))
+		report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath, snapshot))
 	}
 	report.Checks = append(report.Checks, inspectTracearyOnPath())
-	if isLargeStoreForBoundedDoctor(resolvedDBPath) {
+	if isLargeStoreForBoundedDoctor(snapshot) {
 		report.Mode = doctorModeMetadataOnlyLargeStore
-		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(resolvedDBPath))
+		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot))
 		// This is an intentional, successful bounded outcome. Do not initialize
 		// SQLite, list events, scan hook spools, or inspect client state here:
 		// those operations can block behind a live writer and some inspect event

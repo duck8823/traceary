@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func TestInspectStoreGrowthBudgetMeasuresCompletedInspectionLatency(t *testing.T
 	root := &RootCLI{capacityInspector: growthCapacityStub{report: apptypes.CapacityReport{DatabaseBytes: 128 << 20}}}
 	times := []time.Time{time.Unix(0, 0), time.Unix(0, 0).Add(1600 * time.Millisecond)}
 	index := 0
-	check := root.inspectStoreGrowthBudgetWithClock(context.Background(), path, func() time.Time { value := times[index]; index++; return value })
+	check := root.inspectStoreGrowthBudgetWithClock(context.Background(), path, inspectStoreFileSnapshot(path, os.Stat), func() time.Time { value := times[index]; index++; return value })
 	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "latency") {
 		t.Fatalf("check=%#v", check)
 	}
@@ -130,5 +131,50 @@ func TestStoreGrowthHeadroomAvailabilityAndOverflow(t *testing.T) {
 	}
 	if got := compactionHeadroomThreshold(int64(^uint64(0) >> 1)); got != int64(^uint64(0)>>1) {
 		t.Fatalf("overflow threshold=%d", got)
+	}
+}
+
+func TestStoreSnapshotSurvivesDeleteAfterSingleStat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "large.db")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(2 << 30); err != nil {
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	calls := 0
+	snapshot := inspectStoreFileSnapshot(path, func(name string) (os.FileInfo, error) {
+		calls++
+		info, statErr := os.Stat(name)
+		if statErr == nil {
+			_ = os.Remove(name)
+		}
+		if statErr != nil {
+			return nil, fmt.Errorf("stat test store: %w", statErr)
+		}
+		return info, nil
+	})
+	if calls != 1 {
+		t.Fatalf("stat calls=%d", calls)
+	}
+	if !isLargeStoreForBoundedDoctor(snapshot) {
+		t.Fatal("snapshot lost large-store decision after delete")
+	}
+	check := boundedLargeStoreDoctorCheck(snapshot)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "were not read") {
+		t.Fatalf("check=%#v", check)
+	}
+}
+
+func TestStoreGrowthMessageDistinguishesUnknownAndMeasuredZeroFree(t *testing.T) {
+	unknown := evaluateStoreGrowthBudget(storeGrowthEvidence{DatabaseBytes: 1})
+	zero := evaluateStoreGrowthBudget(storeGrowthEvidence{DatabaseBytes: 1, FilesystemFreeAvailable: true})
+	if !strings.Contains(unknown.Message, "free=unknown") {
+		t.Fatalf("unknown=%q", unknown.Message)
+	}
+	if !strings.Contains(zero.Message, "free=0 B") {
+		t.Fatalf("zero=%q", zero.Message)
 	}
 }
