@@ -30,3 +30,21 @@ filesystem安全性は協調モデルです。参加するlive openerはすべ�
 中断後は `resume` を使います。journalの最終行ではなくファイルidentity
 から向きを判定します。元へ戻す場合は `rollback` を使います。確認完了前に
 `.traceary-compaction` journalやrollback artifactを削除しないでください。
+
+## preview-first maintenance手順
+
+1. live storeをcopyまたはbackupし、旧版・非協調processを停止します。
+2. `traceary store compact plan --db-path /path/to/traceary.db`を実行します。
+   payload/projection allocation、reclaimable page、filesystem headroom、実測診断
+   latencyを確認し、file sizeだけでapplyを決めません。
+3. review済みcopyで互換性preflightとscrubを完了します。in-place `VACUUM`は
+   実行しません。
+4. plan成功後だけ`compact apply RUN_ID`を実行します。safe engineがcandidateを
+   構築・scrubし、atomic swap後も元inodeをrollback用に保持します。
+5. 通常readを検証してからrollback artifactを削除します。失敗時は
+   `compact rollback RUN_ID`を使います。
+6. 中断後は`compact status RUN_ID`と`compact resume RUN_ID`を使い、candidateや
+   rollback fileを手動renameしません。
+
+v0.35のpayload/search policy activationは明示的にdeferします。v0.34 compaction
+成功はstorage mechanicsの証明であり、次のpolicyを有効化する許可ではありません。

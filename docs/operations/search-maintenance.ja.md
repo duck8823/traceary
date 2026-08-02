@@ -2,6 +2,10 @@
 
 [English](search-maintenance.md)
 
+storage compactionの前に[`safe-compaction.ja.md`](../storage/safe-compaction.ja.md)
+のpreview-first手順を実行してください。compaction成功後もv0.35のsearch policy
+activationはdeferしたままです。
+
 Traceary v0.34 は、通常検索の authority を projection table の存在とは
 独立して記録します。既存 store と upgrade 済み store の初期状態は
 `legacy/active` です。migration と通常起動は legacy 検索データを削除、

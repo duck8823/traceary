@@ -12,7 +12,7 @@ Epic #1309 · 設計スライス #1370 · 親カット #1360。
 |---|---|
 | **目的** | マルチ GB の live SQLite を、履歴を黙って捨てずに縮小する。対象行を版付き・完全性検証済み（任意で暗号化）archive に export し、**検証後に限り** archive 済み identity だけを live DB から削除する。 |
 | **現状** | `traceary store gc` は `--keep-days` に基づき hard delete。フルファイル backup と portable bundle はあるが、GC 対象 cold 行の stream archive + verify-before-delete ではない。 |
-| **期待する振る舞い** | dry-run 優先の plan → stream export → manifest / digest 検証（密封時は decrypt 往復）→ 厳密 ID 削除 → 任意 VACUUM。restore は idempotent。失敗時 live DB は不変。 |
+| **期待する振る舞い** | dry-run優先plan → stream export → manifest/digest検証（密封時はdecrypt往復）→厳密ID削除。物理容量回収は別のsafe-compaction plan/applyで行い、in-place VACUUMは使わない。restoreはidempotent。失敗時live DBは不変。 |
 | **非対象** | Compressed VFS / ZIPVFS、ネットワーク退避、既定 retention の auto-archive 化、フル backup の置換、memory の auto-accept。 |
 
 ### v0.28.0 リリース姿勢
@@ -105,7 +105,7 @@ traceary store archive restore --input PATH [--dry-run] [--passphrase-env NAME]
 | export 途中 | 不完全ファイル | `PATH.partial` + fsync + atomic rename |
 | export 済・未 verify | 孤児 archive | 安全。verify 再実行可 |
 | verify 後・delete 途中 | 部分削除 | 単一トランザクション |
-| delete 後 VACUUM 失敗 | 領域未回収 | データ整合は維持、エラー報告 |
+| delete後compaction未適用 | 領域未回収 | データ整合を維持し、別のsafe-compaction planをpreview |
 | 自動 worker 競合 | 二重 archive | DB 単位 lease + interval (#1372) |
 | restore 衝突 | 黙上書き | v1: skip+報告 |
 

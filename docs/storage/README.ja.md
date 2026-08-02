@@ -163,7 +163,8 @@ Durable memory に紐づく artifact ref です。
 - 既定 target: `all` (`--target all`)
 - 利用可能な target: `events`, `sessions`, `memories`, `memory_edges`, `all`
 - `--dry-run`: 同じ削除計画を rollback される transaction 内で実行し、候補件数だけ表示
-- 非 dry-run で削除があった場合は `VACUUM` を実行
+- 物理容量回収は分離し、`traceary store compact plan --db-path PATH`でpreviewする。
+  GCはin-place `VACUUM`を実行しない
 
 target ごとの policy:
 

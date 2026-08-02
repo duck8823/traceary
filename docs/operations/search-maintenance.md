@@ -2,6 +2,10 @@
 
 [日本語](search-maintenance.ja.md)
 
+Before storage compaction, follow the preview-first sequence in
+[`safe-compaction.md`](../storage/safe-compaction.md). Search-policy activation
+for v0.35 remains deferred even when compaction succeeds.
+
 Traceary v0.34 records normal-search authority independently of projection
 table presence. Existing and upgraded stores start in `legacy/active`.
 Migration and normal startup never delete, drop, or vacuum legacy search data.

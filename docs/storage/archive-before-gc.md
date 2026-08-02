@@ -12,7 +12,7 @@ This document is the **Structure-Behavior Design Note** and **versioned archive 
 |---|---|
 | **Purpose** | Let operators shrink multi-GB live SQLite stores without silently losing cold history: export eligible rows into a versioned, integrity-checked (and optionally encrypted) archive, **verify**, then delete only the exact archived identities from the live DB. |
 | **Status quo** | `traceary store gc` hard-deletes aged rows (events/sessions/memories/edges) under `--keep-days`. There is full-file backup (`store backup`) and portable encrypted bundle (`store bundle`), but neither is a stream archive of GC-eligible cold rows with verify-before-delete. |
-| **Expected behavior** | Dry-run-first archive plan → stream export → manifest + digest verification (+ decrypt round-trip when sealed) → delete exact IDs → optional VACUUM. Restore re-imports archived identities idempotently. Failures leave the live DB unchanged. |
+| **Expected behavior** | Dry-run-first archive plan → stream export → manifest + digest verification (+ decrypt round-trip when sealed) → delete exact IDs. Physical reclamation is a separate safe-compaction plan/apply workflow; no in-place VACUUM. Restore re-imports archived identities idempotently. Failures leave the live DB unchanged. |
 | **Non-goals (this design)** | Compressed VFS / ZIPVFS; network offload; changing default retention to auto-archive; rewriting full-file backup; auto-accept of memories. |
 
 ### Release posture (v0.28.0)
@@ -158,7 +158,7 @@ Any failure → abort; live DB unchanged; leave archive file as-is for inspectio
 | Mid-export write | Partial file | Write to `PATH.partial` + fsync + atomic rename |
 | Export done, verify not run | Orphan archive | Safe; operator re-runs verify |
 | Verify OK, delete mid-transaction | Partial delete | Single SQLite transaction for all deletes; rollback on error |
-| Delete committed, VACUUM fails | Space not reclaimed | Report VACUUM error; data already consistent |
+| Delete committed, compaction not yet applied | Space not reclaimed | Keep data consistent; preview the separate safe-compaction plan |
 | Auto worker concurrent | Double archive / race | Per-DB exclusive lease file + interval marker (#1372) |
 | Restore into divergent live row | Silent clobber | v1 skip+report conflict; never overwrite different content |
 
