@@ -18,8 +18,11 @@ import (
 )
 
 const (
-	searchParitySchema    = "traceary.search-parity/v1"
-	membershipSetContract = "membership_set/v1"
+	searchParitySchema     = "traceary.tiered-search-parity/v1"
+	membershipSetContract  = "membership_set/v1"
+	maxParityManifestBytes = 1 << 20
+	maxParityPageSize      = 10_000
+	maxParityTimeoutMS     = int64((24 * time.Hour) / time.Millisecond)
 )
 
 type searchParityManifest struct {
@@ -40,7 +43,7 @@ type searchParityManifest struct {
 	DecodedBytes     int64  `json:"decoded_bytes"`
 	TimeoutMS        int64  `json:"timeout_ms"`
 	ExpectedRevision string `json:"expected_revision"`
-	ExpectedDirty    bool   `json:"expected_dirty"`
+	ExpectedDirty    *bool  `json:"expected_dirty"`
 }
 
 type parityRevision struct {
@@ -49,12 +52,23 @@ type parityRevision struct {
 }
 
 type parityChain struct {
-	Pages               int   `json:"pages"`
-	ContinuationCount   int   `json:"continuation_count"`
-	Members             int   `json:"members"`
-	DuplicateCount      int   `json:"duplicate_count"`
-	LatencyUS           int64 `json:"latency_us,omitempty"`
-	ElapsedLowerBoundUS int64 `json:"elapsed_lower_bound_us,omitempty"`
+	Pages               int            `json:"pages"`
+	ContinuationCount   int            `json:"continuation_count"`
+	Members             int            `json:"members"`
+	DuplicateCount      int            `json:"duplicate_count"`
+	LatencyUS           int64          `json:"latency_us,omitempty"`
+	ElapsedLowerBoundUS int64          `json:"elapsed_lower_bound_us,omitempty"`
+	QueryClass          string         `json:"query_class,omitempty"`
+	ObservedTier        string         `json:"observed_tier,omitempty"`
+	Coverage            parityCoverage `json:"coverage,omitempty"`
+	PartialReason       string         `json:"partial_reason,omitempty"`
+}
+
+type parityCoverage struct {
+	Processed int64 `json:"processed"`
+	Examined  int64 `json:"examined"`
+	HighWater int64 `json:"high_water"`
+	Complete  bool  `json:"complete"`
 }
 
 type parityProjection struct {
@@ -78,16 +92,17 @@ type parityComparison struct {
 }
 
 type searchParityArtifact struct {
-	SchemaVersion      string           `json:"schema_version"`
-	ComparisonContract string           `json:"comparison_contract"`
-	Status             string           `json:"status"`
-	Revision           parityRevision   `json:"revision"`
-	Legacy             parityChain      `json:"legacy"`
-	Tiered             parityChain      `json:"tiered"`
-	Comparison         parityComparison `json:"comparison"`
-	Projection         parityProjection `json:"projection"`
-	Budget             parityBudget     `json:"budget"`
-	ErrorClass         string           `json:"error_class,omitempty"`
+	SchemaVersion       string           `json:"schema_version"`
+	ComparisonContract  string           `json:"comparison_contract"`
+	Status              string           `json:"status"`
+	Revision            parityRevision   `json:"revision"`
+	Legacy              parityChain      `json:"legacy"`
+	Tiered              parityChain      `json:"tiered"`
+	Comparison          parityComparison `json:"comparison"`
+	Projection          parityProjection `json:"projection"`
+	Budget              parityBudget     `json:"budget"`
+	ErrorClass          string           `json:"error_class,omitempty"`
+	ElapsedLowerBoundUS int64            `json:"elapsed_lower_bound_us,omitempty"`
 }
 
 type parityCriteria struct {
@@ -100,16 +115,25 @@ func readSearchParityManifest(path string, stdin io.Reader) (searchParityManifes
 	var data []byte
 	var err error
 	if path == "-" {
-		data, err = io.ReadAll(io.LimitReader(stdin, 1<<20))
+		data, err = readBoundedManifest(stdin)
 	} else {
-		info, statErr := os.Stat(path)
+		info, statErr := os.Lstat(path)
 		if statErr != nil {
 			return searchParityManifest{}, errors.New("manifest_access")
 		}
-		if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > maxParityManifestBytes {
 			return searchParityManifest{}, errors.New("manifest_permissions")
 		}
-		data, err = os.ReadFile(path)
+		file, openErr := os.Open(path)
+		if openErr != nil {
+			return searchParityManifest{}, errors.New("manifest_access")
+		}
+		defer func() { _ = file.Close() }()
+		opened, statErr := file.Stat()
+		if statErr != nil || !os.SameFile(info, opened) {
+			return searchParityManifest{}, errors.New("manifest_access")
+		}
+		data, err = readBoundedManifest(file)
 	}
 	if err != nil {
 		return searchParityManifest{}, errors.New("manifest_access")
@@ -118,16 +142,27 @@ func readSearchParityManifest(path string, stdin io.Reader) (searchParityManifes
 	if err := decodeStrictJSON(data, &manifest); err != nil {
 		return searchParityManifest{}, errors.New("manifest_invalid")
 	}
-	if manifest.DBPath == "" || strings.TrimSpace(manifest.Query) == "" || manifest.ExpectedRevision == "" ||
-		manifest.LegacyPageSize < 1 || manifest.TieredPageSize < 1 || manifest.TieredPageSize > apptypes.MaxLiteralSearchLimit ||
+	if manifest.DBPath == "" || strings.TrimSpace(manifest.Query) == "" || manifest.ExpectedRevision == "" || manifest.ExpectedDirty == nil || *manifest.ExpectedDirty ||
+		manifest.LegacyPageSize < 1 || manifest.LegacyPageSize > maxParityPageSize || manifest.TieredPageSize < 1 || manifest.TieredPageSize > apptypes.MaxLiteralSearchLimit ||
 		manifest.SourceRows < 1 || manifest.SourceRows > apptypes.MaxLiteralSearchSourceRows || manifest.StoredBytes < 1 ||
-		manifest.DecodedBytes < 1 || manifest.TimeoutMS < 1 {
+		manifest.DecodedBytes < 1 || manifest.TimeoutMS < 1 || manifest.TimeoutMS > maxParityTimeoutMS {
 		return searchParityManifest{}, errors.New("manifest_invalid")
 	}
 	return manifest, nil
 }
 
+func readBoundedManifest(reader io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, maxParityManifestBytes+1))
+	if err != nil || len(data) > maxParityManifestBytes {
+		return nil, errors.New("manifest_access")
+	}
+	return data, nil
+}
+
 func decodeStrictJSON(data []byte, target any) error {
+	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
@@ -137,6 +172,57 @@ func decodeStrictJSON(data []byte, target any) error {
 		return errors.New("trailing JSON value")
 	}
 	return nil
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	var parse func() error
+	parse = func() error {
+		token, err := decoder.Token()
+		if err != nil {
+			return fmt.Errorf("read JSON token: %w", err)
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delim {
+		case '{':
+			seen := map[string]struct{}{}
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return fmt.Errorf("read JSON object key: %w", err)
+				}
+				key := keyToken.(string)
+				if _, exists := seen[key]; exists {
+					return errors.New("duplicate JSON field")
+				}
+				seen[key] = struct{}{}
+				if err := parse(); err != nil {
+					return err
+				}
+			}
+			_, err = decoder.Token()
+			if err != nil {
+				return fmt.Errorf("close JSON object: %w", err)
+			}
+			return nil
+		case '[':
+			for decoder.More() {
+				if err := parse(); err != nil {
+					return err
+				}
+			}
+			_, err = decoder.Token()
+			if err != nil {
+				return fmt.Errorf("close JSON array: %w", err)
+			}
+			return nil
+		}
+		return nil
+	}
+	return parse()
 }
 
 func parseParityCriteria(m searchParityManifest) (parityCriteria, error) {
@@ -174,6 +260,11 @@ func repositoryRevision(ctx context.Context) (parityRevision, error) {
 	return parityRevision{Commit: strings.TrimSpace(string(head)), Dirty: len(bytes.TrimSpace(status)) != 0}, nil
 }
 
+var parityRevisionReader = repositoryRevision
+var parityProjectionReader = readParityProjection
+var legacyParityCollector = collectLegacyParity
+var tieredParityCollector = collectTieredParity
+
 func fixedErrorClass(err error) string {
 	if err == nil {
 		return ""
@@ -203,6 +294,7 @@ func statusPrecedence(failed, timeout, mismatch bool) string {
 }
 
 func runSearchParity(ctx context.Context, manifest searchParityManifest) searchParityArtifact {
+	started := time.Now()
 	artifact := searchParityArtifact{SchemaVersion: searchParitySchema, ComparisonContract: membershipSetContract,
 		Budget: parityBudget{SourceRows: manifest.SourceRows, StoredBytes: manifest.StoredBytes, DecodedBytes: manifest.DecodedBytes, TimeoutMS: manifest.TimeoutMS}}
 	criteria, err := parseParityCriteria(manifest)
@@ -211,9 +303,14 @@ func runSearchParity(ctx context.Context, manifest searchParityManifest) searchP
 		artifact.ErrorClass = fixedErrorClass(err)
 		return artifact
 	}
-	revision, err := repositoryRevision(ctx)
+	revision, err := parityRevisionReader(ctx)
 	artifact.Revision = revision
-	if err != nil || revision.Commit != manifest.ExpectedRevision || revision.Dirty != manifest.ExpectedDirty {
+	if err != nil {
+		artifact.Status = "failed"
+		artifact.ErrorClass = "revision_unavailable"
+		return artifact
+	}
+	if revision.Commit != manifest.ExpectedRevision || revision.Dirty || manifest.ExpectedDirty == nil || *manifest.ExpectedDirty {
 		artifact.Status = "failed"
 		artifact.ErrorClass = "revision_mismatch"
 		return artifact
@@ -222,18 +319,27 @@ func runSearchParity(ctx context.Context, manifest searchParityManifest) searchP
 	defer cancel()
 	probe, err := infra.NewImmutableReadDatabase(deadlineCtx, manifest.DBPath)
 	if err != nil {
-		artifact.Status = "failed"
-		artifact.ErrorClass = "store_unavailable"
+		artifact.ElapsedLowerBoundUS = max(time.Since(started).Microseconds(), 1)
+		if errors.Is(err, context.DeadlineExceeded) {
+			artifact.Status = "timeout"
+		} else {
+			artifact.Status = "failed"
+			artifact.ErrorClass = "store_unavailable"
+		}
 		return artifact
 	}
 	_ = probe.CloseSharedReadOnly()
-	legacySet, legacyErr := collectLegacyParity(deadlineCtx, manifest.DBPath, criteria, manifest.LegacyPageSize, &artifact.Legacy)
-	tieredSet, tieredErr := collectTieredParity(deadlineCtx, manifest.DBPath, criteria, manifest, &artifact.Tiered)
-	artifact.Projection = readParityProjection(deadlineCtx, manifest.DBPath)
+	legacySet, legacyErr := legacyParityCollector(deadlineCtx, manifest.DBPath, criteria, manifest.LegacyPageSize, &artifact.Legacy)
+	tieredSet, tieredErr := tieredParityCollector(deadlineCtx, manifest.DBPath, criteria, manifest, &artifact.Tiered)
+	projection, projectionErr := parityProjectionReader(deadlineCtx, manifest.DBPath)
+	artifact.Projection = projection
 	timeout := errors.Is(legacyErr, context.DeadlineExceeded) || errors.Is(tieredErr, context.DeadlineExceeded)
-	failed := (legacyErr != nil && !errors.Is(legacyErr, context.DeadlineExceeded)) || (tieredErr != nil && !errors.Is(tieredErr, context.DeadlineExceeded))
+	timeout = timeout || errors.Is(projectionErr, context.DeadlineExceeded)
+	failed := (legacyErr != nil && !errors.Is(legacyErr, context.DeadlineExceeded)) || (tieredErr != nil && !errors.Is(tieredErr, context.DeadlineExceeded)) || (projectionErr != nil && !errors.Is(projectionErr, context.DeadlineExceeded))
 	if failed {
-		if legacyErr != nil {
+		if projectionErr != nil && legacyErr == nil && tieredErr == nil {
+			artifact.ErrorClass = "projection_failed"
+		} else if legacyErr != nil {
 			artifact.ErrorClass = fixedErrorClass(legacyErr)
 		} else {
 			artifact.ErrorClass = fixedErrorClass(tieredErr)
@@ -253,7 +359,49 @@ func runSearchParity(ctx context.Context, manifest searchParityManifest) searchP
 		artifact.Comparison.Equal = artifact.Comparison.LegacyOnly == 0 && artifact.Comparison.TieredOnly == 0
 	}
 	artifact.Status = statusPrecedence(failed, timeout, !artifact.Comparison.Equal)
+	if failed || timeout {
+		artifact.ElapsedLowerBoundUS = max(time.Since(started).Microseconds(), 1)
+	}
 	return artifact
+}
+
+type tieredProgress struct {
+	previousProcessed int64
+	highWater         int64
+	seen              map[string]struct{}
+	initialized       bool
+	tier              apptypes.LiteralSearchTier
+}
+
+func (p *tieredProgress) observe(page apptypes.LiteralSearchPage) error {
+	if p.seen == nil {
+		p.seen = make(map[string]struct{})
+	}
+	if !p.initialized {
+		p.highWater = page.Coverage.HighWater
+		p.initialized = true
+		p.tier = page.Tier
+	} else if page.Coverage.HighWater != p.highWater {
+		return errors.New("progress")
+	}
+	if page.Tier != p.tier {
+		return errors.New("progress")
+	}
+	if page.Coverage.Complete {
+		if page.Continuation != "" {
+			return errors.New("progress")
+		}
+		return nil
+	}
+	if page.Continuation == "" || page.Coverage.ProcessedSources <= p.previousProcessed {
+		return errors.New("progress")
+	}
+	if _, exists := p.seen[page.Continuation]; exists {
+		return errors.New("progress")
+	}
+	p.seen[page.Continuation] = struct{}{}
+	p.previousProcessed = page.Coverage.ProcessedSources
+	return nil
 }
 
 func collectLegacyParity(ctx context.Context, path string, c parityCriteria, pageSize int, metrics *parityChain) (map[string]struct{}, error) {
@@ -301,6 +449,12 @@ func collectTieredParity(ctx context.Context, path string, c parityCriteria, m s
 	started := time.Now()
 	members := make(map[string]struct{})
 	continuation := ""
+	progress := tieredProgress{}
+	if apptypes.CharacterizeLiteralQuery(c.query).Filterable() {
+		metrics.QueryClass = "fingerprint_eligible"
+	} else {
+		metrics.QueryClass = "bounded_verification"
+	}
 	for {
 		database, openErr := infra.NewImmutableReadDatabase(ctx, path)
 		if openErr != nil {
@@ -321,6 +475,15 @@ func collectTieredParity(ctx context.Context, path string, c parityCriteria, m s
 			return members, fmt.Errorf("read tiered page: %w", err)
 		}
 		metrics.Pages++
+		if progressErr := progress.observe(page); progressErr != nil {
+			return members, progressErr
+		}
+		metrics.ObservedTier = string(page.Tier)
+		metrics.Coverage.Processed = page.Coverage.ProcessedSources
+		metrics.Coverage.Examined += page.Coverage.ExaminedSources
+		metrics.Coverage.HighWater = page.Coverage.HighWater
+		metrics.Coverage.Complete = page.Coverage.Complete
+		metrics.PartialReason = page.PartialReason
 		for _, event := range page.Events {
 			id := event.Metadata().EventID().String()
 			if _, exists := members[id]; exists {
@@ -330,16 +493,7 @@ func collectTieredParity(ctx context.Context, path string, c parityCriteria, m s
 			members[id] = struct{}{}
 		}
 		if page.Continuation == "" {
-			if !page.Coverage.Complete {
-				return members, errors.New("progress")
-			}
 			break
-		}
-		if page.Continuation == continuation {
-			return members, errors.New("progress")
-		}
-		if page.Coverage.ProcessedSources <= 0 {
-			return members, errors.New("progress")
 		}
 		continuation = page.Continuation
 		metrics.ContinuationCount++
@@ -355,21 +509,30 @@ func setCensoredLatency(metrics *parityChain, started time.Time, err error) {
 	}
 }
 
-func readParityProjection(ctx context.Context, path string) parityProjection {
+func readParityProjection(ctx context.Context, path string) (parityProjection, error) {
 	db, err := openCompatibleReadOnly(ctx, path)
 	if err != nil {
-		return parityProjection{}
+		return parityProjection{}, fmt.Errorf("open parity projection: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 	var p parityProjection
-	_ = db.QueryRowContext(ctx, `SELECT query_revision, high_water FROM literal_search_projection_state WHERE singleton=1`).Scan(&p.Revision, &p.HighWater)
-	_ = db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&p.HighWater)
-	_ = db.QueryRowContext(ctx, `SELECT COALESCE((SELECT SUM(COALESCE(body_plaintext_bytes,length(body),0)) FROM events),0)+COALESCE((SELECT SUM(COALESCE(command_plaintext_bytes,length(command_text),0)+COALESCE(input_plaintext_bytes,length(input_text),0)+COALESCE(output_plaintext_bytes,length(output_text),0)) FROM command_audits),0)`).Scan(&p.LogicalBytes)
+	if err := db.QueryRowContext(ctx, `SELECT query_revision, high_water FROM literal_search_projection_state WHERE singleton=1`).Scan(&p.Revision, &p.HighWater); err != nil {
+		return parityProjection{}, fmt.Errorf("read projection revision: %w", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&p.HighWater); err != nil {
+		return parityProjection{}, fmt.Errorf("read projection high-water: %w", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE((SELECT SUM(COALESCE(body_plaintext_bytes,length(body),0)) FROM events),0)+COALESCE((SELECT SUM(COALESCE(command_plaintext_bytes,length(command_text),0)+COALESCE(input_plaintext_bytes,length(input_text),0)+COALESCE(output_plaintext_bytes,length(output_text),0)) FROM command_audits),0)`).Scan(&p.LogicalBytes); err != nil {
+		return parityProjection{}, fmt.Errorf("read projection logical bytes: %w", err)
+	}
 	var pageCount, pageSize int64
 	if db.QueryRowContext(ctx, `PRAGMA page_count`).Scan(&pageCount) == nil && db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize) == nil {
 		p.PhysicalBytes = pageCount * pageSize
 	}
-	return p
+	if p.PhysicalBytes == 0 {
+		return parityProjection{}, errors.New("read projection physical bytes")
+	}
+	return p, nil
 }
 
 func validateSearchParityFile(path string) error {
@@ -422,32 +585,56 @@ func validateSearchParityJSON(data []byte) error {
 	if artifact.SchemaVersion != searchParitySchema || artifact.ComparisonContract != membershipSetContract {
 		return errors.New("unsupported search parity contract")
 	}
-	if artifact.Revision.Commit == "" || artifact.Budget.SourceRows < 1 || artifact.Budget.StoredBytes < 1 || artifact.Budget.DecodedBytes < 1 || artifact.Budget.TimeoutMS < 1 {
+	if artifact.Budget.SourceRows < 1 || artifact.Budget.StoredBytes < 1 || artifact.Budget.DecodedBytes < 1 || artifact.Budget.TimeoutMS < 1 {
 		return errors.New("incomplete search parity evidence")
+	}
+	commitValid := len(artifact.Revision.Commit) == 40
+	if commitValid {
+		for _, r := range artifact.Revision.Commit {
+			if !strings.ContainsRune("0123456789abcdef", r) {
+				commitValid = false
+				break
+			}
+		}
 	}
 	if artifact.Legacy.Pages < 0 || artifact.Tiered.Pages < 0 || artifact.Legacy.Members < 0 || artifact.Tiered.Members < 0 || artifact.Tiered.ContinuationCount < 0 || artifact.Projection.LogicalBytes < 0 || artifact.Projection.PhysicalBytes < 0 {
 		return errors.New("negative search parity metric")
 	}
 	switch artifact.Status {
 	case "passed":
-		if artifact.ErrorClass != "" || !artifact.Comparison.Equal || artifact.Comparison.LegacyOnly != 0 || artifact.Comparison.TieredOnly != 0 || artifact.Legacy.LatencyUS < 1 || artifact.Tiered.LatencyUS < 1 {
+		if !commitValid || artifact.Revision.Dirty || artifact.ErrorClass != "" || !completedParityChains(artifact) || !validTieredDiagnostics(artifact.Tiered) || !artifact.Comparison.Equal || artifact.Comparison.LegacyOnly != 0 || artifact.Comparison.TieredOnly != 0 || artifact.ElapsedLowerBoundUS != 0 {
 			return errors.New("inconsistent passed parity evidence")
 		}
 	case "mismatch":
-		if artifact.ErrorClass != "" || artifact.Comparison.Equal || artifact.Comparison.LegacyOnly+artifact.Comparison.TieredOnly < 1 {
+		if !commitValid || artifact.Revision.Dirty || artifact.ErrorClass != "" || !completedParityChains(artifact) || !validTieredDiagnostics(artifact.Tiered) || artifact.Comparison.Equal || artifact.Comparison.LegacyOnly+artifact.Comparison.TieredOnly < 1 || artifact.Legacy.Members-artifact.Comparison.LegacyOnly != artifact.Tiered.Members-artifact.Comparison.TieredOnly || artifact.ElapsedLowerBoundUS != 0 {
 			return errors.New("inconsistent mismatch evidence")
 		}
 	case "timeout":
-		if artifact.ErrorClass != "" || artifact.Legacy.ElapsedLowerBoundUS+artifact.Tiered.ElapsedLowerBoundUS < 1 {
+		if !commitValid || artifact.ErrorClass != "" || comparisonClaimsProof(artifact) || artifact.ElapsedLowerBoundUS < 1 {
 			return errors.New("inconsistent timeout evidence")
 		}
 	case "failed":
-		allowed := map[string]bool{"manifest_access": true, "manifest_permissions": true, "manifest_invalid": true, "revision_unavailable": true, "revision_mismatch": true, "progress": true, "duplicate": true, "store_unavailable": true, "search_failed": true}
-		if !allowed[artifact.ErrorClass] {
+		allowed := map[string]bool{"manifest_access": true, "manifest_permissions": true, "manifest_invalid": true, "revision_unavailable": true, "revision_mismatch": true, "progress": true, "duplicate": true, "store_unavailable": true, "search_failed": true, "projection_failed": true}
+		if !allowed[artifact.ErrorClass] || comparisonClaimsProof(artifact) || (artifact.ErrorClass != "revision_unavailable" && !commitValid) {
 			return errors.New("invalid fixed error class")
 		}
 	default:
 		return errors.New("invalid search parity status")
 	}
 	return nil
+}
+
+func validTieredDiagnostics(chain parityChain) bool {
+	classes := map[string]bool{"fingerprint_eligible": true, "bounded_verification": true}
+	tiers := map[string]bool{string(apptypes.LiteralSearchTierFingerprint): true, string(apptypes.LiteralSearchTierBoundedVerification): true}
+	partials := map[string]bool{"": true, "source_rows": true, "stored_bytes": true, "decoded_bytes": true, "verified_hydration_bytes": true, "result_limit": true}
+	return classes[chain.QueryClass] && tiers[chain.ObservedTier] && partials[chain.PartialReason] && chain.Coverage.Complete && chain.Coverage.Processed == chain.Coverage.HighWater
+}
+
+func completedParityChains(a searchParityArtifact) bool {
+	return a.Legacy.Pages >= 1 && a.Tiered.Pages >= 1 && a.Legacy.DuplicateCount == 0 && a.Tiered.DuplicateCount == 0 && a.Legacy.LatencyUS > 0 && a.Tiered.LatencyUS > 0 && a.Legacy.ElapsedLowerBoundUS == 0 && a.Tiered.ElapsedLowerBoundUS == 0 && a.Legacy.Members-a.Comparison.LegacyOnly == a.Tiered.Members-a.Comparison.TieredOnly
+}
+
+func comparisonClaimsProof(a searchParityArtifact) bool {
+	return a.Comparison.Equal || a.Comparison.LegacyOnly != 0 || a.Comparison.TieredOnly != 0
 }
