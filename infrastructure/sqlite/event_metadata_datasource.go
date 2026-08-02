@@ -216,6 +216,7 @@ func (d *EventDatasource) SearchMetadata(
 	return d.searchMetadataByPersistedAuthority(ctx, criteria)
 }
 
+// GetContextMetadata returns body-free context rows for a bounded event window.
 func (d *EventDatasource) GetContextMetadata(
 	ctx context.Context,
 	criteria apptypes.EventContextCriteria,

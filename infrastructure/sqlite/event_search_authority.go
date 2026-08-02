@@ -4,7 +4,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"sort"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -152,53 +151,71 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 		}
 		return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, candidateIDs)
 	}
-	matches := make(map[string]apptypes.EventMetadata)
-	literalCriteria := apptypes.NewEventSearchCriteriaBuilder(apptypes.MaxLiteralSearchLimit).Query(criteria.Query()).
-		Workspace(criteria.Workspace()).SessionID(criteria.SessionID()).Client(criteria.Client()).Agent(criteria.Agent()).
-		Kind(criteria.Kind()).From(criteria.From()).To(criteria.To()).FailuresOnly(criteria.FailuresOnly()).Build()
-	page, err := d.searchLiteralPageTx(ctx, tx, apptypes.LiteralSearchRequest{
-		Criteria: literalCriteria, Budget: apptypes.DeepLiteralSearchBudget,
-		BodyRuneLimit: 1,
-	})
-	if err != nil {
-		return nil, xerrors.Errorf("read bounded tiered search page: %w", err)
-	}
-	if !page.Coverage.Complete {
-		return nil, &queryservice.EventSearchUnavailableError{
-			Reason:         queryservice.EventSearchUnavailableIndexIncomplete,
-			CandidateLimit: apptypes.DeepLiteralSearchBudget.SourceRows,
-		}
-	}
-	for _, event := range page.Events {
-		metadata := event.Metadata()
-		matches[metadata.EventID().String()] = metadata
-	}
-	ordered := make([]apptypes.EventMetadata, 0, len(matches))
-	for _, metadata := range matches {
-		ordered = append(ordered, metadata)
-	}
-	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].CreatedAt().Equal(ordered[j].CreatedAt()) {
-			return ordered[i].EventID().String() > ordered[j].EventID().String()
-		}
-		return ordered[i].CreatedAt().After(ordered[j].CreatedAt())
-	})
-	if anchor := criteria.PageAnchor(); !anchor.IsZero() {
-		filtered := ordered[:0]
-		for _, m := range ordered {
-			if m.CreatedAt().Before(anchor.CreatedAt()) || (m.CreatedAt().Equal(anchor.CreatedAt()) && m.EventID().String() < anchor.EventID().String()) {
-				filtered = append(filtered, m)
+	return d.searchTieredTopKMetadataTx(ctx, tx, criteria, literalGeneration, literalHigh)
+}
+
+// searchTieredTopKMetadataTx separates the source-work budget from the public
+// result limit. Candidates are visited in the public order, so only
+// offset+limit matches need to be retained; broad queries do not become
+// unavailable merely because more than MaxLiteralSearchLimit rows match.
+func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria, generation string, highWater int64) ([]apptypes.EventMetadata, error) {
+	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
+	var builder strings.Builder
+	builder.WriteString(`SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0) FROM search_projection_source_sequence q JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence<=?`)
+	args := []any{highWater}
+	args = appendEventSearchFilters(&builder, args, criteria)
+	if query.Filterable() {
+		fingerprints := query.Fingerprints()
+		builder.WriteString(" AND (NOT EXISTS(SELECT 1 FROM literal_search_fingerprints known WHERE known.generation_id=? AND known.event_id=e.id AND known.fingerprint_version=1) OR (SELECT COUNT(DISTINCT matched.fingerprint) FROM literal_search_fingerprints matched WHERE matched.generation_id=? AND matched.event_id=e.id AND matched.fingerprint_version=1 AND matched.fingerprint IN (")
+		args = append(args, generation, generation)
+		for i, fingerprint := range fingerprints {
+			if i > 0 {
+				builder.WriteByte(',')
 			}
+			builder.WriteByte('?')
+			args = append(args, []byte(fingerprint))
 		}
-		ordered = filtered
+		builder.WriteString("))=?)")
+		args = append(args, len(fingerprints))
 	}
-	start := criteria.Offset()
-	if start > len(ordered) {
-		start = len(ordered)
+	builder.WriteString(" ORDER BY e.created_at_norm DESC,e.id DESC LIMIT ?")
+	args = append(args, apptypes.DeepLiteralSearchBudget.SourceRows+1)
+	rows, err := tx.QueryContext(ctx, builder.String(), args...)
+	if err != nil {
+		return nil, xerrors.Errorf("query ordered tiered candidates: %w", err)
 	}
-	end := start + criteria.Limit()
-	if end > len(ordered) {
-		end = len(ordered)
+	defer func() { _ = rows.Close() }()
+	wanted := criteria.Offset() + criteria.Limit()
+	matched := make([]string, 0, min(wanted, criteria.Limit()+criteria.Offset()))
+	var examined int
+	var storedBytes, decodedBytes int64
+	for rows.Next() {
+		var id string
+		var stored, decoded int64
+		if err = rows.Scan(&id, &stored, &decoded); err != nil {
+			return nil, xerrors.Errorf("scan ordered tiered candidate: %w", err)
+		}
+		if examined == apptypes.DeepLiteralSearchBudget.SourceRows || storedBytes+stored > apptypes.DeepLiteralSearchBudget.StoredBytes || decodedBytes+decoded > apptypes.DeepLiteralSearchBudget.DecodedBytes {
+			return nil, &queryservice.EventSearchUnavailableError{Reason: queryservice.EventSearchUnavailableIndexIncomplete, CandidateLimit: apptypes.DeepLiteralSearchBudget.SourceRows}
+		}
+		examined++
+		storedBytes += stored
+		decodedBytes += decoded
+		ok, matchErr := decodedEventSearchMatch(ctx, tx, id, query.Canonical())
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		if !ok {
+			continue
+		}
+		matched = append(matched, id)
+		if len(matched) == wanted {
+			break
+		}
 	}
-	return append([]apptypes.EventMetadata(nil), ordered[start:end]...), nil
+	if err = rows.Err(); err != nil {
+		return nil, xerrors.Errorf("iterate ordered tiered candidates: %w", err)
+	}
+	start := min(criteria.Offset(), len(matched))
+	return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, matched[start:])
 }

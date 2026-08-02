@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,51 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
+
+func TestPersistedTieredAuthorityBroadQueryKeepsResultLimitSeparateFromCoverage(t *testing.T) {
+	ctx := context.Background()
+	database := NewDatabase(filepath.Join(t.TempDir(), "store.db"), os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	if err := NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 101; i++ {
+		id := fmt.Sprintf("broad-%03d", i)
+		at := time.Date(2026, 1, 1, 0, 0, i, 0, time.UTC).Format(time.RFC3339Nano)
+		if _, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at) VALUES(?,'note','codex','codex','s','w','broad needle',?)`, id, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = raw.ExecContext(ctx, `UPDATE literal_search_projection_state SET generation_id='g',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete'; UPDATE search_projection_state SET generation_id='g',active_generation_id='g',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete',phase='complete'; UPDATE search_maintenance_control SET authority='tiered',phase='retired'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	datasource := NewEventDatasource(database)
+	criteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Build()
+	metadata, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil || len(metadata) != 1 || metadata[0].EventID().String() != "broad-100" {
+		t.Fatalf("broad metadata=%v err=%v", metadata, err)
+	}
+	full, err := datasource.SearchPage(ctx, criteria)
+	if err != nil || len(full) != 1 || full[0].EventID().String() != "broad-100" {
+		t.Fatalf("broad full=%v err=%v", eventIDs(full), err)
+	}
+	bounded, err := datasource.SearchBounded(ctx, criteria, 32)
+	if err != nil || len(bounded) != 1 || bounded[0].Metadata().EventID().String() != "broad-100" {
+		t.Fatalf("broad bounded=%v err=%v", bounded, err)
+	}
+	anchor, err := apptypes.EventPageAnchorOf(full[0].CreatedAt(), full[0].EventID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := datasource.SearchPage(ctx, apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").PageAnchor(anchor).Build())
+	if err != nil || len(next) != 1 || next[0].EventID().String() != "broad-099" {
+		t.Fatalf("broad continuation=%v err=%v", eventIDs(next), err)
+	}
+}
 
 func TestRestoredLegacyWriterDecodesCanonicalEnvelopeAndAuditPayloads(t *testing.T) {
 	ctx := context.Background()

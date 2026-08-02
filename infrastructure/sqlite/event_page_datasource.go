@@ -76,6 +76,7 @@ func (d *EventDatasource) SearchPage(
 	return d.searchFullByPersistedAuthority(ctx, criteria)
 }
 
+// GetContextPage returns full events for a bounded context window.
 func (d *EventDatasource) GetContextPage(
 	ctx context.Context,
 	criteria apptypes.EventContextCriteria,

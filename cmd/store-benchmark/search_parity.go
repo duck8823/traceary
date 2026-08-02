@@ -78,6 +78,9 @@ func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2
 		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
 	}
 	readAndBind := func(manifestPath string) (searchParityManifest, error) {
+		if manifestPath == "-" {
+			return searchParityManifest{}, errors.New("authorization_manifest_invalid")
+		}
 		parityManifest, readErr := readSearchParityManifest(manifestPath, nil)
 		if readErr != nil {
 			return searchParityManifest{}, errors.New("authorization_manifest_invalid")
@@ -441,6 +444,9 @@ func validateJSONObjectKeys(data []byte, schema jsonObjectSchema) error {
 }
 
 func readBoundedManifest(reader io.Reader) ([]byte, error) {
+	if reader == nil {
+		return nil, errors.New("manifest_access")
+	}
 	data, err := io.ReadAll(io.LimitReader(reader, maxParityManifestBytes+1))
 	if err != nil || len(data) > maxParityManifestBytes {
 		return nil, errors.New("manifest_access")
@@ -537,7 +543,7 @@ func parseParityCriteria(m searchParityManifest) (parityCriteria, error) {
 
 func repositoryRevision(ctx context.Context) (parityRevision, error) {
 	if err := ctx.Err(); err != nil {
-		return parityRevision{}, err
+		return parityRevision{}, fmt.Errorf("read build revision: %w", err)
 	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info == nil {

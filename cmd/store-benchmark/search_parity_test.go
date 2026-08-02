@@ -114,6 +114,16 @@ func TestActualTargetV2EvidenceAuthorizesAtomicRetirement(t *testing.T) {
 	if _, err = buildActualTargetParityEvidence(ctx, manifestPath); err == nil || err.Error() != "authorization_store_mismatch" {
 		t.Fatalf("mixed-store authorization error=%v", err)
 	}
+	write(manifestPath, parityAuthorizationManifest{DBPath: path, FingerprintManifest: fingerprintPath, BoundedManifest: "-"})
+	if _, err = buildActualTargetParityEvidence(ctx, manifestPath); err == nil || err.Error() != "authorization_manifest_invalid" {
+		t.Fatalf("stdin child manifest error=%v", err)
+	}
+}
+
+func TestReadBoundedManifestRejectsNilReader(t *testing.T) {
+	if _, err := readBoundedManifest(nil); err == nil {
+		t.Fatal("nil manifest reader did not fail closed")
+	}
 }
 
 func TestSearchParityRejectsRevisionMismatchBeforeStoreAccess(t *testing.T) {
