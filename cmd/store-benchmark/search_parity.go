@@ -392,7 +392,12 @@ func runSearchParity(ctx context.Context, manifest searchParityManifest) searchP
 		Budget: parityBudget{SourceRows: manifest.SourceRows, StoredBytes: manifest.StoredBytes, DecodedBytes: manifest.DecodedBytes, TimeoutMS: manifest.TimeoutMS}}
 	validated, err := validateSearchParityManifest(manifest)
 	if err != nil {
-		artifact.Budget = parityBudget{SourceRows: max(manifest.SourceRows, 1), StoredBytes: max(manifest.StoredBytes, 1), DecodedBytes: max(manifest.DecodedBytes, 1), TimeoutMS: max(manifest.TimeoutMS, 1)}
+		artifact.Budget = parityBudget{
+			SourceRows:   min(max(manifest.SourceRows, 1), apptypes.MaxLiteralSearchSourceRows),
+			StoredBytes:  max(manifest.StoredBytes, 1),
+			DecodedBytes: max(manifest.DecodedBytes, 1),
+			TimeoutMS:    min(max(manifest.TimeoutMS, 1), maxParityTimeoutMS),
+		}
 		artifact.Status = "failed"
 		artifact.ErrorClass = fixedErrorClass(err)
 		return finalizeParityOutcome(artifact)
@@ -742,9 +747,12 @@ func validateSearchParityJSON(data []byte) error {
 	case "failed":
 		allowed := map[string]bool{"manifest_access": true, "manifest_permissions": true, "manifest_invalid": true, "revision_unavailable": true, "revision_mismatch": true, "progress": true, "duplicate": true, "store_unavailable": true, "search_failed": true, "projection_failed": true}
 		preflight := artifact.ErrorClass == "manifest_access" || artifact.ErrorClass == "manifest_permissions" || artifact.ErrorClass == "manifest_invalid"
-		revisionException := artifact.ErrorClass == "revision_unavailable" || artifact.ErrorClass == "revision_mismatch"
+		revisionUnavailable := artifact.ErrorClass == "revision_unavailable"
+		revisionMismatch := artifact.ErrorClass == "revision_mismatch"
+		revisionException := revisionUnavailable || revisionMismatch
 		started := !preflight && !revisionException && artifact.ErrorClass != "revision_mismatch"
-		if !allowed[artifact.ErrorClass] || comparisonClaimsProof(artifact) || (!preflight && !revisionException && (!commitValid || artifact.Revision.Dirty)) || (started && !validCensoredEvidence(artifact)) || (!started && (artifact.ElapsedLowerBoundUS != 0 || artifact.Legacy.LatencyUS != 0 || artifact.Tiered.LatencyUS != 0)) {
+		revisionInvalid := (revisionUnavailable && (artifact.Revision.Commit != "" || artifact.Revision.Dirty)) || (revisionMismatch && !commitValid) || (!preflight && !revisionException && (!commitValid || artifact.Revision.Dirty))
+		if !allowed[artifact.ErrorClass] || comparisonClaimsProof(artifact) || revisionInvalid || (started && !validCensoredEvidence(artifact)) || (!started && (artifact.ElapsedLowerBoundUS != 0 || artifact.Legacy.LatencyUS != 0 || artifact.Tiered.LatencyUS != 0)) {
 			return errors.New("invalid fixed error class")
 		}
 	default:

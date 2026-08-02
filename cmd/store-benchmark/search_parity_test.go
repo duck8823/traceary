@@ -396,6 +396,17 @@ func TestSearchParitySemanticValidatorRejectsCraftedEvidence(t *testing.T) {
 		"negative projection":   func(a *searchParityArtifact) { a.Projection.Revision = -1 },
 		"partial complete":      func(a *searchParityArtifact) { a.Tiered.PartialReason = "source_rows" },
 		"invalid class tier":    func(a *searchParityArtifact) { a.Tiered.QueryClass = "bounded_verification" },
+		"empty revision mismatch": func(a *searchParityArtifact) {
+			a.Status, a.ErrorClass = "failed", "revision_mismatch"
+			a.Revision = parityRevision{}
+			a.Comparison = parityComparison{}
+			a.Legacy.LatencyUS, a.Tiered.LatencyUS = 0, 0
+		},
+		"populated revision unavailable": func(a *searchParityArtifact) {
+			a.Status, a.ErrorClass = "failed", "revision_unavailable"
+			a.Comparison = parityComparison{}
+			a.Legacy.LatencyUS, a.Tiered.LatencyUS = 0, 0
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := validSearchParityArtifact()
@@ -424,14 +435,25 @@ func TestTieredProgressRejectsTerminalCoverageViolations(t *testing.T) {
 }
 
 func TestSearchParityManifestValidationPrecedesRevisionAndStore(t *testing.T) {
-	original := parityRevisionReader
-	called := false
-	parityRevisionReader = func(context.Context) (parityRevision, error) { called = true; return parityRevision{}, nil }
-	t.Cleanup(func() { parityRevisionReader = original })
-	a := runSearchParity(context.Background(), searchParityManifest{DBPath: "private", Query: strings.Repeat("x", apptypes.MaxLiteralSearchQueryBytes+1), LegacyPageSize: 1, TieredPageSize: 1, SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1, ExpectedRevision: strings.Repeat("a", 40), ExpectedDirty: boolPointer(false)})
-	data, _ := json.Marshal(a)
-	if called || a.ErrorClass != "manifest_invalid" || validateSearchParityJSON(data) != nil {
-		t.Fatalf("artifact=%s called=%v", data, called)
+	base := searchParityManifest{DBPath: "private", Query: "q", LegacyPageSize: 1, TieredPageSize: 1, SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1, ExpectedRevision: strings.Repeat("a", 40), ExpectedDirty: boolPointer(false)}
+	for name, mutate := range map[string]func(*searchParityManifest){
+		"query":       func(m *searchParityManifest) { m.Query = strings.Repeat("x", apptypes.MaxLiteralSearchQueryBytes+1) },
+		"source rows": func(m *searchParityManifest) { m.SourceRows = apptypes.MaxLiteralSearchSourceRows + 1 },
+		"timeout":     func(m *searchParityManifest) { m.TimeoutMS = maxParityTimeoutMS + 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			original := parityRevisionReader
+			called := false
+			parityRevisionReader = func(context.Context) (parityRevision, error) { called = true; return parityRevision{}, nil }
+			t.Cleanup(func() { parityRevisionReader = original })
+			manifest := base
+			mutate(&manifest)
+			a := runSearchParity(context.Background(), manifest)
+			data, _ := json.Marshal(a)
+			if called || a.ErrorClass != "manifest_invalid" || validateSearchParityJSON(data) != nil {
+				t.Fatalf("artifact=%s called=%v", data, called)
+			}
+		})
 	}
 }
 
