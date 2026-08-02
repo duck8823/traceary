@@ -430,6 +430,18 @@ func TestSearchParitySemanticValidatorRejectsCraftedEvidence(t *testing.T) {
 	}
 }
 
+func TestSearchParityValidatorAcceptsUnchangedZeroRevisionProjection(t *testing.T) {
+	artifact := validSearchParityArtifact()
+	artifact.Projection.Revision = 0
+	data, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSearchParityJSON(data); err != nil {
+		t.Fatalf("zero source revision should be valid: %v", err)
+	}
+}
+
 func TestTieredProgressRejectsTerminalCoverageViolations(t *testing.T) {
 	for name, page := range map[string]apptypes.LiteralSearchPage{
 		"negative processed":          {Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: -1, HighWater: 1}},

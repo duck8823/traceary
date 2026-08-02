@@ -782,7 +782,7 @@ func validCensoredEvidence(a searchParityArtifact) bool {
 }
 
 func validPassedProjection(a searchParityArtifact) bool {
-	return a.Projection.Revision > 0 && a.Projection.HighWater >= 0 && a.Projection.LogicalBytes >= 0 && a.Projection.PhysicalBytes > 0 && a.Projection.HighWater == a.Tiered.Coverage.HighWater
+	return a.Projection.Revision >= 0 && a.Projection.HighWater >= 0 && a.Projection.LogicalBytes >= 0 && a.Projection.PhysicalBytes > 0 && a.Projection.HighWater == a.Tiered.Coverage.HighWater
 }
 
 func validTieredDiagnostics(chain parityChain) bool {
