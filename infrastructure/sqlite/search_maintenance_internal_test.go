@@ -233,6 +233,52 @@ func eventIDs(events []*model.Event) []string {
 	return ids
 }
 
+func TestCreateLegacySearchProjectionRepairsPartialSchema(t *testing.T) {
+	ctx := context.Background()
+	database := NewDatabase(filepath.Join(t.TempDir(), "store.db"), os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	if err := NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.release(raw)
+	for _, statement := range []string{
+		"DROP VIEW event_search_projection",
+		"DROP TABLE event_search_fts",
+		"DROP TRIGGER event_search_documents_after_insert",
+		"DROP TRIGGER event_search_documents_after_update",
+		"DROP TRIGGER event_search_documents_after_delete",
+		"DROP TRIGGER events_search_after_insert",
+		"DROP TRIGGER events_search_after_body_update",
+		"DROP TRIGGER command_audits_search_after_insert",
+		"DROP TRIGGER command_audits_search_after_update",
+		"DROP TRIGGER command_audits_search_after_delete",
+	} {
+		if _, err = raw.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err := raw.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = createLegacySearchProjection(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	for _, object := range []string{"event_search_projection", "event_search_fts", "event_search_documents_after_insert", "event_search_documents_after_update", "event_search_documents_after_delete", "events_search_after_insert", "events_search_after_body_update", "command_audits_search_after_insert", "command_audits_search_after_update", "command_audits_search_after_delete"} {
+		var count int
+		if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE name=?`, object).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("restored object %s count=%d err=%v", object, count, err)
+		}
+	}
+}
+
 func TestSearchMaintenanceRestoreFailureDoesNotSwitchAuthority(t *testing.T) {
 	ctx := context.Background()
 	database := NewDatabase(filepath.Join(t.TempDir(), "store.db"), os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))

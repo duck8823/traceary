@@ -298,13 +298,6 @@ func dropLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
 }
 
 func createLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
-	var exists int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='event_search_documents'`).Scan(&exists); err != nil {
-		return err
-	}
-	if exists == 1 {
-		return nil
-	}
 	migrations, err := sqliteschema.Migrations()
 	if err != nil {
 		return xerrors.Errorf("open canonical migration for restore: %w", err)
@@ -313,7 +306,14 @@ func createLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
 	if err != nil {
 		return xerrors.Errorf("read canonical legacy search schema: %w", err)
 	}
-	if _, err = tx.ExecContext(ctx, string(script)); err != nil {
+	repairScript := strings.NewReplacer(
+		"CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ",
+		"CREATE VIRTUAL TABLE ", "CREATE VIRTUAL TABLE IF NOT EXISTS ",
+		"CREATE VIEW ", "CREATE VIEW IF NOT EXISTS ",
+		"CREATE TRIGGER ", "CREATE TRIGGER IF NOT EXISTS ",
+		"INSERT INTO event_search_backfill_state(", "INSERT OR IGNORE INTO event_search_backfill_state(",
+	).Replace(string(script))
+	if _, err = tx.ExecContext(ctx, repairScript); err != nil {
 		return xerrors.Errorf("recreate canonical legacy search schema: %w", err)
 	}
 	return nil
