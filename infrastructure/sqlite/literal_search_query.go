@@ -89,7 +89,11 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		if eligibleErr != nil {
 			return apptypes.LiteralSearchPage{}, eligibleErr
 		}
-		decision, progressErr := progress.ObserveSource(queryservice.LiteralSourceObservation{Sequence: s.sequence, Stored: s.stored, Decoded: s.decoded, Eligible: eligible})
+		disposition := queryservice.LiteralSourceSkipped
+		if eligible {
+			disposition = queryservice.LiteralSourceEligible
+		}
+		decision, progressErr := progress.ObserveSource(queryservice.LiteralSourceObservation{Sequence: s.sequence, Stored: s.stored, Decoded: s.decoded, Disposition: disposition})
 		if progressErr != nil {
 			return apptypes.LiteralSearchPage{}, progressErr
 		}

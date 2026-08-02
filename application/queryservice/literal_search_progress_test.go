@@ -11,7 +11,7 @@ func TestLiteralSearchProgressCharacterization(t *testing.T) {
 	budget := apptypes.LiteralSearchBudget{SourceRows: 2, StoredBytes: 10, DecodedBytes: 10}
 	t.Run("initial oversize is retryable error", func(t *testing.T) {
 		p := NewLiteralSearchProgress(0, 2, budget, 2)
-		_, err := p.ObserveSource(LiteralSourceObservation{Sequence: 1, Eligible: true, Stored: 11, Decoded: 1})
+		_, err := p.ObserveSource(LiteralSourceObservation{Sequence: 1, Disposition: LiteralSourceEligible, Stored: 11, Decoded: 1})
 		var oversized *apptypes.SearchProjectionOversizeError
 		if !errors.As(err, &oversized) {
 			t.Fatalf("error=%v", err)
@@ -20,7 +20,7 @@ func TestLiteralSearchProgressCharacterization(t *testing.T) {
 	t.Run("skip then oversize returns partial anchored at skip", func(t *testing.T) {
 		p := NewLiteralSearchProgress(0, 3, budget, 2)
 		_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 1})
-		d, err := p.ObserveSource(LiteralSourceObservation{Sequence: 2, Eligible: true, Stored: 11})
+		d, err := p.ObserveSource(LiteralSourceObservation{Sequence: 2, Disposition: LiteralSourceEligible, Stored: 11})
 		if err != nil || !d.Stop || d.PartialReason != "stored_bytes" {
 			t.Fatalf("decision=%+v error=%v", d, err)
 		}
@@ -31,7 +31,7 @@ func TestLiteralSearchProgressCharacterization(t *testing.T) {
 	})
 	t.Run("hydration oversize retries before match", func(t *testing.T) {
 		p := NewLiteralSearchProgress(1, 3, budget, 2)
-		d, _ := p.ObserveSource(LiteralSourceObservation{Sequence: 2, Eligible: true, Stored: 6, Decoded: 6})
+		d, _ := p.ObserveSource(LiteralSourceObservation{Sequence: 2, Disposition: LiteralSourceEligible, Stored: 6, Decoded: 6})
 		if !d.Verify {
 			t.Fatalf("decision=%+v", d)
 		}
@@ -55,7 +55,7 @@ func TestLiteralSearchProgressCharacterization(t *testing.T) {
 	})
 	t.Run("result and source limits are distinct", func(t *testing.T) {
 		p := NewLiteralSearchProgress(0, 4, budget, 1)
-		_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 1, Eligible: true, Stored: 1, Decoded: 1})
+		_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 1, Disposition: LiteralSourceEligible, Stored: 1, Decoded: 1})
 		d, err := p.FinishVerification(1, true)
 		if err != nil || !d.Stop || d.PartialReason != "result_limit" {
 			t.Fatalf("decision=%+v error=%v", d, err)
@@ -79,7 +79,7 @@ func TestLiteralSearchProgressCharacterization(t *testing.T) {
 	})
 	t.Run("result limit on high water completes without partial", func(t *testing.T) {
 		p := NewLiteralSearchProgress(0, 1, budget, 1)
-		_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 1, Eligible: true, Stored: 1, Decoded: 1})
+		_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 1, Disposition: LiteralSourceEligible, Stored: 1, Decoded: 1})
 		_, _ = p.FinishVerification(1, true)
 		got := p.FinishPage(false)
 		if !got.Complete || got.PartialReason != "" || got.Processed != 1 || got.Examined != 1 {
@@ -90,7 +90,7 @@ func TestLiteralSearchProgressCharacterization(t *testing.T) {
 
 func TestLiteralSearchProgressRejectsPhaseViolations(t *testing.T) {
 	p := NewLiteralSearchProgress(0, 2, apptypes.LiteralSearchBudget{SourceRows: 2, StoredBytes: 10, DecodedBytes: 10}, 2)
-	_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 1, Eligible: true, Stored: 1, Decoded: 1})
+	_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 1, Disposition: LiteralSourceEligible, Stored: 1, Decoded: 1})
 	if _, err := p.ObserveSource(LiteralSourceObservation{Sequence: 2}); err == nil {
 		t.Fatal("accepted source while verifying")
 	}

@@ -7,11 +7,21 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
+// LiteralSourceDisposition makes source admission observations explicit.
+type LiteralSourceDisposition uint8
+
+const (
+	// LiteralSourceSkipped identifies a tombstone or criteria/candidate rejection.
+	LiteralSourceSkipped LiteralSourceDisposition = iota
+	// LiteralSourceEligible identifies a source that requires canonical verification.
+	LiteralSourceEligible
+)
+
 // LiteralSourceObservation describes the persistence facts for one ordered source.
 type LiteralSourceObservation struct {
 	Sequence        int64
 	Stored, Decoded int64
-	Eligible        bool
+	Disposition     LiteralSourceDisposition
 }
 
 // LiteralProgressDecision tells the persistence driver what operation is safe next.
@@ -71,9 +81,12 @@ func (p *literalSearchProgress) ObserveSource(source LiteralSourceObservation) (
 		return p.stop("source_rows"), nil
 	}
 	p.examined++
-	if !source.Eligible {
+	if source.Disposition == LiteralSourceSkipped {
 		p.ledger.Skip(source.Sequence)
 		return LiteralProgressDecision{}, nil
+	}
+	if source.Disposition != LiteralSourceEligible {
+		return LiteralProgressDecision{}, fmt.Errorf("literal search progress: unknown source disposition %d", source.Disposition)
 	}
 	if err := p.ledger.AdmitVerification(source.Stored, source.Decoded); err != nil {
 		if p.ledger.FullyProcessed == p.start {
