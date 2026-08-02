@@ -59,8 +59,9 @@ func NewEventDatasource(db *Database) *EventDatasource {
 
 // Compile-time interface assertions.
 var (
-	_ model.EventRepository          = (*EventDatasource)(nil)
-	_ queryservice.EventQueryService = (*EventDatasource)(nil)
+	_ model.EventRepository               = (*EventDatasource)(nil)
+	_ queryservice.EventQueryService      = (*EventDatasource)(nil)
+	_ queryservice.LegacyEventSearchQuery = (*EventDatasource)(nil)
 )
 
 // Save persists an event.
@@ -360,6 +361,35 @@ func (d *EventDatasource) Search(
 		}
 		return events, nil
 	}
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(limit).
+		Query(query).Workspace(workspace).SessionID(sessionID).Client(client).
+		Agent(agent).Kind(kind).From(from).To(to).Offset(offset).
+		FailuresOnly(failuresOnly).Build()
+	return d.SearchLegacyPage(ctx, criteria)
+}
+
+// SearchLegacyPage executes the pre-tiered event search implementation. It is
+// intentionally separate from Search so parity and rollback retain an
+// independent authority after normal search is cut over.
+func (d *EventDatasource) SearchLegacyPage(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	query := criteria.Query()
+	workspace := criteria.Workspace()
+	sessionID := criteria.SessionID()
+	client := criteria.Client()
+	agent := criteria.Agent()
+	kind := criteria.Kind()
+	from, to := criteria.From(), criteria.To()
+	limit, offset := criteria.Limit(), criteria.Offset()
+	failuresOnly := criteria.FailuresOnly()
+	if limit <= 0 || offset < 0 || (!from.IsZero() && !to.IsZero() && from.After(to)) {
+		return nil, xerrors.Errorf("invalid legacy search criteria")
+	}
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for legacy event search: %w", err)
+	}
+	defer d.db.release(db)
 
 	queryValue := strings.TrimSpace(query)
 	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"

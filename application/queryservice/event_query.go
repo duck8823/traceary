@@ -90,3 +90,10 @@ type EventBoundedQueryService interface {
 type TieredEventSearchQuery interface {
 	SearchLiteralPage(ctx context.Context, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error)
 }
+
+// LegacyEventSearchQuery is the explicit compatibility search capability used
+// by parity evidence and rollback. Normal search composition must not use this
+// port to discover or select its authority.
+type LegacyEventSearchQuery interface {
+	SearchLegacyPage(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error)
+}
