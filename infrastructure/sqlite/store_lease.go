@@ -27,6 +27,25 @@ func coordinatedStoreLease(path string) *sync.RWMutex {
 	return lease
 }
 
+// StoreLeaseCoordinator gives the maintenance use case exclusive access.
+type StoreLeaseCoordinator struct{}
+
+func (StoreLeaseCoordinator) AcquireExclusive(ctx context.Context, path string) (func(), error) {
+	lease := coordinatedStoreLease(path)
+	acquired := make(chan struct{})
+	go func() { lease.Lock(); close(acquired) }()
+	select {
+	case <-ctx.Done():
+		// The goroutine must eventually acquire and release; otherwise a canceled
+		// waiter could permanently seize the process-local lease.
+		go func() { <-acquired; lease.Unlock() }()
+		return nil, ctx.Err()
+	case <-acquired:
+		var once sync.Once
+		return func() { once.Do(lease.Unlock) }, nil
+	}
+}
+
 func canonicalLeasePath(path string) string {
 	if absolute, err := filepath.Abs(path); err == nil {
 		return absolute

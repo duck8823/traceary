@@ -43,6 +43,7 @@ type RootCLI struct {
 	capacityInspector          application.CapacityInspector
 	searchProjection           *usecase.SearchProjectionUsecase
 	searchMaintenance          *usecase.SearchMaintenanceUsecase
+	storeCompactionFactory     func(string) application.StoreCompactionUsecase
 	payloadRehearsal           usecase.PayloadRehearsalUsecase
 	rawBodyRetention           usecase.RawBodyRetentionUsecase
 	fileRetention              usecase.FileRetentionUsecase
@@ -216,6 +217,11 @@ func WithSearchProjection(projection *usecase.SearchProjectionUsecase) RootCLIOp
 // WithSearchMaintenance injects the evidence-gated search cutover workflow.
 func WithSearchMaintenance(maintenance *usecase.SearchMaintenanceUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.searchMaintenance = maintenance }
+}
+
+// WithStoreCompactionFactory injects a path-bound, dedicated composition.
+func WithStoreCompactionFactory(factory func(string) application.StoreCompactionUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.storeCompactionFactory = factory }
 }
 
 // WithPayloadRehearsal injects the copied-store rehearsal workflow.
