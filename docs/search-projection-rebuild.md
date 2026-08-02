@@ -1,5 +1,7 @@
 # Search projection rebuild
 
+[日本語](search-projection-rebuild.ja.md)
+
 The search projection is derived and non-authoritative. Canonical events and command audits are never changed by projection lifecycle commands.
 
 Start a generation with `traceary store search-projection start`. Resume one durable bounded batch with `resume`, or run multiple independently committed batches:

@@ -99,6 +99,9 @@ func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.Se
 	runCtx, cancel := context.WithTimeout(ctx, opts.TotalWallTime)
 	defer cancel()
 	for result.Batches < opts.MaxBatches {
+		if err := ctx.Err(); err != nil {
+			return result, xerrors.Errorf("resume projection batches: %w", err)
+		}
 		if err := runCtx.Err(); err != nil {
 			result.StopReason = "total_wall_time"
 			result.ElapsedMilliseconds = time.Since(started).Milliseconds()
@@ -106,6 +109,14 @@ func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.Se
 		}
 		progress, err := u.Resume(runCtx, b, now.UTC())
 		if err != nil {
+			if ctx.Err() != nil {
+				return result, xerrors.Errorf("resume projection batches: %w", ctx.Err())
+			}
+			if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+				result.StopReason = "total_wall_time"
+				result.ElapsedMilliseconds = time.Since(started).Milliseconds()
+				return result, nil
+			}
 			return result, err
 		}
 		result.Batches++
