@@ -25,7 +25,9 @@ func globalNonIdentityPayload(ctx context.Context, q payloadCodecCompatibilityQu
 	}
 	switch mode {
 	case "counter":
-		return eventBody+command+input+output != 0, nil
+		// Inspect lanes independently: valid SQLite INTEGER counters can be
+		// MaxInt64, so summing them could wrap and falsely report identity-only.
+		return eventBody > 0 || command > 0 || input > 0 || output > 0, nil
 	case "legacy_index":
 		var found int
 		if err := q.QueryRowContext(ctx, `SELECT

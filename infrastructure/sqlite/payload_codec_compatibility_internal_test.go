@@ -166,6 +166,16 @@ func TestGlobalCodecCompatibilitySelectsCounterAndLegacyShapes(t *testing.T) {
 	if err != nil || found {
 		t.Fatalf("counter identity found=%v err=%v", found, err)
 	}
+	if _, err = db.Exec(`UPDATE payload_codec_compatibility_state SET event_body_nonidentity=9223372036854775807,audit_command_nonidentity=1,audit_input_nonidentity=9223372036854775807,audit_output_nonidentity=1`); err != nil {
+		t.Fatal(err)
+	}
+	found, err = globalNonIdentityPayload(ctx, db)
+	if err != nil || !found {
+		t.Fatalf("extreme valid counters found=%v err=%v", found, err)
+	}
+	if _, err = db.Exec(`UPDATE payload_codec_compatibility_state SET event_body_nonidentity=0,audit_command_nonidentity=0,audit_input_nonidentity=0,audit_output_nonidentity=0`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = db.Exec(`UPDATE payload_codec_compatibility_state SET state='invalid'`); err != nil {
 		t.Fatal(err)
 	}
