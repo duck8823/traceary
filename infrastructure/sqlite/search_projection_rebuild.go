@@ -65,7 +65,7 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 		if requiresInventory != 0 {
 			inventoryState = "rebuilding"
 		}
-		if _, x := tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET generation_id=?,cursor='',state=? WHERE singleton=1`, g.GenerationID, inventoryState); x != nil {
+		if _, x := tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET generation_id=?,cursor='',cursor_started=0,state=? WHERE singleton=1`, g.GenerationID, inventoryState); x != nil {
 			return g, x
 		}
 		if _, x := tx.ExecContext(lockCtx, `UPDATE literal_search_projection_state SET generation_id=?,high_water=?,fingerprint_version=1,state='rebuilding',updated_at=? WHERE singleton=1`, g.GenerationID, g.HighWater, formatTimestamp(now.UTC())); x != nil {
@@ -91,7 +91,7 @@ func (d *Database) SelectInventory(ctx context.Context, b apptypes.SearchProject
 	}
 	defer db.Close()
 	var state, phase string
-	if err = db.QueryRowContext(ctx, `SELECT s.generation_id,s.config_hash,s.source_revision,i.cursor,s.state,i.state FROM search_projection_state s JOIN search_projection_inventory_state i ON i.singleton=s.singleton WHERE s.singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Cursor, &state, &phase); err != nil {
+	if err = db.QueryRowContext(ctx, `SELECT s.generation_id,s.config_hash,s.source_revision,i.cursor,i.cursor_started,s.state,i.state FROM search_projection_state s JOIN search_projection_inventory_state i ON i.singleton=s.singleton WHERE s.singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Cursor, &out.CursorStarted, &state, &phase); err != nil {
 		return out, err
 	}
 	if state != "rebuilding" || phase != "rebuilding" {
@@ -110,7 +110,13 @@ func (d *Database) SelectInventory(ctx context.Context, b apptypes.SearchProject
 		}
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
-	rows, err := db.QueryContext(ctx, `SELECT e.id FROM events e WHERE e.id>? AND NOT EXISTS(SELECT 1 FROM search_projection_source_sequence q WHERE q.event_id=e.id) ORDER BY e.id LIMIT ?`, out.Cursor, b.Rows+1)
+	query := `SELECT e.id,q.event_id IS NULL FROM events e LEFT JOIN search_projection_source_sequence q ON q.event_id=e.id ORDER BY e.id LIMIT ?`
+	args := []any{b.Rows + 1}
+	if out.CursorStarted {
+		query = `SELECT e.id,q.event_id IS NULL FROM events e LEFT JOIN search_projection_source_sequence q ON q.event_id=e.id WHERE e.id>? ORDER BY e.id LIMIT ?`
+		args = []any{out.Cursor, b.Rows + 1}
+	}
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return out, err
 	}
@@ -118,15 +124,19 @@ func (d *Database) SelectInventory(ctx context.Context, b apptypes.SearchProject
 	var stored, written int64
 	for rows.Next() {
 		var id string
-		if err = rows.Scan(&id); err != nil {
+		var missing bool
+		if err = rows.Scan(&id, &missing); err != nil {
 			return out, err
 		}
 		identityBytes := int64(len(id))
-		logicalBytes := identityBytes + 16
+		logicalBytes := int64(0)
+		if missing {
+			logicalBytes = identityBytes + 16
+		}
 		if len(out.Items) >= b.Rows || stored+identityBytes > b.StoredBytes || written+logicalBytes > b.WriteBytes {
 			break
 		}
-		out.Items = append(out.Items, apptypes.SearchProjectionInventoryItem{EventID: id, LogicalBytes: logicalBytes})
+		out.Items = append(out.Items, apptypes.SearchProjectionInventoryItem{EventID: id, LogicalBytes: logicalBytes, Missing: missing})
 		stored += identityBytes
 		written += logicalBytes
 	}
@@ -135,10 +145,17 @@ func (d *Database) SelectInventory(ctx context.Context, b apptypes.SearchProject
 	}
 	if len(out.Items) == 0 {
 		var next string
-		err = db.QueryRowContext(ctx, `SELECT e.id FROM events e WHERE e.id>? AND NOT EXISTS(SELECT 1 FROM search_projection_source_sequence q WHERE q.event_id=e.id) ORDER BY e.id LIMIT 1`, out.Cursor).Scan(&next)
+		var missing bool
+		nextQuery := `SELECT e.id,q.event_id IS NULL FROM events e LEFT JOIN search_projection_source_sequence q ON q.event_id=e.id ORDER BY e.id LIMIT 1`
+		nextArgs := []any{}
+		if out.CursorStarted {
+			nextQuery = `SELECT e.id,q.event_id IS NULL FROM events e LEFT JOIN search_projection_source_sequence q ON q.event_id=e.id WHERE e.id>? ORDER BY e.id LIMIT 1`
+			nextArgs = []any{out.Cursor}
+		}
+		err = db.QueryRowContext(ctx, nextQuery, nextArgs...).Scan(&next, &missing)
 		if err == nil {
 			class, bytes, limit := "inventory_stored_bytes", int64(len(next)), b.StoredBytes
-			if bytes <= limit {
+			if bytes <= limit && missing {
 				class, bytes, limit = "inventory_write_bytes", int64(len(next))+16, b.WriteBytes
 			}
 			return out, &apptypes.SearchProjectionOversizeError{Class: class, Bytes: bytes, Limit: limit}
@@ -150,7 +167,7 @@ func (d *Database) SelectInventory(ctx context.Context, b apptypes.SearchProject
 		return out, nil
 	}
 	var remaining int
-	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events e WHERE e.id>? AND NOT EXISTS(SELECT 1 FROM search_projection_source_sequence q WHERE q.event_id=e.id))`, out.Items[len(out.Items)-1].EventID).Scan(&remaining); err != nil {
+	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE id>? LIMIT 1)`, out.Items[len(out.Items)-1].EventID).Scan(&remaining); err != nil {
 		return out, err
 	}
 	out.Done = remaining == 0
@@ -162,6 +179,30 @@ func (d *Database) SelectInventory(ctx context.Context, b apptypes.SearchProject
 //
 //nolint:wrapcheck,errcheck // SQL errors preserve the typed inventory contract; rollback is best effort.
 func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchProjectionInventoryPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
+	lockCtx, cancel := context.WithTimeout(ctx, lock)
+	defer cancel()
+	for {
+		remaining := lock
+		if deadline, ok := lockCtx.Deadline(); ok {
+			remaining = time.Until(deadline)
+		}
+		if remaining <= 0 {
+			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
+		}
+		out, err = d.applyInventoryBatchOnce(lockCtx, p, remaining, now)
+		if err == nil || !isSearchProjectionSQLiteBusy(err) {
+			return out, err
+		}
+		select {
+		case <-lockCtx.Done():
+			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
+		case <-time.After(min(5*time.Millisecond, remaining)):
+		}
+	}
+}
+
+//nolint:wrapcheck,errcheck // SQL errors preserve the typed inventory contract; rollback is best effort.
+func (d *Database) applyInventoryBatchOnce(ctx context.Context, p apptypes.SearchProjectionInventoryPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
 	lockCtx, cancel := context.WithTimeout(ctx, lock)
 	defer cancel()
 	db, err := d.open(lockCtx)
@@ -176,17 +217,46 @@ func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchPro
 	defer tx.Rollback()
 	var revision int64
 	var cursor, phase string
-	if err = tx.QueryRowContext(lockCtx, `SELECT s.source_revision,i.cursor,i.state FROM search_projection_state s JOIN search_projection_inventory_state i ON i.singleton=s.singleton WHERE s.generation_id=? AND s.state='rebuilding' AND i.generation_id=s.generation_id`, p.GenerationID).Scan(&revision, &cursor, &phase); err != nil {
+	var cursorStarted bool
+	if err = tx.QueryRowContext(lockCtx, `SELECT s.source_revision,i.cursor,i.cursor_started,i.state FROM search_projection_state s JOIN search_projection_inventory_state i ON i.singleton=s.singleton WHERE s.generation_id=? AND s.state='rebuilding' AND i.generation_id=s.generation_id`, p.GenerationID).Scan(&revision, &cursor, &cursorStarted, &phase); err != nil {
 		return out, err
 	}
 	var globalRevision int64
 	if err = tx.QueryRowContext(lockCtx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&globalRevision); err != nil {
 		return out, err
 	}
-	if phase != "rebuilding" || revision != p.ExpectedRevision || globalRevision != p.ExpectedRevision || cursor != p.ExpectedCursor {
+	if phase != "rebuilding" || revision != p.ExpectedRevision || cursor != p.ExpectedCursor || cursorStarted != p.ExpectedCursorStarted {
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	if globalRevision != p.ExpectedRevision {
+		var driftResult sql.Result
+		if driftResult, err = tx.ExecContext(lockCtx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, p.GenerationID); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := driftResult.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if driftResult, err = tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET state='drifted' WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, p.GenerationID); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := driftResult.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if driftResult, err = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='drifted' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); err != nil {
+			return out, err
+		}
+		if rows, rowsErr := driftResult.RowsAffected(); rowsErr != nil || rows != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if err = tx.Commit(); err != nil {
+			return out, err
+		}
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	for _, item := range p.Items {
+		if !item.Missing {
+			continue
+		}
 		if _, err = tx.ExecContext(lockCtx, `INSERT OR IGNORE INTO search_projection_source_sequence(event_id) SELECT id FROM events WHERE id=?`, item.EventID); err != nil {
 			return out, err
 		}
@@ -203,7 +273,7 @@ func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchPro
 		if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
 			return out, &apptypes.SearchProjectionDriftError{}
 		}
-		if result, err = tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET cursor='',state='complete' WHERE singleton=1 AND generation_id=? AND cursor=? AND state='rebuilding'`, p.GenerationID, p.ExpectedCursor); err != nil {
+		if result, err = tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET cursor='',cursor_started=0,state='complete' WHERE singleton=1 AND generation_id=? AND cursor=? AND cursor_started=? AND state='rebuilding'`, p.GenerationID, p.ExpectedCursor, p.ExpectedCursorStarted); err != nil {
 			return out, err
 		}
 		if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
@@ -222,7 +292,7 @@ func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchPro
 			return out, err
 		}
 	} else {
-		result, updateErr := tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET cursor=? WHERE singleton=1 AND generation_id=? AND cursor=? AND state='rebuilding'`, nextCursor, p.GenerationID, p.ExpectedCursor)
+		result, updateErr := tx.ExecContext(lockCtx, `UPDATE search_projection_inventory_state SET cursor=?,cursor_started=? WHERE singleton=1 AND generation_id=? AND cursor=? AND cursor_started=? AND state='rebuilding'`, nextCursor, p.NextCursorStarted, p.GenerationID, p.ExpectedCursor, p.ExpectedCursorStarted)
 		if updateErr != nil {
 			return out, updateErr
 		}
@@ -233,7 +303,12 @@ func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchPro
 	if err = tx.Commit(); err != nil {
 		return out, err
 	}
-	out.Selected, out.Written = len(p.Items), len(p.Items)
+	out.Selected = len(p.Items)
+	for _, item := range p.Items {
+		if item.Missing {
+			out.Written++
+		}
+	}
 	out.StoredBytes, out.WrittenBytes = p.Ledger.StoredBytes, p.Ledger.LogicalWriteBytes
 	out.GenerationID = p.GenerationID
 	return out, nil

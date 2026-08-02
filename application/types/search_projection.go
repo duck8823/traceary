@@ -49,17 +49,20 @@ type SearchProjectionProgress struct {
 type SearchProjectionInventoryItem struct {
 	EventID      string
 	LogicalBytes int64
+	Missing      bool
 }
 
 type SearchProjectionInventorySnapshot struct {
-	Generation SearchProjectionGeneration
-	Cursor     string
-	Items      []SearchProjectionInventoryItem
-	Done       bool
+	Generation    SearchProjectionGeneration
+	Cursor        string
+	CursorStarted bool
+	Items         []SearchProjectionInventoryItem
+	Done          bool
 }
 
 type SearchProjectionInventoryPlan struct {
 	GenerationID, ExpectedCursor, NextCursor string
+	ExpectedCursorStarted, NextCursorStarted bool
 	ExpectedRevision                         int64
 	Items                                    []SearchProjectionInventoryItem
 	Done                                     bool

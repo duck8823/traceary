@@ -77,13 +77,17 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 		}
 		plan := apptypes.SearchProjectionInventoryPlan{
 			GenerationID: inventory.Generation.GenerationID, ExpectedRevision: inventory.Generation.SourceRevision,
-			ExpectedCursor: inventory.Cursor, Items: inventory.Items, Done: inventory.Done,
+			ExpectedCursor: inventory.Cursor, ExpectedCursorStarted: inventory.CursorStarted,
+			Items: inventory.Items, Done: inventory.Done,
 		}
 		for _, item := range inventory.Items {
 			plan.Ledger.Rows++
 			plan.Ledger.StoredBytes += int64(len(item.EventID))
-			plan.Ledger.LogicalWriteBytes += item.LogicalBytes
+			if item.Missing {
+				plan.Ledger.LogicalWriteBytes += item.LogicalBytes
+			}
 			plan.NextCursor = item.EventID
+			plan.NextCursorStarted = true
 		}
 		if err = wallCtx.Err(); err != nil {
 			return apptypes.SearchProjectionProgress{}, err

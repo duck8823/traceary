@@ -16,6 +16,7 @@ CREATE TABLE search_projection_inventory_state(
  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
  generation_id TEXT NOT NULL DEFAULT '',
  cursor TEXT NOT NULL DEFAULT '',
+ cursor_started INTEGER NOT NULL DEFAULT 0 CHECK(cursor_started IN(0,1)),
  state TEXT NOT NULL DEFAULT 'idle' CHECK(state IN('idle','rebuilding','complete','drifted'))
 );
 INSERT INTO search_projection_inventory_state(singleton) VALUES(1);
