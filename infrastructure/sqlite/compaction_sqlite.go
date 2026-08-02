@@ -24,8 +24,24 @@ func (SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate stri
 	if filepathDir(source) != filepathDir(candidate) {
 		return errors.New("VACUUM INTO candidate must be beside source")
 	}
-	if _, err := os.Lstat(candidate); !os.IsNotExist(err) {
-		return errors.New("compaction candidate already exists")
+	if _, err := os.Lstat(candidate); err == nil {
+		if verifyErr := (SQLiteCompactionBuilder{}).VerifyPair(ctx, source, candidate); verifyErr == nil {
+			return nil
+		}
+		sourceID, sourceErr := inspectRegularFile(source)
+		candidateID, candidateErr := inspectRegularFile(candidate)
+		if sourceErr != nil || candidateErr != nil || sourceID.Device != candidateID.Device {
+			return errors.New("refuse unsafe partial candidate recovery")
+		}
+		if err := rejectSQLiteSidecars(candidate); err != nil {
+			return err
+		}
+		quarantine := fmt.Sprintf("%s.partial-%d", candidate, candidateID.Inode)
+		if err := renameNoReplace(candidate, quarantine); err != nil {
+			return fmt.Errorf("quarantine partial compaction candidate: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect compaction candidate: %w", err)
 	}
 	db, err := sql.Open("sqlite", directSQLiteRWDSN(source))
 	if err != nil {

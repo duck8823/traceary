@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/duck8823/traceary/application"
@@ -13,19 +14,23 @@ import (
 )
 
 type storeCompactionUsecase struct {
-	journal application.StoreCompactionJournal
-	builder application.StoreCompactionBuilder
-	files   application.StoreReplacementCoordinator
-	lease   application.StoreCompactionLease
-	now     func() time.Time
+	journal       application.StoreCompactionJournal
+	builder       application.StoreCompactionBuilder
+	files         application.StoreReplacementCoordinator
+	lease         application.StoreCompactionLease
+	now           func() time.Time
+	expectedStore string
 }
 
 // NewStoreCompactionUsecase composes the dedicated compaction protocol.
-func NewStoreCompactionUsecase(j application.StoreCompactionJournal, b application.StoreCompactionBuilder, f application.StoreReplacementCoordinator, l application.StoreCompactionLease) application.StoreCompactionUsecase {
-	return &storeCompactionUsecase{journal: j, builder: b, files: f, lease: l, now: time.Now}
+func NewStoreCompactionUsecase(expectedStore string, j application.StoreCompactionJournal, b application.StoreCompactionBuilder, f application.StoreReplacementCoordinator, l application.StoreCompactionLease) application.StoreCompactionUsecase {
+	return &storeCompactionUsecase{journal: j, builder: b, files: f, lease: l, now: time.Now, expectedStore: filepath.Clean(expectedStore)}
 }
 
 func (u *storeCompactionUsecase) Plan(ctx context.Context, source string) (domain.CompactionRun, error) {
+	if filepath.Clean(source) != u.expectedStore {
+		return domain.CompactionRun{}, fmt.Errorf("compaction store binding mismatch")
+	}
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
 		return domain.CompactionRun{}, fmt.Errorf("create compaction run id: %w", err)
@@ -48,30 +53,45 @@ func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.C
 	if err != nil {
 		return run, err
 	}
+	if err := u.validateBinding(run); err != nil {
+		return run, err
+	}
 	release, err := u.lease.AcquireExclusive(ctx, run.SourcePath)
 	if err != nil {
 		return run, err
 	}
 	defer release()
+	return u.applyLeased(ctx, run)
+}
+
+func (u *storeCompactionUsecase) applyLeased(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+	var err error
 	for run.Phase != domain.CompactionCommitted {
-		switch run.Phase {
-		case domain.CompactionPlanned:
-			run, err = u.advance(ctx, run, domain.CompactionCopyIntent)
-		case domain.CompactionCopyIntent:
+		action, decisionErr := run.NextAction()
+		if decisionErr != nil {
+			return run, decisionErr
+		}
+		switch action {
+		case domain.ActionRecheckPlan:
+			err = u.files.Recheck(ctx, run)
+			if err == nil {
+				run, err = u.advance(ctx, run, domain.CompactionCopyIntent)
+			}
+		case domain.ActionBuildCandidate:
 			err = u.builder.Build(ctx, run.SourcePath, run.CandidatePath)
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionCopyComplete)
 			}
-		case domain.CompactionCopyComplete:
+		case domain.ActionRecordSyncIntent:
 			run, err = u.advance(ctx, run, domain.CompactionCandidateSyncIntent)
-		case domain.CompactionCandidateSyncIntent:
+		case domain.ActionSyncCandidate:
 			err = u.builder.Sync(ctx, run.CandidatePath)
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionCandidateSynced)
 			}
-		case domain.CompactionCandidateSynced:
+		case domain.ActionRecordScrubInProgress:
 			run, err = u.advance(ctx, run, domain.CompactionScrubInProgress)
-		case domain.CompactionScrubInProgress:
+		case domain.ActionVerifyCandidate:
 			err = u.builder.VerifyPair(ctx, run.SourcePath, run.CandidatePath)
 			if err == nil {
 				run, err = u.files.FenceCandidate(ctx, run)
@@ -79,24 +99,24 @@ func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.C
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionCandidateVerified)
 			}
-		case domain.CompactionCandidateVerified:
+		case domain.ActionRecordSwapIntent:
 			run, err = u.advance(ctx, run, domain.CompactionSwapIntent)
-		case domain.CompactionSwapIntent:
+		case domain.ActionExchange:
 			err = u.files.Exchange(ctx, run)
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionSwapped)
 			}
-		case domain.CompactionSwapped:
+		case domain.ActionRecordPublishIntent:
 			run, err = u.advance(ctx, run, domain.CompactionRollbackPublishIntent)
-		case domain.CompactionRollbackPublishIntent:
+		case domain.ActionPublishRollback:
 			err = u.files.PublishRollback(ctx, run)
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionRollbackReady)
 			}
-		case domain.CompactionRollbackReady:
+		case domain.ActionCommit:
 			run, err = u.advance(ctx, run, domain.CompactionCommitted)
 		default:
-			return run, fmt.Errorf("cannot apply compaction in phase %q", run.Phase)
+			return run, fmt.Errorf("cannot execute compaction action %q", action)
 		}
 		if err != nil {
 			return run, err
@@ -106,24 +126,46 @@ func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.C
 }
 
 func (u *storeCompactionUsecase) Resume(ctx context.Context, id string) (domain.CompactionRun, error) {
-	run, err := u.journal.Load(ctx, id)
+	// Acquire is deliberately performed before journal/orientation inspection;
+	// resume then calls the shared leased runner to avoid double acquisition.
+	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
+	if err != nil {
+		return domain.CompactionRun{}, err
+	}
+	defer release()
+	initial, err := u.journal.Load(ctx, id)
+	if err != nil {
+		return initial, err
+	}
+	if err := u.validateBinding(initial); err != nil {
+		return initial, err
+	}
+	return u.resumeLeased(ctx, initial)
+}
+
+func (u *storeCompactionUsecase) resumeLeased(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+	observation, err := u.files.Observe(ctx, run)
 	if err != nil {
 		return run, err
 	}
-	orientation, err := u.files.Orientation(ctx, run)
+	actions, err := run.RecoveryActions(observation)
 	if err != nil {
 		return run, err
 	}
-	if orientation != run.Phase {
-		transitions := recoveryTransitions(run.Phase, orientation)
-		if len(transitions) == 0 {
-			return run, fmt.Errorf("unsafe compaction recovery %q -> %q", run.Phase, orientation)
-		}
-		for _, phase := range transitions {
-			run, err = u.advance(ctx, run, phase)
-			if err != nil {
+	for _, action := range actions {
+		if action == domain.ActionRollbackExchange {
+			if err := u.files.Exchange(ctx, run); err != nil {
 				return run, err
 			}
+			continue
+		}
+		phase, ok := phaseForRecoveryAction(action)
+		if !ok {
+			return run, fmt.Errorf("unsupported recovery action %q", action)
+		}
+		run, err = u.advance(ctx, run, phase)
+		if err != nil {
+			return run, err
 		}
 	}
 	if run.Phase == domain.CompactionRollbackSwapped {
@@ -132,30 +174,37 @@ func (u *storeCompactionUsecase) Resume(ctx context.Context, id string) (domain.
 	if run.Phase == domain.CompactionRolledBack {
 		return run, nil
 	}
-	return u.Apply(ctx, id)
+	return u.applyLeased(ctx, run)
 }
 
-func recoveryTransitions(from, to domain.CompactionPhase) []domain.CompactionPhase {
-	if from == domain.CompactionCandidateVerified && to == domain.CompactionSwapped {
-		return []domain.CompactionPhase{domain.CompactionSwapIntent, domain.CompactionSwapped}
+func phaseForRecoveryAction(action domain.CompactionAction) (domain.CompactionPhase, bool) {
+	switch action {
+	case domain.ActionRecordSwapIntent:
+		return domain.CompactionSwapIntent, true
+	case domain.ActionRecordSwapped:
+		return domain.CompactionSwapped, true
+	case domain.ActionRecordPublishIntent:
+		return domain.CompactionRollbackPublishIntent, true
+	case domain.ActionRecordRollbackReady:
+		return domain.CompactionRollbackReady, true
+	case domain.ActionRecordRollbackSwapped:
+		return domain.CompactionRollbackSwapped, true
+	case domain.ActionRecordRolledBack:
+		return domain.CompactionRolledBack, true
+	default:
+		return "", false
 	}
-	if from == domain.CompactionSwapIntent && to == domain.CompactionSwapped {
-		return []domain.CompactionPhase{domain.CompactionSwapped}
-	}
-	if from == domain.CompactionSwapped && to == domain.CompactionRollbackReady {
-		return []domain.CompactionPhase{domain.CompactionRollbackPublishIntent, domain.CompactionRollbackReady}
-	}
-	if from == domain.CompactionRollbackPublishIntent && to == domain.CompactionRollbackReady {
-		return []domain.CompactionPhase{domain.CompactionRollbackReady}
-	}
-	if from == domain.CompactionRollbackSwapIntent && to == domain.CompactionRollbackSwapped {
-		return []domain.CompactionPhase{domain.CompactionRollbackSwapped}
-	}
-	return nil
 }
 
 func (u *storeCompactionUsecase) Status(ctx context.Context, id string) (domain.CompactionRun, error) {
-	return u.journal.Load(ctx, id)
+	run, err := u.journal.Load(ctx, id)
+	if err != nil {
+		return run, err
+	}
+	if err := u.validateBinding(run); err != nil {
+		return run, err
+	}
+	return run, nil
 }
 
 func (u *storeCompactionUsecase) Rollback(ctx context.Context, id string) (domain.CompactionRun, error) {
@@ -163,7 +212,10 @@ func (u *storeCompactionUsecase) Rollback(ctx context.Context, id string) (domai
 	if err != nil {
 		return run, err
 	}
-	if run.Phase != domain.CompactionSwapped && run.Phase != domain.CompactionRollbackReady && run.Phase != domain.CompactionCommitted {
+	if err := u.validateBinding(run); err != nil {
+		return run, err
+	}
+	if run.Phase != domain.CompactionSwapped && run.Phase != domain.CompactionRollbackReady && run.Phase != domain.CompactionCommitted && run.Phase != domain.CompactionRollbackSwapIntent && run.Phase != domain.CompactionRollbackSwapped {
 		return run, fmt.Errorf("cannot rollback compaction in phase %q", run.Phase)
 	}
 	release, err := u.lease.AcquireExclusive(ctx, run.SourcePath)
@@ -171,9 +223,30 @@ func (u *storeCompactionUsecase) Rollback(ctx context.Context, id string) (domai
 		return run, err
 	}
 	defer release()
-	run, err = u.advance(ctx, run, domain.CompactionRollbackSwapIntent)
+	observation, err := u.files.Observe(ctx, run)
 	if err != nil {
 		return run, err
+	}
+	if observation.Orientation == domain.OrientationRolledBack {
+		if run.Phase == domain.CompactionRollbackSwapIntent {
+			run, err = u.advance(ctx, run, domain.CompactionRollbackSwapped)
+			if err != nil {
+				return run, err
+			}
+		}
+		if run.Phase == domain.CompactionRollbackSwapped {
+			return u.advance(ctx, run, domain.CompactionRolledBack)
+		}
+		return run, fmt.Errorf("rollback observation conflicts with phase")
+	}
+	if observation.Orientation != domain.OrientationRollbackReady {
+		return run, fmt.Errorf("rollback requires rollback-ready orientation, got %q", observation.Orientation)
+	}
+	if run.Phase != domain.CompactionRollbackSwapIntent {
+		run, err = u.advance(ctx, run, domain.CompactionRollbackSwapIntent)
+		if err != nil {
+			return run, err
+		}
 	}
 	if err := u.files.Exchange(ctx, run); err != nil {
 		return run, err
@@ -183,6 +256,13 @@ func (u *storeCompactionUsecase) Rollback(ctx context.Context, id string) (domai
 		return run, err
 	}
 	return u.advance(ctx, run, domain.CompactionRolledBack)
+}
+
+func (u *storeCompactionUsecase) validateBinding(run domain.CompactionRun) error {
+	if filepath.Clean(run.SourcePath) != u.expectedStore {
+		return fmt.Errorf("compaction run is bound to another store")
+	}
+	return nil
 }
 
 func (u *storeCompactionUsecase) advance(ctx context.Context, run domain.CompactionRun, phase domain.CompactionPhase) (domain.CompactionRun, error) {

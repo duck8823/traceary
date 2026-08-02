@@ -36,6 +36,9 @@ func (j *CompactionFileJournal) Create(ctx context.Context, run domain.Compactio
 	if err != nil {
 		return err
 	}
+	if err := validateInitialRun(run); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(j.Dir, 0o700); err != nil {
 		return err
 	}
@@ -63,6 +66,13 @@ func (j *CompactionFileJournal) Append(ctx context.Context, run domain.Compactio
 	}
 	path, err := j.path(run.ID)
 	if err != nil {
+		return err
+	}
+	previous, err := j.Load(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("load journal before append: %w", err)
+	}
+	if err := validateRunAppend(previous, run); err != nil {
 		return err
 	}
 	info, err := os.Lstat(path)
@@ -107,6 +117,20 @@ func (j *CompactionFileJournal) Load(ctx context.Context, id string) (domain.Com
 		return domain.CompactionRun{}, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return domain.CompactionRun{}, err
+	}
+	if info.Size() <= 0 || info.Size() > maxCompactionJournalBytes {
+		return domain.CompactionRun{}, errors.New("invalid compaction journal size")
+	}
+	lastByte := []byte{0}
+	if _, err := f.ReadAt(lastByte, info.Size()-1); err != nil {
+		return domain.CompactionRun{}, err
+	}
+	if lastByte[0] != '\n' {
+		return domain.CompactionRun{}, errors.New("truncated compaction journal record")
+	}
 	limited := io.LimitReader(f, maxCompactionJournalBytes+1)
 	s := bufio.NewScanner(limited)
 	s.Buffer(make([]byte, 4096), maxCompactionJournalBytes)
@@ -118,6 +142,10 @@ func (j *CompactionFileJournal) Load(ctx context.Context, id string) (domain.Com
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&next); err != nil {
 			return last, fmt.Errorf("decode compaction journal: %w", err)
+		}
+		var extra any
+		if err := dec.Decode(&extra); err != io.EOF {
+			return last, errors.New("trailing compaction journal data")
 		}
 		if next.ID != id {
 			return last, errors.New("compaction journal run id mismatch")
@@ -142,6 +170,41 @@ func (j *CompactionFileJournal) Load(ctx context.Context, id string) (domain.Com
 		return last, errors.New("empty compaction journal")
 	}
 	return last, nil
+}
+
+func validateInitialRun(run domain.CompactionRun) error {
+	if run.Phase != domain.CompactionPlanned || run.SourcePath == "" || run.CandidatePath == "" || run.RollbackPath == "" || run.CreatedAt.IsZero() || run.UpdatedAt.IsZero() {
+		return errors.New("invalid initial compaction run")
+	}
+	if run.SourceIdentity == (domain.StoreFileIdentity{}) {
+		return errors.New("initial source identity is required")
+	}
+	if run.Resources.RequiredBytes == 0 || run.Resources.DestinationBytes == 0 || run.Resources.FilesystemDevice != run.SourceIdentity.Device || !run.Resources.LeaseCapability || !run.Resources.ExchangeCapability {
+		return errors.New("initial resource plan is incomplete")
+	}
+	if run.UpdatedAt.Before(run.CreatedAt) {
+		return errors.New("initial timestamps are inconsistent")
+	}
+	return nil
+}
+
+func validateRunAppend(previous, next domain.CompactionRun) error {
+	if previous.ID != next.ID || previous.SourcePath != next.SourcePath || previous.CandidatePath != next.CandidatePath || previous.RollbackPath != next.RollbackPath || previous.SourceIdentity != next.SourceIdentity || previous.Resources != next.Resources || !previous.CreatedAt.Equal(next.CreatedAt) {
+		return errors.New("immutable compaction run fields changed")
+	}
+	if next.UpdatedAt.Before(previous.UpdatedAt) {
+		return errors.New("compaction timestamp moved backwards")
+	}
+	if previous.Candidate != (domain.StoreFileIdentity{}) && previous.Candidate != next.Candidate {
+		return errors.New("candidate identity changed after fencing")
+	}
+	if previous.Candidate == (domain.StoreFileIdentity{}) && next.Candidate != (domain.StoreFileIdentity{}) && next.Phase != domain.CompactionCandidateVerified {
+		return errors.New("candidate identity appeared outside verification")
+	}
+	if _, err := previous.Advance(next.Phase, next.UpdatedAt); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writeJournalRecord(w io.Writer, run domain.CompactionRun) error {
@@ -182,11 +245,58 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 	if err != nil {
 		return run, err
 	}
-	if id.Size < 0 || uint64(id.Size) > available {
+	required, margin, err := compactionRequiredBytes(id.Size)
+	if err != nil {
+		return run, err
+	}
+	if required > available {
 		return run, fmt.Errorf("insufficient free space: need %d bytes, have %d", id.Size, available)
 	}
 	run.SourceIdentity = id
+	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: uint64(id.Size), SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: true, ExchangeCapability: atomicExchangeSupported()}
+	if !run.Resources.ExchangeCapability {
+		return run, errors.New("atomic exchange capability unavailable")
+	}
 	return run, nil
+}
+
+func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionRun) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	current, err := inspectRegularFile(run.SourcePath)
+	if err != nil {
+		return err
+	}
+	if current != run.SourceIdentity {
+		return errors.New("source identity drift after plan")
+	}
+	available, err := availableBytes(filepath.Dir(run.SourcePath))
+	if err != nil {
+		return err
+	}
+	if available < run.Resources.RequiredBytes {
+		return fmt.Errorf("free space drift: need %d bytes, have %d", run.Resources.RequiredBytes, available)
+	}
+	if current.Device != run.Resources.FilesystemDevice || !atomicExchangeSupported() {
+		return errors.New("planned filesystem capability drift")
+	}
+	return rejectSQLiteSidecars(run.SourcePath)
+}
+
+func compactionRequiredBytes(size int64) (uint64, uint64, error) {
+	if size < 0 {
+		return 0, 0, errors.New("negative source size")
+	}
+	base := uint64(size)
+	margin := base / 10
+	if margin < 64<<20 {
+		margin = 64 << 20
+	}
+	if ^uint64(0)-base < margin {
+		return 0, 0, errors.New("compaction resource size overflow")
+	}
+	return base + margin, margin, nil
 }
 
 // FenceCandidate captures the verified candidate identity before swap intent.
@@ -260,11 +370,8 @@ func (StoreReplacementFiles) PublishRollback(ctx context.Context, run domain.Com
 	if _, err := os.Lstat(run.RollbackPath); !os.IsNotExist(err) {
 		return errors.New("rollback destination exists")
 	}
-	if err := os.Link(run.CandidatePath, run.RollbackPath); err != nil {
+	if err := renameNoReplace(run.CandidatePath, run.RollbackPath); err != nil {
 		return fmt.Errorf("publish rollback without replacement: %w", err)
-	}
-	if err := os.Remove(run.CandidatePath); err != nil {
-		return err
 	}
 	if err := syncFile(run.RollbackPath); err != nil {
 		return err
@@ -272,26 +379,54 @@ func (StoreReplacementFiles) PublishRollback(ctx context.Context, run domain.Com
 	return syncDirectory(filepath.Dir(run.SourcePath))
 }
 
-func (StoreReplacementFiles) Orientation(_ context.Context, run domain.CompactionRun) (domain.CompactionPhase, error) {
+func (StoreReplacementFiles) Observe(_ context.Context, run domain.CompactionRun) (domain.CompactionObservation, error) {
 	source, err := inspectRegularFile(run.SourcePath)
 	if err != nil {
-		return run.Phase, err
+		return domain.CompactionObservation{}, err
 	}
-	_, candidateErr := inspectRegularFile(run.CandidatePath)
-	_, rollbackErr := inspectRegularFile(run.RollbackPath)
-	if source == run.SourceIdentity {
-		if run.Phase == domain.CompactionRollbackSwapIntent {
-			return domain.CompactionRollbackSwapped, nil
+	candidate, candidateExists, err := inspectOptionalRegularFile(run.CandidatePath)
+	if err != nil {
+		return domain.CompactionObservation{}, err
+	}
+	rollback, rollbackExists, err := inspectOptionalRegularFile(run.RollbackPath)
+	if err != nil {
+		return domain.CompactionObservation{}, err
+	}
+	obs := domain.CompactionObservation{Source: source, Candidate: candidate, Rollback: rollback, CandidateExists: candidateExists, RollbackExists: rollbackExists}
+	identities := map[[2]uint64]string{}
+	for path, id := range map[string]domain.StoreFileIdentity{"source": source, "candidate": candidate, "rollback": rollback} {
+		if id == (domain.StoreFileIdentity{}) {
+			continue
 		}
-		return run.Phase, nil
+		key := [2]uint64{id.Device, id.Inode}
+		if previous := identities[key]; previous != "" {
+			return obs, fmt.Errorf("duplicate compaction inode at %s and %s", previous, path)
+		}
+		identities[key] = path
 	}
-	if candidateErr == nil {
-		return domain.CompactionSwapped, nil
+	switch {
+	case source == run.SourceIdentity && !candidateExists && !rollbackExists:
+		obs.Orientation = domain.OrientationSourceOriginal
+	case source == run.SourceIdentity && candidateExists && !rollbackExists:
+		obs.Orientation = domain.OrientationCandidateReady
+	case run.Candidate != (domain.StoreFileIdentity{}) && source == run.Candidate && candidateExists && candidate == run.SourceIdentity && !rollbackExists:
+		obs.Orientation = domain.OrientationSwapped
+	case run.Candidate != (domain.StoreFileIdentity{}) && source == run.Candidate && !candidateExists && rollbackExists && rollback == run.SourceIdentity:
+		obs.Orientation = domain.OrientationRollbackReady
+	case source == run.SourceIdentity && !candidateExists && rollbackExists && rollback == run.Candidate:
+		obs.Orientation = domain.OrientationRolledBack
+	default:
+		return obs, errors.New("unknown compaction file orientation")
 	}
-	if rollbackErr == nil {
-		return domain.CompactionRollbackReady, nil
+	return obs, nil
+}
+
+func inspectOptionalRegularFile(path string) (domain.StoreFileIdentity, bool, error) {
+	id, err := inspectRegularFile(path)
+	if os.IsNotExist(err) {
+		return id, false, nil
 	}
-	return run.Phase, errors.New("cannot determine compaction file orientation")
+	return id, err == nil, err
 }
 
 func inspectRegularFile(path string) (domain.StoreFileIdentity, error) {

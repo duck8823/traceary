@@ -15,3 +15,27 @@ func TestCompactionRunAdvanceRejectsSkippedTransition(t *testing.T) {
 		t.Fatalf("Advance() = %q, %v", got.Phase, err)
 	}
 }
+
+func TestCompactionRunRecoveryActionsRejectUnknownAndDecideCrashRecovery(t *testing.T) {
+	run := CompactionRun{Phase: CompactionSwapIntent}
+	actions, err := run.RecoveryActions(CompactionObservation{Orientation: OrientationSwapped})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0] != ActionRecordSwapped {
+		t.Fatalf("actions=%v", actions)
+	}
+	if _, err := run.RecoveryActions(CompactionObservation{Orientation: OrientationSourceOriginal}); err == nil {
+		t.Fatal("accepted impossible source orientation")
+	}
+}
+
+func TestCompactionRunNextActionOwnsNormalDecision(t *testing.T) {
+	action, err := (CompactionRun{Phase: CompactionScrubInProgress}).NextAction()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action != ActionVerifyCandidate {
+		t.Fatalf("action=%s", action)
+	}
+}

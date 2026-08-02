@@ -12,16 +12,54 @@ import (
 
 func TestCompactionFileJournalRoundTripAndTransitionValidation(t *testing.T) {
 	j := &CompactionFileJournal{Dir: t.TempDir()}
-	run := domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", Phase: domain.CompactionPlanned, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	now := time.Now()
+	run := domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", SourcePath: "/tmp/source", CandidatePath: "/tmp/candidate", RollbackPath: "/tmp/rollback", SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 2, Size: 3}, Resources: domain.CompactionResourcePlan{RequiredBytes: 4, DestinationBytes: 3, FilesystemDevice: 1, LeaseCapability: true, ExchangeCapability: true}, Phase: domain.CompactionPlanned, CreatedAt: now, UpdatedAt: now}
 	if err := j.Create(context.Background(), run); err != nil {
 		t.Fatal(err)
 	}
 	run.Phase = domain.CompactionCandidateVerified
-	if err := j.Append(context.Background(), run); err != nil {
+	if err := j.Append(context.Background(), run); err == nil {
+		t.Fatal("Append accepted a skipped transition")
+	}
+}
+
+func TestCompactionFileJournalRejectsTruncationAndImmutableTamper(t *testing.T) {
+	dir := t.TempDir()
+	j := &CompactionFileJournal{Dir: dir}
+	now := time.Now()
+	run := domain.CompactionRun{ID: "abcdef0123456789abcdef0123456789", SourcePath: "/a", CandidatePath: "/b", RollbackPath: "/c", SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 2, Size: 3}, Resources: domain.CompactionResourcePlan{RequiredBytes: 4, DestinationBytes: 3, FilesystemDevice: 1, LeaseCapability: true, ExchangeCapability: true}, Phase: domain.CompactionPlanned, CreatedAt: now, UpdatedAt: now}
+	if err := j.Create(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	tampered := run
+	tampered.SourcePath = "/other"
+	tampered.Phase = domain.CompactionCopyIntent
+	tampered.UpdatedAt = now.Add(time.Second)
+	if err := j.Append(context.Background(), tampered); err == nil {
+		t.Fatal("Append accepted immutable path tamper")
+	}
+	path := filepath.Join(dir, run.ID+".jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data[:len(data)-1], 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := j.Load(context.Background(), run.ID); err == nil {
-		t.Fatal("Load accepted a skipped transition")
+		t.Fatal("Load accepted truncated final record")
+	}
+}
+
+func TestValidateRunAppendCandidateIdentityIsWriteOnce(t *testing.T) {
+	now := time.Now()
+	previous := domain.CompactionRun{ID: "id", SourcePath: "s", CandidatePath: "c", RollbackPath: "r", SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 1}, Candidate: domain.StoreFileIdentity{Device: 1, Inode: 2}, Phase: domain.CompactionCandidateVerified, CreatedAt: now, UpdatedAt: now}
+	next := previous
+	next.Phase = domain.CompactionSwapIntent
+	next.UpdatedAt = now.Add(time.Second)
+	next.Candidate.Inode = 3
+	if err := validateRunAppend(previous, next); err == nil {
+		t.Fatal("accepted candidate identity mutation")
 	}
 }
 
@@ -99,5 +137,18 @@ func TestStoreReplacementFilesRejectsCandidateReplacementAfterVerification(t *te
 	got, _ := os.ReadFile(source)
 	if string(got) != "source" {
 		t.Fatal("source changed after rejected exchange")
+	}
+}
+
+func TestCompactionRequiredBytesIsOverflowSafe(t *testing.T) {
+	if _, _, err := compactionRequiredBytes(-1); err == nil {
+		t.Fatal("accepted negative size")
+	}
+	required, margin, err := compactionRequiredBytes(100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if required != uint64(100)+(64<<20) || margin != 64<<20 {
+		t.Fatalf("required=%d margin=%d", required, margin)
 	}
 }

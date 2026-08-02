@@ -23,10 +23,11 @@ type StoreCompactionBuilder interface {
 // StoreReplacementCoordinator owns file identity and atomic exchange.
 type StoreReplacementCoordinator interface {
 	Plan(context.Context, domain.CompactionRun) (domain.CompactionRun, error)
+	Recheck(context.Context, domain.CompactionRun) error
 	FenceCandidate(context.Context, domain.CompactionRun) (domain.CompactionRun, error)
 	Exchange(context.Context, domain.CompactionRun) error
 	PublishRollback(context.Context, domain.CompactionRun) error
-	Orientation(context.Context, domain.CompactionRun) (domain.CompactionPhase, error)
+	Observe(context.Context, domain.CompactionRun) (domain.CompactionObservation, error)
 }
 
 // StoreCompactionLease excludes every cooperating normal connection for apply.
