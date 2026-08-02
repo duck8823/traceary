@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -77,18 +78,14 @@ func TestLiteralSearchPageReturnsPartialCoverageAndAdvancingZeroMatchCursor(t *t
 	if len(page.Events) != 0 || page.Coverage.Complete || page.Continuation == "" || page.PartialReason != "source_rows" {
 		t.Fatalf("page = %+v", page)
 	}
-	cursor, err := apptypes.DecodeLiteralSearchCursor(page.Continuation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cursor.LastSequence == 0 {
+	if page.Coverage.ProcessedSources == 0 {
 		t.Fatal("zero-match continuation did not advance")
 	}
-	page2, err := sut.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 1, StoredBytes: 1024, DecodedBytes: 1024}, Continuation: page.Continuation})
+	page2, err := sut.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 10, StoredBytes: 4096, DecodedBytes: 4096}, Continuation: page.Continuation})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page2.Coverage.ProcessedSources <= page.Coverage.ProcessedSources || page2.Continuation == "" {
+	if page2.Coverage.ProcessedSources <= page.Coverage.ProcessedSources || !page2.Coverage.Complete {
 		t.Fatalf("resumed page = %+v", page2)
 	}
 }
@@ -114,5 +111,48 @@ func TestLiteralSearchPageVerifiesUnicodeCaseAgainstCanonicalVisibleText(t *test
 	}
 	if page.Tier != apptypes.LiteralSearchTierBoundedVerification || !page.Coverage.Complete {
 		t.Fatalf("page = %+v", page)
+	}
+}
+
+func TestLiteralSearchContinuationRejectsMembershipRevisionAndUnsupportedOffset(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	event := model.EventOf(mustEventIDForSQLite(t, "literal-revision"), types.EventKindNote, types.Client("hook"), mustAgentForSQLite(t, "codex"), mustSessionIDForSQLite(t, "literal-session"), types.Workspace("workspace-a"), "needle body", time.Now().UTC())
+	if err := sut.Save(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	second := model.EventOf(mustEventIDForSQLite(t, "literal-revision-second"), types.EventKindNote, types.Client("hook"), mustAgentForSQLite(t, "codex"), mustSessionIDForSQLite(t, "literal-session"), types.Workspace("workspace-b"), "other body", time.Now().UTC())
+	if err := sut.Save(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	criteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("absent").Workspace(types.Workspace("workspace-a")).Build()
+	request := apptypes.LiteralSearchRequest{Criteria: criteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 1, StoredBytes: 1024, DecodedBytes: 1024}, BodyRuneLimit: 20}
+	page, err := sut.SearchLiteralPage(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Continuation == "" {
+		t.Fatal("missing continuation")
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE events SET workspace='workspace-b' WHERE id='literal-revision'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	request.Continuation = page.Continuation
+	if _, err = sut.SearchLiteralPage(ctx, request); !errors.Is(err, apptypes.ErrLiteralSearchCursorMismatch) {
+		t.Fatalf("revision resume error=%v", err)
+	}
+	offset := apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Offset(1).Build()
+	if _, err = sut.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: offset, Budget: request.Budget}); err == nil {
+		t.Fatal("offset accepted")
 	}
 }

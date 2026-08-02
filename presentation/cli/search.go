@@ -202,7 +202,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		if input.deep {
 			budget = apptypes.DeepLiteralSearchBudget
 		}
-		page, searchErr := c.tieredSearch.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: budget, Continuation: input.continuation})
+		page, searchErr := c.tieredSearch.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: budget, Continuation: input.continuation, BodyRuneLimit: 500})
 		if searchErr != nil {
 			return xerrors.Errorf("failed to search tiered literal preview: %w", searchErr)
 		}

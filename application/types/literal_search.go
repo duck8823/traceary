@@ -1,19 +1,22 @@
 package types
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 const (
 	// LiteralFingerprintBytes is the fixed persisted fingerprint width.
 	LiteralFingerprintBytes = 16
 	// LiteralSearchCursorVersion identifies the continuation envelope.
-	LiteralSearchCursorVersion = 1
+	LiteralSearchCursorVersion  = 1
+	maxLiteralQueryFingerprints = 128
 )
 
 // LiteralQuery owns the normalization shared by candidate construction and
@@ -27,9 +30,16 @@ type LiteralQuery struct {
 
 // CharacterizeLiteralQuery normalizes a literal and derives safe fingerprints.
 func CharacterizeLiteralQuery(raw string) LiteralQuery {
-	canonical := strings.ToLower(strings.TrimSpace(raw))
+	canonical := foldLiteralASCII(strings.TrimSpace(raw))
 	runes := []rune(canonical)
-	q := LiteralQuery{canonical: canonical, filterable: len(runes) >= 3}
+	caseStable := true
+	for _, r := range runes {
+		if r > unicode.MaxASCII && (unicode.ToLower(r) != r || unicode.ToUpper(r) != r) {
+			caseStable = false
+			break
+		}
+	}
+	q := LiteralQuery{canonical: canonical, filterable: len(runes) >= 3 && caseStable}
 	if !q.filterable {
 		return q
 	}
@@ -42,8 +52,22 @@ func CharacterizeLiteralQuery(raw string) LiteralQuery {
 		}
 		seen[fp] = struct{}{}
 		q.fingerprints = append(q.fingerprints, fp)
+		if len(q.fingerprints) > maxLiteralQueryFingerprints {
+			q.filterable = false
+			q.fingerprints = nil
+			break
+		}
 	}
 	return q
+}
+
+func foldLiteralASCII(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, value)
 }
 
 // Canonical returns verification text.
@@ -73,6 +97,7 @@ const (
 // LiteralSearchCoverage describes fully processed source coverage.
 type LiteralSearchCoverage struct {
 	ProcessedSources int64 `json:"processed_sources"`
+	ExaminedSources  int64 `json:"examined_sources"`
 	HighWater        int64 `json:"high_water"`
 	Complete         bool  `json:"complete"`
 }
@@ -96,9 +121,10 @@ func (b LiteralSearchBudget) Valid() bool {
 
 // LiteralSearchRequest is the sibling tier-aware query contract.
 type LiteralSearchRequest struct {
-	Criteria     EventSearchCriteria
-	Budget       LiteralSearchBudget
-	Continuation string
+	Criteria      EventSearchCriteria
+	Budget        LiteralSearchBudget
+	Continuation  string
+	BodyRuneLimit int
 }
 
 // LiteralSearchPage exposes matches and honest completeness metadata.
@@ -121,6 +147,52 @@ type LiteralSearchCursor struct {
 	Generation    string `json:"generation"`
 	HighWater     int64  `json:"high_water"`
 	QueryRevision int64  `json:"query_revision"`
+}
+
+type authenticatedLiteralCursor struct {
+	Cursor LiteralSearchCursor `json:"cursor"`
+	MAC    string              `json:"mac"`
+}
+
+// EncodeAuthenticated serializes a cursor with a store-owned integrity MAC.
+func (c LiteralSearchCursor) EncodeAuthenticated(key []byte) (string, error) {
+	payload, err := json.Marshal(c)
+	if err != nil {
+		return "", fmt.Errorf("encode literal cursor payload: %w", err)
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(payload)
+	envelope, err := json.Marshal(authenticatedLiteralCursor{Cursor: c, MAC: base64.RawURLEncoding.EncodeToString(mac.Sum(nil))})
+	if err != nil {
+		return "", fmt.Errorf("encode authenticated literal cursor: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(envelope), nil
+}
+
+// DecodeAuthenticatedLiteralSearchCursor verifies store ownership and integrity.
+func DecodeAuthenticatedLiteralSearchCursor(value string, key []byte) (LiteralSearchCursor, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return LiteralSearchCursor{}, ErrLiteralSearchCursorMismatch
+	}
+	var env authenticatedLiteralCursor
+	if json.Unmarshal(raw, &env) != nil {
+		return LiteralSearchCursor{}, ErrLiteralSearchCursorMismatch
+	}
+	payload, err := json.Marshal(env.Cursor)
+	if err != nil {
+		return LiteralSearchCursor{}, ErrLiteralSearchCursorMismatch
+	}
+	got, err := base64.RawURLEncoding.DecodeString(env.MAC)
+	if err != nil {
+		return LiteralSearchCursor{}, ErrLiteralSearchCursorMismatch
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(payload)
+	if !hmac.Equal(got, mac.Sum(nil)) || env.Cursor.Version != LiteralSearchCursorVersion || env.Cursor.LastSequence < 0 {
+		return LiteralSearchCursor{}, ErrLiteralSearchCursorMismatch
+	}
+	return env.Cursor, nil
 }
 
 // Encode serializes a URL-safe opaque continuation.

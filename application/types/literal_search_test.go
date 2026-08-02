@@ -1,6 +1,8 @@
 package types_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -18,6 +20,7 @@ func TestLiteralQueryCharacterizationAndFingerprints(t *testing.T) {
 		{"identifier", "evt_01JABC", true},
 		{"error fragment", "EOF: reset", true},
 		{"short", "ßx", false},
+		{"unicode case mapping", "ΟΣΣ", false},
 		{"empty", "  ", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,5 +103,39 @@ func TestLiteralSearchCursorBindsCriteriaAndProjection(t *testing.T) {
 	}
 	if err := decoded.Validate("changed", "g1", 90, 3); err == nil {
 		t.Fatal("Validate() error = nil")
+	}
+}
+
+func TestLiteralSearchCursorAuthenticationRejectsTampering(t *testing.T) {
+	t.Parallel()
+	key := []byte("01234567890123456789012345678901")
+	cursor := apptypes.LiteralSearchCursor{Version: 1, LastSequence: 42, CriteriaHash: "criteria", Generation: "g", HighWater: 90, QueryRevision: 3}
+	encoded, err := cursor.EncodeAuthenticated(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := apptypes.DecodeAuthenticatedLiteralSearchCursor(encoded, key)
+	if err != nil || decoded != cursor {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
+	raw := []byte(encoded)
+	if raw[len(raw)-1] == 'A' {
+		raw[len(raw)-1] = 'B'
+	} else {
+		raw[len(raw)-1] = 'A'
+	}
+	if _, err := apptypes.DecodeAuthenticatedLiteralSearchCursor(string(raw), key); err == nil {
+		t.Fatal("tampered cursor accepted")
+	}
+}
+
+func TestLiteralQueryOversizeFingerprintSetFallsBackToInclusiveVerification(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	for i := 0; i < 300; i++ {
+		fmt.Fprintf(&b, "%03x", i)
+	}
+	if apptypes.CharacterizeLiteralQuery(b.String()).Filterable() {
+		t.Fatal("oversize query remained filterable")
 	}
 }

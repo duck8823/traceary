@@ -841,11 +841,30 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 				to = time.Time{}
 			}
 			criteria := apptypes.NewEventSearchCriteriaBuilder(normalizedEventPageLimit(input.Limit)).Query(strings.TrimSpace(input.Query)).Workspace(types.Workspace(strings.TrimSpace(input.Workspace))).From(from).To(to).Build()
+			if projection == apptypes.EventProjectionFull {
+				return nil, eventsOutput{}, xerrors.Errorf("tiered preview does not support full projection")
+			}
+			responseBudget, budgetErr := apptypes.NewEventResponseBudget(normalizedEventPageLimit(input.Limit), bodyLimit)
+			if budgetErr != nil {
+				return nil, eventsOutput{}, xerrors.Errorf("resolve tiered response budget: %w", budgetErr)
+			}
+			effectiveBodyLimit := bodyLimit
+			if projection == apptypes.EventProjectionMetadata {
+				effectiveBodyLimit = 1
+			} else {
+				safe := responseBudget.AggregateBodyBytes() / (normalizedEventPageLimit(input.Limit) * 6)
+				if safe < 1 {
+					safe = 1
+				}
+				if effectiveBodyLimit > safe {
+					effectiveBodyLimit = safe
+				}
+			}
 			budget := apptypes.NormalLiteralSearchBudget
 			if input.Deep {
 				budget = apptypes.DeepLiteralSearchBudget
 			}
-			literalPage, searchErr := s.tieredSearch.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: budget, Continuation: input.Continuation})
+			literalPage, searchErr := s.tieredSearch.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: budget, Continuation: input.Continuation, BodyRuneLimit: effectiveBodyLimit})
 			if searchErr != nil {
 				return nil, eventsOutput{}, xerrors.Errorf("failed to search tiered literal preview: %w", searchErr)
 			}
@@ -854,8 +873,18 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 				reasons = append(reasons, literalPage.PartialReason)
 			}
 			converted := convertBoundedEvents(literalPage.Events)
+			if projection == apptypes.EventProjectionMetadata {
+				for i := range converted {
+					converted[i].Body = nil
+					converted[i].BodyBlocks = nil
+				}
+			}
 			intervalOut := newIntervalOutput(interval)
-			return nil, eventsOutput{Events: converted, Interval: &intervalOut, Coverage: eventCoverageOutput{CandidateCount: int(literalPage.Coverage.ProcessedSources), ReturnedCount: len(converted)}, Partial: !literalPage.Coverage.Complete, Reasons: reasons, Continuation: literalPage.Continuation, Tier: string(literalPage.Tier)}, nil
+			bodyBytes := 0
+			for _, event := range converted {
+				bodyBytes += encodedEventBodyBytes(event)
+			}
+			return nil, eventsOutput{Events: converted, Interval: &intervalOut, Coverage: eventCoverageOutput{CandidateCount: int(literalPage.Coverage.ExaminedSources), ReturnedCount: len(converted), AggregateBodyBytes: bodyBytes, AggregateBodyBudget: responseBudget.AggregateBodyBytes()}, Partial: !literalPage.Coverage.Complete, Reasons: reasons, Continuation: literalPage.Continuation, Tier: string(literalPage.Tier)}, nil
 		}
 		snapshotAt := time.Now().UTC()
 		continuation, err := resolveEventContinuation("search", input.Continuation)

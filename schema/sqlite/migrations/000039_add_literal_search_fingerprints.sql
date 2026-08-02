@@ -8,6 +8,7 @@ CREATE TABLE literal_search_projection_state(
  fingerprint_version INTEGER NOT NULL DEFAULT 1,
  state TEXT NOT NULL DEFAULT 'missing' CHECK(state IN('missing','rebuilding','complete','stale')),
  updated_at TEXT NOT NULL
+	,cursor_key BLOB NOT NULL DEFAULT (randomblob(32)) CHECK(length(cursor_key)=32)
 );
 INSERT INTO literal_search_projection_state(singleton,updated_at)
 VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
@@ -29,7 +30,7 @@ ON literal_search_fingerprints(generation_id,fingerprint,source_sequence,event_i
 CREATE TRIGGER literal_search_event_insert AFTER INSERT ON events BEGIN
  UPDATE literal_search_projection_state SET query_revision=query_revision+1,state='stale',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE singleton=1;
 END;
-CREATE TRIGGER literal_search_event_update AFTER UPDATE OF body,body_availability ON events BEGIN
+CREATE TRIGGER literal_search_event_update AFTER UPDATE OF workspace,client,agent,session_id,kind,created_at,body,body_availability ON events BEGIN
  UPDATE literal_search_projection_state SET query_revision=query_revision+1,state='stale',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE singleton=1;
 END;
 CREATE TRIGGER literal_search_event_delete AFTER DELETE ON events BEGIN
