@@ -103,12 +103,81 @@ func TestLiteralSearchPageReturnsPartialCoverageAndAdvancingZeroMatchCursor(t *t
 	if page.Coverage.ProcessedSources == 0 {
 		t.Fatal("zero-match continuation did not advance")
 	}
+	if page.Coverage.ExaminedSources != 1 {
+		t.Fatalf("source sentinel was examined: coverage=%+v", page.Coverage)
+	}
 	page2, err := sut.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 10, StoredBytes: 4096, DecodedBytes: 4096}, Continuation: page.Continuation})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if page2.Coverage.ProcessedSources <= page.Coverage.ProcessedSources || !page2.Coverage.Complete {
 		t.Fatalf("resumed page = %+v", page2)
+	}
+}
+
+func TestLiteralSearchPageResultLimitAcceptsMatchWithResumeBefore(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sut, store := newEventDatasource(t, filepath.Join(t.TempDir(), "traceary.db"), onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"literal-result-a", "literal-result-b"} {
+		event := model.EventOf(mustEventIDForSQLite(t, id), types.EventKindNote, types.Client("hook"), mustAgentForSQLite(t, "codex"), mustSessionIDForSQLite(t, "literal-session"), types.Workspace("literal-workspace"), "needle", time.Now().UTC())
+		if err := sut.Save(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	criteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Workspace(types.Workspace("literal-workspace")).Build()
+	request := apptypes.LiteralSearchRequest{Criteria: criteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 10, StoredBytes: 4096, DecodedBytes: 4096}}
+	page, err := sut.SearchLiteralPage(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) != 1 || len(page.Matches) != 1 || page.Matches[0].ResumeBefore == "" || page.PartialReason != "result_limit" {
+		t.Fatalf("page=%+v matches=%+v", page, page.Matches)
+	}
+	request.Continuation = page.Matches[0].ResumeBefore
+	retry, err := sut.SearchLiteralPage(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retry.Events) != 1 || retry.Events[0].Metadata().EventID() != page.Events[0].Metadata().EventID() {
+		t.Fatalf("resume-before did not retry accepted match: first=%+v retry=%+v", page.Events, retry.Events)
+	}
+}
+
+func TestLiteralSearchPageExcludesHydrationOversizeAfterProgress(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fixtures := []struct{ id, workspace, body string }{{"literal-skipped", "other", "ignored"}, {"literal-oversize", "target", "needle payload for hydration"}}
+	for _, fixture := range fixtures {
+		event := model.EventOf(mustEventIDForSQLite(t, fixture.id), types.EventKindNote, types.Client("hook"), mustAgentForSQLite(t, "codex"), mustSessionIDForSQLite(t, "literal-session"), types.Workspace(fixture.workspace), fixture.body, time.Now().UTC())
+		if err := sut.Save(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var stored, decoded int64
+	if err := db.QueryRow(`SELECT COALESCE(body_encoded_bytes,length(body),0),COALESCE(body_plaintext_bytes,length(body),0) FROM events WHERE id='literal-oversize'`).Scan(&stored, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	criteria := apptypes.NewEventSearchCriteriaBuilder(2).Query("needle").Workspace(types.Workspace("target")).Build()
+	page, err := sut.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: criteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 10, StoredBytes: stored, DecodedBytes: decoded}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) != 0 || page.PartialReason != "verified_hydration_bytes" || page.Coverage.ProcessedSources != 1 || page.Coverage.ExaminedSources != 2 {
+		t.Fatalf("page=%+v", page)
 	}
 }
 
