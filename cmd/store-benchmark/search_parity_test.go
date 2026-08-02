@@ -559,11 +559,43 @@ func TestParityV2BindingIsKeyedAndEvidenceIsCriterionScoped(t *testing.T) {
 	if err := validateSearchParityJSON(encoded); err != nil {
 		t.Fatalf("validateSearchParityJSON(v2) error = %v", err)
 	}
+	for name, crafted := range map[string][]byte{
+		"alias first":     bytes.Replace(encoded, []byte(`"query_class":"fingerprint_eligible"`), []byte(`"QUERY_CLASS":"bounded_verification","query_class":"fingerprint_eligible"`), 1),
+		"alias last":      bytes.Replace(encoded, []byte(`"query_class":"fingerprint_eligible"`), []byte(`"query_class":"fingerprint_eligible","QUERY_CLASS":"bounded_verification"`), 1),
+		"duplicate first": bytes.Replace(encoded, []byte(`"query_class":"fingerprint_eligible"`), []byte(`"query_class":"bounded_verification","query_class":"fingerprint_eligible"`), 1),
+		"duplicate last":  bytes.Replace(encoded, []byte(`"query_class":"fingerprint_eligible"`), []byte(`"query_class":"fingerprint_eligible","query_class":"bounded_verification"`), 1),
+	} {
+		if err := validateSearchParityJSON(crafted); err == nil {
+			t.Fatalf("%s crafted criterion accepted", name)
+		}
+	}
 	suite.Criteria[1].QueryClass = "fingerprint_eligible"
 	if validParityV2EvidenceShape(suite) {
 		t.Fatal("duplicated query class was accepted")
 	}
 	if validParityV2EvidenceShape(parityV2EvidenceSuite{SchemaVersion: searchParitySchema}) {
 		t.Fatal("v1 evidence was accepted as v2")
+	}
+}
+
+func TestSearchParityArtifactPreflightBoundsAllocation(t *testing.T) {
+	if err := validateSearchParityJSON(bytes.Repeat([]byte(" "), maxParityArtifactBytes+1)); err == nil {
+		t.Fatal("oversized artifact accepted")
+	}
+	criteria := strings.Repeat(`{},`, maxParityCriteriaCount) + `{}`
+	hugeCriteria := []byte(`{"schema_version":"traceary.tiered-search-parity/v2","criteria":[` + criteria + `]}`)
+	if err := validateSearchParityJSON(hugeCriteria); err == nil {
+		t.Fatal("oversized criteria array accepted")
+	}
+	deep := strings.Repeat(`{"x":`, maxParityJSONDepth+2) + `0` + strings.Repeat(`}`, maxParityJSONDepth+2)
+	if err := validateSearchParityJSON([]byte(deep)); err == nil {
+		t.Fatal("deeply nested artifact accepted")
+	}
+	path := filepath.Join(t.TempDir(), "oversized.json")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), maxParityArtifactBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSearchParityFile(path); err == nil {
+		t.Fatal("oversized artifact file accepted")
 	}
 }

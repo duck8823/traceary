@@ -26,6 +26,9 @@ const (
 	searchParityV2Schema   = "traceary.tiered-search-parity/v2"
 	membershipSetContract  = "membership_set/v1"
 	maxParityManifestBytes = 1 << 20
+	maxParityArtifactBytes = 1 << 20
+	maxParityCriteriaCount = 16
+	maxParityJSONDepth     = 16
 	maxParityPageSize      = 10_000
 	maxParityTimeoutMS     = int64((24 * time.Hour) / time.Millisecond)
 )
@@ -249,8 +252,9 @@ func manifestJSONKeys() jsonObjectSchema {
 // validateJSONObjectKeys closes encoding/json's case-insensitive field-name
 // matching. Each object is checked against its exact, case-sensitive schema.
 type jsonObjectSchema struct {
-	required map[string]any
-	optional map[string]any
+	required     map[string]any
+	optional     map[string]any
+	arrayElement *jsonObjectSchema
 }
 
 func validateJSONObjectKeys(data []byte, schema jsonObjectSchema) error {
@@ -280,7 +284,17 @@ func validateJSONObjectKeys(data []byte, schema jsonObjectSchema) error {
 				return errors.New("unknown JSON field")
 			}
 			if nestedSchema, ok := nested.(jsonObjectSchema); ok {
-				if err := walk(child, nestedSchema); err != nil {
+				if nestedSchema.arrayElement != nil {
+					array, ok := child.([]any)
+					if !ok {
+						return errors.New("JSON array required")
+					}
+					for _, element := range array {
+						if err := walk(element, *nestedSchema.arrayElement); err != nil {
+							return err
+						}
+					}
+				} else if err := walk(child, nestedSchema); err != nil {
 					return err
 				}
 			}
@@ -739,14 +753,22 @@ func readParityProjection(ctx context.Context, path string) (parityProjection, e
 }
 
 func validateSearchParityFile(path string) error {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
+		return errors.New("read search parity artifact")
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, maxParityArtifactBytes+1))
+	if err != nil || len(data) > maxParityArtifactBytes {
 		return errors.New("read search parity artifact")
 	}
 	return validateSearchParityJSON(data)
 }
 
 func validateSearchParityJSON(data []byte) error {
+	if len(data) > maxParityArtifactBytes || rejectDuplicateJSONKeys(data) != nil || validateParityJSONBounds(data) != nil {
+		return errors.New("invalid search parity JSON")
+	}
 	forbidden := map[string]bool{"query": true, "id": true, "event_id": true, "path": true, "db_path": true, "cursor": true, "continuation": true, "error": true, "error_message": true}
 	var raw any
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -859,12 +881,13 @@ func validateParityV2JSON(data []byte) error {
 		return jsonObjectSchema{required: required, optional: map[string]any{}}
 	}
 	criterion := leaf("query_class", "criterion_binding", "status", "comparison_equal", "coverage_complete")
+	criteriaArray := jsonObjectSchema{required: map[string]any{}, optional: map[string]any{}, arrayElement: &criterion}
 	schema := jsonObjectSchema{required: map[string]any{
 		"schema_version": nil, "target_store_binding": nil,
 		"revision":   leaf("commit", "dirty"),
 		"projection": leaf("revision", "high_water", "logical_bytes", "physical_bytes"),
 		// Array element semantics are checked after strict decoding.
-		"criteria": nil,
+		"criteria": criteriaArray,
 	}, optional: map[string]any{}}
 	if err := validateJSONObjectKeys(data, schema); err != nil {
 		return errors.New("invalid search parity v2 schema")
@@ -873,13 +896,63 @@ func validateParityV2JSON(data []byte) error {
 	if err := decodeStrictJSON(data, &suite); err != nil {
 		return errors.New("invalid search parity v2 schema")
 	}
-	// encoding/json strictness applies to the slice elements; retain the local
-	// schema variable as an executable inventory against accidental field drift.
-	_ = criterion
 	if !validParityV2EvidenceShape(suite) {
 		return errors.New("invalid search parity v2 evidence")
 	}
 	return nil
+}
+
+func validateParityJSONBounds(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	criteriaDepth := -1
+	criteriaCount := 0
+	var walk func(depth int) error
+	walk = func(depth int) error {
+		if depth > maxParityJSONDepth {
+			return errors.New("JSON nesting exceeds limit")
+		}
+		token, err := decoder.Token()
+		if err != nil {
+			return fmt.Errorf("read bounded JSON token: %w", err)
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delim {
+		case '{':
+			for decoder.More() {
+				key, keyErr := decoder.Token()
+				if keyErr != nil {
+					return fmt.Errorf("read bounded JSON key: %w", keyErr)
+				}
+				if key == "criteria" {
+					criteriaDepth = depth + 1
+				}
+				if err := walk(depth + 1); err != nil {
+					return err
+				}
+			}
+		case '[':
+			for decoder.More() {
+				if depth == criteriaDepth {
+					criteriaCount++
+					if criteriaCount > maxParityCriteriaCount {
+						return errors.New("criteria count exceeds limit")
+					}
+				}
+				if err := walk(depth + 1); err != nil {
+					return err
+				}
+			}
+		}
+		_, err = decoder.Token()
+		if err != nil {
+			return fmt.Errorf("close bounded JSON value: %w", err)
+		}
+		return nil
+	}
+	return walk(0)
 }
 
 func pristinePreStoreEvidence(a searchParityArtifact) bool {
