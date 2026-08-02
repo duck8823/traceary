@@ -41,7 +41,7 @@ func TestSearchParitySyntheticExhaustsBothChainsWithoutPrivateOutput(t *testing.
 		t.Fatal(err)
 	}
 	if err := validateSearchParityJSON(data); err != nil {
-		t.Fatalf("validate generated artifact: %v", err)
+		t.Fatalf("validate generated artifact: %v: %+v", err, artifact)
 	}
 	for _, private := range []string{manifest.Query, manifest.Workspace, path, "synthetic-keep", `"continuation":`, `"cursor":`} {
 		if strings.Contains(string(data), private) {
@@ -53,7 +53,7 @@ func TestSearchParitySyntheticExhaustsBothChainsWithoutPrivateOutput(t *testing.
 func TestSearchParityRejectsRevisionMismatchBeforeStoreAccess(t *testing.T) {
 	artifact := runSearchParity(context.Background(), searchParityManifest{
 		DBPath: "/private/path-must-not-be-opened", Query: "private-query", LegacyPageSize: 1, TieredPageSize: 1,
-		SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1, ExpectedRevision: "different", ExpectedDirty: boolPointer(false),
+		SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1, ExpectedRevision: strings.Repeat("b", 40), ExpectedDirty: boolPointer(false),
 	})
 	if artifact.Status != "failed" || artifact.ErrorClass != "revision_mismatch" {
 		t.Fatalf("artifact=%+v", artifact)
@@ -61,7 +61,7 @@ func TestSearchParityRejectsRevisionMismatchBeforeStoreAccess(t *testing.T) {
 }
 
 func TestSearchParityManifestRequiresPrivateFileAndRejectsUnknownFields(t *testing.T) {
-	valid := `{"db_path":"x","query":"q","legacy_page_size":1,"tiered_page_size":1,"source_rows":1,"stored_bytes":1,"decoded_bytes":1,"timeout_ms":1,"expected_revision":"r","expected_dirty":false}`
+	valid := `{"db_path":"x","query":"q","legacy_page_size":1,"tiered_page_size":1,"source_rows":1,"stored_bytes":1,"decoded_bytes":1,"timeout_ms":1,"expected_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_dirty":false}`
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	if err := os.WriteFile(path, []byte(valid), 0o644); err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestSearchParityArtifactValidatorIsStrictAndPrivacyFailClosed(t *testing.T)
 		SchemaVersion: searchParitySchema, ComparisonContract: membershipSetContract, Status: "passed",
 		Revision: parityRevision{Commit: strings.Repeat("a", 40)}, Legacy: parityChain{Pages: 1, Members: 1, LatencyUS: 1},
 		Tiered: parityChain{Pages: 1, Members: 1, LatencyUS: 1, QueryClass: "fingerprint_eligible", ObservedTier: "historical_fingerprint", Coverage: parityCoverage{Processed: 1, Examined: 1, HighWater: 1, Complete: true}}, Comparison: parityComparison{Equal: true},
-		Projection: parityProjection{LogicalBytes: 1, PhysicalBytes: 1}, Budget: parityBudget{SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1},
+		Projection: parityProjection{Revision: 1, HighWater: 1, LogicalBytes: 1, PhysicalBytes: 1}, Budget: parityBudget{SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1},
 	}
 	data, _ := json.Marshal(base)
 	if err := validateSearchParityJSON(data); err != nil {
@@ -258,6 +258,118 @@ func TestStrictJSONRejectsDuplicateKeys(t *testing.T) {
 	input := `{"db_path":"x","db_path":"y","query":"q","legacy_page_size":1,"tiered_page_size":1,"source_rows":1,"stored_bytes":1,"decoded_bytes":1,"timeout_ms":1,"expected_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_dirty":false}`
 	if _, err := readSearchParityManifest("-", bytes.NewBufferString(input)); err == nil {
 		t.Fatal("duplicate key accepted")
+	}
+}
+
+func TestStrictJSONRejectsCaseAliasesAtEveryObject(t *testing.T) {
+	manifest := `{"DB_PATH":"x","query":"q","legacy_page_size":1,"tiered_page_size":1,"source_rows":1,"stored_bytes":1,"decoded_bytes":1,"timeout_ms":1,"expected_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_dirty":false}`
+	if _, err := readSearchParityManifest("-", bytes.NewBufferString(manifest)); err == nil {
+		t.Fatal("manifest alias accepted")
+	}
+	base := validSearchParityArtifact()
+	data, _ := json.Marshal(base)
+	for _, alias := range []struct{ old, replacement string }{
+		{`"status":`, `"STATUS":`}, {`"commit":`, `"COMMIT":`}, {`"pages":`, `"PAGES":`}, {`"logical_bytes":`, `"LOGICAL_BYTES":`},
+	} {
+		if validateSearchParityJSON(bytes.Replace(data, []byte(alias.old), []byte(alias.replacement), 1)) == nil {
+			t.Fatalf("artifact alias accepted: %s", alias.replacement)
+		}
+	}
+}
+
+func validSearchParityArtifact() searchParityArtifact {
+	return searchParityArtifact{SchemaVersion: searchParitySchema, ComparisonContract: membershipSetContract, Status: "passed", Revision: parityRevision{Commit: strings.Repeat("a", 40)}, Legacy: parityChain{Pages: 1, Members: 2, LatencyUS: 1}, Tiered: parityChain{Pages: 1, Members: 2, LatencyUS: 1, QueryClass: "fingerprint_eligible", ObservedTier: "historical_fingerprint", Coverage: parityCoverage{Processed: 1, Examined: 1, HighWater: 1, Complete: true}}, Comparison: parityComparison{Equal: true}, Projection: parityProjection{Revision: 1, HighWater: 1, LogicalBytes: 1, PhysicalBytes: 1}, Budget: parityBudget{SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1}}
+}
+
+func TestSearchParitySemanticValidatorRejectsCraftedEvidence(t *testing.T) {
+	for name, mutate := range map[string]func(*searchParityArtifact){
+		"failed without lower bound": func(a *searchParityArtifact) {
+			a.Status = "failed"
+			a.ErrorClass = "search_failed"
+			a.Comparison = parityComparison{}
+			a.Legacy.LatencyUS, a.Tiered.LatencyUS = 0, 0
+		},
+		"failed with latency": func(a *searchParityArtifact) {
+			a.Status = "failed"
+			a.ErrorClass = "search_failed"
+			a.Comparison = parityComparison{}
+			a.ElapsedLowerBoundUS = 1
+		},
+		"impossible mismatch": func(a *searchParityArtifact) {
+			a.Status = "mismatch"
+			a.Comparison = parityComparison{LegacyOnly: 3, Equal: false}
+		},
+		"negative continuation": func(a *searchParityArtifact) { a.Tiered.ContinuationCount = -1 },
+		"huge continuation":     func(a *searchParityArtifact) { a.Tiered.ContinuationCount = 100 },
+		"negative coverage":     func(a *searchParityArtifact) { a.Tiered.Coverage.Examined = -1 },
+		"incomplete coverage":   func(a *searchParityArtifact) { a.Tiered.Coverage.Complete = false },
+		"zero projection":       func(a *searchParityArtifact) { a.Projection = parityProjection{} },
+		"negative projection":   func(a *searchParityArtifact) { a.Projection.Revision = -1 },
+		"partial complete":      func(a *searchParityArtifact) { a.Tiered.PartialReason = "source_rows" },
+		"invalid class tier":    func(a *searchParityArtifact) { a.Tiered.QueryClass = "bounded_verification" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := validSearchParityArtifact()
+			mutate(&a)
+			data, _ := json.Marshal(a)
+			if validateSearchParityJSON(data) == nil {
+				t.Fatalf("crafted evidence accepted: %s", data)
+			}
+		})
+	}
+}
+
+func TestTieredProgressRejectsTerminalCoverageViolations(t *testing.T) {
+	for name, page := range map[string]apptypes.LiteralSearchPage{
+		"negative processed":          {Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: -1, HighWater: 1}},
+		"processed beyond high-water": {Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: 2, HighWater: 1}},
+		"complete before high-water":  {Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: 1, HighWater: 2, Complete: true}},
+		"complete partial":            {Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: 1, HighWater: 1, Complete: true}, PartialReason: "source_rows"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if (&tieredProgress{}).observe(page) == nil {
+				t.Fatal("invalid terminal progress accepted")
+			}
+		})
+	}
+}
+
+func TestSearchParityManifestValidationPrecedesRevisionAndStore(t *testing.T) {
+	original := parityRevisionReader
+	called := false
+	parityRevisionReader = func(context.Context) (parityRevision, error) { called = true; return parityRevision{}, nil }
+	t.Cleanup(func() { parityRevisionReader = original })
+	a := runSearchParity(context.Background(), searchParityManifest{DBPath: "private", Query: strings.Repeat("x", apptypes.MaxLiteralSearchQueryBytes+1), LegacyPageSize: 1, TieredPageSize: 1, SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1, ExpectedRevision: strings.Repeat("a", 40), ExpectedDirty: boolPointer(false)})
+	data, _ := json.Marshal(a)
+	if called || a.ErrorClass != "manifest_invalid" || validateSearchParityJSON(data) != nil {
+		t.Fatalf("artifact=%s called=%v", data, called)
+	}
+}
+
+func TestSearchParityRunnerMixedTimeoutAndFailureRoundTripsAsFailed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mixed.db")
+	if _, err := createSynthetic(context.Background(), path, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	originalRevision, originalProjection := parityRevisionReader, parityProjectionReader
+	originalLegacy, originalTiered := legacyParityCollector, tieredParityCollector
+	parityRevisionReader = func(context.Context) (parityRevision, error) {
+		return parityRevision{Commit: strings.Repeat("a", 40)}, nil
+	}
+	legacyParityCollector = func(context.Context, string, parityCriteria, int, *parityChain) (map[string]struct{}, error) {
+		return nil, context.DeadlineExceeded
+	}
+	tieredParityCollector = func(context.Context, string, parityCriteria, searchParityManifest, *parityChain) (map[string]struct{}, error) {
+		return nil, errors.New("private failure")
+	}
+	parityProjectionReader = func(context.Context, string) (parityProjection, error) { return parityProjection{}, nil }
+	t.Cleanup(func() {
+		parityRevisionReader, parityProjectionReader, legacyParityCollector, tieredParityCollector = originalRevision, originalProjection, originalLegacy, originalTiered
+	})
+	a := runSearchParity(context.Background(), searchParityManifest{DBPath: path, Query: "q", LegacyPageSize: 1, TieredPageSize: 1, SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 100, ExpectedRevision: strings.Repeat("a", 40), ExpectedDirty: boolPointer(false)})
+	data, _ := json.Marshal(a)
+	if a.Status != "failed" || a.ErrorClass != "search_failed" || validateSearchParityJSON(data) != nil {
+		t.Fatalf("artifact=%s", data)
 	}
 }
 
