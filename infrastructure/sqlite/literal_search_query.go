@@ -85,6 +85,13 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	matchContinuations := make([]string, 0, resultCapacity)
 	progress := queryservice.NewLiteralSearchProgress(after, highWater, request.Budget, request.Criteria.Limit())
 	for _, s := range sources {
+		begin, progressErr := progress.BeginSource(queryservice.LiteralSource{Sequence: s.sequence, Stored: s.stored, Decoded: s.decoded})
+		if progressErr != nil {
+			return apptypes.LiteralSearchPage{}, progressErr
+		}
+		if begin.Action == queryservice.LiteralProgressStop {
+			break
+		}
 		eligible, eligibleErr := literalSourceEligible(ctx, tx, s.id, request.Criteria, generation, query.Fingerprints(), useFingerprints)
 		if eligibleErr != nil {
 			return apptypes.LiteralSearchPage{}, eligibleErr
@@ -93,14 +100,14 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		if eligible {
 			disposition = queryservice.LiteralSourceEligible
 		}
-		decision, progressErr := progress.ObserveSource(queryservice.LiteralSourceObservation{Sequence: s.sequence, Stored: s.stored, Decoded: s.decoded, Disposition: disposition})
+		decision, progressErr := progress.ObserveDisposition(disposition)
 		if progressErr != nil {
 			return apptypes.LiteralSearchPage{}, progressErr
 		}
-		if decision.Stop {
+		if decision.Action == queryservice.LiteralProgressStop {
 			break
 		}
-		if !decision.Verify {
+		if decision.Action != queryservice.LiteralProgressVerify {
 			continue
 		}
 		ok, matchErr := decodedEventSearchMatch(ctx, tx, s.id, query.Canonical())
@@ -111,7 +118,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		if finishErr != nil {
 			return apptypes.LiteralSearchPage{}, finishErr
 		}
-		includeMatch := ok && (!finish.Stop || finish.PartialReason == "result_limit")
+		includeMatch := finish.Action == queryservice.LiteralProgressRecordMatch || finish.Action == queryservice.LiteralProgressRecordMatchAndStop
 		if includeMatch {
 			resume, encodeErr := (apptypes.LiteralSearchCursor{Version: apptypes.LiteralSearchCursorVersion, LastSequence: decision.ResumeBefore, CriteriaHash: criteriaHash, Generation: generation, HighWater: highWater, QueryRevision: revision}).EncodeAuthenticated(cursorKey)
 			if encodeErr != nil {
@@ -120,11 +127,11 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 			matched = append(matched, s.id)
 			matchContinuations = append(matchContinuations, resume)
 		}
-		if finish.Stop {
+		if finish.Action == queryservice.LiteralProgressStop || finish.Action == queryservice.LiteralProgressRecordMatchAndStop {
 			break
 		}
 	}
-	progressResult := progress.FinishPage(len(sources) > request.Budget.SourceRows)
+	progressResult := progress.FinishPage()
 	last := progressResult.Processed
 	complete := progressResult.Complete
 	partialReason := progressResult.PartialReason

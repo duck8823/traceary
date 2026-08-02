@@ -17,17 +17,27 @@ const (
 	LiteralSourceEligible
 )
 
-// LiteralSourceObservation describes the persistence facts for one ordered source.
-type LiteralSourceObservation struct {
+// LiteralSource describes the ordered source and its verification costs.
+type LiteralSource struct {
 	Sequence        int64
 	Stored, Decoded int64
-	Disposition     LiteralSourceDisposition
 }
+
+// LiteralProgressAction tells the persistence driver the only safe next operation.
+type LiteralProgressAction uint8
+
+const (
+	LiteralProgressContinue LiteralProgressAction = iota
+	LiteralProgressCheckDisposition
+	LiteralProgressVerify
+	LiteralProgressRecordMatch
+	LiteralProgressRecordMatchAndStop
+	LiteralProgressStop
+)
 
 // LiteralProgressDecision tells the persistence driver what operation is safe next.
 type LiteralProgressDecision struct {
-	Verify        bool
-	Stop          bool
+	Action        LiteralProgressAction
 	PartialReason string
 	ResumeBefore  int64
 }
@@ -35,9 +45,10 @@ type LiteralProgressDecision struct {
 // LiteralSearchProgress is the narrow driver-facing view of application search progress.
 // Its implementation and phase state remain private to this package.
 type LiteralSearchProgress interface {
-	ObserveSource(LiteralSourceObservation) (LiteralProgressDecision, error)
+	BeginSource(LiteralSource) (LiteralProgressDecision, error)
+	ObserveDisposition(LiteralSourceDisposition) (LiteralProgressDecision, error)
 	FinishVerification(sequence int64, matched bool) (LiteralProgressDecision, error)
-	FinishPage(moreSources bool) LiteralProgressResult
+	FinishPage() LiteralProgressResult
 }
 
 // LiteralProgressResult is the application-owned page progress decision.
@@ -51,6 +62,7 @@ type literalProgressPhase uint8
 
 const (
 	literalProgressReady literalProgressPhase = iota
+	literalProgressCheckingDisposition
 	literalProgressVerifying
 	literalProgressStopped
 )
@@ -65,7 +77,7 @@ type literalSearchProgress struct {
 	results     int
 	phase       literalProgressPhase
 	partial     string
-	pending     LiteralSourceObservation
+	pending     LiteralSource
 }
 
 // NewLiteralSearchProgress creates the private application state machine.
@@ -73,7 +85,7 @@ func NewLiteralSearchProgress(start, highWater int64, budget apptypes.LiteralSea
 	return &literalSearchProgress{ledger: apptypes.LiteralVerificationLedger{Budget: budget, FullyProcessed: start}, start: start, highWater: highWater, sourceLimit: budget.SourceRows, resultLimit: resultLimit}
 }
 
-func (p *literalSearchProgress) ObserveSource(source LiteralSourceObservation) (LiteralProgressDecision, error) {
+func (p *literalSearchProgress) BeginSource(source LiteralSource) (LiteralProgressDecision, error) {
 	if p.phase != literalProgressReady {
 		return LiteralProgressDecision{}, fmt.Errorf("literal search progress: source observed in phase %d", p.phase)
 	}
@@ -81,22 +93,32 @@ func (p *literalSearchProgress) ObserveSource(source LiteralSourceObservation) (
 		return p.stop("source_rows"), nil
 	}
 	p.examined++
-	if source.Disposition == LiteralSourceSkipped {
-		p.ledger.Skip(source.Sequence)
-		return LiteralProgressDecision{}, nil
+	p.pending = source
+	p.phase = literalProgressCheckingDisposition
+	return LiteralProgressDecision{Action: LiteralProgressCheckDisposition}, nil
+}
+
+func (p *literalSearchProgress) ObserveDisposition(disposition LiteralSourceDisposition) (LiteralProgressDecision, error) {
+	if p.phase != literalProgressCheckingDisposition {
+		return LiteralProgressDecision{}, fmt.Errorf("literal search progress: disposition observed in phase %d", p.phase)
 	}
-	if source.Disposition != LiteralSourceEligible {
-		return LiteralProgressDecision{}, fmt.Errorf("literal search progress: unknown source disposition %d", source.Disposition)
+	if disposition == LiteralSourceSkipped {
+		p.ledger.Skip(p.pending.Sequence)
+		p.phase = literalProgressReady
+		return LiteralProgressDecision{Action: LiteralProgressContinue}, nil
 	}
+	if disposition != LiteralSourceEligible {
+		return LiteralProgressDecision{}, fmt.Errorf("literal search progress: unknown source disposition %d", disposition)
+	}
+	source := p.pending
 	if err := p.ledger.AdmitVerification(source.Stored, source.Decoded); err != nil {
 		if p.ledger.FullyProcessed == p.start {
 			return LiteralProgressDecision{}, fmt.Errorf("admit literal verification: %w", err)
 		}
 		return p.stop(progressBudgetReason(err)), nil
 	}
-	p.pending = source
 	p.phase = literalProgressVerifying
-	return LiteralProgressDecision{Verify: true, ResumeBefore: p.ledger.FullyProcessed}, nil
+	return LiteralProgressDecision{Action: LiteralProgressVerify, ResumeBefore: p.ledger.FullyProcessed}, nil
 }
 
 func (p *literalSearchProgress) FinishVerification(sequence int64, matched bool) (LiteralProgressDecision, error) {
@@ -113,13 +135,16 @@ func (p *literalSearchProgress) FinishVerification(sequence int64, matched bool)
 	if matched {
 		p.results++
 		if p.results >= p.resultLimit {
-			return p.stop("result_limit"), nil
+			decision := p.stop("result_limit")
+			decision.Action = LiteralProgressRecordMatchAndStop
+			return decision, nil
 		}
+		return LiteralProgressDecision{Action: LiteralProgressRecordMatch}, nil
 	}
-	return LiteralProgressDecision{}, nil
+	return LiteralProgressDecision{Action: LiteralProgressContinue}, nil
 }
 
-func (p *literalSearchProgress) FinishPage(_ bool) LiteralProgressResult {
+func (p *literalSearchProgress) FinishPage() LiteralProgressResult {
 	complete := p.ledger.FullyProcessed >= p.highWater
 	partial := p.partial
 	if complete {
@@ -134,7 +159,7 @@ func (p *literalSearchProgress) FinishPage(_ bool) LiteralProgressResult {
 func (p *literalSearchProgress) stop(reason string) LiteralProgressDecision {
 	p.phase = literalProgressStopped
 	p.partial = reason
-	return LiteralProgressDecision{Stop: true, PartialReason: reason}
+	return LiteralProgressDecision{Action: LiteralProgressStop, PartialReason: reason}
 }
 
 func progressBudgetReason(err error) string {
