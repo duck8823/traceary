@@ -25,7 +25,32 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	domtypes "github.com/duck8823/traceary/domain/types"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
+
+func TestFileRetentionLiveGenerationHonorsContextWhileExclusiveLeaseHeld(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "live.db")
+	createFileRetentionSQLite(t, path)
+	release, err := (sqliteinfra.StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if _, err := fileRetentionLiveGeneration(ctx, "backup", path); !errors.Is(err, context.DeadlineExceeded) {
+		release()
+		t.Fatalf("live generation error=%v, want deadline", err)
+	}
+	if time.Since(started) > time.Second {
+		release()
+		t.Fatal("live generation did not cancel promptly")
+	}
+	release()
+	if _, err := fileRetentionLiveGeneration(context.Background(), "backup", path); err != nil {
+		t.Fatalf("live generation after lease release: %v", err)
+	}
+}
 
 func TestFileRetentionBackupPlanApplyAndRetry(t *testing.T) {
 	t.Parallel()

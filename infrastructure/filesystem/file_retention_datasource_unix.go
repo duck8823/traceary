@@ -446,7 +446,7 @@ func fileRetentionLiveGeneration(ctx context.Context, class, databasePath string
 	if err != nil {
 		return "", xerrors.Errorf("derive file retention lineage: %w", err)
 	}
-	_, integrity, err := sqliteFileRetentionGenerationWithLease(databasePath, true)
+	_, integrity, err := sqliteFileRetentionGenerationWithLease(ctx, databasePath, true)
 	if err != nil {
 		return "", xerrors.Errorf("inspect live SQLite generation: %w", err)
 	}
@@ -460,10 +460,12 @@ func fileRetentionLiveGeneration(ctx context.Context, class, databasePath string
 }
 
 func sqliteFileRetentionGeneration(path string) (string, string, error) {
-	return sqliteFileRetentionGenerationWithLease(path, false)
+	// Copied backup FD verification is a bounded synchronous inspection and is
+	// intentionally independent from the live-operation cancellation context.
+	return sqliteFileRetentionGenerationWithLease(context.Background(), path, false)
 }
 
-func sqliteFileRetentionGenerationWithLease(path string, live bool) (string, string, error) {
+func sqliteFileRetentionGenerationWithLease(ctx context.Context, path string, live bool) (string, string, error) {
 	absolute, err := filepath.Abs(strings.TrimSpace(path))
 	if err != nil {
 		return "", "", xerrors.Errorf("resolve SQLite verification path: %w", err)
@@ -479,18 +481,18 @@ func sqliteFileRetentionGenerationWithLease(path string, live bool) (string, str
 		}
 	}
 	defer func() { _ = database.Close() }()
-	if err := sqliteinfra.VerifyStoreCompatibility(context.Background(), database); err != nil {
+	if err := sqliteinfra.VerifyStoreCompatibility(ctx, database); err != nil {
 		return "", "", xerrors.Errorf("verify SQLite store compatibility: %w", err)
 	}
 	var integrity string
-	if err := database.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil {
+	if err := database.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return "", "", xerrors.Errorf("run SQLite integrity check: %w", err)
 	}
 	var userVersion int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil {
+	if err := database.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil {
 		return "", "", xerrors.Errorf("read SQLite user version: %w", err)
 	}
-	rows, err := database.Query(`SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master ORDER BY type, name, tbl_name, sql`)
+	rows, err := database.QueryContext(ctx, `SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master ORDER BY type, name, tbl_name, sql`)
 	if err != nil {
 		return "", "", xerrors.Errorf("read SQLite schema objects: %w", err)
 	}
