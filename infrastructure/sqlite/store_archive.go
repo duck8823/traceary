@@ -244,11 +244,6 @@ UPDATE memories SET supersedes_memory_id = NULL
 		return 0, xerrors.Errorf("commit archive delete: %w", err)
 	}
 	committed = true
-	if total > 0 {
-		if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
-			return 0, xerrors.Errorf("failed to run VACUUM after archive delete: %w", err)
-		}
-	}
 	return total, nil
 }
 

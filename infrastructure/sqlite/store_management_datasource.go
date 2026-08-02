@@ -333,12 +333,6 @@ func (d *StoreManagementDatasource) CollectGarbage(
 	}
 	committed = true
 
-	if deleteCount > 0 {
-		if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
-			return 0, xerrors.Errorf("failed to run VACUUM: %w", err)
-		}
-	}
-
 	return deleteCount, nil
 }
 
