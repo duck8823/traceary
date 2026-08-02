@@ -38,6 +38,7 @@ const (
 // it with a fresh current-store snapshot and key.
 type parityV2EvidenceSuite struct {
 	SchemaVersion      string                    `json:"schema_version"`
+	AuthorizationScope string                    `json:"authorization_scope"`
 	TargetStoreBinding string                    `json:"target_store_binding"`
 	Revision           parityRevision            `json:"revision"`
 	Projection         parityProjection          `json:"projection"`
@@ -66,7 +67,7 @@ func keyedParityBinding(key []byte, purpose string, fields ...string) (string, e
 }
 
 func validParityV2EvidenceShape(s parityV2EvidenceSuite) bool {
-	if s.SchemaVersion != searchParityV2Schema || !validOpaqueBinding(s.TargetStoreBinding) ||
+	if s.SchemaVersion != searchParityV2Schema || (s.AuthorizationScope != "actual_target" && s.AuthorizationScope != "compatibility_only") || !validOpaqueBinding(s.TargetStoreBinding) ||
 		!validCommit(s.Revision.Commit) || s.Revision.Dirty || !validPassedProjection(searchParityArtifact{Projection: s.Projection, Tiered: parityChain{Coverage: parityCoverage{HighWater: s.Projection.HighWater}}}) || len(s.Criteria) != 2 {
 		return false
 	}
@@ -883,7 +884,7 @@ func validateParityV2JSON(data []byte) error {
 	criterion := leaf("query_class", "criterion_binding", "status", "comparison_equal", "coverage_complete")
 	criteriaArray := jsonObjectSchema{required: map[string]any{}, optional: map[string]any{}, arrayElement: &criterion}
 	schema := jsonObjectSchema{required: map[string]any{
-		"schema_version": nil, "target_store_binding": nil,
+		"schema_version": nil, "authorization_scope": nil, "target_store_binding": nil,
 		"revision":   leaf("commit", "dirty"),
 		"projection": leaf("revision", "high_water", "logical_bytes", "physical_bytes"),
 		// Array element semantics are checked after strict decoding.
