@@ -65,6 +65,41 @@ func TestSQLiteCompactionBuilderBuildAndVerifyPair(t *testing.T) {
 	}
 }
 
+func TestSQLiteCompactionVerificationDoesNotCreateSidecars(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	candidate := filepath.Join(dir, "candidate.db")
+	db, err := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`PRAGMA journal_mode=WAL; CREATE TABLE sample(id INTEGER PRIMARY KEY, body TEXT); INSERT INTO sample(body) VALUES('value'); PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		_ = os.Remove(source + suffix)
+	}
+	if err = os.WriteFile(candidate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	builder := SQLiteCompactionBuilder{}
+	if err = builder.Build(ctx, source, candidate); err != nil {
+		t.Fatal(err)
+	}
+	if err = builder.VerifyPair(ctx, source, candidate); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{source + "-wal", source + "-shm", candidate + "-wal", candidate + "-shm"} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("verification created sidecar %s: %v", path, statErr)
+		}
+	}
+}
+
 func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
