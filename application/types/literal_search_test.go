@@ -156,6 +156,23 @@ func TestLiteralSearchRequestAllocationBounds(t *testing.T) {
 	}
 }
 
+func TestLiteralSearchRequestRejectsOversizedRawQueryAndContinuation(t *testing.T) {
+	t.Parallel()
+	budget := apptypes.LiteralSearchBudget{SourceRows: 1, StoredBytes: 1, DecodedBytes: 1}
+	query := strings.Repeat(" ", apptypes.MaxLiteralSearchQueryBytes+1)
+	request := apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(1).Query(query).Build(), Budget: budget}
+	if err := request.Validate(); !errors.Is(err, apptypes.ErrLiteralSearchQueryTooLarge) {
+		t.Fatalf("raw query error=%v", err)
+	}
+	request = apptypes.LiteralSearchRequest{Criteria: apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Build(), Budget: budget, Continuation: strings.Repeat("A", apptypes.MaxLiteralSearchContinuationBytes+1)}
+	if err := request.Validate(); !errors.Is(err, apptypes.ErrLiteralSearchInvalidRequest) {
+		t.Fatalf("continuation error=%v", err)
+	}
+	if _, err := apptypes.DecodeAuthenticatedLiteralSearchCursor(request.Continuation, []byte("key")); !errors.Is(err, apptypes.ErrLiteralSearchCursorMismatch) {
+		t.Fatalf("decode error=%v", err)
+	}
+}
+
 func TestLiteralVerificationLedgerDeterministicProgressAndRetry(t *testing.T) {
 	t.Parallel()
 	ledger := apptypes.LiteralVerificationLedger{Budget: apptypes.LiteralSearchBudget{SourceRows: 4, StoredBytes: 7, DecodedBytes: 7}}

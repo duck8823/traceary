@@ -23,6 +23,8 @@ const (
 	MaxLiteralSearchLimit = 100
 	// MaxLiteralSearchSourceRows bounds source-page allocation and SQL LIMIT.
 	MaxLiteralSearchSourceRows = 4096
+	// MaxLiteralSearchContinuationBytes bounds decoding and authentication allocation.
+	MaxLiteralSearchContinuationBytes = 16 << 10
 )
 
 // LiteralQuery owns the normalization shared by candidate construction and
@@ -138,6 +140,12 @@ type LiteralSearchRequest struct {
 
 // Validate checks caller-controlled allocation and paging invariants.
 func (r LiteralSearchRequest) Validate() error {
+	if len(r.Criteria.Query()) > MaxLiteralSearchQueryBytes {
+		return ErrLiteralSearchQueryTooLarge
+	}
+	if len(r.Continuation) > MaxLiteralSearchContinuationBytes {
+		return fmt.Errorf("%w: continuation exceeds maximum", ErrLiteralSearchInvalidRequest)
+	}
 	if !r.Budget.Valid() {
 		return fmt.Errorf("%w: budget must be positive", ErrLiteralSearchInvalidRequest)
 	}
@@ -264,6 +272,9 @@ func (c LiteralSearchCursor) EncodeAuthenticated(key []byte) (string, error) {
 
 // DecodeAuthenticatedLiteralSearchCursor verifies store ownership and integrity.
 func DecodeAuthenticatedLiteralSearchCursor(value string, key []byte) (LiteralSearchCursor, error) {
+	if len(value) > MaxLiteralSearchContinuationBytes {
+		return LiteralSearchCursor{}, ErrLiteralSearchCursorMismatch
+	}
 	raw, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
 		return LiteralSearchCursor{}, ErrLiteralSearchCursorMismatch

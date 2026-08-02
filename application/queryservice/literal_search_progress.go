@@ -27,11 +27,17 @@ type LiteralSource struct {
 type LiteralProgressAction uint8
 
 const (
+	// LiteralProgressContinue advances the driver without persistence work.
 	LiteralProgressContinue LiteralProgressAction = iota
+	// LiteralProgressCheckDisposition permits the driver to classify a source.
 	LiteralProgressCheckDisposition
+	// LiteralProgressVerify permits canonical decoding and verification.
 	LiteralProgressVerify
+	// LiteralProgressRecordMatch accepts a match and continues scanning.
 	LiteralProgressRecordMatch
+	// LiteralProgressRecordMatchAndStop accepts a match and stops at the result limit.
 	LiteralProgressRecordMatchAndStop
+	// LiteralProgressStop stops without accepting the current source as a match.
 	LiteralProgressStop
 )
 
