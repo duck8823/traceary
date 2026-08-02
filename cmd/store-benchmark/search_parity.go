@@ -707,7 +707,7 @@ func validateSearchParityJSON(data []byte) error {
 	case "failed":
 		allowed := map[string]bool{"manifest_access": true, "manifest_permissions": true, "manifest_invalid": true, "revision_unavailable": true, "revision_mismatch": true, "progress": true, "duplicate": true, "store_unavailable": true, "search_failed": true, "projection_failed": true}
 		preflight := artifact.ErrorClass == "manifest_access" || artifact.ErrorClass == "manifest_permissions" || artifact.ErrorClass == "manifest_invalid"
-		revisionException := artifact.ErrorClass == "revision_unavailable"
+		revisionException := artifact.ErrorClass == "revision_unavailable" || artifact.ErrorClass == "revision_mismatch"
 		started := !preflight && !revisionException && artifact.ErrorClass != "revision_mismatch"
 		if !allowed[artifact.ErrorClass] || comparisonClaimsProof(artifact) || (!preflight && !revisionException && (!commitValid || artifact.Revision.Dirty)) || (started && !validCensoredEvidence(artifact)) || (!started && (artifact.ElapsedLowerBoundUS != 0 || artifact.Legacy.LatencyUS != 0 || artifact.Tiered.LatencyUS != 0)) {
 			return errors.New("invalid fixed error class")

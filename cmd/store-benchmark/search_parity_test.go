@@ -60,6 +60,29 @@ func TestSearchParityRejectsRevisionMismatchBeforeStoreAccess(t *testing.T) {
 	}
 }
 
+func TestSearchParityDirtyRevisionMismatchRoundTrips(t *testing.T) {
+	originalRevisionReader := parityRevisionReader
+	parityRevisionReader = func(context.Context) (parityRevision, error) {
+		return parityRevision{Commit: strings.Repeat("a", 40), Dirty: true}, nil
+	}
+	t.Cleanup(func() { parityRevisionReader = originalRevisionReader })
+
+	artifact := runSearchParity(context.Background(), searchParityManifest{
+		DBPath: "/private/path-must-not-be-opened", Query: "private-query", LegacyPageSize: 1, TieredPageSize: 1,
+		SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1, ExpectedRevision: strings.Repeat("a", 40), ExpectedDirty: boolPointer(false),
+	})
+	if artifact.Status != "failed" || artifact.ErrorClass != "revision_mismatch" || !artifact.Revision.Dirty {
+		t.Fatalf("artifact=%+v", artifact)
+	}
+	data, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSearchParityJSON(data); err != nil {
+		t.Fatalf("validate dirty revision mismatch: %v (%s)", err, data)
+	}
+}
+
 func TestSearchParityManifestRequiresPrivateFileAndRejectsUnknownFields(t *testing.T) {
 	valid := `{"db_path":"x","query":"q","legacy_page_size":1,"tiered_page_size":1,"source_rows":1,"stored_bytes":1,"decoded_bytes":1,"timeout_ms":1,"expected_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected_dirty":false}`
 	path := filepath.Join(t.TempDir(), "manifest.json")
