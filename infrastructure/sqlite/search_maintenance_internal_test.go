@@ -10,6 +10,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
+	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
@@ -195,6 +196,20 @@ func TestPersistedTieredAuthorityPreservesDescendingContinuationAndFailsClosed(t
 	}
 	if _, err = datasource.SearchBounded(ctx, criteria, 100); err != nil {
 		t.Fatalf("bounded search referenced retired legacy schema: %v", err)
+	}
+	workspace, workspaceErr := domtypes.WorkspaceFrom("w")
+	if workspaceErr != nil {
+		t.Fatal(workspaceErr)
+	}
+	structural := apptypes.NewEventSearchCriteriaBuilder(2).Workspace(workspace).Build()
+	if got, structuralErr := datasource.SearchPage(ctx, structural); structuralErr != nil || len(got) != 2 {
+		t.Fatalf("tiered structural full search=%v err=%v", eventIDs(got), structuralErr)
+	}
+	if got, structuralErr := datasource.SearchMetadata(ctx, structural); structuralErr != nil || len(got) != 2 {
+		t.Fatalf("tiered structural metadata search=%v err=%v", got, structuralErr)
+	}
+	if got, structuralErr := datasource.SearchBounded(ctx, structural, 100); structuralErr != nil || len(got) != 2 {
+		t.Fatalf("tiered structural bounded search=%v err=%v", got, structuralErr)
 	}
 	raw, err = database.open(ctx)
 	if err != nil {

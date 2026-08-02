@@ -111,11 +111,23 @@ func (d *EventDatasource) SearchBounded(
 	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
 		return nil, err
 	}
-	metadata, err := d.searchMetadataByPersistedAuthority(ctx, criteria)
+	db, tx, err := d.beginEventProjectionRead(ctx, "bounded persisted search")
 	if err != nil {
 		return nil, err
 	}
-	return d.HydrateBounded(ctx, metadata, bodyRuneLimit)
+	defer closeEventProjectionRead(db, tx)
+	metadata, err := d.searchMetadataByPersistedAuthorityTx(ctx, tx, criteria)
+	if err != nil {
+		return nil, err
+	}
+	events, err := hydrateBoundedEvents(ctx, tx, metadata, bodyRuneLimit)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, xerrors.Errorf("finish bounded persisted search: %w", err)
+	}
+	return events, nil
 }
 
 // GetContextBounded selects body-free context membership first and then

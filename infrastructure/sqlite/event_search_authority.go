@@ -5,9 +5,11 @@ import (
 	"context"
 	"database/sql"
 	"sort"
+	"strings"
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 )
@@ -36,25 +38,39 @@ func (d *EventDatasource) searchMetadataByPersistedAuthority(ctx context.Context
 		return nil, err
 	}
 	defer closeEventProjectionRead(db, tx)
+	metadata, err := d.searchMetadataByPersistedAuthorityTx(ctx, tx, criteria)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, xerrors.Errorf("finish persisted search: %w", err)
+	}
+	return metadata, nil
+}
+
+func (d *EventDatasource) searchMetadataByPersistedAuthorityTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
 	var authority string
-	if err = tx.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
 		return nil, xerrors.Errorf("read explicit persisted search authority: %w", err)
 	}
 	switch authority {
 	case "legacy":
-		if err = tx.Commit(); err != nil {
-			return nil, xerrors.Errorf("finish persisted search authority read: %w", err)
+		available, err := eventSearchSchemaAvailable(ctx, tx)
+		if err != nil {
+			return nil, err
 		}
-		return d.searchLegacyMetadata(ctx, criteria)
+		var ids []string
+		if available {
+			ids, err = selectEventSearchCandidateIDs(ctx, tx, criteria)
+		} else {
+			ids, err = queryLegacyEventIDs(ctx, tx, criteria, criteria.Query())
+		}
+		if err != nil {
+			return nil, err
+		}
+		return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, ids)
 	case "tiered":
-		metadata, searchErr := d.searchTieredMetadataTx(ctx, tx, criteria)
-		if searchErr != nil {
-			return nil, searchErr
-		}
-		if err = tx.Commit(); err != nil {
-			return nil, xerrors.Errorf("finish persisted tiered search: %w", err)
-		}
-		return metadata, nil
+		return d.searchTieredMetadataTx(ctx, tx, criteria)
 	default:
 		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
 	}
@@ -74,21 +90,23 @@ func (d *EventDatasource) readSearchAuthority(ctx context.Context) (string, erro
 }
 
 func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
-	authority, err := d.readSearchAuthority(ctx)
+	db, tx, err := d.beginEventProjectionRead(ctx, "full persisted search")
 	if err != nil {
 		return nil, err
 	}
-	if authority == "legacy" {
-		return d.searchLegacyPageAware(ctx, criteria)
-	}
-	if authority != "tiered" {
-		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
-	}
-	metadata, err := d.searchTieredMetadata(ctx, criteria)
+	defer closeEventProjectionRead(db, tx)
+	metadata, err := d.searchMetadataByPersistedAuthorityTx(ctx, tx, criteria)
 	if err != nil {
 		return nil, err
 	}
-	return hydrateFullSearchMetadata(ctx, d, metadata)
+	events, err := hydrateFullEventMetadata(ctx, tx, metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, xerrors.Errorf("finish full persisted search: %w", err)
+	}
+	return events, nil
 }
 
 func (d *EventDatasource) searchTieredMetadata(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
@@ -111,7 +129,6 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 	if criteria.Offset() < 0 {
 		return nil, xerrors.New("offset must be greater than or equal to 0")
 	}
-	continuation := ""
 	var literalState, literalGeneration, boundedState, boundedGeneration string
 	var literalHigh, sourceHigh int64
 	if err := tx.QueryRowContext(ctx, `SELECT generation_id,high_water,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalHigh, &literalState); err == nil {
@@ -128,32 +145,35 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 	if literalState != "complete" || boundedState != "complete" || literalGeneration == "" || literalGeneration != boundedGeneration || literalHigh != sourceHigh {
 		return nil, xerrors.New("tiered search projection is incomplete or stale")
 	}
+	// Empty queries are structural-only searches. They do not require literal
+	// traversal and remain available after the legacy FTS objects are retired.
+	if strings.TrimSpace(criteria.Query()) == "" {
+		candidateIDs, queryErr := queryStructuralEventIDs(ctx, tx, criteria)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, candidateIDs)
+	}
 	matches := make(map[string]apptypes.EventMetadata)
 	literalCriteria := apptypes.NewEventSearchCriteriaBuilder(apptypes.MaxLiteralSearchLimit).Query(criteria.Query()).
 		Workspace(criteria.Workspace()).SessionID(criteria.SessionID()).Client(criteria.Client()).Agent(criteria.Agent()).
 		Kind(criteria.Kind()).From(criteria.From()).To(criteria.To()).FailuresOnly(criteria.FailuresOnly()).Build()
-	for {
-		page, err := d.searchLiteralPageTx(ctx, tx, apptypes.LiteralSearchRequest{
-			Criteria: literalCriteria, Budget: apptypes.DeepLiteralSearchBudget,
-			Continuation: continuation, BodyRuneLimit: 1,
-		})
-		if err != nil {
-			return nil, xerrors.Errorf("read bounded tiered search page: %w", err)
+	page, err := d.searchLiteralPageTx(ctx, tx, apptypes.LiteralSearchRequest{
+		Criteria: literalCriteria, Budget: apptypes.DeepLiteralSearchBudget,
+		BodyRuneLimit: 1,
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("read bounded tiered search page: %w", err)
+	}
+	if !page.Coverage.Complete {
+		return nil, &queryservice.EventSearchUnavailableError{
+			Reason:         queryservice.EventSearchUnavailableIndexIncomplete,
+			CandidateLimit: apptypes.DeepLiteralSearchBudget.SourceRows,
 		}
-		for _, event := range page.Events {
-			metadata := event.Metadata()
-			matches[metadata.EventID().String()] = metadata
-		}
-		if page.Coverage.Complete {
-			if page.Continuation != "" {
-				return nil, xerrors.New("complete tiered page returned continuation")
-			}
-			break
-		}
-		if page.Continuation == "" || page.Continuation == continuation {
-			return nil, xerrors.New("tiered search continuation made no progress")
-		}
-		continuation = page.Continuation
+	}
+	for _, event := range page.Events {
+		metadata := event.Metadata()
+		matches[metadata.EventID().String()] = metadata
 	}
 	ordered := make([]apptypes.EventMetadata, 0, len(matches))
 	for _, metadata := range matches {
