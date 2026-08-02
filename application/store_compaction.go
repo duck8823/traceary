@@ -21,11 +21,16 @@ type StoreCompactionBuilder interface {
 	VerifyPair(context.Context, string, string) error
 }
 
+// CandidateWorkspace owns prepared candidate inode creation and removal.
+type CandidateWorkspace interface {
+	PrepareCandidate(context.Context, domain.CompactionRun) (domain.StoreFileIdentity, error)
+	RemoveOwnedPartialCandidate(context.Context, domain.CompactionRun, domain.CompactionObservation) error
+}
+
 // StoreReplacementCoordinator owns file identity and atomic exchange.
 type StoreReplacementCoordinator interface {
 	Plan(context.Context, domain.CompactionRun) (domain.CompactionRun, error)
 	Recheck(context.Context, domain.CompactionRun) error
-	RemoveOwnedPartialCandidate(context.Context, domain.CompactionRun, domain.CompactionObservation) error
 	FenceCandidate(context.Context, domain.CompactionRun) (domain.CompactionRun, error)
 	Exchange(context.Context, domain.CompactionRun) error
 	PublishRollback(context.Context, domain.CompactionRun) error

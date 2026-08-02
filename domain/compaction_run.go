@@ -13,6 +13,8 @@ const (
 	// CompactionPlanned starts the durable protocol.
 	CompactionPlanned               CompactionPhase = "planned"
 	CompactionCopyIntent            CompactionPhase = "copy_intent"
+	CompactionCopyRetryIntent       CompactionPhase = "copy_retry_intent"
+	CompactionCandidatePrepared     CompactionPhase = "candidate_prepared"
 	CompactionCopyComplete          CompactionPhase = "copy_complete"
 	CompactionCandidateSyncIntent   CompactionPhase = "candidate_sync_intent"
 	CompactionCandidateSynced       CompactionPhase = "candidate_synced"
@@ -34,6 +36,11 @@ type StoreFileIdentity struct {
 	Inode   uint64 `json:"inode"`
 	Size    int64  `json:"size"`
 	ModUnix int64  `json:"mod_unix_nano"`
+}
+
+// SameInode compares the stable filesystem object identity, excluding mutable size/mtime.
+func (i StoreFileIdentity) SameInode(other StoreFileIdentity) bool {
+	return i.Device == other.Device && i.Inode == other.Inode && i.Device != 0 && i.Inode != 0
 }
 
 // CompactionResourcePlan records the resources and capabilities authorized by plan.
@@ -84,8 +91,10 @@ type CompactionAction string
 
 const (
 	ActionRecheckPlan                 CompactionAction = "recheck_plan"
+	ActionPrepareCandidate            CompactionAction = "prepare_candidate"
 	ActionBuildCandidate              CompactionAction = "build_candidate"
 	ActionRemoveOwnedPartialCandidate CompactionAction = "remove_owned_partial_candidate"
+	ActionRecordCopyRetryIntent       CompactionAction = "record_copy_retry_intent"
 	ActionRecordCopyComplete          CompactionAction = "record_copy_complete"
 	ActionRecordSyncIntent            CompactionAction = "record_sync_intent"
 	ActionSyncCandidate               CompactionAction = "sync_candidate"
@@ -108,7 +117,9 @@ func (r CompactionRun) NextAction() (CompactionAction, error) {
 	switch r.Phase {
 	case CompactionPlanned:
 		return ActionRecheckPlan, nil
-	case CompactionCopyIntent:
+	case CompactionCopyIntent, CompactionCopyRetryIntent:
+		return ActionPrepareCandidate, nil
+	case CompactionCandidatePrepared:
 		return ActionBuildCandidate, nil
 	case CompactionCopyComplete:
 		return ActionRecordSyncIntent, nil
@@ -171,17 +182,22 @@ func (r CompactionRun) RecoveryActions(observation CompactionObservation) ([]Com
 		}
 	case OrientationSourceOriginal:
 		switch r.Phase {
-		case CompactionPlanned, CompactionCopyIntent:
+		case CompactionPlanned, CompactionCopyIntent, CompactionCopyRetryIntent:
 			return nil, nil
 		}
 	case OrientationCandidateReady:
 		switch r.Phase {
-		case CompactionCopyIntent:
+		case CompactionCopyIntent, CompactionCopyRetryIntent:
+			return nil, fmt.Errorf("candidate appeared before prepared identity was durable")
+		case CompactionCandidatePrepared:
+			if !observation.Candidate.SameInode(r.PreparedCandidateIdentity) {
+				return nil, fmt.Errorf("prepared candidate identity changed")
+			}
 			switch observation.CandidateCondition {
 			case CandidateConditionComplete:
 				return []CompactionAction{ActionRecordCopyComplete}, nil
 			case CandidateConditionOwnedIncomplete:
-				return []CompactionAction{ActionRemoveOwnedPartialCandidate}, nil
+				return []CompactionAction{ActionRemoveOwnedPartialCandidate, ActionRecordCopyRetryIntent}, nil
 			default:
 				return nil, fmt.Errorf("candidate ownership/completeness is unknown")
 			}
@@ -196,21 +212,25 @@ func (r CompactionRun) RecoveryActions(observation CompactionObservation) ([]Com
 
 // CompactionRun is the domain record persisted outside the source database.
 type CompactionRun struct {
-	ID             string                 `json:"id"`
-	SourcePath     string                 `json:"source_path"`
-	CandidatePath  string                 `json:"candidate_path"`
-	RollbackPath   string                 `json:"rollback_path"`
-	Phase          CompactionPhase        `json:"phase"`
-	SourceIdentity StoreFileIdentity      `json:"source_identity"`
-	Candidate      StoreFileIdentity      `json:"candidate_identity,omitempty"`
-	Resources      CompactionResourcePlan `json:"resources"`
-	CreatedAt      time.Time              `json:"created_at"`
-	UpdatedAt      time.Time              `json:"updated_at"`
+	ID                        string                 `json:"id"`
+	SourcePath                string                 `json:"source_path"`
+	CandidatePath             string                 `json:"candidate_path"`
+	RollbackPath              string                 `json:"rollback_path"`
+	Phase                     CompactionPhase        `json:"phase"`
+	SourceIdentity            StoreFileIdentity      `json:"source_identity"`
+	Candidate                 StoreFileIdentity      `json:"candidate_identity,omitempty"`
+	PreparedCandidateIdentity StoreFileIdentity      `json:"prepared_candidate_identity,omitempty"`
+	PreparedAttempt           uint64                 `json:"prepared_attempt"`
+	Resources                 CompactionResourcePlan `json:"resources"`
+	CreatedAt                 time.Time              `json:"created_at"`
+	UpdatedAt                 time.Time              `json:"updated_at"`
 }
 
 var compactionTransitions = map[CompactionPhase][]CompactionPhase{
 	CompactionPlanned:               {CompactionCopyIntent},
-	CompactionCopyIntent:            {CompactionCopyComplete},
+	CompactionCopyIntent:            {CompactionCandidatePrepared},
+	CompactionCopyRetryIntent:       {CompactionCandidatePrepared},
+	CompactionCandidatePrepared:     {CompactionCopyComplete, CompactionCopyRetryIntent},
 	CompactionCopyComplete:          {CompactionCandidateSyncIntent},
 	CompactionCandidateSyncIntent:   {CompactionCandidateSynced},
 	CompactionCandidateSynced:       {CompactionScrubInProgress},

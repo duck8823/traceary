@@ -17,6 +17,7 @@ type storeCompactionUsecase struct {
 	journal       application.StoreCompactionJournal
 	builder       application.StoreCompactionBuilder
 	files         application.StoreReplacementCoordinator
+	workspace     application.CandidateWorkspace
 	lease         application.StoreCompactionLease
 	now           func() time.Time
 	expectedStore string
@@ -24,7 +25,8 @@ type storeCompactionUsecase struct {
 
 // NewStoreCompactionUsecase composes the dedicated compaction protocol.
 func NewStoreCompactionUsecase(expectedStore string, j application.StoreCompactionJournal, b application.StoreCompactionBuilder, f application.StoreReplacementCoordinator, l application.StoreCompactionLease) application.StoreCompactionUsecase {
-	return &storeCompactionUsecase{journal: j, builder: b, files: f, lease: l, now: time.Now, expectedStore: filepath.Clean(expectedStore)}
+	workspace, _ := f.(application.CandidateWorkspace)
+	return &storeCompactionUsecase{journal: j, builder: b, files: f, workspace: workspace, lease: l, now: time.Now, expectedStore: filepath.Clean(expectedStore)}
 }
 
 func (u *storeCompactionUsecase) Plan(ctx context.Context, source string) (domain.CompactionRun, error) {
@@ -77,6 +79,17 @@ func (u *storeCompactionUsecase) applyLeased(ctx context.Context, run domain.Com
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionCopyIntent)
 			}
+		case domain.ActionPrepareCandidate:
+			if u.workspace == nil {
+				return run, fmt.Errorf("candidate workspace is not configured")
+			}
+			identity, prepareErr := u.workspace.PrepareCandidate(ctx, run)
+			if prepareErr != nil {
+				return run, prepareErr
+			}
+			run.PreparedCandidateIdentity = identity
+			run.PreparedAttempt++
+			run, err = u.advance(ctx, run, domain.CompactionCandidatePrepared)
 		case domain.ActionBuildCandidate:
 			err = u.builder.Build(ctx, run.SourcePath, run.CandidatePath)
 			if err == nil {
@@ -148,7 +161,7 @@ func (u *storeCompactionUsecase) resumeLeased(ctx context.Context, run domain.Co
 	if err != nil {
 		return run, err
 	}
-	if run.Phase == domain.CompactionCopyIntent && observation.Orientation == domain.OrientationCandidateReady {
+	if run.Phase == domain.CompactionCandidatePrepared && observation.Orientation == domain.OrientationCandidateReady {
 		observation.CandidateCondition, err = u.builder.ClassifyCandidate(ctx, run.SourcePath, run.CandidatePath)
 		if err != nil {
 			return run, err
@@ -163,7 +176,17 @@ func (u *storeCompactionUsecase) resumeLeased(ctx context.Context, run domain.Co
 			if err := u.files.Recheck(ctx, run); err != nil {
 				return run, err
 			}
-			if err := u.files.RemoveOwnedPartialCandidate(ctx, run, observation); err != nil {
+			if u.workspace == nil {
+				return run, fmt.Errorf("candidate workspace is not configured")
+			}
+			if err := u.workspace.RemoveOwnedPartialCandidate(ctx, run, observation); err != nil {
+				return run, err
+			}
+			continue
+		}
+		if action == domain.ActionRecordCopyRetryIntent {
+			run, err = u.advance(ctx, run, domain.CompactionCopyRetryIntent)
+			if err != nil {
 				return run, err
 			}
 			continue

@@ -31,6 +31,9 @@ func TestSQLiteCompactionBuilderBuildAndVerifyPair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(candidate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := builder.Build(ctx, source, candidate); err != nil {
 		t.Fatal(err)
 	}
@@ -172,12 +175,34 @@ func TestStoreCompactionResumeReplacesRunOwnedNearCapacityPartialCandidate(t *te
 	if err := journal.Append(ctx, run); err != nil {
 		t.Fatal(err)
 	}
+	files := StoreReplacementFiles{}
+	prepared, err := files.PrepareCandidate(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.PreparedCandidateIdentity = prepared
+	run.PreparedAttempt++
+	run, err = run.Advance(domain.CompactionCandidatePrepared, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(ctx, run); err != nil {
+		t.Fatal(err)
+	}
 	data, err := os.ReadFile(source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	partialSize := len(data) * 9 / 10
-	if err := os.WriteFile(run.CandidatePath, data[:partialSize], 0o600); err != nil {
+	file, err := os.OpenFile(run.CandidatePath, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(data[:partialSize]); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("source=%d partial=%d", len(data), partialSize)
@@ -250,6 +275,151 @@ func TestStoreCompactionResumePreservesUnknownValidCandidate(t *testing.T) {
 	if loaded.Phase != domain.CompactionCopyIntent {
 		t.Fatalf("journal advanced to %s", loaded.Phase)
 	}
+}
+
+func TestStoreCompactionResumeDoesNotAdoptCrashGapEmptyCandidate(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	_, _ = db.Exec(`CREATE TABLE expected(v TEXT)`)
+	_ = db.Close()
+	planning := &CompactionFileJournal{Dir: filepath.Join(dir, "planning")}
+	planner := usecase.NewStoreCompactionUsecase(source, planning, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	run, err := planner.Plan(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Resources.LeaseCapability = true
+	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "journal")}
+	if err := journal.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	run, _ = run.Advance(domain.CompactionCopyIntent, time.Now())
+	if err := journal.Append(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	files := StoreReplacementFiles{}
+	identity, err := files.PrepareCandidate(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.Size != 0 {
+		t.Fatal("prepared candidate is not empty")
+	}
+	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, files, StoreLeaseCoordinator{})
+	if _, err := fresh.Resume(ctx, run.ID); err == nil {
+		t.Fatal("fresh Resume adopted unjournaled crash-gap candidate")
+	}
+	after, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.SameInode(identity) {
+		t.Fatal("unknown candidate was replaced")
+	}
+	loaded, err := journal.Load(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Phase != domain.CompactionCopyIntent || loaded.PreparedCandidateIdentity != (domain.StoreFileIdentity{}) {
+		t.Fatal("journal advanced across crash gap")
+	}
+}
+
+func TestStoreCompactionResumeRejectsReplacedPreparedCandidateInode(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	_, _ = db.Exec(`CREATE TABLE expected(v TEXT)`)
+	_ = db.Close()
+	run, journal := prepareCompactionCandidateForResumeTest(ctx, t, source, dir)
+	if err := os.Remove(run.CandidatePath); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(run.CandidatePath))
+	_, _ = other.Exec(`CREATE TABLE unrelated(v TEXT)`)
+	_ = other.Close()
+	replacement, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	if _, err := fresh.Resume(ctx, run.ID); err == nil {
+		t.Fatal("Resume accepted a replacement inode")
+	}
+	after, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.SameInode(replacement) {
+		t.Fatal("replacement candidate was mutated")
+	}
+}
+
+func TestStoreCompactionResumeRebuildsValidIncompletePreparedCandidate(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	_, _ = db.Exec(`CREATE TABLE expected(v TEXT); INSERT INTO expected VALUES('source')`)
+	_ = db.Close()
+	run, journal := prepareCompactionCandidateForResumeTest(ctx, t, source, dir)
+	other, err := sql.Open("sqlite", directSQLiteRWDSNCreate(run.CandidatePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = other.Exec(`CREATE TABLE unrelated(v TEXT); INSERT INTO unrelated VALUES('valid but incomplete')`)
+	_ = other.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observed.SameInode(run.PreparedCandidateIdentity) {
+		t.Fatal("SQLite replaced the prepared inode")
+	}
+	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	got, err := fresh.Resume(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase != domain.CompactionCommitted {
+		t.Fatalf("phase=%s", got.Phase)
+	}
+}
+
+func prepareCompactionCandidateForResumeTest(ctx context.Context, t *testing.T, source, dir string) (domain.CompactionRun, *CompactionFileJournal) {
+	t.Helper()
+	planning := &CompactionFileJournal{Dir: filepath.Join(dir, "planning")}
+	planner := usecase.NewStoreCompactionUsecase(source, planning, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	run, err := planner.Plan(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Resources.LeaseCapability = true
+	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "journal")}
+	if err := journal.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	run, _ = run.Advance(domain.CompactionCopyIntent, time.Now())
+	if err := journal.Append(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := (StoreReplacementFiles{}).PrepareCandidate(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.PreparedCandidateIdentity = identity
+	run.PreparedAttempt++
+	run, _ = run.Advance(domain.CompactionCandidatePrepared, time.Now())
+	if err := journal.Append(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	return run, journal
 }
 
 func directSQLiteRWDSNCreate(path string) string { return "file:" + path }

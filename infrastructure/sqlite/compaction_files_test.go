@@ -37,7 +37,9 @@ func TestCompactionFileJournalLoadRejectsPersistedIntermediateTamper(t *testing.
 	if err := j.Append(context.Background(), run); err != nil {
 		t.Fatal(err)
 	}
-	run, _ = run.Advance(domain.CompactionCopyComplete, now.Add(2*time.Second))
+	run.PreparedCandidateIdentity = domain.StoreFileIdentity{Device: 1, Inode: 9}
+	run.PreparedAttempt = 1
+	run, _ = run.Advance(domain.CompactionCandidatePrepared, now.Add(2*time.Second))
 	if err := j.Append(context.Background(), run); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +222,7 @@ func TestRemoveOwnedPartialCandidateFaultBoundaries(t *testing.T) {
 			}
 			sourceID, _ := inspectRegularFile(source)
 			candidateID, _ := inspectRegularFile(candidate)
-			run := domain.CompactionRun{ID: id, SourcePath: source, CandidatePath: candidate, RollbackPath: source + ".rollback-" + id, SourceIdentity: sourceID, Phase: domain.CompactionCopyIntent}
+			run := domain.CompactionRun{ID: id, SourcePath: source, CandidatePath: candidate, RollbackPath: source + ".rollback-" + id, SourceIdentity: sourceID, PreparedCandidateIdentity: candidateID, PreparedAttempt: 1, Phase: domain.CompactionCandidatePrepared}
 			obs := domain.CompactionObservation{Orientation: domain.OrientationCandidateReady, Source: sourceID, Candidate: candidateID, CandidateExists: true, CandidateCondition: domain.CandidateConditionOwnedIncomplete}
 			files := StoreReplacementFiles{recoveryHook: func(got string) error {
 				if got == point {
@@ -241,6 +243,40 @@ func TestRemoveOwnedPartialCandidateFaultBoundaries(t *testing.T) {
 			gotSource, _ := os.ReadFile(source)
 			if string(gotSource) != "source" {
 				t.Fatal("source mutated")
+			}
+		})
+	}
+}
+
+func TestPrepareCandidateFaultBoundaries(t *testing.T) {
+	for _, point := range []string{"before_create", "after_create", "after_file_sync", "after_create_dir_sync"} {
+		t.Run(point, func(t *testing.T) {
+			dir := t.TempDir()
+			source := filepath.Join(dir, "store")
+			if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			sourceID, _ := inspectRegularFile(source)
+			id := "abcdef0123456789abcdef0123456789"
+			run := domain.CompactionRun{ID: id, SourcePath: source, CandidatePath: source + ".compact-" + id, SourceIdentity: sourceID, Phase: domain.CompactionCopyIntent}
+			files := StoreReplacementFiles{recoveryHook: func(got string) error {
+				if got == point {
+					return errors.New("stop")
+				}
+				return nil
+			}}
+			if _, err := files.PrepareCandidate(context.Background(), run); err == nil {
+				t.Fatal("fault not returned")
+			}
+			info, statErr := os.Lstat(run.CandidatePath)
+			if point == "before_create" {
+				if !os.IsNotExist(statErr) {
+					t.Fatal("candidate created before create boundary")
+				}
+			} else {
+				if statErr != nil || info.Size() != 0 {
+					t.Fatal("prepared empty candidate not retained")
+				}
 			}
 		})
 	}

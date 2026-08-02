@@ -59,6 +59,13 @@ type faultFiles struct {
 	observation domain.CompactionObservation
 }
 
+func (f faultFiles) PrepareCandidate(context.Context, domain.CompactionRun) (domain.StoreFileIdentity, error) {
+	if f.fail == "prepare" {
+		return domain.StoreFileIdentity{}, errors.New("prepare fault")
+	}
+	return domain.StoreFileIdentity{Device: 1, Inode: 9}, nil
+}
+
 func (f faultFiles) Plan(_ context.Context, r domain.CompactionRun) (domain.CompactionRun, error) {
 	return r, nil
 }
@@ -204,6 +211,9 @@ func TestStoreCompactionAfterBoundaryStopsResumeWithNewInstance(t *testing.T) {
 			}
 			j.failAppendPhase = ""
 			observation := domain.CompactionObservation{Orientation: tc.orientation, Source: run.SourceIdentity, Candidate: run.Candidate, CandidateExists: tc.orientation == domain.OrientationCandidateReady || tc.orientation == domain.OrientationSwapped, RollbackExists: tc.orientation == domain.OrientationRollbackReady}
+			if tc.orientation == domain.OrientationCandidateReady && j.run.PreparedCandidateIdentity != (domain.StoreFileIdentity{}) {
+				observation.Candidate = j.run.PreparedCandidateIdentity
+			}
 			if tc.orientation == domain.OrientationSwapped {
 				observation.Source = run.Candidate
 				observation.Candidate = run.SourceIdentity

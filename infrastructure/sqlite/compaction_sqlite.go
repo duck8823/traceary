@@ -12,7 +12,6 @@ import (
 	"hash"
 	"math"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 
@@ -26,10 +25,12 @@ func (SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate stri
 	if filepathDir(source) != filepathDir(candidate) {
 		return errors.New("VACUUM INTO candidate must be beside source")
 	}
-	if _, err := os.Lstat(candidate); err == nil {
-		return errors.New("compaction candidate already exists; explicit recovery action required")
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect compaction candidate: %w", err)
+	candidateID, err := inspectRegularFile(candidate)
+	if err != nil {
+		return fmt.Errorf("inspect prepared compaction candidate: %w", err)
+	}
+	if candidateID.Size != 0 {
+		return errors.New("prepared compaction candidate must be empty before VACUUM INTO")
 	}
 	db, err := sql.Open("sqlite", directSQLiteRWDSN(source))
 	if err != nil {
@@ -56,16 +57,11 @@ func (SQLiteCompactionBuilder) ClassifyCandidate(ctx context.Context, source, ca
 	if err := (SQLiteCompactionBuilder{}).VerifyPair(ctx, source, candidate); err == nil {
 		return domain.CandidateConditionComplete, nil
 	}
-	db, err := openDirectReadOnly(ctx, candidate)
-	if err != nil {
-		return domain.CandidateConditionOwnedIncomplete, nil
-	}
-	defer func() { _ = db.Close() }()
-	var result string
-	if err := db.QueryRowContext(ctx, `PRAGMA quick_check`).Scan(&result); err != nil || result != "ok" {
-		return domain.CandidateConditionOwnedIncomplete, nil
-	}
-	return domain.CandidateConditionUnknown, nil
+	// The use case calls this only after matching the candidate's inode to the
+	// identity durably recorded at CandidatePrepared.  Once ownership is proven
+	// that way, SQLite validity is not an ownership signal: a valid database can
+	// still be an interrupted or otherwise incomplete VACUUM output.
+	return domain.CandidateConditionOwnedIncomplete, nil
 }
 
 func (SQLiteCompactionBuilder) Sync(_ context.Context, candidate string) error {

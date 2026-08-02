@@ -178,6 +178,9 @@ func validateInitialRun(run domain.CompactionRun) error {
 	if run.SourceIdentity == (domain.StoreFileIdentity{}) {
 		return errors.New("initial source identity is required")
 	}
+	if run.PreparedCandidateIdentity != (domain.StoreFileIdentity{}) || run.PreparedAttempt != 0 {
+		return errors.New("initial prepared candidate identity must be empty")
+	}
 	if run.Resources.RequiredBytes == 0 || run.Resources.DestinationBytes == 0 || run.Resources.FilesystemDevice != run.SourceIdentity.Device || !run.Resources.ExchangeCapability {
 		return errors.New("initial resource plan is incomplete")
 	}
@@ -199,6 +202,13 @@ func validateRunAppend(previous, next domain.CompactionRun) error {
 	}
 	if previous.Candidate == (domain.StoreFileIdentity{}) && next.Candidate != (domain.StoreFileIdentity{}) && next.Phase != domain.CompactionCandidateVerified {
 		return errors.New("candidate identity appeared outside verification")
+	}
+	if next.Phase == domain.CompactionCandidatePrepared && (previous.Phase == domain.CompactionCopyIntent || previous.Phase == domain.CompactionCopyRetryIntent) {
+		if next.PreparedCandidateIdentity == (domain.StoreFileIdentity{}) || next.PreparedCandidateIdentity.Size != 0 || next.PreparedAttempt != previous.PreparedAttempt+1 {
+			return errors.New("prepared candidate identity/attempt is invalid")
+		}
+	} else if next.PreparedCandidateIdentity != previous.PreparedCandidateIdentity || next.PreparedAttempt != previous.PreparedAttempt {
+		return errors.New("prepared candidate identity changed outside prepare transition")
 	}
 	if _, err := previous.Advance(next.Phase, next.UpdatedAt); err != nil {
 		return err
@@ -249,7 +259,7 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 		return run, err
 	}
 	if required > available {
-		return run, fmt.Errorf("insufficient free space: need %d bytes, have %d", id.Size, available)
+		return run, fmt.Errorf("insufficient free space: need %d bytes, have %d", required, available)
 	}
 	run.SourceIdentity = id
 	exchangeCapability := probeReplacementCapabilities(filepath.Dir(run.SourcePath)) == nil
@@ -287,11 +297,67 @@ func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionR
 	return rejectSQLiteSidecars(run.SourcePath)
 }
 
+func (f StoreReplacementFiles) PrepareCandidate(ctx context.Context, run domain.CompactionRun) (domain.StoreFileIdentity, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.StoreFileIdentity{}, err
+	}
+	if run.Phase != domain.CompactionCopyIntent && run.Phase != domain.CompactionCopyRetryIntent {
+		return domain.StoreFileIdentity{}, errors.New("candidate prepare requires copy intent")
+	}
+	if run.CandidatePath != run.SourcePath+".compact-"+run.ID {
+		return domain.StoreFileIdentity{}, errors.New("candidate path is not owned by run")
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("before_create"); err != nil {
+			return domain.StoreFileIdentity{}, err
+		}
+	}
+	file, err := openFileNoFollow(run.CandidatePath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	if err != nil {
+		return domain.StoreFileIdentity{}, fmt.Errorf("create prepared candidate: %w", err)
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_create"); err != nil {
+			_ = file.Close()
+			return domain.StoreFileIdentity{}, err
+		}
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return domain.StoreFileIdentity{}, fmt.Errorf("sync prepared candidate: %w", err)
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_file_sync"); err != nil {
+			_ = file.Close()
+			return domain.StoreFileIdentity{}, err
+		}
+	}
+	if err := file.Close(); err != nil {
+		return domain.StoreFileIdentity{}, err
+	}
+	identity, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		return identity, err
+	}
+	if identity.Size != 0 || identity.Device != run.SourceIdentity.Device {
+		return identity, errors.New("prepared candidate identity is invalid")
+	}
+	if err := syncDirectory(filepath.Dir(run.CandidatePath)); err != nil {
+		return identity, fmt.Errorf("sync directory after candidate create: %w", err)
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_create_dir_sync"); err != nil {
+			return identity, err
+		}
+	}
+	return identity, nil
+}
+
 func (f StoreReplacementFiles) RemoveOwnedPartialCandidate(ctx context.Context, run domain.CompactionRun, observation domain.CompactionObservation) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if run.Phase != domain.CompactionCopyIntent || observation.Orientation != domain.OrientationCandidateReady || observation.CandidateCondition != domain.CandidateConditionOwnedIncomplete {
+	if run.Phase != domain.CompactionCandidatePrepared || observation.Orientation != domain.OrientationCandidateReady || observation.CandidateCondition != domain.CandidateConditionOwnedIncomplete {
 		return errors.New("partial candidate cleanup is not aggregate-authorized")
 	}
 	if run.CandidatePath != run.SourcePath+".compact-"+run.ID {
@@ -308,7 +374,7 @@ func (f StoreReplacementFiles) RemoveOwnedPartialCandidate(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	if source != run.SourceIdentity || candidate != observation.Candidate || candidate.Device != source.Device {
+	if source != run.SourceIdentity || candidate != observation.Candidate || !candidate.SameInode(run.PreparedCandidateIdentity) || candidate.Device != source.Device {
 		return errors.New("partial candidate identity fence changed")
 	}
 	if f.recoveryHook != nil {
