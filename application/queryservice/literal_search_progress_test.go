@@ -65,6 +65,27 @@ func TestLiteralSearchProgressCharacterization(t *testing.T) {
 			t.Fatalf("result=%+v", got)
 		}
 	})
+	t.Run("source row limit preserves processed and examined", func(t *testing.T) {
+		p := NewLiteralSearchProgress(3, 9, apptypes.LiteralSearchBudget{SourceRows: 1, StoredBytes: 10, DecodedBytes: 10}, 2)
+		_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 4})
+		d, err := p.ObserveSource(LiteralSourceObservation{Sequence: 5})
+		if err != nil || !d.Stop || d.PartialReason != "source_rows" {
+			t.Fatalf("decision=%+v error=%v", d, err)
+		}
+		got := p.FinishPage(true)
+		if got.Processed != 4 || got.Examined != 1 || got.Complete {
+			t.Fatalf("result=%+v", got)
+		}
+	})
+	t.Run("result limit on high water completes without partial", func(t *testing.T) {
+		p := NewLiteralSearchProgress(0, 1, budget, 1)
+		_, _ = p.ObserveSource(LiteralSourceObservation{Sequence: 1, Eligible: true, Stored: 1, Decoded: 1})
+		_, _ = p.FinishVerification(1, true)
+		got := p.FinishPage(false)
+		if !got.Complete || got.PartialReason != "" || got.Processed != 1 || got.Examined != 1 {
+			t.Fatalf("result=%+v", got)
+		}
+	})
 }
 
 func TestLiteralSearchProgressRejectsPhaseViolations(t *testing.T) {
