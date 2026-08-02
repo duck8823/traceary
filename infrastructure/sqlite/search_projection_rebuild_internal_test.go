@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -377,6 +378,77 @@ func TestSearchProjectionMutationBetweenSnapshotAndApplyCommitsOnlyDriftMarker(t
 	}
 }
 
+func TestConcurrentApplyBatchFencesSameCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	store := NewDatabase(path, migrations)
+	if err := store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	if _, err := db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('race','note','a','s','visible',?,'c','w')`, formatTimestamp(now)); err != nil {
+		t.Fatal(err)
+	}
+	b := projectionBudget()
+	b.LockTime = 3 * time.Second
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.SelectSnapshot(ctx, b, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := usecase.PlanProjectionBatch(snapshot, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, applyErr := store.ApplyBatch(ctx, plan, b.LockTime, now)
+			errs <- applyErr
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	successes, losers := 0, 0
+	for applyErr := range errs {
+		if applyErr == nil {
+			successes++
+			continue
+		}
+		var drift *apptypes.SearchProjectionDriftError
+		var stopped *apptypes.SearchProjectionNoProgressError
+		if errors.As(applyErr, &drift) || errors.As(applyErr, &stopped) {
+			losers++
+			continue
+		}
+		t.Fatalf("untyped loser error: %T %v", applyErr, applyErr)
+	}
+	if successes != 1 || losers != 1 {
+		t.Fatalf("successes=%d losers=%d", successes, losers)
+	}
+	var checkpoint, rows int
+	if err = db.QueryRow(`SELECT checkpoint,(SELECT count(*) FROM search_projection_recent_documents) FROM search_projection_state`).Scan(&checkpoint, &rows); err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint != 1 || rows != 1 {
+		t.Fatalf("checkpoint=%d rows=%d", checkpoint, rows)
+	}
+	if _, err = resumeProjection(ctx, store, b, now); err != nil {
+		t.Fatalf("resume after fenced loser: %v", err)
+	}
+}
+
 func TestSearchProjectionOversizeFailureAllowsLargerGeneration(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
@@ -499,6 +571,57 @@ func TestCompletedMutationDefersPayloadCleanupToBoundedPhase(t *testing.T) {
 	status, err := store.SearchProjectionStatus(ctx)
 	if err != nil || status.MatchProbeMilliseconds < 0 {
 		t.Fatalf("probe=%+v err=%v", status, err)
+	}
+}
+
+func TestCompletedCanonicalMutationsDriftLifecycleAtomically(t *testing.T) {
+	mutations := map[string]string{
+		"event update": `UPDATE events SET body='changed' WHERE id='event-1'`,
+		"event delete": `DELETE FROM events WHERE id='event-1'`,
+		"audit insert": `INSERT INTO command_audits(event_id,command_text,input_text,output_text,exit_code,failed) VALUES('event-1','second','','',0,0)`,
+		"audit update": `UPDATE command_audits SET command_text='changed' WHERE event_id='event-1'`,
+		"audit delete": `DELETE FROM command_audits WHERE event_id='event-1'`,
+	}
+	for name, mutation := range mutations {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "store.db")
+			migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+			store := NewDatabase(path, migrations)
+			if err := store.initialize(ctx); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", sqliteDSN(path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('event-1','note','a','s','body','2026-08-03T00:00:00Z','c','w'); INSERT INTO command_audits(event_id,command_text,input_text,output_text,exit_code,failed) VALUES('event-1','first','','',0,0)`); err != nil {
+				t.Fatal(err)
+			}
+			var highWater int64
+			if err = db.QueryRow(`SELECT sequence FROM search_projection_source_sequence WHERE event_id='event-1'`).Scan(&highWater); err != nil {
+				t.Fatal(err)
+			}
+			if name == "audit insert" {
+				if _, err = db.Exec(`DELETE FROM command_audits WHERE event_id='event-1'`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err = db.Exec(`UPDATE search_projection_state SET generation_id='complete-generation',active_generation_id='complete-generation',state='complete',phase='complete',high_water=? WHERE singleton=1; INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water) VALUES('complete-generation','complete','hash',0,?)`, highWater, highWater); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(mutation); err != nil {
+				t.Fatal(err)
+			}
+			var state, lifecycle, active string
+			if err = db.QueryRow(`SELECT s.state,l.state,COALESCE(s.active_generation_id,'') FROM search_projection_state s JOIN search_projection_generation_lifecycle l ON l.generation_id=s.generation_id WHERE s.singleton=1`).Scan(&state, &lifecycle, &active); err != nil {
+				t.Fatal(err)
+			}
+			if state != "drifted" || lifecycle != "drifted" || active != "" {
+				t.Fatalf("state=%q lifecycle=%q active=%q", state, lifecycle, active)
+			}
+		})
 	}
 }
 

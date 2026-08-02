@@ -216,7 +216,7 @@ func (d *Database) ApplyBatch(ctx context.Context, p apptypes.ProjectionBatchPla
 	if p.Phase != "source" {
 		return apptypes.SearchProjectionProgress{}, errors.New("apply batch requires source phase")
 	}
-	return d.applyProjectionPlan(ctx, p, lock, now)
+	return d.applyProjectionPlanWithRetry(ctx, p, lock, now)
 }
 
 // CleanupBatch applies only an application-planned eviction or old-generation batch.
@@ -224,7 +224,39 @@ func (d *Database) CleanupBatch(ctx context.Context, p apptypes.ProjectionBatchP
 	if p.Phase == "source" {
 		return apptypes.SearchProjectionProgress{}, errors.New("cleanup batch requires cleanup phase")
 	}
-	return d.applyProjectionPlan(ctx, p, lock, now)
+	return d.applyProjectionPlanWithRetry(ctx, p, lock, now)
+}
+
+// applyProjectionPlanWithRetry fences concurrent workers at the persisted
+// checkpoint. SQLite busy/snapshot conflicts are retried only inside the
+// caller's lock cap; the eventual loser observes the winner's checkpoint and
+// returns the domain drift error instead of leaking a driver error.
+func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	lockCtx, cancel := context.WithTimeout(ctx, lock)
+	defer cancel()
+	for {
+		remaining := lock
+		if deadline, ok := lockCtx.Deadline(); ok {
+			remaining = time.Until(deadline)
+		}
+		if remaining <= 0 {
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+		}
+		out, err := d.applyProjectionPlan(lockCtx, p, remaining, now)
+		if err == nil || !isSearchProjectionSQLiteBusy(err) {
+			return out, err
+		}
+		select {
+		case <-lockCtx.Done():
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+		case <-time.After(min(5*time.Millisecond, remaining)):
+		}
+	}
+}
+
+func isSearchProjectionSQLiteBusy(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "sqlite_busy") || strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked")
 }
 
 // MarkFailed makes an oversize generation recoverable without advancing its checkpoint.
