@@ -30,6 +30,10 @@ design. Existing database and parent-directory symlinks resolve to the same
 lease namespace; hard-linked database files are rejected because aliases cannot
 be fenced safely. Unsupported platforms and failed capability probes report `false` and
 fail closed. Operators must still stop older or non-cooperating processes.
+The filesystem safety model is cooperative: every participating live opener
+uses the adjacent lease, and every destructive boundary rejects hard-linked
+source, candidate, or rollback files. Privileged or non-cooperating processes
+that mutate directory entries remain outside this advisory-lock boundary.
 
 After interruption, use `resume`; it derives file orientation from identities.
 Use `rollback` to atomically restore the retained original. Never delete the

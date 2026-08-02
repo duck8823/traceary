@@ -22,7 +22,7 @@ func TestCompactionRunRecoveryActionsRejectUnknownAndDecideCrashRecovery(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(actions) != 1 || actions[0] != ActionRecordSwapped {
+	if len(actions) != 2 || actions[0] != ActionSyncRecoveredOrientation || actions[1] != ActionRecordSwapped {
 		t.Fatalf("actions=%v", actions)
 	}
 	if _, err := run.RecoveryActions(CompactionObservation{Orientation: OrientationSourceOriginal}); err == nil {

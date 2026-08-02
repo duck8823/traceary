@@ -23,6 +23,9 @@ symlinkは同じlease namespaceへ解決し、安全にfenceできないhardlink
 拒否します。非対応platformまたは
 probe失敗時は `false` としてfail closedします。旧版や非協調processは引き続き
 事前停止が必要です。
+filesystem安全性は協調モデルです。参加するlive openerはすべて隣接leaseを使い、
+破壊的境界ではsource、candidate、rollbackのhardlinkを拒否します。権限を持つ
+非協調processによるdirectory entry変更はadvisory lockの境界外です。
 
 中断後は `resume` を使います。journalの最終行ではなくファイルidentity
 から向きを判定します。元へ戻す場合は `rollback` を使います。確認完了前に

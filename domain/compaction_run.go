@@ -108,6 +108,7 @@ const (
 	ActionRecordRollbackReady         CompactionAction = "record_rollback_ready"
 	ActionCommit                      CompactionAction = "commit"
 	ActionRollbackExchange            CompactionAction = "rollback_exchange"
+	ActionSyncRecoveredOrientation    CompactionAction = "sync_recovered_orientation"
 	ActionRecordRollbackSwapped       CompactionAction = "record_rollback_swapped"
 	ActionRecordRolledBack            CompactionAction = "record_rolled_back"
 )
@@ -152,9 +153,9 @@ func (r CompactionRun) RecoveryActions(observation CompactionObservation) ([]Com
 	case OrientationSwapped:
 		switch r.Phase {
 		case CompactionCandidateVerified:
-			return []CompactionAction{ActionRecordSwapIntent, ActionRecordSwapped}, nil
+			return []CompactionAction{ActionRecordSwapIntent, ActionSyncRecoveredOrientation, ActionRecordSwapped}, nil
 		case CompactionSwapIntent:
-			return []CompactionAction{ActionRecordSwapped}, nil
+			return []CompactionAction{ActionSyncRecoveredOrientation, ActionRecordSwapped}, nil
 		case CompactionSwapped:
 			return nil, nil
 		case CompactionRollbackPublishIntent:
@@ -163,9 +164,9 @@ func (r CompactionRun) RecoveryActions(observation CompactionObservation) ([]Com
 	case OrientationRollbackReady:
 		switch r.Phase {
 		case CompactionSwapped:
-			return []CompactionAction{ActionRecordPublishIntent, ActionRecordRollbackReady}, nil
+			return []CompactionAction{ActionRecordPublishIntent, ActionSyncRecoveredOrientation, ActionRecordRollbackReady}, nil
 		case CompactionRollbackPublishIntent:
-			return []CompactionAction{ActionRecordRollbackReady}, nil
+			return []CompactionAction{ActionSyncRecoveredOrientation, ActionRecordRollbackReady}, nil
 		case CompactionRollbackReady, CompactionCommitted:
 			return nil, nil
 		case CompactionRollbackSwapIntent:
@@ -174,7 +175,7 @@ func (r CompactionRun) RecoveryActions(observation CompactionObservation) ([]Com
 	case OrientationRolledBack:
 		switch r.Phase {
 		case CompactionRollbackSwapIntent:
-			return []CompactionAction{ActionRecordRollbackSwapped, ActionRecordRolledBack}, nil
+			return []CompactionAction{ActionSyncRecoveredOrientation, ActionRecordRollbackSwapped, ActionRecordRolledBack}, nil
 		case CompactionRollbackSwapped:
 			return []CompactionAction{ActionRecordRolledBack}, nil
 		case CompactionRolledBack:

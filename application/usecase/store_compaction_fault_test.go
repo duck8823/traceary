@@ -107,6 +107,13 @@ func (f faultFiles) Observe(context.Context, domain.CompactionRun) (domain.Compa
 	return f.observation, nil
 }
 
+func (f faultFiles) SyncRecoveredOrientation(context.Context, domain.CompactionRun, domain.CompactionObservation) error {
+	if f.fail == "sync_recovered" {
+		return errors.New("sync recovered fault")
+	}
+	return nil
+}
+
 type faultLease struct{ fail bool }
 
 func (l faultLease) AcquireExclusive(context.Context, string) (func(), error) {

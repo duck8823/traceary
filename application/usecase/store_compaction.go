@@ -167,6 +167,12 @@ func (u *storeCompactionUsecase) resumeLeased(ctx context.Context, run domain.Co
 		return run, err
 	}
 	for _, action := range actions {
+		if action == domain.ActionSyncRecoveredOrientation {
+			if err := u.files.SyncRecoveredOrientation(ctx, run, observation); err != nil {
+				return run, err
+			}
+			continue
+		}
 		if action == domain.ActionRemoveOwnedPartialCandidate {
 			if err := u.files.Recheck(ctx, run); err != nil {
 				return run, err

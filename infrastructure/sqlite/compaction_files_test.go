@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain"
 )
 
@@ -284,4 +285,100 @@ func TestPrepareCandidateFaultBoundaries(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCompactionDestructiveBoundariesRejectHardLinkedArtifacts(t *testing.T) {
+	for _, target := range []string{"source-before-exchange", "candidate-before-fence", "candidate-before-publish", "rollback-before-exchange"} {
+		t.Run(target, func(t *testing.T) {
+			dir := t.TempDir()
+			source, candidate, rollback := filepath.Join(dir, "source"), filepath.Join(dir, "candidate"), filepath.Join(dir, "rollback")
+			for path, body := range map[string]string{source: "source", candidate: "candidate", rollback: "rollback"} {
+				if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sourceID, _ := inspectRegularFile(source)
+			candidateID, _ := inspectRegularFile(candidate)
+			run := domain.CompactionRun{SourcePath: source, CandidatePath: candidate, RollbackPath: rollback, SourceIdentity: sourceID, Candidate: candidateID, PreparedCandidateIdentity: candidateID}
+			var linked, actionPath string
+			switch target {
+			case "source-before-exchange":
+				linked = source
+				run.Phase = domain.CompactionSwapIntent
+				actionPath = "exchange"
+			case "candidate-before-fence":
+				linked = candidate
+				run.Phase = domain.CompactionScrubInProgress
+				actionPath = "fence"
+			case "candidate-before-publish":
+				linked = candidate
+				run.Phase = domain.CompactionRollbackPublishIntent
+				actionPath = "publish"
+				_ = os.Remove(rollback)
+			case "rollback-before-exchange":
+				linked = rollback
+				run.Phase = domain.CompactionRollbackSwapIntent
+				run.SourceIdentity, run.Candidate = mustIDs(t, rollback, source)
+				actionPath = "exchange"
+			}
+			if err := os.Link(linked, linked+".alias"); err != nil {
+				t.Fatal(err)
+			}
+			files := StoreReplacementFiles{}
+			var err error
+			switch actionPath {
+			case "fence":
+				_, err = files.FenceCandidate(context.Background(), run)
+			case "publish":
+				err = files.PublishRollback(context.Background(), run)
+			default:
+				err = files.Exchange(context.Background(), run)
+			}
+			if err == nil {
+				t.Fatal("hard-linked artifact crossed destructive boundary")
+			}
+		})
+	}
+}
+
+func TestRecoveredExchangeDurabilityFaultsDoNotAdvanceIntent(t *testing.T) {
+	points := []string{"before_recovery_file_sync_0", "after_recovery_file_sync_0", "before_recovery_file_sync_1", "after_recovery_file_sync_1", "before_recovery_dir_sync", "after_recovery_dir_sync"}
+	for _, point := range points {
+		t.Run(point, func(t *testing.T) {
+			dir := t.TempDir()
+			source, candidate := filepath.Join(dir, "source"), filepath.Join(dir, "candidate")
+			_ = os.WriteFile(source, []byte("compacted"), 0o600)
+			_ = os.WriteFile(candidate, []byte("original"), 0o600)
+			candidateID, _ := inspectRegularFile(source)
+			sourceID, _ := inspectRegularFile(candidate)
+			run := domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", SourcePath: source, CandidatePath: candidate, RollbackPath: filepath.Join(dir, "rollback"), SourceIdentity: sourceID, Candidate: candidateID, PreparedCandidateIdentity: candidateID, Phase: domain.CompactionSwapIntent}
+			journal := &observationTrackingJournal{run: run}
+			files := StoreReplacementFiles{recoveryHook: func(got string) error {
+				if got == point {
+					return errors.New("stop")
+				}
+				return nil
+			}}
+			service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, files, StoreLeaseCoordinator{})
+			if _, err := service.Resume(context.Background(), run.ID); err == nil {
+				t.Fatal("fault not returned")
+			}
+			if journal.run.Phase != domain.CompactionSwapIntent {
+				t.Fatalf("journal advanced to %s", journal.run.Phase)
+			}
+		})
+	}
+}
+
+func mustIDs(t *testing.T, first, second string) (domain.StoreFileIdentity, domain.StoreFileIdentity) {
+	t.Helper()
+	a, err := inspectRegularFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := inspectRegularFile(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a, b
 }

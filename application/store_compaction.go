@@ -35,6 +35,7 @@ type StoreReplacementCoordinator interface {
 	Exchange(context.Context, domain.CompactionRun) error
 	PublishRollback(context.Context, domain.CompactionRun) error
 	Observe(context.Context, domain.CompactionRun) (domain.CompactionObservation, error)
+	SyncRecoveredOrientation(context.Context, domain.CompactionRun, domain.CompactionObservation) error
 }
 
 // StoreCompactionFiles is the complete consumer-facing file protocol required

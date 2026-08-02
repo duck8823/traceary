@@ -76,6 +76,11 @@ func openCoordinatedDB(path, dsn string) *sql.DB {
 	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedSQLiteDriver, dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr})
 }
 
+// OpenCoordinatedSQLite opens a live store through the shared physical-
+// connection lease. Copied rehearsal databases and compactor-owned candidates
+// intentionally use direct openers instead.
+func OpenCoordinatedSQLite(path, dsn string) *sql.DB { return openCoordinatedDB(path, dsn) }
+
 type storeLeaseConnector struct {
 	driver      driver.Driver
 	dsn         string

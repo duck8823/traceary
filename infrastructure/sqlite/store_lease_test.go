@@ -114,6 +114,45 @@ func TestStoreLeaseMultiprocessSymlinkAliasSharesNamespace(t *testing.T) {
 	}
 }
 
+func TestLiveConnectionCannotOpenDuringExclusiveMaintenance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	release, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreLeaseHelperProcess$")
+	cmd.Env = append(os.Environ(), "TRACEARY_STORE_LEASE_HELPER=1", "TRACEARY_STORE_LEASE_PATH="+path)
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		release()
+		t.Fatal(err)
+	}
+	defer func() { _ = stdin.Close(); _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	ready := make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			if scanner.Text() == "ready" {
+				close(ready)
+				return
+			}
+		}
+	}()
+	select {
+	case <-ready:
+		release()
+		t.Fatal("live connection opened during exclusive maintenance")
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("live connection did not open after maintenance")
+	}
+}
+
 func TestCoordinatedDatabaseRejectsHardLinkAlias(t *testing.T) {
 	dir := t.TempDir()
 	realPath := filepath.Join(dir, "store.db")

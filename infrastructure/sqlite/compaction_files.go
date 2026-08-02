@@ -478,6 +478,11 @@ func (StoreReplacementFiles) FenceCandidate(ctx context.Context, run domain.Comp
 	if err := rejectSQLiteSidecars(run.CandidatePath); err != nil {
 		return run, err
 	}
+	for _, path := range []string{run.SourcePath, run.CandidatePath} {
+		if err := validateStoreLinkIdentity(path); err != nil {
+			return run, err
+		}
+	}
 	identity, err := inspectRegularFile(run.CandidatePath)
 	if err != nil {
 		return run, err
@@ -492,13 +497,18 @@ func (StoreReplacementFiles) FenceCandidate(ctx context.Context, run domain.Comp
 	return run, nil
 }
 
-func (StoreReplacementFiles) Exchange(ctx context.Context, run domain.CompactionRun) error {
+func (f StoreReplacementFiles) Exchange(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	left, right := run.SourcePath, run.CandidatePath
 	if run.Phase == domain.CompactionRollbackSwapIntent {
 		right = run.RollbackPath
+	}
+	for _, path := range []string{left, right} {
+		if err := validateStoreLinkIdentity(path); err != nil {
+			return err
+		}
 	}
 	current, err := inspectRegularFile(left)
 	if err != nil {
@@ -528,29 +538,81 @@ func (StoreReplacementFiles) Exchange(ctx context.Context, run domain.Compaction
 	if err := atomicExchange(left, right); err != nil {
 		return err
 	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_exchange"); err != nil {
+			return err
+		}
+	}
 	if err := syncFile(left); err != nil {
 		return err
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_exchange_left_sync"); err != nil {
+			return err
+		}
 	}
 	if err := syncFile(right); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(left))
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_exchange_right_sync"); err != nil {
+			return err
+		}
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("before_exchange_dir_sync"); err != nil {
+			return err
+		}
+	}
+	if err := syncDirectory(filepath.Dir(left)); err != nil {
+		return err
+	}
+	if f.recoveryHook != nil {
+		return f.recoveryHook("after_exchange_dir_sync")
+	}
+	return nil
 }
 
-func (StoreReplacementFiles) PublishRollback(ctx context.Context, run domain.CompactionRun) error {
+func (f StoreReplacementFiles) PublishRollback(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if _, err := os.Lstat(run.RollbackPath); !os.IsNotExist(err) {
 		return errors.New("rollback destination exists")
 	}
+	for _, path := range []string{run.SourcePath, run.CandidatePath} {
+		if err := validateStoreLinkIdentity(path); err != nil {
+			return err
+		}
+	}
 	if err := renameNoReplace(run.CandidatePath, run.RollbackPath); err != nil {
 		return fmt.Errorf("publish rollback without replacement: %w", err)
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_publish_rename"); err != nil {
+			return err
+		}
 	}
 	if err := syncFile(run.RollbackPath); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(run.SourcePath))
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("after_publish_file_sync"); err != nil {
+			return err
+		}
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("before_publish_dir_sync"); err != nil {
+			return err
+		}
+	}
+	if err := syncDirectory(filepath.Dir(run.SourcePath)); err != nil {
+		return err
+	}
+	if f.recoveryHook != nil {
+		return f.recoveryHook("after_publish_dir_sync")
+	}
+	return nil
 }
 
 func (StoreReplacementFiles) Observe(_ context.Context, run domain.CompactionRun) (domain.CompactionObservation, error) {
@@ -603,6 +665,48 @@ func (StoreReplacementFiles) Observe(_ context.Context, run domain.CompactionRun
 		return obs, errors.New("unknown compaction file orientation")
 	}
 	return obs, nil
+}
+
+func (f StoreReplacementFiles) SyncRecoveredOrientation(ctx context.Context, run domain.CompactionRun, observation domain.CompactionObservation) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var paths []string
+	switch observation.Orientation {
+	case domain.OrientationSwapped:
+		paths = []string{run.SourcePath, run.CandidatePath}
+	case domain.OrientationRollbackReady, domain.OrientationRolledBack:
+		paths = []string{run.SourcePath, run.RollbackPath}
+	default:
+		return errors.New("cannot sync unknown recovered orientation")
+	}
+	for index, path := range paths {
+		if f.recoveryHook != nil {
+			if err := f.recoveryHook(fmt.Sprintf("before_recovery_file_sync_%d", index)); err != nil {
+				return err
+			}
+		}
+		if err := syncFile(path); err != nil {
+			return err
+		}
+		if f.recoveryHook != nil {
+			if err := f.recoveryHook(fmt.Sprintf("after_recovery_file_sync_%d", index)); err != nil {
+				return err
+			}
+		}
+	}
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("before_recovery_dir_sync"); err != nil {
+			return err
+		}
+	}
+	if err := syncDirectory(filepath.Dir(run.SourcePath)); err != nil {
+		return err
+	}
+	if f.recoveryHook != nil {
+		return f.recoveryHook("after_recovery_dir_sync")
+	}
+	return nil
 }
 
 func inspectOptionalRegularFile(path string) (domain.StoreFileIdentity, bool, error) {

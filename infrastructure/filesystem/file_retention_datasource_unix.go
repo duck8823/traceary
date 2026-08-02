@@ -133,7 +133,7 @@ func (datasource *FileRetentionDatasource) inspectFileRetentionEntries(
 			return nil, xerrors.Errorf("inspect file retention root: %w", err)
 		}
 		name := dirEntry.Name()
-		if strings.HasPrefix(name, fileRetentionReservedPrefix) || strings.HasSuffix(name, ".partial") {
+		if strings.HasPrefix(name, fileRetentionReservedPrefix) || strings.HasSuffix(name, ".partial") || strings.HasSuffix(name, ".traceary.lock") {
 			continue
 		}
 		entry, err := datasource.inspectFileRetentionEntry(rootFD, rootStat, rootIdentity, request, liveGeneration, backupManifests, name)
@@ -446,7 +446,7 @@ func fileRetentionLiveGeneration(ctx context.Context, class, databasePath string
 	if err != nil {
 		return "", xerrors.Errorf("derive file retention lineage: %w", err)
 	}
-	_, integrity, err := sqliteFileRetentionGeneration(databasePath)
+	_, integrity, err := sqliteFileRetentionGenerationWithLease(databasePath, true)
 	if err != nil {
 		return "", xerrors.Errorf("inspect live SQLite generation: %w", err)
 	}
@@ -460,14 +460,23 @@ func fileRetentionLiveGeneration(ctx context.Context, class, databasePath string
 }
 
 func sqliteFileRetentionGeneration(path string) (string, string, error) {
+	return sqliteFileRetentionGenerationWithLease(path, false)
+}
+
+func sqliteFileRetentionGenerationWithLease(path string, live bool) (string, string, error) {
 	absolute, err := filepath.Abs(strings.TrimSpace(path))
 	if err != nil {
 		return "", "", xerrors.Errorf("resolve SQLite verification path: %w", err)
 	}
 	dsn := (&url.URL{Scheme: "file", Path: absolute, RawQuery: "mode=ro&immutable=1"}).String()
-	database, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return "", "", xerrors.Errorf("open SQLite verification database: %w", err)
+	var database *sql.DB
+	if live {
+		database = sqliteinfra.OpenCoordinatedSQLite(absolute, dsn)
+	} else {
+		database, err = sql.Open("sqlite", dsn)
+		if err != nil {
+			return "", "", xerrors.Errorf("open copied SQLite verification database: %w", err)
+		}
 	}
 	defer func() { _ = database.Close() }()
 	if err := sqliteinfra.VerifyStoreCompatibility(context.Background(), database); err != nil {
