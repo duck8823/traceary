@@ -51,6 +51,8 @@ type parityCriterionEvidence struct {
 	Status           string `json:"status"`
 	ComparisonEqual  bool   `json:"comparison_equal"`
 	CoverageComplete bool   `json:"coverage_complete"`
+	LegacyLatencyUS  int64  `json:"legacy_latency_us"`
+	TieredLatencyUS  int64  `json:"tiered_latency_us"`
 }
 
 func keyedParityBinding(key []byte, purpose string, fields ...string) (string, error) {
@@ -74,7 +76,7 @@ func validParityV2EvidenceShape(s parityV2EvidenceSuite) bool {
 	required := map[string]bool{"fingerprint_eligible": false, "bounded_verification": false}
 	for _, criterion := range s.Criteria {
 		seen, known := required[criterion.QueryClass]
-		if !known || seen || !validOpaqueBinding(criterion.CriterionBinding) || criterion.Status != "passed" || !criterion.ComparisonEqual || !criterion.CoverageComplete {
+		if !known || seen || !validOpaqueBinding(criterion.CriterionBinding) || criterion.Status != "passed" || !criterion.ComparisonEqual || !criterion.CoverageComplete || criterion.LegacyLatencyUS <= 0 || criterion.TieredLatencyUS <= 0 {
 			return false
 		}
 		required[criterion.QueryClass] = true
@@ -881,7 +883,7 @@ func validateParityV2JSON(data []byte) error {
 		}
 		return jsonObjectSchema{required: required, optional: map[string]any{}}
 	}
-	criterion := leaf("query_class", "criterion_binding", "status", "comparison_equal", "coverage_complete")
+	criterion := leaf("query_class", "criterion_binding", "status", "comparison_equal", "coverage_complete", "legacy_latency_us", "tiered_latency_us")
 	criteriaArray := jsonObjectSchema{required: map[string]any{}, optional: map[string]any{}, arrayElement: &criterion}
 	schema := jsonObjectSchema{required: map[string]any{
 		"schema_version": nil, "authorization_scope": nil, "target_store_binding": nil,

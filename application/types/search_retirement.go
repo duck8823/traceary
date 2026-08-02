@@ -29,6 +29,8 @@ type SearchParityCriterion struct {
 	Status           string `json:"status"`
 	ComparisonEqual  bool   `json:"comparison_equal"`
 	CoverageComplete bool   `json:"coverage_complete"`
+	LegacyLatencyUS  int64  `json:"legacy_latency_us"`
+	TieredLatencyUS  int64  `json:"tiered_latency_us"`
 }
 type SearchParityV2Evidence struct {
 	SchemaVersion      string                  `json:"schema_version"`

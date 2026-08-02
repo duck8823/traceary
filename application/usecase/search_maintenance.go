@@ -83,6 +83,9 @@ func (u *SearchMaintenanceUsecase) StartRetire(ctx context.Context, artifact []b
 		if observedErr != nil || !hmac.Equal(observedBytes, expectedBytes) {
 			return apptypes.SearchMaintenanceReport{}, xerrors.New("parity criterion is not bound to the current store suite")
 		}
+		if criterion.LegacyLatencyUS <= 0 || criterion.TieredLatencyUS <= 0 || criterion.TieredLatencyUS > criterion.LegacyLatencyUS*2+5_000 {
+			return apptypes.SearchMaintenanceReport{}, xerrors.New("tiered recent-search latency materially regressed")
+		}
 	}
 	return u.store.BeginSearchRetirement(ctx, evidence.TargetStoreBinding, snapshot)
 }
@@ -131,7 +134,7 @@ func parseSearchParityV2Evidence(data []byte) (apptypes.SearchParityV2Evidence, 
 	for _, criterion := range evidence.Criteria {
 		seen, ok := required[criterion.QueryClass]
 		binding, decodeErr := base64.RawURLEncoding.DecodeString(criterion.CriterionBinding)
-		if !ok || seen || decodeErr != nil || len(binding) != 32 || criterion.Status != "passed" || !criterion.ComparisonEqual || !criterion.CoverageComplete {
+		if !ok || seen || decodeErr != nil || len(binding) != 32 || criterion.Status != "passed" || !criterion.ComparisonEqual || !criterion.CoverageComplete || criterion.LegacyLatencyUS <= 0 || criterion.TieredLatencyUS <= 0 {
 			return evidence, xerrors.New("parity v2 criterion is incomplete")
 		}
 		required[criterion.QueryClass] = true
@@ -160,7 +163,7 @@ func validateSearchEvidenceObjectKeys(data []byte) error {
 		return xerrors.New("invalid parity criteria")
 	}
 	for _, criterion := range criteria {
-		if !exactKeys(criterion, "query_class", "criterion_binding", "status", "comparison_equal", "coverage_complete") {
+		if !exactKeys(criterion, "query_class", "criterion_binding", "status", "comparison_equal", "coverage_complete", "legacy_latency_us", "tiered_latency_us") {
 			return xerrors.New("invalid parity criterion keys")
 		}
 	}

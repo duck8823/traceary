@@ -53,6 +53,9 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if second.Phase != model.SearchMaintenanceRetired {
 		t.Fatalf("second=%+v", second)
 	}
+	if second.LogicalBytesBefore <= 0 || second.LogicalBytesAfter != 0 || second.PhysicalBytesBefore <= 0 || second.PhysicalBytesAfter <= 0 {
+		t.Fatalf("missing before/after byte attribution: %+v", second)
+	}
 	raw, err = database.open(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -71,14 +74,19 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if _, err = database.BeginSearchRestore(ctx); err != nil {
 		t.Fatal(err)
 	}
+	var restored apptypes.SearchMaintenanceReport
 	for {
 		report, restoreErr := database.RestoreLegacySearchBatch(ctx, 2)
 		if restoreErr != nil {
 			t.Fatal(restoreErr)
 		}
+		restored = report
 		if report.Complete {
 			break
 		}
+	}
+	if restored.LogicalBytesAfter <= 0 || restored.PhysicalBytesAfter <= 0 {
+		t.Fatalf("missing restore byte attribution: %+v", restored)
 	}
 	raw, err = database.open(ctx)
 	if err != nil {

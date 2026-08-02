@@ -545,8 +545,8 @@ func TestParityV2BindingIsKeyedAndEvidenceIsCriterionScoped(t *testing.T) {
 		Revision:   parityRevision{Commit: strings.Repeat("a", 40)},
 		Projection: parityProjection{Revision: 3, HighWater: 16, LogicalBytes: 1, PhysicalBytes: 1},
 		Criteria: []parityCriterionEvidence{
-			{QueryClass: "fingerprint_eligible", CriterionBinding: criterionA, Status: "passed", ComparisonEqual: true, CoverageComplete: true},
-			{QueryClass: "bounded_verification", CriterionBinding: criterionB, Status: "passed", ComparisonEqual: true, CoverageComplete: true},
+			{QueryClass: "fingerprint_eligible", CriterionBinding: criterionA, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 120},
+			{QueryClass: "bounded_verification", CriterionBinding: criterionB, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 120},
 		},
 	}
 	if !validParityV2EvidenceShape(suite) {

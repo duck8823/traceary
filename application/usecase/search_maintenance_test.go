@@ -53,7 +53,7 @@ func TestSearchMaintenanceStartRetireRequiresFreshStoreBoundV2(t *testing.T) {
 	}
 	criterionA, _ := apptypes.KeyedSearchParityBinding(key, "criterion", "fingerprint_eligible", binding)
 	criterionB, _ := apptypes.KeyedSearchParityBinding(key, "criterion", "bounded_verification", binding)
-	evidence := apptypes.SearchParityV2Evidence{SchemaVersion: apptypes.SearchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: revision, Projection: projection, Criteria: []apptypes.SearchParityCriterion{{QueryClass: "fingerprint_eligible", CriterionBinding: criterionA, Status: "passed", ComparisonEqual: true, CoverageComplete: true}, {QueryClass: "bounded_verification", CriterionBinding: criterionB, Status: "passed", ComparisonEqual: true, CoverageComplete: true}}}
+	evidence := apptypes.SearchParityV2Evidence{SchemaVersion: apptypes.SearchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: revision, Projection: projection, Criteria: []apptypes.SearchParityCriterion{{QueryClass: "fingerprint_eligible", CriterionBinding: criterionA, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 150}, {QueryClass: "bounded_verification", CriterionBinding: criterionB, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 150}}}
 	data, _ := json.Marshal(evidence)
 	fake := &searchMaintenanceStoreFake{snapshot: apptypes.SearchRetirementSnapshot{State: state, CursorKey: key, ProjectionRevision: 7, ProjectionHighWater: 11, SourceHighWater: 11, ProjectionState: "complete", EventCount: 3, AuditCount: 2, CanonicalLogicalBytes: 99, PhysicalBytes: 202, TargetAdopted: true}}
 	if _, err = NewSearchMaintenanceUsecase(fake).StartRetire(context.Background(), data, revision.Commit); err != nil {
@@ -62,7 +62,7 @@ func TestSearchMaintenanceStartRetireRequiresFreshStoreBoundV2(t *testing.T) {
 	if fake.began != 1 {
 		t.Fatalf("begin calls=%d", fake.began)
 	}
-	for name, mutate := range map[string]func(*apptypes.SearchParityV2Evidence){"v1": func(e *apptypes.SearchParityV2Evidence) { e.SchemaVersion = "traceary.tiered-search-parity/v1" }, "copied key": func(e *apptypes.SearchParityV2Evidence) { e.TargetStoreBinding = criterionA }, "copied scope": func(e *apptypes.SearchParityV2Evidence) { e.AuthorizationScope = "compatibility_only" }, "partial": func(e *apptypes.SearchParityV2Evidence) { e.Criteria[0].CoverageComplete = false }, "dirty": func(e *apptypes.SearchParityV2Evidence) { e.Revision.Dirty = true }} {
+	for name, mutate := range map[string]func(*apptypes.SearchParityV2Evidence){"v1": func(e *apptypes.SearchParityV2Evidence) { e.SchemaVersion = "traceary.tiered-search-parity/v1" }, "copied key": func(e *apptypes.SearchParityV2Evidence) { e.TargetStoreBinding = criterionA }, "copied scope": func(e *apptypes.SearchParityV2Evidence) { e.AuthorizationScope = "compatibility_only" }, "partial": func(e *apptypes.SearchParityV2Evidence) { e.Criteria[0].CoverageComplete = false }, "dirty": func(e *apptypes.SearchParityV2Evidence) { e.Revision.Dirty = true }, "latency regression": func(e *apptypes.SearchParityV2Evidence) { e.Criteria[0].TieredLatencyUS = 6000 }} {
 		t.Run(name, func(t *testing.T) {
 			crafted := evidence
 			crafted.Criteria = append([]apptypes.SearchParityCriterion(nil), evidence.Criteria...)
