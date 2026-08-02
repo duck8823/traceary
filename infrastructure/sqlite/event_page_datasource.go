@@ -61,49 +61,13 @@ func (d *EventDatasource) SearchPage(
 	ctx context.Context,
 	criteria apptypes.EventSearchCriteria,
 ) ([]*model.Event, error) {
-	if criteria.Limit() <= 0 {
-		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
-	}
-	if criteria.Offset() < 0 {
-		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
-	}
-	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
-		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
-	}
-	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
-		return nil, xerrors.Errorf("from must be earlier than to")
-	}
-	db, tx, err := d.beginEventProjectionRead(ctx, "full event page search")
-	if err != nil {
+	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
 		return nil, err
 	}
-	defer closeEventProjectionRead(db, tx)
-
-	searchSchemaAvailable, err := eventSearchSchemaAvailable(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
-	var candidateIDs []string
-	if searchSchemaAvailable {
-		candidateIDs, err = selectEventSearchCandidateIDs(ctx, tx, criteria)
-	} else {
-		candidateIDs, err = queryLegacyEventIDs(ctx, tx, criteria, criteria.Query())
-	}
-	if err != nil {
-		return nil, err
-	}
-	events, err := hydrateEventSearchCandidates(ctx, tx, candidateIDs)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("failed to finish full event page search: %w", err)
-	}
-	return events, nil
+	return d.searchFullByPersistedAuthority(ctx, criteria)
 }
 
-// GetContextPage selects context membership and hydrates full events inside one
-// SQLite read snapshot.
+// GetContextPage returns full events for a bounded context window.
 func (d *EventDatasource) GetContextPage(
 	ctx context.Context,
 	criteria apptypes.EventContextCriteria,

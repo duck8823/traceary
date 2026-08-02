@@ -42,6 +42,7 @@ type RootCLI struct {
 	storeManagement            usecase.StoreManagementUsecase
 	capacityInspector          application.CapacityInspector
 	searchProjection           *usecase.SearchProjectionUsecase
+	searchMaintenance          *usecase.SearchMaintenanceUsecase
 	payloadRehearsal           usecase.PayloadRehearsalUsecase
 	rawBodyRetention           usecase.RawBodyRetentionUsecase
 	fileRetention              usecase.FileRetentionUsecase
@@ -210,6 +211,11 @@ func WithCapacityInspector(inspector application.CapacityInspector) RootCLIOptio
 // WithSearchProjection injects the explicit, non-authoritative projection workflow.
 func WithSearchProjection(projection *usecase.SearchProjectionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.searchProjection = projection }
+}
+
+// WithSearchMaintenance injects the evidence-gated search cutover workflow.
+func WithSearchMaintenance(maintenance *usecase.SearchMaintenanceUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.searchMaintenance = maintenance }
 }
 
 // WithPayloadRehearsal injects the copied-store rehearsal workflow.

@@ -3,27 +3,227 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 const (
 	searchParitySchema     = "traceary.tiered-search-parity/v1"
+	searchParityV2Schema   = "traceary.tiered-search-parity/v2"
 	membershipSetContract  = "membership_set/v1"
 	maxParityManifestBytes = 1 << 20
+	maxParityArtifactBytes = 1 << 20
+	maxParityCriteriaCount = 16
+	maxParityJSONDepth     = 16
 	maxParityPageSize      = 10_000
 	maxParityTimeoutMS     = int64((24 * time.Hour) / time.Millisecond)
 )
+
+// parityV2EvidenceSuite is a strictly parsed evidence envelope. Authorization
+// is deliberately owned by the later application policy, which can compare
+// it with a fresh current-store snapshot and key.
+type parityV2EvidenceSuite struct {
+	SchemaVersion      string                    `json:"schema_version"`
+	AuthorizationScope string                    `json:"authorization_scope"`
+	TargetStoreBinding string                    `json:"target_store_binding"`
+	Revision           parityRevision            `json:"revision"`
+	Projection         parityProjection          `json:"projection"`
+	LiteralGeneration  string                    `json:"literal_generation"`
+	BoundedGeneration  string                    `json:"bounded_generation"`
+	RunID              string                    `json:"run_id"`
+	ComparisonContract string                    `json:"comparison_contract"`
+	Criteria           []parityCriterionEvidence `json:"criteria"`
+}
+
+type parityAuthorizationManifest struct {
+	DBPath              string `json:"db_path"`
+	FingerprintManifest string `json:"fingerprint_manifest"`
+	BoundedManifest     string `json:"bounded_manifest"`
+}
+
+func buildActualTargetParityEvidence(ctx context.Context, path string) (parityV2EvidenceSuite, error) {
+	data, err := readPrivateParityFile(path, maxParityManifestBytes)
+	if err != nil {
+		return parityV2EvidenceSuite{}, errors.New("authorization_manifest_invalid")
+	}
+	var manifest parityAuthorizationManifest
+	if decodeStrictJSON(data, &manifest) != nil || validateJSONObjectKeys(data, jsonObjectSchema{required: map[string]any{"db_path": nil, "fingerprint_manifest": nil, "bounded_manifest": nil}}) != nil || manifest.DBPath == "" || manifest.FingerprintManifest == "" || manifest.BoundedManifest == "" {
+		return parityV2EvidenceSuite{}, errors.New("authorization_manifest_invalid")
+	}
+	target, err := os.Lstat(manifest.DBPath)
+	if err != nil || !target.Mode().IsRegular() || target.Mode()&os.ModeSymlink != 0 {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	beforeDB, err := infra.NewImmutableReadDatabase(ctx, manifest.DBPath)
+	if err != nil {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	before, beforeErr := beforeDB.SearchRetirementSnapshot(ctx)
+	_ = beforeDB.CloseSharedReadOnly()
+	if beforeErr != nil || !before.TargetAdopted || before.ProjectionState != "complete" {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	readAndBind := func(manifestPath string) (searchParityManifest, error) {
+		if manifestPath == "-" {
+			return searchParityManifest{}, errors.New("authorization_manifest_invalid")
+		}
+		parityManifest, readErr := readSearchParityManifest(manifestPath, nil)
+		if readErr != nil {
+			return searchParityManifest{}, errors.New("authorization_manifest_invalid")
+		}
+		candidate, statErr := os.Stat(parityManifest.DBPath)
+		if statErr != nil || !os.SameFile(target, candidate) {
+			return searchParityManifest{}, errors.New("authorization_store_mismatch")
+		}
+		return parityManifest, nil
+	}
+	fingerprintManifest, err := readAndBind(manifest.FingerprintManifest)
+	if err != nil {
+		return parityV2EvidenceSuite{}, err
+	}
+	boundedManifest, err := readAndBind(manifest.BoundedManifest)
+	if err != nil {
+		return parityV2EvidenceSuite{}, err
+	}
+	// The two criteria are collected here from the target itself. Historical v1
+	// artifacts are never accepted as authorization input or re-signed.
+	fingerprint := runSearchParity(ctx, fingerprintManifest)
+	bounded := runSearchParity(ctx, boundedManifest)
+	if fingerprint.Status != "passed" || bounded.Status != "passed" || !fingerprint.Comparison.Equal || !bounded.Comparison.Equal || !fingerprint.Tiered.Coverage.Complete || !bounded.Tiered.Coverage.Complete {
+		return parityV2EvidenceSuite{}, errors.New("authorization_parity_failed")
+	}
+	if fingerprint.Tiered.QueryClass != "fingerprint_eligible" || bounded.Tiered.QueryClass != "bounded_verification" || fingerprint.Revision != bounded.Revision || fingerprint.Projection != bounded.Projection {
+		return parityV2EvidenceSuite{}, errors.New("authorization_artifact_mismatch")
+	}
+	database, err := infra.NewImmutableReadDatabase(ctx, manifest.DBPath)
+	if err != nil {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	defer func() { _ = database.CloseSharedReadOnly() }()
+	snapshot, err := database.SearchRetirementSnapshot(ctx)
+	if err != nil || !snapshot.TargetAdopted || snapshot.ProjectionState != "complete" || snapshot.ProjectionRevision != fingerprint.Projection.Revision || snapshot.ProjectionHighWater != fingerprint.Projection.HighWater {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	if !sameRetirementSnapshot(before, snapshot) {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_changed")
+	}
+	after, statErr := os.Stat(manifest.DBPath)
+	if statErr != nil || !os.SameFile(target, after) || target.Size() != after.Size() || !target.ModTime().Equal(after.ModTime()) {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_changed")
+	}
+	revision := apptypes.SearchParityRevision{Commit: fingerprint.Revision.Commit, Dirty: fingerprint.Revision.Dirty}
+	projection := apptypes.SearchParityProjection{Revision: snapshot.ProjectionRevision, HighWater: snapshot.ProjectionHighWater, LogicalBytes: snapshot.CanonicalLogicalBytes, PhysicalBytes: snapshot.PhysicalBytes}
+	binding, err := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "target-store", apptypes.SearchParityTargetFields(revision, projection, snapshot.EventCount, snapshot.AuditCount, snapshot.CanonicalLogicalBytes, snapshot.ProjectionGeneration, snapshot.ProjectionGeneration)...)
+	if err != nil {
+		return parityV2EvidenceSuite{}, errors.New("authorization_store_invalid")
+	}
+	runID := fmt.Sprintf("%d-%s", time.Now().UTC().UnixNano(), snapshot.ProjectionGeneration)
+	base := apptypes.SearchParityV2Evidence{TargetStoreBinding: binding, LiteralGeneration: snapshot.ProjectionGeneration, BoundedGeneration: snapshot.ProjectionGeneration, RunID: runID, ComparisonContract: membershipSetContract}
+	criterion := func(class string, artifact searchParityArtifact) (parityCriterionEvidence, error) {
+		claim := apptypes.SearchParityCriterion{QueryClass: class, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: artifact.Legacy.LatencyUS, TieredLatencyUS: artifact.Tiered.LatencyUS}
+		b, e := apptypes.KeyedSearchParityBinding(snapshot.CursorKey, "criterion", apptypes.SearchParityCriterionFields(base, claim)...)
+		if e != nil {
+			return parityCriterionEvidence{}, errors.New("authorization_criterion_invalid")
+		}
+		return parityCriterionEvidence{QueryClass: class, CriterionBinding: b, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: artifact.Legacy.LatencyUS, TieredLatencyUS: artifact.Tiered.LatencyUS}, nil
+	}
+	a, err := criterion("fingerprint_eligible", fingerprint)
+	if err != nil {
+		return parityV2EvidenceSuite{}, err
+	}
+	b, err := criterion("bounded_verification", bounded)
+	if err != nil {
+		return parityV2EvidenceSuite{}, err
+	}
+	return parityV2EvidenceSuite{SchemaVersion: searchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: binding, Revision: fingerprint.Revision, Projection: parityProjection{Revision: projection.Revision, HighWater: projection.HighWater, LogicalBytes: projection.LogicalBytes, PhysicalBytes: projection.PhysicalBytes}, LiteralGeneration: snapshot.ProjectionGeneration, BoundedGeneration: snapshot.ProjectionGeneration, RunID: runID, ComparisonContract: membershipSetContract, Criteria: []parityCriterionEvidence{a, b}}, nil
+}
+
+func sameRetirementSnapshot(a, b apptypes.SearchRetirementSnapshot) bool {
+	return hmac.Equal(a.CursorKey, b.CursorKey) && a.State == b.State &&
+		a.ProjectionGeneration == b.ProjectionGeneration && a.ProjectionRevision == b.ProjectionRevision &&
+		a.ProjectionHighWater == b.ProjectionHighWater && a.SourceHighWater == b.SourceHighWater &&
+		a.ProjectionState == b.ProjectionState && a.EventCount == b.EventCount && a.AuditCount == b.AuditCount &&
+		a.CanonicalLogicalBytes == b.CanonicalLogicalBytes && a.PhysicalBytes == b.PhysicalBytes && a.TargetAdopted == b.TargetAdopted
+}
+
+func readPrivateParityFile(path string, limit int) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > int64(limit) {
+		return nil, errors.New("private parity file permissions")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("open private parity file")
+	}
+	defer func() { _ = file.Close() }()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return nil, errors.New("private parity file changed")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
+	if err != nil || len(data) > limit {
+		return nil, errors.New("private parity file exceeds limit")
+	}
+	return data, nil
+}
+
+type parityCriterionEvidence struct {
+	QueryClass       string `json:"query_class"`
+	CriterionBinding string `json:"criterion_binding"`
+	Status           string `json:"status"`
+	ComparisonEqual  bool   `json:"comparison_equal"`
+	CoverageComplete bool   `json:"coverage_complete"`
+	LegacyLatencyUS  int64  `json:"legacy_latency_us"`
+	TieredLatencyUS  int64  `json:"tiered_latency_us"`
+}
+
+func keyedParityBinding(key []byte, purpose string, fields ...string) (string, error) {
+	if len(key) < 16 || purpose == "" {
+		return "", errors.New("binding_unavailable")
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = io.WriteString(mac, "traceary:search-parity:v2\x00"+purpose)
+	for _, field := range fields {
+		_, _ = io.WriteString(mac, fmt.Sprintf("\x00%d:", len(field)))
+		_, _ = io.WriteString(mac, field)
+	}
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+}
+
+func validParityV2EvidenceShape(s parityV2EvidenceSuite) bool {
+	if s.SchemaVersion != searchParityV2Schema || (s.AuthorizationScope != "actual_target" && s.AuthorizationScope != "compatibility_only") || !validOpaqueBinding(s.TargetStoreBinding) ||
+		!validCommit(s.Revision.Commit) || s.Revision.Dirty || s.LiteralGeneration == "" || s.BoundedGeneration == "" || s.RunID == "" || s.ComparisonContract == "" || !validPassedProjection(searchParityArtifact{Projection: s.Projection, Tiered: parityChain{Coverage: parityCoverage{HighWater: s.Projection.HighWater}}}) || len(s.Criteria) != 2 {
+		return false
+	}
+	required := map[string]bool{"fingerprint_eligible": false, "bounded_verification": false}
+	for _, criterion := range s.Criteria {
+		seen, known := required[criterion.QueryClass]
+		if !known || seen || !validOpaqueBinding(criterion.CriterionBinding) || criterion.Status != "passed" || !criterion.ComparisonEqual || !criterion.CoverageComplete || criterion.LegacyLatencyUS <= 0 || criterion.TieredLatencyUS <= 0 {
+			return false
+		}
+		required[criterion.QueryClass] = true
+	}
+	return required["fingerprint_eligible"] && required["bounded_verification"]
+}
+
+func validOpaqueBinding(value string) bool {
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(raw) == sha256.Size
+}
 
 type searchParityManifest struct {
 	DBPath           string `json:"db_path"`
@@ -191,8 +391,9 @@ func manifestJSONKeys() jsonObjectSchema {
 // validateJSONObjectKeys closes encoding/json's case-insensitive field-name
 // matching. Each object is checked against its exact, case-sensitive schema.
 type jsonObjectSchema struct {
-	required map[string]any
-	optional map[string]any
+	required     map[string]any
+	optional     map[string]any
+	arrayElement *jsonObjectSchema
 }
 
 func validateJSONObjectKeys(data []byte, schema jsonObjectSchema) error {
@@ -222,7 +423,17 @@ func validateJSONObjectKeys(data []byte, schema jsonObjectSchema) error {
 				return errors.New("unknown JSON field")
 			}
 			if nestedSchema, ok := nested.(jsonObjectSchema); ok {
-				if err := walk(child, nestedSchema); err != nil {
+				if nestedSchema.arrayElement != nil {
+					array, ok := child.([]any)
+					if !ok {
+						return errors.New("JSON array required")
+					}
+					for _, element := range array {
+						if err := walk(element, *nestedSchema.arrayElement); err != nil {
+							return err
+						}
+					}
+				} else if err := walk(child, nestedSchema); err != nil {
 					return err
 				}
 			}
@@ -233,6 +444,9 @@ func validateJSONObjectKeys(data []byte, schema jsonObjectSchema) error {
 }
 
 func readBoundedManifest(reader io.Reader) ([]byte, error) {
+	if reader == nil {
+		return nil, errors.New("manifest_access")
+	}
 	data, err := io.ReadAll(io.LimitReader(reader, maxParityManifestBytes+1))
 	if err != nil || len(data) > maxParityManifestBytes {
 		return nil, errors.New("manifest_access")
@@ -328,17 +542,27 @@ func parseParityCriteria(m searchParityManifest) (parityCriteria, error) {
 }
 
 func repositoryRevision(ctx context.Context) (parityRevision, error) {
-	// Only fixed Git state is returned; command stderr is deliberately discarded.
-	head, err := exec.CommandContext(ctx, "git", "rev-parse", "HEAD").Output()
-	if err != nil {
+	if err := ctx.Err(); err != nil {
+		return parityRevision{}, fmt.Errorf("read build revision: %w", err)
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info == nil {
 		return parityRevision{}, errors.New("revision_unavailable")
 	}
-	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain", "--untracked-files=normal")
-	status, err := cmd.Output()
-	if err != nil {
+	var revision string
+	modified := true // missing provenance is never treated as a clean build
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = strings.TrimSpace(setting.Value)
+		case "vcs.modified":
+			modified = setting.Value != "false"
+		}
+	}
+	if !validCommit(revision) {
 		return parityRevision{}, errors.New("revision_unavailable")
 	}
-	return parityRevision{Commit: strings.TrimSpace(string(head)), Dirty: len(bytes.TrimSpace(status)) != 0}, nil
+	return parityRevision{Commit: revision, Dirty: modified}, nil
 }
 
 var parityRevisionReader = repositoryRevision
@@ -487,6 +711,30 @@ type tieredProgress struct {
 	tier              apptypes.LiteralSearchTier
 }
 
+type legacyParityPageReader interface {
+	SearchLegacyPage(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error)
+}
+
+type tieredParityPageReader interface {
+	SearchLiteralPage(context.Context, apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error)
+}
+
+func readLegacyParityPage(ctx context.Context, reader legacyParityPageReader, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	page, err := reader.SearchLegacyPage(ctx, criteria)
+	if err != nil {
+		return nil, fmt.Errorf("read explicit legacy parity page: %w", err)
+	}
+	return page, nil
+}
+
+func readTieredParityPage(ctx context.Context, reader tieredParityPageReader, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
+	page, err := reader.SearchLiteralPage(ctx, request)
+	if err != nil {
+		return apptypes.LiteralSearchPage{}, fmt.Errorf("read tiered parity page: %w", err)
+	}
+	return page, nil
+}
+
 func (p *tieredProgress) observe(page apptypes.LiteralSearchPage) error {
 	if page.Coverage.ProcessedSources < 0 || page.Coverage.ExaminedSources < 0 || page.Coverage.HighWater < 0 || page.Coverage.ProcessedSources > page.Coverage.HighWater {
 		return errors.New("progress")
@@ -530,7 +778,11 @@ func collectLegacyParity(ctx context.Context, path string, c parityCriteria, pag
 			return members, fmt.Errorf("open immutable legacy page: %w", openErr)
 		}
 		datasource := infra.NewEventDatasource(database)
-		page, err := datasource.Search(ctx, c.query, types.Workspace(c.workspace), types.SessionID(c.sessionID), types.Client(c.client), types.Agent(c.agent), types.EventKind(c.kind), c.from, c.to, pageSize, offset, c.failuresOnly)
+		criteria := apptypes.NewEventSearchCriteriaBuilder(pageSize).Query(c.query).
+			Workspace(types.Workspace(c.workspace)).SessionID(types.SessionID(c.sessionID)).Client(types.Client(c.client)).
+			Agent(types.Agent(c.agent)).Kind(types.EventKind(c.kind)).From(c.from).To(c.to).Offset(offset).
+			FailuresOnly(c.failuresOnly).Build()
+		page, err := readLegacyParityPage(ctx, datasource, criteria)
 		_ = database.CloseSharedReadOnly()
 		if err != nil {
 			setCensoredLatency(metrics, started, err)
@@ -581,7 +833,7 @@ func collectTieredParity(ctx context.Context, path string, c parityCriteria, m s
 		builder := apptypes.NewEventSearchCriteriaBuilder(m.TieredPageSize).Query(c.query).
 			Workspace(types.Workspace(c.workspace)).SessionID(types.SessionID(c.sessionID)).Client(types.Client(c.client)).
 			Agent(types.Agent(c.agent)).Kind(types.EventKind(c.kind)).From(c.from).To(c.to).FailuresOnly(c.failuresOnly)
-		page, err := datasource.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{
+		page, err := readTieredParityPage(ctx, datasource, apptypes.LiteralSearchRequest{
 			Criteria:     builder.Build(),
 			Budget:       apptypes.LiteralSearchBudget{SourceRows: m.SourceRows, StoredBytes: m.StoredBytes, DecodedBytes: m.DecodedBytes},
 			Continuation: continuation,
@@ -653,14 +905,22 @@ func readParityProjection(ctx context.Context, path string) (parityProjection, e
 }
 
 func validateSearchParityFile(path string) error {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
+		return errors.New("read search parity artifact")
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, maxParityArtifactBytes+1))
+	if err != nil || len(data) > maxParityArtifactBytes {
 		return errors.New("read search parity artifact")
 	}
 	return validateSearchParityJSON(data)
 }
 
 func validateSearchParityJSON(data []byte) error {
+	if len(data) > maxParityArtifactBytes || rejectDuplicateJSONKeys(data) != nil || validateParityJSONBounds(data) != nil {
+		return errors.New("invalid search parity JSON")
+	}
 	forbidden := map[string]bool{"query": true, "id": true, "event_id": true, "path": true, "db_path": true, "cursor": true, "continuation": true, "error": true, "error_message": true}
 	var raw any
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -694,6 +954,9 @@ func validateSearchParityJSON(data []byte) error {
 	}
 	if err := walk(raw); err != nil {
 		return err
+	}
+	if object, ok := raw.(map[string]any); ok && object["schema_version"] == searchParityV2Schema {
+		return validateParityV2JSON(data)
 	}
 	leaf := func(keys ...string) jsonObjectSchema {
 		m := map[string]any{}
@@ -759,6 +1022,90 @@ func validateSearchParityJSON(data []byte) error {
 		return errors.New("invalid search parity status")
 	}
 	return nil
+}
+
+func validateParityV2JSON(data []byte) error {
+	leaf := func(keys ...string) jsonObjectSchema {
+		required := make(map[string]any, len(keys))
+		for _, key := range keys {
+			required[key] = nil
+		}
+		return jsonObjectSchema{required: required, optional: map[string]any{}}
+	}
+	criterion := leaf("query_class", "criterion_binding", "status", "comparison_equal", "coverage_complete", "legacy_latency_us", "tiered_latency_us")
+	criteriaArray := jsonObjectSchema{required: map[string]any{}, optional: map[string]any{}, arrayElement: &criterion}
+	schema := jsonObjectSchema{required: map[string]any{
+		"schema_version": nil, "authorization_scope": nil, "target_store_binding": nil,
+		"literal_generation": nil, "bounded_generation": nil, "run_id": nil, "comparison_contract": nil,
+		"revision":   leaf("commit", "dirty"),
+		"projection": leaf("revision", "high_water", "logical_bytes", "physical_bytes"),
+		// Array element semantics are checked after strict decoding.
+		"criteria": criteriaArray,
+	}, optional: map[string]any{}}
+	if err := validateJSONObjectKeys(data, schema); err != nil {
+		return errors.New("invalid search parity v2 schema")
+	}
+	var suite parityV2EvidenceSuite
+	if err := decodeStrictJSON(data, &suite); err != nil {
+		return errors.New("invalid search parity v2 schema")
+	}
+	if !validParityV2EvidenceShape(suite) {
+		return errors.New("invalid search parity v2 evidence")
+	}
+	return nil
+}
+
+func validateParityJSONBounds(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	criteriaDepth := -1
+	criteriaCount := 0
+	var walk func(depth int) error
+	walk = func(depth int) error {
+		if depth > maxParityJSONDepth {
+			return errors.New("JSON nesting exceeds limit")
+		}
+		token, err := decoder.Token()
+		if err != nil {
+			return fmt.Errorf("read bounded JSON token: %w", err)
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delim {
+		case '{':
+			for decoder.More() {
+				key, keyErr := decoder.Token()
+				if keyErr != nil {
+					return fmt.Errorf("read bounded JSON key: %w", keyErr)
+				}
+				if key == "criteria" {
+					criteriaDepth = depth + 1
+				}
+				if err := walk(depth + 1); err != nil {
+					return err
+				}
+			}
+		case '[':
+			for decoder.More() {
+				if depth == criteriaDepth {
+					criteriaCount++
+					if criteriaCount > maxParityCriteriaCount {
+						return errors.New("criteria count exceeds limit")
+					}
+				}
+				if err := walk(depth + 1); err != nil {
+					return err
+				}
+			}
+		}
+		_, err = decoder.Token()
+		if err != nil {
+			return fmt.Errorf("close bounded JSON value: %w", err)
+		}
+		return nil
+	}
+	return walk(0)
 }
 
 func pristinePreStoreEvidence(a searchParityArtifact) bool {

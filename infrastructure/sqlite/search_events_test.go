@@ -54,6 +54,7 @@ CREATE TABLE command_audits (
 );`),
 		},
 	}
+	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 	if err := storeManager.Initialize(context.Background()); err != nil {
@@ -175,6 +176,7 @@ func TestDatasource_Search_SkipsThinkingOnlyMatches(t *testing.T) {
 	t.Parallel()
 
 	migrations := searchEventsMigrations()
+	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 	if err := storeManager.Initialize(context.Background()); err != nil {
@@ -227,6 +229,7 @@ func TestDatasource_Search_PreservesNonCanonicalBlocksBody(t *testing.T) {
 	// searchable too — otherwise the search surface and the display
 	// surface disagree.
 	migrations := searchEventsMigrations()
+	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 	if err := storeManager.Initialize(context.Background()); err != nil {
@@ -274,6 +277,7 @@ func TestDatasource_Search_PreservesNonEnvelopeJSONBody(t *testing.T) {
 	t.Parallel()
 
 	migrations := searchEventsMigrations()
+	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 	if err := storeManager.Initialize(context.Background()); err != nil {
@@ -410,4 +414,9 @@ func newSearchAuditFixture(
 	}
 
 	return event, commandAudit
+}
+
+func addExplicitLegacySearchAuthority(migrations fstest.MapFS) {
+	migrations["000031_created_norm.sql"] = &fstest.MapFile{Data: []byte(`ALTER TABLE events ADD COLUMN created_at_norm TEXT; CREATE TRIGGER events_created_norm_ai AFTER INSERT ON events BEGIN UPDATE events SET created_at_norm=NEW.created_at WHERE id=NEW.id; END;`)}
+	migrations["000040_search_authority.sql"] = &fstest.MapFile{Data: []byte(`CREATE TABLE search_maintenance_control(singleton INTEGER PRIMARY KEY,authority TEXT NOT NULL,phase TEXT NOT NULL,progress INTEGER NOT NULL DEFAULT 0); INSERT INTO search_maintenance_control(singleton,authority,phase) VALUES(1,'legacy','active');`)}
 }

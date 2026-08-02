@@ -128,7 +128,27 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 			if diff := cmp.Diff(tc.want, eventIDs(got)); diff != "" {
 				t.Fatalf("Search(%q) IDs mismatch (-want +got):\n%s", tc.query, diff)
 			}
+			criteria := apptypes.NewEventSearchCriteriaBuilder(20).Query(tc.query).Workspace(workspace).Build()
+			legacy, err := sut.SearchLegacyPage(ctx, criteria)
+			if err != nil {
+				t.Fatalf("SearchLegacyPage(%q) error = %v", tc.query, err)
+			}
+			if diff := cmp.Diff(eventIDs(got), eventIDs(legacy)); diff != "" {
+				t.Fatalf("normal/explicit legacy mismatch (-normal +legacy):\n%s", diff)
+			}
 		})
+	}
+	pageCriteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("visible needle").Workspace(workspace).Offset(1).Build()
+	legacyPage, err := sut.SearchLegacyPage(ctx, pageCriteria)
+	if err != nil {
+		t.Fatalf("SearchLegacyPage(offset) error = %v", err)
+	}
+	normalPage, err := sut.Search(ctx, "visible needle", workspace, "", "", "", "", time.Time{}, time.Time{}, 1, 1, false)
+	if err != nil {
+		t.Fatalf("Search(offset) error = %v", err)
+	}
+	if diff := cmp.Diff(eventIDs(normalPage), eventIDs(legacyPage)); diff != "" {
+		t.Fatalf("offset normal/explicit legacy mismatch (-normal +legacy):\n%s", diff)
 	}
 
 	criteria := apptypes.NewEventSearchCriteriaBuilder(20).

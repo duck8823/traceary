@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
+	infra "github.com/duck8823/traceary/infrastructure/sqlite"
+	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
 
 func TestSearchParitySyntheticExhaustsBothChainsWithoutPrivateOutput(t *testing.T) {
@@ -51,7 +54,84 @@ func TestSearchParitySyntheticExhaustsBothChainsWithoutPrivateOutput(t *testing.
 	}
 }
 
+func TestActualTargetV2EvidenceAuthorizesAtomicRetirement(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "target.db")
+	if _, err := createSynthetic(ctx, path, 200, 1); err != nil {
+		t.Fatal(err)
+	}
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := infra.NewDatabase(path, migrations)
+	if _, err = database.AdoptSearchRetirementTarget(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.Exec(`UPDATE literal_search_projection_state SET generation_id='authorized',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete'; UPDATE search_projection_state SET generation_id='authorized',active_generation_id='authorized',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete',phase='complete'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	revision := parityRevision{Commit: strings.Repeat("a", 40)}
+	originalRevisionReader := parityRevisionReader
+	parityRevisionReader = func(context.Context) (parityRevision, error) { return revision, nil }
+	t.Cleanup(func() { parityRevisionReader = originalRevisionReader })
+	clean := false
+	makeManifest := func(query string) searchParityManifest {
+		return searchParityManifest{DBPath: path, Query: query, Workspace: "synthetic", LegacyPageSize: 2, TieredPageSize: 2, SourceRows: 10, StoredBytes: 8 << 20, DecodedBytes: 8 << 20, TimeoutMS: 30_000, ExpectedRevision: revision.Commit, ExpectedDirty: &clean}
+	}
+	dir := t.TempDir()
+	fingerprintPath := filepath.Join(dir, "fingerprint-manifest.json")
+	boundedPath := filepath.Join(dir, "bounded-manifest.json")
+	manifestPath := filepath.Join(dir, "manifest.json")
+	write := func(path string, v any) {
+		data, _ := json.Marshal(v)
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(fingerprintPath, makeManifest("synthetic"))
+	write(boundedPath, makeManifest("s"))
+	write(manifestPath, parityAuthorizationManifest{DBPath: path, FingerprintManifest: fingerprintPath, BoundedManifest: boundedPath})
+	evidence, err := buildActualTargetParityEvidence(ctx, manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(evidence)
+	if _, err = usecase.NewSearchMaintenanceUsecase(database).StartRetire(ctx, encoded, strings.Repeat("a", 40)); err != nil {
+		t.Fatalf("StartRetire(actual target v2)=%v", err)
+	}
+
+	otherPath := filepath.Join(t.TempDir(), "other.db")
+	if _, err = createSynthetic(ctx, otherPath, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	write(boundedPath, searchParityManifest{DBPath: otherPath, Query: "s", Workspace: "synthetic", LegacyPageSize: 2, TieredPageSize: 2, SourceRows: 10, StoredBytes: 8 << 20, DecodedBytes: 8 << 20, TimeoutMS: 30_000, ExpectedRevision: revision.Commit, ExpectedDirty: &clean})
+	if _, err = buildActualTargetParityEvidence(ctx, manifestPath); err == nil || err.Error() != "authorization_store_mismatch" {
+		t.Fatalf("mixed-store authorization error=%v", err)
+	}
+	write(manifestPath, parityAuthorizationManifest{DBPath: path, FingerprintManifest: fingerprintPath, BoundedManifest: "-"})
+	if _, err = buildActualTargetParityEvidence(ctx, manifestPath); err == nil || err.Error() != "authorization_manifest_invalid" {
+		t.Fatalf("stdin child manifest error=%v", err)
+	}
+}
+
+func TestReadBoundedManifestRejectsNilReader(t *testing.T) {
+	if _, err := readBoundedManifest(nil); err == nil {
+		t.Fatal("nil manifest reader did not fail closed")
+	}
+}
+
 func TestSearchParityRejectsRevisionMismatchBeforeStoreAccess(t *testing.T) {
+	originalRevisionReader := parityRevisionReader
+	parityRevisionReader = func(context.Context) (parityRevision, error) {
+		return parityRevision{Commit: strings.Repeat("a", 40), Dirty: false}, nil
+	}
+	t.Cleanup(func() { parityRevisionReader = originalRevisionReader })
 	artifact := runSearchParity(context.Background(), searchParityManifest{
 		DBPath: "/private/path-must-not-be-opened", Query: "private-query", LegacyPageSize: 1, TieredPageSize: 1,
 		SourceRows: 1, StoredBytes: 1, DecodedBytes: 1, TimeoutMS: 1, ExpectedRevision: strings.Repeat("b", 40), ExpectedDirty: boolPointer(false),
@@ -522,5 +602,81 @@ func TestSearchParityManifestRejectsOversizeAndSymlink(t *testing.T) {
 	}
 	if _, err := readSearchParityManifest(link, nil); fixedErrorClass(err) != "manifest_permissions" {
 		t.Fatalf("symlink error=%v", err)
+	}
+}
+
+func TestParityV2BindingIsKeyedAndEvidenceIsCriterionScoped(t *testing.T) {
+	fields := []string{"aggregate=events:12,audits:4", "revision=" + strings.Repeat("a", 40), "projection=3:16"}
+	first, err := keyedParityBinding([]byte("first-store-cursor-key"), "target-store", fields...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := keyedParityBinding([]byte("second-store-cursor-key"), "target-store", fields...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || strings.Contains(first, fields[0]) {
+		t.Fatalf("binding must be opaque and store-owned: first=%q second=%q", first, second)
+	}
+	criterionA, _ := keyedParityBinding([]byte("first-store-cursor-key"), "criterion", "fingerprint_eligible", "fixed-criterion-a")
+	criterionB, _ := keyedParityBinding([]byte("first-store-cursor-key"), "criterion", "bounded_verification", "fixed-criterion-b")
+	suite := parityV2EvidenceSuite{
+		SchemaVersion: searchParityV2Schema, AuthorizationScope: "actual_target", TargetStoreBinding: first,
+		LiteralGeneration: "generation-1", BoundedGeneration: "generation-1", RunID: "run-1", ComparisonContract: membershipSetContract,
+		Revision:   parityRevision{Commit: strings.Repeat("a", 40)},
+		Projection: parityProjection{Revision: 3, HighWater: 16, LogicalBytes: 1, PhysicalBytes: 1},
+		Criteria: []parityCriterionEvidence{
+			{QueryClass: "fingerprint_eligible", CriterionBinding: criterionA, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 120},
+			{QueryClass: "bounded_verification", CriterionBinding: criterionB, Status: "passed", ComparisonEqual: true, CoverageComplete: true, LegacyLatencyUS: 100, TieredLatencyUS: 120},
+		},
+	}
+	if !validParityV2EvidenceShape(suite) {
+		t.Fatal("complete store-bound v2 suite was rejected")
+	}
+	encoded, err := json.Marshal(suite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSearchParityJSON(encoded); err != nil {
+		t.Fatalf("validateSearchParityJSON(v2) error = %v", err)
+	}
+	for name, crafted := range map[string][]byte{
+		"alias first":     bytes.Replace(encoded, []byte(`"query_class":"fingerprint_eligible"`), []byte(`"QUERY_CLASS":"bounded_verification","query_class":"fingerprint_eligible"`), 1),
+		"alias last":      bytes.Replace(encoded, []byte(`"query_class":"fingerprint_eligible"`), []byte(`"query_class":"fingerprint_eligible","QUERY_CLASS":"bounded_verification"`), 1),
+		"duplicate first": bytes.Replace(encoded, []byte(`"query_class":"fingerprint_eligible"`), []byte(`"query_class":"bounded_verification","query_class":"fingerprint_eligible"`), 1),
+		"duplicate last":  bytes.Replace(encoded, []byte(`"query_class":"fingerprint_eligible"`), []byte(`"query_class":"fingerprint_eligible","query_class":"bounded_verification"`), 1),
+	} {
+		if err := validateSearchParityJSON(crafted); err == nil {
+			t.Fatalf("%s crafted criterion accepted", name)
+		}
+	}
+	suite.Criteria[1].QueryClass = "fingerprint_eligible"
+	if validParityV2EvidenceShape(suite) {
+		t.Fatal("duplicated query class was accepted")
+	}
+	if validParityV2EvidenceShape(parityV2EvidenceSuite{SchemaVersion: searchParitySchema}) {
+		t.Fatal("v1 evidence was accepted as v2")
+	}
+}
+
+func TestSearchParityArtifactPreflightBoundsAllocation(t *testing.T) {
+	if err := validateSearchParityJSON(bytes.Repeat([]byte(" "), maxParityArtifactBytes+1)); err == nil {
+		t.Fatal("oversized artifact accepted")
+	}
+	criteria := strings.Repeat(`{},`, maxParityCriteriaCount) + `{}`
+	hugeCriteria := []byte(`{"schema_version":"traceary.tiered-search-parity/v2","criteria":[` + criteria + `]}`)
+	if err := validateSearchParityJSON(hugeCriteria); err == nil {
+		t.Fatal("oversized criteria array accepted")
+	}
+	deep := strings.Repeat(`{"x":`, maxParityJSONDepth+2) + `0` + strings.Repeat(`}`, maxParityJSONDepth+2)
+	if err := validateSearchParityJSON([]byte(deep)); err == nil {
+		t.Fatal("deeply nested artifact accepted")
+	}
+	path := filepath.Join(t.TempDir(), "oversized.json")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), maxParityArtifactBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSearchParityFile(path); err == nil {
+		t.Fatal("oversized artifact file accepted")
 	}
 }

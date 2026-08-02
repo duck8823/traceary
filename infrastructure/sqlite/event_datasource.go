@@ -59,8 +59,9 @@ func NewEventDatasource(db *Database) *EventDatasource {
 
 // Compile-time interface assertions.
 var (
-	_ model.EventRepository          = (*EventDatasource)(nil)
-	_ queryservice.EventQueryService = (*EventDatasource)(nil)
+	_ model.EventRepository               = (*EventDatasource)(nil)
+	_ queryservice.EventQueryService      = (*EventDatasource)(nil)
+	_ queryservice.LegacyEventSearchQuery = (*EventDatasource)(nil)
 )
 
 // Save persists an event.
@@ -301,6 +302,26 @@ func (d *EventDatasource) Search(
 	limit, offset int,
 	failuresOnly bool,
 ) ([]*model.Event, error) {
+	criteria := apptypes.NewEventSearchCriteriaBuilder(limit).
+		Query(query).Workspace(workspace).SessionID(sessionID).Client(client).
+		Agent(agent).Kind(kind).From(from).To(to).Offset(offset).
+		FailuresOnly(failuresOnly).Build()
+	return d.searchFullByPersistedAuthority(ctx, criteria)
+}
+
+// SearchLegacyPage executes the pre-tiered event search implementation. It is
+// intentionally separate from Search so parity and rollback retain an
+// independent authority after normal search is cut over.
+func (d *EventDatasource) SearchLegacyPage(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	query := criteria.Query()
+	workspace := criteria.Workspace()
+	sessionID := criteria.SessionID()
+	client := criteria.Client()
+	agent := criteria.Agent()
+	kind := criteria.Kind()
+	from, to := criteria.From(), criteria.To()
+	limit, offset := criteria.Limit(), criteria.Offset()
+	failuresOnly := criteria.FailuresOnly()
 	if limit <= 0 {
 		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
 	}
@@ -310,53 +331,35 @@ func (d *EventDatasource) Search(
 	if !from.IsZero() && !to.IsZero() && from.After(to) {
 		return nil, xerrors.Errorf("from must be earlier than to")
 	}
-
 	db, err := d.db.open(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for event search: %w", err)
+		return nil, xerrors.Errorf("failed to open DB for legacy event search: %w", err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-
+	defer d.db.release(db)
 	searchSchemaAvailable, err := eventSearchSchemaAvailable(ctx, db)
 	if err != nil {
 		return nil, err
 	}
 	if searchSchemaAvailable {
-		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-		if err != nil {
-			return nil, xerrors.Errorf("failed to begin indexed event search: %w", err)
+		tx, beginErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if beginErr != nil {
+			return nil, xerrors.Errorf("failed to begin indexed event search: %w", beginErr)
 		}
 		defer func() {
-			if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-				slog.Debug("failed to rollback indexed event search", "error", err)
+			if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+				slog.Debug("failed to rollback indexed event search", "error", rollbackErr)
 			}
 		}()
-		criteria := apptypes.NewEventSearchCriteriaBuilder(limit).
-			Query(query).
-			Workspace(workspace).
-			SessionID(sessionID).
-			Client(client).
-			Agent(agent).
-			Kind(kind).
-			From(from).
-			To(to).
-			Offset(offset).
-			FailuresOnly(failuresOnly).
-			Build()
-		candidateIDs, err := selectEventSearchCandidateIDs(ctx, tx, criteria)
-		if err != nil {
-			return nil, err
+		candidateIDs, selectErr := selectEventSearchCandidateIDs(ctx, tx, criteria)
+		if selectErr != nil {
+			return nil, selectErr
 		}
-		events, err := hydrateEventSearchCandidates(ctx, tx, candidateIDs)
-		if err != nil {
-			return nil, err
+		events, hydrateErr := hydrateEventSearchCandidates(ctx, tx, candidateIDs)
+		if hydrateErr != nil {
+			return nil, hydrateErr
 		}
-		if err := tx.Commit(); err != nil {
-			return nil, xerrors.Errorf("failed to finish indexed event search: %w", err)
+		if commitErr := tx.Commit(); commitErr != nil {
+			return nil, xerrors.Errorf("failed to finish indexed event search: %w", commitErr)
 		}
 		return events, nil
 	}

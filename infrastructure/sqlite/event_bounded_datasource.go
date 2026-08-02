@@ -108,41 +108,15 @@ func (d *EventDatasource) SearchBounded(
 	if err := validateBoundedBodyLimit(bodyRuneLimit); err != nil {
 		return nil, err
 	}
-	if criteria.Limit() <= 0 {
-		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
+		return nil, err
 	}
-	if criteria.Offset() < 0 {
-		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
-	}
-	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
-		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
-	}
-	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
-		return nil, xerrors.Errorf("from must be earlier than to")
-	}
-	db, tx, err := d.beginEventProjectionRead(ctx, "bounded event search")
+	db, tx, err := d.beginEventProjectionRead(ctx, "bounded persisted search")
 	if err != nil {
 		return nil, err
 	}
 	defer closeEventProjectionRead(db, tx)
-
-	searchSchemaAvailable, err := eventSearchSchemaAvailable(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
-	var candidateIDs []string
-	if searchSchemaAvailable {
-		candidateIDs, err = selectEventSearchCandidateIDs(ctx, tx, criteria)
-	} else {
-		// A store initialized before migration 32 retains the pre-FTS literal
-		// search behavior. This query returns IDs only; bounded body hydration
-		// below remains independent from candidate content matching.
-		candidateIDs, err = queryLegacyEventIDs(ctx, tx, criteria, criteria.Query())
-	}
-	if err != nil {
-		return nil, err
-	}
-	metadata, err := hydrateEventSearchMetadataCandidates(ctx, tx, criteria, candidateIDs)
+	metadata, err := d.searchMetadataByPersistedAuthorityTx(ctx, tx, criteria)
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +124,8 @@ func (d *EventDatasource) SearchBounded(
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("failed to finish bounded event search: %w", err)
+	if err = tx.Commit(); err != nil {
+		return nil, xerrors.Errorf("finish bounded persisted search: %w", err)
 	}
 	return events, nil
 }
