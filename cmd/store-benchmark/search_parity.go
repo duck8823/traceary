@@ -30,9 +30,9 @@ const (
 	maxParityTimeoutMS     = int64((24 * time.Hour) / time.Millisecond)
 )
 
-// parityV2EvidenceSuite is the retirement-authorizing evidence envelope. Its
-// bindings are keyed by the target store; they are not replayable against a
-// copied or similarly-shaped store and reveal no query or store identifier.
+// parityV2EvidenceSuite is a strictly parsed evidence envelope. Authorization
+// is deliberately owned by the later application policy, which can compare
+// it with a fresh current-store snapshot and key.
 type parityV2EvidenceSuite struct {
 	SchemaVersion      string                    `json:"schema_version"`
 	TargetStoreBinding string                    `json:"target_store_binding"`
@@ -62,7 +62,7 @@ func keyedParityBinding(key []byte, purpose string, fields ...string) (string, e
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
-func (s parityV2EvidenceSuite) AuthorizesStartRetire() bool {
+func validParityV2EvidenceShape(s parityV2EvidenceSuite) bool {
 	if s.SchemaVersion != searchParityV2Schema || !validOpaqueBinding(s.TargetStoreBinding) ||
 		!validCommit(s.Revision.Commit) || s.Revision.Dirty || !validPassedProjection(searchParityArtifact{Projection: s.Projection, Tiered: parityChain{Coverage: parityCoverage{HighWater: s.Projection.HighWater}}}) || len(s.Criteria) != 2 {
 		return false
@@ -876,8 +876,8 @@ func validateParityV2JSON(data []byte) error {
 	// encoding/json strictness applies to the slice elements; retain the local
 	// schema variable as an executable inventory against accidental field drift.
 	_ = criterion
-	if !suite.AuthorizesStartRetire() {
-		return errors.New("v2 evidence does not authorize retirement")
+	if !validParityV2EvidenceShape(suite) {
+		return errors.New("invalid search parity v2 evidence")
 	}
 	return nil
 }
