@@ -253,8 +253,11 @@ func (d *Database) BeginSearchRestore(ctx context.Context) (apptypes.SearchMaint
 	}
 	defer func() { _ = tx.Rollback() }()
 	var currentAuthority, currentPhase string
-	var currentProgress int64
-	if err = tx.QueryRowContext(ctx, `SELECT authority,phase,progress FROM search_maintenance_control WHERE singleton=1`).Scan(&currentAuthority, &currentPhase, &currentProgress); err != nil {
+	var currentProgress, transitionRevision, canonicalRevision int64
+	if err = tx.QueryRowContext(ctx, `SELECT authority,phase,progress,transition_revision FROM search_maintenance_control WHERE singleton=1`).Scan(&currentAuthority, &currentPhase, &currentProgress, &transitionRevision); err != nil {
+		return apptypes.SearchMaintenanceReport{}, err
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT query_revision FROM literal_search_projection_state WHERE singleton=1`).Scan(&canonicalRevision); err != nil {
 		return apptypes.SearchMaintenanceReport{}, err
 	}
 	current, err := model.SearchMaintenanceOf(model.SearchAuthority(currentAuthority), model.SearchMaintenancePhase(currentPhase), currentProgress)
@@ -262,6 +265,20 @@ func (d *Database) BeginSearchRestore(ctx context.Context) (apptypes.SearchMaint
 		return apptypes.SearchMaintenanceReport{}, err
 	}
 	if current.Phase() == model.SearchMaintenanceRestoring {
+		if transitionRevision != canonicalRevision {
+			// An explicit StartRestore after canonical mutation is an atomic
+			// restart: discard only the derived legacy projection and bind the
+			// new run to the current canonical revision.
+			if _, err = tx.ExecContext(ctx, `DELETE FROM event_search_documents`); err != nil {
+				return apptypes.SearchMaintenanceReport{}, xerrors.Errorf("clear stale legacy restore projection: %w", err)
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE event_search_backfill_state SET last_event_id='',target_event_id=NULL,completed=0,updated_at=? WHERE singleton=1`, formatTimestamp(time.Now().UTC())); err != nil {
+				return apptypes.SearchMaintenanceReport{}, xerrors.Errorf("reset legacy restore backfill: %w", err)
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE search_maintenance_control SET progress=0,transition_revision=?,updated_at=? WHERE singleton=1 AND authority='tiered' AND phase='restoring'`, canonicalRevision, formatTimestamp(time.Now().UTC())); err != nil {
+				return apptypes.SearchMaintenanceReport{}, xerrors.Errorf("restart legacy restore transition: %w", err)
+			}
+		}
 		if err = tx.Commit(); err != nil {
 			return apptypes.SearchMaintenanceReport{}, err
 		}

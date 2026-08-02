@@ -76,6 +76,36 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if _, err = database.BeginSearchRestore(ctx); err != nil {
 		t.Fatal(err)
 	}
+	partial, err := database.RestoreLegacySearchBatch(ctx, 2)
+	if err != nil || partial.Complete {
+		t.Fatalf("partial restore=%+v err=%v", partial, err)
+	}
+	raw, err = database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at) VALUES('restart-event','note','codex','codex','s','w','restart body','2026-01-02T01:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	if _, err = database.RestoreLegacySearchBatch(ctx, 2); err == nil {
+		t.Fatal("restore continued after canonical revision changed")
+	}
+	if _, err = database.BeginSearchRestore(ctx); err != nil {
+		t.Fatalf("explicit restore restart: %v", err)
+	}
+	raw, err = database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restartedProgress, restartedDocs int
+	if err = raw.QueryRowContext(ctx, `SELECT progress,(SELECT COUNT(*) FROM event_search_documents) FROM search_maintenance_control WHERE singleton=1`).Scan(&restartedProgress, &restartedDocs); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	if restartedProgress != 0 || restartedDocs != 0 {
+		t.Fatalf("restart progress=%d docs=%d", restartedProgress, restartedDocs)
+	}
 	var restored apptypes.SearchMaintenanceReport
 	for {
 		report, restoreErr := database.RestoreLegacySearchBatch(ctx, 2)
@@ -98,8 +128,8 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_search_documents`).Scan(&docs); err != nil {
 		t.Fatal(err)
 	}
-	if docs != 4 {
-		t.Fatalf("restored documents=%d want=4", docs)
+	if docs != 5 {
+		t.Fatalf("restored documents=%d want=5", docs)
 	}
 	if _, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at) VALUES('e5','note','codex','codex','s','w','later','2026-01-03T00:00:00Z')`); err != nil {
 		t.Fatal(err)
@@ -107,7 +137,7 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_search_documents`).Scan(&docs); err != nil {
 		t.Fatal(err)
 	}
-	if docs != 5 {
+	if docs != 6 {
 		t.Fatalf("restored writer documents=%d", docs)
 	}
 	var completed int
@@ -124,7 +154,7 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if _, err = raw.ExecContext(ctx, `DELETE FROM events WHERE id='e5'`); err != nil {
 		t.Fatal(err)
 	}
-	if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_search_documents`).Scan(&docs); err != nil || docs != 4 {
+	if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_search_documents`).Scan(&docs); err != nil || docs != 5 {
 		t.Fatalf("delete propagation docs=%d err=%v", docs, err)
 	}
 }
