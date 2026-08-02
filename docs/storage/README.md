@@ -164,7 +164,8 @@ If you need a portable copy, use `traceary store backup create` instead of editi
 - default target: `all` (`--target all`)
 - available targets: `events`, `sessions`, `memories`, `memory_edges`, `all`
 - `--dry-run`: run the same deletion plan inside a rolled-back transaction and print only the candidate count
-- after a non-dry-run deletion, Traceary runs `VACUUM`
+- physical reclamation is separate: preview `traceary store compact plan
+  --db-path PATH`; GC never runs an in-place `VACUUM`
 
 Target policies:
 

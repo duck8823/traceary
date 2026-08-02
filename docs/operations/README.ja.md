@@ -90,7 +90,9 @@ session end の精度が重要なら、明示的な end hook を持つ client in
 
 ### active ingestion 中に cleanup を強く走らせる
 
-`traceary store gc` は古い row を削除したあとに `VACUUM` を実行します。
+`traceary store gc` は論理rowだけを回収します。filesystem容量の回収は
+`traceary store compact plan --db-path PATH`でpreviewし、in-place `VACUUM`ではなく
+safe compaction engineに物理置換とrollbackを任せます。
 同じ DB に対して多くの session が書き込んでいる最中に、強めの cleanup を background maintenance のように常時回す前提ではありません。
 先に backup を取り、比較的静かなタイミングで実行してください。
 

@@ -90,7 +90,9 @@ Treat this as a dogfood review signal, not as automatic cleanup. The check inten
 
 ### Concurrent cleanup versus active ingestion
 
-`traceary store gc` deletes old rows and then runs `VACUUM`.
+`traceary store gc` reclaims logical rows only. Preview filesystem reclamation
+with `traceary store compact plan --db-path PATH`; the safe compaction engine,
+not an in-place `VACUUM`, owns physical replacement and rollback.
 Do not treat aggressive cleanup as a background maintenance task while many sessions are actively writing to the same DB.
 Take a backup first and prefer running cleanup during a quieter period.
 

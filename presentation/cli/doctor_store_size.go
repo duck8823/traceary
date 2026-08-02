@@ -1,14 +1,102 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 )
 
 // storeSizeWarnBytes is the on-disk size above which multi-GB cold opens
 // routinely approach host hook budgets (10s packaged). Measured dogfood
 // stores around 2.4 GB already spend 2–4 s on cold open alone.
 const storeSizeWarnBytes int64 = 1 << 30 // 1 GiB
+
+const (
+	payloadGrowthWarnBytes    = int64(512 << 20)
+	projectionGrowthWarnBytes = int64(256 << 20)
+	doctorGrowthLatencyWarn   = 2 * time.Second
+)
+
+type storeGrowthEvidence struct {
+	DatabaseBytes, PayloadBytes, ProjectionBytes, ReclaimableBytes, FilesystemFreeBytes int64
+	MeasuredLatency                                                                     time.Duration
+}
+
+func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string) doctorCheck {
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		return inspectStoreSizeBudget(dbPath)
+	}
+	if c.capacityInspector == nil {
+		return unknownStoreGrowthCheck(info.Size(), dbPath, "capacity inspector unavailable")
+	}
+	inspectCtx, cancel := context.WithTimeout(ctx, doctorGrowthLatencyWarn)
+	defer cancel()
+	started := time.Now()
+	report, err := c.capacityInspector.InspectCapacity(inspectCtx)
+	latency := time.Since(started)
+	if err != nil {
+		return unknownStoreGrowthCheck(info.Size(), dbPath, "bounded capacity signals unavailable or timed out")
+	}
+	evidence := storeGrowthEvidence{DatabaseBytes: report.DatabaseBytes, ReclaimableBytes: report.FreeBytes, MeasuredLatency: latency}
+	if evidence.DatabaseBytes == 0 {
+		evidence.DatabaseBytes = info.Size()
+	}
+	for _, payload := range report.PayloadClasses {
+		evidence.PayloadBytes += payload.Bytes
+	}
+	for _, object := range report.Objects {
+		name := strings.ToLower(object.Name)
+		if strings.Contains(name, "search") || strings.Contains(name, "projection") {
+			evidence.ProjectionBytes += object.Bytes
+		}
+	}
+	if free, freeErr := inspectDoctorDiskFree(dbPath); freeErr == nil {
+		evidence.FilesystemFreeBytes = free
+	}
+	check := evaluateStoreGrowthBudget(evidence)
+	check.FixCommand = "traceary store compact plan --db-path " + shellQuote(dbPath)
+	return check
+}
+
+func unknownStoreGrowthCheck(size int64, dbPath, reason string) doctorCheck {
+	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth signals are unknown (%s); database metadata size=%s alone is not enough to select remediation", "store growth signal は不明です (%s)。database metadata size=%s だけではremediationを選択できません", reason, formatByteSize(size)), Hint: Localize("retry bounded diagnostics without competing writers; preview the safe compaction plan before any mutation", "競合writerなしでbounded diagnosticsを再実行し、変更前にsafe compaction planをpreviewしてください"), FixCommand: "traceary store compact plan --db-path " + shellQuote(dbPath)}
+}
+
+func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
+	reasons := make([]string, 0, 5)
+	if e.DatabaseBytes >= storeSizeWarnBytes {
+		reasons = append(reasons, "database")
+	}
+	if e.PayloadBytes >= payloadGrowthWarnBytes {
+		reasons = append(reasons, "payload")
+	}
+	if e.ProjectionBytes >= projectionGrowthWarnBytes {
+		reasons = append(reasons, "projection")
+	}
+	if e.ReclaimableBytes >= 256<<20 && e.ReclaimableBytes*10 >= e.DatabaseBytes {
+		reasons = append(reasons, "reclaimable")
+	}
+	if e.FilesystemFreeBytes > 0 && e.FilesystemFreeBytes < maxInt64(1<<30, e.DatabaseBytes*2) {
+		reasons = append(reasons, "headroom")
+	}
+	if e.MeasuredLatency >= doctorGrowthLatencyWarn {
+		reasons = append(reasons, "latency")
+	}
+	if len(reasons) == 0 {
+		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s payload=%s projection=%s free=%s latency=%s", "store growth signal は予算内です: database=%s payload=%s projection=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.PayloadBytes), formatByteSize(e.ProjectionBytes), formatByteSize(e.FilesystemFreeBytes), e.MeasuredLatency.Round(time.Millisecond))}
+	}
+	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.PayloadBytes), formatByteSize(e.ProjectionBytes), formatByteSize(e.FilesystemFreeBytes), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("preview safe compaction first, then follow the reviewed copy/preflight/scrub/compact/swap workflow; retain rollback artifacts until verification succeeds", "まずsafe compactionをpreviewし、その後review済みのcopy/preflight/scrub/compact/swap手順を実行してください。検証成功までrollback artifactを保持してください"), FixCommand: "traceary store compact plan"}
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
 
 const (
 	doctorModeMetadataOnlyLargeStore = "metadata_only_large_store"
@@ -45,10 +133,10 @@ func boundedLargeStoreDoctorCheck(dbPath string) doctorCheck {
 			formatByteSize(info.Size()),
 		),
 		Hint: Localize(
-			"this is capacity-safe, not a lock diagnosis. If an application needs a content diagnostic, first stop competing writers or use a reviewed bounded copy; then run the specific read command. Preview safe remediation with `traceary store gc --dry-run` and archive before applying retention.",
-			"これは capacity-safe な結果であり lock 診断ではありません。content diagnostic が必要なら、競合 writer を停止するか、review 済みの bounded copy を使用してから個別の read command を実行してください。安全な remediation は `traceary store gc --dry-run` でプレビューし、retention を適用する前に archive を作成してください。",
+			"this is capacity-safe, not a lock diagnosis. Stop competing writers or use a reviewed bounded copy, then retry diagnostics. Preview safe remediation with `traceary store compact plan --db-path PATH`.",
+			"これは capacity-safe な結果であり lock 診断ではありません。競合 writer を停止するかreview済みbounded copyを使って診断を再実行し、`traceary store compact plan --db-path PATH`で安全なremediationをpreviewしてください。",
 		),
-		FixCommand: "traceary store gc --dry-run",
+		FixCommand: "traceary store compact plan",
 	}
 }
 
@@ -90,10 +178,10 @@ func inspectStoreSizeBudget(dbPath string) doctorCheck {
 			formatByteSize(size),
 		),
 		Hint: Localize(
-			"run `traceary store gc --dry-run` then apply when safe; archive-before-GC is tracked separately. Prefer keeping the live store under ~1 GiB for multi-host dogfood.",
-			"`traceary store gc --dry-run` で確認後、安全なら適用してください。archive-before-GC は別 issue です。multi-host dogfood では live store をおおよそ 1 GiB 未満に保つことを推奨します。",
+			"preview `traceary store compact plan --db-path PATH`; do not run in-place VACUUM or infer cleanup solely from file size.",
+			"`traceary store compact plan --db-path PATH`でpreviewしてください。in-place VACUUMやfile sizeだけに基づくcleanup判断は行わないでください。",
 		),
-		FixCommand: "traceary store gc --dry-run",
+		FixCommand: "traceary store compact plan --db-path " + shellQuote(dbPath),
 	}
 }
 

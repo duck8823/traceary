@@ -281,7 +281,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Status:  doctorStatusPass,
 		Message: localizef("resolved DB path: %s", "解決した DB パス: %s", resolvedDBPath),
 	})
-	report.Checks = append(report.Checks, inspectStoreSizeBudget(resolvedDBPath))
+	report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath))
 	report.Checks = append(report.Checks, inspectTracearyOnPath())
 	if isLargeStoreForBoundedDoctor(resolvedDBPath) {
 		report.Mode = doctorModeMetadataOnlyLargeStore

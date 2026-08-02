@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestInspectStoreSizeBudget_MissingFilePasses(t *testing.T) {
@@ -51,7 +52,7 @@ func TestInspectStoreSizeBudget_LargeFileWarns(t *testing.T) {
 	if !strings.Contains(check.Message, "large") {
 		t.Fatalf("message = %q", check.Message)
 	}
-	if !strings.Contains(check.Hint, "store gc") {
+	if !strings.Contains(check.Hint, "store compact plan") {
 		t.Fatalf("hint = %q", check.Hint)
 	}
 }
@@ -62,5 +63,33 @@ func TestFormatByteSize(t *testing.T) {
 	}
 	if got := formatByteSize(storeSizeWarnBytes); !strings.Contains(got, "GiB") {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestEvaluateStoreGrowthBudgetUsesIndependentSignals(t *testing.T) {
+	base := storeGrowthEvidence{DatabaseBytes: 256 << 20, PayloadBytes: 64 << 20, ProjectionBytes: 32 << 20, FilesystemFreeBytes: 4 << 30, MeasuredLatency: 100 * time.Millisecond}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*storeGrowthEvidence)
+	}{
+		{"payload", func(e *storeGrowthEvidence) { e.PayloadBytes = 512 << 20 }},
+		{"projection", func(e *storeGrowthEvidence) { e.ProjectionBytes = 256 << 20 }},
+		{"headroom", func(e *storeGrowthEvidence) { e.FilesystemFreeBytes = e.DatabaseBytes }},
+		{"latency", func(e *storeGrowthEvidence) { e.MeasuredLatency = 2 * time.Second }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			evidence := base
+			tc.mutate(&evidence)
+			check := evaluateStoreGrowthBudget(evidence)
+			if check.Status != doctorStatusWarn {
+				t.Fatalf("check=%#v", check)
+			}
+			if !strings.HasPrefix(check.FixCommand, "traceary store compact plan") {
+				t.Fatalf("fix=%q", check.FixCommand)
+			}
+		})
+	}
+	if check := evaluateStoreGrowthBudget(base); check.Status != doctorStatusPass {
+		t.Fatalf("healthy=%#v", check)
 	}
 }

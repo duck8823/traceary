@@ -39,3 +39,22 @@ After interruption, use `resume`; it derives file orientation from identities.
 Use `rollback` to atomically restore the retained original. Never delete the
 external `.traceary-compaction` journal or rollback artifact until the run has
 been inspected and accepted.
+
+## Preview-first maintenance sequence
+
+1. Copy or back up the live store and stop older/non-cooperating processes.
+2. Run `traceary store compact plan --db-path /path/to/traceary.db`. Review
+   payload/projection allocation, reclaimable pages, filesystem headroom, and
+   measured diagnostic latency; file size alone is not an apply decision.
+3. Complete compatibility preflight and scrub on the reviewed copy. Never run
+   an in-place `VACUUM`.
+4. Run `compact apply RUN_ID` only after the plan passes. The safe engine builds
+   and scrubs a candidate, atomically swaps it, and retains the original inode.
+5. Verify normal reads before deleting rollback artifacts. Use `compact
+   rollback RUN_ID` if verification fails.
+6. After interruption, use `compact status RUN_ID` and `compact resume RUN_ID`;
+   never manually rename candidate or rollback files.
+
+Activation of the v0.35 payload/search policy is deliberately deferred. A
+successful v0.34 compaction proves storage mechanics, not permission to enable
+the next policy.
