@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,85 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
+
+func TestRestoredLegacyWriterDecodesCanonicalEnvelopeAndAuditPayloads(t *testing.T) {
+	ctx := context.Background()
+	database := NewDatabase(filepath.Join(t.TempDir(), "store.db"), os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	if err := NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `UPDATE search_maintenance_control SET authority='tiered',phase='retired'; DROP VIEW event_search_projection; DROP TABLE event_search_fts; DROP TABLE event_search_documents; DROP TABLE event_search_backfill_state`); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	if _, err = database.BeginSearchRestore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.RestoreLegacySearchBatch(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err = database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.release(raw)
+	body := mustEncodedSearchPayload(t, `{"blocks":[{"type":"text","text":"Envelope Needle"}]}`, payloadCodecZstd)
+	if _, err = raw.ExecContext(ctx, `INSERT INTO events(id,kind,client,agent,session_id,workspace,body,created_at,body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256) VALUES('encoded','note','codex','codex','s','w',?,'2026-01-01T00:00:00Z',?,?,?,?,?)`, body.Bytes, body.Codec, body.FormatVersion, body.PlaintextBytes, body.StoredBytes, body.SHA256); err != nil {
+		t.Fatal(err)
+	}
+	command := mustEncodedSearchPayload(t, "Echo Audit Needle", payloadCodecZstd)
+	input := mustEncodedSearchPayload(t, "Input Needle", payloadCodecZstd)
+	output := mustEncodedSearchPayload(t, "Output Needle", payloadCodecZstd)
+	if _, err = raw.ExecContext(ctx, `INSERT INTO command_audits(event_id,command_text,input_text,output_text,command_codec,command_format_version,command_plaintext_bytes,command_encoded_bytes,command_sha256,input_codec,input_format_version,input_plaintext_bytes,input_encoded_bytes,input_sha256,output_codec,output_format_version,output_plaintext_bytes,output_encoded_bytes,output_sha256) VALUES('encoded',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, command.Bytes, input.Bytes, output.Bytes, command.Codec, command.FormatVersion, command.PlaintextBytes, command.StoredBytes, command.SHA256, input.Codec, input.FormatVersion, input.PlaintextBytes, input.StoredBytes, input.SHA256, output.Codec, output.FormatVersion, output.PlaintextBytes, output.StoredBytes, output.SHA256); err != nil {
+		t.Fatal(err)
+	}
+	assertLegacySearchDocument(t, raw, "encoded", "envelope needle", "echo audit needle", "input needle", "output needle")
+
+	updated := mustEncodedSearchPayload(t, "Updated Audit Marker", payloadCodecZstd)
+	if _, err = raw.ExecContext(ctx, `UPDATE command_audits SET command_text=?,command_codec=?,command_format_version=?,command_plaintext_bytes=?,command_encoded_bytes=?,command_sha256=? WHERE event_id='encoded'`, updated.Bytes, updated.Codec, updated.FormatVersion, updated.PlaintextBytes, updated.StoredBytes, updated.SHA256); err != nil {
+		t.Fatal(err)
+	}
+	assertLegacySearchDocument(t, raw, "encoded", "envelope needle", "updated audit marker", "input needle", "output needle")
+	if _, err = raw.ExecContext(ctx, `DELETE FROM command_audits WHERE event_id='encoded'`); err != nil {
+		t.Fatal(err)
+	}
+	assertLegacySearchDocument(t, raw, "encoded", "envelope needle", "", "", "")
+	if _, err = raw.ExecContext(ctx, `DELETE FROM events WHERE id='encoded'`); err != nil {
+		t.Fatal(err)
+	}
+	var documents int
+	if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_search_documents WHERE event_id='encoded'`).Scan(&documents); err != nil || documents != 0 {
+		t.Fatalf("documents=%d err=%v", documents, err)
+	}
+}
+
+func mustEncodedSearchPayload(t *testing.T, plaintext, codec string) encodedPayload {
+	t.Helper()
+	payload, err := encodePayload([]byte(plaintext), codec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func assertLegacySearchDocument(t *testing.T, db *sql.DB, id string, want ...string) {
+	t.Helper()
+	var body, command, input, output string
+	if err := db.QueryRow(`SELECT body_text,command_text,input_text,output_text FROM event_search_documents WHERE event_id=?`, id).Scan(&body, &command, &input, &output); err != nil {
+		t.Fatal(err)
+	}
+	got := []string{body, command, input, output}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("document[%d]=%q want %q (all=%q)", i, got[i], want[i], got)
+		}
+	}
+}
 
 func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	ctx := context.Background()

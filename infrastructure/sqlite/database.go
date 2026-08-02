@@ -24,6 +24,7 @@ import (
 // fixed-width form for boundary-correct TEXT comparisons. See
 // normalizeRFC3339NanoForCompare and #1185.
 const sqlTimestampNormalizeFunc = "ts_norm"
+const sqlPayloadDecodeFunc = "traceary_payload_decode"
 
 const (
 	currentReaderVersion        = 34
@@ -40,6 +41,52 @@ func init() {
 		1,
 		normalizeTimestampSQLFunc,
 	)
+	sqlite.MustRegisterDeterministicScalarFunction(sqlPayloadDecodeFunc, 6, decodePayloadSQLFunc)
+}
+
+// decodePayloadSQLFunc exposes the persisted payload contract to derived SQL
+// projections. This keeps restored trigger-based writers codec-aware without
+// teaching SQLite's JSON functions about compressed storage.
+func decodePayloadSQLFunc(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if len(args) != 6 {
+		return nil, xerrors.Errorf("%s expects exactly six arguments, got %d", sqlPayloadDecodeFunc, len(args))
+	}
+	stored, err := driverBytes(args[0])
+	if err != nil {
+		return nil, err
+	}
+	row := payloadRow{Stored: stored}
+	if args[1] != nil {
+		row.Codec = sql.NullString{String: fmt.Sprint(args[1]), Valid: true}
+	}
+	if args[2] != nil {
+		row.FormatVersion = sql.NullInt64{Int64: args[2].(int64), Valid: true}
+	}
+	if args[3] != nil {
+		row.PlaintextBytes = sql.NullInt64{Int64: args[3].(int64), Valid: true}
+	}
+	if args[4] != nil {
+		row.StoredBytes = sql.NullInt64{Int64: args[4].(int64), Valid: true}
+	}
+	if args[5] != nil {
+		row.SHA256 = sql.NullString{String: fmt.Sprint(args[5]), Valid: true}
+	}
+	plain, err := row.decode(maxDecodedPayloadBytes)
+	if err != nil {
+		return nil, err
+	}
+	return string(plain), nil
+}
+
+func driverBytes(value driver.Value) ([]byte, error) {
+	switch typed := value.(type) {
+	case string:
+		return []byte(typed), nil
+	case []byte:
+		return typed, nil
+	default:
+		return nil, xerrors.Errorf("payload storage has unexpected SQL type %T", value)
+	}
 }
 
 // normalizeTimestampSQLFunc adapts normalizeRFC3339NanoForCompare to the

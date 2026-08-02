@@ -333,8 +333,36 @@ func createLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
 	if _, err = tx.ExecContext(ctx, repairScript); err != nil {
 		return xerrors.Errorf("recreate canonical legacy search schema: %w", err)
 	}
+	// Migration 32 predates payload codecs. Recreate only its derived view with
+	// decoded canonical values; all writer triggers select through this view.
+	if _, err = tx.ExecContext(ctx, codecAwareLegacySearchProjectionSQL); err != nil {
+		return xerrors.Errorf("make restored legacy search writer codec-aware: %w", err)
+	}
 	return nil
 }
+
+const codecAwareLegacySearchProjectionSQL = `
+DROP VIEW IF EXISTS event_search_projection;
+CREATE VIEW event_search_projection AS
+WITH decoded_events AS (
+ SELECT e.*, traceary_payload_decode(e.body,e.body_codec,e.body_format_version,e.body_plaintext_bytes,e.body_encoded_bytes,e.body_sha256) AS plain_body FROM events e
+), decoded_audits AS (
+ SELECT a.event_id,
+ traceary_payload_decode(a.command_text,a.command_codec,a.command_format_version,a.command_plaintext_bytes,a.command_encoded_bytes,a.command_sha256) AS plain_command,
+ traceary_payload_decode(a.input_text,a.input_codec,a.input_format_version,a.input_plaintext_bytes,a.input_encoded_bytes,a.input_sha256) AS plain_input,
+ traceary_payload_decode(a.output_text,a.output_codec,a.output_format_version,a.output_plaintext_bytes,a.output_encoded_bytes,a.output_sha256) AS plain_output
+ FROM command_audits a
+)
+SELECT e.id AS event_id,
+ lower(CASE WHEN e.body_availability='unavailable_retention' THEN ''
+ WHEN json_valid(e.plain_body) AND json_type(e.plain_body,'$')='object' AND json_type(e.plain_body,'$.blocks')='array'
+ AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(e.plain_body,'$.blocks')) WHERE typeof(json_extract(value,'$.type'))!='text' OR typeof(json_extract(value,'$.text'))!='text')
+ THEN COALESCE((SELECT group_concat(json_extract(value,'$.text'),X'0A0A') FROM json_each(json_extract(e.plain_body,'$.blocks')) WHERE json_extract(value,'$.type')='text'),'')
+ ELSE e.plain_body END) AS body_text,
+ lower(COALESCE(a.plain_command,'')) AS command_text,
+ lower(COALESCE(a.plain_input,'')) AS input_text,
+ lower(COALESCE(a.plain_output,'')) AS output_text
+FROM decoded_events e LEFT JOIN decoded_audits a ON a.event_id=e.id;`
 
 func (d *Database) RestoreLegacySearchBatch(ctx context.Context, limit int) (apptypes.SearchMaintenanceReport, error) {
 	db, err := d.open(ctx)
