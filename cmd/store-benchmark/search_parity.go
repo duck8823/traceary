@@ -350,7 +350,7 @@ func collectTieredParity(ctx context.Context, path string, c parityCriteria, m s
 }
 
 func setCensoredLatency(metrics *parityChain, started time.Time, err error) {
-	if errors.Is(err, context.DeadlineExceeded) {
+	if err != nil {
 		metrics.ElapsedLowerBoundUS = max(time.Since(started).Microseconds(), 1)
 	}
 }
