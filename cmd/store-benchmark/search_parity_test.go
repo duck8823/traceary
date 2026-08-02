@@ -407,6 +407,17 @@ func TestSearchParitySemanticValidatorRejectsCraftedEvidence(t *testing.T) {
 			a.Comparison = parityComparison{}
 			a.Legacy.LatencyUS, a.Tiered.LatencyUS = 0, 0
 		},
+		"revision mismatch claims store evidence": func(a *searchParityArtifact) {
+			a.Status, a.ErrorClass = "failed", "revision_mismatch"
+			a.Revision.Dirty = true
+			a.Comparison = parityComparison{}
+			a.Legacy.LatencyUS, a.Tiered.LatencyUS = 0, 0
+		},
+		"manifest failure claims revision": func(a *searchParityArtifact) {
+			a.Status, a.ErrorClass = "failed", "manifest_invalid"
+			a.Legacy, a.Tiered = parityChain{}, parityChain{}
+			a.Comparison, a.Projection = parityComparison{}, parityProjection{}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := validSearchParityArtifact()

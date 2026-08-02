@@ -751,14 +751,20 @@ func validateSearchParityJSON(data []byte) error {
 		revisionMismatch := artifact.ErrorClass == "revision_mismatch"
 		revisionException := revisionUnavailable || revisionMismatch
 		started := !preflight && !revisionException && artifact.ErrorClass != "revision_mismatch"
-		revisionInvalid := (revisionUnavailable && (artifact.Revision.Commit != "" || artifact.Revision.Dirty)) || (revisionMismatch && !commitValid) || (!preflight && !revisionException && (!commitValid || artifact.Revision.Dirty))
-		if !allowed[artifact.ErrorClass] || comparisonClaimsProof(artifact) || revisionInvalid || (started && !validCensoredEvidence(artifact)) || (!started && (artifact.ElapsedLowerBoundUS != 0 || artifact.Legacy.LatencyUS != 0 || artifact.Tiered.LatencyUS != 0)) {
+		revisionInvalid := (preflight && artifact.Revision != (parityRevision{})) || (revisionUnavailable && artifact.Revision != (parityRevision{})) || (revisionMismatch && !commitValid) || (!preflight && !revisionException && (!commitValid || artifact.Revision.Dirty))
+		if !allowed[artifact.ErrorClass] || comparisonClaimsProof(artifact) || revisionInvalid || (started && !validCensoredEvidence(artifact)) || (!started && !pristinePreStoreEvidence(artifact)) {
 			return errors.New("invalid fixed error class")
 		}
 	default:
 		return errors.New("invalid search parity status")
 	}
 	return nil
+}
+
+func pristinePreStoreEvidence(a searchParityArtifact) bool {
+	return a.Legacy == (parityChain{}) && a.Tiered == (parityChain{}) &&
+		a.Comparison == (parityComparison{}) && a.Projection == (parityProjection{}) &&
+		a.ElapsedLowerBoundUS == 0
 }
 
 func validCounters(a searchParityArtifact) bool {
