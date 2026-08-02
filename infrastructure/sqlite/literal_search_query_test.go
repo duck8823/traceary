@@ -74,8 +74,8 @@ func TestLiteralSearchPageFingerprintCandidatesRemainInclusiveForMissingRows(t *
 	if page.Tier != apptypes.LiteralSearchTierFingerprint || len(page.Events) != 2 {
 		t.Fatalf("page = %+v", page)
 	}
-	if page.Events[0].Metadata().EventID().String() != "literal-fp-match" || page.Events[1].Metadata().EventID().String() != "literal-fp-missing" || len(page.MatchContinuations) != 2 {
-		t.Fatalf("source order/continuations=%v/%d", []string{page.Events[0].Metadata().EventID().String(), page.Events[1].Metadata().EventID().String()}, len(page.MatchContinuations))
+	if page.Events[0].Metadata().EventID().String() != "literal-fp-match" || page.Events[1].Metadata().EventID().String() != "literal-fp-missing" || len(page.Matches) != 2 {
+		t.Fatalf("source order/continuations=%v/%d", []string{page.Events[0].Metadata().EventID().String(), page.Events[1].Metadata().EventID().String()}, len(page.Matches))
 	}
 }
 

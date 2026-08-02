@@ -886,10 +886,11 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			}
 			if aggregate.hasUnreturned {
 				idx := len(aggregate.events)
-				if idx >= len(literalPage.MatchContinuations) {
-					return nil, eventsOutput{}, xerrors.Errorf("tiered aggregate continuation is unavailable")
+				_, continuation, prefixErr := literalPage.PrefixWithContinuation(idx)
+				if prefixErr != nil {
+					return nil, eventsOutput{}, xerrors.Errorf("resolve tiered aggregate prefix: %w", prefixErr)
 				}
-				literalPage.Continuation = literalPage.MatchContinuations[idx]
+				literalPage.Continuation = continuation
 			}
 			converted = aggregate.events
 			intervalOut := newIntervalOutput(interval)

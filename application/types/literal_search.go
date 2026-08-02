@@ -158,12 +158,69 @@ func (r LiteralSearchRequest) Validate() error {
 
 // LiteralSearchPage exposes matches and honest completeness metadata.
 type LiteralSearchPage struct {
-	Events             []BoundedEvent        `json:"events"`
-	Tier               LiteralSearchTier     `json:"tier"`
-	Coverage           LiteralSearchCoverage `json:"coverage"`
-	PartialReason      string                `json:"partial_reason,omitempty"`
-	Continuation       string                `json:"continuation,omitempty"`
-	MatchContinuations []string              `json:"-"`
+	Events        []BoundedEvent        `json:"events"`
+	Tier          LiteralSearchTier     `json:"tier"`
+	Coverage      LiteralSearchCoverage `json:"coverage"`
+	PartialReason string                `json:"partial_reason,omitempty"`
+	Continuation  string                `json:"continuation,omitempty"`
+	Matches       []LiteralSearchMatch  `json:"-"`
+}
+
+// LiteralSearchMatch pairs an event with its resume-before source anchor.
+type LiteralSearchMatch struct {
+	Event        BoundedEvent
+	ResumeBefore string
+}
+
+// PrefixWithContinuation returns a contiguous prefix and its safe cursor.
+func (p LiteralSearchPage) PrefixWithContinuation(n int) ([]BoundedEvent, string, error) {
+	if n < 0 || n > len(p.Matches) {
+		return nil, "", fmt.Errorf("%w: invalid literal match prefix", ErrLiteralSearchInvalidRequest)
+	}
+	events := make([]BoundedEvent, 0, n)
+	for _, match := range p.Matches[:n] {
+		events = append(events, match.Event)
+	}
+	if n < len(p.Matches) {
+		return events, p.Matches[n].ResumeBefore, nil
+	}
+	return events, p.Continuation, nil
+}
+
+// LiteralVerificationLedger owns pure byte admission and source progress.
+type LiteralVerificationLedger struct {
+	Budget                  LiteralSearchBudget
+	UsedStored, UsedDecoded int64
+	FullyProcessed          int64
+}
+
+// Skip advances an ineligible or tombstoned source.
+func (l *LiteralVerificationLedger) Skip(sequence int64) { l.FullyProcessed = sequence }
+
+// AdmitVerification reserves canonical verification without advancing.
+func (l *LiteralVerificationLedger) AdmitVerification(stored, decoded int64) error {
+	if l.UsedStored+stored > l.Budget.StoredBytes {
+		return &SearchProjectionOversizeError{Class: "stored_bytes", Bytes: l.UsedStored + stored, Limit: l.Budget.StoredBytes}
+	}
+	if l.UsedDecoded+decoded > l.Budget.DecodedBytes {
+		return &SearchProjectionOversizeError{Class: "decoded_bytes", Bytes: l.UsedDecoded + decoded, Limit: l.Budget.DecodedBytes}
+	}
+	l.UsedStored += stored
+	l.UsedDecoded += decoded
+	return nil
+}
+
+// FinishVerification reserves match hydration before advancing.
+func (l *LiteralVerificationLedger) FinishVerification(sequence, stored, decoded int64, matched bool) error {
+	if matched {
+		if l.UsedStored+stored > l.Budget.StoredBytes || l.UsedDecoded+decoded > l.Budget.DecodedBytes {
+			return &SearchProjectionOversizeError{Class: "verified_hydration_bytes", Bytes: max(l.UsedStored+stored, l.UsedDecoded+decoded), Limit: max(l.Budget.StoredBytes, l.Budget.DecodedBytes)}
+		}
+		l.UsedStored += stored
+		l.UsedDecoded += decoded
+	}
+	l.FullyProcessed = sequence
+	return nil
 }
 
 // ErrLiteralSearchCursorMismatch rejects replay against changed inputs.

@@ -468,7 +468,8 @@ VALUES('zstd',?,'','echo',?,?,0,0,5,6,0,'unknown',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	}
 	datasource := NewEventDatasource(database)
 	literalCriteria := apptypes.NewEventSearchCriteriaBuilder(2).Query("echo redacted").SessionID(domtypes.SessionID("zstd-session")).Build()
-	if _, literalErr := datasource.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: literalCriteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 20, StoredBytes: 1, DecodedBytes: 1}, BodyRuneLimit: 100}); literalErr == nil {
+	tinyPage, literalErr := datasource.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: literalCriteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 20, StoredBytes: 1, DecodedBytes: 1}, BodyRuneLimit: 100})
+	if literalErr == nil && (tinyPage.PartialReason == "" || tinyPage.Continuation == "") {
 		t.Fatal("compressed literal search ignored decode ledger")
 	}
 	literalPage, literalErr := datasource.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{Criteria: literalCriteria, Budget: apptypes.LiteralSearchBudget{SourceRows: 20, StoredBytes: 1 << 20, DecodedBytes: 1 << 20}, BodyRuneLimit: 100})

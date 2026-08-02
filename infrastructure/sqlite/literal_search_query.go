@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -83,8 +84,7 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	resultCapacity := min(request.Criteria.Limit(), request.Budget.SourceRows, apptypes.MaxLiteralSearchLimit)
 	matched := make([]string, 0, resultCapacity)
 	matchContinuations := make([]string, 0, resultCapacity)
-	var usedStored, usedDecoded int64
-	last := after
+	ledger := apptypes.LiteralVerificationLedger{Budget: request.Budget, FullyProcessed: after}
 	var examined int64
 	partialReason := ""
 	for i, s := range sources {
@@ -93,52 +93,40 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 			break
 		}
 		examined++
-		before := last
+		before := ledger.FullyProcessed
 		eligible, eligibleErr := literalSourceEligible(ctx, tx, s.id, request.Criteria, generation, query.Fingerprints(), useFingerprints)
 		if eligibleErr != nil {
 			return apptypes.LiteralSearchPage{}, eligibleErr
 		}
 		if !eligible {
-			last = s.sequence
+			ledger.Skip(s.sequence)
 			continue
 		}
-		if usedStored+s.stored > request.Budget.StoredBytes {
-			if usedStored == 0 {
-				return apptypes.LiteralSearchPage{}, &apptypes.SearchProjectionOversizeError{Class: "stored_bytes", Bytes: s.stored, Limit: request.Budget.StoredBytes}
+		if admissionErr := ledger.AdmitVerification(s.stored, s.decoded); admissionErr != nil {
+			if ledger.FullyProcessed == after {
+				return apptypes.LiteralSearchPage{}, xerrors.Errorf("admit literal verification: %w", admissionErr)
 			}
-			partialReason = "stored_bytes"
-			break
-		}
-		if usedDecoded+s.decoded > request.Budget.DecodedBytes {
-			if usedDecoded == 0 {
-				return apptypes.LiteralSearchPage{}, &apptypes.SearchProjectionOversizeError{Class: "decoded_bytes", Bytes: s.decoded, Limit: request.Budget.DecodedBytes}
-			}
-			partialReason = "decoded_bytes"
+			partialReason = literalBudgetReason(admissionErr)
 			break
 		}
 		ok, matchErr := decodedEventSearchMatch(ctx, tx, s.id, query.Canonical())
 		if matchErr != nil {
 			return apptypes.LiteralSearchPage{}, matchErr
 		}
-		usedStored += s.stored
-		usedDecoded += s.decoded
 		if ok {
-			if usedStored+s.stored > request.Budget.StoredBytes || usedDecoded+s.decoded > request.Budget.DecodedBytes {
+			if finishErr := ledger.FinishVerification(s.sequence, s.stored, s.decoded, true); finishErr != nil {
 				if before == after {
-					return apptypes.LiteralSearchPage{}, &apptypes.SearchProjectionOversizeError{Class: "verified_hydration_bytes", Bytes: max(usedStored+s.stored, usedDecoded+s.decoded), Limit: max(request.Budget.StoredBytes, request.Budget.DecodedBytes)}
+					return apptypes.LiteralSearchPage{}, xerrors.Errorf("finish matched literal verification: %w", finishErr)
 				}
-				partialReason = "verified_hydration_bytes"
+				partialReason = literalBudgetReason(finishErr)
 				break
 			}
-			usedStored += s.stored
-			usedDecoded += s.decoded
 			resume, encodeErr := (apptypes.LiteralSearchCursor{Version: apptypes.LiteralSearchCursorVersion, LastSequence: before, CriteriaHash: criteriaHash, Generation: generation, HighWater: highWater, QueryRevision: revision}).EncodeAuthenticated(cursorKey)
 			if encodeErr != nil {
 				return apptypes.LiteralSearchPage{}, xerrors.Errorf("encode match continuation: %w", encodeErr)
 			}
 			matched = append(matched, s.id)
 			matchContinuations = append(matchContinuations, resume)
-			last = s.sequence
 			if len(matched) >= request.Criteria.Limit() {
 				if i+1 < len(sources) {
 					partialReason = "result_limit"
@@ -146,9 +134,12 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 				break
 			}
 		} else {
-			last = s.sequence
+			if finishErr := ledger.FinishVerification(s.sequence, s.stored, s.decoded, false); finishErr != nil {
+				return apptypes.LiteralSearchPage{}, xerrors.Errorf("finish literal verification: %w", finishErr)
+			}
 		}
 	}
+	last := ledger.FullyProcessed
 	complete := last >= highWater
 	if !complete && partialReason == "" {
 		partialReason = "source_rows"
@@ -170,7 +161,11 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 	if useFingerprints {
 		tier = apptypes.LiteralSearchTierFingerprint
 	}
-	page := apptypes.LiteralSearchPage{Events: events, Tier: tier, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: last, ExaminedSources: examined, HighWater: highWater, Complete: complete}, PartialReason: partialReason, MatchContinuations: matchContinuations}
+	matches := make([]apptypes.LiteralSearchMatch, 0, len(events))
+	for i, event := range events {
+		matches = append(matches, apptypes.LiteralSearchMatch{Event: event, ResumeBefore: matchContinuations[i]})
+	}
+	page := apptypes.LiteralSearchPage{Events: events, Tier: tier, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: last, ExaminedSources: examined, HighWater: highWater, Complete: complete}, PartialReason: partialReason, Matches: matches}
 	if !complete {
 		page.Continuation, err = (apptypes.LiteralSearchCursor{Version: apptypes.LiteralSearchCursorVersion, LastSequence: last, CriteriaHash: criteriaHash, Generation: generation, HighWater: highWater, QueryRevision: revision}).EncodeAuthenticated(cursorKey)
 		if err != nil {
@@ -181,6 +176,14 @@ func (d *EventDatasource) SearchLiteralPage(ctx context.Context, request apptype
 		return apptypes.LiteralSearchPage{}, xerrors.Errorf("finish tiered literal search: %w", err)
 	}
 	return page, nil
+}
+
+func literalBudgetReason(err error) string {
+	var oversized *apptypes.SearchProjectionOversizeError
+	if errors.As(err, &oversized) {
+		return oversized.Class
+	}
+	return "resource_budget"
 }
 
 func orderLiteralMetadata(metadata []apptypes.EventMetadata, ids []string) []apptypes.EventMetadata {

@@ -155,3 +155,24 @@ func TestLiteralSearchRequestAllocationBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestLiteralVerificationLedgerDeterministicProgressAndRetry(t *testing.T) {
+	t.Parallel()
+	ledger := apptypes.LiteralVerificationLedger{Budget: apptypes.LiteralSearchBudget{SourceRows: 4, StoredBytes: 7, DecodedBytes: 7}}
+	ledger.Skip(1)
+	if err := ledger.AdmitVerification(2, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.FinishVerification(2, 2, 2, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.AdmitVerification(3, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.FinishVerification(3, 3, 3, true); err == nil {
+		t.Fatal("match hydration should exceed remaining budget")
+	}
+	if ledger.FullyProcessed != 2 {
+		t.Fatalf("fully processed=%d, want retry at 2", ledger.FullyProcessed)
+	}
+}
