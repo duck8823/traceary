@@ -109,6 +109,24 @@ func TestSearchProjectionRebuildIsBoundedResumableAndEvictsDeterministically(t *
 	if err = db.QueryRow(`SELECT fts_design FROM search_projection_state`).Scan(&design); err != nil || design != "external_content" {
 		t.Fatalf("design=%q err=%v", design, err)
 	}
+	var fingerprintRows, distinctFingerprints int
+	if err = db.QueryRow(`SELECT COUNT(*),COUNT(DISTINCT generation_id||':'||event_id||':'||hex(fingerprint)) FROM literal_search_fingerprints`).Scan(&fingerprintRows, &distinctFingerprints); err != nil {
+		t.Fatal(err)
+	}
+	if fingerprintRows == 0 || fingerprintRows != distinctFingerprints {
+		t.Fatalf("fingerprints rows/distinct=%d/%d", fingerprintRows, distinctFingerprints)
+	}
+	var literalState string
+	if err = db.QueryRow(`SELECT state FROM literal_search_projection_state`).Scan(&literalState); err != nil || literalState != "complete" {
+		t.Fatalf("literal state=%q err=%v", literalState, err)
+	}
+	status, statusErr := store.SearchProjectionStatus(ctx)
+	if statusErr != nil {
+		t.Fatal(statusErr)
+	}
+	if status.FingerprintVersion != 1 || status.FingerprintRows != int64(fingerprintRows) || status.FingerprintLogicalBytes <= 0 {
+		t.Fatalf("fingerprint status=%+v", status)
+	}
 }
 
 func projectionBudget() apptypes.SearchProjectionBudget {

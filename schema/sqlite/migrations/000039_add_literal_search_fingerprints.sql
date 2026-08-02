@@ -20,7 +20,7 @@ CREATE TABLE literal_search_fingerprints(
  fingerprint_version INTEGER NOT NULL CHECK(fingerprint_version=1),
  PRIMARY KEY(generation_id,event_id,fingerprint),
  FOREIGN KEY(source_sequence) REFERENCES search_projection_source_sequence(sequence) ON DELETE CASCADE
-) WITHOUT ROWID;
+);
 CREATE INDEX idx_literal_search_fingerprint_candidate
 ON literal_search_fingerprints(generation_id,fingerprint,source_sequence,event_id);
 

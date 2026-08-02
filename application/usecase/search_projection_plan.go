@@ -60,6 +60,7 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 			return p, &apptypes.SearchProjectionOversizeError{Class: "decoded_bytes", Bytes: d.DecodedBytes, Limit: b.DecodedBytes}
 		}
 		w := apptypes.ProjectionWrite{Document: d, Keywords: map[string]int{}}
+		w.LiteralFingerprints = apptypes.CharacterizeLiteralQuery(d.Text).Fingerprints()
 		if created, err := time.Parse(time.RFC3339Nano, d.CreatedAt); err == nil {
 			w.RetainRecent = !created.Before(s.Now.Add(-b.RecentAge))
 		}
@@ -127,6 +128,9 @@ func projectionWriteLogicalBytes(generation string, w apptypes.ProjectionWrite) 
 	}
 	for keyword := range w.Keywords {
 		n += int64(len(generation)+len(d.SessionID)+len(keyword)) + projectionIntegerBytes*2
+	}
+	for range w.LiteralFingerprints {
+		n += int64(len(generation)+len(d.EventID)+apptypes.LiteralFingerprintBytes) + projectionIntegerBytes*2
 	}
 	return n
 }

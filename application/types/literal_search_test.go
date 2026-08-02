@@ -53,6 +53,34 @@ func TestLiteralFingerprintsAreDeterministicFixedSizeAndMatchCaseInsensitively(t
 	}
 }
 
+func TestLiteralFingerprintCandidatesHaveNoFalseNegativesForCharacterizedClass(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, needle, body string }{
+		{"unicode", "障害/経路", "prefix 障害/経路 suffix"},
+		{"case", "NOT FOUND", "error: not found while opening"},
+		{"path", "/Users/a/src", "open /users/a/src/main.go"},
+		{"identifier", "evt_01JABC", "id=EVT_01jabc accepted"},
+		{"error fragment", "EOF: RESET", "transport eof: reset by peer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			query := apptypes.CharacterizeLiteralQuery(tc.needle)
+			body := apptypes.CharacterizeLiteralQuery(tc.body)
+			if !body.Contains(query) {
+				t.Fatal("fixture is not a canonical match")
+			}
+			available := map[string]bool{}
+			for _, fp := range body.Fingerprints() {
+				available[fp] = true
+			}
+			for _, fp := range query.Fingerprints() {
+				if !available[fp] {
+					t.Fatalf("query fingerprint absent from matching body")
+				}
+			}
+		})
+	}
+}
+
 func TestLiteralSearchCursorBindsCriteriaAndProjection(t *testing.T) {
 	t.Parallel()
 	cursor := apptypes.LiteralSearchCursor{Version: 1, LastSequence: 42, CriteriaHash: "criteria", Generation: "g1", HighWater: 90, QueryRevision: 3}
