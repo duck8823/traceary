@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 )
 
 func TestSearchParitySyntheticExhaustsBothChainsWithoutPrivateOutput(t *testing.T) {
@@ -522,5 +523,80 @@ func TestSearchParityManifestRejectsOversizeAndSymlink(t *testing.T) {
 	}
 	if _, err := readSearchParityManifest(link, nil); fixedErrorClass(err) != "manifest_permissions" {
 		t.Fatalf("symlink error=%v", err)
+	}
+}
+
+type distinctParityReader struct {
+	legacyCalls int
+	tieredCalls int
+}
+
+func (r *distinctParityReader) SearchLegacyPage(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	r.legacyCalls++
+	return nil, nil
+}
+
+func (r *distinctParityReader) SearchLiteralPage(context.Context, apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
+	r.tieredCalls++
+	return apptypes.LiteralSearchPage{}, nil
+}
+
+func TestParityReadersDispatchDistinctAuthorities(t *testing.T) {
+	reader := &distinctParityReader{}
+	criteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Build()
+	if _, err := readLegacyParityPage(context.Background(), reader, criteria); err != nil {
+		t.Fatal(err)
+	}
+	if reader.legacyCalls != 1 || reader.tieredCalls != 0 {
+		t.Fatalf("legacy dispatch calls = legacy:%d tiered:%d", reader.legacyCalls, reader.tieredCalls)
+	}
+	if _, err := readTieredParityPage(context.Background(), reader, apptypes.LiteralSearchRequest{Criteria: criteria}); err != nil {
+		t.Fatal(err)
+	}
+	if reader.legacyCalls != 1 || reader.tieredCalls != 1 {
+		t.Fatalf("tiered dispatch calls = legacy:%d tiered:%d", reader.legacyCalls, reader.tieredCalls)
+	}
+}
+
+func TestParityV2BindingIsKeyedAndRetirementAuthorizationIsCriterionScoped(t *testing.T) {
+	fields := []string{"aggregate=events:12,audits:4", "revision=" + strings.Repeat("a", 40), "projection=3:16"}
+	first, err := keyedParityBinding([]byte("first-store-cursor-key"), "target-store", fields...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := keyedParityBinding([]byte("second-store-cursor-key"), "target-store", fields...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || strings.Contains(first, fields[0]) {
+		t.Fatalf("binding must be opaque and store-owned: first=%q second=%q", first, second)
+	}
+	criterionA, _ := keyedParityBinding([]byte("first-store-cursor-key"), "criterion", "fingerprint_eligible", "fixed-criterion-a")
+	criterionB, _ := keyedParityBinding([]byte("first-store-cursor-key"), "criterion", "bounded_verification", "fixed-criterion-b")
+	suite := parityV2EvidenceSuite{
+		SchemaVersion: searchParityV2Schema, TargetStoreBinding: first,
+		Revision:   parityRevision{Commit: strings.Repeat("a", 40)},
+		Projection: parityProjection{Revision: 3, HighWater: 16, LogicalBytes: 1, PhysicalBytes: 1},
+		Criteria: []parityCriterionEvidence{
+			{QueryClass: "fingerprint_eligible", CriterionBinding: criterionA, Status: "passed", ComparisonEqual: true, CoverageComplete: true},
+			{QueryClass: "bounded_verification", CriterionBinding: criterionB, Status: "passed", ComparisonEqual: true, CoverageComplete: true},
+		},
+	}
+	if !suite.AuthorizesStartRetire() {
+		t.Fatal("complete store-bound v2 suite did not authorize retirement")
+	}
+	encoded, err := json.Marshal(suite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSearchParityJSON(encoded); err != nil {
+		t.Fatalf("validateSearchParityJSON(v2) error = %v", err)
+	}
+	suite.Criteria[1].QueryClass = "fingerprint_eligible"
+	if suite.AuthorizesStartRetire() {
+		t.Fatal("duplicated query class authorized retirement")
+	}
+	if (parityV2EvidenceSuite{SchemaVersion: searchParitySchema}).AuthorizesStartRetire() {
+		t.Fatal("v1 evidence authorized retirement")
 	}
 }

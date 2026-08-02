@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,17 +16,72 @@ import (
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 const (
 	searchParitySchema     = "traceary.tiered-search-parity/v1"
+	searchParityV2Schema   = "traceary.tiered-search-parity/v2"
 	membershipSetContract  = "membership_set/v1"
 	maxParityManifestBytes = 1 << 20
 	maxParityPageSize      = 10_000
 	maxParityTimeoutMS     = int64((24 * time.Hour) / time.Millisecond)
 )
+
+// parityV2EvidenceSuite is the retirement-authorizing evidence envelope. Its
+// bindings are keyed by the target store; they are not replayable against a
+// copied or similarly-shaped store and reveal no query or store identifier.
+type parityV2EvidenceSuite struct {
+	SchemaVersion      string                    `json:"schema_version"`
+	TargetStoreBinding string                    `json:"target_store_binding"`
+	Revision           parityRevision            `json:"revision"`
+	Projection         parityProjection          `json:"projection"`
+	Criteria           []parityCriterionEvidence `json:"criteria"`
+}
+
+type parityCriterionEvidence struct {
+	QueryClass       string `json:"query_class"`
+	CriterionBinding string `json:"criterion_binding"`
+	Status           string `json:"status"`
+	ComparisonEqual  bool   `json:"comparison_equal"`
+	CoverageComplete bool   `json:"coverage_complete"`
+}
+
+func keyedParityBinding(key []byte, purpose string, fields ...string) (string, error) {
+	if len(key) < 16 || purpose == "" {
+		return "", errors.New("binding_unavailable")
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = io.WriteString(mac, "traceary:search-parity:v2\x00"+purpose)
+	for _, field := range fields {
+		_, _ = io.WriteString(mac, fmt.Sprintf("\x00%d:", len(field)))
+		_, _ = io.WriteString(mac, field)
+	}
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+}
+
+func (s parityV2EvidenceSuite) AuthorizesStartRetire() bool {
+	if s.SchemaVersion != searchParityV2Schema || !validOpaqueBinding(s.TargetStoreBinding) ||
+		!validCommit(s.Revision.Commit) || s.Revision.Dirty || !validPassedProjection(searchParityArtifact{Projection: s.Projection, Tiered: parityChain{Coverage: parityCoverage{HighWater: s.Projection.HighWater}}}) || len(s.Criteria) != 2 {
+		return false
+	}
+	required := map[string]bool{"fingerprint_eligible": false, "bounded_verification": false}
+	for _, criterion := range s.Criteria {
+		seen, known := required[criterion.QueryClass]
+		if !known || seen || !validOpaqueBinding(criterion.CriterionBinding) || criterion.Status != "passed" || !criterion.ComparisonEqual || !criterion.CoverageComplete {
+			return false
+		}
+		required[criterion.QueryClass] = true
+	}
+	return required["fingerprint_eligible"] && required["bounded_verification"]
+}
+
+func validOpaqueBinding(value string) bool {
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(raw) == sha256.Size
+}
 
 type searchParityManifest struct {
 	DBPath           string `json:"db_path"`
@@ -487,6 +545,30 @@ type tieredProgress struct {
 	tier              apptypes.LiteralSearchTier
 }
 
+type legacyParityPageReader interface {
+	SearchLegacyPage(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error)
+}
+
+type tieredParityPageReader interface {
+	SearchLiteralPage(context.Context, apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error)
+}
+
+func readLegacyParityPage(ctx context.Context, reader legacyParityPageReader, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	page, err := reader.SearchLegacyPage(ctx, criteria)
+	if err != nil {
+		return nil, fmt.Errorf("read explicit legacy parity page: %w", err)
+	}
+	return page, nil
+}
+
+func readTieredParityPage(ctx context.Context, reader tieredParityPageReader, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
+	page, err := reader.SearchLiteralPage(ctx, request)
+	if err != nil {
+		return apptypes.LiteralSearchPage{}, fmt.Errorf("read tiered parity page: %w", err)
+	}
+	return page, nil
+}
+
 func (p *tieredProgress) observe(page apptypes.LiteralSearchPage) error {
 	if page.Coverage.ProcessedSources < 0 || page.Coverage.ExaminedSources < 0 || page.Coverage.HighWater < 0 || page.Coverage.ProcessedSources > page.Coverage.HighWater {
 		return errors.New("progress")
@@ -530,7 +612,11 @@ func collectLegacyParity(ctx context.Context, path string, c parityCriteria, pag
 			return members, fmt.Errorf("open immutable legacy page: %w", openErr)
 		}
 		datasource := infra.NewEventDatasource(database)
-		page, err := datasource.Search(ctx, c.query, types.Workspace(c.workspace), types.SessionID(c.sessionID), types.Client(c.client), types.Agent(c.agent), types.EventKind(c.kind), c.from, c.to, pageSize, offset, c.failuresOnly)
+		criteria := apptypes.NewEventSearchCriteriaBuilder(pageSize).Query(c.query).
+			Workspace(types.Workspace(c.workspace)).SessionID(types.SessionID(c.sessionID)).Client(types.Client(c.client)).
+			Agent(types.Agent(c.agent)).Kind(types.EventKind(c.kind)).From(c.from).To(c.to).Offset(offset).
+			FailuresOnly(c.failuresOnly).Build()
+		page, err := readLegacyParityPage(ctx, datasource, criteria)
 		_ = database.CloseSharedReadOnly()
 		if err != nil {
 			setCensoredLatency(metrics, started, err)
@@ -581,7 +667,7 @@ func collectTieredParity(ctx context.Context, path string, c parityCriteria, m s
 		builder := apptypes.NewEventSearchCriteriaBuilder(m.TieredPageSize).Query(c.query).
 			Workspace(types.Workspace(c.workspace)).SessionID(types.SessionID(c.sessionID)).Client(types.Client(c.client)).
 			Agent(types.Agent(c.agent)).Kind(types.EventKind(c.kind)).From(c.from).To(c.to).FailuresOnly(c.failuresOnly)
-		page, err := datasource.SearchLiteralPage(ctx, apptypes.LiteralSearchRequest{
+		page, err := readTieredParityPage(ctx, datasource, apptypes.LiteralSearchRequest{
 			Criteria:     builder.Build(),
 			Budget:       apptypes.LiteralSearchBudget{SourceRows: m.SourceRows, StoredBytes: m.StoredBytes, DecodedBytes: m.DecodedBytes},
 			Continuation: continuation,
@@ -695,6 +781,9 @@ func validateSearchParityJSON(data []byte) error {
 	if err := walk(raw); err != nil {
 		return err
 	}
+	if object, ok := raw.(map[string]any); ok && object["schema_version"] == searchParityV2Schema {
+		return validateParityV2JSON(data)
+	}
 	leaf := func(keys ...string) jsonObjectSchema {
 		m := map[string]any{}
 		for _, key := range keys {
@@ -757,6 +846,38 @@ func validateSearchParityJSON(data []byte) error {
 		}
 	default:
 		return errors.New("invalid search parity status")
+	}
+	return nil
+}
+
+func validateParityV2JSON(data []byte) error {
+	leaf := func(keys ...string) jsonObjectSchema {
+		required := make(map[string]any, len(keys))
+		for _, key := range keys {
+			required[key] = nil
+		}
+		return jsonObjectSchema{required: required, optional: map[string]any{}}
+	}
+	criterion := leaf("query_class", "criterion_binding", "status", "comparison_equal", "coverage_complete")
+	schema := jsonObjectSchema{required: map[string]any{
+		"schema_version": nil, "target_store_binding": nil,
+		"revision":   leaf("commit", "dirty"),
+		"projection": leaf("revision", "high_water", "logical_bytes", "physical_bytes"),
+		// Array element semantics are checked after strict decoding.
+		"criteria": nil,
+	}, optional: map[string]any{}}
+	if err := validateJSONObjectKeys(data, schema); err != nil {
+		return errors.New("invalid search parity v2 schema")
+	}
+	var suite parityV2EvidenceSuite
+	if err := decodeStrictJSON(data, &suite); err != nil {
+		return errors.New("invalid search parity v2 schema")
+	}
+	// encoding/json strictness applies to the slice elements; retain the local
+	// schema variable as an executable inventory against accidental field drift.
+	_ = criterion
+	if !suite.AuthorizesStartRetire() {
+		return errors.New("v2 evidence does not authorize retirement")
 	}
 	return nil
 }
