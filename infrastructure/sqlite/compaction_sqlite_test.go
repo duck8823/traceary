@@ -90,13 +90,9 @@ func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 	if run.Resources.RequiredBytes == 0 || !run.Resources.ExchangeCapability {
 		t.Fatalf("invalid resource plan: %+v", run.Resources)
 	}
-	if run.Resources.LeaseCapability {
-		t.Fatal("plan overstated unavailable cross-process lease")
+	if !run.Resources.LeaseCapability {
+		t.Fatal("plan did not record available cross-process lease")
 	}
-	if _, err := planner.Apply(ctx, run.ID); err == nil {
-		t.Fatal("production apply did not fail closed without cross-process lease")
-	}
-	run.Resources.LeaseCapability = true
 	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "apply-journal")}
 	if err := journal.Create(ctx, run); err != nil {
 		t.Fatal(err)

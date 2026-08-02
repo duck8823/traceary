@@ -50,10 +50,9 @@ func TestCompactionE2E_21Point4GiBShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("resource plan: required=%d destination=%d temporary=%d margin=%d available=%d", run.Resources.RequiredBytes, run.Resources.DestinationBytes, run.Resources.TemporaryBytes, run.Resources.SafetyMarginBytes, run.Resources.AvailableBytes)
-	if run.Resources.LeaseCapability {
-		t.Fatal("plan overstated unavailable cross-process lease")
+	if !run.Resources.LeaseCapability {
+		t.Fatal("plan did not record available cross-process lease")
 	}
-	run.Resources.LeaseCapability = true
 	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "apply-journal")}
 	if err := journal.Create(context.Background(), run); err != nil {
 		t.Fatal(err)

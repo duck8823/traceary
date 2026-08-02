@@ -49,6 +49,11 @@ func (u *storeCompactionUsecase) Plan(ctx context.Context, source string) (domai
 }
 
 func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.CompactionRun, error) {
+	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
+	if err != nil {
+		return domain.CompactionRun{}, err
+	}
+	defer release()
 	run, err := u.journal.Load(ctx, id)
 	if err != nil {
 		return run, err
@@ -56,11 +61,6 @@ func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.C
 	if err := u.validateBinding(run); err != nil {
 		return run, err
 	}
-	release, err := u.lease.AcquireExclusive(ctx, run.SourcePath)
-	if err != nil {
-		return run, err
-	}
-	defer release()
 	return u.applyLeased(ctx, run)
 }
 
@@ -251,6 +251,11 @@ func (u *storeCompactionUsecase) Status(ctx context.Context, id string) (domain.
 }
 
 func (u *storeCompactionUsecase) Rollback(ctx context.Context, id string) (domain.CompactionRun, error) {
+	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
+	if err != nil {
+		return domain.CompactionRun{}, err
+	}
+	defer release()
 	run, err := u.journal.Load(ctx, id)
 	if err != nil {
 		return run, err
@@ -261,11 +266,6 @@ func (u *storeCompactionUsecase) Rollback(ctx context.Context, id string) (domai
 	if run.Phase != domain.CompactionSwapped && run.Phase != domain.CompactionRollbackReady && run.Phase != domain.CompactionCommitted && run.Phase != domain.CompactionRollbackSwapIntent && run.Phase != domain.CompactionRollbackSwapped {
 		return run, fmt.Errorf("cannot rollback compaction in phase %q", run.Phase)
 	}
-	release, err := u.lease.AcquireExclusive(ctx, run.SourcePath)
-	if err != nil {
-		return run, err
-	}
-	defer release()
 	observation, err := u.files.Observe(ctx, run)
 	if err != nil {
 		return run, err

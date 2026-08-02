@@ -1,12 +1,91 @@
 package sqlite
 
 import (
+	"bufio"
 	"context"
 	"database/sql/driver"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
+
+func TestStoreLeaseMultiprocessContentionAndCrashRelease(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("advisory lease unsupported")
+	}
+	path := filepath.Join(t.TempDir(), "store.db")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreLeaseHelperProcess$")
+	cmd.Env = append(os.Environ(), "TRACEARY_STORE_LEASE_HELPER=1", "TRACEARY_STORE_LEASE_PATH="+path)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stdin.Close() }()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	scanner := bufio.NewScanner(stdout)
+	ready := false
+	for scanner.Scan() {
+		if scanner.Text() == "ready" {
+			ready = true
+			break
+		}
+	}
+	if !ready {
+		t.Fatal("helper did not acquire shared lease")
+	}
+	candidate := path + ".candidate"
+	if err := os.WriteFile(candidate, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicExchange(path, candidate); err != nil {
+		t.Skipf("atomic exchange unavailable: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, path); err == nil {
+		t.Fatal("exclusive lease bypassed another process")
+	}
+	otherRelease, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path+".other")
+	if err != nil {
+		t.Fatalf("unrelated store was blocked: %v", err)
+	}
+	otherRelease()
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	release, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+	if err != nil {
+		t.Fatalf("crashed process retained lease: %v", err)
+	}
+	release()
+}
+
+func TestStoreLeaseHelperProcess(t *testing.T) {
+	if os.Getenv("TRACEARY_STORE_LEASE_HELPER") != "1" {
+		t.Skip("helper only")
+	}
+	path := os.Getenv("TRACEARY_STORE_LEASE_PATH")
+	db := openCoordinatedDB(path, sqliteDSN(path))
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	fmt.Println("ready")
+	_, _ = io.ReadAll(os.Stdin)
+}
 
 func TestStoreLeaseConnector_HoldsSharedLeaseForPhysicalConnection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
@@ -18,10 +97,12 @@ func TestStoreLeaseConnector_HoldsSharedLeaseForPhysicalConnection(t *testing.T)
 	}
 	acquired := make(chan struct{})
 	go func() {
-		lease := coordinatedStoreLease(path)
-		lease.Lock()
+		release, acquireErr := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+		if acquireErr != nil {
+			return
+		}
 		close(acquired)
-		lease.Unlock()
+		release()
 	}()
 	select {
 	case <-acquired:
@@ -54,7 +135,14 @@ func TestDatabaseOpenParticipatesInExclusiveStoreLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	acquired := make(chan struct{})
-	go func() { lease := coordinatedStoreLease(path); lease.Lock(); close(acquired); lease.Unlock() }()
+	go func() {
+		release, acquireErr := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+		if acquireErr != nil {
+			return
+		}
+		close(acquired)
+		release()
+	}()
 	select {
 	case <-acquired:
 		t.Fatal("exclusive lease bypassed a normal Database connection")
@@ -71,6 +159,22 @@ func TestDatabaseOpenParticipatesInExclusiveStoreLease(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("exclusive lease did not acquire")
 	}
+}
+
+func TestStoreLeaseExclusiveAcquisitionHonorsContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	db := openCoordinatedDB(path, sqliteDSN(path))
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if _, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, path); err == nil {
+		t.Fatal("exclusive acquisition ignored shared holder")
+	}
+	_ = conn.Close()
+	_ = db.Close()
 }
 
 func TestStoreLeaseConn_PreservesOptionalInterfaces(t *testing.T) {

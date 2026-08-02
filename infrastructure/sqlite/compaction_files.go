@@ -266,9 +266,13 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 	}
 	run.SourceIdentity = id
 	exchangeCapability := probeReplacementCapabilities(filepath.Dir(run.SourcePath)) == nil
-	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: 0, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: false, ExchangeCapability: exchangeCapability}
+	leaseCapability := probeStoreLeaseCapability(ctx, run.SourcePath) == nil
+	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: 0, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
 	if !run.Resources.ExchangeCapability {
 		return run, errors.New("atomic exchange capability unavailable")
+	}
+	if !run.Resources.LeaseCapability {
+		return run, errors.New("cross-process store lease capability unavailable")
 	}
 	return run, nil
 }
