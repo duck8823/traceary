@@ -43,13 +43,22 @@ func TestCompactionE2E_21Point4GiBShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "journal")}
-	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
-	run, err := service.Plan(context.Background(), source)
+	planningJournal := &CompactionFileJournal{Dir: filepath.Join(dir, "planning-journal")}
+	planner := usecase.NewStoreCompactionUsecase(source, planningJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	run, err := planner.Plan(context.Background(), source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("resource plan: required=%d destination=%d temporary=%d margin=%d available=%d", run.Resources.RequiredBytes, run.Resources.DestinationBytes, run.Resources.TemporaryBytes, run.Resources.SafetyMarginBytes, run.Resources.AvailableBytes)
+	if run.Resources.LeaseCapability {
+		t.Fatal("plan overstated unavailable cross-process lease")
+	}
+	run.Resources.LeaseCapability = true
+	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "apply-journal")}
+	if err := journal.Create(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
 	run, err = service.Apply(context.Background(), run.ID)
 	if err != nil {
 		t.Fatal(err)

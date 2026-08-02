@@ -166,6 +166,8 @@ func (r CompactionRun) RecoveryActions(observation CompactionObservation) ([]Com
 		switch r.Phase {
 		case CompactionCopyIntent, CompactionCopyComplete, CompactionCandidateSyncIntent, CompactionCandidateSynced, CompactionScrubInProgress, CompactionCandidateVerified:
 			return nil, nil
+		case CompactionSwapIntent:
+			return []CompactionAction{ActionExchange, ActionRecordSwapped}, nil
 		}
 	}
 	return nil, fmt.Errorf("unsafe compaction observation %q in phase %q", observation.Orientation, r.Phase)

@@ -141,6 +141,21 @@ func TestStoreCompactionResumeConvergesFromObservedSwappedWithNewInstance(t *tes
 	}
 }
 
+func TestStoreCompactionResumeExchangesFencedCandidateReadyAtSwapIntent(t *testing.T) {
+	run := compactionRunAt(domain.CompactionSwapIntent)
+	run.Candidate = domain.StoreFileIdentity{Device: 1, Inode: 2}
+	j := &faultJournal{run: run}
+	observation := domain.CompactionObservation{Orientation: domain.OrientationCandidateReady, Source: run.SourceIdentity, Candidate: run.Candidate, CandidateExists: true}
+	service := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{observation: observation}, faultLease{})
+	got, err := service.Resume(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase != domain.CompactionCommitted {
+		t.Fatalf("phase=%s", got.Phase)
+	}
+}
+
 func TestStoreCompactionRejectsRunForAnotherDatabaseInSameDirectory(t *testing.T) {
 	run := compactionRunAt(domain.CompactionPlanned)
 	run.SourcePath = "/same-dir/a.db"
@@ -151,5 +166,94 @@ func TestStoreCompactionRejectsRunForAnotherDatabaseInSameDirectory(t *testing.T
 	}
 	if _, err := service.Apply(context.Background(), run.ID); err == nil {
 		t.Fatal("Apply accepted run bound to another database")
+	}
+}
+
+func TestStoreCompactionAfterBoundaryStopsResumeWithNewInstance(t *testing.T) {
+	cases := []struct {
+		name              string
+		phase, failAppend domain.CompactionPhase
+		candidate         bool
+		orientation       domain.CompactionOrientation
+	}{
+		{"copy after", domain.CompactionCopyIntent, domain.CompactionCopyComplete, false, domain.OrientationCandidateReady},
+		{"sync and fsync after", domain.CompactionCandidateSyncIntent, domain.CompactionCandidateSynced, false, domain.OrientationCandidateReady},
+		{"scrub and fence after", domain.CompactionScrubInProgress, domain.CompactionCandidateVerified, false, domain.OrientationCandidateReady},
+		{"swap and directory fsync after", domain.CompactionSwapIntent, domain.CompactionSwapped, true, domain.OrientationSwapped},
+		{"publish after", domain.CompactionRollbackPublishIntent, domain.CompactionRollbackReady, true, domain.OrientationRollbackReady},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			run := compactionRunAt(tc.phase)
+			if tc.candidate {
+				run.Candidate = domain.StoreFileIdentity{Device: 1, Inode: 2}
+			}
+			j := &faultJournal{run: run, failAppendPhase: tc.failAppend}
+			first := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{}, faultLease{})
+			if _, err := first.Apply(context.Background(), run.ID); err == nil {
+				t.Fatal("injected after-boundary stop did not fail")
+			}
+			j.failAppendPhase = ""
+			observation := domain.CompactionObservation{Orientation: tc.orientation, Source: run.SourceIdentity, Candidate: run.Candidate, CandidateExists: tc.orientation == domain.OrientationCandidateReady || tc.orientation == domain.OrientationSwapped, RollbackExists: tc.orientation == domain.OrientationRollbackReady}
+			if tc.orientation == domain.OrientationSwapped {
+				observation.Source = run.Candidate
+				observation.Candidate = run.SourceIdentity
+			}
+			if tc.orientation == domain.OrientationRollbackReady {
+				observation.Source = run.Candidate
+				observation.Rollback = run.SourceIdentity
+			}
+			resumed := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{observation: observation}, faultLease{})
+			got, err := resumed.Resume(context.Background(), run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Phase != domain.CompactionCommitted {
+				t.Fatalf("phase=%s", got.Phase)
+			}
+		})
+	}
+}
+
+func TestStoreCompactionRollbackAfterExchangeStopResumesRolledBack(t *testing.T) {
+	run := compactionRunAt(domain.CompactionCommitted)
+	run.Candidate = domain.StoreFileIdentity{Device: 1, Inode: 2}
+	j := &faultJournal{run: run, failAppendPhase: domain.CompactionRollbackSwapped}
+	ready := domain.CompactionObservation{Orientation: domain.OrientationRollbackReady, Source: run.Candidate, Rollback: run.SourceIdentity, RollbackExists: true}
+	first := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{observation: ready}, faultLease{})
+	if _, err := first.Rollback(context.Background(), run.ID); err == nil {
+		t.Fatal("rollback after-exchange stop did not fail")
+	}
+	j.failAppendPhase = ""
+	rolled := domain.CompactionObservation{Orientation: domain.OrientationRolledBack, Source: run.SourceIdentity, Rollback: run.Candidate, RollbackExists: true}
+	resumed := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{observation: rolled}, faultLease{})
+	got, err := resumed.Resume(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase != domain.CompactionRolledBack {
+		t.Fatalf("phase=%s", got.Phase)
+	}
+}
+
+func TestStoreCompactionRollbackBeforeExchangeFaultKeepsIntentResumable(t *testing.T) {
+	run := compactionRunAt(domain.CompactionCommitted)
+	run.Candidate = domain.StoreFileIdentity{Device: 1, Inode: 2}
+	j := &faultJournal{run: run}
+	ready := domain.CompactionObservation{Orientation: domain.OrientationRollbackReady, Source: run.Candidate, Rollback: run.SourceIdentity, RollbackExists: true}
+	first := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{fail: "exchange", observation: ready}, faultLease{})
+	if _, err := first.Rollback(context.Background(), run.ID); err == nil {
+		t.Fatal("rollback exchange fault unexpectedly succeeded")
+	}
+	if j.run.Phase != domain.CompactionRollbackSwapIntent {
+		t.Fatalf("phase=%s", j.run.Phase)
+	}
+	resumed := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{observation: ready}, faultLease{})
+	got, err := resumed.Resume(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase != domain.CompactionRolledBack {
+		t.Fatalf("phase=%s", got.Phase)
 	}
 }

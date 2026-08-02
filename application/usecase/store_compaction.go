@@ -153,6 +153,12 @@ func (u *storeCompactionUsecase) resumeLeased(ctx context.Context, run domain.Co
 		return run, err
 	}
 	for _, action := range actions {
+		if action == domain.ActionExchange {
+			if err := u.files.Exchange(ctx, run); err != nil {
+				return run, err
+			}
+			continue
+		}
 		if action == domain.ActionRollbackExchange {
 			if err := u.files.Exchange(ctx, run); err != nil {
 				return run, err

@@ -20,6 +20,10 @@ a rollback artifact. A source with `-wal`, `-shm`, or `-journal` sidecars, an
 active search-maintenance transition, insufficient free space, changed file
 identity, or an unsupported atomic-exchange platform fails closed.
 
+The plan reports `lease_capability`. Until a cross-process lease is available,
+this value is `false` and `apply` fails closed; the process-local lease is not
+misreported as protection from another Traceary process.
+
 After interruption, use `resume`; it derives file orientation from identities.
 Use `rollback` to atomically restore the retained original. Never delete the
 external `.traceary-compaction` journal or rollback artifact until the run has

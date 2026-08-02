@@ -151,14 +151,13 @@ func (j *CompactionFileJournal) Load(ctx context.Context, id string) (domain.Com
 			return last, errors.New("compaction journal run id mismatch")
 		}
 		if first {
-			if next.Phase != domain.CompactionPlanned {
-				return last, errors.New("compaction journal must start at planned")
+			if err := validateInitialRun(next); err != nil {
+				return last, fmt.Errorf("invalid initial journal record: %w", err)
 			}
 			first = false
 		} else {
-			advanced, err := last.Advance(next.Phase, next.UpdatedAt)
-			if err != nil || advanced.Phase != next.Phase {
-				return last, errors.New("invalid compaction journal transition")
+			if err := validateRunAppend(last, next); err != nil {
+				return last, fmt.Errorf("invalid compaction journal transition: %w", err)
 			}
 		}
 		last = next
@@ -179,7 +178,7 @@ func validateInitialRun(run domain.CompactionRun) error {
 	if run.SourceIdentity == (domain.StoreFileIdentity{}) {
 		return errors.New("initial source identity is required")
 	}
-	if run.Resources.RequiredBytes == 0 || run.Resources.DestinationBytes == 0 || run.Resources.FilesystemDevice != run.SourceIdentity.Device || !run.Resources.LeaseCapability || !run.Resources.ExchangeCapability {
+	if run.Resources.RequiredBytes == 0 || run.Resources.DestinationBytes == 0 || run.Resources.FilesystemDevice != run.SourceIdentity.Device || !run.Resources.ExchangeCapability {
 		return errors.New("initial resource plan is incomplete")
 	}
 	if run.UpdatedAt.Before(run.CreatedAt) {
@@ -245,7 +244,7 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 	if err != nil {
 		return run, err
 	}
-	required, margin, err := compactionRequiredBytes(id.Size)
+	required, margin, err := compactionRequiredBytes(id.Size, 0)
 	if err != nil {
 		return run, err
 	}
@@ -253,7 +252,8 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 		return run, fmt.Errorf("insufficient free space: need %d bytes, have %d", id.Size, available)
 	}
 	run.SourceIdentity = id
-	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: uint64(id.Size), SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: true, ExchangeCapability: atomicExchangeSupported()}
+	exchangeCapability := probeReplacementCapabilities(filepath.Dir(run.SourcePath)) == nil
+	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: 0, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: false, ExchangeCapability: exchangeCapability}
 	if !run.Resources.ExchangeCapability {
 		return run, errors.New("atomic exchange capability unavailable")
 	}
@@ -263,6 +263,9 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if !run.Resources.LeaseCapability {
+		return errors.New("cross-process store lease capability unavailable; apply fails closed")
 	}
 	current, err := inspectRegularFile(run.SourcePath)
 	if err != nil {
@@ -284,19 +287,61 @@ func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionR
 	return rejectSQLiteSidecars(run.SourcePath)
 }
 
-func compactionRequiredBytes(size int64) (uint64, uint64, error) {
-	if size < 0 {
+func compactionRequiredBytes(destination int64, temporary uint64) (uint64, uint64, error) {
+	if destination < 0 {
 		return 0, 0, errors.New("negative source size")
 	}
-	base := uint64(size)
+	base := uint64(destination)
 	margin := base / 10
 	if margin < 64<<20 {
 		margin = 64 << 20
 	}
-	if ^uint64(0)-base < margin {
+	if ^uint64(0)-base < temporary || ^uint64(0)-(base+temporary) < margin {
 		return 0, 0, errors.New("compaction resource size overflow")
 	}
-	return base + margin, margin, nil
+	return base + temporary + margin, margin, nil
+}
+
+func probeReplacementCapabilities(dir string) (err error) {
+	left, err := os.CreateTemp(dir, ".traceary-exchange-left-")
+	if err != nil {
+		return err
+	}
+	leftPath := left.Name()
+	defer func() { _ = os.Remove(leftPath) }()
+	if err := left.Close(); err != nil {
+		return err
+	}
+	right, err := os.CreateTemp(dir, ".traceary-exchange-right-")
+	if err != nil {
+		return err
+	}
+	rightPath := right.Name()
+	defer func() { _ = os.Remove(rightPath) }()
+	if err := right.Close(); err != nil {
+		return err
+	}
+	if err := atomicExchange(leftPath, rightPath); err != nil {
+		return fmt.Errorf("probe atomic exchange: %w", err)
+	}
+	publish, err := os.CreateTemp(dir, ".traceary-publish-source-")
+	if err != nil {
+		return err
+	}
+	publishPath := publish.Name()
+	defer func() { _ = os.Remove(publishPath) }()
+	if err := publish.Close(); err != nil {
+		return err
+	}
+	target := publishPath + ".target"
+	defer func() { _ = os.Remove(target) }()
+	if err := renameNoReplace(publishPath, target); err != nil {
+		return fmt.Errorf("probe no-replace rename: %w", err)
+	}
+	if err := renameNoReplace(target, publishPath); err != nil {
+		return fmt.Errorf("restore no-replace probe: %w", err)
+	}
+	return syncDirectory(dir)
 }
 
 // FenceCandidate captures the verified candidate identity before swap intent.
@@ -408,6 +453,9 @@ func (StoreReplacementFiles) Observe(_ context.Context, run domain.CompactionRun
 	case source == run.SourceIdentity && !candidateExists && !rollbackExists:
 		obs.Orientation = domain.OrientationSourceOriginal
 	case source == run.SourceIdentity && candidateExists && !rollbackExists:
+		if run.Candidate != (domain.StoreFileIdentity{}) && candidate != run.Candidate {
+			return obs, errors.New("candidate-ready identity conflicts with journal fence")
+		}
 		obs.Orientation = domain.OrientationCandidateReady
 	case run.Candidate != (domain.StoreFileIdentity{}) && source == run.Candidate && candidateExists && candidate == run.SourceIdentity && !rollbackExists:
 		obs.Orientation = domain.OrientationSwapped

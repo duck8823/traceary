@@ -76,15 +76,27 @@ func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "journal")}
-	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
-	run, err := service.Plan(ctx, source)
+	planningJournal := &CompactionFileJournal{Dir: filepath.Join(dir, "planning-journal")}
+	planner := usecase.NewStoreCompactionUsecase(source, planningJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	run, err := planner.Plan(ctx, source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if run.Resources.RequiredBytes == 0 || !run.Resources.ExchangeCapability {
 		t.Fatalf("invalid resource plan: %+v", run.Resources)
 	}
+	if run.Resources.LeaseCapability {
+		t.Fatal("plan overstated unavailable cross-process lease")
+	}
+	if _, err := planner.Apply(ctx, run.ID); err == nil {
+		t.Fatal("production apply did not fail closed without cross-process lease")
+	}
+	run.Resources.LeaseCapability = true
+	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "apply-journal")}
+	if err := journal.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
 	run, err = service.Apply(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
