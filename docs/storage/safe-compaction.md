@@ -26,7 +26,9 @@ SQLite connection holds a shared advisory lock on the stable adjacent
 exclusive form from before journal/orientation inspection through completion,
 including across the database inode exchange. Acquisition honors cancellation
 and process termination releases the OS lock. The lock file remains on disk by
-design. Unsupported platforms and failed capability probes report `false` and
+design. Existing database and parent-directory symlinks resolve to the same
+lease namespace; hard-linked database files are rejected because aliases cannot
+be fenced safely. Unsupported platforms and failed capability probes report `false` and
 fail closed. Operators must still stop older or non-cooperating processes.
 
 After interruption, use `resume`; it derives file orientation from identities.

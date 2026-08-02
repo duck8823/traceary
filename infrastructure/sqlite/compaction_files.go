@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/duck8823/traceary/domain"
 )
@@ -249,6 +248,9 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 	if err := rejectSQLiteSidecars(run.SourcePath); err != nil {
 		return run, err
 	}
+	if err := validateStoreLinkIdentity(run.SourcePath); err != nil {
+		return run, err
+	}
 	id, err := inspectRegularFile(run.SourcePath)
 	if err != nil {
 		return run, err
@@ -283,6 +285,9 @@ func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionR
 	}
 	if !run.Resources.LeaseCapability {
 		return errors.New("cross-process store lease capability unavailable; apply fails closed")
+	}
+	if err := validateStoreLinkIdentity(run.SourcePath); err != nil {
+		return err
 	}
 	current, err := inspectRegularFile(run.SourcePath)
 	if err != nil {
@@ -616,11 +621,7 @@ func inspectRegularFile(path string) (domain.StoreFileIdentity, error) {
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return domain.StoreFileIdentity{}, fmt.Errorf("refuse non-regular or symlink path: %s", path)
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return domain.StoreFileIdentity{}, errors.New("file identity unsupported")
-	}
-	return domain.StoreFileIdentity{Device: uint64(stat.Dev), Inode: uint64(stat.Ino), Size: info.Size(), ModUnix: info.ModTime().UnixNano()}, nil
+	return platformStoreFileIdentity(info)
 }
 
 func rejectSQLiteSidecars(path string) error {

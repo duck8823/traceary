@@ -72,6 +72,65 @@ func TestStoreLeaseMultiprocessContentionAndCrashRelease(t *testing.T) {
 	release()
 }
 
+func TestStoreLeaseMultiprocessSymlinkAliasSharesNamespace(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("advisory lease unsupported")
+	}
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+	realPath := filepath.Join(realDir, "store.db")
+	aliasPath := filepath.Join(aliasDir, "store.db")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreLeaseHelperProcess$")
+	cmd.Env = append(os.Environ(), "TRACEARY_STORE_LEASE_HELPER=1", "TRACEARY_STORE_LEASE_PATH="+aliasPath)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stdin.Close(); _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		if scanner.Text() == "ready" {
+			break
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, realPath); err == nil {
+		t.Fatal("real path exclusive bypassed symlink alias shared lease")
+	}
+}
+
+func TestCoordinatedDatabaseRejectsHardLinkAlias(t *testing.T) {
+	dir := t.TempDir()
+	realPath := filepath.Join(dir, "store.db")
+	aliasPath := filepath.Join(dir, "alias.db")
+	if err := os.WriteFile(realPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(realPath, aliasPath); err != nil {
+		t.Fatal(err)
+	}
+	db := openCoordinatedDB(aliasPath, sqliteDSN(aliasPath))
+	defer func() { _ = db.Close() }()
+	if _, err := db.Conn(context.Background()); err == nil {
+		t.Fatal("normal SQLite connection accepted hard-linked store")
+	}
+}
+
 func TestStoreLeaseHelperProcess(t *testing.T) {
 	if os.Getenv("TRACEARY_STORE_LEASE_HELPER") != "1" {
 		t.Skip("helper only")

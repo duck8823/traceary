@@ -18,7 +18,9 @@ SQLite connectionが、隣接するstableな `<database>.traceary.lock` にshare
 advisory lockを保持します。`apply`、`resume`、`rollback` はjournalや向きの
 観測前から完了までexclusive lockを保持し、database inodeのexchange後も
 排他を継続します。取得はcontext cancellationに従い、プロセス終了時はOSが
-lockを解放します。lock file自体は意図的に残します。非対応platformまたは
+lockを解放します。lock file自体は意図的に残します。既存databaseと親directoryの
+symlinkは同じlease namespaceへ解決し、安全にfenceできないhardlink databaseは
+拒否します。非対応platformまたは
 probe失敗時は `false` としてfail closedします。旧版や非協調processは引き続き
 事前停止が必要です。
 

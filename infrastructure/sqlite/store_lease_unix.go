@@ -15,6 +15,23 @@ type advisoryLease interface{ Close() error }
 
 type unixAdvisoryLease struct{ file *os.File }
 
+func validateStoreLinkIdentity(path string) error {
+	var stat syscall.Stat_t
+	if err := syscall.Stat(path, &stat); err != nil {
+		if errors.Is(err, syscall.ENOENT) {
+			return nil
+		}
+		return fmt.Errorf("inspect store link identity: %w", err)
+	}
+	if stat.Mode&syscall.S_IFMT != syscall.S_IFREG {
+		return errors.New("SQLite store is not a regular file")
+	}
+	if stat.Nlink > 1 {
+		return errors.New("SQLite store has multiple hard links")
+	}
+	return nil
+}
+
 func acquireAdvisoryLease(ctx context.Context, path string, exclusive bool) (advisoryLease, error) {
 	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
