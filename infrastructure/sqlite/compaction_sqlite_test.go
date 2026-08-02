@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain"
 )
@@ -427,6 +428,86 @@ func TestStoreCompactionApplyRejectsSameContentReplacementAfterVerification(t *t
 	if observed.SameInode(loaded.PreparedCandidateIdentity) {
 		t.Fatal("test did not replace the prepared inode")
 	}
+}
+
+func TestStoreCompactionExclusiveBoundaryRejectsLateHardLinkBeforeObservation(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		phase domain.CompactionPhase
+		call  func(application.StoreCompactionUsecase, context.Context, string) (domain.CompactionRun, error)
+	}{
+		{name: "resume swap intent", phase: domain.CompactionSwapIntent, call: func(u application.StoreCompactionUsecase, ctx context.Context, id string) (domain.CompactionRun, error) {
+			return u.Resume(ctx, id)
+		}},
+		{name: "rollback committed", phase: domain.CompactionCommitted, call: func(u application.StoreCompactionUsecase, ctx context.Context, id string) (domain.CompactionRun, error) {
+			return u.Rollback(ctx, id)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			root := t.TempDir()
+			realDir := filepath.Join(root, "real")
+			if err := os.Mkdir(realDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			aliasDir := filepath.Join(root, "alias")
+			if err := os.Symlink(realDir, aliasDir); err != nil {
+				t.Fatal(err)
+			}
+			source := filepath.Join(aliasDir, "store.db")
+			candidate := source + ".candidate"
+			rollback := source + ".rollback"
+			for path, body := range map[string]string{source: "source", candidate: "candidate", rollback: "rollback"} {
+				if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			run := domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", SourcePath: source, CandidatePath: candidate, RollbackPath: rollback, Phase: tc.phase}
+			journal := &observationTrackingJournal{run: run}
+			service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+			hardlink := filepath.Join(realDir, "late-hardlink.db")
+			if err := os.Link(filepath.Join(realDir, "store.db"), hardlink); err != nil {
+				t.Fatal(err)
+			}
+			beforeCandidate, _ := os.ReadFile(candidate)
+			beforeRollback, _ := os.ReadFile(rollback)
+			if _, err := tc.call(service, ctx, run.ID); err == nil {
+				t.Fatal("operation accepted late hard link")
+			}
+			if journal.loads != 0 || journal.appends != 0 {
+				t.Fatal("journal was observed or advanced before exclusive fence")
+			}
+			afterCandidate, _ := os.ReadFile(candidate)
+			afterRollback, _ := os.ReadFile(rollback)
+			if string(afterCandidate) != string(beforeCandidate) || string(afterRollback) != string(beforeRollback) {
+				t.Fatal("compaction artifacts changed")
+			}
+			if err := os.Remove(hardlink); err != nil {
+				t.Fatal(err)
+			}
+			release, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, source)
+			if err != nil {
+				t.Fatalf("failed acquisition retained OS lease: %v", err)
+			}
+			release()
+		})
+	}
+}
+
+type observationTrackingJournal struct {
+	run            domain.CompactionRun
+	loads, appends int
+}
+
+func (j *observationTrackingJournal) Create(context.Context, domain.CompactionRun) error { return nil }
+func (j *observationTrackingJournal) Load(context.Context, string) (domain.CompactionRun, error) {
+	j.loads++
+	return j.run, nil
+}
+func (j *observationTrackingJournal) Append(_ context.Context, run domain.CompactionRun) error {
+	j.appends++
+	j.run = run
+	return nil
 }
 
 type replacingAfterVerifyBuilder struct{ SQLiteCompactionBuilder }

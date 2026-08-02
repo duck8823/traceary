@@ -11,32 +11,45 @@ import (
 
 const storeLeaseSuffix = ".traceary.lock"
 
-func canonicalLeasePath(path string) (string, error) {
+func canonicalStorePath(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
 	resolved, err := filepath.EvalSymlinks(absolute)
 	if err == nil {
-		return resolved + storeLeaseSuffix, nil
+		return resolved, nil
 	}
 	resolvedParent, parentErr := filepath.EvalSymlinks(filepath.Dir(absolute))
 	if parentErr != nil {
 		return "", parentErr
 	}
-	return filepath.Join(resolvedParent, filepath.Base(absolute)) + storeLeaseSuffix, nil
+	return filepath.Join(resolvedParent, filepath.Base(absolute)), nil
+}
+
+func canonicalLeasePath(path string) (string, error) {
+	canonical, err := canonicalStorePath(path)
+	if err != nil {
+		return "", err
+	}
+	return canonical + storeLeaseSuffix, nil
 }
 
 // StoreLeaseCoordinator gives maintenance exclusive access across processes.
 type StoreLeaseCoordinator struct{}
 
 func (StoreLeaseCoordinator) AcquireExclusive(ctx context.Context, path string) (func(), error) {
-	lockPath, err := canonicalLeasePath(path)
+	canonical, err := canonicalStorePath(path)
 	if err != nil {
 		return nil, err
 	}
+	lockPath := canonical + storeLeaseSuffix
 	lease, err := acquireAdvisoryLease(ctx, lockPath, true)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateStoreLinkIdentity(canonical); err != nil {
+		_ = lease.Close()
 		return nil, err
 	}
 	var once sync.Once
