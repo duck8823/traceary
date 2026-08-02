@@ -76,38 +76,6 @@ func (d *EventDatasource) SearchPage(
 	return d.searchFullByPersistedAuthority(ctx, criteria)
 }
 
-func (d *EventDatasource) searchLegacyPageAware(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
-	db, tx, err := d.beginEventProjectionRead(ctx, "full event page search")
-	if err != nil {
-		return nil, err
-	}
-	defer closeEventProjectionRead(db, tx)
-
-	searchSchemaAvailable, err := eventSearchSchemaAvailable(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
-	var candidateIDs []string
-	if searchSchemaAvailable {
-		candidateIDs, err = selectEventSearchCandidateIDs(ctx, tx, criteria)
-	} else {
-		candidateIDs, err = queryLegacyEventIDs(ctx, tx, criteria, criteria.Query())
-	}
-	if err != nil {
-		return nil, err
-	}
-	events, err := hydrateEventSearchCandidates(ctx, tx, candidateIDs)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("failed to finish full event page search: %w", err)
-	}
-	return events, nil
-}
-
-// GetContextPage selects context membership and hydrates full events inside one
-// SQLite read snapshot.
 func (d *EventDatasource) GetContextPage(
 	ctx context.Context,
 	criteria apptypes.EventContextCriteria,

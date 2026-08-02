@@ -76,19 +76,6 @@ func (d *EventDatasource) searchMetadataByPersistedAuthorityTx(ctx context.Conte
 	}
 }
 
-func (d *EventDatasource) readSearchAuthority(ctx context.Context) (string, error) {
-	db, err := d.db.openReadOnly(ctx)
-	if err != nil {
-		return "", xerrors.Errorf("open persisted search authority: %w", err)
-	}
-	defer d.db.release(db)
-	var authority string
-	if err = db.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
-		return "", xerrors.Errorf("read explicit persisted search authority: %w", err)
-	}
-	return authority, nil
-}
-
 func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	db, tx, err := d.beginEventProjectionRead(ctx, "full persisted search")
 	if err != nil {
@@ -100,7 +87,8 @@ func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, cr
 		return nil, xerrors.Errorf("read explicit persisted search authority: %w", err)
 	}
 	var events []*model.Event
-	if authority == "legacy" {
+	switch authority {
+	case "legacy":
 		available, schemaErr := eventSearchSchemaAvailable(ctx, tx)
 		if schemaErr != nil {
 			return nil, schemaErr
@@ -114,13 +102,13 @@ func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, cr
 		if err == nil {
 			events, err = hydrateEventSearchCandidates(ctx, tx, ids)
 		}
-	} else if authority == "tiered" {
+	case "tiered":
 		var metadata []apptypes.EventMetadata
 		metadata, err = d.searchTieredMetadataTx(ctx, tx, criteria)
 		if err == nil {
 			events, err = hydrateFullEventMetadata(ctx, tx, metadata)
 		}
-	} else {
+	default:
 		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
 	}
 	if err != nil {
@@ -130,22 +118,6 @@ func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, cr
 		return nil, xerrors.Errorf("finish full persisted search: %w", err)
 	}
 	return events, nil
-}
-
-func (d *EventDatasource) searchTieredMetadata(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	db, tx, err := d.beginEventProjectionRead(ctx, "tiered search metadata")
-	if err != nil {
-		return nil, err
-	}
-	defer closeEventProjectionRead(db, tx)
-	metadata, err := d.searchTieredMetadataTx(ctx, tx, criteria)
-	if err != nil {
-		return nil, err
-	}
-	if err = tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("finish tiered search metadata: %w", err)
-	}
-	return metadata, nil
 }
 
 func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
@@ -226,20 +198,4 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 		end = len(ordered)
 	}
 	return append([]apptypes.EventMetadata(nil), ordered[start:end]...), nil
-}
-
-func hydrateFullSearchMetadata(ctx context.Context, d *EventDatasource, metadata []apptypes.EventMetadata) ([]*model.Event, error) {
-	db, tx, err := d.beginEventProjectionRead(ctx, "full tiered search hydration")
-	if err != nil {
-		return nil, err
-	}
-	defer closeEventProjectionRead(db, tx)
-	events, err := hydrateFullEventMetadata(ctx, tx, metadata)
-	if err != nil {
-		return nil, err
-	}
-	if err = tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("finish full tiered search hydration: %w", err)
-	}
-	return events, nil
 }
