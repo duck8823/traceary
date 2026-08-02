@@ -61,17 +61,8 @@ func (d *EventDatasource) SearchPage(
 	ctx context.Context,
 	criteria apptypes.EventSearchCriteria,
 ) ([]*model.Event, error) {
-	if criteria.Limit() <= 0 {
-		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
-	}
-	if criteria.Offset() < 0 {
-		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
-	}
-	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
-		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
-	}
-	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
-		return nil, xerrors.Errorf("from must be earlier than to")
+	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
+		return nil, err
 	}
 	return d.searchFullByPersistedAuthority(ctx, criteria)
 }

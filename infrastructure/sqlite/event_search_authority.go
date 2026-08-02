@@ -163,6 +163,9 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 // offset+limit matches need to be retained; broad queries do not become
 // unavailable merely because more than MaxLiteralSearchLimit rows match.
 func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria, generation string, highWater int64) ([]apptypes.EventMetadata, error) {
+	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
+		return nil, err
+	}
 	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
 	var builder strings.Builder
 	builder.WriteString(`SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0) FROM search_projection_source_sequence q JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence<=?`)
