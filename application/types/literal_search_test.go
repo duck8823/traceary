@@ -1,0 +1,76 @@
+package types_test
+
+import (
+	"testing"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+)
+
+func TestLiteralQueryCharacterizationAndFingerprints(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, query string
+		filterable  bool
+	}{
+		{"unicode", "障害/経路", true},
+		{"case", "Not Found", true},
+		{"path", "/Users/a/src", true},
+		{"identifier", "evt_01JABC", true},
+		{"error fragment", "EOF: reset", true},
+		{"short", "ßx", false},
+		{"empty", "  ", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := apptypes.CharacterizeLiteralQuery(tc.query)
+			if got.Filterable() != tc.filterable {
+				t.Fatalf("Filterable() = %v, want %v", got.Filterable(), tc.filterable)
+			}
+			if tc.filterable && len(got.Fingerprints()) == 0 {
+				t.Fatal("Fingerprints() is empty")
+			}
+		})
+	}
+}
+
+func TestLiteralFingerprintsAreDeterministicFixedSizeAndMatchCaseInsensitively(t *testing.T) {
+	t.Parallel()
+	query := apptypes.CharacterizeLiteralQuery("ERR/Path-01")
+	body := apptypes.CharacterizeLiteralQuery("prefix err/path-01 suffix")
+	if !body.Contains(query) {
+		t.Fatal("Contains() = false, want true")
+	}
+	first, second := query.Fingerprints(), apptypes.CharacterizeLiteralQuery("err/path-01").Fingerprints()
+	if len(first) != len(second) {
+		t.Fatalf("fingerprint lengths = %d/%d", len(first), len(second))
+	}
+	for i := range first {
+		if first[i] != second[i] {
+			t.Fatalf("fingerprint[%d] differs", i)
+		}
+		if len(first[i]) != apptypes.LiteralFingerprintBytes {
+			t.Fatalf("fingerprint bytes = %d", len(first[i]))
+		}
+	}
+}
+
+func TestLiteralSearchCursorBindsCriteriaAndProjection(t *testing.T) {
+	t.Parallel()
+	cursor := apptypes.LiteralSearchCursor{Version: 1, LastSequence: 42, CriteriaHash: "criteria", Generation: "g1", HighWater: 90, QueryRevision: 3}
+	encoded, err := cursor.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := apptypes.DecodeLiteralSearchCursor(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded != cursor {
+		t.Fatalf("decoded = %+v, want %+v", decoded, cursor)
+	}
+	if err := decoded.Validate("criteria", "g1", 90, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoded.Validate("changed", "g1", 90, 3); err == nil {
+		t.Fatal("Validate() error = nil")
+	}
+}

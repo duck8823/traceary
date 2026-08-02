@@ -83,3 +83,10 @@ type EventBoundedQueryService interface {
 	// canonical envelopes whose visible body was not response-truncated.
 	LoadCanonicalBodies(ctx context.Context, eventIDs []types.EventID) (map[types.EventID]string, error)
 }
+
+// TieredEventSearchQuery is additive while the legacy Search methods remain
+// authoritative. It returns honest bounded coverage rather than overloading a
+// slice API with flags whose empty result could be mistaken for completeness.
+type TieredEventSearchQuery interface {
+	SearchLiteralPage(ctx context.Context, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error)
+}
