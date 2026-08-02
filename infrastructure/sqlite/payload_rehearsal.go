@@ -448,21 +448,16 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 		}
 	}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &peakWAL); err != nil {
-		_ = db.Close()
-		if a.beforeMigrationRecovery != nil {
+		if !resume && a.beforeMigrationRecovery != nil {
 			a.beforeMigrationRecovery()
 		}
-		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
-			return nil, apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: false}, xerrors.Errorf("migration WAL cap exceeded and rollback failed: %w", recoveryErr)
-		}
-		return nil, apptypes.PayloadRehearsalMetrics{PeakWALBytes: peakWAL, RollbackDigest: backupDigest, RollbackVerified: true}, err
+		metrics, recoveryErr := recoverMutatedTarget(err)
+		metrics.PeakWALBytes = peakWAL
+		return nil, metrics, recoveryErr
 	}
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
-		_ = db.Close()
-		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
-			return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("post-migration compatibility failed and rollback failed: %w", recoveryErr)
-		}
-		return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, err
+		metrics, recoveryErr := recoverMutatedTarget(err)
+		return nil, metrics, recoveryErr
 	}
 	rehearsalSchemaSHA, err := rehearsalSchemaFingerprint(ctx, db)
 	if err != nil {

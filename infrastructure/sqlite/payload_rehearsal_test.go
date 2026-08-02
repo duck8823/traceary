@@ -59,6 +59,64 @@ func TestPayloadRehearsalDeterministicStopResumeScrubRollback(t *testing.T) {
 	if stopped.State != "paused" || stopped.BatchCount != 1 || !stopped.MorePending {
 		t.Fatalf("stop result=%+v", stopped)
 	}
+	compatDB, err := sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = compatDB.Exec(`UPDATE store_format_state SET minimum_reader_version=999`); err != nil {
+		t.Fatal(err)
+	}
+	_ = compatDB.Close()
+	if _, err = u.Resume(ctx, config); err == nil {
+		t.Fatal("resume unexpectedly accepted incompatible paused target")
+	}
+	compatDB, err = sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compatibilityPausedState string
+	var compatibilityPausedRows int
+	if err = compatDB.QueryRow(`SELECT state,(SELECT count(*) FROM payload_rehearsal_rows) FROM payload_rehearsal_runs`).Scan(&compatibilityPausedState, &compatibilityPausedRows); err != nil {
+		t.Fatal(err)
+	}
+	if compatibilityPausedState != "paused" || compatibilityPausedRows == 0 {
+		t.Fatalf("compatibility failure erased paused overlay state=%q rows=%d", compatibilityPausedState, compatibilityPausedRows)
+	}
+	if _, err = compatDB.Exec(`UPDATE store_format_state SET minimum_reader_version=34`); err != nil {
+		t.Fatal(err)
+	}
+	_ = compatDB.Close()
+	if walInfo, walErr := os.Stat(target + "-wal"); walErr == nil {
+		pageDB, openErr := sql.Open("sqlite", target)
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		var pageSize int64
+		if err = pageDB.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+			t.Fatal(err)
+		}
+		_ = pageDB.Close()
+		minimumFrame := int64(32 + 24 + pageSize)
+		if walInfo.Size() > minimumFrame {
+			oversized := config
+			oversized.MaxWALBytes = walInfo.Size() - 1
+			if _, err = u.Resume(ctx, oversized); err == nil {
+				t.Fatal("resume unexpectedly accepted oversized paused WAL")
+			}
+			checkDB, openCheckErr := sql.Open("sqlite", target)
+			if openCheckErr != nil {
+				t.Fatal(openCheckErr)
+			}
+			var state string
+			if err = checkDB.QueryRow(`SELECT state FROM payload_rehearsal_runs`).Scan(&state); err != nil {
+				t.Fatal(err)
+			}
+			_ = checkDB.Close()
+			if state != "paused" {
+				t.Fatalf("oversized WAL failure erased paused state=%q", state)
+			}
+		}
+	}
 	modeDB, err := sql.Open("sqlite", target)
 	if err != nil {
 		t.Fatal(err)
