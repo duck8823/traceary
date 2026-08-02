@@ -413,7 +413,8 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if migrationPlan.pending {
 		pageBytes := minimumWAL - 32
 		if migrationPlan.walBytes < minimumWAL {
-			return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("pending migration WAL is smaller than one frame")
+			metrics, recoveryErr := recoverMutatedTarget(errors.New("pending migration WAL is smaller than one frame"))
+			return nil, metrics, recoveryErr
 		}
 		reservedFrames := max(int64(1), (migrationPlan.walBytes-32+pageBytes-1)/pageBytes)
 		migrationSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: preMigrationIdentity.schema, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &peakWAL, lockLimit: c.LockTimeLimit}
