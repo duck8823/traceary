@@ -11,7 +11,7 @@
 ### Conceptual model
 | Concept | State | Behavior | Constraint / Invariant |
 |---|---|---|---|
-| Growth evidence | DB/payload/projection/reclaimable/filesystem-free/latency | independent signalsを評価 | aggregate metadata only |
+| Growth evidence | DB/event-payload/projection/reclaimable/filesystem-free/latency | independent signalsを評価 | event payloadはevent_metadata_projection aggregate。audit payloadは含むと主張しない |
 | Growth warning | pass/warn/unavailable | preview-first hintを生成 | mutationしない |
 | Safe maintenance | copy→preflight→scrub→compact→swap→rollback | operator guidance | in-place VACUUM禁止 |
 
@@ -54,6 +54,9 @@
 - rollback trigger: doctor latency/lock regression、またはwarning誤検知が通常運用を阻害。
 - 分割案: evaluator+tests、CLI wiring、bilingual docs。1 issue内のcoherent changeとして1 PRに統合。
 - design checkpoint: metadata-only aggregate以外を読まず、mutation commandを自動実行しないことを実装前条件とする。
+- large-store checkpoint: 2 GiB以上の既定doctorはcapacity inspectorより先に分岐し、SQLite openを0回にする。詳細signalはreview済みcopyで取得する。
+- latency definition: capacity inspectorのopen開始からPRAGMA/dbstat/event-payload aggregate完了まで。warning 1.5s、hard timeout 2s。
+- free-space model: availabilityとvalueを分離し、取得成功時の0/1/threshold以下はwarning、unsupported/errorだけunknownとする。DB×2はsaturating計算する。
 
 ### Self-review checklist
 - [x] 固定DB sizeだけでseverityを決めない

@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +29,13 @@ type doctorReport struct {
 	Summary  doctorSummary   `json:"summary"`
 	ExitCode int             `json:"exit_code"`
 	Fixes    []doctorFixLog  `json:"fixes"`
+}
+
+type panicCapacityInspector struct{ calls int }
+
+func (p *panicCapacityInspector) InspectCapacity(context.Context) (apptypes.CapacityReport, error) {
+	p.calls++
+	panic("capacity inspector must not run for large store")
 }
 
 type doctorSection struct {
@@ -525,9 +533,11 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 
 	store := &storeManagementUsecaseStub{}
 	events := &eventUsecaseStub{}
+	capacity := &panicCapacityInspector{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(store),
 		cli.WithEvent(events),
+		cli.WithCapacityInspector(capacity),
 	).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -551,6 +561,9 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	}
 	if events.listCalls != 0 {
 		t.Fatalf("large-store doctor listed %d events, want no event/payload reads", events.listCalls)
+	}
+	if capacity.calls != 0 {
+		t.Fatalf("large-store capacity calls=%d, want zero", capacity.calls)
 	}
 	check := statusByName(report, "large-store-diagnostics")
 	if check.Status != "warn" || !strings.Contains(check.Message, "were not read") {

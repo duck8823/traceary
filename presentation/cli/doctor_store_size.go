@@ -14,17 +14,23 @@ import (
 const storeSizeWarnBytes int64 = 1 << 30 // 1 GiB
 
 const (
-	payloadGrowthWarnBytes    = int64(512 << 20)
-	projectionGrowthWarnBytes = int64(256 << 20)
-	doctorGrowthLatencyWarn   = 2 * time.Second
+	payloadGrowthWarnBytes     = int64(512 << 20)
+	projectionGrowthWarnBytes  = int64(256 << 20)
+	doctorGrowthLatencyWarn    = 1500 * time.Millisecond
+	doctorGrowthInspectTimeout = 2 * time.Second
 )
 
 type storeGrowthEvidence struct {
-	DatabaseBytes, PayloadBytes, ProjectionBytes, ReclaimableBytes, FilesystemFreeBytes int64
-	MeasuredLatency                                                                     time.Duration
+	DatabaseBytes, EventPayloadBytes, ProjectionBytes, ReclaimableBytes, FilesystemFreeBytes int64
+	FilesystemFreeAvailable                                                                  bool
+	MeasuredLatency                                                                          time.Duration
 }
 
 func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string) doctorCheck {
+	return c.inspectStoreGrowthBudgetWithClock(ctx, dbPath, time.Now)
+}
+
+func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath string, now func() time.Time) doctorCheck {
 	info, err := os.Stat(dbPath)
 	if err != nil {
 		return inspectStoreSizeBudget(dbPath)
@@ -32,11 +38,11 @@ func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string) d
 	if c.capacityInspector == nil {
 		return unknownStoreGrowthCheck(info.Size(), dbPath, "capacity inspector unavailable")
 	}
-	inspectCtx, cancel := context.WithTimeout(ctx, doctorGrowthLatencyWarn)
+	inspectCtx, cancel := context.WithTimeout(ctx, doctorGrowthInspectTimeout)
 	defer cancel()
-	started := time.Now()
+	started := now()
 	report, err := c.capacityInspector.InspectCapacity(inspectCtx)
-	latency := time.Since(started)
+	latency := now().Sub(started)
 	if err != nil {
 		return unknownStoreGrowthCheck(info.Size(), dbPath, "bounded capacity signals unavailable or timed out")
 	}
@@ -45,7 +51,7 @@ func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string) d
 		evidence.DatabaseBytes = info.Size()
 	}
 	for _, payload := range report.PayloadClasses {
-		evidence.PayloadBytes += payload.Bytes
+		evidence.EventPayloadBytes += payload.Bytes
 	}
 	for _, object := range report.Objects {
 		name := strings.ToLower(object.Name)
@@ -55,6 +61,7 @@ func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string) d
 	}
 	if free, freeErr := inspectDoctorDiskFree(dbPath); freeErr == nil {
 		evidence.FilesystemFreeBytes = free
+		evidence.FilesystemFreeAvailable = true
 	}
 	check := evaluateStoreGrowthBudget(evidence)
 	check.FixCommand = "traceary store compact plan --db-path " + shellQuote(dbPath)
@@ -67,28 +74,41 @@ func unknownStoreGrowthCheck(size int64, dbPath, reason string) doctorCheck {
 
 func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
 	reasons := make([]string, 0, 5)
-	if e.DatabaseBytes >= storeSizeWarnBytes {
-		reasons = append(reasons, "database")
-	}
-	if e.PayloadBytes >= payloadGrowthWarnBytes {
-		reasons = append(reasons, "payload")
+	if e.EventPayloadBytes >= payloadGrowthWarnBytes {
+		reasons = append(reasons, "event_payload")
 	}
 	if e.ProjectionBytes >= projectionGrowthWarnBytes {
 		reasons = append(reasons, "projection")
 	}
-	if e.ReclaimableBytes >= 256<<20 && e.ReclaimableBytes*10 >= e.DatabaseBytes {
+	if e.ReclaimableBytes >= 256<<20 && ratioAtLeast(e.ReclaimableBytes, e.DatabaseBytes, 10) {
 		reasons = append(reasons, "reclaimable")
 	}
-	if e.FilesystemFreeBytes > 0 && e.FilesystemFreeBytes < maxInt64(1<<30, e.DatabaseBytes*2) {
+	if !e.FilesystemFreeAvailable {
+		reasons = append(reasons, "headroom_unknown")
+	} else if e.FilesystemFreeBytes <= compactionHeadroomThreshold(e.DatabaseBytes) {
 		reasons = append(reasons, "headroom")
 	}
 	if e.MeasuredLatency >= doctorGrowthLatencyWarn {
 		reasons = append(reasons, "latency")
 	}
 	if len(reasons) == 0 {
-		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s payload=%s projection=%s free=%s latency=%s", "store growth signal は予算内です: database=%s payload=%s projection=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.PayloadBytes), formatByteSize(e.ProjectionBytes), formatByteSize(e.FilesystemFreeBytes), e.MeasuredLatency.Round(time.Millisecond))}
+		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s event_payload=%s projection=%s free=%s latency=%s", "store growth signal は予算内です: database=%s event_payload=%s projection=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatByteSize(e.FilesystemFreeBytes), e.MeasuredLatency.Round(time.Millisecond))}
 	}
-	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.PayloadBytes), formatByteSize(e.ProjectionBytes), formatByteSize(e.FilesystemFreeBytes), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("preview safe compaction first, then follow the reviewed copy/preflight/scrub/compact/swap workflow; retain rollback artifacts until verification succeeds", "まずsafe compactionをpreviewし、その後review済みのcopy/preflight/scrub/compact/swap手順を実行してください。検証成功までrollback artifactを保持してください"), FixCommand: "traceary store compact plan"}
+	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatByteSize(e.FilesystemFreeBytes), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("preview safe compaction first, then follow the reviewed copy/preflight/scrub/compact/swap workflow; retain rollback artifacts until verification succeeds", "まずsafe compactionをpreviewし、その後review済みのcopy/preflight/scrub/compact/swap手順を実行してください。検証成功までrollback artifactを保持してください"), FixCommand: "traceary store compact plan"}
+}
+
+func compactionHeadroomThreshold(databaseBytes int64) int64 {
+	if databaseBytes > (int64(^uint64(0)>>1))/2 {
+		return int64(^uint64(0) >> 1)
+	}
+	return maxInt64(1<<30, databaseBytes*2)
+}
+
+func ratioAtLeast(part, total, denominator int64) bool {
+	if part <= 0 || total <= 0 || denominator <= 0 {
+		return false
+	}
+	return part >= (total+denominator-1)/denominator
 }
 
 func maxInt64(a, b int64) int64 {

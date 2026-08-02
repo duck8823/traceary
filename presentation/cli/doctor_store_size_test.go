@@ -1,17 +1,40 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 func TestInspectStoreSizeBudget_MissingFilePasses(t *testing.T) {
 	check := inspectStoreSizeBudget(filepath.Join(t.TempDir(), "missing.db"))
 	if check.Status != doctorStatusPass {
 		t.Fatalf("check = %#v", check)
+	}
+}
+
+type growthCapacityStub struct{ report apptypes.CapacityReport }
+
+func (s growthCapacityStub) InspectCapacity(context.Context) (apptypes.CapacityReport, error) {
+	return s.report, nil
+}
+
+func TestInspectStoreGrowthBudgetMeasuresCompletedInspectionLatency(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := &RootCLI{capacityInspector: growthCapacityStub{report: apptypes.CapacityReport{DatabaseBytes: 128 << 20}}}
+	times := []time.Time{time.Unix(0, 0), time.Unix(0, 0).Add(1600 * time.Millisecond)}
+	index := 0
+	check := root.inspectStoreGrowthBudgetWithClock(context.Background(), path, func() time.Time { value := times[index]; index++; return value })
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "latency") {
+		t.Fatalf("check=%#v", check)
 	}
 }
 
@@ -67,12 +90,12 @@ func TestFormatByteSize(t *testing.T) {
 }
 
 func TestEvaluateStoreGrowthBudgetUsesIndependentSignals(t *testing.T) {
-	base := storeGrowthEvidence{DatabaseBytes: 256 << 20, PayloadBytes: 64 << 20, ProjectionBytes: 32 << 20, FilesystemFreeBytes: 4 << 30, MeasuredLatency: 100 * time.Millisecond}
+	base := storeGrowthEvidence{DatabaseBytes: 256 << 20, EventPayloadBytes: 64 << 20, ProjectionBytes: 32 << 20, FilesystemFreeBytes: 4 << 30, FilesystemFreeAvailable: true, MeasuredLatency: 100 * time.Millisecond}
 	for _, tc := range []struct {
 		name   string
 		mutate func(*storeGrowthEvidence)
 	}{
-		{"payload", func(e *storeGrowthEvidence) { e.PayloadBytes = 512 << 20 }},
+		{"event payload", func(e *storeGrowthEvidence) { e.EventPayloadBytes = 512 << 20 }},
 		{"projection", func(e *storeGrowthEvidence) { e.ProjectionBytes = 256 << 20 }},
 		{"headroom", func(e *storeGrowthEvidence) { e.FilesystemFreeBytes = e.DatabaseBytes }},
 		{"latency", func(e *storeGrowthEvidence) { e.MeasuredLatency = 2 * time.Second }},
@@ -91,5 +114,21 @@ func TestEvaluateStoreGrowthBudgetUsesIndependentSignals(t *testing.T) {
 	}
 	if check := evaluateStoreGrowthBudget(base); check.Status != doctorStatusPass {
 		t.Fatalf("healthy=%#v", check)
+	}
+}
+
+func TestStoreGrowthHeadroomAvailabilityAndOverflow(t *testing.T) {
+	threshold := compactionHeadroomThreshold(512 << 20)
+	for _, free := range []int64{0, 1, threshold - 1, threshold} {
+		check := evaluateStoreGrowthBudget(storeGrowthEvidence{DatabaseBytes: 512 << 20, FilesystemFreeBytes: free, FilesystemFreeAvailable: true})
+		if check.Status != doctorStatusWarn {
+			t.Fatalf("free=%d check=%#v", free, check)
+		}
+	}
+	if check := evaluateStoreGrowthBudget(storeGrowthEvidence{DatabaseBytes: 512 << 20, FilesystemFreeAvailable: false}); check.Status != doctorStatusWarn {
+		t.Fatalf("unavailable=%#v", check)
+	}
+	if got := compactionHeadroomThreshold(int64(^uint64(0) >> 1)); got != int64(^uint64(0)>>1) {
+		t.Fatalf("overflow threshold=%d", got)
 	}
 }
