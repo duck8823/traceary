@@ -39,3 +39,19 @@ fixture は canonical production migration と query source を使います。`-
 各 case は `--case-timeout`（default `2m`、minimum `1ms`）で制限します。plan は timed execution より先に取得するため、timeout でも sanitized `query_plan`、`timeout_ms`、right-censored `elapsed_lower_bound_us` を出力します。未完走の p50/p95 は捏造しません。case が1件でもtimeoutならreportもtimeoutです。診断証跡としては有効ですが、release performance targetを満たすのは観測済みp50/p95を持つ`passed`だけです。
 
 完走した `search` case は privacy-safe な集計 `matched_rows` を含みます。0件も有効であり、body、query value、識別子は出力しません。
+
+## Legacy/tiered search の全件 parity
+
+追加の parity mode は、legacy の全 offset page と tiered の全 authenticated continuation を完走した後だけ membership set の一致を証明します。legacy search の authority は変更しません。private criteria は stdin の JSON、または permission が厳密に `0600` の regular file で渡します。
+
+```sh
+cat /private/tmp/private-parity-manifest.json | \
+  go run ./cmd/store-benchmark --search-parity-manifest - > /private/tmp/search-parity.json
+go run ./cmd/store-benchmark --validate-search-parity /private/tmp/search-parity.json
+```
+
+Manifest の必須 field は `db_path`、`query`、`legacy_page_size`、`tiered_page_size`、`source_rows`、`stored_bytes`、`decoded_bytes`、`timeout_ms`、`expected_revision`、`expected_dirty` です。optional filter は `workspace`、`session_id`、`client`、`agent`、`kind`、`from`、`to`、`failures_only` です。expected state は `git rev-parse HEAD` と `git status --porcelain --untracked-files=normal` から設定します。不一致なら store access より前に失敗します。evidence 自身が dirty-state assertion に自己参照しないよう、manifest と生成 artifact は repository の外に置きます。
+
+出力は `traceary.search-parity/v1` と `comparison_contract: membership_set/v1` を使用します。revision/dirty state、membership/duplicate count、page/continuation count、projection revision/high-water、latency または right-censored elapsed lower bound、budget、aggregate logical/physical bytes だけを含みます。query、identifier、path、cursor、continuation、raw error text は出力しません。failure は fixed error class だけを使用します。status precedence は `failed > timeout > mismatch > passed` です。
+
+Validator は unknown/privacy-forbidden field、trailing JSON、inconsistent metric、unknown error class を拒否します。timeout は diagnostic な right-censored evidence であり parity の証明ではありません。両 chain が duplicate なしで完走し、最終 membership set が一致した `passed` だけが parity を証明します。

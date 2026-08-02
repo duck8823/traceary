@@ -39,3 +39,19 @@ Copy `capacity-baseline.sample.json`, replace every placeholder timing and plan 
 Each case is bounded by `--case-timeout` (default `2m`, minimum `1ms`). Plans are captured before timed execution, so a timeout still includes sanitized `query_plan`, `timeout_ms`, and right-censored `elapsed_lower_bound_us`. Its p50/p95 fields remain unobserved rather than fabricated as completion evidence. The report status must be `timeout` whenever any case times out. The validator accepts this as diagnostic evidence, but only `status: "passed"` with observed p50/p95 satisfies the release performance target.
 
 A completed `search` case includes privacy-safe aggregate `matched_rows`. Zero is valid; no body, query value, or identifier is emitted.
+
+## Exhaustive legacy/tiered search parity
+
+The additive parity mode proves membership-set equality only after exhausting every legacy offset page and every authenticated tiered continuation. It does not change legacy search authority. Supply private criteria as JSON on stdin, or in a regular file whose permissions are exactly `0600`:
+
+```sh
+cat /private/tmp/private-parity-manifest.json | \
+  go run ./cmd/store-benchmark --search-parity-manifest - > /private/tmp/search-parity.json
+go run ./cmd/store-benchmark --validate-search-parity /private/tmp/search-parity.json
+```
+
+Required manifest fields are `db_path`, `query`, `legacy_page_size`, `tiered_page_size`, `source_rows`, `stored_bytes`, `decoded_bytes`, `timeout_ms`, `expected_revision`, and `expected_dirty`. Optional filters are `workspace`, `session_id`, `client`, `agent`, `kind`, `from`, `to`, and `failures_only`. Set the expected state from `git rev-parse HEAD` and `git status --porcelain --untracked-files=normal`; a mismatch fails before store access. Keep the manifest and generated artifact outside the repository so evidence cannot make its own dirty-state assertion self-referential.
+
+Output uses `traceary.search-parity/v1` and `comparison_contract: membership_set/v1`. It contains only revision/dirty state, membership and duplicate counts, page and continuation counts, projection revision/high-water, latency or right-censored elapsed lower bounds, budgets, and aggregate logical/physical bytes. Queries, identifiers, paths, cursors, continuations, and raw error text are never emitted. Failures use fixed error classes. Status precedence is `failed > timeout > mismatch > passed`.
+
+The validator rejects unknown or privacy-forbidden fields, trailing JSON, inconsistent metrics, and unknown error classes. A timeout is diagnostic right-censored evidence, not parity proof. Only `passed` proves that both chains completed without duplicates and their final membership sets were equal.
