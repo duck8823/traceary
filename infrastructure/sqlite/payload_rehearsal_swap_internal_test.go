@@ -23,6 +23,40 @@ type liveDriftAfterPreview struct {
 	live string
 }
 
+func TestPayloadRehearsalCancellationBeforeFirstBatchCommitDoesNotAdvance(t *testing.T) {
+	adapter, config, _ := newSwapRehearsalFixture(t)
+	u := usecase.NewPayloadRehearsalUsecase(adapter, adapter, adapter, adapter)
+	ctx, cancel := context.WithCancel(context.Background())
+	adapter.beforePersistence = func(kind string) {
+		if kind == "batch" {
+			cancel()
+		}
+	}
+	if _, err := u.Run(ctx, config); !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error=%v, want cancellation", err)
+	}
+	db, err := sql.Open("sqlite", config.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shadows, advanced int
+	if err = db.QueryRow(`SELECT count(*) FROM payload_rehearsal_rows`).Scan(&shadows); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(`SELECT count(*) FROM payload_rehearsal_checkpoints WHERE last_primary_key<>'' OR changed_rows<>0`).Scan(&advanced); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if shadows != 0 || advanced != 0 {
+		t.Fatalf("precommit cancellation advanced shadows/checkpoints=%d/%d", shadows, advanced)
+	}
+	adapter.beforePersistence = nil
+	resumed, err := u.Resume(context.Background(), config)
+	if err != nil || resumed.State != "completed" {
+		t.Fatalf("fresh resume=%+v err=%v", resumed, err)
+	}
+}
+
 //nolint:wrapcheck // test fault injector preserves the underlying failure.
 func (p liveDriftAfterPreview) Preview(ctx context.Context, c apptypes.PayloadRehearsalConfig) (apptypes.PayloadRehearsalMetrics, error) {
 	m, err := p.PayloadRehearsalPreview.Preview(ctx, c)
