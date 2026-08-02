@@ -57,6 +57,9 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 		if _, x := tx.ExecContext(lockCtx, `UPDATE literal_search_projection_state SET generation_id=?,high_water=?,fingerprint_version=1,state='rebuilding',updated_at=? WHERE singleton=1`, g.GenerationID, g.HighWater, formatTimestamp(now.UTC())); x != nil {
 			return g, x
 		}
+		if _, x := tx.ExecContext(lockCtx, `INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water) VALUES(?,'rebuilding',?,?,?)`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater); x != nil {
+			return g, x
+		}
 		e = tx.Commit()
 	}
 	return g, e
@@ -213,7 +216,7 @@ func (d *Database) ApplyBatch(ctx context.Context, p apptypes.ProjectionBatchPla
 	if p.Phase != "source" {
 		return apptypes.SearchProjectionProgress{}, errors.New("apply batch requires source phase")
 	}
-	return d.applyProjectionPlan(ctx, p, lock, now)
+	return d.applyProjectionPlanWithRetry(ctx, p, lock, now)
 }
 
 // CleanupBatch applies only an application-planned eviction or old-generation batch.
@@ -221,7 +224,39 @@ func (d *Database) CleanupBatch(ctx context.Context, p apptypes.ProjectionBatchP
 	if p.Phase == "source" {
 		return apptypes.SearchProjectionProgress{}, errors.New("cleanup batch requires cleanup phase")
 	}
-	return d.applyProjectionPlan(ctx, p, lock, now)
+	return d.applyProjectionPlanWithRetry(ctx, p, lock, now)
+}
+
+// applyProjectionPlanWithRetry fences concurrent workers at the persisted
+// checkpoint. SQLite busy/snapshot conflicts are retried only inside the
+// caller's lock cap; the eventual loser observes the winner's checkpoint and
+// returns the domain drift error instead of leaking a driver error.
+func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	lockCtx, cancel := context.WithTimeout(ctx, lock)
+	defer cancel()
+	for {
+		remaining := lock
+		if deadline, ok := lockCtx.Deadline(); ok {
+			remaining = time.Until(deadline)
+		}
+		if remaining <= 0 {
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+		}
+		out, err := d.applyProjectionPlan(lockCtx, p, remaining, now)
+		if err == nil || !isSearchProjectionSQLiteBusy(err) {
+			return out, err
+		}
+		select {
+		case <-lockCtx.Done():
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+		case <-time.After(min(5*time.Millisecond, remaining)):
+		}
+	}
+}
+
+func isSearchProjectionSQLiteBusy(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "sqlite_busy") || strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked")
 }
 
 // MarkFailed makes an oversize generation recoverable without advancing its checkpoint.
@@ -239,6 +274,13 @@ func (d *Database) MarkFailed(ctx context.Context, generation string, revision i
 	}
 	defer tx.Rollback()
 	r, err := tx.ExecContext(ctx, `UPDATE search_projection_state SET state='failed',phase='complete',failure_class=?,updated_at=? WHERE generation_id=? AND source_revision=? AND EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?)`, class, formatTimestamp(now), generation, revision, revision)
+	if err != nil {
+		return err
+	}
+	if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
+		return &apptypes.SearchProjectionDriftError{}
+	}
+	r, err = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='failed' WHERE generation_id=? AND state='rebuilding'`, generation)
 	if err != nil {
 		return err
 	}
@@ -275,8 +317,18 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		return out, e
 	}
 	if globalRevision != p.ExpectedRevision && !p.AllowRevisionDrift {
-		if _, e = tx.ExecContext(lockCtx, `UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE generation_id=? AND source_revision=?`, p.GenerationID, p.ExpectedRevision); e != nil {
+		var r sql.Result
+		if r, e = tx.ExecContext(lockCtx, `UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE generation_id=? AND source_revision=?`, p.GenerationID, p.ExpectedRevision); e != nil {
 			return out, e
+		}
+		if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if r, e = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='drifted' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); e != nil {
+			return out, e
+		}
+		if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
 		}
 		if e = tx.Commit(); e != nil {
 			return out, e
@@ -355,6 +407,15 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 			return out, e
 		}
 	}
+	if p.Completed && state == "complete" {
+		var lifecycleResult sql.Result
+		if lifecycleResult, e = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='complete' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); e != nil {
+			return out, e
+		}
+		if n, rowErr := lifecycleResult.RowsAffected(); rowErr != nil || n != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+	}
 	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?))`, p.NextCheckpoint, next, state, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision)
 	if e != nil {
 		return out, e
@@ -373,6 +434,56 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	return out, nil
 }
 
+// AbandonSearchProjection idempotently retires the current incomplete generation.
+//
+//nolint:wrapcheck,errcheck // Transaction errors remain adapter-owned and typed state errors pass through.
+func (d *Database) AbandonSearchProjection(ctx context.Context, now time.Time) (out apptypes.SearchProjectionAbandonResult, err error) {
+	db, e := d.open(ctx)
+	if e != nil {
+		return out, e
+	}
+	defer db.Close()
+	tx, e := db.BeginTx(ctx, nil)
+	if e != nil {
+		return out, e
+	}
+	defer tx.Rollback()
+	var generation, state, active string
+	if e = tx.QueryRowContext(ctx, `SELECT COALESCE(generation_id,''),state,COALESCE(active_generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&generation, &state, &active); e != nil {
+		return out, e
+	}
+	out.GenerationID = generation
+	out.State = "abandoned"
+	if generation == "" {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "no derived generation exists"}
+	}
+	var lifecycle string
+	if e = tx.QueryRowContext(ctx, `SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=?`, generation).Scan(&lifecycle); e == nil && lifecycle == "abandoned" {
+		out.AlreadyAbandoned = true
+		return out, tx.Commit()
+	}
+	if generation == active || state == "complete" {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "active complete generation cannot be abandoned"}
+	}
+	r, e := tx.ExecContext(ctx, `UPDATE search_projection_state SET state='failed',phase='complete',failure_class='abandoned',updated_at=? WHERE singleton=1 AND generation_id=? AND state<>'complete'`, formatTimestamp(now), generation)
+	if e != nil {
+		return out, e
+	}
+	if n, _ := r.RowsAffected(); n != 1 {
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	if r, e = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='abandoned',abandoned_at=? WHERE generation_id=? AND state<>'complete'`, formatTimestamp(now), generation); e != nil {
+		return out, e
+	}
+	if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	if _, e = tx.ExecContext(ctx, `UPDATE literal_search_projection_state SET state='stale',updated_at=? WHERE singleton=1 AND generation_id=?`, formatTimestamp(now), generation); e != nil {
+		return out, e
+	}
+	return out, tx.Commit()
+}
+
 // SearchProjectionStatus returns payload-free operational evidence.
 //
 //nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
@@ -386,7 +497,7 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	s.SchemaVersion = "traceary.search-projection-status/v1"
 	s.KeywordVersion = searchProjectionKeywordVersion
 	s.FingerprintVersion = 1
-	e = db.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,recent_byte_limit,last_batch_milliseconds FROM search_projection_state WHERE singleton=1`).Scan(&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed, &s.RecentAgeSeconds, &s.RecentByteLimit, &s.LastBatchMilliseconds)
+	e = db.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,recent_byte_limit,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),'') FROM search_projection_state WHERE singleton=1`).Scan(&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed, &s.RecentAgeSeconds, &s.RecentByteLimit, &s.LastBatchMilliseconds, &s.LifecycleState, &s.AbandonedAt)
 	if e != nil {
 		return s, e
 	}
@@ -426,9 +537,14 @@ func projectionCutoff(timestamp time.Time) string {
 	return timestamp.UTC().Format("2006-01-02T15:04:05.000000000Z")
 }
 
-//nolint:wrapcheck // SQL errors remain inside the SQLite adapter.
+//nolint:wrapcheck,errcheck // SQL errors remain inside the SQLite adapter; rollback is best effort.
 func markProjectionDrifted(ctx context.Context, db *sql.DB, generation string) error {
-	r, e := db.ExecContext(ctx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, generation)
+	tx, e := db.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	r, e := tx.ExecContext(ctx, `UPDATE search_projection_state SET state='drifted' WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, generation)
 	if e != nil {
 		return e
 	}
@@ -439,5 +555,16 @@ func markProjectionDrifted(ctx context.Context, db *sql.DB, generation string) e
 	if n != 1 {
 		return &apptypes.SearchProjectionNoProgressError{Reason: "generation state changed concurrently"}
 	}
-	return nil
+	r, e = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='drifted' WHERE generation_id=? AND state='rebuilding'`, generation)
+	if e != nil {
+		return e
+	}
+	n, e = r.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n != 1 {
+		return &apptypes.SearchProjectionNoProgressError{Reason: "generation lifecycle changed concurrently"}
+	}
+	return tx.Commit()
 }

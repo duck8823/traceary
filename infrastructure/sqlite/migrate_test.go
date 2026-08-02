@@ -364,6 +364,48 @@ func TestMigrations_hookDeliveryAttemptsBackfillBodyFreeDenominator(t *testing.T
 	}
 }
 
+func TestMigrations_searchProjectionLifecycleBackfillsExactTerminalState(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{"rebuilding", "complete", "failed", "drifted"} {
+		state := state
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			dbPath := filepath.Join(t.TempDir(), "traceary.db")
+			store := newStoreManagementDatasource(t, dbPath, migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 41))
+			if err := store.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize(pre-v041) error = %v", err)
+			}
+			db, err := sql.Open("sqlite", "file:"+dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(`UPDATE search_projection_state SET generation_id='legacy-generation',state=? WHERE singleton=1`, state); err != nil {
+				t.Fatalf("seed legacy state: %v", err)
+			}
+			if err = db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			store = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+			if err = store.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize(v041) error = %v", err)
+			}
+			db, err = sql.Open("sqlite", "file:"+dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			var got string
+			if err = db.QueryRow(`SELECT state FROM search_projection_generation_lifecycle WHERE generation_id='legacy-generation'`).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != state {
+				t.Fatalf("lifecycle state=%q, want %q", got, state)
+			}
+		})
+	}
+}
+
 func TestMigrations_sessionLifecycleStatePreservesLegacyRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

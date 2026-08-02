@@ -44,6 +44,22 @@ type SearchProjectionProgress struct {
 	GenerationID string `json:"generation_id"`
 }
 
+type SearchProjectionRunOptions struct {
+	MaxBatches    int
+	TotalWallTime time.Duration
+}
+type SearchProjectionRunResult struct {
+	Batches             int                      `json:"batches"`
+	Progress            SearchProjectionProgress `json:"progress"`
+	StopReason          string                   `json:"stop_reason"`
+	ElapsedMilliseconds int64                    `json:"elapsed_milliseconds"`
+}
+type SearchProjectionAbandonResult struct {
+	GenerationID     string `json:"generation_id"`
+	State            string `json:"state"`
+	AlreadyAbandoned bool   `json:"already_abandoned"`
+}
+
 // ProjectionDocument is canonical, hydrated input. It deliberately contains no
 // SQLite identity or DTO; Sequence is the stable application checkpoint.
 type ProjectionDocument struct {
@@ -179,4 +195,6 @@ type SearchProjectionStatus struct {
 	FingerprintVersion      int              `json:"fingerprint_version"`
 	FingerprintRows         int64            `json:"fingerprint_rows"`
 	FingerprintLogicalBytes int64            `json:"fingerprint_logical_bytes"`
+	LifecycleState          string           `json:"lifecycle_state"`
+	AbandonedAt             string           `json:"abandoned_at,omitempty"`
 }
