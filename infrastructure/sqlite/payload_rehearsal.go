@@ -19,11 +19,13 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain"
 )
 
 // Exported sentinel errors are stable safety classifications for CLI/tests.
 var (
 	ErrUnsafeRehearsalTarget      = errors.New("payload rehearsal target is not an independent regular copy")
+	ErrPreparedMigrationPublish   = errors.New("payload rehearsal prepared migration publication failed")
 	ErrDryRunMutation             = errors.New("payload rehearsal preview changed a database component")
 	ErrRehearsalNeedsCleanDB      = errors.New("payload rehearsal requires a checkpointed copy without WAL or SHM sidecars")
 	ErrRehearsalMigrationRequired = errors.New("payload rehearsal bookkeeping migration is required on the copied target")
@@ -45,12 +47,25 @@ func requireLiveIdentityOnly(ctx context.Context, path string) error {
 type PayloadRehearsalAdapter struct {
 	migrations                fs.FS
 	configuredLivePath        string
+	targetPreparation         application.RehearsalTargetPreparation
 	beforeInitialize          func()
 	beforeStartRun            func()
 	beforePersistence         func(string)
 	beforeMigrationRecovery   func()
 	beforeRollbackRename      func()
 	duringRollbackHeavyVerify func()
+}
+
+// SetTargetPreparation installs the fixed prepared-migration handoff at composition time.
+func (a *PayloadRehearsalAdapter) SetTargetPreparation(preparation application.RehearsalTargetPreparation) error {
+	if preparation == nil {
+		return errors.New("payload rehearsal target preparation is required")
+	}
+	if a.targetPreparation != nil {
+		return errors.New("payload rehearsal target preparation is already configured")
+	}
+	a.targetPreparation = preparation
+	return nil
 }
 
 func (a *PayloadRehearsalAdapter) recheckExpectedTarget(expected rehearsalIdentity, c apptypes.PayloadRehearsalConfig, allowSidecars bool) error {
@@ -273,6 +288,8 @@ func transitionTerminalWithinWALBudget(ctx context.Context, session walBudgetedM
 }
 
 // Prepare fixes the target identity and owns all SQLite resources for a run.
+//
+//nolint:wrapcheck // preparation and SQLite errors are classified by the application boundary.
 func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.PayloadRehearsalConfig, command apptypes.PayloadRehearsalRunCommand) (application.PayloadRehearsalRunHandle, apptypes.PayloadRehearsalMetrics, error) {
 	if !command.Valid() {
 		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("invalid payload rehearsal run command")
@@ -331,6 +348,41 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
+	migrationRequired := false
+	if a.targetPreparation != nil {
+		preparationPlan, preparationErr := a.targetPreparation.Preview(ctx, c)
+		if preparationErr != nil {
+			return nil, apptypes.PayloadRehearsalMetrics{}, ErrPreparedMigrationPublish
+		}
+		migrationRequired = preparationPlan.Required
+		if preparationPlan.Required {
+			preparedTarget, preparationErr := a.targetPreparation.EnsurePrepared(ctx, c)
+			if preparationErr != nil {
+				return nil, apptypes.PayloadRehearsalMetrics{}, ErrPreparedMigrationPublish
+			}
+			published, identityErr := inspectRegularFile(c.TargetPath)
+			if identityErr != nil || preparedTarget.Receipt.Operation != domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration || !published.SameInode(preparedTarget.Receipt.TargetIdentity) {
+				return nil, apptypes.PayloadRehearsalMetrics{}, ErrPreparedMigrationPublish
+			}
+			id, err = a.inspectTarget(c.TargetPath, c.LivePath)
+			if err != nil {
+				return nil, apptypes.PayloadRehearsalMetrics{}, err
+			}
+		}
+	} else {
+		probe, probeErr := sql.Open("sqlite", immutableRehearsalDSN(id.canonical))
+		if probeErr != nil {
+			return nil, apptypes.PayloadRehearsalMetrics{}, probeErr
+		}
+		migrationRequired, probeErr = NewDatabase(id.canonical, a.migrations).rehearsalMigrationsPending(ctx, probe)
+		_ = probe.Close()
+		if probeErr != nil {
+			return nil, apptypes.PayloadRehearsalMetrics{}, probeErr
+		}
+		if migrationRequired {
+			return nil, apptypes.PayloadRehearsalMetrics{}, ErrRehearsalMigrationRequired
+		}
+	}
 	minimumWAL, walErr := minimumWALFrameBytes(ctx, id.canonical)
 	if walErr != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, walErr
@@ -365,35 +417,11 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if err = VerifyStoreCompatibility(ctx, db); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
 	}
-	// Prove the migration's WAL extent on an exact byte clone before allowing
-	// the copied target to change. The target identity is then fixed again and
-	// the measured reservation is consumed under the same BEGIN IMMEDIATE as
-	// the migration itself.
 	if err = a.recheckExpectedTarget(id, c, true); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
-	}
-	database := NewDatabase(id.canonical, a.migrations)
-	preMigrationIdentity, err := inspectRehearsalMigrationIdentity(ctx, db, id.canonical)
-	if err != nil {
-		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("fix migration target identity: %w", err)
-	}
-	migrationPlan, err := database.measureRehearsalMigrationWAL(ctx, id.canonical, c.LockTimeLimit)
-	if err != nil {
-		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("preflight rehearsal bookkeeping migration: %w", err)
-	}
-	if err = a.recheckExpectedTarget(id, c, true); err != nil {
-		return nil, apptypes.PayloadRehearsalMetrics{}, err
-	}
-	recheckedMigrationIdentity, err := inspectRehearsalMigrationIdentity(ctx, db, id.canonical)
-	if err != nil || recheckedMigrationIdentity != preMigrationIdentity {
-		return nil, apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
 	if err = requireLiveIdentityOnly(ctx, c.LivePath); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
-	}
-	actualPending, pendingErr := database.rehearsalMigrationsPending(ctx, db)
-	if pendingErr != nil || actualPending != migrationPlan.pending {
-		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("rehearsal migration plan changed after preflight")
 	}
 	actualMode := ""
 	var modeErr error
@@ -402,7 +430,7 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	} else {
 		actualMode, _, modeErr = normalizeRehearsalJournal(ctx, db, c.LockTimeLimit)
 	}
-	if modeErr != nil || actualMode != "wal" || actualMode != migrationPlan.journalMode || (resume && actualPending) {
+	if modeErr != nil || actualMode != "wal" {
 		if resume {
 			return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("resume requires no pending migration and existing WAL journal mode")
 		}
@@ -417,35 +445,16 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 			return apptypes.PayloadRehearsalMetrics{}, cause
 		}
 		_ = db.Close()
+		if migrationRequired && a.targetPreparation != nil {
+			if _, recoveryErr := a.targetPreparation.RollbackPrepared(context.WithoutCancel(ctx), c); recoveryErr != nil {
+				return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, ErrPreparedMigrationPublish
+			}
+			return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, cause
+		}
 		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
 			return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("%v; restore verified backup: %w", cause, recoveryErr)
 		}
 		return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, cause
-	}
-	if migrationPlan.pending {
-		pageBytes := minimumWAL - 32
-		if migrationPlan.walBytes < minimumWAL {
-			metrics, recoveryErr := recoverMutatedTarget(errors.New("pending migration WAL is smaller than one frame"))
-			return nil, metrics, recoveryErr
-		}
-		reservedFrames := max(int64(1), (migrationPlan.walBytes-32+pageBytes-1)/pageBytes)
-		migrationSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: preMigrationIdentity.schema, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &peakWAL, lockLimit: c.LockTimeLimit, mutationElapsed: &migrationPlan.elapsed}
-		if err = migrationSession.run(ctx, reservedFrames, func(conn *sql.Conn) error {
-			return database.migrateOnBudgetedConnection(ctx, conn)
-		}); err != nil {
-			_ = db.Close()
-			if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
-				return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("migration failed and rollback failed: %w", recoveryErr)
-			}
-			return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, xerrors.Errorf("initialize rehearsal bookkeeping: %w", err)
-		}
-		if migrationPlan.elapsed > c.LockTimeLimit {
-			_ = db.Close()
-			if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
-				return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("migration commit exceeded lock cap and rollback failed: %w", recoveryErr)
-			}
-			return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, errors.New("rehearsal migration lock duration cap exceeded through commit")
-		}
 	}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &peakWAL); err != nil {
 		if !resume && a.beforeMigrationRecovery != nil {
@@ -487,7 +496,7 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 		metrics, recoveryErr := recoverMutatedTarget(err)
 		return nil, metrics, recoveryErr
 	}
-	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, DiskPlan: diskPlan, PeakWALBytes: resumePeak, MigrationRequired: migrationPlan.pending, MigrationPlan: apptypes.PayloadRehearsalMigrationPlan{Pending: migrationPlan.pending, WALBytes: migrationPlan.walBytes, MigrationElapsedMilliseconds: migrationPlan.elapsed.Milliseconds(), JournalMode: migrationPlan.journalMode}, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
+	metrics := apptypes.PayloadRehearsalMetrics{RunID: runID, State: "running", RollbackDigest: backupDigest, RollbackVerified: true, LiveIdentityOnly: liveIdentity, Before: parts, FreeBytes: freeBytes, EstimatedHeadroom: requiredHeadroom, DiskPlan: diskPlan, PeakWALBytes: resumePeak, MigrationRequired: migrationRequired, MigrationPlan: apptypes.PayloadRehearsalMigrationPlan{Pending: migrationRequired, JournalMode: "wal"}, BatchDurationHistogram: map[string]int64{"lt_1ms": 0, "lt_10ms": 0, "lt_100ms": 0, "gte_100ms": 0}}
 	batchSession := walBudgetedMutationSession{db: db, path: id.canonical, expectedSchemaSHA: rehearsalSchemaSHA, frameBytes: minimumWAL, maximum: c.MaxWALBytes, peak: &metrics.PeakWALBytes, lockLimit: c.LockTimeLimit}
 	if err = observeWALPeak(id.canonical, minimumWAL, c.MaxWALBytes, &metrics.PeakWALBytes); err != nil {
 		return nil, metrics, pauseRun(ctx, batchSession, runID, leaseToken, err, guard)
@@ -931,6 +940,16 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if a.duringRollbackHeavyVerify != nil {
 		a.duringRollbackHeavyVerify()
 	}
+	preparedRolledBack := false
+	if a.targetPreparation != nil {
+		result, preparedErr := a.targetPreparation.RollbackPrepared(ctx, c)
+		if preparedErr == nil && result.RolledBack {
+			preparedRolledBack = true
+		}
+		if preparedErr != nil && !errors.Is(preparedErr, os.ErrNotExist) {
+			return apptypes.PayloadRehearsalMetrics{}, ErrPreparedMigrationPublish
+		}
+	}
 	verifyBeforeRename := func() error {
 		if a.beforeRollbackRename != nil {
 			a.beforeRollbackRename()
@@ -947,8 +966,10 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 		}
 		return nil
 	}
-	if err = copyFileAtomicVerifiedWithHook(c.BackupPath, id.canonical, digest, verifyBeforeRename); err != nil {
-		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("restore rollback artifact: %w", err)
+	if !preparedRolledBack {
+		if err = copyFileAtomicVerifiedWithHook(c.BackupPath, id.canonical, digest, verifyBeforeRename); err != nil {
+			return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("restore rollback artifact: %w", err)
+		}
 	}
 	restoredIdentity, restoredIdentityErr := secureFileIdentity(id.canonical)
 	postBackupIdentity, postBackupErr := secureFileIdentity(c.BackupPath)

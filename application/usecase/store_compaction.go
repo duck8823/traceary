@@ -288,6 +288,31 @@ func (u *storeCompactionUsecase) Rollback(ctx context.Context, id string) (domai
 		}
 		return run, fmt.Errorf("rollback observation conflicts with phase")
 	}
+	// An exchange may have committed immediately before the process stopped.
+	// Publish the still-fenced original inode first; rollback is never allowed
+	// directly from the transient swapped orientation.
+	if observation.Orientation == domain.OrientationSwapped {
+		if run.Phase == domain.CompactionSwapped {
+			run, err = u.advance(ctx, run, domain.CompactionRollbackPublishIntent)
+			if err != nil {
+				return run, err
+			}
+		}
+		if run.Phase != domain.CompactionRollbackPublishIntent {
+			return run, fmt.Errorf("swapped rollback requires publish intent, got %q", run.Phase)
+		}
+		if err = u.files.PublishRollback(ctx, run); err != nil {
+			return run, err
+		}
+		run, err = u.advance(ctx, run, domain.CompactionRollbackReady)
+		if err != nil {
+			return run, err
+		}
+		observation, err = u.files.Observe(ctx, run)
+		if err != nil {
+			return run, err
+		}
+	}
 	if observation.Orientation != domain.OrientationRollbackReady {
 		return run, fmt.Errorf("rollback requires rollback-ready orientation, got %q", observation.Orientation)
 	}

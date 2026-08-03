@@ -14,7 +14,7 @@ import (
 )
 
 func TestCompactionFileJournalRoundTripAndTransitionValidation(t *testing.T) {
-	j := &CompactionFileJournal{Dir: t.TempDir()}
+	j := &CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")}
 	now := time.Now()
 	run := domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", SourcePath: "/tmp/source", CandidatePath: "/tmp/candidate", RollbackPath: "/tmp/rollback", SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 2, Size: 3}, Resources: domain.CompactionResourcePlan{RequiredBytes: 4, DestinationBytes: 3, FilesystemDevice: 1, LeaseCapability: true, ExchangeCapability: true}, Phase: domain.CompactionPlanned, CreatedAt: now, UpdatedAt: now}
 	if err := j.Create(context.Background(), run); err != nil {
@@ -26,8 +26,109 @@ func TestCompactionFileJournalRoundTripAndTransitionValidation(t *testing.T) {
 	}
 }
 
-func TestCompactionFileJournalLoadRejectsPersistedIntermediateTamper(t *testing.T) {
+func TestPreparedStoreUpgradeJournalRejectsSymlinkWithoutMutatingTarget(t *testing.T) {
+	root := t.TempDir()
+	victim := filepath.Join(root, "victim")
+	if err := os.Mkdir(victim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "journal")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	now := time.Now()
+	run := domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", SourcePath: "/tmp/source", CandidatePath: "/tmp/candidate", RollbackPath: "/tmp/rollback", SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 2, Size: 3}, Resources: domain.CompactionResourcePlan{RequiredBytes: 4, DestinationBytes: 3, FilesystemDevice: 1, LeaseCapability: true, ExchangeCapability: true}, Phase: domain.CompactionPlanned, CreatedAt: now, UpdatedAt: now}
+	if err := (&PreparedStoreUpgradeFileJournal{Dir: link}).Create(context.Background(), run); err == nil {
+		t.Fatal("Create accepted a symlink journal directory")
+	}
+	info, err := os.Stat(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("victim mode mutated to %o", info.Mode().Perm())
+	}
+}
+
+func TestCompactionFileJournalLoadsLegacyCopyRetryGolden(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile("testdata/compaction-copy-retry-v1.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "0123456789abcdef0123456789abcdef"
+	if err = os.WriteFile(filepath.Join(dir, id+".jsonl"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := (&CompactionFileJournal{Dir: dir}).Load(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Phase != domain.CompactionCandidatePrepared || run.PreparedAttempt != 2 || run.PreparedCandidateIdentity.Inode != 4 || run.Operation != "" {
+		t.Fatalf("legacy retry run = %+v", run)
+	}
+}
+
+func TestPreparedStoreUpgradeJournalFindActiveRejectsAmbiguity(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "journal")
+	journal := &PreparedStoreUpgradeFileJournal{Dir: dir}
+	now := time.Now().UTC()
+	first := preparedJournalRun("11111111111111111111111111111111", now)
+	if err := journal.Create(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	got, err := journal.FindActive(context.Background(), first.Operation, first.SourcePath, first.ConsumerBinding)
+	if err != nil || got.ID != first.ID {
+		t.Fatalf("FindActive = %q, %v", got.ID, err)
+	}
+	second := preparedJournalRun("22222222222222222222222222222222", now)
+	if err = journal.Create(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = journal.FindActive(context.Background(), first.Operation, first.SourcePath, first.ConsumerBinding); err == nil {
+		t.Fatal("FindActive selected one of two ambiguous active runs")
+	}
+}
+
+func TestPreparedStoreUpgradeJournalFindActiveRejectsSymlinkEntry(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "journal")
+	journal := &PreparedStoreUpgradeFileJournal{Dir: dir}
+	run := preparedJournalRun("33333333333333333333333333333333", time.Now().UTC())
+	if err := journal.Create(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, run.ID+".jsonl"), filepath.Join(dir, "44444444444444444444444444444444.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.FindActive(context.Background(), run.Operation, run.SourcePath, run.ConsumerBinding); err == nil {
+		t.Fatal("FindActive accepted a symlink journal entry")
+	}
+}
+
+func preparedJournalRun(id string, now time.Time) domain.PreparedStoreUpgradeRun {
+	return domain.PreparedStoreUpgradeRun{
+		ID:              id,
+		SourcePath:      "/tmp/rehearsal.db",
+		CandidatePath:   "/tmp/rehearsal.db.prepare-" + id,
+		RollbackPath:    "/tmp/rehearsal.db.rollback-" + id,
+		Phase:           domain.PreparedStoreUpgradePlanned,
+		SourceIdentity:  domain.StoreFileIdentity{Device: 1, Inode: 2, Size: 4096},
+		Resources:       domain.PreparedStoreUpgradeResourcePlan{RequiredBytes: 8192, DestinationBytes: 4096, FilesystemDevice: 1, LeaseCapability: true, ExchangeCapability: true},
+		Operation:       domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration,
+		ConsumerBinding: "binding",
+		PlanDigest:      strings.Repeat("a", 64),
+		SourceDigest:    strings.Repeat("b", 64),
+		Budget:          domain.PreparedStoreUpgradeBudget{WallTimeLimit: time.Minute, PublishLockLimit: time.Second, OwnedDiskByteLimit: 1 << 20, WALByteLimit: 1 << 19, TemporaryByteLimit: 1 << 19},
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+}
+
+func TestCompactionFileJournalLoadRejectsPersistedIntermediateTamper(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "journal")
 	j := &CompactionFileJournal{Dir: dir}
 	now := time.Now()
 	run := domain.CompactionRun{ID: "11111111111111111111111111111111", SourcePath: "/tmp/source", CandidatePath: "/tmp/candidate", RollbackPath: "/tmp/rollback", SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 2, Size: 3}, Resources: domain.CompactionResourcePlan{RequiredBytes: 4, DestinationBytes: 3, FilesystemDevice: 1, ExchangeCapability: true}, Phase: domain.CompactionPlanned, CreatedAt: now, UpdatedAt: now}
@@ -60,7 +161,7 @@ func TestCompactionFileJournalLoadRejectsPersistedIntermediateTamper(t *testing.
 }
 
 func TestCompactionFileJournalRejectsTruncationAndImmutableTamper(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "journal")
 	j := &CompactionFileJournal{Dir: dir}
 	now := time.Now()
 	run := domain.CompactionRun{ID: "abcdef0123456789abcdef0123456789", SourcePath: "/a", CandidatePath: "/b", RollbackPath: "/c", SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 2, Size: 3}, Resources: domain.CompactionResourcePlan{RequiredBytes: 4, DestinationBytes: 3, FilesystemDevice: 1, LeaseCapability: true, ExchangeCapability: true}, Phase: domain.CompactionPlanned, CreatedAt: now, UpdatedAt: now}

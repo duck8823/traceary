@@ -24,6 +24,7 @@ import (
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -151,6 +152,30 @@ func run() error {
 	payloadRehearsalAdapter, err := sqlite.NewPayloadRehearsalAdapter(migrationsSubFS, dbPath)
 	if err != nil {
 		return xerrors.Errorf("configure payload rehearsal: %w", err)
+	}
+	preparedJournal := func(path string) application.PreparedStoreUpgradeJournal {
+		return &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-prepared-upgrades")}
+	}
+	if err = payloadRehearsalAdapter.SetTargetPreparation(sqlite.PayloadRehearsalPreparation{
+		Migrations: migrationsSubFS,
+		Journal:    preparedJournal,
+		Service: func(path string) application.PreparedStoreUpgradeUsecase {
+			recipe := &sqlite.PreparedMigrationCandidateRecipe{
+				Migrations: migrationsSubFS,
+				Verifier:   sqlite.PreparedMigrationVerifier{Migrations: migrationsSubFS},
+			}
+			return usecase.NewPreparedStoreUpgradeUsecase(
+				path,
+				preparedJournal(path),
+				sqlite.PreparedStoreUpgradeFiles{},
+				sqlite.StoreLeaseCoordinator{},
+				map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{
+					domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration: recipe,
+				},
+			)
+		},
+	}); err != nil {
+		return xerrors.Errorf("configure prepared payload rehearsal: %w", err)
 	}
 	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
 	reportDatasource := sqlite.NewReportDatasource(db)

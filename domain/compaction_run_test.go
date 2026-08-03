@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -13,6 +14,32 @@ func TestCompactionRunAdvanceRejectsSkippedTransition(t *testing.T) {
 	got, err := run.Advance(CompactionCopyIntent, time.Now())
 	if err != nil || got.Phase != CompactionCopyIntent {
 		t.Fatalf("Advance() = %q, %v", got.Phase, err)
+	}
+}
+
+func TestPreparedStoreUpgradeRejectsRollbackBeforeOriginalIsPublished(t *testing.T) {
+	run := PreparedStoreUpgradeRun{Phase: PreparedStoreUpgradeSwapped}
+	if _, err := run.Advance(PreparedStoreUpgradeRollbackSwapIntent, time.Now()); err == nil {
+		t.Fatal("Advance accepted rollback directly from swapped")
+	}
+}
+
+func TestPreparedStoreUpgradeRecordsRetryBeforeOwnedCleanup(t *testing.T) {
+	run := PreparedStoreUpgradeRun{
+		Phase:                     PreparedStoreUpgradeCandidatePrepared,
+		PreparedCandidateIdentity: StoreFileIdentity{Device: 1, Inode: 2},
+	}
+	actions, err := run.RecoveryActions(PreparedStoreUpgradeObservation{
+		Orientation:        OrientationCandidateReady,
+		Candidate:          run.PreparedCandidateIdentity,
+		CandidateCondition: CandidateConditionOwnedIncomplete,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []PreparedStoreUpgradeAction{ActionRecordCopyRetryIntent, ActionRemoveOwnedPartialCandidate}
+	if !reflect.DeepEqual(actions, want) {
+		t.Fatalf("actions = %v, want %v", actions, want)
 	}
 }
 

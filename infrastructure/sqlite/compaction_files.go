@@ -11,23 +11,34 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/duck8823/traceary/domain"
 )
 
-const maxCompactionJournalBytes = 1 << 20
+const (
+	maxCompactionJournalBytes = 1 << 20
+	maxActiveUpgradeJournals  = 1024
+)
 
-// CompactionFileJournal is an append-only, capped protocol journal.
-type CompactionFileJournal struct{ Dir string }
+// ErrPreparedUpgradeUnsupported is the stable fail-closed classification used
+// when the platform cannot prove atomic exchange/lease/identity semantics.
+var ErrPreparedUpgradeUnsupported = errors.New("prepared store upgrade is unsupported on this platform")
 
-func (j *CompactionFileJournal) path(id string) (string, error) {
+// PreparedStoreUpgradeFileJournal is the shared append-only, capped protocol journal.
+type PreparedStoreUpgradeFileJournal struct{ Dir string }
+
+// CompactionFileJournal preserves the legacy constructor and JSONL namespace.
+type CompactionFileJournal = PreparedStoreUpgradeFileJournal
+
+func (j *PreparedStoreUpgradeFileJournal) path(id string) (string, error) {
 	if len(id) != 32 || strings.Trim(id, "0123456789abcdef") != "" {
 		return "", fmt.Errorf("invalid compaction run id")
 	}
 	return filepath.Join(j.Dir, id+".jsonl"), nil
 }
 
-func (j *CompactionFileJournal) Create(ctx context.Context, run domain.CompactionRun) error {
+func (j *PreparedStoreUpgradeFileJournal) Create(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -38,12 +49,28 @@ func (j *CompactionFileJournal) Create(ctx context.Context, run domain.Compactio
 	if err := validateInitialRun(run); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(j.Dir, 0o700); err != nil {
+	if _, err := os.Lstat(j.Dir); os.IsNotExist(err) {
+		if err = os.Mkdir(j.Dir, 0o700); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
 		return err
 	}
 	f, err := openFileNoFollow(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create compaction journal: %w", err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	createdInfo, err := f.Stat()
+	if err != nil || !createdInfo.Mode().IsRegular() || createdInfo.Mode().Perm() != 0o600 || fileLinkCount(createdInfo) != 1 {
+		_ = f.Close()
+		return errors.New("invalid created compaction journal")
 	}
 	if err := writeJournalRecord(f, run); err != nil {
 		_ = f.Close()
@@ -59,12 +86,15 @@ func (j *CompactionFileJournal) Create(ctx context.Context, run domain.Compactio
 	return syncDirectory(j.Dir)
 }
 
-func (j *CompactionFileJournal) Append(ctx context.Context, run domain.CompactionRun) error {
+func (j *PreparedStoreUpgradeFileJournal) Append(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	path, err := j.path(run.ID)
 	if err != nil {
+		return err
+	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
 		return err
 	}
 	previous, err := j.Load(ctx, run.ID)
@@ -78,7 +108,7 @@ func (j *CompactionFileJournal) Append(ctx context.Context, run domain.Compactio
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || fileLinkCount(info) != 1 {
 		return errors.New("compaction journal is not a regular file")
 	}
 	record, err := json.Marshal(run)
@@ -92,6 +122,11 @@ func (j *CompactionFileJournal) Append(ctx context.Context, run domain.Compactio
 	if err != nil {
 		return err
 	}
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) || opened.Mode().Perm() != 0o600 || fileLinkCount(opened) != 1 {
+		_ = f.Close()
+		return errors.New("compaction journal identity changed")
+	}
 	if _, err := f.Write(append(record, '\n')); err != nil {
 		_ = f.Close()
 		return err
@@ -103,12 +138,15 @@ func (j *CompactionFileJournal) Append(ctx context.Context, run domain.Compactio
 	return f.Close()
 }
 
-func (j *CompactionFileJournal) Load(ctx context.Context, id string) (domain.CompactionRun, error) {
+func (j *PreparedStoreUpgradeFileJournal) Load(ctx context.Context, id string) (domain.CompactionRun, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.CompactionRun{}, err
 	}
 	path, err := j.path(id)
 	if err != nil {
+		return domain.CompactionRun{}, err
+	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
 		return domain.CompactionRun{}, err
 	}
 	f, err := openFileNoFollow(path, os.O_RDONLY, 0)
@@ -119,6 +157,9 @@ func (j *CompactionFileJournal) Load(ctx context.Context, id string) (domain.Com
 	info, err := f.Stat()
 	if err != nil {
 		return domain.CompactionRun{}, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || fileLinkCount(info) != 1 {
+		return domain.CompactionRun{}, errors.New("invalid compaction journal permissions or links")
 	}
 	if info.Size() <= 0 || info.Size() > maxCompactionJournalBytes {
 		return domain.CompactionRun{}, errors.New("invalid compaction journal size")
@@ -170,6 +211,77 @@ func (j *CompactionFileJournal) Load(ctx context.Context, id string) (domain.Com
 	return last, nil
 }
 
+// FindActive finds exactly one non-terminal run bound to an operation, target,
+// and opaque consumer. It never guesses by modification time.
+func (j *PreparedStoreUpgradeFileJournal) FindActive(ctx context.Context, operation domain.PreparedStoreUpgradeOperation, target, binding string) (domain.PreparedStoreUpgradeRun, error) {
+	if !operation.Known() || target == "" || binding == "" {
+		return domain.PreparedStoreUpgradeRun{}, errors.New("invalid prepared upgrade lookup")
+	}
+	entries, err := os.ReadDir(j.Dir)
+	if os.IsNotExist(err) {
+		return domain.PreparedStoreUpgradeRun{}, os.ErrNotExist
+	}
+	if err != nil {
+		return domain.PreparedStoreUpgradeRun{}, err
+	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
+		return domain.PreparedStoreUpgradeRun{}, err
+	}
+	if len(entries) > maxActiveUpgradeJournals {
+		return domain.PreparedStoreUpgradeRun{}, errors.New("prepared upgrade journal entry limit exceeded")
+	}
+	canonicalTarget := filepath.Clean(target)
+	var match domain.PreparedStoreUpgradeRun
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return domain.PreparedStoreUpgradeRun{}, err
+		}
+		name := entry.Name()
+		if entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(name, ".jsonl") {
+			return domain.PreparedStoreUpgradeRun{}, errors.New("invalid prepared upgrade journal entry")
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || fileLinkCount(info) != 1 || info.Size() <= 0 || info.Size() > maxCompactionJournalBytes {
+			return domain.PreparedStoreUpgradeRun{}, errors.New("invalid prepared upgrade journal file")
+		}
+		id := strings.TrimSuffix(name, ".jsonl")
+		run, loadErr := j.Load(ctx, id)
+		if loadErr != nil {
+			return domain.PreparedStoreUpgradeRun{}, loadErr
+		}
+		if run.Operation != operation || filepath.Clean(run.SourcePath) != canonicalTarget || run.ConsumerBinding != binding || run.Phase == domain.PreparedStoreUpgradeRolledBack {
+			continue
+		}
+		if match.ID != "" {
+			return domain.PreparedStoreUpgradeRun{}, errors.New("ambiguous active prepared upgrade")
+		}
+		match = run
+	}
+	if match.ID == "" {
+		return match, os.ErrNotExist
+	}
+	return match, nil
+}
+
+func validateJournalDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 || fileLinkCount(info) < 1 {
+		return errors.New("invalid prepared upgrade journal directory")
+	}
+	return nil
+}
+
+func fileLinkCount(info os.FileInfo) uint64 {
+	id, err := platformStoreFileIdentity(info)
+	if err != nil {
+		return 0
+	}
+	return id.Links
+}
+
 func validateInitialRun(run domain.CompactionRun) error {
 	if run.Phase != domain.CompactionPlanned || run.SourcePath == "" || run.CandidatePath == "" || run.RollbackPath == "" || run.CreatedAt.IsZero() || run.UpdatedAt.IsZero() {
 		return errors.New("invalid initial compaction run")
@@ -186,11 +298,17 @@ func validateInitialRun(run domain.CompactionRun) error {
 	if run.UpdatedAt.Before(run.CreatedAt) {
 		return errors.New("initial timestamps are inconsistent")
 	}
+	if run.Operation != "" && (!run.Operation.Known() || run.ConsumerBinding == "") {
+		return errors.New("initial prepared upgrade binding is invalid")
+	}
+	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration && (run.PlanDigest == "" || run.SourceDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.PublishLockLimit <= 0 || run.Budget.PublishLockLimit > time.Second || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 || run.Budget.TemporaryByteLimit == 0) {
+		return errors.New("initial prepared migration plan or budget is invalid")
+	}
 	return nil
 }
 
 func validateRunAppend(previous, next domain.CompactionRun) error {
-	if previous.ID != next.ID || previous.SourcePath != next.SourcePath || previous.CandidatePath != next.CandidatePath || previous.RollbackPath != next.RollbackPath || previous.SourceIdentity != next.SourceIdentity || previous.Resources != next.Resources || !previous.CreatedAt.Equal(next.CreatedAt) {
+	if previous.ID != next.ID || previous.SourcePath != next.SourcePath || previous.CandidatePath != next.CandidatePath || previous.RollbackPath != next.RollbackPath || previous.SourceIdentity != next.SourceIdentity || previous.SourceDigest != next.SourceDigest || previous.Resources != next.Resources || previous.Operation != next.Operation || previous.ConsumerBinding != next.ConsumerBinding || previous.PlanDigest != next.PlanDigest || previous.Budget != next.Budget || !previous.CreatedAt.Equal(next.CreatedAt) {
 		return errors.New("immutable compaction run fields changed")
 	}
 	if next.UpdatedAt.Before(previous.UpdatedAt) {
@@ -204,6 +322,12 @@ func validateRunAppend(previous, next domain.CompactionRun) error {
 	}
 	if next.Phase == domain.CompactionCandidateVerified && !next.Candidate.SameInode(next.PreparedCandidateIdentity) {
 		return errors.New("verified candidate differs from prepared inode")
+	}
+	if previous.Evidence != (domain.PreparedCandidateEvidence{}) && previous.Evidence != next.Evidence {
+		return errors.New("candidate evidence changed after verification")
+	}
+	if previous.Evidence == (domain.PreparedCandidateEvidence{}) && next.Evidence != (domain.PreparedCandidateEvidence{}) && next.Phase != domain.CompactionCandidateVerified {
+		return errors.New("candidate evidence appeared outside verification")
 	}
 	if next.Phase == domain.CompactionCandidatePrepared && (previous.Phase == domain.CompactionCopyIntent || previous.Phase == domain.CompactionCopyRetryIntent) {
 		if next.PreparedCandidateIdentity == (domain.StoreFileIdentity{}) || next.PreparedCandidateIdentity.Size != 0 || next.PreparedAttempt != previous.PreparedAttempt+1 {
@@ -230,10 +354,13 @@ func writeJournalRecord(w io.Writer, run domain.CompactionRun) error {
 	return err
 }
 
-// StoreReplacementFiles implements fenced, same-directory replacement.
-type StoreReplacementFiles struct{ recoveryHook func(string) error }
+// PreparedStoreUpgradeFiles implements fenced, same-directory replacement.
+type PreparedStoreUpgradeFiles struct{ recoveryHook func(string) error }
 
-func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+// StoreReplacementFiles preserves the legacy compaction composition surface.
+type StoreReplacementFiles = PreparedStoreUpgradeFiles
+
+func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
 	if err := ctx.Err(); err != nil {
 		return run, err
 	}
@@ -259,7 +386,14 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 	if err != nil {
 		return run, err
 	}
-	required, margin, err := compactionRequiredBytes(id.Size, 0)
+	temporary := uint64(0)
+	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
+		if ^uint64(0)-run.Budget.WALByteLimit < run.Budget.TemporaryByteLimit {
+			return run, errors.New("prepared upgrade resource size overflow")
+		}
+		temporary = run.Budget.WALByteLimit + run.Budget.TemporaryByteLimit
+	}
+	required, margin, err := compactionRequiredBytes(id.Size, temporary)
 	if err != nil {
 		return run, err
 	}
@@ -267,9 +401,14 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 		return run, fmt.Errorf("insufficient free space: need %d bytes, have %d", required, available)
 	}
 	run.SourceIdentity = id
+	digest, err := fileDigest(run.SourcePath)
+	if err != nil {
+		return run, errors.New("cannot digest prepared upgrade source")
+	}
+	run.SourceDigest = digest
 	exchangeCapability := probeReplacementCapabilities(filepath.Dir(run.SourcePath)) == nil
 	leaseCapability := probeStoreLeaseCapability(ctx, run.SourcePath) == nil
-	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: 0, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
+	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: temporary, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
 	if !run.Resources.ExchangeCapability {
 		return run, errors.New("atomic exchange capability unavailable")
 	}
@@ -279,7 +418,7 @@ func (StoreReplacementFiles) Plan(ctx context.Context, run domain.CompactionRun)
 	return run, nil
 }
 
-func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionRun) error {
+func (PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -296,6 +435,10 @@ func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionR
 	if current != run.SourceIdentity {
 		return errors.New("source identity drift after plan")
 	}
+	digest, err := fileDigest(run.SourcePath)
+	if err != nil || digest != run.SourceDigest {
+		return errors.New("prepared upgrade source content changed")
+	}
 	available, err := availableBytes(filepath.Dir(run.SourcePath))
 	if err != nil {
 		return err
@@ -309,14 +452,46 @@ func (StoreReplacementFiles) Recheck(ctx context.Context, run domain.CompactionR
 	return rejectSQLiteSidecars(run.SourcePath)
 }
 
-func (f StoreReplacementFiles) PrepareCandidate(ctx context.Context, run domain.CompactionRun) (domain.StoreFileIdentity, error) {
+// RecheckForPublish performs only constant-count identity/link/sidecar checks.
+// It deliberately does not hash, open SQLite, inspect free space, or copy data
+// while the adjacent exclusive lease is held.
+func (PreparedStoreUpgradeFiles) RecheckForPublish(ctx context.Context, run domain.PreparedStoreUpgradeRun) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for _, path := range []string{run.SourcePath, run.CandidatePath} {
+		if err := validateStoreLinkIdentity(path); err != nil {
+			return err
+		}
+		if err := rejectSQLiteSidecars(path); err != nil {
+			return err
+		}
+	}
+	source, err := inspectRegularFile(run.SourcePath)
+	if err != nil {
+		return err
+	}
+	candidate, err := inspectRegularFile(run.CandidatePath)
+	if err != nil {
+		return err
+	}
+	if source != run.SourceIdentity || candidate != run.Candidate || !candidate.SameInode(run.PreparedCandidateIdentity) {
+		return errors.New("prepared upgrade publication identity fence changed")
+	}
+	if _, exists, err := inspectOptionalRegularFile(run.RollbackPath); err != nil || exists {
+		return errors.New("prepared upgrade rollback destination is not empty")
+	}
+	return nil
+}
+
+func (f PreparedStoreUpgradeFiles) PrepareCandidate(ctx context.Context, run domain.CompactionRun) (domain.StoreFileIdentity, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.StoreFileIdentity{}, err
 	}
 	if run.Phase != domain.CompactionCopyIntent && run.Phase != domain.CompactionCopyRetryIntent {
 		return domain.StoreFileIdentity{}, errors.New("candidate prepare requires copy intent")
 	}
-	if run.CandidatePath != run.SourcePath+".compact-"+run.ID {
+	if run.CandidatePath != ownedCandidatePath(run) {
 		return domain.StoreFileIdentity{}, errors.New("candidate path is not owned by run")
 	}
 	if f.recoveryHook != nil {
@@ -365,14 +540,14 @@ func (f StoreReplacementFiles) PrepareCandidate(ctx context.Context, run domain.
 	return identity, nil
 }
 
-func (f StoreReplacementFiles) RemoveOwnedPartialCandidate(ctx context.Context, run domain.CompactionRun, observation domain.CompactionObservation) error {
+func (f PreparedStoreUpgradeFiles) RemoveOwnedPartialCandidate(ctx context.Context, run domain.CompactionRun, observation domain.CompactionObservation) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if run.Phase != domain.CompactionCandidatePrepared || observation.Orientation != domain.OrientationCandidateReady || observation.CandidateCondition != domain.CandidateConditionOwnedIncomplete {
+	if (run.Phase != domain.CompactionCandidatePrepared && run.Phase != domain.CompactionCopyRetryIntent) || observation.Orientation != domain.OrientationCandidateReady || (run.Phase == domain.CompactionCandidatePrepared && observation.CandidateCondition != domain.CandidateConditionOwnedIncomplete) {
 		return errors.New("partial candidate cleanup is not aggregate-authorized")
 	}
-	if run.CandidatePath != run.SourcePath+".compact-"+run.ID {
+	if run.CandidatePath != ownedCandidatePath(run) {
 		return errors.New("candidate path is not owned by run")
 	}
 	if observation.RollbackExists {
@@ -411,6 +586,13 @@ func (f StoreReplacementFiles) RemoveOwnedPartialCandidate(ctx context.Context, 
 		}
 	}
 	return nil
+}
+
+func ownedCandidatePath(run domain.PreparedStoreUpgradeRun) string {
+	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
+		return run.SourcePath + ".prepare-" + run.ID
+	}
+	return run.SourcePath + ".compact-" + run.ID
 }
 
 func compactionRequiredBytes(destination int64, temporary uint64) (uint64, uint64, error) {
@@ -471,7 +653,7 @@ func probeReplacementCapabilities(dir string) (err error) {
 }
 
 // FenceCandidate captures the verified candidate identity before swap intent.
-func (StoreReplacementFiles) FenceCandidate(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+func (PreparedStoreUpgradeFiles) FenceCandidate(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
 	if err := ctx.Err(); err != nil {
 		return run, err
 	}
@@ -497,7 +679,7 @@ func (StoreReplacementFiles) FenceCandidate(ctx context.Context, run domain.Comp
 	return run, nil
 }
 
-func (f StoreReplacementFiles) Exchange(ctx context.Context, run domain.CompactionRun) error {
+func (f PreparedStoreUpgradeFiles) Exchange(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -515,7 +697,7 @@ func (f StoreReplacementFiles) Exchange(ctx context.Context, run domain.Compacti
 		return err
 	}
 	if run.Phase == domain.CompactionRollbackSwapIntent {
-		if current != run.Candidate {
+		if !samePublishedFile(current, run.Candidate) {
 			return errors.New("compacted source identity fence changed")
 		}
 	} else if current != run.SourceIdentity {
@@ -573,7 +755,7 @@ func (f StoreReplacementFiles) Exchange(ctx context.Context, run domain.Compacti
 	return nil
 }
 
-func (f StoreReplacementFiles) PublishRollback(ctx context.Context, run domain.CompactionRun) error {
+func (f PreparedStoreUpgradeFiles) PublishRollback(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -615,7 +797,7 @@ func (f StoreReplacementFiles) PublishRollback(ctx context.Context, run domain.C
 	return nil
 }
 
-func (StoreReplacementFiles) Observe(_ context.Context, run domain.CompactionRun) (domain.CompactionObservation, error) {
+func (PreparedStoreUpgradeFiles) Observe(_ context.Context, run domain.CompactionRun) (domain.CompactionObservation, error) {
 	source, err := inspectRegularFile(run.SourcePath)
 	if err != nil {
 		return domain.CompactionObservation{}, err
@@ -655,11 +837,11 @@ func (StoreReplacementFiles) Observe(_ context.Context, run domain.CompactionRun
 			return obs, errors.New("candidate-ready identity conflicts with journal fence")
 		}
 		obs.Orientation = domain.OrientationCandidateReady
-	case run.Candidate != (domain.StoreFileIdentity{}) && source == run.Candidate && candidateExists && candidate == run.SourceIdentity && !rollbackExists:
+	case run.Candidate != (domain.StoreFileIdentity{}) && samePublishedFile(source, run.Candidate) && candidateExists && candidate == run.SourceIdentity && !rollbackExists:
 		obs.Orientation = domain.OrientationSwapped
-	case run.Candidate != (domain.StoreFileIdentity{}) && source == run.Candidate && !candidateExists && rollbackExists && rollback == run.SourceIdentity:
+	case run.Candidate != (domain.StoreFileIdentity{}) && samePublishedFile(source, run.Candidate) && !candidateExists && rollbackExists && rollback == run.SourceIdentity:
 		obs.Orientation = domain.OrientationRollbackReady
-	case source == run.SourceIdentity && !candidateExists && rollbackExists && rollback == run.Candidate:
+	case source == run.SourceIdentity && !candidateExists && rollbackExists && samePublishedFile(rollback, run.Candidate):
 		obs.Orientation = domain.OrientationRolledBack
 	default:
 		return obs, errors.New("unknown compaction file orientation")
@@ -667,7 +849,13 @@ func (StoreReplacementFiles) Observe(_ context.Context, run domain.CompactionRun
 	return obs, nil
 }
 
-func (f StoreReplacementFiles) SyncRecoveredOrientation(ctx context.Context, run domain.CompactionRun, observation domain.CompactionObservation) error {
+// samePublishedFile accepts expected content mutation after publication while
+// preserving the immutable object, mode, and link-count fence.
+func samePublishedFile(current, published domain.StoreFileIdentity) bool {
+	return current.SameInode(published) && current.Mode == published.Mode && current.Links == published.Links
+}
+
+func (f PreparedStoreUpgradeFiles) SyncRecoveredOrientation(ctx context.Context, run domain.CompactionRun, observation domain.CompactionObservation) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

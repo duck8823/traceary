@@ -1,0 +1,110 @@
+package application
+
+import (
+	"context"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain"
+)
+
+// RehearsalPreparationPlan is the body-free preparation decision.
+type RehearsalPreparationPlan struct {
+	Required           bool
+	MigrationSetDigest string
+}
+
+// RehearsalPreparedTarget binds the published target to its durable rollback run.
+type RehearsalPreparedTarget struct{ Receipt PreparedStoreUpgradeReceipt }
+
+// RehearsalRollbackResult identifies a completed physical rollback.
+type RehearsalRollbackResult struct {
+	RunID      string
+	RolledBack bool
+}
+
+// RehearsalTargetPreparation bridges copied-store rehearsal to prepared publication.
+type RehearsalTargetPreparation interface {
+	Preview(context.Context, apptypes.PayloadRehearsalConfig) (RehearsalPreparationPlan, error)
+	EnsurePrepared(context.Context, apptypes.PayloadRehearsalConfig) (RehearsalPreparedTarget, error)
+	RollbackPrepared(context.Context, apptypes.PayloadRehearsalConfig) (RehearsalRollbackResult, error)
+}
+
+// PreparedStoreUpgradeCommand starts one operation selected from the fixed
+// composition-time recipe registry.
+type PreparedStoreUpgradeCommand struct {
+	Operation       domain.PreparedStoreUpgradeOperation
+	TargetPath      string
+	ConsumerBinding string
+	Budget          domain.PreparedStoreUpgradeBudget
+}
+
+// PreparedCandidateRequest contains only durable, recipe-safe values.
+type PreparedCandidateRequest struct {
+	Run domain.PreparedStoreUpgradeRun
+}
+
+// PreparedCandidateInspection identifies an owned candidate without exposing
+// an open SQLite handle through the application boundary.
+type PreparedCandidateInspection struct {
+	Run         domain.PreparedStoreUpgradeRun
+	Observation domain.PreparedStoreUpgradeObservation
+}
+
+// PreparedCandidateRecipe owns candidate contents and logical verification.
+type PreparedCandidateRecipe interface {
+	Plan(context.Context, PreparedCandidateRequest) (string, error)
+	Build(context.Context, PreparedCandidateRequest) error
+	ClassifyOwnedCandidate(context.Context, PreparedCandidateInspection) (domain.CandidateCondition, error)
+	Sync(context.Context, PreparedCandidateRequest) error
+	Verify(context.Context, PreparedCandidateRequest) (domain.PreparedCandidateEvidence, error)
+}
+
+// PreparedStoreUpgradeJournal persists bounded protocol records outside every
+// SQLite inode participating in exchange.
+type PreparedStoreUpgradeJournal interface {
+	Create(context.Context, domain.PreparedStoreUpgradeRun) error
+	Load(context.Context, string) (domain.PreparedStoreUpgradeRun, error)
+	FindActive(context.Context, domain.PreparedStoreUpgradeOperation, string, string) (domain.PreparedStoreUpgradeRun, error)
+	Append(context.Context, domain.PreparedStoreUpgradeRun) error
+}
+
+// PreparedStoreUpgradeFiles is the single physical orientation implementation
+// shared with compaction.
+type PreparedStoreUpgradeFiles interface {
+	Plan(context.Context, domain.PreparedStoreUpgradeRun) (domain.PreparedStoreUpgradeRun, error)
+	PrepareCandidate(context.Context, domain.PreparedStoreUpgradeRun) (domain.StoreFileIdentity, error)
+	RemoveOwnedPartialCandidate(context.Context, domain.PreparedStoreUpgradeRun, domain.PreparedStoreUpgradeObservation) error
+	Recheck(context.Context, domain.PreparedStoreUpgradeRun) error
+	RecheckForPublish(context.Context, domain.PreparedStoreUpgradeRun) error
+	FenceCandidate(context.Context, domain.PreparedStoreUpgradeRun) (domain.PreparedStoreUpgradeRun, error)
+	Exchange(context.Context, domain.PreparedStoreUpgradeRun) error
+	PublishRollback(context.Context, domain.PreparedStoreUpgradeRun) error
+	Observe(context.Context, domain.PreparedStoreUpgradeRun) (domain.PreparedStoreUpgradeObservation, error)
+	SyncRecoveredOrientation(context.Context, domain.PreparedStoreUpgradeRun, domain.PreparedStoreUpgradeObservation) error
+}
+
+// PreparedStoreUpgradeLease excludes cooperating SQLite connections only for
+// publication or physical recovery.
+type PreparedStoreUpgradeLease interface {
+	AcquireExclusive(context.Context, string) (func(), error)
+}
+
+// PreparedStoreUpgradeReceipt binds a published inode to body-free evidence.
+type PreparedStoreUpgradeReceipt struct {
+	RunID               string
+	Operation           domain.PreparedStoreUpgradeOperation
+	ConsumerBinding     string
+	TargetIdentity      domain.StoreFileIdentity
+	RollbackIdentity    domain.StoreFileIdentity
+	Evidence            domain.PreparedCandidateEvidence
+	PublishMilliseconds int64
+}
+
+// PreparedStoreUpgradeUsecase provides the staged maintenance protocol.
+type PreparedStoreUpgradeUsecase interface {
+	Plan(context.Context, PreparedStoreUpgradeCommand) (domain.PreparedStoreUpgradeRun, error)
+	Prepare(context.Context, string) (domain.PreparedStoreUpgradeRun, error)
+	Publish(context.Context, string) (PreparedStoreUpgradeReceipt, error)
+	Resume(context.Context, string) (PreparedStoreUpgradeReceipt, error)
+	Rollback(context.Context, string) (domain.PreparedStoreUpgradeRun, error)
+}

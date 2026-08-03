@@ -13,34 +13,6 @@ import (
 	"time"
 )
 
-type rehearsalMigrationIdentity struct {
-	digest, schema                string
-	pageSize, pageCount, freelist int64
-}
-
-//nolint:wrapcheck // internal preflight errors are classified at the Run boundary.
-func inspectRehearsalMigrationIdentity(ctx context.Context, db *sql.DB, path string) (rehearsalMigrationIdentity, error) {
-	digest, err := fileDigest(path)
-	if err != nil {
-		return rehearsalMigrationIdentity{}, err
-	}
-	schema, err := rehearsalSchemaFingerprint(ctx, db)
-	if err != nil {
-		return rehearsalMigrationIdentity{}, err
-	}
-	result := rehearsalMigrationIdentity{digest: digest, schema: schema}
-	if err = db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&result.pageSize); err != nil {
-		return rehearsalMigrationIdentity{}, err
-	}
-	if err = db.QueryRowContext(ctx, `PRAGMA page_count`).Scan(&result.pageCount); err != nil {
-		return rehearsalMigrationIdentity{}, err
-	}
-	if err = db.QueryRowContext(ctx, `PRAGMA freelist_count`).Scan(&result.freelist); err != nil {
-		return rehearsalMigrationIdentity{}, err
-	}
-	return result, nil
-}
-
 //nolint:wrapcheck // internal clone errors are classified at the Run boundary.
 func exactFileClone(source, destination string) error {
 	in, err := os.Open(source)

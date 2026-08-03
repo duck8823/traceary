@@ -3,10 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"io/fs"
 	"log/slog"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -24,62 +22,21 @@ func (d *Database) migrate(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("failed to load applied migrations: %w", err)
 	}
 
-	migrationPaths, err := fs.Glob(d.migrations, "*.sql")
+	migrations, err := inventoryEmbeddedMigrations(d.migrations)
 	if err != nil {
-		return xerrors.Errorf("failed to list migration files: %w", err)
+		return xerrors.Errorf("failed to inventory exact migration catalog: %w", err)
 	}
-	if len(migrationPaths) == 0 {
-		return xerrors.Errorf("no migration files found")
-	}
-
-	migrations := make([]migrationFile, 0, len(migrationPaths))
-	seenVersions := make(map[int64]struct{}, len(migrationPaths))
-	for _, migrationPath := range migrationPaths {
-		version, err := parseMigrationVersion(migrationPath)
-		if err != nil {
-			return xerrors.Errorf("failed to parse migration version: %w", err)
-		}
-		if _, exists := seenVersions[version]; exists {
-			return xerrors.Errorf("duplicate migration version: %d", version)
-		}
-		seenVersions[version] = struct{}{}
-		migrations = append(migrations, migrationFile{
-			path:    migrationPath,
-			version: version,
-		})
-	}
-
-	sort.Slice(migrations, func(i int, j int) bool {
-		return migrations[i].version < migrations[j].version
-	})
 
 	for _, migration := range migrations {
 		if _, exists := appliedVersions[migration.version]; exists {
 			continue
 		}
-
-		migrationSQL, err := fs.ReadFile(d.migrations, migration.path)
-		if err != nil {
-			return xerrors.Errorf("failed to read migration file: %w", err)
-		}
-
-		if err := applyMigration(
-			ctx,
-			db,
-			migration.version,
-			filepath.Base(migration.path),
-			string(migrationSQL),
-		); err != nil {
+		if err := executeExactMigration(ctx, db, migration); err != nil {
 			return xerrors.Errorf("failed to apply migration: %w", err)
 		}
 	}
 
 	return nil
-}
-
-type migrationFile struct {
-	path    string
-	version int64
 }
 
 func ensureSchemaMigrationsTable(ctx context.Context, db *sql.DB) error {
