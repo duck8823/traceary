@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/duck8823/traceary/application"
@@ -50,7 +51,7 @@ func (r *PreparedMigrationCandidateRecipe) Plan(ctx context.Context, request app
 //nolint:wrapcheck // low-level I/O failures are classified by the upgrade use case.
 func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request application.PreparedCandidateRequest) error {
 	run := request.Run
-	if run.PlanDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 {
+	if run.PlanDigest == "" || run.SourceDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 || run.Budget.TemporaryByteLimit == 0 {
 		return errors.New("invalid prepared migration build budget")
 	}
 	buildCtx, cancel := context.WithTimeout(ctx, run.Budget.WallTimeLimit)
@@ -72,7 +73,7 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 	if plan.Digest != run.PlanDigest || !plan.Offline {
 		return errors.New("prepared migration plan changed after clone")
 	}
-	if _, err = db.ExecContext(buildCtx, `PRAGMA wal_autocheckpoint=0`); err != nil {
+	if _, err = db.ExecContext(buildCtx, `PRAGMA wal_autocheckpoint=0; PRAGMA synchronous=FULL; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-2048`); err != nil {
 		return err
 	}
 	var mode string
@@ -82,7 +83,27 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 	monitorCtx, stopMonitor := context.WithCancel(buildCtx)
 	defer stopMonitor()
 	monitorErr := make(chan error, 1)
-	var peakOwned, peakWAL uint64
+	var peakOwned, peakWAL atomic.Uint64
+	recordPeak := func(value uint64, peak *atomic.Uint64) {
+		for {
+			old := peak.Load()
+			if value <= old || peak.CompareAndSwap(old, value) {
+				return
+			}
+		}
+	}
+	measure := func() error {
+		owned, wal, e := preparedOwnedBytes(run.CandidatePath)
+		if e != nil {
+			return e
+		}
+		recordPeak(owned, &peakOwned)
+		recordPeak(wal, &peakWAL)
+		if owned > run.Budget.OwnedDiskByteLimit || wal > run.Budget.WALByteLimit {
+			return errors.New("prepared migration resource cap exceeded")
+		}
+		return nil
+	}
 	go func() {
 		ticker := time.NewTicker(25 * time.Millisecond)
 		defer ticker.Stop()
@@ -92,21 +113,9 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 				monitorErr <- nil
 				return
 			case <-ticker.C:
-				owned, wal, e := preparedOwnedBytes(run.CandidatePath)
-				if e != nil {
+				if e := measure(); e != nil {
 					cancel()
 					monitorErr <- e
-					return
-				}
-				if owned > peakOwned {
-					peakOwned = owned
-				}
-				if wal > peakWAL {
-					peakWAL = wal
-				}
-				if owned > run.Budget.OwnedDiskByteLimit || wal > run.Budget.WALByteLimit {
-					cancel()
-					monitorErr <- errors.New("prepared migration resource cap exceeded")
 					return
 				}
 			}
@@ -117,6 +126,11 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 			stopMonitor()
 			<-monitorErr
 			return fmt.Errorf("apply prepared migration %d: %w", migration.Version, err)
+		}
+		if err = measure(); err != nil {
+			stopMonitor()
+			<-monitorErr
+			return err
 		}
 	}
 	if _, err = db.ExecContext(buildCtx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
@@ -137,12 +151,8 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 	if err != nil {
 		return err
 	}
-	if owned > peakOwned {
-		peakOwned = owned
-	}
-	if wal > peakWAL {
-		peakWAL = wal
-	}
+	recordPeak(owned, &peakOwned)
+	recordPeak(wal, &peakWAL)
 	if owned > run.Budget.OwnedDiskByteLimit || wal > run.Budget.WALByteLimit {
 		return errors.New("prepared migration resource cap exceeded at close")
 	}
@@ -150,7 +160,7 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 	if r.metrics == nil {
 		r.metrics = map[string]preparedMigrationMetrics{}
 	}
-	r.metrics[run.ID] = preparedMigrationMetrics{peakOwned: peakOwned, peakWAL: peakWAL, elapsed: time.Since(started)}
+	r.metrics[run.ID] = preparedMigrationMetrics{peakOwned: peakOwned.Load(), peakWAL: peakWAL.Load(), elapsed: time.Since(started)}
 	r.mu.Unlock()
 	return nil
 }
@@ -218,6 +228,9 @@ func (r *PreparedMigrationCandidateRecipe) Verify(ctx context.Context, request a
 	evidence, err := r.Verifier.VerifyPair(ctx, request.Run.SourcePath, request.Run.CandidatePath, request.Run.PlanDigest)
 	if err != nil {
 		return evidence, err
+	}
+	if evidence.SourceDigest != request.Run.SourceDigest {
+		return domain.PreparedCandidateEvidence{}, errors.New("prepared migration source digest changed")
 	}
 	r.mu.Lock()
 	metrics, ok := r.metrics[request.Run.ID]

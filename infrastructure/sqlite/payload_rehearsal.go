@@ -19,11 +19,13 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain"
 )
 
 // Exported sentinel errors are stable safety classifications for CLI/tests.
 var (
 	ErrUnsafeRehearsalTarget      = errors.New("payload rehearsal target is not an independent regular copy")
+	ErrPreparedMigrationPublish   = errors.New("payload rehearsal prepared migration publication failed")
 	ErrDryRunMutation             = errors.New("payload rehearsal preview changed a database component")
 	ErrRehearsalNeedsCleanDB      = errors.New("payload rehearsal requires a checkpointed copy without WAL or SHM sidecars")
 	ErrRehearsalMigrationRequired = errors.New("payload rehearsal bookkeeping migration is required on the copied target")
@@ -354,8 +356,13 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 		}
 		migrationRequired = preparationPlan.Required
 		if preparationPlan.Required {
-			if _, preparationErr = a.targetPreparation.EnsurePrepared(ctx, c); preparationErr != nil {
-				return nil, apptypes.PayloadRehearsalMetrics{}, preparationErr
+			preparedTarget, preparationErr := a.targetPreparation.EnsurePrepared(ctx, c)
+			if preparationErr != nil {
+				return nil, apptypes.PayloadRehearsalMetrics{}, ErrPreparedMigrationPublish
+			}
+			published, identityErr := inspectRegularFile(c.TargetPath)
+			if identityErr != nil || preparedTarget.Receipt.Operation != domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration || !published.SameInode(preparedTarget.Receipt.TargetIdentity) {
+				return nil, apptypes.PayloadRehearsalMetrics{}, ErrPreparedMigrationPublish
 			}
 			id, err = a.inspectTarget(c.TargetPath, c.LivePath)
 			if err != nil {

@@ -77,6 +77,7 @@ type PreparedStoreUpgradeBudget struct {
 	PublishLockLimit   time.Duration `json:"publish_lock_limit"`
 	OwnedDiskByteLimit uint64        `json:"owned_disk_byte_limit"`
 	WALByteLimit       uint64        `json:"wal_byte_limit"`
+	TemporaryByteLimit uint64        `json:"temporary_byte_limit,omitempty"`
 	SafetyMarginBytes  uint64        `json:"safety_margin_bytes"`
 }
 
@@ -89,6 +90,8 @@ type CanonicalEventAuditEvidence struct {
 
 // PreparedCandidateEvidence authorizes publication after immutable verification.
 type PreparedCandidateEvidence struct {
+	SourceDigest       string                      `json:"source_digest,omitempty"`
+	CandidateDigest    string                      `json:"candidate_digest,omitempty"`
 	MigrationSetDigest string                      `json:"migration_set_digest"`
 	SchemaDigest       string                      `json:"schema_digest"`
 	Canonical          CanonicalEventAuditEvidence `json:"canonical"`
@@ -273,6 +276,7 @@ type PreparedStoreUpgradeRun struct {
 	Operation                 PreparedStoreUpgradeOperation    `json:"operation,omitempty"`
 	ConsumerBinding           string                           `json:"consumer_binding,omitempty"`
 	PlanDigest                string                           `json:"plan_digest,omitempty"`
+	SourceDigest              string                           `json:"source_digest,omitempty"`
 	Budget                    PreparedStoreUpgradeBudget       `json:"budget,omitempty"`
 	Evidence                  PreparedCandidateEvidence        `json:"evidence,omitempty"`
 	CreatedAt                 time.Time                        `json:"created_at"`

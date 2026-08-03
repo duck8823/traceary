@@ -154,7 +154,7 @@ func run() error {
 		return xerrors.Errorf("configure payload rehearsal: %w", err)
 	}
 	preparedJournal := func(path string) application.PreparedStoreUpgradeJournal {
-		return &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-compaction")}
+		return &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-prepared-upgrades")}
 	}
 	if err = payloadRehearsalAdapter.SetTargetPreparation(sqlite.PayloadRehearsalPreparation{
 		Migrations: migrationsSubFS,

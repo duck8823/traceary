@@ -18,6 +18,14 @@ type PreparedMigrationVerifier struct{ Migrations fs.FS }
 // canonical event/audit equivalence. Schema equality is intentionally not
 // required because the candidate is expected to be newer.
 func (v PreparedMigrationVerifier) VerifyPair(ctx context.Context, source, candidate, planDigest string) (domain.PreparedCandidateEvidence, error) {
+	sourceDigest, err := fileDigest(source)
+	if err != nil {
+		return domain.PreparedCandidateEvidence{}, errors.New("cannot digest prepared migration source")
+	}
+	candidateDigest, err := fileDigest(candidate)
+	if err != nil {
+		return domain.PreparedCandidateEvidence{}, errors.New("cannot digest prepared migration candidate")
+	}
 	sourceDB, err := openDirectReadOnly(ctx, source)
 	if err != nil {
 		return domain.PreparedCandidateEvidence{}, errors.New("open source for prepared verification")
@@ -60,7 +68,7 @@ func (v PreparedMigrationVerifier) VerifyPair(ctx context.Context, source, candi
 	if err != nil {
 		return domain.PreparedCandidateEvidence{}, err
 	}
-	return domain.PreparedCandidateEvidence{MigrationSetDigest: sourcePlan.Digest, SchemaDigest: schema, Canonical: candidateCanonical}, nil
+	return domain.PreparedCandidateEvidence{SourceDigest: sourceDigest, CandidateDigest: candidateDigest, MigrationSetDigest: sourcePlan.Digest, SchemaDigest: schema, Canonical: candidateCanonical}, nil
 }
 
 func verifyPreparedMigrationStore(ctx context.Context, db *sql.DB) error {

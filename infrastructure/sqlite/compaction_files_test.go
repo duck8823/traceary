@@ -28,6 +28,9 @@ func TestCompactionFileJournalRoundTripAndTransitionValidation(t *testing.T) {
 
 func TestCompactionFileJournalLoadsLegacyCopyRetryGolden(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	data, err := os.ReadFile("testdata/compaction-copy-retry-v1.jsonl")
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +96,8 @@ func preparedJournalRun(id string, now time.Time) domain.PreparedStoreUpgradeRun
 		Operation:       domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration,
 		ConsumerBinding: "binding",
 		PlanDigest:      strings.Repeat("a", 64),
-		Budget:          domain.PreparedStoreUpgradeBudget{WallTimeLimit: time.Minute, PublishLockLimit: time.Second, OwnedDiskByteLimit: 1 << 20, WALByteLimit: 1 << 19},
+		SourceDigest:    strings.Repeat("b", 64),
+		Budget:          domain.PreparedStoreUpgradeBudget{WallTimeLimit: time.Minute, PublishLockLimit: time.Second, OwnedDiskByteLimit: 1 << 20, WALByteLimit: 1 << 19, TemporaryByteLimit: 1 << 19},
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}

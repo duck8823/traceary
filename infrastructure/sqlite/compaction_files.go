@@ -52,9 +52,24 @@ func (j *PreparedStoreUpgradeFileJournal) Create(ctx context.Context, run domain
 	if err := os.MkdirAll(j.Dir, 0o700); err != nil {
 		return err
 	}
+	if err := os.Chmod(j.Dir, 0o700); err != nil {
+		return err
+	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
+		return err
+	}
 	f, err := openFileNoFollow(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create compaction journal: %w", err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	createdInfo, err := f.Stat()
+	if err != nil || !createdInfo.Mode().IsRegular() || createdInfo.Mode().Perm() != 0o600 || fileLinkCount(createdInfo) != 1 {
+		_ = f.Close()
+		return errors.New("invalid created compaction journal")
 	}
 	if err := writeJournalRecord(f, run); err != nil {
 		_ = f.Close()
@@ -78,6 +93,9 @@ func (j *PreparedStoreUpgradeFileJournal) Append(ctx context.Context, run domain
 	if err != nil {
 		return err
 	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
+		return err
+	}
 	previous, err := j.Load(ctx, run.ID)
 	if err != nil {
 		return fmt.Errorf("load journal before append: %w", err)
@@ -89,7 +107,7 @@ func (j *PreparedStoreUpgradeFileJournal) Append(ctx context.Context, run domain
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || fileLinkCount(info) != 1 {
 		return errors.New("compaction journal is not a regular file")
 	}
 	record, err := json.Marshal(run)
@@ -102,6 +120,11 @@ func (j *PreparedStoreUpgradeFileJournal) Append(ctx context.Context, run domain
 	f, err := openFileNoFollow(path, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return err
+	}
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) || opened.Mode().Perm() != 0o600 || fileLinkCount(opened) != 1 {
+		_ = f.Close()
+		return errors.New("compaction journal identity changed")
 	}
 	if _, err := f.Write(append(record, '\n')); err != nil {
 		_ = f.Close()
@@ -122,6 +145,9 @@ func (j *PreparedStoreUpgradeFileJournal) Load(ctx context.Context, id string) (
 	if err != nil {
 		return domain.CompactionRun{}, err
 	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
+		return domain.CompactionRun{}, err
+	}
 	f, err := openFileNoFollow(path, os.O_RDONLY, 0)
 	if err != nil {
 		return domain.CompactionRun{}, err
@@ -130,6 +156,9 @@ func (j *PreparedStoreUpgradeFileJournal) Load(ctx context.Context, id string) (
 	info, err := f.Stat()
 	if err != nil {
 		return domain.CompactionRun{}, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || fileLinkCount(info) != 1 {
+		return domain.CompactionRun{}, errors.New("invalid compaction journal permissions or links")
 	}
 	if info.Size() <= 0 || info.Size() > maxCompactionJournalBytes {
 		return domain.CompactionRun{}, errors.New("invalid compaction journal size")
@@ -194,6 +223,9 @@ func (j *PreparedStoreUpgradeFileJournal) FindActive(ctx context.Context, operat
 	if err != nil {
 		return domain.PreparedStoreUpgradeRun{}, err
 	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
+		return domain.PreparedStoreUpgradeRun{}, err
+	}
 	if len(entries) > maxActiveUpgradeJournals {
 		return domain.PreparedStoreUpgradeRun{}, errors.New("prepared upgrade journal entry limit exceeded")
 	}
@@ -208,7 +240,7 @@ func (j *PreparedStoreUpgradeFileJournal) FindActive(ctx context.Context, operat
 			return domain.PreparedStoreUpgradeRun{}, errors.New("invalid prepared upgrade journal entry")
 		}
 		info, infoErr := entry.Info()
-		if infoErr != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxCompactionJournalBytes {
+		if infoErr != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || fileLinkCount(info) != 1 || info.Size() <= 0 || info.Size() > maxCompactionJournalBytes {
 			return domain.PreparedStoreUpgradeRun{}, errors.New("invalid prepared upgrade journal file")
 		}
 		id := strings.TrimSuffix(name, ".jsonl")
@@ -230,6 +262,25 @@ func (j *PreparedStoreUpgradeFileJournal) FindActive(ctx context.Context, operat
 	return match, nil
 }
 
+func validateJournalDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 || fileLinkCount(info) < 1 {
+		return errors.New("invalid prepared upgrade journal directory")
+	}
+	return nil
+}
+
+func fileLinkCount(info os.FileInfo) uint64 {
+	id, err := platformStoreFileIdentity(info)
+	if err != nil {
+		return 0
+	}
+	return id.Links
+}
+
 func validateInitialRun(run domain.CompactionRun) error {
 	if run.Phase != domain.CompactionPlanned || run.SourcePath == "" || run.CandidatePath == "" || run.RollbackPath == "" || run.CreatedAt.IsZero() || run.UpdatedAt.IsZero() {
 		return errors.New("invalid initial compaction run")
@@ -249,14 +300,14 @@ func validateInitialRun(run domain.CompactionRun) error {
 	if run.Operation != "" && (!run.Operation.Known() || run.ConsumerBinding == "") {
 		return errors.New("initial prepared upgrade binding is invalid")
 	}
-	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration && (run.PlanDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.PublishLockLimit <= 0 || run.Budget.PublishLockLimit > time.Second || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0) {
+	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration && (run.PlanDigest == "" || run.SourceDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.PublishLockLimit <= 0 || run.Budget.PublishLockLimit > time.Second || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 || run.Budget.TemporaryByteLimit == 0) {
 		return errors.New("initial prepared migration plan or budget is invalid")
 	}
 	return nil
 }
 
 func validateRunAppend(previous, next domain.CompactionRun) error {
-	if previous.ID != next.ID || previous.SourcePath != next.SourcePath || previous.CandidatePath != next.CandidatePath || previous.RollbackPath != next.RollbackPath || previous.SourceIdentity != next.SourceIdentity || previous.Resources != next.Resources || previous.Operation != next.Operation || previous.ConsumerBinding != next.ConsumerBinding || previous.PlanDigest != next.PlanDigest || previous.Budget != next.Budget || !previous.CreatedAt.Equal(next.CreatedAt) {
+	if previous.ID != next.ID || previous.SourcePath != next.SourcePath || previous.CandidatePath != next.CandidatePath || previous.RollbackPath != next.RollbackPath || previous.SourceIdentity != next.SourceIdentity || previous.SourceDigest != next.SourceDigest || previous.Resources != next.Resources || previous.Operation != next.Operation || previous.ConsumerBinding != next.ConsumerBinding || previous.PlanDigest != next.PlanDigest || previous.Budget != next.Budget || !previous.CreatedAt.Equal(next.CreatedAt) {
 		return errors.New("immutable compaction run fields changed")
 	}
 	if next.UpdatedAt.Before(previous.UpdatedAt) {
@@ -342,6 +393,11 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 		return run, fmt.Errorf("insufficient free space: need %d bytes, have %d", required, available)
 	}
 	run.SourceIdentity = id
+	digest, err := fileDigest(run.SourcePath)
+	if err != nil {
+		return run, errors.New("cannot digest prepared upgrade source")
+	}
+	run.SourceDigest = digest
 	exchangeCapability := probeReplacementCapabilities(filepath.Dir(run.SourcePath)) == nil
 	leaseCapability := probeStoreLeaseCapability(ctx, run.SourcePath) == nil
 	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: 0, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
@@ -370,6 +426,10 @@ func (PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.Compact
 	}
 	if current != run.SourceIdentity {
 		return errors.New("source identity drift after plan")
+	}
+	digest, err := fileDigest(run.SourcePath)
+	if err != nil || digest != run.SourceDigest {
+		return errors.New("prepared upgrade source content changed")
 	}
 	available, err := availableBytes(filepath.Dir(run.SourcePath))
 	if err != nil {

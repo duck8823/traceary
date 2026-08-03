@@ -84,7 +84,7 @@ func (p PayloadRehearsalPreparation) EnsurePrepared(ctx context.Context, c appty
 	if err != nil {
 		return application.RehearsalPreparedTarget{}, err
 	}
-	budget := domain.PreparedStoreUpgradeBudget{WallTimeLimit: c.WallTimeLimit, PublishLockLimit: c.LockTimeLimit, OwnedDiskByteLimit: uint64(info.Size())*2 + uint64(c.MaxWALBytes), WALByteLimit: uint64(c.MaxWALBytes), SafetyMarginBytes: uint64(info.Size()) / 10}
+	budget := domain.PreparedStoreUpgradeBudget{WallTimeLimit: c.WallTimeLimit, PublishLockLimit: c.LockTimeLimit, OwnedDiskByteLimit: uint64(info.Size())*2 + uint64(c.MaxWALBytes), WALByteLimit: uint64(c.MaxWALBytes), TemporaryByteLimit: uint64(c.MaxWALBytes), SafetyMarginBytes: uint64(info.Size()) / 10}
 	run, err = service.Plan(ctx, application.PreparedStoreUpgradeCommand{Operation: domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, TargetPath: c.TargetPath, ConsumerBinding: binding, Budget: budget})
 	if err != nil {
 		return application.RehearsalPreparedTarget{}, err

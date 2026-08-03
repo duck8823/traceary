@@ -87,7 +87,7 @@ func TestPreparedMigrationPublishesAndRollsBackOwnedCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := service.Plan(context.Background(), application.PreparedStoreUpgradeCommand{Operation: domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, TargetPath: target, ConsumerBinding: "test-binding", Budget: domain.PreparedStoreUpgradeBudget{WallTimeLimit: time.Minute, PublishLockLimit: time.Second, OwnedDiskByteLimit: uint64(info.Size())*4 + 1<<30, WALByteLimit: 1 << 30, SafetyMarginBytes: 1 << 20}})
+	run, err := service.Plan(context.Background(), application.PreparedStoreUpgradeCommand{Operation: domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, TargetPath: target, ConsumerBinding: "test-binding", Budget: domain.PreparedStoreUpgradeBudget{WallTimeLimit: time.Minute, PublishLockLimit: time.Second, OwnedDiskByteLimit: uint64(info.Size())*4 + 1<<30, WALByteLimit: 1 << 30, TemporaryByteLimit: 1 << 30, SafetyMarginBytes: 1 << 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
