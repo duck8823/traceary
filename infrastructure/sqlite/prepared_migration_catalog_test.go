@@ -20,7 +20,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	plan, err := BuildPreparedMigrationPlan(ctx, db, preparedMigrations(t))
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestBuildPreparedMigrationPlanRejectsChangedManifestBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err = BuildPreparedMigrationPlan(ctx, db, changed); err == nil {
 		t.Fatal("plan accepted a migration body that does not match the reviewed manifest")
 	}

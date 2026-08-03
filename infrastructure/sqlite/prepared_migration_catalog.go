@@ -17,7 +17,9 @@ import (
 type MigrationExecutionClass string
 
 const (
-	MigrationConstantInPlace      MigrationExecutionClass = "constant_in_place"
+	// MigrationConstantInPlace identifies bounded data-independent installation.
+	MigrationConstantInPlace MigrationExecutionClass = "constant_in_place"
+	// MigrationDataDependentOffline requires preparation outside publication.
 	MigrationDataDependentOffline MigrationExecutionClass = "data_dependent_offline"
 )
 
@@ -70,7 +72,7 @@ type embeddedMigration struct {
 func inventoryEmbeddedMigrations(migrations fs.FS) ([]embeddedMigration, error) {
 	paths, err := fs.Glob(migrations, "*.sql")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list embedded migrations: %w", err)
 	}
 	if len(paths) == 0 {
 		return nil, errors.New("migration catalog is empty")
@@ -88,7 +90,7 @@ func inventoryEmbeddedMigrations(migrations fs.FS) ([]embeddedMigration, error) 
 		seen[version] = struct{}{}
 		body, readErr := fs.ReadFile(migrations, path)
 		if readErr != nil {
-			return nil, readErr
+			return nil, fmt.Errorf("read embedded migration: %w", readErr)
 		}
 		sum := sha256.Sum256(body)
 		result = append(result, embeddedMigration{version: version, name: filepath.Base(path), body: body, digest: hex.EncodeToString(sum[:])})
@@ -111,22 +113,22 @@ func BuildPreparedMigrationPlan(ctx context.Context, db *sql.DB, migrations fs.F
 	}
 	var tableExists int
 	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='schema_migrations')`).Scan(&tableExists); err != nil {
-		return PreparedMigrationPlan{}, err
+		return PreparedMigrationPlan{}, fmt.Errorf("inspect schema migration ledger: %w", err)
 	}
 	if tableExists == 0 {
 		return PreparedMigrationPlan{}, errors.New("prepared migration requires an applied schema prefix")
 	}
 	rows, err := db.QueryContext(ctx, `SELECT version,name FROM schema_migrations ORDER BY version`)
 	if err != nil {
-		return PreparedMigrationPlan{}, err
+		return PreparedMigrationPlan{}, fmt.Errorf("query schema migration ledger: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	applied := 0
 	for rows.Next() {
 		var version int64
 		var name string
 		if err = rows.Scan(&version, &name); err != nil {
-			return PreparedMigrationPlan{}, err
+			return PreparedMigrationPlan{}, fmt.Errorf("scan schema migration ledger: %w", err)
 		}
 		if applied >= len(catalog) || version != catalog[applied].version || name != catalog[applied].name {
 			return PreparedMigrationPlan{}, errors.New("schema migration ledger is not an exact catalog prefix")
@@ -134,7 +136,7 @@ func BuildPreparedMigrationPlan(ctx context.Context, db *sql.DB, migrations fs.F
 		applied++
 	}
 	if err = rows.Err(); err != nil {
-		return PreparedMigrationPlan{}, err
+		return PreparedMigrationPlan{}, fmt.Errorf("iterate schema migration ledger: %w", err)
 	}
 	current := int64(applied)
 	if current < 34 {

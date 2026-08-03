@@ -66,7 +66,7 @@ func TestCanonicalEventAuditDigestGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer immutable.Close()
+	defer func() { _ = immutable.Close() }()
 	evidence, err := CanonicalEventAuditDigest(ctx, immutable)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestCanonicalEventAuditDigestEmptyGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	evidence, err := CanonicalEventAuditDigest(ctx, db)
 	if err != nil {
 		t.Fatal(err)

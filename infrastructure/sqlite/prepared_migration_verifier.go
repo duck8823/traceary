@@ -22,12 +22,12 @@ func (v PreparedMigrationVerifier) VerifyPair(ctx context.Context, source, candi
 	if err != nil {
 		return domain.PreparedCandidateEvidence{}, errors.New("open source for prepared verification")
 	}
-	defer sourceDB.Close()
+	defer func() { _ = sourceDB.Close() }()
 	candidateDB, err := openDirectReadOnly(ctx, candidate)
 	if err != nil {
 		return domain.PreparedCandidateEvidence{}, errors.New("open candidate for prepared verification")
 	}
-	defer candidateDB.Close()
+	defer func() { _ = candidateDB.Close() }()
 	if err = verifyPreparedMigrationStore(ctx, sourceDB); err != nil {
 		return domain.PreparedCandidateEvidence{}, fmt.Errorf("source verification: %w", err)
 	}
@@ -73,14 +73,14 @@ func verifyPreparedMigrationStore(ctx context.Context, db *sql.DB) error {
 	}
 	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
-		return err
+		return fmt.Errorf("run SQLite foreign key check: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	if rows.Next() {
 		return errors.New("SQLite foreign key check failed")
 	}
 	if err = rows.Err(); err != nil {
-		return err
+		return fmt.Errorf("iterate SQLite foreign key check: %w", err)
 	}
 	return scrubPayloadCodecs(ctx, db)
 }

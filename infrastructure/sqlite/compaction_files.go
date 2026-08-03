@@ -21,6 +21,10 @@ const (
 	maxActiveUpgradeJournals  = 1024
 )
 
+// ErrPreparedUpgradeUnsupported is the stable fail-closed classification used
+// when the platform cannot prove atomic exchange/lease/identity semantics.
+var ErrPreparedUpgradeUnsupported = errors.New("prepared store upgrade is unsupported on this platform")
+
 // PreparedStoreUpgradeFileJournal is the shared append-only, capped protocol journal.
 type PreparedStoreUpgradeFileJournal struct{ Dir string }
 

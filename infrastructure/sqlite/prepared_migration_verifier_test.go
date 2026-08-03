@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalCodecEquivalence(
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertCanonicalVerifierFixture(t, ctx, writeDB)
+	insertCanonicalVerifierFixture(ctx, t, writeDB)
 	if err = writeDB.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalCodecEquivalence(
 	}
 }
 
-func insertCanonicalVerifierFixture(t *testing.T, ctx context.Context, db *sql.DB) {
+func insertCanonicalVerifierFixture(ctx context.Context, t *testing.T, db *sql.DB) {
 	t.Helper()
 	if _, err := db.ExecContext(ctx, `INSERT INTO events(
 		id,kind,agent,session_id,body,created_at,client,workspace,source_hook,
@@ -105,7 +106,7 @@ func copyFileExactForVerifier(source, destination string) error {
 		return err
 	}
 	if err = out.Close(); err != nil {
-		return err
+		return fmt.Errorf("close verifier candidate: %w", err)
 	}
 	return exactFileClone(source, destination)
 }

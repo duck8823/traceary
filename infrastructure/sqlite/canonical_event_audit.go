@@ -144,9 +144,9 @@ func canonicalEvents(ctx context.Context, db *sql.DB, hasCodec bool) (canonicalA
 	}
 	rows, err := db.QueryContext(ctx, `SELECT `+joinQuotedIdentifiers(columns)+` FROM events ORDER BY id COLLATE BINARY`)
 	if err != nil {
-		return canonicalAccumulator{}, err
+		return canonicalAccumulator{}, fmt.Errorf("query canonical events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var accumulator canonicalAccumulator
 	for rows.Next() {
 		values, scanErr := scanCanonicalValues(rows, len(columns))
@@ -164,7 +164,10 @@ func canonicalEvents(ctx context.Context, db *sql.DB, hasCodec bool) (canonicalA
 		}
 		accumulator.add(digest)
 	}
-	return accumulator, rows.Err()
+	if err = rows.Err(); err != nil {
+		return accumulator, fmt.Errorf("iterate canonical events: %w", err)
+	}
+	return accumulator, nil
 }
 
 func canonicalAudits(ctx context.Context, db *sql.DB, hasCodec bool) (canonicalAccumulator, error) {
@@ -176,9 +179,9 @@ func canonicalAudits(ctx context.Context, db *sql.DB, hasCodec bool) (canonicalA
 	}
 	rows, err := db.QueryContext(ctx, `SELECT `+joinQuotedIdentifiers(columns)+` FROM command_audits ORDER BY event_id COLLATE BINARY`)
 	if err != nil {
-		return canonicalAccumulator{}, err
+		return canonicalAccumulator{}, fmt.Errorf("query canonical audits: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var accumulator canonicalAccumulator
 	for rows.Next() {
 		values, scanErr := scanCanonicalValues(rows, len(columns))
@@ -203,7 +206,10 @@ func canonicalAudits(ctx context.Context, db *sql.DB, hasCodec bool) (canonicalA
 		}
 		accumulator.add(digest)
 	}
-	return accumulator, rows.Err()
+	if err = rows.Err(); err != nil {
+		return accumulator, fmt.Errorf("iterate canonical audits: %w", err)
+	}
+	return accumulator, nil
 }
 
 func scanCanonicalValues(rows *sql.Rows, count int) ([]any, error) {
@@ -213,7 +219,7 @@ func scanCanonicalValues(rows *sql.Rows, count int) ([]any, error) {
 		destinations[i] = &values[i]
 	}
 	if err := rows.Scan(destinations...); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan canonical row: %w", err)
 	}
 	return values, nil
 }
