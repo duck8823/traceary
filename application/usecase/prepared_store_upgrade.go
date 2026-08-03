@@ -132,47 +132,32 @@ func (u *preparedStoreUpgradeUsecase) Publish(ctx context.Context, id string) (a
 	if run.Phase != domain.PreparedStoreUpgradeCandidateVerified {
 		return application.PreparedStoreUpgradeReceipt{}, fmt.Errorf("prepared candidate is not verified")
 	}
-	return u.publish(ctx, run)
+	return u.recoverAndPublish(ctx, run)
 }
 
-func (u *preparedStoreUpgradeUsecase) publish(ctx context.Context, run domain.PreparedStoreUpgradeRun) (application.PreparedStoreUpgradeReceipt, error) {
+func (u *preparedStoreUpgradeUsecase) publishLeased(ctx context.Context, run domain.PreparedStoreUpgradeRun) (application.PreparedStoreUpgradeReceipt, error) {
 	started := u.now()
-	lockCtx := ctx
-	cancel := func() {}
-	if run.Budget.PublishLockLimit > 0 {
-		lockCtx, cancel = context.WithTimeout(ctx, run.Budget.PublishLockLimit)
-	}
-	defer cancel()
-	release, err := u.lease.AcquireExclusive(lockCtx, u.expectedStore)
-	if err != nil {
-		return application.PreparedStoreUpgradeReceipt{}, err
-	}
-	defer release()
-	if err = u.files.RecheckForPublish(lockCtx, run); err != nil {
-		return application.PreparedStoreUpgradeReceipt{}, err
-	}
+	var err error
 	for run.Phase != domain.PreparedStoreUpgradeCommitted {
 		action, nextErr := run.NextAction()
 		if nextErr != nil {
 			return application.PreparedStoreUpgradeReceipt{}, nextErr
 		}
 		switch action {
-		case domain.ActionRecordSwapIntent:
-			run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeSwapIntent)
 		case domain.ActionExchange:
-			err = u.files.Exchange(lockCtx, run)
+			err = u.files.Exchange(ctx, run)
 			if err == nil {
-				run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeSwapped)
+				run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeSwapped)
 			}
 		case domain.ActionRecordPublishIntent:
-			run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeRollbackPublishIntent)
+			run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackPublishIntent)
 		case domain.ActionPublishRollback:
-			err = u.files.PublishRollback(lockCtx, run)
+			err = u.files.PublishRollback(ctx, run)
 			if err == nil {
-				run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeRollbackReady)
+				run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackReady)
 			}
 		case domain.ActionCommit:
-			run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeCommitted)
+			run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeCommitted)
 		default:
 			return application.PreparedStoreUpgradeReceipt{}, fmt.Errorf("publication encountered preparation action %q", action)
 		}
@@ -180,7 +165,7 @@ func (u *preparedStoreUpgradeUsecase) publish(ctx context.Context, run domain.Pr
 			return application.PreparedStoreUpgradeReceipt{}, err
 		}
 	}
-	observation, err := u.files.Observe(lockCtx, run)
+	observation, err := u.files.Observe(ctx, run)
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
@@ -250,20 +235,32 @@ func (u *preparedStoreUpgradeUsecase) recoverPreparation(ctx context.Context, ru
 }
 
 func (u *preparedStoreUpgradeUsecase) recoverAndPublish(ctx context.Context, run domain.PreparedStoreUpgradeRun) (application.PreparedStoreUpgradeReceipt, error) {
+	// The intent is durable before waiting for the publication lease. A crash
+	// here is safely resumed from candidate-ready/swap-intent orientation.
 	if run.Phase == domain.PreparedStoreUpgradeCandidateVerified {
-		return u.publish(ctx, run)
+		var err error
+		run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeSwapIntent)
+		if err != nil {
+			return application.PreparedStoreUpgradeReceipt{}, err
+		}
 	}
-	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
+	lockCtx := ctx
+	cancel := func() {}
+	if run.Budget.PublishLockLimit > 0 {
+		lockCtx, cancel = context.WithTimeout(ctx, run.Budget.PublishLockLimit)
+	}
+	defer cancel()
+	release, err := u.lease.AcquireExclusive(lockCtx, u.expectedStore)
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
-	released := false
-	defer func() {
-		if !released {
-			release()
+	defer release()
+	if run.Phase == domain.PreparedStoreUpgradeSwapIntent {
+		if err = u.files.RecheckForPublish(lockCtx, run); err != nil {
+			return application.PreparedStoreUpgradeReceipt{}, err
 		}
-	}()
-	obs, err := u.files.Observe(ctx, run)
+	}
+	obs, err := u.files.Observe(lockCtx, run)
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
@@ -272,87 +269,116 @@ func (u *preparedStoreUpgradeUsecase) recoverAndPublish(ctx context.Context, run
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
 	for _, a := range actions {
-		switch a {
-		case domain.ActionSyncRecoveredOrientation:
-			err = u.files.SyncRecoveredOrientation(ctx, run, obs)
-		case domain.ActionExchange:
-			err = u.files.Exchange(ctx, run)
-		case domain.ActionRecordSwapIntent:
-			run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeSwapIntent)
-		case domain.ActionRecordSwapped:
-			run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeSwapped)
-		case domain.ActionRecordPublishIntent:
-			run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackPublishIntent)
-		case domain.ActionRecordRollbackReady:
-			run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackReady)
-		default:
-			release()
-			return application.PreparedStoreUpgradeReceipt{}, fmt.Errorf("unexpected publication recovery action %q", a)
-		}
+		run, err = u.executeRecoveryAction(lockCtx, run, obs, a)
 		if err != nil {
-			release()
 			return application.PreparedStoreUpgradeReceipt{}, err
 		}
 	}
-	// Release and reacquire through publish so the budget covers the complete normal tail.
-	release()
-	released = true
-	return u.publish(ctx, run)
+	return u.publishLeased(lockCtx, run)
 }
 
 func (u *preparedStoreUpgradeUsecase) Rollback(ctx context.Context, id string) (domain.PreparedStoreUpgradeRun, error) {
-	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
-	if err != nil {
-		return domain.PreparedStoreUpgradeRun{}, err
-	}
-	defer release()
 	run, err := u.load(ctx, id)
 	if err != nil {
 		return run, err
 	}
-	obs, err := u.files.Observe(ctx, run)
-	if err != nil {
-		return run, err
-	}
-	// A crash after exchange must first publish the original inode at rollback path.
-	if obs.Orientation == domain.OrientationSwapped {
-		if run.Phase == domain.PreparedStoreUpgradeSwapped {
-			run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackPublishIntent)
-		}
-		if err == nil {
-			err = u.files.PublishRollback(ctx, run)
-		}
-		if err == nil {
-			run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackReady)
-		}
-		if err != nil {
-			return run, err
-		}
-		obs, err = u.files.Observe(ctx, run)
-		if err != nil {
-			return run, err
-		}
-	}
-	if obs.Orientation == domain.OrientationRolledBack {
-		return run, nil
-	}
-	if obs.Orientation != domain.OrientationRollbackReady {
-		return run, fmt.Errorf("rollback requires rollback-ready orientation")
-	}
-	if run.Phase != domain.PreparedStoreUpgradeRollbackSwapIntent {
+	if run.Phase == domain.PreparedStoreUpgradeRollbackReady || run.Phase == domain.PreparedStoreUpgradeCommitted {
 		run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackSwapIntent)
 		if err != nil {
 			return run, err
 		}
 	}
-	if err = u.files.Exchange(ctx, run); err != nil {
-		return run, err
+	lockCtx := ctx
+	cancel := func() {}
+	if run.Budget.PublishLockLimit > 0 {
+		lockCtx, cancel = context.WithTimeout(ctx, run.Budget.PublishLockLimit)
 	}
-	run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackSwapped)
+	defer cancel()
+	release, err := u.lease.AcquireExclusive(lockCtx, u.expectedStore)
 	if err != nil {
 		return run, err
 	}
-	return u.advance(ctx, run, domain.PreparedStoreUpgradeRolledBack)
+	defer release()
+	obs, err := u.files.Observe(lockCtx, run)
+	if err != nil {
+		return run, err
+	}
+	actions, err := run.RecoveryActions(obs)
+	if err != nil {
+		return run, err
+	}
+	for _, action := range actions {
+		run, err = u.executeRecoveryAction(lockCtx, run, obs, action)
+		if err != nil {
+			return run, err
+		}
+	}
+	// A rollback requested while publication was only partially journaled must
+	// first converge to rollback-ready, never exchange an unpublished inode.
+	for run.Phase != domain.PreparedStoreUpgradeRolledBack {
+		switch run.Phase {
+		case domain.PreparedStoreUpgradeSwapped:
+			run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeRollbackPublishIntent)
+		case domain.PreparedStoreUpgradeRollbackPublishIntent:
+			err = u.files.PublishRollback(lockCtx, run)
+			if err == nil {
+				run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeRollbackReady)
+			}
+		case domain.PreparedStoreUpgradeRollbackReady, domain.PreparedStoreUpgradeCommitted:
+			run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeRollbackSwapIntent)
+		case domain.PreparedStoreUpgradeRollbackSwapIntent:
+			err = u.files.Exchange(lockCtx, run)
+			if err == nil {
+				run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeRollbackSwapped)
+			}
+		case domain.PreparedStoreUpgradeRollbackSwapped:
+			run, err = u.advance(lockCtx, run, domain.PreparedStoreUpgradeRolledBack)
+		default:
+			return run, fmt.Errorf("rollback cannot continue from phase %q", run.Phase)
+		}
+		if err != nil {
+			return run, err
+		}
+	}
+	return run, nil
+}
+
+func (u *preparedStoreUpgradeUsecase) executeRecoveryAction(ctx context.Context, run domain.PreparedStoreUpgradeRun, observation domain.PreparedStoreUpgradeObservation, action domain.PreparedStoreUpgradeAction) (domain.PreparedStoreUpgradeRun, error) {
+	var err error
+	switch action {
+	case domain.ActionSyncRecoveredOrientation:
+		err = u.files.SyncRecoveredOrientation(ctx, run, observation)
+	case domain.ActionExchange, domain.ActionRollbackExchange:
+		err = u.files.Exchange(ctx, run)
+	case domain.ActionPublishRollback:
+		err = u.files.PublishRollback(ctx, run)
+	default:
+		phase, ok := phaseForPreparedRecoveryAction(action)
+		if !ok {
+			return run, fmt.Errorf("unsupported prepared recovery action %q", action)
+		}
+		run, err = u.advance(ctx, run, phase)
+	}
+	return run, err
+}
+
+func phaseForPreparedRecoveryAction(action domain.PreparedStoreUpgradeAction) (domain.PreparedStoreUpgradePhase, bool) {
+	switch action {
+	case domain.ActionRecordSwapIntent:
+		return domain.PreparedStoreUpgradeSwapIntent, true
+	case domain.ActionRecordSwapped:
+		return domain.PreparedStoreUpgradeSwapped, true
+	case domain.ActionRecordPublishIntent:
+		return domain.PreparedStoreUpgradeRollbackPublishIntent, true
+	case domain.ActionRecordRollbackReady:
+		return domain.PreparedStoreUpgradeRollbackReady, true
+	case domain.ActionRecordRollbackSwapped:
+		return domain.PreparedStoreUpgradeRollbackSwapped, true
+	case domain.ActionRecordRolledBack:
+		return domain.PreparedStoreUpgradeRolledBack, true
+	default:
+		return "", false
+	}
 }
 
 func (u *preparedStoreUpgradeUsecase) load(ctx context.Context, id string) (domain.PreparedStoreUpgradeRun, error) {

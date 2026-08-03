@@ -25,6 +25,24 @@ type PayloadRehearsalPreparation struct {
 
 // Preview classifies whether the copied target requires offline migration.
 func (p PayloadRehearsalPreparation) Preview(ctx context.Context, c apptypes.PayloadRehearsalConfig) (application.RehearsalPreparationPlan, error) {
+	// A committed prepared run remains the durable handoff source until the
+	// consumer finishes (or rolls it back). Check it before inspecting schema;
+	// after publication the schema is already current and cannot signal the gap.
+	if p.Journal != nil {
+		binding, bindingErr := rehearsalPreparationBinding(c)
+		if bindingErr == nil {
+			journal := p.Journal(c.TargetPath)
+			if journal != nil {
+				run, findErr := journal.FindActive(ctx, domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, c.TargetPath, binding)
+				if findErr == nil {
+					return application.RehearsalPreparationPlan{Required: true, MigrationSetDigest: run.PlanDigest}, nil
+				}
+				if !errors.Is(findErr, os.ErrNotExist) {
+					return application.RehearsalPreparationPlan{}, ErrPreparedMigrationPublish
+				}
+			}
+		}
+	}
 	db, err := openDirectReadOnly(ctx, c.TargetPath)
 	if err != nil {
 		return application.RehearsalPreparationPlan{}, err
