@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/duck8823/traceary/domain"
 )
@@ -244,11 +245,14 @@ func validateInitialRun(run domain.CompactionRun) error {
 	if run.Operation != "" && (!run.Operation.Known() || run.ConsumerBinding == "") {
 		return errors.New("initial prepared upgrade binding is invalid")
 	}
+	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration && (run.PlanDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.PublishLockLimit <= 0 || run.Budget.PublishLockLimit > time.Second || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0) {
+		return errors.New("initial prepared migration plan or budget is invalid")
+	}
 	return nil
 }
 
 func validateRunAppend(previous, next domain.CompactionRun) error {
-	if previous.ID != next.ID || previous.SourcePath != next.SourcePath || previous.CandidatePath != next.CandidatePath || previous.RollbackPath != next.RollbackPath || previous.SourceIdentity != next.SourceIdentity || previous.Resources != next.Resources || previous.Operation != next.Operation || previous.ConsumerBinding != next.ConsumerBinding || previous.Budget != next.Budget || !previous.CreatedAt.Equal(next.CreatedAt) {
+	if previous.ID != next.ID || previous.SourcePath != next.SourcePath || previous.CandidatePath != next.CandidatePath || previous.RollbackPath != next.RollbackPath || previous.SourceIdentity != next.SourceIdentity || previous.Resources != next.Resources || previous.Operation != next.Operation || previous.ConsumerBinding != next.ConsumerBinding || previous.PlanDigest != next.PlanDigest || previous.Budget != next.Budget || !previous.CreatedAt.Equal(next.CreatedAt) {
 		return errors.New("immutable compaction run fields changed")
 	}
 	if next.UpdatedAt.Before(previous.UpdatedAt) {

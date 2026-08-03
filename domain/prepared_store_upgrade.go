@@ -272,6 +272,7 @@ type PreparedStoreUpgradeRun struct {
 	Resources                 PreparedStoreUpgradeResourcePlan `json:"resources"`
 	Operation                 PreparedStoreUpgradeOperation    `json:"operation,omitempty"`
 	ConsumerBinding           string                           `json:"consumer_binding,omitempty"`
+	PlanDigest                string                           `json:"plan_digest,omitempty"`
 	Budget                    PreparedStoreUpgradeBudget       `json:"budget,omitempty"`
 	Evidence                  PreparedCandidateEvidence        `json:"evidence,omitempty"`
 	CreatedAt                 time.Time                        `json:"created_at"`
