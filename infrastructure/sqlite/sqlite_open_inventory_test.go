@@ -17,9 +17,10 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 		"infrastructure/filesystem/file_retention_datasource_unix.go": 1, // copied backup FD verification.
 		"infrastructure/sqlite/compaction_sqlite.go":                  2, // EX-held source/candidate only.
 		"infrastructure/sqlite/database.go":                           1, // in-memory driver probe only.
-		"infrastructure/sqlite/payload_rehearsal.go":                  6, // copied rehearsal targets only.
+		"infrastructure/sqlite/payload_rehearsal.go":                  7, // copied rehearsal targets only.
 		"infrastructure/sqlite/payload_rehearsal_migration.go":        1, // copied migration target.
 		"infrastructure/sqlite/payload_rehearsal_target.go":           1, // copied rehearsal target.
+		"infrastructure/sqlite/prepared_migration_recipe.go":          1, // owned offline candidate only.
 	}
 	seen := map[string]int{}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {

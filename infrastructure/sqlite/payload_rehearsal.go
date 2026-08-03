@@ -286,6 +286,8 @@ func transitionTerminalWithinWALBudget(ctx context.Context, session walBudgetedM
 }
 
 // Prepare fixes the target identity and owns all SQLite resources for a run.
+//
+//nolint:wrapcheck // preparation and SQLite errors are classified by the application boundary.
 func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.PayloadRehearsalConfig, command apptypes.PayloadRehearsalRunCommand) (application.PayloadRehearsalRunHandle, apptypes.PayloadRehearsalMetrics, error) {
 	if !command.Valid() {
 		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("invalid payload rehearsal run command")

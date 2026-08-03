@@ -28,6 +28,7 @@ type preparedMigrationMetrics struct {
 	elapsed            time.Duration
 }
 
+// Plan fixes the exact pending migration suffix digest.
 func (r *PreparedMigrationCandidateRecipe) Plan(ctx context.Context, request application.PreparedCandidateRequest) (string, error) {
 	db, err := openDirectReadOnly(ctx, request.Run.SourcePath)
 	if err != nil {
@@ -44,6 +45,9 @@ func (r *PreparedMigrationCandidateRecipe) Plan(ctx context.Context, request app
 	return plan.Digest, nil
 }
 
+// Build clones and migrates only the run-owned offline candidate.
+//
+//nolint:wrapcheck // low-level I/O failures are classified by the upgrade use case.
 func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request application.PreparedCandidateRequest) error {
 	run := request.Run
 	if run.PlanDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 {
@@ -151,6 +155,7 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 	return nil
 }
 
+//nolint:wrapcheck // callers classify filesystem observation failures uniformly.
 func preparedOwnedBytes(path string) (uint64, uint64, error) {
 	var total, wal uint64
 	for _, suffix := range []string{"", "-wal", "-shm"} {
@@ -173,6 +178,9 @@ func preparedOwnedBytes(path string) (uint64, uint64, error) {
 	return total, wal, nil
 }
 
+// ClassifyOwnedCandidate determines whether recovery may reuse an owned candidate.
+//
+//nolint:wrapcheck // filesystem failures must remain distinguishable during recovery.
 func (r *PreparedMigrationCandidateRecipe) ClassifyOwnedCandidate(ctx context.Context, inspection application.PreparedCandidateInspection) (domain.CandidateCondition, error) {
 	db, err := openDirectReadOnly(ctx, inspection.Run.CandidatePath)
 	if err != nil {
@@ -189,6 +197,9 @@ func (r *PreparedMigrationCandidateRecipe) ClassifyOwnedCandidate(ctx context.Co
 	return domain.CandidateConditionOwnedIncomplete, nil
 }
 
+// Sync checkpoints and fsyncs the prepared candidate before publication.
+//
+//nolint:wrapcheck // context and SQLite failures retain their original identity.
 func (r *PreparedMigrationCandidateRecipe) Sync(ctx context.Context, request application.PreparedCandidateRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -202,6 +213,7 @@ func (r *PreparedMigrationCandidateRecipe) Sync(ctx context.Context, request app
 	return syncDirectory(filepathDir(request.Run.CandidatePath))
 }
 
+// Verify produces body-free logical and resource evidence for publication.
 func (r *PreparedMigrationCandidateRecipe) Verify(ctx context.Context, request application.PreparedCandidateRequest) (domain.PreparedCandidateEvidence, error) {
 	evidence, err := r.Verifier.VerifyPair(ctx, request.Run.SourcePath, request.Run.CandidatePath, request.Run.PlanDigest)
 	if err != nil {

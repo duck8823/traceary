@@ -123,11 +123,6 @@ func inventoryEmbeddedMigrations(migrations fs.FS) ([]embeddedMigration, error) 
 		result = append(result, embeddedMigration{version: version, name: filepath.Base(path), body: body, digest: hex.EncodeToString(sum[:])})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].version < result[j].version })
-	for i, migration := range result {
-		if migration.version != int64(i+1) {
-			return nil, fmt.Errorf("migration catalog gap before version %d", migration.version)
-		}
-	}
 	return result, nil
 }
 

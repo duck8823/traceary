@@ -19,10 +19,11 @@ import (
 // generic protocol decisions to the payload workflow.
 type PayloadRehearsalPreparation struct {
 	Migrations fs.FS
-	Journal    application.PreparedStoreUpgradeJournal
+	Journal    func(string) application.PreparedStoreUpgradeJournal
 	Service    func(string) application.PreparedStoreUpgradeUsecase
 }
 
+// Preview classifies whether the copied target requires offline migration.
 func (p PayloadRehearsalPreparation) Preview(ctx context.Context, c apptypes.PayloadRehearsalConfig) (application.RehearsalPreparationPlan, error) {
 	db, err := openDirectReadOnly(ctx, c.TargetPath)
 	if err != nil {
@@ -36,6 +37,7 @@ func (p PayloadRehearsalPreparation) Preview(ctx context.Context, c apptypes.Pay
 	return application.RehearsalPreparationPlan{Required: plan.Offline && len(plan.Pending) > 0, MigrationSetDigest: plan.Digest}, nil
 }
 
+//nolint:wrapcheck // the binding helper preserves the underlying serialization failure.
 func rehearsalPreparationBinding(c apptypes.PayloadRehearsalConfig) (string, error) {
 	digest, err := fileDigest(c.BackupPath)
 	if err != nil {
@@ -54,16 +56,23 @@ func rehearsalPreparationBinding(c apptypes.PayloadRehearsalConfig) (string, err
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// EnsurePrepared resumes or publishes the exact prepared migration candidate.
+//
+//nolint:wrapcheck // durable protocol errors retain their typed causes.
 func (p PayloadRehearsalPreparation) EnsurePrepared(ctx context.Context, c apptypes.PayloadRehearsalConfig) (application.RehearsalPreparedTarget, error) {
 	if p.Journal == nil || p.Service == nil {
 		return application.RehearsalPreparedTarget{}, errors.New("payload rehearsal preparation is not configured")
+	}
+	journal := p.Journal(c.TargetPath)
+	if journal == nil {
+		return application.RehearsalPreparedTarget{}, errors.New("payload rehearsal preparation journal is not configured")
 	}
 	binding, err := rehearsalPreparationBinding(c)
 	if err != nil {
 		return application.RehearsalPreparedTarget{}, err
 	}
 	service := p.Service(c.TargetPath)
-	run, err := p.Journal.FindActive(ctx, domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, c.TargetPath, binding)
+	run, err := journal.FindActive(ctx, domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, c.TargetPath, binding)
 	if err == nil {
 		receipt, resumeErr := service.Resume(ctx, run.ID)
 		return application.RehearsalPreparedTarget{Receipt: receipt}, resumeErr
@@ -87,12 +96,22 @@ func (p PayloadRehearsalPreparation) EnsurePrepared(ctx context.Context, c appty
 	return application.RehearsalPreparedTarget{Receipt: receipt}, err
 }
 
+// RollbackPrepared restores the pre-migration copied target through the journal.
+//
+//nolint:wrapcheck // durable protocol errors retain their typed causes.
 func (p PayloadRehearsalPreparation) RollbackPrepared(ctx context.Context, c apptypes.PayloadRehearsalConfig) (application.RehearsalRollbackResult, error) {
+	if p.Journal == nil || p.Service == nil {
+		return application.RehearsalRollbackResult{}, errors.New("payload rehearsal preparation is not configured")
+	}
 	binding, err := rehearsalPreparationBinding(c)
 	if err != nil {
 		return application.RehearsalRollbackResult{}, err
 	}
-	run, err := p.Journal.FindActive(ctx, domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, c.TargetPath, binding)
+	journal := p.Journal(c.TargetPath)
+	if journal == nil {
+		return application.RehearsalRollbackResult{}, errors.New("payload rehearsal preparation journal is not configured")
+	}
+	run, err := journal.FindActive(ctx, domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, c.TargetPath, binding)
 	if err != nil {
 		return application.RehearsalRollbackResult{}, err
 	}

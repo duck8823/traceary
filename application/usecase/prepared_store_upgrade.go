@@ -62,7 +62,7 @@ func (u *preparedStoreUpgradeUsecase) Plan(ctx context.Context, command applicat
 }
 
 func (u *preparedStoreUpgradeUsecase) Prepare(ctx context.Context, id string) (domain.PreparedStoreUpgradeRun, error) {
-	run, err := u.load(id, ctx)
+	run, err := u.load(ctx, id)
 	if err != nil {
 		return run, err
 	}
@@ -125,7 +125,7 @@ func (u *preparedStoreUpgradeUsecase) prepare(ctx context.Context, run domain.Pr
 }
 
 func (u *preparedStoreUpgradeUsecase) Publish(ctx context.Context, id string) (application.PreparedStoreUpgradeReceipt, error) {
-	run, err := u.load(id, ctx)
+	run, err := u.load(ctx, id)
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
@@ -188,7 +188,7 @@ func (u *preparedStoreUpgradeUsecase) publish(ctx context.Context, run domain.Pr
 }
 
 func (u *preparedStoreUpgradeUsecase) Resume(ctx context.Context, id string) (application.PreparedStoreUpgradeReceipt, error) {
-	run, err := u.load(id, ctx)
+	run, err := u.load(ctx, id)
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
@@ -306,7 +306,7 @@ func (u *preparedStoreUpgradeUsecase) Rollback(ctx context.Context, id string) (
 		return domain.PreparedStoreUpgradeRun{}, err
 	}
 	defer release()
-	run, err := u.load(id, ctx)
+	run, err := u.load(ctx, id)
 	if err != nil {
 		return run, err
 	}
@@ -355,7 +355,7 @@ func (u *preparedStoreUpgradeUsecase) Rollback(ctx context.Context, id string) (
 	return u.advance(ctx, run, domain.PreparedStoreUpgradeRolledBack)
 }
 
-func (u *preparedStoreUpgradeUsecase) load(id string, ctx context.Context) (domain.PreparedStoreUpgradeRun, error) {
+func (u *preparedStoreUpgradeUsecase) load(ctx context.Context, id string) (domain.PreparedStoreUpgradeRun, error) {
 	run, err := u.journal.Load(ctx, id)
 	if err == nil && (filepath.Clean(run.SourcePath) != u.expectedStore || !run.Operation.Known() || u.recipes[run.Operation] == nil) {
 		err = fmt.Errorf("prepared upgrade run binding mismatch")
