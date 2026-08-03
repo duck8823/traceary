@@ -67,6 +67,19 @@ func TestBuildPreparedMigrationPlanRejectsChangedManifestBody(t *testing.T) {
 	}
 }
 
+func TestBuildPreparedMigrationPlanRejectsCatalogGap(t *testing.T) {
+	migrations := cloneMigrationFS(t, preparedMigrations(t))
+	delete(migrations, "000020_add_session_model.sql")
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = BuildPreparedMigrationPlan(context.Background(), db, migrations); err == nil || !strings.Contains(err.Error(), "catalog gap") {
+		t.Fatalf("BuildPreparedMigrationPlan() error = %v", err)
+	}
+}
+
 func TestExecuteExactMigrationRejectsCatalogIdentityDrift(t *testing.T) {
 	t.Parallel()
 

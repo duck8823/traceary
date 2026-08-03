@@ -352,7 +352,7 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	if a.targetPreparation != nil {
 		preparationPlan, preparationErr := a.targetPreparation.Preview(ctx, c)
 		if preparationErr != nil {
-			return nil, apptypes.PayloadRehearsalMetrics{}, preparationErr
+			return nil, apptypes.PayloadRehearsalMetrics{}, ErrPreparedMigrationPublish
 		}
 		migrationRequired = preparationPlan.Required
 		if preparationPlan.Required {
@@ -447,7 +447,7 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 		_ = db.Close()
 		if migrationRequired && a.targetPreparation != nil {
 			if _, recoveryErr := a.targetPreparation.RollbackPrepared(context.WithoutCancel(ctx), c); recoveryErr != nil {
-				return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("%v; rollback prepared target: %w", cause, recoveryErr)
+				return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, ErrPreparedMigrationPublish
 			}
 			return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, cause
 		}

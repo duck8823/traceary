@@ -49,10 +49,11 @@ func (j *PreparedStoreUpgradeFileJournal) Create(ctx context.Context, run domain
 	if err := validateInitialRun(run); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(j.Dir, 0o700); err != nil {
-		return err
-	}
-	if err := os.Chmod(j.Dir, 0o700); err != nil {
+	if _, err := os.Lstat(j.Dir); os.IsNotExist(err) {
+		if err = os.Mkdir(j.Dir, 0o700); err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
 	if err := validateJournalDirectory(j.Dir); err != nil {
@@ -385,7 +386,14 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 	if err != nil {
 		return run, err
 	}
-	required, margin, err := compactionRequiredBytes(id.Size, 0)
+	temporary := uint64(0)
+	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
+		if ^uint64(0)-run.Budget.WALByteLimit < run.Budget.TemporaryByteLimit {
+			return run, errors.New("prepared upgrade resource size overflow")
+		}
+		temporary = run.Budget.WALByteLimit + run.Budget.TemporaryByteLimit
+	}
+	required, margin, err := compactionRequiredBytes(id.Size, temporary)
 	if err != nil {
 		return run, err
 	}
@@ -400,7 +408,7 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 	run.SourceDigest = digest
 	exchangeCapability := probeReplacementCapabilities(filepath.Dir(run.SourcePath)) == nil
 	leaseCapability := probeStoreLeaseCapability(ctx, run.SourcePath) == nil
-	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: 0, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
+	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: temporary, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
 	if !run.Resources.ExchangeCapability {
 		return run, errors.New("atomic exchange capability unavailable")
 	}
@@ -689,7 +697,7 @@ func (f PreparedStoreUpgradeFiles) Exchange(ctx context.Context, run domain.Comp
 		return err
 	}
 	if run.Phase == domain.CompactionRollbackSwapIntent {
-		if current != run.Candidate {
+		if !samePublishedFile(current, run.Candidate) {
 			return errors.New("compacted source identity fence changed")
 		}
 	} else if current != run.SourceIdentity {
@@ -829,16 +837,22 @@ func (PreparedStoreUpgradeFiles) Observe(_ context.Context, run domain.Compactio
 			return obs, errors.New("candidate-ready identity conflicts with journal fence")
 		}
 		obs.Orientation = domain.OrientationCandidateReady
-	case run.Candidate != (domain.StoreFileIdentity{}) && source == run.Candidate && candidateExists && candidate == run.SourceIdentity && !rollbackExists:
+	case run.Candidate != (domain.StoreFileIdentity{}) && samePublishedFile(source, run.Candidate) && candidateExists && candidate == run.SourceIdentity && !rollbackExists:
 		obs.Orientation = domain.OrientationSwapped
-	case run.Candidate != (domain.StoreFileIdentity{}) && source == run.Candidate && !candidateExists && rollbackExists && rollback == run.SourceIdentity:
+	case run.Candidate != (domain.StoreFileIdentity{}) && samePublishedFile(source, run.Candidate) && !candidateExists && rollbackExists && rollback == run.SourceIdentity:
 		obs.Orientation = domain.OrientationRollbackReady
-	case source == run.SourceIdentity && !candidateExists && rollbackExists && rollback == run.Candidate:
+	case source == run.SourceIdentity && !candidateExists && rollbackExists && samePublishedFile(rollback, run.Candidate):
 		obs.Orientation = domain.OrientationRolledBack
 	default:
 		return obs, errors.New("unknown compaction file orientation")
 	}
 	return obs, nil
+}
+
+// samePublishedFile accepts expected content mutation after publication while
+// preserving the immutable object, mode, and link-count fence.
+func samePublishedFile(current, published domain.StoreFileIdentity) bool {
+	return current.SameInode(published) && current.Mode == published.Mode && current.Links == published.Links
 }
 
 func (f PreparedStoreUpgradeFiles) SyncRecoveredOrientation(ctx context.Context, run domain.CompactionRun, observation domain.CompactionObservation) error {

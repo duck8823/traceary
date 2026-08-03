@@ -135,8 +135,7 @@ func (u *preparedStoreUpgradeUsecase) Publish(ctx context.Context, id string) (a
 	return u.recoverAndPublish(ctx, run)
 }
 
-func (u *preparedStoreUpgradeUsecase) publishLeased(ctx context.Context, run domain.PreparedStoreUpgradeRun) (application.PreparedStoreUpgradeReceipt, error) {
-	started := u.now()
+func (u *preparedStoreUpgradeUsecase) publishLeased(ctx context.Context, run domain.PreparedStoreUpgradeRun, leaseStarted time.Time) (application.PreparedStoreUpgradeReceipt, error) {
 	var err error
 	for run.Phase != domain.PreparedStoreUpgradeCommitted {
 		action, nextErr := run.NextAction()
@@ -169,7 +168,7 @@ func (u *preparedStoreUpgradeUsecase) publishLeased(ctx context.Context, run dom
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
-	return application.PreparedStoreUpgradeReceipt{RunID: run.ID, Operation: run.Operation, ConsumerBinding: run.ConsumerBinding, TargetIdentity: observation.Source, RollbackIdentity: observation.Rollback, Evidence: run.Evidence, PublishMilliseconds: u.now().Sub(started).Milliseconds()}, nil
+	return application.PreparedStoreUpgradeReceipt{RunID: run.ID, Operation: run.Operation, ConsumerBinding: run.ConsumerBinding, TargetIdentity: observation.Source, RollbackIdentity: observation.Rollback, Evidence: run.Evidence, PublishMilliseconds: u.now().Sub(leaseStarted).Milliseconds()}, nil
 }
 
 func (u *preparedStoreUpgradeUsecase) Resume(ctx context.Context, id string) (application.PreparedStoreUpgradeReceipt, error) {
@@ -255,14 +254,18 @@ func (u *preparedStoreUpgradeUsecase) recoverAndPublish(ctx context.Context, run
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
 	defer release()
-	if run.Phase == domain.PreparedStoreUpgradeSwapIntent {
-		if err = u.files.RecheckForPublish(lockCtx, run); err != nil {
-			return application.PreparedStoreUpgradeReceipt{}, err
-		}
-	}
+	leaseStarted := u.now()
 	obs, err := u.files.Observe(lockCtx, run)
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
+	}
+	// The pre-swap identity fence is valid only while the prepared candidate is
+	// still at its original path. After exchange, recovery must reconcile the
+	// observed orientation instead of applying a stale pre-swap predicate.
+	if run.Phase == domain.PreparedStoreUpgradeSwapIntent && obs.Orientation == domain.OrientationCandidateReady {
+		if err = u.files.RecheckForPublish(lockCtx, run); err != nil {
+			return application.PreparedStoreUpgradeReceipt{}, err
+		}
 	}
 	actions, err := run.RecoveryActions(obs)
 	if err != nil {
@@ -274,7 +277,7 @@ func (u *preparedStoreUpgradeUsecase) recoverAndPublish(ctx context.Context, run
 			return application.PreparedStoreUpgradeReceipt{}, err
 		}
 	}
-	return u.publishLeased(lockCtx, run)
+	return u.publishLeased(lockCtx, run, leaseStarted)
 }
 
 func (u *preparedStoreUpgradeUsecase) Rollback(ctx context.Context, id string) (domain.PreparedStoreUpgradeRun, error) {

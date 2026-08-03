@@ -133,6 +133,11 @@ func BuildPreparedMigrationPlan(ctx context.Context, db *sql.DB, migrations fs.F
 	if err != nil {
 		return PreparedMigrationPlan{}, err
 	}
+	for index, migration := range catalog {
+		if migration.version != int64(index+1) {
+			return PreparedMigrationPlan{}, fmt.Errorf("prepared migration catalog gap before version %d", migration.version)
+		}
+	}
 	var tableExists int
 	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='schema_migrations')`).Scan(&tableExists); err != nil {
 		return PreparedMigrationPlan{}, fmt.Errorf("inspect schema migration ledger: %w", err)
@@ -160,7 +165,10 @@ func BuildPreparedMigrationPlan(ctx context.Context, db *sql.DB, migrations fs.F
 	if err = rows.Err(); err != nil {
 		return PreparedMigrationPlan{}, fmt.Errorf("iterate schema migration ledger: %w", err)
 	}
-	current := int64(applied)
+	current := int64(0)
+	if applied > 0 {
+		current = catalog[applied-1].version
+	}
 	if current < 34 {
 		return PreparedMigrationPlan{}, errors.New("prepared migration requires schema version 34 or newer")
 	}

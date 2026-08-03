@@ -113,6 +113,12 @@ func TestPreparedMigrationPublishesAndRollsBackOwnedCopy(t *testing.T) {
 	if err = currentDB.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 43 {
 		t.Fatalf("published version=%d err=%v", maxVersion, err)
 	}
+	// The rehearsal legitimately mutates the published candidate inode. Atomic
+	// rollback must fence object identity, mode, and links without requiring the
+	// original candidate size/mtime to remain frozen.
+	if _, err = currentDB.Exec(`CREATE TABLE rehearsal_shadow_write(id INTEGER PRIMARY KEY, body BLOB)`); err != nil {
+		t.Fatal(err)
+	}
 	if err = currentDB.Close(); err != nil {
 		t.Fatal(err)
 	}
