@@ -26,6 +26,25 @@ func TestCompactionFileJournalRoundTripAndTransitionValidation(t *testing.T) {
 	}
 }
 
+func TestCompactionFileJournalLoadsLegacyCopyRetryGolden(t *testing.T) {
+	dir := t.TempDir()
+	data, err := os.ReadFile("testdata/compaction-copy-retry-v1.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "0123456789abcdef0123456789abcdef"
+	if err = os.WriteFile(filepath.Join(dir, id+".jsonl"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := (&CompactionFileJournal{Dir: dir}).Load(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Phase != domain.CompactionCandidatePrepared || run.PreparedAttempt != 2 || run.PreparedCandidateIdentity.Inode != 4 || run.Operation != "" {
+		t.Fatalf("legacy retry run = %+v", run)
+	}
+}
+
 func TestCompactionFileJournalLoadRejectsPersistedIntermediateTamper(t *testing.T) {
 	dir := t.TempDir()
 	j := &CompactionFileJournal{Dir: dir}
