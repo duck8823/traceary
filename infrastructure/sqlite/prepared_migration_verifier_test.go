@@ -66,6 +66,9 @@ func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalCodecEquivalence(
 	if evidence.MigrationSetDigest != plan.Digest || evidence.Canonical.EventCount != 1 || evidence.Canonical.AuditCount != 1 || len(evidence.SchemaDigest) != 64 {
 		t.Fatalf("evidence = %+v", evidence)
 	}
+	if err = verifier.VerifyRollbackTarget(ctx, candidate, evidence.Canonical); err != nil {
+		t.Fatalf("VerifyRollbackTarget() rejected canonical-equivalent codec change: %v", err)
+	}
 	candidateDB, err = sql.Open("sqlite", directSQLiteRWDSN(candidate))
 	if err != nil {
 		t.Fatal(err)
@@ -78,6 +81,9 @@ func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalCodecEquivalence(
 	}
 	if _, err = verifier.VerifyPair(ctx, source, candidate, plan.Digest); err == nil {
 		t.Fatal("verifier accepted canonical event drift")
+	}
+	if err = verifier.VerifyRollbackTarget(ctx, candidate, evidence.Canonical); err == nil {
+		t.Fatal("rollback verifier accepted canonical event drift")
 	}
 }
 

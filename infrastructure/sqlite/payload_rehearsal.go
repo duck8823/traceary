@@ -947,7 +947,7 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 			preparedRolledBack = true
 		}
 		if preparedErr != nil && !errors.Is(preparedErr, os.ErrNotExist) {
-			return apptypes.PayloadRehearsalMetrics{}, preparedErr
+			return apptypes.PayloadRehearsalMetrics{}, ErrPreparedMigrationPublish
 		}
 	}
 	verifyBeforeRename := func() error {

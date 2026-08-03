@@ -14,6 +14,25 @@ import (
 // a current candidate without opening either file writable.
 type PreparedMigrationVerifier struct{ Migrations fs.FS }
 
+// VerifyRollbackTarget proves that a rehearsed target still represents the
+// canonical event/audit set authorized by the publication receipt. Physical
+// codec and rehearsal metadata changes are intentionally permitted.
+func (v PreparedMigrationVerifier) VerifyRollbackTarget(ctx context.Context, target string, expected domain.CanonicalEventAuditEvidence) error {
+	db, err := openDirectReadOnly(ctx, target)
+	if err != nil {
+		return errors.New("open prepared rollback target")
+	}
+	defer func() { _ = db.Close() }()
+	if err = verifyPreparedMigrationStore(ctx, db); err != nil {
+		return errors.New("prepared rollback target is not compatible")
+	}
+	actual, err := CanonicalEventAuditDigest(ctx, db)
+	if err != nil || actual != expected {
+		return errors.New("prepared rollback canonical evidence changed")
+	}
+	return nil
+}
+
 // VerifyPair proves compatibility, integrity, expected schema/ledger, and
 // canonical event/audit equivalence. Schema equality is intentionally not
 // required because the candidate is expected to be newer.

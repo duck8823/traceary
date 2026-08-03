@@ -133,6 +133,9 @@ func (p PayloadRehearsalPreparation) RollbackPrepared(ctx context.Context, c app
 	if err != nil {
 		return application.RehearsalRollbackResult{}, err
 	}
+	if err = (PreparedMigrationVerifier{Migrations: p.Migrations}).VerifyRollbackTarget(ctx, c.TargetPath, run.Evidence.Canonical); err != nil {
+		return application.RehearsalRollbackResult{}, ErrPreparedMigrationPublish
+	}
 	rolled, err := p.Service(c.TargetPath).Rollback(ctx, run.ID)
 	return application.RehearsalRollbackResult{RunID: run.ID, RolledBack: rolled.Phase == domain.PreparedStoreUpgradeRolledBack}, err
 }
