@@ -69,6 +69,33 @@ type embeddedMigration struct {
 	digest  string
 }
 
+// executeExactMigration is the sole SQL migration executor. Both normal store
+// initialization and owned offline candidate construction pass catalog entries
+// through this boundary so version, basename and SQL bytes cannot drift.
+func executeExactMigration(ctx context.Context, db *sql.DB, migration embeddedMigration) error {
+	version, err := parseMigrationVersion(migration.name)
+	if err != nil {
+		return fmt.Errorf("validate migration filename: %w", err)
+	}
+	if version != migration.version || filepath.Base(migration.name) != migration.name {
+		return errors.New("migration catalog version/name mismatch")
+	}
+	sum := sha256.Sum256(migration.body)
+	if hex.EncodeToString(sum[:]) != migration.digest {
+		return fmt.Errorf("migration %d SQL digest mismatch", migration.version)
+	}
+	return applyMigration(ctx, db, migration.version, migration.name, string(migration.body))
+}
+
+func exactMigrationFromPrepared(migration PreparedMigration) embeddedMigration {
+	return embeddedMigration{
+		version: migration.Version,
+		name:    migration.Name,
+		body:    migration.body,
+		digest:  migration.SHA256,
+	}
+}
+
 func inventoryEmbeddedMigrations(migrations fs.FS) ([]embeddedMigration, error) {
 	paths, err := fs.Glob(migrations, "*.sql")
 	if err != nil {

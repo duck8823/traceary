@@ -2,10 +2,13 @@ package sqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -61,6 +64,72 @@ func TestBuildPreparedMigrationPlanRejectsChangedManifestBody(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	if _, err = BuildPreparedMigrationPlan(ctx, db, changed); err == nil {
 		t.Fatal("plan accepted a migration body that does not match the reviewed manifest")
+	}
+}
+
+func TestExecuteExactMigrationRejectsCatalogIdentityDrift(t *testing.T) {
+	t.Parallel()
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err = ensureSchemaMigrationsTable(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+
+	body := []byte(`CREATE TABLE exact_catalog_test (id INTEGER PRIMARY KEY);`)
+	sum := sha256.Sum256(body)
+	valid := embeddedMigration{
+		version: 1,
+		name:    "000001_exact.sql",
+		body:    body,
+		digest:  hex.EncodeToString(sum[:]),
+	}
+	tests := map[string]embeddedMigration{
+		"version": {version: 2, name: valid.name, body: valid.body, digest: valid.digest},
+		"name":    {version: 1, name: "nested/000001_exact.sql", body: valid.body, digest: valid.digest},
+		"digest":  {version: 1, name: valid.name, body: valid.body, digest: strings.Repeat("0", 64)},
+	}
+	for name, migration := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := executeExactMigration(context.Background(), db, migration); err == nil {
+				t.Fatal("executeExactMigration() error = nil")
+			}
+		})
+	}
+
+	var created int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='exact_catalog_test'`).Scan(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created != 0 {
+		t.Fatalf("table created after rejected exact catalog entry: %d", created)
+	}
+}
+
+func TestDatabaseMigrateUsesExactCatalogExecutor(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_exact.sql": {Data: []byte(`CREATE TABLE exact_catalog_test (id INTEGER PRIMARY KEY);`)},
+	}
+	database := NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), migrations)
+	if err := NewStoreManagementDatasource(database).Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", sqliteReadOnlyDSN(database.Path()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	var name string
+	if err = db.QueryRow(`SELECT name FROM schema_migrations WHERE version=1`).Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if name != "000001_exact.sql" {
+		t.Fatalf("migration name = %q", name)
 	}
 }
 
