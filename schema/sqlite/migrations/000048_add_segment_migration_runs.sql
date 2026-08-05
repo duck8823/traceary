@@ -7,6 +7,8 @@ CREATE TABLE archive_segment_migration_runs (
     reservation_id TEXT NOT NULL CHECK(length(reservation_id) BETWEEN 1 AND 255),
     plan_digest TEXT NOT NULL CHECK(length(plan_digest)=64),
     candidate_root TEXT NOT NULL,
+    candidate_root_device TEXT NOT NULL,
+    candidate_root_inode TEXT NOT NULL,
     archive_root TEXT NOT NULL,
     archive_root_device TEXT NOT NULL,
     archive_root_inode TEXT NOT NULL,
@@ -69,10 +71,22 @@ CREATE TABLE archive_catalog_transition_authorizations (
     PRIMARY KEY(epoch,start_sequence,end_sequence,from_state,to_state)
 );
 
+-- Owner preconditions are immutable CAS evidence. They are separate from the
+-- v1 transition columns so their legacy resulting-owner shape remains stable.
+CREATE TABLE archive_catalog_transition_owner_preconditions (
+    epoch INTEGER NOT NULL REFERENCES archive_catalog_epochs(epoch),
+    transition_index INTEGER NOT NULL,
+    expected_reservation_id TEXT NOT NULL DEFAULT '',
+    expected_segment_id TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(epoch,transition_index)
+);
+
 CREATE TRIGGER archive_segment_migration_runs_no_update BEFORE UPDATE ON archive_segment_migration_runs BEGIN SELECT RAISE(ABORT,'segment migration journal is append-only'); END;
 CREATE TRIGGER archive_segment_migration_runs_no_delete BEFORE DELETE ON archive_segment_migration_runs BEGIN SELECT RAISE(ABORT,'segment migration journal is append-only'); END;
 CREATE TRIGGER archive_segment_migration_pages_no_update BEFORE UPDATE ON archive_segment_migration_pages BEGIN SELECT RAISE(ABORT,'segment migration pages are immutable'); END;
 CREATE TRIGGER archive_segment_migration_pages_no_delete BEFORE DELETE ON archive_segment_migration_pages BEGIN SELECT RAISE(ABORT,'segment migration pages are immutable'); END;
+CREATE TRIGGER archive_catalog_transition_owner_preconditions_no_update BEFORE UPDATE ON archive_catalog_transition_owner_preconditions BEGIN SELECT RAISE(ABORT,'catalog transition owner preconditions are immutable'); END;
+CREATE TRIGGER archive_catalog_transition_owner_preconditions_no_delete BEFORE DELETE ON archive_catalog_transition_owner_preconditions BEGIN SELECT RAISE(ABORT,'catalog transition owner preconditions are immutable'); END;
 
 DROP TRIGGER archive_catalog_transitions_edge_guard;
 CREATE TRIGGER archive_catalog_transitions_edge_guard

@@ -46,7 +46,7 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	45: {45, "000045_add_segment_catalog_ledger.sql", "00802c1fe48e30ef1fd5ffc2e1c22e33bc8f32c6ea66d52e869d0362172d0982", MigrationConstantInPlace},
 	46: {46, "000046_add_segment_target_plans.sql", "f6759e9883580436e6717d9009e91108212bff9d5376ede8f82c9700231ccc65", MigrationConstantInPlace},
 	47: {47, "000047_add_catalog_summary_reconciliation.sql", "885c32336046359393f7ef35a96b81e418058d706233edab4ccf1fca60c1fb47", MigrationConstantInPlace},
-	48: {48, "000048_add_segment_migration_runs.sql", "41bea2f37009869f33d221a5b213c2c644a94bdb5d2062093d3f002ae8655e89", MigrationConstantInPlace},
+	48: {48, "000048_add_segment_migration_runs.sql", "26a9baf023f67fc025c74696a839d2c4a2b50045ddeb79fec00d2ec04fb5d9eb", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

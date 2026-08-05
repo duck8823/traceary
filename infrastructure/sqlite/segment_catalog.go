@@ -293,7 +293,9 @@ func (d *Database) CatalogInventoryGate(ctx context.Context, budget apptypes.Cat
 
 //nolint:wrapcheck // This dedicated SQLite adapter preserves typed SQL failures.
 func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochCommit, maxRanges int) (apptypes.CatalogHead, error) {
-	if commit.binding != nil && (len(commit.transitions) != 1 || commit.binding.Range() != commit.transitions[0].Range || commit.binding.SegmentID() != commit.transitions[0].SegmentID) { return apptypes.CatalogHead{}, apptypes.ErrCatalogBindingMismatch }
+	if commit.binding != nil && (len(commit.transitions) != 1 || commit.binding.Range() != commit.transitions[0].Range || commit.binding.SegmentID() != commit.transitions[0].SegmentID) {
+		return apptypes.CatalogHead{}, apptypes.ErrCatalogBindingMismatch
+	}
 	actual, err := readCatalogHead(ctx, tx)
 	if err != nil {
 		return apptypes.CatalogHead{}, err
@@ -405,6 +407,12 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_range_transitions(epoch,transition_index,start_sequence,end_sequence,from_state,to_state,reservation_id,segment_id) VALUES(?,?,?,?,?,?,?,?)`, newEpoch, index, transition.Range.Start, transition.Range.End, transition.From, transition.To, transition.ReservationID, transition.SegmentID); err != nil {
 			return apptypes.CatalogHead{}, err
 		}
+		if !transition.ExpectedReservationSet || !transition.ExpectedSegmentSet {
+			return apptypes.CatalogHead{}, apptypes.ErrCatalogIllegalTransition
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_transition_owner_preconditions(epoch,transition_index,expected_reservation_id,expected_segment_id) VALUES(?,?,?,?)`, newEpoch, index, transition.ExpectedReservationID, transition.ExpectedSegmentID); err != nil {
+			return apptypes.CatalogHead{}, err
+		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_boundaries(sequence,first_epoch) VALUES(?,?) ON CONFLICT(sequence) DO NOTHING`, transition.Range.Start, newEpoch); err != nil {
 			return apptypes.CatalogHead{}, err
 		}
@@ -472,7 +480,7 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 			return apptypes.ErrCatalogDrift
 		}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT start_sequence,end_sequence,from_state,to_state,reservation_id,segment_id FROM archive_catalog_range_transitions WHERE epoch=? ORDER BY transition_index LIMIT ?`, head.Epoch, apptypes.CatalogMaxTransitionsPerEpoch+1)
+	rows, err := q.QueryContext(ctx, `SELECT t.start_sequence,t.end_sequence,t.from_state,t.to_state,t.reservation_id,t.segment_id,COALESCE(p.expected_reservation_id,''),COALESCE(p.expected_segment_id,''),p.epoch IS NOT NULL FROM archive_catalog_range_transitions t LEFT JOIN archive_catalog_transition_owner_preconditions p ON p.epoch=t.epoch AND p.transition_index=t.transition_index WHERE t.epoch=? ORDER BY t.transition_index LIMIT ?`, head.Epoch, apptypes.CatalogMaxTransitionsPerEpoch+1)
 	if err != nil {
 		return err
 	}
@@ -485,10 +493,12 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 		var start, end int64
 		var from, to domain.CatalogPlacement
 		var reservationID, segmentID string
-		if err = rows.Scan(&start, &end, &from, &to, &reservationID, &segmentID); err != nil {
+		var expectedReservationID, expectedSegmentID string
+		var hasExpected bool
+		if err = rows.Scan(&start, &end, &from, &to, &reservationID, &segmentID, &expectedReservationID, &expectedSegmentID, &hasExpected); err != nil {
 			return err
 		}
-		transition := domain.CatalogTransition{Range: domain.CatalogRange{Start: start, End: end}, From: from, To: to, ReservationID: reservationID, SegmentID: segmentID}
+		transition := domain.CatalogTransition{Range: domain.CatalogRange{Start: start, End: end}, From: from, To: to, ReservationID: reservationID, SegmentID: segmentID, ExpectedReservationID: expectedReservationID, ExpectedSegmentID: expectedSegmentID, ExpectedReservationSet: hasExpected, ExpectedSegmentSet: hasExpected}
 		if _, validationErr := domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{transition}); validationErr != nil {
 			return apptypes.ErrCatalogDrift
 		}
@@ -517,6 +527,10 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 }
 
 func applyCatalogTransition(ranges []apptypes.CatalogCurrentRange, transition domain.CatalogTransition) ([]apptypes.CatalogCurrentRange, error) {
+	validatedDigest, validationErr := domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{transition})
+	if validationErr != nil || validatedDigest == "" {
+		return nil, apptypes.ErrCatalogIllegalTransition
+	}
 	result := make([]apptypes.CatalogCurrentRange, 0, len(ranges)+2)
 	covered := int64(0)
 	for _, current := range ranges {
@@ -533,6 +547,16 @@ func applyCatalogTransition(ranges []apptypes.CatalogCurrentRange, transition do
 			}
 			return nil, apptypes.ErrCatalogIllegalTransition
 		}
+		// Placement is not an ownership token. Require the exact identity that
+		// currently owns every overlapped slice so a stale worker cannot advance
+		// another reservation or a replacement segment after observing the same
+		// placement state.
+		if transition.ExpectedReservationSet && current.ReservationID != transition.ExpectedReservationID {
+			return nil, apptypes.ErrCatalogStaleOwner
+		}
+		if transition.ExpectedSegmentSet && current.SegmentID != transition.ExpectedSegmentID {
+			return nil, apptypes.ErrCatalogStaleOwner
+		}
 		if current.Range.Start < start {
 			left := current
 			left.Range.End = start - 1
@@ -541,6 +565,8 @@ func applyCatalogTransition(ranges []apptypes.CatalogCurrentRange, transition do
 		changed := apptypes.CatalogCurrentRange{Range: domain.CatalogRange{Start: start, End: end}, Placement: transition.To, ReservationID: transition.ReservationID, SegmentID: transition.SegmentID}
 		if transition.To == domain.CatalogPlacementHot {
 			changed.ReservationID = ""
+			changed.SegmentID = ""
+		} else if transition.To == domain.CatalogPlacementReserved {
 			changed.SegmentID = ""
 		}
 		result = append(result, changed)

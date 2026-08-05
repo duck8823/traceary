@@ -49,7 +49,7 @@ func TestProofSpecificShadowTransitionsAuthenticateSegment(t *testing.T) {
 	if _, err = domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{shadow}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = domain.RollbackSegmentTransition(r, domain.CatalogPlacementVerifiedShadow, "reservation"); err != nil {
+	if _, err = domain.RollbackSegmentTransition(r, domain.CatalogPlacementVerifiedShadow, "reservation", "segment"); err != nil {
 		t.Fatal(err)
 	}
 }

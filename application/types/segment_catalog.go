@@ -10,6 +10,9 @@ import (
 var (
 	// ErrCatalogStaleHead identifies a failed expected-head compare-and-swap.
 	ErrCatalogStaleHead = errors.New("segment catalog stale head")
+	// ErrCatalogStaleOwner identifies a transition whose reservation or segment
+	// identity no longer owns the current range.
+	ErrCatalogStaleOwner = errors.New("segment catalog stale range owner")
 	// ErrCatalogInventoryGate identifies an inactive or contradictory sequence inventory.
 	ErrCatalogInventoryGate = errors.New("segment catalog inventory gate failed")
 	// ErrCatalogOverlap identifies a transition over a non-Hot reserved range.

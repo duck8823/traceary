@@ -994,7 +994,7 @@ func (d *Database) AdvanceSegmentMigrationRollback(ctx context.Context, id strin
 		if e != nil {
 			return run, e
 		}
-		transition, e := domain.RollbackSegmentTransition(run.Range, placement, run.ReservationID)
+		transition, e := domain.RollbackSegmentTransition(run.Range, placement, run.ReservationID, run.SegmentID)
 		if e != nil {
 			return run, e
 		}

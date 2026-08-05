@@ -310,6 +310,51 @@ func TestCatalogSQLRejectsProofBearingGenericTransition(t *testing.T) {
 	}
 }
 
+func TestApplyCatalogTransitionRejectsStaleIdentityAfterOwnershipRace(t *testing.T) {
+	rangeOne := domain.CatalogRange{Start: 1, End: 1}
+	reserved := []apptypes.CatalogCurrentRange{{
+		Range:         rangeOne,
+		Placement:     domain.CatalogPlacementReserved,
+		ReservationID: "winner-reservation",
+	}}
+
+	staleReservation, err := domain.SealSegmentTransition(rangeOne, "loser-reservation", "loser-segment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = applyCatalogTransition(reserved, staleReservation); !errors.Is(err, apptypes.ErrCatalogStaleOwner) {
+		t.Fatalf("stale reservation error = %v", err)
+	}
+
+	winner, err := domain.SealSegmentTransition(rangeOne, "winner-reservation", "winner-segment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := applyCatalogTransition(reserved, winner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleSegment, err := domain.VerifyShadowTransition(rangeOne, "winner-reservation", "loser-segment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = applyCatalogTransition(sealed, staleSegment); !errors.Is(err, apptypes.ErrCatalogStaleOwner) {
+		t.Fatalf("stale segment error = %v", err)
+	}
+
+	rollback, err := domain.RollbackSegmentTransition(rangeOne, domain.CatalogPlacementSealed, "winner-reservation", "winner-segment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := applyCatalogTransition(sealed, rollback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored[0].ReservationID != "winner-reservation" || restored[0].SegmentID != "" {
+		t.Fatalf("restored owner = %+v", restored[0])
+	}
+}
+
 func TestCatalogExpectedHeadCASAndGapFailClosed(t *testing.T) {
 	ctx := context.Background()
 	database, raw := newActivatedCatalogStore(t, 3)
