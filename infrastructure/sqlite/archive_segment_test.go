@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"os"
@@ -14,7 +15,77 @@ import (
 )
 
 func testSegmentLimits() ArchiveSegmentLimits {
-	return ArchiveSegmentLimits{MaxValuePlainBytes: 1 << 20, MaxValueStoredBytes: 1 << 20, MaxTotalPlainBytes: 4 << 20, MaxTotalStoredBytes: 4 << 20, MaxFileBytes: 16 << 20}
+	return ArchiveSegmentLimits{MaxValuePlainBytes: 1 << 20, MaxValueStoredBytes: 1 << 20, MaxTotalPlainBytes: 4 << 20, MaxTotalStoredBytes: 4 << 20, MaxFileBytes: 16 << 20, MaxSummaryBytes: 1 << 20, MaxSummaryRows: 1000}
+}
+
+func testSegmentSummary() domain.SegmentCatalogSummaryV1 {
+	return domain.SegmentCatalogSummaryV1{FilterKeyID: "test-key-v1", TimeComplete: true,
+		ExactTokens: []domain.SegmentSummaryToken{{Kind: domain.SummaryTokenWorkspace, Value: sha256.Sum256([]byte("workspace"))}},
+		Blooms:      []domain.SegmentBloomV1{{Kind: domain.SummaryTokenSession, BitCount: 8, HashCount: 2, Bits: []byte{0x81}}},
+		Sessions:    []domain.SegmentSessionAggregateV1{{SessionToken: sha256.Sum256([]byte("session")), UnitCount: 2, AuditCount: 1}},
+	}
+}
+
+func TestArchiveSegmentMetadataVerificationDoesNotDecodePayload(t *testing.T) {
+	root := t.TempDir()
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "metadata", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = VerifyArchiveSegmentMetadata(context.Background(), root, m, testSegmentLimits()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, m.Basename)
+	if err = os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE history_units SET codec='future'`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if err = os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	metadataExpected := m
+	metadataExpected.FileDigest = ""
+	if _, err = VerifyArchiveSegmentMetadata(context.Background(), root, metadataExpected, testSegmentLimits()); err != nil {
+		t.Fatalf("metadata verifier decoded payload: %v", err)
+	}
+	if _, err = VerifyArchiveSegment(context.Background(), root, m, testSegmentLimits()); !errors.Is(err, ErrSegmentCorrupt) {
+		t.Fatalf("full verifier error = %v", err)
+	}
+}
+
+func TestArchiveSegmentMetadataVerifierBindsNormalizedSummary(t *testing.T) {
+	root := t.TempDir()
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "summary-binding", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, m.Basename)
+	if err = os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE segment_session_aggregates SET unit_count=3`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if err = os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	expected := m
+	expected.FileDigest = ""
+	if _, err = VerifyArchiveSegmentMetadata(context.Background(), root, expected, testSegmentLimits()); !errors.Is(err, ErrSegmentCorrupt) {
+		t.Fatalf("tampered summary error = %v", err)
+	}
 }
 
 func testArchiveUnits() []ArchiveHistoryUnit {
@@ -53,7 +124,7 @@ func testArchiveAudit() *domain.ArchiveAuditV1 {
 
 func TestArchiveSegmentBuildInspectAndVerify(t *testing.T) {
 	root := t.TempDir()
-	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "store-a", CompressionFloor: 500, Limits: testSegmentLimits()})
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "store-a", CompressionFloor: 500, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +159,7 @@ func TestArchiveSegmentTimeBoundsUseChronologicalOrder(t *testing.T) {
 	units := testArchiveUnits()
 	units[0].Unit.Event = testArchiveEvent("event-10", time.Unix(10, 1), domain.TextValue([]byte("body")))
 	units[1].Unit.Event = testArchiveEvent("event-11", time.Unix(10, 0), domain.TextValue([]byte("body")))
-	m, err := BuildArchiveSegmentV1(context.Background(), t.TempDir(), units, ArchiveSegmentConfig{StoreID: "time", CompressionFloor: 32, Limits: testSegmentLimits()})
+	m, err := BuildArchiveSegmentV1(context.Background(), t.TempDir(), units, ArchiveSegmentConfig{StoreID: "time", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +170,7 @@ func TestArchiveSegmentTimeBoundsUseChronologicalOrder(t *testing.T) {
 
 func TestArchiveSegmentVerifierBindsExpectedManifestAndCaps(t *testing.T) {
 	root := t.TempDir()
-	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "binding", CompressionFloor: 32, Limits: testSegmentLimits()})
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "binding", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,9 +189,9 @@ func TestArchiveSegmentVerifierBindsExpectedManifestAndCaps(t *testing.T) {
 		t.Fatalf("file cap error = %v", err)
 	}
 	for name, limits := range map[string]ArchiveSegmentLimits{
-		"aggregate plaintext": {MaxValuePlainBytes: 1 << 20, MaxValueStoredBytes: 1 << 20, MaxTotalPlainBytes: m.TotalPlainBytes - 1, MaxTotalStoredBytes: 4 << 20, MaxFileBytes: 16 << 20},
-		"aggregate stored":    {MaxValuePlainBytes: 1 << 20, MaxValueStoredBytes: 1 << 20, MaxTotalPlainBytes: 4 << 20, MaxTotalStoredBytes: m.TotalStoredBytes - 1, MaxFileBytes: 16 << 20},
-		"decoded value":       {MaxValuePlainBytes: 16, MaxValueStoredBytes: 1 << 20, MaxTotalPlainBytes: 4 << 20, MaxTotalStoredBytes: 4 << 20, MaxFileBytes: 16 << 20},
+		"aggregate plaintext": {MaxValuePlainBytes: 1 << 20, MaxValueStoredBytes: 1 << 20, MaxTotalPlainBytes: m.TotalPlainBytes - 1, MaxTotalStoredBytes: 4 << 20, MaxFileBytes: 16 << 20, MaxSummaryBytes: 1 << 20, MaxSummaryRows: 1000},
+		"aggregate stored":    {MaxValuePlainBytes: 1 << 20, MaxValueStoredBytes: 1 << 20, MaxTotalPlainBytes: 4 << 20, MaxTotalStoredBytes: m.TotalStoredBytes - 1, MaxFileBytes: 16 << 20, MaxSummaryBytes: 1 << 20, MaxSummaryRows: 1000},
+		"decoded value":       {MaxValuePlainBytes: 16, MaxValueStoredBytes: 1 << 20, MaxTotalPlainBytes: 4 << 20, MaxTotalStoredBytes: 4 << 20, MaxFileBytes: 16 << 20, MaxSummaryBytes: 1 << 20, MaxSummaryRows: 1000},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := VerifyArchiveSegment(context.Background(), root, m, limits); !errors.Is(err, ErrSegmentLimit) {
@@ -137,7 +208,7 @@ func TestArchiveSegmentVerifierBindsExpectedManifestAndCaps(t *testing.T) {
 }
 
 func TestArchiveSegmentLogicalOutputIsDeterministic(t *testing.T) {
-	cfg := ArchiveSegmentConfig{StoreID: "same", CompressionFloor: 20, Limits: testSegmentLimits()}
+	cfg := ArchiveSegmentConfig{StoreID: "same", CompressionFloor: 20, Limits: testSegmentLimits(), Summary: testSegmentSummary()}
 	a, err := BuildArchiveSegmentV1(context.Background(), t.TempDir(), testArchiveUnits(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +235,7 @@ func TestArchiveSegmentRejectsUnsafeLocations(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BuildArchiveSegmentV1(context.Background(), link, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits()}); !errors.Is(err, ErrSegmentUnsafeLocation) {
+	if _, err := BuildArchiveSegmentV1(context.Background(), link, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits(), Summary: testSegmentSummary()}); !errors.Is(err, ErrSegmentUnsafeLocation) {
 		t.Fatalf("symlink root error = %v", err)
 	}
 	name := "segment-v1-" + strings.Repeat("a", 64) + ".sqlite"
@@ -177,7 +248,7 @@ func TestArchiveSegmentRejectsUnsafeLocations(t *testing.T) {
 }
 
 func TestArchiveSegmentCapsCancellationAndIncompleteOutput(t *testing.T) {
-	cfg := ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits()}
+	cfg := ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits(), Summary: testSegmentSummary()}
 	root := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -195,8 +266,8 @@ func TestArchiveSegmentCapsCancellationAndIncompleteOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exact := ArchiveSegmentLimits{MaxValuePlainBytes: int64(len(encoded)), MaxValueStoredBytes: int64(len(encoded)), MaxTotalPlainBytes: int64(len(encoded)), MaxTotalStoredBytes: int64(len(encoded)), MaxFileBytes: 16 << 20}
-	if _, err = BuildArchiveSegmentV1(context.Background(), t.TempDir(), unit, ArchiveSegmentConfig{StoreID: "exact", CompressionFloor: len(encoded) + 1, Limits: exact}); err != nil {
+	exact := ArchiveSegmentLimits{MaxValuePlainBytes: int64(len(encoded)), MaxValueStoredBytes: int64(len(encoded)), MaxTotalPlainBytes: int64(len(encoded)), MaxTotalStoredBytes: int64(len(encoded)), MaxFileBytes: 16 << 20, MaxSummaryBytes: 1 << 20, MaxSummaryRows: 1000}
+	if _, err = BuildArchiveSegmentV1(context.Background(), t.TempDir(), unit, ArchiveSegmentConfig{StoreID: "exact", CompressionFloor: len(encoded) + 1, Limits: exact, Summary: testSegmentSummary()}); err != nil {
 		t.Fatalf("exact maximum rejected: %v", err)
 	}
 }
@@ -204,7 +275,7 @@ func TestArchiveSegmentCapsCancellationAndIncompleteOutput(t *testing.T) {
 func TestArchiveSegmentFsyncFailureDoesNotSeal(t *testing.T) {
 	root := t.TempDir()
 	sentinel := errors.New("sync failed")
-	_, err := (archiveSegmentBuilder{syncFile: func(*os.File) error { return sentinel }}).build(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits()})
+	_, err := (archiveSegmentBuilder{syncFile: func(*os.File) error { return sentinel }}).build(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v", err)
 	}
@@ -212,7 +283,7 @@ func TestArchiveSegmentFsyncFailureDoesNotSeal(t *testing.T) {
 }
 
 func TestArchiveSegmentMidOperationCancellationAndSealFailureLeaveNoOutput(t *testing.T) {
-	cfg := ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits()}
+	cfg := ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits(), Summary: testSegmentSummary()}
 	root := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	b := archiveSegmentBuilder{syncFile: func(f *os.File) error { return f.Sync() }, sealFile: func(f *os.File, m os.FileMode) error { return f.Chmod(m) }, afterUnit: func(i int) error {
@@ -246,7 +317,7 @@ func TestArchiveSegmentVerifierSeparatesUnknownCodecAndCorruption(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "x", CompressionFloor: tc.floor, Limits: testSegmentLimits()})
+			m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "x", CompressionFloor: tc.floor, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -286,7 +357,7 @@ func TestArchiveSegmentVerifierSeparatesUnknownCodecAndCorruption(t *testing.T) 
 
 func TestArchiveSegmentVerifierRejectsOversizedStoredPayloadBeforeLoadingBlob(t *testing.T) {
 	root := t.TempDir()
-	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "oversized", CompressionFloor: 500, Limits: testSegmentLimits()})
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "oversized", CompressionFloor: 500, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +391,7 @@ func TestArchiveSegmentVerifierRejectsOversizedStoredPayloadBeforeLoadingBlob(t 
 
 func TestArchiveSegmentRejectsUnknownFormatButManifestInspectionDoesNotDecodePayload(t *testing.T) {
 	root := t.TempDir()
-	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits()})
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "x", CompressionFloor: 1, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
 	if err != nil {
 		t.Fatal(err)
 	}
