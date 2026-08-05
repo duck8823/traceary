@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ func (d *Database) migrate(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("failed to create schema_migrations table: %w", err)
 	}
 
-	appliedVersions, err := loadAppliedVersions(ctx, db)
+	applied, err := loadAppliedMigrations(ctx, db)
 	if err != nil {
 		return xerrors.Errorf("failed to load applied migrations: %w", err)
 	}
@@ -27,8 +28,12 @@ func (d *Database) migrate(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("failed to inventory exact migration catalog: %w", err)
 	}
 
+	if err := rejectForeignAppliedMigrations(applied, migrations); err != nil {
+		return err
+	}
+
 	for _, migration := range migrations {
-		if _, exists := appliedVersions[migration.version]; exists {
+		if _, exists := applied[migration.version]; exists {
 			continue
 		}
 		if err := executeExactMigration(ctx, db, migration); err != nil {
@@ -36,6 +41,41 @@ func (d *Database) migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	return nil
+}
+
+// rejectForeignAppliedMigrations fails initialization when the ledger records
+// a migration this catalog replaced or never contained at or below the
+// catalog's maximum version: continuing would silently skip a same-version
+// replacement migration (an abandoned development catalog necessarily recorded
+// the replaced version under its old name, because migrations apply in version
+// order). A missing version stays applicable because released history contains
+// gap upgrades, and versions above the catalog maximum stay tolerated so a
+// store upgraded by a newer release remains openable after a binary rollback;
+// store_format_state gates truly incompatible stores.
+func rejectForeignAppliedMigrations(applied map[int64]string, catalog []embeddedMigration) error {
+	names := make(map[int64]string, len(catalog))
+	for _, migration := range catalog {
+		names[migration.version] = migration.name
+	}
+	maximum := catalog[len(catalog)-1].version
+	versions := make([]int64, 0, len(applied))
+	for version := range applied {
+		versions = append(versions, version)
+	}
+	slices.Sort(versions)
+	for _, version := range versions {
+		if version > maximum {
+			continue
+		}
+		name, known := names[version]
+		if !known {
+			return xerrors.Errorf("schema_migrations records version %d (%q), which this migration catalog does not contain; the store was initialized by an incompatible catalog", version, applied[version])
+		}
+		if applied[version] != name {
+			return xerrors.Errorf("schema_migrations records version %d as %q, but this migration catalog defines it as %q; the store was initialized by an incompatible catalog", version, applied[version], name)
+		}
+	}
 	return nil
 }
 
@@ -53,8 +93,8 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 	return nil
 }
 
-func loadAppliedVersions(ctx context.Context, db *sql.DB) (map[int64]struct{}, error) {
-	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations;`)
+func loadAppliedMigrations(ctx context.Context, db *sql.DB) (map[int64]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT version, name FROM schema_migrations;`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query schema_migrations: %w", err)
 	}
@@ -64,18 +104,19 @@ func loadAppliedVersions(ctx context.Context, db *sql.DB) (map[int64]struct{}, e
 		}
 	}()
 
-	versions := make(map[int64]struct{})
+	applied := make(map[int64]string)
 	for rows.Next() {
 		var version int64
-		if err := rows.Scan(&version); err != nil {
+		var name string
+		if err := rows.Scan(&version, &name); err != nil {
 			return nil, xerrors.Errorf("failed to scan schema_migrations row: %w", err)
 		}
-		versions[version] = struct{}{}
+		applied[version] = name
 	}
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate schema_migrations rows: %w", err)
 	}
-	return versions, nil
+	return applied, nil
 }
 
 func parseMigrationVersion(path string) (int64, error) {

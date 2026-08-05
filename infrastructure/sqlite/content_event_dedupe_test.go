@@ -225,7 +225,6 @@ func TestStoreManagementDatasource_DedupeContentEvents_ApplyAndIdempotent(t *tes
 	if dedupeArchiveCount(t, dbPath) != 3 {
 		t.Fatalf("archive count = %d, want 3 after apply", dedupeArchiveCount(t, dbPath))
 	}
-	assertArchiveSequenceMappingCount(t, dbPath, 15)
 
 	// Read-surface exclusion: quarantined rows must not come back from ListRecent.
 	// Scope to workspace w1 so the deliberately malformed-timestamp fixture rows
@@ -288,23 +287,6 @@ func TestStoreManagementDatasource_RestoreContentEventDedupeRun(t *testing.T) {
 	// Restoring an unknown / already-restored run fails rather than silently succeeding.
 	if _, err := storeManager.RestoreContentEventDedupeRun(context.Background(), "dedupe-run-1"); err == nil {
 		t.Fatalf("expected error restoring an empty run")
-	}
-	assertArchiveSequenceMappingCount(t, dbPath, 15)
-}
-
-func assertArchiveSequenceMappingCount(t *testing.T, dbPath string, want int) {
-	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	var got int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM archive_event_sequences`).Scan(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Fatalf("archive sequence mapping count = %d, want %d", got, want)
 	}
 }
 

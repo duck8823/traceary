@@ -583,7 +583,6 @@ body_plaintext_bytes=excluded.body_plaintext_bytes, body_encoded_bytes=excluded.
 		args = append(args, payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256)
 	}
 	_, err = t.tx.ExecContext(ctx, query, args...)
-	err = mapArchiveSequenceWriteError(err)
 	if err == nil {
 		return true, nil
 	}

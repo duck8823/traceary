@@ -533,6 +533,89 @@ func TestMigrations_appliesGapInVersionHistory(t *testing.T) {
 	assertMigrationApplied(t, db, 14)
 }
 
+func TestMigrations_rejectsAppliedVersionRecordedUnderDifferentName(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	// Simulate an unreleased development store whose migration 44 was the
+	// abandoned archive-sequence-inventory migration, later replaced in the
+	// catalog by a different migration with the same version number.
+	abandoned := migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 44)
+	abandoned["000044_add_archive_sequence_inventory.sql"] = &fstest.MapFile{
+		Data: []byte(`CREATE TABLE archive_sequence_inventory (sequence INTEGER PRIMARY KEY);`),
+	}
+	if err := newStoreManagementDatasource(t, dbPath, abandoned).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(abandoned catalog) error = %v", err)
+	}
+
+	err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).Initialize(ctx)
+	if err == nil {
+		t.Fatal("Initialize(replacement catalog) accepted a ledger recorded under the abandoned migration 44 name")
+	}
+	if !strings.Contains(err.Error(), "000044_add_archive_sequence_inventory.sql") {
+		t.Fatalf("Initialize(replacement catalog) error = %v, want the abandoned migration name identified", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='archive_segments'`).Scan(&count); err != nil {
+		t.Fatalf("look up archive_segments error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("replacement migration 44 ran against a rejected ledger: archive_segments count = %d", count)
+	}
+}
+
+func TestMigrations_rejectsAbandonedDevelopmentStoreWithVersionsAboveCatalogMaximum(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	// Simulate an unreleased development store that applied the abandoned
+	// migrations 44 and 45. Applied versions above the current catalog maximum
+	// stay tolerated on their own so a store upgraded by a newer release
+	// remains openable after a binary rollback (see
+	// TestMigrations_EventMetadataProjectionSupportsPreProjectionWriterRollback),
+	// but migrations apply in version order, so every abandoned store also
+	// recorded the replaced version 44 under its old name and must fail closed.
+	abandoned := migrationsBeforeVersion(t, onDiskSQLiteMigrationDir(t), 44)
+	abandoned["000044_add_archive_sequence_inventory.sql"] = &fstest.MapFile{
+		Data: []byte(`CREATE TABLE archive_sequence_inventory (sequence INTEGER PRIMARY KEY);`),
+	}
+	abandoned["000045_add_segment_catalog_ledger.sql"] = &fstest.MapFile{
+		Data: []byte(`CREATE TABLE segment_catalog_ledger (id INTEGER PRIMARY KEY);`),
+	}
+	if err := newStoreManagementDatasource(t, dbPath, abandoned).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(abandoned catalog) error = %v", err)
+	}
+
+	err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).Initialize(ctx)
+	if err == nil {
+		t.Fatal("Initialize(current catalog) accepted an abandoned development store")
+	}
+	if !strings.Contains(err.Error(), "000044_add_archive_sequence_inventory.sql") {
+		t.Fatalf("Initialize(current catalog) error = %v, want the abandoned migration 44 identified", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='archive_segments'`).Scan(&count); err != nil {
+		t.Fatalf("look up archive_segments error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("replacement migration 44 ran against a rejected ledger: archive_segments count = %d", count)
+	}
+}
+
 func TestMigrations_idempotentOnExistingDatabase(t *testing.T) {
 	t.Parallel()
 

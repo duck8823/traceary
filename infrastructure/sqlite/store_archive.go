@@ -512,7 +512,7 @@ body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_
 		}
 		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			return xerrors.Errorf("insert events: %w", mapArchiveSequenceWriteError(err))
+			return xerrors.Errorf("insert events: %w", err)
 		}
 		return nil
 	case "command_audits":
