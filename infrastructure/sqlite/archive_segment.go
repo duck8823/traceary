@@ -363,7 +363,6 @@ func inspectArchiveSegmentPath(ctx context.Context, path, expectedBasename strin
 	}
 	defer func() { _ = db.Close() }()
 	defer func() { _ = pinned.Close() }()
-	db.SetMaxOpenConns(2)
 	return inspectArchiveSegmentOpen(ctx, db, pinned, expectedBasename, maxFileBytes)
 }
 
@@ -629,7 +628,6 @@ func verifyArchiveSegmentPathWithHook(ctx context.Context, path string, expected
 		return ArchiveSegmentManifest{}, err
 	}
 	defer func() { _ = db.Close(); _ = pinned.Close() }()
-	db.SetMaxOpenConns(2)
 	m, err := inspectArchiveSegmentOpen(ctx, db, pinned, expected.Basename, limits.MaxFileBytes)
 	if err != nil {
 		return m, err
@@ -658,7 +656,46 @@ func verifyArchiveSegmentPathWithHook(ctx context.Context, path string, expected
 	if requireFileDigest && expected.FileDigest == "" {
 		return m, fmt.Errorf("%w: expected file digest missing", ErrSegmentCorrupt)
 	}
-	rows, err := db.QueryContext(ctx, `SELECT sequence,codec,plaintext_length,checksum,length(payload) FROM history_units ORDER BY sequence`)
+	// Preflight lengths on the already-open connection before requesting any
+	// payload BLOB. Keeping one connection is essential: reopening /dev/fd on
+	// Linux may resolve through a pathname that has since been exchanged.
+	preflight, err := db.QueryContext(ctx, `SELECT sequence,plaintext_length,length(payload) FROM history_units ORDER BY sequence`)
+	if err != nil {
+		return m, fmt.Errorf("%w: preflight payloads: %v", ErrSegmentCorrupt, err)
+	}
+	var preCount, prePrevious uint64
+	var prePlain, preStored int64
+	for preflight.Next() {
+		var seq uint64
+		var plainLen, storedLen int64
+		if err = preflight.Scan(&seq, &plainLen, &storedLen); err != nil {
+			_ = preflight.Close()
+			return m, fmt.Errorf("%w: preflight payload", ErrSegmentCorrupt)
+		}
+		if preCount > 0 && seq != prePrevious+1 {
+			_ = preflight.Close()
+			return m, fmt.Errorf("%w: non-contiguous sequence", ErrSegmentCorrupt)
+		}
+		if plainLen < 0 || plainLen > limits.MaxValuePlainBytes || storedLen < 0 || storedLen > limits.MaxValueStoredBytes || plainLen > limits.MaxTotalPlainBytes-prePlain || storedLen > limits.MaxTotalStoredBytes-preStored {
+			_ = preflight.Close()
+			return m, fmt.Errorf("%w: value", ErrSegmentLimit)
+		}
+		prePrevious = seq
+		preCount++
+		prePlain += plainLen
+		preStored += storedLen
+	}
+	if err = preflight.Err(); err != nil {
+		_ = preflight.Close()
+		return m, err
+	}
+	if err = preflight.Close(); err != nil {
+		return m, err
+	}
+	if preCount != m.UnitCount || prePlain != m.TotalPlainBytes || preStored != m.TotalStoredBytes {
+		return m, fmt.Errorf("%w: payload preflight aggregate", ErrSegmentCorrupt)
+	}
+	rows, err := db.QueryContext(ctx, `SELECT sequence,codec,plaintext_length,checksum,payload FROM history_units ORDER BY sequence`)
 	if err != nil {
 		return m, fmt.Errorf("%w: query payloads: %v", ErrSegmentCorrupt, err)
 	}
@@ -683,8 +720,8 @@ func verifyArchiveSegmentPathWithHook(ctx context.Context, path string, expected
 		var codec string
 		var plainLen int64
 		var checksum []byte
-		var storedLen int64
-		if err = rows.Scan(&seq, &codec, &plainLen, &checksum, &storedLen); err != nil {
+		var stored []byte
+		if err = rows.Scan(&seq, &codec, &plainLen, &checksum, &stored); err != nil {
 			return m, fmt.Errorf("%w: scan payload", ErrSegmentCorrupt)
 		}
 		if count > 0 && seq != previous+1 {
@@ -694,15 +731,9 @@ func verifyArchiveSegmentPathWithHook(ctx context.Context, path string, expected
 			first = seq
 		}
 		previous = seq
+		storedLen := int64(len(stored))
 		if plainLen < 0 || plainLen > limits.MaxValuePlainBytes || storedLen < 0 || storedLen > limits.MaxValueStoredBytes || totalPlain+plainLen > limits.MaxTotalPlainBytes || totalStored+storedLen > limits.MaxTotalStoredBytes {
 			return m, fmt.Errorf("%w: value", ErrSegmentLimit)
-		}
-		var stored []byte
-		if err = db.QueryRowContext(ctx, `SELECT payload FROM history_units WHERE sequence=?`, seq).Scan(&stored); err != nil {
-			return m, fmt.Errorf("%w: load bounded payload", ErrSegmentCorrupt)
-		}
-		if int64(len(stored)) != storedLen {
-			return m, fmt.Errorf("%w: payload length changed", ErrSegmentCorrupt)
 		}
 		var plain []byte
 		switch codec {
