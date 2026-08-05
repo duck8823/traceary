@@ -18,6 +18,9 @@ type SegmentMigrationPhase string
 // SegmentMigrationAction names one bounded application-selected workflow step.
 type SegmentMigrationAction string
 
+// SegmentMigrationRollbackAction names one bounded rollback workflow step.
+type SegmentMigrationRollbackAction string
+
 // Bounded forward actions selected from the run aggregate.
 const (
 	SegmentMigrationActionBeginCopy           SegmentMigrationAction = "begin_copy"
@@ -29,6 +32,13 @@ const (
 	SegmentMigrationActionSeal                SegmentMigrationAction = "seal"
 	SegmentMigrationActionRecordVerifyIntent  SegmentMigrationAction = "record_verify_intent"
 	SegmentMigrationActionVerify              SegmentMigrationAction = "verify"
+)
+
+const (
+	// SegmentMigrationRollbackActionRecordIntent appends the forward rollback intent.
+	SegmentMigrationRollbackActionRecordIntent SegmentMigrationRollbackAction = "record_rollback_intent"
+	// SegmentMigrationRollbackActionComplete reconciles external state and commits terminal rollback.
+	SegmentMigrationRollbackActionComplete SegmentMigrationRollbackAction = "complete_rollback"
 )
 
 const (
@@ -145,6 +155,20 @@ func (r SegmentMigrationRun) NextAction() (SegmentMigrationAction, bool) {
 	default:
 		return "", false
 	}
+}
+
+// NextRollbackAction is the application-visible rollback decision.
+func (r SegmentMigrationRun) NextRollbackAction() (SegmentMigrationRollbackAction, bool) {
+	if r.Phase == SegmentMigrationRolledBack {
+		return "", false
+	}
+	if r.Phase == SegmentMigrationRollbackIntent {
+		return SegmentMigrationRollbackActionComplete, true
+	}
+	if r.CanTransition(SegmentMigrationRollbackIntent) {
+		return SegmentMigrationRollbackActionRecordIntent, true
+	}
+	return "", false
 }
 
 // Advance returns a new append-only revision.

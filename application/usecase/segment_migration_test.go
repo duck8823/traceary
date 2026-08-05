@@ -57,6 +57,19 @@ func (f *segmentMigrationRepositoryFake) AdvanceSegmentMigrationRollback(_ conte
 	f.run, err = f.run.Advance(next)
 	return f.run, err
 }
+func (f *segmentMigrationRepositoryFake) ExecuteSegmentMigrationRollbackAction(_ context.Context, _ string, action domain.SegmentMigrationRollbackAction, _ types.SegmentMigrationBudget) (domain.SegmentMigrationRun, error) {
+	want, ok := f.run.NextRollbackAction()
+	if !ok || want != action {
+		return f.run, domain.ErrSegmentMigrationTransition
+	}
+	to := domain.SegmentMigrationRollbackIntent
+	if action == domain.SegmentMigrationRollbackActionComplete {
+		to = domain.SegmentMigrationRolledBack
+	}
+	var err error
+	f.run, err = f.run.Advance(to)
+	return f.run, err
+}
 func (f *segmentMigrationRepositoryFake) RecoverSegmentMigration(context.Context, string, types.SegmentMigrationBudget) (domain.SegmentMigrationRun, error) {
 	return f.run, nil
 }

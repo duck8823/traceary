@@ -138,9 +138,10 @@ func (s archiveSegmentSliceSource) At(_ context.Context, index int) (ArchiveHist
 }
 
 type archiveSegmentBuilder struct {
-	syncFile  func(*os.File) error
-	sealFile  func(*os.File, os.FileMode) error
-	afterUnit func(int) error
+	syncFile     func(*os.File) error
+	sealFile     func(*os.File, os.FileMode) error
+	afterUnit    func(int) error
+	beforeSQLite func() error
 }
 
 // BuildArchiveSegmentV1 creates and seals one immutable segment in an owned
@@ -160,6 +161,10 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 }
 
 func (b archiveSegmentBuilder) buildSource(ctx context.Context, root string, source ArchiveSegmentSource, cfg ArchiveSegmentConfig) (manifest ArchiveSegmentManifest, err error) {
+	return b.buildSourceRoot(ctx, root, source, cfg)
+}
+
+func (b archiveSegmentBuilder) buildSourceRoot(ctx context.Context, root string, source ArchiveSegmentSource, cfg ArchiveSegmentConfig) (manifest ArchiveSegmentManifest, err error) {
 	if err := cfg.Limits.validate(); err != nil {
 		return manifest, err
 	}
@@ -184,7 +189,6 @@ func (b archiveSegmentBuilder) buildSource(ctx context.Context, root string, sou
 	if err != nil {
 		return manifest, fmt.Errorf("create segment candidate: %w", err)
 	}
-	tmpPath := filepath.Join(ownedRoot.Name(), tmpName)
 	cleanupName := tmpName
 	defer func() { _ = tmp.Close() }()
 	defer func() {
@@ -194,7 +198,15 @@ func (b archiveSegmentBuilder) buildSource(ctx context.Context, root string, sou
 		}
 	}()
 
-	db, err := sql.Open("sqlite", segmentSQLiteDSN(tmpPath, "rw", false)+"&_pragma=journal_mode(OFF)&_pragma=synchronous(FULL)")
+	if b.beforeSQLite != nil {
+		if err = b.beforeSQLite(); err != nil {
+			return manifest, err
+		}
+	}
+	// Candidate construction is intentionally in-memory. The complete image is
+	// serialized into the already-open O_EXCL file below, so SQLite never
+	// re-resolves a writable pathname inside the owned candidate directory.
+	db, err := openSerializedSQLite(ctx, nil)
 	if err != nil {
 		return manifest, err
 	}
@@ -353,13 +365,26 @@ func (b archiveSegmentBuilder) buildSource(ctx context.Context, root string, sou
 	if _, err = db.ExecContext(ctx, `PRAGMA user_version=1`); err != nil {
 		return manifest, err
 	}
-	if _, err = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		return manifest, err
+	serialized, serializeErr := serializeSQLite(ctx, db)
+	if serializeErr != nil {
+		return manifest, fmt.Errorf("serialize segment candidate: %w", serializeErr)
 	}
 	if err = db.Close(); err != nil {
 		return manifest, fmt.Errorf("close segment: %w", err)
 	}
-	if _, err = verifyArchiveSegmentPath(ctx, tmpPath, manifest, cfg.Limits, false); err != nil {
+	if int64(len(serialized)) > cfg.Limits.MaxFileBytes {
+		return manifest, fmt.Errorf("%w: serialized segment file", ErrSegmentLimit)
+	}
+	if err = tmp.Truncate(0); err != nil {
+		return manifest, fmt.Errorf("truncate segment candidate: %w", err)
+	}
+	if _, err = tmp.Seek(0, 0); err != nil {
+		return manifest, fmt.Errorf("rewind segment candidate: %w", err)
+	}
+	if _, err = tmp.Write(serialized); err != nil {
+		return manifest, fmt.Errorf("write serialized segment candidate: %w", err)
+	}
+	if _, err = verifyArchiveSegmentFDWithHooks(ctx, int(tmp.Fd()), manifest, cfg.Limits, false, nil, nil); err != nil {
 		return manifest, fmt.Errorf("verify segment candidate before seal: %w", err)
 	}
 	if err = b.syncFile(tmp); err != nil {
@@ -380,6 +405,11 @@ func (b archiveSegmentBuilder) buildSource(ctx context.Context, root string, sou
 		return manifest, fmt.Errorf("seal candidate name: %w", os.ErrExist)
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return manifest, fmt.Errorf("inspect candidate name: %w", statErr)
+	}
+	openedInfo, statErr := tmp.Stat()
+	currentInfo, currentErr := ownedRoot.Lstat(tmpName)
+	if statErr != nil || currentErr != nil || !openedInfo.Mode().IsRegular() || currentInfo.Mode()&os.ModeSymlink != 0 || !currentInfo.Mode().IsRegular() || !os.SameFile(openedInfo, currentInfo) {
+		return manifest, fmt.Errorf("segment candidate identity changed: %w", ErrSegmentUnsafeLocation)
 	}
 	if err = ownedRoot.Rename(tmpName, manifest.Basename); err != nil {
 		return manifest, fmt.Errorf("name sealed candidate: %w", err)
@@ -699,6 +729,54 @@ func verifyArchiveSegmentPathWithHooks(ctx context.Context, path string, expecte
 		return ArchiveSegmentManifest{}, err
 	}
 	defer func() { _ = db.Close(); _ = pinned.Close() }()
+	return verifyArchiveSegmentOpenWithHooks(ctx, db, pinned, expected, limits, requireFileDigest, afterManifest, afterUnit)
+}
+
+func verifyArchiveSegmentFDWithHooks(ctx context.Context, fd int, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits, requireFileDigest bool, afterManifest func() error, afterUnit func(domain.HistoryUnit, []byte) error) (ArchiveSegmentManifest, error) {
+	dupFD, err := unix.Dup(fd)
+	if err != nil {
+		return ArchiveSegmentManifest{}, fmt.Errorf("duplicate pinned segment: %w", err)
+	}
+	pinned := os.NewFile(uintptr(dupFD), expected.Basename)
+	db, err := sql.Open("sqlite", segmentSQLiteDSN(filepath.Join("/dev/fd", strconv.Itoa(fd)), "ro", true))
+	if err != nil {
+		_ = pinned.Close()
+		return ArchiveSegmentManifest{}, fmt.Errorf("open held immutable segment: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer func() { _ = db.Close(); _ = pinned.Close() }()
+	if err = db.PingContext(ctx); err != nil {
+		return ArchiveSegmentManifest{}, fmt.Errorf("ping held immutable segment: %w", err)
+	}
+	return verifyArchiveSegmentOpenWithHooks(ctx, db, pinned, expected, limits, requireFileDigest, afterManifest, afterUnit)
+}
+
+func inspectArchiveSegmentFD(ctx context.Context, fd int, expectedBasename string, maxFileBytes int64) (ArchiveSegmentManifest, error) {
+	dupFD, err := unix.Dup(fd)
+	if err != nil {
+		return ArchiveSegmentManifest{}, fmt.Errorf("duplicate held segment: %w", err)
+	}
+	pinned := os.NewFile(uintptr(dupFD), expectedBasename)
+	defer func() { _ = pinned.Close() }()
+	db, err := sql.Open("sqlite", segmentSQLiteDSN(filepath.Join("/dev/fd", strconv.Itoa(fd)), "ro", true))
+	if err != nil {
+		return ArchiveSegmentManifest{}, fmt.Errorf("inspect held immutable segment: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer func() { _ = db.Close() }()
+	if err = db.PingContext(ctx); err != nil {
+		return ArchiveSegmentManifest{}, fmt.Errorf("ping held immutable segment: %w", err)
+	}
+	return inspectArchiveSegmentOpen(ctx, db, pinned, expectedBasename, maxFileBytes)
+}
+
+func verifyArchiveSegmentOpenWithHooks(ctx context.Context, db *sql.DB, pinned *os.File, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits, requireFileDigest bool, afterManifest func() error, afterUnit func(domain.HistoryUnit, []byte) error) (ArchiveSegmentManifest, error) {
+	if requireFileDigest {
+		info, statErr := pinned.Stat()
+		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o400 {
+			return ArchiveSegmentManifest{}, fmt.Errorf("%w: sealed segment mode", ErrSegmentCorrupt)
+		}
+	}
 	m, err := inspectArchiveSegmentOpen(ctx, db, pinned, expected.Basename, limits.MaxFileBytes)
 	if err != nil {
 		return m, err

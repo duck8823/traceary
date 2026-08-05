@@ -90,3 +90,26 @@ func TestSegmentMigrationRevisionRejectsRegressionAndEvidenceMutation(t *testing
 		t.Fatal("checkpoint regression accepted")
 	}
 }
+
+func TestSegmentMigrationNextRollbackActionOwnsDecision(t *testing.T) {
+	r := domain.SegmentMigrationRun{ID: "run", StoreID: "0123456789abcdef0123456789abcdef", ReservationID: "reservation", PlanDigest: "0000000000000000000000000000000000000000000000000000000000000000", Range: domain.CatalogRange{Start: 1, End: 1}, Phase: domain.SegmentMigrationPlanned, Revision: 1, NextSequence: 1}
+	action, ok := r.NextRollbackAction()
+	if !ok || action != domain.SegmentMigrationRollbackActionRecordIntent {
+		t.Fatalf("action=%q ok=%v", action, ok)
+	}
+	r, err := r.Advance(domain.SegmentMigrationRollbackIntent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, ok = r.NextRollbackAction()
+	if !ok || action != domain.SegmentMigrationRollbackActionComplete {
+		t.Fatalf("action=%q ok=%v", action, ok)
+	}
+	r, err = r.Advance(domain.SegmentMigrationRolledBack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok = r.NextRollbackAction(); ok {
+		t.Fatal("terminal rollback exposed another action")
+	}
+}

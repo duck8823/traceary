@@ -56,7 +56,15 @@ func (u *segmentMigrationUsecase) Rollback(ctx context.Context, id string, budge
 	var run domain.SegmentMigrationRun
 	var err error
 	for range budget.MaxSteps {
-		run, err = u.repository.AdvanceSegmentMigrationRollback(opCtx, id, budget)
+		run, err = u.repository.LoadSegmentMigration(opCtx, id)
+		if err != nil || run.Phase == domain.SegmentMigrationRolledBack {
+			return run, err
+		}
+		action, ok := run.NextRollbackAction()
+		if !ok {
+			return run, domain.ErrSegmentMigrationTransition
+		}
+		run, err = u.repository.ExecuteSegmentMigrationRollbackAction(opCtx, id, action, budget)
 		if err != nil || run.Phase == domain.SegmentMigrationRolledBack {
 			return run, err
 		}

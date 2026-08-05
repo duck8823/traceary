@@ -23,6 +23,11 @@ import (
 
 var _ application.SegmentMigrationRepository = (*Database)(nil)
 
+const (
+	segmentMigrationBootstrapMaxWAL = 64 << 20
+	segmentMigrationBootstrapTime   = 5 * time.Second
+)
+
 func segmentMigrationLimitError() error {
 	// Preserve the historical infrastructure sentinel while exposing the
 	// application-owned contract to callers of the migration use case.
@@ -35,6 +40,7 @@ type segmentMigrationConfig struct {
 	archiveDevice, archiveInode     string
 	compressionFloor                int
 	softwareCommit, configDigest    string
+	envelope                        apptypes.SegmentMigrationBudget
 }
 
 func segmentMigrationConfigDigest(command apptypes.SegmentMigrationStart, candidateDevice, candidateInode, archiveDevice, archiveInode string) string {
@@ -126,6 +132,11 @@ func (d *Database) StartSegmentMigration(ctx context.Context, command apptypes.S
 	configDigest := segmentMigrationConfigDigest(command, candidateDevice, candidateInode, archiveDevice, archiveInode)
 	opCtx, cancel := migrationOperationContext(ctx, command.Budget)
 	defer cancel()
+	if info, statErr := os.Stat(d.Path() + "-wal"); statErr == nil && info.Size() > segmentMigrationBootstrapMaxWAL {
+		return domain.SegmentMigrationRun{}, segmentMigrationLimitError()
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return domain.SegmentMigrationRun{}, statErr
+	}
 	release, err := d.acquireSegmentMigrationLease(opCtx, command.Budget.LockTime)
 	if err != nil {
 		return domain.SegmentMigrationRun{}, err
@@ -177,7 +188,9 @@ func (d *Database) StartSegmentMigration(ctx context.Context, command apptypes.S
 		return domain.SegmentMigrationRun{}, existingErr
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(opCtx, `INSERT INTO archive_segment_migration_runs(run_id,revision,store_id,reservation_id,plan_digest,software_commit,config_digest,candidate_root,candidate_root_device,candidate_root_inode,archive_root,archive_root_device,archive_root_inode,compression_floor,start_sequence,end_sequence,phase,next_sequence,copied_rows,copied_plain_bytes,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, run.ID, run.Revision, run.StoreID, run.ReservationID, run.PlanDigest, command.SoftwareCommit, configDigest, command.CandidateRoot, candidateDevice, candidateInode, command.ArchiveRoot, archiveDevice, archiveInode, command.CompressionFloor, start, end, run.Phase, start, 0, 0, now)
+	_, err = tx.ExecContext(opCtx, `INSERT INTO archive_segment_migration_runs(run_id,revision,store_id,reservation_id,plan_digest,software_commit,config_digest,envelope_page_rows,envelope_max_steps,envelope_wall_time_ns,envelope_lock_time_ns,envelope_max_plain_bytes,envelope_max_stored_bytes,envelope_max_value_plain_bytes,envelope_max_value_stored_bytes,envelope_max_file_bytes,envelope_max_summary_bytes,envelope_max_wal_bytes,envelope_min_free_disk_bytes,envelope_max_summary_rows,candidate_root,candidate_root_device,candidate_root_inode,archive_root,archive_root_device,archive_root_inode,compression_floor,start_sequence,end_sequence,phase,next_sequence,copied_rows,copied_plain_bytes,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, run.ID, run.Revision, run.StoreID, run.ReservationID, run.PlanDigest, command.SoftwareCommit, configDigest,
+		command.Budget.PageRows, command.Budget.MaxSteps, int64(command.Budget.WallTime), int64(command.Budget.LockTime), command.Budget.MaxPlainBytes, command.Budget.MaxStoredBytes, command.Budget.MaxValuePlainBytes, command.Budget.MaxValueStoredBytes, command.Budget.MaxFileBytes, command.Budget.MaxSummaryBytes, command.Budget.MaxWALBytes, command.Budget.MinFreeDiskBytes, command.Budget.MaxSummaryRows,
+		command.CandidateRoot, candidateDevice, candidateInode, command.ArchiveRoot, archiveDevice, archiveInode, command.CompressionFloor, start, end, run.Phase, start, 0, 0, now)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return domain.SegmentMigrationRun{}, apptypes.ErrSegmentMigrationConflict
@@ -196,7 +209,9 @@ func (d *Database) StartSegmentMigration(ctx context.Context, command apptypes.S
 func scanSegmentMigration(row *sql.Row) (domain.SegmentMigrationRun, segmentMigrationConfig, error) {
 	var r domain.SegmentMigrationRun
 	var cfg segmentMigrationConfig
-	err := row.Scan(&r.ID, &r.StoreID, &r.ReservationID, &r.PlanDigest, &cfg.softwareCommit, &cfg.configDigest, &cfg.candidateRoot, &cfg.candidateDevice, &cfg.candidateInode, &cfg.archiveRoot, &cfg.archiveDevice, &cfg.archiveInode, &cfg.compressionFloor, &r.Range.Start, &r.Range.End, &r.Phase, &r.Revision, &r.NextSequence, &r.CopiedRows, &r.CopiedPlainBytes, &r.SourceDigest, &r.CandidateBasename, &r.SegmentID, &r.ManifestDigest, &r.FileDigest, &r.CatalogEpoch)
+	err := row.Scan(&r.ID, &r.StoreID, &r.ReservationID, &r.PlanDigest, &cfg.softwareCommit, &cfg.configDigest,
+		&cfg.envelope.PageRows, &cfg.envelope.MaxSteps, &cfg.envelope.WallTime, &cfg.envelope.LockTime, &cfg.envelope.MaxPlainBytes, &cfg.envelope.MaxStoredBytes, &cfg.envelope.MaxValuePlainBytes, &cfg.envelope.MaxValueStoredBytes, &cfg.envelope.MaxFileBytes, &cfg.envelope.MaxSummaryBytes, &cfg.envelope.MaxWALBytes, &cfg.envelope.MinFreeDiskBytes, &cfg.envelope.MaxSummaryRows,
+		&cfg.candidateRoot, &cfg.candidateDevice, &cfg.candidateInode, &cfg.archiveRoot, &cfg.archiveDevice, &cfg.archiveInode, &cfg.compressionFloor, &r.Range.Start, &r.Range.End, &r.Phase, &r.Revision, &r.NextSequence, &r.CopiedRows, &r.CopiedPlainBytes, &r.SourceDigest, &r.CandidateBasename, &r.SegmentID, &r.ManifestDigest, &r.FileDigest, &r.CatalogEpoch)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, cfg, apptypes.ErrSegmentMigrationNotFound
 	}
@@ -206,19 +221,29 @@ func scanSegmentMigration(row *sql.Row) (domain.SegmentMigrationRun, segmentMigr
 	if err = r.Validate(); err != nil {
 		return r, cfg, apptypes.ErrCatalogDrift
 	}
+	if !cfg.envelope.Valid() {
+		return r, cfg, apptypes.ErrCatalogDrift
+	}
 	return r, cfg, nil
 }
 
-const loadSegmentMigrationSQL = `SELECT run_id,store_id,reservation_id,plan_digest,software_commit,config_digest,candidate_root,candidate_root_device,candidate_root_inode,archive_root,archive_root_device,archive_root_inode,compression_floor,start_sequence,end_sequence,phase,revision,next_sequence,copied_rows,copied_plain_bytes,source_digest,candidate_basename,segment_id,manifest_digest,file_digest,catalog_epoch FROM archive_segment_migration_runs WHERE run_id=? ORDER BY revision DESC LIMIT 1`
+const loadSegmentMigrationSQL = `SELECT run_id,store_id,reservation_id,plan_digest,software_commit,config_digest,envelope_page_rows,envelope_max_steps,envelope_wall_time_ns,envelope_lock_time_ns,envelope_max_plain_bytes,envelope_max_stored_bytes,envelope_max_value_plain_bytes,envelope_max_value_stored_bytes,envelope_max_file_bytes,envelope_max_summary_bytes,envelope_max_wal_bytes,envelope_min_free_disk_bytes,envelope_max_summary_rows,candidate_root,candidate_root_device,candidate_root_inode,archive_root,archive_root_device,archive_root_inode,compression_floor,start_sequence,end_sequence,phase,revision,next_sequence,copied_rows,copied_plain_bytes,source_digest,candidate_basename,segment_id,manifest_digest,file_digest,catalog_epoch FROM archive_segment_migration_runs WHERE run_id=? ORDER BY revision DESC LIMIT 1`
 
 // LoadSegmentMigration returns the newest append-only revision.
 func (d *Database) LoadSegmentMigration(ctx context.Context, id string) (domain.SegmentMigrationRun, error) {
-	db, err := d.openReadOnly(ctx)
+	if info, err := os.Stat(d.Path() + "-wal"); err == nil && info.Size() > segmentMigrationBootstrapMaxWAL {
+		return domain.SegmentMigrationRun{}, segmentMigrationLimitError()
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return domain.SegmentMigrationRun{}, err
+	}
+	bounded, cancel := context.WithTimeout(ctx, segmentMigrationBootstrapTime)
+	defer cancel()
+	db, err := d.openReadOnly(bounded)
 	if err != nil {
 		return domain.SegmentMigrationRun{}, err
 	}
 	defer d.release(db)
-	r, _, err := scanSegmentMigration(db.QueryRowContext(ctx, loadSegmentMigrationSQL, strings.TrimSpace(id)))
+	r, _, err := scanSegmentMigration(db.QueryRowContext(bounded, loadSegmentMigrationSQL, strings.TrimSpace(id)))
 	return r, err
 }
 
@@ -229,7 +254,7 @@ func appendSegmentMigration(ctx context.Context, tx *sql.Tx, from, to domain.Seg
 	if from.ID != to.ID || from.StoreID != to.StoreID || from.ReservationID != to.ReservationID || from.PlanDigest != to.PlanDigest || from.Range != to.Range || to.Revision != from.Revision+1 {
 		return domain.ErrSegmentMigrationInvalid
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO archive_segment_migration_runs(run_id,revision,store_id,reservation_id,plan_digest,software_commit,config_digest,candidate_root,candidate_root_device,candidate_root_inode,archive_root,archive_root_device,archive_root_inode,compression_floor,start_sequence,end_sequence,phase,next_sequence,copied_rows,copied_plain_bytes,source_digest,candidate_basename,segment_id,manifest_digest,file_digest,catalog_epoch,recorded_at) SELECT run_id,?,store_id,reservation_id,plan_digest,software_commit,config_digest,candidate_root,candidate_root_device,candidate_root_inode,archive_root,archive_root_device,archive_root_inode,compression_floor,start_sequence,end_sequence,?,?,?,?,?,?,?,?,?,?,? FROM archive_segment_migration_runs WHERE run_id=? AND revision=?`, to.Revision, to.Phase, to.NextSequence, to.CopiedRows, to.CopiedPlainBytes, to.SourceDigest, to.CandidateBasename, to.SegmentID, to.ManifestDigest, to.FileDigest, to.CatalogEpoch, time.Now().UTC().Format(time.RFC3339Nano), from.ID, from.Revision)
+	result, err := tx.ExecContext(ctx, `INSERT INTO archive_segment_migration_runs(run_id,revision,store_id,reservation_id,plan_digest,software_commit,config_digest,envelope_page_rows,envelope_max_steps,envelope_wall_time_ns,envelope_lock_time_ns,envelope_max_plain_bytes,envelope_max_stored_bytes,envelope_max_value_plain_bytes,envelope_max_value_stored_bytes,envelope_max_file_bytes,envelope_max_summary_bytes,envelope_max_wal_bytes,envelope_min_free_disk_bytes,envelope_max_summary_rows,candidate_root,candidate_root_device,candidate_root_inode,archive_root,archive_root_device,archive_root_inode,compression_floor,start_sequence,end_sequence,phase,next_sequence,copied_rows,copied_plain_bytes,source_digest,candidate_basename,segment_id,manifest_digest,file_digest,catalog_epoch,recorded_at) SELECT run_id,?,store_id,reservation_id,plan_digest,software_commit,config_digest,envelope_page_rows,envelope_max_steps,envelope_wall_time_ns,envelope_lock_time_ns,envelope_max_plain_bytes,envelope_max_stored_bytes,envelope_max_value_plain_bytes,envelope_max_value_stored_bytes,envelope_max_file_bytes,envelope_max_summary_bytes,envelope_max_wal_bytes,envelope_min_free_disk_bytes,envelope_max_summary_rows,candidate_root,candidate_root_device,candidate_root_inode,archive_root,archive_root_device,archive_root_inode,compression_floor,start_sequence,end_sequence,?,?,?,?,?,?,?,?,?,?,? FROM archive_segment_migration_runs WHERE run_id=? AND revision=?`, to.Revision, to.Phase, to.NextSequence, to.CopiedRows, to.CopiedPlainBytes, to.SourceDigest, to.CandidateBasename, to.SegmentID, to.ManifestDigest, to.FileDigest, to.CatalogEpoch, time.Now().UTC().Format(time.RFC3339Nano), from.ID, from.Revision)
 	if err != nil {
 		return err
 	}
@@ -277,15 +302,30 @@ func checkSegmentMigrationWAL(storePath string, budget apptypes.SegmentMigration
 	return nil
 }
 
+func (d *Database) loadMigrationConfigBounded(ctx context.Context, id string, wallTime time.Duration) (domain.SegmentMigrationRun, segmentMigrationConfig, error) {
+	// The immutable envelope is stored in SQLite. Authenticate it through a
+	// small code-fixed bootstrap envelope, never through caller-provided caps.
+	if info, err := os.Stat(d.Path() + "-wal"); err == nil && info.Size() > segmentMigrationBootstrapMaxWAL {
+		return domain.SegmentMigrationRun{}, segmentMigrationConfig{}, segmentMigrationLimitError()
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return domain.SegmentMigrationRun{}, segmentMigrationConfig{}, err
+	}
+	bootstrapCtx, cancel := context.WithTimeout(ctx, min(wallTime, segmentMigrationBootstrapTime))
+	defer cancel()
+	return d.loadMigrationConfig(bootstrapCtx, id)
+}
+
 // AdvanceSegmentMigration advances one durable boundary (or one source page).
 func (d *Database) AdvanceSegmentMigration(ctx context.Context, id string, b apptypes.SegmentMigrationBudget) (domain.SegmentMigrationRun, error) {
 	if !b.Valid() {
 		return domain.SegmentMigrationRun{}, apptypes.ErrCatalogLimit
 	}
+	opCtx, cancel := migrationOperationContext(ctx, b)
+	defer cancel()
 	if err := checkSegmentMigrationWAL(d.Path(), b); err != nil {
 		return domain.SegmentMigrationRun{}, err
 	}
-	run, err := d.LoadSegmentMigration(ctx, id)
+	run, _, err := d.loadMigrationConfigBounded(opCtx, id, b.WallTime)
 	if err != nil {
 		return run, err
 	}
@@ -296,7 +336,7 @@ func (d *Database) AdvanceSegmentMigration(ctx context.Context, id string, b app
 		}
 		return run, domain.ErrSegmentMigrationTransition
 	}
-	return d.ExecuteSegmentMigrationAction(ctx, id, action, b)
+	return d.ExecuteSegmentMigrationAction(opCtx, id, action, b)
 }
 
 // ExecuteSegmentMigrationAction executes the application-selected bounded action.
@@ -304,16 +344,43 @@ func (d *Database) ExecuteSegmentMigrationAction(ctx context.Context, id string,
 	if !b.Valid() {
 		return domain.SegmentMigrationRun{}, apptypes.ErrCatalogLimit
 	}
+	opCtx, cancel := migrationOperationContext(ctx, b)
+	defer cancel()
+	// WAL must be bounded before opening SQLite; an oversized WAL can make even
+	// the envelope metadata read unsafe or fail with an untyped I/O error.
 	if err := checkSegmentMigrationWAL(d.Path(), b); err != nil {
 		return domain.SegmentMigrationRun{}, err
 	}
-	opCtx, cancel := migrationOperationContext(ctx, b)
-	defer cancel()
-	run, cfg, err := d.loadMigrationConfig(opCtx, id)
+	bootstrapCtx, bootstrapCancel := context.WithTimeout(opCtx, min(b.WallTime, segmentMigrationBootstrapTime))
+	defer bootstrapCancel()
+	if info, statErr := os.Stat(d.Path() + "-wal"); statErr == nil && info.Size() > segmentMigrationBootstrapMaxWAL {
+		return domain.SegmentMigrationRun{}, segmentMigrationLimitError()
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return domain.SegmentMigrationRun{}, statErr
+	}
+	run, cfg, err := d.loadMigrationConfig(bootstrapCtx, id)
 	if err != nil {
 		return run, err
 	}
-	if err = d.validateMigrationBudgetAgainstPlan(opCtx, run, b); err != nil {
+	if !b.Tightens(cfg.envelope) {
+		return run, apptypes.ErrSegmentMigrationEnvelopeExpansion
+	}
+	if err = checkSegmentMigrationWAL(d.Path(), b); err != nil {
+		return run, err
+	}
+	release, err := d.acquireSegmentMigrationLease(opCtx, b.LockTime)
+	if err != nil {
+		return run, err
+	}
+	defer release()
+	run, cfg, err = d.loadMigrationConfig(opCtx, id)
+	if err != nil {
+		return run, err
+	}
+	if !b.Tightens(cfg.envelope) {
+		return run, apptypes.ErrSegmentMigrationEnvelopeExpansion
+	}
+	if err = d.validateMigrationBudgetAgainstPlan(opCtx, run, cfg, b); err != nil {
 		return run, err
 	}
 	want, ok := run.NextAction()
@@ -322,45 +389,20 @@ func (d *Database) ExecuteSegmentMigrationAction(ctx context.Context, id string,
 	}
 	switch action {
 	case domain.SegmentMigrationActionBeginCopy:
-		release, leaseErr := d.acquireSegmentMigrationLease(opCtx, b.LockTime)
-		if leaseErr != nil {
-			return run, leaseErr
-		}
-		defer release()
 		return d.advanceMigrationPhase(opCtx, run, domain.SegmentMigrationCopying, nil)
 	case domain.SegmentMigrationActionCopyPage:
-		release, leaseErr := d.acquireSegmentMigrationLease(opCtx, b.LockTime)
-		if leaseErr != nil {
-			return run, leaseErr
-		}
-		defer release()
 		return d.copyMigrationPage(opCtx, run, b)
 	case domain.SegmentMigrationActionBuildCandidate:
 		return d.buildMigrationCandidate(opCtx, run, cfg, b)
 	case domain.SegmentMigrationActionRecordInstallIntent:
-		release, leaseErr := d.acquireSegmentMigrationLease(opCtx, b.LockTime)
-		if leaseErr != nil {
-			return run, leaseErr
-		}
-		defer release()
 		return d.recordInstallIntent(opCtx, run)
 	case domain.SegmentMigrationActionInstall:
 		return d.installMigrationCandidate(opCtx, run, cfg, b)
 	case domain.SegmentMigrationActionRecordSealIntent:
-		release, leaseErr := d.acquireSegmentMigrationLease(opCtx, b.LockTime)
-		if leaseErr != nil {
-			return run, leaseErr
-		}
-		defer release()
 		return d.advanceMigrationPhase(opCtx, run, domain.SegmentMigrationSealIntent, nil)
 	case domain.SegmentMigrationActionSeal:
 		return d.sealMigrationCatalog(opCtx, run, b)
 	case domain.SegmentMigrationActionRecordVerifyIntent:
-		release, leaseErr := d.acquireSegmentMigrationLease(opCtx, b.LockTime)
-		if leaseErr != nil {
-			return run, leaseErr
-		}
-		defer release()
 		return d.advanceMigrationPhase(opCtx, run, domain.SegmentMigrationVerifyIntent, nil)
 	case domain.SegmentMigrationActionVerify:
 		return d.verifyMigrationShadow(opCtx, run, cfg, b)
@@ -369,7 +411,10 @@ func (d *Database) ExecuteSegmentMigrationAction(ctx context.Context, id string,
 	}
 }
 
-func (d *Database) validateMigrationBudgetAgainstPlan(ctx context.Context, run domain.SegmentMigrationRun, b apptypes.SegmentMigrationBudget) error {
+func (d *Database) validateMigrationBudgetAgainstPlan(ctx context.Context, run domain.SegmentMigrationRun, cfg segmentMigrationConfig, b apptypes.SegmentMigrationBudget) error {
+	if !b.Tightens(cfg.envelope) {
+		return apptypes.ErrSegmentMigrationEnvelopeExpansion
+	}
 	db, err := d.openReadOnly(ctx)
 	if err != nil {
 		return err
@@ -480,12 +525,6 @@ func (d *Database) copyMigrationPage(ctx context.Context, run domain.SegmentMigr
 	if err = checkMigrationCandidateFiles(candidateDir, b); err != nil {
 		return run, err
 	}
-	if err = appendMigrationCandidatePage(ctx, candidateDir, pageUnits, b, d.runSegmentMigrationHook); err != nil {
-		return run, err
-	}
-	if err = checkMigrationCandidateFiles(candidateDir, b); err != nil {
-		return run, err
-	}
 	next, err := run.CheckpointPage(domain.SegmentMigrationPageProof{NextSequence: end + 1, Rows: end + 1 - run.Range.Start, PlainBytes: run.CopiedPlainBytes + plain})
 	if err != nil {
 		return run, err
@@ -495,13 +534,19 @@ func (d *Database) copyMigrationPage(ctx context.Context, run domain.SegmentMigr
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(max(page_number)+1,0) FROM archive_segment_migration_pages WHERE run_id=?`, run.ID).Scan(&pageNumber); err != nil {
 		return run, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO archive_segment_migration_pages(run_id,page_number,start_sequence,end_sequence,rows_copied,plain_bytes,page_digest) VALUES(?,?,?,?,?,?,?)`, run.ID, pageNumber, run.NextSequence, end, end-run.NextSequence+1, plain, pageDigest); err != nil {
-		return run, err
+	durableJournal := func() error {
+		if checkErr := checkMigrationCandidateFiles(candidateDir, b); checkErr != nil {
+			return checkErr
+		}
+		if _, execErr := tx.ExecContext(ctx, `INSERT INTO archive_segment_migration_pages(run_id,page_number,start_sequence,end_sequence,rows_copied,plain_bytes,page_digest) VALUES(?,?,?,?,?,?,?)`, run.ID, pageNumber, run.NextSequence, end, end-run.NextSequence+1, plain, pageDigest); execErr != nil {
+			return execErr
+		}
+		if appendErr := appendSegmentMigration(ctx, tx, run, next); appendErr != nil {
+			return appendErr
+		}
+		return tx.Commit()
 	}
-	if err = appendSegmentMigration(ctx, tx, run, next); err != nil {
-		return run, err
-	}
-	if err = tx.Commit(); err != nil {
+	if err = appendMigrationCandidatePage(ctx, candidateDir, candidateDevice, candidateInode, pageUnits, b, d.runSegmentMigrationHook, durableJournal); err != nil {
 		return run, err
 	}
 	return next, nil
@@ -541,24 +586,38 @@ func migrationCandidateWorkPath(dir string) string {
 	return filepath.Join(dir, ".paged-candidate.sqlite")
 }
 
-func appendMigrationCandidatePage(ctx context.Context, dir string, units []domain.HistoryUnit, b apptypes.SegmentMigrationBudget, hook func(string) error) error {
+func appendMigrationCandidatePage(ctx context.Context, dir, expectedRootDevice, expectedRootInode string, units []domain.HistoryUnit, b apptypes.SegmentMigrationBudget, hook func(string) error, durableJournal func() error) error {
 	if dir == "" || len(units) == 0 {
 		return apptypes.ErrSegmentMigrationOrientation
 	}
-	if info, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
-		if err = os.Mkdir(dir, 0o700); err != nil {
+	if hook != nil {
+		if err := hook("before_candidate_root_pin"); err != nil {
 			return err
 		}
-	} else if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return apptypes.ErrSegmentMigrationOrientation
 	}
 	parentFD, err := unix.Open(filepath.Dir(dir), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = unix.Close(parentFD) }()
+	var pinnedParent unix.Stat_t
+	if err = unix.Fstat(parentFD, &pinnedParent); err != nil {
+		return err
+	}
+	if fmt.Sprint(pinnedParent.Dev) != expectedRootDevice || fmt.Sprint(pinnedParent.Ino) != expectedRootInode {
+		return fmt.Errorf("%w: candidate root held=%d/%d expected=%s/%s", apptypes.ErrSegmentMigrationOrientation, pinnedParent.Dev, pinnedParent.Ino, expectedRootDevice, expectedRootInode)
+	}
 	childName := filepath.Base(dir)
 	childFD, err := unix.Openat(parentFD, childName, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if errors.Is(err, unix.ENOENT) {
+		if err = unix.Mkdirat(parentFD, childName, 0o700); err != nil {
+			return err
+		}
+		if err = unix.Fsync(parentFD); err != nil {
+			return err
+		}
+		childFD, err = unix.Openat(parentFD, childName, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	}
 	if err != nil {
 		return apptypes.ErrSegmentMigrationOrientation
 	}
@@ -568,17 +627,40 @@ func appendMigrationCandidatePage(ctx context.Context, dir string, units []domai
 		return err
 	}
 	path := migrationCandidateWorkPath(dir)
-	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
-		return apptypes.ErrSegmentMigrationOrientation
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	workName := filepath.Base(path)
+	workFD, err := unix.Openat(childFD, workName, unix.O_RDWR|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
+	if err != nil {
 		return err
 	}
-	db, err := sql.Open("sqlite", segmentSQLiteDSN(path, "rwc", false)+"&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)")
+	defer func() { _ = unix.Close(workFD) }()
+	var workStat unix.Stat_t
+	if err = unix.Fstat(workFD, &workStat); err != nil || workStat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return apptypes.ErrSegmentMigrationOrientation
+	}
+	if hook != nil {
+		if err = hook("before_candidate_sqlite_io"); err != nil {
+			return err
+		}
+	}
+	if workStat.Size < 0 || workStat.Size > b.MaxFileBytes {
+		return segmentMigrationLimitError()
+	}
+	initial, err := readBoundedFD(workFD, b.MaxFileBytes)
+	if err != nil {
+		return err
+	}
+	// Candidate pages are edited in-memory and atomically serialized through
+	// openat beneath the pinned run directory. SQLite never receives a writable
+	// pathname, eliminating the root/work-file exchange window and WAL sidecars.
+	db, err := openSerializedSQLite(ctx, initial)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err = db.ExecContext(ctx, migrationCandidatePageSchema); err != nil {
+	if len(initial) == 0 {
+		_, err = db.ExecContext(ctx, migrationCandidatePageSchema)
+	}
+	if err != nil {
 		return err
 	}
 	tx, err := db.BeginTx(ctx, nil)
@@ -606,38 +688,180 @@ func appendMigrationCandidatePage(ctx context.Context, dir string, units []domai
 	if err = tx.Commit(); err != nil {
 		return err
 	}
-	if _, err = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+	serialized, err := serializeSQLite(ctx, db)
+	if err != nil {
 		return err
+	}
+	if int64(len(serialized)) > b.MaxFileBytes {
+		return segmentMigrationLimitError()
 	}
 	if err = db.Close(); err != nil {
 		return err
 	}
-	file, err := os.Open(path)
+	newWorkFD, err := publishSerializedCandidateAt(childFD, workName, serialized, hook)
 	if err != nil {
 		return err
 	}
-	err = file.Sync()
-	_ = file.Close()
-	if err != nil {
+	defer func() { _ = unix.Close(newWorkFD) }()
+	if hook != nil {
+		if err = hook("before_candidate_fd_verify"); err != nil {
+			return err
+		}
+	}
+	if err = verifyMigrationCandidatePageFD(ctx, newWorkFD, units, b); err != nil {
 		return err
 	}
 	var currentChild, candidateFile unix.Stat_t
 	if err = unix.Fstatat(parentFD, childName, &currentChild, unix.AT_SYMLINK_NOFOLLOW); err != nil || currentChild.Dev != pinnedChild.Dev || currentChild.Ino != pinnedChild.Ino {
 		return apptypes.ErrSegmentMigrationOrientation
 	}
-	if err = unix.Fstatat(childFD, filepath.Base(path), &candidateFile, unix.AT_SYMLINK_NOFOLLOW); err != nil || candidateFile.Mode&unix.S_IFMT != unix.S_IFREG {
-		return apptypes.ErrSegmentMigrationOrientation
-	}
-	directory, err := os.Open(dir)
-	if err != nil {
+	var newWorkStat unix.Stat_t
+	if err = unix.Fstat(newWorkFD, &newWorkStat); err != nil {
 		return err
 	}
-	err = directory.Sync()
-	_ = directory.Close()
+	if err = unix.Fstatat(childFD, workName, &candidateFile, unix.AT_SYMLINK_NOFOLLOW); err != nil || candidateFile.Mode&unix.S_IFMT != unix.S_IFREG || candidateFile.Dev != newWorkStat.Dev || candidateFile.Ino != newWorkStat.Ino {
+		return apptypes.ErrSegmentMigrationOrientation
+	}
+	err = unix.Fsync(childFD)
 	if err == nil && hook != nil {
 		err = hook("candidate_page_durable")
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	currentParentFD, openErr := unix.Open(filepath.Dir(dir), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if openErr != nil {
+		return apptypes.ErrSegmentMigrationOrientation
+	}
+	defer func() { _ = unix.Close(currentParentFD) }()
+	var currentParent unix.Stat_t
+	if err = unix.Fstat(currentParentFD, &currentParent); err != nil || currentParent.Dev != pinnedParent.Dev || currentParent.Ino != pinnedParent.Ino {
+		return apptypes.ErrSegmentMigrationOrientation
+	}
+	if durableJournal == nil {
+		return apptypes.ErrSegmentMigrationOrientation
+	}
+	return durableJournal()
+}
+
+func readBoundedFD(fd int, capBytes int64) ([]byte, error) {
+	if capBytes <= 0 {
+		return nil, segmentMigrationLimitError()
+	}
+	dup, err := unix.Dup(fd)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(dup), "candidate-snapshot")
+	defer func() { _ = file.Close() }()
+	if _, err = file.Seek(0, 0); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(file, capBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > capBytes {
+		return nil, segmentMigrationLimitError()
+	}
+	return data, nil
+}
+
+func publishSerializedCandidateAt(dirFD int, name string, serialized []byte, hook func(string) error) (int, error) {
+	const tempSuffix = ".serializing"
+	tempName := name + tempSuffix
+	tempFD, err := unix.Openat(dirFD, tempName, unix.O_RDWR|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
+	if errors.Is(err, unix.EEXIST) {
+		var stat unix.Stat_t
+		if statErr := unix.Fstatat(dirFD, tempName, &stat, unix.AT_SYMLINK_NOFOLLOW); statErr != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG {
+			return -1, apptypes.ErrSegmentMigrationOrientation
+		}
+		if unlinkErr := unix.Unlinkat(dirFD, tempName, 0); unlinkErr != nil {
+			return -1, unlinkErr
+		}
+		tempFD, err = unix.Openat(dirFD, tempName, unix.O_RDWR|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
+	}
+	if err != nil {
+		return -1, err
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			_ = unix.Close(tempFD)
+			_ = unix.Unlinkat(dirFD, tempName, 0)
+		}
+	}()
+	for written := 0; written < len(serialized); {
+		n, writeErr := unix.Write(tempFD, serialized[written:])
+		if writeErr != nil {
+			return -1, writeErr
+		}
+		if n <= 0 {
+			return -1, io.ErrShortWrite
+		}
+		written += n
+	}
+	if err = unix.Fsync(tempFD); err != nil {
+		return -1, err
+	}
+	if hook != nil {
+		if err = hook("after_candidate_serialize_fsync"); err != nil {
+			return -1, err
+		}
+	}
+	var openedTemp, currentTemp unix.Stat_t
+	if err = unix.Fstat(tempFD, &openedTemp); err != nil {
+		return -1, err
+	}
+	if err = unix.Fstatat(dirFD, tempName, &currentTemp, unix.AT_SYMLINK_NOFOLLOW); err != nil || openedTemp.Mode&unix.S_IFMT != unix.S_IFREG || currentTemp.Mode&unix.S_IFMT != unix.S_IFREG || openedTemp.Dev != currentTemp.Dev || openedTemp.Ino != currentTemp.Ino {
+		return -1, apptypes.ErrSegmentMigrationOrientation
+	}
+	if err = unix.Renameat(dirFD, tempName, dirFD, name); err != nil {
+		return -1, err
+	}
+	if err = unix.Fsync(dirFD); err != nil {
+		return -1, err
+	}
+	keep = true
+	return tempFD, nil
+}
+
+func verifyMigrationCandidatePageFD(ctx context.Context, workFD int, units []domain.HistoryUnit, b apptypes.SegmentMigrationBudget) error {
+	var stat unix.Stat_t
+	if err := unix.Fstat(workFD, &stat); err != nil {
+		return err
+	}
+	if stat.Size < 0 || stat.Size > b.MaxFileBytes {
+		return segmentMigrationLimitError()
+	}
+	db, err := sql.Open("sqlite", segmentSQLiteDSN(filepath.Join("/dev/fd", fmt.Sprint(workFD)), "ro", true))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	for _, unit := range units {
+		encoded, encodeErr := unit.CanonicalBytes()
+		if encodeErr != nil {
+			return encodeErr
+		}
+		digest := sha256.Sum256(encoded)
+		var storedBytesLen, storedDigestLen int64
+		if err = db.QueryRowContext(ctx, `SELECT length(canonical_bytes),length(canonical_digest) FROM candidate_units WHERE sequence=?`, unit.Sequence).Scan(&storedBytesLen, &storedDigestLen); err != nil {
+			return apptypes.ErrSegmentMigrationOrientation
+		}
+		if storedBytesLen != int64(len(encoded)) || storedBytesLen > b.MaxValuePlainBytes || storedDigestLen != sha256.Size {
+			return segmentMigrationLimitError()
+		}
+		var storedBytes, storedDigest []byte
+		if err = db.QueryRowContext(ctx, `SELECT canonical_bytes,canonical_digest FROM candidate_units WHERE sequence=?`, unit.Sequence).Scan(&storedBytes, &storedDigest); err != nil {
+			return apptypes.ErrSegmentMigrationOrientation
+		}
+		storedSum := sha256.Sum256(storedBytes)
+		if !equalBytes(storedBytes, encoded) || !equalBytes(storedDigest, storedSum[:]) || !equalBytes(storedSum[:], digest[:]) {
+			return apptypes.ErrSegmentMigrationOrientation
+		}
+	}
+	return nil
 }
 
 func migrationRunDir(root, id string) string {
@@ -645,22 +869,23 @@ func migrationRunDir(root, id string) string {
 	return filepath.Join(root, ".migration-"+hex.EncodeToString(sum[:16]))
 }
 
-func recoverOwnedSegmentCandidate(ctx context.Context, dir string, limits ArchiveSegmentLimits) (ArchiveSegmentManifest, bool, error) {
-	entries, err := os.ReadDir(dir)
+func recoverOwnedSegmentCandidateFD(ctx context.Context, dirFD int, limits ArchiveSegmentLimits) (ArchiveSegmentManifest, bool, error) {
+	readFD, err := unix.Dup(dirFD)
+	if err != nil {
+		return ArchiveSegmentManifest{}, false, err
+	}
+	directory := os.NewFile(uintptr(readFD), "candidate-run")
+	entries, err := directory.ReadDir(-1)
+	_ = directory.Close()
 	if err != nil {
 		return ArchiveSegmentManifest{}, false, err
 	}
 	var sealed string
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return ArchiveSegmentManifest{}, false, err
-	}
-	defer func() { _ = root.Close() }()
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == filepath.Base(migrationCandidateWorkPath(dir)) {
-			info, statErr := root.Lstat(name)
-			if statErr != nil || !info.Mode().IsRegular() {
+		if name == filepath.Base(migrationCandidateWorkPath("")) {
+			var stat unix.Stat_t
+			if err = unix.Fstatat(dirFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG {
 				return ArchiveSegmentManifest{}, false, apptypes.ErrSegmentMigrationOrientation
 			}
 			continue
@@ -673,39 +898,39 @@ func recoverOwnedSegmentCandidate(ctx context.Context, dir string, limits Archiv
 			continue
 		}
 		if strings.HasPrefix(name, ".segment-v1-") && strings.HasSuffix(name, ".candidate") {
-			info, statErr := root.Lstat(name)
-			if statErr != nil || !info.Mode().IsRegular() {
+			var stat unix.Stat_t
+			if err = unix.Fstatat(dirFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG {
 				return ArchiveSegmentManifest{}, false, apptypes.ErrSegmentMigrationOrientation
 			}
-			file, openErr := root.OpenFile(name, os.O_WRONLY, 0)
-			if openErr == nil {
-				_ = file.Chmod(0o600)
-				_ = file.Close()
-			}
-			if removeErr := root.Remove(name); removeErr != nil {
-				return ArchiveSegmentManifest{}, false, removeErr
+			if err = unix.Unlinkat(dirFD, name, 0); err != nil {
+				return ArchiveSegmentManifest{}, false, err
 			}
 			continue
 		}
 		return ArchiveSegmentManifest{}, false, apptypes.ErrSegmentMigrationOrientation
 	}
-	directory, err := os.Open(dir)
-	if err != nil {
-		return ArchiveSegmentManifest{}, false, err
-	}
-	err = directory.Sync()
-	_ = directory.Close()
-	if err != nil {
+	if err = unix.Fsync(dirFD); err != nil {
 		return ArchiveSegmentManifest{}, false, err
 	}
 	if sealed == "" {
 		return ArchiveSegmentManifest{}, false, nil
 	}
-	manifest, err := InspectArchiveSegmentManifest(ctx, dir, sealed, limits)
+	sealedFD, err := unix.Openat(dirFD, sealed, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return ArchiveSegmentManifest{}, false, apptypes.ErrSegmentMigrationOrientation
+	}
+	defer func() { _ = unix.Close(sealedFD) }()
+	manifest, err := inspectArchiveSegmentFD(ctx, sealedFD, sealed, limits.MaxFileBytes)
 	if err != nil {
 		return ArchiveSegmentManifest{}, false, err
 	}
-	manifest.FileDigest, err = digestFile(filepath.Join(dir, sealed))
+	dupFD, err := unix.Dup(sealedFD)
+	if err != nil {
+		return ArchiveSegmentManifest{}, false, err
+	}
+	file := os.NewFile(uintptr(dupFD), sealed)
+	manifest.FileDigest, err = digestOpenFile(ctx, file, limits.MaxFileBytes)
+	_ = file.Close()
 	return manifest, err == nil, err
 }
 
@@ -764,7 +989,31 @@ func (d *Database) buildMigrationCandidate(ctx context.Context, run domain.Segme
 		return run, err
 	}
 	defer d.release(db)
-	workDB, err := sql.Open("sqlite", segmentSQLiteDSN(migrationCandidateWorkPath(migrationRunDir(cfg.candidateRoot, run.ID)), "ro", true))
+	candidateRootFD, err := unix.Open(cfg.candidateRoot, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return run, err
+	}
+	defer func() { _ = unix.Close(candidateRootFD) }()
+	var candidateRootStat unix.Stat_t
+	if err = unix.Fstat(candidateRootFD, &candidateRootStat); err != nil || fmt.Sprint(candidateRootStat.Dev) != cfg.candidateDevice || fmt.Sprint(candidateRootStat.Ino) != cfg.candidateInode {
+		return run, apptypes.ErrSegmentMigrationOrientation
+	}
+	runDirName := filepath.Base(migrationRunDir(cfg.candidateRoot, run.ID))
+	runDirFD, err := unix.Openat(candidateRootFD, runDirName, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return run, apptypes.ErrSegmentMigrationOrientation
+	}
+	defer func() { _ = unix.Close(runDirFD) }()
+	var runDirStat unix.Stat_t
+	if err = unix.Fstat(runDirFD, &runDirStat); err != nil {
+		return run, err
+	}
+	workFD, err := unix.Openat(runDirFD, filepath.Base(migrationCandidateWorkPath("")), unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return run, apptypes.ErrSegmentMigrationOrientation
+	}
+	defer func() { _ = unix.Close(workFD) }()
+	workDB, err := sql.Open("sqlite", segmentSQLiteDSN(filepath.Join("/dev/fd", fmt.Sprint(workFD)), "ro", true))
 	if err != nil {
 		return run, err
 	}
@@ -825,21 +1074,42 @@ func (d *Database) buildMigrationCandidate(ctx context.Context, run domain.Segme
 		return run, err
 	}
 	dir := migrationRunDir(cfg.candidateRoot, run.ID)
-	if info, statErr := os.Lstat(dir); statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return run, apptypes.ErrSegmentMigrationOrientation
-	}
-	if err = os.MkdirAll(dir, 0o700); err != nil {
-		return run, err
-	}
-	manifest, recovered, err := recoverOwnedSegmentCandidate(ctx, dir, migrationLimits(b))
+	manifest, recovered, err := recoverOwnedSegmentCandidateFD(ctx, runDirFD, migrationLimits(b))
 	if err != nil {
 		return run, err
 	}
 	if !recovered {
-		manifest, err = BuildArchiveSegmentV1FromSource(ctx, dir, source, ArchiveSegmentConfig{StoreID: run.StoreID, CompressionFloor: cfg.compressionFloor, Limits: migrationLimits(b), Summary: summary})
+		builder := archiveSegmentBuilder{
+			syncFile:     func(f *os.File) error { return f.Sync() },
+			sealFile:     func(f *os.File, mode os.FileMode) error { return f.Chmod(mode) },
+			beforeSQLite: func() error { return d.runSegmentMigrationHook("before_segment_candidate_sqlite_io") },
+		}
+		manifest, err = builder.buildSource(ctx, dir, source, ArchiveSegmentConfig{StoreID: run.StoreID, CompressionFloor: cfg.compressionFloor, Limits: migrationLimits(b), Summary: summary})
 		if err != nil {
 			return run, err
 		}
+	}
+	if err = d.runSegmentMigrationHook("after_candidate_build"); err != nil {
+		return run, err
+	}
+	sealedFD, openErr := unix.Openat(runDirFD, manifest.Basename, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if openErr != nil {
+		return run, apptypes.ErrSegmentMigrationOrientation
+	}
+	defer func() { _ = unix.Close(sealedFD) }()
+	digestFD, dupErr := unix.Dup(sealedFD)
+	if dupErr != nil {
+		return run, dupErr
+	}
+	digestFile := os.NewFile(uintptr(digestFD), manifest.Basename)
+	exactDigest, digestErr := digestOpenFile(ctx, digestFile, b.MaxFileBytes)
+	_ = digestFile.Close()
+	if digestErr != nil || exactDigest != manifest.FileDigest {
+		return run, apptypes.ErrSegmentMigrationOrientation
+	}
+	verifiedManifest, verifyErr := verifyArchiveSegmentFDWithHooks(ctx, sealedFD, manifest, migrationLimits(b), true, nil, nil)
+	if verifyErr != nil || !sameLogicalManifest(verifiedManifest, manifest) {
+		return run, apptypes.ErrSegmentMigrationOrientation
 	}
 	summaryBytes, summaryErr := summary.CanonicalBytes(b.MaxSummaryBytes)
 	if summaryErr != nil || manifest.StoreID != run.StoreID || manifest.StartSequence != uint64(run.Range.Start) || manifest.EndSequence != uint64(run.Range.End) || manifest.UnitCount != uint64(run.CopiedRows) || manifest.SummaryDigest != hex.EncodeToString(digestBytes(summaryBytes)) {
@@ -848,6 +1118,18 @@ func (d *Database) buildMigrationCandidate(ctx context.Context, run domain.Segme
 	manifestDigest, err := ArchiveSegmentManifestDigest(manifest)
 	if err != nil {
 		return run, err
+	}
+	var currentRoot, currentRunDir unix.Stat_t
+	if err = unix.Fstatat(candidateRootFD, runDirName, &currentRunDir, unix.AT_SYMLINK_NOFOLLOW); err != nil || currentRunDir.Mode&unix.S_IFMT != unix.S_IFDIR || currentRunDir.Dev != runDirStat.Dev || currentRunDir.Ino != runDirStat.Ino {
+		return run, apptypes.ErrSegmentMigrationOrientation
+	}
+	currentRootFD, openErr := unix.Open(cfg.candidateRoot, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if openErr != nil {
+		return run, apptypes.ErrSegmentMigrationOrientation
+	}
+	defer func() { _ = unix.Close(currentRootFD) }()
+	if err = unix.Fstat(currentRootFD, &currentRoot); err != nil || currentRoot.Dev != candidateRootStat.Dev || currentRoot.Ino != candidateRootStat.Ino {
+		return run, apptypes.ErrSegmentMigrationOrientation
 	}
 	next, err := run.RecordCandidateBuilt(domain.SegmentMigrationCandidateProof{SourceDigest: sourceDigest, Basename: manifest.Basename, ManifestDigest: manifestDigest, FileDigest: manifest.FileDigest})
 	if err != nil {
@@ -1015,11 +1297,6 @@ func (d *Database) installMigrationCandidate(ctx context.Context, run domain.Seg
 		return run, apptypes.ErrSegmentMigrationOrientation
 	}
 	critical := func(publish func() error) error {
-		release, leaseErr := d.acquireSegmentMigrationLease(ctx, b.LockTime)
-		if leaseErr != nil {
-			return leaseErr
-		}
-		defer release()
 		return publish()
 	}
 	err = copyPinnedNoReplace(src, cfg.archiveRoot, run.CandidateBasename, b.MaxFileBytes, cfg.archiveDevice, cfg.archiveInode, d.runSegmentMigrationHook, critical)
@@ -1085,9 +1362,11 @@ func fsyncPinnedMigrationRoot(cfg segmentMigrationConfig) error {
 }
 
 type verifiedInstalledSegment struct {
-	rootFD, fileFD int
-	name           string
-	device, inode  uint64
+	rootFD, fileFD        int
+	name                  string
+	device, inode         uint64
+	rootDevice, rootInode string
+	rootPath              string
 }
 
 func pinInstalledSegment(cfg segmentMigrationConfig, name string) (*verifiedInstalledSegment, error) {
@@ -1095,18 +1374,28 @@ func pinInstalledSegment(cfg segmentMigrationConfig, name string) (*verifiedInst
 	if err != nil {
 		return nil, err
 	}
+	var rootStat unix.Stat_t
+	if statErr := unix.Fstat(rootFD, &rootStat); statErr != nil {
+		_ = unix.Close(rootFD)
+		return nil, statErr
+	}
+	rootDevice, rootInode := fmt.Sprint(rootStat.Dev), fmt.Sprint(rootStat.Ino)
+	if rootDevice != cfg.archiveDevice || rootInode != cfg.archiveInode {
+		_ = unix.Close(rootFD)
+		return nil, apptypes.ErrSegmentMigrationOrientation
+	}
 	fileFD, err := unix.Openat(rootFD, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		_ = unix.Close(rootFD)
 		return nil, err
 	}
 	var stat unix.Stat_t
-	if err = unix.Fstat(fileFD, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG {
+	if err = unix.Fstat(fileFD, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Mode&0o777 != 0o400 {
 		_ = unix.Close(fileFD)
 		_ = unix.Close(rootFD)
 		return nil, apptypes.ErrSegmentMigrationOrientation
 	}
-	return &verifiedInstalledSegment{rootFD: rootFD, fileFD: fileFD, name: name, device: uint64(stat.Dev), inode: stat.Ino}, nil
+	return &verifiedInstalledSegment{rootFD: rootFD, fileFD: fileFD, name: name, device: uint64(stat.Dev), inode: stat.Ino, rootDevice: rootDevice, rootInode: rootInode, rootPath: cfg.archiveRoot}, nil
 }
 
 func (p *verifiedInstalledSegment) Close() {
@@ -1115,17 +1404,42 @@ func (p *verifiedInstalledSegment) Close() {
 }
 
 func (p *verifiedInstalledSegment) AssertCurrent() error {
-	var pinned, current unix.Stat_t
+	var rootStat, pinned, current unix.Stat_t
+	if err := unix.Fstat(p.rootFD, &rootStat); err != nil {
+		return err
+	}
+	if fmt.Sprint(rootStat.Dev) != p.rootDevice || fmt.Sprint(rootStat.Ino) != p.rootInode {
+		return apptypes.ErrSegmentMigrationOrientation
+	}
+	currentRootFD, err := unix.Open(p.rootPath, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return apptypes.ErrSegmentMigrationOrientation
+	}
+	defer func() { _ = unix.Close(currentRootFD) }()
+	var currentRoot unix.Stat_t
+	if err = unix.Fstat(currentRootFD, &currentRoot); err != nil || fmt.Sprint(currentRoot.Dev) != p.rootDevice || fmt.Sprint(currentRoot.Ino) != p.rootInode {
+		return apptypes.ErrSegmentMigrationOrientation
+	}
 	if err := unix.Fstat(p.fileFD, &pinned); err != nil {
 		return err
 	}
 	if err := unix.Fstatat(p.rootFD, p.name, &current, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return err
 	}
-	if pinned.Mode&unix.S_IFMT != unix.S_IFREG || current.Mode&unix.S_IFMT != unix.S_IFREG || uint64(pinned.Dev) != p.device || pinned.Ino != p.inode || uint64(current.Dev) != p.device || current.Ino != p.inode {
+	if pinned.Mode&unix.S_IFMT != unix.S_IFREG || current.Mode&unix.S_IFMT != unix.S_IFREG || pinned.Mode&0o777 != 0o400 || current.Mode&0o777 != 0o400 || uint64(pinned.Dev) != p.device || pinned.Ino != p.inode || uint64(current.Dev) != p.device || current.Ino != p.inode {
 		return apptypes.ErrSegmentMigrationOrientation
 	}
 	return nil
+}
+
+func (p *verifiedInstalledSegment) Digest(ctx context.Context, maxBytes int64) (string, error) {
+	dupFD, err := unix.Dup(p.fileFD)
+	if err != nil {
+		return "", err
+	}
+	file := os.NewFile(uintptr(dupFD), p.name)
+	defer func() { _ = file.Close() }()
+	return digestOpenFile(ctx, file, maxBytes)
 }
 
 func migrationEvidenceDigest(run domain.SegmentMigrationRun, label string) string {
@@ -1163,7 +1477,7 @@ func bindingFromManifest(m ArchiveSegmentManifest) (domain.CatalogSegmentBinding
 	return domain.NewCatalogSegmentBinding(identity, fd, md, sd)
 }
 
-func (d *Database) verifyMigrationSegmentProof(ctx context.Context, run domain.SegmentMigrationRun, root string, manifest ArchiveSegmentManifest, limits ArchiveSegmentLimits) error {
+func (d *Database) verifyMigrationSegmentProof(ctx context.Context, run domain.SegmentMigrationRun, pinned *verifiedInstalledSegment, manifest ArchiveSegmentManifest, limits ArchiveSegmentLimits) error {
 	if manifest.StoreID != run.StoreID || manifest.StartSequence != uint64(run.Range.Start) || manifest.EndSequence != uint64(run.Range.End) || manifest.UnitCount != uint64(run.CopiedRows) || manifest.Basename != run.SegmentID {
 		return apptypes.ErrSegmentMigrationStaleSource
 	}
@@ -1172,11 +1486,7 @@ func (d *Database) verifyMigrationSegmentProof(ctx context.Context, run domain.S
 		return err
 	}
 	defer d.release(proofDB)
-	path, err := safeArchivePath(root, manifest.Basename, true)
-	if err != nil {
-		return err
-	}
-	_, err = verifyArchiveSegmentPathWithHooks(ctx, path, manifest, limits, true, nil, func(unit domain.HistoryUnit, plain []byte) error {
+	_, err = verifyArchiveSegmentFDWithHooks(ctx, pinned.fileFD, manifest, limits, true, nil, func(unit domain.HistoryUnit, plain []byte) error {
 		sum := sha256.Sum256(plain)
 		var want string
 		var bytes int64
@@ -1201,11 +1511,14 @@ func (d *Database) sealMigrationCatalog(ctx context.Context, run domain.SegmentM
 		return run, err
 	}
 	defer pinned.Close()
-	manifest, err := InspectArchiveSegmentManifest(ctx, cfg.archiveRoot, run.CandidateBasename, migrationLimits(b))
+	if err = d.runSegmentMigrationHook("after_seal_installed_pin"); err != nil {
+		return run, err
+	}
+	manifest, err := inspectArchiveSegmentFD(ctx, pinned.fileFD, run.CandidateBasename, b.MaxFileBytes)
 	if err != nil {
 		return run, err
 	}
-	manifest.FileDigest, err = digestFile(filepath.Join(cfg.archiveRoot, run.CandidateBasename))
+	manifest.FileDigest, err = pinned.Digest(ctx, b.MaxFileBytes)
 	if err != nil || manifest.FileDigest != run.FileDigest {
 		return run, apptypes.ErrSegmentMigrationOrientation
 	}
@@ -1213,18 +1526,13 @@ func (d *Database) sealMigrationCatalog(ctx context.Context, run domain.SegmentM
 	if digestErr != nil || manifestDigest != run.ManifestDigest {
 		return run, apptypes.ErrSegmentMigrationOrientation
 	}
-	if err = d.verifyMigrationSegmentProof(ctx, run, cfg.archiveRoot, manifest, migrationLimits(b)); err != nil {
+	if err = d.verifyMigrationSegmentProof(ctx, run, pinned, manifest, migrationLimits(b)); err != nil {
 		return run, err
 	}
 	binding, err := bindingFromManifest(manifest)
 	if err != nil {
 		return run, err
 	}
-	release, err := d.acquireSegmentMigrationLease(ctx, b.LockTime)
-	if err != nil {
-		return run, err
-	}
-	defer release()
 	db, err := d.open(ctx)
 	if err != nil {
 		return run, err
@@ -1279,11 +1587,14 @@ func (d *Database) verifyMigrationShadow(ctx context.Context, run domain.Segment
 		return run, err
 	}
 	defer pinned.Close()
-	manifest, err := InspectArchiveSegmentManifest(ctx, cfg.archiveRoot, run.CandidateBasename, migrationLimits(b))
+	if err = d.runSegmentMigrationHook("after_verify_installed_pin"); err != nil {
+		return run, err
+	}
+	manifest, err := inspectArchiveSegmentFD(ctx, pinned.fileFD, run.CandidateBasename, b.MaxFileBytes)
 	if err != nil {
 		return run, err
 	}
-	manifest.FileDigest, err = digestFile(filepath.Join(cfg.archiveRoot, run.CandidateBasename))
+	manifest.FileDigest, err = pinned.Digest(ctx, b.MaxFileBytes)
 	if err != nil || manifest.FileDigest != run.FileDigest {
 		return run, apptypes.ErrSegmentMigrationOrientation
 	}
@@ -1291,14 +1602,9 @@ func (d *Database) verifyMigrationShadow(ctx context.Context, run domain.Segment
 	if digestErr != nil || manifestDigest != run.ManifestDigest {
 		return run, apptypes.ErrSegmentMigrationOrientation
 	}
-	if err = d.verifyMigrationSegmentProof(ctx, run, cfg.archiveRoot, manifest, migrationLimits(b)); err != nil {
+	if err = d.verifyMigrationSegmentProof(ctx, run, pinned, manifest, migrationLimits(b)); err != nil {
 		return run, err
 	}
-	release, err := d.acquireSegmentMigrationLease(ctx, b.LockTime)
-	if err != nil {
-		return run, err
-	}
-	defer release()
 	db, err := d.open(ctx)
 	if err != nil {
 		return run, err
@@ -1378,21 +1684,57 @@ func (d *Database) AdvanceSegmentMigrationRollback(ctx context.Context, id strin
 	if !b.Valid() {
 		return domain.SegmentMigrationRun{}, apptypes.ErrCatalogLimit
 	}
+	run, _, err := d.loadMigrationConfigBounded(ctx, id, b.WallTime)
+	if err != nil {
+		return run, err
+	}
+	action, ok := run.NextRollbackAction()
+	if !ok {
+		if run.Phase == domain.SegmentMigrationRolledBack {
+			return run, nil
+		}
+		return run, domain.ErrSegmentMigrationTransition
+	}
+	return d.ExecuteSegmentMigrationRollbackAction(ctx, id, action, b)
+}
+
+// ExecuteSegmentMigrationRollbackAction executes the application-selected rollback step.
+func (d *Database) ExecuteSegmentMigrationRollbackAction(ctx context.Context, id string, action domain.SegmentMigrationRollbackAction, b apptypes.SegmentMigrationBudget) (domain.SegmentMigrationRun, error) {
+	if !b.Valid() {
+		return domain.SegmentMigrationRun{}, apptypes.ErrCatalogLimit
+	}
 	op, cancel := migrationOperationContext(ctx, b)
 	defer cancel()
+	run, cfg, err := d.loadMigrationConfigBounded(op, id, b.WallTime)
+	if err != nil {
+		return run, err
+	}
+	if !b.Tightens(cfg.envelope) {
+		return run, apptypes.ErrSegmentMigrationEnvelopeExpansion
+	}
+	if err = checkSegmentMigrationWAL(d.Path(), b); err != nil {
+		return run, err
+	}
 	release, err := d.acquireSegmentMigrationLease(op, b.LockTime)
 	if err != nil {
 		return domain.SegmentMigrationRun{}, err
 	}
 	defer release()
-	run, cfg, err := d.loadMigrationConfig(op, id)
+	run, cfg, err = d.loadMigrationConfig(op, id)
 	if err != nil {
 		return run, err
+	}
+	if !b.Tightens(cfg.envelope) {
+		return run, apptypes.ErrSegmentMigrationEnvelopeExpansion
 	}
 	if run.Phase == domain.SegmentMigrationRolledBack {
 		return run, nil
 	}
-	if run.Phase != domain.SegmentMigrationRollbackIntent {
+	want, ok := run.NextRollbackAction()
+	if !ok || want != action {
+		return run, domain.ErrSegmentMigrationTransition
+	}
+	if action == domain.SegmentMigrationRollbackActionRecordIntent {
 		return d.advanceMigrationPhase(op, run, domain.SegmentMigrationRollbackIntent, nil)
 	}
 	db, err := d.open(op)
@@ -1453,8 +1795,29 @@ func (d *Database) AdvanceSegmentMigrationRollback(ctx context.Context, id strin
 	if e = appendSegmentMigration(op, tx, run, next); e != nil {
 		return run, e
 	}
-	_, _ = tx.ExecContext(op, `DELETE FROM archive_segment_migration_active WHERE store_id=? AND run_id=?`, run.StoreID, run.ID)
-	_, _ = tx.ExecContext(op, `DELETE FROM archive_segment_migration_install_intents WHERE run_id=?`, run.ID)
+	if e = d.runSegmentMigrationHook("before_rollback_deletes"); e != nil {
+		return run, e
+	}
+	var expectedIntent int64
+	if e = tx.QueryRowContext(op, `SELECT count(*) FROM archive_segment_migration_install_intents WHERE run_id=?`, run.ID).Scan(&expectedIntent); e != nil {
+		return run, e
+	}
+	activeResult, deleteErr := tx.ExecContext(op, `DELETE FROM archive_segment_migration_active WHERE store_id=? AND run_id=?`, run.StoreID, run.ID)
+	if deleteErr != nil {
+		return run, deleteErr
+	}
+	activeRows, rowsErr := activeResult.RowsAffected()
+	if rowsErr != nil || activeRows != 1 {
+		return run, apptypes.ErrSegmentMigrationConflict
+	}
+	intentResult, deleteErr := tx.ExecContext(op, `DELETE FROM archive_segment_migration_install_intents WHERE run_id=?`, run.ID)
+	if deleteErr != nil {
+		return run, deleteErr
+	}
+	intentRows, rowsErr := intentResult.RowsAffected()
+	if rowsErr != nil || intentRows != expectedIntent {
+		return run, apptypes.ErrSegmentMigrationConflict
+	}
 	if e = tx.Commit(); e != nil {
 		return run, e
 	}
@@ -1556,9 +1919,27 @@ func (d *Database) RecoverSegmentMigration(ctx context.Context, id string, b app
 	}
 	opCtx, cancel := migrationOperationContext(ctx, b)
 	defer cancel()
-	run, cfg, err := d.loadMigrationConfig(opCtx, id)
+	run, cfg, err := d.loadMigrationConfigBounded(opCtx, id, b.WallTime)
 	if err != nil {
 		return run, err
+	}
+	if !b.Tightens(cfg.envelope) {
+		return run, apptypes.ErrSegmentMigrationEnvelopeExpansion
+	}
+	if err = checkSegmentMigrationWAL(d.Path(), b); err != nil {
+		return run, err
+	}
+	release, err := d.acquireSegmentMigrationLease(opCtx, b.LockTime)
+	if err != nil {
+		return run, err
+	}
+	defer release()
+	run, cfg, err = d.loadMigrationConfig(opCtx, id)
+	if err != nil {
+		return run, err
+	}
+	if !b.Tightens(cfg.envelope) {
+		return run, apptypes.ErrSegmentMigrationEnvelopeExpansion
 	}
 	if err = verifySegmentRootIdentity(cfg); err != nil {
 		return run, err

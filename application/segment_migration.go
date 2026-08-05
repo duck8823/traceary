@@ -13,6 +13,7 @@ type SegmentMigrationRepository interface {
 	StartSegmentMigration(context.Context, apptypes.SegmentMigrationStart) (domain.SegmentMigrationRun, error)
 	LoadSegmentMigration(context.Context, string) (domain.SegmentMigrationRun, error)
 	ExecuteSegmentMigrationAction(context.Context, string, domain.SegmentMigrationAction, apptypes.SegmentMigrationBudget) (domain.SegmentMigrationRun, error)
+	ExecuteSegmentMigrationRollbackAction(context.Context, string, domain.SegmentMigrationRollbackAction, apptypes.SegmentMigrationBudget) (domain.SegmentMigrationRun, error)
 	AdvanceSegmentMigration(context.Context, string, apptypes.SegmentMigrationBudget) (domain.SegmentMigrationRun, error)
 	AdvanceSegmentMigrationRollback(context.Context, string, apptypes.SegmentMigrationBudget) (domain.SegmentMigrationRun, error)
 	RecoverSegmentMigration(context.Context, string, apptypes.SegmentMigrationBudget) (domain.SegmentMigrationRun, error)

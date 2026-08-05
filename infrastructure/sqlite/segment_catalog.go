@@ -520,11 +520,12 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 	}
 	var digest string
 	var digestErr error
-	if transitionDigestVersion == 2 {
+	switch transitionDigestVersion {
+	case 2:
 		digest, digestErr = domain.CanonicalCatalogTransitionDigestV2(transitions)
-	} else if transitionDigestVersion == 1 {
+	case 1:
 		digest, digestErr = domain.CanonicalCatalogTransitionDigest(transitions)
-	} else {
+	default:
 		return apptypes.ErrCatalogDrift
 	}
 	if digestErr != nil || digest != transitionDigest {

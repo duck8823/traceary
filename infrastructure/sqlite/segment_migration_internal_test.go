@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +17,163 @@ import (
 )
 
 func migrationTestBudget() apptypes.SegmentMigrationBudget {
-	return apptypes.SegmentMigrationBudget{PageRows: 1, MaxSteps: 32, WallTime: time.Minute, LockTime: time.Second, MaxPlainBytes: 1 << 20, MaxStoredBytes: 1 << 20, MaxValuePlainBytes: 1 << 20, MaxValueStoredBytes: 1 << 20, MaxFileBytes: 2 << 20, MaxSummaryBytes: 1 << 20, MaxSummaryRows: 1000, MaxWALBytes: 16 << 20, MinFreeDiskBytes: 1}
+	return apptypes.SegmentMigrationBudget{PageRows: 1, MaxSteps: 32, WallTime: time.Minute, LockTime: time.Second, MaxPlainBytes: 1 << 20, MaxStoredBytes: 1 << 20, MaxValuePlainBytes: 1 << 20, MaxValueStoredBytes: 1 << 20, MaxFileBytes: 2 << 20, MaxSummaryBytes: 1 << 20, MaxSummaryRows: 1000, MaxWALBytes: 16 << 20, MinFreeDiskBytes: 2}
+}
+
+func TestSegmentMigrationStartEnvelopeRejectsEveryExpansion(t *testing.T) {
+	database, run, envelope, _ := newMigrationTestRun(t, 2)
+	ctx := context.Background()
+	tightened := envelope
+	tightened.MaxSteps--
+	tightened.WallTime--
+	tightened.LockTime--
+	tightened.MaxPlainBytes--
+	tightened.MaxStoredBytes--
+	tightened.MaxValuePlainBytes--
+	tightened.MaxValueStoredBytes--
+	tightened.MaxFileBytes--
+	tightened.MaxSummaryBytes--
+	tightened.MaxWALBytes--
+	tightened.MaxSummaryRows--
+	tightened.MinFreeDiskBytes++
+	if _, err := database.AdvanceSegmentMigration(ctx, run.ID, tightened); err != nil {
+		t.Fatalf("tightened envelope rejected: %v", err)
+	}
+
+	tests := map[string]func(*apptypes.SegmentMigrationBudget){
+		"page rows":              func(b *apptypes.SegmentMigrationBudget) { b.PageRows++ },
+		"steps":                  func(b *apptypes.SegmentMigrationBudget) { b.MaxSteps++ },
+		"wall time":              func(b *apptypes.SegmentMigrationBudget) { b.WallTime++ },
+		"lock time":              func(b *apptypes.SegmentMigrationBudget) { b.LockTime++ },
+		"plain bytes":            func(b *apptypes.SegmentMigrationBudget) { b.MaxPlainBytes++ },
+		"stored bytes":           func(b *apptypes.SegmentMigrationBudget) { b.MaxStoredBytes++ },
+		"value plain bytes":      func(b *apptypes.SegmentMigrationBudget) { b.MaxValuePlainBytes++ },
+		"value stored bytes":     func(b *apptypes.SegmentMigrationBudget) { b.MaxValueStoredBytes++ },
+		"file bytes":             func(b *apptypes.SegmentMigrationBudget) { b.MaxFileBytes++ },
+		"summary bytes":          func(b *apptypes.SegmentMigrationBudget) { b.MaxSummaryBytes++ },
+		"WAL bytes":              func(b *apptypes.SegmentMigrationBudget) { b.MaxWALBytes++ },
+		"free disk safety floor": func(b *apptypes.SegmentMigrationBudget) { b.MinFreeDiskBytes-- },
+		"summary rows":           func(b *apptypes.SegmentMigrationBudget) { b.MaxSummaryRows++ },
+	}
+	for name, expand := range tests {
+		t.Run(name, func(t *testing.T) {
+			budget := envelope
+			expand(&budget)
+			if _, err := database.AdvanceSegmentMigration(ctx, run.ID, budget); !errors.Is(err, apptypes.ErrSegmentMigrationEnvelopeExpansion) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestSegmentMigrationBootstrapRejectsAbsoluteOversizedWAL(t *testing.T) {
+	database, run, budget, _ := newMigrationTestRun(t, 1)
+	wal := database.Path() + "-wal"
+	file, err := os.OpenFile(wal, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Truncate(segmentMigrationBootstrapMaxWAL + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	if _, err = database.LoadSegmentMigration(context.Background(), run.ID); !errors.Is(err, apptypes.ErrSegmentMigrationLimit) {
+		t.Fatalf("load error = %v", err)
+	}
+	budget.MaxWALBytes = segmentMigrationBootstrapMaxWAL * 2
+	if _, err = database.ExecuteSegmentMigrationAction(context.Background(), run.ID, domain.SegmentMigrationActionBeginCopy, budget); !errors.Is(err, apptypes.ErrSegmentMigrationLimit) {
+		t.Fatalf("execute error = %v", err)
+	}
+}
+
+func TestSegmentMigrationStartRejectsAbsoluteOversizedWAL(t *testing.T) {
+	ctx := context.Background()
+	database, raw := newActivatedCatalogStore(t, 1)
+	t.Cleanup(func() { _ = raw.Close() })
+	initial, err := database.CurrentCatalogRanges(ctx, catalogTestBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := database.PlanAndReserveCatalogTarget(ctx, plannerRequest(initial.Head, 1, "migration-start-wal", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storeID string
+	if err = raw.QueryRow(`SELECT store_id FROM archive_store_lineage WHERE singleton=1`).Scan(&storeID); err != nil {
+		t.Fatal(err)
+	}
+	wal, err := os.OpenFile(database.Path()+"-wal", os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = wal.Truncate(segmentMigrationBootstrapMaxWAL + 1); err != nil {
+		_ = wal.Close()
+		t.Fatal(err)
+	}
+	_ = wal.Close()
+	budget := migrationTestBudget()
+	budget.MaxWALBytes = segmentMigrationBootstrapMaxWAL * 2
+	_, err = database.StartSegmentMigration(ctx, apptypes.SegmentMigrationStart{RunID: "oversized-start", StoreID: storeID, ReservationID: plan.ReservationID, PlanDigest: plan.PlanDigest, SoftwareCommit: "test", Range: plan.Range, CandidateRoot: t.TempDir(), ArchiveRoot: t.TempDir(), CompressionFloor: 32, Budget: budget})
+	if !errors.Is(err, apptypes.ErrSegmentMigrationLimit) {
+		t.Fatalf("start error = %v", err)
+	}
+}
+
+func TestSegmentMigrationSerializesExternalActionsUnderLease(t *testing.T) {
+	actions := []domain.SegmentMigrationAction{
+		domain.SegmentMigrationActionBuildCandidate,
+		domain.SegmentMigrationActionInstall,
+		domain.SegmentMigrationActionSeal,
+		domain.SegmentMigrationActionVerify,
+	}
+	for _, target := range actions {
+		t.Run(string(target), func(t *testing.T) {
+			database, run, budget, _ := newMigrationTestRun(t, 1)
+			for steps := 0; steps < 20; steps++ {
+				action, ok := run.NextAction()
+				if ok && action == target {
+					break
+				}
+				var err error
+				run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			lease, err := acquireAdvisoryLease(context.Background(), database.Path()+".segment-migration.lock", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = lease.Close() }()
+			budget.LockTime = 5 * time.Millisecond
+			got, err := database.ExecuteSegmentMigrationAction(context.Background(), run.ID, target, budget)
+			if err == nil || got.Revision != run.Revision {
+				t.Fatalf("got=%+v err=%v", got, err)
+			}
+		})
+	}
+
+	t.Run("recover", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		for run.Phase != domain.SegmentMigrationInstallIntent {
+			var err error
+			run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		lease, err := acquireAdvisoryLease(context.Background(), database.Path()+".segment-migration.lock", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = lease.Close() }()
+		budget.LockTime = 5 * time.Millisecond
+		got, err := database.RecoverSegmentMigration(context.Background(), run.ID, budget)
+		if err == nil || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+	})
 }
 
 func newMigrationTestRun(t *testing.T, events int) (*Database, domain.SegmentMigrationRun, apptypes.SegmentMigrationBudget, string) {
@@ -686,5 +843,492 @@ func TestSegmentMigrationRollbackRejectsArchiveRootExchange(t *testing.T) {
 	}
 	if _, err = os.Stat(foreign); err != nil {
 		t.Fatalf("foreign segment removed: %v", err)
+	}
+}
+
+func TestSegmentMigrationRejectsWritableInstalledSegmentBeforeCatalogCommit(t *testing.T) {
+	database, run, budget, archive := newMigrationTestRun(t, 1)
+	for run.Phase != domain.SegmentMigrationSealIntent {
+		var err error
+		run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(archive, run.SegmentID), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+	if !errors.Is(err, apptypes.ErrSegmentMigrationOrientation) || got.Revision != run.Revision {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	catalog, err := database.CurrentCatalogRanges(context.Background(), catalogTestBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Ranges) != 1 || catalog.Ranges[0].Placement != domain.CatalogPlacementReserved {
+		t.Fatalf("catalog ranges = %+v", catalog.Ranges)
+	}
+}
+
+func TestSegmentMigrationRollbackDeleteFailureRollsBackAndResumes(t *testing.T) {
+	database, run, budget, _ := newMigrationTestRun(t, 1)
+	for run.Phase != domain.SegmentMigrationInstalled {
+		var err error
+		run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	run, err := database.AdvanceSegmentMigrationRollback(context.Background(), run.ID, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := false
+	database.segmentMigrationHook = func(point string) error {
+		if point == "before_rollback_deletes" && !failed {
+			failed = true
+			return errors.New("injected delete failure")
+		}
+		return nil
+	}
+	if _, err = database.AdvanceSegmentMigrationRollback(context.Background(), run.ID, budget); err == nil {
+		t.Fatal("delete failure was ignored")
+	}
+	database.segmentMigrationHook = nil
+	loaded, err := database.LoadSegmentMigration(context.Background(), run.ID)
+	if err != nil || loaded.Phase != domain.SegmentMigrationRollbackIntent {
+		t.Fatalf("journal advanced: %s, %v", loaded.Phase, err)
+	}
+	proofDB, err := database.openReadOnly(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var active int
+	err = proofDB.QueryRow(`SELECT count(*) FROM archive_segment_migration_active WHERE run_id=?`, run.ID).Scan(&active)
+	database.release(proofDB)
+	if err != nil || active != 1 {
+		t.Fatalf("active=%d, %v", active, err)
+	}
+	got, err := database.AdvanceSegmentMigrationRollback(context.Background(), run.ID, budget)
+	if err != nil || got.Phase != domain.SegmentMigrationRolledBack {
+		t.Fatalf("resume=%s, %v", got.Phase, err)
+	}
+}
+
+func TestSegmentMigrationProofUsesHeldFileAcrossPathSwap(t *testing.T) {
+	database, run, budget, archive := newMigrationTestRun(t, 1)
+	for run.Phase != domain.SegmentMigrationSealIntent {
+		var err error
+		run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(archive, run.SegmentID)
+	good := path + ".good"
+	if err := os.Rename(path, good); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content[len(content)/2] ^= 0xff
+	if err = os.WriteFile(path, content, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	database.segmentMigrationHook = func(point string) error {
+		if point != "after_seal_installed_pin" {
+			return nil
+		}
+		if err := os.Rename(path, path+".bad"); err != nil {
+			return fmt.Errorf("hide bad segment: %w", err)
+		}
+		if err := os.Rename(good, path); err != nil {
+			return fmt.Errorf("show good segment: %w", err)
+		}
+		return nil
+	}
+	if _, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget); err == nil {
+		t.Fatal("path-swapped good file authenticated a different held inode")
+	}
+}
+
+func TestSegmentMigrationProofRejectsArchiveRootExchangeAfterPin(t *testing.T) {
+	database, run, budget, archive := newMigrationTestRun(t, 1)
+	for run.Phase != domain.SegmentMigrationSealIntent {
+		var err error
+		run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	database.segmentMigrationHook = func(point string) error {
+		if point != "after_seal_installed_pin" {
+			return nil
+		}
+		old := archive + ".old"
+		if err := os.Rename(archive, old); err != nil {
+			return fmt.Errorf("exchange archive root: %w", err)
+		}
+		if err := os.Mkdir(archive, 0o700); err != nil {
+			return fmt.Errorf("replace archive root: %w", err)
+		}
+		return nil
+	}
+	if _, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget); !errors.Is(err, apptypes.ErrSegmentMigrationOrientation) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSegmentMigrationCandidateDescriptorExchangeGuards(t *testing.T) {
+	t.Run("symlink exchange before candidate SQLite IO", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		run, _ = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		path := migrationCandidateWorkPath(migrationRunDir(cfg.candidateRoot, run.ID))
+		if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		foreign := filepath.Join(t.TempDir(), "foreign.sqlite")
+		if err := os.WriteFile(foreign, []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		database.segmentMigrationHook = func(point string) error {
+			if point != "before_candidate_sqlite_io" {
+				return nil
+			}
+			if err := os.Remove(path); err != nil {
+				return fmt.Errorf("unlink candidate before exchange: %w", err)
+			}
+			if err := os.Symlink(foreign, path); err != nil {
+				return fmt.Errorf("link foreign candidate: %w", err)
+			}
+			return nil
+		}
+		if _, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget); err != nil {
+			t.Fatal(err)
+		}
+		content, err := os.ReadFile(foreign)
+		if err != nil || string(content) != "keep" {
+			t.Fatalf("foreign content=%q err=%v", content, err)
+		}
+		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("published candidate info=%v err=%v", info, err)
+		}
+	})
+
+	t.Run("final builder exchange before SQLite IO", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		for run.Phase != domain.SegmentMigrationCopying || run.NextSequence <= run.Range.End {
+			var err error
+			run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		dir := migrationRunDir(cfg.candidateRoot, run.ID)
+		foreign := filepath.Join(t.TempDir(), "foreign.sqlite")
+		if err := os.WriteFile(foreign, []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		database.segmentMigrationHook = func(point string) error {
+			if point != "before_segment_candidate_sqlite_io" {
+				return nil
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				return fmt.Errorf("read candidate build directory: %w", err)
+			}
+			for _, entry := range entries {
+				if strings.HasSuffix(entry.Name(), ".candidate") {
+					path := filepath.Join(dir, entry.Name())
+					if err = os.Rename(path, path+".held"); err != nil {
+						return fmt.Errorf("exchange final candidate: %w", err)
+					}
+					if err = os.Symlink(foreign, path); err != nil {
+						return fmt.Errorf("link foreign final candidate: %w", err)
+					}
+					return nil
+				}
+			}
+			return errors.New("candidate temp not found")
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if err == nil || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+		content, readErr := os.ReadFile(foreign)
+		if readErr != nil || string(content) != "keep" {
+			t.Fatalf("foreign content=%q err=%v", content, readErr)
+		}
+	})
+
+	t.Run("candidate root before pin", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		run, _ = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		database.segmentMigrationHook = func(point string) error {
+			if point != "before_candidate_root_pin" {
+				return nil
+			}
+			if err := os.Rename(cfg.candidateRoot, cfg.candidateRoot+".old"); err != nil {
+				return fmt.Errorf("exchange candidate root before pin: %w", err)
+			}
+			return os.Mkdir(cfg.candidateRoot, 0o700)
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if !errors.Is(err, apptypes.ErrSegmentMigrationOrientation) || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+	})
+
+	t.Run("work file", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		run, _ = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		dir := migrationRunDir(cfg.candidateRoot, run.ID)
+		database.segmentMigrationHook = func(point string) error {
+			if point != "before_candidate_fd_verify" {
+				return nil
+			}
+			path := migrationCandidateWorkPath(dir)
+			if err := os.Rename(path, path+".old"); err != nil {
+				return fmt.Errorf("exchange work file: %w", err)
+			}
+			return os.WriteFile(path, nil, 0o600)
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if !errors.Is(err, apptypes.ErrSegmentMigrationOrientation) || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+	})
+
+	t.Run("stale serialized temp recovery", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		run, _ = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		path := migrationCandidateWorkPath(migrationRunDir(cfg.candidateRoot, run.ID))
+		if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path+".serializing", []byte("crash-partial"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if err != nil || got.Revision <= run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+		if _, err = os.Lstat(path + ".serializing"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stale temp remains: %v", err)
+		}
+	})
+
+	t.Run("serialized temp symlink exchange", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		run, _ = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		path := migrationCandidateWorkPath(migrationRunDir(cfg.candidateRoot, run.ID))
+		if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foreign := filepath.Join(t.TempDir(), "foreign.sqlite")
+		if err := os.WriteFile(foreign, []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		database.segmentMigrationHook = func(point string) error {
+			if point != "after_candidate_serialize_fsync" {
+				return nil
+			}
+			temp := path + ".serializing"
+			if err := os.Rename(temp, temp+".held"); err != nil {
+				return fmt.Errorf("exchange serialized temp: %w", err)
+			}
+			if err := os.Symlink(foreign, temp); err != nil {
+				return fmt.Errorf("link foreign serialized temp: %w", err)
+			}
+			return nil
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if !errors.Is(err, apptypes.ErrSegmentMigrationOrientation) || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+		content, readErr := os.ReadFile(foreign)
+		if readErr != nil || string(content) != "keep" {
+			t.Fatalf("foreign content=%q err=%v", content, readErr)
+		}
+		after, statErr := os.Stat(path)
+		if statErr != nil || !os.SameFile(before, after) || after.Size() != 0 {
+			t.Fatalf("work candidate changed: before=%v after=%v err=%v", before, after, statErr)
+		}
+	})
+
+	t.Run("canonical bytes with retained digest", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		run, _ = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		path := migrationCandidateWorkPath(migrationRunDir(cfg.candidateRoot, run.ID))
+		database.segmentMigrationHook = func(point string) error {
+			if point != "before_candidate_fd_verify" {
+				return nil
+			}
+			corrupt, err := sql.Open("sqlite", segmentSQLiteDSN(path, "rw", false))
+			if err != nil {
+				return fmt.Errorf("open candidate corruption connection: %w", err)
+			}
+			defer func() { _ = corrupt.Close() }()
+			_, err = corrupt.Exec(`UPDATE candidate_units SET canonical_bytes=zeroblob(length(canonical_bytes))`)
+			if err != nil {
+				return fmt.Errorf("corrupt candidate bytes: %w", err)
+			}
+			return nil
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if !errors.Is(err, apptypes.ErrSegmentMigrationOrientation) || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+	})
+
+	t.Run("oversized canonical bytes", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		run, _ = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		path := migrationCandidateWorkPath(migrationRunDir(cfg.candidateRoot, run.ID))
+		database.segmentMigrationHook = func(point string) error {
+			if point != "before_candidate_fd_verify" {
+				return nil
+			}
+			corrupt, err := sql.Open("sqlite", segmentSQLiteDSN(path, "rw", false))
+			if err != nil {
+				return fmt.Errorf("open oversized candidate connection: %w", err)
+			}
+			defer func() { _ = corrupt.Close() }()
+			_, err = corrupt.Exec(`UPDATE candidate_units SET canonical_bytes=zeroblob(?)`, budget.MaxValuePlainBytes+1)
+			if err != nil {
+				return fmt.Errorf("expand candidate bytes: %w", err)
+			}
+			return nil
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if !errors.Is(err, apptypes.ErrSegmentMigrationLimit) || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+	})
+
+	t.Run("candidate root", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		run, _ = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		database.segmentMigrationHook = func(point string) error {
+			if point != "candidate_page_durable" {
+				return nil
+			}
+			if err := os.Rename(cfg.candidateRoot, cfg.candidateRoot+".old"); err != nil {
+				return fmt.Errorf("exchange candidate root: %w", err)
+			}
+			return os.Mkdir(cfg.candidateRoot, 0o700)
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if !errors.Is(err, apptypes.ErrSegmentMigrationOrientation) || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+	})
+
+	t.Run("build run directory", func(t *testing.T) {
+		database, run, budget, _ := newMigrationTestRun(t, 1)
+		for run.Phase != domain.SegmentMigrationCopying || run.NextSequence <= run.Range.End {
+			var err error
+			run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, cfg, _ := database.loadMigrationConfig(context.Background(), run.ID)
+		dir := migrationRunDir(cfg.candidateRoot, run.ID)
+		database.segmentMigrationHook = func(point string) error {
+			if point != "after_candidate_build" {
+				return nil
+			}
+			if err := os.Rename(dir, dir+".old"); err != nil {
+				return fmt.Errorf("exchange run directory: %w", err)
+			}
+			return os.Mkdir(dir, 0o700)
+		}
+		got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if !errors.Is(err, apptypes.ErrSegmentMigrationOrientation) || got.Revision != run.Revision {
+			t.Fatalf("got=%+v err=%v", got, err)
+		}
+	})
+}
+
+func TestSegmentMigrationRejectsCorruptRecoveredSealedCandidate(t *testing.T) {
+	database, run, budget, _ := newMigrationTestRun(t, 1)
+	for run.Phase != domain.SegmentMigrationCopying || run.NextSequence <= run.Range.End {
+		var err error
+		run, err = database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	crash := errors.New("crash after candidate build")
+	database.segmentMigrationHook = func(point string) error {
+		if point == "after_candidate_build" {
+			return crash
+		}
+		return nil
+	}
+	if got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget); !errors.Is(err, crash) || got.Revision != run.Revision {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	database.segmentMigrationHook = nil
+	_, cfg, err := database.loadMigrationConfig(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := migrationRunDir(cfg.candidateRoot, run.ID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sealed string
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".sqlite") && entry.Name() != filepath.Base(migrationCandidateWorkPath(dir)) {
+			sealed = filepath.Join(dir, entry.Name())
+			break
+		}
+	}
+	if sealed == "" {
+		t.Fatal("sealed candidate not found")
+	}
+	if err = os.Chmod(sealed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	corrupt, err := sql.Open("sqlite", segmentSQLiteDSN(sealed, "rw", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = corrupt.Exec(`UPDATE history_units SET payload=zeroblob(length(payload)) WHERE sequence=(SELECT min(sequence) FROM history_units)`)
+	_ = corrupt.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(sealed, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	got, err := database.AdvanceSegmentMigration(context.Background(), run.ID, budget)
+	if err == nil || got.Revision != run.Revision {
+		t.Fatalf("got=%+v err=%v", got, err)
 	}
 }
