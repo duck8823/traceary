@@ -33,6 +33,8 @@ type catalogEpochCommit struct {
 	evidenceDigest string
 	reservationID  string
 	delta          string
+	binding        *domain.CatalogSegmentBinding
+	proofClass     string
 	// boundaryPointLimit is a test-only lower hard-cap seam. Zero selects the
 	// production CatalogMaxBoundaryPoints constant.
 	boundaryPointLimit int
@@ -291,6 +293,7 @@ func (d *Database) CatalogInventoryGate(ctx context.Context, budget apptypes.Cat
 
 //nolint:wrapcheck // This dedicated SQLite adapter preserves typed SQL failures.
 func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochCommit, maxRanges int) (apptypes.CatalogHead, error) {
+	if commit.binding != nil && (len(commit.transitions) != 1 || commit.binding.Range() != commit.transitions[0].Range || commit.binding.SegmentID() != commit.transitions[0].SegmentID) { return apptypes.CatalogHead{}, apptypes.ErrCatalogBindingMismatch }
 	actual, err := readCatalogHead(ctx, tx)
 	if err != nil {
 		return apptypes.CatalogHead{}, err
@@ -388,6 +391,16 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 			return apptypes.CatalogHead{}, err
 		}
 	}
+	if commit.proofClass != "" {
+		if commit.proofClass != "segment_migration_v1" {
+			return apptypes.CatalogHead{}, apptypes.ErrCatalogIllegalTransition
+		}
+		for _, transition := range commit.transitions {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_transition_authorizations(epoch,start_sequence,end_sequence,from_state,to_state,reservation_id,segment_id,proof_class) VALUES(?,?,?,?,?,?,?,?)`, newEpoch, transition.Range.Start, transition.Range.End, transition.From, transition.To, transition.ReservationID, transition.SegmentID, commit.proofClass); err != nil {
+				return apptypes.CatalogHead{}, err
+			}
+		}
+	}
 	for index, transition := range commit.transitions {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_range_transitions(epoch,transition_index,start_sequence,end_sequence,from_state,to_state,reservation_id,segment_id) VALUES(?,?,?,?,?,?,?,?)`, newEpoch, index, transition.Range.Start, transition.Range.End, transition.From, transition.To, transition.ReservationID, transition.SegmentID); err != nil {
 			return apptypes.CatalogHead{}, err
@@ -401,12 +414,24 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 			}
 		}
 	}
-	if commit.delta != "reserve" && commit.delta != "release" {
-		return apptypes.CatalogHead{}, apptypes.ErrCatalogIllegalTransition
+	if commit.proofClass != "" {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM archive_catalog_transition_authorizations WHERE epoch=?`, newEpoch); err != nil {
+			return apptypes.CatalogHead{}, err
+		}
 	}
-	transition := commit.transitions[0]
-	if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_reservation_deltas(epoch,reservation_id,delta,start_sequence,end_sequence) VALUES(?,?,?,?,?)`, newEpoch, commit.reservationID, commit.delta, transition.Range.Start, transition.Range.End); err != nil {
-		return apptypes.CatalogHead{}, err
+	if commit.delta != "" {
+		if commit.delta != "reserve" && commit.delta != "release" {
+			return apptypes.CatalogHead{}, apptypes.ErrCatalogIllegalTransition
+		}
+		transition := commit.transitions[0]
+		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_reservation_deltas(epoch,reservation_id,delta,start_sequence,end_sequence) VALUES(?,?,?,?,?)`, newEpoch, commit.reservationID, commit.delta, transition.Range.Start, transition.Range.End); err != nil {
+			return apptypes.CatalogHead{}, err
+		}
+	}
+	if commit.binding != nil {
+		if err = bindCatalogSegment(ctx, tx, newEpoch, *commit.binding); err != nil {
+			return apptypes.CatalogHead{}, err
+		}
 	}
 	if err = replaceCatalogCurrent(ctx, tx, current); err != nil {
 		return apptypes.CatalogHead{}, err
@@ -463,8 +488,8 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 		if err = rows.Scan(&start, &end, &from, &to, &reservationID, &segmentID); err != nil {
 			return err
 		}
-		transition, validationErr := domain.NewCatalogTransition(domain.CatalogRange{Start: start, End: end}, from, to, reservationID, segmentID)
-		if validationErr != nil {
+		transition := domain.CatalogTransition{Range: domain.CatalogRange{Start: start, End: end}, From: from, To: to, ReservationID: reservationID, SegmentID: segmentID}
+		if _, validationErr := domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{transition}); validationErr != nil {
 			return apptypes.ErrCatalogDrift
 		}
 		transitions = append(transitions, transition)

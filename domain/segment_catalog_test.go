@@ -33,6 +33,40 @@ func TestGenericCatalogTransitionRejectsProofBearingEdges(t *testing.T) {
 	}
 }
 
+func TestProofSpecificShadowTransitionsAuthenticateSegment(t *testing.T) {
+	r := domain.CatalogRange{Start: 1, End: 2}
+	sealed, err := domain.SealSegmentTransition(r, "reservation", "segment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shadow, err := domain.VerifyShadowTransition(r, "reservation", "segment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{sealed}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{shadow}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = domain.RollbackSegmentTransition(r, domain.CatalogPlacementVerifiedShadow, "reservation"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCatalogAuthorityRemainsHotThroughVerifiedShadow(t *testing.T) {
+	for _, placement := range []domain.CatalogPlacement{domain.CatalogPlacementHot, domain.CatalogPlacementReserved, domain.CatalogPlacementSealed, domain.CatalogPlacementVerifiedShadow} {
+		if placement.AuthorityOwner() != domain.CatalogAuthorityHot {
+			t.Fatalf("%s became authority", placement)
+		}
+	}
+	for _, placement := range []domain.CatalogPlacement{domain.CatalogPlacementSegmentAuthoritative, domain.CatalogPlacementEvicting, domain.CatalogPlacementCold} {
+		if placement.AuthorityOwner() != domain.CatalogAuthoritySegment {
+			t.Fatalf("%s did not own authority", placement)
+		}
+	}
+}
+
 func TestCatalogLedgerDigestBindsParent(t *testing.T) {
 	zero := "0000000000000000000000000000000000000000000000000000000000000000"
 	boundaryDigest, err := domain.CanonicalCatalogBoundaryDigest([]int64{1, 2})

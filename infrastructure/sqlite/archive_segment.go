@@ -119,6 +119,24 @@ type ArchiveHistoryUnit struct {
 	Unit domain.HistoryUnit
 }
 
+// ArchiveSegmentSource provides bounded random access to one frozen contiguous
+// source. Implementations must return the same unit for an index throughout a
+// build; #1651 authenticates every returned unit against its target plan.
+type ArchiveSegmentSource interface {
+	Len() int
+	At(context.Context, int) (ArchiveHistoryUnit, error)
+}
+
+type archiveSegmentSliceSource []ArchiveHistoryUnit
+
+func (s archiveSegmentSliceSource) Len() int { return len(s) }
+func (s archiveSegmentSliceSource) At(_ context.Context, index int) (ArchiveHistoryUnit, error) {
+	if index < 0 || index >= len(s) {
+		return ArchiveHistoryUnit{}, ErrSegmentCorrupt
+	}
+	return s[index], nil
+}
+
 type archiveSegmentBuilder struct {
 	syncFile  func(*os.File) error
 	sealFile  func(*os.File, os.FileMode) error
@@ -128,14 +146,24 @@ type archiveSegmentBuilder struct {
 // BuildArchiveSegmentV1 creates and seals one immutable segment in an owned
 // candidate directory. Publishing it into the archive root belongs to #1651.
 func BuildArchiveSegmentV1(ctx context.Context, root string, units []ArchiveHistoryUnit, cfg ArchiveSegmentConfig) (ArchiveSegmentManifest, error) {
-	return archiveSegmentBuilder{syncFile: func(f *os.File) error { return f.Sync() }, sealFile: func(f *os.File, m os.FileMode) error { return f.Chmod(m) }}.build(ctx, root, units, cfg)
+	return BuildArchiveSegmentV1FromSource(ctx, root, archiveSegmentSliceSource(units), cfg)
+}
+
+// BuildArchiveSegmentV1FromSource streams a bounded source without retaining
+// the complete event/audit payload set in memory.
+func BuildArchiveSegmentV1FromSource(ctx context.Context, root string, source ArchiveSegmentSource, cfg ArchiveSegmentConfig) (ArchiveSegmentManifest, error) {
+	return archiveSegmentBuilder{syncFile: func(f *os.File) error { return f.Sync() }, sealFile: func(f *os.File, m os.FileMode) error { return f.Chmod(m) }}.buildSource(ctx, root, source, cfg)
 }
 
 func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []ArchiveHistoryUnit, cfg ArchiveSegmentConfig) (manifest ArchiveSegmentManifest, err error) {
+	return b.buildSource(ctx, root, archiveSegmentSliceSource(units), cfg)
+}
+
+func (b archiveSegmentBuilder) buildSource(ctx context.Context, root string, source ArchiveSegmentSource, cfg ArchiveSegmentConfig) (manifest ArchiveSegmentManifest, err error) {
 	if err := cfg.Limits.validate(); err != nil {
 		return manifest, err
 	}
-	if cfg.StoreID == "" || len(units) == 0 || cfg.CompressionFloor < 0 {
+	if cfg.StoreID == "" || source == nil || source.Len() <= 0 || cfg.CompressionFloor < 0 {
 		return manifest, fmt.Errorf("invalid archive segment configuration")
 	}
 	if err := validateArchiveRoot(root); err != nil {
@@ -180,13 +208,25 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	}
 	defer func() { _ = encoder.Close() }()
 
-	manifest = ArchiveSegmentManifest{StoreID: cfg.StoreID, FormatVersion: domain.SegmentFormatV1, StartSequence: units[0].Unit.Sequence, EndSequence: units[len(units)-1].Unit.Sequence, UnitCount: uint64(len(units))}
+	first, err := source.At(ctx, 0)
+	if err != nil {
+		return manifest, fmt.Errorf("read first archive unit: %w", err)
+	}
+	last, err := source.At(ctx, source.Len()-1)
+	if err != nil {
+		return manifest, fmt.Errorf("read last archive unit: %w", err)
+	}
+	manifest = ArchiveSegmentManifest{StoreID: cfg.StoreID, FormatVersion: domain.SegmentFormatV1, StartSequence: first.Unit.Sequence, EndSequence: last.Unit.Sequence, UnitCount: uint64(source.Len())}
 	logical := sha256.New()
 	_, _ = logical.Write([]byte("traceary-segment-history-v1\x00"))
 	var previous uint64
 	var minCreatedAt, maxCreatedAt time.Time
 	allTimesValid := true
-	for i, item := range units {
+	for i := 0; i < source.Len(); i++ {
+		item, sourceErr := source.At(ctx, i)
+		if sourceErr != nil {
+			return manifest, fmt.Errorf("read archive unit %d: %w", i, sourceErr)
+		}
 		if err = ctx.Err(); err != nil {
 			return manifest, err
 		}
@@ -343,6 +383,15 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	}
 	if err = ownedRoot.Rename(tmpName, manifest.Basename); err != nil {
 		return manifest, fmt.Errorf("name sealed candidate: %w", err)
+	}
+	rootDirectory, rootErr := os.Open(root)
+	if rootErr != nil {
+		return manifest, fmt.Errorf("open candidate directory for fsync: %w", rootErr)
+	}
+	rootErr = rootDirectory.Sync()
+	_ = rootDirectory.Close()
+	if rootErr != nil {
+		return manifest, fmt.Errorf("fsync candidate directory: %w", rootErr)
 	}
 	cleanupName = manifest.Basename
 	if _, err = verifyArchiveSegmentPath(ctx, finalPath, manifest, cfg.Limits, true); err != nil {
@@ -641,6 +690,10 @@ func verifyArchiveSegmentPath(ctx context.Context, path string, expected Archive
 }
 
 func verifyArchiveSegmentPathWithHook(ctx context.Context, path string, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits, requireFileDigest bool, afterManifest func() error) (ArchiveSegmentManifest, error) {
+	return verifyArchiveSegmentPathWithHooks(ctx, path, expected, limits, requireFileDigest, afterManifest, nil)
+}
+
+func verifyArchiveSegmentPathWithHooks(ctx context.Context, path string, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits, requireFileDigest bool, afterManifest func() error, afterUnit func(domain.HistoryUnit, []byte) error) (ArchiveSegmentManifest, error) {
 	db, pinned, err := openPinnedImmutableSegment(ctx, path, requireFileDigest)
 	if err != nil {
 		return ArchiveSegmentManifest{}, err
@@ -773,6 +826,11 @@ func verifyArchiveSegmentPathWithHook(ctx context.Context, path string, expected
 		unit, decodeUnitErr := domain.DecodeHistoryUnitCanonical(plain)
 		if decodeUnitErr != nil || unit.Sequence != seq {
 			return m, fmt.Errorf("%w: canonical history unit", ErrSegmentCorrupt)
+		}
+		if afterUnit != nil {
+			if hookErr := afterUnit(unit, plain); hookErr != nil {
+				return m, hookErr
+			}
 		}
 		if unit.Audit != nil {
 			auditCount++

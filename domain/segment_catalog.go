@@ -22,6 +22,26 @@ var (
 // CatalogPlacement is the authority placement of a closed sequence range.
 type CatalogPlacement string
 
+// CatalogAuthority identifies the source that remains authoritative.
+type CatalogAuthority string
+
+const (
+	// CatalogAuthorityHot keeps reads on the Hot store.
+	CatalogAuthorityHot CatalogAuthority = "hot"
+	// CatalogAuthoritySegment reads the immutable segment.
+	CatalogAuthoritySegment CatalogAuthority = "segment"
+)
+
+// AuthorityOwner prevents migration phases from being mistaken for cutover.
+func (p CatalogPlacement) AuthorityOwner() CatalogAuthority {
+	switch p {
+	case CatalogPlacementSegmentAuthoritative, CatalogPlacementEvicting, CatalogPlacementCold:
+		return CatalogAuthoritySegment
+	default:
+		return CatalogAuthorityHot
+	}
+}
+
 const (
 	// CatalogPlacementHot means the canonical unit is authoritative in Hot.
 	CatalogPlacementHot CatalogPlacement = "hot"
@@ -99,6 +119,52 @@ func NewCatalogTransition(r CatalogRange, from, to CatalogPlacement, reservation
 	return CatalogTransition{Range: r, From: from, To: to, ReservationID: reservationID, SegmentID: segmentID}, nil
 }
 
+func newProofCatalogTransition(r CatalogRange, from, to CatalogPlacement, reservationID, segmentID string) (CatalogTransition, error) {
+	if _, err := NewCatalogRange(r.Start, r.End); err != nil || strings.TrimSpace(segmentID) == "" {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	allowed := (from == CatalogPlacementReserved && to == CatalogPlacementSealed) ||
+		(from == CatalogPlacementSealed && to == CatalogPlacementVerifiedShadow)
+	if !allowed {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	if from == CatalogPlacementReserved && strings.TrimSpace(reservationID) == "" {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	if from == CatalogPlacementSealed {
+		reservationID = ""
+	}
+	return CatalogTransition{Range: r, From: from, To: to, ReservationID: strings.TrimSpace(reservationID), SegmentID: strings.TrimSpace(segmentID)}, nil
+}
+
+// SealSegmentTransition is the proof-specific Reserved-to-Sealed edge.
+func SealSegmentTransition(r CatalogRange, reservationID, segmentID string) (CatalogTransition, error) {
+	return newProofCatalogTransition(r, CatalogPlacementReserved, CatalogPlacementSealed, reservationID, segmentID)
+}
+
+// VerifyShadowTransition is the proof-specific Sealed-to-VerifiedShadow edge.
+func VerifyShadowTransition(r CatalogRange, reservationID, segmentID string) (CatalogTransition, error) {
+	return newProofCatalogTransition(r, CatalogPlacementSealed, CatalogPlacementVerifiedShadow, reservationID, segmentID)
+}
+
+// RollbackSegmentTransition retains immutable binding while restoring Reserved.
+func RollbackSegmentTransition(r CatalogRange, from CatalogPlacement, reservationID string) (CatalogTransition, error) {
+	if _, err := NewCatalogRange(r.Start, r.End); err != nil || strings.TrimSpace(reservationID) == "" || (from != CatalogPlacementSealed && from != CatalogPlacementVerifiedShadow) {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	return CatalogTransition{Range: r, From: from, To: CatalogPlacementReserved, ReservationID: strings.TrimSpace(reservationID)}, nil
+}
+
+func validateCatalogTransition(transition CatalogTransition) (CatalogTransition, error) {
+	if value, err := NewCatalogTransition(transition.Range, transition.From, transition.To, transition.ReservationID, transition.SegmentID); err == nil {
+		return value, nil
+	}
+	if transition.To == CatalogPlacementReserved {
+		return RollbackSegmentTransition(transition.Range, transition.From, transition.ReservationID)
+	}
+	return newProofCatalogTransition(transition.Range, transition.From, transition.To, transition.ReservationID, transition.SegmentID)
+}
+
 // ReservationTransition permits only the proof-free #1661 state edge.
 func ReservationTransition(r CatalogRange, reservationID string) (CatalogTransition, error) {
 	return NewCatalogTransition(r, CatalogPlacementHot, CatalogPlacementReserved, reservationID, "")
@@ -116,7 +182,7 @@ func CanonicalCatalogTransitionDigest(transitions []CatalogTransition) (string, 
 	writeCatalogFrame(h, []byte("traceary/catalog-transitions/v1"))
 	previousEnd := int64(0)
 	for i, transition := range transitions {
-		validated, err := NewCatalogTransition(transition.Range, transition.From, transition.To, transition.ReservationID, transition.SegmentID)
+		validated, err := validateCatalogTransition(transition)
 		if err != nil {
 			return "", err
 		}
