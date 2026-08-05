@@ -67,6 +67,33 @@ func (s SegmentCatalogSummaryV1) CanonicalBytes(maxBytes int64) ([]byte, error) 
 	if maxBytes <= 0 || s.FilterKeyID == "" {
 		return nil, fmt.Errorf("invalid segment summary descriptor")
 	}
+	// Preflight every caller-controlled count and byte length before copying,
+	// sorting, or growing the canonical buffer.
+	total := uint64(16)
+	add := func(n uint64) error {
+		if n > uint64(maxBytes) || total > uint64(maxBytes)-n {
+			return fmt.Errorf("segment summary exceeds byte cap")
+		}
+		total += n
+		return nil
+	}
+	if err := add(uint64(len(s.FilterKeyID))); err != nil {
+		return nil, err
+	}
+	if uint64(len(s.ExactTokens)) > uint64(maxBytes)/33 || uint64(len(s.Blooms)) > uint64(maxBytes)/7 || uint64(len(s.Sessions)) > uint64(maxBytes)/34 {
+		return nil, fmt.Errorf("segment summary exceeds row cap")
+	}
+	if err := add(uint64(len(s.ExactTokens)) * 33); err != nil {
+		return nil, err
+	}
+	if err := add(uint64(len(s.Sessions)) * 34); err != nil {
+		return nil, err
+	}
+	for _, bloom := range s.Blooms {
+		if err := add(7 + uint64(len(bloom.Bits))); err != nil {
+			return nil, err
+		}
+	}
 	tokens := append([]SegmentSummaryToken(nil), s.ExactTokens...)
 	sort.Slice(tokens, func(i, j int) bool {
 		if tokens[i].Kind != tokens[j].Kind {

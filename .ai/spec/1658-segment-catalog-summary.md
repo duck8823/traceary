@@ -27,7 +27,7 @@
 
 ### Behavior tests / TDD plan
 
-Tests prove deterministic order, duplicate/invalid descriptor rejection, malformed legacy timestamps, conservative incomplete-time selection, sealed build/full verification, metadata verification without payload decode, normalized-table tamper rejection, digest binding, and caps. Existing full verification remains the stronger payload-parity gate.
+Tests prove deterministic order, duplicate/invalid descriptor rejection, mixed valid/malformed legacy timestamps, conservative incomplete-time selection, sealed build/full verification, metadata verification without payload decode, singleton and fixed-schema enforcement, normalized-table tamper rejection, allocation-before-cap behavior, one-inode verification across pathname exchange, digest binding, and caps. Existing full verification remains the stronger payload-parity gate.
 
 ### Rollback and risk
 

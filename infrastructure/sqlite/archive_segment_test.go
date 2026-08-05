@@ -88,6 +88,101 @@ func TestArchiveSegmentMetadataVerifierBindsNormalizedSummary(t *testing.T) {
 	}
 }
 
+func TestArchiveSegmentMixedMalformedTimeMarksSummaryIncomplete(t *testing.T) {
+	units := testArchiveUnits()
+	values := units[1].Unit.Event.Values()
+	values[5] = domain.TextValue([]byte("not-a-time"))
+	malformed, err := domain.NewArchiveEventV1(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	units[1].Unit.Event = malformed
+	m, err := BuildArchiveSegmentV1(context.Background(), t.TempDir(), units, ArchiveSegmentConfig{StoreID: "mixed-time", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.TimeSummaryComplete {
+		t.Fatal("mixed valid and malformed timestamps reported complete")
+	}
+}
+
+func TestArchiveSegmentMetadataRejectsUnexpectedPlaintextTable(t *testing.T) {
+	root := t.TempDir()
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "schema", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, m.Basename)
+	if err = os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`CREATE TABLE leaked_plaintext(value TEXT); INSERT INTO leaked_plaintext VALUES('secret')`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if err = os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	expected := m
+	expected.FileDigest = ""
+	if _, err = VerifyArchiveSegmentMetadata(context.Background(), root, expected, testSegmentLimits()); !errors.Is(err, ErrSegmentCorrupt) {
+		t.Fatalf("unexpected schema error = %v", err)
+	}
+}
+
+func TestArchiveSegmentMetadataPreflightsHugeBloomBeforeBlobScan(t *testing.T) {
+	root := t.TempDir()
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "huge-summary", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, m.Basename)
+	if err = os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE segment_bloom_filters SET bit_count=8388608,bits=zeroblob(1048576)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if err = os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	expected := m
+	expected.FileDigest = ""
+	limits := testSegmentLimits()
+	limits.MaxSummaryBytes = 1024
+	if _, err = VerifyArchiveSegmentMetadata(context.Background(), root, expected, limits); !errors.Is(err, ErrSegmentLimit) {
+		t.Fatalf("huge summary error = %v", err)
+	}
+}
+
+func TestArchiveSegmentFullVerifierPinsOneInodeAcrossPathExchange(t *testing.T) {
+	root := t.TempDir()
+	cfg := ArchiveSegmentConfig{StoreID: "pinned", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()}
+	original, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementRoot := t.TempDir()
+	replacement, err := BuildArchiveSegmentV1(context.Background(), replacementRoot, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "replacement", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, original.Basename)
+	_, err = verifyArchiveSegmentPathWithHook(context.Background(), path, original, testSegmentLimits(), true, func() error { return os.Rename(filepath.Join(replacementRoot, replacement.Basename), path) })
+	if err != nil {
+		t.Fatalf("pinned verifier mixed path inodes: %v", err)
+	}
+}
+
 func testArchiveUnits() []ArchiveHistoryUnit {
 	return []ArchiveHistoryUnit{
 		{Unit: domain.HistoryUnit{Sequence: 10, Event: testArchiveEvent("event-10", time.Unix(2, 3), domain.TextValue([]byte(strings.Repeat("compressible-", 100))))}},

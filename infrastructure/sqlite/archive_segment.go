@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -166,6 +167,7 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	_, _ = logical.Write([]byte("traceary-segment-history-v1\x00"))
 	var previous uint64
 	var minCreatedAt, maxCreatedAt time.Time
+	allTimesValid := true
 	for i, item := range units {
 		if err = ctx.Err(); err != nil {
 			return manifest, err
@@ -217,6 +219,9 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 				maxCreatedAt = ts
 			}
 		}
+		if item.Unit.CreatedAt().IsZero() {
+			allTimesValid = false
+		}
 		_, _ = logical.Write(binary.BigEndian.AppendUint64(nil, uint64(len(plain))))
 		_, _ = logical.Write(plain)
 		checksum := sha256.Sum256(plain)
@@ -231,7 +236,7 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	}
 	manifest.MinCreatedAt = formatOptionalTime(minCreatedAt)
 	manifest.MaxCreatedAt = formatOptionalTime(maxCreatedAt)
-	if minCreatedAt.IsZero() || maxCreatedAt.IsZero() {
+	if !allTimesValid || minCreatedAt.IsZero() || maxCreatedAt.IsZero() {
 		cfg.Summary.TimeComplete = false
 	}
 	summaryBytes, summaryErr := cfg.Summary.CanonicalBytes(cfg.Limits.MaxSummaryBytes)
@@ -247,7 +252,7 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	if manifest.SummaryRowCount > cfg.Limits.MaxSummaryRows {
 		return manifest, fmt.Errorf("%w: summary rows", ErrSegmentLimit)
 	}
-	if _, err = db.ExecContext(ctx, `INSERT INTO segment_summary(summary_version,filter_key_id,time_summary_complete,canonical_bytes,summary_digest) VALUES(?,?,?,?,?)`, manifest.SummaryVersion, manifest.FilterKeyID, manifest.TimeSummaryComplete, summaryBytes, digestBytes(summaryBytes)); err != nil {
+	if _, err = db.ExecContext(ctx, `INSERT INTO segment_summary(id,summary_version,filter_key_id,time_summary_complete,canonical_bytes,summary_digest) VALUES(1,?,?,?,?,?)`, manifest.SummaryVersion, manifest.FilterKeyID, manifest.TimeSummaryComplete, summaryBytes, digestBytes(summaryBytes)); err != nil {
 		return manifest, fmt.Errorf("write segment summary: %w", err)
 	}
 	for _, token := range cfg.Summary.ExactTokens {
@@ -327,7 +332,7 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 const segmentSchemaV1 = `
 CREATE TABLE segment_manifest(format_version INTEGER NOT NULL, store_id TEXT NOT NULL, start_sequence INTEGER NOT NULL, end_sequence INTEGER NOT NULL, unit_count INTEGER NOT NULL, audit_count INTEGER NOT NULL, min_created_at TEXT NOT NULL, max_created_at TEXT NOT NULL, plain_value_count INTEGER NOT NULL, zstd_value_count INTEGER NOT NULL, total_plain_bytes INTEGER NOT NULL, total_stored_bytes INTEGER NOT NULL, logical_digest BLOB NOT NULL, basename TEXT NOT NULL, summary_version INTEGER NOT NULL, summary_digest BLOB NOT NULL, filter_key_id TEXT NOT NULL, time_summary_complete INTEGER NOT NULL, summary_row_count INTEGER NOT NULL, summary_byte_count INTEGER NOT NULL);
 CREATE TABLE history_units(sequence INTEGER PRIMARY KEY, codec TEXT NOT NULL, plaintext_length INTEGER NOT NULL, checksum BLOB NOT NULL, payload BLOB NOT NULL);
-CREATE TABLE segment_summary(summary_version INTEGER NOT NULL, filter_key_id TEXT NOT NULL, time_summary_complete INTEGER NOT NULL, canonical_bytes BLOB NOT NULL, summary_digest BLOB NOT NULL);
+CREATE TABLE segment_summary(id INTEGER PRIMARY KEY CHECK(id=1), summary_version INTEGER NOT NULL, filter_key_id TEXT NOT NULL, time_summary_complete INTEGER NOT NULL CHECK(time_summary_complete IN (0,1)), canonical_bytes BLOB NOT NULL, summary_digest BLOB NOT NULL);
 CREATE TABLE segment_exact_filters(kind INTEGER NOT NULL, token BLOB NOT NULL, PRIMARY KEY(kind,token));
 CREATE TABLE segment_bloom_filters(kind INTEGER PRIMARY KEY, bit_count INTEGER NOT NULL, hash_count INTEGER NOT NULL, bits BLOB NOT NULL);
 CREATE TABLE segment_session_aggregates(session_token BLOB PRIMARY KEY, unit_count INTEGER NOT NULL, audit_count INTEGER NOT NULL);
@@ -355,6 +360,10 @@ func inspectArchiveSegmentPath(ctx context.Context, path, expectedBasename strin
 	defer func() { _ = db.Close() }()
 	defer func() { _ = pinned.Close() }()
 	db.SetMaxOpenConns(2)
+	return inspectArchiveSegmentOpen(ctx, db, pinned, expectedBasename, maxFileBytes)
+}
+
+func inspectArchiveSegmentOpen(ctx context.Context, db *sql.DB, pinned *os.File, expectedBasename string, maxFileBytes int64) (ArchiveSegmentManifest, error) {
 	info, err := pinned.Stat()
 	if err != nil {
 		return ArchiveSegmentManifest{}, fmt.Errorf("stat segment: %w", err)
@@ -393,7 +402,16 @@ func VerifyArchiveSegmentMetadata(ctx context.Context, root string, expected Arc
 }
 
 func verifyArchiveSegmentMetadataPath(ctx context.Context, path string, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits, requireSealed bool) (ArchiveSegmentManifest, error) {
-	m, err := inspectArchiveSegmentPath(ctx, path, expected.Basename, requireSealed, limits.MaxFileBytes)
+	db, pinned, err := openPinnedImmutableSegment(ctx, path, requireSealed)
+	if err != nil {
+		return ArchiveSegmentManifest{}, err
+	}
+	defer func() { _ = db.Close(); _ = pinned.Close() }()
+	return verifyArchiveSegmentMetadataOpen(ctx, db, pinned, expected, limits)
+}
+
+func verifyArchiveSegmentMetadataOpen(ctx context.Context, db *sql.DB, pinned *os.File, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits) (ArchiveSegmentManifest, error) {
+	m, err := inspectArchiveSegmentOpen(ctx, db, pinned, expected.Basename, limits.MaxFileBytes)
 	if err != nil {
 		return m, err
 	}
@@ -410,11 +428,49 @@ func verifyArchiveSegmentMetadataPath(ctx context.Context, path string, expected
 	if err != nil || identity.Basename() != m.Basename {
 		return m, fmt.Errorf("%w: content-addressed identity", ErrSegmentCorrupt)
 	}
-	db, pinned, err := openPinnedImmutableSegment(ctx, path, requireSealed)
-	if err != nil {
+	if err = validateSegmentTableSet(ctx, db); err != nil {
 		return m, err
 	}
-	defer func() { _ = db.Close(); _ = pinned.Close() }()
+	var singletonCount, canonicalLength, summaryDigestLength int64
+	if err = db.QueryRowContext(ctx, `SELECT count(*),COALESCE(max(length(canonical_bytes)),0),COALESCE(max(length(summary_digest)),0) FROM segment_summary`).Scan(&singletonCount, &canonicalLength, &summaryDigestLength); err != nil || singletonCount != 1 || canonicalLength != m.SummaryByteCount || canonicalLength > limits.MaxSummaryBytes || summaryDigestLength != sha256.Size {
+		return m, fmt.Errorf("%w: summary singleton or preflight", ErrSegmentCorrupt)
+	}
+	var exactCount, bloomCount, sessionCount uint64
+	var exactBytes, bloomBytes, sessionBytes int64
+	if err = db.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(length(token)),0) FROM segment_exact_filters WHERE length(token)=?`, sha256.Size).Scan(&exactCount, &exactBytes); err != nil {
+		return m, fmt.Errorf("%w: exact preflight", ErrSegmentCorrupt)
+	}
+	var allExact uint64
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM segment_exact_filters`).Scan(&allExact); err != nil || allExact != exactCount {
+		return m, fmt.Errorf("%w: exact token shape", ErrSegmentCorrupt)
+	}
+	if err = db.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(length(bits)),0) FROM segment_bloom_filters WHERE bit_count>0 AND hash_count>0 AND bit_count=length(bits)*8`).Scan(&bloomCount, &bloomBytes); err != nil {
+		return m, fmt.Errorf("%w: bloom preflight", ErrSegmentCorrupt)
+	}
+	var allBloom uint64
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM segment_bloom_filters`).Scan(&allBloom); err != nil || allBloom != bloomCount {
+		return m, fmt.Errorf("%w: bloom shape", ErrSegmentCorrupt)
+	}
+	if err = db.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(length(session_token)),0) FROM segment_session_aggregates WHERE length(session_token)=? AND unit_count>0`, sha256.Size).Scan(&sessionCount, &sessionBytes); err != nil {
+		return m, fmt.Errorf("%w: session preflight", ErrSegmentCorrupt)
+	}
+	var allSessions uint64
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM segment_session_aggregates`).Scan(&allSessions); err != nil || allSessions != sessionCount {
+		return m, fmt.Errorf("%w: session shape", ErrSegmentCorrupt)
+	}
+	rows := exactCount + bloomCount + sessionCount
+	normalizedBytes := exactBytes
+	if exactBytes < 0 || bloomBytes < 0 || sessionBytes < 0 || normalizedBytes > limits.MaxSummaryBytes-bloomBytes {
+		return m, fmt.Errorf("%w: summary aggregate preflight", ErrSegmentLimit)
+	}
+	normalizedBytes += bloomBytes
+	if normalizedBytes > limits.MaxSummaryBytes-sessionBytes {
+		return m, fmt.Errorf("%w: summary aggregate preflight", ErrSegmentLimit)
+	}
+	normalizedBytes += sessionBytes
+	if rows != m.SummaryRowCount || rows > limits.MaxSummaryRows || canonicalLength > limits.MaxSummaryBytes-normalizedBytes {
+		return m, fmt.Errorf("%w: summary aggregate preflight", ErrSegmentLimit)
+	}
 	var version uint32
 	var keyID string
 	var complete bool
@@ -424,17 +480,6 @@ func verifyArchiveSegmentMetadataPath(ctx context.Context, path string, expected
 	}
 	if int64(len(canonical)) != m.SummaryByteCount || int64(len(canonical)) > limits.MaxSummaryBytes || version != m.SummaryVersion || keyID != m.FilterKeyID || complete != m.TimeSummaryComplete || !bytes.Equal(digestBytes(canonical), storedDigest) || hex.EncodeToString(storedDigest) != m.SummaryDigest {
 		return m, fmt.Errorf("%w: summary binding", ErrSegmentCorrupt)
-	}
-	var rows uint64
-	for _, table := range []string{"segment_exact_filters", "segment_bloom_filters", "segment_session_aggregates"} {
-		var n uint64
-		if err = db.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil {
-			return m, fmt.Errorf("%w: summary rows", ErrSegmentCorrupt)
-		}
-		rows += n
-	}
-	if rows != m.SummaryRowCount || rows > limits.MaxSummaryRows {
-		return m, fmt.Errorf("%w: summary row count", ErrSegmentCorrupt)
 	}
 	rebuilt := domain.SegmentCatalogSummaryV1{FilterKeyID: keyID, TimeComplete: complete}
 	exactRows, queryErr := db.QueryContext(ctx, `SELECT kind,token FROM segment_exact_filters ORDER BY kind,token`)
@@ -508,6 +553,51 @@ func verifyArchiveSegmentMetadataPath(ctx context.Context, path string, expected
 	return m, nil
 }
 
+func validateSegmentTableSet(ctx context.Context, db *sql.DB) error {
+	var userVersion uint32
+	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil || userVersion != domain.SegmentFormatV1 {
+		return fmt.Errorf("%w: segment schema version", ErrSegmentCorrupt)
+	}
+	expected := make(map[string]string)
+	for _, statement := range strings.Split(segmentSchemaV1, ";") {
+		normalized := strings.Join(strings.Fields(statement), " ")
+		if normalized == "" {
+			continue
+		}
+		fields := strings.Fields(normalized)
+		if len(fields) < 3 || fields[0] != "CREATE" || fields[1] != "TABLE" {
+			return fmt.Errorf("invalid built-in segment schema")
+		}
+		name := strings.SplitN(fields[2], "(", 2)[0]
+		expected[name] = normalized
+	}
+	rows, err := db.QueryContext(ctx, `SELECT type,name,sql FROM sqlite_schema ORDER BY type,name`)
+	if err != nil {
+		return fmt.Errorf("%w: inspect summary schema", ErrSegmentCorrupt)
+	}
+	defer func() { _ = rows.Close() }()
+	seen := make(map[string]bool)
+	for rows.Next() {
+		var typ, name string
+		var sqlText sql.NullString
+		if err = rows.Scan(&typ, &name, &sqlText); err != nil {
+			return fmt.Errorf("%w: inspect summary schema", ErrSegmentCorrupt)
+		}
+		if typ == "index" && !sqlText.Valid && strings.HasPrefix(name, "sqlite_autoindex_") {
+			continue
+		}
+		want, ok := expected[name]
+		if !ok || typ != "table" || !sqlText.Valid || strings.Join(strings.Fields(sqlText.String), " ") != want {
+			return fmt.Errorf("%w: unexpected segment schema object", ErrSegmentCorrupt)
+		}
+		seen[name] = true
+	}
+	if len(seen) != len(expected) {
+		return fmt.Errorf("%w: incomplete segment schema", ErrSegmentCorrupt)
+	}
+	return nil
+}
+
 // VerifyArchiveSegment fully decodes a sealed segment and binds it to the
 // durable expected manifest supplied by its caller.
 func VerifyArchiveSegment(ctx context.Context, root string, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits) (ArchiveSegmentManifest, error) {
@@ -522,14 +612,29 @@ func VerifyArchiveSegment(ctx context.Context, root string, expected ArchiveSegm
 }
 
 func verifyArchiveSegmentPath(ctx context.Context, path string, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits, requireFileDigest bool) (ArchiveSegmentManifest, error) {
-	m, err := inspectArchiveSegmentPath(ctx, path, expected.Basename, requireFileDigest, limits.MaxFileBytes)
+	return verifyArchiveSegmentPathWithHook(ctx, path, expected, limits, requireFileDigest, nil)
+}
+
+func verifyArchiveSegmentPathWithHook(ctx context.Context, path string, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits, requireFileDigest bool, afterManifest func() error) (ArchiveSegmentManifest, error) {
+	db, pinned, err := openPinnedImmutableSegment(ctx, path, requireFileDigest)
+	if err != nil {
+		return ArchiveSegmentManifest{}, err
+	}
+	defer func() { _ = db.Close(); _ = pinned.Close() }()
+	db.SetMaxOpenConns(2)
+	m, err := inspectArchiveSegmentOpen(ctx, db, pinned, expected.Basename, limits.MaxFileBytes)
 	if err != nil {
 		return m, err
+	}
+	if afterManifest != nil {
+		if err = afterManifest(); err != nil {
+			return m, err
+		}
 	}
 	if !sameLogicalManifest(m, expected) {
 		return m, fmt.Errorf("%w: expected manifest mismatch", ErrSegmentCorrupt)
 	}
-	if _, metadataErr := verifyArchiveSegmentMetadataPath(ctx, path, expected, limits, requireFileDigest); metadataErr != nil {
+	if _, metadataErr := verifyArchiveSegmentMetadataOpen(ctx, db, pinned, expected, limits); metadataErr != nil {
 		return m, metadataErr
 	}
 	digest, decodeErr := hex.DecodeString(m.LogicalDigest)
@@ -542,21 +647,8 @@ func verifyArchiveSegmentPath(ctx context.Context, path string, expected Archive
 	if identityErr != nil || identity.Basename() != m.Basename {
 		return m, fmt.Errorf("%w: content-addressed identity", ErrSegmentCorrupt)
 	}
-	db, pinned, err := openPinnedImmutableSegment(ctx, path, requireFileDigest)
-	if err != nil {
-		return m, err
-	}
-	defer func() { _ = db.Close() }()
-	defer func() { _ = pinned.Close() }()
-	db.SetMaxOpenConns(2)
-	if requireFileDigest {
-		m.FileDigest, err = digestOpenFile(ctx, pinned, limits.MaxFileBytes)
-		if err != nil {
-			return m, err
-		}
-		if expected.FileDigest == "" || m.FileDigest != expected.FileDigest {
-			return m, fmt.Errorf("%w: expected file digest mismatch", ErrSegmentCorrupt)
-		}
+	if requireFileDigest && expected.FileDigest == "" {
+		return m, fmt.Errorf("%w: expected file digest missing", ErrSegmentCorrupt)
 	}
 	rows, err := db.QueryContext(ctx, `SELECT sequence,codec,plaintext_length,checksum,length(payload) FROM history_units ORDER BY sequence`)
 	if err != nil {
