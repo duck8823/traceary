@@ -12,6 +12,9 @@ import (
 // SegmentSummaryV1 is the immutable, privacy-preserving summary descriptor.
 const SegmentSummaryV1 uint32 = 1
 
+// SegmentSummaryBloomMaxBitsV1 is the shared format/generator/reader cap.
+const SegmentSummaryBloomMaxBitsV1 uint32 = 8 << 20
+
 // SummaryTokenKind identifies a fixed metadata dimension. Values are HMACs;
 // plaintext metadata is deliberately not representable by this API.
 type SummaryTokenKind uint8
@@ -143,7 +146,7 @@ func (s SegmentCatalogSummaryV1) CanonicalBytes(maxBytes int64) ([]byte, error) 
 	b = binary.AppendUvarint(b, uint64(len(blooms)))
 	var previousKind SummaryTokenKind
 	for _, bloom := range blooms {
-		if bloom.Kind < SummaryTokenWorkspace || bloom.Kind > SummaryTokenEventKind || bloom.Kind <= previousKind || bloom.BitCount == 0 || bloom.HashCount == 0 || uint64(len(bloom.Bits))*8 != uint64(bloom.BitCount) {
+		if bloom.Kind < SummaryTokenWorkspace || bloom.Kind > SummaryTokenEventKind || bloom.Kind <= previousKind || bloom.BitCount == 0 || bloom.BitCount > SegmentSummaryBloomMaxBitsV1 || bloom.HashCount == 0 || bloom.HashCount > 16 || uint64(len(bloom.Bits))*8 != uint64(bloom.BitCount) {
 			return nil, fmt.Errorf("invalid summary bloom descriptor")
 		}
 		previousKind = bloom.Kind
@@ -173,7 +176,7 @@ func (s SegmentCatalogSummaryV1) CanonicalBytes(maxBytes int64) ([]byte, error) 
 // TimeFilterMayMatch prevents a negative time decision when legacy timestamps
 // were malformed and the segment's time summary is therefore incomplete.
 func (s SegmentCatalogSummaryV1) TimeFilterMayMatch(segmentMin, segmentMax, queryStart, queryEnd time.Time) bool {
-	if !s.TimeComplete || segmentMin.IsZero() || segmentMax.IsZero() {
+	if !s.TimeComplete || segmentMin.IsZero() || segmentMax.IsZero() || segmentMax.Before(segmentMin) || queryStart.IsZero() || queryEnd.IsZero() || queryEnd.Before(queryStart) {
 		return true
 	}
 	return !segmentMax.Before(queryStart) && !segmentMin.After(queryEnd)
