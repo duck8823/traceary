@@ -42,11 +42,7 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	41: {41, "000041_add_search_projection_generation_lifecycle.sql", "f5fefcb1389cff1889fdd05cf1654838ac2e57556565dd96df32695e48d4c964", MigrationDataDependentOffline},
 	42: {42, "000042_add_bounded_search_projection_inventory.sql", "8d272ed8157458c864ac3ed84e6cfb9969b91b2c3ac31464b084ff1b5f4f8a53", MigrationDataDependentOffline},
 	43: {43, "000043_add_payload_codec_compatibility_mode.sql", "020c6dbb5dbea86c3c9989ad29babe333dc7c423ded6152aeddb37a67aa907e0", MigrationConstantInPlace},
-	44: {44, "000044_add_archive_sequence_inventory.sql", "18e270f1b4b974f54529fac3aa2ab1daf273797a51217c3bf3601bdbcbcc79f6", MigrationConstantInPlace},
-	45: {45, "000045_add_segment_catalog_ledger.sql", "00802c1fe48e30ef1fd5ffc2e1c22e33bc8f32c6ea66d52e869d0362172d0982", MigrationConstantInPlace},
-	46: {46, "000046_add_segment_target_plans.sql", "f6759e9883580436e6717d9009e91108212bff9d5376ede8f82c9700231ccc65", MigrationConstantInPlace},
-	47: {47, "000047_add_catalog_summary_reconciliation.sql", "885c32336046359393f7ef35a96b81e418058d706233edab4ccf1fca60c1fb47", MigrationConstantInPlace},
-	48: {48, "000048_add_segment_migration_runs.sql", "86d2678e4aba2cb1d9b9d8d135e1bd77a7dde199f6300c41638ac3e240bc1762", MigrationConstantInPlace},
+	44: {44, "000044_add_archive_segment_catalog.sql", "f272f78c9bed784b8ed487a71f801e172e994109092de19a6f0582a15318f38f", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

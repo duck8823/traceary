@@ -200,7 +200,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		eventArgs = append(eventArgs, eventPayload.Codec, eventPayload.FormatVersion, eventPayload.PlaintextBytes, eventPayload.StoredBytes, eventPayload.SHA256)
 	}
 	if _, err := tx.ExecContext(ctx, eventQuery, eventArgs...); err != nil {
-		return xerrors.Errorf("failed to insert event: %w", mapArchiveSequenceWriteError(err))
+		return xerrors.Errorf("failed to insert event: %w", err)
 	}
 	if audit == nil {
 		return nil

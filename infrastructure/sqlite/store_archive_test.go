@@ -40,10 +40,6 @@ VALUES ('new-e1', 'note', 'cli', 'manual', 's1', '', 'body', '2099-01-01T00:00:0
 	if err != nil {
 		t.Fatal(err)
 	}
-	var oldSequence int64
-	if err := conn.QueryRow(`SELECT sequence FROM archive_event_sequences WHERE event_id='old-e1'`).Scan(&oldSequence); err != nil {
-		t.Fatalf("archive insert did not receive sequence: %v", err)
-	}
 
 	sut := usecase.NewStoreManagementUsecase(storeManager)
 	archivePath := filepath.Join(dir, "out.trcaryar")
@@ -91,13 +87,6 @@ VALUES ('new-e1', 'note', 'cli', 'manual', 's1', '', 'body', '2099-01-01T00:00:0
 	}
 	if count != 1 {
 		t.Fatalf("old event not restored")
-	}
-	var restoredSequence int64
-	if err := conn.QueryRow(`SELECT sequence FROM archive_event_sequences WHERE event_id='old-e1'`).Scan(&restoredSequence); err != nil {
-		t.Fatal(err)
-	}
-	if restoredSequence != oldSequence {
-		t.Fatalf("archive restore sequence = %d, want preserved %d", restoredSequence, oldSequence)
 	}
 
 	again, err := sut.RestoreStoreArchive(context.Background(), archivePath, nil, false)

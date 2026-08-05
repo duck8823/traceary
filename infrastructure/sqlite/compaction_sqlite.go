@@ -339,18 +339,6 @@ func requireStaticSearchState(ctx context.Context, db *sql.DB) error {
 	if phase == "retiring" || phase == "restoring" {
 		return fmt.Errorf("search maintenance is not static: %s", phase)
 	}
-	var segmentTable, activeRuns int
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='archive_segment_migration_active')`).Scan(&segmentTable); err != nil {
-		return err
-	}
-	if segmentTable != 0 {
-		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM archive_segment_migration_active`).Scan(&activeRuns); err != nil {
-			return err
-		}
-		if activeRuns != 0 {
-			return fmt.Errorf("segment migration is active")
-		}
-	}
 	return nil
 }
 func openDirectReadOnly(ctx context.Context, path string) (*sql.DB, error) {

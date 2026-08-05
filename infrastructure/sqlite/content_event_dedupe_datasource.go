@@ -615,7 +615,7 @@ body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_
 			args = append(args, payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256)
 		}
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-			return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to restore event %s: %w", r.id, mapArchiveSequenceWriteError(err))
+			return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to restore event %s: %w", r.id, err)
 		}
 		if _, err := tx.ExecContext(
 			ctx,

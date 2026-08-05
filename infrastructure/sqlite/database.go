@@ -149,25 +149,6 @@ type Database struct {
 	// searchMaintenanceHook is a package-private transaction-boundary seam used
 	// by deterministic atomicity tests. Production databases leave it nil.
 	searchMaintenanceHook func(string) error
-	// segmentTargetPlannerHook is a package-private synchronization seam for
-	// two-connection snapshot/reservation tests. Production leaves it nil.
-	segmentTargetPlannerHook func(string) error
-	// segmentMigrationHook is a deterministic durability/fault boundary seam.
-	segmentMigrationHook func(string) error
-}
-
-func (d *Database) runSegmentMigrationHook(point string) error {
-	if d.segmentMigrationHook != nil {
-		return d.segmentMigrationHook(point)
-	}
-	return nil
-}
-
-func (d *Database) runSegmentTargetPlannerHook(point string) error {
-	if d.segmentTargetPlannerHook != nil {
-		return d.segmentTargetPlannerHook(point)
-	}
-	return nil
 }
 
 func (d *Database) runSearchMaintenanceHook(point string) error {

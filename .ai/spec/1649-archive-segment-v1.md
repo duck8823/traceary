@@ -39,4 +39,4 @@ Tests first cover canonical mixed values, identity determinism, zstd/plain bound
 
 - SQLite files are not required to be byte-deterministic; logical bytes and manifest logical fields are.
 - The format is additive and not activated. Rollback is removal of these unused types/files.
-- No-replace publication and directory fsync intentionally remain #1651 responsibilities.
+- No-replace publication and directory fsync intentionally remain caller responsibilities. The #1651 strict-migration owner was removed by #1669; the future archive path (#1652/#1653 era) owns them instead.
