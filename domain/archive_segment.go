@@ -80,10 +80,7 @@ func NewArchiveEventV1(values []SQLiteValue) (ArchiveEventV1, error) {
 	if values[0].Class != SQLiteText || len(values[0].Bytes) == 0 || values[5].Class != SQLiteText {
 		return ArchiveEventV1{}, fmt.Errorf("archive event v1 id and created_at must be text")
 	}
-	created, err := time.Parse(time.RFC3339Nano, string(values[5].Bytes))
-	if err != nil {
-		return ArchiveEventV1{}, fmt.Errorf("parse archive event created_at: %w", err)
-	}
+	created, _ := time.Parse(time.RFC3339Nano, string(values[5].Bytes))
 	var event ArchiveEventV1
 	copy(event.values[:], values)
 	event.eventID = append([]byte(nil), values[0].Bytes...)
@@ -125,8 +122,8 @@ func (u HistoryUnit) CreatedAt() time.Time { return u.Event.createdAt }
 
 // CanonicalBytes returns the versioned, length-delimited logical encoding.
 func (u HistoryUnit) CanonicalBytes() ([]byte, error) {
-	if u.Sequence == 0 || len(u.Event.eventID) == 0 || u.Event.createdAt.IsZero() {
-		return nil, fmt.Errorf("history unit requires a positive sequence, event identity, and event")
+	if u.Sequence == 0 || len(u.Event.eventID) == 0 {
+		return nil, fmt.Errorf("history unit requires a positive sequence and event identity")
 	}
 	b := make([]byte, 0, 128)
 	b = append(b, 'T', 'R', 'H', 'U')
@@ -159,7 +156,7 @@ func (u HistoryUnit) ValidateCanonicalSize(maxBytes int64) error {
 	if maxBytes <= 0 {
 		return fmt.Errorf("canonical size cap must be positive")
 	}
-	if u.Sequence == 0 || len(u.Event.eventID) == 0 || u.Event.createdAt.IsZero() {
+	if u.Sequence == 0 || len(u.Event.eventID) == 0 {
 		return fmt.Errorf("invalid history unit")
 	}
 	size := int64(8 + uvarintSize(u.Sequence) + uvarintSize(uint64(len(u.Event.eventID))) + len(u.Event.eventID) + uvarintSize(uint64(len(archiveEventV1Columns))) + 1)
