@@ -4,6 +4,7 @@ package sqlite
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -112,16 +113,27 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 		return manifest, err
 	}
 
-	tmp, err := os.CreateTemp(root, ".segment-v1-*.candidate")
+	ownedRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return manifest, fmt.Errorf("pin owned candidate root: %w", err)
+	}
+	defer func() { _ = ownedRoot.Close() }()
+	var random [16]byte
+	if _, err = rand.Read(random[:]); err != nil {
+		return manifest, fmt.Errorf("name segment candidate: %w", err)
+	}
+	tmpName := ".segment-v1-" + hex.EncodeToString(random[:]) + ".candidate"
+	tmp, err := ownedRoot.OpenFile(tmpName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return manifest, fmt.Errorf("create segment candidate: %w", err)
 	}
-	tmpPath := tmp.Name()
+	tmpPath := filepath.Join(ownedRoot.Name(), tmpName)
+	cleanupName := tmpName
 	defer func() { _ = tmp.Close() }()
 	defer func() {
 		if err != nil {
-			_ = os.Chmod(tmpPath, 0o600)
-			_ = os.Remove(tmpPath)
+			_ = tmp.Chmod(0o600)
+			_ = ownedRoot.Remove(cleanupName)
 		}
 	}()
 
@@ -185,8 +197,8 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 		if item.Unit.Audit != nil {
 			manifest.AuditCount++
 		}
-		if !item.Unit.CreatedAt.IsZero() {
-			ts := item.Unit.CreatedAt.UTC()
+		if !item.Unit.CreatedAt().IsZero() {
+			ts := item.Unit.CreatedAt().UTC()
 			if minCreatedAt.IsZero() || ts.Before(minCreatedAt) {
 				minCreatedAt = ts
 			}
@@ -240,24 +252,24 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	if err = b.sealFile(tmp, 0o400); err != nil {
 		return manifest, fmt.Errorf("seal segment: %w", err)
 	}
+	if err = b.syncFile(tmp); err != nil {
+		return manifest, fmt.Errorf("fsync sealed segment metadata: %w", err)
+	}
 	fileDigest, err := digestOpenFile(ctx, tmp, cfg.Limits.MaxFileBytes)
 	if err != nil {
 		return manifest, err
 	}
 	manifest.FileDigest = fileDigest
-	// A hard link installs the content-addressed name without replacing an
-	// existing inode. Directory durability and publication journaling remain
-	// the responsibility of #1651.
-	if err = os.Link(tmpPath, finalPath); err != nil {
-		return manifest, fmt.Errorf("install segment candidate without replacement: %w", err)
+	if _, statErr := ownedRoot.Lstat(manifest.Basename); statErr == nil {
+		return manifest, fmt.Errorf("seal candidate name: %w", os.ErrExist)
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return manifest, fmt.Errorf("inspect candidate name: %w", statErr)
 	}
-	if err = os.Remove(tmpPath); err != nil {
-		_ = os.Remove(finalPath)
-		return manifest, fmt.Errorf("remove installed candidate name: %w", err)
+	if err = ownedRoot.Rename(tmpName, manifest.Basename); err != nil {
+		return manifest, fmt.Errorf("name sealed candidate: %w", err)
 	}
+	cleanupName = manifest.Basename
 	if _, err = verifyArchiveSegmentPath(ctx, finalPath, manifest, cfg.Limits, true); err != nil {
-		_ = os.Chmod(finalPath, 0o600)
-		_ = os.Remove(finalPath)
 		return manifest, fmt.Errorf("verify sealed segment candidate: %w", err)
 	}
 	return manifest, nil
@@ -268,7 +280,9 @@ CREATE TABLE segment_manifest(format_version INTEGER NOT NULL, store_id TEXT NOT
 CREATE TABLE history_units(sequence INTEGER PRIMARY KEY, codec TEXT NOT NULL, plaintext_length INTEGER NOT NULL, checksum BLOB NOT NULL, payload BLOB NOT NULL);
 `
 
-// InspectArchiveSegmentManifest reads aggregate metadata without decoding payload rows.
+// InspectArchiveSegmentManifest performs bounded structural inspection of an
+// untrusted sealed file. It neither decodes payloads nor computes a file digest;
+// callers must use VerifyArchiveSegment before trusting the returned facts.
 func InspectArchiveSegmentManifest(ctx context.Context, root, basename string, limits ArchiveSegmentLimits) (ArchiveSegmentManifest, error) {
 	if err := limits.validate(); err != nil {
 		return ArchiveSegmentManifest{}, err
@@ -287,6 +301,7 @@ func inspectArchiveSegmentPath(ctx context.Context, path, expectedBasename strin
 	}
 	defer func() { _ = db.Close() }()
 	defer func() { _ = pinned.Close() }()
+	db.SetMaxOpenConns(2)
 	info, err := pinned.Stat()
 	if err != nil {
 		return ArchiveSegmentManifest{}, fmt.Errorf("stat segment: %w", err)
@@ -347,6 +362,7 @@ func verifyArchiveSegmentPath(ctx context.Context, path string, expected Archive
 	}
 	defer func() { _ = db.Close() }()
 	defer func() { _ = pinned.Close() }()
+	db.SetMaxOpenConns(2)
 	if requireFileDigest {
 		m.FileDigest, err = digestOpenFile(ctx, pinned, limits.MaxFileBytes)
 		if err != nil {
@@ -356,7 +372,7 @@ func verifyArchiveSegmentPath(ctx context.Context, path string, expected Archive
 			return m, fmt.Errorf("%w: expected file digest mismatch", ErrSegmentCorrupt)
 		}
 	}
-	rows, err := db.QueryContext(ctx, `SELECT sequence,codec,plaintext_length,checksum,payload FROM history_units ORDER BY sequence`)
+	rows, err := db.QueryContext(ctx, `SELECT sequence,codec,plaintext_length,checksum,length(payload) FROM history_units ORDER BY sequence`)
 	if err != nil {
 		return m, fmt.Errorf("%w: query payloads: %v", ErrSegmentCorrupt, err)
 	}
@@ -379,8 +395,9 @@ func verifyArchiveSegmentPath(ctx context.Context, path string, expected Archive
 		var seq uint64
 		var codec string
 		var plainLen int64
-		var checksum, stored []byte
-		if err = rows.Scan(&seq, &codec, &plainLen, &checksum, &stored); err != nil {
+		var checksum []byte
+		var storedLen int64
+		if err = rows.Scan(&seq, &codec, &plainLen, &checksum, &storedLen); err != nil {
 			return m, fmt.Errorf("%w: scan payload", ErrSegmentCorrupt)
 		}
 		if count > 0 && seq != previous+1 {
@@ -390,8 +407,15 @@ func verifyArchiveSegmentPath(ctx context.Context, path string, expected Archive
 			first = seq
 		}
 		previous = seq
-		if plainLen < 0 || plainLen > limits.MaxValuePlainBytes || int64(len(stored)) > limits.MaxValueStoredBytes {
+		if plainLen < 0 || plainLen > limits.MaxValuePlainBytes || storedLen < 0 || storedLen > limits.MaxValueStoredBytes || totalPlain+plainLen > limits.MaxTotalPlainBytes || totalStored+storedLen > limits.MaxTotalStoredBytes {
 			return m, fmt.Errorf("%w: value", ErrSegmentLimit)
+		}
+		var stored []byte
+		if err = db.QueryRowContext(ctx, `SELECT payload FROM history_units WHERE sequence=?`, seq).Scan(&stored); err != nil {
+			return m, fmt.Errorf("%w: load bounded payload", ErrSegmentCorrupt)
+		}
+		if int64(len(stored)) != storedLen {
+			return m, fmt.Errorf("%w: payload length changed", ErrSegmentCorrupt)
 		}
 		var plain []byte
 		switch codec {
@@ -417,11 +441,11 @@ func verifyArchiveSegmentPath(ctx context.Context, path string, expected Archive
 		if unit.Audit != nil {
 			auditCount++
 		}
-		if minCreatedAt.IsZero() || unit.CreatedAt.Before(minCreatedAt) {
-			minCreatedAt = unit.CreatedAt
+		if minCreatedAt.IsZero() || unit.CreatedAt().Before(minCreatedAt) {
+			minCreatedAt = unit.CreatedAt()
 		}
-		if maxCreatedAt.IsZero() || unit.CreatedAt.After(maxCreatedAt) {
-			maxCreatedAt = unit.CreatedAt
+		if maxCreatedAt.IsZero() || unit.CreatedAt().After(maxCreatedAt) {
+			maxCreatedAt = unit.CreatedAt()
 		}
 		totalPlain += int64(len(plain))
 		totalStored += int64(len(stored))

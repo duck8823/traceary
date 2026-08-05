@@ -19,14 +19,41 @@ func testSegmentLimits() ArchiveSegmentLimits {
 
 func testArchiveUnits() []ArchiveHistoryUnit {
 	return []ArchiveHistoryUnit{
-		{Unit: domain.HistoryUnit{Sequence: 10, EventID: []byte("event-10"), CreatedAt: time.Unix(2, 3), Event: []domain.SQLiteValue{domain.NullValue(), domain.TextValue([]byte(strings.Repeat("compressible-", 100))), domain.BlobValue([]byte{0, 0xff})}}},
-		{Unit: domain.HistoryUnit{Sequence: 11, EventID: []byte("event-11"), CreatedAt: time.Unix(4, 5), Event: []domain.SQLiteValue{domain.IntegerValue(-5), domain.RealValue(1.25)}, Audit: []domain.SQLiteValue{domain.TextValue([]byte("cmd"))}}},
+		{Unit: domain.HistoryUnit{Sequence: 10, Event: testArchiveEvent("event-10", time.Unix(2, 3), domain.TextValue([]byte(strings.Repeat("compressible-", 100))))}},
+		{Unit: domain.HistoryUnit{Sequence: 11, Event: testArchiveEvent("event-11", time.Unix(4, 5), domain.TextValue([]byte("body"))), Audit: testArchiveAudit()}},
 	}
+}
+
+func testArchiveEvent(id string, created time.Time, body domain.SQLiteValue) domain.ArchiveEventV1 {
+	values := make([]domain.SQLiteValue, 23)
+	for i := range values {
+		values[i] = domain.NullValue()
+	}
+	values[0] = domain.TextValue([]byte(id))
+	values[4] = body
+	values[5] = domain.TextValue([]byte(created.UTC().Format(time.RFC3339Nano)))
+	event, err := domain.NewArchiveEventV1(values)
+	if err != nil {
+		panic(err)
+	}
+	return event
+}
+func testArchiveAudit() *domain.ArchiveAuditV1 {
+	values := make([]domain.SQLiteValue, 27)
+	for i := range values {
+		values[i] = domain.NullValue()
+	}
+	values[0] = domain.TextValue([]byte("cmd"))
+	audit, err := domain.NewArchiveAuditV1(values)
+	if err != nil {
+		panic(err)
+	}
+	return &audit
 }
 
 func TestArchiveSegmentBuildInspectAndVerify(t *testing.T) {
 	root := t.TempDir()
-	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "store-a", CompressionFloor: 32, Limits: testSegmentLimits()})
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "store-a", CompressionFloor: 500, Limits: testSegmentLimits()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +86,8 @@ func TestArchiveSegmentBuildInspectAndVerify(t *testing.T) {
 
 func TestArchiveSegmentTimeBoundsUseChronologicalOrder(t *testing.T) {
 	units := testArchiveUnits()
-	units[0].Unit.CreatedAt = time.Unix(10, 1)
-	units[1].Unit.CreatedAt = time.Unix(10, 0)
+	units[0].Unit.Event = testArchiveEvent("event-10", time.Unix(10, 1), domain.TextValue([]byte("body")))
+	units[1].Unit.Event = testArchiveEvent("event-11", time.Unix(10, 0), domain.TextValue([]byte("body")))
 	m, err := BuildArchiveSegmentV1(context.Background(), t.TempDir(), units, ArchiveSegmentConfig{StoreID: "time", CompressionFloor: 32, Limits: testSegmentLimits()})
 	if err != nil {
 		t.Fatal(err)
@@ -254,6 +281,40 @@ func TestArchiveSegmentVerifierSeparatesUnknownCodecAndCorruption(t *testing.T) 
 				t.Fatalf("error = %v", err)
 			}
 		})
+	}
+}
+
+func TestArchiveSegmentVerifierRejectsOversizedStoredPayloadBeforeLoadingBlob(t *testing.T) {
+	root := t.TempDir()
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "oversized", CompressionFloor: 500, Limits: testSegmentLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, m.Basename)
+	if err = os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE history_units SET payload=zeroblob(2097152), plaintext_length=2097152 WHERE sequence=10`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	m.FileDigest, err = digestFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := testSegmentLimits()
+	limits.MaxValueStoredBytes = 1024
+	if _, err = VerifyArchiveSegment(context.Background(), root, m, limits); !errors.Is(err, ErrSegmentLimit) {
+		t.Fatalf("error = %v", err)
 	}
 }
 

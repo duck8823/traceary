@@ -56,33 +56,87 @@ func byteValue(c SQLiteStorageClass, v []byte) SQLiteValue {
 	return SQLiteValue{Class: c, Bytes: append([]byte(nil), v...)}
 }
 
-// HistoryUnit is the indivisible archive unit. Field order is schema-defined.
+var archiveEventV1Columns = [...]string{"id", "kind", "agent", "session_id", "body", "created_at", "client", "workspace", "source_hook", "body_original_bytes", "body_stored_bytes", "body_ingest_truncated", "body_storage_truncated", "body_metadata_version", "body_availability", "body_pruned_at", "body_pruned_plan_id", "created_at_norm", "body_codec", "body_format_version", "body_plaintext_bytes", "body_encoded_bytes", "body_sha256"}
+var archiveAuditV1Columns = [...]string{"command_text", "input_text", "output_text", "input_truncated", "output_truncated", "exit_code", "failed", "input_original_bytes", "output_original_bytes", "command_wrapper", "command_name", "failure_reason", "command_codec", "command_format_version", "command_plaintext_bytes", "command_encoded_bytes", "command_sha256", "input_codec", "input_format_version", "input_plaintext_bytes", "input_encoded_bytes", "input_sha256", "output_codec", "output_format_version", "output_plaintext_bytes", "output_encoded_bytes", "output_sha256"}
+
+// ArchiveEventV1Columns returns the fixed events descriptor.
+func ArchiveEventV1Columns() []string { return append([]string(nil), archiveEventV1Columns[:]...) }
+
+// ArchiveAuditV1Columns returns the fixed command_audits descriptor excluding event_id.
+func ArchiveAuditV1Columns() []string { return append([]string(nil), archiveAuditV1Columns[:]...) }
+
+// ArchiveEventV1 fixes every format-v1 events column and its order.
+type ArchiveEventV1 struct {
+	values    [len(archiveEventV1Columns)]SQLiteValue
+	eventID   []byte
+	createdAt time.Time
+}
+
+// NewArchiveEventV1 constructs the fixed event row and derives identity/time from canonical columns.
+func NewArchiveEventV1(values []SQLiteValue) (ArchiveEventV1, error) {
+	if len(values) != len(archiveEventV1Columns) {
+		return ArchiveEventV1{}, fmt.Errorf("archive event v1 requires %d columns", len(archiveEventV1Columns))
+	}
+	if values[0].Class != SQLiteText || len(values[0].Bytes) == 0 || values[5].Class != SQLiteText {
+		return ArchiveEventV1{}, fmt.Errorf("archive event v1 id and created_at must be text")
+	}
+	created, err := time.Parse(time.RFC3339Nano, string(values[5].Bytes))
+	if err != nil {
+		return ArchiveEventV1{}, fmt.Errorf("parse archive event created_at: %w", err)
+	}
+	var event ArchiveEventV1
+	copy(event.values[:], values)
+	event.eventID = append([]byte(nil), values[0].Bytes...)
+	event.createdAt = created.UTC()
+	return event, nil
+}
+
+// Values returns a defensive copy in the fixed v1 order.
+func (e ArchiveEventV1) Values() []SQLiteValue { return append([]SQLiteValue(nil), e.values[:]...) }
+
+// ArchiveAuditV1 fixes every format-v1 command_audits column except event_id.
+// The parent event_id is derived solely from HistoryUnit.Event.
+type ArchiveAuditV1 struct {
+	values [len(archiveAuditV1Columns)]SQLiteValue
+}
+
+// NewArchiveAuditV1 constructs the fixed audit row without a parent-id slot.
+func NewArchiveAuditV1(values []SQLiteValue) (ArchiveAuditV1, error) {
+	if len(values) != len(archiveAuditV1Columns) {
+		return ArchiveAuditV1{}, fmt.Errorf("archive audit v1 requires %d columns", len(archiveAuditV1Columns))
+	}
+	var audit ArchiveAuditV1
+	copy(audit.values[:], values)
+	return audit, nil
+}
+
+// Values returns a defensive copy in the fixed v1 order.
+func (a ArchiveAuditV1) Values() []SQLiteValue { return append([]SQLiteValue(nil), a.values[:]...) }
+
+// HistoryUnit is the indivisible archive unit.
 type HistoryUnit struct {
 	Sequence uint64
-	// EventID is encoded once for both rows. Audit fields deliberately exclude
-	// a second foreign-key value, so an audit cannot claim another parent.
-	EventID   []byte
-	CreatedAt time.Time
-	Event     []SQLiteValue
-	Audit     []SQLiteValue
+	Event    ArchiveEventV1
+	Audit    *ArchiveAuditV1
 }
+
+// CreatedAt returns the timestamp derived from the fixed event created_at column.
+func (u HistoryUnit) CreatedAt() time.Time { return u.Event.createdAt }
 
 // CanonicalBytes returns the versioned, length-delimited logical encoding.
 func (u HistoryUnit) CanonicalBytes() ([]byte, error) {
-	if u.Sequence == 0 || len(u.EventID) == 0 || u.CreatedAt.IsZero() || len(u.Event) == 0 {
+	if u.Sequence == 0 || len(u.Event.eventID) == 0 || u.Event.createdAt.IsZero() {
 		return nil, fmt.Errorf("history unit requires a positive sequence, event identity, and event")
 	}
 	b := make([]byte, 0, 128)
 	b = append(b, 'T', 'R', 'H', 'U')
 	b = binary.BigEndian.AppendUint32(b, SegmentFormatV1)
 	b = binary.AppendUvarint(b, u.Sequence)
-	b = binary.AppendUvarint(b, uint64(len(u.EventID)))
-	b = append(b, u.EventID...)
-	b = binary.BigEndian.AppendUint64(b, uint64(u.CreatedAt.UTC().Unix()))
-	b = binary.BigEndian.AppendUint32(b, uint32(u.CreatedAt.UTC().Nanosecond()))
-	b = binary.AppendUvarint(b, uint64(len(u.Event)))
+	b = binary.AppendUvarint(b, uint64(len(u.Event.eventID)))
+	b = append(b, u.Event.eventID...)
+	b = binary.AppendUvarint(b, uint64(len(archiveEventV1Columns)))
 	var err error
-	b, err = appendValues(b, u.Event)
+	b, err = appendValues(b, u.Event.values[:])
 	if err != nil {
 		return nil, err
 	}
@@ -90,8 +144,8 @@ func (u HistoryUnit) CanonicalBytes() ([]byte, error) {
 		b = append(b, 0)
 	} else {
 		b = append(b, 1)
-		b = binary.AppendUvarint(b, uint64(len(u.Audit)))
-		b, err = appendValues(b, u.Audit)
+		b = binary.AppendUvarint(b, uint64(len(archiveAuditV1Columns)))
+		b, err = appendValues(b, u.Audit.values[:])
 		if err != nil {
 			return nil, err
 		}
@@ -105,18 +159,18 @@ func (u HistoryUnit) ValidateCanonicalSize(maxBytes int64) error {
 	if maxBytes <= 0 {
 		return fmt.Errorf("canonical size cap must be positive")
 	}
-	if u.Sequence == 0 || len(u.EventID) == 0 || u.CreatedAt.IsZero() || len(u.Event) == 0 {
+	if u.Sequence == 0 || len(u.Event.eventID) == 0 || u.Event.createdAt.IsZero() {
 		return fmt.Errorf("invalid history unit")
 	}
-	size := int64(8 + uvarintSize(u.Sequence) + uvarintSize(uint64(len(u.EventID))) + len(u.EventID) + 12 + uvarintSize(uint64(len(u.Event))) + 1)
+	size := int64(8 + uvarintSize(u.Sequence) + uvarintSize(uint64(len(u.Event.eventID))) + len(u.Event.eventID) + uvarintSize(uint64(len(archiveEventV1Columns))) + 1)
 	var err error
-	size, err = addValuesSize(size, u.Event, maxBytes)
+	size, err = addValuesSize(size, u.Event.values[:], maxBytes)
 	if err != nil {
 		return err
 	}
 	if u.Audit != nil {
-		size += int64(uvarintSize(uint64(len(u.Audit))))
-		size, err = addValuesSize(size, u.Audit, maxBytes)
+		size += int64(uvarintSize(uint64(len(archiveAuditV1Columns))))
+		size, err = addValuesSize(size, u.Audit.values[:], maxBytes)
 		if err != nil {
 			return err
 		}
@@ -185,42 +239,49 @@ func DecodeHistoryUnitCanonical(encoded []byte) (HistoryUnit, error) {
 	if _, err = r.Read(eventID); err != nil {
 		return HistoryUnit{}, fmt.Errorf("decode history unit event identity bytes")
 	}
-	var seconds [8]byte
-	var nanos [4]byte
-	if _, err = r.Read(seconds[:]); err != nil {
-		return HistoryUnit{}, fmt.Errorf("decode history unit created_at seconds")
-	}
-	if _, err = r.Read(nanos[:]); err != nil {
-		return HistoryUnit{}, fmt.Errorf("decode history unit created_at nanos")
-	}
-	createdAt := time.Unix(int64(binary.BigEndian.Uint64(seconds[:])), int64(binary.BigEndian.Uint32(nanos[:]))).UTC()
 	eventCount, err := binary.ReadUvarint(r)
-	if err != nil || eventCount == 0 {
+	if err != nil || eventCount != uint64(len(archiveEventV1Columns)) {
 		return HistoryUnit{}, fmt.Errorf("decode history unit event count")
 	}
 	event, err := readValues(r, eventCount)
 	if err != nil {
 		return HistoryUnit{}, err
 	}
+	eventRow, err := NewArchiveEventV1(event)
+	if err != nil {
+		return HistoryUnit{}, err
+	}
+	if !bytes.Equal(eventID, eventRow.eventID) {
+		return HistoryUnit{}, fmt.Errorf("history unit parent identity mismatch")
+	}
 	present, err := r.ReadByte()
 	if err != nil || present > 1 {
 		return HistoryUnit{}, fmt.Errorf("decode history unit audit marker")
 	}
-	var audit []SQLiteValue
+	var audit *ArchiveAuditV1
 	if present == 1 {
 		count, readErr := binary.ReadUvarint(r)
 		if readErr != nil {
 			return HistoryUnit{}, fmt.Errorf("decode history unit audit count")
 		}
-		audit, err = readValues(r, count)
+		if count != uint64(len(archiveAuditV1Columns)) {
+			return HistoryUnit{}, fmt.Errorf("decode history unit audit count")
+		}
+		auditValues, readValuesErr := readValues(r, count)
+		err = readValuesErr
 		if err != nil {
 			return HistoryUnit{}, err
 		}
+		auditRow, auditErr := NewArchiveAuditV1(auditValues)
+		if auditErr != nil {
+			return HistoryUnit{}, auditErr
+		}
+		audit = &auditRow
 	}
 	if r.Len() != 0 {
 		return HistoryUnit{}, fmt.Errorf("trailing history unit bytes")
 	}
-	return HistoryUnit{Sequence: sequence, EventID: eventID, CreatedAt: createdAt, Event: event, Audit: audit}, nil
+	return HistoryUnit{Sequence: sequence, Event: eventRow, Audit: audit}, nil
 }
 
 func readValues(r *bytes.Reader, count uint64) ([]SQLiteValue, error) {

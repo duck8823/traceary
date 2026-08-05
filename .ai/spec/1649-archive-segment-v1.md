@@ -13,7 +13,7 @@
 
 | Concept | State | Behavior | Invariant |
 |---|---|---|---|
-| History Unit | one event identity, event fields, and optional audit fields | emits fields in a fixed event-then-audit order | the event identity is encoded once, so an audit cannot name another parent |
+| History Unit | fixed 23-column event v1 plus optional fixed 27-column audit v1 | derives identity and time from the event row | `event_id` is absent from audit input and is encoded once, so an audit cannot name another parent |
 | Canonical value | SQLite storage class and bytes/value | length-delimited v1 encoding | NULL, TEXT, and BLOB remain distinguishable |
 | Segment identity | store, format, closed sequence range, logical digest | produces a content-addressed basename | every identity component is digest-bound |
 | Candidate | writable SQLite file | accumulates bounded encoded units | it is never reported as sealed after an error |
@@ -29,7 +29,7 @@
 
 ### Boundaries / interfaces
 
-The builder accepts already ordered History Units and explicit resource caps. The verifier accepts an archive root plus a durable expected manifest, pins the leaf with `O_NOFOLLOW`, and verifies the expected file digest and logical identity before accepting it. Typed sentinel errors distinguish unsupported format/codec, corruption, cap exhaustion, and unsafe location.
+The builder accepts already ordered History Units and explicit resource caps in a caller-owned candidate directory pinned with `os.Root`; it performs no archive publication. The verifier accepts an archive root plus a durable expected manifest, pins the directory and leaf with `openat`/`O_NOFOLLOW`, preflights SQLite payload lengths before loading BLOBs, and verifies the expected file digest and logical identity before accepting it. Manifest-only inspection is bounded but untrusted structural evidence; it does not hash or decode payloads. Typed sentinel errors distinguish unsupported format/codec, corruption, cap exhaustion, and unsafe location.
 
 ### Behavior tests and TDD plan
 
