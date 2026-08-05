@@ -379,8 +379,11 @@ func validateArchiveRoot(root string) error {
 	if err != nil {
 		return err
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil || resolved != abs {
+	// macOS exposes /var as an alias of /private/var. Ancestor resolution may
+	// therefore differ from filepath.Abs even when the archive root itself is
+	// not a symlink. Lstat above rejects a replaceable root symlink; resolving
+	// ancestors here only proves that the complete root exists.
+	if _, err := filepath.EvalSymlinks(abs); err != nil {
 		return ErrSegmentUnsafeLocation
 	}
 	return nil

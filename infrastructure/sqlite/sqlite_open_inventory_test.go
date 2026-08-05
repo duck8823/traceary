@@ -15,6 +15,7 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 	root := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
 	allowed := map[string]int{
 		"infrastructure/filesystem/file_retention_datasource_unix.go": 1, // copied backup FD verification.
+		"infrastructure/sqlite/archive_segment.go":                    3, // owned offline candidate plus immutable sealed segment inspection/verification; never Hot.
 		"infrastructure/sqlite/compaction_sqlite.go":                  2, // EX-held source/candidate only.
 		"infrastructure/sqlite/database.go":                           1, // in-memory driver probe only.
 		"infrastructure/sqlite/payload_rehearsal.go":                  7, // copied rehearsal targets only.
