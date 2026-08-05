@@ -58,3 +58,20 @@ func TestArchiveEventAllowsMalformedLegacyCreatedAt(t *testing.T) {
 		t.Fatalf("raw legacy timestamp not preserved: %v", err)
 	}
 }
+
+func TestSegmentSummaryPreflightUsesExactCanonicalSize(t *testing.T) {
+	s := SegmentCatalogSummaryV1{FilterKeyID: string(make([]byte, 128)), TimeComplete: true,
+		Blooms:   []SegmentBloomV1{{Kind: SummaryTokenWorkspace, BitCount: 1024, HashCount: 3, Bits: make([]byte, 128)}},
+		Sessions: []SegmentSessionAggregateV1{{SessionToken: sha256.Sum256([]byte("s")), UnitCount: 128, AuditCount: 128}},
+	}
+	encoded, err := s.CanonicalBytes(4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CanonicalBytes(int64(len(encoded))); err != nil {
+		t.Fatalf("exact encoded cap rejected: %v", err)
+	}
+	if _, err = s.CanonicalBytes(int64(len(encoded) - 1)); err == nil {
+		t.Fatal("one-byte-short cap accepted")
+	}
+}

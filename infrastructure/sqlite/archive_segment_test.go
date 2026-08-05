@@ -183,6 +183,46 @@ func TestArchiveSegmentFullVerifierPinsOneInodeAcrossPathExchange(t *testing.T) 
 	}
 }
 
+func TestArchiveSegmentManifestRejectsDuplicateRawPlaintextRow(t *testing.T) {
+	root := t.TempDir()
+	m, err := BuildArchiveSegmentV1(context.Background(), root, testArchiveUnits(), ArchiveSegmentConfig{StoreID: "manifest-singleton", CompressionFloor: 32, Limits: testSegmentLimits(), Summary: testSegmentSummary()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, m.Basename)
+	if err = os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`ALTER TABLE segment_manifest RENAME TO original_manifest; CREATE TABLE segment_manifest AS SELECT * FROM original_manifest; INSERT INTO segment_manifest SELECT 2,format_version,'raw-secret',start_sequence,end_sequence,unit_count,audit_count,min_created_at,max_created_at,plain_value_count,zstd_value_count,total_plain_bytes,total_stored_bytes,logical_digest,basename,summary_version,summary_digest,filter_key_id,time_summary_complete,summary_row_count,summary_byte_count FROM original_manifest`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if err = os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	expected := m
+	expected.FileDigest = ""
+	if _, err = VerifyArchiveSegmentMetadata(context.Background(), root, expected, testSegmentLimits()); !errors.Is(err, ErrSegmentCorrupt) {
+		t.Fatalf("duplicate manifest error = %v", err)
+	}
+}
+
+func TestArchiveSegmentBuildPreflightsSummaryRowsBeforeEncoding(t *testing.T) {
+	summary := testSegmentSummary()
+	summary.Blooms[0].Bits = make([]byte, 1<<20)
+	summary.Blooms[0].BitCount = 8 << 20
+	limits := testSegmentLimits()
+	limits.MaxSummaryRows = 2
+	_, err := BuildArchiveSegmentV1(context.Background(), t.TempDir(), testArchiveUnits(), ArchiveSegmentConfig{StoreID: "row-preflight", CompressionFloor: 32, Limits: limits, Summary: summary})
+	if !errors.Is(err, ErrSegmentLimit) || !strings.Contains(err.Error(), "summary rows") {
+		t.Fatalf("row preflight error = %v", err)
+	}
+}
+
 func testArchiveUnits() []ArchiveHistoryUnit {
 	return []ArchiveHistoryUnit{
 		{Unit: domain.HistoryUnit{Sequence: 10, Event: testArchiveEvent("event-10", time.Unix(2, 3), domain.TextValue([]byte(strings.Repeat("compressible-", 100))))}},

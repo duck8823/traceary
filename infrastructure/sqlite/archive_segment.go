@@ -239,6 +239,10 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	if !allTimesValid || minCreatedAt.IsZero() || maxCreatedAt.IsZero() {
 		cfg.Summary.TimeComplete = false
 	}
+	summaryRows := uint64(len(cfg.Summary.ExactTokens)) + uint64(len(cfg.Summary.Blooms)) + uint64(len(cfg.Summary.Sessions))
+	if summaryRows > cfg.Limits.MaxSummaryRows {
+		return manifest, fmt.Errorf("%w: summary rows", ErrSegmentLimit)
+	}
 	summaryBytes, summaryErr := cfg.Summary.CanonicalBytes(cfg.Limits.MaxSummaryBytes)
 	if summaryErr != nil {
 		return manifest, fmt.Errorf("encode segment summary: %w", summaryErr)
@@ -247,7 +251,7 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	manifest.SummaryDigest = hex.EncodeToString(digestBytes(summaryBytes))
 	manifest.FilterKeyID = cfg.Summary.FilterKeyID
 	manifest.TimeSummaryComplete = cfg.Summary.TimeComplete
-	manifest.SummaryRowCount = uint64(len(cfg.Summary.ExactTokens) + len(cfg.Summary.Blooms) + len(cfg.Summary.Sessions))
+	manifest.SummaryRowCount = summaryRows
 	manifest.SummaryByteCount = int64(len(summaryBytes))
 	if manifest.SummaryRowCount > cfg.Limits.MaxSummaryRows {
 		return manifest, fmt.Errorf("%w: summary rows", ErrSegmentLimit)
@@ -285,7 +289,7 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	if pathErr != nil {
 		return manifest, pathErr
 	}
-	if _, err = db.ExecContext(ctx, `INSERT INTO segment_manifest(format_version,store_id,start_sequence,end_sequence,unit_count,audit_count,min_created_at,max_created_at,plain_value_count,zstd_value_count,total_plain_bytes,total_stored_bytes,logical_digest,basename,summary_version,summary_digest,filter_key_id,time_summary_complete,summary_row_count,summary_byte_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, manifest.FormatVersion, manifest.StoreID, manifest.StartSequence, manifest.EndSequence, manifest.UnitCount, manifest.AuditCount, manifest.MinCreatedAt, manifest.MaxCreatedAt, manifest.PlainValueCount, manifest.ZstdValueCount, manifest.TotalPlainBytes, manifest.TotalStoredBytes, logicalDigest[:], manifest.Basename, manifest.SummaryVersion, digestBytes(summaryBytes), manifest.FilterKeyID, manifest.TimeSummaryComplete, manifest.SummaryRowCount, manifest.SummaryByteCount); err != nil {
+	if _, err = db.ExecContext(ctx, `INSERT INTO segment_manifest(id,format_version,store_id,start_sequence,end_sequence,unit_count,audit_count,min_created_at,max_created_at,plain_value_count,zstd_value_count,total_plain_bytes,total_stored_bytes,logical_digest,basename,summary_version,summary_digest,filter_key_id,time_summary_complete,summary_row_count,summary_byte_count) VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, manifest.FormatVersion, manifest.StoreID, manifest.StartSequence, manifest.EndSequence, manifest.UnitCount, manifest.AuditCount, manifest.MinCreatedAt, manifest.MaxCreatedAt, manifest.PlainValueCount, manifest.ZstdValueCount, manifest.TotalPlainBytes, manifest.TotalStoredBytes, logicalDigest[:], manifest.Basename, manifest.SummaryVersion, digestBytes(summaryBytes), manifest.FilterKeyID, manifest.TimeSummaryComplete, manifest.SummaryRowCount, manifest.SummaryByteCount); err != nil {
 		return manifest, fmt.Errorf("write segment manifest: %w", err)
 	}
 	if _, err = db.ExecContext(ctx, `PRAGMA user_version=1`); err != nil {
@@ -330,7 +334,7 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 }
 
 const segmentSchemaV1 = `
-CREATE TABLE segment_manifest(format_version INTEGER NOT NULL, store_id TEXT NOT NULL, start_sequence INTEGER NOT NULL, end_sequence INTEGER NOT NULL, unit_count INTEGER NOT NULL, audit_count INTEGER NOT NULL, min_created_at TEXT NOT NULL, max_created_at TEXT NOT NULL, plain_value_count INTEGER NOT NULL, zstd_value_count INTEGER NOT NULL, total_plain_bytes INTEGER NOT NULL, total_stored_bytes INTEGER NOT NULL, logical_digest BLOB NOT NULL, basename TEXT NOT NULL, summary_version INTEGER NOT NULL, summary_digest BLOB NOT NULL, filter_key_id TEXT NOT NULL, time_summary_complete INTEGER NOT NULL, summary_row_count INTEGER NOT NULL, summary_byte_count INTEGER NOT NULL);
+CREATE TABLE segment_manifest(id INTEGER PRIMARY KEY CHECK(id=1), format_version INTEGER NOT NULL, store_id TEXT NOT NULL, start_sequence INTEGER NOT NULL, end_sequence INTEGER NOT NULL, unit_count INTEGER NOT NULL, audit_count INTEGER NOT NULL, min_created_at TEXT NOT NULL, max_created_at TEXT NOT NULL, plain_value_count INTEGER NOT NULL, zstd_value_count INTEGER NOT NULL, total_plain_bytes INTEGER NOT NULL, total_stored_bytes INTEGER NOT NULL, logical_digest BLOB NOT NULL, basename TEXT NOT NULL, summary_version INTEGER NOT NULL, summary_digest BLOB NOT NULL, filter_key_id TEXT NOT NULL, time_summary_complete INTEGER NOT NULL, summary_row_count INTEGER NOT NULL, summary_byte_count INTEGER NOT NULL);
 CREATE TABLE history_units(sequence INTEGER PRIMARY KEY, codec TEXT NOT NULL, plaintext_length INTEGER NOT NULL, checksum BLOB NOT NULL, payload BLOB NOT NULL);
 CREATE TABLE segment_summary(id INTEGER PRIMARY KEY CHECK(id=1), summary_version INTEGER NOT NULL, filter_key_id TEXT NOT NULL, time_summary_complete INTEGER NOT NULL CHECK(time_summary_complete IN (0,1)), canonical_bytes BLOB NOT NULL, summary_digest BLOB NOT NULL);
 CREATE TABLE segment_exact_filters(kind INTEGER NOT NULL, token BLOB NOT NULL, PRIMARY KEY(kind,token));
@@ -373,6 +377,10 @@ func inspectArchiveSegmentOpen(ctx context.Context, db *sql.DB, pinned *os.File,
 	}
 	var m ArchiveSegmentManifest
 	var digest, summaryDigest []byte
+	var manifestRows int64
+	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM segment_manifest`).Scan(&manifestRows); err != nil || manifestRows != 1 {
+		return m, fmt.Errorf("%w: manifest singleton", ErrSegmentCorrupt)
+	}
 	err = db.QueryRowContext(ctx, `SELECT format_version,store_id,start_sequence,end_sequence,unit_count,audit_count,min_created_at,max_created_at,plain_value_count,zstd_value_count,total_plain_bytes,total_stored_bytes,logical_digest,basename,summary_version,summary_digest,filter_key_id,time_summary_complete,summary_row_count,summary_byte_count FROM segment_manifest`).Scan(&m.FormatVersion, &m.StoreID, &m.StartSequence, &m.EndSequence, &m.UnitCount, &m.AuditCount, &m.MinCreatedAt, &m.MaxCreatedAt, &m.PlainValueCount, &m.ZstdValueCount, &m.TotalPlainBytes, &m.TotalStoredBytes, &digest, &m.Basename, &m.SummaryVersion, &summaryDigest, &m.FilterKeyID, &m.TimeSummaryComplete, &m.SummaryRowCount, &m.SummaryByteCount)
 	if err != nil {
 		return m, fmt.Errorf("%w: read manifest: %v", ErrSegmentCorrupt, err)
