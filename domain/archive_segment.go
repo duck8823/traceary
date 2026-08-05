@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"math/bits"
+	"time"
 )
 
 // SegmentFormatV1 is the first immutable archive segment format.
@@ -57,19 +59,27 @@ func byteValue(c SQLiteStorageClass, v []byte) SQLiteValue {
 // HistoryUnit is the indivisible archive unit. Field order is schema-defined.
 type HistoryUnit struct {
 	Sequence uint64
-	Event    []SQLiteValue
-	Audit    []SQLiteValue
+	// EventID is encoded once for both rows. Audit fields deliberately exclude
+	// a second foreign-key value, so an audit cannot claim another parent.
+	EventID   []byte
+	CreatedAt time.Time
+	Event     []SQLiteValue
+	Audit     []SQLiteValue
 }
 
 // CanonicalBytes returns the versioned, length-delimited logical encoding.
 func (u HistoryUnit) CanonicalBytes() ([]byte, error) {
-	if u.Sequence == 0 || len(u.Event) == 0 {
-		return nil, fmt.Errorf("history unit requires a positive sequence and event")
+	if u.Sequence == 0 || len(u.EventID) == 0 || u.CreatedAt.IsZero() || len(u.Event) == 0 {
+		return nil, fmt.Errorf("history unit requires a positive sequence, event identity, and event")
 	}
 	b := make([]byte, 0, 128)
 	b = append(b, 'T', 'R', 'H', 'U')
 	b = binary.BigEndian.AppendUint32(b, SegmentFormatV1)
 	b = binary.AppendUvarint(b, u.Sequence)
+	b = binary.AppendUvarint(b, uint64(len(u.EventID)))
+	b = append(b, u.EventID...)
+	b = binary.BigEndian.AppendUint64(b, uint64(u.CreatedAt.UTC().Unix()))
+	b = binary.BigEndian.AppendUint32(b, uint32(u.CreatedAt.UTC().Nanosecond()))
 	b = binary.AppendUvarint(b, uint64(len(u.Event)))
 	var err error
 	b, err = appendValues(b, u.Event)
@@ -88,6 +98,55 @@ func (u HistoryUnit) CanonicalBytes() ([]byte, error) {
 	}
 	return b, nil
 }
+
+// ValidateCanonicalSize rejects an encoding before allocating its duplicate
+// canonical byte stream.
+func (u HistoryUnit) ValidateCanonicalSize(maxBytes int64) error {
+	if maxBytes <= 0 {
+		return fmt.Errorf("canonical size cap must be positive")
+	}
+	if u.Sequence == 0 || len(u.EventID) == 0 || u.CreatedAt.IsZero() || len(u.Event) == 0 {
+		return fmt.Errorf("invalid history unit")
+	}
+	size := int64(8 + uvarintSize(u.Sequence) + uvarintSize(uint64(len(u.EventID))) + len(u.EventID) + 12 + uvarintSize(uint64(len(u.Event))) + 1)
+	var err error
+	size, err = addValuesSize(size, u.Event, maxBytes)
+	if err != nil {
+		return err
+	}
+	if u.Audit != nil {
+		size += int64(uvarintSize(uint64(len(u.Audit))))
+		size, err = addValuesSize(size, u.Audit, maxBytes)
+		if err != nil {
+			return err
+		}
+	}
+	if size > maxBytes {
+		return fmt.Errorf("canonical history unit exceeds byte cap")
+	}
+	return nil
+}
+
+func addValuesSize(size int64, values []SQLiteValue, limit int64) (int64, error) {
+	for _, v := range values {
+		add := int64(1)
+		switch v.Class {
+		case SQLiteNull:
+		case SQLiteInteger, SQLiteReal:
+			add += 8
+		case SQLiteText, SQLiteBlob:
+			add += int64(uvarintSize(uint64(len(v.Bytes))) + len(v.Bytes))
+		default:
+			return 0, fmt.Errorf("unknown SQLite storage class %d", v.Class)
+		}
+		if add > limit-size {
+			return 0, fmt.Errorf("canonical history unit exceeds byte cap")
+		}
+		size += add
+	}
+	return size, nil
+}
+func uvarintSize(value uint64) int { return (bits.Len64(value|1) + 6) / 7 }
 
 func appendValues(dst []byte, values []SQLiteValue) ([]byte, error) {
 	for _, v := range values {
@@ -118,6 +177,23 @@ func DecodeHistoryUnitCanonical(encoded []byte) (HistoryUnit, error) {
 	if err != nil || sequence == 0 {
 		return HistoryUnit{}, fmt.Errorf("decode history unit sequence")
 	}
+	eventIDLength, err := binary.ReadUvarint(r)
+	if err != nil || eventIDLength == 0 || eventIDLength > uint64(r.Len()) {
+		return HistoryUnit{}, fmt.Errorf("decode history unit event identity")
+	}
+	eventID := make([]byte, eventIDLength)
+	if _, err = r.Read(eventID); err != nil {
+		return HistoryUnit{}, fmt.Errorf("decode history unit event identity bytes")
+	}
+	var seconds [8]byte
+	var nanos [4]byte
+	if _, err = r.Read(seconds[:]); err != nil {
+		return HistoryUnit{}, fmt.Errorf("decode history unit created_at seconds")
+	}
+	if _, err = r.Read(nanos[:]); err != nil {
+		return HistoryUnit{}, fmt.Errorf("decode history unit created_at nanos")
+	}
+	createdAt := time.Unix(int64(binary.BigEndian.Uint64(seconds[:])), int64(binary.BigEndian.Uint32(nanos[:]))).UTC()
 	eventCount, err := binary.ReadUvarint(r)
 	if err != nil || eventCount == 0 {
 		return HistoryUnit{}, fmt.Errorf("decode history unit event count")
@@ -144,7 +220,7 @@ func DecodeHistoryUnitCanonical(encoded []byte) (HistoryUnit, error) {
 	if r.Len() != 0 {
 		return HistoryUnit{}, fmt.Errorf("trailing history unit bytes")
 	}
-	return HistoryUnit{Sequence: sequence, Event: event, Audit: audit}, nil
+	return HistoryUnit{Sequence: sequence, EventID: eventID, CreatedAt: createdAt, Event: event, Audit: audit}, nil
 }
 
 func readValues(r *bytes.Reader, count uint64) ([]SQLiteValue, error) {

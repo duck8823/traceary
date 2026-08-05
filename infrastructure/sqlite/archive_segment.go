@@ -10,12 +10,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+	"golang.org/x/sys/unix"
 
 	"github.com/duck8823/traceary/domain"
 )
@@ -45,10 +48,11 @@ type ArchiveSegmentLimits struct {
 	MaxValueStoredBytes int64
 	MaxTotalPlainBytes  int64
 	MaxTotalStoredBytes int64
+	MaxFileBytes        int64
 }
 
 func (l ArchiveSegmentLimits) validate() error {
-	if l.MaxValuePlainBytes <= 0 || l.MaxValueStoredBytes <= 0 || l.MaxTotalPlainBytes <= 0 || l.MaxTotalStoredBytes <= 0 {
+	if l.MaxValuePlainBytes <= 0 || l.MaxValueStoredBytes <= 0 || l.MaxTotalPlainBytes <= 0 || l.MaxTotalStoredBytes <= 0 || l.MaxFileBytes <= 0 {
 		return fmt.Errorf("%w: every cap must be positive", ErrSegmentLimit)
 	}
 	return nil
@@ -82,15 +86,19 @@ type ArchiveSegmentManifest struct {
 
 // ArchiveHistoryUnit carries the canonical unit and an optional ordering time.
 type ArchiveHistoryUnit struct {
-	Unit      domain.HistoryUnit
-	CreatedAt time.Time
+	Unit domain.HistoryUnit
 }
 
-type archiveSegmentBuilder struct{ syncFile func(*os.File) error }
+type archiveSegmentBuilder struct {
+	syncFile  func(*os.File) error
+	sealFile  func(*os.File, os.FileMode) error
+	afterUnit func(int) error
+}
 
-// BuildArchiveSegmentV1 creates and seals one immutable, content-addressed segment.
+// BuildArchiveSegmentV1 creates and seals one immutable segment in an owned
+// candidate directory. Publishing it into the archive root belongs to #1651.
 func BuildArchiveSegmentV1(ctx context.Context, root string, units []ArchiveHistoryUnit, cfg ArchiveSegmentConfig) (ArchiveSegmentManifest, error) {
-	return archiveSegmentBuilder{syncFile: func(f *os.File) error { return f.Sync() }}.build(ctx, root, units, cfg)
+	return archiveSegmentBuilder{syncFile: func(f *os.File) error { return f.Sync() }, sealFile: func(f *os.File, m os.FileMode) error { return f.Chmod(m) }}.build(ctx, root, units, cfg)
 }
 
 func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []ArchiveHistoryUnit, cfg ArchiveSegmentConfig) (manifest ArchiveSegmentManifest, err error) {
@@ -104,44 +112,12 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 		return manifest, err
 	}
 
-	logical := sha256.New()
-	canonical := make([][]byte, len(units))
-	var previous uint64
-	for i, item := range units {
-		if err := ctx.Err(); err != nil {
-			return manifest, err
-		}
-		if i > 0 && item.Unit.Sequence != previous+1 {
-			return manifest, fmt.Errorf("history unit sequence is not contiguous")
-		}
-		previous = item.Unit.Sequence
-		value, encodeErr := item.Unit.CanonicalBytes()
-		if encodeErr != nil {
-			return manifest, encodeErr
-		}
-		canonical[i] = value
-		logical.Write(value)
-	}
-	var logicalDigest [sha256.Size]byte
-	copy(logicalDigest[:], logical.Sum(nil))
-	identity, err := domain.NewSegmentIdentity(cfg.StoreID, units[0].Unit.Sequence, units[len(units)-1].Unit.Sequence, logicalDigest)
-	if err != nil {
-		return manifest, err
-	}
-	basename := identity.Basename()
-	finalPath, err := safeArchivePath(root, basename, false)
-	if err != nil {
-		return manifest, err
-	}
 	tmp, err := os.CreateTemp(root, ".segment-v1-*.candidate")
 	if err != nil {
 		return manifest, fmt.Errorf("create segment candidate: %w", err)
 	}
 	tmpPath := tmp.Name()
-	if closeErr := tmp.Close(); closeErr != nil {
-		_ = os.Remove(tmpPath)
-		return manifest, closeErr
-	}
+	defer func() { _ = tmp.Close() }()
 	defer func() {
 		if err != nil {
 			_ = os.Chmod(tmpPath, 0o600)
@@ -149,7 +125,7 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 		}
 	}()
 
-	db, err := sql.Open("sqlite", "file:"+tmpPath+"?mode=rwc&_pragma=journal_mode(DELETE)&_pragma=synchronous(FULL)")
+	db, err := sql.Open("sqlite", segmentSQLiteDSN(tmpPath, "rw", false)+"&_pragma=journal_mode(OFF)&_pragma=synchronous(FULL)")
 	if err != nil {
 		return manifest, err
 	}
@@ -163,12 +139,25 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	}
 	defer func() { _ = encoder.Close() }()
 
-	manifest = ArchiveSegmentManifest{StoreID: cfg.StoreID, FormatVersion: domain.SegmentFormatV1, StartSequence: identity.StartSequence, EndSequence: identity.EndSequence, UnitCount: uint64(len(units)), LogicalDigest: hex.EncodeToString(logicalDigest[:]), Basename: basename}
+	manifest = ArchiveSegmentManifest{StoreID: cfg.StoreID, FormatVersion: domain.SegmentFormatV1, StartSequence: units[0].Unit.Sequence, EndSequence: units[len(units)-1].Unit.Sequence, UnitCount: uint64(len(units))}
+	logical := sha256.New()
+	var previous uint64
+	var minCreatedAt, maxCreatedAt time.Time
 	for i, item := range units {
 		if err = ctx.Err(); err != nil {
 			return manifest, err
 		}
-		plain := canonical[i]
+		if i > 0 && item.Unit.Sequence != previous+1 {
+			return manifest, fmt.Errorf("history unit sequence is not contiguous")
+		}
+		previous = item.Unit.Sequence
+		if sizeErr := item.Unit.ValidateCanonicalSize(cfg.Limits.MaxValuePlainBytes); sizeErr != nil {
+			return manifest, fmt.Errorf("%w: %v", ErrSegmentLimit, sizeErr)
+		}
+		plain, encodeErr := item.Unit.CanonicalBytes()
+		if encodeErr != nil {
+			return manifest, fmt.Errorf("encode history unit: %w", encodeErr)
+		}
 		if int64(len(plain)) > cfg.Limits.MaxValuePlainBytes {
 			return manifest, fmt.Errorf("%w: plaintext value", ErrSegmentLimit)
 		}
@@ -196,19 +185,39 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 		if item.Unit.Audit != nil {
 			manifest.AuditCount++
 		}
-		if !item.CreatedAt.IsZero() {
-			ts := item.CreatedAt.UTC().Format(time.RFC3339Nano)
-			if manifest.MinCreatedAt == "" || ts < manifest.MinCreatedAt {
-				manifest.MinCreatedAt = ts
+		if !item.Unit.CreatedAt.IsZero() {
+			ts := item.Unit.CreatedAt.UTC()
+			if minCreatedAt.IsZero() || ts.Before(minCreatedAt) {
+				minCreatedAt = ts
 			}
-			if manifest.MaxCreatedAt == "" || ts > manifest.MaxCreatedAt {
-				manifest.MaxCreatedAt = ts
+			if maxCreatedAt.IsZero() || ts.After(maxCreatedAt) {
+				maxCreatedAt = ts
 			}
 		}
+		logical.Write(plain)
 		checksum := sha256.Sum256(plain)
 		if _, err = db.ExecContext(ctx, `INSERT INTO history_units(sequence, codec, plaintext_length, checksum, payload) VALUES(?,?,?,?,?)`, item.Unit.Sequence, codec, len(plain), checksum[:], stored); err != nil {
 			return manifest, fmt.Errorf("write segment unit: %w", err)
 		}
+		if b.afterUnit != nil {
+			if err = b.afterUnit(i); err != nil {
+				return manifest, fmt.Errorf("archive segment interrupted after unit: %w", err)
+			}
+		}
+	}
+	manifest.MinCreatedAt = formatOptionalTime(minCreatedAt)
+	manifest.MaxCreatedAt = formatOptionalTime(maxCreatedAt)
+	var logicalDigest [sha256.Size]byte
+	copy(logicalDigest[:], logical.Sum(nil))
+	identity, identityErr := domain.NewSegmentIdentity(cfg.StoreID, manifest.StartSequence, manifest.EndSequence, logicalDigest)
+	if identityErr != nil {
+		return manifest, fmt.Errorf("create segment identity: %w", identityErr)
+	}
+	manifest.LogicalDigest = hex.EncodeToString(logicalDigest[:])
+	manifest.Basename = identity.Basename()
+	finalPath, pathErr := safeArchivePath(root, manifest.Basename, false)
+	if pathErr != nil {
+		return manifest, pathErr
 	}
 	if _, err = db.ExecContext(ctx, `INSERT INTO segment_manifest(format_version,store_id,start_sequence,end_sequence,unit_count,audit_count,min_created_at,max_created_at,plain_value_count,zstd_value_count,total_plain_bytes,total_stored_bytes,logical_digest,basename) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, manifest.FormatVersion, manifest.StoreID, manifest.StartSequence, manifest.EndSequence, manifest.UnitCount, manifest.AuditCount, manifest.MinCreatedAt, manifest.MaxCreatedAt, manifest.PlainValueCount, manifest.ZstdValueCount, manifest.TotalPlainBytes, manifest.TotalStoredBytes, logicalDigest[:], manifest.Basename); err != nil {
 		return manifest, fmt.Errorf("write segment manifest: %w", err)
@@ -222,32 +231,34 @@ func (b archiveSegmentBuilder) build(ctx context.Context, root string, units []A
 	if err = db.Close(); err != nil {
 		return manifest, fmt.Errorf("close segment: %w", err)
 	}
-	f, err := os.OpenFile(tmpPath, os.O_RDONLY, 0)
-	if err != nil {
-		return manifest, err
+	if _, err = verifyArchiveSegmentPath(ctx, tmpPath, manifest, cfg.Limits, false); err != nil {
+		return manifest, fmt.Errorf("verify segment candidate before seal: %w", err)
 	}
-	if err = b.syncFile(f); err != nil {
-		_ = f.Close()
+	if err = b.syncFile(tmp); err != nil {
 		return manifest, fmt.Errorf("fsync segment: %w", err)
 	}
-	if err = f.Close(); err != nil {
-		return manifest, err
-	}
-	if err = os.Chmod(tmpPath, 0o400); err != nil {
+	if err = b.sealFile(tmp, 0o400); err != nil {
 		return manifest, fmt.Errorf("seal segment: %w", err)
 	}
-	fileDigest, err := digestFile(tmpPath)
+	fileDigest, err := digestOpenFile(ctx, tmp, cfg.Limits.MaxFileBytes)
 	if err != nil {
 		return manifest, err
 	}
 	manifest.FileDigest = fileDigest
-	if _, statErr := os.Lstat(finalPath); statErr == nil {
-		return manifest, fmt.Errorf("install segment candidate: %w", os.ErrExist)
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return manifest, fmt.Errorf("inspect segment destination: %w", statErr)
+	// A hard link installs the content-addressed name without replacing an
+	// existing inode. Directory durability and publication journaling remain
+	// the responsibility of #1651.
+	if err = os.Link(tmpPath, finalPath); err != nil {
+		return manifest, fmt.Errorf("install segment candidate without replacement: %w", err)
 	}
-	if err = os.Rename(tmpPath, finalPath); err != nil {
-		return manifest, fmt.Errorf("install segment candidate: %w", err)
+	if err = os.Remove(tmpPath); err != nil {
+		_ = os.Remove(finalPath)
+		return manifest, fmt.Errorf("remove installed candidate name: %w", err)
+	}
+	if _, err = verifyArchiveSegmentPath(ctx, finalPath, manifest, cfg.Limits, true); err != nil {
+		_ = os.Chmod(finalPath, 0o600)
+		_ = os.Remove(finalPath)
+		return manifest, fmt.Errorf("verify sealed segment candidate: %w", err)
 	}
 	return manifest, nil
 }
@@ -258,16 +269,31 @@ CREATE TABLE history_units(sequence INTEGER PRIMARY KEY, codec TEXT NOT NULL, pl
 `
 
 // InspectArchiveSegmentManifest reads aggregate metadata without decoding payload rows.
-func InspectArchiveSegmentManifest(ctx context.Context, root, basename string) (ArchiveSegmentManifest, error) {
+func InspectArchiveSegmentManifest(ctx context.Context, root, basename string, limits ArchiveSegmentLimits) (ArchiveSegmentManifest, error) {
+	if err := limits.validate(); err != nil {
+		return ArchiveSegmentManifest{}, err
+	}
 	path, err := safeArchivePath(root, basename, true)
 	if err != nil {
 		return ArchiveSegmentManifest{}, err
 	}
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&immutable=1")
+	return inspectArchiveSegmentPath(ctx, path, basename, true, limits.MaxFileBytes)
+}
+
+func inspectArchiveSegmentPath(ctx context.Context, path, expectedBasename string, requireSealed bool, maxFileBytes int64) (ArchiveSegmentManifest, error) {
+	db, pinned, err := openPinnedImmutableSegment(ctx, path, requireSealed)
 	if err != nil {
 		return ArchiveSegmentManifest{}, err
 	}
 	defer func() { _ = db.Close() }()
+	defer func() { _ = pinned.Close() }()
+	info, err := pinned.Stat()
+	if err != nil {
+		return ArchiveSegmentManifest{}, fmt.Errorf("stat segment: %w", err)
+	}
+	if info.Size() > maxFileBytes {
+		return ArchiveSegmentManifest{}, fmt.Errorf("%w: file bytes", ErrSegmentLimit)
+	}
 	var m ArchiveSegmentManifest
 	var digest []byte
 	err = db.QueryRowContext(ctx, `SELECT format_version,store_id,start_sequence,end_sequence,unit_count,audit_count,min_created_at,max_created_at,plain_value_count,zstd_value_count,total_plain_bytes,total_stored_bytes,logical_digest,basename FROM segment_manifest`).Scan(&m.FormatVersion, &m.StoreID, &m.StartSequence, &m.EndSequence, &m.UnitCount, &m.AuditCount, &m.MinCreatedAt, &m.MaxCreatedAt, &m.PlainValueCount, &m.ZstdValueCount, &m.TotalPlainBytes, &m.TotalStoredBytes, &digest, &m.Basename)
@@ -277,29 +303,59 @@ func InspectArchiveSegmentManifest(ctx context.Context, root, basename string) (
 	if m.FormatVersion != domain.SegmentFormatV1 {
 		return m, fmt.Errorf("%w: %d", ErrSegmentUnsupportedFormat, m.FormatVersion)
 	}
-	if m.Basename != basename || len(digest) != sha256.Size {
+	if (expectedBasename != "" && m.Basename != expectedBasename) || len(digest) != sha256.Size {
 		return m, fmt.Errorf("%w: manifest identity", ErrSegmentCorrupt)
 	}
 	m.LogicalDigest = hex.EncodeToString(digest)
-	m.FileDigest, err = digestFile(path)
-	return m, err
+	return m, nil
 }
 
-// VerifyArchiveSegment fully decodes and validates a sealed segment within caps.
-func VerifyArchiveSegment(ctx context.Context, root, basename string, limits ArchiveSegmentLimits) (ArchiveSegmentManifest, error) {
+// VerifyArchiveSegment fully decodes a sealed segment and binds it to the
+// durable expected manifest supplied by its caller.
+func VerifyArchiveSegment(ctx context.Context, root string, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits) (ArchiveSegmentManifest, error) {
 	if err := limits.validate(); err != nil {
 		return ArchiveSegmentManifest{}, err
 	}
-	m, err := InspectArchiveSegmentManifest(ctx, root, basename)
+	path, err := safeArchivePath(root, expected.Basename, true)
+	if err != nil {
+		return ArchiveSegmentManifest{}, err
+	}
+	return verifyArchiveSegmentPath(ctx, path, expected, limits, true)
+}
+
+func verifyArchiveSegmentPath(ctx context.Context, path string, expected ArchiveSegmentManifest, limits ArchiveSegmentLimits, requireFileDigest bool) (ArchiveSegmentManifest, error) {
+	m, err := inspectArchiveSegmentPath(ctx, path, expected.Basename, requireFileDigest, limits.MaxFileBytes)
 	if err != nil {
 		return m, err
 	}
-	path, _ := safeArchivePath(root, basename, true)
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&immutable=1")
+	if !sameLogicalManifest(m, expected) {
+		return m, fmt.Errorf("%w: expected manifest mismatch", ErrSegmentCorrupt)
+	}
+	digest, decodeErr := hex.DecodeString(m.LogicalDigest)
+	if decodeErr != nil || len(digest) != sha256.Size {
+		return m, fmt.Errorf("%w: logical digest", ErrSegmentCorrupt)
+	}
+	var logicalDigest [sha256.Size]byte
+	copy(logicalDigest[:], digest)
+	identity, identityErr := domain.NewSegmentIdentity(m.StoreID, m.StartSequence, m.EndSequence, logicalDigest)
+	if identityErr != nil || identity.Basename() != m.Basename {
+		return m, fmt.Errorf("%w: content-addressed identity", ErrSegmentCorrupt)
+	}
+	db, pinned, err := openPinnedImmutableSegment(ctx, path, requireFileDigest)
 	if err != nil {
 		return m, err
 	}
 	defer func() { _ = db.Close() }()
+	defer func() { _ = pinned.Close() }()
+	if requireFileDigest {
+		m.FileDigest, err = digestOpenFile(ctx, pinned, limits.MaxFileBytes)
+		if err != nil {
+			return m, err
+		}
+		if expected.FileDigest == "" || m.FileDigest != expected.FileDigest {
+			return m, fmt.Errorf("%w: expected file digest mismatch", ErrSegmentCorrupt)
+		}
+	}
 	rows, err := db.QueryContext(ctx, `SELECT sequence,codec,plaintext_length,checksum,payload FROM history_units ORDER BY sequence`)
 	if err != nil {
 		return m, fmt.Errorf("%w: query payloads: %v", ErrSegmentCorrupt, err)
@@ -312,8 +368,10 @@ func VerifyArchiveSegment(ctx context.Context, root, basename string, limits Arc
 	defer decoder.Close()
 	logical := sha256.New()
 	var count uint64
+	var auditCount, plainCount, zstdCount uint64
 	var totalPlain, totalStored int64
-	var previous uint64
+	var first, previous uint64
+	var minCreatedAt, maxCreatedAt time.Time
 	for rows.Next() {
 		if err = ctx.Err(); err != nil {
 			return m, err
@@ -328,6 +386,9 @@ func VerifyArchiveSegment(ctx context.Context, root, basename string, limits Arc
 		if count > 0 && seq != previous+1 {
 			return m, fmt.Errorf("%w: non-contiguous sequence", ErrSegmentCorrupt)
 		}
+		if count == 0 {
+			first = seq
+		}
 		previous = seq
 		if plainLen < 0 || plainLen > limits.MaxValuePlainBytes || int64(len(stored)) > limits.MaxValueStoredBytes {
 			return m, fmt.Errorf("%w: value", ErrSegmentLimit)
@@ -336,7 +397,9 @@ func VerifyArchiveSegment(ctx context.Context, root, basename string, limits Arc
 		switch codec {
 		case segmentCodecPlain:
 			plain = append([]byte(nil), stored...)
+			plainCount++
 		case segmentCodecZstd:
+			zstdCount++
 			plain, err = decoder.DecodeAll(stored, make([]byte, 0, plainLen))
 			if err != nil {
 				return m, fmt.Errorf("%w: zstd payload: %v", ErrSegmentCorrupt, err)
@@ -346,6 +409,19 @@ func VerifyArchiveSegment(ctx context.Context, root, basename string, limits Arc
 		}
 		if int64(len(plain)) != plainLen || !bytes.Equal(checksum, digestBytes(plain)) {
 			return m, fmt.Errorf("%w: payload checksum", ErrSegmentCorrupt)
+		}
+		unit, decodeUnitErr := domain.DecodeHistoryUnitCanonical(plain)
+		if decodeUnitErr != nil || unit.Sequence != seq {
+			return m, fmt.Errorf("%w: canonical history unit", ErrSegmentCorrupt)
+		}
+		if unit.Audit != nil {
+			auditCount++
+		}
+		if minCreatedAt.IsZero() || unit.CreatedAt.Before(minCreatedAt) {
+			minCreatedAt = unit.CreatedAt
+		}
+		if maxCreatedAt.IsZero() || unit.CreatedAt.After(maxCreatedAt) {
+			maxCreatedAt = unit.CreatedAt
 		}
 		totalPlain += int64(len(plain))
 		totalStored += int64(len(stored))
@@ -358,13 +434,63 @@ func VerifyArchiveSegment(ctx context.Context, root, basename string, limits Arc
 	if err = rows.Err(); err != nil {
 		return m, err
 	}
-	if count != m.UnitCount || totalPlain != m.TotalPlainBytes || totalStored != m.TotalStoredBytes || hex.EncodeToString(logical.Sum(nil)) != m.LogicalDigest {
+	if count != m.UnitCount || auditCount != m.AuditCount || plainCount != m.PlainValueCount || zstdCount != m.ZstdValueCount || totalPlain != m.TotalPlainBytes || totalStored != m.TotalStoredBytes || hex.EncodeToString(logical.Sum(nil)) != m.LogicalDigest || formatOptionalTime(minCreatedAt) != m.MinCreatedAt || formatOptionalTime(maxCreatedAt) != m.MaxCreatedAt {
 		return m, fmt.Errorf("%w: aggregate mismatch", ErrSegmentCorrupt)
 	}
-	if count == 0 || previous != m.EndSequence {
+	if count == 0 || first != m.StartSequence || previous != m.EndSequence || m.StartSequence+count-1 != m.EndSequence {
 		return m, fmt.Errorf("%w: range mismatch", ErrSegmentCorrupt)
 	}
 	return m, nil
+}
+
+func sameLogicalManifest(a, b ArchiveSegmentManifest) bool {
+	a.FileDigest, b.FileDigest = "", ""
+	return a == b
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func segmentSQLiteDSN(path, mode string, immutable bool) string {
+	query := url.Values{"mode": []string{mode}}
+	if immutable {
+		query.Set("immutable", "1")
+	}
+	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
+}
+
+func openPinnedImmutableSegment(ctx context.Context, path string, requireSealed bool) (*sql.DB, *os.File, error) {
+	dirFD, err := unix.Open(filepath.Dir(path), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pin segment directory: %w", err)
+	}
+	defer func() { _ = unix.Close(dirFD) }()
+	fd, err := unix.Openat(dirFD, filepath.Base(path), unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open immutable segment without following symlinks: %w", err)
+	}
+	pinned := os.NewFile(uintptr(fd), filepath.Base(path))
+	info, err := pinned.Stat()
+	if err != nil || !info.Mode().IsRegular() || (requireSealed && info.Mode().Perm() != 0o400) {
+		_ = pinned.Close()
+		return nil, nil, fmt.Errorf("%w: segment must be a regular 0400 file", ErrSegmentCorrupt)
+	}
+	db, err := sql.Open("sqlite", segmentSQLiteDSN(filepath.Join("/dev/fd", strconv.Itoa(fd)), "ro", true))
+	if err != nil {
+		_ = pinned.Close()
+		return nil, nil, fmt.Errorf("open pinned immutable segment: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		_ = pinned.Close()
+		return nil, nil, fmt.Errorf("ping pinned immutable segment: %w", err)
+	}
+	return db, pinned, nil
 }
 
 func validateArchiveRoot(root string) error {
@@ -412,9 +538,38 @@ func digestFile(path string) (string, error) {
 		return "", e
 	}
 	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	return digestOpenFile(context.Background(), f, info.Size())
+}
+
+func digestOpenFile(ctx context.Context, f *os.File, maxBytes int64) (string, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", fmt.Errorf("seek segment digest input: %w", err)
+	}
 	h := sha256.New()
-	if _, e = io.Copy(h, f); e != nil {
-		return "", e
+	buffer := make([]byte, 64*1024)
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", fmt.Errorf("digest segment canceled: %w", err)
+		}
+		n, readErr := f.Read(buffer)
+		total += int64(n)
+		if total > maxBytes {
+			return "", fmt.Errorf("%w: file bytes", ErrSegmentLimit)
+		}
+		if n > 0 {
+			_, _ = h.Write(buffer[:n])
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return "", fmt.Errorf("digest segment file: %w", readErr)
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

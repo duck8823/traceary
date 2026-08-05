@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/domain"
 )
 
 func TestHistoryUnitCanonicalBytesPreserveStorageClassesAndBytes(t *testing.T) {
-	u := domain.HistoryUnit{Sequence: 7, Event: []domain.SQLiteValue{
+	u := domain.HistoryUnit{Sequence: 7, EventID: []byte("event-7"), CreatedAt: time.Unix(1, 2), Event: []domain.SQLiteValue{
 		domain.NullValue(), domain.IntegerValue(-2), domain.RealValue(-0),
 		domain.TextValue([]byte{0, 0xff}), domain.BlobValue([]byte{0, 0xff}),
 	}, Audit: []domain.SQLiteValue{domain.TextValue(nil)}}
@@ -45,8 +46,8 @@ func TestHistoryUnitCanonicalBytesPreserveStorageClassesAndBytes(t *testing.T) {
 	if bytes.Equal(a, c) {
 		t.Fatal("missing audit collapsed into present empty values")
 	}
-	text := domain.HistoryUnit{Sequence: 7, Event: []domain.SQLiteValue{domain.TextValue([]byte("x"))}}
-	blob := domain.HistoryUnit{Sequence: 7, Event: []domain.SQLiteValue{domain.BlobValue([]byte("x"))}}
+	text := domain.HistoryUnit{Sequence: 7, EventID: []byte("event-7"), CreatedAt: time.Unix(1, 2), Event: []domain.SQLiteValue{domain.TextValue([]byte("x"))}}
+	blob := domain.HistoryUnit{Sequence: 7, EventID: []byte("event-7"), CreatedAt: time.Unix(1, 2), Event: []domain.SQLiteValue{domain.BlobValue([]byte("x"))}}
 	tb, _ := text.CanonicalBytes()
 	bb, _ := blob.CanonicalBytes()
 	if bytes.Equal(tb, bb) {

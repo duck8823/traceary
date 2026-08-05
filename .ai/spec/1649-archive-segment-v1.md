@@ -13,7 +13,7 @@
 
 | Concept | State | Behavior | Invariant |
 |---|---|---|---|
-| History Unit | event plus optional audit | emits fields in a fixed event-then-audit order | an audit never exists without its event |
+| History Unit | one event identity, event fields, and optional audit fields | emits fields in a fixed event-then-audit order | the event identity is encoded once, so an audit cannot name another parent |
 | Canonical value | SQLite storage class and bytes/value | length-delimited v1 encoding | NULL, TEXT, and BLOB remain distinguishable |
 | Segment identity | store, format, closed sequence range, logical digest | produces a content-addressed basename | every identity component is digest-bound |
 | Candidate | writable SQLite file | accumulates bounded encoded units | it is never reported as sealed after an error |
@@ -29,7 +29,7 @@
 
 ### Boundaries / interfaces
 
-The builder accepts already ordered History Units and explicit resource caps. The verifier accepts an archive root plus a content-addressed basename, never an arbitrary path. Typed sentinel errors distinguish unsupported format/codec, corruption, cap exhaustion, and unsafe location.
+The builder accepts already ordered History Units and explicit resource caps. The verifier accepts an archive root plus a durable expected manifest, pins the leaf with `O_NOFOLLOW`, and verifies the expected file digest and logical identity before accepting it. Typed sentinel errors distinguish unsupported format/codec, corruption, cap exhaustion, and unsafe location.
 
 ### Behavior tests and TDD plan
 
