@@ -15,13 +15,15 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 	root := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
 	allowed := map[string]int{
 		"infrastructure/filesystem/file_retention_datasource_unix.go": 1, // copied backup FD verification.
-		"infrastructure/sqlite/archive_segment.go":                    2, // owned offline candidate plus O_NOFOLLOW-pinned immutable segment; never Hot.
+		"infrastructure/sqlite/archive_segment.go":                    3, // in-memory construction plus path- and caller-FD-pinned immutable segment inspection; never Hot.
 		"infrastructure/sqlite/compaction_sqlite.go":                  2, // EX-held source/candidate only.
 		"infrastructure/sqlite/database.go":                           1, // in-memory driver probe only.
 		"infrastructure/sqlite/payload_rehearsal.go":                  7, // copied rehearsal targets only.
 		"infrastructure/sqlite/payload_rehearsal_migration.go":        1, // copied migration target.
 		"infrastructure/sqlite/payload_rehearsal_target.go":           1, // copied rehearsal target.
 		"infrastructure/sqlite/prepared_migration_recipe.go":          1, // owned offline candidate only.
+		"infrastructure/sqlite/segment_migration.go":                  2, // exact held-FD checkpoint/final rereads; candidate writes are serialized in-memory.
+		"infrastructure/sqlite/sqlite_serialize.go":                   1, // in-memory candidate image only; never opens a writable filesystem pathname.
 	}
 	seen := map[string]int{}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {

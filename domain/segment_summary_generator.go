@@ -119,6 +119,77 @@ func GenerateSegmentCatalogSummaryV1(units []HistoryUnit, key []byte, cfg Segmen
 	return result, nil
 }
 
+// MergeSegmentCatalogSummariesV1 combines independently generated contiguous
+// page summaries. Callers generate pages with the final distinct/session caps,
+// so an omitted page fact remains an explicit error rather than a false
+// negative. The result is independent of page boundaries and order.
+func MergeSegmentCatalogSummariesV1(parts []SegmentCatalogSummaryV1, cfg SegmentSummaryGeneratorConfig) (SegmentCatalogSummaryV1, error) {
+	if !cfg.valid() || len(parts) == 0 {
+		return SegmentCatalogSummaryV1{}, ErrSegmentSummaryGeneration
+	}
+	exact := make(map[SummaryTokenKind]map[[sha256.Size]byte]struct{})
+	sessions := make(map[[sha256.Size]byte]SegmentSessionAggregateV1)
+	result := SegmentCatalogSummaryV1{FilterKeyID: cfg.FilterKeyID, TimeComplete: true}
+	for _, part := range parts {
+		if part.FilterKeyID != cfg.FilterKeyID {
+			return SegmentCatalogSummaryV1{}, ErrSegmentSummaryGeneration
+		}
+		result.TimeComplete = result.TimeComplete && part.TimeComplete
+		for _, token := range part.ExactTokens {
+			if exact[token.Kind] == nil {
+				exact[token.Kind] = make(map[[sha256.Size]byte]struct{})
+			}
+			exact[token.Kind][token.Value] = struct{}{}
+			if len(exact[token.Kind]) > cfg.MaxDistinctPerKind {
+				return SegmentCatalogSummaryV1{}, ErrSegmentSummaryGeneration
+			}
+		}
+		for _, session := range part.Sessions {
+			current := sessions[session.SessionToken]
+			current.SessionToken = session.SessionToken
+			if ^uint64(0)-current.UnitCount < session.UnitCount || ^uint64(0)-current.AuditCount < session.AuditCount {
+				return SegmentCatalogSummaryV1{}, ErrSegmentSummaryGeneration
+			}
+			current.UnitCount += session.UnitCount
+			current.AuditCount += session.AuditCount
+			sessions[session.SessionToken] = current
+			if len(sessions) > cfg.MaxSessions {
+				return SegmentCatalogSummaryV1{}, ErrSegmentSummaryGeneration
+			}
+		}
+	}
+	for kind := SummaryTokenWorkspace; kind <= SummaryTokenEventKind; kind++ {
+		ordered := make([][sha256.Size]byte, 0, len(exact[kind]))
+		for token := range exact[kind] {
+			ordered = append(ordered, token)
+		}
+		sort.Slice(ordered, func(i, j int) bool { return bytes.Compare(ordered[i][:], ordered[j][:]) < 0 })
+		for _, token := range ordered {
+			result.ExactTokens = append(result.ExactTokens, SegmentSummaryToken{Kind: kind, Value: token})
+		}
+		bloom := SegmentBloomV1{Kind: kind, BitCount: cfg.BloomBitCount, HashCount: cfg.BloomHashCount, Bits: make([]byte, cfg.BloomBitCount/8)}
+		for _, token := range ordered {
+			bloomAdd(&bloom, token)
+		}
+		setBits := 0
+		for _, value := range bloom.Bits {
+			setBits += bits.OnesCount8(value)
+		}
+		if uint64(setBits)*1000 <= uint64(cfg.BloomMaxSetPermille)*uint64(bloom.BitCount) {
+			result.Blooms = append(result.Blooms, bloom)
+		}
+	}
+	keys := make([][sha256.Size]byte, 0, len(sessions))
+	for key := range sessions {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return bytes.Compare(keys[i][:], keys[j][:]) < 0 })
+	for _, key := range keys {
+		result.Sessions = append(result.Sessions, sessions[key])
+	}
+	return result, nil
+}
+
 // SegmentSummaryPredicateOperator is the fixed conservative predicate set.
 type SegmentSummaryPredicateOperator uint8
 

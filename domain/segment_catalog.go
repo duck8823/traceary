@@ -22,6 +22,26 @@ var (
 // CatalogPlacement is the authority placement of a closed sequence range.
 type CatalogPlacement string
 
+// CatalogAuthority identifies the source that remains authoritative.
+type CatalogAuthority string
+
+const (
+	// CatalogAuthorityHot keeps reads on the Hot store.
+	CatalogAuthorityHot CatalogAuthority = "hot"
+	// CatalogAuthoritySegment reads the immutable segment.
+	CatalogAuthoritySegment CatalogAuthority = "segment"
+)
+
+// AuthorityOwner prevents migration phases from being mistaken for cutover.
+func (p CatalogPlacement) AuthorityOwner() CatalogAuthority {
+	switch p {
+	case CatalogPlacementSegmentAuthoritative, CatalogPlacementEvicting, CatalogPlacementCold:
+		return CatalogAuthoritySegment
+	default:
+		return CatalogAuthorityHot
+	}
+}
+
 const (
 	// CatalogPlacementHot means the canonical unit is authoritative in Hot.
 	CatalogPlacementHot CatalogPlacement = "hot"
@@ -77,6 +97,14 @@ type CatalogTransition struct {
 	To            CatalogPlacement
 	ReservationID string
 	SegmentID     string
+	// ExpectedReservationID and ExpectedSegmentID are compare-and-swap owner
+	// preconditions. The persisted transition values remain the canonical
+	// resulting owner shape; these values are derived from that shape so the
+	// existing transition digest binds them without a second representation.
+	ExpectedReservationID  string
+	ExpectedSegmentID      string
+	ExpectedReservationSet bool
+	ExpectedSegmentSet     bool
 }
 
 // NewCatalogTransition validates one canonical range delta.
@@ -96,7 +124,95 @@ func NewCatalogTransition(r CatalogRange, from, to CatalogPlacement, reservation
 	if !allowedReservationEdge || segmentID != "" {
 		return CatalogTransition{}, ErrCatalogTransitionIllegal
 	}
-	return CatalogTransition{Range: r, From: from, To: to, ReservationID: reservationID, SegmentID: segmentID}, nil
+	transition := CatalogTransition{Range: r, From: from, To: to, ReservationID: reservationID, SegmentID: segmentID}
+	transition.ExpectedReservationSet = true
+	transition.ExpectedSegmentSet = true
+	if from == CatalogPlacementReserved {
+		transition.ExpectedReservationID = reservationID
+	}
+	return transition, nil
+}
+
+func newProofCatalogTransition(r CatalogRange, from, to CatalogPlacement, reservationID, segmentID string) (CatalogTransition, error) {
+	if _, err := NewCatalogRange(r.Start, r.End); err != nil || strings.TrimSpace(reservationID) == "" || strings.TrimSpace(segmentID) == "" {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	allowed := (from == CatalogPlacementReserved && to == CatalogPlacementSealed) ||
+		(from == CatalogPlacementSealed && to == CatalogPlacementVerifiedShadow)
+	if !allowed {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	transition := CatalogTransition{Range: r, From: from, To: to, ReservationID: strings.TrimSpace(reservationID), SegmentID: strings.TrimSpace(segmentID)}
+	transition.ExpectedReservationSet = true
+	transition.ExpectedSegmentSet = true
+	if from == CatalogPlacementReserved {
+		transition.ExpectedReservationID = transition.ReservationID
+	} else {
+		transition.ExpectedReservationID = transition.ReservationID
+		transition.ReservationID = ""
+		transition.ExpectedSegmentID = transition.SegmentID
+	}
+	return transition, nil
+}
+
+// SealSegmentTransition is the proof-specific Reserved-to-Sealed edge.
+func SealSegmentTransition(r CatalogRange, reservationID, segmentID string) (CatalogTransition, error) {
+	return newProofCatalogTransition(r, CatalogPlacementReserved, CatalogPlacementSealed, reservationID, segmentID)
+}
+
+// VerifyShadowTransition is the proof-specific Sealed-to-VerifiedShadow edge.
+func VerifyShadowTransition(r CatalogRange, reservationID, segmentID string) (CatalogTransition, error) {
+	return newProofCatalogTransition(r, CatalogPlacementSealed, CatalogPlacementVerifiedShadow, reservationID, segmentID)
+}
+
+// RollbackSegmentTransition retains immutable binding while restoring Reserved.
+func RollbackSegmentTransition(r CatalogRange, from CatalogPlacement, reservationID, segmentID string) (CatalogTransition, error) {
+	if _, err := NewCatalogRange(r.Start, r.End); err != nil || strings.TrimSpace(reservationID) == "" || strings.TrimSpace(segmentID) == "" || (from != CatalogPlacementSealed && from != CatalogPlacementVerifiedShadow) {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	transition := CatalogTransition{
+		Range: r, From: from, To: CatalogPlacementReserved,
+		ReservationID:          strings.TrimSpace(reservationID),
+		ExpectedSegmentID:      strings.TrimSpace(segmentID),
+		ExpectedReservationSet: true, ExpectedSegmentSet: true,
+	}
+	if from == CatalogPlacementSealed {
+		transition.ExpectedReservationID = transition.ReservationID
+	}
+	return transition, nil
+}
+
+func validateCatalogTransition(transition CatalogTransition) (CatalogTransition, error) {
+	var value CatalogTransition
+	var err error
+	if value, err = NewCatalogTransition(transition.Range, transition.From, transition.To, transition.ReservationID, transition.SegmentID); err != nil {
+		if transition.To == CatalogPlacementReserved {
+			if transition.ExpectedSegmentSet {
+				value, err = RollbackSegmentTransition(transition.Range, transition.From, transition.ReservationID, transition.ExpectedSegmentID)
+			} else if _, rangeErr := NewCatalogRange(transition.Range.Start, transition.Range.End); rangeErr == nil &&
+				(transition.From == CatalogPlacementSealed || transition.From == CatalogPlacementVerifiedShadow) &&
+				strings.TrimSpace(transition.ReservationID) != "" && transition.SegmentID == "" {
+				// Replayed v1 rows carry the rollback segment identity in the
+				// epoch evidence rather than the legacy transition columns.
+				value, err = transition, nil
+			}
+		} else {
+			// The persisted sealed-to-shadow shape intentionally has no
+			// reservation ID. Its expected reservation is reconstructible only
+			// for a live command, so replay binds the durable segment owner.
+			value, err = newProofCatalogTransition(transition.Range, transition.From, transition.To, transition.ExpectedReservationID, transition.SegmentID)
+		}
+	}
+	if err != nil {
+		return CatalogTransition{}, err
+	}
+	if transition.ExpectedReservationSet && transition.ExpectedReservationID != value.ExpectedReservationID {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	if transition.ExpectedSegmentSet && transition.ExpectedSegmentID != value.ExpectedSegmentID {
+		return CatalogTransition{}, ErrCatalogTransitionIllegal
+	}
+	return value, nil
 }
 
 // ReservationTransition permits only the proof-free #1661 state edge.
@@ -112,11 +228,24 @@ func ReleaseReservationTransition(r CatalogRange, reservationID string) (Catalog
 
 // CanonicalCatalogTransitionDigest deterministically binds an ordered epoch.
 func CanonicalCatalogTransitionDigest(transitions []CatalogTransition) (string, error) {
+	return canonicalCatalogTransitionDigest(transitions, 1)
+}
+
+// CanonicalCatalogTransitionDigestV2 additionally binds expected range owners.
+func CanonicalCatalogTransitionDigestV2(transitions []CatalogTransition) (string, error) {
+	return canonicalCatalogTransitionDigest(transitions, 2)
+}
+
+func canonicalCatalogTransitionDigest(transitions []CatalogTransition, version int) (string, error) {
 	h := sha256.New()
-	writeCatalogFrame(h, []byte("traceary/catalog-transitions/v1"))
+	domainName := "traceary/catalog-transitions/v1"
+	if version == 2 {
+		domainName = "traceary/catalog-transitions/v2"
+	}
+	writeCatalogFrame(h, []byte(domainName))
 	previousEnd := int64(0)
 	for i, transition := range transitions {
-		validated, err := NewCatalogTransition(transition.Range, transition.From, transition.To, transition.ReservationID, transition.SegmentID)
+		validated, err := validateCatalogTransition(transition)
 		if err != nil {
 			return "", err
 		}
@@ -133,6 +262,10 @@ func CanonicalCatalogTransitionDigest(transitions []CatalogTransition) (string, 
 		writeCatalogFrame(h, []byte(validated.To))
 		writeCatalogFrame(h, []byte(validated.ReservationID))
 		writeCatalogFrame(h, []byte(validated.SegmentID))
+		if version >= 2 {
+			writeCatalogFrame(h, []byte(validated.ExpectedReservationID))
+			writeCatalogFrame(h, []byte(validated.ExpectedSegmentID))
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

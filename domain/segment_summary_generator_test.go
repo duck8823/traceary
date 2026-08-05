@@ -77,6 +77,34 @@ func TestGenerateSegmentSummaryIsDeterministicAndHasNoFalseNegatives(t *testing.
 	}
 }
 
+func TestMergeSegmentCatalogSummariesMatchesSinglePass(t *testing.T) {
+	key := bytes.Repeat([]byte{9}, 32)
+	cfg := summaryTestConfig()
+	cfg.MaxDistinctPerKind = 10
+	units := []HistoryUnit{summaryTestUnit(t, 1, "alpha", "session", "note", false), summaryTestUnit(t, 2, "beta", "session", "note", true)}
+	want, err := GenerateSegmentCatalogSummaryV1(units, key, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := GenerateSegmentCatalogSummaryV1(units[:1], key, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := GenerateSegmentCatalogSummaryV1(units[1:], key, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := MergeSegmentCatalogSummariesV1([]SegmentCatalogSummaryV1{two, one}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBytes, _ := want.CanonicalBytes(1 << 20)
+	gotBytes, _ := got.CanonicalBytes(1 << 20)
+	if !bytes.Equal(gotBytes, wantBytes) {
+		t.Fatal("paged merge differs from single pass")
+	}
+}
+
 func TestSegmentSummaryUnknownCasesSelectAndBloomMissExcludes(t *testing.T) {
 	key := bytes.Repeat([]byte{3}, 32)
 	summary, err := GenerateSegmentCatalogSummaryV1([]HistoryUnit{summaryTestUnit(t, 1, "alpha", "session", "note", false)}, key, summaryTestConfig())

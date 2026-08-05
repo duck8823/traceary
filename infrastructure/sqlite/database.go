@@ -152,6 +152,15 @@ type Database struct {
 	// segmentTargetPlannerHook is a package-private synchronization seam for
 	// two-connection snapshot/reservation tests. Production leaves it nil.
 	segmentTargetPlannerHook func(string) error
+	// segmentMigrationHook is a deterministic durability/fault boundary seam.
+	segmentMigrationHook func(string) error
+}
+
+func (d *Database) runSegmentMigrationHook(point string) error {
+	if d.segmentMigrationHook != nil {
+		return d.segmentMigrationHook(point)
+	}
+	return nil
 }
 
 func (d *Database) runSegmentTargetPlannerHook(point string) error {

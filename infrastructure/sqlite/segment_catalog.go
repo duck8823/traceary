@@ -27,12 +27,15 @@ var (
 )
 
 type catalogEpochCommit struct {
-	expected       apptypes.CatalogHead
-	highWater      int64
-	transitions    []domain.CatalogTransition
-	evidenceDigest string
-	reservationID  string
-	delta          string
+	expected                apptypes.CatalogHead
+	highWater               int64
+	transitions             []domain.CatalogTransition
+	evidenceDigest          string
+	reservationID           string
+	delta                   string
+	binding                 *domain.CatalogSegmentBinding
+	proofClass              string
+	transitionDigestVersion int
 	// boundaryPointLimit is a test-only lower hard-cap seam. Zero selects the
 	// production CatalogMaxBoundaryPoints constant.
 	boundaryPointLimit int
@@ -291,6 +294,9 @@ func (d *Database) CatalogInventoryGate(ctx context.Context, budget apptypes.Cat
 
 //nolint:wrapcheck // This dedicated SQLite adapter preserves typed SQL failures.
 func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochCommit, maxRanges int) (apptypes.CatalogHead, error) {
+	if commit.binding != nil && (len(commit.transitions) != 1 || commit.binding.Range() != commit.transitions[0].Range || commit.binding.SegmentID() != commit.transitions[0].SegmentID) {
+		return apptypes.CatalogHead{}, apptypes.ErrCatalogBindingMismatch
+	}
 	actual, err := readCatalogHead(ctx, tx)
 	if err != nil {
 		return apptypes.CatalogHead{}, err
@@ -304,7 +310,16 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 	if !domain.ValidCatalogDigest(commit.evidenceDigest) || commit.highWater <= 0 {
 		return apptypes.CatalogHead{}, apptypes.ErrCatalogDrift
 	}
-	transitionDigest, err := domain.CanonicalCatalogTransitionDigest(commit.transitions)
+	transitionDigestVersion := commit.transitionDigestVersion
+	if transitionDigestVersion == 0 {
+		transitionDigestVersion = 1
+	}
+	var transitionDigest string
+	if transitionDigestVersion == 2 {
+		transitionDigest, err = domain.CanonicalCatalogTransitionDigestV2(commit.transitions)
+	} else {
+		transitionDigest, err = domain.CanonicalCatalogTransitionDigest(commit.transitions)
+	}
 	if err != nil {
 		return apptypes.CatalogHead{}, apptypes.ErrCatalogOverlap
 	}
@@ -380,7 +395,7 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 		return apptypes.CatalogHead{}, apptypes.ErrCatalogStaleHead
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_epochs(epoch,parent_epoch,transition_digest,evidence_digest,parent_ledger_digest,source_high_water,boundary_count,boundary_digest,ledger_digest,committed_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, newEpoch, actual.Epoch, transitionDigest, commit.evidenceDigest, actual.LedgerDigest, commit.highWater, len(boundaries), boundaryDigest, ledgerDigest, now); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_epochs(epoch,parent_epoch,transition_digest,evidence_digest,parent_ledger_digest,source_high_water,boundary_count,boundary_digest,ledger_digest,committed_at,transition_digest_version) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, newEpoch, actual.Epoch, transitionDigest, commit.evidenceDigest, actual.LedgerDigest, commit.highWater, len(boundaries), boundaryDigest, ledgerDigest, now, transitionDigestVersion); err != nil {
 		return apptypes.CatalogHead{}, err
 	}
 	if commit.highWater > previousHighWater && !tailWasHot {
@@ -388,8 +403,24 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 			return apptypes.CatalogHead{}, err
 		}
 	}
+	if commit.proofClass != "" {
+		if commit.proofClass != "segment_migration_v1" {
+			return apptypes.CatalogHead{}, apptypes.ErrCatalogIllegalTransition
+		}
+		for _, transition := range commit.transitions {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_transition_authorizations(epoch,start_sequence,end_sequence,from_state,to_state,reservation_id,segment_id,proof_class) VALUES(?,?,?,?,?,?,?,?)`, newEpoch, transition.Range.Start, transition.Range.End, transition.From, transition.To, transition.ReservationID, transition.SegmentID, commit.proofClass); err != nil {
+				return apptypes.CatalogHead{}, err
+			}
+		}
+	}
 	for index, transition := range commit.transitions {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_range_transitions(epoch,transition_index,start_sequence,end_sequence,from_state,to_state,reservation_id,segment_id) VALUES(?,?,?,?,?,?,?,?)`, newEpoch, index, transition.Range.Start, transition.Range.End, transition.From, transition.To, transition.ReservationID, transition.SegmentID); err != nil {
+			return apptypes.CatalogHead{}, err
+		}
+		if !transition.ExpectedReservationSet || !transition.ExpectedSegmentSet {
+			return apptypes.CatalogHead{}, apptypes.ErrCatalogIllegalTransition
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_transition_owner_preconditions(epoch,transition_index,expected_reservation_id,expected_segment_id) VALUES(?,?,?,?)`, newEpoch, index, transition.ExpectedReservationID, transition.ExpectedSegmentID); err != nil {
 			return apptypes.CatalogHead{}, err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_boundaries(sequence,first_epoch) VALUES(?,?) ON CONFLICT(sequence) DO NOTHING`, transition.Range.Start, newEpoch); err != nil {
@@ -401,12 +432,24 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 			}
 		}
 	}
-	if commit.delta != "reserve" && commit.delta != "release" {
-		return apptypes.CatalogHead{}, apptypes.ErrCatalogIllegalTransition
+	if commit.proofClass != "" {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM archive_catalog_transition_authorizations WHERE epoch=?`, newEpoch); err != nil {
+			return apptypes.CatalogHead{}, err
+		}
 	}
-	transition := commit.transitions[0]
-	if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_reservation_deltas(epoch,reservation_id,delta,start_sequence,end_sequence) VALUES(?,?,?,?,?)`, newEpoch, commit.reservationID, commit.delta, transition.Range.Start, transition.Range.End); err != nil {
-		return apptypes.CatalogHead{}, err
+	if commit.delta != "" {
+		if commit.delta != "reserve" && commit.delta != "release" {
+			return apptypes.CatalogHead{}, apptypes.ErrCatalogIllegalTransition
+		}
+		transition := commit.transitions[0]
+		if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_reservation_deltas(epoch,reservation_id,delta,start_sequence,end_sequence) VALUES(?,?,?,?,?)`, newEpoch, commit.reservationID, commit.delta, transition.Range.Start, transition.Range.End); err != nil {
+			return apptypes.CatalogHead{}, err
+		}
+	}
+	if commit.binding != nil {
+		if err = bindCatalogSegment(ctx, tx, newEpoch, *commit.binding); err != nil {
+			return apptypes.CatalogHead{}, err
+		}
 	}
 	if err = replaceCatalogCurrent(ctx, tx, current); err != nil {
 		return apptypes.CatalogHead{}, err
@@ -430,8 +473,9 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 		return nil
 	}
 	var parent, highWater, boundaryCount int64
+	var transitionDigestVersion int
 	var transitionDigest, boundaryDigest, evidenceDigest, parentDigest, ledgerDigest string
-	if err := q.QueryRowContext(ctx, `SELECT parent_epoch,source_high_water,boundary_count,boundary_digest,transition_digest,evidence_digest,parent_ledger_digest,ledger_digest FROM archive_catalog_epochs WHERE epoch=?`, head.Epoch).Scan(&parent, &highWater, &boundaryCount, &boundaryDigest, &transitionDigest, &evidenceDigest, &parentDigest, &ledgerDigest); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT parent_epoch,source_high_water,boundary_count,boundary_digest,transition_digest,evidence_digest,parent_ledger_digest,ledger_digest,transition_digest_version FROM archive_catalog_epochs WHERE epoch=?`, head.Epoch).Scan(&parent, &highWater, &boundaryCount, &boundaryDigest, &transitionDigest, &evidenceDigest, &parentDigest, &ledgerDigest, &transitionDigestVersion); err != nil {
 		return apptypes.ErrCatalogDrift
 	}
 	if ledgerDigest != head.LedgerDigest || parent != head.Epoch-1 {
@@ -447,7 +491,7 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 			return apptypes.ErrCatalogDrift
 		}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT start_sequence,end_sequence,from_state,to_state,reservation_id,segment_id FROM archive_catalog_range_transitions WHERE epoch=? ORDER BY transition_index LIMIT ?`, head.Epoch, apptypes.CatalogMaxTransitionsPerEpoch+1)
+	rows, err := q.QueryContext(ctx, `SELECT t.start_sequence,t.end_sequence,t.from_state,t.to_state,t.reservation_id,t.segment_id,COALESCE(p.expected_reservation_id,''),COALESCE(p.expected_segment_id,''),p.epoch IS NOT NULL FROM archive_catalog_range_transitions t LEFT JOIN archive_catalog_transition_owner_preconditions p ON p.epoch=t.epoch AND p.transition_index=t.transition_index WHERE t.epoch=? ORDER BY t.transition_index LIMIT ?`, head.Epoch, apptypes.CatalogMaxTransitionsPerEpoch+1)
 	if err != nil {
 		return err
 	}
@@ -460,11 +504,13 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 		var start, end int64
 		var from, to domain.CatalogPlacement
 		var reservationID, segmentID string
-		if err = rows.Scan(&start, &end, &from, &to, &reservationID, &segmentID); err != nil {
+		var expectedReservationID, expectedSegmentID string
+		var hasExpected bool
+		if err = rows.Scan(&start, &end, &from, &to, &reservationID, &segmentID, &expectedReservationID, &expectedSegmentID, &hasExpected); err != nil {
 			return err
 		}
-		transition, validationErr := domain.NewCatalogTransition(domain.CatalogRange{Start: start, End: end}, from, to, reservationID, segmentID)
-		if validationErr != nil {
+		transition := domain.CatalogTransition{Range: domain.CatalogRange{Start: start, End: end}, From: from, To: to, ReservationID: reservationID, SegmentID: segmentID, ExpectedReservationID: expectedReservationID, ExpectedSegmentID: expectedSegmentID, ExpectedReservationSet: hasExpected, ExpectedSegmentSet: hasExpected}
+		if _, validationErr := domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{transition}); validationErr != nil {
 			return apptypes.ErrCatalogDrift
 		}
 		transitions = append(transitions, transition)
@@ -472,7 +518,16 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 	if err = rows.Err(); err != nil {
 		return err
 	}
-	digest, digestErr := domain.CanonicalCatalogTransitionDigest(transitions)
+	var digest string
+	var digestErr error
+	switch transitionDigestVersion {
+	case 2:
+		digest, digestErr = domain.CanonicalCatalogTransitionDigestV2(transitions)
+	case 1:
+		digest, digestErr = domain.CanonicalCatalogTransitionDigest(transitions)
+	default:
+		return apptypes.ErrCatalogDrift
+	}
 	if digestErr != nil || digest != transitionDigest {
 		return apptypes.ErrCatalogDrift
 	}
@@ -492,6 +547,10 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 }
 
 func applyCatalogTransition(ranges []apptypes.CatalogCurrentRange, transition domain.CatalogTransition) ([]apptypes.CatalogCurrentRange, error) {
+	validatedDigest, validationErr := domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{transition})
+	if validationErr != nil || validatedDigest == "" {
+		return nil, apptypes.ErrCatalogIllegalTransition
+	}
 	result := make([]apptypes.CatalogCurrentRange, 0, len(ranges)+2)
 	covered := int64(0)
 	for _, current := range ranges {
@@ -508,14 +567,27 @@ func applyCatalogTransition(ranges []apptypes.CatalogCurrentRange, transition do
 			}
 			return nil, apptypes.ErrCatalogIllegalTransition
 		}
+		// Placement is not an ownership token. Require the exact identity that
+		// currently owns every overlapped slice so a stale worker cannot advance
+		// another reservation or a replacement segment after observing the same
+		// placement state.
+		if transition.ExpectedReservationSet && current.ReservationID != transition.ExpectedReservationID {
+			return nil, apptypes.ErrCatalogStaleOwner
+		}
+		if transition.ExpectedSegmentSet && current.SegmentID != transition.ExpectedSegmentID {
+			return nil, apptypes.ErrCatalogStaleOwner
+		}
 		if current.Range.Start < start {
 			left := current
 			left.Range.End = start - 1
 			result = append(result, left)
 		}
 		changed := apptypes.CatalogCurrentRange{Range: domain.CatalogRange{Start: start, End: end}, Placement: transition.To, ReservationID: transition.ReservationID, SegmentID: transition.SegmentID}
-		if transition.To == domain.CatalogPlacementHot {
+		switch transition.To {
+		case domain.CatalogPlacementHot:
 			changed.ReservationID = ""
+			changed.SegmentID = ""
+		case domain.CatalogPlacementReserved:
 			changed.SegmentID = ""
 		}
 		result = append(result, changed)
