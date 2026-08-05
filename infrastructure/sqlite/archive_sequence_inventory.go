@@ -115,8 +115,11 @@ func (d *Database) ApplyArchiveSequenceInventory(ctx context.Context, budget app
 	if !budget.Valid() {
 		return out, apptypes.ErrArchiveSequenceLimit
 	}
-	if snapshot.ConfigHash != budget.ConfigHash() || snapshot.Generation.Phase != domain.ArchiveInventoryScanning || snapshot.Generation.ID == "" {
+	if snapshot.ConfigHash != budget.ConfigHash() || snapshot.Generation.ID == "" {
 		return out, apptypes.ErrArchiveSequenceStaleGeneration
+	}
+	if snapshot.Generation.Phase != domain.ArchiveInventoryScanning {
+		return out, apptypes.ErrArchiveSequenceIncomplete
 	}
 	operationCtx, cancel := boundedArchiveContext(ctx, budget.WallTime, budget.LockTime)
 	defer cancel()

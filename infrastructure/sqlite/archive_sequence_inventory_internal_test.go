@@ -14,6 +14,8 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain"
+	"github.com/duck8823/traceary/domain/model"
+	domaintypes "github.com/duck8823/traceary/domain/types"
 )
 
 func TestMigration44InstallsConstantTimeArchiveSequenceFoundation(t *testing.T) {
@@ -132,6 +134,32 @@ func TestArchiveSequenceTriggerIsTransactionalMonotonicAndOverflowSafe(t *testin
 	var overflowRows int
 	if err = raw.QueryRow(`SELECT COUNT(*) FROM events WHERE id='overflow'`).Scan(&overflowRows); err != nil || overflowRows != 0 {
 		t.Fatalf("overflow event count = %d, err=%v", overflowRows, err)
+	}
+}
+
+func TestArchiveSequenceOverflowIsTypedThroughEventWriteBoundary(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	database := NewDatabase(path, preparedMigrations(t))
+	if err := NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.Exec(`UPDATE archive_sequence_allocator SET next_sequence=? WHERE singleton=1`, int64(math.MaxInt64)); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	eventID, _ := domaintypes.EventIDFrom("typed-overflow")
+	agent, _ := domaintypes.AgentFrom("codex")
+	sessionID, _ := domaintypes.SessionIDFrom("session-overflow")
+	event := model.EventOf(eventID, domaintypes.EventKindNote, domaintypes.Client("cli"), agent, sessionID, domaintypes.Workspace("workspace"), "body", time.Now().UTC())
+	if err = NewEventDatasource(database).Save(ctx, event); !errors.Is(err, apptypes.ErrArchiveSequenceOverflow) {
+		t.Fatalf("Save() error = %v, want ErrArchiveSequenceOverflow", err)
 	}
 }
 
