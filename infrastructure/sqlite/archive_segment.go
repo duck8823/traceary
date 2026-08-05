@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -94,6 +95,23 @@ type ArchiveSegmentManifest struct {
 	TimeSummaryComplete bool   `json:"time_summary_complete"`
 	SummaryRowCount     uint64 `json:"summary_row_count"`
 	SummaryByteCount    int64  `json:"summary_byte_count"`
+}
+
+// ArchiveSegmentManifestDigest returns the canonical binding digest for the
+// fixed, field-ordered v1 manifest. JSON is deterministic for this struct and
+// the domain separator prevents reuse as another digest class.
+func ArchiveSegmentManifestDigest(manifest ArchiveSegmentManifest) (string, error) {
+	if manifest.FormatVersion != domain.SegmentFormatV1 || manifest.SummaryVersion != domain.SegmentSummaryV1 || manifest.StoreID == "" || manifest.Basename == "" || manifest.FileDigest == "" || manifest.LogicalDigest == "" || manifest.SummaryDigest == "" {
+		return "", ErrSegmentCorrupt
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return "", fmt.Errorf("encode archive segment manifest: %w", err)
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte("traceary/archive-segment-manifest/v1\x00"))
+	_, _ = h.Write(encoded)
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // ArchiveHistoryUnit carries the canonical unit and an optional ordering time.
@@ -338,7 +356,7 @@ CREATE TABLE segment_manifest(id INTEGER PRIMARY KEY CHECK(id=1), format_version
 CREATE TABLE history_units(sequence INTEGER PRIMARY KEY, codec TEXT NOT NULL, plaintext_length INTEGER NOT NULL, checksum BLOB NOT NULL, payload BLOB NOT NULL);
 CREATE TABLE segment_summary(id INTEGER PRIMARY KEY CHECK(id=1), summary_version INTEGER NOT NULL, filter_key_id TEXT NOT NULL, time_summary_complete INTEGER NOT NULL CHECK(time_summary_complete IN (0,1)), canonical_bytes BLOB NOT NULL, summary_digest BLOB NOT NULL);
 CREATE TABLE segment_exact_filters(kind INTEGER NOT NULL, token BLOB NOT NULL, PRIMARY KEY(kind,token));
-CREATE TABLE segment_bloom_filters(kind INTEGER PRIMARY KEY, bit_count INTEGER NOT NULL, hash_count INTEGER NOT NULL, bits BLOB NOT NULL);
+CREATE TABLE segment_bloom_filters(kind INTEGER PRIMARY KEY, bit_count INTEGER NOT NULL CHECK(bit_count>0 AND bit_count<=8388608), hash_count INTEGER NOT NULL CHECK(hash_count BETWEEN 1 AND 16), bits BLOB NOT NULL CHECK(length(bits)*8=bit_count));
 CREATE TABLE segment_session_aggregates(session_token BLOB PRIMARY KEY, unit_count INTEGER NOT NULL, audit_count INTEGER NOT NULL);
 `
 

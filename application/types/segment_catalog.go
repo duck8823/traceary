@@ -42,6 +42,8 @@ var (
 	ErrSegmentTargetNotFound = domain.ErrSegmentTargetNotFound
 	// ErrSegmentTargetRetryProof rejects an unmeasured or non-shortening retry.
 	ErrSegmentTargetRetryProof = errors.New("segment target retry proof invalid")
+	// ErrCatalogAuditIncomplete means a durable bounded audit must be resumed.
+	ErrCatalogAuditIncomplete = errors.New("segment catalog audit incomplete")
 )
 
 const (

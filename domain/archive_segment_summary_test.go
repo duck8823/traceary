@@ -37,6 +37,12 @@ func TestIncompleteTimeSummaryCannotProduceNegativeCandidate(t *testing.T) {
 	if s.TimeFilterMayMatch(time.Unix(1, 0), time.Unix(2, 0), time.Unix(100, 0), time.Unix(200, 0)) {
 		t.Fatal("disjoint complete bounds matched")
 	}
+	if !s.TimeFilterMayMatch(time.Unix(2, 0), time.Unix(1, 0), time.Unix(1, 0), time.Unix(2, 0)) {
+		t.Fatal("reversed segment bounds produced a negative decision")
+	}
+	if !s.TimeFilterMayMatch(time.Time{}, time.Time{}, time.Unix(1, 0), time.Unix(2, 0)) {
+		t.Fatal("zero segment bounds produced a negative decision")
+	}
 }
 
 func TestArchiveEventAllowsMalformedLegacyCreatedAt(t *testing.T) {
@@ -73,5 +79,16 @@ func TestSegmentSummaryPreflightUsesExactCanonicalSize(t *testing.T) {
 	}
 	if _, err = s.CanonicalBytes(int64(len(encoded) - 1)); err == nil {
 		t.Fatal("one-byte-short cap accepted")
+	}
+}
+
+func TestSegmentSummaryBloomV1SharedBitCapBoundary(t *testing.T) {
+	atCap := SegmentCatalogSummaryV1{FilterKeyID: "key-v1", Blooms: []SegmentBloomV1{{Kind: SummaryTokenWorkspace, BitCount: SegmentSummaryBloomMaxBitsV1, HashCount: 1, Bits: make([]byte, SegmentSummaryBloomMaxBitsV1/8)}}}
+	if _, err := atCap.CanonicalBytes(2 << 20); err != nil {
+		t.Fatalf("at-cap Bloom rejected: %v", err)
+	}
+	above := SegmentCatalogSummaryV1{FilterKeyID: "key-v1", Blooms: []SegmentBloomV1{{Kind: SummaryTokenWorkspace, BitCount: SegmentSummaryBloomMaxBitsV1 + 8, HashCount: 1, Bits: make([]byte, (SegmentSummaryBloomMaxBitsV1+8)/8)}}}
+	if _, err := above.CanonicalBytes(2 << 20); err == nil {
+		t.Fatal("above-cap Bloom accepted")
 	}
 }
