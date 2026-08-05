@@ -30,6 +30,18 @@ var (
 	ErrCatalogReservationConflict = errors.New("segment catalog reservation conflict")
 	// ErrCatalogLimit identifies an invalid or exceeded operation bound.
 	ErrCatalogLimit = errors.New("segment catalog operation limit exceeded")
+	// ErrSegmentTargetSelectionIncomplete means the bounded snapshot was not fully read.
+	ErrSegmentTargetSelectionIncomplete = errors.New("segment target selection incomplete")
+	// ErrSegmentTargetRecentFirst means the smallest unplaced unit must remain Hot.
+	ErrSegmentTargetRecentFirst = domain.ErrSegmentTargetRecentFirst
+	// ErrSegmentTargetOversizeFirst means no non-empty prefix fits the configured caps.
+	ErrSegmentTargetOversizeFirst = domain.ErrSegmentTargetOversizeFirst
+	// ErrSegmentTargetMalformedTimestamp means deterministic horizon evaluation is impossible.
+	ErrSegmentTargetMalformedTimestamp = domain.ErrSegmentTargetMalformedTimestamp
+	// ErrSegmentTargetNotFound means no Hot sequence exists at the captured high-water.
+	ErrSegmentTargetNotFound = domain.ErrSegmentTargetNotFound
+	// ErrSegmentTargetRetryProof rejects an unmeasured or non-shortening retry.
+	ErrSegmentTargetRetryProof = errors.New("segment target retry proof invalid")
 )
 
 const (
@@ -86,6 +98,56 @@ type CatalogRelease struct {
 	ReservationID  string
 	EvidenceDigest string
 	Budget         CatalogBudget
+}
+
+const (
+	// SegmentStoredBoundV1 is the immutable bound used by segment format v1.
+	SegmentStoredBoundV1 uint32 = domain.SegmentStoredBoundV1
+	// SegmentTargetFailureStoredCap permits a measured stored-byte retry.
+	SegmentTargetFailureStoredCap = "stored_cap"
+	// SegmentTargetFailureFileCap permits a measured segment-file retry.
+	SegmentTargetFailureFileCap = "file_cap"
+)
+
+// SegmentTargetPolicy fixes every input that can affect deterministic prefix selection.
+type SegmentTargetPolicy = domain.SegmentTargetPolicy
+
+// CatalogTargetRetry proves why #1651 is asking for a strictly shorter target.
+// Empty PreviousReservationID means this is an initial selection.
+type CatalogTargetRetry struct {
+	PreviousReservationID string
+	PreviousRange         domain.CatalogRange
+	FailureClass          string
+	MeasuredBytes         int64
+	FailedCapBytes        int64
+	EvidenceDigest        string
+}
+
+// CatalogTargetPlanRequest selects and reserves against one expected snapshot.
+type CatalogTargetPlanRequest struct {
+	ExpectedHead      CatalogHead
+	ReservationID     string
+	CapturedHighWater int64
+	Policy            SegmentTargetPolicy
+	Retry             CatalogTargetRetry
+	Budget            CatalogBudget
+}
+
+// SegmentTargetCandidate is one fully hydrated immutable planning input.
+type SegmentTargetCandidate = domain.SegmentTargetCandidate
+
+// CatalogTargetPlan is the reserved deterministic target and aggregate-only evidence.
+type CatalogTargetPlan struct {
+	Head                      CatalogHead
+	ReservationID             string
+	Range                     domain.CatalogRange
+	Rows                      int
+	CanonicalPlainBytes       int64
+	DecodedBytes              int64
+	StoredUpperBytes          int64
+	CapturedHighWater         int64
+	PlanDigest                string
+	ReservationEvidenceDigest string
 }
 
 // CatalogCurrentRange is one non-overlapping derived placement interval.

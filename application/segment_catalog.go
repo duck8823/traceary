@@ -17,6 +17,11 @@ type CatalogTargetReservationStore interface {
 	ReleaseCatalogReservation(context.Context, apptypes.CatalogRelease) (apptypes.CatalogHead, error)
 }
 
+// CatalogTargetPlanner atomically selects and reserves one deterministic prefix.
+type CatalogTargetPlanner interface {
+	PlanAndReserveCatalogTarget(context.Context, apptypes.CatalogTargetPlanRequest) (apptypes.CatalogTargetPlan, error)
+}
+
 // CatalogRangeReader returns current or epoch-pinned derived source ranges.
 type CatalogRangeReader interface {
 	CurrentCatalogRanges(context.Context, apptypes.CatalogBudget) (apptypes.CatalogSnapshot, error)
