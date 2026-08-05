@@ -43,6 +43,7 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	42: {42, "000042_add_bounded_search_projection_inventory.sql", "8d272ed8157458c864ac3ed84e6cfb9969b91b2c3ac31464b084ff1b5f4f8a53", MigrationDataDependentOffline},
 	43: {43, "000043_add_payload_codec_compatibility_mode.sql", "020c6dbb5dbea86c3c9989ad29babe333dc7c423ded6152aeddb37a67aa907e0", MigrationConstantInPlace},
 	44: {44, "000044_add_archive_sequence_inventory.sql", "18e270f1b4b974f54529fac3aa2ab1daf273797a51217c3bf3601bdbcbcc79f6", MigrationConstantInPlace},
+	45: {45, "000045_add_segment_catalog_ledger.sql", "00802c1fe48e30ef1fd5ffc2e1c22e33bc8f32c6ea66d52e869d0362172d0982", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.
