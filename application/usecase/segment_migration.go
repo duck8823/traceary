@@ -31,7 +31,15 @@ func (u *segmentMigrationUsecase) Resume(ctx context.Context, id string, budget 
 	var run domain.SegmentMigrationRun
 	var err error
 	for range budget.MaxSteps {
-		run, err = u.repository.AdvanceSegmentMigration(opCtx, id, budget)
+		run, err = u.repository.LoadSegmentMigration(opCtx, id)
+		if err != nil || run.Phase == domain.SegmentMigrationVerifiedShadow {
+			return run, err
+		}
+		action, ok := run.NextAction()
+		if !ok {
+			return run, domain.ErrSegmentMigrationTransition
+		}
+		run, err = u.repository.ExecuteSegmentMigrationAction(opCtx, id, action, budget)
 		if err != nil || run.Phase == domain.SegmentMigrationVerifiedShadow {
 			return run, err
 		}

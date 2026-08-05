@@ -8,29 +8,40 @@ import (
 )
 
 func TestSegmentMigrationRunOwnsOnlyShadowProtocol(t *testing.T) {
-	r := domain.SegmentMigrationRun{ID: "run", StoreID: "0123456789abcdef0123456789abcdef", ReservationID: "reservation", PlanDigest: string(make([]byte, 64)), Range: domain.CatalogRange{Start: 1, End: 2}, Phase: domain.SegmentMigrationPlanned, Revision: 1, NextSequence: 1}
-	// NUL is valid lower-case hex? It is not; use canonical zero digest.
-	r.PlanDigest = "0000000000000000000000000000000000000000000000000000000000000000"
-	for _, phase := range []domain.SegmentMigrationPhase{domain.SegmentMigrationCopying, domain.SegmentMigrationCandidateBuilt, domain.SegmentMigrationInstallIntent, domain.SegmentMigrationInstalled, domain.SegmentMigrationSealIntent, domain.SegmentMigrationSealed, domain.SegmentMigrationVerifyIntent, domain.SegmentMigrationVerifiedShadow} {
-		var err error
+	r := domain.SegmentMigrationRun{ID: "run", StoreID: "0123456789abcdef0123456789abcdef", ReservationID: "reservation", PlanDigest: "0000000000000000000000000000000000000000000000000000000000000000", Range: domain.CatalogRange{Start: 1, End: 2}, Phase: domain.SegmentMigrationPlanned, Revision: 1, NextSequence: 1}
+	var err error
+	r, err = r.Advance(domain.SegmentMigrationCopying)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err = r.CheckpointPage(domain.SegmentMigrationPageProof{NextSequence: 3, Rows: 2, PlainBytes: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := domain.SegmentMigrationCandidateProof{SourceDigest: r.PlanDigest, Basename: "segment", ManifestDigest: r.PlanDigest, FileDigest: r.PlanDigest}
+	r, err = r.RecordCandidateBuilt(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []domain.SegmentMigrationPhase{domain.SegmentMigrationInstallIntent, domain.SegmentMigrationInstalled, domain.SegmentMigrationSealIntent} {
 		r, err = r.Advance(phase)
 		if err != nil {
-			t.Fatalf("advance %s: %v", phase, err)
-		}
-		if phase == domain.SegmentMigrationCandidateBuilt {
-			r.NextSequence = 3
-			r.CopiedRows = 2
-			r.SourceDigest = r.PlanDigest
-			r.CandidateBasename = "segment"
-			r.SegmentID = "segment"
-			r.ManifestDigest = r.PlanDigest
-			r.FileDigest = r.PlanDigest
-		}
-		if phase == domain.SegmentMigrationSealed {
-			r.CatalogEpoch = 1
+			t.Fatal(err)
 		}
 	}
-	if _, err := r.Advance(domain.SegmentMigrationInstalled); !errors.Is(err, domain.ErrSegmentMigrationTransition) {
+	r, err = r.RecordCatalogPhase(domain.SegmentMigrationSealed, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err = r.Advance(domain.SegmentMigrationVerifyIntent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err = r.RecordCatalogPhase(domain.SegmentMigrationVerifiedShadow, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Advance(domain.SegmentMigrationInstalled); !errors.Is(err, domain.ErrSegmentMigrationTransition) {
 		t.Fatalf("backward transition: %v", err)
 	}
 	if r.Phase != domain.SegmentMigrationVerifiedShadow {
@@ -53,4 +64,29 @@ func TestSegmentMigrationRollbackIsForwardOnly(t *testing.T) {
 	}
 }
 
-func TestSegmentMigrationRevisionRejectsRegressionAndEvidenceMutation(t *testing.T){base:=domain.SegmentMigrationRun{ID:"run",StoreID:"0123456789abcdef0123456789abcdef",ReservationID:"reservation",PlanDigest:"0000000000000000000000000000000000000000000000000000000000000000",Range:domain.CatalogRange{Start:1,End:2},Phase:domain.SegmentMigrationCopying,Revision:2,NextSequence:1};next:=base;next.Revision++;next.NextSequence=2;next.CopiedRows=1;next.CopiedPlainBytes=10;if err:=base.ValidateRevision(next);err!=nil{t.Fatal(err)};mutated:=next;mutated.Revision++;mutated.NextSequence=3;mutated.CopiedRows=2;mutated.PlanDigest="1111111111111111111111111111111111111111111111111111111111111111";if !errors.Is(next.ValidateRevision(mutated),domain.ErrSegmentMigrationTransition){t.Fatal("immutable proof mutation accepted")};regressed:=next;regressed.Revision++;regressed.NextSequence=1;regressed.CopiedRows=0;if !errors.Is(next.ValidateRevision(regressed),domain.ErrSegmentMigrationTransition){t.Fatal("checkpoint regression accepted")}}
+func TestSegmentMigrationRevisionRejectsRegressionAndEvidenceMutation(t *testing.T) {
+	base := domain.SegmentMigrationRun{ID: "run", StoreID: "0123456789abcdef0123456789abcdef", ReservationID: "reservation", PlanDigest: "0000000000000000000000000000000000000000000000000000000000000000", Range: domain.CatalogRange{Start: 1, End: 2}, Phase: domain.SegmentMigrationCopying, Revision: 2, NextSequence: 1}
+	next := base
+	next.Revision++
+	next.NextSequence = 2
+	next.CopiedRows = 1
+	next.CopiedPlainBytes = 10
+	if err := base.ValidateRevision(next); err != nil {
+		t.Fatal(err)
+	}
+	mutated := next
+	mutated.Revision++
+	mutated.NextSequence = 3
+	mutated.CopiedRows = 2
+	mutated.PlanDigest = "1111111111111111111111111111111111111111111111111111111111111111"
+	if !errors.Is(next.ValidateRevision(mutated), domain.ErrSegmentMigrationTransition) {
+		t.Fatal("immutable proof mutation accepted")
+	}
+	regressed := next
+	regressed.Revision++
+	regressed.NextSequence = 1
+	regressed.CopiedRows = 0
+	if !errors.Is(next.ValidateRevision(regressed), domain.ErrSegmentMigrationTransition) {
+		t.Fatal("checkpoint regression accepted")
+	}
+}

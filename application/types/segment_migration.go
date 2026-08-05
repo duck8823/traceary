@@ -50,6 +50,7 @@ func (b SegmentMigrationBudget) Valid() bool {
 // SegmentMigrationStart binds only a pre-existing immutable target plan.
 type SegmentMigrationStart struct {
 	RunID, StoreID, ReservationID, PlanDigest string
+	SoftwareCommit                            string
 	Range                                     domain.CatalogRange
 	CandidateRoot, ArchiveRoot                string
 	CompressionFloor                          int

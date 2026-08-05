@@ -27,14 +27,15 @@ var (
 )
 
 type catalogEpochCommit struct {
-	expected       apptypes.CatalogHead
-	highWater      int64
-	transitions    []domain.CatalogTransition
-	evidenceDigest string
-	reservationID  string
-	delta          string
-	binding        *domain.CatalogSegmentBinding
-	proofClass     string
+	expected                apptypes.CatalogHead
+	highWater               int64
+	transitions             []domain.CatalogTransition
+	evidenceDigest          string
+	reservationID           string
+	delta                   string
+	binding                 *domain.CatalogSegmentBinding
+	proofClass              string
+	transitionDigestVersion int
 	// boundaryPointLimit is a test-only lower hard-cap seam. Zero selects the
 	// production CatalogMaxBoundaryPoints constant.
 	boundaryPointLimit int
@@ -309,7 +310,16 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 	if !domain.ValidCatalogDigest(commit.evidenceDigest) || commit.highWater <= 0 {
 		return apptypes.CatalogHead{}, apptypes.ErrCatalogDrift
 	}
-	transitionDigest, err := domain.CanonicalCatalogTransitionDigest(commit.transitions)
+	transitionDigestVersion := commit.transitionDigestVersion
+	if transitionDigestVersion == 0 {
+		transitionDigestVersion = 1
+	}
+	var transitionDigest string
+	if transitionDigestVersion == 2 {
+		transitionDigest, err = domain.CanonicalCatalogTransitionDigestV2(commit.transitions)
+	} else {
+		transitionDigest, err = domain.CanonicalCatalogTransitionDigest(commit.transitions)
+	}
 	if err != nil {
 		return apptypes.CatalogHead{}, apptypes.ErrCatalogOverlap
 	}
@@ -385,7 +395,7 @@ func commitCatalogEpoch(ctx context.Context, tx *sql.Tx, commit catalogEpochComm
 		return apptypes.CatalogHead{}, apptypes.ErrCatalogStaleHead
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_epochs(epoch,parent_epoch,transition_digest,evidence_digest,parent_ledger_digest,source_high_water,boundary_count,boundary_digest,ledger_digest,committed_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, newEpoch, actual.Epoch, transitionDigest, commit.evidenceDigest, actual.LedgerDigest, commit.highWater, len(boundaries), boundaryDigest, ledgerDigest, now); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO archive_catalog_epochs(epoch,parent_epoch,transition_digest,evidence_digest,parent_ledger_digest,source_high_water,boundary_count,boundary_digest,ledger_digest,committed_at,transition_digest_version) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, newEpoch, actual.Epoch, transitionDigest, commit.evidenceDigest, actual.LedgerDigest, commit.highWater, len(boundaries), boundaryDigest, ledgerDigest, now, transitionDigestVersion); err != nil {
 		return apptypes.CatalogHead{}, err
 	}
 	if commit.highWater > previousHighWater && !tailWasHot {
@@ -463,8 +473,9 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 		return nil
 	}
 	var parent, highWater, boundaryCount int64
+	var transitionDigestVersion int
 	var transitionDigest, boundaryDigest, evidenceDigest, parentDigest, ledgerDigest string
-	if err := q.QueryRowContext(ctx, `SELECT parent_epoch,source_high_water,boundary_count,boundary_digest,transition_digest,evidence_digest,parent_ledger_digest,ledger_digest FROM archive_catalog_epochs WHERE epoch=?`, head.Epoch).Scan(&parent, &highWater, &boundaryCount, &boundaryDigest, &transitionDigest, &evidenceDigest, &parentDigest, &ledgerDigest); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT parent_epoch,source_high_water,boundary_count,boundary_digest,transition_digest,evidence_digest,parent_ledger_digest,ledger_digest,transition_digest_version FROM archive_catalog_epochs WHERE epoch=?`, head.Epoch).Scan(&parent, &highWater, &boundaryCount, &boundaryDigest, &transitionDigest, &evidenceDigest, &parentDigest, &ledgerDigest, &transitionDigestVersion); err != nil {
 		return apptypes.ErrCatalogDrift
 	}
 	if ledgerDigest != head.LedgerDigest || parent != head.Epoch-1 {
@@ -507,7 +518,15 @@ func verifyCatalogHeadIncremental(ctx context.Context, q interface {
 	if err = rows.Err(); err != nil {
 		return err
 	}
-	digest, digestErr := domain.CanonicalCatalogTransitionDigest(transitions)
+	var digest string
+	var digestErr error
+	if transitionDigestVersion == 2 {
+		digest, digestErr = domain.CanonicalCatalogTransitionDigestV2(transitions)
+	} else if transitionDigestVersion == 1 {
+		digest, digestErr = domain.CanonicalCatalogTransitionDigest(transitions)
+	} else {
+		return apptypes.ErrCatalogDrift
+	}
 	if digestErr != nil || digest != transitionDigest {
 		return apptypes.ErrCatalogDrift
 	}
@@ -563,10 +582,11 @@ func applyCatalogTransition(ranges []apptypes.CatalogCurrentRange, transition do
 			result = append(result, left)
 		}
 		changed := apptypes.CatalogCurrentRange{Range: domain.CatalogRange{Start: start, End: end}, Placement: transition.To, ReservationID: transition.ReservationID, SegmentID: transition.SegmentID}
-		if transition.To == domain.CatalogPlacementHot {
+		switch transition.To {
+		case domain.CatalogPlacementHot:
 			changed.ReservationID = ""
 			changed.SegmentID = ""
-		} else if transition.To == domain.CatalogPlacementReserved {
+		case domain.CatalogPlacementReserved:
 			changed.SegmentID = ""
 		}
 		result = append(result, changed)

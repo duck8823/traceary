@@ -92,3 +92,31 @@ func TestCatalogLedgerDigestBindsParent(t *testing.T) {
 		t.Fatal("source high-water was not digest-bound")
 	}
 }
+
+func TestCatalogTransitionDigestV1CompatibilityAndV2OwnerBinding(t *testing.T) {
+	r := domain.CatalogRange{Start: 1, End: 1}
+	one, err := domain.VerifyShadowTransition(r, "reservation-a", "segment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := domain.VerifyShadowTransition(r, "reservation-b", "segment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1a, err := domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{one})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1b, err := domain.CanonicalCatalogTransitionDigest([]domain.CatalogTransition{two})
+	if err != nil || v1a != v1b {
+		t.Fatalf("v1 changed: %q %q %v", v1a, v1b, err)
+	}
+	v2a, err := domain.CanonicalCatalogTransitionDigestV2([]domain.CatalogTransition{one})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2b, err := domain.CanonicalCatalogTransitionDigestV2([]domain.CatalogTransition{two})
+	if err != nil || v2a == v2b {
+		t.Fatalf("v2 owner not bound: %q %q %v", v2a, v2b, err)
+	}
+}

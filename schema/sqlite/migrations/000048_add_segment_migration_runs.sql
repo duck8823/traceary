@@ -1,11 +1,15 @@
 -- Segment-specific durable construction/recovery journal.  It deliberately
 -- carries no read-authority or Hot-eviction state.
+ALTER TABLE archive_catalog_epochs ADD COLUMN transition_digest_version INTEGER NOT NULL DEFAULT 1 CHECK(transition_digest_version IN (1,2));
+
 CREATE TABLE archive_segment_migration_runs (
     run_id TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision>0),
     store_id TEXT NOT NULL CHECK(length(store_id)=32),
     reservation_id TEXT NOT NULL CHECK(length(reservation_id) BETWEEN 1 AND 255),
     plan_digest TEXT NOT NULL CHECK(length(plan_digest)=64),
+    software_commit TEXT NOT NULL CHECK(length(software_commit) BETWEEN 1 AND 128),
+    config_digest TEXT NOT NULL CHECK(length(config_digest)=64),
     candidate_root TEXT NOT NULL,
     candidate_root_device TEXT NOT NULL,
     candidate_root_inode TEXT NOT NULL,
@@ -55,6 +59,16 @@ CREATE TABLE archive_segment_migration_install_intents (
     completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1)),
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE archive_segment_migration_evidence (
+    run_id TEXT PRIMARY KEY,
+    schema_version TEXT NOT NULL CHECK(schema_version='traceary.segment-migration-evidence/v1'),
+    evidence_digest TEXT NOT NULL CHECK(length(evidence_digest)=64),
+    aggregate_json BLOB NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+CREATE TRIGGER archive_segment_migration_evidence_no_update BEFORE UPDATE ON archive_segment_migration_evidence BEGIN SELECT RAISE(ABORT,'segment migration evidence is immutable'); END;
+CREATE TRIGGER archive_segment_migration_evidence_no_delete BEFORE DELETE ON archive_segment_migration_evidence BEGIN SELECT RAISE(ABORT,'segment migration evidence is immutable'); END;
 
 -- A proof-specific adapter inserts an exact transaction-local authorization
 -- before the Catalog transition and removes it before commit. Generic SQL that

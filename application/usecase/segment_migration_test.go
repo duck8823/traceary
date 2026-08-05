@@ -21,20 +21,30 @@ func (f *segmentMigrationRepositoryFake) LoadSegmentMigration(context.Context, s
 	return f.run, nil
 }
 func (f *segmentMigrationRepositoryFake) AdvanceSegmentMigration(_ context.Context, _ string, _ types.SegmentMigrationBudget) (domain.SegmentMigrationRun, error) {
-	next := map[domain.SegmentMigrationPhase]domain.SegmentMigrationPhase{domain.SegmentMigrationPlanned: domain.SegmentMigrationCopying, domain.SegmentMigrationCopying: domain.SegmentMigrationCandidateBuilt, domain.SegmentMigrationCandidateBuilt: domain.SegmentMigrationInstallIntent, domain.SegmentMigrationInstallIntent: domain.SegmentMigrationInstalled, domain.SegmentMigrationInstalled: domain.SegmentMigrationSealIntent, domain.SegmentMigrationSealIntent: domain.SegmentMigrationSealed, domain.SegmentMigrationSealed: domain.SegmentMigrationVerifyIntent, domain.SegmentMigrationVerifyIntent: domain.SegmentMigrationVerifiedShadow}[f.run.Phase]
-	var err error
-	f.run, err = f.run.Advance(next)
-	if next == domain.SegmentMigrationCandidateBuilt {
-		f.run.NextSequence = 2
-		f.run.CopiedRows = 1
-		f.run.SourceDigest = f.run.PlanDigest
-		f.run.CandidateBasename = "segment"
-		f.run.SegmentID = "segment"
-		f.run.ManifestDigest = f.run.PlanDigest
-		f.run.FileDigest = f.run.PlanDigest
+	action, ok := f.run.NextAction()
+	if !ok {
+		return f.run, domain.ErrSegmentMigrationTransition
 	}
-	if next == domain.SegmentMigrationSealed {
-		f.run.CatalogEpoch = 1
+	return f.ExecuteSegmentMigrationAction(context.Background(), "run", action, migrationUsecaseBudget(16))
+}
+func (f *segmentMigrationRepositoryFake) ExecuteSegmentMigrationAction(_ context.Context, _ string, action domain.SegmentMigrationAction, _ types.SegmentMigrationBudget) (domain.SegmentMigrationRun, error) {
+	want, ok := f.run.NextAction()
+	if !ok || want != action {
+		return f.run, domain.ErrSegmentMigrationTransition
+	}
+	var err error
+	switch action {
+	case domain.SegmentMigrationActionCopyPage:
+		f.run, err = f.run.CheckpointPage(domain.SegmentMigrationPageProof{NextSequence: 2, Rows: 1, PlainBytes: 1})
+	case domain.SegmentMigrationActionBuildCandidate:
+		f.run, err = f.run.RecordCandidateBuilt(domain.SegmentMigrationCandidateProof{SourceDigest: f.run.PlanDigest, Basename: "segment", ManifestDigest: f.run.PlanDigest, FileDigest: f.run.PlanDigest})
+	case domain.SegmentMigrationActionSeal:
+		f.run, err = f.run.RecordCatalogPhase(domain.SegmentMigrationSealed, 1)
+	case domain.SegmentMigrationActionVerify:
+		f.run, err = f.run.RecordCatalogPhase(domain.SegmentMigrationVerifiedShadow, 2)
+	default:
+		phase := map[domain.SegmentMigrationAction]domain.SegmentMigrationPhase{domain.SegmentMigrationActionBeginCopy: domain.SegmentMigrationCopying, domain.SegmentMigrationActionRecordInstallIntent: domain.SegmentMigrationInstallIntent, domain.SegmentMigrationActionInstall: domain.SegmentMigrationInstalled, domain.SegmentMigrationActionRecordSealIntent: domain.SegmentMigrationSealIntent, domain.SegmentMigrationActionRecordVerifyIntent: domain.SegmentMigrationVerifyIntent}[action]
+		f.run, err = f.run.Advance(phase)
 	}
 	return f.run, err
 }
@@ -60,7 +70,7 @@ func migrationUsecaseBudget(steps int) types.SegmentMigrationBudget {
 
 func TestSegmentMigrationUsecaseResumesToVerifiedShadow(t *testing.T) {
 	fake := &segmentMigrationRepositoryFake{run: migrationUsecaseRun()}
-	got, err := usecase.NewSegmentMigrationUsecase(fake).Resume(context.Background(), "run", migrationUsecaseBudget(8))
+	got, err := usecase.NewSegmentMigrationUsecase(fake).Resume(context.Background(), "run", migrationUsecaseBudget(16))
 	if err != nil {
 		t.Fatal(err)
 	}

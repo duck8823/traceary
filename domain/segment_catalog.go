@@ -228,8 +228,21 @@ func ReleaseReservationTransition(r CatalogRange, reservationID string) (Catalog
 
 // CanonicalCatalogTransitionDigest deterministically binds an ordered epoch.
 func CanonicalCatalogTransitionDigest(transitions []CatalogTransition) (string, error) {
+	return canonicalCatalogTransitionDigest(transitions, 1)
+}
+
+// CanonicalCatalogTransitionDigestV2 additionally binds expected range owners.
+func CanonicalCatalogTransitionDigestV2(transitions []CatalogTransition) (string, error) {
+	return canonicalCatalogTransitionDigest(transitions, 2)
+}
+
+func canonicalCatalogTransitionDigest(transitions []CatalogTransition, version int) (string, error) {
 	h := sha256.New()
-	writeCatalogFrame(h, []byte("traceary/catalog-transitions/v1"))
+	domainName := "traceary/catalog-transitions/v1"
+	if version == 2 {
+		domainName = "traceary/catalog-transitions/v2"
+	}
+	writeCatalogFrame(h, []byte(domainName))
 	previousEnd := int64(0)
 	for i, transition := range transitions {
 		validated, err := validateCatalogTransition(transition)
@@ -249,7 +262,7 @@ func CanonicalCatalogTransitionDigest(transitions []CatalogTransition) (string, 
 		writeCatalogFrame(h, []byte(validated.To))
 		writeCatalogFrame(h, []byte(validated.ReservationID))
 		writeCatalogFrame(h, []byte(validated.SegmentID))
-		if validated.ExpectedReservationSet || validated.ExpectedSegmentSet {
+		if version >= 2 {
 			writeCatalogFrame(h, []byte(validated.ExpectedReservationID))
 			writeCatalogFrame(h, []byte(validated.ExpectedSegmentID))
 		}

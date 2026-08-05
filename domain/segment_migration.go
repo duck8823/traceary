@@ -15,6 +15,22 @@ var (
 // SegmentMigrationPhase is a durable, forward-only #1651 protocol boundary.
 type SegmentMigrationPhase string
 
+// SegmentMigrationAction names one bounded application-selected workflow step.
+type SegmentMigrationAction string
+
+// Bounded forward actions selected from the run aggregate.
+const (
+	SegmentMigrationActionBeginCopy           SegmentMigrationAction = "begin_copy"
+	SegmentMigrationActionCopyPage            SegmentMigrationAction = "copy_page"
+	SegmentMigrationActionBuildCandidate      SegmentMigrationAction = "build_candidate"
+	SegmentMigrationActionRecordInstallIntent SegmentMigrationAction = "record_install_intent"
+	SegmentMigrationActionInstall             SegmentMigrationAction = "install"
+	SegmentMigrationActionRecordSealIntent    SegmentMigrationAction = "record_seal_intent"
+	SegmentMigrationActionSeal                SegmentMigrationAction = "seal"
+	SegmentMigrationActionRecordVerifyIntent  SegmentMigrationAction = "record_verify_intent"
+	SegmentMigrationActionVerify              SegmentMigrationAction = "verify"
+)
+
 const (
 	// SegmentMigrationPlanned is the initial durable phase.
 	SegmentMigrationPlanned SegmentMigrationPhase = "planned"
@@ -54,6 +70,16 @@ type SegmentMigrationRun struct {
 	CatalogEpoch                           int64
 }
 
+// SegmentMigrationPageProof authenticates one durable candidate-page append.
+type SegmentMigrationPageProof struct {
+	NextSequence, Rows, PlainBytes int64
+}
+
+// SegmentMigrationCandidateProof binds the sealed candidate evidence.
+type SegmentMigrationCandidateProof struct {
+	SourceDigest, Basename, ManifestDigest, FileDigest string
+}
+
 // Validate enforces immutable identity and monotonic checkpoint invariants.
 func (r SegmentMigrationRun) Validate() error {
 	if strings.TrimSpace(r.ID) == "" || len(r.StoreID) != 32 || strings.TrimSpace(r.ReservationID) == "" ||
@@ -89,17 +115,86 @@ func (r SegmentMigrationRun) CanTransition(to SegmentMigrationPhase) bool {
 		return true
 	}
 	if to == SegmentMigrationRollbackIntent {
-		return r.Phase == SegmentMigrationCopying || r.Phase == SegmentMigrationCandidateBuilt || r.Phase == SegmentMigrationInstallIntent || r.Phase == SegmentMigrationInstalled || r.Phase == SegmentMigrationSealIntent || r.Phase == SegmentMigrationSealed || r.Phase == SegmentMigrationVerifyIntent || r.Phase == SegmentMigrationVerifiedShadow
+		return r.Phase == SegmentMigrationPlanned || r.Phase == SegmentMigrationCopying || r.Phase == SegmentMigrationCandidateBuilt || r.Phase == SegmentMigrationInstallIntent || r.Phase == SegmentMigrationInstalled || r.Phase == SegmentMigrationSealIntent || r.Phase == SegmentMigrationSealed || r.Phase == SegmentMigrationVerifyIntent || r.Phase == SegmentMigrationVerifiedShadow
 	}
 	return r.Phase == SegmentMigrationRollbackIntent && to == SegmentMigrationRolledBack
 }
 
+// NextAction is the application-visible decision for one bounded forward step.
+func (r SegmentMigrationRun) NextAction() (SegmentMigrationAction, bool) {
+	switch r.Phase {
+	case SegmentMigrationPlanned:
+		return SegmentMigrationActionBeginCopy, true
+	case SegmentMigrationCopying:
+		if r.NextSequence <= r.Range.End {
+			return SegmentMigrationActionCopyPage, true
+		}
+		return SegmentMigrationActionBuildCandidate, true
+	case SegmentMigrationCandidateBuilt:
+		return SegmentMigrationActionRecordInstallIntent, true
+	case SegmentMigrationInstallIntent:
+		return SegmentMigrationActionInstall, true
+	case SegmentMigrationInstalled:
+		return SegmentMigrationActionRecordSealIntent, true
+	case SegmentMigrationSealIntent:
+		return SegmentMigrationActionSeal, true
+	case SegmentMigrationSealed:
+		return SegmentMigrationActionRecordVerifyIntent, true
+	case SegmentMigrationVerifyIntent:
+		return SegmentMigrationActionVerify, true
+	default:
+		return "", false
+	}
+}
+
 // Advance returns a new append-only revision.
 func (r SegmentMigrationRun) Advance(to SegmentMigrationPhase) (SegmentMigrationRun, error) {
+	if to == SegmentMigrationCandidateBuilt || to == SegmentMigrationSealed || to == SegmentMigrationVerifiedShadow {
+		return SegmentMigrationRun{}, ErrSegmentMigrationTransition
+	}
 	if err := r.Validate(); err != nil || !r.CanTransition(to) {
 		return SegmentMigrationRun{}, ErrSegmentMigrationTransition
 	}
 	r.Phase, r.Revision = to, r.Revision+1
+	return r, nil
+}
+
+// CheckpointPage returns a valid copying revision after candidate durability.
+func (r SegmentMigrationRun) CheckpointPage(proof SegmentMigrationPageProof) (SegmentMigrationRun, error) {
+	if r.Phase != SegmentMigrationCopying || proof.NextSequence <= r.NextSequence || proof.NextSequence > r.Range.End+1 || proof.Rows != proof.NextSequence-r.Range.Start || proof.PlainBytes < r.CopiedPlainBytes {
+		return SegmentMigrationRun{}, ErrSegmentMigrationTransition
+	}
+	r.Revision++
+	r.NextSequence, r.CopiedRows, r.CopiedPlainBytes = proof.NextSequence, proof.Rows, proof.PlainBytes
+	if err := r.Validate(); err != nil {
+		return SegmentMigrationRun{}, ErrSegmentMigrationTransition
+	}
+	return r, nil
+}
+
+// RecordCandidateBuilt atomically attaches every candidate proof field.
+func (r SegmentMigrationRun) RecordCandidateBuilt(proof SegmentMigrationCandidateProof) (SegmentMigrationRun, error) {
+	if r.Phase != SegmentMigrationCopying || r.NextSequence != r.Range.End+1 {
+		return SegmentMigrationRun{}, ErrSegmentMigrationTransition
+	}
+	r.Phase, r.Revision = SegmentMigrationCandidateBuilt, r.Revision+1
+	r.SourceDigest, r.CandidateBasename, r.SegmentID = proof.SourceDigest, proof.Basename, proof.Basename
+	r.ManifestDigest, r.FileDigest = proof.ManifestDigest, proof.FileDigest
+	if err := r.Validate(); err != nil {
+		return SegmentMigrationRun{}, ErrSegmentMigrationTransition
+	}
+	return r, nil
+}
+
+// RecordCatalogPhase attaches the committed Catalog epoch to an evidence edge.
+func (r SegmentMigrationRun) RecordCatalogPhase(to SegmentMigrationPhase, epoch int64) (SegmentMigrationRun, error) {
+	if epoch <= 0 || (to != SegmentMigrationSealed && to != SegmentMigrationVerifiedShadow) || !r.CanTransition(to) {
+		return SegmentMigrationRun{}, ErrSegmentMigrationTransition
+	}
+	r.Phase, r.Revision, r.CatalogEpoch = to, r.Revision+1, epoch
+	if err := r.Validate(); err != nil {
+		return SegmentMigrationRun{}, ErrSegmentMigrationTransition
+	}
 	return r, nil
 }
 
