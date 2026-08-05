@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,37 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
+
+func TestBundleDatasource_ImportEventReceivesArchiveSequence(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "traceary.db")
+	database := sqlite.NewDatabase(path, onDiskSQLiteMigrations(t))
+	if err := sqlite.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := sqlite.NewBundleDatasource(database, sqlite.NewEventDatasource(database)).BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := model.EventOf(types.EventID("bundle-sequenced"), types.EventKindNote, types.Client("cli"), types.Agent("codex"), types.SessionID("s"), types.Workspace("w"), "body", time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC))
+	if imported, importErr := tx.ImportEvent(ctx, event, usecase.BundleConflictSkip); importErr != nil || !imported {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("ImportEvent() = %v/%v", imported, importErr)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	var sequence int64
+	if err = raw.QueryRow(`SELECT sequence FROM archive_event_sequences WHERE event_id='bundle-sequenced'`).Scan(&sequence); err != nil || sequence != 1 {
+		t.Fatalf("bundle archive sequence = %d, err=%v", sequence, err)
+	}
+}
 
 func TestBundleDatasource_ImportSessionRejectsConflictingTerminalReplace(t *testing.T) {
 	t.Parallel()
