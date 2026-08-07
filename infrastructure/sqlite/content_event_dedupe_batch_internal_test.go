@@ -248,12 +248,28 @@ func TestSortDedupeRunsNewestFirst(t *testing.T) {
 			want: []string{"run-b", "run-a"},
 		},
 		{
-			name: "an unparsable timestamp still lands somewhere deterministic",
+			// An unparsable timestamp has no position on the timeline, so it sinks
+			// below every run that does rather than displacing one.
+			name: "an unparsable timestamp sinks below every parsable run",
 			runs: []apptypes.ContentEventDedupeRun{
 				{RunID: "broken", ArchivedAt: "not-a-timestamp"},
 				{RunID: "valid", ArchivedAt: "2026-06-20T00:00:00Z"},
 			},
-			want: []string{"broken", "valid"},
+			want: []string{"valid", "broken"},
+		},
+		{
+			// The transitivity counterexample. Comparing parsable pairs by instant
+			// and any pair involving an unparsable one by text is not a strict weak
+			// ordering: B < A by instant, A < C because 'Z' > '.', C < B because
+			// '9' > '5'. sort does not detect the cycle, it just returns an
+			// arbitrary order.
+			name: "a mix of parsable and unparsable timestamps has no ordering cycle",
+			runs: []apptypes.ContentEventDedupeRun{
+				{RunID: "A", ArchivedAt: "2026-06-20T00:00:01Z"},
+				{RunID: "B", ArchivedAt: "2026-06-20T00:00:01.5Z"},
+				{RunID: "C", ArchivedAt: "2026-06-20T00:00:01.9"},
+			},
+			want: []string{"B", "A", "C"},
 		},
 	}
 
@@ -270,5 +286,100 @@ func TestSortDedupeRunsNewestFirst(t *testing.T) {
 				t.Errorf("sortDedupeRunsNewestFirst() (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// The ordering must not depend on the order the rows arrive in. A comparator
+// that violates transitivity passes a two-element test and still produces
+// different answers for different input permutations of the same three runs.
+func TestSortDedupeRunsNewestFirst_IndependentOfInputOrder(t *testing.T) {
+	t.Parallel()
+
+	runs := []apptypes.ContentEventDedupeRun{
+		{RunID: "A", ArchivedAt: "2026-06-20T00:00:01Z"},
+		{RunID: "B", ArchivedAt: "2026-06-20T00:00:01.5Z"},
+		{RunID: "C", ArchivedAt: "2026-06-20T00:00:01.9"},
+	}
+	permutations := [][]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
+	want := []string{"B", "A", "C"}
+	for _, permutation := range permutations {
+		permuted := make([]apptypes.ContentEventDedupeRun, 0, len(runs))
+		for _, index := range permutation {
+			permuted = append(permuted, runs[index])
+		}
+		sortDedupeRunsNewestFirst(permuted)
+		got := make([]string, 0, len(permuted))
+		for _, run := range permuted {
+			got = append(got, run.RunID)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("input order %v produced a different result (-want +got):\n%s", permutation, diff)
+		}
+	}
+}
+
+// A retention-ledger row cannot be archived, but removing it from its identity
+// group would widen the proximity gap across it. Here three rows sit 9s apart
+// inside the 10s window; the middle one is ledger-held. Hiding it makes the
+// outer two 18s apart -- two singletons, nothing collapsed -- so an ordinary
+// duplicate pair with nothing to do with retention would be stranded forever.
+func TestPlanContentEventDedupe_RetentionHeldRowKeepsItsClusterIntact(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	key := newDedupeGroupKey("prompt", "hook", "kimi", "s1", "w1", "stop", "same body")
+	member := func(id string, offset time.Duration, held bool) dedupeMemberRef {
+		at := base.Add(offset)
+		return dedupeMemberRef{
+			id: id, createdAt: at.Format(time.RFC3339Nano), parsedAt: at,
+			parseOK: true, retentionHeld: held,
+		}
+	}
+	members := []dedupeMemberRef{
+		member("evt-a", 0, false),
+		member("evt-b", 9*time.Second, true),
+		member("evt-c", 18*time.Second, false),
+	}
+	plan := planContentEventDedupe(dedupeSurvey{
+		groups: map[dedupeGroupKey][]dedupeMemberRef{key: members},
+		order:  []dedupeGroupKey{key},
+	}, false)
+
+	if len(plan.groups) != 1 {
+		t.Fatalf("groups = %d, want 1 (the ledger row must still hold the cluster together)", len(plan.groups))
+	}
+	if got := plan.groups[0].keptID; got != "evt-a" {
+		t.Errorf("keptID = %q, want evt-a", got)
+	}
+	got := make([]string, 0, len(plan.groups[0].duplicates))
+	for _, dup := range plan.groups[0].duplicates {
+		got = append(got, dup.id)
+	}
+	if diff := cmp.Diff([]string{"evt-c"}, got); diff != "" {
+		t.Errorf("duplicates (-want +got):\n%s", diff)
+	}
+}
+
+// When every non-canonical member is ledger-held there is nothing to archive,
+// and the group must not reach the plan as an empty entry.
+func TestPlanContentEventDedupe_AllDuplicatesRetentionHeldYieldsNoGroup(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	key := newDedupeGroupKey("prompt", "hook", "kimi", "s1", "w1", "stop", "same body")
+	members := []dedupeMemberRef{
+		{id: "evt-a", createdAt: base.Format(time.RFC3339Nano), parsedAt: base, parseOK: true},
+		{
+			id: "evt-b", createdAt: base.Add(time.Second).Format(time.RFC3339Nano),
+			parsedAt: base.Add(time.Second), parseOK: true, retentionHeld: true,
+		},
+	}
+	plan := planContentEventDedupe(dedupeSurvey{
+		groups: map[dedupeGroupKey][]dedupeMemberRef{key: members},
+		order:  []dedupeGroupKey{key},
+	}, false)
+
+	if len(plan.groups) != 0 {
+		t.Errorf("groups = %d, want 0 (nothing is archivable)", len(plan.groups))
 	}
 }

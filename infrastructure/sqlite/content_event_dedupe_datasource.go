@@ -43,6 +43,14 @@ type dedupeMemberRef struct {
 	createdAt string // original RFC3339Nano text, preserved verbatim
 	parsedAt  time.Time
 	parseOK   bool
+	// retentionHeld marks a row that carries a raw_body_retention_entries row.
+	// That table references events(id) ON DELETE RESTRICT, so archiving such a
+	// row aborts the batch with a bare foreign-key error. It stays a full member
+	// of its identity group regardless — proximity clustering reads the gaps
+	// between the rows it can see, so hiding one would widen the gap across it
+	// and could split an otherwise-collapsible cluster — but it is never chosen
+	// as a duplicate.
+	retentionHeld bool
 }
 
 // dedupeGroupKey is the duplicate-identity tuple. It intentionally matches the
@@ -282,6 +290,7 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 		args = []any{int64(maxStoredPayloadBytes)}
 	}
 	query := `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook,
+	       ` + dedupeRetentionHeldProjection(scope) + `,
 	       ` + payloadColumns + `
 	            FROM events
 	           WHERE ` + dedupeEligibilityFilter(scope)
@@ -312,10 +321,11 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 		var (
 			id, kind, client, rowAgent, sessionID, workspace, createdAt string
 			sourceHook                                                  sql.NullString
+			retentionHeld                                               int
 			payload                                                     payloadRow
 			storedLength                                                sql.NullInt64
 		)
-		destinations := []any{&id, &kind, &client, &rowAgent, &sessionID, &workspace, &createdAt, &sourceHook}
+		destinations := []any{&id, &kind, &client, &rowAgent, &sessionID, &workspace, &createdAt, &sourceHook, &retentionHeld}
 		if hasCodec {
 			destinations = append(destinations, payload.scanDestinations()...)
 		} else {
@@ -345,10 +355,11 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 			survey.order = append(survey.order, key)
 		}
 		survey.groups[key] = append(survey.groups[key], dedupeMemberRef{
-			id:        id,
-			createdAt: createdAt,
-			parsedAt:  parsed,
-			parseOK:   parseErr == nil,
+			id:            id,
+			createdAt:     createdAt,
+			parsedAt:      parsed,
+			retentionHeld: retentionHeld != 0,
+			parseOK:       parseErr == nil,
 		})
 		survey.scannedBySource[dedupeSourceKey{agent: key.agent, hook: key.sourceHook}]++
 		survey.scannedCount++
@@ -417,31 +428,45 @@ func resolveDedupeEligibilityScope(ctx context.Context, db *sql.DB) (dedupeEligi
 // dedupeEligibilityFilter is the WHERE fragment shared by the candidate count
 // and the identification scan.
 //
-// Two classes of row are excluded, both because of raw-body retention.
+// Rows the retention pruner has emptied are excluded here, at the candidate
+// level, because pruning replaces the body with one fixed marker string for
+// every row it touches without regard to client or kind. An emptied prompt and
+// an emptied transcript from unrelated sessions therefore hash to the same
+// identity, so including them would collapse unrelated rows into one enormous
+// group and quarantine rows that never duplicated anything. They cannot
+// participate in grouping at all.
 //
-// Rows the pruner has emptied: pruning replaces the body with one fixed marker
-// string for every row it touches, without regard to client or kind, so an
-// emptied prompt and an emptied transcript from unrelated sessions hash to the
-// same identity. Including them would collapse unrelated rows into one enormous
-// group and quarantine rows that never duplicated anything.
-//
-// Rows that carry a retention ledger entry, restored or not:
-// raw_body_retention_entries.event_id is ON DELETE RESTRICT, and a retention
-// restore puts body_availability back to 'available' while deliberately keeping
-// its ledger row. Such a row looks ordinary but cannot be deleted — apply would
-// abort mid-batch on a raw foreign-key error that tells the operator nothing.
-// Skipping it also preserves what the RESTRICT is there to protect: the ledger's
-// provenance must keep pointing at a real event.
+// Rows carrying a retention *ledger* entry are deliberately NOT excluded here,
+// even though they can never be archived (see retentionHeld in dedupeMemberRef).
+// Excluding them from the scan would remove them from their identity group, and
+// proximity clustering measures the gaps between the rows it can see: dropping a
+// row from the middle of a cluster widens the gap across it and can split one
+// cluster into singletons, silently stranding ordinary duplicates that have
+// nothing to do with retention. What the RESTRICT requires is that the row not
+// be deleted — not that it be invisible.
 func dedupeEligibilityFilter(scope dedupeEligibilityScope) string {
 	filter := `client = 'hook'
 	             AND kind IN ('prompt', 'transcript')`
 	if scope.hasBodyAvailability {
 		filter += "\n	             AND body_availability = 'available'"
 	}
-	if scope.hasRetentionLedger {
-		filter += "\n	             AND NOT EXISTS (SELECT 1 FROM raw_body_retention_entries r WHERE r.event_id = events.id)"
-	}
 	return filter
+}
+
+// dedupeRetentionHeldProjection selects whether a candidate row carries a
+// retention ledger entry, so planning can keep the row in its cluster while
+// never archiving it.
+//
+// raw_body_retention_entries is keyed (plan_id, event_id), so a lookup by
+// event_id alone has no usable index until migration 45 adds one. Without it
+// this correlated subquery degrades to a full scan of the ledger per candidate
+// row — O(candidates x ledger) on the very scan this command exists to make
+// runnable at 246,657 rows.
+func dedupeRetentionHeldProjection(scope dedupeEligibilityScope) string {
+	if !scope.hasRetentionLedger {
+		return "0"
+	}
+	return "EXISTS (SELECT 1 FROM raw_body_retention_entries r WHERE r.event_id = events.id)"
 }
 
 func (d *StoreManagementDatasource) countDedupeCandidates(
@@ -546,6 +571,14 @@ func planContentEventDedupe(survey dedupeSurvey, strict bool) dedupePlan {
 			}
 			// cluster is already ascending by (parsedAt, id): first = canonical.
 			kept := cluster[0]
+			// A retention-ledger row took part in deciding this cluster's shape —
+			// that is why it was scanned — but it can never be archived, so it is
+			// dropped here rather than upstream. A cluster whose only non-canonical
+			// members are ledger-held yields nothing to do.
+			duplicates := archivableDuplicates(cluster[1:])
+			if len(duplicates) == 0 {
+				continue
+			}
 			plan.groups = append(plan.groups, dedupeGroupPlan{
 				keptID:      kept.id,
 				kind:        key.kind,
@@ -553,12 +586,33 @@ func planContentEventDedupe(survey dedupeSurvey, strict bool) dedupePlan {
 				sourceHook:  key.sourceHook,
 				forensicKey: key.forensicKey(),
 				reason:      reason,
-				duplicates:  cluster[1:],
+				duplicates:  duplicates,
 				atomic:      atomic,
 			})
 		}
 	}
 	return plan
+}
+
+// archivableDuplicates drops the rows a batch could never delete. A retention
+// ledger entry references events(id) ON DELETE RESTRICT, so archiving one aborts
+// the whole batch on a bare foreign-key error; excluding it here — after
+// clustering, not before — keeps the cluster's shape intact while leaving the
+// row in place.
+//
+// Convergence is unaffected. The survivors are the canonical row plus any
+// ledger-held members; a re-run either re-clusters them and finds every
+// non-canonical member unarchivable, or splits them into singletons. Both are
+// fixed points.
+func archivableDuplicates(candidates []dedupeMemberRef) []dedupeMemberRef {
+	archivable := make([]dedupeMemberRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.retentionHeld {
+			continue
+		}
+		archivable = append(archivable, candidate)
+	}
+	return archivable
 }
 
 func hasMalformedTimestamp(rows []dedupeMemberRef) bool {
@@ -915,19 +969,41 @@ func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
 // second, because '.' precedes 'Z'. An operator reading the list to pick the run
 // to restore must see the true newest first.
 func sortDedupeRunsNewestFirst(runs []apptypes.ContentEventDedupeRun) {
-	sort.SliceStable(runs, func(i, j int) bool {
-		left, leftOK := time.Parse(time.RFC3339Nano, runs[i].ArchivedAt)
-		right, rightOK := time.Parse(time.RFC3339Nano, runs[j].ArchivedAt)
-		if leftOK == nil && rightOK == nil && !left.Equal(right) {
-			return left.After(right)
+	// The sort key is computed up front rather than inside the comparator. Mixing
+	// an instant comparison for parsable pairs with a text comparison for pairs
+	// involving an unparsable one is not a strict weak ordering, and produces real
+	// cycles: with A="…01Z", B="…01.5Z" and C="…01.9" (no offset, unparsable),
+	// B<A by instant, A<C because 'Z' > '.', and C<B because '9' > '5'. sort does
+	// not detect that; it just returns an arbitrary order, defeating the one job
+	// this function has.
+	type sortKey struct {
+		run     apptypes.ContentEventDedupeRun
+		instant time.Time
+		parsed  bool
+	}
+	keyed := make([]sortKey, 0, len(runs))
+	for _, run := range runs {
+		instant, err := time.Parse(time.RFC3339Nano, run.ArchivedAt)
+		keyed = append(keyed, sortKey{run: run, instant: instant, parsed: err == nil})
+	}
+	sort.SliceStable(keyed, func(i, j int) bool {
+		left, right := keyed[i], keyed[j]
+		// A timestamp that will not parse carries no position on the timeline, so
+		// it sinks below every run that does rather than displacing one.
+		if left.parsed != right.parsed {
+			return left.parsed
 		}
-		// Unparsable timestamps keep a stable, deterministic position rather than
-		// floating: fall back to the run id, which is unique per run.
-		if runs[i].ArchivedAt != runs[j].ArchivedAt {
-			return runs[i].ArchivedAt > runs[j].ArchivedAt
+		if left.parsed && !left.instant.Equal(right.instant) {
+			return left.instant.After(right.instant)
 		}
-		return runs[i].RunID > runs[j].RunID
+		if !left.parsed && left.run.ArchivedAt != right.run.ArchivedAt {
+			return left.run.ArchivedAt > right.run.ArchivedAt
+		}
+		return left.run.RunID > right.run.RunID
 	})
+	for i, item := range keyed {
+		runs[i] = item.run
+	}
 }
 
 // RestoreContentEventDedupeRun moves the rows quarantined by the given dedupe

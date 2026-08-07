@@ -842,3 +842,78 @@ func TestStoreManagementDatasource_DedupeContentEvents_SkipsRetentionLedgerRows(
 		t.Errorf("plan (-want +got):\n%s", diff)
 	}
 }
+
+// A ledger-held row must stay visible to clustering even though it can never be
+// archived. Three rows sit 9s apart inside the 10s proximity window and the
+// middle one carries a retention ledger entry. Excluding it from the candidate
+// scan -- the obvious way to avoid the ON DELETE RESTRICT abort -- widens the
+// gap across it to 18s, splitting one cluster into two singletons and stranding
+// an ordinary duplicate pair that has nothing to do with retention.
+func TestStoreManagementDatasource_DedupeContentEvents_LedgerRowKeepsItsClusterIntact(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	rows := []struct{ id, createdAt string }{
+		{"evt-m1", "2026-04-10T00:00:00Z"},
+		{"evt-m2", "2026-04-10T00:00:09Z"},
+		{"evt-m3", "2026-04-10T00:00:18Z"},
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+			 VALUES (?, 'prompt', 'codex', 's11', 'w1', 'middle held body', ?, 'user_prompt_submit', 'hook')`,
+			r.id, r.createdAt,
+		); err != nil {
+			t.Fatalf("insert %s error = %v", r.id, err)
+		}
+	}
+	if _, err := db.Exec(
+		`INSERT INTO raw_body_retention_executions (plan_id, status, candidate_count, pruned_count, started_at, completed_at)
+		 VALUES ('plan-m', 'restored', 1, 1, '2026-04-09T00:00:00Z', '2026-04-09T00:00:01Z')`,
+	); err != nil {
+		t.Fatalf("insert execution error = %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO raw_body_retention_entries (plan_id, event_id, body_sha256, stored_bytes, pruned_at, restored_at)
+		 VALUES ('plan-m', 'evt-m2', 'sha', 16, '2026-04-09T00:00:00Z', '2026-04-09T12:00:00Z')`,
+	); err != nil {
+		t.Fatalf("insert ledger entry error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close() error = %v", err)
+	}
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-middle",
+		Now: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	if diff := cmp.Diff(map[string][]string{
+		"evt-a1": {"evt-a2", "evt-a3"},
+		"evt-c1": {"evt-c2"},
+		"evt-m1": {"evt-m3"},
+	}, groupByKept(result)); diff != "" {
+		t.Errorf("plan (-want +got):\n%s", diff)
+	}
+
+	verify, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = verify.Close() }()
+	var survivors string
+	if err := verify.QueryRow(
+		`SELECT group_concat(id, ',') FROM (SELECT id FROM events WHERE id LIKE 'evt-m%' ORDER BY id)`,
+	).Scan(&survivors); err != nil {
+		t.Fatalf("read survivors error = %v", err)
+	}
+	if survivors != "evt-m1,evt-m2" {
+		t.Errorf("survivors = %q, want evt-m1,evt-m2 (the ledger row stays, the duplicate goes)", survivors)
+	}
+}
