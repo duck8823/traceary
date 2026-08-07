@@ -193,7 +193,6 @@ Practical implications:
 - `--restore <run-id>` reverses an apply run;
 - `--purge <run-id>` ends a run's rollback window, dropping the archived rows so their bytes are actually reclaimed. SQLite returns the pages to its free list, so run `VACUUM` afterwards to return them to the filesystem;
 - `--list-runs` reports the quarantine runs still held in the archive, newest first;
-- `--batch-size` (default 1000) bounds how many rows one apply transaction quarantines;
 - `--client codex` (default) scopes to Codex; `--client kimi` scopes to Kimi; `--client all` covers every agent. Hook duplicates are written with `client=hook`, so the selector filters by `agent`;
 - `--strict` reports every exact duplicate group regardless of time gap;
 - `--json` is available for dry-run, apply, restore, purge, and run listing.
@@ -207,7 +206,7 @@ Practical implications:
 **Apply / restore semantics.**
 
 - Apply commits in **bounded batches** and is **idempotent**: a second apply finds no duplicates left in `events` for an already-cleaned group, so it moves nothing.
-- A batch never contains part of a duplicate cluster. Proximity clustering measures the gap between *consecutive surviving* rows, so archiving part of a cluster widens the gaps inside it and can split what was one cluster into several singletons that no re-run will collapse. Committing whole clusters means an interruption leaves every cluster either fully quarantined or untouched, and a re-run reproduces exactly what a clean run would have decided — no checkpoint state is needed. A cluster with more duplicates than `--batch-size` becomes one oversized transaction rather than being split.
+- A batch never contains part of a duplicate cluster. Proximity clustering measures the gap between *consecutive surviving* rows, so archiving part of a cluster widens the gaps inside it and can split what was one cluster into several singletons that no re-run will collapse. Committing whole clusters means an interruption leaves every cluster either fully quarantined or untouched, and a re-run reproduces exactly what a clean run would have decided — no checkpoint state is needed. A cluster with more duplicates than one batch (1000 rows) becomes one oversized transaction rather than being split.
 - Rows the retention pruner has emptied are **not eligible**. Pruning replaces the body with one fixed marker string for every row it touches, regardless of client or kind, so two prompts that were never duplicates of each other would hash to the same identity once emptied.
 - Rows carrying a retention **ledger** entry are **never archived**, but they still take part in grouping. `raw_body_retention_entries.event_id` is `ON DELETE RESTRICT`, so deleting one aborts the batch. Dropping such a row from the scan instead would remove it from its identity group, and proximity clustering measures the gaps between the rows it can see: a ledger row in the middle of a cluster would widen the gap across it and split the cluster, stranding ordinary duplicates that have nothing to do with retention. The row is therefore kept as a cluster member and excluded only from the duplicates.
 - Restore is **all-or-nothing** and refuses to overwrite: if any original event id already exists in `events`, the whole restore fails and nothing changes.

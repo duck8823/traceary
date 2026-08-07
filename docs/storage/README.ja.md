@@ -192,7 +192,6 @@ target ごとの policy:
 - `--restore <run-id>` で apply を取り消します。
 - `--purge <run-id>` は run の復元可能期間を終了し、隔離された行を破棄してバイトを実際に回収します。SQLite はページを free list へ返すだけなので、ファイルシステムへ返すにはそのあと `VACUUM` を実行してください。
 - `--list-runs` は archive に残っている quarantine run を新しい順に一覧します。
-- `--batch-size`（既定 1000）は 1 つの apply transaction が隔離する行数を制限します。
 - `--client codex`（既定）は Codex に、`--client kimi` は Kimi に限定し、`--client all` はすべての agent を対象にします。hook 由来の duplicate は `client=hook` で書かれるため、セレクタは `agent` で絞り込みます。
 - `--strict` は時間差に関係なく完全一致する duplicate group をすべて報告します。
 - `--json` は dry-run / apply / restore / purge / run 一覧で利用できます。
@@ -206,7 +205,7 @@ target ごとの policy:
 **apply / restore のセマンティクス。**
 
 - apply は **バッチ単位で commit** され、**冪等** です。2 回目の apply は、すでにクリーンアップ済みの group について `events` に duplicate が残っていないため、何も移動しません。
-- バッチが duplicate cluster の一部だけを含むことはありません。近接 cluster は *生き残っている連続行* の間隔を測るため、cluster を途中まで隔離すると内部の間隔が広がり、1 つだった cluster が複数の単独行へ分裂して、再実行しても二度と畳めなくなります。cluster 単位で commit することで、中断しても各 cluster は「完全に隔離済み」か「未着手」のどちらかになり、再実行はクリーンな実行とまったく同じ判断を再現します。checkpoint の状態は不要です。`--batch-size` より duplicate が多い cluster は分割せず 1 transaction にします。
+- バッチが duplicate cluster の一部だけを含むことはありません。近接 cluster は *生き残っている連続行* の間隔を測るため、cluster を途中まで隔離すると内部の間隔が広がり、1 つだった cluster が複数の単独行へ分裂して、再実行しても二度と畳めなくなります。cluster 単位で commit することで、中断しても各 cluster は「完全に隔離済み」か「未着手」のどちらかになり、再実行はクリーンな実行とまったく同じ判断を再現します。checkpoint の状態は不要です。1 バッチ（1000 行）より duplicate が多い cluster は分割せず 1 transaction にします。
 - retention pruner が本文を空にした行は **対象外** です。pruning は client / kind を問わずすべての行の本文を同じ固定マーカー文字列へ置き換えるため、空になった時点で、もともと互いに duplicate ではなかった prompt 同士が同一 identity になってしまいます。
 - retention の **ledger** 行を持つ行は **アーカイブしません** が、grouping には参加させます。`raw_body_retention_entries.event_id` は `ON DELETE RESTRICT` なので削除すると batch が中断します。かといって scan から外すと identity group から消えてしまい、近接クラスタリングは見えている行同士の間隔を測るため、cluster の中央にある ledger 行を隠すとその前後の間隔が広がって cluster が分裂し、retention とは無関係な通常の duplicate が取り残されます。したがって cluster の member としては残し、duplicates からのみ除外します。
 - restore は **all-or-nothing** で上書きを拒否します。元の event id がすでに `events` に存在する場合、restore 全体が失敗し何も変更しません。

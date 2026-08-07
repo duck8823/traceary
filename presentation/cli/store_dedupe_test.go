@@ -132,28 +132,6 @@ func TestRootCLI_StoreDedupeContentEvents_ClientKimi(t *testing.T) {
 	}
 }
 
-func TestRootCLI_StoreDedupeContentEvents_BatchSize(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want int
-	}{
-		{name: "defaults to the batch size the store expects", args: nil, want: apptypes.DefaultContentEventDedupeBatchSize},
-		{name: "explicit batch size is passed through", args: []string{"--batch-size", "25"}, want: 25},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			stub := &storeManagementUsecaseStub{}
-			if _, err := runStoreDedupe(t, stub, append([]string{"--apply"}, test.args...)...); err != nil {
-				t.Fatalf("Execute() error = %v", err)
-			}
-			if got := stub.dedupeParams[0].BatchSize; got != test.want {
-				t.Errorf("BatchSize = %d, want %d", got, test.want)
-			}
-		})
-	}
-}
-
 func TestRootCLI_StoreDedupeContentEvents_Purge(t *testing.T) {
 	stub := &storeManagementUsecaseStub{
 		purgeResult: apptypes.ContentEventDedupePurgeResult{RunID: "dedupe-abc", PurgedCount: 3, ReleasedBody: 4096},
@@ -208,7 +186,6 @@ func TestRootCLI_StoreDedupeContentEvents_RejectsConflictingModes(t *testing.T) 
 		{name: "apply with restore", args: []string{"--apply", "--restore", "dedupe-abc"}},
 		{name: "apply with purge", args: []string{"--apply", "--purge", "dedupe-abc"}},
 		{name: "restore with purge", args: []string{"--restore", "dedupe-abc", "--purge", "dedupe-abc"}},
-		{name: "negative batch size", args: []string{"--apply", "--batch-size", "-1"}},
 		{name: "list runs with apply", args: []string{"--list-runs", "--apply"}},
 		{name: "list runs with restore", args: []string{"--list-runs", "--restore", "dedupe-abc"}},
 		{name: "list runs with purge", args: []string{"--list-runs", "--purge", "dedupe-abc"}},

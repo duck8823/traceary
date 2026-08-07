@@ -35,15 +35,14 @@ func (c *RootCLI) newStoreDedupeCommand() *cobra.Command {
 }
 
 type storeDedupeContentEventsInput struct {
-	dbPath    string
-	apply     bool
-	restore   string
-	purge     string
-	listRuns  bool
-	client    string
-	strict    bool
-	batchSize int
-	asJSON    bool
+	dbPath   string
+	apply    bool
+	restore  string
+	purge    string
+	listRuns bool
+	client   string
+	strict   bool
+	asJSON   bool
 }
 
 func (c *RootCLI) newStoreDedupeContentEventsCommand() *cobra.Command {
@@ -80,7 +79,6 @@ func (c *RootCLI) newStoreDedupeContentEventsCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.purge, "purge", "", Localize("drop the rows quarantined by the given dedupe run id, ending its rollback window", "指定した dedupe run id で隔離された行を破棄し、その復元可能期間を終了する"))
 	cmd.Flags().BoolVar(&input.listRuns, "list-runs", false, Localize("list the quarantine runs still held in the archive", "archive に残っている quarantine run を一覧する"))
 	cmd.Flags().StringVar(&input.client, "client", storeDedupeClientCodex, Localize("agent scope to target (codex | kimi | all)", "対象とする agent スコープ (codex | kimi | all)"))
-	cmd.Flags().IntVar(&input.batchSize, "batch-size", apptypes.DefaultContentEventDedupeBatchSize, Localize("rows quarantined per committed transaction", "1 トランザクションあたりに隔離する行数"))
 	cmd.Flags().BoolVar(&input.strict, "strict", false, Localize("report every exact duplicate group regardless of time gap", "時間差に関係なく完全一致する重複グループをすべて対象にする"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("emit machine-readable JSON", "機械可読な JSON を出力する"))
 
@@ -120,10 +118,9 @@ func (c *RootCLI) runStoreDedupeContentEvents(ctx context.Context, output io.Wri
 	}
 
 	result, err := c.storeManagement.DedupeContentEvents(ctx, apptypes.ContentEventDedupeParams{
-		Agent:     agent,
-		Apply:     input.apply,
-		Strict:    input.strict,
-		BatchSize: input.batchSize,
+		Agent:  agent,
+		Apply:  input.apply,
+		Strict: input.strict,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to dedupe content events", "content event の重複排除に失敗しました"), err)
@@ -152,8 +149,6 @@ func validateStoreDedupeMode(input storeDedupeContentEventsInput) error {
 		return xerrors.New(Localize("--apply and --purge cannot be combined", "--apply と --purge は同時に指定できません"))
 	case restore && purge:
 		return xerrors.New(Localize("--restore and --purge cannot be combined", "--restore と --purge は同時に指定できません"))
-	case input.batchSize < 0:
-		return xerrors.New(Localize("--batch-size must not be negative", "--batch-size に負の値は指定できません"))
 	}
 	return nil
 }
