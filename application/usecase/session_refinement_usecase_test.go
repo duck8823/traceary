@@ -21,13 +21,19 @@ func (c fixedRefineClock) Now() time.Time { return c.at }
 type sessionRefinementRepositoryStub struct {
 	bySession map[types.SessionID]*model.SessionRefinement
 	saved     []*model.SessionRefinement
-	// saveResults controls successive SaveIfAdvances outcomes. When empty,
-	// each call succeeds and stores the refinement.
+	// saveResults forces successive SaveIfAdvances outcomes after the
+	// generation CAS check. When empty, a matching expectedGeneration succeeds
+	// and stores the refinement. A scripted true still fails if the caller
+	// submitted a stale expectedGeneration (mirrors the real WHERE clause).
 	saveResults []bool
-	// raceWinnerOnLose is installed into bySession before a lost CAS so the
-	// next re-read sees the concurrent winner's row (not the original read).
-	raceWinnerOnLose *model.SessionRefinement
-	saveCalls        int
+	// raceWinnersOnLose is consumed one entry per forced scripted loss so the
+	// next re-read observes concurrent progress (generation and coverage
+	// advance). Real CAS losses always leave a different persisted row.
+	raceWinnersOnLose []*model.SessionRefinement
+	raceWinnerIdx     int
+	saveCalls         int
+	// expectedGens records every expectedGeneration the use case submitted.
+	expectedGens []int
 }
 
 func (s *sessionRefinementRepositoryStub) FindBySessionID(
@@ -43,23 +49,29 @@ func (s *sessionRefinementRepositoryStub) FindBySessionID(
 func (s *sessionRefinementRepositoryStub) SaveIfAdvances(
 	_ context.Context,
 	refinement *model.SessionRefinement,
-	_ int,
+	expectedGeneration int,
 ) (bool, error) {
 	s.saveCalls++
+	s.expectedGens = append(s.expectedGens, expectedGeneration)
+
+	// Mirror WHERE session_refinements.generation = ?: 0 means "no row yet".
+	storedGen := 0
+	if row, ok := s.bySession[refinement.SessionID()]; ok {
+		storedGen = row.Generation()
+	}
+	if expectedGeneration != storedGen {
+		return false, nil
+	}
+
 	if len(s.saveResults) > 0 {
 		idx := s.saveCalls - 1
 		if idx >= len(s.saveResults) {
 			idx = len(s.saveResults) - 1
 		}
 		if !s.saveResults[idx] {
-			// Simulate a concurrent writer that landed first: re-reads must
-			// observe the winner, not the stale pre-CAS snapshot.
-			if s.raceWinnerOnLose != nil {
-				if s.bySession == nil {
-					s.bySession = map[types.SessionID]*model.SessionRefinement{}
-				}
-				s.bySession[s.raceWinnerOnLose.SessionID()] = s.raceWinnerOnLose
-			}
+			// Concurrent writer landed: install the next race winner so the
+			// following re-read cannot keep seeing the pre-CAS snapshot.
+			s.installNextRaceWinner()
 			return false, nil
 		}
 	}
@@ -69,6 +81,21 @@ func (s *sessionRefinementRepositoryStub) SaveIfAdvances(
 	}
 	s.bySession[refinement.SessionID()] = refinement
 	return true, nil
+}
+
+func (s *sessionRefinementRepositoryStub) installNextRaceWinner() {
+	if s.raceWinnerIdx >= len(s.raceWinnersOnLose) {
+		return
+	}
+	winner := s.raceWinnersOnLose[s.raceWinnerIdx]
+	s.raceWinnerIdx++
+	if winner == nil {
+		return
+	}
+	if s.bySession == nil {
+		s.bySession = map[types.SessionID]*model.SessionRefinement{}
+	}
+	s.bySession[winner.SessionID()] = winner
 }
 
 type sessionEventOrderRepositoryStub struct {
@@ -345,13 +372,15 @@ func TestSessionRefinementUsecase_Refine_RetriesWhenSaveIfAdvancesLosesRace(t *t
 		// Original read: gen 1 covering ..evt2.
 		// Race winner: gen 2 covering ..evt3 (past original, still behind caller's evt4).
 		// Retry must supersede from the winner: gen 3, covers_from=evt1, covers_to=evt4.
+		// expectedGeneration sequence must be [1, 2] — stale 1 on the retry would
+		// be rejected by the CAS check and is the bug this assertion guards.
 		winner := mustRefinement(t, sessionID, 2, evt1, evt3, "winner summary")
 		repo := &sessionRefinementRepositoryStub{
 			bySession: map[types.SessionID]*model.SessionRefinement{
 				sessionID: mustRefinement(t, sessionID, 1, evt1, evt2, "first summary"),
 			},
-			saveResults:      []bool{false, true},
-			raceWinnerOnLose: winner,
+			saveResults:       []bool{false, true},
+			raceWinnersOnLose: []*model.SessionRefinement{winner},
 		}
 		wantRow, err := model.NewSessionRefinement(
 			sessionID, 3, evt1, evt4, "after race", "", "agent", now, false,
@@ -385,6 +414,9 @@ func TestSessionRefinementUsecase_Refine_RetriesWhenSaveIfAdvancesLosesRace(t *t
 		if len(repo.saved) != 1 {
 			t.Fatalf("successful saves = %d, want 1", len(repo.saved))
 		}
+		if diff := cmp.Diff([]int{1, 2}, repo.expectedGens); diff != "" {
+			t.Fatalf("expectedGeneration sequence mismatch (-want +got):\n%s", diff)
+		}
 	})
 
 	t.Run("winner advanced past caller: retry returns unchanged without write", func(t *testing.T) {
@@ -398,8 +430,8 @@ func TestSessionRefinementUsecase_Refine_RetriesWhenSaveIfAdvancesLosesRace(t *t
 			bySession: map[types.SessionID]*model.SessionRefinement{
 				sessionID: mustRefinement(t, sessionID, 1, evt1, evt2, "first summary"),
 			},
-			saveResults:      []bool{false},
-			raceWinnerOnLose: winner,
+			saveResults:       []bool{false},
+			raceWinnersOnLose: []*model.SessionRefinement{winner},
 		}
 		want, err := model.SessionRefineResultOf(model.SessionRefineOutcomeUnchanged, winner)
 		if err != nil {
@@ -427,6 +459,9 @@ func TestSessionRefinementUsecase_Refine_RetriesWhenSaveIfAdvancesLosesRace(t *t
 		if len(repo.saved) != 0 {
 			t.Fatalf("successful saves = %d, want 0", len(repo.saved))
 		}
+		if diff := cmp.Diff([]int{1}, repo.expectedGens); diff != "" {
+			t.Fatalf("expectedGeneration sequence mismatch (-want +got):\n%s", diff)
+		}
 	})
 }
 
@@ -437,21 +472,33 @@ func TestSessionRefinementUsecase_Refine_ExhaustsWhenSaveIfAdvancesAlwaysLoses(t
 	evt1 := types.EventID("evt-1")
 	evt2 := types.EventID("evt-2")
 	evt3 := types.EventID("evt-3")
+	evt4 := types.EventID("evt-4")
+	evt5 := types.EventID("evt-5")
+	evt6 := types.EventID("evt-6")
 	now := time.Date(2026, 8, 8, 15, 0, 0, 0, time.UTC)
 	session := model.NewSession(sessionID, now, "cli", "codex", "ws")
 
-	// Always lose the CAS; re-read still sees a row the caller can advance past,
-	// so every attempt writes and fails until the bounded loop gives up.
+	// Three consecutive CAS losses must each install a different concurrent
+	// winner that advances generation and covers_to while remaining strictly
+	// behind the caller's evt6 — so the caller still has a legitimate advance
+	// to attempt and still exhausts the bounded retry loop. An unchanged row
+	// across three losses is not a state the real store can be in.
+	// Event order: evt1 < evt2 < evt3 < evt4 < evt5 < evt6.
 	repo := &sessionRefinementRepositoryStub{
 		bySession: map[types.SessionID]*model.SessionRefinement{
 			sessionID: mustRefinement(t, sessionID, 1, evt1, evt2, "first summary"),
 		},
 		saveResults: []bool{false},
+		raceWinnersOnLose: []*model.SessionRefinement{
+			mustRefinement(t, sessionID, 2, evt1, evt3, "winner gen2"),
+			mustRefinement(t, sessionID, 3, evt1, evt4, "winner gen3"),
+			mustRefinement(t, sessionID, 4, evt1, evt5, "winner gen4"),
+		},
 	}
 	eventOrder := &sessionEventOrderRepositoryStub{
-		eventSessions: map[types.EventID]types.SessionID{evt3: sessionID},
+		eventSessions: map[types.EventID]types.SessionID{evt6: sessionID},
 		after: map[types.EventID]map[types.EventID]bool{
-			evt3: {evt2: true},
+			evt6: {evt2: true, evt3: true, evt4: true, evt5: true},
 		},
 	}
 
@@ -462,7 +509,7 @@ func TestSessionRefinementUsecase_Refine_ExhaustsWhenSaveIfAdvancesAlwaysLoses(t
 		fixedRefineClock{at: now},
 	)
 	got, err := sut.Refine(context.Background(), usecase.SessionRefineInput{
-		SessionID: sessionID, Summary: "never lands", ProducedBy: "agent", CoversTo: evt3,
+		SessionID: sessionID, Summary: "never lands", ProducedBy: "agent", CoversTo: evt6,
 	})
 	if err == nil {
 		t.Fatalf("Refine() error = nil, want exhaustion error; result = %+v", got)
@@ -475,5 +522,8 @@ func TestSessionRefinementUsecase_Refine_ExhaustsWhenSaveIfAdvancesAlwaysLoses(t
 	}
 	if len(repo.saved) != 0 {
 		t.Fatalf("successful saves = %d, want 0", len(repo.saved))
+	}
+	if diff := cmp.Diff([]int{1, 2, 3}, repo.expectedGens); diff != "" {
+		t.Fatalf("expectedGeneration sequence mismatch (-want +got):\n%s", diff)
 	}
 }
