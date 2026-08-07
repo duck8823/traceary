@@ -190,9 +190,12 @@ target ごとの policy:
 - 既定は **dry-run** で、候補グループを報告するだけで何も変更しません。
 - `--apply` で duplicate を隔離します（`events` から移動）。
 - `--restore <run-id>` で apply を取り消します。
-- `--client codex`（既定）は Codex に限定し、`--client all` はすべての agent を対象にします。hook 由来の duplicate は `client=hook` で書かれるため、セレクタは `agent` で絞り込みます。
+- `--purge <run-id>` は run の復元可能期間を終了し、隔離された行を破棄してバイトを実際に回収します。SQLite はページを free list へ返すだけなので、ファイルシステムへ返すにはそのあと `VACUUM` を実行してください。
+- `--list-runs` は archive に残っている quarantine run を新しい順に一覧します。
+- `--batch-size`（既定 1000）は 1 つの apply transaction が隔離する行数を制限します。
+- `--client codex`（既定）は Codex に、`--client kimi` は Kimi に限定し、`--client all` はすべての agent を対象にします。hook 由来の duplicate は `client=hook` で書かれるため、セレクタは `agent` で絞り込みます。
 - `--strict` は時間差に関係なく完全一致する duplicate group をすべて報告します。
-- `--json` は dry-run / apply / restore で利用できます。
+- `--json` は dry-run / apply / restore / purge / run 一覧で利用できます。
 
 **概念モデル。** duplicate group は identity tuple `kind, client, agent, session_id, workspace, source_hook, TrimSpace(body)` です。これは `content-event-reliability` 診断が使う identity と同じですが、履歴クリーンアップ用の推定であり、実行時の delivery identity ではありません。書き込み時に再送を抑止するには、ホスト由来の安定した delivery ID と semantic fingerprint の一致が必要で、本文の一致だけでは同一性を証明しません。対象は `client='hook'` かつ `kind in (prompt, transcript)` の行のみで、**command audit は対象外** です。既定では、メンバーがほぼ同時（診断と同様に連続レコードをペアで cluster する 10s の近接 window 内）に書かれた group のみが対象になり、離れた意図的な再送は除外されます。`--strict` はこの window を外します。group ごとに残す **canonical** 行は、parse した `created_at` が最も早いもの（同値は event id が小さい方）です。`created_at` は Go 側で RFC3339Nano として parse します（`formatTimestamp` は可変幅の小数秒を出力するため、辞書順では並びません）。malformed な timestamp を含む group は **スキップして報告** し、変更しません。
 
@@ -202,13 +205,17 @@ target ごとの policy:
 
 **apply / restore のセマンティクス。**
 
-- apply は単一 transaction（archive への insert ＋ `events` からの delete）で実行され、**冪等** です。2 回目の apply は、すでにクリーンアップ済みの group について `events` に duplicate が残っていないため、何も移動しません。
+- apply は **バッチ単位で commit** され、**冪等** です。2 回目の apply は、すでにクリーンアップ済みの group について `events` に duplicate が残っていないため、何も移動しません。
+- バッチが duplicate cluster の一部だけを含むことはありません。近接 cluster は *生き残っている連続行* の間隔を測るため、cluster を途中まで隔離すると内部の間隔が広がり、1 つだった cluster が複数の単独行へ分裂して、再実行しても二度と畳めなくなります。cluster 単位で commit することで、中断しても各 cluster は「完全に隔離済み」か「未着手」のどちらかになり、再実行はクリーンな実行とまったく同じ判断を再現します。checkpoint の状態は不要です。`--batch-size` より duplicate が多い cluster は分割せず 1 transaction にします。
+- retention pruner が本文を空にした行は **対象外** です。pruning は client / kind を問わずすべての行の本文を同じ固定マーカー文字列へ置き換えるため、空になった時点で、もともと互いに duplicate ではなかった prompt 同士が同一 identity になってしまいます。
 - restore は **all-or-nothing** で上書きを拒否します。元の event id がすでに `events` に存在する場合、restore 全体が失敗し何も変更しません。
 - duplicate は `events` の *外* へ移動されるため、通常の `list`、`sessions --snapshot`、`doctor`、`context`、MCP の read surface からは自動的に見えなくなります。
 
-**rollback。** apply を取り消すには `traceary store dedupe content-events --restore <run-id>` を実行します（run id は `--apply` が出力し、隔離した各行にも記録されます）。念のためのコピーが欲しい場合は、`--apply` の前に `traceary store backup create` を取得してください。
+**rollback。** apply を取り消すには `traceary store dedupe content-events --restore <run-id>` を実行します（run id は `--apply` が出力し、隔離した各行にも記録されます）。run id が出力される前に apply が中断した場合は `--list-runs` で見つけられます。バッチは run id が報告される前に commit されるため、これがないとその行は restore / purge のどちらからも到達できません。念のためのコピーが欲しい場合は、`--apply` の前に `traceary store backup create` を取得してください。
 
-**振る舞いテスト。** dry-run の報告と非変更、apply ＋冪等性、restore ＋上書き拒否、malformed timestamp のスキップ、command-audit / 非 hook の除外、strict と近接スコープ、read surface の除外は `infrastructure/sqlite/content_event_dedupe_test.go` で、flag 配線と JSON/text 出力は `presentation/cli/store_dedupe_test.go` で、run id の採番は `application/usecase/store_dedupe_test.go` でカバーしています。
+**バイトの回収。** 隔離は duplicate を移動するだけで、領域は解放しません。隔離された行を破棄するのは `--purge <run-id>` だけで、解放されたページをファイルシステムへ返すのはそのあとの `VACUUM` だけです。
+
+**振る舞いテスト。** dry-run の報告と非変更、apply ＋冪等性、restore ＋上書き拒否、malformed timestamp のスキップ、command-audit / 非 hook の除外、retention で空になった行の除外、strict と近接スコープ、batch size に依存しないこと、部分 apply からの再開、run 一覧、purge、read surface の除外は `infrastructure/sqlite/content_event_dedupe_test.go` で、cluster を分割しない不変条件は `infrastructure/sqlite/content_event_dedupe_batch_internal_test.go` の純粋関数上で直接、flag 配線と JSON/text 出力は `presentation/cli/store_dedupe_test.go` で、run id の採番は `application/usecase/store_dedupe_test.go` でカバーしています。
 
 ## 本文を含まないワークスペース識別診断
 

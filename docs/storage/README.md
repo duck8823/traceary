@@ -191,9 +191,12 @@ Practical implications:
 - default is a **dry-run** — it reports candidate groups and changes nothing;
 - `--apply` quarantines the duplicates (moves them out of `events`);
 - `--restore <run-id>` reverses an apply run;
-- `--client codex` (default) scopes to Codex; `--client all` covers every agent. Hook duplicates are written with `client=hook`, so the selector filters by `agent`;
+- `--purge <run-id>` ends a run's rollback window, dropping the archived rows so their bytes are actually reclaimed. SQLite returns the pages to its free list, so run `VACUUM` afterwards to return them to the filesystem;
+- `--list-runs` reports the quarantine runs still held in the archive, newest first;
+- `--batch-size` (default 1000) bounds how many rows one apply transaction quarantines;
+- `--client codex` (default) scopes to Codex; `--client kimi` scopes to Kimi; `--client all` covers every agent. Hook duplicates are written with `client=hook`, so the selector filters by `agent`;
 - `--strict` reports every exact duplicate group regardless of time gap;
-- `--json` is available for dry-run, apply, and restore.
+- `--json` is available for dry-run, apply, restore, purge, and run listing.
 
 **Conceptual model.** A duplicate group is the identity tuple `kind, client, agent, session_id, workspace, source_hook, TrimSpace(body)` — the same identity the `content-event-reliability` diagnostic uses. This is a historical cleanup heuristic, not the runtime delivery identity: write-time redelivery suppression requires a stable host delivery ID plus a matching semantic fingerprint, and body equality alone never proves identity. Only `client='hook'` rows with `kind in (prompt, transcript)` participate; **command audits are never touched**. By default a group is eligible only when its members land near-simultaneously (within a 10s proximity window that clusters consecutive records pairwise, matching the diagnostic), so deliberate repeats far apart are excluded; `--strict` drops the window. The **canonical** row kept per group is the earliest parsed `created_at`, tie-broken by the smallest event id. `created_at` is parsed in Go as RFC3339Nano (never ordered lexically — `formatTimestamp` emits variable-width fractional seconds). A group containing a malformed timestamp is **skipped and reported**, never mutated.
 
@@ -203,13 +206,17 @@ Practical implications:
 
 **Apply / restore semantics.**
 
-- Apply runs in a single transaction (insert into archive + delete from `events`) and is **idempotent**: a second apply finds no duplicates left in `events` for an already-cleaned group, so it moves nothing.
+- Apply commits in **bounded batches** and is **idempotent**: a second apply finds no duplicates left in `events` for an already-cleaned group, so it moves nothing.
+- A batch never contains part of a duplicate cluster. Proximity clustering measures the gap between *consecutive surviving* rows, so archiving part of a cluster widens the gaps inside it and can split what was one cluster into several singletons that no re-run will collapse. Committing whole clusters means an interruption leaves every cluster either fully quarantined or untouched, and a re-run reproduces exactly what a clean run would have decided — no checkpoint state is needed. A cluster with more duplicates than `--batch-size` becomes one oversized transaction rather than being split.
+- Rows the retention pruner has emptied are **not eligible**. Pruning replaces the body with one fixed marker string for every row it touches, regardless of client or kind, so two prompts that were never duplicates of each other would hash to the same identity once emptied.
 - Restore is **all-or-nothing** and refuses to overwrite: if any original event id already exists in `events`, the whole restore fails and nothing changes.
 - Because duplicates are moved *out* of `events`, normal `list`, `sessions --snapshot`, `doctor`, `context`, and MCP read surfaces stop showing them automatically.
 
-**Rollback.** To undo an apply, run `traceary store dedupe content-events --restore <run-id>` (the run id is printed by `--apply` and stored on every archived row). If you need a belt-and-braces copy, take a `traceary store backup create` before `--apply`.
+**Rollback.** To undo an apply, run `traceary store dedupe content-events --restore <run-id>` (the run id is printed by `--apply` and stored on every archived row). If an apply was interrupted before it printed a run id, `--list-runs` finds it — batches commit before the id is reported, so those rows would otherwise be unreachable by both restore and purge. If you need a belt-and-braces copy, take a `traceary store backup create` before `--apply`.
 
-**Behavior tests.** Dry-run reporting and no-mutation, apply + idempotency, restore + overwrite refusal, malformed-timestamp skip, command-audit/non-hook exclusion, strict vs. proximity scope, and read-surface exclusion are covered in `infrastructure/sqlite/content_event_dedupe_test.go`; flag wiring and JSON/text output in `presentation/cli/store_dedupe_test.go`; run-id minting in `application/usecase/store_dedupe_test.go`.
+**Reclaiming the bytes.** Quarantine relocates duplicates; it does not free them. Only `--purge <run-id>` drops the archived rows, and only `VACUUM` afterwards returns the freed pages to the filesystem.
+
+**Behavior tests.** Dry-run reporting and no-mutation, apply + idempotency, restore + overwrite refusal, malformed-timestamp skip, command-audit/non-hook exclusion, retention-emptied exclusion, strict vs. proximity scope, batch-size independence, resumption after a partial apply, run listing, purge, and read-surface exclusion are covered in `infrastructure/sqlite/content_event_dedupe_test.go`; the cluster-atomicity invariant is pinned directly on the pure batch-partitioning function in `infrastructure/sqlite/content_event_dedupe_batch_internal_test.go`; flag wiring and JSON/text output in `presentation/cli/store_dedupe_test.go`; run-id minting in `application/usecase/store_dedupe_test.go`.
 
 ## Body-free workspace identity diagnostics
 
