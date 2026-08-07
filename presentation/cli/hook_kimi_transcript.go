@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 )
@@ -60,21 +63,32 @@ func kimiWireTurnID(raw json.RawMessage) string {
 // soft skip — transcript capture is best-effort and must never block the
 // host's Stop hook.
 func extractKimiTranscript(payload []byte) ([]apptypes.EventBodyBlock, bool) {
+	blocks, _, ok := extractKimiTranscriptTurn(payload)
+	return blocks, ok
+}
+
+// extractKimiTranscriptTurn resolves the same assistant turn as
+// extractKimiTranscript, additionally returning the wire turn identifier the
+// blocks were read from. Kimi's Stop hook fires roughly two dozen times per
+// completed turn while the session's wire.jsonl is unchanged; callers use
+// the turn identifier to guard against re-recording that unchanged turn
+// (#1681) without re-deriving it from the raw event.Turn shape themselves.
+func extractKimiTranscriptTurn(payload []byte) ([]apptypes.EventBodyBlock, string, bool) {
 	sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
 	if sessionID == "" {
-		return nil, false
+		return nil, "", false
 	}
 	sessionDir := lookupKimiSessionDir(sessionID)
 	if sessionDir == "" {
-		return nil, false
+		return nil, "", false
 	}
 	sessionDir = containKimiSessionsPath(sessionDir)
 	if sessionDir == "" {
-		return nil, false
+		return nil, "", false
 	}
 	wirePath := containKimiSessionsPath(filepath.Join(sessionDir, "agents", "main", "wire.jsonl"))
 	if wirePath == "" {
-		return nil, false
+		return nil, "", false
 	}
 	return readKimiWireTranscriptBlocks(wirePath)
 }
@@ -137,14 +151,15 @@ func lookupKimiSessionDir(sessionID string) string {
 }
 
 // readKimiWireTranscriptBlocks reads the wire log and returns the ordered
-// think/text blocks of the LAST turn that produced assistant content.
-// Thinking blocks map to EventBodyBlockTypeThinking so downstream consumers
-// can collapse reasoning, matching the Claude transcript shape.
-func readKimiWireTranscriptBlocks(path string) ([]apptypes.EventBodyBlock, bool) {
+// think/text blocks of the LAST turn that produced assistant content, along
+// with that turn's identifier. Thinking blocks map to
+// EventBodyBlockTypeThinking so downstream consumers can collapse
+// reasoning, matching the Claude transcript shape.
+func readKimiWireTranscriptBlocks(path string) ([]apptypes.EventBodyBlock, string, bool) {
 	file, err := os.Open(path) // #nosec G304 -- path resolved through the Kimi session index
 	if err != nil {
 		slog.Debug("failed to open Kimi wire log", "path", path, "error", err)
-		return nil, false
+		return nil, "", false
 	}
 	defer func() { _ = file.Close() }()
 
@@ -175,14 +190,14 @@ func readKimiWireTranscriptBlocks(path string) ([]apptypes.EventBodyBlock, bool)
 	}
 	if err := scanner.Err(); err != nil {
 		slog.Debug("failed while scanning Kimi wire log", "path", path, "error", err)
-		return nil, false
+		return nil, "", false
 	}
 
 	blocks := blocksByTurn[lastTurn]
 	if len(blocks) == 0 {
-		return nil, false
+		return nil, "", false
 	}
-	return blocks, true
+	return blocks, lastTurn, true
 }
 
 // kimiCodeHome resolves the Kimi Code data home: $KIMI_CODE_HOME when set,
@@ -196,4 +211,109 @@ func kimiCodeHome() string {
 		return ""
 	}
 	return filepath.Join(home, kimiDefaultHomeDir)
+}
+
+// kimiTranscriptTurnsStateDir is the hook-state subdirectory holding, per
+// session, a marker file naming the wire turn whose transcript was most
+// recently recorded. It follows the same fixed-name marker-file idiom as
+// the session-end markers in hook_state.go rather than a SQL table, because
+// the wire turn identifier is host side-channel state (read from
+// wire.jsonl), not a field carried on any hook payload.
+const kimiTranscriptTurnsStateDir = "kimi-transcript-turns"
+
+// kimiTranscriptTurnLockRetries and kimiTranscriptTurnLockDelay bound the
+// mkdir-lock spin below, matching the retry budget
+// withHookActiveSubagentStateLock (hook_state.go) already uses for the same
+// kind of tiny, short-held hook-state lock.
+const (
+	kimiTranscriptTurnLockRetries = 100
+	kimiTranscriptTurnLockDelay   = 10 * time.Millisecond
+)
+
+// kimiTranscriptTurnStatePath returns the marker file path recording the
+// last wire turn ID whose transcript was recorded for a Kimi session.
+func kimiTranscriptTurnStatePath(sessionID string) (string, error) {
+	stateDir, err := resolveHookStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(stateDir, kimiTranscriptTurnsStateDir, sanitizeHookStateKey(sessionID)), nil
+}
+
+// withKimiTranscriptTurnStateLock runs fn while holding an exclusive,
+// directory-mkdir-based lock scoped to sessionID's turn marker. Kimi
+// redelivers Stop for the same completed turn with observed gaps as small
+// as ~0.14s, including effectively concurrent firings, so the check
+// ("already recorded?") and the record-then-mark sequence inside fn must be
+// one atomic critical section — otherwise two racing firings can both
+// observe "not yet recorded" and each write a row (#1681).
+func withKimiTranscriptTurnStateLock(sessionID string, fn func() error) error {
+	path, err := kimiTranscriptTurnStatePath(sessionID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return xerrors.Errorf("failed to create Kimi transcript turn state directory: %w", err)
+	}
+	lockPath := path + ".lock"
+	for attempt := 0; ; attempt++ {
+		err := os.Mkdir(lockPath, 0o700)
+		if err == nil {
+			defer func() { _ = os.Remove(lockPath) }()
+			return fn()
+		}
+		if !os.IsExist(err) {
+			return xerrors.Errorf("failed to lock Kimi transcript turn state: %w", err)
+		}
+		if attempt >= kimiTranscriptTurnLockRetries {
+			return xerrors.Errorf("failed to lock Kimi transcript turn state: timed out")
+		}
+		time.Sleep(kimiTranscriptTurnLockDelay)
+	}
+}
+
+// kimiTranscriptTurnAlreadyRecorded reports whether turnID was already
+// recorded as sessionID's last transcript turn. Kimi's Stop hook fires
+// roughly two dozen times per completed turn while wire.jsonl is
+// unchanged (#1681); this is the read half of the guard that collapses
+// those redeliveries to a single recorded transcript event. Callers must
+// hold withKimiTranscriptTurnStateLock for correctness under concurrent
+// firings.
+//
+// Any inability to read the marker (including a missing state directory)
+// fails open — returns false, treating the turn as not yet recorded.
+// Traceary prefers an occasional duplicate over silently dropping a
+// genuinely new turn because of transient marker-file trouble.
+func kimiTranscriptTurnAlreadyRecorded(sessionID, turnID string) bool {
+	path, err := kimiTranscriptTurnStatePath(sessionID)
+	if err != nil {
+		slog.Debug("failed to resolve Kimi transcript turn state path", "session_id", sessionID, "error", err)
+		return false
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- fixed name under the hook state directory
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Debug("failed to read Kimi transcript turn state", "path", path, "error", err)
+		}
+		return false
+	}
+	return strings.TrimSpace(string(data)) == turnID
+}
+
+// markKimiTranscriptTurnRecorded persists turnID as the last recorded
+// transcript turn for sessionID. Failures are logged and swallowed:
+// losing the marker only risks one extra duplicate on the next Stop
+// firing, never a lost turn, and a hook must never fail the host's turn
+// over housekeeping state. Callers must hold
+// withKimiTranscriptTurnStateLock for correctness under concurrent
+// firings.
+func markKimiTranscriptTurnRecorded(sessionID, turnID string) {
+	path, err := kimiTranscriptTurnStatePath(sessionID)
+	if err != nil {
+		slog.Debug("failed to resolve Kimi transcript turn state path", "session_id", sessionID, "error", err)
+		return
+	}
+	if err := os.WriteFile(path, []byte(turnID), 0o600); err != nil {
+		slog.Debug("failed to write Kimi transcript turn state", "path", path, "error", err)
+	}
 }

@@ -173,12 +173,20 @@ func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 	})
 
 	t.Run("tolerates numeric turnId in wire log rows", func(t *testing.T) {
-		seedKimiSession(t, homeDir, "session_00000000-0000-4000-8000-000000000001", []string{
+		// Use a session ID distinct from the fixture default: the prior
+		// subtest already recorded turn "0" for that session under the
+		// per-session transcript-turn idempotency marker (#1681), and this
+		// subtest's fresh wire log also starts at turn 0 — a coincidence of
+		// two independent test fixtures, not an advancing real session, so
+		// it must not collide with that marker.
+		const sessionID = "session_44444444-4444-4444-8444-444444444444"
+		payload := strings.Replace(readKimiFixture(t, "stop.json"), "session_00000000-0000-4000-8000-000000000001", sessionID, 1)
+		seedKimiSession(t, homeDir, sessionID, []string{
 			`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
 			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":0,"part":{"type":"text","text":"pong"}},"time":1784466740000}`,
 		})
 
-		stdout, eventStub, _ := runKimiHook(t, "stop", readKimiFixture(t, "stop.json"), nil, nil)
+		stdout, eventStub, _ := runKimiHook(t, "stop", payload, nil, nil)
 
 		if stdout != "" {
 			t.Fatalf("Stop output = %q, want empty passive-hook output", stdout)

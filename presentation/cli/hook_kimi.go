@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -166,9 +167,56 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 	if err != nil {
 		return err
 	}
-	transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
+	transcriptErr := c.runHookKimiTranscript(ctx, normalized, dbPath)
 	usageErr := c.captureKimiUsage(ctx, normalized, dbPath, usecase.KimiUsageBoundaryStop)
 	return errors.Join(transcriptErr, usageErr)
+}
+
+// runHookKimiTranscript wraps the shared transcript recorder with a
+// per-(session, wire turn) idempotency guard. Kimi's Stop hook fires
+// roughly two dozen times per completed turn while the session's
+// wire.jsonl is unchanged, with redeliveries observed as little as ~0.14s
+// apart — including effectively concurrent firings. Extraction itself is
+// correct (it already resolves only the final turn's blocks), so without
+// this guard the same unchanged turn is re-recorded on every firing,
+// measured at 23x live (#1681). The check-then-record-then-mark sequence
+// runs inside withKimiTranscriptTurnStateLock so two racing firings for the
+// same turn cannot both observe "not yet recorded" and both write a row.
+//
+// When the wire turn cannot be resolved (missing index entry, missing wire
+// log, escaped path, ...) or the turn lock itself is unavailable, this
+// falls through to the shared recorder unguarded — a hook must never fail
+// or silently drop a turn over housekeeping state, even at the cost of an
+// occasional duplicate.
+func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbPath string) error {
+	sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
+	_, turnID, turnResolved := extractKimiTranscriptTurn(payload)
+	turnID = strings.TrimSpace(turnID)
+	if !turnResolved || sessionID == "" || turnID == "" {
+		return c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath)
+	}
+
+	var recordErr error
+	lockErr := withKimiTranscriptTurnStateLock(sessionID, func() error {
+		if kimiTranscriptTurnAlreadyRecorded(sessionID, turnID) {
+			return nil
+		}
+		if err := c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath); err != nil {
+			recordErr = err
+			return err
+		}
+		markKimiTranscriptTurnRecorded(sessionID, turnID)
+		return nil
+	})
+	if lockErr != nil && recordErr == nil {
+		// The lock itself was unavailable (contention timeout or a
+		// filesystem error unrelated to the actual recording). Fail open:
+		// record unguarded rather than silently dropping a possibly-new
+		// turn.
+		slog.Debug("Kimi transcript turn lock unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", lockErr)
+		return c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath)
+	}
+	return lockErr
 }
 
 func (c *RootCLI) captureKimiUsage(
