@@ -46,6 +46,12 @@ type eventUsecaseStub struct {
 	searchCalls         int
 	timelineCriteria    apptypes.TimelineCriteria
 
+	// logMu guards logCall/logCalls against concurrent Log() invocations.
+	// Kimi's Stop hook can fire effectively concurrently for the same turn
+	// (#1681); tests exercising that race invoke Log() from multiple
+	// goroutines and need this stub to record calls safely rather than
+	// racing on the slice append.
+	logMu     sync.Mutex
 	logCall   eventLogCall
 	logCalls  []eventLogCall
 	auditCall struct {
@@ -64,6 +70,8 @@ type eventUsecaseStub struct {
 }
 
 func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
 	s.logCall.message = message
 	s.logCall.kind = kind
 	s.logCall.client = client

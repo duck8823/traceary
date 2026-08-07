@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -166,9 +167,123 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 	if err != nil {
 		return err
 	}
-	transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
+	transcriptErr := c.runHookKimiTranscript(ctx, normalized, dbPath)
 	usageErr := c.captureKimiUsage(ctx, normalized, dbPath, usecase.KimiUsageBoundaryStop)
 	return errors.Join(transcriptErr, usageErr)
+}
+
+// runHookKimiTranscript wraps the shared transcript recorder with a
+// per-(session, wire turn ID, content fingerprint) idempotency guard. Kimi's
+// Stop hook fires roughly two dozen times per completed turn, with
+// redeliveries observed as little as ~0.14s apart — including effectively
+// concurrent firings. Extraction itself is correct (it already resolves only
+// the final turn's blocks), so without this guard the same turn is
+// re-recorded on every firing, measured at 23x live (#1681).
+//
+// Turn ID alone is not a completed-turn boundary: Kimi's Stop can re-fire
+// while a turn is still streaming, so a later firing with the same turn ID
+// can carry strictly more content than an earlier one (measured live: 2,053
+// of 52,475 consecutive same-session pairs grew, 153 of those gained the
+// only "text" block the turn ever produced). Keying on turn ID alone would
+// record the marker on the first, incomplete firing and silently discard
+// everything the turn produced afterwards — a worse failure than the
+// duplication being fixed. The content fingerprint catches that growth: a
+// firing is skipped only when both the turn ID and the fingerprint of its
+// extracted blocks match the marker.
+//
+// The blocks extracted here for the fingerprint are the SAME blocks passed
+// to runHookTranscriptWithBlocks below — the shared recorder never
+// re-extracts from the wire log on this path. Two independent reads of
+// wire.jsonl (one for the fingerprint, one inside the recorder) used to run
+// per firing; besides doubling the per-firing cost of a bufio scan of the
+// whole session wire log, it meant the fingerprint keyed one read while the
+// persisted row came from a second, later read of a file that can change
+// between the two (rotated, truncated, rewritten). Passing the blocks
+// through closes that window: the fingerprint and the persisted body are
+// now guaranteed to describe the same content (#1681 HIGH finding).
+//
+// This deliberately does not delete or supersede the earlier, shorter row
+// that a growing turn leaves behind — that needs a delete port this hook
+// does not have. Recording each growth snapshot still collapses ~24
+// same-turn firings to roughly 2-3 rows (turn ID unchanged, fingerprint
+// growing), a ~95% reduction with zero content loss.
+//
+// The check-then-record-then-mark sequence runs inside
+// withKimiTranscriptTurnStateLock so two racing firings for the same
+// (turn ID, fingerprint) cannot both observe "not yet recorded" and both
+// write a row. Marking is additionally gated on the recorder's own
+// recorded=true return value, never inferred from a nil error: the shared
+// recorder fails soft on several unrelated conditions (e.g. an unresolved
+// session), and treating any of those nil-error returns as "a row was
+// persisted" would let a turn that was never actually stored get marked as
+// done — silently discarding every later redelivery of that turn forever
+// (#1681 CRITICAL finding).
+//
+// When the wire turn cannot be resolved (missing index entry, missing wire
+// log, escaped path, ...), the fingerprint cannot be computed, or the marker
+// infrastructure is unusable, this falls through to the shared recorder
+// unguarded — a hook must never fail or silently drop a turn over
+// housekeeping state, even at the cost of an occasional duplicate.
+//
+// Losing the race for the lock is the one case that does NOT fall open: it
+// means another firing is recording this turn, and Kimi will redeliver it
+// ~0.14s later anyway. See errKimiTranscriptTurnLockBusy.
+func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbPath string) error {
+	sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
+	blocks, turnID, turnResolved := extractKimiTranscriptTurn(payload)
+	turnID = strings.TrimSpace(turnID)
+	if !turnResolved || sessionID == "" || turnID == "" {
+		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, nil)
+		return err
+	}
+	fingerprint, fingerprintErr := kimiTranscriptBlocksFingerprint(blocks)
+	if fingerprintErr != nil {
+		slog.Debug("Kimi transcript fingerprint unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", fingerprintErr)
+		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		return err
+	}
+
+	var recordErr error
+	lockErr := withKimiTranscriptTurnStateLock(sessionID, func() error {
+		if kimiTranscriptTurnAlreadyRecorded(sessionID, turnID, fingerprint) {
+			return nil
+		}
+		recorded, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		if err != nil {
+			recordErr = err
+			return err
+		}
+		if recorded {
+			markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint)
+		}
+		return nil
+	})
+	if errors.Is(lockErr, errKimiTranscriptTurnLockBusy) {
+		// Another firing held the lock for the whole acquisition budget,
+		// so it is recording this turn right now. Yield instead of
+		// recording unguarded: the budget is the same 1s as SQLite's
+		// busy_timeout, so a contended store exhausts it routinely, and
+		// recording here would put a duplicate in the store on exactly
+		// the workload #1681 is about. Kimi redelivers Stop for this turn
+		// roughly two dozen times, so skipping costs at most one more
+		// redelivery (~0.14s) — and if the holder succeeds, the marker it
+		// writes makes those redeliveries correctly no-ops.
+		slog.Debug("Kimi transcript turn is being recorded by another firing; skipping", "session_id", sessionID, "turn_id", turnID)
+		return nil
+	}
+	if lockErr != nil && recordErr == nil {
+		// The marker infrastructure itself is unusable (an unresolvable
+		// state directory, a failed mkdir) — no firing can take the lock,
+		// so yielding would drop the turn entirely. Fail open: record
+		// unguarded rather than silently dropping a possibly-new turn. No
+		// marker is written on this path either way — it runs outside
+		// withKimiTranscriptTurnStateLock, so writing one here would race
+		// the very lock this falls back from.
+		slog.Debug("Kimi transcript turn lock unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", lockErr)
+		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		return err
+	}
+	return lockErr
 }
 
 func (c *RootCLI) captureKimiUsage(

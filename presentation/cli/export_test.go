@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/duck8823/traceary/domain/types"
 )
 
 // ResolveDBPath exposes resolveDBPath for tests.
@@ -123,6 +125,22 @@ func AntigravityWorkspaceCwd(payload []byte) string {
 // a conversation/step pair so tests can age or inspect it directly.
 func AntigravityPendingCommandPath(conversationID, stepIdx string) (string, error) {
 	return antigravityPendingCommandPath(conversationID, stepIdx)
+}
+
+// SetResolveHookTranscriptSessionIDFunc overrides the session-ID resolver
+// runHookTranscriptWithBlocks uses. Tests use it to force the "session
+// resolution yielded nothing" fail-soft skip (recorded=false, err=nil) in
+// isolation from any particular caller's own upstream preconditions — e.g.
+// Kimi's idempotency guard (#1681), whose own turn-resolution check would
+// otherwise make that skip unreachable through payload manipulation alone.
+func SetResolveHookTranscriptSessionIDFunc(f func([]byte, string) (types.SessionID, error)) {
+	resolveHookTranscriptSessionIDFunc = f
+}
+
+// ResetResolveHookTranscriptSessionIDFunc restores the default session-ID
+// resolver for runHookTranscriptWithBlocks.
+func ResetResolveHookTranscriptSessionIDFunc() {
+	resolveHookTranscriptSessionIDFunc = resolveHookSessionID
 }
 
 // SetDetectRepoContextFunc replaces the work-context resolver for tests.

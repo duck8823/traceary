@@ -758,6 +758,14 @@ func (c *RootCLI) runHookPrompt(
 	return nil
 }
 
+// resolveHookTranscriptSessionIDFunc resolves the session ID
+// runHookTranscriptWithBlocks records the transcript event against. It
+// defaults to resolveHookSessionID; tests override it to force the
+// "session resolution yielded nothing" fail-soft skip in isolation, so the
+// (recorded, err) contract can be pinned independently of any particular
+// caller's own upstream preconditions (#1681 CRITICAL regression coverage).
+var resolveHookTranscriptSessionIDFunc = resolveHookSessionID
+
 // runHookTranscript records the last assistant-message turn as a
 // `transcript` event. It reads Stop-hook stdin to find
 // the last assistant turn and stores it as a `transcript` event. The
@@ -778,17 +786,51 @@ func (c *RootCLI) runHookPrompt(
 // If the host payload is missing or empty we fail soft — transcript
 // capture is a nice-to-have, not a requirement for sessions to close
 // cleanly.
+//
+// This is a thin wrapper around runHookTranscriptWithBlocks that always
+// uses the client's registered extractor; every caller except Kimi's
+// idempotency guard (hook_kimi.go) goes through here and is unaffected by
+// that guard's pre-extracted-blocks path.
 func (c *RootCLI) runHookTranscript(
 	ctx context.Context,
 	input io.Reader,
 	client string,
 	dbPath string,
 ) error {
+	_, err := c.runHookTranscriptWithBlocks(ctx, input, client, dbPath, nil)
+	return err
+}
+
+// runHookTranscriptWithBlocks is the shared implementation behind
+// runHookTranscript. When blocks is non-empty, it is recorded as-is and the
+// client's registered extractor never runs — this lets a caller that has
+// already extracted a turn (Kimi's Stop-hook idempotency guard, #1681) pass
+// those exact blocks straight through, so the wire log is read once per
+// firing instead of twice, and so any idempotency fingerprint the caller
+// computed over those blocks keys the exact content this call persists.
+// When blocks is empty, behavior is unchanged from before this function
+// existed: the extractor registered for client runs against payload.
+//
+// It reports recorded=true only when a row was actually persisted to the
+// store, and recorded=false with a nil error on every fail-soft skip below
+// (unknown client, no extractable content, unresolved session). Callers
+// MUST NOT infer "a row was written" from "err == nil" alone — that
+// conflation was #1681's CRITICAL defect: a caller marked a turn as
+// recorded whenever this returned a nil error, even on firings where
+// nothing was ever persisted, permanently losing every later redelivery of
+// that turn.
+func (c *RootCLI) runHookTranscriptWithBlocks(
+	ctx context.Context,
+	input io.Reader,
+	client string,
+	dbPath string,
+	blocks []apptypes.EventBodyBlock,
+) (bool, error) {
 	if c.storeManagement == nil {
-		return xerrors.Errorf("initialize store usecase is not configured")
+		return false, xerrors.Errorf("initialize store usecase is not configured")
 	}
 	if c.event == nil {
-		return xerrors.Errorf("record log usecase is not configured")
+		return false, xerrors.Errorf("record log usecase is not configured")
 	}
 	// Tag for #672: transcript comes from Claude / Codex Stop or
 	// Gemini AfterAgent. Downstream readers can distinguish via
@@ -801,20 +843,23 @@ func (c *RootCLI) runHookTranscript(
 
 	payload, err := readHookPayload(input)
 	if err != nil {
-		return err
+		return false, err
 	}
 	ctx = withResolvedHookDelivery(ctx, payload, client)
-	extractor, ok := transcriptExtractorFor(client)
-	if !ok {
-		// Unknown client — silently skip so a packaged hook invoking an
-		// unsupported client never aborts the host's Stop / SessionEnd
-		// hook. New clients must register an extractor in
-		// `transcriptExtractorFor` before their hook is wired.
-		return nil
-	}
-	blocks, ok := extractor(payload)
-	if !ok || len(blocks) == 0 {
-		return nil
+	if len(blocks) == 0 {
+		extractor, ok := transcriptExtractorFor(client)
+		if !ok {
+			// Unknown client — silently skip so a packaged hook invoking an
+			// unsupported client never aborts the host's Stop / SessionEnd
+			// hook. New clients must register an extractor in
+			// `transcriptExtractorFor` before their hook is wired.
+			return false, nil
+		}
+		extracted, ok := extractor(payload)
+		if !ok || len(extracted) == 0 {
+			return false, nil
+		}
+		blocks = extracted
 	}
 	// Serialize the structured blocks into the canonical JSON
 	// envelope Traceary persists for kind=transcript bodies. Readers
@@ -823,7 +868,7 @@ func (c *RootCLI) runHookTranscript(
 	// through apptypes.ExtractPlainBody.
 	body, err := apptypes.MarshalEventBodyBlocks(blocks)
 	if err != nil {
-		return xerrors.Errorf("failed to serialize transcript blocks: %w", err)
+		return false, xerrors.Errorf("failed to serialize transcript blocks: %w", err)
 	}
 	// Transcript bodies can echo secrets the assistant saw earlier in
 	// the turn (API keys from .env, Bearer tokens from header dumps,
@@ -837,32 +882,32 @@ func (c *RootCLI) runHookTranscript(
 		StructuredRules(c.structuredRedactRules).
 		Build()
 
-	sessionID, err := resolveHookSessionID(payload, client)
+	sessionID, err := resolveHookTranscriptSessionIDFunc(payload, client)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if sessionID == "" {
-		return nil
+		return false, nil
 	}
 	workspace, err := resolveHookWorkspace(ctx, payload, client, true)
 	if err != nil {
-		return err
+		return false, err
 	}
 	agent, err := resolveHookAgent(client, payload)
 	if err != nil {
-		return err
+		return false, err
 	}
 	resolvedDBPath, err := resolveDBPath(dbPath)
 	if err != nil {
-		return err
+		return false, err
 	}
 	c.applyDatabasePath(resolvedDBPath)
 	if err := c.storeManagement.Initialize(ctx); err != nil {
-		return xerrors.Errorf("failed to initialize store: %w", err)
+		return false, xerrors.Errorf("failed to initialize store: %w", err)
 	}
 	if _, err := c.event.Log(ctx, body, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace, logCfg); err != nil {
-		return xerrors.Errorf("failed to record hook transcript: %w", err)
+		return false, xerrors.Errorf("failed to record hook transcript: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
