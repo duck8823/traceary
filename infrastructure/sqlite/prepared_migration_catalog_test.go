@@ -42,7 +42,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 		42: MigrationDataDependentOffline,
 		43: MigrationConstantInPlace,
 		44: MigrationConstantInPlace,
-		45: MigrationConstantInPlace,
+		45: MigrationDataDependentOffline,
 	}
 	for _, migration := range plan.Pending {
 		if migration.Class != want[migration.Version] {
