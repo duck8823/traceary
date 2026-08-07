@@ -35,7 +35,7 @@ Traceary is no longer just a local event log. `v0.5.0` organizes the product aro
 | Working memory | handoff / context packs assembled from recent sessions | handoff packs are assembled on demand by `traceary session handoff` / MCP `get_context`. From v0.34 the session summary itself is materialised by consolidation: the stop hook asks the agent to fold the session while the material is still in the agent's context, and the result is stored as a session refinement |
 | Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | curated through the `traceary-memory-review` skill (review-intent triggers) and the `traceary-memory-remember` skill (explicit-write triggers) |
 
-In practice, Traceary acts as a local-first memory substrate for AI agents: hooks feed L1 mechanically, L2 is consolidated at stop while the material is already in context, and L3 stays small because hook-driven auto-extraction lands memories in a review inbox as `status=candidate` and only human review promotes them. Only the finished summary is used afterwards — wake-time recomputation is deliberately avoided.
+In practice, Traceary acts as a local-first memory substrate for AI agents: hooks feed L1 mechanically, L2 is normally consolidated at stop while the material is already in context (anything left unfolded is later reduced to a mechanical summary), and L3 stays small because hook-driven auto-extraction lands memories in a review inbox as `status=candidate` and only human review promotes them. Only the finished summary is used afterwards — wake-time recomputation is deliberately avoided.
 
 Traceary is local-first. It writes to SQLite on your machine and does not include built-in telemetry, analytics, or hosted storage.
 
