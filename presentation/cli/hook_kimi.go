@@ -173,39 +173,63 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 }
 
 // runHookKimiTranscript wraps the shared transcript recorder with a
-// per-(session, wire turn) idempotency guard. Kimi's Stop hook fires
-// roughly two dozen times per completed turn while the session's
-// wire.jsonl is unchanged, with redeliveries observed as little as ~0.14s
-// apart — including effectively concurrent firings. Extraction itself is
-// correct (it already resolves only the final turn's blocks), so without
-// this guard the same unchanged turn is re-recorded on every firing,
-// measured at 23x live (#1681). The check-then-record-then-mark sequence
-// runs inside withKimiTranscriptTurnStateLock so two racing firings for the
-// same turn cannot both observe "not yet recorded" and both write a row.
+// per-(session, wire turn ID, content fingerprint) idempotency guard. Kimi's
+// Stop hook fires roughly two dozen times per completed turn, with
+// redeliveries observed as little as ~0.14s apart — including effectively
+// concurrent firings. Extraction itself is correct (it already resolves only
+// the final turn's blocks), so without this guard the same turn is
+// re-recorded on every firing, measured at 23x live (#1681).
+//
+// Turn ID alone is not a completed-turn boundary: Kimi's Stop can re-fire
+// while a turn is still streaming, so a later firing with the same turn ID
+// can carry strictly more content than an earlier one (measured live: 2,053
+// of 52,475 consecutive same-session pairs grew, 153 of those gained the
+// only "text" block the turn ever produced). Keying on turn ID alone would
+// record the marker on the first, incomplete firing and silently discard
+// everything the turn produced afterwards — a worse failure than the
+// duplication being fixed. The content fingerprint catches that growth: a
+// firing is skipped only when both the turn ID and the fingerprint of its
+// extracted blocks match the marker.
+//
+// This deliberately does not delete or supersede the earlier, shorter row
+// that a growing turn leaves behind — that needs a delete port this hook
+// does not have. Recording each growth snapshot still collapses ~24
+// same-turn firings to roughly 2-3 rows (turn ID unchanged, fingerprint
+// growing), a ~95% reduction with zero content loss.
+//
+// The check-then-record-then-mark sequence runs inside
+// withKimiTranscriptTurnStateLock so two racing firings for the same
+// (turn ID, fingerprint) cannot both observe "not yet recorded" and both
+// write a row.
 //
 // When the wire turn cannot be resolved (missing index entry, missing wire
-// log, escaped path, ...) or the turn lock itself is unavailable, this
-// falls through to the shared recorder unguarded — a hook must never fail
-// or silently drop a turn over housekeeping state, even at the cost of an
-// occasional duplicate.
+// log, escaped path, ...), the fingerprint cannot be computed, or the turn
+// lock itself is unavailable, this falls through to the shared recorder
+// unguarded — a hook must never fail or silently drop a turn over
+// housekeeping state, even at the cost of an occasional duplicate.
 func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbPath string) error {
 	sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
-	_, turnID, turnResolved := extractKimiTranscriptTurn(payload)
+	blocks, turnID, turnResolved := extractKimiTranscriptTurn(payload)
 	turnID = strings.TrimSpace(turnID)
 	if !turnResolved || sessionID == "" || turnID == "" {
+		return c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath)
+	}
+	fingerprint, fingerprintErr := kimiTranscriptBlocksFingerprint(blocks)
+	if fingerprintErr != nil {
+		slog.Debug("Kimi transcript fingerprint unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", fingerprintErr)
 		return c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath)
 	}
 
 	var recordErr error
 	lockErr := withKimiTranscriptTurnStateLock(sessionID, func() error {
-		if kimiTranscriptTurnAlreadyRecorded(sessionID, turnID) {
+		if kimiTranscriptTurnAlreadyRecorded(sessionID, turnID, fingerprint) {
 			return nil
 		}
 		if err := c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath); err != nil {
 			recordErr = err
 			return err
 		}
-		markKimiTranscriptTurnRecorded(sessionID, turnID)
+		markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint)
 		return nil
 	})
 	if lockErr != nil && recordErr == nil {

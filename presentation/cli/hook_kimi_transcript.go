@@ -2,6 +2,9 @@ package cli
 
 import (
 	"bufio"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -9,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -221,17 +225,68 @@ func kimiCodeHome() string {
 // wire.jsonl), not a field carried on any hook payload.
 const kimiTranscriptTurnsStateDir = "kimi-transcript-turns"
 
-// kimiTranscriptTurnLockRetries and kimiTranscriptTurnLockDelay bound the
-// mkdir-lock spin below, matching the retry budget
-// withHookActiveSubagentStateLock (hook_state.go) already uses for the same
-// kind of tiny, short-held hook-state lock.
-const (
-	kimiTranscriptTurnLockRetries = 100
-	kimiTranscriptTurnLockDelay   = 10 * time.Millisecond
-)
+// kimiTranscriptTurnLockTimeout bounds how long a Stop firing waits to
+// acquire the per-session turn-marker lock before falling open. The Kimi
+// Stop hook's host timeout is 5s (integrations/kimi-plugin/kimi.plugin.json)
+// and the critical section runs a DB migration check plus an event insert
+// against a store that can be tens of GB, so this budget leaves several
+// seconds of headroom inside the host deadline for that work to finish even
+// after a fully contended lock wait.
+const kimiTranscriptTurnLockTimeout = 1 * time.Second
+
+// kimiTranscriptTurnLockRetryDelay is the poll interval TryLockContext uses
+// while waiting up to kimiTranscriptTurnLockTimeout for the lock.
+const kimiTranscriptTurnLockRetryDelay = 20 * time.Millisecond
+
+// kimiTranscriptBlocksFingerprint computes a stable content fingerprint over
+// an assistant turn's extracted blocks. Kimi's Stop hook can re-fire while a
+// turn is still streaming: a firing whose wire turn ID matches the marker
+// but whose fingerprint differs means the turn grew since the marker was
+// written, not that it redelivered, and must still be recorded (#1681).
+// json.Marshal over a fixed struct slice shape is deterministic within one
+// process/Go version, which is all a same-host comparison needs — this
+// fingerprint is never compared across hosts or persisted long-term. On
+// error the returned string is always empty; callers must check err rather
+// than rely on that as a sentinel.
+func kimiTranscriptBlocksFingerprint(blocks []apptypes.EventBodyBlock) (string, error) {
+	encoded, err := json.Marshal(blocks)
+	if err != nil {
+		return "", xerrors.Errorf("failed to encode Kimi transcript blocks for fingerprinting: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// kimiTranscriptTurnMarkerSeparator joins the turn ID and content
+// fingerprint fields inside the marker file. Neither field can contain a
+// tab (the turn ID is a Kimi-issued opaque identifier normalized to a
+// trimmed string; the fingerprint is hex), so a single split is
+// unambiguous.
+const kimiTranscriptTurnMarkerSeparator = "\t"
+
+// encodeKimiTranscriptTurnMarker renders the marker file content for a
+// recorded (turn ID, content fingerprint) pair.
+func encodeKimiTranscriptTurnMarker(turnID, fingerprint string) []byte {
+	return []byte(turnID + kimiTranscriptTurnMarkerSeparator + fingerprint)
+}
+
+// decodeKimiTranscriptTurnMarker parses a marker file's content into its
+// (turn ID, fingerprint) pair. It returns ok=false for anything that is not
+// exactly two nonempty tab-separated fields — including a marker written by
+// the pre-fingerprint format (turn ID only, no separator), which must never
+// be mistaken for a match against a real fingerprint.
+func decodeKimiTranscriptTurnMarker(data []byte) (turnID, fingerprint string, ok bool) {
+	trimmed := strings.TrimSpace(string(data))
+	parts := strings.SplitN(trimmed, kimiTranscriptTurnMarkerSeparator, 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
 
 // kimiTranscriptTurnStatePath returns the marker file path recording the
-// last wire turn ID whose transcript was recorded for a Kimi session.
+// last (wire turn ID, content fingerprint) pair whose transcript was
+// recorded for a Kimi session.
 func kimiTranscriptTurnStatePath(sessionID string) (string, error) {
 	stateDir, err := resolveHookStateDir()
 	if err != nil {
@@ -240,13 +295,25 @@ func kimiTranscriptTurnStatePath(sessionID string) (string, error) {
 	return filepath.Join(stateDir, kimiTranscriptTurnsStateDir, sanitizeHookStateKey(sessionID)), nil
 }
 
-// withKimiTranscriptTurnStateLock runs fn while holding an exclusive,
-// directory-mkdir-based lock scoped to sessionID's turn marker. Kimi
-// redelivers Stop for the same completed turn with observed gaps as small
-// as ~0.14s, including effectively concurrent firings, so the check
-// ("already recorded?") and the record-then-mark sequence inside fn must be
-// one atomic critical section — otherwise two racing firings can both
-// observe "not yet recorded" and each write a row (#1681).
+// withKimiTranscriptTurnStateLock runs fn while holding an exclusive
+// github.com/gofrs/flock lock scoped to sessionID's turn marker, matching
+// the idiom hook_memory_extract_queue.go and hook_archive_auto.go already
+// use for hook-state locks. Kimi redelivers Stop for the same turn with
+// observed gaps as small as ~0.14s, including effectively concurrent
+// firings, so the check ("already recorded?") and the record-then-mark
+// sequence inside fn must be one atomic critical section — otherwise two
+// racing firings can both observe "not yet recorded" and each write a row
+// (#1681).
+//
+// flock (unlike the prior mkdir-based lock) is released by the kernel when
+// the holding process dies for any reason, including SIGKILL — so a host
+// kill mid-critical-section (a real risk here: the section runs a DB
+// migration check plus an insert against a multi-GB store, inside a 5s host
+// hook timeout) cannot leave a stale lock behind. No PID check, TTL, or
+// cleanup is needed. Acquisition is bounded by kimiTranscriptTurnLockTimeout
+// so a firing never spins past its host budget; failure to acquire falls
+// open in the caller (records unguarded) exactly like any other
+// unresolvable-state case.
 func withKimiTranscriptTurnStateLock(sessionID string, fn func() error) error {
 	path, err := kimiTranscriptTurnStatePath(sessionID)
 	if err != nil {
@@ -255,36 +322,40 @@ func withKimiTranscriptTurnStateLock(sessionID string, fn func() error) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return xerrors.Errorf("failed to create Kimi transcript turn state directory: %w", err)
 	}
-	lockPath := path + ".lock"
-	for attempt := 0; ; attempt++ {
-		err := os.Mkdir(lockPath, 0o700)
-		if err == nil {
-			defer func() { _ = os.Remove(lockPath) }()
-			return fn()
-		}
-		if !os.IsExist(err) {
-			return xerrors.Errorf("failed to lock Kimi transcript turn state: %w", err)
-		}
-		if attempt >= kimiTranscriptTurnLockRetries {
-			return xerrors.Errorf("failed to lock Kimi transcript turn state: timed out")
-		}
-		time.Sleep(kimiTranscriptTurnLockDelay)
+	lock := flock.New(path + ".lock")
+	lockCtx, cancel := context.WithTimeout(context.Background(), kimiTranscriptTurnLockTimeout)
+	defer cancel()
+	locked, err := lock.TryLockContext(lockCtx, kimiTranscriptTurnLockRetryDelay)
+	if err != nil {
+		return xerrors.Errorf("failed to lock Kimi transcript turn state: %w", err)
 	}
+	if !locked {
+		return xerrors.Errorf("failed to lock Kimi transcript turn state: timed out")
+	}
+	defer func() {
+		if unlockErr := lock.Unlock(); unlockErr != nil {
+			slog.Debug("failed to release Kimi transcript turn state lock", "session_id", sessionID, "error", unlockErr)
+		}
+	}()
+	return fn()
 }
 
-// kimiTranscriptTurnAlreadyRecorded reports whether turnID was already
-// recorded as sessionID's last transcript turn. Kimi's Stop hook fires
-// roughly two dozen times per completed turn while wire.jsonl is
-// unchanged (#1681); this is the read half of the guard that collapses
-// those redeliveries to a single recorded transcript event. Callers must
-// hold withKimiTranscriptTurnStateLock for correctness under concurrent
-// firings.
+// kimiTranscriptTurnAlreadyRecorded reports whether the (turnID,
+// fingerprint) pair was already recorded as sessionID's last transcript
+// turn. Kimi's Stop hook fires roughly two dozen times per completed turn,
+// and can also re-fire while a turn is still streaming (#1681); this is the
+// read half of the guard that collapses unchanged redeliveries to a single
+// recorded transcript event while still recording a turn that grew content
+// between firings (turnID matches, fingerprint does not). Callers must hold
+// withKimiTranscriptTurnStateLock for correctness under concurrent firings.
 //
-// Any inability to read the marker (including a missing state directory)
-// fails open — returns false, treating the turn as not yet recorded.
-// Traceary prefers an occasional duplicate over silently dropping a
-// genuinely new turn because of transient marker-file trouble.
-func kimiTranscriptTurnAlreadyRecorded(sessionID, turnID string) bool {
+// Any inability to read or parse the marker (including a missing state
+// directory, or a marker written by the pre-fingerprint single-field
+// format) fails open — returns false, treating the turn as not yet
+// recorded. Traceary prefers an occasional duplicate over silently dropping
+// a genuinely new or grown turn because of transient marker-file trouble or
+// a marker-format change.
+func kimiTranscriptTurnAlreadyRecorded(sessionID, turnID, fingerprint string) bool {
 	path, err := kimiTranscriptTurnStatePath(sessionID)
 	if err != nil {
 		slog.Debug("failed to resolve Kimi transcript turn state path", "session_id", sessionID, "error", err)
@@ -297,23 +368,27 @@ func kimiTranscriptTurnAlreadyRecorded(sessionID, turnID string) bool {
 		}
 		return false
 	}
-	return strings.TrimSpace(string(data)) == turnID
+	recordedTurnID, recordedFingerprint, ok := decodeKimiTranscriptTurnMarker(data)
+	if !ok {
+		return false
+	}
+	return recordedTurnID == turnID && recordedFingerprint == fingerprint
 }
 
-// markKimiTranscriptTurnRecorded persists turnID as the last recorded
-// transcript turn for sessionID. Failures are logged and swallowed:
-// losing the marker only risks one extra duplicate on the next Stop
-// firing, never a lost turn, and a hook must never fail the host's turn
-// over housekeeping state. Callers must hold
+// markKimiTranscriptTurnRecorded persists (turnID, fingerprint) as the last
+// recorded transcript turn for sessionID. Failures are logged and
+// swallowed: losing the marker only risks one extra duplicate on the next
+// Stop firing, never a lost turn, and a hook must never fail the host's
+// turn over housekeeping state. Callers must hold
 // withKimiTranscriptTurnStateLock for correctness under concurrent
 // firings.
-func markKimiTranscriptTurnRecorded(sessionID, turnID string) {
+func markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint string) {
 	path, err := kimiTranscriptTurnStatePath(sessionID)
 	if err != nil {
 		slog.Debug("failed to resolve Kimi transcript turn state path", "session_id", sessionID, "error", err)
 		return
 	}
-	if err := os.WriteFile(path, []byte(turnID), 0o600); err != nil {
+	if err := os.WriteFile(path, encodeKimiTranscriptTurnMarker(turnID, fingerprint), 0o600); err != nil {
 		slog.Debug("failed to write Kimi transcript turn state", "path", path, "error", err)
 	}
 }
