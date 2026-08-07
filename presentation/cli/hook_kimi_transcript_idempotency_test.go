@@ -393,7 +393,7 @@ func TestRootCLI_HookKimiStop_TranscriptTurnIdempotency(t *testing.T) {
 		}
 	})
 
-	t.Run("lock acquisition timeout falls open and still records without failing the hook", func(t *testing.T) {
+	t.Run("lock acquisition timeout yields to the holder instead of recording a duplicate", func(t *testing.T) {
 		// The turn-marker lock now uses github.com/gofrs/flock (crash-safe
 		// release on process death, unlike the former mkdir lock) instead
 		// of a directory-mkdir spin. Forcing a genuine *lock-acquisition
@@ -440,23 +440,36 @@ func TestRootCLI_HookKimiStop_TranscriptTurnIdempotency(t *testing.T) {
 		if stdout != "" {
 			t.Fatalf("Stop output = %q, want empty passive-hook output", stdout)
 		}
-		if got := len(eventStub.logCalls); got != 1 {
-			t.Fatalf("transcript log calls = %d, want 1 (lock-acquisition timeout must still fall open and record)", got)
-		}
-		if !strings.Contains(eventStub.logCalls[0].message, "lock contention reply") {
-			t.Fatalf("transcript body = %q, want it to contain the wire log text", eventStub.logCalls[0].message)
+		// The holder of the lock is, by construction, the firing that
+		// records this turn. Recording here too would put a second row in
+		// the store for content another firing is already persisting —
+		// exactly the duplication #1681 is about, and reachable on any
+		// contended store because the acquisition budget and SQLite's
+		// busy_timeout are both 1s. So this firing must record nothing.
+		if got := len(eventStub.logCalls); got != 0 {
+			t.Fatalf("transcript log calls = %d, want 0 (a firing that loses the lock race must yield, not record a duplicate)", got)
 		}
 
-		// stdout/logCalls/body content alone don't distinguish this from
-		// the uncontended happy path — both look identical on those
-		// three signals (proven by removing the contention: the subtest
-		// still passed in 0.00s). The lock-timeout fallback runs
-		// c.runHookTranscriptWithBlocks directly, outside
-		// withKimiTranscriptTurnStateLock, and never calls
-		// markKimiTranscriptTurnRecorded; only the uncontended path
-		// would leave a marker behind. Assert its absence so this
-		// subtest actually exercises the lock-unavailable branch.
+		// And it must not mark the turn either: it did not persist the
+		// turn, so claiming it did would suppress the redeliveries that
+		// are this turn's remaining chances to be recorded.
 		assertKimiTranscriptMarkerAbsent(t, stateDir, sessionID)
+
+		// Yielding is only safe because the turn is not lost by it. Kimi
+		// redelivers Stop for the same turn roughly two dozen times, so
+		// release the contending lock and fire again: the next
+		// redelivery takes the lock and records the turn normally.
+		if err := externalLock.Unlock(); err != nil {
+			t.Fatalf("release external contending lock: %v", err)
+		}
+		retryEvent := &eventUsecaseStub{}
+		runKimiHook(t, "stop", readKimiFixture(t, "stop.json"), retryEvent, &sessionUsecaseStub{})
+		if got := len(retryEvent.logCalls); got != 1 {
+			t.Fatalf("transcript log calls after the lock was released = %d, want 1 (yielding must delay the turn, never drop it)", got)
+		}
+		if !strings.Contains(retryEvent.logCalls[0].message, "lock contention reply") {
+			t.Fatalf("transcript body = %q, want it to contain the wire log text", retryEvent.logCalls[0].message)
+		}
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -226,13 +227,33 @@ func kimiCodeHome() string {
 const kimiTranscriptTurnsStateDir = "kimi-transcript-turns"
 
 // kimiTranscriptTurnLockTimeout bounds how long a Stop firing waits to
-// acquire the per-session turn-marker lock before falling open. The Kimi
-// Stop hook's host timeout is 5s (integrations/kimi-plugin/kimi.plugin.json)
-// and the critical section runs a DB migration check plus an event insert
-// against a store that can be tens of GB, so this budget leaves several
-// seconds of headroom inside the host deadline for that work to finish even
-// after a fully contended lock wait.
+// acquire the per-session turn-marker lock. The Kimi Stop hook's host timeout
+// is 5s (integrations/kimi-plugin/kimi.plugin.json) and the critical section
+// runs a DB migration check plus an event insert against a store that can be
+// tens of GB, so this budget leaves several seconds of headroom inside the
+// host deadline for that work to finish even after a fully contended wait.
+//
+// The wait can genuinely be exhausted: the insert inside the critical section
+// is itself bounded by SQLite's busy_timeout, which is also 1000ms
+// (infrastructure/sqlite/database.go), so a store under write contention
+// holds this lock for about as long as a contending firing is willing to wait
+// for it. That is why exhausting the wait is handled as
+// errKimiTranscriptTurnLockBusy rather than as a fall-open case.
 const kimiTranscriptTurnLockTimeout = 1 * time.Second
+
+// errKimiTranscriptTurnLockBusy reports that another process held the turn
+// lock for the whole acquisition budget — meaning it is recording this very
+// turn right now. This is distinct from the marker infrastructure being
+// unusable (an unresolvable state directory, a failed mkdir), which leaves no
+// process able to record and must fall open.
+//
+// The distinction decides whether a firing records unguarded or skips.
+// Skipping is safe here and falling open is not: Kimi redelivers Stop for the
+// same turn roughly two dozen times, so a firing that yields is retried
+// ~0.14s later by the next redelivery, whereas recording unguarded under
+// exactly the contention that produced the timeout reproduces the duplicate
+// storm this guard exists to stop (#1681).
+var errKimiTranscriptTurnLockBusy = errors.New("kimi transcript turn state lock is held by another firing")
 
 // kimiTranscriptTurnLockRetryDelay is the poll interval TryLockContext uses
 // while waiting up to kimiTranscriptTurnLockTimeout for the lock.
@@ -311,9 +332,10 @@ func kimiTranscriptTurnStatePath(sessionID string) (string, error) {
 // migration check plus an insert against a multi-GB store, inside a 5s host
 // hook timeout) cannot leave a stale lock behind. No PID check, TTL, or
 // cleanup is needed. Acquisition is bounded by kimiTranscriptTurnLockTimeout
-// so a firing never spins past its host budget; failure to acquire falls
-// open in the caller (records unguarded) exactly like any other
-// unresolvable-state case.
+// so a firing never spins past its host budget; exhausting that budget
+// returns errKimiTranscriptTurnLockBusy, which the caller treats as "another
+// firing owns this turn" and skips. Every other failure means no process can
+// take the lock at all, and falls open in the caller (records unguarded).
 func withKimiTranscriptTurnStateLock(sessionID string, fn func() error) error {
 	path, err := kimiTranscriptTurnStatePath(sessionID)
 	if err != nil {
@@ -327,10 +349,16 @@ func withKimiTranscriptTurnStateLock(sessionID string, fn func() error) error {
 	defer cancel()
 	locked, err := lock.TryLockContext(lockCtx, kimiTranscriptTurnLockRetryDelay)
 	if err != nil {
+		// TryLockContext surfaces the expired acquisition budget as the
+		// context's own error, so that case is the busy one, not a
+		// broken-lock one.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return errKimiTranscriptTurnLockBusy
+		}
 		return xerrors.Errorf("failed to lock Kimi transcript turn state: %w", err)
 	}
 	if !locked {
-		return xerrors.Errorf("failed to lock Kimi transcript turn state: timed out")
+		return errKimiTranscriptTurnLockBusy
 	}
 	defer func() {
 		if unlockErr := lock.Unlock(); unlockErr != nil {

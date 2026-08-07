@@ -220,10 +220,14 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 // (#1681 CRITICAL finding).
 //
 // When the wire turn cannot be resolved (missing index entry, missing wire
-// log, escaped path, ...), the fingerprint cannot be computed, or the turn
-// lock itself is unavailable, this falls through to the shared recorder
+// log, escaped path, ...), the fingerprint cannot be computed, or the marker
+// infrastructure is unusable, this falls through to the shared recorder
 // unguarded — a hook must never fail or silently drop a turn over
 // housekeeping state, even at the cost of an occasional duplicate.
+//
+// Losing the race for the lock is the one case that does NOT fall open: it
+// means another firing is recording this turn, and Kimi will redeliver it
+// ~0.14s later anyway. See errKimiTranscriptTurnLockBusy.
 func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbPath string) error {
 	sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
 	blocks, turnID, turnResolved := extractKimiTranscriptTurn(payload)
@@ -254,13 +258,27 @@ func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbP
 		}
 		return nil
 	})
+	if errors.Is(lockErr, errKimiTranscriptTurnLockBusy) {
+		// Another firing held the lock for the whole acquisition budget,
+		// so it is recording this turn right now. Yield instead of
+		// recording unguarded: the budget is the same 1s as SQLite's
+		// busy_timeout, so a contended store exhausts it routinely, and
+		// recording here would put a duplicate in the store on exactly
+		// the workload #1681 is about. Kimi redelivers Stop for this turn
+		// roughly two dozen times, so skipping costs at most one more
+		// redelivery (~0.14s) — and if the holder succeeds, the marker it
+		// writes makes those redeliveries correctly no-ops.
+		slog.Debug("Kimi transcript turn is being recorded by another firing; skipping", "session_id", sessionID, "turn_id", turnID)
+		return nil
+	}
 	if lockErr != nil && recordErr == nil {
-		// The lock itself was unavailable (contention timeout or a
-		// filesystem error unrelated to the actual recording). Fail open:
-		// record unguarded rather than silently dropping a possibly-new
-		// turn. No marker is written on this path either way — it runs
-		// outside withKimiTranscriptTurnStateLock, so writing one here
-		// would race the very lock this falls back from.
+		// The marker infrastructure itself is unusable (an unresolvable
+		// state directory, a failed mkdir) — no firing can take the lock,
+		// so yielding would drop the turn entirely. Fail open: record
+		// unguarded rather than silently dropping a possibly-new turn. No
+		// marker is written on this path either way — it runs outside
+		// withKimiTranscriptTurnStateLock, so writing one here would race
+		// the very lock this falls back from.
 		slog.Debug("Kimi transcript turn lock unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", lockErr)
 		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
 		return err
