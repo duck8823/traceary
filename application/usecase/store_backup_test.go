@@ -211,3 +211,11 @@ func (s *storeBackupCreatorStub) PurgeContentEventDedupeRun(_ context.Context, _
 func (s *storeBackupRestorerStub) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
 	return apptypes.ContentEventDedupePurgeResult{}, nil
 }
+
+func (s *storeBackupCreatorStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}
+
+func (s *storeBackupRestorerStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

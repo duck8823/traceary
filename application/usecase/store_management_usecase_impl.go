@@ -131,6 +131,16 @@ func (u *storeManagementUsecase) PurgeContentEventDedupeRun(
 	return result, nil
 }
 
+func (u *storeManagementUsecase) ListContentEventDedupeRuns(
+	ctx context.Context,
+) ([]apptypes.ContentEventDedupeRun, error) {
+	runs, err := u.storeManager.ListContentEventDedupeRuns(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list dedupe runs: %w", err)
+	}
+	return runs, nil
+}
+
 func (u *storeManagementUsecase) CloseStaleSessions(
 	ctx context.Context,
 	staleAfter time.Duration,

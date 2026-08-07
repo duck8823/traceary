@@ -33,4 +33,8 @@ type StoreManager interface {
 	// that run's rollback window. Until a run is purged its bodies still occupy
 	// the store, so apply relocates duplicates rather than reclaiming them.
 	PurgeContentEventDedupeRun(ctx context.Context, runID string) (apptypes.ContentEventDedupePurgeResult, error)
+	// ListContentEventDedupeRuns reports the quarantine runs still held in the
+	// archive, newest first, so a run id an interrupted apply never printed
+	// remains reachable by restore and purge.
+	ListContentEventDedupeRuns(ctx context.Context) ([]apptypes.ContentEventDedupeRun, error)
 }

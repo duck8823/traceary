@@ -261,9 +261,13 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 	if err != nil {
 		return dedupeSurvey{}, err
 	}
+	hasBodyAvailability, err := databaseColumnExists(ctx, db, "events", "body_availability")
+	if err != nil {
+		return dedupeSurvey{}, err
+	}
 
 	if maxRows > 0 {
-		survey.totalEligible, err = d.countDedupeCandidates(ctx, db, agent)
+		survey.totalEligible, err = d.countDedupeCandidates(ctx, db, agent, hasBodyAvailability)
 		if err != nil {
 			return dedupeSurvey{}, err
 		}
@@ -280,8 +284,7 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 	query := `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook,
 	       ` + payloadColumns + `
 	            FROM events
-	           WHERE client = 'hook'
-	             AND kind IN ('prompt', 'transcript')`
+	           WHERE ` + dedupeEligibilityFilter(hasBodyAvailability)
 	if agent != "" {
 		query += "\n             AND agent = ?"
 		args = append(args, agent)
@@ -388,15 +391,34 @@ func decodeDedupeCandidateBody(
 	return string(plain), nil
 }
 
+// dedupeEligibilityFilter is the WHERE fragment shared by the candidate count
+// and the identification scan.
+//
+// Rows the retention pruner has already emptied are excluded. Pruning replaces
+// the body with one fixed marker string for every row it touches, without
+// regard to client or kind, so an emptied prompt and an emptied transcript from
+// unrelated sessions hash to the same identity. Including them would collapse
+// them into one enormous group and quarantine rows that never duplicated
+// anything. The column is probed rather than assumed because stores predating
+// migration 26 do not have it.
+func dedupeEligibilityFilter(hasBodyAvailability bool) string {
+	filter := `client = 'hook'
+	             AND kind IN ('prompt', 'transcript')`
+	if hasBodyAvailability {
+		filter += "\n	             AND body_availability = 'available'"
+	}
+	return filter
+}
+
 func (d *StoreManagementDatasource) countDedupeCandidates(
 	ctx context.Context,
 	q queryRowContexter,
 	agent string,
+	hasBodyAvailability bool,
 ) (int, error) {
 	query := `SELECT COUNT(*)
 	            FROM events
-	           WHERE client = 'hook'
-	             AND kind IN ('prompt', 'transcript')`
+	           WHERE ` + dedupeEligibilityFilter(hasBodyAvailability)
 	args := []any{}
 	if agent != "" {
 		query += "\n             AND agent = ?"
@@ -543,45 +565,72 @@ type dedupeArchiveTarget struct {
 }
 
 // applyDedupeGroups quarantines the planned duplicates in bounded, separately
-// committed batches.
+// committed batches, never splitting a cluster across two commits.
 //
-// Committing per batch is what makes an interrupted repair safe *and* resumable.
-// Interruption leaves a consistent store because every committed batch is a
-// complete archive+delete pair. Resumption needs no checkpoint state: the rows a
-// previous run archived are gone from events, so a re-run simply does not see
-// them. Re-planning a partially repaired group is conservative by construction —
-// removing members can only widen the gaps proximity clustering measures, which
-// can only split clusters further and therefore only keep more rows. A re-run
-// never deletes something a clean run would have kept.
+// Committing per batch is what makes an interrupted repair safe and resumable,
+// but only because the cluster is the atomic unit. Proximity clustering measures
+// the gap between *consecutive surviving* rows, so archiving part of a cluster
+// widens the gaps inside it and can split what was one cluster into several,
+// each keeping its own canonical row. A cluster of t=0s, 9s, 18s under a 10s
+// window is one cluster keeping only t=0; archive t=9 alone and the remaining
+// 0→18 gap exceeds the window, leaving two singleton clusters that no re-run
+// will ever collapse. Committing whole clusters removes that state entirely: an
+// interrupted run leaves every cluster either fully archived or untouched, so
+// re-planning reproduces exactly what a clean run would have decided.
+//
+// Resumption therefore needs no checkpoint. The rows a previous run archived are
+// gone from events, so a re-run does not see their clusters at all, and the
+// clusters it does see are the ones that never started.
+//
+// A cluster larger than the batch size becomes its own batch: correctness of the
+// clustering decision outranks the transaction-size target.
 func (d *StoreManagementDatasource) applyDedupeGroups(
 	ctx context.Context,
 	db *sql.DB,
 	plan dedupePlan,
 	params apptypes.ContentEventDedupeParams,
 ) error {
-	targets := make([]dedupeArchiveTarget, 0, 256)
+	archivedAt := formatTimestamp(params.Now)
+	for _, batch := range partitionDedupeTargets(plan, params.BatchSize) {
+		if err := d.archiveDedupeBatch(ctx, db, batch, params.RunID, archivedAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// partitionDedupeTargets splits a plan into the transactions apply will commit.
+//
+// The invariant it exists to make testable: a cluster is never split across two
+// partitions. batchSize is therefore a target, not a bound — a cluster with more
+// duplicates than batchSize becomes one oversized partition rather than being
+// divided. See applyDedupeGroups for why splitting a cluster is unsafe.
+func partitionDedupeTargets(plan dedupePlan, batchSize int) [][]dedupeArchiveTarget {
+	if batchSize <= 0 {
+		batchSize = apptypes.DefaultContentEventDedupeBatchSize
+	}
+
+	batches := [][]dedupeArchiveTarget{}
+	current := []dedupeArchiveTarget{}
 	for _, group := range plan.groups {
+		if len(group.duplicates) == 0 {
+			continue
+		}
+		if len(current) > 0 && len(current)+len(group.duplicates) > batchSize {
+			batches = append(batches, current)
+			current = []dedupeArchiveTarget{}
+		}
 		for _, dup := range group.duplicates {
-			targets = append(targets, dedupeArchiveTarget{
+			current = append(current, dedupeArchiveTarget{
 				id: dup.id, keptID: group.keptID,
 				forensicKey: group.forensicKey, reason: group.reason,
 			})
 		}
 	}
-
-	batchSize := params.BatchSize
-	if batchSize <= 0 {
-		batchSize = apptypes.DefaultContentEventDedupeBatchSize
+	if len(current) > 0 {
+		batches = append(batches, current)
 	}
-	archivedAt := formatTimestamp(params.Now)
-
-	for start := 0; start < len(targets); start += batchSize {
-		end := min(start+batchSize, len(targets))
-		if err := d.archiveDedupeBatch(ctx, db, targets[start:end], params.RunID, archivedAt); err != nil {
-			return err
-		}
-	}
-	return nil
+	return batches
 }
 
 // archiveDedupeBatch moves one batch of duplicate rows out of events and into the
@@ -740,6 +789,60 @@ func (d *StoreManagementDatasource) PurgeContentEventDedupeRun(
 		PurgedCount:  rowCount,
 		ReleasedBody: byteSum.Int64,
 	}, nil
+}
+
+// ListContentEventDedupeRuns reports every quarantine run still held in the
+// archive, newest first.
+//
+// This is what keeps an interrupted apply recoverable. Apply commits in batches,
+// so a run killed after its first commit has already quarantined rows under a
+// run id that was never printed; listing is the only way to find it again and
+// decide between `--restore` and `--purge`.
+func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
+	ctx context.Context,
+) ([]apptypes.ContentEventDedupeRun, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for dedupe run listing: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT dedupe_run_id, MAX(archived_at), COUNT(*), SUM(length(CAST(body AS BLOB)))
+		  FROM event_content_dedupe_archive
+		 GROUP BY dedupe_run_id
+		 ORDER BY MAX(archived_at) DESC, dedupe_run_id DESC`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query dedupe archive runs: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	runs := []apptypes.ContentEventDedupeRun{}
+	for rows.Next() {
+		var (
+			run        apptypes.ContentEventDedupeRun
+			archivedAt sql.NullString
+			bodyBytes  sql.NullInt64
+		)
+		if err := rows.Scan(&run.RunID, &archivedAt, &run.QuarantinedRows, &bodyBytes); err != nil {
+			return nil, xerrors.Errorf("failed to scan dedupe archive run: %w", err)
+		}
+		run.ArchivedAt = archivedAt.String
+		run.BodyBytes = bodyBytes.Int64
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate dedupe archive runs: %w", err)
+	}
+	return runs, nil
 }
 
 // RestoreContentEventDedupeRun moves the rows quarantined by the given dedupe

@@ -38,6 +38,11 @@ type StoreManagementUsecase interface {
 	// the archived rows so their bytes are actually reclaimed.
 	PurgeContentEventDedupeRun(ctx context.Context, runID string) (apptypes.ContentEventDedupePurgeResult, error)
 
+	// ListContentEventDedupeRuns reports the quarantine runs still held in the
+	// archive, so an operator can find the run id of an apply that was
+	// interrupted before it printed one.
+	ListContentEventDedupeRuns(ctx context.Context) ([]apptypes.ContentEventDedupeRun, error)
+
 	// CreateStoreArchive exports GC-eligible rows to a versioned archive package.
 	// When DeleteAfterVerify is set, verifies the package then deletes exact IDs.
 	CreateStoreArchive(ctx context.Context, params apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error)

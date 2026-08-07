@@ -192,3 +192,7 @@ func TestRestoreStoreArchive_idempotent(t *testing.T) {
 func (s *archiveStoreStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
 	return apptypes.ContentEventDedupePurgeResult{}, nil
 }
+
+func (s *archiveStoreStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

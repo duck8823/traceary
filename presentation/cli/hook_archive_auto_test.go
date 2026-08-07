@@ -183,3 +183,7 @@ func (s *minimalStoreStub) RestoreStoreArchive(context.Context, string, []byte, 
 func (s *minimalStoreStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
 	return apptypes.ContentEventDedupePurgeResult{}, nil
 }
+
+func (s *minimalStoreStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

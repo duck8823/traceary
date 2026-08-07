@@ -88,3 +88,7 @@ func TestStoreManagementUsecase_CollectGarbage(t *testing.T) {
 func (s *garbageCollectorStub) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
 	return apptypes.ContentEventDedupePurgeResult{}, nil
 }
+
+func (s *garbageCollectorStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

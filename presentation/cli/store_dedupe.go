@@ -39,6 +39,7 @@ type storeDedupeContentEventsInput struct {
 	apply     bool
 	restore   string
 	purge     string
+	listRuns  bool
 	client    string
 	strict    bool
 	batchSize int
@@ -55,13 +56,16 @@ func (c *RootCLI) newStoreDedupeContentEventsCommand() *cobra.Command {
 			"Audit and, with --apply, quarantine historical hook-originated prompt/transcript duplicate rows. "+
 				"The default is a dry-run that mutates nothing. Duplicates are moved into a restore-capable quarantine "+
 				"archive rather than hard-deleted; reverse a run with --restore <run-id>. Command audits are never touched.\n\n"+
-				"An apply commits in batches, so interrupting it leaves a consistent store and re-running continues "+
-				"where it stopped. Quarantined bodies still occupy the store: run --purge <run-id> to end the rollback "+
-				"window and reclaim them, then VACUUM to return the pages to the filesystem.",
+				"An apply commits one duplicate cluster at a time, so interrupting it leaves every cluster either fully "+
+				"quarantined or untouched and re-running continues where it stopped. If an apply is interrupted before "+
+				"it prints its run id, --list-runs finds it. Quarantined bodies still occupy the store: run "+
+				"--purge <run-id> to end the rollback window and reclaim them, then VACUUM to return the pages to the "+
+				"filesystem.",
 			"履歴上の hook 由来 prompt/transcript 重複行を監査し、--apply で隔離します。"+
 				"既定は何も変更しない dry-run です。重複は hard delete せず復元可能な quarantine archive へ移動し、"+
 				"--restore <run-id> で取り消せます。command audit は対象外です。\n\n"+
-				"--apply はバッチ単位で commit するため、中断してもストアは一貫した状態を保ち、再実行で続きから進みます。"+
+				"--apply は重複クラスタ単位で commit するため、中断しても各クラスタは「完全に隔離済み」か「未着手」のどちらかになり、"+
+				"再実行で続きから進みます。run id が表示される前に中断した場合は --list-runs で見つけられます。"+
 				"隔離された本文はまだストアを占有します。--purge <run-id> で復元可能期間を終了して回収し、"+
 				"VACUUM でページをファイルシステムへ返してください。",
 		),
@@ -74,6 +78,7 @@ func (c *RootCLI) newStoreDedupeContentEventsCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&input.apply, "apply", false, Localize("quarantine duplicates (default is a dry-run that changes nothing)", "重複を隔離する (既定は何も変更しない dry-run)"))
 	cmd.Flags().StringVar(&input.restore, "restore", "", Localize("restore the rows quarantined by the given dedupe run id", "指定した dedupe run id で隔離された行を復元する"))
 	cmd.Flags().StringVar(&input.purge, "purge", "", Localize("drop the rows quarantined by the given dedupe run id, ending its rollback window", "指定した dedupe run id で隔離された行を破棄し、その復元可能期間を終了する"))
+	cmd.Flags().BoolVar(&input.listRuns, "list-runs", false, Localize("list the quarantine runs still held in the archive", "archive に残っている quarantine run を一覧する"))
 	cmd.Flags().StringVar(&input.client, "client", storeDedupeClientCodex, Localize("agent scope to target (codex | kimi | all)", "対象とする agent スコープ (codex | kimi | all)"))
 	cmd.Flags().IntVar(&input.batchSize, "batch-size", apptypes.DefaultContentEventDedupeBatchSize, Localize("rows quarantined per committed transaction", "1 トランザクションあたりに隔離する行数"))
 	cmd.Flags().BoolVar(&input.strict, "strict", false, Localize("report every exact duplicate group regardless of time gap", "時間差に関係なく完全一致する重複グループをすべて対象にする"))
@@ -99,6 +104,9 @@ func (c *RootCLI) runStoreDedupeContentEvents(ctx context.Context, output io.Wri
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
+	if input.listRuns {
+		return c.runStoreDedupeListRuns(ctx, output, input.asJSON)
+	}
 	if restore := strings.TrimSpace(input.restore); restore != "" {
 		return c.runStoreDedupeRestore(ctx, output, restore, input.asJSON)
 	}
@@ -133,6 +141,11 @@ func validateStoreDedupeMode(input storeDedupeContentEventsInput) error {
 	restore := strings.TrimSpace(input.restore) != ""
 	purge := strings.TrimSpace(input.purge) != ""
 	switch {
+	case input.listRuns && (input.apply || restore || purge):
+		return xerrors.New(Localize(
+			"--list-runs cannot be combined with --apply, --restore, or --purge",
+			"--list-runs は --apply, --restore, --purge と同時に指定できません",
+		))
 	case input.apply && restore:
 		return xerrors.New(Localize("--apply and --restore cannot be combined", "--apply と --restore は同時に指定できません"))
 	case input.apply && purge:
@@ -141,6 +154,46 @@ func validateStoreDedupeMode(input storeDedupeContentEventsInput) error {
 		return xerrors.New(Localize("--restore and --purge cannot be combined", "--restore と --purge は同時に指定できません"))
 	case input.batchSize < 0:
 		return xerrors.New(Localize("--batch-size must not be negative", "--batch-size に負の値は指定できません"))
+	}
+	return nil
+}
+
+func (c *RootCLI) runStoreDedupeListRuns(ctx context.Context, output io.Writer, asJSON bool) error {
+	runs, err := c.storeManagement.ListContentEventDedupeRuns(ctx)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to list dedupe runs", "dedupe run の一覧取得に失敗しました"), err)
+	}
+
+	if asJSON {
+		payload := storeDedupeRunListJSON{Runs: make([]storeDedupeRunJSON, 0, len(runs))}
+		for _, run := range runs {
+			payload.Runs = append(payload.Runs, storeDedupeRunJSON{
+				RunID:           run.RunID,
+				ArchivedAt:      run.ArchivedAt,
+				QuarantinedRows: run.QuarantinedRows,
+				BodyBytes:       run.BodyBytes,
+			})
+		}
+		return encodeStoreDedupeJSON(output, payload)
+	}
+
+	if len(runs) == 0 {
+		if _, err := fmt.Fprintln(output, Localize(
+			"No quarantine runs are held in the archive.",
+			"archive に残っている quarantine run はありません。",
+		)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print dedupe run list", "dedupe run 一覧の出力に失敗しました"), err)
+		}
+		return nil
+	}
+	for _, run := range runs {
+		if _, err := fmt.Fprintf(
+			output,
+			"  run_id=%s archived_at=%s rows=%d body_bytes=%d\n",
+			run.RunID, run.ArchivedAt, run.QuarantinedRows, run.BodyBytes,
+		); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print dedupe run list", "dedupe run 一覧の出力に失敗しました"), err)
+		}
 	}
 	return nil
 }
@@ -252,6 +305,17 @@ type storeDedupeSourceJSON struct {
 type storeDedupeRestoreJSON struct {
 	RunID         string `json:"run_id"`
 	RestoredCount int    `json:"restored_count"`
+}
+
+type storeDedupeRunJSON struct {
+	RunID           string `json:"run_id"`
+	ArchivedAt      string `json:"archived_at"`
+	QuarantinedRows int    `json:"quarantined_rows"`
+	BodyBytes       int64  `json:"body_bytes"`
+}
+
+type storeDedupeRunListJSON struct {
+	Runs []storeDedupeRunJSON `json:"runs"`
 }
 
 type storeDedupePurgeJSON struct {

@@ -110,6 +110,21 @@ type ContentEventDedupeRestoreResult struct {
 	RestoredCount int
 }
 
+// ContentEventDedupeRun summarizes one quarantine run still held in the archive.
+//
+// Listing exists because a run id is the only handle on `--restore` and
+// `--purge`, and an apply that is interrupted after its first batch commits has
+// already quarantined rows under an id the operator never saw printed. Without
+// a listing those rows would be unreachable: invisible in `events`, un-restorable
+// and un-purgeable.
+type ContentEventDedupeRun struct {
+	RunID           string
+	ArchivedAt      string
+	QuarantinedRows int
+	// BodyBytes is the total quarantined body length held by this run, in bytes.
+	BodyBytes int64
+}
+
 // ContentEventDedupePurgeResult is the outcome of ending a quarantine run's
 // rollback window. Until a run is purged its bodies still occupy the store, so
 // apply relocates duplicates rather than reclaiming them.

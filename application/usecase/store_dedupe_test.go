@@ -131,3 +131,7 @@ func TestStoreManagementUsecase_PurgeContentEventDedupeRun_RejectsEmpty(t *testi
 		t.Error("PurgeContentEventDedupeRun(blank) = nil error, want failure")
 	}
 }
+
+func (s *dedupeStoreManagerStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}
