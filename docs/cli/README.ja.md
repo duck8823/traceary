@@ -939,6 +939,26 @@ session の label を設定または更新します。
 - `--session-id`
 - `--db-path`
 
+### `traceary session refine <session-id>`
+
+エージェントが書いたセッション要約（L2 refinement）を保存します。
+
+Traceary は要約テキストを合成しません。渡された内容を保存し、generation / coverage の管理だけを所有します。同じ `--covers-to` 範囲の再実行は no-op です（行は 1 つのまま、generation もテキストも変わりません）。被覆が進んだときだけ既存行を `generation + 1` で置き換え、`covers-from` は earlier 側を保持します。
+
+`covers-from` は常に導出されます（初回はセッション最古イベント、supersede 時は既存の earlier を保持）。degraded 要約は store gc が use case 経由で書くため、この CLI では指定しません。
+
+必須 flag:
+
+- `--summary`
+- `--covers-to`
+
+主な flag:
+
+- `--keywords` — カンマ区切りのキーワード（自由形式）
+- `--produced-by` — 要約の作成者（既定: `cli`）
+- `--json` — 機械可読な outcome（`created` / `superseded` / `unchanged`）と generation / coverage
+- `--db-path`
+
 ### `traceary session latest`
 
 条件に一致する最新 session ID を表示します。

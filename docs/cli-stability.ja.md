@@ -35,7 +35,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 
 - **イベント記録** — `traceary log`、`traceary audit`
 - **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`、`traceary sessions`（および `traceary sessions --snapshot` / `--snapshot --json`）、恒久的な互換 alias の `traceary top`（`traceary top --snapshot` / `--snapshot --json` を含む）
-- **セッション** — `traceary session start`、`traceary session end`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session tree`、`traceary session lineage`、`traceary session label`、`traceary session latest`、`traceary session active`
+- **セッション** — `traceary session start`、`traceary session end`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session tree`、`traceary session lineage`、`traceary session label`、`traceary session refine`、`traceary session latest`、`traceary session active`
 - **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store remember`、`traceary memory store propose`、`traceary memory store distill`

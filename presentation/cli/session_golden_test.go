@@ -291,6 +291,65 @@ func executeSessionJSONGoldenCommand(t *testing.T, sessionStub *sessionUsecaseSt
 	return stdout.Bytes()
 }
 
+func TestSessionRefineJSON_Goldens(t *testing.T) {
+	producedAt := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	refinement, err := model.NewSessionRefinement(
+		"session-refine-golden",
+		2,
+		"evt-from-golden",
+		"evt-to-golden",
+		"golden summary text",
+		"kw1,kw2",
+		"agent",
+		producedAt,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name    string
+		outcome model.SessionRefineOutcome
+		fixture string
+	}{
+		{name: "created", outcome: model.SessionRefineOutcomeCreated, fixture: "created.golden.json"},
+		{name: "superseded", outcome: model.SessionRefineOutcomeSuperseded, fixture: "superseded.golden.json"},
+		{name: "unchanged", outcome: model.SessionRefineOutcomeUnchanged, fixture: "unchanged.golden.json"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := model.SessionRefineResultOf(tc.outcome, refinement)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout := &bytes.Buffer{}
+			// Inject refinement stub the same way executeSessionJSONGoldenCommand
+			// injects WithSession — keep that helper's signature unchanged.
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithSessionRefinement(&sessionRefinementUsecaseStub{result: result}),
+			).Command()
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{
+				"session", "refine", "session-refine-golden",
+				"--summary", "golden summary text",
+				"--covers-to", "evt-to-golden",
+				"--keywords", "kw1,kw2",
+				"--produced-by", "agent",
+				"--json",
+				"--db-path", "/tmp/test-traceary.db",
+			})
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "session_refine", tc.fixture))
+		})
+	}
+}
+
 func sessionGoldenEvent(t *testing.T, eventIDValue string, kind types.EventKind, sessionIDValue string, createdAt time.Time) *model.Event {
 	t.Helper()
 

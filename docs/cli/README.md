@@ -946,6 +946,26 @@ Useful flags:
 - `--session-id`
 - `--db-path`
 
+### `traceary session refine <session-id>`
+
+Store an agent-authored session refinement (L2 summary).
+
+Traceary never composes the summary text: it stores what you hand it and owns only generation and coverage bookkeeping. Replaying the same `--covers-to` range is a no-op (same row, same generation, text unchanged). When coverage advances, the existing row is replaced with `generation + 1` while `covers-from` is kept as the earlier bound.
+
+`covers-from` is always derived (the session's earliest event on first write; kept on supersede). Degraded refinements are written only by store gc through the use case, not this CLI.
+
+Required flags:
+
+- `--summary`
+- `--covers-to`
+
+Useful flags:
+
+- `--keywords` — free-form comma-separated keywords
+- `--produced-by` — who authored the summary (default: `cli`)
+- `--json` — machine-readable outcome (`created` / `superseded` / `unchanged`) with generation and coverage
+- `--db-path`
+
 ### `traceary session latest`
 
 Print the latest session ID matching the current filters.
