@@ -7,6 +7,8 @@ dist/
 .cache/
 .claude/
 .ai-logs/
+# `.ai/spec/1606.md` is deliberately force-added (`git add -f`) and stays tracked
+# despite this rule; the rest of `.ai/` (evidence/, handoff/, review-job-*) stays ignored.
 .ai/
 .gocache/
 .golangci-cache/

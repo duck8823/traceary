@@ -235,7 +235,7 @@ host needs to be refreshed.
 
 ### Activation strategy by host
 
-Traceary uses three distinct layers:
+Traceary uses three activation paths:
 
 1. **Accepted memory store** — the local SQLite `memories` aggregate. This is
    the source of truth for reviewed durable facts.
