@@ -219,12 +219,17 @@ func TestSortDedupeRunsNewestFirst(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "a whole second is newer than a fractional one it follows",
+			// The hazard itself: within one second, descending text order puts
+			// the whole second first because '.' (0x2E) precedes 'Z' (0x5A),
+			// even though the fractional one is later. formatTimestamp emits
+			// RFC3339Nano, which drops the fraction entirely when it is zero, so
+			// both forms really do occur in the same column.
+			name: "a fractional second is newer than the whole second it follows",
 			runs: []apptypes.ContentEventDedupeRun{
-				{RunID: "fractional", ArchivedAt: "2026-06-20T00:00:00.5Z"},
 				{RunID: "whole", ArchivedAt: "2026-06-20T00:00:01Z"},
+				{RunID: "fractional", ArchivedAt: "2026-06-20T00:00:01.5Z"},
 			},
-			want: []string{"whole", "fractional"},
+			want: []string{"fractional", "whole"},
 		},
 		{
 			name: "offsets are compared as instants, not as text",
