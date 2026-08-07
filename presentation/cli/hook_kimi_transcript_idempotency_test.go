@@ -15,6 +15,27 @@ import (
 	cli "github.com/duck8823/traceary/presentation/cli"
 )
 
+// kimiTranscriptMarkerPath returns the turn-marker file path
+// markKimiTranscriptTurnRecorded would write for sessionID under stateDir
+// (as set via TRACEARY_HOOK_STATE_DIR). Every sessionID used in this suite
+// is already unadorned enough that sanitizeHookStateKey leaves it
+// unchanged (see the lock-acquisition-timeout subtest below).
+func kimiTranscriptMarkerPath(stateDir, sessionID string) string {
+	return filepath.Join(stateDir, "kimi-transcript-turns", sessionID)
+}
+
+// assertKimiTranscriptMarkerAbsent fails the test if a turn marker file
+// exists for sessionID under stateDir.
+func assertKimiTranscriptMarkerAbsent(t *testing.T, stateDir, sessionID string) {
+	t.Helper()
+	path := kimiTranscriptMarkerPath(stateDir, sessionID)
+	if _, err := os.Stat(path); err == nil {
+		t.Fatalf("marker file %s exists, want none", path)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat marker file %s: %v", path, err)
+	}
+}
+
 // TestRootCLI_HookKimiStop_TranscriptTurnIdempotency reproduces and fixes
 // #1681: Kimi Code fires Stop roughly two dozen times per completed turn
 // while the session's wire.jsonl is unchanged. Extraction itself was always
@@ -152,6 +173,72 @@ func TestRootCLI_HookKimiStop_TranscriptTurnIdempotency(t *testing.T) {
 		}
 		if !strings.Contains(eventStub.logCalls[1].message, "final answer text") {
 			t.Fatalf("second transcript body = %q, want it to contain the newly appended text block", eventStub.logCalls[1].message)
+		}
+	})
+
+	t.Run("a recorder skip without error leaves the marker unwritten and the next firing retries", func(t *testing.T) {
+		// #1681 CRITICAL: the guard used to treat runHookTranscript
+		// returning a nil error as proof that a row was persisted, and
+		// marked the turn recorded on that basis alone. But the shared
+		// recorder fails soft (nil error, nothing written) on several
+		// conditions unrelated to whether extraction succeeded — e.g. an
+		// unresolved session. If the guard ever marks on that kind of
+		// skip, the turn is lost forever: every later redelivery of the
+		// SAME unchanged turn matches the marker and is skipped, with no
+		// row ever having been written.
+		//
+		// Force exactly that: override the recorder's session-resolution
+		// step to no-op (recorded=false, err=nil) on the first firing
+		// only, even though the guard has already resolved a real turn
+		// and real blocks for that firing and holds the turn lock. A
+		// fixed guard must leave the turn unmarked so the second,
+		// healthy firing for the identical (session, turn, content)
+		// still records.
+		stateDir := t.TempDir()
+		t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+		t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-turn-idempotency-recorder-skip")
+		t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+		homeDir := t.TempDir()
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		seedKimiSession(t, homeDir, sessionID, []string{
+			`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"skip regression reply"}}}`,
+		})
+
+		var resolveCalls int
+		cli.SetResolveHookTranscriptSessionIDFunc(func(_ []byte, _ string) (types.SessionID, error) {
+			resolveCalls++
+			if resolveCalls == 1 {
+				return "", nil
+			}
+			return types.SessionID(sessionID), nil
+		})
+		t.Cleanup(cli.ResetResolveHookTranscriptSessionIDFunc)
+
+		eventStub := &eventUsecaseStub{}
+		sessionStub := &sessionUsecaseStub{}
+		payload := readKimiFixture(t, "stop.json")
+
+		stdout, _, _ := runKimiHook(t, "stop", payload, eventStub, sessionStub)
+		if stdout != "" {
+			t.Fatalf("Stop output = %q, want empty passive-hook output", stdout)
+		}
+		if got := len(eventStub.logCalls); got != 0 {
+			t.Fatalf("transcript log calls after the forced recorder skip = %d, want 0", got)
+		}
+		assertKimiTranscriptMarkerAbsent(t, stateDir, sessionID)
+
+		stdout, _, _ = runKimiHook(t, "stop", payload, eventStub, sessionStub)
+		if stdout != "" {
+			t.Fatalf("Stop output = %q, want empty passive-hook output", stdout)
+		}
+		if got := len(eventStub.logCalls); got != 1 {
+			t.Fatalf("transcript log calls after the healthy retry = %d, want 1 (a skipped firing must not permanently mark the turn as recorded)", got)
+		}
+		if !strings.Contains(eventStub.logCalls[0].message, "skip regression reply") {
+			t.Fatalf("retried transcript body = %q, want it to contain the wire log text", eventStub.logCalls[0].message)
 		}
 	})
 
@@ -359,6 +446,17 @@ func TestRootCLI_HookKimiStop_TranscriptTurnIdempotency(t *testing.T) {
 		if !strings.Contains(eventStub.logCalls[0].message, "lock contention reply") {
 			t.Fatalf("transcript body = %q, want it to contain the wire log text", eventStub.logCalls[0].message)
 		}
+
+		// stdout/logCalls/body content alone don't distinguish this from
+		// the uncontended happy path — both look identical on those
+		// three signals (proven by removing the contention: the subtest
+		// still passed in 0.00s). The lock-timeout fallback runs
+		// c.runHookTranscriptWithBlocks directly, outside
+		// withKimiTranscriptTurnStateLock, and never calls
+		// markKimiTranscriptTurnRecorded; only the uncontended path
+		// would leave a marker behind. Assert its absence so this
+		// subtest actually exercises the lock-unavailable branch.
+		assertKimiTranscriptMarkerAbsent(t, stateDir, sessionID)
 	})
 }
 

@@ -191,6 +191,17 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 // firing is skipped only when both the turn ID and the fingerprint of its
 // extracted blocks match the marker.
 //
+// The blocks extracted here for the fingerprint are the SAME blocks passed
+// to runHookTranscriptWithBlocks below — the shared recorder never
+// re-extracts from the wire log on this path. Two independent reads of
+// wire.jsonl (one for the fingerprint, one inside the recorder) used to run
+// per firing; besides doubling the per-firing cost of a bufio scan of the
+// whole session wire log, it meant the fingerprint keyed one read while the
+// persisted row came from a second, later read of a file that can change
+// between the two (rotated, truncated, rewritten). Passing the blocks
+// through closes that window: the fingerprint and the persisted body are
+// now guaranteed to describe the same content (#1681 HIGH finding).
+//
 // This deliberately does not delete or supersede the earlier, shorter row
 // that a growing turn leaves behind — that needs a delete port this hook
 // does not have. Recording each growth snapshot still collapses ~24
@@ -200,7 +211,13 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 // The check-then-record-then-mark sequence runs inside
 // withKimiTranscriptTurnStateLock so two racing firings for the same
 // (turn ID, fingerprint) cannot both observe "not yet recorded" and both
-// write a row.
+// write a row. Marking is additionally gated on the recorder's own
+// recorded=true return value, never inferred from a nil error: the shared
+// recorder fails soft on several unrelated conditions (e.g. an unresolved
+// session), and treating any of those nil-error returns as "a row was
+// persisted" would let a turn that was never actually stored get marked as
+// done — silently discarding every later redelivery of that turn forever
+// (#1681 CRITICAL finding).
 //
 // When the wire turn cannot be resolved (missing index entry, missing wire
 // log, escaped path, ...), the fingerprint cannot be computed, or the turn
@@ -212,12 +229,14 @@ func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbP
 	blocks, turnID, turnResolved := extractKimiTranscriptTurn(payload)
 	turnID = strings.TrimSpace(turnID)
 	if !turnResolved || sessionID == "" || turnID == "" {
-		return c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath)
+		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, nil)
+		return err
 	}
 	fingerprint, fingerprintErr := kimiTranscriptBlocksFingerprint(blocks)
 	if fingerprintErr != nil {
 		slog.Debug("Kimi transcript fingerprint unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", fingerprintErr)
-		return c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath)
+		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		return err
 	}
 
 	var recordErr error
@@ -225,20 +244,26 @@ func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbP
 		if kimiTranscriptTurnAlreadyRecorded(sessionID, turnID, fingerprint) {
 			return nil
 		}
-		if err := c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath); err != nil {
+		recorded, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		if err != nil {
 			recordErr = err
 			return err
 		}
-		markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint)
+		if recorded {
+			markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint)
+		}
 		return nil
 	})
 	if lockErr != nil && recordErr == nil {
 		// The lock itself was unavailable (contention timeout or a
 		// filesystem error unrelated to the actual recording). Fail open:
 		// record unguarded rather than silently dropping a possibly-new
-		// turn.
+		// turn. No marker is written on this path either way — it runs
+		// outside withKimiTranscriptTurnStateLock, so writing one here
+		// would race the very lock this falls back from.
 		slog.Debug("Kimi transcript turn lock unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", lockErr)
-		return c.runHookTranscript(ctx, bytes.NewReader(payload), kimiHookClient, dbPath)
+		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		return err
 	}
 	return lockErr
 }

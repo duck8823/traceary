@@ -346,8 +346,12 @@ func withKimiTranscriptTurnStateLock(sessionID string, fn func() error) error {
 // and can also re-fire while a turn is still streaming (#1681); this is the
 // read half of the guard that collapses unchanged redeliveries to a single
 // recorded transcript event while still recording a turn that grew content
-// between firings (turnID matches, fingerprint does not). Callers must hold
-// withKimiTranscriptTurnStateLock for correctness under concurrent firings.
+// between firings (turnID matches, fingerprint does not). The fingerprint
+// keys the exact blocks runHookKimiTranscript passes to the recorder (not a
+// second, independent re-extraction), so a "recorded" answer here always
+// corresponds to a row that was actually persisted with that content.
+// Callers must hold withKimiTranscriptTurnStateLock for correctness under
+// concurrent firings.
 //
 // Any inability to read or parse the marker (including a missing state
 // directory, or a marker written by the pre-fingerprint single-field
@@ -376,7 +380,13 @@ func kimiTranscriptTurnAlreadyRecorded(sessionID, turnID, fingerprint string) bo
 }
 
 // markKimiTranscriptTurnRecorded persists (turnID, fingerprint) as the last
-// recorded transcript turn for sessionID. Failures are logged and
+// recorded transcript turn for sessionID. Callers MUST call this only after
+// confirming a row was actually persisted (runHookTranscriptWithBlocks
+// returned recorded=true) — never merely because the recorder returned a
+// nil error, since it fails soft (nil error, nothing written) on several
+// unrelated conditions. Marking on a skip would silently drop every later
+// redelivery of a turn that was never actually stored (#1681 CRITICAL
+// finding). Failures to write the marker file itself are logged and
 // swallowed: losing the marker only risks one extra duplicate on the next
 // Stop firing, never a lost turn, and a hook must never fail the host's
 // turn over housekeeping state. Callers must hold
