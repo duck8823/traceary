@@ -32,7 +32,18 @@ type ContentEventDedupeParams struct {
 	RunID string
 	// Now stamps archived_at. Required when Apply is true and ignored otherwise.
 	Now time.Time
+	// BatchSize bounds how many duplicate rows one apply transaction quarantines.
+	// Zero selects DefaultContentEventDedupeBatchSize. Committing per batch is
+	// what keeps an interrupted repair consistent and re-runnable; it is not a
+	// scan bound (see MaxScanRows, which samples and therefore cannot be applied).
+	BatchSize int
 }
+
+// DefaultContentEventDedupeBatchSize bounds one apply transaction. The full-store
+// repair spans hundreds of thousands of rows, so a single transaction would hold
+// the entire archive+delete set before any of it became durable and would lose
+// all progress on interruption.
+const DefaultContentEventDedupeBatchSize = 1000
 
 // ContentEventDedupeGroup is one duplicate group the dedupe run selected. The
 // kept row is the canonical survivor (earliest parsed created_at, tie-broken by
@@ -97,4 +108,16 @@ func (r ContentEventDedupeResult) MovedCount() int {
 type ContentEventDedupeRestoreResult struct {
 	RunID         string
 	RestoredCount int
+}
+
+// ContentEventDedupePurgeResult is the outcome of ending a quarantine run's
+// rollback window. Until a run is purged its bodies still occupy the store, so
+// apply relocates duplicates rather than reclaiming them.
+type ContentEventDedupePurgeResult struct {
+	RunID       string
+	PurgedCount int
+	// ReleasedBody is the total quarantined body length dropped, in bytes. SQLite
+	// returns the pages to the free list; VACUUM is what returns them to the
+	// filesystem.
+	ReleasedBody int64
 }

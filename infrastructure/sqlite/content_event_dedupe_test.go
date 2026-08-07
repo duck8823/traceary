@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -446,4 +447,194 @@ func TestStoreManagementDatasource_DedupeContentEvents_StrictAndAgentScope(t *te
 			}
 		}
 	})
+}
+
+// remainingEventIDs returns every surviving event id, sorted, so two runs can be
+// compared as whole states rather than row by row.
+func remainingEventIDs(t *testing.T, dbPath string) []string {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.Query(`SELECT id FROM events ORDER BY id`)
+	if err != nil {
+		t.Fatalf("remaining events query error = %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan remaining event error = %v", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate remaining events error = %v", err)
+	}
+	return ids
+}
+
+// A repair that spans hundreds of thousands of rows cannot run as one
+// transaction, so apply commits in batches. Batching is a durability and memory
+// decision only: it must not change which rows survive.
+func TestStoreManagementDatasource_DedupeContentEvents_BatchSizeDoesNotChangeOutcome(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		batchSize int
+	}{
+		{name: "one row per transaction", batchSize: 1},
+		{name: "two rows per transaction", batchSize: 2},
+		{name: "more rows than the plan holds", batchSize: 1000},
+		{name: "zero selects the default", batchSize: 0},
+	}
+
+	var want []string
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			dbPath, storeManager, _ := seedDedupeFixture(t)
+			result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+				Agent: "codex", Apply: true, RunID: "dedupe-run-batch", Now: now, BatchSize: test.batchSize,
+			})
+			if err != nil {
+				t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+			}
+			if result.MovedCount() != 3 {
+				t.Fatalf("moved = %d, want 3", result.MovedCount())
+			}
+			if got := dedupeArchiveCount(t, dbPath); got != 3 {
+				t.Fatalf("archive count = %d, want 3", got)
+			}
+			got := remainingEventIDs(t, dbPath)
+			if want == nil {
+				want = got
+				return
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("surviving events differ from the reference batch size (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// An interrupted apply leaves committed batches in place. Re-running must finish
+// the repair and land on the same state a clean run would have produced, without
+// failing on the rows the interrupted run already archived.
+func TestStoreManagementDatasource_DedupeContentEvents_ResumesAfterPartialApply(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	cleanPath, cleanManager, _ := seedDedupeFixture(t)
+	if _, err := cleanManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-clean", Now: now,
+	}); err != nil {
+		t.Fatalf("clean DedupeContentEvents(apply) error = %v", err)
+	}
+	want := remainingEventIDs(t, cleanPath)
+
+	// Simulate an apply that committed one batch and then died: evt-a3 is already
+	// archived and gone from events, the rest of its group is untouched.
+	partialPath, partialManager, _ := seedDedupeFixture(t)
+	archiveOneDuplicate(t, partialPath, "evt-a3", "evt-a1", "dedupe-interrupted")
+
+	result, err := partialManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-resume", Now: now, BatchSize: 1,
+	})
+	if err != nil {
+		t.Fatalf("resumed DedupeContentEvents(apply) error = %v", err)
+	}
+	if result.MovedCount() != 2 {
+		t.Fatalf("resumed apply moved = %d, want 2 (evt-a3 was already archived)", result.MovedCount())
+	}
+	if diff := cmp.Diff(want, remainingEventIDs(t, partialPath)); diff != "" {
+		t.Errorf("resumed run did not converge on the clean-run state (-want +got):\n%s", diff)
+	}
+}
+
+// archiveOneDuplicate moves a single row out of events into the quarantine
+// archive by hand, standing in for a batch an interrupted run had committed.
+func archiveOneDuplicate(t *testing.T, dbPath, eventID, keptID, runID string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(
+		`INSERT INTO event_content_dedupe_archive
+		    (id, kind, client, agent, session_id, workspace, body, created_at,
+		     source_hook, kept_event_id, dedupe_run_id, archived_at, group_key, reason)
+		 SELECT id, kind, client, agent, session_id, workspace, body, created_at,
+		        source_hook, ?, ?, '2026-06-20T00:00:00Z', 'group', 'interrupted'
+		   FROM events WHERE id = ?`,
+		keptID, runID, eventID,
+	); err != nil {
+		t.Fatalf("hand-archive %s error = %v", eventID, err)
+	}
+	if _, err := db.Exec(`DELETE FROM events WHERE id = ?`, eventID); err != nil {
+		t.Fatalf("hand-delete %s error = %v", eventID, err)
+	}
+}
+
+// Quarantine relocates duplicates; only purge reclaims them. Purge must end the
+// rollback window, so restoring a purged run has to fail rather than silently
+// restore nothing.
+func TestStoreManagementDatasource_PurgeContentEventDedupeRun(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	if _, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-1", Now: now,
+	}); err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	before := remainingEventIDs(t, dbPath)
+
+	result, err := storeManager.PurgeContentEventDedupeRun(context.Background(), "dedupe-run-1")
+	if err != nil {
+		t.Fatalf("PurgeContentEventDedupeRun() error = %v", err)
+	}
+	if result.PurgedCount != 3 {
+		t.Errorf("purged count = %d, want 3", result.PurgedCount)
+	}
+	if result.ReleasedBody <= 0 {
+		t.Errorf("released body bytes = %d, want a positive byte count", result.ReleasedBody)
+	}
+	if got := dedupeArchiveCount(t, dbPath); got != 0 {
+		t.Errorf("archive count = %d after purge, want 0", got)
+	}
+	if diff := cmp.Diff(before, remainingEventIDs(t, dbPath)); diff != "" {
+		t.Errorf("purge changed the surviving events (-want +got):\n%s", diff)
+	}
+	if _, err := storeManager.RestoreContentEventDedupeRun(context.Background(), "dedupe-run-1"); err == nil {
+		t.Error("RestoreContentEventDedupeRun() after purge = nil error, want failure: the rollback window is over")
+	}
+}
+
+func TestStoreManagementDatasource_PurgeContentEventDedupeRun_Rejects(t *testing.T) {
+	t.Parallel()
+	_, storeManager, _ := seedDedupeFixture(t)
+
+	tests := []struct {
+		name  string
+		runID string
+	}{
+		{name: "empty run id", runID: "   "},
+		{name: "unknown run id", runID: "dedupe-run-never-happened"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := storeManager.PurgeContentEventDedupeRun(context.Background(), test.runID); err == nil {
+				t.Errorf("PurgeContentEventDedupeRun(%q) = nil error, want failure", test.runID)
+			}
+		})
+	}
 }

@@ -683,6 +683,9 @@ type storeManagementUsecaseStub struct {
 	restoreResult     apptypes.ContentEventDedupeRestoreResult
 	restoreRunErr     error
 	restoreRunIDs     []string
+	purgeResult       apptypes.ContentEventDedupePurgeResult
+	purgeErr          error
+	purgeRunIDs       []string
 	staleResult       apptypes.CloseStaleSessionsResult
 	staleErr          error
 	staleCalls        []struct {
@@ -740,4 +743,9 @@ func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, stale
 		time.Sleep(s.staleDelay)
 	}
 	return s.staleResult, s.staleErr
+}
+
+func (s *storeManagementUsecaseStub) PurgeContentEventDedupeRun(_ context.Context, runID string) (apptypes.ContentEventDedupePurgeResult, error) {
+	s.purgeRunIDs = append(s.purgeRunIDs, runID)
+	return s.purgeResult, s.purgeErr
 }

@@ -116,6 +116,21 @@ func (u *storeManagementUsecase) RestoreContentEventDedupeRun(
 	return result, nil
 }
 
+func (u *storeManagementUsecase) PurgeContentEventDedupeRun(
+	ctx context.Context,
+	runID string,
+) (apptypes.ContentEventDedupePurgeResult, error) {
+	trimmed := strings.TrimSpace(runID)
+	if trimmed == "" {
+		return apptypes.ContentEventDedupePurgeResult{}, xerrors.Errorf("dedupe run id must not be empty")
+	}
+	result, err := u.storeManager.PurgeContentEventDedupeRun(ctx, trimmed)
+	if err != nil {
+		return apptypes.ContentEventDedupePurgeResult{}, xerrors.Errorf("failed to purge dedupe run: %w", err)
+	}
+	return result, nil
+}
+
 func (u *storeManagementUsecase) CloseStaleSessions(
 	ctx context.Context,
 	staleAfter time.Duration,

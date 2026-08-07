@@ -29,4 +29,8 @@ type StoreManager interface {
 	// run back into events. It fails rather than overwrite if an original event
 	// id already exists in events.
 	RestoreContentEventDedupeRun(ctx context.Context, runID string) (apptypes.ContentEventDedupeRestoreResult, error)
+	// PurgeContentEventDedupeRun drops the rows a dedupe run quarantined, ending
+	// that run's rollback window. Until a run is purged its bodies still occupy
+	// the store, so apply relocates duplicates rather than reclaiming them.
+	PurgeContentEventDedupeRun(ctx context.Context, runID string) (apptypes.ContentEventDedupePurgeResult, error)
 }

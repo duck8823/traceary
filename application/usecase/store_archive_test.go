@@ -188,3 +188,7 @@ func TestRestoreStoreArchive_idempotent(t *testing.T) {
 		t.Fatalf("inserted=%d", got.Inserted)
 	}
 }
+
+func (s *archiveStoreStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}

@@ -203,3 +203,11 @@ func TestStoreManagementUsecase_RestoreBackup(t *testing.T) {
 		})
 	}
 }
+
+func (s *storeBackupCreatorStub) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}
+
+func (s *storeBackupRestorerStub) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}
