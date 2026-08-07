@@ -173,3 +173,11 @@ func TestRunBackupRestore_AssumeYesSkipsInteractiveConfirmation(t *testing.T) {
 		t.Fatalf("stdout = %q, want no confirmation prompt", stdout.String())
 	}
 }
+
+func (s *restoreStoreBackupUsecaseForTest) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}
+
+func (s *restoreStoreBackupUsecaseForTest) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

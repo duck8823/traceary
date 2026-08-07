@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -446,4 +448,472 @@ func TestStoreManagementDatasource_DedupeContentEvents_StrictAndAgentScope(t *te
 			}
 		}
 	})
+}
+
+// remainingEventIDs returns every surviving event id, sorted, so two runs can be
+// compared as whole states rather than row by row.
+func remainingEventIDs(t *testing.T, dbPath string) []string {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.Query(`SELECT id FROM events ORDER BY id`)
+	if err != nil {
+		t.Fatalf("remaining events query error = %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan remaining event error = %v", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate remaining events error = %v", err)
+	}
+	return ids
+}
+
+// A repair that spans hundreds of thousands of rows cannot run as one
+// transaction, so apply commits in batches. Batching is a durability and memory
+// decision only: it must not change which rows survive.
+func TestStoreManagementDatasource_DedupeContentEvents_BatchSizeDoesNotChangeOutcome(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		batchSize int
+	}{
+		{name: "one row per transaction", batchSize: 1},
+		{name: "two rows per transaction", batchSize: 2},
+		{name: "more rows than the plan holds", batchSize: 1000},
+		{name: "zero selects the default", batchSize: 0},
+	}
+
+	var want []string
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			dbPath, storeManager, _ := seedDedupeFixture(t)
+			result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+				Agent: "codex", Apply: true, RunID: "dedupe-run-batch", Now: now, BatchSize: test.batchSize,
+			})
+			if err != nil {
+				t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+			}
+			if result.MovedCount() != 3 {
+				t.Fatalf("moved = %d, want 3", result.MovedCount())
+			}
+			if got := dedupeArchiveCount(t, dbPath); got != 3 {
+				t.Fatalf("archive count = %d, want 3", got)
+			}
+			got := remainingEventIDs(t, dbPath)
+			if want == nil {
+				want = got
+				return
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("surviving events differ from the reference batch size (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// An interrupted apply leaves committed batches in place. Re-running must finish
+// the repair and land on the same state a clean run would have produced, without
+// failing on the rows the interrupted run already archived.
+//
+// The fixture archives a cluster's duplicates in full (group C: evt-c2), because
+// that is the only shape an interruption can actually leave behind — apply never
+// commits part of a cluster. A half-archived cluster is a different and unsafe
+// state, and what keeps it unreachable is pinned by TestPartitionDedupeTargets
+// rather than reproduced here.
+func TestStoreManagementDatasource_DedupeContentEvents_ResumesAfterPartialApply(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	cleanPath, cleanManager, _ := seedDedupeFixture(t)
+	if _, err := cleanManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-clean", Now: now,
+	}); err != nil {
+		t.Fatalf("clean DedupeContentEvents(apply) error = %v", err)
+	}
+	want := remainingEventIDs(t, cleanPath)
+
+	// Simulate an apply that committed the batch holding group C and then died:
+	// evt-c2 is archived and gone from events, group A is untouched.
+	partialPath, partialManager, _ := seedDedupeFixture(t)
+	archiveOneDuplicate(t, partialPath, "evt-c2", "evt-c1", "dedupe-interrupted")
+
+	result, err := partialManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-resume", Now: now, BatchSize: 1,
+	})
+	if err != nil {
+		t.Fatalf("resumed DedupeContentEvents(apply) error = %v", err)
+	}
+	if result.MovedCount() != 2 {
+		t.Fatalf("resumed apply moved = %d, want 2 (group C was already archived)", result.MovedCount())
+	}
+	if diff := cmp.Diff(want, remainingEventIDs(t, partialPath)); diff != "" {
+		t.Errorf("resumed run did not converge on the clean-run state (-want +got):\n%s", diff)
+	}
+}
+
+// archiveOneDuplicate moves a single row out of events into the quarantine
+// archive by hand, standing in for a batch an interrupted run had committed.
+func archiveOneDuplicate(t *testing.T, dbPath, eventID, keptID, runID string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(
+		`INSERT INTO event_content_dedupe_archive
+		    (id, kind, client, agent, session_id, workspace, body, created_at,
+		     source_hook, kept_event_id, dedupe_run_id, archived_at, group_key, reason)
+		 SELECT id, kind, client, agent, session_id, workspace, body, created_at,
+		        source_hook, ?, ?, '2026-06-20T00:00:00Z', 'group', 'interrupted'
+		   FROM events WHERE id = ?`,
+		keptID, runID, eventID,
+	); err != nil {
+		t.Fatalf("hand-archive %s error = %v", eventID, err)
+	}
+	if _, err := db.Exec(`DELETE FROM events WHERE id = ?`, eventID); err != nil {
+		t.Fatalf("hand-delete %s error = %v", eventID, err)
+	}
+}
+
+// Quarantine relocates duplicates; only purge reclaims them. Purge must end the
+// rollback window, so restoring a purged run has to fail rather than silently
+// restore nothing.
+func TestStoreManagementDatasource_PurgeContentEventDedupeRun(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	if _, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-1", Now: now,
+	}); err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	before := remainingEventIDs(t, dbPath)
+
+	result, err := storeManager.PurgeContentEventDedupeRun(context.Background(), "dedupe-run-1")
+	if err != nil {
+		t.Fatalf("PurgeContentEventDedupeRun() error = %v", err)
+	}
+	if result.PurgedCount != 3 {
+		t.Errorf("purged count = %d, want 3", result.PurgedCount)
+	}
+	if result.ReleasedBody <= 0 {
+		t.Errorf("released body bytes = %d, want a positive byte count", result.ReleasedBody)
+	}
+	if got := dedupeArchiveCount(t, dbPath); got != 0 {
+		t.Errorf("archive count = %d after purge, want 0", got)
+	}
+	if diff := cmp.Diff(before, remainingEventIDs(t, dbPath)); diff != "" {
+		t.Errorf("purge changed the surviving events (-want +got):\n%s", diff)
+	}
+	if _, err := storeManager.RestoreContentEventDedupeRun(context.Background(), "dedupe-run-1"); err == nil {
+		t.Error("RestoreContentEventDedupeRun() after purge = nil error, want failure: the rollback window is over")
+	}
+}
+
+func TestStoreManagementDatasource_PurgeContentEventDedupeRun_Rejects(t *testing.T) {
+	t.Parallel()
+	_, storeManager, _ := seedDedupeFixture(t)
+
+	tests := []struct {
+		name  string
+		runID string
+	}{
+		{name: "empty run id", runID: "   "},
+		{name: "unknown run id", runID: "dedupe-run-never-happened"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := storeManager.PurgeContentEventDedupeRun(context.Background(), test.runID); err == nil {
+				t.Errorf("PurgeContentEventDedupeRun(%q) = nil error, want failure", test.runID)
+			}
+		})
+	}
+}
+
+// The retention pruner replaces a body with one fixed marker string for every
+// row it empties, regardless of client or kind. Emptied rows must therefore be
+// excluded from identity grouping: otherwise unrelated prompts and transcripts
+// from different sessions all hash to the same identity and dedupe quarantines
+// rows that never duplicated anything.
+func TestStoreManagementDatasource_DedupeContentEvents_SkipsRetentionEmptiedBodies(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	// Two prompts that were never duplicates of each other: different original
+	// bodies, same session, seconds apart. Pruning left both carrying the same
+	// marker text, which is exactly what would collapse them into one identity
+	// group if emptied rows were eligible.
+	marker := types.EventBodyUnavailableRetentionMarker
+	rows := []struct{ id, createdAt string }{
+		{"evt-r1", "2026-04-10T00:00:00Z"},
+		{"evt-r2", "2026-04-10T00:00:02Z"},
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client, body_availability)
+			 VALUES (?, 'prompt', 'codex', 's9', 'w1', ?, ?, 'user_prompt_submit', 'hook', 'unavailable_retention')`,
+			r.id, marker, r.createdAt,
+		); err != nil {
+			t.Fatalf("insert %s error = %v", r.id, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close() error = %v", err)
+	}
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{Agent: "codex"})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents(dry-run) error = %v", err)
+	}
+	for _, group := range result.Groups {
+		for _, id := range group.DuplicateEventIDs {
+			if strings.HasPrefix(id, "evt-r") {
+				t.Errorf("emptied row %s was selected as a duplicate of %s", id, group.KeptEventID)
+			}
+		}
+	}
+	if diff := cmp.Diff(map[string][]string{
+		"evt-a1": {"evt-a2", "evt-a3"},
+		"evt-c1": {"evt-c2"},
+	}, groupByKept(result)); diff != "" {
+		t.Errorf("emptied rows changed the plan (-want +got):\n%s", diff)
+	}
+}
+
+// A run id is the only handle on --restore and --purge, and an apply interrupted
+// after its first commit has already quarantined rows under an id nothing
+// printed. Listing is what keeps those rows reachable.
+func TestStoreManagementDatasource_ListContentEventDedupeRuns(t *testing.T) {
+	t.Parallel()
+	_, storeManager, _ := seedDedupeFixture(t)
+
+	runs, err := storeManager.ListContentEventDedupeRuns(context.Background())
+	if err != nil {
+		t.Fatalf("ListContentEventDedupeRuns() on an empty archive error = %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("runs = %d on an empty archive, want 0", len(runs))
+	}
+
+	if _, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-early",
+		Now: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	if _, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "claude", Apply: true, RunID: "dedupe-run-late",
+		Now: time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+
+	runs, err = storeManager.ListContentEventDedupeRuns(context.Background())
+	if err != nil {
+		t.Fatalf("ListContentEventDedupeRuns() error = %v", err)
+	}
+	gotIDs := make([]string, 0, len(runs))
+	gotRows := map[string]int{}
+	for _, run := range runs {
+		gotIDs = append(gotIDs, run.RunID)
+		gotRows[run.RunID] = run.QuarantinedRows
+		if run.ArchivedAt == "" {
+			t.Errorf("run %s has an empty archived_at", run.RunID)
+		}
+		if run.BodyBytes <= 0 {
+			t.Errorf("run %s body bytes = %d, want a positive byte count", run.RunID, run.BodyBytes)
+		}
+	}
+	if diff := cmp.Diff([]string{"dedupe-run-late", "dedupe-run-early"}, gotIDs); diff != "" {
+		t.Errorf("run order is not newest-first (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(map[string]int{"dedupe-run-early": 3, "dedupe-run-late": 1}, gotRows); diff != "" {
+		t.Errorf("quarantined row counts (-want +got):\n%s", diff)
+	}
+
+	if _, err := storeManager.PurgeContentEventDedupeRun(context.Background(), "dedupe-run-early"); err != nil {
+		t.Fatalf("PurgeContentEventDedupeRun() error = %v", err)
+	}
+	runs, err = storeManager.ListContentEventDedupeRuns(context.Background())
+	if err != nil {
+		t.Fatalf("ListContentEventDedupeRuns() after purge error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].RunID != "dedupe-run-late" {
+		t.Errorf("runs after purge = %+v, want only dedupe-run-late", runs)
+	}
+}
+
+// A row restored from retention keeps its ledger entry (restore only sets
+// restored_at), and that entry holds an ON DELETE RESTRICT reference to
+// events(id). Such a row looks entirely ordinary — body available, body intact —
+// so nothing but the ledger itself distinguishes it. Archiving one raises a raw
+// SQLite foreign-key error that aborts the batch mid-apply, so it must never
+// reach the plan.
+func TestStoreManagementDatasource_DedupeContentEvents_SkipsRetentionLedgerRows(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	rows := []struct{ id, createdAt string }{
+		{"evt-l1", "2026-04-10T00:00:00Z"},
+		{"evt-l2", "2026-04-10T00:00:02Z"},
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+			 VALUES (?, 'prompt', 'codex', 's10', 'w1', 'restored body', ?, 'user_prompt_submit', 'hook')`,
+			r.id, r.createdAt,
+		); err != nil {
+			t.Fatalf("insert %s error = %v", r.id, err)
+		}
+	}
+	if _, err := db.Exec(
+		`INSERT INTO raw_body_retention_executions (plan_id, status, candidate_count, pruned_count, started_at, completed_at)
+		 VALUES ('plan-1', 'restored', 1, 1, '2026-04-09T00:00:00Z', '2026-04-09T00:00:01Z')`,
+	); err != nil {
+		t.Fatalf("insert execution error = %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO raw_body_retention_entries (plan_id, event_id, body_sha256, stored_bytes, pruned_at, restored_at)
+		 VALUES ('plan-1', 'evt-l2', 'sha', 13, '2026-04-09T00:00:00Z', '2026-04-09T12:00:00Z')`,
+	); err != nil {
+		t.Fatalf("insert ledger entry error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close() error = %v", err)
+	}
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-ledger",
+		Now: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	for _, group := range result.Groups {
+		for _, id := range group.DuplicateEventIDs {
+			if id == "evt-l2" {
+				t.Errorf("ledger-held row evt-l2 was selected as a duplicate of %s", group.KeptEventID)
+			}
+		}
+	}
+
+	verify, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = verify.Close() }()
+	var survivors int
+	if err := verify.QueryRow(`SELECT COUNT(*) FROM events WHERE id IN ('evt-l1','evt-l2')`).Scan(&survivors); err != nil {
+		t.Fatalf("count ledger rows error = %v", err)
+	}
+	if survivors != 2 {
+		t.Errorf("ledger rows surviving = %d, want 2", survivors)
+	}
+	// The rest of the apply must still have happened: an abort would have rolled
+	// back the batch that carried group A.
+	if diff := cmp.Diff(map[string][]string{
+		"evt-a1": {"evt-a2", "evt-a3"},
+		"evt-c1": {"evt-c2"},
+	}, groupByKept(result)); diff != "" {
+		t.Errorf("plan (-want +got):\n%s", diff)
+	}
+}
+
+// A ledger-held row must stay visible to clustering even though it can never be
+// archived. Three rows sit 9s apart inside the 10s proximity window and the
+// middle one carries a retention ledger entry. Excluding it from the candidate
+// scan -- the obvious way to avoid the ON DELETE RESTRICT abort -- widens the
+// gap across it to 18s, splitting one cluster into two singletons and stranding
+// an ordinary duplicate pair that has nothing to do with retention.
+func TestStoreManagementDatasource_DedupeContentEvents_LedgerRowKeepsItsClusterIntact(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	rows := []struct{ id, createdAt string }{
+		{"evt-m1", "2026-04-10T00:00:00Z"},
+		{"evt-m2", "2026-04-10T00:00:09Z"},
+		{"evt-m3", "2026-04-10T00:00:18Z"},
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+			 VALUES (?, 'prompt', 'codex', 's11', 'w1', 'middle held body', ?, 'user_prompt_submit', 'hook')`,
+			r.id, r.createdAt,
+		); err != nil {
+			t.Fatalf("insert %s error = %v", r.id, err)
+		}
+	}
+	if _, err := db.Exec(
+		`INSERT INTO raw_body_retention_executions (plan_id, status, candidate_count, pruned_count, started_at, completed_at)
+		 VALUES ('plan-m', 'restored', 1, 1, '2026-04-09T00:00:00Z', '2026-04-09T00:00:01Z')`,
+	); err != nil {
+		t.Fatalf("insert execution error = %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO raw_body_retention_entries (plan_id, event_id, body_sha256, stored_bytes, pruned_at, restored_at)
+		 VALUES ('plan-m', 'evt-m2', 'sha', 16, '2026-04-09T00:00:00Z', '2026-04-09T12:00:00Z')`,
+	); err != nil {
+		t.Fatalf("insert ledger entry error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close() error = %v", err)
+	}
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-middle",
+		Now: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	if diff := cmp.Diff(map[string][]string{
+		"evt-a1": {"evt-a2", "evt-a3"},
+		"evt-c1": {"evt-c2"},
+		"evt-m1": {"evt-m3"},
+	}, groupByKept(result)); diff != "" {
+		t.Errorf("plan (-want +got):\n%s", diff)
+	}
+
+	verify, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = verify.Close() }()
+	var survivors string
+	if err := verify.QueryRow(
+		`SELECT group_concat(id, ',') FROM (SELECT id FROM events WHERE id LIKE 'evt-m%' ORDER BY id)`,
+	).Scan(&survivors); err != nil {
+		t.Fatalf("read survivors error = %v", err)
+	}
+	if survivors != "evt-m1,evt-m2" {
+		t.Errorf("survivors = %q, want evt-m1,evt-m2 (the ledger row stays, the duplicate goes)", survivors)
+	}
 }

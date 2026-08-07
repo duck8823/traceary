@@ -13,14 +13,15 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-// storeDedupeClientCodex / storeDedupeClientAll are the accepted `--client`
-// values. Hook duplicates are written with events.client="hook", so the selector
-// maps to an events.agent filter: "codex" scopes to agent="codex", "all" scopes
-// to every agent. The two-value set keeps today's surface small while the
-// store-side filter already accepts any agent, so adding more clients later is a
-// CLI-only change.
+// The accepted `--client` values. Hook duplicates are written with
+// events.client="hook", so the selector maps to an events.agent filter: "codex"
+// and "kimi" scope to that agent, "all" scopes to every agent. The store-side
+// filter already accepts any agent, so naming another client is a CLI-only
+// change. "kimi" is named because it is the host that actually needs the repair:
+// its measured repeat ratio is 23.0x against codex 1.8x and antigravity 1.3x.
 const (
 	storeDedupeClientCodex = "codex"
+	storeDedupeClientKimi  = "kimi"
 	storeDedupeClientAll   = "all"
 )
 
@@ -34,12 +35,14 @@ func (c *RootCLI) newStoreDedupeCommand() *cobra.Command {
 }
 
 type storeDedupeContentEventsInput struct {
-	dbPath  string
-	apply   bool
-	restore string
-	client  string
-	strict  bool
-	asJSON  bool
+	dbPath   string
+	apply    bool
+	restore  string
+	purge    string
+	listRuns bool
+	client   string
+	strict   bool
+	asJSON   bool
 }
 
 func (c *RootCLI) newStoreDedupeContentEventsCommand() *cobra.Command {
@@ -51,10 +54,19 @@ func (c *RootCLI) newStoreDedupeContentEventsCommand() *cobra.Command {
 		Long: Localize(
 			"Audit and, with --apply, quarantine historical hook-originated prompt/transcript duplicate rows. "+
 				"The default is a dry-run that mutates nothing. Duplicates are moved into a restore-capable quarantine "+
-				"archive rather than hard-deleted; reverse a run with --restore <run-id>. Command audits are never touched.",
+				"archive rather than hard-deleted; reverse a run with --restore <run-id>. Command audits are never touched.\n\n"+
+				"An apply commits one duplicate cluster at a time, so interrupting it leaves every cluster either fully "+
+				"quarantined or untouched and re-running continues where it stopped. If an apply is interrupted before "+
+				"it prints its run id, --list-runs finds it. Quarantined bodies still occupy the store: run "+
+				"--purge <run-id> to end the rollback window and reclaim them, then VACUUM to return the pages to the "+
+				"filesystem.",
 			"履歴上の hook 由来 prompt/transcript 重複行を監査し、--apply で隔離します。"+
 				"既定は何も変更しない dry-run です。重複は hard delete せず復元可能な quarantine archive へ移動し、"+
-				"--restore <run-id> で取り消せます。command audit は対象外です。",
+				"--restore <run-id> で取り消せます。command audit は対象外です。\n\n"+
+				"--apply は重複クラスタ単位で commit するため、中断しても各クラスタは「完全に隔離済み」か「未着手」のどちらかになり、"+
+				"再実行で続きから進みます。run id が表示される前に中断した場合は --list-runs で見つけられます。"+
+				"隔離された本文はまだストアを占有します。--purge <run-id> で復元可能期間を終了して回収し、"+
+				"VACUUM でページをファイルシステムへ返してください。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -64,7 +76,9 @@ func (c *RootCLI) newStoreDedupeContentEventsCommand() *cobra.Command {
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().BoolVar(&input.apply, "apply", false, Localize("quarantine duplicates (default is a dry-run that changes nothing)", "重複を隔離する (既定は何も変更しない dry-run)"))
 	cmd.Flags().StringVar(&input.restore, "restore", "", Localize("restore the rows quarantined by the given dedupe run id", "指定した dedupe run id で隔離された行を復元する"))
-	cmd.Flags().StringVar(&input.client, "client", storeDedupeClientCodex, Localize("agent scope to target (codex | all)", "対象とする agent スコープ (codex | all)"))
+	cmd.Flags().StringVar(&input.purge, "purge", "", Localize("drop the rows quarantined by the given dedupe run id, ending its rollback window", "指定した dedupe run id で隔離された行を破棄し、その復元可能期間を終了する"))
+	cmd.Flags().BoolVar(&input.listRuns, "list-runs", false, Localize("list the quarantine runs still held in the archive", "archive に残っている quarantine run を一覧する"))
+	cmd.Flags().StringVar(&input.client, "client", storeDedupeClientCodex, Localize("agent scope to target (codex | kimi | all)", "対象とする agent スコープ (codex | kimi | all)"))
 	cmd.Flags().BoolVar(&input.strict, "strict", false, Localize("report every exact duplicate group regardless of time gap", "時間差に関係なく完全一致する重複グループをすべて対象にする"))
 	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("emit machine-readable JSON", "機械可読な JSON を出力する"))
 
@@ -75,8 +89,8 @@ func (c *RootCLI) runStoreDedupeContentEvents(ctx context.Context, output io.Wri
 	if c.storeManagement == nil {
 		return xerrors.New(Localize("store management usecase is not configured", "ストア管理ユースケースが設定されていません"))
 	}
-	if input.apply && strings.TrimSpace(input.restore) != "" {
-		return xerrors.New(Localize("--apply and --restore cannot be combined", "--apply と --restore は同時に指定できません"))
+	if err := validateStoreDedupeMode(input); err != nil {
+		return err
 	}
 
 	resolvedDBPath, err := resolveDBPath(input.dbPath)
@@ -88,8 +102,14 @@ func (c *RootCLI) runStoreDedupeContentEvents(ctx context.Context, output io.Wri
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
-	if strings.TrimSpace(input.restore) != "" {
-		return c.runStoreDedupeRestore(ctx, output, strings.TrimSpace(input.restore), input.asJSON)
+	if input.listRuns {
+		return c.runStoreDedupeListRuns(ctx, output, input.asJSON)
+	}
+	if restore := strings.TrimSpace(input.restore); restore != "" {
+		return c.runStoreDedupeRestore(ctx, output, restore, input.asJSON)
+	}
+	if purge := strings.TrimSpace(input.purge); purge != "" {
+		return c.runStoreDedupePurge(ctx, output, purge, input.asJSON)
 	}
 
 	agent, err := storeDedupeAgentFilter(input.client)
@@ -110,6 +130,93 @@ func (c *RootCLI) runStoreDedupeContentEvents(ctx context.Context, output io.Wri
 		return writeStoreDedupeJSON(output, result)
 	}
 	return writeStoreDedupeText(output, result)
+}
+
+// validateStoreDedupeMode rejects flag combinations that would ask for more than
+// one of the three mutually exclusive modes: quarantine, restore, and purge.
+func validateStoreDedupeMode(input storeDedupeContentEventsInput) error {
+	restore := strings.TrimSpace(input.restore) != ""
+	purge := strings.TrimSpace(input.purge) != ""
+	switch {
+	case input.listRuns && (input.apply || restore || purge):
+		return xerrors.New(Localize(
+			"--list-runs cannot be combined with --apply, --restore, or --purge",
+			"--list-runs は --apply, --restore, --purge と同時に指定できません",
+		))
+	case input.apply && restore:
+		return xerrors.New(Localize("--apply and --restore cannot be combined", "--apply と --restore は同時に指定できません"))
+	case input.apply && purge:
+		return xerrors.New(Localize("--apply and --purge cannot be combined", "--apply と --purge は同時に指定できません"))
+	case restore && purge:
+		return xerrors.New(Localize("--restore and --purge cannot be combined", "--restore と --purge は同時に指定できません"))
+	}
+	return nil
+}
+
+func (c *RootCLI) runStoreDedupeListRuns(ctx context.Context, output io.Writer, asJSON bool) error {
+	runs, err := c.storeManagement.ListContentEventDedupeRuns(ctx)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to list dedupe runs", "dedupe run の一覧取得に失敗しました"), err)
+	}
+
+	if asJSON {
+		payload := storeDedupeRunListJSON{Runs: make([]storeDedupeRunJSON, 0, len(runs))}
+		for _, run := range runs {
+			payload.Runs = append(payload.Runs, storeDedupeRunJSON{
+				RunID:           run.RunID,
+				ArchivedAt:      run.ArchivedAt,
+				QuarantinedRows: run.QuarantinedRows,
+				BodyBytes:       run.BodyBytes,
+			})
+		}
+		return encodeStoreDedupeJSON(output, payload)
+	}
+
+	if len(runs) == 0 {
+		if _, err := fmt.Fprintln(output, Localize(
+			"No quarantine runs are held in the archive.",
+			"archive に残っている quarantine run はありません。",
+		)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print dedupe run list", "dedupe run 一覧の出力に失敗しました"), err)
+		}
+		return nil
+	}
+	for _, run := range runs {
+		if _, err := fmt.Fprintf(
+			output,
+			"  run_id=%s archived_at=%s rows=%d body_bytes=%d\n",
+			run.RunID, run.ArchivedAt, run.QuarantinedRows, run.BodyBytes,
+		); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print dedupe run list", "dedupe run 一覧の出力に失敗しました"), err)
+		}
+	}
+	return nil
+}
+
+func (c *RootCLI) runStoreDedupePurge(ctx context.Context, output io.Writer, runID string, asJSON bool) error {
+	result, err := c.storeManagement.PurgeContentEventDedupeRun(ctx, runID)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to purge dedupe run", "dedupe run の破棄に失敗しました"), err)
+	}
+	if asJSON {
+		return encodeStoreDedupeJSON(output, storeDedupePurgeJSON{
+			RunID:             result.RunID,
+			PurgedCount:       result.PurgedCount,
+			ReleasedBodyBytes: result.ReleasedBody,
+		})
+	}
+	if _, err := fmt.Fprintf(
+		output,
+		"%s\n",
+		localizef(
+			"Purged %d quarantined row(s) from dedupe run %s (%d body byte(s) released). Run VACUUM to return the pages to the filesystem.",
+			"dedupe run %[2]s から %[1]d 行を破棄しました (本文 %[3]d バイトを解放)。ページをファイルシステムへ返すには VACUUM を実行してください。",
+			result.PurgedCount, result.RunID, result.ReleasedBody,
+		),
+	); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print purge result", "破棄結果の出力に失敗しました"), err)
+	}
+	return nil
 }
 
 func (c *RootCLI) runStoreDedupeRestore(ctx context.Context, output io.Writer, runID string, asJSON bool) error {
@@ -141,13 +248,15 @@ func (c *RootCLI) runStoreDedupeRestore(ctx context.Context, output io.Writer, r
 // storeDedupeAgentFilter maps the operator-facing --client value to the store-
 // side events.agent filter. "all" clears the filter; "codex" scopes to Codex.
 func storeDedupeAgentFilter(client string) (string, error) {
-	switch strings.TrimSpace(strings.ToLower(client)) {
-	case "", storeDedupeClientCodex:
-		return "codex", nil
+	switch trimmed := strings.TrimSpace(strings.ToLower(client)); trimmed {
+	case "":
+		return storeDedupeClientCodex, nil
+	case storeDedupeClientCodex, storeDedupeClientKimi:
+		return trimmed, nil
 	case storeDedupeClientAll:
 		return "", nil
 	default:
-		return "", xerrors.New(Localize("--client must be one of codex, all", "--client は codex, all のいずれかである必要があります"))
+		return "", xerrors.New(Localize("--client must be one of codex, kimi, all", "--client は codex, kimi, all のいずれかである必要があります"))
 	}
 }
 
@@ -191,6 +300,23 @@ type storeDedupeSourceJSON struct {
 type storeDedupeRestoreJSON struct {
 	RunID         string `json:"run_id"`
 	RestoredCount int    `json:"restored_count"`
+}
+
+type storeDedupeRunJSON struct {
+	RunID           string `json:"run_id"`
+	ArchivedAt      string `json:"archived_at"`
+	QuarantinedRows int    `json:"quarantined_rows"`
+	BodyBytes       int64  `json:"body_bytes"`
+}
+
+type storeDedupeRunListJSON struct {
+	Runs []storeDedupeRunJSON `json:"runs"`
+}
+
+type storeDedupePurgeJSON struct {
+	RunID             string `json:"run_id"`
+	PurgedCount       int    `json:"purged_count"`
+	ReleasedBodyBytes int64  `json:"released_body_bytes"`
 }
 
 func writeStoreDedupeJSON(output io.Writer, result apptypes.ContentEventDedupeResult) error {

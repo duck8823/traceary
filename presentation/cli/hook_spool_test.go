@@ -1059,3 +1059,11 @@ func (s *spoolEventUsecaseStub) Context(context.Context, apptypes.EventContextCr
 func (s *spoolEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
 	return nil, nil
 }
+
+func (s *spoolStoreManagementStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}
+
+func (s *spoolStoreManagementStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

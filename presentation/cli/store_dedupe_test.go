@@ -122,9 +122,148 @@ func TestRootCLI_StoreDedupeContentEvents_Restore(t *testing.T) {
 	}
 }
 
-func TestRootCLI_StoreDedupeContentEvents_ApplyAndRestoreConflict(t *testing.T) {
+func TestRootCLI_StoreDedupeContentEvents_ClientKimi(t *testing.T) {
 	stub := &storeManagementUsecaseStub{}
-	if _, err := runStoreDedupe(t, stub, "--apply", "--restore", "dedupe-abc"); err == nil {
-		t.Fatalf("expected error combining --apply and --restore")
+	if _, err := runStoreDedupe(t, stub, "--client", "kimi"); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stub.dedupeParams[0].Agent != "kimi" {
+		t.Fatalf("--client kimi Agent = %q, want kimi", stub.dedupeParams[0].Agent)
+	}
+}
+
+func TestRootCLI_StoreDedupeContentEvents_Purge(t *testing.T) {
+	stub := &storeManagementUsecaseStub{
+		purgeResult: apptypes.ContentEventDedupePurgeResult{RunID: "dedupe-abc", PurgedCount: 3, ReleasedBody: 4096},
+	}
+	out, err := runStoreDedupe(t, stub, "--purge", "dedupe-abc")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(stub.purgeRunIDs) != 1 || stub.purgeRunIDs[0] != "dedupe-abc" {
+		t.Fatalf("purgeRunIDs = %v, want [dedupe-abc]", stub.purgeRunIDs)
+	}
+	if len(stub.dedupeParams) != 0 {
+		t.Fatal("purge must not call DedupeContentEvents")
+	}
+	// Purge only returns pages to SQLite's free list, so the operator has to be
+	// told that reclaiming disk needs VACUUM.
+	for _, want := range []string{"dedupe-abc", "3", "4096", "VACUUM"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("purge output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRootCLI_StoreDedupeContentEvents_PurgeJSON(t *testing.T) {
+	stub := &storeManagementUsecaseStub{
+		purgeResult: apptypes.ContentEventDedupePurgeResult{RunID: "dedupe-abc", PurgedCount: 3, ReleasedBody: 4096},
+	}
+	out, err := runStoreDedupe(t, stub, "--purge", "dedupe-abc", "--json")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var payload struct {
+		RunID             string `json:"run_id"`
+		PurgedCount       int    `json:"purged_count"`
+		ReleasedBodyBytes int64  `json:"released_body_bytes"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\n%s", err, out)
+	}
+	if payload.RunID != "dedupe-abc" || payload.PurgedCount != 3 || payload.ReleasedBodyBytes != 4096 {
+		t.Fatalf("unexpected JSON payload: %#v", payload)
+	}
+}
+
+// Quarantine, restore, and purge are three different intents; asking for more
+// than one at a time is an operator mistake, not something to resolve silently.
+func TestRootCLI_StoreDedupeContentEvents_RejectsConflictingModes(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "apply with restore", args: []string{"--apply", "--restore", "dedupe-abc"}},
+		{name: "apply with purge", args: []string{"--apply", "--purge", "dedupe-abc"}},
+		{name: "restore with purge", args: []string{"--restore", "dedupe-abc", "--purge", "dedupe-abc"}},
+		{name: "list runs with apply", args: []string{"--list-runs", "--apply"}},
+		{name: "list runs with restore", args: []string{"--list-runs", "--restore", "dedupe-abc"}},
+		{name: "list runs with purge", args: []string{"--list-runs", "--purge", "dedupe-abc"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stub := &storeManagementUsecaseStub{}
+			if _, err := runStoreDedupe(t, stub, test.args...); err == nil {
+				t.Errorf("runStoreDedupe(%v) = nil error, want failure", test.args)
+			}
+		})
+	}
+}
+
+// --list-runs is the recovery handle for an apply that was interrupted before it
+// printed its run id: without it those quarantined rows are unreachable by both
+// --restore and --purge.
+func TestRootCLI_StoreDedupeContentEvents_ListRuns(t *testing.T) {
+	stub := &storeManagementUsecaseStub{
+		dedupeRuns: []apptypes.ContentEventDedupeRun{
+			{RunID: "dedupe-late", ArchivedAt: "2026-06-21T00:00:00Z", QuarantinedRows: 4, BodyBytes: 8192},
+			{RunID: "dedupe-early", ArchivedAt: "2026-06-20T00:00:00Z", QuarantinedRows: 3, BodyBytes: 4096},
+		},
+	}
+	output, err := runStoreDedupe(t, stub, "--list-runs")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stub.dedupeRunsCalls != 1 {
+		t.Errorf("ListContentEventDedupeRuns calls = %d, want 1", stub.dedupeRunsCalls)
+	}
+	if len(stub.dedupeParams) != 0 {
+		t.Errorf("--list-runs ran a dedupe scan: %+v", stub.dedupeParams)
+	}
+	for _, want := range []string{"dedupe-late", "dedupe-early", "rows=4", "body_bytes=8192"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRootCLI_StoreDedupeContentEvents_ListRunsJSON(t *testing.T) {
+	stub := &storeManagementUsecaseStub{
+		dedupeRuns: []apptypes.ContentEventDedupeRun{
+			{RunID: "dedupe-abc", ArchivedAt: "2026-06-20T00:00:00Z", QuarantinedRows: 3, BodyBytes: 4096},
+		},
+	}
+	output, err := runStoreDedupe(t, stub, "--list-runs", "--json")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var payload struct {
+		Runs []struct {
+			RunID           string `json:"run_id"`
+			ArchivedAt      string `json:"archived_at"`
+			QuarantinedRows int    `json:"quarantined_rows"`
+			BodyBytes       int64  `json:"body_bytes"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v, output = %s", err, output)
+	}
+	if len(payload.Runs) != 1 {
+		t.Fatalf("runs = %d, want 1", len(payload.Runs))
+	}
+	run := payload.Runs[0]
+	if run.RunID != "dedupe-abc" || run.QuarantinedRows != 3 || run.BodyBytes != 4096 || run.ArchivedAt != "2026-06-20T00:00:00Z" {
+		t.Errorf("run = %+v, want the stubbed values", run)
+	}
+}
+
+func TestRootCLI_StoreDedupeContentEvents_ListRunsEmpty(t *testing.T) {
+	stub := &storeManagementUsecaseStub{}
+	output, err := runStoreDedupe(t, stub, "--list-runs")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.TrimSpace(output) == "" {
+		t.Error("an empty archive printed nothing; the operator cannot tell it from a failure")
 	}
 }

@@ -490,3 +490,11 @@ func mustTailEvent(t *testing.T, eventID string, client string, agent string, se
 		createdAt,
 	)
 }
+
+func (tailStoreManagementStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}
+
+func (tailStoreManagementStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

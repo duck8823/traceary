@@ -80,3 +80,11 @@ func TestStoreManagementUsecase_Initialize(t *testing.T) {
 		})
 	}
 }
+
+func (s *storeInitializerStub) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}
+
+func (s *storeInitializerStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

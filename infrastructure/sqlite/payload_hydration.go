@@ -160,6 +160,18 @@ func loadEventPlaintext(ctx context.Context, q queryRowContexter, eventID string
 	return plain, nil
 }
 
+func databaseTableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
+	var exists int
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?)`,
+		table,
+	).Scan(&exists); err != nil {
+		return false, xerrors.Errorf("inspect table presence: %w", err)
+	}
+	return exists != 0, nil
+}
+
 func databaseColumnExists(ctx context.Context, db *sql.DB, table, column string) (bool, error) {
 	var exists int
 	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info(?) WHERE name=?)`, table, column).Scan(&exists); err != nil {

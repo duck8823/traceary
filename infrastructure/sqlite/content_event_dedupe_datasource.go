@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"sort"
 	"strings"
@@ -30,19 +31,26 @@ const (
 	contentEventDedupeReasonMalformed = "skipped: malformed or unparseable created_at"
 )
 
-// dedupeCandidateRow is one eligible hook content event read from the store.
-type dedupeCandidateRow struct {
-	id         string
-	kind       string
-	client     string
-	agent      string
-	sessionID  string
-	workspace  string
-	body       string // original body, preserved verbatim for archive/restore
-	createdAt  string // original RFC3339Nano text, preserved verbatim
-	sourceHook sql.NullString
-	parsedAt   time.Time
-	parseOK    bool
+// dedupeMemberRef is one row's participation in an identity group.
+//
+// The body is deliberately absent. A body is needed for exactly two things: to
+// establish identity (hashed during identification and then dropped) and to copy
+// into the quarantine archive (re-read one batch at a time during apply). Keeping
+// every decoded body resident is what made a full-store apply unrunnable: the
+// eligible set is ~246k rows and ~3.3 GiB of stored payload.
+type dedupeMemberRef struct {
+	id        string
+	createdAt string // original RFC3339Nano text, preserved verbatim
+	parsedAt  time.Time
+	parseOK   bool
+	// retentionHeld marks a row that carries a raw_body_retention_entries row.
+	// That table references events(id) ON DELETE RESTRICT, so archiving such a
+	// row aborts the batch with a bare foreign-key error. It stays a full member
+	// of its identity group regardless — proximity clustering reads the gaps
+	// between the rows it can see, so hiding one would widen the gap across it
+	// and could split an otherwise-collapsible cluster — but it is never chosen
+	// as a duplicate.
+	retentionHeld bool
 }
 
 // dedupeGroupKey is the duplicate-identity tuple. It intentionally matches the
@@ -52,6 +60,9 @@ type dedupeCandidateRow struct {
 // deliberately NOT a runtime delivery identity: current writes require a
 // stable host-native ID and never infer redelivery from body equality. The
 // reversible maintenance identity follows the heuristic diagnostic instead.
+//
+// The trimmed body is held as its SHA-256 digest rather than as text so the key
+// stays a small comparable value and identification never retains body content.
 type dedupeGroupKey struct {
 	kind       string
 	client     string
@@ -59,36 +70,48 @@ type dedupeGroupKey struct {
 	sessionID  string
 	workspace  string
 	sourceHook string
-	normBody   string
+	bodyDigest [sha256.Size]byte
 }
 
-func newDedupeGroupKey(row dedupeCandidateRow) dedupeGroupKey {
+func newDedupeGroupKey(kind, client, agent, sessionID, workspace, sourceHook, body string) dedupeGroupKey {
+	// Same normalization as the doctor diagnostic: trim surrounding whitespace
+	// only, so trailing-newline noise does not split a pair, but genuinely
+	// different prompts stay distinct.
 	return dedupeGroupKey{
-		kind:       row.kind,
-		client:     row.client,
-		agent:      row.agent,
-		sessionID:  row.sessionID,
-		workspace:  row.workspace,
-		sourceHook: row.sourceHook.String,
-		// Same normalization as the doctor diagnostic: trim surrounding
-		// whitespace only, so trailing-newline noise does not split a pair, but
-		// genuinely different prompts stay distinct.
-		normBody: strings.TrimSpace(row.body),
+		kind:       kind,
+		client:     client,
+		agent:      agent,
+		sessionID:  sessionID,
+		workspace:  workspace,
+		sourceHook: sourceHook,
+		bodyDigest: sha256.Sum256([]byte(strings.TrimSpace(body))),
 	}
 }
 
 // forensicKey renders a stable, compact identity string for archive metadata.
-// The body is hashed so the key stays bounded regardless of body size.
+// The body contributes as a digest prefix so the key stays bounded regardless of
+// body size.
 func (k dedupeGroupKey) forensicKey() string {
-	sum := sha256.Sum256([]byte(k.normBody))
 	hook := k.sourceHook
 	if hook == "" {
 		hook = "-"
 	}
 	return strings.Join([]string{
 		k.kind, k.client, k.agent, k.sessionID, k.workspace, hook,
-		"body:" + hex.EncodeToString(sum[:8]),
+		"body:" + hex.EncodeToString(k.bodyDigest[:8]),
 	}, "|")
+}
+
+// stringInterner collapses the small set of repeated agent/hook/workspace values
+// that identification would otherwise allocate once per scanned row.
+type stringInterner map[string]string
+
+func (s stringInterner) intern(value string) string {
+	if existing, ok := s[value]; ok {
+		return existing
+	}
+	s[value] = value
+	return value
 }
 
 // DedupeContentEvents reports (dry-run) or quarantines (apply) historical hook-
@@ -125,57 +148,29 @@ func (d *StoreManagementDatasource) DedupeContentEvents(
 		}
 	}()
 
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("failed to begin content-event dedupe transaction: %w", err)
-	}
-	committed := false
-	defer func() {
-		if committed {
-			return
-		}
-		if err := tx.Rollback(); err != nil {
-			slog.Debug("failed to rollback transaction", "error", err)
-		}
-	}()
-
 	agent := strings.TrimSpace(params.Agent)
-	totalEligible := 0
-	if params.MaxScanRows > 0 {
-		totalEligible, err = d.countDedupeCandidates(ctx, tx, agent)
-		if err != nil {
-			return apptypes.ContentEventDedupeResult{}, err
-		}
-	}
-	rows, err := d.loadDedupeCandidates(ctx, tx, agent, params.MaxScanRows)
+
+	// Identification is read-only and holds no write transaction. Apply then
+	// commits in bounded batches (see applyDedupeGroups), so an interrupted run
+	// leaves a consistent store instead of rolling the whole repair back.
+	survey, err := d.identifyDedupeGroups(ctx, db, agent, params.MaxScanRows)
 	if err != nil {
 		return apptypes.ContentEventDedupeResult{}, err
 	}
-	if params.MaxScanRows == 0 {
-		totalEligible = len(rows)
-	}
 
-	plan := planContentEventDedupe(rows, params.Strict)
+	plan := planContentEventDedupe(survey, params.Strict)
 
 	if params.Apply {
-		for _, group := range plan.groups {
-			for _, dup := range group.duplicates {
-				if err := archiveDedupeRow(ctx, tx, dup, group.keptID, params.RunID, params.Now, group.forensicKey, group.reason); err != nil {
-					return apptypes.ContentEventDedupeResult{}, err
-				}
-			}
+		if err := d.applyDedupeGroups(ctx, db, plan, params); err != nil {
+			return apptypes.ContentEventDedupeResult{}, err
 		}
-		if err := tx.Commit(); err != nil {
-			return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("failed to commit content-event dedupe transaction: %w", err)
-		}
-		committed = true
 	}
 
 	result := apptypes.ContentEventDedupeResult{
 		RunID:              params.RunID,
 		Applied:            params.Apply,
-		TotalEligibleCount: totalEligible,
-		ScannedCount:       len(rows),
+		TotalEligibleCount: survey.totalEligible,
+		ScannedCount:       survey.scannedCount,
 	}
 	for _, group := range plan.groups {
 		dupIDs := make([]string, 0, len(group.duplicates))
@@ -192,24 +187,26 @@ func (d *StoreManagementDatasource) DedupeContentEvents(
 		})
 	}
 	result.Skipped = plan.skipped
-	result.Sources = contentEventDedupeSourceStats(rows, result.Groups)
+	result.Sources = contentEventDedupeSourceStats(survey.scannedBySource, result.Groups)
 	return result, nil
 }
 
-func contentEventDedupeSourceStats(rows []dedupeCandidateRow, groups []apptypes.ContentEventDedupeGroup) []apptypes.ContentEventDedupeSourceStat {
-	type sourceKey struct {
-		agent string
-		hook  string
-	}
+// dedupeSourceKey identifies one (agent, source_hook) reporting bucket.
+type dedupeSourceKey struct {
+	agent string
+	hook  string
+}
+
+func contentEventDedupeSourceStats(
+	scannedBySource map[dedupeSourceKey]int,
+	groups []apptypes.ContentEventDedupeGroup,
+) []apptypes.ContentEventDedupeSourceStat {
+	type sourceKey = dedupeSourceKey
 	stats := map[sourceKey]*apptypes.ContentEventDedupeSourceStat{}
-	for _, row := range rows {
-		key := sourceKey{agent: row.agent, hook: row.sourceHook.String}
-		item := stats[key]
-		if item == nil {
-			item = &apptypes.ContentEventDedupeSourceStat{Agent: key.agent, SourceHook: key.hook}
-			stats[key] = item
+	for key, scanned := range scannedBySource {
+		stats[key] = &apptypes.ContentEventDedupeSourceStat{
+			Agent: key.agent, SourceHook: key.hook, ScannedCount: scanned,
 		}
-		item.ScannedCount++
 	}
 	for _, group := range groups {
 		key := sourceKey{agent: group.Agent, hook: group.SourceHook}
@@ -235,22 +232,68 @@ func contentEventDedupeSourceStats(rows []dedupeCandidateRow, groups []apptypes.
 	return result
 }
 
-// loadDedupeCandidates reads every eligible hook content event. Eligibility is
-// enforced in SQL (client='hook', kind in prompt/transcript) so command audits
-// and non-hook writes never enter the maintenance path. created_at is parsed in
-// Go (RFC3339Nano) rather than ordered lexically in SQL, because formatTimestamp
-// emits variable-width fractional seconds that are not lexically time-ordered.
-func (d *StoreManagementDatasource) loadDedupeCandidates(
+// dedupeSurvey is the outcome of the read-only identification pass.
+type dedupeSurvey struct {
+	groups          map[dedupeGroupKey][]dedupeMemberRef
+	order           []dedupeGroupKey
+	scannedBySource map[dedupeSourceKey]int
+	scannedCount    int
+	totalEligible   int
+}
+
+// identifyDedupeGroups streams every eligible hook content event and records
+// which identity group each row belongs to, without retaining any body.
+// Eligibility is enforced in SQL (client='hook', kind in prompt/transcript) so
+// command audits and non-hook writes never enter the maintenance path.
+//
+// created_at is parsed in Go (RFC3339Nano) rather than ordered lexically in SQL,
+// because formatTimestamp emits variable-width fractional seconds that are not
+// lexically time-ordered.
+//
+// The payload metadata columns are probed once and, when present, selected
+// inline so each row decodes from the values already scanned. The previous
+// implementation called loadEventPlaintext per row, which issued two extra
+// queries for every candidate.
+func (d *StoreManagementDatasource) identifyDedupeGroups(
 	ctx context.Context,
-	tx *sql.Tx,
+	db *sql.DB,
 	agent string,
 	maxRows int,
-) ([]dedupeCandidateRow, error) {
-	query := `SELECT id, kind, client, agent, session_id, workspace, body, created_at, source_hook
+) (dedupeSurvey, error) {
+	survey := dedupeSurvey{
+		groups:          map[dedupeGroupKey][]dedupeMemberRef{},
+		scannedBySource: map[dedupeSourceKey]int{},
+	}
+
+	hasCodec, err := databaseColumnExists(ctx, db, "events", "body_codec")
+	if err != nil {
+		return dedupeSurvey{}, err
+	}
+	scope, err := resolveDedupeEligibilityScope(ctx, db)
+	if err != nil {
+		return dedupeSurvey{}, err
+	}
+
+	if maxRows > 0 {
+		survey.totalEligible, err = d.countDedupeCandidates(ctx, db, agent, scope)
+		if err != nil {
+			return dedupeSurvey{}, err
+		}
+	}
+
+	payloadColumns := `CASE WHEN length(CAST(body AS BLOB)) <= ? THEN body END, length(CAST(body AS BLOB))`
+	args := []any{int64(maxDecodedPayloadBytes)}
+	if hasCodec {
+		payloadColumns = `CASE WHEN length(CAST(body AS BLOB)) <= ? THEN body END,
+		       body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256,
+		       length(CAST(body AS BLOB))`
+		args = []any{int64(maxStoredPayloadBytes)}
+	}
+	query := `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook,
+	       ` + dedupeRetentionHeldProjection(scope) + `,
+	       ` + payloadColumns + `
 	            FROM events
-	           WHERE client = 'hook'
-	             AND kind IN ('prompt', 'transcript')`
-	args := []any{}
+	           WHERE ` + dedupeEligibilityFilter(scope)
 	if agent != "" {
 		query += "\n             AND agent = ?"
 		args = append(args, agent)
@@ -263,9 +306,9 @@ func (d *StoreManagementDatasource) loadDedupeCandidates(
 		args = append(args, maxRows)
 	}
 
-	rows, err := tx.QueryContext(ctx, query, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to query content-event dedupe candidates: %w", err)
+		return dedupeSurvey{}, xerrors.Errorf("failed to query content-event dedupe candidates: %w", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
@@ -273,54 +316,175 @@ func (d *StoreManagementDatasource) loadDedupeCandidates(
 		}
 	}()
 
-	var candidates []dedupeCandidateRow
+	interner := stringInterner{}
 	for rows.Next() {
-		var row dedupeCandidateRow
-		if err := rows.Scan(
-			&row.id,
-			&row.kind,
-			&row.client,
-			&row.agent,
-			&row.sessionID,
-			&row.workspace,
-			&row.body,
-			&row.createdAt,
-			&row.sourceHook,
-		); err != nil {
-			return nil, xerrors.Errorf("failed to scan content-event dedupe candidate: %w", err)
+		var (
+			id, kind, client, rowAgent, sessionID, workspace, createdAt string
+			sourceHook                                                  sql.NullString
+			retentionHeld                                               int
+			payload                                                     payloadRow
+			storedLength                                                sql.NullInt64
+		)
+		destinations := []any{&id, &kind, &client, &rowAgent, &sessionID, &workspace, &createdAt, &sourceHook, &retentionHeld}
+		if hasCodec {
+			destinations = append(destinations, payload.scanDestinations()...)
+		} else {
+			destinations = append(destinations, &payload.Stored)
 		}
-		plain, err := loadEventPlaintext(ctx, tx, row.id)
+		destinations = append(destinations, &storedLength)
+		if err := rows.Scan(destinations...); err != nil {
+			return dedupeSurvey{}, xerrors.Errorf("failed to scan content-event dedupe candidate: %w", err)
+		}
+
+		body, err := decodeDedupeCandidateBody(payload, storedLength, hasCodec, id)
 		if err != nil {
-			return nil, xerrors.Errorf("decode dedupe candidate %s: %w", row.id, err)
+			return dedupeSurvey{}, err
 		}
-		row.body = string(plain)
-		parsed, parseErr := time.Parse(time.RFC3339Nano, row.createdAt)
-		row.parsedAt = parsed
-		row.parseOK = parseErr == nil
-		candidates = append(candidates, row)
+
+		key := newDedupeGroupKey(
+			interner.intern(kind),
+			interner.intern(client),
+			interner.intern(rowAgent),
+			sessionID,
+			interner.intern(workspace),
+			interner.intern(sourceHook.String),
+			body,
+		)
+		parsed, parseErr := time.Parse(time.RFC3339Nano, createdAt)
+		if _, seen := survey.groups[key]; !seen {
+			survey.order = append(survey.order, key)
+		}
+		survey.groups[key] = append(survey.groups[key], dedupeMemberRef{
+			id:            id,
+			createdAt:     createdAt,
+			parsedAt:      parsed,
+			retentionHeld: retentionHeld != 0,
+			parseOK:       parseErr == nil,
+		})
+		survey.scannedBySource[dedupeSourceKey{agent: key.agent, hook: key.sourceHook}]++
+		survey.scannedCount++
 	}
 	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("failed to iterate content-event dedupe candidates: %w", err)
+		return dedupeSurvey{}, xerrors.Errorf("failed to iterate content-event dedupe candidates: %w", err)
 	}
-	return candidates, nil
+	if maxRows == 0 {
+		survey.totalEligible = survey.scannedCount
+	}
+	return survey, nil
+}
+
+// decodeDedupeCandidateBody mirrors loadEventPlaintext's contract for a row whose
+// payload columns were already scanned: an oversized stored payload is a payload
+// integrity error rather than a silently truncated body.
+func decodeDedupeCandidateBody(
+	payload payloadRow,
+	storedLength sql.NullInt64,
+	hasCodec bool,
+	eventID string,
+) (string, error) {
+	limit := int64(maxDecodedPayloadBytes)
+	codec := payloadCodecIdentity
+	if hasCodec {
+		limit = maxStoredPayloadBytes
+		codec = payload.Codec.String
+	}
+	if storedLength.Valid && storedLength.Int64 > limit {
+		return "", xerrors.Errorf("decode dedupe candidate %s: %w", eventID,
+			&PayloadIntegrityError{Codec: codec, RowID: eventID, Field: "body", Reason: "stored length exceeds limit"})
+	}
+	if !hasCodec {
+		return string(payload.Stored), nil
+	}
+	plain, err := payload.decode(maxDecodedPayloadBytes)
+	if err != nil {
+		return "", xerrors.Errorf("decode dedupe candidate %s: %w", eventID, annotatePayloadError(err, eventID, "body"))
+	}
+	return string(plain), nil
+}
+
+// dedupeEligibilityScope records which optional retention schema this store
+// carries, so the eligibility filter degrades cleanly on stores predating
+// migration 26 instead of assuming the columns and tables exist.
+type dedupeEligibilityScope struct {
+	hasBodyAvailability bool
+	hasRetentionLedger  bool
+}
+
+func resolveDedupeEligibilityScope(ctx context.Context, db *sql.DB) (dedupeEligibilityScope, error) {
+	hasBodyAvailability, err := databaseColumnExists(ctx, db, "events", "body_availability")
+	if err != nil {
+		return dedupeEligibilityScope{}, err
+	}
+	hasRetentionLedger, err := databaseTableExists(ctx, db, "raw_body_retention_entries")
+	if err != nil {
+		return dedupeEligibilityScope{}, err
+	}
+	return dedupeEligibilityScope{
+		hasBodyAvailability: hasBodyAvailability,
+		hasRetentionLedger:  hasRetentionLedger,
+	}, nil
+}
+
+// dedupeEligibilityFilter is the WHERE fragment shared by the candidate count
+// and the identification scan.
+//
+// Rows the retention pruner has emptied are excluded here, at the candidate
+// level, because pruning replaces the body with one fixed marker string for
+// every row it touches without regard to client or kind. An emptied prompt and
+// an emptied transcript from unrelated sessions therefore hash to the same
+// identity, so including them would collapse unrelated rows into one enormous
+// group and quarantine rows that never duplicated anything. They cannot
+// participate in grouping at all.
+//
+// Rows carrying a retention *ledger* entry are deliberately NOT excluded here,
+// even though they can never be archived (see retentionHeld in dedupeMemberRef).
+// Excluding them from the scan would remove them from their identity group, and
+// proximity clustering measures the gaps between the rows it can see: dropping a
+// row from the middle of a cluster widens the gap across it and can split one
+// cluster into singletons, silently stranding ordinary duplicates that have
+// nothing to do with retention. What the RESTRICT requires is that the row not
+// be deleted — not that it be invisible.
+func dedupeEligibilityFilter(scope dedupeEligibilityScope) string {
+	filter := `client = 'hook'
+	             AND kind IN ('prompt', 'transcript')`
+	if scope.hasBodyAvailability {
+		filter += "\n	             AND body_availability = 'available'"
+	}
+	return filter
+}
+
+// dedupeRetentionHeldProjection selects whether a candidate row carries a
+// retention ledger entry, so planning can keep the row in its cluster while
+// never archiving it.
+//
+// raw_body_retention_entries is keyed (plan_id, event_id), so a lookup by
+// event_id alone has no usable index until migration 45 adds one. Without it
+// this correlated subquery degrades to a full scan of the ledger per candidate
+// row — O(candidates x ledger) on the very scan this command exists to make
+// runnable at 246,657 rows.
+func dedupeRetentionHeldProjection(scope dedupeEligibilityScope) string {
+	if !scope.hasRetentionLedger {
+		return "0"
+	}
+	return "EXISTS (SELECT 1 FROM raw_body_retention_entries r WHERE r.event_id = events.id)"
 }
 
 func (d *StoreManagementDatasource) countDedupeCandidates(
 	ctx context.Context,
-	tx *sql.Tx,
+	q queryRowContexter,
 	agent string,
+	scope dedupeEligibilityScope,
 ) (int, error) {
 	query := `SELECT COUNT(*)
 	            FROM events
-	           WHERE client = 'hook'
-	             AND kind IN ('prompt', 'transcript')`
+	           WHERE ` + dedupeEligibilityFilter(scope)
 	args := []any{}
 	if agent != "" {
 		query += "\n             AND agent = ?"
 		args = append(args, agent)
 	}
 	var count int
-	if err := tx.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
 		return 0, xerrors.Errorf("failed to count content-event dedupe candidates: %w", err)
 	}
 	return count, nil
@@ -335,7 +499,17 @@ type dedupeGroupPlan struct {
 	sourceHook  string
 	forensicKey string
 	reason      string
-	duplicates  []dedupeCandidateRow
+	duplicates  []dedupeMemberRef
+	// atomic marks a group whose duplicates must be archived in one
+	// transaction or not at all. Only proximity groups are atomic: their
+	// membership is decided from the gaps between *surviving* rows, so
+	// archiving part of one widens those gaps and can split it into pieces a
+	// re-run will never collapse. A strict group ignores gaps entirely — its
+	// membership is the identity tuple alone and its canonical row is the
+	// earliest, which archiving duplicates never removes — so a partially
+	// archived strict group re-plans to exactly the same decision and may be
+	// split across transactions.
+	atomic bool
 }
 
 type dedupePlan struct {
@@ -350,20 +524,10 @@ type dedupePlan struct {
 // simultaneous writes are eligible; strict mode treats the whole group as one
 // cluster. The canonical row is the earliest parsed created_at, tie-broken by
 // the smallest event id.
-func planContentEventDedupe(rows []dedupeCandidateRow, strict bool) dedupePlan {
-	grouped := map[dedupeGroupKey][]dedupeCandidateRow{}
-	order := []dedupeGroupKey{}
-	for _, row := range rows {
-		key := newDedupeGroupKey(row)
-		if _, ok := grouped[key]; !ok {
-			order = append(order, key)
-		}
-		grouped[key] = append(grouped[key], row)
-	}
-
+func planContentEventDedupe(survey dedupeSurvey, strict bool) dedupePlan {
 	var plan dedupePlan
-	for _, key := range order {
-		members := grouped[key]
+	for _, key := range survey.order {
+		members := survey.groups[key]
 		if len(members) <= 1 {
 			continue
 		}
@@ -380,7 +544,7 @@ func planContentEventDedupe(rows []dedupeCandidateRow, strict bool) dedupePlan {
 		}
 
 		// clusterByProximity and the canonical-row choice below both require
-		// ascending (parsedAt, id) order, but loadDedupeCandidates issues no
+		// ascending (parsedAt, id) order, but identifyDedupeGroups issues no
 		// ORDER BY (SQL row order is unspecified). Sorting here is what makes the
 		// result correct regardless of how the store returned these rows: the
 		// earliest created_at becomes the kept row and proximity gaps are measured
@@ -393,10 +557,12 @@ func planContentEventDedupe(rows []dedupeCandidateRow, strict bool) dedupePlan {
 		})
 
 		reason := contentEventDedupeReasonProximity
+		atomic := true
 		clusters := clusterByProximity(members, contentEventDedupeProximityWindow)
 		if strict {
 			reason = contentEventDedupeReasonStrict
-			clusters = [][]dedupeCandidateRow{members}
+			atomic = false
+			clusters = [][]dedupeMemberRef{members}
 		}
 
 		for _, cluster := range clusters {
@@ -405,6 +571,14 @@ func planContentEventDedupe(rows []dedupeCandidateRow, strict bool) dedupePlan {
 			}
 			// cluster is already ascending by (parsedAt, id): first = canonical.
 			kept := cluster[0]
+			// A retention-ledger row took part in deciding this cluster's shape —
+			// that is why it was scanned — but it can never be archived, so it is
+			// dropped here rather than upstream. A cluster whose only non-canonical
+			// members are ledger-held yields nothing to do.
+			duplicates := archivableDuplicates(cluster[1:])
+			if len(duplicates) == 0 {
+				continue
+			}
 			plan.groups = append(plan.groups, dedupeGroupPlan{
 				keptID:      kept.id,
 				kind:        key.kind,
@@ -412,14 +586,36 @@ func planContentEventDedupe(rows []dedupeCandidateRow, strict bool) dedupePlan {
 				sourceHook:  key.sourceHook,
 				forensicKey: key.forensicKey(),
 				reason:      reason,
-				duplicates:  cluster[1:],
+				duplicates:  duplicates,
+				atomic:      atomic,
 			})
 		}
 	}
 	return plan
 }
 
-func hasMalformedTimestamp(rows []dedupeCandidateRow) bool {
+// archivableDuplicates drops the rows a batch could never delete. A retention
+// ledger entry references events(id) ON DELETE RESTRICT, so archiving one aborts
+// the whole batch on a bare foreign-key error; excluding it here — after
+// clustering, not before — keeps the cluster's shape intact while leaving the
+// row in place.
+//
+// Convergence is unaffected. The survivors are the canonical row plus any
+// ledger-held members; a re-run either re-clusters them and finds every
+// non-canonical member unarchivable, or splits them into singletons. Both are
+// fixed points.
+func archivableDuplicates(candidates []dedupeMemberRef) []dedupeMemberRef {
+	archivable := make([]dedupeMemberRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.retentionHeld {
+			continue
+		}
+		archivable = append(archivable, candidate)
+	}
+	return archivable
+}
+
+func hasMalformedTimestamp(rows []dedupeMemberRef) bool {
 	for _, row := range rows {
 		if !row.parseOK {
 			return true
@@ -428,7 +624,7 @@ func hasMalformedTimestamp(rows []dedupeCandidateRow) bool {
 	return false
 }
 
-func sortedEventIDs(rows []dedupeCandidateRow) []string {
+func sortedEventIDs(rows []dedupeMemberRef) []string {
 	ids := make([]string, len(rows))
 	for i, row := range rows {
 		ids[i] = row.id
@@ -441,64 +637,373 @@ func sortedEventIDs(rows []dedupeCandidateRow) []string {
 // consecutive pair is within window. It mirrors the doctor diagnostic's
 // proximity clustering so the two paths report the same near-simultaneous
 // groups.
-func clusterByProximity(sorted []dedupeCandidateRow, window time.Duration) [][]dedupeCandidateRow {
+func clusterByProximity(sorted []dedupeMemberRef, window time.Duration) [][]dedupeMemberRef {
 	if len(sorted) == 0 {
 		return nil
 	}
-	var clusters [][]dedupeCandidateRow
-	run := []dedupeCandidateRow{sorted[0]}
+	var clusters [][]dedupeMemberRef
+	run := []dedupeMemberRef{sorted[0]}
 	for _, row := range sorted[1:] {
 		if row.parsedAt.Sub(run[len(run)-1].parsedAt) <= window {
 			run = append(run, row)
 			continue
 		}
 		clusters = append(clusters, run)
-		run = []dedupeCandidateRow{row}
+		run = []dedupeMemberRef{row}
 	}
 	clusters = append(clusters, run)
 	return clusters
 }
 
-// archiveDedupeRow moves a single duplicate row out of events and into the
-// quarantine archive within the supplied transaction. The original body and
-// created_at text are preserved verbatim so restore is exact.
-func archiveDedupeRow(
+// dedupeArchiveTarget is one row the plan resolved as a duplicate, carried with
+// the provenance the archive needs. The body is not carried: it is re-read from
+// events inside the batch that archives it.
+type dedupeArchiveTarget struct {
+	id          string
+	keptID      string
+	forensicKey string
+	reason      string
+}
+
+// applyDedupeGroups quarantines the planned duplicates in bounded, separately
+// committed batches, never splitting a proximity cluster across two commits.
+//
+// Committing per batch is what makes an interrupted repair safe and resumable,
+// but for proximity groups only because the cluster is the atomic unit.
+// Proximity clustering measures the gap between *consecutive surviving* rows, so
+// archiving part of a cluster widens the gaps inside it and can split what was
+// one cluster into several, each keeping its own canonical row. A cluster of
+// t=0s, 9s, 18s under a 10s window is one cluster keeping only t=0; archive t=9
+// alone and the remaining 0→18 gap exceeds the window, leaving two singleton
+// clusters that no re-run will ever collapse. Committing whole clusters removes
+// that state entirely: an interrupted run leaves every cluster either fully
+// archived or untouched, so re-planning reproduces exactly what a clean run
+// would have decided.
+//
+// Strict groups carry no such constraint and are split at the batch size — see
+// dedupeGroupPlan.atomic.
+//
+// Resumption therefore needs no checkpoint. The rows a previous run archived are
+// gone from events, so a re-run does not see them at all, and what it does see
+// re-plans to the same decision.
+//
+// A proximity cluster larger than the batch size becomes its own batch:
+// correctness of the clustering decision outranks the transaction-size target.
+func (d *StoreManagementDatasource) applyDedupeGroups(
 	ctx context.Context,
-	tx *sql.Tx,
-	row dedupeCandidateRow,
-	keptID string,
-	runID string,
-	now time.Time,
-	forensicKey string,
-	reason string,
+	db *sql.DB,
+	plan dedupePlan,
+	params apptypes.ContentEventDedupeParams,
 ) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO event_content_dedupe_archive
-		    (id, kind, client, agent, session_id, workspace, body, created_at,
-		     source_hook, kept_event_id, dedupe_run_id, archived_at, group_key, reason)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		row.id,
-		row.kind,
-		row.client,
-		row.agent,
-		row.sessionID,
-		row.workspace,
-		row.body,
-		row.createdAt,
-		row.sourceHook,
-		keptID,
-		runID,
-		formatTimestamp(now),
-		forensicKey,
-		reason,
-	); err != nil {
-		return xerrors.Errorf("failed to archive duplicate event %s: %w", row.id, err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE id = ?`, row.id); err != nil {
-		return xerrors.Errorf("failed to remove archived duplicate event %s: %w", row.id, err)
+	archivedAt := formatTimestamp(params.Now)
+	for _, batch := range partitionDedupeTargets(plan, params.BatchSize) {
+		if err := d.archiveDedupeBatch(ctx, db, batch, params.RunID, archivedAt); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// partitionDedupeTargets splits a plan into the transactions apply will commit.
+//
+// The invariant it exists to make testable: an *atomic* group is never split
+// across two partitions. For those groups batchSize is a target, not a bound —
+// one with more duplicates than batchSize becomes a single oversized partition
+// rather than being divided. See applyDedupeGroups for why splitting one is
+// unsafe, and dedupeGroupPlan.atomic for which groups are.
+//
+// A non-atomic group is split at batchSize like any other work. Strict mode
+// produces exactly one group per identity tuple — on the live store the largest
+// is over 36,000 rows — so honouring batchSize there is what keeps
+// `--strict --apply` from becoming the single unresumable transaction batching
+// exists to prevent.
+func partitionDedupeTargets(plan dedupePlan, batchSize int) [][]dedupeArchiveTarget {
+	if batchSize <= 0 {
+		batchSize = apptypes.DefaultContentEventDedupeBatchSize
+	}
+
+	batches := [][]dedupeArchiveTarget{}
+	current := []dedupeArchiveTarget{}
+	flush := func() {
+		if len(current) > 0 {
+			batches = append(batches, current)
+			current = []dedupeArchiveTarget{}
+		}
+	}
+	for _, group := range plan.groups {
+		if len(group.duplicates) == 0 {
+			continue
+		}
+		if group.atomic && len(current) > 0 && len(current)+len(group.duplicates) > batchSize {
+			flush()
+		}
+		for _, dup := range group.duplicates {
+			if !group.atomic && len(current) >= batchSize {
+				flush()
+			}
+			current = append(current, dedupeArchiveTarget{
+				id: dup.id, keptID: group.keptID,
+				forensicKey: group.forensicKey, reason: group.reason,
+			})
+		}
+	}
+	flush()
+	return batches
+}
+
+// archiveDedupeBatch moves one batch of duplicate rows out of events and into the
+// quarantine archive in a single transaction. The original body and created_at
+// text are preserved verbatim so restore is exact.
+func (d *StoreManagementDatasource) archiveDedupeBatch(
+	ctx context.Context,
+	db *sql.DB,
+	targets []dedupeArchiveTarget,
+	runID string,
+	archivedAt string,
+) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to begin content-event dedupe transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if err := tx.Rollback(); err != nil {
+			slog.Debug("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	for _, target := range targets {
+		// A row absent from events was already archived by an interrupted earlier
+		// run; the repair is idempotent, so skip rather than fail.
+		source, found, err := readDedupeArchiveSource(ctx, tx, target.id)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO event_content_dedupe_archive
+			    (id, kind, client, agent, session_id, workspace, body, created_at,
+			     source_hook, kept_event_id, dedupe_run_id, archived_at, group_key, reason)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			     ON CONFLICT(dedupe_run_id, id) DO NOTHING`,
+			source.id, source.kind, source.client, source.agent, source.sessionID, source.workspace,
+			source.body, source.createdAt, source.sourceHook,
+			target.keptID, runID, archivedAt, target.forensicKey, target.reason,
+		); err != nil {
+			return xerrors.Errorf("failed to archive duplicate event %s: %w", target.id, err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE id = ?`, target.id); err != nil {
+			return xerrors.Errorf("failed to remove archived duplicate event %s: %w", target.id, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("failed to commit content-event dedupe transaction: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+// dedupeArchiveSource is an events row as the quarantine archive stores it. body
+// is the *decoded* plaintext, matching what RestoreContentEventDedupeRun expects
+// to re-encode; copying the raw stored column instead would corrupt a
+// codec-encoded payload on restore.
+type dedupeArchiveSource struct {
+	id         string
+	kind       string
+	client     string
+	agent      string
+	sessionID  string
+	workspace  string
+	createdAt  string
+	sourceHook sql.NullString
+	body       string
+}
+
+// readDedupeArchiveSource reads one row about to be quarantined. A missing row is
+// reported as not-found rather than as an error so a resumed run can skip rows an
+// earlier interrupted run already archived.
+func readDedupeArchiveSource(ctx context.Context, tx *sql.Tx, eventID string) (dedupeArchiveSource, bool, error) {
+	var source dedupeArchiveSource
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook
+		   FROM events WHERE id = ?`,
+		eventID,
+	).Scan(
+		&source.id, &source.kind, &source.client, &source.agent,
+		&source.sessionID, &source.workspace, &source.createdAt, &source.sourceHook,
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return dedupeArchiveSource{}, false, nil
+	case err != nil:
+		return dedupeArchiveSource{}, false, xerrors.Errorf("failed to read duplicate event %s: %w", eventID, err)
+	}
+	plain, err := loadEventPlaintext(ctx, tx, eventID)
+	if err != nil {
+		return dedupeArchiveSource{}, false, xerrors.Errorf("decode duplicate event %s: %w", eventID, err)
+	}
+	source.body = string(plain)
+	return source, true, nil
+}
+
+// PurgeContentEventDedupeRun drops the rows a dedupe run quarantined, ending that
+// run's rollback window. Until a run is purged its bodies still occupy the store,
+// so quarantine alone relocates duplicates rather than reclaiming them. Purge is
+// deliberately a separate operator step from apply — the reversibility of apply
+// is the point of the archive.
+func (d *StoreManagementDatasource) PurgeContentEventDedupeRun(
+	ctx context.Context,
+	runID string,
+) (apptypes.ContentEventDedupePurgeResult, error) {
+	trimmed := strings.TrimSpace(runID)
+	if trimmed == "" {
+		return apptypes.ContentEventDedupePurgeResult{}, xerrors.Errorf("dedupe run id must not be empty")
+	}
+
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return apptypes.ContentEventDedupePurgeResult{}, xerrors.Errorf("failed to open DB for dedupe purge: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var (
+		rowCount int
+		byteSum  sql.NullInt64
+	)
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*), SUM(length(CAST(body AS BLOB)))
+		   FROM event_content_dedupe_archive WHERE dedupe_run_id = ?`,
+		trimmed,
+	).Scan(&rowCount, &byteSum); err != nil {
+		return apptypes.ContentEventDedupePurgeResult{}, xerrors.Errorf("failed to measure dedupe archive run: %w", err)
+	}
+	if rowCount == 0 {
+		return apptypes.ContentEventDedupePurgeResult{}, xerrors.Errorf("no quarantined rows found for dedupe run %q", trimmed)
+	}
+
+	if _, err := db.ExecContext(
+		ctx,
+		`DELETE FROM event_content_dedupe_archive WHERE dedupe_run_id = ?`,
+		trimmed,
+	); err != nil {
+		return apptypes.ContentEventDedupePurgeResult{}, xerrors.Errorf("failed to purge dedupe archive run: %w", err)
+	}
+
+	return apptypes.ContentEventDedupePurgeResult{
+		RunID:        trimmed,
+		PurgedCount:  rowCount,
+		ReleasedBody: byteSum.Int64,
+	}, nil
+}
+
+// ListContentEventDedupeRuns reports every quarantine run still held in the
+// archive, newest first.
+//
+// This is what keeps an interrupted apply recoverable. Apply commits in batches,
+// so a run killed after its first commit has already quarantined rows under a
+// run id that was never printed; listing is the only way to find it again and
+// decide between `--restore` and `--purge`.
+func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
+	ctx context.Context,
+) ([]apptypes.ContentEventDedupeRun, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for dedupe run listing: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT dedupe_run_id, MAX(archived_at), COUNT(*), SUM(length(CAST(body AS BLOB)))
+		  FROM event_content_dedupe_archive
+		 GROUP BY dedupe_run_id`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query dedupe archive runs: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	runs := []apptypes.ContentEventDedupeRun{}
+	for rows.Next() {
+		var (
+			run        apptypes.ContentEventDedupeRun
+			archivedAt sql.NullString
+			bodyBytes  sql.NullInt64
+		)
+		if err := rows.Scan(&run.RunID, &archivedAt, &run.QuarantinedRows, &bodyBytes); err != nil {
+			return nil, xerrors.Errorf("failed to scan dedupe archive run: %w", err)
+		}
+		run.ArchivedAt = archivedAt.String
+		run.BodyBytes = bodyBytes.Int64
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate dedupe archive runs: %w", err)
+	}
+	sortDedupeRunsNewestFirst(runs)
+	return runs, nil
+}
+
+// sortDedupeRunsNewestFirst orders by parsed instant rather than letting SQLite
+// sort the strings. archived_at is RFC3339Nano, whose text form is not
+// order-preserving: a fractional second sorts before a whole one within the same
+// second, because '.' precedes 'Z'. An operator reading the list to pick the run
+// to restore must see the true newest first.
+func sortDedupeRunsNewestFirst(runs []apptypes.ContentEventDedupeRun) {
+	// The sort key is computed up front rather than inside the comparator. Mixing
+	// an instant comparison for parsable pairs with a text comparison for pairs
+	// involving an unparsable one is not a strict weak ordering, and produces real
+	// cycles: with A="…01Z", B="…01.5Z" and C="…01.9" (no offset, unparsable),
+	// B<A by instant, A<C because 'Z' > '.', and C<B because '9' > '5'. sort does
+	// not detect that; it just returns an arbitrary order, defeating the one job
+	// this function has.
+	type sortKey struct {
+		run     apptypes.ContentEventDedupeRun
+		instant time.Time
+		parsed  bool
+	}
+	keyed := make([]sortKey, 0, len(runs))
+	for _, run := range runs {
+		instant, err := time.Parse(time.RFC3339Nano, run.ArchivedAt)
+		keyed = append(keyed, sortKey{run: run, instant: instant, parsed: err == nil})
+	}
+	sort.SliceStable(keyed, func(i, j int) bool {
+		left, right := keyed[i], keyed[j]
+		// A timestamp that will not parse carries no position on the timeline, so
+		// it sinks below every run that does rather than displacing one.
+		if left.parsed != right.parsed {
+			return left.parsed
+		}
+		if left.parsed && !left.instant.Equal(right.instant) {
+			return left.instant.After(right.instant)
+		}
+		if !left.parsed && left.run.ArchivedAt != right.run.ArchivedAt {
+			return left.run.ArchivedAt > right.run.ArchivedAt
+		}
+		return left.run.RunID > right.run.RunID
+	})
+	for i, item := range keyed {
+		runs[i] = item.run
+	}
 }
 
 // RestoreContentEventDedupeRun moves the rows quarantined by the given dedupe

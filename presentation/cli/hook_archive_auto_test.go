@@ -179,3 +179,11 @@ func (s *minimalStoreStub) VerifyStoreArchive(context.Context, string, []byte) e
 func (s *minimalStoreStub) RestoreStoreArchive(context.Context, string, []byte, bool) (apptypes.StoreArchiveRestoreResult, error) {
 	return apptypes.StoreArchiveRestoreResult{}, nil
 }
+
+func (s *minimalStoreStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}
+
+func (s *minimalStoreStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}

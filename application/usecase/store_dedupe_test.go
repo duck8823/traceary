@@ -117,3 +117,21 @@ func TestStoreManagementUsecase_RestoreContentEventDedupeRun_RejectsEmpty(t *tes
 		t.Fatalf("run id not trimmed: %q", stub.restoreRunIDs[0])
 	}
 }
+
+func (s *dedupeStoreManagerStub) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
+	return apptypes.ContentEventDedupePurgeResult{}, nil
+}
+
+func TestStoreManagementUsecase_PurgeContentEventDedupeRun_RejectsEmpty(t *testing.T) {
+	t.Parallel()
+	stub := &dedupeStoreManagerStub{}
+	usecase := usecase.NewStoreManagementUsecase(stub)
+
+	if _, err := usecase.PurgeContentEventDedupeRun(context.Background(), "   "); err == nil {
+		t.Error("PurgeContentEventDedupeRun(blank) = nil error, want failure")
+	}
+}
+
+func (s *dedupeStoreManagerStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
+	return nil, nil
+}
