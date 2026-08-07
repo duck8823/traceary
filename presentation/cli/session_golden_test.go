@@ -292,35 +292,79 @@ func executeSessionJSONGoldenCommand(t *testing.T, sessionStub *sessionUsecaseSt
 }
 
 func TestSessionRefineJSON_Goldens(t *testing.T) {
+	// Each outcome documents a row the command can actually emit:
+	// created always writes generation 1 with distinct covers_from/to;
+	// superseded keeps covers_from and advances covers_to with generation 2+;
+	// unchanged returns the already-stored row (not a fresh write).
 	producedAt := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
-	refinement, err := model.NewSessionRefinement(
-		"session-refine-golden",
-		2,
-		"evt-from-golden",
-		"evt-to-golden",
-		"golden summary text",
-		"kw1,kw2",
-		"agent",
-		producedAt,
-		false,
-	)
-	if err != nil {
-		t.Fatal(err)
+	existingProducedAt := time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC)
+
+	mustRefine := func(sessionID types.SessionID, generation int, from, to types.EventID, summary, keywords string, at time.Time) *model.SessionRefinement {
+		t.Helper()
+		row, err := model.NewSessionRefinement(sessionID, generation, from, to, summary, keywords, "agent", at, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row
 	}
 
 	cases := []struct {
-		name    string
-		outcome model.SessionRefineOutcome
-		fixture string
+		name       string
+		outcome    model.SessionRefineOutcome
+		fixture    string
+		refinement *model.SessionRefinement
 	}{
-		{name: "created", outcome: model.SessionRefineOutcomeCreated, fixture: "created.golden.json"},
-		{name: "superseded", outcome: model.SessionRefineOutcomeSuperseded, fixture: "superseded.golden.json"},
-		{name: "unchanged", outcome: model.SessionRefineOutcomeUnchanged, fixture: "unchanged.golden.json"},
+		{
+			name:    "created",
+			outcome: model.SessionRefineOutcomeCreated,
+			fixture: "created.golden.json",
+			// First write: generation is always 1; covers_from ≠ covers_to.
+			refinement: mustRefine(
+				"session-refine-created",
+				1,
+				"evt-from-created",
+				"evt-to-created",
+				"first refinement summary",
+				"kw-created",
+				producedAt,
+			),
+		},
+		{
+			name:    "superseded",
+			outcome: model.SessionRefineOutcomeSuperseded,
+			fixture: "superseded.golden.json",
+			// Supersede keeps the earlier covers_from and advances covers_to.
+			refinement: mustRefine(
+				"session-refine-created",
+				2,
+				"evt-from-created",
+				"evt-to-superseded",
+				"merged refinement summary",
+				"kw-superseded",
+				producedAt,
+			),
+		},
+		{
+			name:    "unchanged",
+			outcome: model.SessionRefineOutcomeUnchanged,
+			fixture: "unchanged.golden.json",
+			// Existing stored row returned as-is (not a write); distinct ids
+			// so this fixture is not a near-copy of superseded.
+			refinement: mustRefine(
+				"session-refine-existing",
+				3,
+				"evt-from-existing",
+				"evt-to-existing",
+				"already stored summary",
+				"kw-existing",
+				existingProducedAt,
+			),
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := model.SessionRefineResultOf(tc.outcome, refinement)
+			result, err := model.SessionRefineResultOf(tc.outcome, tc.refinement)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -334,10 +378,10 @@ func TestSessionRefineJSON_Goldens(t *testing.T) {
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
 			rootCmd.SetArgs([]string{
-				"session", "refine", "session-refine-golden",
-				"--summary", "golden summary text",
-				"--covers-to", "evt-to-golden",
-				"--keywords", "kw1,kw2",
+				"session", "refine", tc.refinement.SessionID().String(),
+				"--summary", tc.refinement.Summary(),
+				"--covers-to", tc.refinement.CoversToEventID().String(),
+				"--keywords", tc.refinement.Keywords(),
 				"--produced-by", "agent",
 				"--json",
 				"--db-path", "/tmp/test-traceary.db",

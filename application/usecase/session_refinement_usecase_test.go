@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +24,10 @@ type sessionRefinementRepositoryStub struct {
 	// saveResults controls successive SaveIfAdvances outcomes. When empty,
 	// each call succeeds and stores the refinement.
 	saveResults []bool
-	saveCalls   int
+	// raceWinnerOnLose is installed into bySession before a lost CAS so the
+	// next re-read sees the concurrent winner's row (not the original read).
+	raceWinnerOnLose *model.SessionRefinement
+	saveCalls        int
 }
 
 func (s *sessionRefinementRepositoryStub) FindBySessionID(
@@ -48,6 +52,14 @@ func (s *sessionRefinementRepositoryStub) SaveIfAdvances(
 			idx = len(s.saveResults) - 1
 		}
 		if !s.saveResults[idx] {
+			// Simulate a concurrent writer that landed first: re-reads must
+			// observe the winner, not the stale pre-CAS snapshot.
+			if s.raceWinnerOnLose != nil {
+				if s.bySession == nil {
+					s.bySession = map[types.SessionID]*model.SessionRefinement{}
+				}
+				s.bySession[s.raceWinnerOnLose.SessionID()] = s.raceWinnerOnLose
+			}
 			return false, nil
 		}
 	}
@@ -312,15 +324,129 @@ func TestSessionRefinementUsecase_Refine_RetriesWhenSaveIfAdvancesLosesRace(t *t
 	evt1 := types.EventID("evt-1")
 	evt2 := types.EventID("evt-2")
 	evt3 := types.EventID("evt-3")
+	evt4 := types.EventID("evt-4")
+	now := time.Date(2026, 8, 8, 15, 0, 0, 0, time.UTC)
+	session := model.NewSession(sessionID, now, "cli", "codex", "ws")
+	// Event order: evt1 < evt2 < evt3 < evt4 (strictly after is transitive for tests).
+	eventOrder := &sessionEventOrderRepositoryStub{
+		eventSessions: map[types.EventID]types.SessionID{
+			evt3: sessionID,
+			evt4: sessionID,
+		},
+		after: map[types.EventID]map[types.EventID]bool{
+			evt3: {evt2: true},
+			evt4: {evt2: true, evt3: true},
+		},
+	}
+
+	t.Run("winner advanced but not past caller: retry supersedes with recomputed generation", func(t *testing.T) {
+		t.Parallel()
+
+		// Original read: gen 1 covering ..evt2.
+		// Race winner: gen 2 covering ..evt3 (past original, still behind caller's evt4).
+		// Retry must supersede from the winner: gen 3, covers_from=evt1, covers_to=evt4.
+		winner := mustRefinement(t, sessionID, 2, evt1, evt3, "winner summary")
+		repo := &sessionRefinementRepositoryStub{
+			bySession: map[types.SessionID]*model.SessionRefinement{
+				sessionID: mustRefinement(t, sessionID, 1, evt1, evt2, "first summary"),
+			},
+			saveResults:      []bool{false, true},
+			raceWinnerOnLose: winner,
+		}
+		wantRow, err := model.NewSessionRefinement(
+			sessionID, 3, evt1, evt4, "after race", "", "agent", now, false,
+		)
+		if err != nil {
+			t.Fatalf("NewSessionRefinement() error = %v", err)
+		}
+		want, err := model.SessionRefineResultOf(model.SessionRefineOutcomeSuperseded, wantRow)
+		if err != nil {
+			t.Fatalf("SessionRefineResultOf() error = %v", err)
+		}
+
+		sut := usecase.NewSessionRefinementUsecase(
+			&sessionRepositoryStub{session: session},
+			repo,
+			eventOrder,
+			fixedRefineClock{at: now},
+		)
+		got, err := sut.Refine(context.Background(), usecase.SessionRefineInput{
+			SessionID: sessionID, Summary: "after race", ProducedBy: "agent", CoversTo: evt4,
+		})
+		if err != nil {
+			t.Fatalf("Refine() error = %v", err)
+		}
+		if diff := cmp.Diff(want, got, cmp.AllowUnexported(model.SessionRefineResult{}, model.SessionRefinement{})); diff != "" {
+			t.Fatalf("SessionRefineResult mismatch (-want +got):\n%s", diff)
+		}
+		if repo.saveCalls != 2 {
+			t.Fatalf("SaveIfAdvances calls = %d, want 2", repo.saveCalls)
+		}
+		if len(repo.saved) != 1 {
+			t.Fatalf("successful saves = %d, want 1", len(repo.saved))
+		}
+	})
+
+	t.Run("winner advanced past caller: retry returns unchanged without write", func(t *testing.T) {
+		t.Parallel()
+
+		// Original read: gen 1 covering ..evt2.
+		// Race winner: gen 2 covering ..evt4 (past caller's evt3).
+		// Retry must return unchanged and not attempt another write.
+		winner := mustRefinement(t, sessionID, 2, evt1, evt4, "winner past caller")
+		repo := &sessionRefinementRepositoryStub{
+			bySession: map[types.SessionID]*model.SessionRefinement{
+				sessionID: mustRefinement(t, sessionID, 1, evt1, evt2, "first summary"),
+			},
+			saveResults:      []bool{false},
+			raceWinnerOnLose: winner,
+		}
+		want, err := model.SessionRefineResultOf(model.SessionRefineOutcomeUnchanged, winner)
+		if err != nil {
+			t.Fatalf("SessionRefineResultOf() error = %v", err)
+		}
+
+		sut := usecase.NewSessionRefinementUsecase(
+			&sessionRepositoryStub{session: session},
+			repo,
+			eventOrder,
+			fixedRefineClock{at: now},
+		)
+		got, err := sut.Refine(context.Background(), usecase.SessionRefineInput{
+			SessionID: sessionID, Summary: "stale attempt", ProducedBy: "agent", CoversTo: evt3,
+		})
+		if err != nil {
+			t.Fatalf("Refine() error = %v", err)
+		}
+		if diff := cmp.Diff(want, got, cmp.AllowUnexported(model.SessionRefineResult{}, model.SessionRefinement{})); diff != "" {
+			t.Fatalf("SessionRefineResult mismatch (-want +got):\n%s", diff)
+		}
+		if repo.saveCalls != 1 {
+			t.Fatalf("SaveIfAdvances calls = %d, want 1 (second decision needs no write)", repo.saveCalls)
+		}
+		if len(repo.saved) != 0 {
+			t.Fatalf("successful saves = %d, want 0", len(repo.saved))
+		}
+	})
+}
+
+func TestSessionRefinementUsecase_Refine_ExhaustsWhenSaveIfAdvancesAlwaysLoses(t *testing.T) {
+	t.Parallel()
+
+	sessionID := types.SessionID("sess-exhaust")
+	evt1 := types.EventID("evt-1")
+	evt2 := types.EventID("evt-2")
+	evt3 := types.EventID("evt-3")
 	now := time.Date(2026, 8, 8, 15, 0, 0, 0, time.UTC)
 	session := model.NewSession(sessionID, now, "cli", "codex", "ws")
 
-	// First SaveIfAdvances loses the race; second succeeds after re-read.
+	// Always lose the CAS; re-read still sees a row the caller can advance past,
+	// so every attempt writes and fails until the bounded loop gives up.
 	repo := &sessionRefinementRepositoryStub{
 		bySession: map[types.SessionID]*model.SessionRefinement{
 			sessionID: mustRefinement(t, sessionID, 1, evt1, evt2, "first summary"),
 		},
-		saveResults: []bool{false, true},
+		saveResults: []bool{false},
 	}
 	eventOrder := &sessionEventOrderRepositoryStub{
 		eventSessions: map[types.EventID]types.SessionID{evt3: sessionID},
@@ -336,21 +462,18 @@ func TestSessionRefinementUsecase_Refine_RetriesWhenSaveIfAdvancesLosesRace(t *t
 		fixedRefineClock{at: now},
 	)
 	got, err := sut.Refine(context.Background(), usecase.SessionRefineInput{
-		SessionID: sessionID, Summary: "after race", ProducedBy: "agent", CoversTo: evt3,
+		SessionID: sessionID, Summary: "never lands", ProducedBy: "agent", CoversTo: evt3,
 	})
-	if err != nil {
-		t.Fatalf("Refine() error = %v", err)
+	if err == nil {
+		t.Fatalf("Refine() error = nil, want exhaustion error; result = %+v", got)
 	}
-	if got.Outcome() != model.SessionRefineOutcomeSuperseded {
-		t.Fatalf("Outcome() = %q, want superseded", got.Outcome())
+	if !strings.Contains(err.Error(), "after 3 concurrent attempts") {
+		t.Fatalf("Refine() error = %v, want bounded-attempt exhaustion message", err)
 	}
-	if got.Refinement().Generation() != 2 || got.Refinement().Summary() != "after race" {
-		t.Fatalf("row = gen=%d summary=%q", got.Refinement().Generation(), got.Refinement().Summary())
+	if repo.saveCalls != 3 {
+		t.Fatalf("SaveIfAdvances calls = %d, want 3", repo.saveCalls)
 	}
-	if repo.saveCalls != 2 {
-		t.Fatalf("SaveIfAdvances calls = %d, want 2", repo.saveCalls)
-	}
-	if len(repo.saved) != 1 {
-		t.Fatalf("successful saves = %d, want 1", len(repo.saved))
+	if len(repo.saved) != 0 {
+		t.Fatalf("successful saves = %d, want 0", len(repo.saved))
 	}
 }
