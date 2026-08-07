@@ -762,3 +762,83 @@ func TestStoreManagementDatasource_ListContentEventDedupeRuns(t *testing.T) {
 		t.Errorf("runs after purge = %+v, want only dedupe-run-late", runs)
 	}
 }
+
+// A row restored from retention keeps its ledger entry (restore only sets
+// restored_at), and that entry holds an ON DELETE RESTRICT reference to
+// events(id). Such a row looks entirely ordinary — body available, body intact —
+// so nothing but the ledger itself distinguishes it. Archiving one raises a raw
+// SQLite foreign-key error that aborts the batch mid-apply, so it must never
+// reach the plan.
+func TestStoreManagementDatasource_DedupeContentEvents_SkipsRetentionLedgerRows(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	rows := []struct{ id, createdAt string }{
+		{"evt-l1", "2026-04-10T00:00:00Z"},
+		{"evt-l2", "2026-04-10T00:00:02Z"},
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+			 VALUES (?, 'prompt', 'codex', 's10', 'w1', 'restored body', ?, 'user_prompt_submit', 'hook')`,
+			r.id, r.createdAt,
+		); err != nil {
+			t.Fatalf("insert %s error = %v", r.id, err)
+		}
+	}
+	if _, err := db.Exec(
+		`INSERT INTO raw_body_retention_executions (plan_id, status, candidate_count, pruned_count, started_at, completed_at)
+		 VALUES ('plan-1', 'restored', 1, 1, '2026-04-09T00:00:00Z', '2026-04-09T00:00:01Z')`,
+	); err != nil {
+		t.Fatalf("insert execution error = %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO raw_body_retention_entries (plan_id, event_id, body_sha256, stored_bytes, pruned_at, restored_at)
+		 VALUES ('plan-1', 'evt-l2', 'sha', 13, '2026-04-09T00:00:00Z', '2026-04-09T12:00:00Z')`,
+	); err != nil {
+		t.Fatalf("insert ledger entry error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close() error = %v", err)
+	}
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-ledger",
+		Now: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	for _, group := range result.Groups {
+		for _, id := range group.DuplicateEventIDs {
+			if id == "evt-l2" {
+				t.Errorf("ledger-held row evt-l2 was selected as a duplicate of %s", group.KeptEventID)
+			}
+		}
+	}
+
+	verify, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = verify.Close() }()
+	var survivors int
+	if err := verify.QueryRow(`SELECT COUNT(*) FROM events WHERE id IN ('evt-l1','evt-l2')`).Scan(&survivors); err != nil {
+		t.Fatalf("count ledger rows error = %v", err)
+	}
+	if survivors != 2 {
+		t.Errorf("ledger rows surviving = %d, want 2", survivors)
+	}
+	// The rest of the apply must still have happened: an abort would have rolled
+	// back the batch that carried group A.
+	if diff := cmp.Diff(map[string][]string{
+		"evt-a1": {"evt-a2", "evt-a3"},
+		"evt-c1": {"evt-c2"},
+	}, groupByKept(result)); diff != "" {
+		t.Errorf("plan (-want +got):\n%s", diff)
+	}
+}

@@ -261,13 +261,13 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 	if err != nil {
 		return dedupeSurvey{}, err
 	}
-	hasBodyAvailability, err := databaseColumnExists(ctx, db, "events", "body_availability")
+	scope, err := resolveDedupeEligibilityScope(ctx, db)
 	if err != nil {
 		return dedupeSurvey{}, err
 	}
 
 	if maxRows > 0 {
-		survey.totalEligible, err = d.countDedupeCandidates(ctx, db, agent, hasBodyAvailability)
+		survey.totalEligible, err = d.countDedupeCandidates(ctx, db, agent, scope)
 		if err != nil {
 			return dedupeSurvey{}, err
 		}
@@ -284,7 +284,7 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 	query := `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook,
 	       ` + payloadColumns + `
 	            FROM events
-	           WHERE ` + dedupeEligibilityFilter(hasBodyAvailability)
+	           WHERE ` + dedupeEligibilityFilter(scope)
 	if agent != "" {
 		query += "\n             AND agent = ?"
 		args = append(args, agent)
@@ -391,21 +391,55 @@ func decodeDedupeCandidateBody(
 	return string(plain), nil
 }
 
+// dedupeEligibilityScope records which optional retention schema this store
+// carries, so the eligibility filter degrades cleanly on stores predating
+// migration 26 instead of assuming the columns and tables exist.
+type dedupeEligibilityScope struct {
+	hasBodyAvailability bool
+	hasRetentionLedger  bool
+}
+
+func resolveDedupeEligibilityScope(ctx context.Context, db *sql.DB) (dedupeEligibilityScope, error) {
+	hasBodyAvailability, err := databaseColumnExists(ctx, db, "events", "body_availability")
+	if err != nil {
+		return dedupeEligibilityScope{}, err
+	}
+	hasRetentionLedger, err := databaseTableExists(ctx, db, "raw_body_retention_entries")
+	if err != nil {
+		return dedupeEligibilityScope{}, err
+	}
+	return dedupeEligibilityScope{
+		hasBodyAvailability: hasBodyAvailability,
+		hasRetentionLedger:  hasRetentionLedger,
+	}, nil
+}
+
 // dedupeEligibilityFilter is the WHERE fragment shared by the candidate count
 // and the identification scan.
 //
-// Rows the retention pruner has already emptied are excluded. Pruning replaces
-// the body with one fixed marker string for every row it touches, without
-// regard to client or kind, so an emptied prompt and an emptied transcript from
-// unrelated sessions hash to the same identity. Including them would collapse
-// them into one enormous group and quarantine rows that never duplicated
-// anything. The column is probed rather than assumed because stores predating
-// migration 26 do not have it.
-func dedupeEligibilityFilter(hasBodyAvailability bool) string {
+// Two classes of row are excluded, both because of raw-body retention.
+//
+// Rows the pruner has emptied: pruning replaces the body with one fixed marker
+// string for every row it touches, without regard to client or kind, so an
+// emptied prompt and an emptied transcript from unrelated sessions hash to the
+// same identity. Including them would collapse unrelated rows into one enormous
+// group and quarantine rows that never duplicated anything.
+//
+// Rows that carry a retention ledger entry, restored or not:
+// raw_body_retention_entries.event_id is ON DELETE RESTRICT, and a retention
+// restore puts body_availability back to 'available' while deliberately keeping
+// its ledger row. Such a row looks ordinary but cannot be deleted — apply would
+// abort mid-batch on a raw foreign-key error that tells the operator nothing.
+// Skipping it also preserves what the RESTRICT is there to protect: the ledger's
+// provenance must keep pointing at a real event.
+func dedupeEligibilityFilter(scope dedupeEligibilityScope) string {
 	filter := `client = 'hook'
 	             AND kind IN ('prompt', 'transcript')`
-	if hasBodyAvailability {
+	if scope.hasBodyAvailability {
 		filter += "\n	             AND body_availability = 'available'"
+	}
+	if scope.hasRetentionLedger {
+		filter += "\n	             AND NOT EXISTS (SELECT 1 FROM raw_body_retention_entries r WHERE r.event_id = events.id)"
 	}
 	return filter
 }
@@ -414,11 +448,11 @@ func (d *StoreManagementDatasource) countDedupeCandidates(
 	ctx context.Context,
 	q queryRowContexter,
 	agent string,
-	hasBodyAvailability bool,
+	scope dedupeEligibilityScope,
 ) (int, error) {
 	query := `SELECT COUNT(*)
 	            FROM events
-	           WHERE ` + dedupeEligibilityFilter(hasBodyAvailability)
+	           WHERE ` + dedupeEligibilityFilter(scope)
 	args := []any{}
 	if agent != "" {
 		query += "\n             AND agent = ?"
@@ -441,6 +475,16 @@ type dedupeGroupPlan struct {
 	forensicKey string
 	reason      string
 	duplicates  []dedupeMemberRef
+	// atomic marks a group whose duplicates must be archived in one
+	// transaction or not at all. Only proximity groups are atomic: their
+	// membership is decided from the gaps between *surviving* rows, so
+	// archiving part of one widens those gaps and can split it into pieces a
+	// re-run will never collapse. A strict group ignores gaps entirely — its
+	// membership is the identity tuple alone and its canonical row is the
+	// earliest, which archiving duplicates never removes — so a partially
+	// archived strict group re-plans to exactly the same decision and may be
+	// split across transactions.
+	atomic bool
 }
 
 type dedupePlan struct {
@@ -488,9 +532,11 @@ func planContentEventDedupe(survey dedupeSurvey, strict bool) dedupePlan {
 		})
 
 		reason := contentEventDedupeReasonProximity
+		atomic := true
 		clusters := clusterByProximity(members, contentEventDedupeProximityWindow)
 		if strict {
 			reason = contentEventDedupeReasonStrict
+			atomic = false
 			clusters = [][]dedupeMemberRef{members}
 		}
 
@@ -508,6 +554,7 @@ func planContentEventDedupe(survey dedupeSurvey, strict bool) dedupePlan {
 				forensicKey: key.forensicKey(),
 				reason:      reason,
 				duplicates:  cluster[1:],
+				atomic:      atomic,
 			})
 		}
 	}
@@ -565,25 +612,29 @@ type dedupeArchiveTarget struct {
 }
 
 // applyDedupeGroups quarantines the planned duplicates in bounded, separately
-// committed batches, never splitting a cluster across two commits.
+// committed batches, never splitting a proximity cluster across two commits.
 //
 // Committing per batch is what makes an interrupted repair safe and resumable,
-// but only because the cluster is the atomic unit. Proximity clustering measures
-// the gap between *consecutive surviving* rows, so archiving part of a cluster
-// widens the gaps inside it and can split what was one cluster into several,
-// each keeping its own canonical row. A cluster of t=0s, 9s, 18s under a 10s
-// window is one cluster keeping only t=0; archive t=9 alone and the remaining
-// 0→18 gap exceeds the window, leaving two singleton clusters that no re-run
-// will ever collapse. Committing whole clusters removes that state entirely: an
-// interrupted run leaves every cluster either fully archived or untouched, so
-// re-planning reproduces exactly what a clean run would have decided.
+// but for proximity groups only because the cluster is the atomic unit.
+// Proximity clustering measures the gap between *consecutive surviving* rows, so
+// archiving part of a cluster widens the gaps inside it and can split what was
+// one cluster into several, each keeping its own canonical row. A cluster of
+// t=0s, 9s, 18s under a 10s window is one cluster keeping only t=0; archive t=9
+// alone and the remaining 0→18 gap exceeds the window, leaving two singleton
+// clusters that no re-run will ever collapse. Committing whole clusters removes
+// that state entirely: an interrupted run leaves every cluster either fully
+// archived or untouched, so re-planning reproduces exactly what a clean run
+// would have decided.
+//
+// Strict groups carry no such constraint and are split at the batch size — see
+// dedupeGroupPlan.atomic.
 //
 // Resumption therefore needs no checkpoint. The rows a previous run archived are
-// gone from events, so a re-run does not see their clusters at all, and the
-// clusters it does see are the ones that never started.
+// gone from events, so a re-run does not see them at all, and what it does see
+// re-plans to the same decision.
 //
-// A cluster larger than the batch size becomes its own batch: correctness of the
-// clustering decision outranks the transaction-size target.
+// A proximity cluster larger than the batch size becomes its own batch:
+// correctness of the clustering decision outranks the transaction-size target.
 func (d *StoreManagementDatasource) applyDedupeGroups(
 	ctx context.Context,
 	db *sql.DB,
@@ -601,10 +652,17 @@ func (d *StoreManagementDatasource) applyDedupeGroups(
 
 // partitionDedupeTargets splits a plan into the transactions apply will commit.
 //
-// The invariant it exists to make testable: a cluster is never split across two
-// partitions. batchSize is therefore a target, not a bound — a cluster with more
-// duplicates than batchSize becomes one oversized partition rather than being
-// divided. See applyDedupeGroups for why splitting a cluster is unsafe.
+// The invariant it exists to make testable: an *atomic* group is never split
+// across two partitions. For those groups batchSize is a target, not a bound —
+// one with more duplicates than batchSize becomes a single oversized partition
+// rather than being divided. See applyDedupeGroups for why splitting one is
+// unsafe, and dedupeGroupPlan.atomic for which groups are.
+//
+// A non-atomic group is split at batchSize like any other work. Strict mode
+// produces exactly one group per identity tuple — on the live store the largest
+// is over 36,000 rows — so honouring batchSize there is what keeps
+// `--strict --apply` from becoming the single unresumable transaction batching
+// exists to prevent.
 func partitionDedupeTargets(plan dedupePlan, batchSize int) [][]dedupeArchiveTarget {
 	if batchSize <= 0 {
 		batchSize = apptypes.DefaultContentEventDedupeBatchSize
@@ -612,24 +670,30 @@ func partitionDedupeTargets(plan dedupePlan, batchSize int) [][]dedupeArchiveTar
 
 	batches := [][]dedupeArchiveTarget{}
 	current := []dedupeArchiveTarget{}
+	flush := func() {
+		if len(current) > 0 {
+			batches = append(batches, current)
+			current = []dedupeArchiveTarget{}
+		}
+	}
 	for _, group := range plan.groups {
 		if len(group.duplicates) == 0 {
 			continue
 		}
-		if len(current) > 0 && len(current)+len(group.duplicates) > batchSize {
-			batches = append(batches, current)
-			current = []dedupeArchiveTarget{}
+		if group.atomic && len(current) > 0 && len(current)+len(group.duplicates) > batchSize {
+			flush()
 		}
 		for _, dup := range group.duplicates {
+			if !group.atomic && len(current) >= batchSize {
+				flush()
+			}
 			current = append(current, dedupeArchiveTarget{
 				id: dup.id, keptID: group.keptID,
 				forensicKey: group.forensicKey, reason: group.reason,
 			})
 		}
 	}
-	if len(current) > 0 {
-		batches = append(batches, current)
-	}
+	flush()
 	return batches
 }
 
@@ -814,8 +878,7 @@ func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
 	rows, err := db.QueryContext(ctx, `
 		SELECT dedupe_run_id, MAX(archived_at), COUNT(*), SUM(length(CAST(body AS BLOB)))
 		  FROM event_content_dedupe_archive
-		 GROUP BY dedupe_run_id
-		 ORDER BY MAX(archived_at) DESC, dedupe_run_id DESC`)
+		 GROUP BY dedupe_run_id`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query dedupe archive runs: %w", err)
 	}
@@ -842,7 +905,29 @@ func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate dedupe archive runs: %w", err)
 	}
+	sortDedupeRunsNewestFirst(runs)
 	return runs, nil
+}
+
+// sortDedupeRunsNewestFirst orders by parsed instant rather than letting SQLite
+// sort the strings. archived_at is RFC3339Nano, whose text form is not
+// order-preserving: a fractional second sorts before a whole one within the same
+// second, because '.' precedes 'Z'. An operator reading the list to pick the run
+// to restore must see the true newest first.
+func sortDedupeRunsNewestFirst(runs []apptypes.ContentEventDedupeRun) {
+	sort.SliceStable(runs, func(i, j int) bool {
+		left, leftOK := time.Parse(time.RFC3339Nano, runs[i].ArchivedAt)
+		right, rightOK := time.Parse(time.RFC3339Nano, runs[j].ArchivedAt)
+		if leftOK == nil && rightOK == nil && !left.Equal(right) {
+			return left.After(right)
+		}
+		// Unparsable timestamps keep a stable, deterministic position rather than
+		// floating: fall back to the run id, which is unique per run.
+		if runs[i].ArchivedAt != runs[j].ArchivedAt {
+			return runs[i].ArchivedAt > runs[j].ArchivedAt
+		}
+		return runs[i].RunID > runs[j].RunID
+	})
 }
 
 // RestoreContentEventDedupeRun moves the rows quarantined by the given dedupe
