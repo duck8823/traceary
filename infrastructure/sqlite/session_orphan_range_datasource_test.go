@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -135,7 +136,7 @@ func TestSessionOrphanRangeDatasource_RecordAtCompactAfterUnfoldedRange(t *testi
 		t.Fatalf("RecordAtCompact() error = %v", err)
 	}
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt, false)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -152,7 +153,7 @@ func TestSessionOrphanRangeDatasource_RecordAtCompactAfterUnfoldedRange(t *testi
 	}
 
 	// Material must include evt-frac under ts_norm order (not lexical).
-	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.Some(types.EventID("evt-whole")), "evt-compact")
+	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.Some(types.EventID("evt-whole")), "evt-compact", false)
 	if err != nil {
 		t.Fatalf("LoadMaterial() error = %v", err)
 	}
@@ -207,7 +208,7 @@ func TestSessionOrphanRangeDatasource_GCFindsEndedSessionWithoutMarker(t *testin
 
 	// No orphan row recorded — discovery must still find the gap past covers_to.
 	now := frac.Add(2 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, false)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -242,7 +243,6 @@ func TestSessionOrphanRangeDatasource_GCProducesDegradedAndIsIdempotent(t *testi
 	consol := usecase.NewOrphanConsolidationUsecase(
 		fx.orphans,
 		usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{}),
-		fx.refine,
 		fixedEventClock{at: now},
 	)
 	first, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
@@ -299,7 +299,7 @@ func TestSessionOrphanRangeDatasource_RunningSessionLeftAlone(t *testing.T) {
 		{id: "evt-2", at: now.Add(-time.Minute)},
 	}, false)
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, false)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -318,7 +318,7 @@ func TestSessionOrphanRangeDatasource_DryRunWritesNothing(t *testing.T) {
 	}, true)
 
 	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
-	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fx.refine, types.SystemClock{})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, types.SystemClock{})
 	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{
 		StaleAfter: 24 * time.Hour,
 		DryRun:     true,
@@ -331,6 +331,40 @@ func TestSessionOrphanRangeDatasource_DryRunWritesNothing(t *testing.T) {
 	}
 	if count := countSessionRefinementsAt(t, fx.dbPath); count != 0 {
 		t.Fatalf("refinements written on dry-run = %d, want 0", count)
+	}
+}
+
+// Dry-run is promised to use a read-only connection. A store whose file is
+// 0400 must still count candidates; open() would fail by setting journal mode.
+func TestSessionOrphanRangeDatasource_DryRunSucceedsOnReadOnlyStore(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	_ = seedOrphanSession(ctx, t, fx, "sess-ro-dry", []eventSeed{
+		{id: "evt-1", at: base},
+	}, true)
+
+	if err := os.Chmod(fx.dbPath, 0o400); err != nil {
+		t.Fatalf("Chmod(read-only) error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(fx.dbPath, 0o600); err != nil {
+			t.Errorf("Chmod(restore) error = %v", err)
+		}
+	})
+
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, types.SystemClock{})
+	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate(dry-run) on read-only store error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1", got.ProducedCount())
 	}
 }
 
@@ -359,7 +393,7 @@ func TestSessionOrphanRangeDatasource_ComposesOntoAgentAuthoredRefinement(t *tes
 	}
 
 	now := base.Add(48 * time.Hour)
-	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fx.refine, fixedEventClock{at: now})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fixedEventClock{at: now})
 	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
 	if err != nil {
 		t.Fatalf("Consolidate() error = %v", err)
@@ -453,7 +487,7 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t 
 	}
 
 	now := base.Add(48 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, false)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() on pre-47 store error = %v", err)
 	}
@@ -462,7 +496,7 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t 
 	}
 
 	// Full consolidation path (what gc --dry-run hits first) must also succeed.
-	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fx.refine, fixedEventClock{at: now})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fixedEventClock{at: now})
 	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{
 		StaleAfter: 24 * time.Hour,
 		DryRun:     true,
@@ -537,7 +571,7 @@ func TestSessionOrphanRangeDatasource_LoadMaterialIncludesCommandsAndKinds(t *te
 		t.Fatal(err)
 	}
 
-	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.None[types.EventID](), "sess-mat-end")
+	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.None[types.EventID](), "sess-mat-end", false)
 	if err != nil {
 		t.Fatalf("LoadMaterial() error = %v", err)
 	}
@@ -584,7 +618,7 @@ func TestSessionOrphanRangeDatasource_FractionalSecondBoundaryOrdering(t *testin
 		t.Fatal("evt-frac should be strictly after evt-whole under ts_norm")
 	}
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour))
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour), false)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}

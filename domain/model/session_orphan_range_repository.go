@@ -22,11 +22,14 @@ type SessionOrphanRangeRepository interface {
 	//   2. ended or stale sessions with material past covers_to (or the whole
 	//      session when no refinement exists)
 	// staleAfter is the same activity window as session gc (default 24h).
-	DiscoverCandidates(ctx context.Context, staleAfter time.Duration, now time.Time) ([]*SessionOrphanRange, error)
+	// readOnly selects a connection without journal-mode or schema side
+	// effects (gc --dry-run); apply passes false so the open path is used.
+	DiscoverCandidates(ctx context.Context, staleAfter time.Duration, now time.Time, readOnly bool) ([]*SessionOrphanRange, error)
 
 	// LoadMaterial returns the mechanical-summary inputs for a range under
 	// canonical event order (ts_norm(created_at), id).
-	LoadMaterial(ctx context.Context, sessionID types.SessionID, fromExclusive types.Optional[types.EventID], toInclusive types.EventID) (SessionOrphanMaterial, error)
+	// readOnly selects openReadOnly vs open, matching DiscoverCandidates.
+	LoadMaterial(ctx context.Context, sessionID types.SessionID, fromExclusive types.Optional[types.EventID], toInclusive types.EventID, readOnly bool) (SessionOrphanMaterial, error)
 }
 
 // SessionOrphanMaterial is the LLM-free data used to build a degraded summary.

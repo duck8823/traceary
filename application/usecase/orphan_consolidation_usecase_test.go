@@ -21,14 +21,19 @@ type orphanRepoStub struct {
 	materialErr  error
 	loadCalls    int
 	discoverCall int
+	// lastDiscoverReadOnly / lastLoadReadOnly record the connection mode the
+	// use case requested so dry-run vs apply routing can be asserted.
+	lastDiscoverReadOnly bool
+	lastLoadReadOnly     bool
 }
 
 func (s *orphanRepoStub) Record(context.Context, *model.SessionOrphanRange) error {
 	return nil
 }
 
-func (s *orphanRepoStub) DiscoverCandidates(context.Context, time.Duration, time.Time) ([]*model.SessionOrphanRange, error) {
+func (s *orphanRepoStub) DiscoverCandidates(_ context.Context, _ time.Duration, _ time.Time, readOnly bool) ([]*model.SessionOrphanRange, error) {
 	s.discoverCall++
+	s.lastDiscoverReadOnly = readOnly
 	if s.discoverErr != nil {
 		return nil, s.discoverErr
 	}
@@ -36,31 +41,45 @@ func (s *orphanRepoStub) DiscoverCandidates(context.Context, time.Duration, time
 }
 
 func (s *orphanRepoStub) LoadMaterial(
-	context.Context,
-	types.SessionID,
-	types.Optional[types.EventID],
-	types.EventID,
+	_ context.Context,
+	_ types.SessionID,
+	_ types.Optional[types.EventID],
+	_ types.EventID,
+	readOnly bool,
 ) (model.SessionOrphanMaterial, error) {
 	s.loadCalls++
+	s.lastLoadReadOnly = readOnly
 	if s.materialErr != nil {
 		return model.SessionOrphanMaterial{}, s.materialErr
 	}
 	return s.material, nil
 }
 
+// refineStubForOrphan records Refine inputs. When ComposeSummary is set it is
+// applied against current so callers still assert finished summary text without
+// reimplementing the real CAS loop.
 type refineStubForOrphan struct {
-	calls []usecase.SessionRefineInput
-	err   error
+	calls   []usecase.SessionRefineInput
+	err     error
+	current types.Optional[*model.SessionRefinement]
 }
 
 func (s *refineStubForOrphan) Refine(_ context.Context, input usecase.SessionRefineInput) (model.SessionRefineResult, error) {
-	s.calls = append(s.calls, input)
+	resolved := input
+	if input.ComposeSummary != nil {
+		summary, keywords := input.ComposeSummary(s.current)
+		resolved.Summary = summary
+		resolved.Keywords = keywords
+		// Clear the func so stored calls stay comparable and free of captures.
+		resolved.ComposeSummary = nil
+	}
+	s.calls = append(s.calls, resolved)
 	if s.err != nil {
 		return model.SessionRefineResult{}, s.err
 	}
 	row, err := model.NewSessionRefinement(
-		input.SessionID, 1, "from", input.CoversTo, input.Summary, input.Keywords,
-		input.ProducedBy, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), input.Degraded,
+		resolved.SessionID, 1, "from", resolved.CoversTo, resolved.Summary, resolved.Keywords,
+		resolved.ProducedBy, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), resolved.Degraded,
 	)
 	if err != nil {
 		//nolint:wrapcheck // test stub surfaces factory failure as-is
@@ -68,33 +87,6 @@ func (s *refineStubForOrphan) Refine(_ context.Context, input usecase.SessionRef
 	}
 	//nolint:wrapcheck // test stub surfaces factory failure as-is
 	return model.SessionRefineResultOf(model.SessionRefineOutcomeCreated, row)
-}
-
-// refinementRepoStubForOrphan is a minimal FindBySessionID port for composition tests.
-type refinementRepoStubForOrphan struct {
-	bySession map[types.SessionID]*model.SessionRefinement
-	findErr   error
-}
-
-func (s *refinementRepoStubForOrphan) FindBySessionID(
-	_ context.Context,
-	sessionID types.SessionID,
-) (types.Optional[*model.SessionRefinement], error) {
-	if s.findErr != nil {
-		return types.None[*model.SessionRefinement](), s.findErr
-	}
-	if row, ok := s.bySession[sessionID]; ok {
-		return types.Some(row), nil
-	}
-	return types.None[*model.SessionRefinement](), nil
-}
-
-func (s *refinementRepoStubForOrphan) SaveIfAdvances(
-	context.Context,
-	*model.SessionRefinement,
-	int,
-) (bool, error) {
-	return false, nil
 }
 
 type fixedOrphanClock struct{ at time.Time }
@@ -125,8 +117,7 @@ func TestOrphanConsolidationUsecase_ProducesDegradedRefinement(t *testing.T) {
 		},
 	}
 	refine := &refineStubForOrphan{}
-	refineRepo := &refinementRepoStubForOrphan{}
-	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, refineRepo, fixedOrphanClock{at: now})
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
 
 	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
 		StaleAfter: 24 * time.Hour,
@@ -137,6 +128,9 @@ func TestOrphanConsolidationUsecase_ProducesDegradedRefinement(t *testing.T) {
 	}
 	if diff := cmp.Diff(1, got.ProducedCount()); diff != "" {
 		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
+	}
+	if repo.lastDiscoverReadOnly || repo.lastLoadReadOnly {
+		t.Fatalf("apply path used readOnly open: discover=%t load=%t", repo.lastDiscoverReadOnly, repo.lastLoadReadOnly)
 	}
 	if len(refine.calls) != 1 {
 		t.Fatalf("Refine calls = %d, want 1", len(refine.calls))
@@ -197,11 +191,8 @@ func TestOrphanConsolidationUsecase_ComposesOntoExistingAgentSummary(t *testing.
 			EventCount:     50,
 		},
 	}
-	refine := &refineStubForOrphan{}
-	refineRepo := &refinementRepoStubForOrphan{
-		bySession: map[types.SessionID]*model.SessionRefinement{sessionID: existing},
-	}
-	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, refineRepo, fixedOrphanClock{at: now})
+	refine := &refineStubForOrphan{current: types.Some(existing)}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
 
 	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
 		StaleAfter: 24 * time.Hour,
@@ -256,6 +247,110 @@ func TestOrphanConsolidationUsecase_ComposesOntoExistingAgentSummary(t *testing.
 	}
 }
 
+func TestOrphanConsolidationUsecase_CompositionObservesCASReRead(t *testing.T) {
+	t.Parallel()
+
+	// Composition must use the row re-read on each CAS attempt. If the finished
+	// string is frozen before Refine, a lost race rewrites agent prose that
+	// landed between the pre-read and the successful write.
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	sessionID := types.SessionID("sess-cas-compose")
+	evt1 := types.EventID("evt-1")
+	evt100 := types.EventID("evt-100")
+	evt120 := types.EventID("evt-120")
+	evt150 := types.EventID("evt-150")
+	const firstAgent = "FIRST-agent prose that must not survive the race"
+	const secondAgent = "SECOND-agent prose that landed during the lost CAS"
+	const secondKeywords = "second,keywords"
+
+	firstRow := mustRefinement(t, sessionID, 1, evt1, evt100, firstAgent)
+	// Race winner advances generation and covers_to but stays behind the orphan
+	// tail so gc still has a legitimate supersede to land on retry.
+	winner, err := model.NewSessionRefinement(
+		sessionID, 2, evt1, evt120, secondAgent, secondKeywords,
+		"agent", now.Add(-time.Minute), false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orphan, err := model.NewSessionOrphanRange(
+		sessionID,
+		types.Some(evt100),
+		evt150,
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanRepo := &orphanRepoStub{
+		candidates: []*model.SessionOrphanRange{orphan},
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now.Add(-time.Hour),
+			LastCreatedAt:  now,
+			KindCounts:     map[string]int{"note": 3},
+			EventCount:     3,
+		},
+	}
+
+	eventOrder := &sessionEventOrderRepositoryStub{
+		earliest:      map[types.SessionID]types.EventID{sessionID: evt1},
+		eventSessions: map[types.EventID]types.SessionID{evt150: sessionID},
+		after: map[types.EventID]map[types.EventID]bool{
+			evt150: {evt100: true, evt120: true},
+			evt120: {evt100: true},
+		},
+	}
+	refineRepo := &sessionRefinementRepositoryStub{
+		bySession: map[types.SessionID]*model.SessionRefinement{
+			sessionID: firstRow,
+		},
+		saveResults:       []bool{false, true},
+		raceWinnersOnLose: []*model.SessionRefinement{winner},
+		eventOrder:        eventOrder,
+	}
+	session := model.NewSession(sessionID, now.Add(-2*time.Hour), "cli", "codex", "ws")
+	refine := usecase.NewSessionRefinementUsecase(
+		&sessionRepositoryStub{session: session},
+		refineRepo,
+		eventOrder,
+		fixedOrphanClock{at: now},
+	)
+	sut := usecase.NewOrphanConsolidationUsecase(orphanRepo, refine, fixedOrphanClock{at: now})
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1", got.ProducedCount())
+	}
+	if refineRepo.saveCalls != 2 {
+		t.Fatalf("SaveIfAdvances calls = %d, want 2 (first CAS loss, second success)", refineRepo.saveCalls)
+	}
+	if len(refineRepo.saved) != 1 {
+		t.Fatalf("successful saves = %d, want 1", len(refineRepo.saved))
+	}
+	summary := refineRepo.saved[0].Summary()
+	if !strings.Contains(summary, secondAgent) {
+		t.Fatalf("final summary must contain second-read agent text; got %q", summary)
+	}
+	if strings.Contains(summary, firstAgent) {
+		t.Fatalf("final summary must not keep first-read agent text after race; got %q", summary)
+	}
+	if !strings.HasPrefix(summary, secondAgent) {
+		t.Fatalf("second-read agent text must lead the composed summary: %q", summary)
+	}
+	if refineRepo.saved[0].Keywords() != secondKeywords {
+		t.Fatalf("Keywords = %q, want second-read keywords %q", refineRepo.saved[0].Keywords(), secondKeywords)
+	}
+	if diff := cmp.Diff([]int{1, 2}, refineRepo.expectedGens); diff != "" {
+		t.Fatalf("expectedGeneration sequence mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 	t.Parallel()
 
@@ -274,8 +369,7 @@ func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 		},
 	}
 	refine := &refineStubForOrphan{}
-	refineRepo := &refinementRepoStubForOrphan{}
-	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, refineRepo, fixedOrphanClock{at: now})
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
 
 	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
 		StaleAfter: 24 * time.Hour,
@@ -297,6 +391,9 @@ func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 	if repo.loadCalls != 1 {
 		t.Fatalf("LoadMaterial calls = %d, want 1 (validate material exists)", repo.loadCalls)
 	}
+	if !repo.lastDiscoverReadOnly || !repo.lastLoadReadOnly {
+		t.Fatalf("dry-run must request readOnly open: discover=%t load=%t", repo.lastDiscoverReadOnly, repo.lastLoadReadOnly)
+	}
 }
 
 func TestOrphanConsolidationUsecase_SecondRunDoesNotReprocessWhenNoCandidates(t *testing.T) {
@@ -306,8 +403,7 @@ func TestOrphanConsolidationUsecase_SecondRunDoesNotReprocessWhenNoCandidates(t 
 	// is filtered at the repository. A second Consolidate must not Refine.
 	repo := &orphanRepoStub{candidates: nil}
 	refine := &refineStubForOrphan{}
-	refineRepo := &refinementRepoStubForOrphan{}
-	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, refineRepo, types.SystemClock{})
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, types.SystemClock{})
 
 	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
 		StaleAfter: 24 * time.Hour,
@@ -346,8 +442,7 @@ func TestBuildMechanicalOrphanSummary_TruncatesDeterministically(t *testing.T) {
 		material:   material,
 	}
 	refine := &refineStubForOrphan{}
-	refineRepo := &refinementRepoStubForOrphan{}
-	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, refineRepo, fixedOrphanClock{at: now})
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
 	if _, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{StaleAfter: time.Hour}); err != nil {
 		t.Fatalf("Consolidate() error = %v", err)
 	}
@@ -403,11 +498,8 @@ func TestOrphanConsolidationUsecase_TruncationDoesNotCutAgentText(t *testing.T) 
 			EventCount:     1,
 		},
 	}
-	refine := &refineStubForOrphan{}
-	refineRepo := &refinementRepoStubForOrphan{
-		bySession: map[types.SessionID]*model.SessionRefinement{sessionID: existing},
-	}
-	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, refineRepo, fixedOrphanClock{at: now})
+	refine := &refineStubForOrphan{current: types.Some(existing)}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
 	if _, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{StaleAfter: time.Hour}); err != nil {
 		t.Fatalf("Consolidate() error = %v", err)
 	}

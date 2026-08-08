@@ -24,10 +24,9 @@ const orphanMechanicalSummaryMaxBytes = 64 * 1024
 const orphanConsolidationProducedBy = "gc:orphan-consolidation"
 
 type orphanConsolidationUsecase struct {
-	orphans        model.SessionOrphanRangeRepository
-	refinement     SessionRefinementUsecase
-	refinementRepo model.SessionRefinementRepository
-	clock          types.Clock
+	orphans    model.SessionOrphanRangeRepository
+	refinement SessionRefinementUsecase
+	clock      types.Clock
 }
 
 // NewOrphanConsolidationUsecase creates the orphan consolidation use case.
@@ -35,17 +34,15 @@ type orphanConsolidationUsecase struct {
 func NewOrphanConsolidationUsecase(
 	orphans model.SessionOrphanRangeRepository,
 	refinement SessionRefinementUsecase,
-	refinementRepo model.SessionRefinementRepository,
 	clock types.Clock,
 ) OrphanConsolidationUsecase {
 	if clock == nil {
 		clock = types.SystemClock{}
 	}
 	return &orphanConsolidationUsecase{
-		orphans:        orphans,
-		refinement:     refinement,
-		refinementRepo: refinementRepo,
-		clock:          clock,
+		orphans:    orphans,
+		refinement: refinement,
+		clock:      clock,
 	}
 }
 
@@ -59,15 +56,14 @@ func (u *orphanConsolidationUsecase) Consolidate(
 	if u.refinement == nil {
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("session refinement usecase is not configured")
 	}
-	if u.refinementRepo == nil {
-		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("session refinement repository is not configured")
-	}
 	if input.StaleAfter <= 0 {
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("staleAfter must be greater than zero")
 	}
 
 	now := u.clock.Now()
-	candidates, err := u.orphans.DiscoverCandidates(ctx, input.StaleAfter, now)
+	// Dry-run discovery must not open a journal-mode connection (store side
+	// effects, fails on a filesystem read-only store). Apply uses open.
+	candidates, err := u.orphans.DiscoverCandidates(ctx, input.StaleAfter, now, input.DryRun)
 	if err != nil {
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("failed to discover orphan ranges: %w", err)
 	}
@@ -81,7 +77,7 @@ func (u *orphanConsolidationUsecase) Consolidate(
 			// Dry-run must not write refinements. Count ranges that still have
 			// material; LoadMaterial failing closed is reported as an error so
 			// operators do not get a silent zero.
-			if _, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID()); err != nil {
+			if _, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID(), true); err != nil {
 				return apptypes.OrphanConsolidationResult{}, xerrors.Errorf(
 					"failed to load orphan material for dry-run session %s: %w",
 					orphan.SessionID(), err,
@@ -99,37 +95,35 @@ func (u *orphanConsolidationUsecase) Consolidate(
 }
 
 func (u *orphanConsolidationUsecase) produceDegraded(ctx context.Context, orphan *model.SessionOrphanRange) error {
-	material, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID())
+	material, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID(), false)
 	if err != nil {
 		return xerrors.Errorf("failed to load orphan material for session %s: %w", orphan.SessionID(), err)
 	}
 	mechanical := buildMechanicalOrphanSummary(material)
 
-	summary := mechanical
-	keywords := ""
-	current, err := u.refinementRepo.FindBySessionID(ctx, orphan.SessionID())
-	if err != nil {
-		return xerrors.Errorf("failed to load existing refinement for session %s: %w", orphan.SessionID(), err)
-	}
-	if existing, present := current.Value(); present {
-		// Refine on supersede replaces summary text wholesale while keeping
-		// covers_from. Composing preserves the agent-authored prose and only
-		// appends a marked degraded section for the orphan tail.
-		summary = composeOrphanSummary(existing.Summary(), orphan, mechanical)
-		keywords = existing.Keywords()
-	}
-
+	// Composition runs inside Refine's CAS loop (ComposeSummary), not here.
+	// A pre-read would freeze summary text across retries and could overwrite
+	// agent prose that landed between the first read and a successful write.
+	//
 	// degraded=true even when the row still contains agent-authored text.
 	// The flag means the stored summary is not purely agent-written: a mixed
 	// row includes gc-synthesised prose, so consumers must not treat the whole
 	// row as agent reasoning. Seam markers in the text separate authorships.
 	_, err = u.refinement.Refine(ctx, SessionRefineInput{
 		SessionID:  orphan.SessionID(),
-		Summary:    summary,
-		Keywords:   keywords,
 		ProducedBy: orphanConsolidationProducedBy,
 		CoversTo:   orphan.ToEventID(),
 		Degraded:   true,
+		ComposeSummary: func(current types.Optional[*model.SessionRefinement]) (string, string) {
+			if existing, present := current.Value(); present {
+				// Refine on supersede replaces summary text wholesale while
+				// keeping covers_from. Composing preserves the agent-authored
+				// prose and only appends a marked degraded section for the
+				// orphan tail.
+				return composeOrphanSummary(existing.Summary(), orphan, mechanical), existing.Keywords()
+			}
+			return mechanical, ""
+		},
 	})
 	if err != nil {
 		return xerrors.Errorf("failed to write degraded refinement for session %s: %w", orphan.SessionID(), err)

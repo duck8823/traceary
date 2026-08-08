@@ -83,17 +83,20 @@ func (d *SessionOrphanRangeDatasource) Record(ctx context.Context, orphan *model
 }
 
 // DiscoverCandidates finds orphan ranges still needing a degraded refinement.
+// readOnly uses openReadOnly so gc --dry-run cannot mutate journal mode or
+// fail on a filesystem read-only store; apply uses open.
 func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 	ctx context.Context,
 	staleAfter time.Duration,
 	now time.Time,
+	readOnly bool,
 ) ([]*model.SessionOrphanRange, error) {
 	if staleAfter <= 0 {
 		return nil, xerrors.Errorf("staleAfter must be greater than zero")
 	}
-	db, err := d.db.open(ctx)
+	db, err := d.openForDiscovery(ctx, readOnly)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for orphan discovery: %w", err)
+		return nil, err
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -159,15 +162,17 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 }
 
 // LoadMaterial returns mechanical-summary inputs for a range.
+// readOnly uses openReadOnly (gc --dry-run); apply uses open.
 func (d *SessionOrphanRangeDatasource) LoadMaterial(
 	ctx context.Context,
 	sessionID types.SessionID,
 	fromExclusive types.Optional[types.EventID],
 	toInclusive types.EventID,
+	readOnly bool,
 ) (model.SessionOrphanMaterial, error) {
-	db, err := d.db.open(ctx)
+	db, err := d.openForDiscovery(ctx, readOnly)
 	if err != nil {
-		return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to open DB for orphan material: %w", err)
+		return model.SessionOrphanMaterial{}, err
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -232,6 +237,22 @@ func (d *SessionOrphanRangeDatasource) LoadMaterial(
 		return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to iterate orphan range commands: %w", err)
 	}
 	return material, nil
+}
+
+// openForDiscovery selects the connection mode for pure-read orphan paths.
+// Mirrors one_shot_repair_datasource: preview/dry-run → openReadOnly, apply → open.
+func (d *SessionOrphanRangeDatasource) openForDiscovery(ctx context.Context, readOnly bool) (*sql.DB, error) {
+	var db *sql.DB
+	var err error
+	if readOnly {
+		db, err = d.db.openReadOnly(ctx)
+	} else {
+		db, err = d.db.open(ctx)
+	}
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for orphan range read: %w", err)
+	}
+	return db, nil
 }
 
 func (d *SessionOrphanRangeDatasource) listRecorded(ctx context.Context, db *sql.DB) ([]*model.SessionOrphanRange, error) {
