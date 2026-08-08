@@ -144,7 +144,7 @@ func (c *RootCLI) runHookGrokStop(ctx context.Context, input io.Reader, dbPath s
 	sessionID := hookPayloadString(normalized, "session_id", "")
 	var transcriptErr error
 	if _, ready := extractGrokTranscript(normalized); ready {
-		transcriptErr = c.runHookTranscript(ctx, bytes.NewReader(normalized), grokHookClient, dbPath)
+		_, transcriptErr = c.runHookTranscript(ctx, bytes.NewReader(normalized), grokHookClient, dbPath)
 		if transcriptErr != nil {
 			slog.Debug("grok stop transcript failed", "session_id", sessionID, "error", transcriptErr)
 		}

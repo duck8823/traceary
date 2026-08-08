@@ -26,6 +26,7 @@ type RootCLI struct {
 	sessionRefinement          usecase.SessionRefinementUsecase
 	sessionOrphanRange         usecase.SessionOrphanRangeUsecase
 	orphanConsolidation        usecase.OrphanConsolidationUsecase
+	consolidationPressure      usecase.ConsolidationPressureUsecase
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
 	memoryEdge                 usecase.MemoryEdgeUsecase
@@ -130,6 +131,11 @@ func WithSessionOrphanRange(sessionOrphanRange usecase.SessionOrphanRangeUsecase
 // WithOrphanConsolidation injects the gc-step orphan mechanical-summary port.
 func WithOrphanConsolidation(orphanConsolidation usecase.OrphanConsolidationUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.orphanConsolidation = orphanConsolidation }
+}
+
+// WithConsolidationPressure injects the read-only stop-hook pressure check.
+func WithConsolidationPressure(consolidationPressure usecase.ConsolidationPressureUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.consolidationPressure = consolidationPressure }
 }
 
 // WithOneShotRepair injects the evidence-backed historical repair use case.

@@ -202,7 +202,8 @@ func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRec
 	case "prompt":
 		return c.runHookPrompt(ctx, input, client, dbPath)
 	case "transcript":
-		return c.runHookTranscript(ctx, input, client, dbPath)
+		_, err := c.runHookTranscript(ctx, input, client, dbPath)
+		return err
 	case "usage":
 		return c.runHookUsage(ctx, input, client, dbPath)
 	case "antigravity":
@@ -267,7 +268,11 @@ func (c *RootCLI) replayKimiSpoolRecord(ctx context.Context, input io.Reader, ac
 	case "post-tool-use-failure":
 		return c.runHookKimiPostToolUseFailure(ctx, input, dbPath)
 	case "stop":
-		return c.runHookKimiStop(ctx, input, dbPath)
+		// Spool replay only needs durable side effects; consolidation is a
+		// live host-facing exit and is owned by newHookKimiStopCommand.
+		_, _, err := c.runHookKimiStop(ctx, input, dbPath)
+		return err
+
 	case "subagent-stop":
 		return c.runHookKimiSubagentStop(ctx, input, dbPath)
 	case "pre-compact":
