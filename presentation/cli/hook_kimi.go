@@ -33,10 +33,55 @@ func (c *RootCLI) newHookKimiCommand() *cobra.Command {
 	cmd.AddCommand(c.newHookKimiEventCommand("pre-tool-use", c.runHookKimiPreToolUse))
 	cmd.AddCommand(c.newHookKimiEventCommand("post-tool-use", c.runHookKimiPostToolUse))
 	cmd.AddCommand(c.newHookKimiEventCommand("post-tool-use-failure", c.runHookKimiPostToolUseFailure))
-	cmd.AddCommand(c.newHookKimiEventCommand("stop", c.runHookKimiStop))
+	// Stop is special-cased: after a durable transcript write it may request
+	// consolidation with exit 2, which cannot escape from inside runHookDurably
+	// (see newHookKimiStopCommand / hook transcript's RunE).
+	cmd.AddCommand(c.newHookKimiStopCommand())
 	cmd.AddCommand(c.newHookKimiEventCommand("pre-compact", c.runHookKimiPreCompact))
 	cmd.AddCommand(c.newHookKimiEventCommand("post-compact", c.runHookKimiPostCompact))
 	cmd.AddCommand(c.newHookKimiEventCommand("subagent-stop", c.runHookKimiSubagentStop))
+	return cmd
+}
+
+// newHookKimiStopCommand wires the native Kimi Stop command the same way the
+// shared hook transcript command is wired: durable record first, then
+// consolidation outside runHookDurably and only when a transcript row landed
+// on this firing. The packaged Kimi plugin invokes `traceary hook kimi stop`
+// (not `hook transcript kimi`), so without this boundary the allowlist entry
+// for kimi in consolidationStopClients could never fire (#1674 / #1711).
+func (c *RootCLI) newHookKimiStopCommand() *cobra.Command {
+	var dbPath string
+	cmd := &cobra.Command{
+		Use:    "stop",
+		Short:  "Record Kimi Code stop hook events",
+		Hidden: true,
+		Args:   noArgsLocalized(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.runDurableHookThenMaybeConsolidate(
+				cmd.Context(),
+				"kimi stop",
+				hookInvocationSpec{
+					Command: "kimi",
+					Client:  kimiHookClient,
+					Action:  "stop",
+					DBPath:  dbPath,
+				},
+				cmd.InOrStdin(),
+				kimiHookClient,
+				dbPath,
+				func(input io.Reader) ([]byte, error) {
+					// Return the same normalized payload the recording used so
+					// the session resolver sees the fields extract/record saw.
+					recorded, normalized, err := c.runHookKimiStop(cmd.Context(), input, dbPath)
+					if recorded {
+						return normalized, err
+					}
+					return nil, err
+				},
+			)
+		},
+	}
+	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	return cmd
 }
 
@@ -162,14 +207,20 @@ func (c *RootCLI) runHookKimiPostToolUseFailure(ctx context.Context, input io.Re
 // Kimi's Stop is a turn boundary, not a session end: the host emits a true
 // SessionEnd (reason=exit), so Stop only captures the assistant transcript
 // via the session wire log side channel.
-func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath string) error {
-	normalized, err := normalizeKimiHookPayload(input)
+//
+// recorded is true only when a transcript row was persisted on this firing
+// (propagated from runHookKimiTranscript). Callers that gate consolidation
+// on a successful write must honour it: idempotent redeliveries and
+// fail-soft skips return recorded=false so pressure is not re-checked for a
+// turn that did not land again. normalized is the payload the recording used.
+func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath string) (recorded bool, normalized []byte, err error) {
+	normalized, err = normalizeKimiHookPayload(input)
 	if err != nil {
-		return err
+		return false, nil, err
 	}
-	transcriptErr := c.runHookKimiTranscript(ctx, normalized, dbPath)
+	recorded, transcriptErr := c.runHookKimiTranscript(ctx, normalized, dbPath)
 	usageErr := c.captureKimiUsage(ctx, normalized, dbPath, usecase.KimiUsageBoundaryStop)
-	return errors.Join(transcriptErr, usageErr)
+	return recorded, normalized, errors.Join(transcriptErr, usageErr)
 }
 
 // runHookKimiTranscript wraps the shared transcript recorder with a
@@ -228,27 +279,34 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 // Losing the race for the lock is the one case that does NOT fall open: it
 // means another firing is recording this turn, and Kimi will redeliver it
 // ~0.14s later anyway. See errKimiTranscriptTurnLockBusy.
-func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbPath string) error {
+//
+// The bool return is true only when a transcript row was persisted on this
+// firing. Idempotent skips, lock-busy yields, and fail-soft recorder skips
+// return false so consolidation (and any other post-write gate) does not
+// treat a no-op redelivery as a new turn (#1674 / #1681).
+func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbPath string) (bool, error) {
 	sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
 	blocks, turnID, turnResolved := extractKimiTranscriptTurn(payload)
 	turnID = strings.TrimSpace(turnID)
 	if !turnResolved || sessionID == "" || turnID == "" {
-		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, nil)
-		return err
+		return c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, nil)
 	}
 	fingerprint, fingerprintErr := kimiTranscriptBlocksFingerprint(blocks)
 	if fingerprintErr != nil {
 		slog.Debug("Kimi transcript fingerprint unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", fingerprintErr)
-		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
-		return err
+		return c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
 	}
 
+	var recorded bool
 	var recordErr error
 	lockErr := withKimiTranscriptTurnStateLock(sessionID, func() error {
 		if kimiTranscriptTurnAlreadyRecorded(sessionID, turnID, fingerprint) {
+			// This firing wrote nothing; leave recorded=false so consolidation
+			// does not re-request for an already-persisted turn.
 			return nil
 		}
-		recorded, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		var err error
+		recorded, err = c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
 		if err != nil {
 			recordErr = err
 			return err
@@ -269,7 +327,7 @@ func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbP
 		// redelivery (~0.14s) — and if the holder succeeds, the marker it
 		// writes makes those redeliveries correctly no-ops.
 		slog.Debug("Kimi transcript turn is being recorded by another firing; skipping", "session_id", sessionID, "turn_id", turnID)
-		return nil
+		return false, nil
 	}
 	if lockErr != nil && recordErr == nil {
 		// The marker infrastructure itself is unusable (an unresolvable
@@ -280,10 +338,9 @@ func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbP
 		// withKimiTranscriptTurnStateLock, so writing one here would race
 		// the very lock this falls back from.
 		slog.Debug("Kimi transcript turn lock unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", lockErr)
-		_, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
-		return err
+		return c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
 	}
-	return lockErr
+	return recorded, lockErr
 }
 
 func (c *RootCLI) captureKimiUsage(

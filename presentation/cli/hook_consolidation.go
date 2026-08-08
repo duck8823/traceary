@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 
@@ -40,6 +41,44 @@ type consolidationExitError struct {
 
 func (e consolidationExitError) Error() string { return e.message }
 func (e consolidationExitError) ExitCode() int { return e.exitCode }
+
+// runDurableHookThenMaybeConsolidate runs a durable hook whose closure may
+// capture a non-nil payload when a transcript row was actually persisted on
+// this firing, then measures consolidation pressure outside runHookDurably.
+// Consolidation must not live inside a durable run: runHookBestEffort
+// swallows every error, so a non-zero exit can never escape from inside one
+// (#1674). Callers set the captured payload only when recorded=true — never
+// on fail-soft skips or idempotent redeliveries that wrote nothing.
+func (c *RootCLI) runDurableHookThenMaybeConsolidate(
+	ctx context.Context,
+	name string,
+	spec hookInvocationSpec,
+	input io.Reader,
+	client string,
+	dbPath string,
+	run func(input io.Reader) (consolidationPayload []byte, err error),
+) error {
+	var payload []byte
+	if err := c.runHookDurably(ctx, name, spec, input, func(input io.Reader) error {
+		captured, err := run(input)
+		// Capture before returning err so a successful transcript write still
+		// reaches the pressure check when a sibling best-effort step (e.g.
+		// usage capture) fails and would otherwise leave payload unset.
+		if captured != nil {
+			payload = captured
+		}
+		return err
+	}); err != nil {
+		return err
+	}
+	if payload == nil {
+		// The durable run never reached the closure, recording failed
+		// (swallowed by best-effort), the turn was fail-soft-skipped, or an
+		// idempotency guard skipped this firing. Nothing to measure.
+		return nil
+	}
+	return c.requestConsolidationIfDue(ctx, client, payload, dbPath)
+}
 
 // requestConsolidationIfDue measures unrefined body-byte pressure after the
 // durable transcript run and, when due, returns exit 2 with a short agent

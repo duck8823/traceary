@@ -210,34 +210,28 @@ func (c *RootCLI) newHookTranscriptCommand() *cobra.Command {
 			// still request consolidation. Inferring "a row was written" from
 			// err==nil alone was #1681's CRITICAL defect; the same conflation
 			// must not gate the #1674 pressure check.
-			var payload []byte
-			if err := c.runHookDurably(cmd.Context(), "transcript", hookInvocationSpec{Command: "transcript", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
-				captured, err := readHookPayload(input)
-				if err != nil {
-					return err
-				}
-				recorded, err := c.runHookTranscript(cmd.Context(), newExplicitHookPayloadReader(captured), args[0], dbPath)
-				if err != nil {
-					return err
-				}
-				if recorded {
-					payload = captured
-				}
-				return nil
-			}); err != nil {
-				return err
-			}
-			if payload == nil {
-				// The durable run never reached the closure, the read failed,
-				// recording failed (swallowed by best-effort), or the turn was
-				// fail-soft-skipped without persisting a row. Nothing to
-				// measure pressure against.
-				return nil
-			}
-			// Consolidation must run outside runHookDurably: runHookBestEffort
-			// swallows every error, so a non-zero exit can never escape from
-			// inside a durable hook run (#1674).
-			return c.requestConsolidationIfDue(cmd.Context(), args[0], payload, dbPath)
+			return c.runDurableHookThenMaybeConsolidate(
+				cmd.Context(),
+				"transcript",
+				hookInvocationSpec{Command: "transcript", Client: args[0], DBPath: dbPath},
+				cmd.InOrStdin(),
+				args[0],
+				dbPath,
+				func(input io.Reader) ([]byte, error) {
+					captured, err := readHookPayload(input)
+					if err != nil {
+						return nil, err
+					}
+					recorded, err := c.runHookTranscript(cmd.Context(), newExplicitHookPayloadReader(captured), args[0], dbPath)
+					if err != nil {
+						return nil, err
+					}
+					if recorded {
+						return captured, nil
+					}
+					return nil, nil
+				},
+			)
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())

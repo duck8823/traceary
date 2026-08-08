@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -333,6 +335,139 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHookKimiStop_ConsolidationPressure pins the native Kimi Stop path
+// (`traceary hook kimi stop`) to the same consolidation gate as
+// `hook transcript`: exit 2 only when a turn was recorded on this firing
+// and pressure is over threshold. Idempotent redeliveries that write nothing
+// must stay exit 0 even when pressure remains due (#1674 / #1711).
+func TestHookKimiStop_ConsolidationPressure(t *testing.T) {
+	// Not parallel: mutates HOME / hook state env for Kimi wire log + spool.
+	const sessionID = "session_00000000-0000-4000-8000-000000000001"
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/dogfood/test")
+	cli.SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	// Wire log with a completed turn so the first Stop persists a transcript
+	// row; the second Stop hits the per-(session, turn, fingerprint) marker
+	// and writes nothing.
+	seedKimiSession(t, home, sessionID, []string{
+		`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+		`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"kimi stop consolidation probe"}}}`,
+	})
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	eventUC := usecase.NewEventUsecase(eventDS, eventDS)
+	if err := storeUC.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	base := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	session := model.NewSession(types.SessionID(sessionID), base, "cli", "kimi", "ws")
+	start, err := model.NewEventWithClock(
+		"evt-start", types.EventKindSessionStarted, "cli", "kimi",
+		types.SessionID(sessionID), "ws", "start",
+		fixedClock{at: base},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionDS.SaveBoundary(ctx, session, start); err != nil {
+		t.Fatal(err)
+	}
+	// Unrefined material already over the default 64 KiB threshold so the
+	// pressure check is Due as soon as a transcript row lands.
+	heavy, err := model.NewEventWithClock(
+		"evt-heavy", types.EventKindNote, "cli", "kimi",
+		types.SessionID(sessionID), "ws", strings.Repeat("x", 65*1024),
+		fixedClock{at: base.Add(time.Second)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := eventDS.Save(ctx, heavy); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stub reports Due so the test does not depend on how large the just-
+	// recorded transcript body is relative to the seed; the gate under test
+	// is "was a row written on this firing?", not the pressure arithmetic.
+	stub := &consolidationPressureStub{
+		result: usecase.ConsolidationPressureResult{
+			PressureBytes: 65 * 1024,
+			Due:           true,
+		},
+	}
+	pressureUC := stub
+
+	payload := readKimiFixture(t, "stop.json")
+
+	runStop := func(t *testing.T) (exitCode int, message string) {
+		t.Helper()
+		stderr := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(storeUC),
+			cli.WithEvent(eventUC),
+			cli.WithConsolidationPressure(pressureUC),
+			cli.WithDatabasePathSetter(db.SetPath),
+		).Command()
+		rootCmd.SetIn(strings.NewReader(payload))
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(stderr)
+		rootCmd.SetArgs([]string{"hook", "kimi", "stop", "--db-path", dbPath})
+
+		err := rootCmd.Execute()
+		if err == nil {
+			return 0, ""
+		}
+		var coder interface{ ExitCode() int }
+		if errors.As(err, &coder) {
+			return coder.ExitCode(), err.Error()
+		}
+		t.Fatalf("Execute() error = %v (type %T), want ExitCode or nil", err, err)
+		return 0, ""
+	}
+
+	t.Run("recorded turn over threshold exits 2 with reason on stderr", func(t *testing.T) {
+		gotCode, message := runStop(t)
+		if diff := cmp.Diff(2, gotCode); diff != "" {
+			t.Fatalf("exit code mismatch (-want +got):\n%s; message=%q", diff, message)
+		}
+		for _, sub := range []string{sessionID, "unrefined material"} {
+			if !strings.Contains(message, sub) {
+				t.Fatalf("reason %q does not contain %q", message, sub)
+			}
+		}
+		if stub.calls != 1 {
+			t.Fatalf("pressure usecase calls = %d, want 1 after the recording firing", stub.calls)
+		}
+	})
+
+	t.Run("idempotent redelivery exits 0 even when pressure is still over threshold", func(t *testing.T) {
+		// Same wire log + marker from the first subtest: nothing is recorded
+		// on this firing, so consolidation must not run again.
+		callsBefore := stub.calls
+		gotCode, message := runStop(t)
+		if diff := cmp.Diff(0, gotCode); diff != "" {
+			t.Fatalf("exit code mismatch (-want +got):\n%s; message=%q", diff, message)
+		}
+		if strings.Contains(message, "unrefined material") {
+			t.Fatalf("unexpected consolidation reason on idempotent skip: %q", message)
+		}
+		if stub.calls != callsBefore {
+			t.Fatalf("pressure usecase calls = %d, want %d (idempotent skip must not re-check)", stub.calls, callsBefore)
+		}
+	})
 }
 
 func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
