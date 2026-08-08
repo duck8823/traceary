@@ -200,9 +200,29 @@ func (c *RootCLI) newHookTranscriptCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runHookDurably(cmd.Context(), "transcript", hookInvocationSpec{Command: "transcript", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
-				return c.runHookTranscript(cmd.Context(), input, args[0], dbPath)
-			})
+			// Capture the payload from inside the durable run rather than
+			// pre-reading stdin: runHookDurably owns the read, and reading it
+			// out here would leave nothing for it on the error path.
+			var payload []byte
+			if err := c.runHookDurably(cmd.Context(), "transcript", hookInvocationSpec{Command: "transcript", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
+				captured, err := readHookPayload(input)
+				if err != nil {
+					return err
+				}
+				payload = captured
+				return c.runHookTranscript(cmd.Context(), newExplicitHookPayloadReader(captured), args[0], dbPath)
+			}); err != nil {
+				return err
+			}
+			if payload == nil {
+				// The durable run never reached the closure, or the read
+				// failed inside it. Nothing to measure pressure against.
+				return nil
+			}
+			// Consolidation must run outside runHookDurably: runHookBestEffort
+			// swallows every error, so a non-zero exit can never escape from
+			// inside a durable hook run (#1674).
+			return c.requestConsolidationIfDue(cmd.Context(), args[0], payload, dbPath)
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())

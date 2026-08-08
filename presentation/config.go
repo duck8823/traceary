@@ -14,11 +14,12 @@ import (
 // configFile mirrors the on-disk JSON layout. It is intentionally unexported
 // because callers receive the loaded values through Config.
 type configFile struct {
-	Audit     auditSection     `json:"audit"`
-	UI        uiSection        `json:"ui"`
-	Redact    redactSection    `json:"redact"`
-	Read      readSection      `json:"read"`
-	Retention retentionSection `json:"retention"`
+	Audit         auditSection         `json:"audit"`
+	UI            uiSection            `json:"ui"`
+	Redact        redactSection        `json:"redact"`
+	Read          readSection          `json:"read"`
+	Retention     retentionSection     `json:"retention"`
+	Consolidation consolidationSection `json:"consolidation"`
 }
 
 type auditSection struct {
@@ -46,6 +47,14 @@ type readSection struct {
 type retentionSection struct {
 	Mode          string                    `json:"mode"`
 	ArchiveThenGC retentionArchiveThenGCDoc `json:"archive_then_gc"`
+}
+
+// consolidationSection configures the stop-hook consolidation pressure trigger
+// (#1674). ThresholdBytes is a pointer so explicit 0 (disabled) is distinct
+// from an absent key (default 64 KiB), the same way readPresetFilters.Failures
+// distinguishes absent from explicit false.
+type consolidationSection struct {
+	ThresholdBytes *int64 `json:"threshold_bytes"`
 }
 
 type retentionArchiveThenGCDoc struct {
@@ -112,6 +121,10 @@ type Config struct {
 	// Retention holds opt-in archive-before-GC automation. Zero Mode means
 	// disabled (same as explicit "disabled").
 	Retention RetentionConfig
+	// Consolidation holds the stop-hook pressure threshold. LoadConfig always
+	// resolves ThresholdBytes (default 64 KiB when the key is absent; explicit
+	// 0 disables the trigger).
+	Consolidation ConsolidationConfig
 }
 
 // RetentionModeDisabled is the fail-closed default for automatic archive-then-gc.
@@ -119,6 +132,10 @@ const RetentionModeDisabled = "disabled"
 
 // RetentionModeArchiveThenGC opts into opportunistic archive-before-GC (#1372).
 const RetentionModeArchiveThenGC = "archive_then_gc"
+
+// DefaultConsolidationThresholdBytes is the stop-hook pressure threshold when
+// consolidation.threshold_bytes is absent from config.json (64 KiB).
+const DefaultConsolidationThresholdBytes int64 = 64 * 1024
 
 // RetentionConfig is the runtime view of config.json retention.
 type RetentionConfig struct {
@@ -135,6 +152,14 @@ type RetentionConfig struct {
 	// PassphraseEnv is the name of an env var holding an optional passphrase.
 	// Secrets are never stored in config or SQLite.
 	PassphraseEnv string
+}
+
+// ConsolidationConfig is the runtime view of config.json consolidation.
+type ConsolidationConfig struct {
+	// ThresholdBytes is the unrefined body-byte sum that triggers a stop-hook
+	// consolidation request. Explicit 0 disables the trigger. When the config
+	// key is absent, LoadConfig sets DefaultConsolidationThresholdBytes.
+	ThresholdBytes int64
 }
 
 // ReadPreset is the runtime-facing view of a user-defined preset loaded from
@@ -164,7 +189,11 @@ type ReadPresetFilters struct {
 func LoadConfig() Config {
 	file := loadConfigFile()
 	if file == nil {
-		return Config{}
+		// File missing / unreadable / invalid: still resolve consolidation to
+		// the built-in default so the stop hook has a concrete threshold.
+		return Config{
+			Consolidation: toConsolidationConfig(consolidationSection{}),
+		}
 	}
 	return Config{
 		AuditMaxInputBytes:    file.Audit.MaxInputBytes,
@@ -176,6 +205,7 @@ func LoadConfig() Config {
 		ReadPresets:           toReadPresetMap(file.Read.Presets),
 		ReadColor:             file.Read.Color,
 		Retention:             toRetentionConfig(file.Retention),
+		Consolidation:         toConsolidationConfig(file.Consolidation),
 	}
 }
 
@@ -192,6 +222,15 @@ func toRetentionConfig(raw retentionSection) RetentionConfig {
 		OutputDir:     strings.TrimSpace(raw.ArchiveThenGC.OutputDir),
 		PassphraseEnv: strings.TrimSpace(raw.ArchiveThenGC.PassphraseEnv),
 	}
+}
+
+func toConsolidationConfig(raw consolidationSection) ConsolidationConfig {
+	if raw.ThresholdBytes == nil {
+		return ConsolidationConfig{ThresholdBytes: DefaultConsolidationThresholdBytes}
+	}
+	// Explicit zero disables; any other value is used as-is (including negative,
+	// which the use case treats as disabled the same way).
+	return ConsolidationConfig{ThresholdBytes: *raw.ThresholdBytes}
 }
 
 func toReadPresetMap(raw map[string]readPresetDoc) map[string]ReadPreset {
