@@ -32,10 +32,10 @@ Traceary は、単なるイベントログではありません。`v0.5.0` 以�
 | 層 | 何を置くか | どう供給するか |
 |---|---|---|
 | Audit / Archive | 生の event (prompt / transcript / command audit)、session 境界 | host hook 経由（`SessionStart`、`UserPromptSubmit` / `BeforeAgent`、`PostToolUse` / `AfterTool`、`Stop` / `AfterAgent`、`PreCompact` / `PreCompress`、`SessionEnd` 等）— [host coverage matrix](./docs/hooks/host-coverage.ja.md) 参照 |
-| Working memory | 直近の session から組み立てる handoff / context pack | `traceary session handoff` / MCP `get_context` で都度組み立て。Claude `PreCompact` の digest は `sessions.summary` にも同期するため、SessionEnd を待たずに timeline / handoff が summary を持つ |
+| Working memory | 直近の session から組み立てる handoff / context pack | handoff pack は `traceary session handoff` / MCP `get_context` で都度組み立てる。v0.34 以降、session summary 自体は consolidation で実体として保存される: stop hook が agent に、素材がまだ agent の context にあるうちに session を畳ませ、結果を session refinement として保存する |
 | Durable memory | decision / constraint / preference / artifact ref など | `traceary-memory-review` SKILL（review 意図 trigger）と `traceary-memory-remember` SKILL（明示 write trigger）で curate |
 
-つまり Traceary は、ログをためるだけの CLI ではなく AI エージェント向けの local-first な記憶基盤です。L1 は hook で機械的に供給され、L2 は再開時に再構成され、L3 は operator または明示 "覚えておいて" 発話のときにだけ増えます。
+つまり Traceary は、ログをためるだけの CLI ではなく AI エージェント向けの local-first な記憶基盤です。L1 は hook で機械的に供給され、L2 は通常 stop 時に素材がまだ context にあるうちに consolidation され（畳まれなかった分は後から機械的な要約に落とされる）、L3 は hook 駆動の auto-extraction が `status=candidate` の review inbox に載せ、人間のレビューでだけ promote することで小さく保たれます。完成した summary だけを以降使い、起動時の再構成は意図的に避けます。
 
 Traceary はローカルファーストです。データは手元の SQLite に保存され、組み込みのテレメトリ送信やホスト型ストレージはありません。
 

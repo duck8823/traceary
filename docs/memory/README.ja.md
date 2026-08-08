@@ -186,7 +186,7 @@ host-native file を変更する前段として activation planning を dry-run 
 
 ### ホスト別 activation strategy
 
-Traceary では 3 つの層を分けます。
+Traceary では 3 つの activation path を分けます。
 
 1. **Accepted memory store** — local SQLite の `memories` aggregate。review 済み durable fact の source of truth です。
 2. **Instruction-file export** — `traceary memory admin export --target <claude|codex|gemini>` が書く決定論的な markdown block。project/user instruction file を読むホスト向けの portable path です。
