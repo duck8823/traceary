@@ -10,6 +10,7 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
@@ -29,6 +30,7 @@ const (
 type replayUsecase struct {
 	sessionQuery queryservice.SessionQueryService
 	eventQuery   queryservice.EventQueryService
+	auditPayload queryservice.CommandAuditPayloadQueryService
 	memoryQuery  queryservice.MemoryQueryService
 	now          func() time.Time
 }
@@ -40,15 +42,21 @@ type replayUsecase struct {
 // Using query services directly (instead of write-side usecases)
 // keeps the replay path on the read-only surface, consistent with
 // ContextUsecase and the other cross-aggregate assemblers in this
-// package.
+// package. When eventQuery also implements CommandAuditPayloadQueryService,
+// session event streams hydrate command lines for display after #1675.
 func NewReplayUsecase(
 	sessionQuery queryservice.SessionQueryService,
 	eventQuery queryservice.EventQueryService,
 	memoryQuery queryservice.MemoryQueryService,
 ) ReplayUsecase {
+	var auditPayload queryservice.CommandAuditPayloadQueryService
+	if payload, ok := any(eventQuery).(queryservice.CommandAuditPayloadQueryService); ok {
+		auditPayload = payload
+	}
 	return &replayUsecase{
 		sessionQuery: sessionQuery,
 		eventQuery:   eventQuery,
+		auditPayload: auditPayload,
 		memoryQuery:  memoryQuery,
 		now:          func() time.Time { return time.Now().UTC() },
 	}
@@ -113,6 +121,9 @@ func (u *replayUsecase) Bundle(ctx context.Context, criteria apptypes.ReplayCrit
 		)
 		if err != nil {
 			return apptypes.ReplayBundle{}, xerrors.Errorf("failed to list events for session %s: %w", session.SessionID().String(), err)
+		}
+		if err := u.hydrateCommandLines(ctx, events); err != nil {
+			return apptypes.ReplayBundle{}, err
 		}
 		bundleSessions = append(bundleSessions, apptypes.ReplayBundleSessionOf(session, events))
 		if workspace := session.Workspace(); workspace.String() != "" {
@@ -230,7 +241,7 @@ func (u *replayUsecase) loadFailureHotspots(ctx context.Context, criteria apptyp
 	}
 	clusters := make(map[clusterKey]clusterAggregate, len(events))
 	for _, event := range events {
-		commandPrefix := normalizeFailureCommandPrefix(event.Body())
+		commandPrefix := normalizeFailureCommandPrefix(commandTextForFailureHotspot(event))
 		key := clusterKey{
 			command:   commandPrefix,
 			workspace: event.Workspace().String(),
@@ -265,12 +276,45 @@ func (u *replayUsecase) loadFailureHotspots(ctx context.Context, criteria apptyp
 	return hotspots, nil
 }
 
+// hydrateCommandLines decodes command_text onto listed events so replay
+// HTML can render command lines after #1675 emptied the envelope body.
+// No-op when the event query does not expose CommandAuditPayloadQueryService
+// (test stubs, metadata-only wiring).
+func (u *replayUsecase) hydrateCommandLines(ctx context.Context, events []*model.Event) error {
+	if u == nil || u.auditPayload == nil || len(events) == 0 {
+		return nil
+	}
+	if err := u.auditPayload.HydrateCommandAudits(ctx, events, queryservice.CommandOnlyPayload()); err != nil {
+		return xerrors.Errorf("failed to hydrate command audit payloads for replay: %w", err)
+	}
+	return nil
+}
+
+// commandTextForFailureHotspot clusters on the joined command_name when
+// available (listing no longer attaches decoded command_text). Full command
+// text is preferred when a consumer has already hydrated it; otherwise the
+// normalized command_name is enough for prefix clustering.
+func commandTextForFailureHotspot(event *model.Event) string {
+	if event == nil {
+		return ""
+	}
+	if audit, ok := event.CommandAudit().Value(); ok && audit != nil {
+		if name := strings.TrimSpace(audit.CommandIdentity().Command().String()); name != "" && name != "unknown" {
+			return name
+		}
+		if command := strings.TrimSpace(audit.Command()); command != "" {
+			return command
+		}
+	}
+	return event.Body()
+}
+
 // normalizeFailureCommandPrefix extracts the first whitespace-delimited
-// token from a command_executed body so clusters group by tool name
+// token from a command line so clusters group by tool name
 // (for example `go test ./...` and `go vet ./...` both cluster under
-// `go`). Empty bodies fall back to "(unknown)".
-func normalizeFailureCommandPrefix(body string) string {
-	trimmed := strings.TrimSpace(body)
+// `go`). Empty values fall back to "(unknown)".
+func normalizeFailureCommandPrefix(command string) string {
+	trimmed := strings.TrimSpace(command)
 	if trimmed == "" {
 		return "(unknown)"
 	}

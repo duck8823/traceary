@@ -247,7 +247,8 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 				CreatedAt:  event.CreatedAt().UTC(),
 				Client:     event.Client().String(),
 				Agent:      event.Agent().String(),
-				Body:       apptypes.ExtractPlainBody(event.Body()),
+				// Prefer body; fall back to hydrated command line (#1675).
+				Body:       eventBodyForDisplay(event),
 				SourceHook: event.SourceHook(),
 			})
 		}

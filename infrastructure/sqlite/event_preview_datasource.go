@@ -56,7 +56,9 @@ func (d *EventDatasource) ListRecentCommandPreviews(ctx context.Context, session
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore command preview row: %w", err)
 		}
-		plain, err := loadEventPlaintext(ctx, db, preview.EventID().String())
+		// Prefer the retained command_audits.command_text; fall back to the
+		// legacy composed events.body for pre-#1675 rows.
+		plain, err := loadCommandPreviewPlaintext(ctx, db, preview.EventID().String())
 		if err != nil {
 			return nil, xerrors.Errorf("decode command preview: %w", err)
 		}
@@ -74,6 +76,19 @@ func (d *EventDatasource) ListRecentCommandPreviews(ctx context.Context, session
 		return nil, xerrors.Errorf("failed to iterate command preview rows: %w", err)
 	}
 	return previews, nil
+}
+
+// loadCommandPreviewPlaintext returns the command line used for handoff
+// recent-command summaries. command_audits is authoritative after #1675.
+func loadCommandPreviewPlaintext(ctx context.Context, q queryRowContexter, eventID string) ([]byte, error) {
+	command, err := hydrateAuditPayload(ctx, q, eventID, "command")
+	if err != nil {
+		return nil, err
+	}
+	if command.Valid && strings.TrimSpace(command.String) != "" {
+		return []byte(command.String), nil
+	}
+	return loadEventPlaintext(ctx, q, eventID)
 }
 
 func scanEventBodyPreview(row interface{ Scan(...any) error }) (apptypes.EventBodyPreview, error) {

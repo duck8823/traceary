@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -349,11 +350,34 @@ func hydrateBoundedEvents(
 		if !ok {
 			return nil, xerrors.Errorf("bounded body is missing for event %s", eventMetadata.EventID())
 		}
+		body := bodyRow.body
+		visibleRunes := bodyRow.visibleBodyRunes
+		// command_executed envelope bodies are empty after #1675; the default
+		// MCP bounded projection would otherwise return blank command text.
+		// Decode the retained audit command through the codec boundary (same
+		// guards as full hydrate) and apply the same rune limit as the SQL path.
+		if strings.TrimSpace(body) == "" &&
+			eventMetadata.Kind() == types.EventKindCommandExecuted &&
+			bodyRow.bodyAvailability.IsAvailable() {
+			command, err := hydrateAuditPayload(ctx, queryer, eventMetadata.EventID().String(), "command")
+			if err != nil {
+				return nil, xerrors.Errorf("hydrate bounded command body for %s: %w", eventMetadata.EventID(), err)
+			}
+			if command.Valid {
+				commandRunes := []rune(command.String)
+				visibleRunes = len(commandRunes)
+				if len(commandRunes) > bodyRuneLimit {
+					body = string(commandRunes[:bodyRuneLimit])
+				} else {
+					body = command.String
+				}
+			}
+		}
 		event, err := apptypes.BoundedEventOf(
 			eventMetadata,
-			bodyRow.body,
+			body,
 			bodyRuneLimit,
-			bodyRow.visibleBodyRunes,
+			visibleRunes,
 			bodyRow.bodyAvailability,
 			bodyRow.canonicalEnvelope,
 		)

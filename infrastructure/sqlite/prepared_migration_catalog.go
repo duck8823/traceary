@@ -49,6 +49,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// backfill, no rewrite of existing rows. Same class as 46
 	// (session_refinements): constant_in_place.
 	47: {47, "000047_create_session_orphan_ranges.sql", "8ff51b5100c663cc7cdcd7a2dc3bd66066635bccedeecadb86cccdb3eac00978", MigrationConstantInPlace},
+	// 48 clears command_executed events.body only when a command_audits row
+	// duplicates the payload; cost scales with historical audit volume →
+	// data_dependent_offline (like 000045).
+	48: {48, "000048_clear_command_executed_event_bodies.sql", "2d8844ed2726713fbb553cbfdb16602e4e2fefa4aab52afff701d87309a8934e", MigrationDataDependentOffline},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

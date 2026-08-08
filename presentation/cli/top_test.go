@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -36,6 +37,10 @@ func (s *topPaneEventStub) List(_ context.Context, criteria apptypes.EventListCr
 		return s.commands, nil
 	}
 	return nil, nil
+}
+
+func (s *topPaneEventStub) HydrateCommandAudits(context.Context, []*model.Event, queryservice.CommandAuditPayloadFields) error {
+	return nil
 }
 
 func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {

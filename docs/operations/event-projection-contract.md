@@ -91,12 +91,14 @@ request.
 The existing `domain/model.Event` remains the content-bearing aggregate. A
 metadata row is a read model, not a partially initialized domain event.
 
-For `command_executed` rows, event-body extent describes the persisted event
-envelope. Existing `command_audits.input_*` / `output_*` extent describes the
-separate structured command input/output columns and remains authoritative for
-those columns. Neither family is summed into the other. Metadata consumers may
-join `exit_code`/`failed` without selecting command input, command output, or
-event body columns.
+For `command_executed` rows, the event envelope body is empty by design: the
+retained execution record is `command_audits` only. Existing
+`command_audits.input_*` / `output_*` extent describes the structured command
+input/output columns and remains authoritative for those columns. Event-body
+extent for this kind is zero after migration `000048` and for new writes.
+Neither family is summed into the other. Metadata consumers may join
+`exit_code`/`failed` without selecting command input, command output, or event
+body columns.
 
 ## Canonical facts and serialized compatibility keys
 

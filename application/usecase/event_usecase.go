@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -43,4 +44,9 @@ type EventUsecase interface {
 
 	// Timeline returns work blocks separated by idle gaps.
 	Timeline(ctx context.Context, criteria apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error)
+
+	// HydrateCommandAudits decodes selected codec-managed command audit
+	// payloads onto already-listed events. Listing joins only fixed-size
+	// metadata; call this when a reader needs command/input/output plaintext.
+	HydrateCommandAudits(ctx context.Context, events []*model.Event, fields queryservice.CommandAuditPayloadFields) error
 }

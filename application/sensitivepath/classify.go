@@ -223,34 +223,6 @@ func Classify(in Input) Classification {
 	}
 }
 
-// ClassifyCommandBody classifies a command_executed event body that follows
-// Traceary's "command\n\nINPUT:\n...\n\nOUTPUT:\n..." shape.
-func ClassifyCommandBody(body string, extra []string) Classification {
-	command, input, output := splitCommandBody(body)
-	return Classify(Input{
-		Command:       command,
-		Input:         input,
-		Output:        output,
-		ExtraPatterns: extra,
-	})
-}
-
-func splitCommandBody(body string) (command, input, output string) {
-	body = strings.ReplaceAll(body, "\r\n", "\n")
-	parts := strings.SplitN(body, "\n\nINPUT:\n", 2)
-	command = strings.TrimSpace(parts[0])
-	if len(parts) < 2 {
-		return command, "", ""
-	}
-	rest := parts[1]
-	outParts := strings.SplitN(rest, "\n\nOUTPUT:\n", 2)
-	input = outParts[0]
-	if len(outParts) == 2 {
-		output = outParts[1]
-	}
-	return command, input, output
-}
-
 func coverageFrom(in Input) (Coverage, string) {
 	switch {
 	case in.InputTruncated || in.OutputTruncated:

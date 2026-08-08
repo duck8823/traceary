@@ -342,6 +342,8 @@ func (c *RootCLI) countCockpitNewEvents(ctx context.Context, checkpoint cockpitE
 	if c.event == nil {
 		return 0, false, false
 	}
+	// Count path is metadata-only: event IDs and created_at are enough, so
+	// skip command-line hydrate (tail.go documents the same split).
 	events, err := c.event.List(ctx, apptypes.NewEventListCriteriaBuilder(cockpitNewEventScanLimit(checkpoint)).From(checkpoint.at).Build())
 	if err != nil {
 		return 0, false, false
@@ -584,6 +586,9 @@ func (c *RootCLI) loadCockpitLive(ctx context.Context, cursor tailCursor, initia
 		if err != nil {
 			return cockpitLiveSnapshot{}, xerrors.Errorf("%s: %w", Localize("failed to list live events", "live event の一覧取得に失敗しました"), err)
 		}
+		if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
+			return cockpitLiveSnapshot{}, err
+		}
 		slices.Reverse(events)
 		if len(events) > 0 {
 			cursor = newTailCursor(events[len(events)-1].CreatedAt())
@@ -596,6 +601,11 @@ func (c *RootCLI) loadCockpitLive(ctx context.Context, cursor tailCursor, initia
 	base := apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).Build()
 	events, err := c.pollTailEvents(ctx, base, cursor, now)
 	if err != nil {
+		return cockpitLiveSnapshot{}, err
+	}
+	// Hydrate after pollTailEvents (not inside it): the count path reuses the
+	// metadata-only poll and must not pay for command payloads.
+	if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
 		return cockpitLiveSnapshot{}, err
 	}
 	cursor.Advance(events)

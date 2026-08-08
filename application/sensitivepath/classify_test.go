@@ -129,16 +129,6 @@ func TestClassify_StillMatchesDotenvPaths(t *testing.T) {
 	}
 }
 
-func TestClassifyCommandBody_ParsesAuditShape(t *testing.T) {
-	t.Parallel()
-
-	body := "cat .env\n\nINPUT:\n\n\nOUTPUT:\nFOO=bar\n"
-	got := sensitivepath.ClassifyCommandBody(body, nil)
-	if !got.Matched || got.Class != sensitivepath.ClassDotenv {
-		t.Fatalf("got %#v, want dotenv from body", got)
-	}
-}
-
 func TestClassify_CloudAndBrowserPatterns(t *testing.T) {
 	t.Parallel()
 

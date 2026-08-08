@@ -28,7 +28,7 @@ Key columns:
 - `kind`: event kind such as `note`, `command_executed`, `session_started`, `session_ended`, `prompt`, `compact_summary`
 - `agent`: logical actor such as `codex`, `claude`, `gemini`, or `manual`
 - `session_id`: session grouping identifier
-- `body`: human-facing event message
+- `body`: human-facing event message for non-audit kinds. For `command_executed`, this column is empty: the retained execution record lives only in `command_audits` (migration `000048` clears historical duplicates)
 - `created_at`: RFC3339 timestamp
 - `client`: ingestion path such as `cli`, `claude`, `codex`, `gemini`, or `mcp`
 - `workspace`: auxiliary work-context identifier when available
@@ -42,7 +42,7 @@ Important indexes:
 
 ### `command_audits`
 
-Structured audit details for `command_executed` events.
+Structured audit details for `command_executed` events. This is the retained execution record; Traceary does not also store a composed copy of command/input/output in `events.body`.
 
 Key columns:
 
@@ -62,7 +62,7 @@ Key columns:
 
 Traceary normalizes only command structure it has verified. Direct executables use the first token basename, and only the observed `rtk <command>` / `rtk proxy <command>` grammar is unwrapped. It never executes or fully evaluates the shell text. A captured exit code of `0` is authoritative success even if input/output text contains words such as `failed`; report aggregation never parses payload text. Historical rows created before this schema use explicit `command_name=unknown` and `failure_reason=unknown` rather than reconstructing evidence that was not captured.
 
-When `input_truncated` or `output_truncated` is true, the stored payload is already a bounded head/tail projection, the corresponding `*_original_bytes` column records the original size for new rows, and the body also includes an `original_bytes` marker for human-readable context. The omitted bytes are not recoverable from historical rows.
+When `input_truncated` or `output_truncated` is true, the stored payload is already a bounded head/tail projection and the corresponding `*_original_bytes` column records the original size for new rows. Search indexes `command_text` / `input_text` / `output_text` independently of `events.body`, so clearing the composed body does not drop searchable audit text. The omitted truncated bytes are not recoverable from historical rows.
 
 Because `command_audits.event_id` uses `ON DELETE CASCADE`, deleting an event through `gc` also deletes its audit payload.
 

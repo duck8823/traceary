@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -21,8 +20,9 @@ const (
 )
 
 type eventUsecase struct {
-	eventRepo  model.EventRepository
-	eventQuery queryservice.EventReadQueryService
+	eventRepo    model.EventRepository
+	eventQuery   queryservice.EventReadQueryService
+	auditPayload queryservice.CommandAuditPayloadQueryService
 }
 
 // NewEventUsecase creates an EventUsecase.
@@ -30,9 +30,21 @@ func NewEventUsecase(
 	eventRepo model.EventRepository,
 	eventQuery queryservice.EventReadQueryService,
 ) EventUsecase {
+	var auditPayload queryservice.CommandAuditPayloadQueryService
+	if payload, ok := any(eventQuery).(queryservice.CommandAuditPayloadQueryService); ok {
+		auditPayload = payload
+	}
+	// The write repository is often the same SQLite adapter and may carry the
+	// payload hydration capability when the read query does not.
+	if auditPayload == nil {
+		if payload, ok := any(eventRepo).(queryservice.CommandAuditPayloadQueryService); ok {
+			auditPayload = payload
+		}
+	}
 	return &eventUsecase{
-		eventRepo:  eventRepo,
-		eventQuery: eventQuery,
+		eventRepo:    eventRepo,
+		eventQuery:   eventQuery,
+		auditPayload: auditPayload,
 	}
 }
 
@@ -169,6 +181,9 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 		return nil, nil, xerrors.Errorf("failed to classify command audit outcome: %w", err)
 	}
 
+	// command_executed no longer persists a composed body; command_audits is
+	// the retained execution record (#1675). Search indexes audit columns
+	// independently of events.body.
 	event, err := model.NewEvent(
 		eventID,
 		types.EventKindCommandExecuted,
@@ -176,7 +191,7 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 		in.Agent,
 		in.SessionID,
 		in.Workspace,
-		commandAuditEventBody(commandAudit),
+		"",
 	)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to build audit event: %w", err)
@@ -191,55 +206,6 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 	}
 
 	return event, commandAudit, nil
-}
-
-func commandAuditEventBody(commandAudit *model.CommandAudit) string {
-	if commandAudit == nil {
-		return ""
-	}
-
-	var builder strings.Builder
-	builder.WriteString(commandAudit.Command())
-
-	exitCode, hasExitCode := commandAudit.ExitCode().Value()
-	if hasExitCode || commandAudit.Input() != "" || commandAudit.Output() != "" || commandAudit.InputTruncated() || commandAudit.OutputTruncated() {
-		builder.WriteString("\n")
-	}
-	if hasExitCode {
-		builder.WriteString("\nEXIT_CODE: ")
-		builder.WriteString(strconv.Itoa(exitCode))
-		builder.WriteString("\n")
-	}
-	if commandAudit.Input() != "" || commandAudit.InputTruncated() {
-		builder.WriteString("\nINPUT")
-		if commandAudit.InputTruncated() {
-			builder.WriteString(" (truncated")
-			if originalBytes := commandAudit.InputOriginalBytes(); originalBytes > 0 {
-				builder.WriteString(", original_bytes=")
-				builder.WriteString(strconv.Itoa(originalBytes))
-			}
-			builder.WriteString(")")
-		}
-		builder.WriteString(":\n")
-		builder.WriteString(commandAudit.Input())
-		builder.WriteString("\n")
-	}
-	if commandAudit.Output() != "" || commandAudit.OutputTruncated() {
-		builder.WriteString("\nOUTPUT")
-		if commandAudit.OutputTruncated() {
-			builder.WriteString(" (truncated")
-			if originalBytes := commandAudit.OutputOriginalBytes(); originalBytes > 0 {
-				builder.WriteString(", original_bytes=")
-				builder.WriteString(strconv.Itoa(originalBytes))
-			}
-			builder.WriteString(")")
-		}
-		builder.WriteString(":\n")
-		builder.WriteString(commandAudit.Output())
-		builder.WriteString("\n")
-	}
-
-	return strings.TrimRight(builder.String(), "\n")
 }
 
 func (u *eventUsecase) Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
@@ -358,6 +324,20 @@ func (u *eventUsecase) Timeline(ctx context.Context, criteria apptypes.TimelineC
 		return nil, xerrors.Errorf("failed to list timeline blocks: %w", err)
 	}
 	return blocks, nil
+}
+
+func (u *eventUsecase) HydrateCommandAudits(
+	ctx context.Context,
+	events []*model.Event,
+	fields queryservice.CommandAuditPayloadFields,
+) error {
+	if u.auditPayload == nil {
+		return xerrors.Errorf("command audit payload query is not configured")
+	}
+	if err := u.auditPayload.HydrateCommandAudits(ctx, events, fields); err != nil {
+		return xerrors.Errorf("failed to hydrate command audit payloads: %w", err)
+	}
+	return nil
 }
 
 func hasSearchConstraint(criteria apptypes.EventSearchCriteria) bool {

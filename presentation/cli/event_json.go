@@ -77,7 +77,7 @@ func newEventFieldsOutput(event *model.Event, fields []readFieldID, extras compa
 		case readFieldAgent:
 			result["agent"] = event.Agent().String()
 		case readFieldMessage:
-			result["message"] = apptypes.ExtractPlainBody(event.Body())
+			result["message"] = eventBodyForDisplay(event)
 		case readFieldExitCode:
 			if value, ok := extras.exitCode.Value(); ok {
 				result["exit_code"] = value
@@ -153,7 +153,7 @@ func newEventOutput(e *model.Event) event {
 		Agent:      e.Agent().String(),
 		SessionID:  e.SessionID().String(),
 		Workspace:  e.Workspace().String(),
-		Message:    apptypes.ExtractPlainBody(e.Body()),
+		Message:    eventBodyForDisplay(e),
 		SourceHook: e.SourceHook(),
 		CreatedAt:  formatJSONTime(e.CreatedAt()),
 	}

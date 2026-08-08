@@ -1,7 +1,15 @@
 -- No source_hook filter. When a source_hook filter is set, the Go datasource
 -- dispatches to select_recent_events_by_source_hook.sql so hook-specific
 -- predicates stay isolated from the general recent-events path. See #683.
-SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at
+--
+-- Fixed-size command_audits metadata is joined for colouring and failure
+-- filters. Codec-managed payloads (command_text/input_text/output_text) are
+-- not selected here; readers that need them hydrate through hydrateAuditPayload
+-- (#1675 correction).
+SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at,
+       ca.command_wrapper, ca.command_name,
+       ca.input_truncated, ca.output_truncated,
+       ca.input_original_bytes, ca.output_original_bytes, ca.exit_code, ca.failed, ca.failure_reason
   FROM events e
   LEFT JOIN command_audits ca ON ca.event_id = e.id
  WHERE (? = '' OR e.kind = ?)

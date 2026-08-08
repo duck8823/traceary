@@ -28,7 +28,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - `kind`: `note`、`command_executed`、`session_started`、`session_ended`、`prompt`、`compact_summary` などの event kind
 - `agent`: `codex`、`claude`、`gemini`、`manual` などの論理的な actor
 - `session_id`: session grouping identifier
-- `body`: 人が読むための event メッセージ
+- `body`: audit 以外の kind 向けの人が読む event メッセージ。`command_executed` では空です。実行記録の正本は `command_audits` のみ（migration `000048` が履歴の二重保存を消去します）
 - `created_at`: RFC3339 timestamp
 - `client`: `cli`、`claude`、`codex`、`gemini`、`mcp` などの ingestion path
 - `workspace`: 利用可能な場合の補助的な work-context identifier
@@ -42,7 +42,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 
 ### `command_audits`
 
-`command_executed` event に紐づく構造化 audit detail です。
+`command_executed` event に紐づく構造化 audit detail です。これが保持される実行記録であり、command/input/output の合成コピーを `events.body` には保存しません。
 
 主な column:
 
@@ -62,7 +62,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 
 Traceary は確認済みのコマンド構造だけを正規化します。直接実行は先頭 token の basename を使い、wrapper として展開するのは観測済みの `rtk <command>` / `rtk proxy <command>` だけです。shell 文字列を実行したり完全評価したりはしません。取得済みの終了コード `0` は常に成功であり、input/output に `failed` のような文字列が含まれていても report の失敗には数えません。report 集計は payload 本文を解析しません。この schema より前の履歴行は、取得していない根拠を推測せず、`command_name=unknown` と `failure_reason=unknown` を明示します。
 
-`input_truncated` または `output_truncated` が true の場合、保存済み payload はすでに上限内の head/tail projection であり、新規 row では対応する `*_original_bytes` column に元の byte 数を記録します。body にも人が読める文脈として `original_bytes` marker を含めます。省略された byte は過去 row から復元できません。
+`input_truncated` または `output_truncated` が true の場合、保存済み payload はすでに上限内の head/tail projection であり、新規 row では対応する `*_original_bytes` column に元の byte 数を記録します。検索 index は `command_text` / `input_text` / `output_text` を `events.body` と独立に持つため、合成 body を消しても audit テキストの検索性は失われません。切り詰められた byte は過去 row から復元できません。
 
 `command_audits.event_id` は `ON DELETE CASCADE` なので、`gc` で event を削除すると対応する audit payload も同時に消えます。
 
