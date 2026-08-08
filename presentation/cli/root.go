@@ -24,6 +24,8 @@ type RootCLI struct {
 	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
 	session                    usecase.SessionUsecase
 	sessionRefinement          usecase.SessionRefinementUsecase
+	sessionOrphanRange         usecase.SessionOrphanRangeUsecase
+	orphanConsolidation        usecase.OrphanConsolidationUsecase
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
 	memoryEdge                 usecase.MemoryEdgeUsecase
@@ -118,6 +120,16 @@ func WithSession(session usecase.SessionUsecase) RootCLIOption {
 // WithSessionRefinement injects the L2 session refinement write port.
 func WithSessionRefinement(sessionRefinement usecase.SessionRefinementUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.sessionRefinement = sessionRefinement }
+}
+
+// WithSessionOrphanRange injects the compact-boundary orphan front-load port.
+func WithSessionOrphanRange(sessionOrphanRange usecase.SessionOrphanRangeUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.sessionOrphanRange = sessionOrphanRange }
+}
+
+// WithOrphanConsolidation injects the gc-step orphan mechanical-summary port.
+func WithOrphanConsolidation(orphanConsolidation usecase.OrphanConsolidationUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.orphanConsolidation = orphanConsolidation }
 }
 
 // WithOneShotRepair injects the evidence-backed historical repair use case.

@@ -10,6 +10,7 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 )
 
 const defaultRetentionDays = 90
@@ -77,6 +78,21 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		return xerrors.New(Localize("--target must be one of events, sessions, memories, memory_edges, all", "--target は events, sessions, memories, memory_edges, all のいずれかである必要があります"))
 	}
 
+	// Orphan consolidation runs before deletion so a degraded refinement can
+	// land while the events it summarises still exist. No new surface: this is
+	// a step inside store gc, not a command or --target value.
+	orphanProduced := 0
+	if c.orphanConsolidation != nil {
+		orphanResult, orphanErr := c.orphanConsolidation.Consolidate(ctx, usecase.OrphanConsolidationInput{
+			StaleAfter: defaultActiveSessionStaleAfter,
+			DryRun:     input.dryRun,
+		})
+		if orphanErr != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to consolidate orphan ranges", "orphan range の機械要約に失敗しました"), orphanErr)
+		}
+		orphanProduced = orphanResult.ProducedCount()
+	}
+
 	cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
 	result, err := c.storeManagement.CollectGarbage(ctx, cutoff, target, input.dryRun)
 	if err != nil {
@@ -84,10 +100,16 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	}
 
 	if result.DryRun() {
+		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan refinement candidates", "orphan 機械要約候補"), orphanProduced); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
+		}
 		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Candidates", "削除対象"), result.DeletedCount()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
 		}
 		return nil
+	}
+	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan refinements", "orphan 機械要約"), orphanProduced); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Deleted", "削除しました"), result.DeletedCount()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)

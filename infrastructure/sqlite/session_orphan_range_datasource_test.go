@@ -1,0 +1,470 @@
+package sqlite_test
+
+import (
+	"context"
+	"database/sql"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+	_ "modernc.org/sqlite"
+
+	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/infrastructure/sqlite"
+)
+
+type orphanFixture struct {
+	dbPath   string
+	orphans  *sqlite.SessionOrphanRangeDatasource
+	refine   *sqlite.SessionRefinementDatasource
+	sessions *sqlite.SessionDatasource
+	events   *sqlite.EventDatasource
+}
+
+func newOrphanFixture(t *testing.T) orphanFixture {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	database := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	store := sqlite.NewStoreManagementDatasource(database)
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	return orphanFixture{
+		dbPath:   dbPath,
+		orphans:  sqlite.NewSessionOrphanRangeDatasource(database),
+		refine:   sqlite.NewSessionRefinementDatasource(database),
+		sessions: sqlite.NewSessionDatasource(database),
+		events:   sqlite.NewEventDatasource(database),
+	}
+}
+
+func seedOrphanSession(
+	ctx context.Context,
+	t *testing.T,
+	fx orphanFixture,
+	sessionIDValue string,
+	seeds []eventSeed,
+	ended bool,
+) types.SessionID {
+	t.Helper()
+	sessionID := types.SessionID(sessionIDValue)
+	started := seeds[0].at
+	session := model.NewSession(sessionID, started, "cli", "codex", "ws")
+	boundary, err := model.NewEventWithClock(
+		types.EventID(sessionIDValue+"-start"),
+		types.EventKindSessionStarted,
+		"cli", "codex", sessionID, "ws", "session started",
+		fixedEventClock{at: started.Add(-time.Second)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.sessions.SaveBoundary(ctx, session, boundary); err != nil {
+		t.Fatal(err)
+	}
+	for _, seed := range seeds {
+		event, err := model.NewEventWithClock(
+			types.EventID(seed.id),
+			types.EventKindNote,
+			"cli", "codex", sessionID, "ws", "body "+seed.id,
+			fixedEventClock{at: seed.at},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := fx.events.Save(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ended {
+		got, err := fx.sessions.FindByID(ctx, sessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, ok := got.Value()
+		if !ok {
+			t.Fatal("session missing after seed")
+		}
+		endAt := seeds[len(seeds)-1].at.Add(time.Minute)
+		if err := sess.End(endAt, "done"); err != nil {
+			t.Fatal(err)
+		}
+		endEvent, err := model.NewEventWithClock(
+			types.EventID(sessionIDValue+"-end"),
+			types.EventKindSessionEnded,
+			"cli", "codex", sessionID, "ws", "session ended",
+			fixedEventClock{at: endAt},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := fx.sessions.SaveBoundary(ctx, sess, endEvent); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return sessionID
+}
+
+func TestSessionOrphanRangeDatasource_RecordAtCompactAfterUnfoldedRange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	// Fractional-second pair so plain TEXT ordering would invert (#1185).
+	whole := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	frac := time.Date(2026, 8, 1, 10, 0, 0, 500_000_000, time.UTC)
+	compactAt := time.Date(2026, 8, 1, 10, 0, 1, 0, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-compact", []eventSeed{
+		{id: "evt-whole", at: whole},
+		{id: "evt-frac", at: frac},
+		{id: "evt-compact", at: compactAt},
+	}, false)
+
+	uc := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	if _, err := uc.Refine(ctx, usecase.SessionRefineInput{
+		SessionID: sessionID, Summary: "to whole", ProducedBy: "agent", CoversTo: "evt-whole",
+	}); err != nil {
+		t.Fatalf("Refine() error = %v", err)
+	}
+
+	orphanUC := usecase.NewSessionOrphanRangeUsecase(fx.orphans, fx.refine, fx.events, types.SystemClock{})
+	if err := orphanUC.RecordAtCompact(ctx, sessionID, "evt-compact"); err != nil {
+		t.Fatalf("RecordAtCompact() error = %v", err)
+	}
+
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt)
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() error = %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %d, want 1", len(candidates))
+	}
+	got := candidates[0]
+	if got.ToEventID() != "evt-compact" {
+		t.Fatalf("ToEventID = %s, want evt-compact", got.ToEventID())
+	}
+	from, ok := got.FromEventID().Value()
+	if !ok || from != "evt-whole" {
+		t.Fatalf("FromEventID = %v present=%v, want evt-whole", from, ok)
+	}
+
+	// Material must include evt-frac under ts_norm order (not lexical).
+	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.Some(types.EventID("evt-whole")), "evt-compact")
+	if err != nil {
+		t.Fatalf("LoadMaterial() error = %v", err)
+	}
+	if material.EventCount != 2 { // evt-frac + evt-compact
+		t.Fatalf("EventCount = %d, want 2 (frac+compact after exclusive whole)", material.EventCount)
+	}
+}
+
+func TestSessionOrphanRangeDatasource_NoOrphanWhenDigestCoversCompact(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-covered", []eventSeed{
+		{id: "evt-1", at: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)},
+		{id: "evt-compact", at: time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)},
+	}, false)
+
+	uc := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	if _, err := uc.Refine(ctx, usecase.SessionRefineInput{
+		SessionID: sessionID, Summary: "digest", ProducedBy: "hook:post-compact:claude", CoversTo: "evt-compact",
+	}); err != nil {
+		t.Fatalf("Refine() error = %v", err)
+	}
+
+	orphanUC := usecase.NewSessionOrphanRangeUsecase(fx.orphans, fx.refine, fx.events, types.SystemClock{})
+	if err := orphanUC.RecordAtCompact(ctx, sessionID, "evt-compact"); err != nil {
+		t.Fatalf("RecordAtCompact() error = %v", err)
+	}
+	if count := countOrphanRangesAt(t, fx.dbPath); count != 0 {
+		t.Fatalf("orphan rows = %d, want 0", count)
+	}
+}
+
+func TestSessionOrphanRangeDatasource_GCFindsEndedSessionWithoutMarker(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	// Fractional-second ordering regression guard.
+	whole := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	frac := time.Date(2026, 8, 1, 10, 0, 0, 500_000_000, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-ended", []eventSeed{
+		{id: "evt-whole", at: whole},
+		{id: "evt-frac", at: frac},
+	}, true)
+
+	uc := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	if _, err := uc.Refine(ctx, usecase.SessionRefineInput{
+		SessionID: sessionID, Summary: "to whole", ProducedBy: "agent", CoversTo: "evt-whole",
+	}); err != nil {
+		t.Fatalf("Refine() error = %v", err)
+	}
+
+	// No orphan row recorded — discovery must still find the gap past covers_to.
+	now := frac.Add(2 * time.Hour)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() error = %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %d, want 1", len(candidates))
+	}
+	got := candidates[0]
+	// Latest event is the session_ended boundary.
+	if got.ToEventID() != "sess-ended-end" {
+		t.Fatalf("ToEventID = %s, want sess-ended-end", got.ToEventID())
+	}
+	from, ok := got.FromEventID().Value()
+	if !ok || from != "evt-whole" {
+		t.Fatalf("FromEventID = %v present=%v, want evt-whole", from, ok)
+	}
+	if got.SessionID() != sessionID {
+		t.Fatalf("SessionID = %s", got.SessionID())
+	}
+}
+
+func TestSessionOrphanRangeDatasource_GCProducesDegradedAndIsIdempotent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-gc", []eventSeed{
+		{id: "evt-1", at: base},
+		{id: "evt-2", at: base.Add(time.Hour)},
+	}, true)
+
+	now := base.Add(48 * time.Hour)
+	consol := usecase.NewOrphanConsolidationUsecase(
+		fx.orphans,
+		usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{}),
+		fixedEventClock{at: now},
+	)
+	first, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("first Consolidate() error = %v", err)
+	}
+	if first.ProducedCount() != 1 {
+		t.Fatalf("first ProducedCount = %d, want 1", first.ProducedCount())
+	}
+
+	got, err := fx.refine.FindBySessionID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindBySessionID() error = %v", err)
+	}
+	row, ok := got.Value()
+	if !ok {
+		t.Fatal("expected degraded refinement")
+	}
+	if !row.Degraded() {
+		t.Fatal("Degraded() = false, want true")
+	}
+	if row.ProducedBy() != "gc:orphan-consolidation" {
+		t.Fatalf("ProducedBy = %q", row.ProducedBy())
+	}
+	if !strings.Contains(row.Summary(), "Mechanical summary") {
+		t.Fatalf("summary missing mechanical header: %q", row.Summary())
+	}
+	if !strings.Contains(row.Summary(), "does not recover agent reasoning") {
+		t.Fatalf("summary must state reasoning is gone: %q", row.Summary())
+	}
+	if strings.Contains(strings.ToLower(row.Summary()), "nothing is lost") {
+		t.Fatalf("summary must not claim nothing is lost: %q", row.Summary())
+	}
+
+	second, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("second Consolidate() error = %v", err)
+	}
+	if second.ProducedCount() != 0 {
+		t.Fatalf("second ProducedCount = %d, want 0 (already covered)", second.ProducedCount())
+	}
+	if count := countSessionRefinementsAt(t, fx.dbPath); count != 1 {
+		t.Fatalf("refinements = %d, want 1", count)
+	}
+}
+
+func TestSessionOrphanRangeDatasource_RunningSessionLeftAlone(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	_ = seedOrphanSession(ctx, t, fx, "sess-live", []eventSeed{
+		{id: "evt-1", at: now.Add(-time.Hour)},
+		{id: "evt-2", at: now.Add(-time.Minute)},
+	}, false)
+
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() error = %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("candidates = %d, want 0 for live non-stale session", len(candidates))
+	}
+}
+
+func TestSessionOrphanRangeDatasource_DryRunWritesNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	_ = seedOrphanSession(ctx, t, fx, "sess-dry", []eventSeed{
+		{id: "evt-1", at: base},
+	}, true)
+
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, types.SystemClock{})
+	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate(dry-run) error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1", got.ProducedCount())
+	}
+	if count := countSessionRefinementsAt(t, fx.dbPath); count != 0 {
+		t.Fatalf("refinements written on dry-run = %d, want 0", count)
+	}
+}
+
+func TestSessionOrphanRangeDatasource_LoadMaterialIncludesCommandsAndKinds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	sessionID := types.SessionID("sess-mat")
+	session := model.NewSession(sessionID, base, "cli", "codex", "ws")
+	start, err := model.NewEventWithClock(
+		"sess-mat-start", types.EventKindSessionStarted, "cli", "codex", sessionID, "ws", "start",
+		fixedEventClock{at: base.Add(-time.Second)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.sessions.SaveBoundary(ctx, session, start); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := model.NewEventWithClock(
+		"evt-p", types.EventKindPrompt, "cli", "codex", sessionID, "ws", "please run tests",
+		fixedEventClock{at: base},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.events.Save(ctx, prompt); err != nil {
+		t.Fatal(err)
+	}
+	cmdEvt, err := model.NewEventWithClock(
+		"evt-c", types.EventKindCommandExecuted, "cli", "codex", sessionID, "ws", "ran",
+		fixedEventClock{at: base.Add(time.Minute)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit, err := model.NewCommandAudit("evt-c", "go test ./...", "", "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.events.SaveWithAudit(ctx, cmdEvt, audit); err != nil {
+		t.Fatal(err)
+	}
+
+	gotSess, err := fx.sessions.FindByID(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, _ := gotSess.Value()
+	endAt := base.Add(2 * time.Hour)
+	if err := sess.End(endAt, "done"); err != nil {
+		t.Fatal(err)
+	}
+	endEvt, err := model.NewEventWithClock(
+		"sess-mat-end", types.EventKindSessionEnded, "cli", "codex", sessionID, "ws", "end",
+		fixedEventClock{at: endAt},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.sessions.SaveBoundary(ctx, sess, endEvt); err != nil {
+		t.Fatal(err)
+	}
+
+	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.None[types.EventID](), "sess-mat-end")
+	if err != nil {
+		t.Fatalf("LoadMaterial() error = %v", err)
+	}
+	if diff := cmp.Diff(map[string]int{
+		"session_started":  1,
+		"prompt":           1,
+		"command_executed": 1,
+		"session_ended":    1,
+	}, material.KindCounts); diff != "" {
+		t.Fatalf("KindCounts mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"go test ./..."}, material.Commands); diff != "" {
+		t.Fatalf("Commands mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestSessionOrphanRangeDatasource_FractionalSecondBoundaryOrdering(t *testing.T) {
+	t.Parallel()
+
+	// Same hazard as FractionalSecondBoundaryOrdering on refinements (#1185):
+	// variable-width RFC3339Nano is not lexically ordered. Discovery and
+	// material loading must use ts_norm.
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	whole := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	frac := time.Date(2026, 8, 1, 10, 0, 0, 500_000_000, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-frac-orphan", []eventSeed{
+		{id: "evt-whole", at: whole},
+		{id: "evt-frac", at: frac},
+	}, true)
+
+	uc := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	if _, err := uc.Refine(ctx, usecase.SessionRefineInput{
+		SessionID: sessionID, Summary: "to whole", ProducedBy: "agent", CoversTo: "evt-whole",
+	}); err != nil {
+		t.Fatalf("Refine() error = %v", err)
+	}
+
+	after, err := fx.events.EventIsStrictlyAfter(ctx, "evt-frac", "evt-whole")
+	if err != nil {
+		t.Fatalf("EventIsStrictlyAfter() error = %v", err)
+	}
+	if !after {
+		t.Fatal("evt-frac should be strictly after evt-whole under ts_norm")
+	}
+
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() error = %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %d, want 1 (gap after covers_to under ts_norm)", len(candidates))
+	}
+	from, ok := candidates[0].FromEventID().Value()
+	if !ok || from != "evt-whole" {
+		t.Fatalf("FromEventID = %v present=%v", from, ok)
+	}
+}
+
+func countOrphanRangesAt(t *testing.T, dbPath string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_orphan_ranges`).Scan(&count); err != nil {
+		t.Fatalf("COUNT session_orphan_ranges error = %v", err)
+	}
+	return count
+}

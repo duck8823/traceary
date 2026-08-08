@@ -148,6 +148,7 @@ func run() error {
 	eventDatasource := sqlite.NewEventDatasource(db)
 	sessionDatasource := sqlite.NewSessionDatasource(db)
 	sessionRefinementDatasource := sqlite.NewSessionRefinementDatasource(db)
+	sessionOrphanRangeDatasource := sqlite.NewSessionOrphanRangeDatasource(db)
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 	payloadRehearsalAdapter, err := sqlite.NewPayloadRehearsalAdapter(migrationsSubFS, dbPath)
@@ -198,6 +199,8 @@ func run() error {
 	codexCaptureDiagnosticUsecase := usecase.NewCodexCaptureDiagnosticUsecase(codexCaptureDiagnosticDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	sessionRefinementUsecase := usecase.NewSessionRefinementUsecase(sessionDatasource, sessionRefinementDatasource, eventDatasource, types.SystemClock{})
+	sessionOrphanRangeUsecase := usecase.NewSessionOrphanRangeUsecase(sessionOrphanRangeDatasource, sessionRefinementDatasource, eventDatasource, types.SystemClock{})
+	orphanConsolidationUsecase := usecase.NewOrphanConsolidationUsecase(sessionOrphanRangeDatasource, sessionRefinementUsecase, types.SystemClock{})
 	codexMemorySource := filesystem.NewCodexMemorySource()
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns, usecase.MemoryUsecaseDependencies{
 		SessionQuery: sessionDatasource,
@@ -274,6 +277,8 @@ func run() error {
 		cli.WithCodexCaptureDiagnostic(codexCaptureDiagnosticUsecase),
 		cli.WithSession(sessionUsecase),
 		cli.WithSessionRefinement(sessionRefinementUsecase),
+		cli.WithSessionOrphanRange(sessionOrphanRangeUsecase),
+		cli.WithOrphanConsolidation(orphanConsolidationUsecase),
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),
 		cli.WithBundle(bundleUsecase),

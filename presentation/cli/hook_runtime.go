@@ -639,6 +639,12 @@ func (c *RootCLI) runHookCompact(
 		if logged != nil && strings.TrimSpace(compactSummary) != "" {
 			c.applyPostCompactDigest(ctx, sessionID, logged.EventID(), compactSummary, client)
 		}
+		// Front-load orphan discovery after the digest attempt so a covering
+		// refinement (Claude) suppresses the row and an uncovered gap is
+		// recorded. Never do this on pre-compact — the digest has not landed.
+		if logged != nil {
+			c.recordOrphanRangeAtCompact(ctx, sessionID, logged.EventID())
+		}
 		return nil
 	case "pre-compact":
 		// Claude Code 2026-01+ fires PreCompact before context is compacted.

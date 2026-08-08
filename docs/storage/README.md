@@ -167,6 +167,8 @@ If you need a portable copy, use `traceary store backup create` instead of editi
 - physical reclamation is separate: preview `traceary store compact plan
   --db-path PATH`; GC never runs an in-place `VACUUM`
 
+Before deletion, `store gc` consolidates **orphan ranges**: event spans past `session_refinements.covers_to` that an agent can no longer fold (session ended, treated as stale after 24h of inactivity, or front-loaded at a post-compact marker). For each still-unfolded range it writes a mechanical `degraded=1` refinement (`produced_by=gc:orphan-consolidation`) covering when, which event kinds, how often, and which commands ran — not agent reasoning. Output reports both the orphan-refinement count and the deletion count. `--dry-run` counts both and writes neither. There is no separate command or `--target` for this step.
+
 Target policies:
 
 - `events`: delete rows where `events.created_at < cutoff`; linked `command_audits` cascade via foreign keys.
