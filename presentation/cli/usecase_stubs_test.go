@@ -69,6 +69,26 @@ type eventUsecaseStub struct {
 	}
 }
 
+// projectionSessionSearchStub implements queryservice.ProjectionSessionSearchQuery.
+type projectionSessionSearchStub struct {
+	hits []apptypes.SearchSessionHit
+	err  error
+}
+
+func (s *projectionSessionSearchStub) SearchSessionHits(
+	_ context.Context,
+	_ apptypes.EventSearchCriteria,
+	_ []types.SessionID,
+) ([]apptypes.SearchSessionHit, error) {
+	if s == nil {
+		return nil, nil
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.hits, nil
+}
+
 func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()

@@ -175,6 +175,15 @@ func TestSearchMaintenanceRetireRestoreIsBoundedAndResumable(t *testing.T) {
 	if _, err = raw.ExecContext(ctx, `UPDATE literal_search_projection_state SET generation_id='g',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete'; UPDATE search_projection_state SET generation_id='g',active_generation_id='g',high_water=(SELECT MAX(sequence) FROM search_projection_source_sequence),state='complete',phase='complete'; UPDATE search_maintenance_control SET target_adopted=1`); err != nil {
 		t.Fatal(err)
 	}
+	// Authoritative event search reads the bounded projection when complete.
+	// Seed recent documents so the concurrent authority snapshot still sees all
+	// three events while retirement proceeds.
+	for i, id := range []string{"e1", "e2", "e3"} {
+		body := "body " + id
+		if _, err = raw.ExecContext(ctx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES('g',?,?,?,?,?)`, i+1, id, "2026-01-01T00:00:00.000000000Z", body, len(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	_ = raw.Close()
 	snapshot, err := database.SearchRetirementSnapshot(ctx)
 	if err != nil {

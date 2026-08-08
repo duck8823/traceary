@@ -350,7 +350,15 @@ func (d *EventDatasource) SearchLegacyPage(ctx context.Context, criteria apptype
 				slog.Debug("failed to rollback indexed event search", "error", rollbackErr)
 			}
 		}()
-		candidateIDs, selectErr := selectEventSearchCandidateIDs(ctx, tx, criteria)
+		// Explicit legacy port always reads the migration-032 index so rollback
+		// and parity remain independent of the bounded projection cut-over.
+		var candidateIDs []string
+		var selectErr error
+		if strings.TrimSpace(query) == "" {
+			candidateIDs, selectErr = queryStructuralEventIDs(ctx, tx, criteria)
+		} else {
+			candidateIDs, selectErr = selectLegacyEventSearchCandidateIDs(ctx, tx, criteria, strings.TrimSpace(query))
+		}
 		if selectErr != nil {
 			return nil, selectErr
 		}

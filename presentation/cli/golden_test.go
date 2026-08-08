@@ -156,6 +156,25 @@ func TestCoreReadJSONGoldens(t *testing.T) {
 		assertJSONGolden(t, stdout, filepath.Join("testdata", "search", "single_event.golden.json"))
 	})
 
+	t.Run("search with session hits keeps the top-level event array", func(t *testing.T) {
+		sessionHit := apptypes.SearchSessionHitOf(
+			types.SessionID("sess-4471"),
+			"discussed older planning notes",
+			8,
+			time.Date(2026, 6, 19, 10, 0, 0, 0, time.UTC),
+		)
+		stdout := executeGoldenCommandWithOptions(t, []string{
+			"search", "--db-path", "/tmp/test-traceary.db", "--workspace", "duck8823/traceary", "--json", "golden",
+		},
+			cli.WithEvent(&eventUsecaseStub{searchEvents: events[:1]}),
+			cli.WithProjectionSessionSearch(&projectionSessionSearchStub{hits: []apptypes.SearchSessionHit{sessionHit}}),
+		)
+		// Session hits must not change the v0.34 JSON contract: stdout is
+		// byte-identical to the same search without session hits, and the
+		// operator learns about them from stderr instead.
+		assertJSONGolden(t, stdout, filepath.Join("testdata", "search", "single_event.golden.json"))
+	})
+
 	t.Run("log single event", func(t *testing.T) {
 		logEvent := mustGoldenEvent(t, "event-golden-log-1", types.EventKindTranscript, "cli", "codex", "session-golden-log", "duck8823/traceary", "transcript token=[REDACTED]", time.Date(2026, 4, 8, 14, 0, 0, 0, time.UTC), "")
 		stdout := executeGoldenCommand(t, &eventUsecaseStub{logEvent: logEvent}, nil, []string{
@@ -221,9 +240,17 @@ func executeGoldenCommand(t *testing.T, eventStub *eventUsecaseStub, sessionStub
 	if sessionStub != nil {
 		options = append(options, cli.WithSession(sessionStub))
 	}
+	return executeGoldenCommandWithOptions(t, args, options...)
+}
+
+func executeGoldenCommandWithOptions(t *testing.T, args []string, options ...cli.RootCLIOption) []byte {
+	t.Helper()
+
+	combined := []cli.RootCLIOption{cli.WithStoreManagement(&storeManagementUsecaseStub{})}
+	combined = append(combined, options...)
 
 	stdout := &bytes.Buffer{}
-	rootCmd := newTestRootCLI(options...).Command()
+	rootCmd := newTestRootCLI(combined...).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs(args)

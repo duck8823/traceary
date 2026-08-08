@@ -5,6 +5,14 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [Unreleased]
+
+### Changed
+- **bounded search projection が検索の正の読み取り経路になりました (#1717)** — projection 世代が complete かつ有効なとき、`traceary search` は直近の全文ヒットをその projection から読み、古い履歴はセッション要約とキーワードで答え、別グループ `SESSIONS` として表示します。世代を再構築していないストアは従来どおり legacy 索引を無言で使い続けるため、検索を維持するための再構築は不要です。3 文字未満のクエリはどちらの trigram 索引でも一致しないため、従来どおり bounded decoded scan で解決します。
+
+### Deprecated
+- **`traceary search --json` は v0.35.0 でオブジェクトになります (#1717)** — v0.34.x では従来どおり event オブジェクトのトップレベル配列を維持します。セッション階層ヒットはこの形状で表現できないため、セッションに一致した場合は件数と次の形状を stderr に通知し、stdout はバイト単位で変わりません。セッションを見るには `--json` を外してください。v0.35.0 で配列を `{"events": [...], "sessions": [...]}` に置き換えます。`docs/cli-stability.md` の「窓を延ばす」規定に基づく記録です。
+
 ## [v0.33.1] - 2026-07-31
 
 ### Fixed

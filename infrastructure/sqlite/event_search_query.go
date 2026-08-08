@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"unicode/utf8"
 
@@ -97,6 +98,66 @@ func selectEventSearchCandidateIDs(
 		return queryStructuralEventIDs(ctx, queryer, criteria)
 	}
 
+	// Both index families tokenise with trigram, so neither can match a query
+	// shorter than three characters. Short queries therefore resolve through the
+	// bounded decoded scan whichever tier is authoritative; routing them into the
+	// projection would return silently-empty results.
+	if utf8.RuneCountInString(queryValue) < 3 {
+		return selectShortQueryCandidateIDs(ctx, queryer, criteria, queryValue)
+	}
+
+	// Bounded projection is authoritative when a complete generation is active.
+	// Stores that have never rebuilt (every field store today) fall through to
+	// the legacy path silently — never error solely because the projection is idle.
+	projectionReady, err := searchProjectionReadReady(ctx, queryer)
+	if err != nil {
+		return nil, err
+	}
+	if projectionReady {
+		return queryProjectionFTSEventIDs(ctx, queryer, criteria, queryValue)
+	}
+	return selectLegacyEventSearchCandidateIDs(ctx, queryer, criteria, queryValue)
+}
+
+// selectShortQueryCandidateIDs answers queries no trigram index can serve. It
+// reads only events and command_audits, so it stays correct after the legacy
+// search family is retired. The bounded-scope guard is the same one the legacy
+// path applies, because an unbounded decoded scan is what it exists to prevent.
+func selectShortQueryCandidateIDs(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+	queryValue string,
+) ([]string, error) {
+	if !hasBoundedLegacySearchScope(criteria) {
+		return nil, &queryservice.EventSearchUnavailableError{
+			Reason:         queryservice.EventSearchUnavailableScopeTooBroad,
+			CandidateLimit: eventSearchLegacyCandidateLimit,
+		}
+	}
+	candidateCount, err := countBoundedLegacyCandidates(ctx, queryer, criteria)
+	if err != nil {
+		return nil, err
+	}
+	if candidateCount > eventSearchLegacyCandidateLimit {
+		return nil, &queryservice.EventSearchUnavailableError{
+			Reason:         queryservice.EventSearchUnavailableScopeTooBroad,
+			CandidateLimit: eventSearchLegacyCandidateLimit,
+			CandidateCount: candidateCount,
+		}
+	}
+	return queryDecodedLegacyEventIDs(ctx, queryer, criteria, queryValue)
+}
+
+// selectLegacyEventSearchCandidateIDs is the migration-032 index path used by
+// SearchLegacyPage and as the automatic fallback when no projection generation
+// is active. It must not consult search_projection_*.
+func selectLegacyEventSearchCandidateIDs(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+	queryValue string,
+) ([]string, error) {
 	complete, err := eventSearchBackfillComplete(ctx, queryer)
 	if err != nil {
 		return nil, err
@@ -148,6 +209,45 @@ func selectEventSearchCandidateIDs(
 		return queryFTSEventIDs(ctx, queryer, criteria, queryValue)
 	}
 	return queryIncompleteFTSEventIDs(ctx, queryer, criteria, queryValue)
+}
+
+// searchProjectionReadReady reports whether the bounded search projection is
+// the active event-search authority: state is complete and a non-empty
+// active_generation_id is published.
+func searchProjectionReadReady(ctx context.Context, queryer eventSearchQueryer) (bool, error) {
+	var state string
+	var activeGenerationID sql.NullString
+	err := queryer.QueryRowContext(ctx, `
+		SELECT state, active_generation_id
+		  FROM search_projection_state
+		 WHERE singleton = 1`,
+	).Scan(&state, &activeGenerationID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		// Missing table on pre-038 stores is treated as not ready so callers
+		// keep using the legacy index without a hard failure.
+		if isMissingSQLiteObject(err) {
+			return false, nil
+		}
+		return false, xerrors.Errorf("failed to read search projection state: %w", err)
+	}
+	if state != "complete" {
+		return false, nil
+	}
+	if !activeGenerationID.Valid {
+		return false, nil
+	}
+	return strings.TrimSpace(activeGenerationID.String) != "", nil
+}
+
+func isMissingSQLiteObject(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no such table") || strings.Contains(message, "no such column")
 }
 
 func boundedSearchHasNonIdentityPayload(
@@ -389,6 +489,16 @@ func queryFTSEventIDs(
 	return collectEventSearchIDs(ctx, queryer, query, args, "indexed event search")
 }
 
+func queryProjectionFTSEventIDs(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+	queryValue string,
+) ([]string, error) {
+	query, args := buildProjectionFTSEventIDsQuery(criteria, queryValue)
+	return collectEventSearchIDs(ctx, queryer, query, args, "projection event search")
+}
+
 func buildFTSEventIDsQuery(
 	criteria apptypes.EventSearchCriteria,
 	queryValue string,
@@ -402,6 +512,31 @@ func buildFTSEventIDsQuery(
 		  JOIN events e ON e.id = d.event_id
 		  LEFT JOIN command_audits a ON a.event_id = e.id
 		 WHERE event_search_fts MATCH ?`)
+	args := []any{eventSearchFTSPhrase(queryValue)}
+	args = appendEventSearchFilters(&builder, args, criteria)
+	appendEventSearchOrderAndPage(&builder, criteria)
+	args = appendEventSearchPageArgs(args, criteria)
+	return builder.String(), args
+}
+
+func buildProjectionFTSEventIDsQuery(
+	criteria apptypes.EventSearchCriteria,
+	queryValue string,
+) (string, []any) {
+	var builder strings.Builder
+	builder.WriteString(`
+		SELECT e.id
+		  FROM search_projection_recent_fts
+		  JOIN search_projection_recent_documents d
+		    ON d.document_id = search_projection_recent_fts.rowid
+		  JOIN events e ON e.id = d.event_id
+		  LEFT JOIN command_audits a ON a.event_id = e.id
+		 WHERE search_projection_recent_fts MATCH ?
+		   AND d.generation_id = (
+		         SELECT active_generation_id
+		           FROM search_projection_state
+		          WHERE singleton = 1
+		       )`)
 	args := []any{eventSearchFTSPhrase(queryValue)}
 	args = appendEventSearchFilters(&builder, args, criteria)
 	appendEventSearchOrderAndPage(&builder, criteria)
