@@ -24,6 +24,7 @@ type RootCLI struct {
 	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
 	session                    usecase.SessionUsecase
 	sessionRefinement          usecase.SessionRefinementUsecase
+	consolidationPressure      usecase.ConsolidationPressureUsecase
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
 	memoryEdge                 usecase.MemoryEdgeUsecase
@@ -118,6 +119,11 @@ func WithSession(session usecase.SessionUsecase) RootCLIOption {
 // WithSessionRefinement injects the L2 session refinement write port.
 func WithSessionRefinement(sessionRefinement usecase.SessionRefinementUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.sessionRefinement = sessionRefinement }
+}
+
+// WithConsolidationPressure injects the read-only stop-hook pressure check.
+func WithConsolidationPressure(consolidationPressure usecase.ConsolidationPressureUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.consolidationPressure = consolidationPressure }
 }
 
 // WithOneShotRepair injects the evidence-backed historical repair use case.

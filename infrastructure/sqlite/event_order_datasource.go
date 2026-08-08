@@ -22,7 +22,16 @@ var selectEventSessionIDQuery string
 //go:embed sql/select_event_is_strictly_after.sql
 var selectEventIsStrictlyAfterQuery string
 
-var _ model.SessionEventOrderRepository = (*EventDatasource)(nil)
+//go:embed sql/select_session_body_bytes.sql
+var selectSessionBodyBytesQuery string
+
+//go:embed sql/select_session_body_bytes_after.sql
+var selectSessionBodyBytesAfterQuery string
+
+var (
+	_ model.SessionEventOrderRepository            = (*EventDatasource)(nil)
+	_ model.SessionConsolidationPressureRepository = (*EventDatasource)(nil)
+)
 
 // EarliestEventID returns the canonically earliest event id in the session.
 func (d *EventDatasource) EarliestEventID(
@@ -109,4 +118,40 @@ func (d *EventDatasource) EventIsStrictlyAfter(
 		return false, xerrors.Errorf("failed to compare event order: %w", err)
 	}
 	return after == 1, nil
+}
+
+// SumBodyBytesAfter returns the unrefined body-byte pressure for a session.
+// When coversTo is present, only events strictly after that boundary under
+// (ts_norm(created_at), id) contribute; otherwise the whole session is summed.
+func (d *EventDatasource) SumBodyBytesAfter(
+	ctx context.Context,
+	sessionID types.SessionID,
+	coversTo types.Optional[types.EventID],
+) (int64, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to open DB for consolidation pressure: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var total int64
+	if boundary, ok := coversTo.Value(); ok {
+		// Bind order matches the SQL: boundary id first, session id second.
+		err = db.QueryRowContext(
+			ctx,
+			selectSessionBodyBytesAfterQuery,
+			boundary.String(),
+			sessionID.String(),
+		).Scan(&total)
+	} else {
+		err = db.QueryRowContext(ctx, selectSessionBodyBytesQuery, sessionID.String()).Scan(&total)
+	}
+	if err != nil {
+		return 0, xerrors.Errorf("failed to sum session body bytes: %w", err)
+	}
+	return total, nil
 }

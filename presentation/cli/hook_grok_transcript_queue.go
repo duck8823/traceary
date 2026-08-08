@@ -264,7 +264,7 @@ func (c *RootCLI) runHookGrokTranscriptWorker(ctx context.Context, jobPath strin
 	for attempt := 0; attempt < hookGrokTranscriptRetryCount; attempt++ {
 		blocks, disposition := inspectGrokTranscript(payload)
 		if disposition == grokTranscriptReady {
-			if err := c.runHookTranscript(ctx, bytes.NewReader(payload), grokHookClient, job.DBPath); err != nil {
+			if _, err := c.runHookTranscript(ctx, bytes.NewReader(payload), grokHookClient, job.DBPath); err != nil {
 				return c.failHookGrokTranscriptJob(resolvedJobPath, job, err)
 			}
 			_ = blocks // body ownership remains in runHookTranscript; this branch is state-only.

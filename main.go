@@ -198,6 +198,7 @@ func run() error {
 	codexCaptureDiagnosticUsecase := usecase.NewCodexCaptureDiagnosticUsecase(codexCaptureDiagnosticDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	sessionRefinementUsecase := usecase.NewSessionRefinementUsecase(sessionDatasource, sessionRefinementDatasource, eventDatasource, types.SystemClock{})
+	consolidationPressureUsecase := usecase.NewConsolidationPressureUsecase(eventDatasource, sessionRefinementDatasource)
 	codexMemorySource := filesystem.NewCodexMemorySource()
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns, usecase.MemoryUsecaseDependencies{
 		SessionQuery: sessionDatasource,
@@ -274,6 +275,7 @@ func run() error {
 		cli.WithCodexCaptureDiagnostic(codexCaptureDiagnosticUsecase),
 		cli.WithSession(sessionUsecase),
 		cli.WithSessionRefinement(sessionRefinementUsecase),
+		cli.WithConsolidationPressure(consolidationPressureUsecase),
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),
 		cli.WithBundle(bundleUsecase),
