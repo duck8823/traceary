@@ -242,6 +242,7 @@ func TestSessionOrphanRangeDatasource_GCProducesDegradedAndIsIdempotent(t *testi
 	consol := usecase.NewOrphanConsolidationUsecase(
 		fx.orphans,
 		usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{}),
+		fx.refine,
 		fixedEventClock{at: now},
 	)
 	first, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
@@ -317,7 +318,7 @@ func TestSessionOrphanRangeDatasource_DryRunWritesNothing(t *testing.T) {
 	}, true)
 
 	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
-	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, types.SystemClock{})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fx.refine, types.SystemClock{})
 	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{
 		StaleAfter: 24 * time.Hour,
 		DryRun:     true,
@@ -330,6 +331,147 @@ func TestSessionOrphanRangeDatasource_DryRunWritesNothing(t *testing.T) {
 	}
 	if count := countSessionRefinementsAt(t, fx.dbPath); count != 0 {
 		t.Fatalf("refinements written on dry-run = %d, want 0", count)
+	}
+}
+
+func TestSessionOrphanRangeDatasource_ComposesOntoAgentAuthoredRefinement(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-compose", []eventSeed{
+		{id: "evt-agent-end", at: base},
+		{id: "evt-orphan-a", at: base.Add(time.Hour)},
+		{id: "evt-orphan-b", at: base.Add(2 * time.Hour)},
+	}, true)
+
+	const agentSummary = "Agent folded early work: split the shared types package before the UI rewrite."
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	if _, err := refineUC.Refine(ctx, usecase.SessionRefineInput{
+		SessionID:  sessionID,
+		Summary:    agentSummary,
+		Keywords:   "types,split",
+		ProducedBy: "agent",
+		CoversTo:   "evt-agent-end",
+		Degraded:   false,
+	}); err != nil {
+		t.Fatalf("Refine(agent) error = %v", err)
+	}
+
+	now := base.Add(48 * time.Hour)
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fx.refine, fixedEventClock{at: now})
+	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1", got.ProducedCount())
+	}
+
+	stored, err := fx.refine.FindBySessionID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindBySessionID() error = %v", err)
+	}
+	row, ok := stored.Value()
+	if !ok {
+		t.Fatal("expected composed refinement")
+	}
+
+	// Coverage spans the original agent range and the orphan tail.
+	if row.CoversFromEventID() != "sess-compose-start" {
+		t.Fatalf("CoversFrom = %s, want session start boundary", row.CoversFromEventID())
+	}
+	if row.CoversToEventID() != "sess-compose-end" {
+		t.Fatalf("CoversTo = %s, want session end (latest event)", row.CoversToEventID())
+	}
+	// Text and coverage agree: agent prose for the early range, mechanical for the tail.
+	if !strings.Contains(row.Summary(), agentSummary) {
+		t.Fatalf("stored summary lost agent text: %q", row.Summary())
+	}
+	if !strings.HasPrefix(row.Summary(), agentSummary) {
+		t.Fatalf("agent text must lead composed summary: %q", row.Summary())
+	}
+	if !strings.Contains(row.Summary(), "degraded section") {
+		t.Fatalf("stored summary missing degraded section label: %q", row.Summary())
+	}
+	if !strings.Contains(row.Summary(), "after evt-agent-end through sess-compose-end") {
+		t.Fatalf("stored summary missing orphan range: %q", row.Summary())
+	}
+	if !strings.Contains(row.Summary(), "Mechanical summary") {
+		t.Fatalf("stored summary missing mechanical body: %q", row.Summary())
+	}
+	// Pin degraded=true: mixed authorship is not purely agent-written.
+	if !row.Degraded() {
+		t.Fatal("Degraded() = false on composed row, want true")
+	}
+	if row.Keywords() != "types,split" {
+		t.Fatalf("Keywords = %q, want preserved agent keywords", row.Keywords())
+	}
+	if row.ProducedBy() != "gc:orphan-consolidation" {
+		t.Fatalf("ProducedBy = %q", row.ProducedBy())
+	}
+	if row.Generation() != 2 {
+		t.Fatalf("Generation = %d, want 2 (supersede)", row.Generation())
+	}
+}
+
+func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Store schema stops at migration 46: session_orphan_ranges does not exist.
+	// Discovery must still succeed via marker-free path (sessions/events/refinements).
+	dbPath := filepath.Join(t.TempDir(), "traceary-pre47.db")
+	database := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 47))
+	store := sqlite.NewStoreManagementDatasource(database)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-47) error = %v", err)
+	}
+	// Confirm the marker table is absent — this is the regression surface.
+	if tableExistsAt(t, dbPath, "session_orphan_ranges") {
+		t.Fatal("session_orphan_ranges must not exist before migration 47")
+	}
+
+	fx := orphanFixture{
+		dbPath:   dbPath,
+		orphans:  sqlite.NewSessionOrphanRangeDatasource(database),
+		refine:   sqlite.NewSessionRefinementDatasource(database),
+		sessions: sqlite.NewSessionDatasource(database),
+		events:   sqlite.NewEventDatasource(database),
+	}
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-pre47", []eventSeed{
+		{id: "evt-1", at: base},
+		{id: "evt-2", at: base.Add(time.Hour)},
+	}, true)
+
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	if _, err := refineUC.Refine(ctx, usecase.SessionRefineInput{
+		SessionID: sessionID, Summary: "to evt-1", ProducedBy: "agent", CoversTo: "evt-1",
+	}); err != nil {
+		t.Fatalf("Refine() error = %v", err)
+	}
+
+	now := base.Add(48 * time.Hour)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() on pre-47 store error = %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %d, want 1 from marker-free discovery", len(candidates))
+	}
+
+	// Full consolidation path (what gc --dry-run hits first) must also succeed.
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fx.refine, fixedEventClock{at: now})
+	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate(dry-run) on pre-47 store error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1", got.ProducedCount())
 	}
 }
 
@@ -467,4 +609,21 @@ func countOrphanRangesAt(t *testing.T, dbPath string) int {
 		t.Fatalf("COUNT session_orphan_ranges error = %v", err)
 	}
 	return count
+}
+
+func tableExistsAt(t *testing.T, dbPath, table string) bool {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var exists int
+	if err := db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?)`,
+		table,
+	).Scan(&exists); err != nil {
+		t.Fatalf("probe table %s: %v", table, err)
+	}
+	return exists != 0
 }

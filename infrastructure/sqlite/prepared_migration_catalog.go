@@ -45,9 +45,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	44: {44, "000044_add_archive_segment_catalog.sql", "f272f78c9bed784b8ed487a71f801e172e994109092de19a6f0582a15318f38f", MigrationConstantInPlace},
 	45: {45, "000045_index_retention_ledger_by_event.sql", "5d276bdeddc90b8db688460f4b18a87e5267ec568e0216a1cd701eba8c8a8a20", MigrationDataDependentOffline},
 	46: {46, "000046_create_session_refinements.sql", "cc648f2f5da92fa5c742fe644db87325ecb8cc3eae4c6d0773aaf523ddf12181", MigrationConstantInPlace},
-	// 47 is CREATE TABLE + index only — no backfill, no rewrite of existing
-	// rows. Same class as 46 (session_refinements): constant_in_place.
-	47: {47, "000047_create_session_orphan_ranges.sql", "26fd99295b10369fd15f0aa7ae6b3a7b5168873891686053dc09030405674e29", MigrationConstantInPlace},
+	// 47 is CREATE TABLE only (PRIMARY KEY already indexes session_id) — no
+	// backfill, no rewrite of existing rows. Same class as 46
+	// (session_refinements): constant_in_place.
+	47: {47, "000047_create_session_orphan_ranges.sql", "8ff51b5100c663cc7cdcd7a2dc3bd66066635bccedeecadb86cccdb3eac00978", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

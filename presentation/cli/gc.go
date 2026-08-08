@@ -81,8 +81,14 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	// Orphan consolidation runs before deletion so a degraded refinement can
 	// land while the events it summarises still exist. No new surface: this is
 	// a step inside store gc, not a command or --target value.
+	//
+	// It only runs for targets that can remove that material, and its failure
+	// aborts the run for exactly those targets: deleting events after the
+	// summary failed to land is the irreversible half. A memories or
+	// memory_edges prune touches nothing consolidation protects, so it must not
+	// be blocked by an unrelated consolidation failure.
 	orphanProduced := 0
-	if c.orphanConsolidation != nil {
+	if c.orphanConsolidation != nil && orphanConsolidationAppliesTo(target) {
 		orphanResult, orphanErr := c.orphanConsolidation.Consolidate(ctx, usecase.OrphanConsolidationInput{
 			StaleAfter: defaultActiveSessionStaleAfter,
 			DryRun:     input.dryRun,
@@ -116,4 +122,18 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	}
 
 	return nil
+}
+
+// orphanConsolidationAppliesTo reports whether a target can remove the events
+// an orphan range summarises. sessions is included because pruning a session
+// row leaves its refinement without the boundary that names it.
+func orphanConsolidationAppliesTo(target apptypes.GarbageCollectionTarget) bool {
+	switch target {
+	case apptypes.GarbageCollectionTargetEvents,
+		apptypes.GarbageCollectionTargetSessions,
+		apptypes.GarbageCollectionTargetAll:
+		return true
+	default:
+		return false
+	}
 }

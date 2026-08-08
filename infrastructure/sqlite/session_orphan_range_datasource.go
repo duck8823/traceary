@@ -235,6 +235,19 @@ func (d *SessionOrphanRangeDatasource) LoadMaterial(
 }
 
 func (d *SessionOrphanRangeDatasource) listRecorded(ctx context.Context, db *sql.DB) ([]*model.SessionOrphanRange, error) {
+	// Marker table is a front-loaded shortcut added in migration 47. Stores
+	// still at 46 (or any pre-47 schema) have no session_orphan_ranges; treat
+	// that as zero recorded rows so marker-free discovery can still run.
+	// gc --dry-run skips Initialize/migrate, so this path must not fail on a
+	// missing table.
+	exists, err := databaseTableExists(ctx, db, "session_orphan_ranges")
+	if err != nil {
+		return nil, xerrors.Errorf("failed to probe session_orphan_ranges presence: %w", err)
+	}
+	if !exists {
+		return nil, nil
+	}
+
 	rows, err := db.QueryContext(ctx, listRecordedOrphanRangesQuery)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list recorded orphan ranges: %w", err)

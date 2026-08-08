@@ -16,15 +16,18 @@ import (
 )
 
 // Mechanical summary target. Pathological ranges are truncated deterministically.
+// The budget applies only to the gc-synthesised section — never to agent text
+// that is preserved when composing onto an existing refinement.
 const orphanMechanicalSummaryMaxBytes = 64 * 1024
 
 // ProducedBy value for gc-authored degraded refinements.
 const orphanConsolidationProducedBy = "gc:orphan-consolidation"
 
 type orphanConsolidationUsecase struct {
-	orphans    model.SessionOrphanRangeRepository
-	refinement SessionRefinementUsecase
-	clock      types.Clock
+	orphans        model.SessionOrphanRangeRepository
+	refinement     SessionRefinementUsecase
+	refinementRepo model.SessionRefinementRepository
+	clock          types.Clock
 }
 
 // NewOrphanConsolidationUsecase creates the orphan consolidation use case.
@@ -32,15 +35,17 @@ type orphanConsolidationUsecase struct {
 func NewOrphanConsolidationUsecase(
 	orphans model.SessionOrphanRangeRepository,
 	refinement SessionRefinementUsecase,
+	refinementRepo model.SessionRefinementRepository,
 	clock types.Clock,
 ) OrphanConsolidationUsecase {
 	if clock == nil {
 		clock = types.SystemClock{}
 	}
 	return &orphanConsolidationUsecase{
-		orphans:    orphans,
-		refinement: refinement,
-		clock:      clock,
+		orphans:        orphans,
+		refinement:     refinement,
+		refinementRepo: refinementRepo,
+		clock:          clock,
 	}
 }
 
@@ -53,6 +58,9 @@ func (u *orphanConsolidationUsecase) Consolidate(
 	}
 	if u.refinement == nil {
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("session refinement usecase is not configured")
+	}
+	if u.refinementRepo == nil {
+		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("session refinement repository is not configured")
 	}
 	if input.StaleAfter <= 0 {
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("staleAfter must be greater than zero")
@@ -95,11 +103,30 @@ func (u *orphanConsolidationUsecase) produceDegraded(ctx context.Context, orphan
 	if err != nil {
 		return xerrors.Errorf("failed to load orphan material for session %s: %w", orphan.SessionID(), err)
 	}
-	summary := buildMechanicalOrphanSummary(material)
+	mechanical := buildMechanicalOrphanSummary(material)
+
+	summary := mechanical
+	keywords := ""
+	current, err := u.refinementRepo.FindBySessionID(ctx, orphan.SessionID())
+	if err != nil {
+		return xerrors.Errorf("failed to load existing refinement for session %s: %w", orphan.SessionID(), err)
+	}
+	if existing, present := current.Value(); present {
+		// Refine on supersede replaces summary text wholesale while keeping
+		// covers_from. Composing preserves the agent-authored prose and only
+		// appends a marked degraded section for the orphan tail.
+		summary = composeOrphanSummary(existing.Summary(), orphan, mechanical)
+		keywords = existing.Keywords()
+	}
+
+	// degraded=true even when the row still contains agent-authored text.
+	// The flag means the stored summary is not purely agent-written: a mixed
+	// row includes gc-synthesised prose, so consumers must not treat the whole
+	// row as agent reasoning. Seam markers in the text separate authorships.
 	_, err = u.refinement.Refine(ctx, SessionRefineInput{
 		SessionID:  orphan.SessionID(),
 		Summary:    summary,
-		Keywords:   "",
+		Keywords:   keywords,
 		ProducedBy: orphanConsolidationProducedBy,
 		CoversTo:   orphan.ToEventID(),
 		Degraded:   true,
@@ -110,8 +137,43 @@ func (u *orphanConsolidationUsecase) produceDegraded(ctx context.Context, orphan
 	return nil
 }
 
+// composeOrphanSummary preserves an existing summary and appends a clearly
+// marked mechanical section for the orphan tail only. Truncation of the
+// mechanical section is applied before this call; agent text is never cut.
+func composeOrphanSummary(existingSummary string, orphan *model.SessionOrphanRange, mechanical string) string {
+	var b strings.Builder
+	b.WriteString(existingSummary)
+	b.WriteString("\n\n---\n")
+	rangeDesc := orphanRangeCoverageDesc(orphan)
+	fmt.Fprintf(
+		&b,
+		"[degraded section: %s, synthesised by %s]\n",
+		rangeDesc,
+		orphanConsolidationProducedBy,
+	)
+	b.WriteString(mechanical)
+	return b.String()
+}
+
+// orphanRangeCoverageDesc names the event range the mechanical section covers
+// so a reader can match text to coverage without inferring from context.
+func orphanRangeCoverageDesc(orphan *model.SessionOrphanRange) string {
+	if from, ok := orphan.FromEventID().Value(); ok {
+		return fmt.Sprintf(
+			"orphan events after %s through %s (agent text above is unchanged)",
+			from.String(),
+			orphan.ToEventID().String(),
+		)
+	}
+	return fmt.Sprintf(
+		"orphan events from session start through %s",
+		orphan.ToEventID().String(),
+	)
+}
+
 // buildMechanicalOrphanSummary produces an honest LLM-free summary: when, what
 // kinds, how often, which commands. It does not recover agent reasoning.
+// Truncation is deterministic and applies only to this synthesised text.
 func buildMechanicalOrphanSummary(material model.SessionOrphanMaterial) string {
 	var b strings.Builder
 	b.WriteString("Mechanical summary (degraded=1).\n")

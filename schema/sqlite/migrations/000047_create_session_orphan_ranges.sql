@@ -17,6 +17,3 @@ CREATE TABLE session_orphan_ranges (
     observed_at TEXT NOT NULL,
     PRIMARY KEY (session_id, to_event_id)
 );
-
-CREATE INDEX idx_session_orphan_ranges_session_id
-    ON session_orphan_ranges(session_id);
