@@ -7,8 +7,14 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// SessionRefineInput is the write-port request. The caller (agent or gc)
-// composes summary text; this port never merges or transforms it.
+// SessionRefineInput is the write-port request.
+//
+// Agent callers set Summary (and Keywords) to the finished text. When the text
+// depends on the currently stored row (gc orphan composition), set
+// ComposeSummary instead: decideAndWrite invokes it with the row just re-read
+// on each compare-and-swap attempt so the summary written on attempt N is
+// composed from the row observed on attempt N. When ComposeSummary is set,
+// Summary and Keywords are ignored.
 type SessionRefineInput struct {
 	SessionID  types.SessionID
 	Summary    string
@@ -16,6 +22,9 @@ type SessionRefineInput struct {
 	ProducedBy string
 	CoversTo   types.EventID
 	Degraded   bool
+	// ComposeSummary derives summary and keywords from the current refinement
+	// row on each CAS attempt. See type comment above.
+	ComposeSummary func(current types.Optional[*model.SessionRefinement]) (summary, keywords string)
 }
 
 // SessionRefinementUsecase is the L2 refinement write port.

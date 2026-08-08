@@ -685,6 +685,7 @@ type storeManagementUsecaseStub struct {
 	restoreErr        error
 	gcResult          apptypes.CollectGarbageResult
 	gcErr             error
+	gcCalled          bool
 	dedupeResult      apptypes.ContentEventDedupeResult
 	dedupeErr         error
 	dedupeParams      []apptypes.ContentEventDedupeParams
@@ -723,6 +724,7 @@ func (s *storeManagementUsecaseStub) RestoreBackup(_ context.Context, _ string, 
 	return s.restoreErr
 }
 func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (apptypes.CollectGarbageResult, error) {
+	s.gcCalled = true
 	return s.gcResult, s.gcErr
 }
 func (s *storeManagementUsecaseStub) DedupeContentEvents(_ context.Context, params apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {

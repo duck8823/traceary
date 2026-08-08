@@ -166,6 +166,8 @@ Durable memory に紐づく artifact ref です。
 - 物理容量回収は分離し、`traceary store compact plan --db-path PATH`でpreviewする。
   GCはin-place `VACUUM`を実行しない
 
+削除の前に、`store gc` は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。出力は orphan 機械要約件数と削除件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
+
 target ごとの policy:
 
 - `events`: `events.created_at < cutoff` の row を削除します。紐づく `command_audits` は foreign key により cascade されます。
