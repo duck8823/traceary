@@ -281,6 +281,70 @@ func TestSessionRefinementDatasource_RetentionDoesNotDeleteRefinements(t *testin
 	}
 }
 
+func TestSessionRefinementDatasource_SaveIfAdvances_EmptyTableHonoursExpectedGeneration(t *testing.T) {
+	t.Parallel()
+
+	// Source predicate: expectedGeneration = 0 is the only insert path when no
+	// row exists. A non-zero expectation against an empty table must not INSERT.
+	ctx := context.Background()
+
+	tests := []struct {
+		name               string
+		expectedGeneration int
+		wantWritten        bool
+		wantPresent        bool
+	}{
+		{
+			name:               "non-zero expectedGeneration against empty table is a CAS miss",
+			expectedGeneration: 3,
+			wantWritten:        false,
+			wantPresent:        false,
+		},
+		{
+			name:               "expectedGeneration zero inserts when no row exists",
+			expectedGeneration: 0,
+			wantWritten:        true,
+			wantPresent:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Fresh table per case so the non-zero miss leaves nothing behind
+			// and the zero path still exercises a clean insert.
+			fx := newSessionRefinementFixture(t)
+			sessionID := seedRefinementSession(ctx, t, fx.sessions, fx.events, "sess-empty-cas", []eventSeed{
+				{id: "evt-1", at: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)},
+				{id: "evt-2", at: time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)},
+			})
+			row, err := model.NewSessionRefinement(
+				sessionID, 1, "sess-empty-cas-start", "evt-2",
+				"should not land under stale expectation", "", "agent",
+				time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC), false,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			written, err := fx.sut.SaveIfAdvances(ctx, row, tt.expectedGeneration)
+			if err != nil {
+				t.Fatalf("SaveIfAdvances() error = %v", err)
+			}
+			if written != tt.wantWritten {
+				t.Fatalf("SaveIfAdvances() written = %v, want %v", written, tt.wantWritten)
+			}
+			got, err := fx.sut.FindBySessionID(ctx, sessionID)
+			if err != nil {
+				t.Fatalf("FindBySessionID() error = %v", err)
+			}
+			_, present := got.Value()
+			if present != tt.wantPresent {
+				t.Fatalf("FindBySessionID present = %v, want %v", present, tt.wantPresent)
+			}
+		})
+	}
+}
+
 func TestSessionRefinementDatasource_SaveIfAdvances_CASGuards(t *testing.T) {
 	t.Parallel()
 

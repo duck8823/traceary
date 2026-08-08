@@ -82,10 +82,14 @@ func (d *SessionRefinementDatasource) SaveIfAdvances(
 		}
 	}()
 
+	// Placeholder order matches upsert_session_refinement.sql:
+	// SELECT row values (9), source predicate expectedGeneration + session_id,
+	// then ON CONFLICT UPDATE WHERE expectedGeneration again.
+	sessionID := refinement.SessionID().String()
 	result, err := db.ExecContext(
 		ctx,
 		upsertSessionRefinementQuery,
-		refinement.SessionID().String(),
+		sessionID,
 		refinement.Generation(),
 		refinement.CoversFromEventID().String(),
 		refinement.CoversToEventID().String(),
@@ -94,6 +98,8 @@ func (d *SessionRefinementDatasource) SaveIfAdvances(
 		refinement.ProducedBy(),
 		formatTimestamp(refinement.ProducedAt()),
 		boolToInt(refinement.Degraded()),
+		expectedGeneration,
+		sessionID,
 		expectedGeneration,
 	)
 	if err != nil {

@@ -2,9 +2,12 @@
 -- (ts_norm(created_at), id; see #1185). The events join below is part of this
 -- single guarded write statement, not a general event-read API.
 --
--- expectedGeneration = 0 means "expect no row". generation has CHECK
--- (generation > 0), so the UPDATE branch is unsatisfiable when a concurrent
--- insert already created a row — RowsAffected reports 0.
+-- The SELECT source only yields a candidate when expectedGeneration matches
+-- the pre-write expectation: 0 means "no row yet" and always produces a
+-- candidate; any other value requires an existing row for that session_id.
+-- (If a concurrent insert already created a row under expectedGeneration = 0,
+-- generation has CHECK (generation > 0), so the UPDATE branch is unsatisfiable
+-- and RowsAffected reports 0.)
 INSERT INTO session_refinements (
     session_id,
     generation,
@@ -15,7 +18,14 @@ INSERT INTO session_refinements (
     produced_by,
     produced_at,
     degraded
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+ WHERE ? = 0
+    OR EXISTS (
+           SELECT 1
+             FROM session_refinements AS existing
+            WHERE existing.session_id = ?
+       )
 ON CONFLICT(session_id) DO UPDATE SET
     generation = excluded.generation,
     covers_from_event_id = excluded.covers_from_event_id,

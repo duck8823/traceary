@@ -22,9 +22,10 @@ type sessionRefinementRepositoryStub struct {
 	bySession map[types.SessionID]*model.SessionRefinement
 	saved     []*model.SessionRefinement
 	// saveResults forces successive SaveIfAdvances outcomes after the
-	// generation CAS check. When empty, a matching expectedGeneration succeeds
-	// and stores the refinement. A scripted true still fails if the caller
-	// submitted a stale expectedGeneration (mirrors the real WHERE clause).
+	// generation CAS and coverage advance checks. When empty, a matching
+	// expectedGeneration with advancing covers_to succeeds and stores the
+	// refinement. A scripted true still fails if the caller submitted a stale
+	// expectedGeneration or non-advancing covers_to (mirrors the real WHERE).
 	saveResults []bool
 	// raceWinnersOnLose is consumed one entry per forced scripted loss so the
 	// next re-read observes concurrent progress (generation and coverage
@@ -34,6 +35,11 @@ type sessionRefinementRepositoryStub struct {
 	saveCalls         int
 	// expectedGens records every expectedGeneration the use case submitted.
 	expectedGens []int
+	// eventOrder is the same stub the use case uses for EventIsStrictlyAfter so
+	// the coverage advance guard and the use case pre-write check share one
+	// relation rather than a second after map. Required when a row already
+	// exists: a missing comparator cannot claim covers_to advanced.
+	eventOrder *sessionEventOrderRepositoryStub
 }
 
 func (s *sessionRefinementRepositoryStub) FindBySessionID(
@@ -55,12 +61,32 @@ func (s *sessionRefinementRepositoryStub) SaveIfAdvances(
 	s.expectedGens = append(s.expectedGens, expectedGeneration)
 
 	// Mirror WHERE session_refinements.generation = ?: 0 means "no row yet".
+	stored, hasRow := s.bySession[refinement.SessionID()]
 	storedGen := 0
-	if row, ok := s.bySession[refinement.SessionID()]; ok {
-		storedGen = row.Generation()
+	if hasRow {
+		storedGen = stored.Generation()
 	}
 	if expectedGeneration != storedGen {
 		return false, nil
+	}
+
+	// Mirror the covers_to advance guard on the UPDATE branch. With no stored
+	// row there is nothing to advance past — only the generation check applies.
+	if hasRow {
+		if s.eventOrder == nil {
+			return false, nil
+		}
+		after, err := s.eventOrder.EventIsStrictlyAfter(
+			context.Background(),
+			refinement.CoversToEventID(),
+			stored.CoversToEventID(),
+		)
+		if err != nil {
+			return false, err
+		}
+		if !after {
+			return false, nil
+		}
 	}
 
 	if len(s.saveResults) > 0 {
@@ -313,6 +339,10 @@ func TestSessionRefinementUsecase_Refine(t *testing.T) {
 			if tt.session != nil {
 				sessionStub.session = tt.session
 			}
+			// Share the order stub so SaveIfAdvances uses the same after map.
+			if tt.repo != nil {
+				tt.repo.eventOrder = tt.eventOrder
+			}
 			sut := usecase.NewSessionRefinementUsecase(sessionStub, tt.repo, tt.eventOrder, fixedRefineClock{at: now})
 			got, err := sut.Refine(context.Background(), tt.input)
 			if tt.wantErr != nil {
@@ -381,6 +411,7 @@ func TestSessionRefinementUsecase_Refine_RetriesWhenSaveIfAdvancesLosesRace(t *t
 			},
 			saveResults:       []bool{false, true},
 			raceWinnersOnLose: []*model.SessionRefinement{winner},
+			eventOrder:        eventOrder,
 		}
 		wantRow, err := model.NewSessionRefinement(
 			sessionID, 3, evt1, evt4, "after race", "", "agent", now, false,
@@ -432,6 +463,7 @@ func TestSessionRefinementUsecase_Refine_RetriesWhenSaveIfAdvancesLosesRace(t *t
 			},
 			saveResults:       []bool{false},
 			raceWinnersOnLose: []*model.SessionRefinement{winner},
+			eventOrder:        eventOrder,
 		}
 		want, err := model.SessionRefineResultOf(model.SessionRefineOutcomeUnchanged, winner)
 		if err != nil {
@@ -484,6 +516,12 @@ func TestSessionRefinementUsecase_Refine_ExhaustsWhenSaveIfAdvancesAlwaysLoses(t
 	// to attempt and still exhausts the bounded retry loop. An unchanged row
 	// across three losses is not a state the real store can be in.
 	// Event order: evt1 < evt2 < evt3 < evt4 < evt5 < evt6.
+	eventOrder := &sessionEventOrderRepositoryStub{
+		eventSessions: map[types.EventID]types.SessionID{evt6: sessionID},
+		after: map[types.EventID]map[types.EventID]bool{
+			evt6: {evt2: true, evt3: true, evt4: true, evt5: true},
+		},
+	}
 	repo := &sessionRefinementRepositoryStub{
 		bySession: map[types.SessionID]*model.SessionRefinement{
 			sessionID: mustRefinement(t, sessionID, 1, evt1, evt2, "first summary"),
@@ -494,12 +532,7 @@ func TestSessionRefinementUsecase_Refine_ExhaustsWhenSaveIfAdvancesAlwaysLoses(t
 			mustRefinement(t, sessionID, 3, evt1, evt4, "winner gen3"),
 			mustRefinement(t, sessionID, 4, evt1, evt5, "winner gen4"),
 		},
-	}
-	eventOrder := &sessionEventOrderRepositoryStub{
-		eventSessions: map[types.EventID]types.SessionID{evt6: sessionID},
-		after: map[types.EventID]map[types.EventID]bool{
-			evt6: {evt2: true, evt3: true, evt4: true, evt5: true},
-		},
+		eventOrder: eventOrder,
 	}
 
 	sut := usecase.NewSessionRefinementUsecase(
@@ -525,5 +558,63 @@ func TestSessionRefinementUsecase_Refine_ExhaustsWhenSaveIfAdvancesAlwaysLoses(t
 	}
 	if diff := cmp.Diff([]int{1, 2, 3}, repo.expectedGens); diff != "" {
 		t.Fatalf("expectedGeneration sequence mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestSessionRefinementRepositoryStub_SaveIfAdvances_RejectsNonAdvancingCoverage(t *testing.T) {
+	t.Parallel()
+
+	// Direct stub call: generation matches but covers_to does not strictly
+	// advance. The real SQL rejects this; the fake must too (CAS loss, not error).
+	sessionID := types.SessionID("sess-stub-cov")
+	evt1 := types.EventID("evt-1")
+	evt2 := types.EventID("evt-2")
+	evt3 := types.EventID("evt-3")
+	stored := mustRefinement(t, sessionID, 1, evt1, evt3, "stored")
+	// Equal covers_to with correct expectedGeneration — would have stored under
+	// the old generation-only fake.
+	attempt := mustRefinement(t, sessionID, 2, evt1, evt3, "no advance")
+	order := &sessionEventOrderRepositoryStub{
+		after: map[types.EventID]map[types.EventID]bool{
+			evt3: {evt3: false},
+			evt2: {evt3: false},
+		},
+	}
+	repo := &sessionRefinementRepositoryStub{
+		bySession: map[types.SessionID]*model.SessionRefinement{
+			sessionID: stored,
+		},
+		eventOrder: order,
+	}
+
+	written, err := repo.SaveIfAdvances(context.Background(), attempt, 1)
+	if err != nil {
+		t.Fatalf("SaveIfAdvances() error = %v", err)
+	}
+	if written {
+		t.Fatal("SaveIfAdvances() written = true, want false for non-advancing covers_to")
+	}
+	if len(repo.saved) != 0 {
+		t.Fatalf("successful saves = %d, want 0", len(repo.saved))
+	}
+	got, ok := repo.bySession[sessionID]
+	if !ok {
+		t.Fatal("stored row disappeared")
+	}
+	if got != stored {
+		t.Fatalf("stored row was replaced; generation=%d summary=%q", got.Generation(), got.Summary())
+	}
+
+	// Older covers_to is also a CAS miss with correct generation.
+	older := mustRefinement(t, sessionID, 2, evt1, evt2, "older covers_to")
+	written, err = repo.SaveIfAdvances(context.Background(), older, 1)
+	if err != nil {
+		t.Fatalf("SaveIfAdvances(older) error = %v", err)
+	}
+	if written {
+		t.Fatal("SaveIfAdvances(older) written = true, want false")
+	}
+	if len(repo.saved) != 0 {
+		t.Fatalf("successful saves after older = %d, want 0", len(repo.saved))
 	}
 }
