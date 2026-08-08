@@ -140,6 +140,20 @@ func hookSessionEndMarkerPath(client string, sessionID types.SessionID) (string,
 	return filepath.Join(stateDir, "ended", client+"-"+sanitizedSessionID), nil
 }
 
+// hookWakeInjectionMarkerTTL is how long wake-injection markers are kept.
+// There is no separate cleanup command; markers older than this are pruned on write.
+const hookWakeInjectionMarkerTTL = 30 * 24 * time.Hour
+
+func hookWakeInjectionMarkerPath(client string, sessionID types.SessionID) (string, error) {
+	stateDir, err := resolveHookStateDir()
+	if err != nil {
+		return "", err
+	}
+	sanitizedSessionID := sanitizeHookStateKey(sessionID.String())
+
+	return filepath.Join(stateDir, "wake-injected", client+"-"+sanitizedSessionID), nil
+}
+
 func hookActiveSubagentStatePath(client string, parentSessionID types.SessionID) (string, error) {
 	stateDir, err := resolveHookStateDir()
 	if err != nil {
@@ -585,5 +599,68 @@ func clearHookSessionEndMarker(client string, sessionID types.SessionID) error {
 		return xerrors.Errorf("failed to clear hook end marker: %w", err)
 	}
 
+	return nil
+}
+
+func hookWakeInjectionAlreadyDone(client string, sessionID types.SessionID) (bool, error) {
+	markerPath, err := hookWakeInjectionMarkerPath(client, sessionID)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(markerPath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return false, xerrors.Errorf("failed to inspect wake injection marker: %w", err)
+}
+
+func markHookWakeInjected(client string, sessionID types.SessionID) error {
+	markerPath, err := hookWakeInjectionMarkerPath(client, sessionID)
+	if err != nil {
+		return err
+	}
+	markerDir := filepath.Dir(markerPath)
+	if err := os.MkdirAll(markerDir, 0o755); err != nil {
+		return xerrors.Errorf("failed to create wake injection marker directory: %w", err)
+	}
+	// Best-effort prune so markers do not accumulate forever. Failures are
+	// ignored — the write below is what matters for once-per-session.
+	_ = pruneHookWakeInjectionMarkers(markerDir, time.Now().UTC())
+
+	if err := os.WriteFile(markerPath, []byte{}, 0o600); err != nil {
+		return xerrors.Errorf("failed to write wake injection marker: %w", err)
+	}
+
+	return nil
+}
+
+func pruneHookWakeInjectionMarkers(markerDir string, now time.Time) error {
+	if hookWakeInjectionMarkerTTL <= 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(markerDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return xerrors.Errorf("failed to read wake injection marker directory: %w", err)
+	}
+	cutoff := now.Add(-hookWakeInjectionMarkerTTL)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(markerDir, entry.Name()))
+		}
+	}
 	return nil
 }

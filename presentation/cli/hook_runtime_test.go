@@ -461,8 +461,12 @@ func TestRootCLI_HookSessionCommand_StartRecordsSessionAndState(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if got, want := stdout.String(), "generated-session\n"; got != want {
-		t.Fatalf("stdout = %q, want %q", got, want)
+	// The session-start hook's stdout is the wake-injection channel (#1684) and
+	// carries nothing else. With no eligible summary there is nothing to inject,
+	// so the hook writes nothing at all — the bare session id it used to print
+	// was landing in every host's context with no consumer.
+	if got := stdout.String(); got != "" {
+		t.Fatalf("stdout = %q, want %q", got, "")
 	}
 	if !storeStub.initCalled {
 		t.Fatal("store Initialize() was not called")

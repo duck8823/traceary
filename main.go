@@ -148,6 +148,7 @@ func run() error {
 	eventDatasource := sqlite.NewEventDatasource(db)
 	sessionDatasource := sqlite.NewSessionDatasource(db)
 	sessionRefinementDatasource := sqlite.NewSessionRefinementDatasource(db)
+	sessionWakeSummaryDatasource := sqlite.NewSessionWakeSummaryDatasource(db)
 	sessionOrphanRangeDatasource := sqlite.NewSessionOrphanRangeDatasource(db)
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
@@ -281,6 +282,7 @@ func run() error {
 		cli.WithSessionOrphanRange(sessionOrphanRangeUsecase),
 		cli.WithOrphanConsolidation(orphanConsolidationUsecase),
 		cli.WithConsolidationPressure(consolidationPressureUsecase),
+		cli.WithSessionWakeSummary(sessionWakeSummaryDatasource),
 		cli.WithMemory(memoryUsecase),
 		cli.WithMemoryEdge(memoryEdgeUsecase),
 		cli.WithBundle(bundleUsecase),

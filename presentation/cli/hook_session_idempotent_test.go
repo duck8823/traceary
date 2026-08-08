@@ -29,8 +29,10 @@ func TestHookSessionStart_AlreadyExistsIsIdempotentForSpoolReplay(t *testing.T) 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v\nstderr=%s", err, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "session-already") {
-		t.Fatalf("stdout = %q, want session id printed for idempotent start", stdout.String())
+	// SessionStart stdout is the wake-injection channel only (#1684); a bare
+	// session id must not appear. With no wake query wired, expect empty.
+	if len(stdout.Bytes()) != 0 {
+		t.Fatalf("stdout = %q, want empty (no accidental session-id injection)", stdout.String())
 	}
 	if sessionStub.startCall.sessionID.String() != "session-already" {
 		t.Fatalf("Start sessionID = %q", sessionStub.startCall.sessionID)
