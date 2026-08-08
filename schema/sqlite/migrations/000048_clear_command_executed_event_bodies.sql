@@ -3,9 +3,11 @@
 -- live-store ratio is 1.00 — pure duplication. command_audits is the retained
 -- execution record; search indexes those columns independently of body.
 --
--- This rewrite visits every command_executed row and clears the envelope body
--- (and identity codec metadata when present). Classified data_dependent_offline
--- because cost scales with historical audit volume, like 000035/000045.
+-- This rewrite clears the envelope body only for rows that also have a
+-- command_audits peer (the true duplicate). `traceary log --kind
+-- command_executed` writes a body with no audit row; that body is the only
+-- payload and must survive upgrade. Classified data_dependent_offline because
+-- cost scales with historical audit volume, like 000035/000045.
 --
 -- Empty identity SHA-256 is the digest of the empty string so later payload
 -- integrity checks remain consistent with encodePayload(..., identity).
@@ -21,6 +23,7 @@ UPDATE events
            ELSE body_sha256
        END
  WHERE kind = 'command_executed'
+   AND EXISTS (SELECT 1 FROM command_audits a WHERE a.event_id = events.id)
    AND (
         length(CAST(body AS BLOB)) > 0
      OR COALESCE(body_plaintext_bytes, 0) > 0

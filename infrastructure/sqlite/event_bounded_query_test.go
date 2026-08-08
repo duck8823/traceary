@@ -13,6 +13,71 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+// TestEventBoundedQuery_HydratesEmptyCommandExecutedBodies pins the default
+// MCP bounded path: after #1675 the envelope body is empty for audited
+// commands, so hydrateBoundedEvents must decode command_text and apply the
+// same rune limit / visible_body_runes contract as the SQL path.
+func TestEventBoundedQuery_HydratesEmptyCommandExecutedBodies(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	const (
+		sessionID    = "session-bounded-cmd"
+		commandLine  = "go test ./infrastructure/sqlite -run TestEventBounded -count=1"
+		bodyRuneLimit = 12
+	)
+	eventID := mustEventIDForSQLite(t, "event-bounded-cmd")
+	event := model.EventOf(
+		eventID,
+		types.EventKindCommandExecuted,
+		types.Client("hook"),
+		mustAgentForSQLite(t, "codex"),
+		mustSessionIDForSQLite(t, sessionID),
+		types.Workspace("repo-cmd"),
+		"",
+		time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
+	)
+	audit, err := model.NewCommandAudit(eventID, commandLine, "stdin", "stdout", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+	if err := sut.SaveWithAudit(ctx, event, audit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
+	}
+
+	got, err := sut.ListRecentBounded(
+		ctx,
+		apptypes.NewEventListCriteriaBuilder(1).
+			SessionID(types.SessionID(sessionID)).
+			Kind(types.EventKindCommandExecuted).
+			Build(),
+		bodyRuneLimit,
+	)
+	if err != nil {
+		t.Fatalf("ListRecentBounded() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListRecentBounded() len = %d, want 1", len(got))
+	}
+
+	wantBody := string([]rune(commandLine)[:bodyRuneLimit])
+	if got[0].Body() != wantBody {
+		t.Fatalf("bounded command body = %q, want %q", got[0].Body(), wantBody)
+	}
+	if got[0].VisibleBodyRunes() != len([]rune(commandLine)) {
+		t.Fatalf("VisibleBodyRunes() = %d, want %d", got[0].VisibleBodyRunes(), len([]rune(commandLine)))
+	}
+	if !got[0].BodyResponseTruncated() {
+		t.Fatalf("BodyResponseTruncated() = false, want true for limited command line")
+	}
+}
+
 func TestEventBoundedQuery_ReturnsSmallPrefixFromLargeStoredBody(t *testing.T) {
 	t.Parallel()
 

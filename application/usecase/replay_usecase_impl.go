@@ -30,6 +30,7 @@ const (
 type replayUsecase struct {
 	sessionQuery queryservice.SessionQueryService
 	eventQuery   queryservice.EventQueryService
+	auditPayload queryservice.CommandAuditPayloadQueryService
 	memoryQuery  queryservice.MemoryQueryService
 	now          func() time.Time
 }
@@ -41,15 +42,21 @@ type replayUsecase struct {
 // Using query services directly (instead of write-side usecases)
 // keeps the replay path on the read-only surface, consistent with
 // ContextUsecase and the other cross-aggregate assemblers in this
-// package.
+// package. When eventQuery also implements CommandAuditPayloadQueryService,
+// session event streams hydrate command lines for display after #1675.
 func NewReplayUsecase(
 	sessionQuery queryservice.SessionQueryService,
 	eventQuery queryservice.EventQueryService,
 	memoryQuery queryservice.MemoryQueryService,
 ) ReplayUsecase {
+	var auditPayload queryservice.CommandAuditPayloadQueryService
+	if payload, ok := any(eventQuery).(queryservice.CommandAuditPayloadQueryService); ok {
+		auditPayload = payload
+	}
 	return &replayUsecase{
 		sessionQuery: sessionQuery,
 		eventQuery:   eventQuery,
+		auditPayload: auditPayload,
 		memoryQuery:  memoryQuery,
 		now:          func() time.Time { return time.Now().UTC() },
 	}
@@ -114,6 +121,9 @@ func (u *replayUsecase) Bundle(ctx context.Context, criteria apptypes.ReplayCrit
 		)
 		if err != nil {
 			return apptypes.ReplayBundle{}, xerrors.Errorf("failed to list events for session %s: %w", session.SessionID().String(), err)
+		}
+		if err := u.hydrateCommandLines(ctx, events); err != nil {
+			return apptypes.ReplayBundle{}, err
 		}
 		bundleSessions = append(bundleSessions, apptypes.ReplayBundleSessionOf(session, events))
 		if workspace := session.Workspace(); workspace.String() != "" {
@@ -264,6 +274,20 @@ func (u *replayUsecase) loadFailureHotspots(ctx context.Context, criteria apptyp
 		hotspots = hotspots[:limit]
 	}
 	return hotspots, nil
+}
+
+// hydrateCommandLines decodes command_text onto listed events so replay
+// HTML can render command lines after #1675 emptied the envelope body.
+// No-op when the event query does not expose CommandAuditPayloadQueryService
+// (test stubs, metadata-only wiring).
+func (u *replayUsecase) hydrateCommandLines(ctx context.Context, events []*model.Event) error {
+	if u == nil || u.auditPayload == nil || len(events) == 0 {
+		return nil
+	}
+	if err := u.auditPayload.HydrateCommandAudits(ctx, events, queryservice.CommandOnlyPayload()); err != nil {
+		return xerrors.Errorf("failed to hydrate command audit payloads for replay: %w", err)
+	}
+	return nil
 }
 
 // commandTextForFailureHotspot clusters on the joined command_name when

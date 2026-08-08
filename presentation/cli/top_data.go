@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -86,6 +88,9 @@ func (l *topDataLoader) loadSessionDetail(ctx context.Context, req topDetailRequ
 		if err != nil {
 			return topDetailContent{}, xerrors.Errorf("%s: %w", Localize("failed to load session events", "session event の取得に失敗しました"), err)
 		}
+		if err := l.hydrateCommandLines(ctx, events); err != nil {
+			return topDetailContent{}, err
+		}
 	}
 	return topDetailContent{
 		title: req.target.title,
@@ -161,7 +166,7 @@ func formatTopSessionDetailLines(sessionID domtypes.SessionID, lineage []apptype
 }
 
 func appendSessionEventDetailLines(lines []string, ev *model.Event) []string {
-	bodyLines := splitTopDetailText(apptypes.ExtractPlainBody(ev.Body()))
+	bodyLines := splitTopDetailText(eventBodyForDisplay(ev))
 	prefix := fmt.Sprintf("- %s %s %s", ev.CreatedAt().UTC().Format(eventCompactTimeLayout), ev.EventID(), ev.Kind())
 	if len(bodyLines) == 0 {
 		return append(lines, prefix)
@@ -437,6 +442,9 @@ func (l *topDataLoader) loadFailures(ctx context.Context, c topDataCriteria) ([]
 	if err != nil {
 		return nil, xerrors.Errorf("%s: %w", Localize("failed to list failures", "failures の取得に失敗しました"), err)
 	}
+	if err := l.hydrateCommandLines(ctx, events); err != nil {
+		return nil, err
+	}
 	return events, nil
 }
 
@@ -458,7 +466,22 @@ func (l *topDataLoader) loadRecentCommands(ctx context.Context, c topDataCriteri
 	if err != nil {
 		return nil, xerrors.Errorf("%s: %w", Localize("failed to list recent commands", "recent commands の取得に失敗しました"), err)
 	}
+	if err := l.hydrateCommandLines(ctx, events); err != nil {
+		return nil, err
+	}
 	return events, nil
+}
+
+// hydrateCommandLines decodes command_text onto listed events so top/cockpit
+// panes can render command lines after #1675 emptied the envelope body.
+func (l *topDataLoader) hydrateCommandLines(ctx context.Context, events []*model.Event) error {
+	if l == nil || l.event == nil || len(events) == 0 {
+		return nil
+	}
+	if err := l.event.HydrateCommandAudits(ctx, events, queryservice.CommandOnlyPayload()); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to hydrate command audit payloads", "command audit ペイロードの復元に失敗しました"), err)
+	}
+	return nil
 }
 
 // loadCandidates returns recent inbox memory candidates ordered with
@@ -700,26 +723,71 @@ func countLargePayloadEvents(events []*model.Event, limit int) int {
 		if ev == nil {
 			continue
 		}
-		if apptypes.TruncateCommandPayload(eventPayloadTextForSize(ev), limit).Truncated {
+		if eventPayloadSize(ev).exceeds(limit) {
 			count++
 		}
 	}
 	return count
 }
 
-// eventPayloadTextForSize prefers the retained audit payloads for
-// command_executed rows whose envelope body is empty (#1675).
-func eventPayloadTextForSize(ev *model.Event) string {
+// eventPayloadSizeSnapshot is the large-payload reliability basis for one
+// event. After #1675 audited command bodies are empty, so size prefers
+// listing metadata (input/output original bytes when known) plus any
+// already-hydrated command line — never a full I/O decode on the top path.
+type eventPayloadSizeSnapshot struct {
+	displayText string
+	runeCount   int
+	byteCount   int
+}
+
+func (s eventPayloadSizeSnapshot) exceeds(limit int) bool {
+	if limit <= 0 {
+		return false
+	}
+	return s.runeCount > limit
+}
+
+// eventPayloadSize measures retained content for large-payload metrics.
+// Choice: measure the audit payload (not the emptied envelope body). Prefer
+// fixed-size listing metadata over decoding I/O columns:
+//   - non-empty events.body (logged-only / legacy) → body text size
+//   - else command_executed audit → hydrated command runes + input/output
+//     original_bytes (set when truncated; the oversized cases this metric
+//     is meant to catch). Decoded Input()/Output() are used only if present.
+func eventPayloadSize(ev *model.Event) eventPayloadSizeSnapshot {
 	if ev == nil {
-		return ""
+		return eventPayloadSizeSnapshot{}
 	}
 	if body := apptypes.ExtractPlainBody(ev.Body()); strings.TrimSpace(body) != "" {
-		return body
+		return eventPayloadSizeSnapshot{
+			displayText: body,
+			runeCount:   utf8.RuneCountInString(body),
+			byteCount:   len(body),
+		}
 	}
-	if audit, ok := ev.CommandAudit().Value(); ok && audit != nil {
-		return strings.TrimSpace(audit.Command() + "\n" + audit.Input() + "\n" + audit.Output())
+	audit, ok := ev.CommandAudit().Value()
+	if !ok || audit == nil {
+		return eventPayloadSizeSnapshot{}
 	}
-	return ""
+	command := strings.TrimSpace(audit.Command())
+	inputBytes := audit.InputOriginalBytes()
+	if inputBytes <= 0 {
+		inputBytes = len(audit.Input())
+	}
+	outputBytes := audit.OutputOriginalBytes()
+	if outputBytes <= 0 {
+		outputBytes = len(audit.Output())
+	}
+	// Original-byte metadata is a byte count; treat it as a rune estimate so
+	// the top body-limit comparison stays consistent with TruncateCommandPayload
+	// for ASCII-heavy shell output (the dominant large-payload case).
+	runeCount := utf8.RuneCountInString(command) + inputBytes + outputBytes
+	byteCount := len(command) + inputBytes + outputBytes
+	return eventPayloadSizeSnapshot{
+		displayText: command,
+		runeCount:   runeCount,
+		byteCount:   byteCount,
+	}
 }
 
 // collectLargePayloadSamples builds body-safe samples for the oversized events
@@ -737,9 +805,8 @@ func collectLargePayloadSamples(failures []*model.Event, commands []*model.Event
 			if len(samples) >= topLargePayloadSampleLimit {
 				return
 			}
-			body := eventPayloadTextForSize(ev)
-			truncation := apptypes.TruncateCommandPayload(body, limit)
-			if !truncation.Truncated {
+			size := eventPayloadSize(ev)
+			if !size.exceeds(limit) {
 				continue
 			}
 			eventID := ev.EventID().String()
@@ -751,9 +818,9 @@ func collectLargePayloadSamples(failures []*model.Event, commands []*model.Event
 				EventID:       eventID,
 				Kind:          ev.Kind().String(),
 				Source:        source,
-				MessageLength: truncation.OriginalRuneCount,
-				MessageBytes:  truncation.OriginalByteCount,
-				FirstLine:     boundedFirstLine(body, topLargePayloadFirstLineRuneLimit),
+				MessageLength: size.runeCount,
+				MessageBytes:  size.byteCount,
+				FirstLine:     boundedFirstLine(size.displayText, topLargePayloadFirstLineRuneLimit),
 			})
 		}
 	}

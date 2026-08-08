@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -75,6 +76,10 @@ func (s *topDataEventStub) Show(_ context.Context, eventID domtypes.EventID) (ap
 	s.showEventID = eventID
 	s.showCalls++
 	return s.showDetails, s.showErr
+}
+
+func (s *topDataEventStub) HydrateCommandAudits(context.Context, []*model.Event, queryservice.CommandAuditPayloadFields) error {
+	return nil
 }
 
 // topDataMemoryStub satisfies usecase.MemoryUsecase via the embedded
@@ -1306,6 +1311,10 @@ func (s *snapshotEventStub) List(_ context.Context, criteria apptypes.EventListC
 		return events[:criteria.Limit()], nil
 	}
 	return events, nil
+}
+
+func (s *snapshotEventStub) HydrateCommandAudits(context.Context, []*model.Event, queryservice.CommandAuditPayloadFields) error {
+	return nil
 }
 
 func TestTopDataLoader_LoadSnapshot_NoUsecasesReturnsEmpty(t *testing.T) {

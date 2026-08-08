@@ -44,7 +44,12 @@ WITH RECURSIVE
         e.id,
         e.created_at,
         e.kind,
-        COALESCE(NULLIF(e.body, ''), a.command_text, '') AS latest_event_body,
+        COALESCE(
+          NULLIF(e.body, ''),
+          CASE WHEN COALESCE(a.command_codec, 'identity') = 'identity'
+               THEN a.command_text END,
+          ''
+        ) AS latest_event_body,
         ROW_NUMBER() OVER (
           PARTITION BY e.session_id
           ORDER BY ts_norm(e.created_at) DESC, e.id DESC
