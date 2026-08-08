@@ -12,10 +12,19 @@ On a store upgraded from before the projection schema, the first resume
 batches inventory historical event identities before any payload is decoded.
 This phase is explicit in `status`, uses a stable event-ID cursor, and obeys
 the same row, stored-byte, logical-write-byte, wall-time, and lock-time caps.
-Restarting the process resumes from the last atomic cursor. A concurrent
-canonical mutation invalidates the generation instead of accepting a partial
-inventory. Stores populated by the former migration-38 behavior and new empty
-stores skip this phase without scanning the canonical table.
+Restarting the process resumes from the last atomic cursor. Concurrent
+**updates or deletes** of historical rows invalidate the generation instead of
+accepting a partial inventory. Live **inserts** do not: the events insert
+trigger registers the new identity into `search_projection_source_sequence`
+unconditionally, so inventory has no extra work for that row and hooks that
+write on every store open can still reach `complete`. Stores populated by the
+former migration-38 behavior and new empty stores skip this phase without
+scanning the canonical table.
+
+If an operator starts a generation with a non-default budget and leaves it
+incomplete, automatic catch-up on store open skips rather than hijacking that
+budget. Skips are logged at warning level with the reason; resume or abort with
+the matching budget to unblock progress.
 
 ```sh
 traceary store search-projection resume --until-complete --max-batches 4000 --total-wall-time 8h

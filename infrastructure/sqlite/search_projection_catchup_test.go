@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -14,8 +15,9 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
-	infra "github.com/duck8823/traceary/infrastructure/sqlite"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 // TestSearchProjectionCatchUp_IsBoundedCompleteAndResumable pins the #1680
@@ -396,4 +398,210 @@ func seedSession(t *testing.T, dbPath, sessionID string, startedAt time.Time, wo
 			t.Fatalf("seed session %s: %v", sessionID, err)
 		}
 	})
+}
+
+// seedHistoricalEvents inserts N pre-projection rows without going through
+// event-save triggers that only exist after migration 038.
+func seedHistoricalEvents(t *testing.T, dbPath string, n int) {
+	t.Helper()
+	openRawDB(t, dbPath, func(db *sql.DB) {
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		stmt, err := tx.Prepare(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'note','agent','sess-history','historical body','2026-01-05T12:00:00Z','cli','github.com/duck8823/traceary')`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < n; i++ {
+			if _, err = stmt.Exec(fmt.Sprintf("historical-%08d", i)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_ = stmt.Close()
+		if err = tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func projectionInventoryAndSequence(t *testing.T, dbPath string) (cursor string, cursorStarted int, sequenceRows int, requiresInventory int, lifecycleRows int, state string, phase string) {
+	t.Helper()
+	openRawDB(t, dbPath, func(db *sql.DB) {
+		if err := db.QueryRow(`
+			SELECT i.cursor, i.cursor_started,
+			       (SELECT COUNT(*) FROM search_projection_source_sequence),
+			       (SELECT requires_inventory FROM search_projection_inventory_compat),
+			       (SELECT COUNT(*) FROM search_projection_generation_lifecycle),
+			       s.state, s.phase
+			  FROM search_projection_state s
+			  JOIN search_projection_inventory_state i ON i.singleton = s.singleton
+			 WHERE s.singleton = 1`).Scan(&cursor, &cursorStarted, &sequenceRows, &requiresInventory, &lifecycleRows, &state, &phase); err != nil {
+			t.Fatalf("projection inventory probe: %v", err)
+		}
+	})
+	return cursor, cursorStarted, sequenceRows, requiresInventory, lifecycleRows, state, phase
+}
+
+// TestSearchProjectionCatchUp_AlternatingWritesConvergeInventory pins the
+// hook-shaped interleaving that stalled #1680: migrate a historical store,
+// then alternate {insert one event, open the store}. Live inserts must not
+// drift the in-flight inventory generation, so the inventory cursor and
+// source_sequence converge to complete despite continuous writes.
+func TestSearchProjectionCatchUp_AlternatingWritesConvergeInventory(t *testing.T) {
+	t.Parallel()
+
+	const historical = 400
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+
+	// Pre-038 store with historical events (requires_inventory=1 on upgrade).
+	legacy := infra.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 38))
+	if err := infra.NewStoreManagementDatasource(legacy).Initialize(ctx); err != nil {
+		t.Fatalf("legacy Initialize: %v", err)
+	}
+	seedHistoricalEvents(t, dbPath, historical)
+
+	// Upgrade to head and run automatic catch-up on every subsequent open.
+	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	store := infra.NewStoreManagementDatasource(database)
+	events := infra.NewEventDatasource(database)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("upgrade Initialize: %v", err)
+	}
+	_, _, seqAfterUpgrade, requires, _, _, _ := projectionInventoryAndSequence(t, dbPath)
+	if requires != 1 {
+		t.Fatalf("after upgrade requires_inventory=%d, want 1 so inventory path is exercised", requires)
+	}
+	if seqAfterUpgrade < 1 {
+		t.Fatalf("upgrade catch-up wrote no source sequence rows")
+	}
+
+	workspace := types.Workspace("github.com/duck8823/traceary")
+	base := time.Date(2026, 8, 6, 14, 0, 0, 0, time.UTC)
+	seedSession(t, dbPath, "sess-live", base, workspace.String())
+
+	var status apptypes.SearchProjectionStatus
+	const maxOpens = 80
+	for i := 0; i < maxOpens; i++ {
+		liveID := fmt.Sprintf("live-note-%05d", i)
+		event := newSearchEventWithSession(t, liveID, "sess-live", workspace.String(), "live write body "+liveID, base.Add(time.Duration(i)*time.Second))
+		if err := events.Save(ctx, event); err != nil {
+			t.Fatalf("Save live event #%d: %v", i, err)
+		}
+		if err := store.Initialize(ctx); err != nil {
+			t.Fatalf("alternating Initialize #%d: %v", i+1, err)
+		}
+		status = projectionStatus(t, database)
+		if status.Completed {
+			break
+		}
+	}
+	if !status.Completed {
+		cursor, started, seq, requires, lifecycle, state, phase := projectionInventoryAndSequence(t, dbPath)
+		t.Fatalf("projection did not complete under alternating writes: status=%+v inventory(cursor=%q started=%d seq=%d requires=%d lifecycle=%d state=%s phase=%s)",
+			status, cursor, started, seq, requires, lifecycle, state, phase)
+	}
+
+	_, _, sequenceRows, requiresInventory, lifecycleRows, _, _ := projectionInventoryAndSequence(t, dbPath)
+	if requiresInventory != 0 {
+		t.Fatalf("requires_inventory=%d after complete, want 0", requiresInventory)
+	}
+	// Every historical row plus every live insert must be in the sequence.
+	// Live inserts may continue after inventory handoff; sequence is at least
+	// the historical corpus.
+	if sequenceRows < historical {
+		t.Fatalf("source_sequence rows=%d, want >= %d historical identities", sequenceRows, historical)
+	}
+	// Without the insert-trigger fix, CatchUp restarts a generation every two
+	// opens and lifecycle grows unbounded. With the fix it stays a small constant.
+	if lifecycleRows > 4 {
+		t.Fatalf("lifecycle rows=%d, want bounded (<=4), not growing per open", lifecycleRows)
+	}
+}
+
+// TestSearchProjectionCatchUp_AlternatingCommandEventsConverge is the
+// command-hook path: one transaction writes events + command_audits. Fixing
+// only the events insert trigger still drifts via audits_insert.
+func TestSearchProjectionCatchUp_AlternatingCommandEventsConverge(t *testing.T) {
+	t.Parallel()
+
+	const historical = 300
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+
+	legacy := infra.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 38))
+	if err := infra.NewStoreManagementDatasource(legacy).Initialize(ctx); err != nil {
+		t.Fatalf("legacy Initialize: %v", err)
+	}
+	seedHistoricalEvents(t, dbPath, historical)
+
+	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	store := infra.NewStoreManagementDatasource(database)
+	events := infra.NewEventDatasource(database)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("upgrade Initialize: %v", err)
+	}
+
+	workspace := types.Workspace("github.com/duck8823/traceary")
+	base := time.Date(2026, 8, 6, 15, 0, 0, 0, time.UTC)
+	seedSession(t, dbPath, "sess-cmd", base, workspace.String())
+
+	var status apptypes.SearchProjectionStatus
+	const maxOpens = 80
+	for i := 0; i < maxOpens; i++ {
+		liveID := fmt.Sprintf("live-cmd-%05d", i)
+		eventID, err := types.EventIDFrom(liveID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		agent, err := types.AgentFrom("codex")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessionID, err := types.SessionIDFrom("sess-cmd")
+		if err != nil {
+			t.Fatal(err)
+		}
+		event := model.EventOf(
+			eventID,
+			types.EventKindCommandExecuted,
+			types.Client("cli"),
+			agent,
+			sessionID,
+			workspace,
+			"",
+			base.Add(time.Duration(i)*time.Second),
+		)
+		audit, err := model.NewCommandAudit(eventID, "traceary doctor", "", "ok", false, false)
+		if err != nil {
+			t.Fatalf("NewCommandAudit: %v", err)
+		}
+		if err := events.SaveWithAudit(ctx, event, audit); err != nil {
+			t.Fatalf("SaveWithAudit #%d: %v", i, err)
+		}
+		if err := store.Initialize(ctx); err != nil {
+			t.Fatalf("alternating Initialize #%d: %v", i+1, err)
+		}
+		status = projectionStatus(t, database)
+		if status.Completed {
+			break
+		}
+	}
+	if !status.Completed {
+		cursor, started, seq, requires, lifecycle, state, phase := projectionInventoryAndSequence(t, dbPath)
+		t.Fatalf("command-event projection did not complete: status=%+v inventory(cursor=%q started=%d seq=%d requires=%d lifecycle=%d state=%s phase=%s)",
+			status, cursor, started, seq, requires, lifecycle, state, phase)
+	}
+
+	_, _, sequenceRows, requiresInventory, lifecycleRows, _, _ := projectionInventoryAndSequence(t, dbPath)
+	if requiresInventory != 0 {
+		t.Fatalf("requires_inventory=%d after complete, want 0", requiresInventory)
+	}
+	if sequenceRows < historical {
+		t.Fatalf("source_sequence rows=%d, want >= %d", sequenceRows, historical)
+	}
+	if lifecycleRows > 4 {
+		t.Fatalf("lifecycle rows=%d, want bounded (<=4)", lifecycleRows)
+	}
 }

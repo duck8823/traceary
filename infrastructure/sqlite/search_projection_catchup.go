@@ -150,7 +150,20 @@ func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, e
 		)
 		return
 	}
-	if result.Action == "skipped" || result.Action == "already_complete" || result.Action == "none" {
+	// Quiet terminal/no-op states stay silent. Permanent skips (especially a
+	// budget mismatch left by an abandoned operator rebuild) must be visible:
+	// the generation will never reach complete on its own.
+	if result.Action == "already_complete" || result.Action == "none" {
+		return
+	}
+	if result.Action == "skipped" {
+		slog.Warn("search projection catch-up skipped; resume or abort with the matching budget to unblock automatic progress",
+			"action", result.Action,
+			"state", result.State,
+			"phase", result.Phase,
+			"generation_id", result.GenerationID,
+			"reason", result.SkippedReason,
+		)
 		return
 	}
 	attrs := []any{
