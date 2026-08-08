@@ -19,12 +19,12 @@ func (s *orphanRecordRepoStub) Record(_ context.Context, orphan *model.SessionOr
 	return nil
 }
 
-func (s *orphanRecordRepoStub) DiscoverCandidates(context.Context, time.Duration, time.Time, bool) ([]*model.SessionOrphanRange, error) {
+func (s *orphanRecordRepoStub) DiscoverCandidates(context.Context, time.Duration, time.Time) ([]*model.SessionOrphanRange, error) {
 	return nil, nil
 }
 
 func (s *orphanRecordRepoStub) LoadMaterial(
-	context.Context, types.SessionID, types.Optional[types.EventID], types.EventID, bool,
+	context.Context, types.SessionID, types.Optional[types.EventID], types.EventID,
 ) (model.SessionOrphanMaterial, error) {
 	return model.SessionOrphanMaterial{}, nil
 }

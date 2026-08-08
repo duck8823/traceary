@@ -136,7 +136,7 @@ func TestSessionOrphanRangeDatasource_RecordAtCompactAfterUnfoldedRange(t *testi
 		t.Fatalf("RecordAtCompact() error = %v", err)
 	}
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt, false)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -153,7 +153,7 @@ func TestSessionOrphanRangeDatasource_RecordAtCompactAfterUnfoldedRange(t *testi
 	}
 
 	// Material must include evt-frac under ts_norm order (not lexical).
-	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.Some(types.EventID("evt-whole")), "evt-compact", false)
+	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.Some(types.EventID("evt-whole")), "evt-compact")
 	if err != nil {
 		t.Fatalf("LoadMaterial() error = %v", err)
 	}
@@ -208,7 +208,7 @@ func TestSessionOrphanRangeDatasource_GCFindsEndedSessionWithoutMarker(t *testin
 
 	// No orphan row recorded — discovery must still find the gap past covers_to.
 	now := frac.Add(2 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, false)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -299,7 +299,7 @@ func TestSessionOrphanRangeDatasource_RunningSessionLeftAlone(t *testing.T) {
 		{id: "evt-2", at: now.Add(-time.Minute)},
 	}, false)
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, false)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -487,7 +487,7 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t 
 	}
 
 	now := base.Add(48 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, false)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() on pre-47 store error = %v", err)
 	}
@@ -571,7 +571,7 @@ func TestSessionOrphanRangeDatasource_LoadMaterialIncludesCommandsAndKinds(t *te
 		t.Fatal(err)
 	}
 
-	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.None[types.EventID](), "sess-mat-end", false)
+	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.None[types.EventID](), "sess-mat-end")
 	if err != nil {
 		t.Fatalf("LoadMaterial() error = %v", err)
 	}
@@ -618,7 +618,7 @@ func TestSessionOrphanRangeDatasource_FractionalSecondBoundaryOrdering(t *testin
 		t.Fatal("evt-frac should be strictly after evt-whole under ts_norm")
 	}
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour), false)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}

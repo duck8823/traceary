@@ -21,19 +21,14 @@ type orphanRepoStub struct {
 	materialErr  error
 	loadCalls    int
 	discoverCall int
-	// lastDiscoverReadOnly / lastLoadReadOnly record the connection mode the
-	// use case requested so dry-run vs apply routing can be asserted.
-	lastDiscoverReadOnly bool
-	lastLoadReadOnly     bool
 }
 
 func (s *orphanRepoStub) Record(context.Context, *model.SessionOrphanRange) error {
 	return nil
 }
 
-func (s *orphanRepoStub) DiscoverCandidates(_ context.Context, _ time.Duration, _ time.Time, readOnly bool) ([]*model.SessionOrphanRange, error) {
+func (s *orphanRepoStub) DiscoverCandidates(_ context.Context, _ time.Duration, _ time.Time) ([]*model.SessionOrphanRange, error) {
 	s.discoverCall++
-	s.lastDiscoverReadOnly = readOnly
 	if s.discoverErr != nil {
 		return nil, s.discoverErr
 	}
@@ -45,10 +40,8 @@ func (s *orphanRepoStub) LoadMaterial(
 	_ types.SessionID,
 	_ types.Optional[types.EventID],
 	_ types.EventID,
-	readOnly bool,
 ) (model.SessionOrphanMaterial, error) {
 	s.loadCalls++
-	s.lastLoadReadOnly = readOnly
 	if s.materialErr != nil {
 		return model.SessionOrphanMaterial{}, s.materialErr
 	}
@@ -128,9 +121,6 @@ func TestOrphanConsolidationUsecase_ProducesDegradedRefinement(t *testing.T) {
 	}
 	if diff := cmp.Diff(1, got.ProducedCount()); diff != "" {
 		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
-	}
-	if repo.lastDiscoverReadOnly || repo.lastLoadReadOnly {
-		t.Fatalf("apply path used readOnly open: discover=%t load=%t", repo.lastDiscoverReadOnly, repo.lastLoadReadOnly)
 	}
 	if len(refine.calls) != 1 {
 		t.Fatalf("Refine calls = %d, want 1", len(refine.calls))
@@ -390,9 +380,6 @@ func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 	}
 	if repo.loadCalls != 1 {
 		t.Fatalf("LoadMaterial calls = %d, want 1 (validate material exists)", repo.loadCalls)
-	}
-	if !repo.lastDiscoverReadOnly || !repo.lastLoadReadOnly {
-		t.Fatalf("dry-run must request readOnly open: discover=%t load=%t", repo.lastDiscoverReadOnly, repo.lastLoadReadOnly)
 	}
 }
 

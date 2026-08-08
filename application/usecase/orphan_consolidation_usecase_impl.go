@@ -61,9 +61,7 @@ func (u *orphanConsolidationUsecase) Consolidate(
 	}
 
 	now := u.clock.Now()
-	// Dry-run discovery must not open a journal-mode connection (store side
-	// effects, fails on a filesystem read-only store). Apply uses open.
-	candidates, err := u.orphans.DiscoverCandidates(ctx, input.StaleAfter, now, input.DryRun)
+	candidates, err := u.orphans.DiscoverCandidates(ctx, input.StaleAfter, now)
 	if err != nil {
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("failed to discover orphan ranges: %w", err)
 	}
@@ -77,7 +75,7 @@ func (u *orphanConsolidationUsecase) Consolidate(
 			// Dry-run must not write refinements. Count ranges that still have
 			// material; LoadMaterial failing closed is reported as an error so
 			// operators do not get a silent zero.
-			if _, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID(), true); err != nil {
+			if _, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID()); err != nil {
 				return apptypes.OrphanConsolidationResult{}, xerrors.Errorf(
 					"failed to load orphan material for dry-run session %s: %w",
 					orphan.SessionID(), err,
@@ -95,7 +93,7 @@ func (u *orphanConsolidationUsecase) Consolidate(
 }
 
 func (u *orphanConsolidationUsecase) produceDegraded(ctx context.Context, orphan *model.SessionOrphanRange) error {
-	material, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID(), false)
+	material, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID())
 	if err != nil {
 		return xerrors.Errorf("failed to load orphan material for session %s: %w", orphan.SessionID(), err)
 	}
