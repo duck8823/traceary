@@ -318,6 +318,21 @@ func TestSearchProjectionReadPath_FiltersApplyToBothTiers(t *testing.T) {
 		}
 	})
 
+	t.Run("session group belongs to the first page only", func(t *testing.T) {
+		criteria := apptypes.NewEventSearchCriteriaBuilder(20).
+			Query("filter-needle").
+			Workspace(wsA).
+			Offset(10).
+			Build()
+		sessions, err := sut.SearchSessionHits(ctx, criteria, nil)
+		if err != nil {
+			t.Fatalf("SearchSessionHits() error = %v", err)
+		}
+		if len(sessions) != 0 {
+			t.Fatalf("offset page repeated the session group: %+v", sessions)
+		}
+	})
+
 	t.Run("from/to filter", func(t *testing.T) {
 		from := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 		to := time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
@@ -387,6 +402,46 @@ func TestSearchProjectionReadPath_ShortQueryAnswersUnderBothTiers(t *testing.T) 
 	after := search()
 	if diff := cmp.Diff(before, after); diff != "" {
 		t.Fatalf("short query changed once the projection became authoritative (-before +after):\n%s", diff)
+	}
+}
+
+// A complete generation is a snapshot. Migration 038's insert trigger records
+// the source sequence of a new event but never adds it to the projection, and
+// an insert does not drift a complete generation — so reading the projection
+// alone would stop returning anything recorded after the last rebuild.
+func TestSearchProjectionReadPath_EventsAppendedAfterRebuildStayFindable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	workspace := types.Workspace("github.com/duck8823/traceary")
+	base := time.Date(2026, 8, 6, 14, 0, 0, 0, time.UTC)
+	indexed := newSearchEventWithSession(t, "evt-indexed", "sess-tail", workspace.String(), "freshness-marker in the projection", base)
+	if err := sut.Save(ctx, indexed); err != nil {
+		t.Fatalf("Save(indexed) error = %v", err)
+	}
+	seedCompleteProjection(t, dbPath, "gen-tail", []projectionRecentSeed{
+		{eventID: "evt-indexed", sessionID: "sess-tail", body: "freshness-marker in the projection", createdAt: base},
+	}, nil, nil)
+
+	// Recorded after the generation completed: present in events, absent from
+	// the projection, and the generation is still `complete`.
+	appended := newSearchEventWithSession(t, "evt-appended", "sess-tail", workspace.String(), "freshness-marker recorded after the rebuild", base.Add(time.Hour))
+	if err := sut.Save(ctx, appended); err != nil {
+		t.Fatalf("Save(appended) error = %v", err)
+	}
+
+	got, err := sut.Search(ctx, "freshness-marker", workspace, "", "", "", "", time.Time{}, time.Time{}, 20, 0, false)
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"evt-appended", "evt-indexed"}, eventIDs(got)); diff != "" {
+		t.Fatalf("Search() must include events appended after the rebuild (-want +got):\n%s", diff)
 	}
 }
 
@@ -460,13 +515,15 @@ func seedCompleteProjection(
 ) {
 	t.Helper()
 	openRawDB(t, dbPath, func(db *sql.DB) {
+		// high_water is the source sequence reached when the generation
+		// completed, so events saved afterwards fall in the tail.
 		if _, err := db.Exec(`
 			UPDATE search_projection_state
 			   SET generation_id = ?,
 			       active_generation_id = ?,
 			       state = 'complete',
 			       phase = 'complete',
-			       high_water = 100
+			       high_water = (SELECT COALESCE(MAX(sequence), 0) FROM search_projection_source_sequence)
 			 WHERE singleton = 1`,
 			generationID, generationID,
 		); err != nil {

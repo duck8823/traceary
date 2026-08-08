@@ -163,6 +163,8 @@ Traceary operator cockpit TUI を開きます。
 
 有効な bounded search projection 世代があるとき（`search_projection_state.state = complete` かつ `active_generation_id` が非空）、`search` はその projection を読みます。直近の全文ヒットは `search_projection_recent_fts` から、セッション要約・キーワードにだけヒットする過去履歴は別グループの **SESSIONS** として返ります。SESSIONS 行は「この trail を開け」という意味であり、一致した event 行ではありません。projection 世代が complete になるまでは、legacy の migration-032 索引が自動・無言のフォールバックのままなので、再構築前の既存ストアでも動作は変わりません。
 
+complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。この tail が bounded candidate limit を超えた場合は、不完全と分かっているページを返す代わりに legacy 索引へフォールバックします。projection を再構築（`traceary store search-projection start` → `resume`）すると高速経路に戻ります。
+
 直近 event だけの結果では、テキスト出力は `list` / `tail` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。セッションヒットがあるときだけ `EVENTS（直近・全文）` と `SESSIONS（過去・要約）` のラベル付きグループになります。`--wide` で従来のタブ区切り表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の event 行形状を再現します。`--json` は v0.34 では従来通り event オブジェクトのトップレベル配列のままです。セッション階層ヒットはこの形状で表現できないため、セッションに一致した場合は件数を **stderr** に通知し、stdout はバイト単位で変わりません。確認するには `--json` を外してください。v0.35 以降 `search --json` は配列ではなく `events` と `sessions` を持つオブジェクトを出力します。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます。filter を持つ preset なら free-text query なしでも検索条件が揃うので、preset-only な検索も成立します。
 
 期間 filter は `traceary list` と同じ要求値・実効値の規則を使います。日付だけの終了日は指定した暦日を含み、`--timezone` は明示的（既定は UTC）、RFC3339 の終了は正確な排他時刻のままです。

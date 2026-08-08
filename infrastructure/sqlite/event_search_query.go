@@ -114,9 +114,165 @@ func selectEventSearchCandidateIDs(
 		return nil, err
 	}
 	if projectionReady {
-		return queryProjectionFTSEventIDs(ctx, queryer, criteria, queryValue)
+		ids, servedByProjection, err := selectProjectionEventSearchCandidateIDs(ctx, queryer, criteria, queryValue)
+		if err != nil {
+			return nil, err
+		}
+		if servedByProjection {
+			return ids, nil
+		}
+		// The projection is too far behind to answer within the tail budget.
+		// Fall back rather than return a knowingly incomplete page.
 	}
 	return selectLegacyEventSearchCandidateIDs(ctx, queryer, criteria, queryValue)
+}
+
+// selectProjectionEventSearchCandidateIDs answers from the bounded projection
+// plus the events appended since the generation completed.
+//
+// A complete generation is a snapshot: migration 038's insert trigger records
+// the source sequence of a new event but does not add it to the projection, and
+// an insert does not drift a complete generation. Reading the projection alone
+// would therefore stop returning anything recorded after the last rebuild —
+// silently, and for as long as nobody rebuilds. The tail closes that window.
+//
+// Returns false when the tail exceeds the candidate budget, meaning the
+// generation is too stale to answer cheaply and the caller should fall back.
+func selectProjectionEventSearchCandidateIDs(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+	queryValue string,
+) ([]string, bool, error) {
+	highWater, err := searchProjectionHighWater(ctx, queryer)
+	if err != nil {
+		return nil, false, err
+	}
+	tailIDs, withinBudget, err := selectProjectionTailEventIDs(ctx, queryer, criteria, queryValue, highWater)
+	if err != nil {
+		return nil, false, err
+	}
+	if !withinBudget {
+		return nil, false, nil
+	}
+
+	// Any projection row ranked below this position cannot reach the requested
+	// page even after the tail is merged in, so fetching more is wasted work.
+	fetch := criteria.Limit() + len(tailIDs)
+	if criteria.PageAnchor().IsZero() {
+		fetch += criteria.Offset()
+	}
+	query, args := buildProjectionFTSEventIDsQuery(criteria, queryValue, fetch)
+	projectionIDs, err := collectEventSearchIDs(ctx, queryer, query, args, "projection event search")
+	if err != nil {
+		return nil, false, err
+	}
+
+	merged := mergeEventSearchCandidateIDs(tailIDs, projectionIDs)
+	if len(merged) == 0 {
+		return []string{}, true, nil
+	}
+	ordered, err := orderEventSearchCandidatePage(ctx, queryer, criteria, merged)
+	if err != nil {
+		return nil, false, err
+	}
+	return ordered, true, nil
+}
+
+func searchProjectionHighWater(ctx context.Context, queryer eventSearchQueryer) (int64, error) {
+	var highWater int64
+	if err := queryer.QueryRowContext(ctx, `
+		SELECT high_water
+		  FROM search_projection_state
+		 WHERE singleton = 1`,
+	).Scan(&highWater); err != nil {
+		return 0, xerrors.Errorf("failed to read search projection high water: %w", err)
+	}
+	return highWater, nil
+}
+
+// selectProjectionTailEventIDs literal-matches the events appended after the
+// active generation completed. It decodes payloads through the same adapter
+// boundary as normal reads, so it stays correct once bodies are compressed.
+func selectProjectionTailEventIDs(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+	queryValue string,
+	highWater int64,
+) ([]string, bool, error) {
+	var builder strings.Builder
+	builder.WriteString("SELECT e.id FROM events e INDEXED BY ")
+	builder.WriteString(eventSearchScopeIndex(criteria))
+	builder.WriteString(` LEFT JOIN command_audits a ON a.event_id=e.id
+		 WHERE EXISTS (
+		       SELECT 1
+		         FROM search_projection_source_sequence q
+		        WHERE q.event_id = e.id
+		          AND q.sequence > ?
+		 )`)
+	args := []any{highWater}
+	args = appendEventSearchFilters(&builder, args, criteria)
+	builder.WriteString(" ORDER BY e.created_at_norm DESC, e.id DESC LIMIT ?")
+	args = append(args, eventSearchLegacyCandidateLimit+1)
+
+	ids, err := collectEventSearchIDs(ctx, queryer, builder.String(), args, "projection tail event search")
+	if err != nil {
+		return nil, false, err
+	}
+	if len(ids) > eventSearchLegacyCandidateLimit {
+		return nil, false, nil
+	}
+
+	matched := make([]string, 0)
+	for _, eventID := range ids {
+		matches, err := decodedEventSearchMatch(ctx, queryer, eventID, queryValue)
+		if err != nil {
+			return nil, false, err
+		}
+		if matches {
+			matched = append(matched, eventID)
+		}
+	}
+	return matched, true, nil
+}
+
+func mergeEventSearchCandidateIDs(left []string, right []string) []string {
+	seen := make(map[string]struct{}, len(left)+len(right))
+	merged := make([]string, 0, len(left)+len(right))
+	for _, ids := range [][]string{left, right} {
+		for _, id := range ids {
+			if _, duplicate := seen[id]; duplicate {
+				continue
+			}
+			seen[id] = struct{}{}
+			merged = append(merged, id)
+		}
+	}
+	return merged
+}
+
+// orderEventSearchCandidatePage restores the canonical ordering and applies the
+// requested page across candidates that came from two different sources.
+func orderEventSearchCandidatePage(
+	ctx context.Context,
+	queryer eventSearchQueryer,
+	criteria apptypes.EventSearchCriteria,
+	ids []string,
+) ([]string, error) {
+	encoded, err := marshalEventSearchCandidateIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	var builder strings.Builder
+	builder.WriteString(`
+		SELECT e.id
+		  FROM events e
+		 WHERE e.id IN (SELECT CAST(value AS TEXT) FROM json_each(?))`)
+	args := []any{encoded}
+	appendEventSearchOrderAndPage(&builder, criteria)
+	args = appendEventSearchPageArgs(args, criteria)
+	return collectEventSearchIDs(ctx, queryer, builder.String(), args, "projection page ordering")
 }
 
 // selectShortQueryCandidateIDs answers queries no trigram index can serve. It
@@ -489,16 +645,6 @@ func queryFTSEventIDs(
 	return collectEventSearchIDs(ctx, queryer, query, args, "indexed event search")
 }
 
-func queryProjectionFTSEventIDs(
-	ctx context.Context,
-	queryer eventSearchQueryer,
-	criteria apptypes.EventSearchCriteria,
-	queryValue string,
-) ([]string, error) {
-	query, args := buildProjectionFTSEventIDsQuery(criteria, queryValue)
-	return collectEventSearchIDs(ctx, queryer, query, args, "projection event search")
-}
-
 func buildFTSEventIDsQuery(
 	criteria apptypes.EventSearchCriteria,
 	queryValue string,
@@ -519,9 +665,13 @@ func buildFTSEventIDsQuery(
 	return builder.String(), args
 }
 
+// buildProjectionFTSEventIDsQuery takes an explicit fetch bound instead of the
+// requested page, because the caller merges these rows with the tail before
+// paging.
 func buildProjectionFTSEventIDsQuery(
 	criteria apptypes.EventSearchCriteria,
 	queryValue string,
+	fetch int,
 ) (string, []any) {
 	var builder strings.Builder
 	builder.WriteString(`
@@ -539,8 +689,8 @@ func buildProjectionFTSEventIDsQuery(
 		       )`)
 	args := []any{eventSearchFTSPhrase(queryValue)}
 	args = appendEventSearchFilters(&builder, args, criteria)
-	appendEventSearchOrderAndPage(&builder, criteria)
-	args = appendEventSearchPageArgs(args, criteria)
+	builder.WriteString(" ORDER BY e.created_at_norm DESC, e.id DESC LIMIT ?")
+	args = append(args, fetch)
 	return builder.String(), args
 }
 

@@ -588,7 +588,14 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		d := w.Document
 		if !d.Deleted {
 			if w.RetainRecent {
-				if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, p.GenerationID, d.Sequence, d.EventID, d.CreatedAt, d.Text, len(d.Text)); e != nil {
+				// The recent FTS tokenizer is `trigram case_sensitive 1` and
+				// queries are ASCII-folded before they are matched, so the
+				// indexed text must be folded too — exactly as the legacy
+				// event_search_documents writer does. Storing raw text here
+				// makes every term containing an uppercase letter unfindable.
+				// Folding is length-preserving, so decoded_bytes is unaffected.
+				bodyText := lowerSearchASCII(d.Text)
+				if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, p.GenerationID, d.Sequence, d.EventID, d.CreatedAt, bodyText, len(bodyText)); e != nil {
 					return out, e
 				}
 			}

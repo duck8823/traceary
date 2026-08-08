@@ -246,7 +246,7 @@ func WithCapacityInspector(inspector application.CapacityInspector) RootCLIOptio
 	return func(c *RootCLI) { c.capacityInspector = inspector }
 }
 
-// WithSearchProjection injects the explicit, non-authoritative projection workflow.
+// WithSearchProjection injects the explicit derived-projection lifecycle workflow.
 func WithSearchProjection(projection *usecase.SearchProjectionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.searchProjection = projection }
 }

@@ -33,6 +33,13 @@ func (d *EventDatasource) SearchSessionHits(
 	if strings.TrimSpace(criteria.Kind().String()) != "" {
 		return []apptypes.SearchSessionHit{}, nil
 	}
+	// The session group points at trails the event tier could not reach; it is
+	// not a paginated list. Repeating it under every page anchor or offset would
+	// show the same sessions again on page two, so it belongs to the first page
+	// only.
+	if criteria.Offset() > 0 || !criteria.PageAnchor().IsZero() {
+		return []apptypes.SearchSessionHit{}, nil
+	}
 
 	db, err := d.db.open(ctx)
 	if err != nil {
