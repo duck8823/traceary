@@ -149,6 +149,11 @@ type Database struct {
 	// searchMaintenanceHook is a package-private transaction-boundary seam used
 	// by deterministic atomicity tests. Production databases leave it nil.
 	searchMaintenanceHook func(string) error
+	// searchProjectionMeasureTimeoutOverride shortens the cutover evidence
+	// deadline so tests can observe an unavailable measurement without building
+	// a projection family large enough to be genuinely slow. Production
+	// databases leave it zero and get searchProjectionMeasureTimeout.
+	searchProjectionMeasureTimeoutOverride time.Duration
 }
 
 func (d *Database) runSearchMaintenanceHook(point string) error {
@@ -371,6 +376,15 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 			"target_event_id", searchBackfillResult.TargetID,
 			"completed", searchBackfillResult.Completed,
 		)
+	}
+	// Bounded projection generation is driven the same way as event search
+	// backfill: one durable unit per store open, resumable, never blocking
+	// Initialize on a full rebuild. Legacy search stays authoritative until
+	// the generation reaches complete (#1717 / #1680). Projection methods open
+	// via Path(), so skip when SetPath raced against the migrate snapshot.
+	if snapshot == d.Path() {
+		projectionCatchUp, projectionCatchUpErr := catchUpSearchProjection(ctx, d)
+		logSearchProjectionCatchUp(projectionCatchUp, projectionCatchUpErr)
 	}
 	catchUpResult, catchUpErr := catchUpWorkspaceObservations(ctx, db, workspaceObservationCatchUpBatchSize)
 	if catchUpErr != nil {

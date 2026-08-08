@@ -222,4 +222,49 @@ type SearchProjectionStatus struct {
 	FingerprintLogicalBytes int64            `json:"fingerprint_logical_bytes"`
 	LifecycleState          string           `json:"lifecycle_state"`
 	AbandonedAt             string           `json:"abandoned_at,omitempty"`
+	// FailureClass names why the last generation failed. It is what decides
+	// whether automatic catch-up may start a replacement: a deterministic class
+	// would fail the same way on every open.
+	FailureClass string `json:"failure_class,omitempty"`
+	// CutoverIndexFamily names which physical family CutoverFamilyBytes*
+	// measure. Always "bounded_search_projection" when set — never the
+	// legacy migration-032 event_search_* family (that is #1718).
+	CutoverIndexFamily       string `json:"cutover_index_family,omitempty"`
+	CutoverFamilyBytesBefore int64  `json:"cutover_family_bytes_before,omitempty"`
+	CutoverFamilyBytesAfter  int64  `json:"cutover_family_bytes_after,omitempty"`
+	// CutoverBeforeEvidence and CutoverAfterEvidence state whether each byte
+	// figure above was actually measured. Without them a family that could not
+	// be measured reports zero bytes, which reads identically to a genuinely
+	// empty family. They are separate because the two walks happen at different
+	// times against families of different sizes: one can succeed while the
+	// other times out. An empty Status means no measurement has been attempted
+	// yet.
+	CutoverBeforeEvidence CapacityEvidence `json:"cutover_before_evidence"`
+	CutoverAfterEvidence  CapacityEvidence `json:"cutover_after_evidence"`
+}
+
+// SearchProjectionCatchUpResult is one bounded unit of automatic generation
+// work performed during store initialization. It mirrors the event-search
+// backfill shape: a single open does a bounded amount of work and resumes
+// later without operator action.
+type SearchProjectionCatchUpResult struct {
+	Action                   string `json:"action"`
+	State                    string `json:"state"`
+	Phase                    string `json:"phase"`
+	GenerationID             string `json:"generation_id,omitempty"`
+	Completed                bool   `json:"completed"`
+	Batches                  int    `json:"batches"`
+	Selected                 int    `json:"selected"`
+	Written                  int    `json:"written"`
+	SkippedReason            string `json:"skipped_reason,omitempty"`
+	CutoverIndexFamily       string `json:"cutover_index_family,omitempty"`
+	CutoverFamilyBytesBefore int64  `json:"cutover_family_bytes_before,omitempty"`
+	CutoverFamilyBytesAfter  int64  `json:"cutover_family_bytes_after,omitempty"`
+	// CutoverBeforeEvidence and CutoverAfterEvidence carry the same
+	// measured/unavailable distinction as SearchProjectionStatus so a zero in
+	// the byte fields above is never read as an empty family when it only means
+	// the walk did not run.
+	CutoverBeforeEvidence CapacityEvidence `json:"cutover_before_evidence"`
+	CutoverAfterEvidence  CapacityEvidence `json:"cutover_after_evidence"`
+	SessionTierVerified   bool             `json:"session_tier_verified,omitempty"`
 }

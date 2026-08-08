@@ -4,16 +4,45 @@
 
 The search projection is derived: it can always be rebuilt from canonical events and command audits, and projection lifecycle commands never change them. Since v0.34 it is what `traceary search` reads when a generation is complete, with events recorded after the rebuild merged in from the canonical tables so results do not go stale between rebuilds.
 
-Start a generation with `traceary store search-projection start`. Resume one durable bounded batch with `resume`, or run multiple independently committed batches:
+Stores that have never built a generation do not need an operator command for the first cutover. Every store open runs one bounded unit of generation work (the same shape as the event-search backfill on initialize): start if idle and source events exist, otherwise resume a matching rebuild. The legacy migration-032 index stays authoritative until the generation reaches `complete`. Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only — never the legacy `event_search_*` family.
+
+Operators can still drive the same machinery explicitly. Start a generation with `traceary store search-projection start`. Resume one durable bounded batch with `resume`, or run multiple independently committed batches:
 
 On a store upgraded from before the projection schema, the first resume
 batches inventory historical event identities before any payload is decoded.
 This phase is explicit in `status`, uses a stable event-ID cursor, and obeys
 the same row, stored-byte, logical-write-byte, wall-time, and lock-time caps.
-Restarting the process resumes from the last atomic cursor. A concurrent
-canonical mutation invalidates the generation instead of accepting a partial
-inventory. Stores populated by the former migration-38 behavior and new empty
-stores skip this phase without scanning the canonical table.
+Restarting the process resumes from the last atomic cursor. Concurrent
+**updates or deletes** of historical rows invalidate the generation instead of
+accepting a partial inventory. Live **inserts** do not: the events insert
+trigger registers the new identity into `search_projection_source_sequence`
+unconditionally, so inventory has no extra work for that row and hooks that
+write on every store open can still reach `complete`. Stores populated by the
+former migration-38 behavior and new empty stores skip this phase without
+scanning the canonical table.
+
+If an operator starts a generation with a non-default budget and leaves it
+incomplete, automatic catch-up on store open skips rather than hijacking that
+budget. Skips are logged at warning level with the reason; resume or abort with
+the matching budget to unblock progress.
+
+A generation that **failed** is parked, not retried. Every failure class the
+store records is deterministic — an oversize row exceeds the same budget on
+every open, `session_tier_unverified` fails the same query, and `abandoned` is
+an operator decision — so restarting automatically would fail identically and
+append a lifecycle row per open. Automatic catch-up skips with a warning naming
+the class. Neither `resume` nor `abort` clears it — `resume` rejects a failed
+generation and `abort` leaves the row failed as `abandoned` — so recovery is an
+explicit `traceary store search-projection start`.
+
+The before/after family byte figures are diagnostic and are measured outside the
+transactions that start and complete a generation, under their own short
+deadline, on a context detached from the batch. A measurement that cannot run
+never fails a generation: `status` reports `cutover_before_evidence.status` and
+`cutover_after_evidence.status` as `unavailable` with a reason, so a zero byte
+figure is never mistaken for a genuinely empty family. The two are separate
+because they are measured at different times against families of different
+sizes; an empty status means no measurement has been attempted yet.
 
 ```sh
 traceary store search-projection resume --until-complete --max-batches 4000 --total-wall-time 8h

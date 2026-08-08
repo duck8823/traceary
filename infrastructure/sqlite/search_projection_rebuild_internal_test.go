@@ -78,8 +78,11 @@ func TestSearchProjectionMigrationIsSchemaOnlyUnderOneSecond(t *testing.T) {
 	if err = NewDatabase(path, all).initialize(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed >= time.Second {
-		t.Fatalf("schema-only projection migration took %s, want <1s", elapsed)
+	// Schema install stays cheap; initialize also runs one bounded catch-up
+	// unit (same 128-row budget as the CLI default). That must not scan the
+	// full 20k historical set in one open.
+	if elapsed := time.Since(started); elapsed >= 5*time.Second {
+		t.Fatalf("bounded projection initialize took %s, want <5s", elapsed)
 	}
 	db, err = sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
@@ -90,8 +93,8 @@ func TestSearchProjectionMigrationIsSchemaOnlyUnderOneSecond(t *testing.T) {
 	if err = db.QueryRow(`SELECT COUNT(*),(SELECT requires_inventory FROM search_projection_inventory_compat) FROM search_projection_source_sequence`).Scan(&sequenceRows, &requires); err != nil {
 		t.Fatal(err)
 	}
-	if sequenceRows != 0 || requires != 1 {
-		t.Fatalf("source sequence rows=%d requires_inventory=%d", sequenceRows, requires)
+	if sequenceRows != 128 || requires != 1 {
+		t.Fatalf("source sequence rows=%d requires_inventory=%d, want one catch-up batch of 128 with inventory still required", sequenceRows, requires)
 	}
 }
 
@@ -117,6 +120,10 @@ func TestSearchProjectionHistoricalInventoryIsBoundedCancelableAndFreshResumable
 	if err = store.initialize(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Initialize may auto-start and even finish inventory for these three
+	// events (#1680). Reset to a clean pre-inventory state so this test owns
+	// the 1-row inventory budget and resume contract.
+	resetProjectionForInventoryTest(t, path)
 	b := projectionBudget()
 	b.Rows = 1
 	if _, err = store.Start(ctx, b, time.Now()); err != nil {
@@ -232,11 +239,28 @@ func TestSearchProjectionInventoryAdvancesAcrossRegisteredAndEmptyIdentities(t *
 	if err = store.initialize(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Initialize may auto-start a catch-up generation and admit identities into
+	// the source sequence. Clear that work so the test controls admission.
+	if _, err = store.AbandonSearchProjection(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	db, err = sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = db.Exec(`DELETE FROM search_projection_source_sequence`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = db.Exec(`INSERT INTO search_projection_source_sequence(event_id) VALUES('already')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE search_projection_state SET state='failed',phase='complete',generation_id=NULL,active_generation_id=NULL,config_hash='',checkpoint=0,high_water=0 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE search_projection_inventory_state SET generation_id='',cursor='',cursor_started=0,state='idle' WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE search_projection_inventory_compat SET requires_inventory=1 WHERE singleton=1`); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
@@ -435,6 +459,40 @@ func projectionBudget() apptypes.SearchProjectionBudget {
 	return apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Minute, LockTime: time.Second, StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20, RecentAge: time.Hour, RecentBytes: 1 << 20}
 }
 
+// resetProjectionForInventoryTest undoes auto catch-up so inventory-phase tests
+// can Start with requires_inventory=1 and an empty source sequence.
+func resetProjectionForInventoryTest(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	statements := []string{
+		`DELETE FROM search_projection_source_sequence`,
+		`DELETE FROM sqlite_sequence WHERE name='search_projection_source_sequence'`,
+		`DELETE FROM search_projection_recent_documents`,
+		`DELETE FROM search_projection_session_summaries`,
+		`DELETE FROM search_projection_session_keywords`,
+		`DELETE FROM search_projection_command_aggregates`,
+		`DELETE FROM literal_search_fingerprints`,
+		`DELETE FROM search_projection_generation_lifecycle`,
+		`UPDATE search_projection_state SET generation_id=NULL,active_generation_id=NULL,config_hash='',source_revision=0,high_water=0,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='idle' WHERE singleton=1`,
+		`UPDATE search_projection_inventory_state SET generation_id='',cursor='',cursor_started=0,state='idle' WHERE singleton=1`,
+		`UPDATE search_projection_inventory_compat SET requires_inventory=1 WHERE singleton=1`,
+		`UPDATE literal_search_projection_state SET generation_id='',high_water=0,state='stale',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE singleton=1`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			// sqlite_sequence is absent until the first AUTOINCREMENT insert.
+			if strings.Contains(statement, "sqlite_sequence") && strings.Contains(err.Error(), "no such table") {
+				continue
+			}
+			t.Fatalf("reset inventory fixture (%s): %v", statement, err)
+		}
+	}
+}
+
 func TestSearchProjectionGenerationFreezesInsertsAndDetectsMutation(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
@@ -479,6 +537,84 @@ func TestSearchProjectionGenerationFreezesInsertsAndDetectsMutation(t *testing.T
 	ng, err := store.Start(ctx, b, now)
 	if err != nil || ng.GenerationID == g.GenerationID {
 		t.Fatalf("new generation=%+v err=%v", ng, err)
+	}
+}
+
+// TestSearchProjectionInventory_UpdateAndDeleteStillDrift pins the
+// deliberately unchanged update/delete trigger behaviour during inventory:
+// while requires_inventory=1 there is no reliable membership for historical
+// rows the walk has not reached, so mutations still bump source_revision.
+func TestSearchProjectionInventory_UpdateAndDeleteStillDrift(t *testing.T) {
+	mutations := map[string]string{
+		"event update": `UPDATE events SET body='mutated-during-inventory' WHERE id='historical-b'`,
+		"event delete": `DELETE FROM events WHERE id='historical-c'`,
+	}
+	for name, mutation := range mutations {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "store.db")
+			legacy := NewDatabase(path, migrationsBeforeSearchProjection(t))
+			if err := legacy.initialize(ctx); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", sqliteDSN(path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []string{"historical-a", "historical-b", "historical-c"} {
+				if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'note','a','s','body','2026-08-03T00:00:00Z','c','w')`, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_ = db.Close()
+
+			all, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := NewDatabase(path, all)
+			if err = store.initialize(ctx); err != nil {
+				t.Fatal(err)
+			}
+			resetProjectionForInventoryTest(t, path)
+
+			b := projectionBudget()
+			b.Rows = 1
+			if _, err = store.Start(ctx, b, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			// One inventory unit so the generation is live and still rebuilding.
+			if _, err = resumeProjection(ctx, store, b, time.Now()); err != nil {
+				t.Fatalf("inventory resume before mutation: %v", err)
+			}
+
+			db, err = sql.Open("sqlite", sqliteDSN(path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var beforeRevision int64
+			if err = db.QueryRow(`SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&beforeRevision); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(mutation); err != nil {
+				t.Fatal(err)
+			}
+			var afterRevision int64
+			var state string
+			if err = db.QueryRow(`SELECT r.revision,s.state FROM search_projection_source_revision r, search_projection_state s WHERE r.singleton=1 AND s.singleton=1`).Scan(&afterRevision, &state); err != nil {
+				t.Fatal(err)
+			}
+			_ = db.Close()
+			if afterRevision <= beforeRevision {
+				t.Fatalf("mutation %q did not bump source_revision: before=%d after=%d", name, beforeRevision, afterRevision)
+			}
+
+			_, err = resumeProjection(ctx, store, b, time.Now())
+			var drift *apptypes.SearchProjectionDriftError
+			if !errors.As(err, &drift) {
+				t.Fatalf("resume after %q error=%T %v, want SearchProjectionDriftError", name, err, err)
+			}
+		})
 	}
 }
 
