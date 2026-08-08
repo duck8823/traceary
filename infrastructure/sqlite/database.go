@@ -149,6 +149,11 @@ type Database struct {
 	// searchMaintenanceHook is a package-private transaction-boundary seam used
 	// by deterministic atomicity tests. Production databases leave it nil.
 	searchMaintenanceHook func(string) error
+	// searchProjectionMeasureTimeoutOverride shortens the cutover evidence
+	// deadline so tests can observe an unavailable measurement without building
+	// a projection family large enough to be genuinely slow. Production
+	// databases leave it zero and get searchProjectionMeasureTimeout.
+	searchProjectionMeasureTimeoutOverride time.Duration
 }
 
 func (d *Database) runSearchMaintenanceHook(point string) error {

@@ -222,12 +222,20 @@ type SearchProjectionStatus struct {
 	FingerprintLogicalBytes int64            `json:"fingerprint_logical_bytes"`
 	LifecycleState          string           `json:"lifecycle_state"`
 	AbandonedAt             string           `json:"abandoned_at,omitempty"`
+	// FailureClass names why the last generation failed. It is what decides
+	// whether automatic catch-up may start a replacement: a deterministic class
+	// would fail the same way on every open.
+	FailureClass string `json:"failure_class,omitempty"`
 	// CutoverIndexFamily names which physical family CutoverFamilyBytes*
 	// measure. Always "bounded_search_projection" when set — never the
 	// legacy migration-032 event_search_* family (that is #1718).
 	CutoverIndexFamily       string `json:"cutover_index_family,omitempty"`
 	CutoverFamilyBytesBefore int64  `json:"cutover_family_bytes_before,omitempty"`
 	CutoverFamilyBytesAfter  int64  `json:"cutover_family_bytes_after,omitempty"`
+	// CutoverFamilyEvidence states whether the byte figures above were actually
+	// measured. Without it a family that could not be measured is reported as
+	// zero bytes, which reads identically to a genuinely empty family.
+	CutoverFamilyEvidence CapacityEvidence `json:"cutover_family_evidence"`
 }
 
 // SearchProjectionCatchUpResult is one bounded unit of automatic generation
@@ -247,5 +255,9 @@ type SearchProjectionCatchUpResult struct {
 	CutoverIndexFamily       string `json:"cutover_index_family,omitempty"`
 	CutoverFamilyBytesBefore int64  `json:"cutover_family_bytes_before,omitempty"`
 	CutoverFamilyBytesAfter  int64  `json:"cutover_family_bytes_after,omitempty"`
-	SessionTierVerified      bool   `json:"session_tier_verified,omitempty"`
+	// CutoverFamilyEvidence carries the same measured/unavailable distinction as
+	// SearchProjectionStatus so a zero in the byte fields above is never read as
+	// an empty family when it only means the walk did not run.
+	CutoverFamilyEvidence CapacityEvidence `json:"cutover_family_evidence"`
+	SessionTierVerified   bool             `json:"session_tier_verified,omitempty"`
 }

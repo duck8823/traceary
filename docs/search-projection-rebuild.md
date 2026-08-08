@@ -26,6 +26,19 @@ incomplete, automatic catch-up on store open skips rather than hijacking that
 budget. Skips are logged at warning level with the reason; resume or abort with
 the matching budget to unblock progress.
 
+A generation that **failed** is parked, not retried. Every failure class the
+store records is deterministic — an oversize row exceeds the same budget on
+every open, `session_tier_unverified` fails the same query, and `abandoned` is
+an operator decision — so restarting automatically would fail identically and
+append a lifecycle row per open. Automatic catch-up skips with a warning naming
+the class; `resume` or `abort` explicitly to unblock it.
+
+The before/after family byte figures are diagnostic and are measured outside the
+transactions that start and complete a generation, under their own short
+deadline. A measurement that cannot run never fails a generation: `status`
+reports `cutover_family_evidence.status` as `unavailable` with a reason, so a
+zero byte figure is never mistaken for a genuinely empty family.
+
 ```sh
 traceary store search-projection resume --until-complete --max-batches 4000 --total-wall-time 8h
 ```

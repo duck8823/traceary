@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -45,6 +46,9 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 		return apptypes.SearchProjectionGeneration{}, e
 	}
 	defer db.Close()
+	// Measure before taking the write lock. The dbstat walk is unbounded in the
+	// family's own size and would otherwise consume the start budget.
+	familyBytesBefore, beforeEvidence := d.measureSearchProjectionFamilyBytes(ctx, db)
 	lockCtx, cancel := context.WithTimeout(ctx, b.LockTime)
 	defer cancel()
 	tx, e := db.BeginTx(lockCtx, nil)
@@ -63,11 +67,7 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 	if requiresInventory != 0 {
 		g.HighWater = 0
 	}
-	familyBytesBefore, measureErr := measureSearchProjectionFamilyBytes(lockCtx, tx)
-	if measureErr != nil {
-		return g, measureErr
-	}
-	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, searchProjectionIndexFamilyName, familyBytesBefore, formatTimestamp(now.UTC()))
+	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_evidence_status=?,cutover_evidence_reason=?,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, searchProjectionIndexFamilyName, familyBytesBefore, beforeEvidence.Status, beforeEvidence.Reason, formatTimestamp(now.UTC()))
 	if e == nil {
 		if n, x := result.RowsAffected(); x != nil || n != 1 {
 			return g, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
@@ -683,14 +683,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 			return out, &apptypes.SearchProjectionDriftError{}
 		}
 	}
-	familyBytesAfter := int64(0)
-	if p.Completed && state == "complete" {
-		familyBytesAfter, e = measureSearchProjectionFamilyBytes(lockCtx, tx)
-		if e != nil {
-			return out, e
-		}
-	}
-	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,cutover_family_bytes_after=CASE WHEN ? AND ?='complete' THEN ? ELSE cutover_family_bytes_after END,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?))`, p.NextCheckpoint, next, state, p.Completed, state, time.Since(started).Milliseconds(), p.Completed, state, familyBytesAfter, formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision)
+	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?))`, p.NextCheckpoint, next, state, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision)
 	if e != nil {
 		return out, e
 	}
@@ -699,6 +692,14 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	}
 	if e = tx.Commit(); e != nil {
 		return out, e
+	}
+	// Cutover evidence is recorded after the completion is durable. Measuring
+	// inside that transaction would put an unbounded dbstat walk under the lock
+	// budget, and a walk that overran it rolled back a generation that had
+	// otherwise finished — leaving the store to repeat the same final batch on
+	// every open, forever.
+	if p.Completed && state == "complete" {
+		d.recordSearchProjectionCutoverEvidence(ctx, db, p.GenerationID, now)
 	}
 	out.Completed = p.Completed
 	out.GenerationID = p.GenerationID
@@ -771,9 +772,14 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	s.SchemaVersion = "traceary.search-projection-status/v1"
 	s.KeywordVersion = searchProjectionKeywordVersion
 	s.FingerprintVersion = 1
-	e = db.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,recent_byte_limit,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),''),COALESCE(cutover_index_family,''),cutover_family_bytes_before,cutover_family_bytes_after FROM search_projection_state WHERE singleton=1`).Scan(&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed, &s.RecentAgeSeconds, &s.RecentByteLimit, &s.LastBatchMilliseconds, &s.LifecycleState, &s.AbandonedAt, &s.CutoverIndexFamily, &s.CutoverFamilyBytesBefore, &s.CutoverFamilyBytesAfter)
+	e = db.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,recent_byte_limit,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),''),COALESCE(cutover_index_family,''),cutover_family_bytes_before,cutover_family_bytes_after,COALESCE(cutover_evidence_status,''),COALESCE(cutover_evidence_reason,''),COALESCE(failure_class,'') FROM search_projection_state WHERE singleton=1`).Scan(&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed, &s.RecentAgeSeconds, &s.RecentByteLimit, &s.LastBatchMilliseconds, &s.LifecycleState, &s.AbandonedAt, &s.CutoverIndexFamily, &s.CutoverFamilyBytesBefore, &s.CutoverFamilyBytesAfter, &s.CutoverFamilyEvidence.Status, &s.CutoverFamilyEvidence.Reason, &s.FailureClass)
 	if e != nil {
 		return s, e
+	}
+	// Method is not persisted: dbstat is the only way this figure is ever
+	// produced, so it is derived rather than stored per row.
+	if s.CutoverFamilyEvidence.Status != "" {
+		s.CutoverFamilyEvidence.Method = "dbstat"
 	}
 	var inventoryState string
 	if e = db.QueryRowContext(ctx, `SELECT state FROM search_projection_inventory_state WHERE singleton=1`).Scan(&inventoryState); e != nil {
@@ -814,16 +820,36 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	return s, e
 }
 
+// searchProjectionMeasureTimeout bounds the cutover evidence measurement. The
+// dbstat walk costs in proportion to the projection family's own page count —
+// measured at 1.44s for an ~880MiB family — so it must never share a deadline
+// with the transaction that publishes a completed generation. Exceeding this
+// yields unavailable evidence, never a failed generation.
+const searchProjectionMeasureTimeout = 3 * time.Second
+
 // measureSearchProjectionFamilyBytes returns dbstat physical bytes for the
 // bounded search projection family only (search_projection_* and
 // literal_search_*). It deliberately excludes the legacy event_search_* family.
 //
-//nolint:wrapcheck // SQL errors stay adapter-owned at this boundary.
-func measureSearchProjectionFamilyBytes(ctx context.Context, q interface {
+// The figure is diagnostic: nothing reads it to decide anything. So this never
+// returns an error. Anything that stops it producing a number — a missing
+// dbstat module, a slow walk, a cancelled parent — comes back as unavailable
+// evidence carrying the reason, which is recorded and logged. Recording a bare
+// zero instead would be indistinguishable from a genuinely empty family.
+func (d *Database) measureSearchProjectionFamilyBytes(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}) (int64, error) {
+}) (int64, apptypes.CapacityEvidence) {
+	timeout := searchProjectionMeasureTimeout
+	if d.searchProjectionMeasureTimeoutOverride > 0 {
+		timeout = d.searchProjectionMeasureTimeoutOverride
+	}
+	// WithoutCancel deliberately detaches from the caller's deadline: the batch
+	// context is sized for the write lock, and evidence must be measurable on
+	// its own terms or reported unavailable — never able to fail the batch.
+	measureCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
 	var bytes int64
-	err := q.QueryRowContext(ctx, `
+	err := q.QueryRowContext(measureCtx, `
 		SELECT COALESCE(SUM(pgsize), 0)
 		  FROM dbstat
 		 WHERE name IN (
@@ -836,15 +862,61 @@ func measureSearchProjectionFamilyBytes(ctx context.Context, q interface {
 		       )`,
 	).Scan(&bytes)
 	if err != nil {
-		// dbstat is optional on some builds; treat unavailability as zero rather
-		// than blocking generation start. Status already reports the same gap.
-		if strings.Contains(strings.ToLower(err.Error()), "no such table") ||
-			strings.Contains(strings.ToLower(err.Error()), "no such module") {
-			return 0, nil
+		return 0, apptypes.CapacityEvidence{
+			Status: searchProjectionEvidenceUnavailable,
+			Method: "dbstat",
+			Reason: truncateEvidenceReason(err.Error()),
 		}
-		return 0, err
 	}
-	return bytes, nil
+	return bytes, apptypes.CapacityEvidence{Status: searchProjectionEvidenceMeasured, Method: "dbstat"}
+}
+
+const (
+	searchProjectionEvidenceMeasured    = "measured"
+	searchProjectionEvidenceUnavailable = "unavailable"
+	maxEvidenceReasonBytes              = 200
+)
+
+// recordSearchProjectionCutoverEvidence measures the bounded family and stores
+// the result against an already-durable completion. Failure here loses a
+// diagnostic figure and nothing else, so it is logged rather than returned —
+// the generation is complete either way. The write is scoped to the generation
+// that just completed so a concurrent start cannot be overwritten.
+func (d *Database) recordSearchProjectionCutoverEvidence(ctx context.Context, db *sql.DB, generationID string, now time.Time) {
+	bytes, evidence := d.measureSearchProjectionFamilyBytes(ctx, db)
+	if _, err := db.ExecContext(ctx, `
+		UPDATE search_projection_state
+		   SET cutover_family_bytes_after = ?,
+		       cutover_evidence_status = ?,
+		       cutover_evidence_reason = ?,
+		       updated_at = ?
+		 WHERE singleton = 1 AND active_generation_id = ?`,
+		bytes, evidence.Status, evidence.Reason, formatTimestamp(now), generationID,
+	); err != nil {
+		slog.Warn("search projection cutover evidence not recorded; generation is complete regardless",
+			"generation_id", generationID,
+			"evidence_status", evidence.Status,
+			"error", err,
+		)
+		return
+	}
+	if evidence.Status == searchProjectionEvidenceUnavailable {
+		slog.Warn("search projection cutover evidence unavailable; before/after family bytes are not reportable",
+			"generation_id", generationID,
+			"method", evidence.Method,
+			"reason", evidence.Reason,
+		)
+	}
+}
+
+// truncateEvidenceReason keeps a diagnostic reason bounded so a pathological
+// driver message cannot bloat the state row.
+func truncateEvidenceReason(reason string) string {
+	trimmed := strings.TrimSpace(reason)
+	if len(trimmed) <= maxEvidenceReasonBytes {
+		return trimmed
+	}
+	return trimmed[:maxEvidenceReasonBytes]
 }
 
 // VerifySearchProjectionSessionTier runs a real session-tier query against the

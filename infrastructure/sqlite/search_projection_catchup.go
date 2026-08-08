@@ -157,7 +157,7 @@ func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, e
 		return
 	}
 	if result.Action == "skipped" {
-		slog.Warn("search projection catch-up skipped; resume or abort with the matching budget to unblock automatic progress",
+		slog.Warn("search projection catch-up skipped; the generation will not advance on its own until the reason is addressed",
 			"action", result.Action,
 			"state", result.State,
 			"phase", result.Phase,

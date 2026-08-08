@@ -4,8 +4,10 @@ package usecase
 import (
 	"context"
 	"errors"
-	"golang.org/x/xerrors"
+	"strings"
 	"time"
+
+	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 )
@@ -258,6 +260,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	out.CutoverIndexFamily = status.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = status.CutoverFamilyBytesBefore
 	out.CutoverFamilyBytesAfter = status.CutoverFamilyBytesAfter
+	out.CutoverFamilyEvidence = status.CutoverFamilyEvidence
 	if status.State == "complete" {
 		out.Action = "already_complete"
 		out.Completed = true
@@ -270,10 +273,22 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		out.SkippedReason = "budget does not match generation configuration"
 		return out, nil
 	}
+	// A failed generation is parked, not retried. Every failure class this store
+	// can record is deterministic — an oversize row exceeds the same budget on
+	// every open, session_tier_unverified fails the same query, and abandoned is
+	// an operator decision. Auto-starting a replacement would fail identically
+	// and add a lifecycle row per open, forever. If a genuinely transient class
+	// is ever introduced, this is where it gets its exception.
+	if status.State == "failed" {
+		out.Action = "skipped"
+		out.SkippedReason = "parked after generation failure " + failureClassOrUnknown(status.FailureClass) +
+			"; resume or abort explicitly to unblock automatic progress"
+		return out, nil
+	}
 	switch {
 	case status.State == "rebuilding", status.State == "drifted" && status.Phase == "cleanup":
 		out.Action = "resume"
-	case status.State == "idle", status.State == "failed", status.State == "drifted":
+	case status.State == "idle", status.State == "drifted":
 		// Only auto-start when there is source material. An empty store stays
 		// idle so tests and fresh installs are not left mid-rebuild.
 		needsWork, workErr := u.catchUpHasSourceWork(ctx)
@@ -320,11 +335,21 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	out.CutoverIndexFamily = statusAfter.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = statusAfter.CutoverFamilyBytesBefore
 	out.CutoverFamilyBytesAfter = statusAfter.CutoverFamilyBytesAfter
+	out.CutoverFamilyEvidence = statusAfter.CutoverFamilyEvidence
 	if progress.Completed {
 		out.SessionTierVerified = true
 		out.Completed = statusAfter.Completed
 	}
 	return out, nil
+}
+
+// failureClassOrUnknown keeps the parked-skip reason readable when a store
+// recorded a failure without a class.
+func failureClassOrUnknown(class string) string {
+	if strings.TrimSpace(class) == "" {
+		return "(unclassified)"
+	}
+	return class
 }
 
 // catchUpHasSourceWork reports whether the store has events that a generation

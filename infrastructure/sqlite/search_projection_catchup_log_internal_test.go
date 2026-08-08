@@ -40,8 +40,25 @@ func TestLogSearchProjectionCatchUp_LogsSkipsButNotQuietStates(t *testing.T) {
 			wantSub: []string{
 				"search projection catch-up skipped",
 				"budget does not match generation configuration",
-				"resume or abort with the matching budget",
+				"will not advance on its own",
 				"gen-stuck",
+			},
+		},
+		{
+			name: "parked deterministic failure names the class",
+			result: apptypes.SearchProjectionCatchUpResult{
+				Action:        "skipped",
+				State:         "failed",
+				Phase:         "complete",
+				GenerationID:  "gen-oversize",
+				SkippedReason: "parked after generation failure decoded_bytes; resume or abort explicitly to unblock automatic progress",
+			},
+			wantLog:   true,
+			wantLevel: "WARN",
+			wantSub: []string{
+				"search projection catch-up skipped",
+				"parked after generation failure decoded_bytes",
+				"gen-oversize",
 			},
 		},
 		{

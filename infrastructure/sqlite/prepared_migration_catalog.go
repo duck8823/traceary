@@ -57,6 +57,8 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	49: {49, "000049_add_search_projection_cutover_evidence.sql", "5ca7ad45bed4a49d0262fc66ae36ffbe434ade920787a1c1551e7eb62e750648", MigrationConstantInPlace},
 	// 50 only drops and recreates two insert triggers (no data scan/rewrite).
 	50: {50, "000050_fix_search_projection_insert_inventory_drift.sql", "6c80fdcceb682093a466fc6207e084644da4923c6762a4f4f927878aa2418b5b", MigrationConstantInPlace},
+	// 51 only adds two cutover evidence columns to search_projection_state.
+	51: {51, "000051_add_search_projection_cutover_evidence_status.sql", "8538eb8e4343abe4c5dfba2e5170edb14a44064b81c4d6538661895372db3131", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.
