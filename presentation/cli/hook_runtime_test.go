@@ -2438,7 +2438,7 @@ func TestRootCLI_HookCompactCommand_RecordsCodexPostCompactMarker(t *testing.T) 
 	}
 }
 
-func TestRootCLI_HookCompactCommand_PreCompactSyncsSessionSummaryWhenEmpty(t *testing.T) {
+func TestRootCLI_HookCompactCommand_PreCompactDoesNotSyncSessionSummary(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 
 	homeDir := t.TempDir()
@@ -2469,14 +2469,18 @@ func TestRootCLI_HookCompactCommand_PreCompactSyncsSessionSummaryWhenEmpty(t *te
 		),
 	}
 	sessionStub := &sessionUsecaseStub{}
+	refineStub := &sessionRefinementUsecaseStub{}
 
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithEvent(eventStub),
 		cli.WithSession(sessionStub),
+		cli.WithSessionRefinement(refineStub),
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
+	// pre_compact_context is a before-compact snapshot, not the host digest.
+	// Digest material is written only on post-compact.
 	rootCmd.SetIn(strings.NewReader(`{"pre_compact_context":"Discussed compact behavior, agreed on PreCompact body sync."}`))
 	rootCmd.SetArgs([]string{"hook", "compact", "claude", "pre-compact"})
 
@@ -2486,16 +2490,70 @@ func TestRootCLI_HookCompactCommand_PreCompactSyncsSessionSummaryWhenEmpty(t *te
 	if got := eventStub.logCall.message; got == "" {
 		t.Fatalf("pre-compact log body must not be empty when pre_compact_context is provided")
 	}
+	if _, ok := sessionStub.setSummaryCalls[types.SessionID("sync-session")]; ok {
+		t.Fatalf("SetSummaryIfEmpty must not be called on pre-compact")
+	}
+	if refineStub.calls != 0 {
+		t.Fatalf("Refine calls = %d, want 0 on pre-compact", refineStub.calls)
+	}
+}
+
+func TestRootCLI_HookCompactCommand_PostCompactSyncsSessionSummaryWhenEmpty(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("sync-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	const digest = "Discussed compact behavior, agreed on PostCompact body sync."
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-post-compact-sync"),
+			types.EventKindCompactSummary,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("sync-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			digest,
+			time.Now(),
+		),
+	}
+	sessionStub := &sessionUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"compact_summary":"` + digest + `"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "claude", "post-compact"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(post-compact) error = %v", err)
+	}
 	got, ok := sessionStub.setSummaryCalls[types.SessionID("sync-session")]
 	if !ok {
 		t.Fatalf("SetSummaryIfEmpty was not called for the active session")
 	}
-	if want := "Discussed compact behavior, agreed on PreCompact body sync."; got != want {
+	if want := digest; got != want {
 		t.Fatalf("SetSummaryIfEmpty body = %q, want %q", got, want)
 	}
 }
 
-func TestRootCLI_HookCompactCommand_PreCompactSkipsSessionSummarySyncForEmptyBody(t *testing.T) {
+func TestRootCLI_HookCompactCommand_PostCompactSkipsSessionSummarySyncForEmptyBody(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 
 	homeDir := t.TempDir()
@@ -2521,27 +2579,211 @@ func TestRootCLI_HookCompactCommand_PreCompactSkipsSessionSummarySyncForEmptyBod
 			types.Agent("claude"),
 			types.SessionID("trigger-only"),
 			types.Workspace("github.com/duck8823/traceary"),
-			"",
+			"size-threshold",
 			time.Now(),
 		),
 	}
+	sessionStub := &sessionUsecaseStub{}
+	refineStub := &sessionRefinementUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSession(sessionStub),
+		cli.WithSessionRefinement(refineStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	// Marker-only shape: trigger set, compact_summary absent/empty.
+	rootCmd.SetIn(strings.NewReader(`{"trigger":"size-threshold"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "claude", "post-compact"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(post-compact) error = %v", err)
+	}
+	if _, ok := sessionStub.setSummaryCalls[types.SessionID("trigger-only")]; ok {
+		t.Fatalf("SetSummaryIfEmpty must not be called when compact_summary is empty (marker-only payload)")
+	}
+	if refineStub.calls != 0 {
+		t.Fatalf("Refine calls = %d, want 0 for marker-only payload", refineStub.calls)
+	}
+}
+
+func TestRootCLI_HookCompactCommand_PostCompactRefinesWithHostDigest(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("refine-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	const digest = "Remember the failing shard and the flake owner."
+	logged := model.EventOf(
+		types.EventID("evt-post-compact-refine"),
+		types.EventKindCompactSummary,
+		types.Client("hook"),
+		types.Agent("claude"),
+		types.SessionID("refine-session"),
+		types.Workspace("github.com/duck8823/traceary"),
+		digest,
+		time.Now(),
+	)
+	eventStub := &eventUsecaseStub{logEvent: logged}
+	refineStub := &sessionRefinementUsecaseStub{}
 	sessionStub := &sessionUsecaseStub{}
 
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithEvent(eventStub),
 		cli.WithSession(sessionStub),
+		cli.WithSessionRefinement(refineStub),
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetIn(strings.NewReader(`{"trigger":"size-threshold"}`))
-	rootCmd.SetArgs([]string{"hook", "compact", "claude", "pre-compact"})
+	rootCmd.SetIn(strings.NewReader(`{"compact_summary":"` + digest + `"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "claude", "post-compact"})
 
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute(pre-compact) error = %v", err)
+		t.Fatalf("Execute(post-compact) error = %v", err)
 	}
-	if _, ok := sessionStub.setSummaryCalls[types.SessionID("trigger-only")]; ok {
-		t.Fatalf("SetSummaryIfEmpty must not be called when pre_compact_context is empty (trigger-only payload)")
+	if refineStub.calls != 1 {
+		t.Fatalf("Refine calls = %d, want 1", refineStub.calls)
+	}
+	want := usecase.SessionRefineInput{
+		SessionID:  types.SessionID("refine-session"),
+		Summary:    digest,
+		ProducedBy: "hook:post-compact:claude",
+		CoversTo:   logged.EventID(),
+		Degraded:   false,
+	}
+	if diff := cmp.Diff(want, refineStub.input); diff != "" {
+		t.Fatalf("Refine input mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestRootCLI_HookCompactCommand_PostCompactMarkerOnlySkipsRefine(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key"), []byte("codex-marker-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "codex-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-codex-marker"),
+			types.EventKindCompactSummary,
+			types.Client("hook"),
+			types.Agent("codex"),
+			types.SessionID("codex-marker-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			"auto",
+			time.Now(),
+		),
+	}
+	refineStub := &sessionRefinementUsecaseStub{}
+	sessionStub := &sessionUsecaseStub{}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSession(sessionStub),
+		cli.WithSessionRefinement(refineStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	// Codex/Kimi/Grok shape: trigger set, empty compact_summary.
+	rootCmd.SetIn(strings.NewReader(`{"session_id":"codex-marker-session","trigger":"auto"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "codex", "post-compact"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(post-compact) error = %v", err)
+	}
+	if refineStub.calls != 0 {
+		t.Fatalf("Refine calls = %d, want 0 for marker-only payload", refineStub.calls)
+	}
+	if _, ok := sessionStub.setSummaryCalls[types.SessionID("codex-marker-session")]; ok {
+		t.Fatalf("SetSummaryIfEmpty must not be called for marker-only payload")
+	}
+	if got, want := eventStub.logCall.message, "auto"; got != want {
+		t.Fatalf("post-compact log message = %q, want %q", got, want)
+	}
+}
+
+func TestRootCLI_HookCompactCommand_PostCompactRefineErrorDoesNotFailHook(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
+
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key"), []byte("refine-err-session"), 0o600); err != nil {
+		t.Fatalf("WriteFile(session state) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace state) error = %v", err)
+	}
+
+	const digest = "Host digest that refinement cannot store."
+	eventStub := &eventUsecaseStub{
+		logEvent: model.EventOf(
+			types.EventID("evt-post-compact-refine-err"),
+			types.EventKindCompactSummary,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("refine-err-session"),
+			types.Workspace("github.com/duck8823/traceary"),
+			digest,
+			time.Now(),
+		),
+	}
+	refineStub := &sessionRefinementUsecaseStub{err: errors.New("session row missing")}
+
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSessionRefinement(refineStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"compact_summary":"` + digest + `"}`))
+	rootCmd.SetArgs([]string{"hook", "compact", "claude", "post-compact"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(post-compact) error = %v, want nil (refine is best-effort)", err)
+	}
+	if refineStub.calls != 1 {
+		t.Fatalf("Refine calls = %d, want 1", refineStub.calls)
+	}
+	if got, want := eventStub.logCall.message, digest; got != want {
+		t.Fatalf("compact event must still be logged; message = %q, want %q", got, want)
+	}
+	if got, want := eventStub.logCall.kind, types.EventKindCompactSummary; got != want {
+		t.Fatalf("compact event kind = %q, want %q", got, want)
 	}
 }
 

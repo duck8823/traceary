@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -617,6 +618,8 @@ func (c *RootCLI) runHookCompact(
 		if err != nil {
 			return err
 		}
+		// The real host digest (Claude) arrives here; Codex / Kimi / Grok
+		// deliver marker-only payloads with an empty compact_summary field.
 		compactSummary := hookPayloadString(payload, "compact_summary", "")
 		body := compactSummary
 		kind := types.EventKindCompactSummary
@@ -627,20 +630,26 @@ func (c *RootCLI) runHookCompact(
 				kind = types.EventKind("")
 			}
 		}
-		_, err = c.event.Log(ctx, body, kind, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
+		logged, err := c.event.Log(ctx, body, kind, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 		if err != nil {
 			return xerrors.Errorf("failed to record compact hook event: %w", err)
 		}
-
+		// Non-empty compact_summary is the sole discriminator — no
+		// minimum-length heuristic. Marker-only hosts create no refinement.
+		if logged != nil && strings.TrimSpace(compactSummary) != "" {
+			c.applyPostCompactDigest(ctx, sessionID, logged.EventID(), compactSummary, client)
+		}
 		return nil
 	case "pre-compact":
 		// Claude Code 2026-01+ fires PreCompact before context is compacted.
-		// Record the snapshot as a compact_summary with a `phase:pre` body
-		// marker so replay / retrospective surfaces can tell the
-		// before-compact snapshot apart from the post-compact digest.
-		// The context_pack_builder's post-compact loader filters on body
-		// prefix so the retrospective/handoff path only picks up the
-		// post-compact summary, not this pre-compact snapshot.
+		// Record the snapshot as a compact_summary with source_hook =
+		// pre_compact so #1683 can treat it as an orphan-range signal.
+		// The real digest arrives at post-compact; do not write summary
+		// material here (pre_compact_context is a before-compact snapshot,
+		// not the host's compacted digest).
+		// The context_pack_builder's post-compact loader filters so the
+		// retrospective/handoff path only picks up the post-compact
+		// summary, not this pre-compact snapshot.
 		if c.event == nil || sessionID == "" {
 			return nil
 		}
@@ -664,18 +673,6 @@ func (c *RootCLI) runHookCompact(
 		if err != nil {
 			return xerrors.Errorf("failed to record pre-compact hook event: %w", err)
 		}
-		// Sync the digest into sessions.summary so timeline / handoff
-		// surfaces have a useful header without waiting for SessionEnd.
-		// Only Claude carries a real digest — Gemini's PreCompress body
-		// is just the trigger value, not a summary.
-		if client == "claude" && c.session != nil {
-			rawDigest := hookPayloadString(payload, "pre_compact_context", "")
-			if strings.TrimSpace(rawDigest) != "" {
-				if _, err := c.session.SetSummaryIfEmpty(ctx, sessionID, rawDigest); err != nil {
-					return xerrors.Errorf("failed to sync pre-compact summary into session: %w", err)
-				}
-			}
-		}
 		return nil
 	case "session-start-compact":
 		if output == nil {
@@ -688,6 +685,56 @@ func (c *RootCLI) runHookCompact(
 		})
 	default:
 		return xerrors.Errorf("unsupported hook compact action: %s", action)
+	}
+}
+
+// applyPostCompactDigest stores a host-supplied compact digest as an L2
+// refinement and seeds sessions.summary for timeline / handoff headers
+// until the sessions.summary column is retired. Both writes are best-effort:
+// sessions rows are created by the session-boundary hooks, not by
+// event.Log, so a compact can legitimately arrive for a session that has
+// no row; and the digest is opportunistic material covering a small
+// fraction of events, with the gc fallback covering any range that never
+// got one. Returning the error would re-spool the whole compact delivery
+// for replay and risk a duplicate event, which is a worse trade than
+// losing one opportunistic summary. The warn lines are the observability.
+//
+// coversTo names the event event.Log just returned. No host's compact
+// payload carries a field on the proven delivery-ID allowlist, so a compact
+// event never takes the exact-redelivery branch and always inserts. Should a
+// host add one, Log would hand back an event it did not persist and Refine
+// would reject the unknown covers_to before writing — the warn below, and
+// then the gc fallback. See #1710.
+func (c *RootCLI) applyPostCompactDigest(
+	ctx context.Context,
+	sessionID types.SessionID,
+	coversTo types.EventID,
+	digest string,
+	client string,
+) {
+	if c.sessionRefinement != nil {
+		if _, err := c.sessionRefinement.Refine(ctx, usecase.SessionRefineInput{
+			SessionID:  sessionID,
+			CoversTo:   coversTo,
+			Summary:    digest,
+			ProducedBy: "hook:post-compact:" + client,
+			Degraded:   false,
+		}); err != nil {
+			slog.Warn(
+				"post-compact session refinement failed",
+				"session_id", sessionID,
+				"error", err,
+			)
+		}
+	}
+	if c.session != nil {
+		if _, err := c.session.SetSummaryIfEmpty(ctx, sessionID, digest); err != nil {
+			slog.Warn(
+				"post-compact session summary sync failed",
+				"session_id", sessionID,
+				"error", err,
+			)
+		}
 	}
 }
 
