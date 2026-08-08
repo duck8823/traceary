@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -522,6 +523,10 @@ func (s *projectionEventUsecaseStub) Context(context.Context, apptypes.EventCont
 	s.contextCalls++
 	return nil, nil
 }
+func (*projectionEventUsecaseStub) HydrateCommandAudits(context.Context, []*model.Event, queryservice.CommandAuditPayloadFields) error {
+	return nil
+}
+
 func (*projectionEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
 	return nil, nil
 }

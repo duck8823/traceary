@@ -56,6 +56,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 			Data: []byte(`CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -63,7 +65,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 		"000004_create_sessions.sql": {

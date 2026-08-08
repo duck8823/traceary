@@ -700,11 +700,26 @@ func countLargePayloadEvents(events []*model.Event, limit int) int {
 		if ev == nil {
 			continue
 		}
-		if apptypes.TruncateCommandPayload(apptypes.ExtractPlainBody(ev.Body()), limit).Truncated {
+		if apptypes.TruncateCommandPayload(eventPayloadTextForSize(ev), limit).Truncated {
 			count++
 		}
 	}
 	return count
+}
+
+// eventPayloadTextForSize prefers the retained audit payloads for
+// command_executed rows whose envelope body is empty (#1675).
+func eventPayloadTextForSize(ev *model.Event) string {
+	if ev == nil {
+		return ""
+	}
+	if body := apptypes.ExtractPlainBody(ev.Body()); strings.TrimSpace(body) != "" {
+		return body
+	}
+	if audit, ok := ev.CommandAudit().Value(); ok && audit != nil {
+		return strings.TrimSpace(audit.Command() + "\n" + audit.Input() + "\n" + audit.Output())
+	}
+	return ""
 }
 
 // collectLargePayloadSamples builds body-safe samples for the oversized events
@@ -722,7 +737,7 @@ func collectLargePayloadSamples(failures []*model.Event, commands []*model.Event
 			if len(samples) >= topLargePayloadSampleLimit {
 				return
 			}
-			body := apptypes.ExtractPlainBody(ev.Body())
+			body := eventPayloadTextForSize(ev)
 			truncation := apptypes.TruncateCommandPayload(body, limit)
 			if !truncation.Truncated {
 				continue

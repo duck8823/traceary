@@ -2,11 +2,15 @@ package cli_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -220,26 +224,33 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
-		mk := func(id, body string) *model.Event {
+		mk := func(id, command, output string) *model.Event {
 			t.Helper()
 			eventID, err := types.EventIDFrom(id)
 			if err != nil {
 				t.Fatalf("EventIDFrom(%s) error = %v", id, err)
 			}
-			return model.EventOf(
+			// command_executed body is empty; classification uses the attached audit.
+			event := model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
 				"cli",
 				agent,
 				sessionID,
 				"duck8823/traceary",
-				body,
+				"",
 				time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
 			)
+			audit, err := model.NewCommandAudit(eventID, command, "", output, false, false)
+			if err != nil {
+				t.Fatalf("NewCommandAudit(%s) error = %v", id, err)
+			}
+			event.AttachCommandAudit(audit)
+			return event
 		}
 		listStub := &eventUsecaseStub{listEvents: []*model.Event{
-			mk("event-sensitive", "cat .env\n\nINPUT:\n\n\nOUTPUT:\n"),
-			mk("event-normal", "go test ./...\n\nINPUT:\n\n\nOUTPUT:\nok"),
+			mk("event-sensitive", "cat .env", ""),
+			mk("event-normal", "go test ./...", "ok"),
 		}}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -258,6 +269,125 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		}
 		if strings.Contains(stdout.String(), "event-normal") {
 			t.Fatalf("stdout should filter ordinary audit: %s", stdout.String())
+		}
+		if listStub.hydrateCalls != 1 {
+			t.Fatalf("hydrateCalls = %d, want 1 (full payload only)", listStub.hydrateCalls)
+		}
+		wantFields := queryservice.FullCommandAuditPayload()
+		if diff := cmp.Diff(wantFields, listStub.lastHydrateFields); diff != "" {
+			t.Fatalf("lastHydrateFields mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("command_executed empty body lists full command line text and JSON message", func(t *testing.T) {
+		t.Parallel()
+
+		agent, err := types.AgentFrom("codex")
+		if err != nil {
+			t.Fatalf("AgentFrom() error = %v", err)
+		}
+		sessionID, err := types.SessionIDFrom("session-1")
+		if err != nil {
+			t.Fatalf("SessionIDFrom() error = %v", err)
+		}
+		eventID, err := types.EventIDFrom("event-cmd-line")
+		if err != nil {
+			t.Fatalf("EventIDFrom() error = %v", err)
+		}
+		const (
+			fullCommand = "go test ./..."
+			commandName = "go"
+		)
+		// Metadata-only listing attach: empty command_text, command_name only.
+		// Matches the #1675 list JOIN surface before command-only hydration.
+		event := model.EventOf(
+			eventID,
+			types.EventKindCommandExecuted,
+			"cli",
+			agent,
+			sessionID,
+			"duck8823/traceary",
+			"",
+			time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
+		)
+		audit, err := model.CommandAuditFromListingMetadata(model.CommandAuditSnapshot{
+			EventID:       eventID,
+			Command:       "",
+			CommandName:   types.CommandName(commandName),
+			FailureReason: types.CommandFailureReasonNone,
+		})
+		if err != nil {
+			t.Fatalf("CommandAuditFromListingMetadata() error = %v", err)
+		}
+		event.AttachCommandAudit(audit)
+
+		listStub := &eventUsecaseStub{
+			listEvents:              []*model.Event{event},
+			hydrateCommandByEventID: map[string]string{eventID.String(): fullCommand},
+		}
+
+		// Text listing must show the full command line, not the basename.
+		textOut := &bytes.Buffer{}
+		textCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(listStub),
+		).Command()
+		textCmd.SetOut(textOut)
+		textCmd.SetErr(&bytes.Buffer{})
+		textCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--wide"})
+		if err := textCmd.Execute(); err != nil {
+			t.Fatalf("list text Execute() error = %v", err)
+		}
+		if !strings.Contains(textOut.String(), fullCommand) {
+			t.Fatalf("list text missing full command line %q; got:\n%s", fullCommand, textOut.String())
+		}
+		// Basename alone without the rest of the line is the bug this pins.
+		if strings.Contains(textOut.String(), " "+commandName+"\n") && !strings.Contains(textOut.String(), fullCommand) {
+			t.Fatalf("list text degraded to command_name only: %s", textOut.String())
+		}
+
+		// Reset hydrate counters for the JSON pass; re-list same stub events.
+		listStub.hydrateCalls = 0
+		// Re-attach metadata-only audit: prior text run hydrated the event in place.
+		auditAgain, err := model.CommandAuditFromListingMetadata(model.CommandAuditSnapshot{
+			EventID:       eventID,
+			Command:       "",
+			CommandName:   types.CommandName(commandName),
+			FailureReason: types.CommandFailureReasonNone,
+		})
+		if err != nil {
+			t.Fatalf("CommandAuditFromListingMetadata() reset error = %v", err)
+		}
+		event.AttachCommandAudit(auditAgain)
+
+		jsonOut := &bytes.Buffer{}
+		jsonCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(listStub),
+		).Command()
+		jsonCmd.SetOut(jsonOut)
+		jsonCmd.SetErr(&bytes.Buffer{})
+		jsonCmd.SetArgs([]string{"list", "--db-path", "/tmp/test-traceary.db", "--json"})
+		if err := jsonCmd.Execute(); err != nil {
+			t.Fatalf("list json Execute() error = %v", err)
+		}
+		var rows []map[string]any
+		if err := json.Unmarshal(jsonOut.Bytes(), &rows); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, jsonOut.String())
+		}
+		if len(rows) != 1 {
+			t.Fatalf("json rows len = %d, want 1; raw: %s", len(rows), jsonOut.String())
+		}
+		gotMessage, _ := rows[0]["message"].(string)
+		if diff := cmp.Diff(fullCommand, gotMessage); diff != "" {
+			t.Fatalf("json message mismatch (-want +got):\n%s", diff)
+		}
+		if listStub.hydrateCalls != 1 {
+			t.Fatalf("json hydrateCalls = %d, want 1", listStub.hydrateCalls)
+		}
+		wantFields := queryservice.CommandOnlyPayload()
+		if diff := cmp.Diff(wantFields, listStub.lastHydrateFields); diff != "" {
+			t.Fatalf("json lastHydrateFields mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

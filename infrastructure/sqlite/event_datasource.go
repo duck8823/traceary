@@ -166,11 +166,11 @@ func (d *EventDatasource) ListRecent(
 
 	events := make([]*model.Event, 0, limit)
 	for rows.Next() {
-		event, err := scanEvent(rows)
+		event, err := scanListedEvent(rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore event row: %w", err)
 		}
-		event, err = hydrateEventPayload(ctx, db, event)
+		event, err = hydrateListedEvent(ctx, db, event)
 		if err != nil {
 			return nil, err
 		}
@@ -257,14 +257,14 @@ func (d *EventDatasource) ListWindow(
 
 		pageCount := 0
 		for rows.Next() {
-			event, err := scanEvent(rows)
+			event, err := scanListedEvent(rows)
 			if err != nil {
 				if closeErr := rows.Close(); closeErr != nil {
 					slog.Debug("failed to close resource", "error", closeErr)
 				}
 				return nil, xerrors.Errorf("failed to restore event window row: %w", err)
 			}
-			event, err = hydrateEventPayload(ctx, tx, event)
+			event, err = hydrateListedEvent(ctx, tx, event)
 			if err != nil {
 				_ = rows.Close()
 				return nil, err
@@ -840,6 +840,140 @@ func scanEventWithAudit(
 	failedValue *sql.NullBool,
 	failureReasonValue *sql.NullString,
 ) (*model.Event, error) {
+	event, _, err := scanEventAndAuditColumns(
+		rowScanner,
+		commandTextValue,
+		commandWrapperValue,
+		commandNameValue,
+		inputTextValue,
+		outputTextValue,
+		inputTruncatedValue,
+		outputTruncatedValue,
+		inputOriginalBytes,
+		outputOriginalBytes,
+		exitCodeValue,
+		failedValue,
+		failureReasonValue,
+	)
+	return event, err
+}
+
+// scanListedEvent reads a recent-events row that joins fixed-size
+// command_audits metadata only. Codec-managed payloads stay empty until a
+// consumer calls HydrateCommandAudits.
+func scanListedEvent(rowScanner interface {
+	Scan(dest ...any) error
+}) (*model.Event, error) {
+	var (
+		eventIDValue          string
+		eventKindValue        string
+		clientValue           string
+		agentValue            string
+		sessionIDValue        string
+		repoValue             string
+		bodyValue             string
+		bodyAvailabilityValue string
+		sourceHookValue       sql.NullString
+		createdAtValue        string
+		commandWrapperValue   sql.NullString
+		commandNameValue      sql.NullString
+		inputTruncatedValue   sql.NullBool
+		outputTruncatedValue  sql.NullBool
+		inputOriginalBytes    sql.NullInt64
+		outputOriginalBytes   sql.NullInt64
+		exitCodeValue         sql.NullInt64
+		failedValue           sql.NullBool
+		failureReasonValue    sql.NullString
+	)
+	if err := rowScanner.Scan(
+		&eventIDValue,
+		&eventKindValue,
+		&clientValue,
+		&agentValue,
+		&sessionIDValue,
+		&repoValue,
+		&bodyValue,
+		&bodyAvailabilityValue,
+		&sourceHookValue,
+		&createdAtValue,
+		&commandWrapperValue,
+		&commandNameValue,
+		&inputTruncatedValue,
+		&outputTruncatedValue,
+		&inputOriginalBytes,
+		&outputOriginalBytes,
+		&exitCodeValue,
+		&failedValue,
+		&failureReasonValue,
+	); err != nil {
+		return nil, xerrors.Errorf("failed to scan listed event row: %w", err)
+	}
+	event, err := restoreEvent(
+		eventIDValue,
+		eventKindValue,
+		clientValue,
+		agentValue,
+		sessionIDValue,
+		repoValue,
+		bodyValue,
+		bodyAvailabilityValue,
+		sourceHookValue.String,
+		createdAtValue,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// failed is NOT NULL on command_audits; a NULL join means no audit row.
+	if !failedValue.Valid {
+		return event, nil
+	}
+	exitCode := types.None[int]()
+	if exitCodeValue.Valid {
+		exitCode = types.Some(int(exitCodeValue.Int64))
+	}
+	wrapper := types.None[types.CommandName]()
+	if commandWrapperValue.String != "" {
+		wrapper = types.Some(types.CommandName(commandWrapperValue.String))
+	}
+	audit, err := model.CommandAuditFromListingMetadata(model.CommandAuditSnapshot{
+		EventID:             event.EventID(),
+		Command:             "",
+		Wrapper:             wrapper,
+		CommandName:         types.CommandName(commandNameValue.String),
+		Input:               "",
+		Output:              "",
+		InputTruncated:      inputTruncatedValue.Bool,
+		OutputTruncated:     outputTruncatedValue.Bool,
+		InputOriginalBytes:  int(inputOriginalBytes.Int64),
+		OutputOriginalBytes: int(outputOriginalBytes.Int64),
+		ExitCode:            exitCode,
+		Failed:              failedValue.Bool,
+		FailureReason:       types.CommandFailureReason(failureReasonValue.String),
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to restore listed command audit metadata: %w", err)
+	}
+	event.AttachCommandAudit(audit)
+	return event, nil
+}
+
+func scanEventAndAuditColumns(
+	rowScanner interface {
+		Scan(dest ...any) error
+	},
+	commandTextValue *sql.NullString,
+	commandWrapperValue *sql.NullString,
+	commandNameValue *sql.NullString,
+	inputTextValue *sql.NullString,
+	outputTextValue *sql.NullString,
+	inputTruncatedValue *sql.NullBool,
+	outputTruncatedValue *sql.NullBool,
+	inputOriginalBytes *sql.NullInt64,
+	outputOriginalBytes *sql.NullInt64,
+	exitCodeValue *sql.NullInt64,
+	failedValue *sql.NullBool,
+	failureReasonValue *sql.NullString,
+) (*model.Event, *model.CommandAudit, error) {
 	var (
 		eventIDValue          string
 		eventKindValue        string
@@ -877,9 +1011,9 @@ func scanEventWithAudit(
 		failedValue,
 		failureReasonValue,
 	); err != nil {
-		return nil, xerrors.Errorf("failed to scan event details row: %w", err)
+		return nil, nil, xerrors.Errorf("failed to scan event details row: %w", err)
 	}
-	return restoreEvent(
+	event, err := restoreEvent(
 		eventIDValue,
 		eventKindValue,
 		clientValue,
@@ -891,6 +1025,94 @@ func scanEventWithAudit(
 		sourceHookValue.String,
 		createdAtValue,
 	)
+	if err != nil {
+		return nil, nil, err
+	}
+	// GetDetails scans physical payload columns only as presence markers;
+	// callers must re-hydrate through hydrateAuditPayload before trusting them.
+	if commandTextValue == nil || !commandTextValue.Valid {
+		return event, nil, nil
+	}
+	exitCode := types.None[int]()
+	if exitCodeValue != nil && exitCodeValue.Valid {
+		exitCode = types.Some(int(exitCodeValue.Int64))
+	}
+	wrapper := types.None[types.CommandName]()
+	if commandWrapperValue != nil && commandWrapperValue.String != "" {
+		wrapper = types.Some(types.CommandName(commandWrapperValue.String))
+	}
+	commandName := types.CommandName("")
+	if commandNameValue != nil {
+		commandName = types.CommandName(commandNameValue.String)
+	}
+	input := ""
+	if inputTextValue != nil {
+		input = inputTextValue.String
+	}
+	output := ""
+	if outputTextValue != nil {
+		output = outputTextValue.String
+	}
+	inputTruncated := inputTruncatedValue != nil && inputTruncatedValue.Bool
+	outputTruncated := outputTruncatedValue != nil && outputTruncatedValue.Bool
+	inputBytes := 0
+	if inputOriginalBytes != nil {
+		inputBytes = int(inputOriginalBytes.Int64)
+	}
+	outputBytes := 0
+	if outputOriginalBytes != nil {
+		outputBytes = int(outputOriginalBytes.Int64)
+	}
+	failed := failedValue != nil && failedValue.Bool
+	failureReason := types.CommandFailureReason("")
+	if failureReasonValue != nil {
+		failureReason = types.CommandFailureReason(failureReasonValue.String)
+	}
+	// Physical columns may be codec-encoded; use listing metadata restore so
+	// a non-identity frame never becomes Command() plaintext here. GetDetails
+	// rebuilds from hydrateAuditPayload afterwards.
+	audit, err := model.CommandAuditFromListingMetadata(model.CommandAuditSnapshot{
+		EventID:             event.EventID(),
+		Command:             "",
+		Wrapper:             wrapper,
+		CommandName:         commandName,
+		Input:               "",
+		Output:              "",
+		InputTruncated:      inputTruncated,
+		OutputTruncated:     outputTruncated,
+		InputOriginalBytes:  inputBytes,
+		OutputOriginalBytes: outputBytes,
+		ExitCode:            exitCode,
+		Failed:              failed,
+		FailureReason:       failureReason,
+	})
+	if err != nil {
+		return nil, nil, xerrors.Errorf("failed to restore command audit: %w", err)
+	}
+	// Stash physical presence on the unused text destinations so GetDetails can
+	// detect an audit row without treating encoded bytes as plaintext. The
+	// intermediate audit has empty payloads; GetDetails overwrites them.
+	_ = input
+	_ = output
+	return event, audit, nil
+}
+
+// hydrateListedEvent decodes the event body and re-attaches any audit already
+// loaded from the same SELECT. Audit payload columns are never decoded here;
+// consumers that need command/input/output call HydrateCommandAudits.
+func hydrateListedEvent(ctx context.Context, q queryRowContexter, event *model.Event) (*model.Event, error) {
+	if event == nil {
+		return nil, nil
+	}
+	audit, hasAudit := event.CommandAudit().Value()
+	event, err := hydrateEventPayload(ctx, q, event)
+	if err != nil {
+		return nil, err
+	}
+	if hasAudit {
+		event.AttachCommandAudit(audit)
+	}
+	return event, nil
 }
 
 func restoreEvent(

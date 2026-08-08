@@ -64,9 +64,11 @@ SELECT
   COALESCE(s.model, '') AS model,
   COALESCE(latest.latest_event_kind, '') AS latest_event_kind,
   COALESCE(latest.latest_event_id, '') AS latest_event_id,
-  COALESCE(latest_body.body, '') AS latest_event_body
+  -- command_executed stores an empty envelope body (#1675); prefer audit command_text.
+  COALESCE(NULLIF(latest_body.body, ''), latest_audit.command_text, '') AS latest_event_body
 FROM filtered_sessions s
 LEFT JOIN event_agg agg ON agg.session_id = s.session_id
 LEFT JOIN latest_events latest ON latest.session_id = s.session_id
 LEFT JOIN events latest_body ON latest_body.id = latest.latest_event_id
+LEFT JOIN command_audits latest_audit ON latest_audit.event_id = latest.latest_event_id
 ORDER BY s.started_at DESC

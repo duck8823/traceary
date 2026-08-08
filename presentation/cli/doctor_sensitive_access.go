@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/sensitivepath"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
@@ -34,13 +35,22 @@ func (c *RootCLI) inspectSensitiveAccessAuditCoverage(ctx context.Context) docto
 			Message: localizef("failed to list recent command audits: %v", "recent command audit の取得に失敗しました: %v", err),
 		}
 	}
+	// Listing carries metadata-only audits; decode codec-managed payloads
+	// before sensitive-path classification so non-identity stores do not fail open.
+	if err := c.event.HydrateCommandAudits(ctx, events, queryservice.FullCommandAuditPayload()); err != nil {
+		return doctorCheck{
+			Name:    checkName,
+			Status:  doctorStatusFail,
+			Message: localizef("failed to hydrate command audit payloads: %v", "command audit ペイロードの復元に失敗しました: %v", err),
+		}
+	}
 
 	var matched, intentOnly, partial, structured int
 	for _, event := range events {
 		if event == nil {
 			continue
 		}
-		cls := sensitivepath.ClassifyCommandBody(event.Body(), nil)
+		cls := classifyEventSensitivePath(event)
 		if !cls.Matched {
 			continue
 		}

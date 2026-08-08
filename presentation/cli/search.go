@@ -258,6 +258,9 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
 	}
+	if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
+		return err
+	}
 	sessions, err := c.searchProjectionSessions(ctx, criteria, sessionIDsFromEvents(events))
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), err)

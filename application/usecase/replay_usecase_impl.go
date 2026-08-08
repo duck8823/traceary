@@ -10,6 +10,7 @@ import (
 
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
@@ -230,7 +231,7 @@ func (u *replayUsecase) loadFailureHotspots(ctx context.Context, criteria apptyp
 	}
 	clusters := make(map[clusterKey]clusterAggregate, len(events))
 	for _, event := range events {
-		commandPrefix := normalizeFailureCommandPrefix(event.Body())
+		commandPrefix := normalizeFailureCommandPrefix(commandTextForFailureHotspot(event))
 		key := clusterKey{
 			command:   commandPrefix,
 			workspace: event.Workspace().String(),
@@ -265,12 +266,31 @@ func (u *replayUsecase) loadFailureHotspots(ctx context.Context, criteria apptyp
 	return hotspots, nil
 }
 
+// commandTextForFailureHotspot clusters on the joined command_name when
+// available (listing no longer attaches decoded command_text). Full command
+// text is preferred when a consumer has already hydrated it; otherwise the
+// normalized command_name is enough for prefix clustering.
+func commandTextForFailureHotspot(event *model.Event) string {
+	if event == nil {
+		return ""
+	}
+	if audit, ok := event.CommandAudit().Value(); ok && audit != nil {
+		if name := strings.TrimSpace(audit.CommandIdentity().Command().String()); name != "" && name != "unknown" {
+			return name
+		}
+		if command := strings.TrimSpace(audit.Command()); command != "" {
+			return command
+		}
+	}
+	return event.Body()
+}
+
 // normalizeFailureCommandPrefix extracts the first whitespace-delimited
-// token from a command_executed body so clusters group by tool name
+// token from a command line so clusters group by tool name
 // (for example `go test ./...` and `go vet ./...` both cluster under
-// `go`). Empty bodies fall back to "(unknown)".
-func normalizeFailureCommandPrefix(body string) string {
-	trimmed := strings.TrimSpace(body)
+// `go`). Empty values fall back to "(unknown)".
+func normalizeFailureCommandPrefix(command string) string {
+	trimmed := strings.TrimSpace(command)
 	if trimmed == "" {
 		return "(unknown)"
 	}

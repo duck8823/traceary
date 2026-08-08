@@ -20,8 +20,12 @@ const eventSearchLegacyCandidateLimit = 10_000
 
 const hydrateEventSearchCandidatesQuery = `
 SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
-       e.body, e.body_availability, e.source_hook, e.created_at
+       e.body, e.body_availability, e.source_hook, e.created_at,
+       ca.command_wrapper, ca.command_name,
+       ca.input_truncated, ca.output_truncated,
+       ca.input_original_bytes, ca.output_original_bytes, ca.exit_code, ca.failed, ca.failure_reason
   FROM events e
+  LEFT JOIN command_audits ca ON ca.event_id = e.id
  WHERE e.id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
  ORDER BY e.created_at_norm DESC, e.id DESC`
 
@@ -865,11 +869,11 @@ func hydrateEventSearchCandidates(
 
 	events := make([]*model.Event, 0, len(ids))
 	for rows.Next() {
-		event, err := scanEvent(rows)
+		event, err := scanListedEvent(rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore event search candidate: %w", err)
 		}
-		event, err = hydrateEventPayload(ctx, queryer, event)
+		event, err = hydrateListedEvent(ctx, queryer, event)
 		if err != nil {
 			return nil, err
 		}

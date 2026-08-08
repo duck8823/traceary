@@ -75,9 +75,18 @@ func TestEventUsecase_Audit(t *testing.T) {
 		if diff := cmp.Diff("command_executed", event.Kind().String()); diff != "" {
 			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
-		wantBody := "go test ./...\n\nINPUT:\nstdin\n\nOUTPUT:\nstdout"
-		if diff := cmp.Diff(wantBody, event.Body()); diff != "" {
+		// command_executed keeps the execution record in command_audits only.
+		if diff := cmp.Diff("", event.Body()); diff != "" {
 			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("go test ./...", commandAudit.Command()); diff != "" {
+			t.Fatalf("Command() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("stdin", commandAudit.Input()); diff != "" {
+			t.Fatalf("Input() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff("stdout", commandAudit.Output()); diff != "" {
+			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -87,7 +96,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 		stub := &commandAuditSaverStub{}
 		sut := usecase.NewEventUsecase(stub, nil)
 
-		event, commandAudit, err := sut.Audit(context.Background(),
+		_, commandAudit, err := sut.Audit(context.Background(),
 			apptypes.AuditInput{
 				Command:   "API_KEY=env-secret curl --token flag-secret https://example.test?access_token=query-secret",
 				Input:     "stdin",
@@ -105,8 +114,8 @@ func TestEventUsecase_Audit(t *testing.T) {
 			t.Fatalf("Audit() error = %v", err)
 		}
 		for _, leaked := range []string{"env-secret", "flag-secret", "query-secret"} {
-			if strings.Contains(commandAudit.Command(), leaked) || strings.Contains(event.Body(), leaked) {
-				t.Fatalf("command secret %q leaked: command=%q body=%q", leaked, commandAudit.Command(), event.Body())
+			if strings.Contains(commandAudit.Command(), leaked) || strings.Contains(commandAudit.Input(), leaked) || strings.Contains(commandAudit.Output(), leaked) {
+				t.Fatalf("command secret %q leaked: command=%q input=%q output=%q", leaked, commandAudit.Command(), commandAudit.Input(), commandAudit.Output())
 			}
 		}
 		for _, want := range []string{"API_KEY=[REDACTED]", "--token [REDACTED]", "access_token=%5BREDACTED%5D"} {
@@ -163,10 +172,18 @@ func TestEventUsecase_Audit(t *testing.T) {
 				t.Fatalf("Output() missing %q in truncated head/tail payload", want)
 			}
 		}
-		for _, want := range []string{"INPUT (truncated, original_bytes=", "OUTPUT (truncated, original_bytes="} {
-			if !strings.Contains(event.Body(), want) {
-				t.Fatalf("event body missing truncation metadata %q: %s", want, event.Body())
-			}
+		// Truncation markers live on the audit payloads, not a composed body.
+		if !commandAudit.InputTruncated() || !commandAudit.OutputTruncated() {
+			t.Fatalf("expected truncated audit payloads after long input/output")
+		}
+		if !strings.Contains(commandAudit.Input(), "truncated original_bytes=") {
+			t.Fatalf("Input() missing truncation metadata: %s", commandAudit.Input())
+		}
+		if !strings.Contains(commandAudit.Output(), "truncated original_bytes=") {
+			t.Fatalf("Output() missing truncation metadata: %s", commandAudit.Output())
+		}
+		if diff := cmp.Diff("", event.Body()); diff != "" {
+			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
 	})
 

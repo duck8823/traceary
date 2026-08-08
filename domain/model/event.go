@@ -23,6 +23,9 @@ type Event struct {
 	sourceHook       string
 	rawWorkspace     string
 	deliveryEvidence types.Optional[HookDeliveryEvidence]
+	// commandAudit is optional read-side enrichment joined from command_audits.
+	// Write paths keep the audit as a separate aggregate (SaveWithAudit).
+	commandAudit types.Optional[*CommandAudit]
 }
 
 // NewEvent creates a new Event.
@@ -50,7 +53,9 @@ func NewEventWithClock(
 	clock types.Clock,
 ) (*Event, error) {
 	trimmedBody := strings.TrimSpace(body)
-	if trimmedBody == "" {
+	// command_executed stores structured payloads only in command_audits; the
+	// events.body envelope is intentionally empty for that kind (#1675).
+	if trimmedBody == "" && kind != types.EventKindCommandExecuted {
 		return nil, xerrors.Errorf("event body must not be empty")
 	}
 	return &Event{
@@ -194,4 +199,27 @@ func (e *Event) SetDeliveryEvidence(evidence HookDeliveryEvidence) {
 // DeliveryEvidence returns optional stable hook delivery evidence.
 func (e *Event) DeliveryEvidence() types.Optional[HookDeliveryEvidence] {
 	return e.deliveryEvidence
+}
+
+// AttachCommandAudit attaches a hydrated command audit for read-side consumers.
+// Nil clears any previously attached audit.
+func (e *Event) AttachCommandAudit(audit *CommandAudit) {
+	if e == nil {
+		return
+	}
+	if audit == nil {
+		e.commandAudit = types.None[*CommandAudit]()
+		return
+	}
+	e.commandAudit = types.Some(audit)
+}
+
+// CommandAudit returns the optional command audit attached during list/search
+// hydration. Absent when the event is not a command_executed row or the join
+// did not find a matching command_audits row.
+func (e *Event) CommandAudit() types.Optional[*CommandAudit] {
+	if e == nil {
+		return types.None[*CommandAudit]()
+	}
+	return e.commandAudit
 }
