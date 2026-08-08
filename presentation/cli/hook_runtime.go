@@ -698,6 +698,13 @@ func (c *RootCLI) runHookCompact(
 // got one. Returning the error would re-spool the whole compact delivery
 // for replay and risk a duplicate event, which is a worse trade than
 // losing one opportunistic summary. The warn lines are the observability.
+//
+// coversTo names the event event.Log just returned. No host's compact
+// payload carries a field on the proven delivery-ID allowlist, so a compact
+// event never takes the exact-redelivery branch and always inserts. Should a
+// host add one, Log would hand back an event it did not persist and Refine
+// would reject the unknown covers_to before writing — the warn below, and
+// then the gc fallback. See #1710.
 func (c *RootCLI) applyPostCompactDigest(
 	ctx context.Context,
 	sessionID types.SessionID,
