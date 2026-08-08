@@ -87,35 +87,88 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	// summary failed to land is the irreversible half. A memories or
 	// memory_edges prune touches nothing consolidation protects, so it must not
 	// be blocked by an unrelated consolidation failure.
-	orphanProduced := 0
-	if c.orphanConsolidation != nil && orphanConsolidationAppliesTo(target) {
-		orphanResult, orphanErr := c.orphanConsolidation.Consolidate(ctx, usecase.OrphanConsolidationInput{
+	//
+	// Deletion is by cutoff only and checks no coverage, so an incomplete
+	// consolidation (HasMore or Skipped > 0) must stop the deletion half for
+	// the targets consolidation protects.
+	//
+	// A missing use case fails closed rather than falling through to deletion.
+	// main.go always wires it, so this is unreachable in the shipped binary —
+	// but the failure mode of a future wiring regression would be irreversible
+	// deletion of events nothing summarises, which is not a failure mode worth
+	// leaving open to save one check.
+	var orphanResult apptypes.OrphanConsolidationResult
+	consolidationApplied := false
+	if orphanConsolidationAppliesTo(target) {
+		if c.orphanConsolidation == nil {
+			return xerrors.New(Localize(
+				"orphan consolidation is not configured; refusing to delete events that may have no summary",
+				"orphan range の機械要約が設定されていません。要約のない event を削除する恐れがあるため中止します",
+			))
+		}
+		var orphanErr error
+		orphanResult, orphanErr = c.orphanConsolidation.Consolidate(ctx, usecase.OrphanConsolidationInput{
 			StaleAfter: defaultActiveSessionStaleAfter,
 			DryRun:     input.dryRun,
 		})
 		if orphanErr != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to consolidate orphan ranges", "orphan range の機械要約に失敗しました"), orphanErr)
 		}
-		orphanProduced = orphanResult.ProducedCount()
+		consolidationApplied = true
 	}
 
-	cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
-	result, err := c.storeManagement.CollectGarbage(ctx, cutoff, target, input.dryRun)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to run garbage collection", "gc の実行に失敗しました"), err)
+	// Dry-run still runs CollectGarbage for its count because a dry run deletes
+	// nothing. Apply mode must not delete when consolidation left uncovered ranges.
+	skipDeletion := consolidationApplied && !orphanResult.Complete() && !input.dryRun
+	var result apptypes.CollectGarbageResult
+	if !skipDeletion {
+		cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
+		var gcErr error
+		result, gcErr = c.storeManagement.CollectGarbage(ctx, cutoff, target, input.dryRun)
+		if gcErr != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to run garbage collection", "gc の実行に失敗しました"), gcErr)
+		}
 	}
 
-	if result.DryRun() {
-		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan refinement candidates", "orphan 機械要約候補"), orphanProduced); err != nil {
+	if input.dryRun {
+		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan refinement candidates", "orphan 機械要約候補"), orphanResult.ProducedCount()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
+		}
+		if orphanResult.Skipped() > 0 {
+			if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan ranges skipped", "orphan range のスキップ"), orphanResult.Skipped()); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
+			}
 		}
 		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Candidates", "削除対象"), result.DeletedCount()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
 		}
+		if consolidationApplied && !orphanResult.Complete() {
+			if _, err := fmt.Fprintf(output, "%s\n", Localize(
+				"More orphan ranges remain; re-run gc to continue consolidation",
+				"orphan range が残っています。機械要約を続けるには gc を再実行してください",
+			)); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
+			}
+		}
 		return nil
 	}
-	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan refinements", "orphan 機械要約"), orphanProduced); err != nil {
+
+	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan refinements", "orphan 機械要約"), orphanResult.ProducedCount()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+	}
+	if orphanResult.Skipped() > 0 {
+		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan ranges skipped", "orphan range のスキップ"), orphanResult.Skipped()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+		}
+	}
+	if skipDeletion {
+		if _, err := fmt.Fprintf(output, "%s\n", Localize(
+			"Deletion skipped: orphan ranges are not fully consolidated; re-run gc to continue",
+			"削除をスキップしました: orphan range の機械要約が未完了です。gc を再実行してください",
+		)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+		}
+		return nil
 	}
 	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Deleted", "削除しました"), result.DeletedCount()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)

@@ -14,6 +14,13 @@ type OrphanConsolidationInput struct {
 	StaleAfter time.Duration
 	// DryRun counts candidates without writing refinements.
 	DryRun bool
+	// Limit bounds how many candidates one pass discovers. Zero or less uses
+	// defaultOrphanConsolidationLimit.
+	Limit int
+	// Budget bounds how long one pass spends processing candidates. Zero or
+	// less uses defaultOrphanConsolidationBudget. Discovery is bounded by
+	// Limit; this bounds the loop that follows it.
+	Budget time.Duration
 }
 
 // OrphanConsolidationUsecase folds unfolded orphan ranges into degraded

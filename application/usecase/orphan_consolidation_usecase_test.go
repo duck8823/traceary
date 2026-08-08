@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -14,34 +15,54 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+var errOrphanMaterialStub = errors.New("orphan material load failed")
+var errOrphanRefineStub = errors.New("orphan refine failed")
+
 type orphanRepoStub struct {
 	candidates   []*model.SessionOrphanRange
+	hasMore      bool
 	discoverErr  error
 	material     model.SessionOrphanMaterial
 	materialErr  error
+	// materialErrBySession maps session id → LoadMaterial error for that session.
+	materialErrBySession map[types.SessionID]error
+	// produce via refine is controlled by refineStub; LoadMaterial path uses materialErr*.
 	loadCalls    int
 	discoverCall int
+	lastLimit    int
 }
 
 func (s *orphanRepoStub) Record(context.Context, *model.SessionOrphanRange) error {
 	return nil
 }
 
-func (s *orphanRepoStub) DiscoverCandidates(_ context.Context, _ time.Duration, _ time.Time) ([]*model.SessionOrphanRange, error) {
+func (s *orphanRepoStub) DiscoverCandidates(_ context.Context, _ time.Duration, _ time.Time, limit int) (model.SessionOrphanCandidates, error) {
 	s.discoverCall++
+	s.lastLimit = limit
 	if s.discoverErr != nil {
-		return nil, s.discoverErr
+		return model.SessionOrphanCandidates{}, s.discoverErr
 	}
-	return s.candidates, nil
+	ranges := s.candidates
+	hasMore := s.hasMore
+	if limit > 0 && len(ranges) > limit {
+		ranges = ranges[:limit]
+		hasMore = true
+	}
+	return model.SessionOrphanCandidates{Ranges: ranges, HasMore: hasMore}, nil
 }
 
 func (s *orphanRepoStub) LoadMaterial(
 	_ context.Context,
-	_ types.SessionID,
+	sessionID types.SessionID,
 	_ types.Optional[types.EventID],
 	_ types.EventID,
 ) (model.SessionOrphanMaterial, error) {
 	s.loadCalls++
+	if s.materialErrBySession != nil {
+		if err, ok := s.materialErrBySession[sessionID]; ok {
+			return model.SessionOrphanMaterial{}, err
+		}
+	}
 	if s.materialErr != nil {
 		return model.SessionOrphanMaterial{}, s.materialErr
 	}
@@ -85,6 +106,28 @@ func (s *refineStubForOrphan) Refine(_ context.Context, input usecase.SessionRef
 type fixedOrphanClock struct{ at time.Time }
 
 func (c fixedOrphanClock) Now() time.Time { return c.at }
+
+// steppingOrphanClock advances by step on every Now() call after the first return value.
+type steppingOrphanClock struct {
+	at   time.Time
+	step time.Duration
+	n    int
+}
+
+func (c *steppingOrphanClock) Now() time.Time {
+	t := c.at.Add(time.Duration(c.n) * c.step)
+	c.n++
+	return t
+}
+
+func mustOrphanRange(t *testing.T, sessionID string, to string, at time.Time) *model.SessionOrphanRange {
+	t.Helper()
+	orphan, err := model.NewSessionOrphanRange(types.SessionID(sessionID), types.None[types.EventID](), types.EventID(to), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return orphan
+}
 
 func TestOrphanConsolidationUsecase_ProducesDegradedRefinement(t *testing.T) {
 	t.Parallel()
@@ -368,12 +411,15 @@ func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Consolidate() error = %v", err)
 	}
-	want := apptypes.OrphanConsolidationResultOf(1, true)
+	want := apptypes.OrphanConsolidationResultOf(1, 1, 0, false, true)
 	if diff := cmp.Diff(want.ProducedCount(), got.ProducedCount()); diff != "" {
 		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
 	}
 	if !got.DryRun() {
 		t.Fatal("DryRun() = false, want true")
+	}
+	if !got.Complete() {
+		t.Fatal("Complete() = false, want true")
 	}
 	if len(refine.calls) != 0 {
 		t.Fatalf("Refine calls = %d, want 0 on dry-run", len(refine.calls))
@@ -499,5 +545,290 @@ func TestOrphanConsolidationUsecase_TruncationDoesNotCutAgentText(t *testing.T) 
 	}
 	if !strings.Contains(summary, "truncated") {
 		t.Fatal("mechanical section should still declare its own truncation")
+	}
+}
+
+func TestOrphanConsolidationUsecase_BoundedPassReturnsLimitAndHasMore(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	orphans := []*model.SessionOrphanRange{
+		mustOrphanRange(t, "sess-1", "evt-1", now),
+		mustOrphanRange(t, "sess-2", "evt-2", now),
+		mustOrphanRange(t, "sess-3", "evt-3", now),
+	}
+	repo := &orphanRepoStub{
+		candidates: orphans,
+		hasMore:    true,
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now, LastCreatedAt: now,
+			KindCounts: map[string]int{"note": 1}, EventCount: 1,
+		},
+	}
+	refine := &refineStubForOrphan{}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+		Limit:      2,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if repo.lastLimit != 2 {
+		t.Fatalf("DiscoverCandidates limit = %d, want 2", repo.lastLimit)
+	}
+	if diff := cmp.Diff(2, got.ProducedCount()); diff != "" {
+		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
+	}
+	if !got.HasMore() {
+		t.Fatal("HasMore() = false, want true")
+	}
+	if got.Complete() {
+		t.Fatal("Complete() = true, want false when HasMore")
+	}
+	if len(refine.calls) != 2 {
+		t.Fatalf("Refine calls = %d, want 2", len(refine.calls))
+	}
+}
+
+func TestOrphanConsolidationUsecase_SingleFailureIsSkippedAndCounted(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	ok1 := mustOrphanRange(t, "sess-ok-1", "evt-1", now)
+	bad := mustOrphanRange(t, "sess-bad", "evt-bad", now)
+	ok2 := mustOrphanRange(t, "sess-ok-2", "evt-2", now)
+	repo := &orphanRepoStub{
+		candidates: []*model.SessionOrphanRange{ok1, bad, ok2},
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now, LastCreatedAt: now,
+			KindCounts: map[string]int{"note": 1}, EventCount: 1,
+		},
+		materialErrBySession: map[types.SessionID]error{
+			"sess-bad": errOrphanMaterialStub,
+		},
+	}
+	refine := &refineStubForOrphan{}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v, want nil (single skip)", err)
+	}
+	if diff := cmp.Diff(3, got.Attempted()); diff != "" {
+		t.Fatalf("Attempted mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(2, got.ProducedCount()); diff != "" {
+		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, got.Skipped()); diff != "" {
+		t.Fatalf("Skipped mismatch (-want +got):\n%s", diff)
+	}
+	if got.Complete() {
+		t.Fatal("Complete() = true, want false when skipped > 0")
+	}
+	if len(refine.calls) != 2 {
+		t.Fatalf("Refine calls = %d, want 2", len(refine.calls))
+	}
+}
+
+func TestOrphanConsolidationUsecase_ThreeConsecutiveFailuresAbort(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	orphans := []*model.SessionOrphanRange{
+		mustOrphanRange(t, "sess-a", "evt-a", now),
+		mustOrphanRange(t, "sess-b", "evt-b", now),
+		mustOrphanRange(t, "sess-c", "evt-c", now),
+		mustOrphanRange(t, "sess-d", "evt-d", now),
+	}
+	repo := &orphanRepoStub{
+		candidates: orphans,
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now, LastCreatedAt: now,
+			KindCounts: map[string]int{"note": 1}, EventCount: 1,
+		},
+	}
+	refine := &refineStubForOrphan{err: errOrphanRefineStub}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
+
+	_, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+	})
+	if err == nil {
+		t.Fatal("Consolidate() error = nil, want consecutive failure abort")
+	}
+	if !strings.Contains(err.Error(), "3 consecutive failures") {
+		t.Fatalf("error = %v, want consecutive failure message", err)
+	}
+}
+
+func TestOrphanConsolidationUsecase_FailuresSeparatedBySuccessDoNotAbort(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	// fail, fail, success, fail, fail — never three consecutive without a success.
+	orphans := []*model.SessionOrphanRange{
+		mustOrphanRange(t, "sess-f1", "evt-1", now),
+		mustOrphanRange(t, "sess-f2", "evt-2", now),
+		mustOrphanRange(t, "sess-ok", "evt-ok", now),
+		mustOrphanRange(t, "sess-f3", "evt-3", now),
+		mustOrphanRange(t, "sess-f4", "evt-4", now),
+	}
+	repo := &orphanRepoStub{
+		candidates: orphans,
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now, LastCreatedAt: now,
+			KindCounts: map[string]int{"note": 1}, EventCount: 1,
+		},
+		materialErrBySession: map[types.SessionID]error{
+			"sess-f1": errOrphanMaterialStub,
+			"sess-f2": errOrphanMaterialStub,
+			"sess-f3": errOrphanMaterialStub,
+			"sess-f4": errOrphanMaterialStub,
+		},
+	}
+	refine := &refineStubForOrphan{}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v, want nil (failures separated by success)", err)
+	}
+	if diff := cmp.Diff(1, got.ProducedCount()); diff != "" {
+		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(4, got.Skipped()); diff != "" {
+		t.Fatalf("Skipped mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestOrphanConsolidationUsecase_BudgetExhaustionStopsWithHasMore(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	orphans := []*model.SessionOrphanRange{
+		mustOrphanRange(t, "sess-1", "evt-1", now),
+		mustOrphanRange(t, "sess-2", "evt-2", now),
+		mustOrphanRange(t, "sess-3", "evt-3", now),
+	}
+	repo := &orphanRepoStub{
+		candidates: orphans,
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now, LastCreatedAt: now,
+			KindCounts: map[string]int{"note": 1}, EventCount: 1,
+		},
+	}
+	refine := &refineStubForOrphan{}
+	// started = first Now(); each subsequent Now advances by step.
+	// With step=1m and budget=90s: first budget check is 1m (< 90s) so one
+	// candidate processes; second check is 2m (>= 90s) and the loop stops.
+	clock := &steppingOrphanClock{at: now, step: time.Minute}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, clock)
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+		Budget:     90 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v, want nil on budget exhaustion", err)
+	}
+	if !got.HasMore() {
+		t.Fatal("HasMore() = false, want true after budget exhaustion")
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1 (only first candidate before budget)", got.ProducedCount())
+	}
+	if len(refine.calls) != 1 {
+		t.Fatalf("Refine calls = %d, want 1", len(refine.calls))
+	}
+}
+
+func TestOrphanConsolidationUsecase_CancelledContextReturnsError(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	repo := &orphanRepoStub{
+		candidates: []*model.SessionOrphanRange{
+			mustOrphanRange(t, "sess-1", "evt-1", now),
+		},
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now, LastCreatedAt: now,
+			KindCounts: map[string]int{"note": 1}, EventCount: 1,
+		},
+	}
+	refine := &refineStubForOrphan{}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := sut.Consolidate(ctx, usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+	})
+	if err == nil {
+		t.Fatal("Consolidate() error = nil, want cancelled context error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if len(refine.calls) != 0 {
+		t.Fatalf("Refine calls = %d, want 0 when context already cancelled", len(refine.calls))
+	}
+}
+
+func TestOrphanConsolidationUsecase_DryRunRespectsLimitAndSkipsLoadMaterialFailure(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	orphans := []*model.SessionOrphanRange{
+		mustOrphanRange(t, "sess-ok", "evt-ok", now),
+		mustOrphanRange(t, "sess-bad", "evt-bad", now),
+		mustOrphanRange(t, "sess-extra", "evt-extra", now),
+	}
+	repo := &orphanRepoStub{
+		candidates: orphans,
+		hasMore:    true,
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now, LastCreatedAt: now,
+			KindCounts: map[string]int{"note": 1}, EventCount: 1,
+		},
+		materialErrBySession: map[types.SessionID]error{
+			"sess-bad": errOrphanMaterialStub,
+		},
+	}
+	refine := &refineStubForOrphan{}
+	sut := usecase.NewOrphanConsolidationUsecase(repo, refine, fixedOrphanClock{at: now})
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+		DryRun:     true,
+		Limit:      2,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate(dry-run) error = %v, want nil (skip not abort)", err)
+	}
+	if repo.lastLimit != 2 {
+		t.Fatalf("DiscoverCandidates limit = %d, want 2", repo.lastLimit)
+	}
+	if diff := cmp.Diff(1, got.ProducedCount()); diff != "" {
+		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, got.Skipped()); diff != "" {
+		t.Fatalf("Skipped mismatch (-want +got):\n%s", diff)
+	}
+	if !got.HasMore() {
+		t.Fatal("HasMore() = false, want true")
+	}
+	if len(refine.calls) != 0 {
+		t.Fatalf("Refine calls = %d, want 0 on dry-run", len(refine.calls))
+	}
+	if repo.loadCalls != 2 {
+		t.Fatalf("LoadMaterial calls = %d, want 2", repo.loadCalls)
 	}
 }

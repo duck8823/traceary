@@ -7,6 +7,16 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+// SessionOrphanCandidates is one bounded page of discovery results.
+type SessionOrphanCandidates struct {
+	// Ranges holds at most the requested limit of candidates.
+	Ranges []*SessionOrphanRange
+	// HasMore reports that at least one further candidate exists beyond Ranges.
+	// It is computed from valid candidates, never from raw row counts, so a
+	// caller can trust "false" to mean "the backlog is drained".
+	HasMore bool
+}
+
 // SessionOrphanRangeRepository persists front-loaded orphan ranges (compact
 // boundary) and answers the discovery questions gc needs. Recorded rows are a
 // shortcut; ended/stale discovery from covers_to is the source of truth.
@@ -15,15 +25,17 @@ type SessionOrphanRangeRepository interface {
 	// (session_id, to_event_id) is a no-op.
 	Record(ctx context.Context, orphan *SessionOrphanRange) error
 
-	// DiscoverCandidates returns orphan ranges that still need a degraded
-	// refinement:
+	// DiscoverCandidates returns at most limit orphan ranges that still need a
+	// degraded refinement, and whether more remain beyond them:
 	//   1. recorded rows whose session is still active (not ended, not stale)
 	//      and whose to_event_id is not yet covered by the session refinement
 	//   2. ended or stale sessions with material past covers_to (or the whole
 	//      session when no refinement exists)
 	// staleAfter is the same activity window as session gc (default 24h).
+	// limit bounds the work one pass performs; it is a query bound, not a
+	// persistence detail. limit must be greater than zero.
 	// This asks a question; it changes nothing.
-	DiscoverCandidates(ctx context.Context, staleAfter time.Duration, now time.Time) ([]*SessionOrphanRange, error)
+	DiscoverCandidates(ctx context.Context, staleAfter time.Duration, now time.Time, limit int) (SessionOrphanCandidates, error)
 
 	// LoadMaterial returns the mechanical-summary inputs for a range under
 	// canonical event order (ts_norm(created_at), id). Like DiscoverCandidates,

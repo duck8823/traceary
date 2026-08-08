@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,14 +137,17 @@ func TestSessionOrphanRangeDatasource_RecordAtCompactAfterUnfoldedRange(t *testi
 		t.Fatalf("RecordAtCompact() error = %v", err)
 	}
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("candidates = %d, want 1", len(candidates))
+	if len(candidates.Ranges) != 1 {
+		t.Fatalf("candidates = %d, want 1", len(candidates.Ranges))
 	}
-	got := candidates[0]
+	if candidates.HasMore {
+		t.Fatal("HasMore = true, want false")
+	}
+	got := candidates.Ranges[0]
 	if got.ToEventID() != "evt-compact" {
 		t.Fatalf("ToEventID = %s, want evt-compact", got.ToEventID())
 	}
@@ -208,14 +212,14 @@ func TestSessionOrphanRangeDatasource_GCFindsEndedSessionWithoutMarker(t *testin
 
 	// No orphan row recorded — discovery must still find the gap past covers_to.
 	now := frac.Add(2 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("candidates = %d, want 1", len(candidates))
+	if len(candidates.Ranges) != 1 {
+		t.Fatalf("candidates = %d, want 1", len(candidates.Ranges))
 	}
-	got := candidates[0]
+	got := candidates.Ranges[0]
 	// Latest event is the session_ended boundary.
 	if got.ToEventID() != "sess-ended-end" {
 		t.Fatalf("ToEventID = %s, want sess-ended-end", got.ToEventID())
@@ -299,12 +303,12 @@ func TestSessionOrphanRangeDatasource_RunningSessionLeftAlone(t *testing.T) {
 		{id: "evt-2", at: now.Add(-time.Minute)},
 	}, false)
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
-	if len(candidates) != 0 {
-		t.Fatalf("candidates = %d, want 0 for live non-stale session", len(candidates))
+	if len(candidates.Ranges) != 0 {
+		t.Fatalf("candidates = %d, want 0 for live non-stale session", len(candidates.Ranges))
 	}
 }
 
@@ -487,12 +491,12 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t 
 	}
 
 	now := base.Add(48 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() on pre-47 store error = %v", err)
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("candidates = %d, want 1 from marker-free discovery", len(candidates))
+	if len(candidates.Ranges) != 1 {
+		t.Fatalf("candidates = %d, want 1 from marker-free discovery", len(candidates.Ranges))
 	}
 
 	// Full consolidation path (what gc --dry-run hits first) must also succeed.
@@ -618,16 +622,175 @@ func TestSessionOrphanRangeDatasource_FractionalSecondBoundaryOrdering(t *testin
 		t.Fatal("evt-frac should be strictly after evt-whole under ts_norm")
 	}
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour))
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour), 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("candidates = %d, want 1 (gap after covers_to under ts_norm)", len(candidates))
+	if len(candidates.Ranges) != 1 {
+		t.Fatalf("candidates = %d, want 1 (gap after covers_to under ts_norm)", len(candidates.Ranges))
 	}
-	from, ok := candidates[0].FromEventID().Value()
+	from, ok := candidates.Ranges[0].FromEventID().Value()
 	if !ok || from != "evt-whole" {
 		t.Fatalf("FromEventID = %v present=%v", from, ok)
+	}
+}
+
+func TestSessionOrphanRangeDatasource_DiscoverCandidatesRespectsLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	for i := 1; i <= 5; i++ {
+		id := fmt.Sprintf("sess-limit-%d", i)
+		_ = seedOrphanSession(ctx, t, fx, id, []eventSeed{
+			{id: id + "-evt", at: base.Add(time.Duration(i) * time.Minute)},
+		}, true)
+	}
+	now := base.Add(48 * time.Hour)
+	got, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 2)
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() error = %v", err)
+	}
+	if len(got.Ranges) != 2 {
+		t.Fatalf("candidates = %d, want 2", len(got.Ranges))
+	}
+	if !got.HasMore {
+		t.Fatal("HasMore = false, want true when more candidates than limit")
+	}
+}
+
+func TestSessionOrphanRangeDatasource_DiscoverCandidatesProgressesAcrossPages(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Six ended sessions without refinements: first page limit=3, second page the rest.
+	for i := 1; i <= 6; i++ {
+		id := fmt.Sprintf("sess-page-%02d", i)
+		_ = seedOrphanSession(ctx, t, fx, id, []eventSeed{
+			{id: id + "-evt", at: base.Add(time.Duration(i) * time.Minute)},
+		}, true)
+	}
+	now := base.Add(48 * time.Hour)
+	limit := 3
+
+	first, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, limit)
+	if err != nil {
+		t.Fatalf("first DiscoverCandidates() error = %v", err)
+	}
+	if len(first.Ranges) != limit {
+		t.Fatalf("first page = %d, want %d", len(first.Ranges), limit)
+	}
+	if !first.HasMore {
+		t.Fatal("first HasMore = false, want true")
+	}
+
+	// Consolidate the first page so those sessions leave the candidate set.
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fixedEventClock{at: now})
+	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+		Limit:      limit,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != limit {
+		t.Fatalf("ProducedCount = %d, want %d", got.ProducedCount(), limit)
+	}
+
+	second, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, limit)
+	if err != nil {
+		t.Fatalf("second DiscoverCandidates() error = %v", err)
+	}
+	if len(second.Ranges) != limit {
+		t.Fatalf("second page = %d, want %d (remaining candidates)", len(second.Ranges), limit)
+	}
+	// Second page must return different sessions, not the same already-folded ones.
+	firstSet := map[string]struct{}{}
+	for _, r := range first.Ranges {
+		firstSet[r.SessionID().String()] = struct{}{}
+	}
+	for _, r := range second.Ranges {
+		if _, dup := firstSet[r.SessionID().String()]; dup {
+			t.Fatalf("second page re-returned session %s already on first page", r.SessionID())
+		}
+	}
+	if second.HasMore {
+		t.Fatal("second HasMore = true, want false after consolidating first page of 6 with limit 3")
+	}
+}
+
+func TestSessionOrphanRangeDatasource_SessionsWithNoEventsAreNotReturned(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	// Session with events (should appear).
+	_ = seedOrphanSession(ctx, t, fx, "sess-with-events", []eventSeed{
+		{id: "evt-present", at: base},
+	}, true)
+
+	// Session row with no events: create via SaveBoundary start only then end without body events.
+	// seedOrphanSession always creates events; insert a bare ended session via SQL-level path.
+	emptyID := types.SessionID("sess-no-events")
+	session := model.NewSession(emptyID, base, "cli", "codex", "ws")
+	// Boundary start event is itself an event — remove it after end to get a session with zero events.
+	start, err := model.NewEventWithClock(
+		"sess-no-events-start", types.EventKindSessionStarted, "cli", "codex", emptyID, "ws", "start",
+		fixedEventClock{at: base},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.sessions.SaveBoundary(ctx, session, start); err != nil {
+		t.Fatal(err)
+	}
+	gotSess, err := fx.sessions.FindByID(ctx, emptyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, ok := gotSess.Value()
+	if !ok {
+		t.Fatal("empty session missing")
+	}
+	endAt := base.Add(time.Hour)
+	if err := sess.End(endAt, "done"); err != nil {
+		t.Fatal(err)
+	}
+	endEvt, err := model.NewEventWithClock(
+		"sess-no-events-end", types.EventKindSessionEnded, "cli", "codex", emptyID, "ws", "end",
+		fixedEventClock{at: endAt},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.sessions.SaveBoundary(ctx, sess, endEvt); err != nil {
+		t.Fatal(err)
+	}
+	// Delete all events for the empty session so it has no event rows.
+	db, err := sql.Open("sqlite", fx.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`DELETE FROM events WHERE session_id = ?`, emptyID.String()); err != nil {
+		t.Fatalf("DELETE events for empty session: %v", err)
+	}
+
+	now := base.Add(48 * time.Hour)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() error = %v", err)
+	}
+	for _, r := range candidates.Ranges {
+		if r.SessionID() == emptyID {
+			t.Fatal("session with no events must not be a candidate")
+		}
+	}
+	if len(candidates.Ranges) != 1 {
+		t.Fatalf("candidates = %d, want 1 (only session with events)", len(candidates.Ranges))
 	}
 }
 
@@ -660,4 +823,134 @@ func tableExistsAt(t *testing.T, dbPath, table string) bool {
 		t.Fatalf("probe table %s: %v", table, err)
 	}
 	return exists != 0
+}
+
+// TestSessionOrphanRangeDatasource_DiscoveryPlanUsesNormalizedTimestampIndex
+// pins the reason the discovery query reads events.created_at_norm instead of
+// calling ts_norm(created_at). Discovery evaluates the latest-event subquery for
+// every session it scans, so an unindexable ordering there costs a sort per
+// session — exactly the open-ended work #1719 exists to bound.
+//
+// Measured on the same fixture: with ts_norm(e2.created_at) the plan ends in
+// "USE TEMP B-TREE FOR ORDER BY" and the activity probe degrades to
+// "SEARCH e USING COVERING INDEX idx_events_session_created_at (session_id=?)",
+// dropping the timestamp from the seek.
+func TestSessionOrphanRangeDatasource_DiscoveryPlanUsesNormalizedTimestampIndex(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+
+	query, err := os.ReadFile(filepath.Join("sql", "list_ended_or_stale_sessions_for_orphan.sql"))
+	if err != nil {
+		t.Fatalf("read discovery query: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+fx.dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	cutoff := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	rows, err := db.QueryContext(
+		ctx,
+		"EXPLAIN QUERY PLAN "+strings.TrimSpace(string(query)),
+		"", cutoff, cutoff, 10,
+	)
+	if err != nil {
+		t.Fatalf("explain discovery query: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var plan []string
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan plan row: %v", err)
+		}
+		plan = append(plan, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate plan rows: %v", err)
+	}
+	if len(plan) == 0 {
+		t.Fatal("query plan is empty")
+	}
+
+	joined := strings.Join(plan, "\n")
+	if strings.Contains(joined, "TEMP B-TREE") {
+		t.Errorf("query plan sorts instead of using an index:\n%s", joined)
+	}
+	if !strings.Contains(joined, "idx_events_session_created_at_norm_id_desc") {
+		t.Errorf("query plan does not use the normalized timestamp index:\n%s", joined)
+	}
+}
+
+// TestSessionOrphanRangeDatasource_InsertedEventsCarryNormalizedTimestamp pins
+// the invariant the discovery query depends on. Discovery picks a session's
+// latest event with ORDER BY created_at_norm DESC, while Go re-checks coverage
+// with ts_norm(created_at). If an inserted row could leave created_at_norm NULL
+// or disagreeing, SQLite would sort it last, discovery would read an older
+// event as the latest, and the session would be dropped from the candidate set
+// — after which Complete() reports a clean pass and deletion removes events
+// that were never folded.
+//
+// migrate_test covers the migration-031 backfill. This covers the trigger path
+// that every later insert takes.
+func TestSessionOrphanRangeDatasource_InsertedEventsCarryNormalizedTimestamp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+
+	base := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	seedOrphanSession(ctx, t, fx, "sess-norm", []eventSeed{
+		// Whole second and sub-second forms render at different widths under
+		// RFC3339Nano, which is the shape that breaks lexical ordering (#1185).
+		{id: "evt-whole", at: base},
+		{id: "evt-frac", at: base.Add(500 * time.Millisecond)},
+		{id: "evt-nano", at: base.Add(time.Second + 1)},
+	}, true)
+
+	db, err := sql.Open("sqlite", "file:"+fx.dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	rows, err := db.QueryContext(ctx, `
+SELECT id,
+       created_at_norm IS NULL AS is_null,
+       COALESCE(created_at_norm, '') AS stored,
+       COALESCE(ts_norm(created_at), '') AS computed
+  FROM events
+ WHERE session_id = ?
+`, "sess-norm")
+	if err != nil {
+		t.Fatalf("read normalized timestamps: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	seen := 0
+	for rows.Next() {
+		var id, stored, computed string
+		var isNull bool
+		if err := rows.Scan(&id, &isNull, &stored, &computed); err != nil {
+			t.Fatalf("scan normalized timestamp: %v", err)
+		}
+		seen++
+		if isNull {
+			t.Errorf("event %s has NULL created_at_norm; discovery would sort it last and miss it", id)
+			continue
+		}
+		if diff := cmp.Diff(computed, stored); diff != "" {
+			t.Errorf("event %s created_at_norm differs from ts_norm(created_at) (-want +got):\n%s", id, diff)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate normalized timestamps: %v", err)
+	}
+	if seen == 0 {
+		t.Fatal("no events found for the seeded session")
+	}
 }
