@@ -19,8 +19,8 @@ func (s *orphanRecordRepoStub) Record(_ context.Context, orphan *model.SessionOr
 	return nil
 }
 
-func (s *orphanRecordRepoStub) DiscoverCandidates(context.Context, time.Duration, time.Time) ([]*model.SessionOrphanRange, error) {
-	return nil, nil
+func (s *orphanRecordRepoStub) DiscoverCandidates(context.Context, time.Duration, time.Time, int) (model.SessionOrphanCandidates, error) {
+	return model.SessionOrphanCandidates{}, nil
 }
 
 func (s *orphanRecordRepoStub) LoadMaterial(

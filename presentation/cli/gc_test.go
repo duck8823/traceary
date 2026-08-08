@@ -38,7 +38,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(1, true),
+			result: apptypes.OrphanConsolidationResultOf(1, 1, 0, false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -69,7 +69,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(4, false),
+			result: apptypes.OrphanConsolidationResultOf(4, 4, 0, false, false),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -161,6 +161,113 @@ func TestRootCLI_GCCommand(t *testing.T) {
 					t.Fatalf("CollectGarbage called = %t, want %t", storeMaint.gcCalled, tt.wantDeleted)
 				}
 			})
+		}
+	})
+
+	t.Run("incomplete consolidation skips deletion", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			result apptypes.OrphanConsolidationResult
+			want   string
+		}{
+			{
+				name:   "HasMore blocks deletion",
+				result: apptypes.OrphanConsolidationResultOf(5000, 5000, 0, true, false),
+				want: "Orphan refinements: 5000\n" +
+					"Deletion skipped: orphan ranges are not fully consolidated; re-run gc to continue\n",
+			},
+			{
+				name:   "Skipped blocks deletion and prints skip line",
+				result: apptypes.OrphanConsolidationResultOf(10, 8, 2, false, false),
+				want: "Orphan refinements: 8\n" +
+					"Orphan ranges skipped: 2\n" +
+					"Deletion skipped: orphan ranges are not fully consolidated; re-run gc to continue\n",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				storeMaint := &storeManagementUsecaseStub{
+					gcResult: apptypes.CollectGarbageResultOf(99, time.Time{}, false),
+				}
+				orphan := &orphanConsolidationStub{result: tt.result}
+				stdout := &bytes.Buffer{}
+				rootCmd := cli.NewRootCLI(
+					cli.WithStoreManagement(storeMaint),
+					cli.WithOrphanConsolidation(orphan),
+				).Command()
+				rootCmd.SetOut(stdout)
+				rootCmd.SetErr(&bytes.Buffer{})
+				rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+
+				if err := rootCmd.Execute(); err != nil {
+					t.Fatalf("Execute() error = %v", err)
+				}
+				if stdout.String() != tt.want {
+					t.Fatalf("stdout = %q, want %q", stdout.String(), tt.want)
+				}
+				if storeMaint.gcCalled {
+					t.Fatal("CollectGarbage was called; incomplete consolidation must skip deletion")
+				}
+			})
+		}
+	})
+
+	t.Run("complete consolidation deletes", func(t *testing.T) {
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
+		}
+		orphan := &orphanConsolidationStub{
+			result: apptypes.OrphanConsolidationResultOf(3, 3, 0, false, false),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(storeMaint),
+			cli.WithOrphanConsolidation(orphan),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		want := "Orphan refinements: 3\nDeleted: 2\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+		if !storeMaint.gcCalled {
+			t.Fatal("CollectGarbage was not called for complete consolidation")
+		}
+	})
+
+	t.Run("dry-run still reports counts when incomplete", func(t *testing.T) {
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(7, time.Time{}, true),
+		}
+		orphan := &orphanConsolidationStub{
+			result: apptypes.OrphanConsolidationResultOf(5, 4, 1, true, true),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(storeMaint),
+			cli.WithOrphanConsolidation(orphan),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--dry-run"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		want := "Orphan refinement candidates: 4\n" +
+			"Orphan ranges skipped: 1\n" +
+			"Candidates: 7\n" +
+			"More orphan ranges remain; re-run gc to continue consolidation\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+		if !storeMaint.gcCalled {
+			t.Fatal("CollectGarbage must still run on dry-run even when incomplete")
 		}
 	})
 }

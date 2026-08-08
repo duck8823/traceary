@@ -83,17 +83,23 @@ func (d *SessionOrphanRangeDatasource) Record(ctx context.Context, orphan *model
 }
 
 // DiscoverCandidates finds orphan ranges still needing a degraded refinement.
+// It collects at most limit+1 valid candidates so HasMore is computed from
+// valid candidates, not raw SQL row counts.
 func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 	ctx context.Context,
 	staleAfter time.Duration,
 	now time.Time,
-) ([]*model.SessionOrphanRange, error) {
+	limit int,
+) (model.SessionOrphanCandidates, error) {
 	if staleAfter <= 0 {
-		return nil, xerrors.Errorf("staleAfter must be greater than zero")
+		return model.SessionOrphanCandidates{}, xerrors.Errorf("staleAfter must be greater than zero")
+	}
+	if limit <= 0 {
+		return model.SessionOrphanCandidates{}, xerrors.Errorf("limit must be greater than zero")
 	}
 	db, err := d.openForDiscovery(ctx)
 	if err != nil {
-		return nil, err
+		return model.SessionOrphanCandidates{}, err
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -104,24 +110,31 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 	cutoff := formatTimestamp(now.UTC().Add(-staleAfter))
 	seen := map[string]struct{}{}
 	var candidates []*model.SessionOrphanRange
+	target := limit + 1
 
 	// Front-loaded shortcuts: recorded rows on sessions that are still active.
 	// Ended/stale discovery below is the source of truth for those sessions.
 	recorded, err := d.listRecorded(ctx, db)
 	if err != nil {
-		return nil, err
+		return model.SessionOrphanCandidates{}, err
 	}
 	for _, orphan := range recorded {
+		if err := ctx.Err(); err != nil {
+			return model.SessionOrphanCandidates{}, xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+		}
+		if len(candidates) >= target {
+			break
+		}
 		covered, err := d.refinementCovers(ctx, db, orphan.SessionID(), orphan.ToEventID())
 		if err != nil {
-			return nil, err
+			return model.SessionOrphanCandidates{}, err
 		}
 		if covered {
 			continue
 		}
 		endedOrStale, err := d.sessionEndedOrStale(ctx, db, orphan.SessionID(), cutoff)
 		if err != nil {
-			return nil, err
+			return model.SessionOrphanCandidates{}, err
 		}
 		if endedOrStale {
 			// Will be rediscovered from covers_to below with the full gap.
@@ -136,26 +149,57 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 	}
 
 	// Source of truth: ended or stale sessions with material past covers_to.
-	endedSessions, err := d.listEndedOrStale(ctx, db, cutoff)
-	if err != nil {
-		return nil, err
+	// Paginate by session_id keyset until target valid candidates are collected
+	// or the scan is exhausted.
+	if len(candidates) < target {
+		cursor := ""
+		pageSize := limit + 1
+		for len(candidates) < target {
+			if err := ctx.Err(); err != nil {
+				return model.SessionOrphanCandidates{}, xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+			}
+			page, err := d.listEndedOrStalePage(ctx, db, cutoff, cursor, pageSize)
+			if err != nil {
+				return model.SessionOrphanCandidates{}, err
+			}
+			if len(page) == 0 {
+				break
+			}
+			// Advance the cursor from the last SQL row even when every row was
+			// filtered out in Go; otherwise a page of non-candidates loops forever.
+			cursor = page[len(page)-1].String()
+			for _, sessionID := range page {
+				if len(candidates) >= target {
+					break
+				}
+				orphan, ok, err := d.gapPastCoverage(ctx, db, sessionID, now)
+				if err != nil {
+					return model.SessionOrphanCandidates{}, err
+				}
+				if !ok {
+					continue
+				}
+				key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				candidates = append(candidates, orphan)
+			}
+			if len(page) < pageSize {
+				break
+			}
+		}
 	}
-	for _, sessionID := range endedSessions {
-		orphan, ok, err := d.gapPastCoverage(ctx, db, sessionID, now)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			continue
-		}
-		key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		candidates = append(candidates, orphan)
+
+	hasMore := len(candidates) > limit
+	if hasMore {
+		candidates = candidates[:limit]
 	}
-	return candidates, nil
+	return model.SessionOrphanCandidates{
+		Ranges:  candidates,
+		HasMore: hasMore,
+	}, nil
 }
 
 // LoadMaterial returns mechanical-summary inputs for a range.
@@ -281,8 +325,14 @@ func (d *SessionOrphanRangeDatasource) listRecorded(ctx context.Context, db *sql
 	return result, nil
 }
 
-func (d *SessionOrphanRangeDatasource) listEndedOrStale(ctx context.Context, db *sql.DB, cutoff string) ([]types.SessionID, error) {
-	rows, err := db.QueryContext(ctx, listEndedOrStaleSessionsForOrphanQuery, cutoff, cutoff)
+func (d *SessionOrphanRangeDatasource) listEndedOrStalePage(
+	ctx context.Context,
+	db *sql.DB,
+	cutoff string,
+	afterSessionID string,
+	limit int,
+) ([]types.SessionID, error) {
+	rows, err := db.QueryContext(ctx, listEndedOrStaleSessionsForOrphanQuery, afterSessionID, cutoff, cutoff, limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list ended or stale sessions: %w", err)
 	}

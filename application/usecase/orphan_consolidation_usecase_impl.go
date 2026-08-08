@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,22 @@ const orphanMechanicalSummaryMaxBytes = 64 * 1024
 
 // ProducedBy value for gc-authored degraded refinements.
 const orphanConsolidationProducedBy = "gc:orphan-consolidation"
+
+// defaultOrphanConsolidationLimit bounds discovery so a store with tens of
+// thousands of unfolded sessions cannot turn one gc into an open-ended scan.
+const defaultOrphanConsolidationLimit = 5000
+
+// defaultOrphanConsolidationBudget bounds the processing loop. Each candidate
+// costs a read-only connection, two range queries and a CAS write, so the pass
+// is paced by wall clock rather than by a count that means nothing to an
+// operator watching a command that has not returned.
+const defaultOrphanConsolidationBudget = 2 * time.Minute
+
+// orphanConsolidationConsecutiveFailureLimit distinguishes "this session's data
+// is bad" from "the mechanism is broken". Isolated failures are skipped and
+// counted; this many in a row means the next candidate will fail too, and
+// continuing would report thousands of skips instead of one clear error.
+const orphanConsolidationConsecutiveFailureLimit = 3
 
 type orphanConsolidationUsecase struct {
 	orphans    model.SessionOrphanRangeRepository
@@ -60,36 +77,86 @@ func (u *orphanConsolidationUsecase) Consolidate(
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("staleAfter must be greater than zero")
 	}
 
-	now := u.clock.Now()
-	candidates, err := u.orphans.DiscoverCandidates(ctx, input.StaleAfter, now)
+	limit := input.Limit
+	if limit <= 0 {
+		limit = defaultOrphanConsolidationLimit
+	}
+	budget := input.Budget
+	if budget <= 0 {
+		budget = defaultOrphanConsolidationBudget
+	}
+
+	started := u.clock.Now()
+	now := started
+	candidates, err := u.orphans.DiscoverCandidates(ctx, input.StaleAfter, now, limit)
 	if err != nil {
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("failed to discover orphan ranges: %w", err)
 	}
 
+	hasMore := candidates.HasMore
+	attempted := 0
 	produced := 0
-	for _, orphan := range candidates {
+	skipped := 0
+	consecutive := 0
+
+	for _, orphan := range candidates.Ranges {
 		if orphan == nil {
 			continue
 		}
-		if input.DryRun {
-			// Dry-run must not write refinements. Count ranges that still have
-			// material; LoadMaterial failing closed is reported as an error so
-			// operators do not get a silent zero.
-			if _, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID()); err != nil {
-				return apptypes.OrphanConsolidationResult{}, xerrors.Errorf(
-					"failed to load orphan material for dry-run session %s: %w",
-					orphan.SessionID(), err,
-				)
-			}
+		if err := ctx.Err(); err != nil {
+			// A cancelled or timed-out context is not a skippable candidate failure.
+			return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("orphan consolidation cancelled: %w", err)
+		}
+		if u.clock.Now().Sub(started) >= budget {
+			hasMore = true
+			break
+		}
+
+		attempted++
+		failure := u.processCandidate(ctx, orphan, input.DryRun)
+		if failure == nil {
 			produced++
+			consecutive = 0
 			continue
 		}
-		if err := u.produceDegraded(ctx, orphan); err != nil {
-			return apptypes.OrphanConsolidationResult{}, err
+		skipped++
+		consecutive++
+		slog.Warn(
+			"skipped orphan range",
+			"session_id", orphan.SessionID().String(),
+			"dry_run", input.DryRun,
+			"error", failure,
+		)
+		if consecutive >= orphanConsolidationConsecutiveFailureLimit {
+			return apptypes.OrphanConsolidationResult{}, xerrors.Errorf(
+				"orphan consolidation aborted after %d consecutive failures (last session %s): %w",
+				consecutive, orphan.SessionID(), failure,
+			)
 		}
-		produced++
 	}
-	return apptypes.OrphanConsolidationResultOf(produced, input.DryRun), nil
+	return apptypes.OrphanConsolidationResultOf(attempted, produced, skipped, hasMore, input.DryRun), nil
+}
+
+// processCandidate performs the single operation one candidate needs: a dry run
+// only proves the material is still readable, an apply writes the degraded
+// refinement. Both fail the same way, so the caller keeps one skip rule instead
+// of two copies of it.
+func (u *orphanConsolidationUsecase) processCandidate(
+	ctx context.Context,
+	orphan *model.SessionOrphanRange,
+	dryRun bool,
+) error {
+	if !dryRun {
+		return u.produceDegraded(ctx, orphan)
+	}
+	// Dry-run must not write refinements. Reading the material is what proves
+	// the range still has something to fold. A counted, logged skip on failure
+	// satisfies the original "operators do not get a silent zero" intent
+	// without making one bad session fatal for the whole pass.
+	if _, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID()); err != nil {
+		return xerrors.Errorf("failed to load orphan material for dry-run session %s: %w", orphan.SessionID(), err)
+	}
+	return nil
 }
 
 func (u *orphanConsolidationUsecase) produceDegraded(ctx context.Context, orphan *model.SessionOrphanRange) error {

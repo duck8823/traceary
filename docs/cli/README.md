@@ -1143,6 +1143,24 @@ Useful flags:
 - `--target events|sessions|memories|memory_edges|all`
 - `--dry-run`
 
+#### Orphan consolidation runs first, and can defer deletion
+
+For `--target events`, `sessions`, and `all`, `gc` first folds unfolded event ranges into degraded mechanical summaries, so a summary exists before the events it describes are deleted. That pass is bounded: it discovers a capped number of ranges and stops after a wall-clock budget, because a store that has never been consolidated can present tens of thousands of ranges at once.
+
+Deletion only checks the retention cutoff — it does not check whether a range was folded. So when a pass leaves anything unfolded, whether because it hit its bound or because a range could not be read, `gc` reports what it consolidated and **skips deletion entirely** rather than removing events that nothing summarizes:
+
+```
+Orphan refinements: 5000
+Orphan ranges skipped: 2
+Deletion skipped: orphan ranges are not fully consolidated; re-run gc to continue
+```
+
+This exits successfully — the pass made real progress and the refinements it wrote are durable. Re-run `gc` until the deletion line appears. A store with a large backlog may need several runs; each one picks up where the last stopped.
+
+An unreadable range is skipped and counted, not fatal. Three consecutive failures abort the pass with an error instead, on the assumption that the mechanism itself is broken rather than one range's data.
+
+`--dry-run` applies the same bounds and reports the same counts, but still reports deletion candidates, because a dry run deletes nothing.
+
 ## Integration commands
 
 > The entire `integration` command subtree (the `integration` parent and the `codex` group) is hidden from `traceary --help` as of v0.20.0 and is scheduled for full removal in v0.21.0. The entries below are kept only as migration notes; the hidden stubs still exit non-zero with a pointer to Codex's official `/plugins` flow.
