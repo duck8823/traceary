@@ -38,17 +38,19 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 	const sessionID = "sess-consol-e2e"
 
 	tests := []struct {
-		name           string
-		client         string
-		thresholdJSON  string // empty = omit key (default 64 KiB); "0" disables
-		seedBytes      int    // body bytes strictly after covers_to (or whole session)
-		coveredBytes   int    // body on the covers_to boundary event (excluded from pressure)
-		withRefinement bool
-		pressureErr    error // when set, injects a stub that errors instead of real store
-		recordErr      error // when set, transcript Log fails; consolidation must not fire
-		wantExitCode   int
-		wantStderrSub  []string
-		wantNoFire     bool // pressure usecase must not be consulted (host gate / disabled / record fail)
+		name              string
+		client            string
+		thresholdJSON     string // empty = omit key (default 64 KiB); "0" disables
+		seedBytes         int    // body bytes strictly after covers_to (or whole session)
+		coveredBytes      int    // body on the covers_to boundary event (excluded from pressure)
+		withRefinement    bool
+		pressureErr       error // when set, injects a stub that errors instead of real store
+		recordErr         error // when set, transcript Log fails; consolidation must not fire
+		noExtractableText bool  // omit assistant text so extractor fail-softs (recorded=false)
+		unresolvedSession bool  // force session resolve to empty (recorded=false, err=nil)
+		wantExitCode      int
+		wantStderrSub     []string
+		wantNoFire        bool // pressure usecase must not be consulted (host gate / disabled / record fail / fail-soft skip)
 	}{
 		{
 			name:         "63 KiB unrefined exits 0 with empty stderr reason",
@@ -116,6 +118,29 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			recordErr:    errors.New("disk full"),
 			wantExitCode: 0,
 			wantNoFire:   true,
+		},
+		{
+			// Fail-soft skip (recorded=false, err=nil): resolvable session but
+			// no extractable assistant text. err==nil must not set payload or
+			// request consolidation even when unrefined material is already
+			// over the threshold.
+			name:              "no extractable content does not request consolidation when pressure is over threshold",
+			client:            "codex",
+			seedBytes:         65 * 1024,
+			noExtractableText: true,
+			wantExitCode:      0,
+			wantNoFire:        true,
+		},
+		{
+			// Fail-soft skip (recorded=false, err=nil): extractable content but
+			// session resolution yields nothing. Same gate as above — pressure
+			// must not run against a turn that was never persisted.
+			name:              "unresolved session does not request consolidation when pressure is over threshold",
+			client:            "codex",
+			seedBytes:         65 * 1024,
+			unresolvedSession: true,
+			wantExitCode:      0,
+			wantNoFire:        true,
 		},
 	}
 
@@ -225,10 +250,21 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			// Transcript capture needs a payload the client extractor accepts.
 			// Codex last_assistant_message is the simplest cross-client path
 			// that still resolves session_id from the JSON body.
-			payload := `{"session_id":"` + sessionID + `","cwd":"/tmp","last_assistant_message":"ok","prompt_response":"ok"}`
 			// Claude stop payload uses transcript_path; for clients without a
 			// message field the durable path fail-softs. With a successful
 			// record path, consolidation still runs on the session_id.
+			payload := `{"session_id":"` + sessionID + `","cwd":"/tmp","last_assistant_message":"ok","prompt_response":"ok"}`
+			if tt.noExtractableText {
+				// Keep session_id so resolution would succeed; omit assistant
+				// text so the extractor returns no blocks (recorded=false).
+				payload = `{"session_id":"` + sessionID + `","cwd":"/tmp"}`
+			}
+			if tt.unresolvedSession {
+				cli.SetResolveHookTranscriptSessionIDFunc(func(_ []byte, _ string) (types.SessionID, error) {
+					return "", nil
+				})
+				t.Cleanup(cli.ResetResolveHookTranscriptSessionIDFunc)
+			}
 
 			var eventOpt cli.RootCLIOption
 			if tt.recordErr != nil {
@@ -301,10 +337,11 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 
 func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
 	tests := []struct {
-		name       string
-		json       string // empty means do not write a config file
-		unreadable bool
-		want       int64
+		name            string
+		json            string // empty means do not write a config file
+		unreadable      bool
+		danglingSymlink bool // config.json is a symlink whose target is gone
+		want            int64
 	}{
 		{
 			name: "absent config file resolves the 64 KiB default",
@@ -338,17 +375,32 @@ func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
 			unreadable: true,
 			want:       0,
 		},
+		{
+			// ReadFile follows the link and gets ENOENT, but the directory
+			// entry still exists. That is unusable operator intent, not
+			// "never configured" — same disable-not-default policy.
+			name:            "dangling config symlink resolves threshold 0",
+			danglingSymlink: true,
+			want:            0,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
-			if tt.json != "" {
-				configDir := filepath.Join(home, ".config", "traceary")
+			configDir := filepath.Join(home, ".config", "traceary")
+			if tt.json != "" || tt.danglingSymlink {
 				if err := os.MkdirAll(configDir, 0o755); err != nil {
 					t.Fatal(err)
 				}
-				path := filepath.Join(configDir, "config.json")
+			}
+			path := filepath.Join(configDir, "config.json")
+			if tt.danglingSymlink {
+				// Point at a sibling that is never created.
+				if err := os.Symlink(filepath.Join(configDir, "missing-target.json"), path); err != nil {
+					t.Fatal(err)
+				}
+			} else if tt.json != "" {
 				if err := os.WriteFile(path, []byte(tt.json), 0o644); err != nil {
 					t.Fatal(err)
 				}

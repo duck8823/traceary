@@ -300,7 +300,7 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 	if promptErr != nil {
 		slog.Debug("antigravity stop prompt failed", "session_id", sessionID, "error", promptErr)
 	}
-	transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), antigravityHookClient, dbPath)
+	_, transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), antigravityHookClient, dbPath)
 	if transcriptErr != nil {
 		slog.Debug("antigravity stop transcript failed", "session_id", sessionID, "error", transcriptErr)
 	}

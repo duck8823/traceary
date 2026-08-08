@@ -203,27 +203,35 @@ func (c *RootCLI) newHookTranscriptCommand() *cobra.Command {
 			// Capture the payload from inside the durable run rather than
 			// pre-reading stdin: runHookDurably owns the read, and reading it
 			// out here would leave nothing for it on the error path.
-			// Assign payload only after runHookTranscript succeeds: runHookBestEffort
-			// swallows recording errors, and a failed turn must not still request
-			// consolidation (#1674 review).
+			// Assign payload only when a transcript row was actually persisted
+			// (recorded=true). runHookTranscript fails soft with (false, nil)
+			// on unknown client / no extractable content / unresolved session,
+			// and runHookBestEffort swallows hard errors — none of those must
+			// still request consolidation. Inferring "a row was written" from
+			// err==nil alone was #1681's CRITICAL defect; the same conflation
+			// must not gate the #1674 pressure check.
 			var payload []byte
 			if err := c.runHookDurably(cmd.Context(), "transcript", hookInvocationSpec{Command: "transcript", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
 				captured, err := readHookPayload(input)
 				if err != nil {
 					return err
 				}
-				if err := c.runHookTranscript(cmd.Context(), newExplicitHookPayloadReader(captured), args[0], dbPath); err != nil {
+				recorded, err := c.runHookTranscript(cmd.Context(), newExplicitHookPayloadReader(captured), args[0], dbPath)
+				if err != nil {
 					return err
 				}
-				payload = captured
+				if recorded {
+					payload = captured
+				}
 				return nil
 			}); err != nil {
 				return err
 			}
 			if payload == nil {
 				// The durable run never reached the closure, the read failed,
-				// or transcript recording failed (swallowed by best-effort).
-				// Nothing to measure pressure against.
+				// recording failed (swallowed by best-effort), or the turn was
+				// fail-soft-skipped without persisting a row. Nothing to
+				// measure pressure against.
 				return nil
 			}
 			// Consolidation must run outside runHookDurably: runHookBestEffort
@@ -818,14 +826,18 @@ var resolveHookTranscriptSessionIDFunc = resolveHookSessionID
 // uses the client's registered extractor; every caller except Kimi's
 // idempotency guard (hook_kimi.go) goes through here and is unaffected by
 // that guard's pre-extracted-blocks path.
+//
+// Like runHookTranscriptWithBlocks, recorded is true only when a row was
+// actually persisted. Callers that gate follow-up work on a successful write
+// (transcript command consolidation, Kimi idempotency marks) must honour it
+// rather than treating err==nil as proof of a store write.
 func (c *RootCLI) runHookTranscript(
 	ctx context.Context,
 	input io.Reader,
 	client string,
 	dbPath string,
-) error {
-	_, err := c.runHookTranscriptWithBlocks(ctx, input, client, dbPath, nil)
-	return err
+) (bool, error) {
+	return c.runHookTranscriptWithBlocks(ctx, input, client, dbPath, nil)
 }
 
 // runHookTranscriptWithBlocks is the shared implementation behind

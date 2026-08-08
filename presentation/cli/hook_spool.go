@@ -202,7 +202,8 @@ func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRec
 	case "prompt":
 		return c.runHookPrompt(ctx, input, client, dbPath)
 	case "transcript":
-		return c.runHookTranscript(ctx, input, client, dbPath)
+		_, err := c.runHookTranscript(ctx, input, client, dbPath)
+		return err
 	case "usage":
 		return c.runHookUsage(ctx, input, client, dbPath)
 	case "antigravity":

@@ -192,10 +192,13 @@ type ReadPresetFilters struct {
 type configLoadStatus int
 
 const (
-	// configLoadAbsent: no config.json (os.IsNotExist). Operator expressed nothing.
+	// configLoadAbsent: no config.json directory entry at all. Operator
+	// expressed nothing. A dangling symlink is NOT absent — Lstat sees the
+	// entry even when ReadFile's follow yields ENOENT.
 	configLoadAbsent configLoadStatus = iota
-	// configLoadUnusable: path unresolvable, read error, or malformed JSON.
-	// Operator intent is unknown; consolidation must not fire on defaults.
+	// configLoadUnusable: path unresolvable (including dangling symlink),
+	// read error, or malformed JSON. Operator intent is unknown;
+	// consolidation must not fire on defaults.
 	configLoadUnusable
 	// configLoadOK: file parsed successfully.
 	configLoadOK
@@ -302,6 +305,19 @@ func loadConfigFile() (*configFile, configLoadStatus) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// ReadFile follows symlinks. A dangling symlink reports ENOENT
+			// even though the directory entry exists; Lstat does not follow,
+			// so it separates "operator never configured" from "configured
+			// path is unresolvable". Treating the latter as absent would
+			// re-enable the default 64 KiB consolidation trigger — the same
+			// failure mode as a malformed / unreadable file.
+			if _, lstatErr := os.Lstat(configPath); !os.IsNotExist(lstatErr) {
+				slog.Warn(
+					"Traceary config could not be read; config-backed features fall back to built-in defaults until the file is readable: "+configPath,
+					"error", err,
+				)
+				return nil, configLoadUnusable
+			}
 			return nil, configLoadAbsent
 		}
 		slog.Warn(
