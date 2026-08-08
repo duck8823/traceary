@@ -46,6 +46,8 @@ CREATE INDEX idx_events_created_at
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -53,7 +55,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}
@@ -147,6 +150,8 @@ ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -154,7 +159,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}
@@ -220,6 +226,8 @@ CREATE INDEX idx_events_created_at
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -227,7 +235,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}
@@ -296,6 +305,8 @@ CREATE INDEX idx_events_created_at
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -303,7 +314,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}
@@ -368,6 +380,8 @@ CREATE INDEX idx_events_source_hook_time
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -375,7 +389,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}
@@ -553,6 +568,8 @@ CREATE INDEX idx_events_created_at
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -560,7 +577,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}
@@ -663,6 +681,8 @@ CREATE INDEX idx_events_created_at
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -670,7 +690,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}
@@ -716,6 +737,8 @@ CREATE INDEX idx_events_created_at
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -723,7 +746,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}
@@ -792,6 +816,8 @@ CREATE INDEX idx_events_created_at
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
     input_text TEXT NOT NULL,
     output_text TEXT NOT NULL,
     input_truncated INTEGER NOT NULL DEFAULT 0,
@@ -799,7 +825,8 @@ CREATE TABLE command_audits (
     input_original_bytes INTEGER NOT NULL DEFAULT 0,
     output_original_bytes INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
 		},
 	}

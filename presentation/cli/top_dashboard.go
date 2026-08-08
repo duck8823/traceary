@@ -937,7 +937,7 @@ func (m topModel) eventRows(events []*model.Event, width int) []topPaneRow {
 	for _, ev := range events {
 		ts := ev.CreatedAt().In(m.location).Format(eventCompactTimeLayout)
 		kind := ev.Kind().String()
-		body := truncateMessage(ev.Body())
+		body := truncateMessage(eventBodyForDisplay(ev))
 		line := fmt.Sprintf("%s %s %s", ts, kind, body)
 		out = append(out, topPaneRow{
 			line: truncateToWidth(line, width),

@@ -220,26 +220,33 @@ func TestRootCLI_ListCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SessionIDFrom() error = %v", err)
 		}
-		mk := func(id, body string) *model.Event {
+		mk := func(id, command, output string) *model.Event {
 			t.Helper()
 			eventID, err := types.EventIDFrom(id)
 			if err != nil {
 				t.Fatalf("EventIDFrom(%s) error = %v", id, err)
 			}
-			return model.EventOf(
+			// command_executed body is empty; classification uses the attached audit.
+			event := model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
 				"cli",
 				agent,
 				sessionID,
 				"duck8823/traceary",
-				body,
+				"",
 				time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC),
 			)
+			audit, err := model.NewCommandAudit(eventID, command, "", output, false, false)
+			if err != nil {
+				t.Fatalf("NewCommandAudit(%s) error = %v", id, err)
+			}
+			event.AttachCommandAudit(audit)
+			return event
 		}
 		listStub := &eventUsecaseStub{listEvents: []*model.Event{
-			mk("event-sensitive", "cat .env\n\nINPUT:\n\n\nOUTPUT:\n"),
-			mk("event-normal", "go test ./...\n\nINPUT:\n\n\nOUTPUT:\nok"),
+			mk("event-sensitive", "cat .env", ""),
+			mk("event-normal", "go test ./...", "ok"),
 		}}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(

@@ -2265,6 +2265,13 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 	outputs := make([]eventOutput, 0, len(events))
 	for _, event := range events {
 		plain := apptypes.ExtractPlainBody(event.Body())
+		// command_executed no longer stores a composed body (#1675); surface
+		// the retained command line from the joined audit when present.
+		if strings.TrimSpace(plain) == "" {
+			if audit, ok := event.CommandAudit().Value(); ok && audit != nil {
+				plain = audit.Command()
+			}
+		}
 		result := apptypes.TruncateCommandPayload(plain, bodyLimit)
 		// BodyLength is only meaningful when the row was actually
 		// truncated; emit zero otherwise so the omitempty contract

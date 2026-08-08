@@ -166,11 +166,11 @@ func (d *EventDatasource) ListRecent(
 
 	events := make([]*model.Event, 0, limit)
 	for rows.Next() {
-		event, err := scanEvent(rows)
+		event, err := scanListedEvent(rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore event row: %w", err)
 		}
-		event, err = hydrateEventPayload(ctx, db, event)
+		event, err = hydrateListedEvent(ctx, db, event)
 		if err != nil {
 			return nil, err
 		}
@@ -257,14 +257,14 @@ func (d *EventDatasource) ListWindow(
 
 		pageCount := 0
 		for rows.Next() {
-			event, err := scanEvent(rows)
+			event, err := scanListedEvent(rows)
 			if err != nil {
 				if closeErr := rows.Close(); closeErr != nil {
 					slog.Debug("failed to close resource", "error", closeErr)
 				}
 				return nil, xerrors.Errorf("failed to restore event window row: %w", err)
 			}
-			event, err = hydrateEventPayload(ctx, tx, event)
+			event, err = hydrateListedEvent(ctx, tx, event)
 			if err != nil {
 				_ = rows.Close()
 				return nil, err
@@ -840,6 +840,84 @@ func scanEventWithAudit(
 	failedValue *sql.NullBool,
 	failureReasonValue *sql.NullString,
 ) (*model.Event, error) {
+	event, _, err := scanEventAndAuditColumns(
+		rowScanner,
+		commandTextValue,
+		commandWrapperValue,
+		commandNameValue,
+		inputTextValue,
+		outputTextValue,
+		inputTruncatedValue,
+		outputTruncatedValue,
+		inputOriginalBytes,
+		outputOriginalBytes,
+		exitCodeValue,
+		failedValue,
+		failureReasonValue,
+	)
+	return event, err
+}
+
+// scanListedEvent reads a recent-events row that joins command_audits and
+// attaches the audit aggregate when present.
+func scanListedEvent(rowScanner interface {
+	Scan(dest ...any) error
+}) (*model.Event, error) {
+	var (
+		commandTextValue     sql.NullString
+		commandWrapperValue  sql.NullString
+		commandNameValue     sql.NullString
+		inputTextValue       sql.NullString
+		outputTextValue      sql.NullString
+		inputTruncatedValue  sql.NullBool
+		outputTruncatedValue sql.NullBool
+		inputOriginalBytes   sql.NullInt64
+		outputOriginalBytes  sql.NullInt64
+		exitCodeValue        sql.NullInt64
+		failedValue          sql.NullBool
+		failureReasonValue   sql.NullString
+	)
+	event, audit, err := scanEventAndAuditColumns(
+		rowScanner,
+		&commandTextValue,
+		&commandWrapperValue,
+		&commandNameValue,
+		&inputTextValue,
+		&outputTextValue,
+		&inputTruncatedValue,
+		&outputTruncatedValue,
+		&inputOriginalBytes,
+		&outputOriginalBytes,
+		&exitCodeValue,
+		&failedValue,
+		&failureReasonValue,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if audit != nil {
+		event.AttachCommandAudit(audit)
+	}
+	return event, nil
+}
+
+func scanEventAndAuditColumns(
+	rowScanner interface {
+		Scan(dest ...any) error
+	},
+	commandTextValue *sql.NullString,
+	commandWrapperValue *sql.NullString,
+	commandNameValue *sql.NullString,
+	inputTextValue *sql.NullString,
+	outputTextValue *sql.NullString,
+	inputTruncatedValue *sql.NullBool,
+	outputTruncatedValue *sql.NullBool,
+	inputOriginalBytes *sql.NullInt64,
+	outputOriginalBytes *sql.NullInt64,
+	exitCodeValue *sql.NullInt64,
+	failedValue *sql.NullBool,
+	failureReasonValue *sql.NullString,
+) (*model.Event, *model.CommandAudit, error) {
 	var (
 		eventIDValue          string
 		eventKindValue        string
@@ -877,9 +955,9 @@ func scanEventWithAudit(
 		failedValue,
 		failureReasonValue,
 	); err != nil {
-		return nil, xerrors.Errorf("failed to scan event details row: %w", err)
+		return nil, nil, xerrors.Errorf("failed to scan event details row: %w", err)
 	}
-	return restoreEvent(
+	event, err := restoreEvent(
 		eventIDValue,
 		eventKindValue,
 		clientValue,
@@ -891,6 +969,85 @@ func scanEventWithAudit(
 		sourceHookValue.String,
 		createdAtValue,
 	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if commandTextValue == nil || !commandTextValue.Valid {
+		return event, nil, nil
+	}
+	exitCode := types.None[int]()
+	if exitCodeValue != nil && exitCodeValue.Valid {
+		exitCode = types.Some(int(exitCodeValue.Int64))
+	}
+	wrapper := types.None[types.CommandName]()
+	if commandWrapperValue != nil && commandWrapperValue.String != "" {
+		wrapper = types.Some(types.CommandName(commandWrapperValue.String))
+	}
+	commandName := types.CommandName("")
+	if commandNameValue != nil {
+		commandName = types.CommandName(commandNameValue.String)
+	}
+	input := ""
+	if inputTextValue != nil {
+		input = inputTextValue.String
+	}
+	output := ""
+	if outputTextValue != nil {
+		output = outputTextValue.String
+	}
+	inputTruncated := inputTruncatedValue != nil && inputTruncatedValue.Bool
+	outputTruncated := outputTruncatedValue != nil && outputTruncatedValue.Bool
+	inputBytes := 0
+	if inputOriginalBytes != nil {
+		inputBytes = int(inputOriginalBytes.Int64)
+	}
+	outputBytes := 0
+	if outputOriginalBytes != nil {
+		outputBytes = int(outputOriginalBytes.Int64)
+	}
+	failed := failedValue != nil && failedValue.Bool
+	failureReason := types.CommandFailureReason("")
+	if failureReasonValue != nil {
+		failureReason = types.CommandFailureReason(failureReasonValue.String)
+	}
+	audit, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
+		EventID:            event.EventID(),
+		Command:            commandTextValue.String,
+		Wrapper:            wrapper,
+		CommandName:        commandName,
+		Input:              input,
+		Output:             output,
+		InputTruncated:     inputTruncated,
+		OutputTruncated:    outputTruncated,
+		InputOriginalBytes: inputBytes,
+		OutputOriginalBytes: outputBytes,
+		ExitCode:           exitCode,
+		Failed:             failed,
+		FailureReason:      failureReason,
+	})
+	if err != nil {
+		return nil, nil, xerrors.Errorf("failed to restore command audit: %w", err)
+	}
+	return event, audit, nil
+}
+
+// hydrateListedEvent decodes the event body and re-attaches any audit already
+// loaded from the same SELECT. Audit columns are identity-encoded today
+// (#1618 compression will need codec columns in that join); avoid a second
+// per-row command_audits lookup here.
+func hydrateListedEvent(ctx context.Context, q queryRowContexter, event *model.Event) (*model.Event, error) {
+	if event == nil {
+		return nil, nil
+	}
+	audit, hasAudit := event.CommandAudit().Value()
+	event, err := hydrateEventPayload(ctx, q, event)
+	if err != nil {
+		return nil, err
+	}
+	if hasAudit {
+		event.AttachCommandAudit(audit)
+	}
+	return event, nil
 }
 
 func restoreEvent(

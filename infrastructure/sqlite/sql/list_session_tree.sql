@@ -26,20 +26,21 @@ WITH RECURSIVE
     GROUP BY e.session_id
   ),
   latest_events AS (
-    SELECT session_id, id AS latest_event_id, created_at AS latest_event_at, kind AS latest_event_kind, body AS latest_event_body
+    SELECT session_id, id AS latest_event_id, created_at AS latest_event_at, kind AS latest_event_kind, latest_event_body
     FROM (
       SELECT
         e.session_id,
         e.id,
         e.created_at,
         e.kind,
-        e.body,
+        COALESCE(NULLIF(e.body, ''), a.command_text, '') AS latest_event_body,
         ROW_NUMBER() OVER (
           PARTITION BY e.session_id
           ORDER BY ts_norm(e.created_at) DESC, e.id DESC
         ) AS rn
       FROM events e
       JOIN selected_ids ON selected_ids.session_id = e.session_id
+      LEFT JOIN command_audits a ON a.event_id = e.id
     )
     WHERE rn = 1
   )

@@ -1,3 +1,5 @@
+-- Handoff recent-command summaries read command_audits.command_text.
+-- events.body for command_executed is empty after #1675.
 WITH selected AS (
     SELECT m.id,
            m.body_stored_bytes,
@@ -13,12 +15,13 @@ WITH selected AS (
      LIMIT ?
 )
 SELECT selected.id,
-       substr(e.body, 1, ?),
-       selected.body_stored_bytes,
+       substr(COALESCE(a.command_text, e.body), 1, ?),
+       COALESCE(length(CAST(a.command_text AS BLOB)), selected.body_stored_bytes),
        selected.body_original_bytes,
        selected.body_ingest_truncated,
        selected.body_storage_truncated,
        selected.created_at
   FROM selected
   JOIN events e ON e.id = selected.id
+  LEFT JOIN command_audits a ON a.event_id = selected.id
  ORDER BY selected.created_at_norm DESC, selected.id DESC

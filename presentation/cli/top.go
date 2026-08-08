@@ -472,7 +472,7 @@ func writeTopSnapshotTextEvents(output io.Writer, header string, events []*model
 	}
 	for _, ev := range events {
 		ts := ev.CreatedAt().In(loc).Format(eventCompactTimeLayout)
-		if _, err := fmt.Fprintf(output, "%s %s %s\n", ts, ev.Kind(), truncateMessage(ev.Body())); err != nil {
+		if _, err := fmt.Fprintf(output, "%s %s %s\n", ts, ev.Kind(), truncateMessage(eventBodyForDisplay(ev))); err != nil {
 			return xerrors.Errorf("failed to print %s row: %w", header, err)
 		}
 	}

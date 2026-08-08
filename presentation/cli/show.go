@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -108,8 +109,21 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 }
 
 func eventBodyForDisplay(event *model.Event) string {
-	if event.BodyAvailability().IsAvailable() {
-		return apptypes.ExtractPlainBody(event.Body())
+	if event == nil {
+		return ""
 	}
-	return Localize("[body unavailable: retention]", "[本文は保持ポリシーにより利用できません]")
+	if !event.BodyAvailability().IsAvailable() {
+		return Localize("[body unavailable: retention]", "[本文は保持ポリシーにより利用できません]")
+	}
+	if body := apptypes.ExtractPlainBody(event.Body()); strings.TrimSpace(body) != "" {
+		return body
+	}
+	// command_executed no longer stores a composed body (#1675); list/search
+	// surfaces show the retained command line from command_audits instead.
+	if audit, ok := event.CommandAudit().Value(); ok && audit != nil {
+		if command := strings.TrimSpace(audit.Command()); command != "" {
+			return command
+		}
+	}
+	return ""
 }

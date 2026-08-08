@@ -27,6 +27,7 @@ func TestNewEvent(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		kind        types.EventKind
 		body        string
 		wantBody    string
 		wantCreated time.Time
@@ -34,15 +35,25 @@ func TestNewEvent(t *testing.T) {
 	}{
 		{
 			name:        "trims whitespace and creates event",
+			kind:        types.EventKindNote,
 			body:        "  hello traceary  ",
 			wantBody:    "hello traceary",
 			wantCreated: fixedTime,
 			wantErr:     false,
 		},
 		{
-			name:    "returns error for whitespace-only body",
+			name:    "returns error for whitespace-only body on non-audit kinds",
+			kind:    types.EventKindNote,
 			body:    "   ",
 			wantErr: true,
+		},
+		{
+			name:        "allows empty body for command_executed",
+			kind:        types.EventKindCommandExecuted,
+			body:        "",
+			wantBody:    "",
+			wantCreated: fixedTime,
+			wantErr:     false,
 		},
 	}
 
@@ -50,7 +61,7 @@ func TestNewEvent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := model.NewEventWithClock(
 				eventID,
-				types.EventKindNote,
+				tt.kind,
 				types.Client("cli"),
 				agent,
 				sessionID,

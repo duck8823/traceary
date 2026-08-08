@@ -291,7 +291,7 @@ func filterSensitiveCommandEvents(events []*model.Event, limit int) []*model.Eve
 		if event == nil || event.Kind() != types.EventKindCommandExecuted {
 			continue
 		}
-		if !sensitivepath.ClassifyCommandBody(event.Body(), nil).Matched {
+		if !classifyEventSensitivePath(event).Matched {
 			continue
 		}
 		out = append(out, event)
@@ -300,4 +300,26 @@ func filterSensitiveCommandEvents(events []*model.Event, limit int) []*model.Eve
 		}
 	}
 	return out
+}
+
+// classifyEventSensitivePath classifies from the joined command audit when
+// present. Legacy pre-#1675 rows may still carry a composed body and no audit
+// attachment in some fixtures; those fall back to the empty classification
+// inputs rather than re-splitting a body.
+func classifyEventSensitivePath(event *model.Event) sensitivepath.Classification {
+	if event == nil {
+		return sensitivepath.Classification{}
+	}
+	if audit, ok := event.CommandAudit().Value(); ok && audit != nil {
+		return sensitivepath.Classify(sensitivepath.Input{
+			Command:         audit.Command(),
+			Input:           audit.Input(),
+			Output:          audit.Output(),
+			InputTruncated:  audit.InputTruncated(),
+			OutputTruncated: audit.OutputTruncated(),
+			InputRedacted:   audit.InputRedacted(),
+			OutputRedacted:  audit.OutputRedacted(),
+		})
+	}
+	return sensitivepath.Classify(sensitivepath.Input{})
 }

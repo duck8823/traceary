@@ -40,7 +40,7 @@ func (c *RootCLI) inspectSensitiveAccessAuditCoverage(ctx context.Context) docto
 		if event == nil {
 			continue
 		}
-		cls := sensitivepath.ClassifyCommandBody(event.Body(), nil)
+		cls := classifyEventSensitivePath(event)
 		if !cls.Matched {
 			continue
 		}

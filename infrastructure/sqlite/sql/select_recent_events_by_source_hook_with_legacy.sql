@@ -6,9 +6,15 @@
 --
 -- Result limit is applied to the combined set so pagination is stable
 -- even when all hits come from the legacy branch.
-SELECT id, kind, client, agent, session_id, workspace, body, body_availability, source_hook, created_at
+SELECT id, kind, client, agent, session_id, workspace, body, body_availability, source_hook, created_at,
+       command_text, command_wrapper, command_name,
+       input_text, output_text, input_truncated, output_truncated,
+       input_original_bytes, output_original_bytes, exit_code, failed, failure_reason
   FROM (
-        SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at
+        SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at,
+               ca.command_text, ca.command_wrapper, ca.command_name,
+               ca.input_text, ca.output_text, ca.input_truncated, ca.output_truncated,
+               ca.input_original_bytes, ca.output_original_bytes, ca.exit_code, ca.failed, ca.failure_reason
           FROM events e
           LEFT JOIN command_audits ca ON ca.event_id = e.id
          WHERE e.source_hook = ?
@@ -21,7 +27,10 @@ SELECT id, kind, client, agent, session_id, workspace, body, body_availability, 
            AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
            AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
         UNION ALL
-        SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at
+        SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.body_availability, e.source_hook, e.created_at,
+               ca.command_text, ca.command_wrapper, ca.command_name,
+               ca.input_text, ca.output_text, ca.input_truncated, ca.output_truncated,
+               ca.input_original_bytes, ca.output_original_bytes, ca.exit_code, ca.failed, ca.failure_reason
           FROM events e
           LEFT JOIN command_audits ca ON ca.event_id = e.id
          WHERE e.source_hook IS NULL
