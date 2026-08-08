@@ -45,9 +45,10 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 		coveredBytes   int    // body on the covers_to boundary event (excluded from pressure)
 		withRefinement bool
 		pressureErr    error // when set, injects a stub that errors instead of real store
+		recordErr      error // when set, transcript Log fails; consolidation must not fire
 		wantExitCode   int
 		wantStderrSub  []string
-		wantNoFire     bool // pressure usecase must not be consulted (host gate / disabled)
+		wantNoFire     bool // pressure usecase must not be consulted (host gate / disabled / record fail)
 	}{
 		{
 			name:         "63 KiB unrefined exits 0 with empty stderr reason",
@@ -105,6 +106,16 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			seedBytes:      0,         // nothing after covers_to
 			withRefinement: true,
 			wantExitCode:   0,
+		},
+		{
+			// Recording fails inside runHookBestEffort; payload must stay unset so
+			// pressure is never measured against a turn that was not stored.
+			name:         "recording failure does not request consolidation when pressure is over threshold",
+			client:       "codex",
+			seedBytes:    65 * 1024,
+			recordErr:    errors.New("disk full"),
+			wantExitCode: 0,
+			wantNoFire:   true,
 		},
 	}
 
@@ -201,7 +212,8 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 				pressureUC = stub
 			} else if tt.wantNoFire {
 				// Stub so we can assert the host/threshold gate short-circuits
-				// before any pressure measurement.
+				// before any pressure measurement (or that recording failure
+				// never reaches the pressure check).
 				stub = &consolidationPressureStub{
 					result: usecase.ConsolidationPressureResult{PressureBytes: int64(tt.seedBytes), Due: true},
 				}
@@ -215,13 +227,20 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			// that still resolves session_id from the JSON body.
 			payload := `{"session_id":"` + sessionID + `","cwd":"/tmp","last_assistant_message":"ok","prompt_response":"ok"}`
 			// Claude stop payload uses transcript_path; for clients without a
-			// message field the durable path fail-softs, which is fine — the
-			// consolidation check still runs on the session_id.
+			// message field the durable path fail-softs. With a successful
+			// record path, consolidation still runs on the session_id.
+
+			var eventOpt cli.RootCLIOption
+			if tt.recordErr != nil {
+				eventOpt = cli.WithEvent(&eventUsecaseStub{logErr: tt.recordErr})
+			} else {
+				eventOpt = cli.WithEvent(eventUC)
+			}
 
 			stderr := &bytes.Buffer{}
 			rootCmd := cli.NewRootCLI(
 				cli.WithStoreManagement(storeUC),
-				cli.WithEvent(eventUC),
+				eventOpt,
 				cli.WithConsolidationPressure(pressureUC),
 				cli.WithDatabasePathSetter(db.SetPath),
 			).Command()
@@ -282,10 +301,15 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 
 func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
 	tests := []struct {
-		name string
-		json string
-		want int64
+		name       string
+		json       string // empty means do not write a config file
+		unreadable bool
+		want       int64
 	}{
+		{
+			name: "absent config file resolves the 64 KiB default",
+			want: presentation.DefaultConsolidationThresholdBytes,
+		},
 		{
 			name: "absent key defaults to 64 KiB",
 			json: `{}`,
@@ -301,32 +325,45 @@ func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
 			json: `{"consolidation":{"threshold_bytes":131072}}`,
 			want: 131072,
 		},
+		{
+			name: "malformed config file resolves threshold 0",
+			json: `{invalid`,
+			want: 0,
+		},
+		{
+			// A broken-but-present file must not re-enable a trigger the
+			// operator may have set to 0; disable rather than default.
+			name:       "unreadable config file resolves threshold 0",
+			json:       `{"consolidation":{"threshold_bytes":131072}}`,
+			unreadable: true,
+			want:       0,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
-			configDir := filepath.Join(home, ".config", "traceary")
-			if err := os.MkdirAll(configDir, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(tt.json), 0o644); err != nil {
-				t.Fatal(err)
+			if tt.json != "" {
+				configDir := filepath.Join(home, ".config", "traceary")
+				if err := os.MkdirAll(configDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(configDir, "config.json")
+				if err := os.WriteFile(path, []byte(tt.json), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if tt.unreadable {
+					if err := os.Chmod(path, 0o000); err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+				}
 			}
 			cfg := presentation.LoadConfig()
 			if cfg.Consolidation.ThresholdBytes != tt.want {
 				t.Fatalf("ThresholdBytes = %d, want %d", cfg.Consolidation.ThresholdBytes, tt.want)
 			}
 		})
-	}
-}
-
-func TestLoadConfig_ConsolidationDefaultWhenFileMissing(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	cfg := presentation.LoadConfig()
-	if cfg.Consolidation.ThresholdBytes != presentation.DefaultConsolidationThresholdBytes {
-		t.Fatalf("ThresholdBytes = %d, want default %d",
-			cfg.Consolidation.ThresholdBytes, presentation.DefaultConsolidationThresholdBytes)
 	}
 }
 

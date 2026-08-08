@@ -88,6 +88,7 @@ type readPresetFilters struct {
 // Config carries the resolved configuration values consumed by the CLI and
 // MCP server. Zero values mean "fall back to the built-in default" so callers
 // do not need to distinguish between "file missing" and "key missing".
+// Consolidation is the exception: see ConsolidationConfig and LoadConfig.
 type Config struct {
 	// UILanguage is the operator-facing CLI/TUI language (en / ja). Empty
 	// string means "fall back to the built-in default language". Runtime
@@ -122,8 +123,9 @@ type Config struct {
 	// disabled (same as explicit "disabled").
 	Retention RetentionConfig
 	// Consolidation holds the stop-hook pressure threshold. LoadConfig always
-	// resolves ThresholdBytes (default 64 KiB when the key is absent; explicit
-	// 0 disables the trigger).
+	// resolves ThresholdBytes: default 64 KiB when the file/key is absent;
+	// explicit 0 disables; unreadable or malformed config also resolves to 0
+	// so a broken file cannot re-enable a trigger the operator turned off.
 	Consolidation ConsolidationConfig
 }
 
@@ -158,7 +160,9 @@ type RetentionConfig struct {
 type ConsolidationConfig struct {
 	// ThresholdBytes is the unrefined body-byte sum that triggers a stop-hook
 	// consolidation request. Explicit 0 disables the trigger. When the config
-	// key is absent, LoadConfig sets DefaultConsolidationThresholdBytes.
+	// file or key is absent, LoadConfig sets DefaultConsolidationThresholdBytes.
+	// When the file is present but unusable (unreadable / malformed), LoadConfig
+	// sets 0 so the trigger stays off rather than re-applying the default.
 	ThresholdBytes int64
 }
 
@@ -182,18 +186,43 @@ type ReadPresetFilters struct {
 	Agent     string
 }
 
+// configLoadStatus reports how loadConfigFile resolved the on-disk file so
+// LoadConfig can treat "operator never configured" differently from "file
+// exists but is unusable" for consolidation only.
+type configLoadStatus int
+
+const (
+	// configLoadAbsent: no config.json (os.IsNotExist). Operator expressed nothing.
+	configLoadAbsent configLoadStatus = iota
+	// configLoadUnusable: path unresolvable, read error, or malformed JSON.
+	// Operator intent is unknown; consolidation must not fire on defaults.
+	configLoadUnusable
+	// configLoadOK: file parsed successfully.
+	configLoadOK
+)
+
 // LoadConfig reads the optional Traceary config file and returns a Config.
-// When the file is missing, unreadable, or invalid, the returned Config is
-// zero-valued and a warning is logged via slog so operators can see that
-// config-backed features fell back to built-in defaults.
+// For most fields, a missing / unreadable / invalid file yields zero values
+// that fall back to built-in defaults, and a warning is logged via slog.
+// Consolidation is special: absent file → default 64 KiB; present but unusable
+// → threshold 0 (disabled) so a broken config cannot re-enable a trigger the
+// operator may have turned off with an explicit 0.
 func LoadConfig() Config {
-	file := loadConfigFile()
+	file, status := loadConfigFile()
 	if file == nil {
-		// File missing / unreadable / invalid: still resolve consolidation to
-		// the built-in default so the stop hook has a concrete threshold.
-		return Config{
-			Consolidation: toConsolidationConfig(consolidationSection{}),
+		cfg := Config{}
+		switch status {
+		case configLoadUnusable:
+			// Keep every other field at zero (built-in defaults). Only
+			// consolidation disables: firing on an unknown configuration can
+			// interrupt someone who set threshold_bytes to 0.
+			cfg.Consolidation = ConsolidationConfig{ThresholdBytes: 0}
+		default:
+			// Absent (and any unexpected nil-file status): operator never
+			// configured Traceary, so the published default applies.
+			cfg.Consolidation = toConsolidationConfig(consolidationSection{})
 		}
+		return cfg
 	}
 	return Config{
 		AuditMaxInputBytes:    file.Audit.MaxInputBytes,
@@ -260,26 +289,26 @@ func LoadExtraRedactPatterns() []string {
 	return LoadConfig().ExtraRedactPatterns
 }
 
-func loadConfigFile() *configFile {
+func loadConfigFile() (*configFile, configLoadStatus) {
 	configPath, err := DefaultConfigPath()
 	if err != nil {
 		slog.Warn(
 			"Traceary config path could not be resolved; config-backed features fall back to built-in defaults",
 			"error", err,
 		)
-		return nil
+		return nil, configLoadUnusable
 	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, configLoadAbsent
 		}
 		slog.Warn(
 			"Traceary config could not be read; config-backed features fall back to built-in defaults until the file is readable: "+configPath,
 			"error", err,
 		)
-		return nil
+		return nil, configLoadUnusable
 	}
 
 	var file configFile
@@ -288,10 +317,10 @@ func loadConfigFile() *configFile {
 			"Traceary config is invalid; config-backed features fall back to built-in defaults until the file is fixed: "+configPath,
 			"error", err,
 		)
-		return nil
+		return nil, configLoadUnusable
 	}
 
-	return &file
+	return &file, configLoadOK
 }
 
 // DefaultConfigPath returns the canonical per-user Traceary config path.
