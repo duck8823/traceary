@@ -23,6 +23,7 @@ type RootCLI struct {
 	report                     usecase.ReportUsecase
 	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
 	session                    usecase.SessionUsecase
+	sessionRefinement          usecase.SessionRefinementUsecase
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
 	memoryEdge                 usecase.MemoryEdgeUsecase
@@ -112,6 +113,11 @@ func WithCodexCaptureDiagnostic(diagnostic usecase.CodexCaptureDiagnosticUsecase
 // WithSession injects the SessionUsecase used by session-related commands.
 func WithSession(session usecase.SessionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.session = session }
+}
+
+// WithSessionRefinement injects the L2 session refinement write port.
+func WithSessionRefinement(sessionRefinement usecase.SessionRefinementUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.sessionRefinement = sessionRefinement }
 }
 
 // WithOneShotRepair injects the evidence-backed historical repair use case.

@@ -35,7 +35,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 
 - **Event recording** — `traceary log`, `traceary audit`
 - **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary sessions` (and `traceary sessions --snapshot` / `--snapshot --json`), plus the permanent compatibility alias `traceary top` (including `traceary top --snapshot` / `--snapshot --json`)
-- **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session tree`, `traceary session lineage`, `traceary session label`, `traceary session latest`, `traceary session active`
+- **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session tree`, `traceary session lineage`, `traceary session label`, `traceary session refine`, `traceary session latest`, `traceary session active`
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store remember`, `traceary memory store propose`, `traceary memory store distill`
