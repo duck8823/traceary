@@ -140,8 +140,11 @@ func hookSessionEndMarkerPath(client string, sessionID types.SessionID) (string,
 	return filepath.Join(stateDir, "ended", client+"-"+sanitizedSessionID), nil
 }
 
-// hookWakeInjectionMarkerTTL is how long wake-injection markers are kept.
-// There is no separate cleanup command; markers older than this are pruned on write.
+// hookWakeInjectionMarkerTTL bounds how long a marker file stays on disk. It is
+// disk hygiene, not an expiry: a marker's presence means "already injected"
+// regardless of age, and reads never consult its mtime. Pruning happens while
+// writing the next marker (there is no separate cleanup command), so the only
+// thing the TTL controls is when the directory stops growing.
 const hookWakeInjectionMarkerTTL = 30 * 24 * time.Hour
 
 func hookWakeInjectionMarkerPath(client string, sessionID types.SessionID) (string, error) {
