@@ -14,6 +14,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 )
@@ -571,11 +573,15 @@ func TestSearchProjectionResumeSurvivesVacuumAndExcludesThinking(t *testing.T) {
 	if err = db.QueryRow(`SELECT group_concat(body_text), (SELECT group_concat(summary_text) FROM search_projection_session_summaries) FROM search_projection_recent_documents`).Scan(&bodies, &summaries); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(bodies+summaries, "PRIVATE-THOUGHT") || !strings.Contains(bodies+summaries, "PUBLIC-TEXT") {
+	// body_text is ASCII-folded for the case-sensitive trigram tokenizer, so
+	// visibility is asserted case-insensitively and the MATCH uses the same
+	// folded phrase the search path builds.
+	visible := strings.ToLower(bodies + summaries)
+	if strings.Contains(visible, "private-thought") || !strings.Contains(visible, "public-text") {
 		t.Fatalf("visible projection=%q %q", bodies, summaries)
 	}
 	var matches int
-	if err = db.QueryRow(`SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH ?`, `"PUBLIC-TEXT"`).Scan(&matches); err != nil || matches != 2 {
+	if err = db.QueryRow(`SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH ?`, eventSearchFTSPhrase("PUBLIC-TEXT")).Scan(&matches); err != nil || matches != 2 {
 		t.Fatalf("matches=%d err=%v", matches, err)
 	}
 }
@@ -910,5 +916,77 @@ func TestRecentEvictionDeletesOnlyStableMinimalOldestPrefix(t *testing.T) {
 	}
 	if ids != "b" {
 		t.Fatalf("retained IDs=%q, want newest stable tie b", ids)
+	}
+}
+
+// The recent FTS is `trigram case_sensitive 1` and search folds the query to
+// lower case before matching, so the projection must index folded text. If it
+// stores raw text, every term containing an uppercase letter becomes
+// unfindable through the projection while the legacy index still finds it.
+func TestSearchProjectionRecentDocumentsAreASCIIFoldedForCaseSensitiveFTS(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewDatabase(dbPath, migrations)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	if _, err = db.ExecContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('mixed','note','agent','s1',?,?,'client','repo')`,
+		"Fixed the Timeout during Deploy", formatTimestamp(now),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	budget := apptypes.SearchProjectionBudget{
+		Rows: 8, WallTime: time.Minute, LockTime: time.Second,
+		StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20,
+		RecentAge: 90 * time.Minute, RecentBytes: 1 << 20,
+	}
+	if _, err = store.Start(ctx, budget, now); err != nil {
+		t.Fatal(err)
+	}
+	var progress apptypes.SearchProjectionProgress
+	for i := 0; i < 10 && !progress.Completed; i++ {
+		progress, err = resumeProjection(ctx, store, budget, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !progress.Completed {
+		t.Fatalf("rebuild did not complete: %+v", progress)
+	}
+
+	var stored string
+	if err = db.QueryRowContext(ctx, `SELECT body_text FROM search_projection_recent_documents WHERE event_id='mixed'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff("fixed the timeout during deploy", stored); diff != "" {
+		t.Fatalf("stored body_text (-want +got):\n%s", diff)
+	}
+
+	// The query the search path actually issues for "Timeout".
+	var matched int
+	if err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		  FROM search_projection_recent_fts
+		  JOIN search_projection_recent_documents d
+		    ON d.document_id = search_projection_recent_fts.rowid
+		 WHERE search_projection_recent_fts MATCH ?`,
+		eventSearchFTSPhrase("Timeout"),
+	).Scan(&matched); err != nil {
+		t.Fatal(err)
+	}
+	if matched != 1 {
+		t.Fatalf("MATCH count = %d, want 1 (mixed-case text must be findable)", matched)
 	}
 }

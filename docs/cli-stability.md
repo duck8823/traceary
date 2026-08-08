@@ -150,6 +150,10 @@ Examples that follow this default:
 
 When the change affects a heavily scripted output (a public `--json` envelope, a structured-text contract such as `traceary session handoff`, or a public command path that AI skills wire in directly), the deprecation window may be extended beyond one minor at the maintainers' discretion. The decision is recorded in the originating issue and in the changelog entry. A longer window is the exception, not the default.
 
+Announced under this rule:
+
+- **`traceary search --json` becomes an object in v0.35.0.** v0.34.0 makes the bounded search projection the authoritative read path, which introduces a second class of result — session-tier hits for history older than the recent window. That class cannot be expressed inside the existing top-level array without interleaving session rows among event rows, so the array becomes `{"events": [...], "sessions": [...]}` in v0.35.0. v0.34.x keeps the array unchanged and emits a stderr notice naming the count of omitted session hits and the new shape; a v0.34 consumer therefore never receives a silently incomplete result without being told. Session hits are fully visible in v0.34 text output. Recorded in #1717.
+
 ### When no window is required
 
 A change does not require a deprecation window when it is purely additive:

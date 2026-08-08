@@ -19,6 +19,7 @@ type RootCLI struct {
 	event                      usecase.EventUsecase
 	eventMetadata              usecase.EventMetadataUsecase
 	tieredSearch               queryservice.TieredEventSearchQuery
+	projectionSessionSearch    queryservice.ProjectionSessionSearchQuery
 	reportCommand              usecase.ReportCommandUsecase
 	report                     usecase.ReportUsecase
 	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
@@ -97,6 +98,12 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption
 // WithTieredEventSearch injects the explicit historical literal preview.
 func WithTieredEventSearch(search queryservice.TieredEventSearchQuery) RootCLIOption {
 	return func(c *RootCLI) { c.tieredSearch = search }
+}
+
+// WithProjectionSessionSearch injects the bounded-projection session-tier
+// search used by `traceary search` when older history is summarized.
+func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearchQuery) RootCLIOption {
+	return func(c *RootCLI) { c.projectionSessionSearch = search }
 }
 
 // WithReportCommand injects structured command-audit aggregation for report.
@@ -239,7 +246,7 @@ func WithCapacityInspector(inspector application.CapacityInspector) RootCLIOptio
 	return func(c *RootCLI) { c.capacityInspector = inspector }
 }
 
-// WithSearchProjection injects the explicit, non-authoritative projection workflow.
+// WithSearchProjection injects the explicit derived-projection lifecycle workflow.
 func WithSearchProjection(projection *usecase.SearchProjectionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.searchProjection = projection }
 }

@@ -5,6 +5,14 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [Unreleased]
+
+### Changed
+- **Bounded search projection is the authoritative read path (#1717)** — when a projection generation is complete and active, `traceary search` reads recent full-text hits from it and answers older history through session summaries and keywords, shown as a separate `SESSIONS` group. Stores that have never rebuilt a generation keep using the legacy index silently, so no store has to rebuild to keep searching. Queries shorter than three characters bypass both trigram indexes and resolve through the bounded decoded scan, unchanged. Because a completed generation is a snapshot, events recorded after it are read from the canonical tables and merged into the same result, so search does not go stale between rebuilds; a tail larger than the bounded candidate limit falls back to the legacy index instead of returning an incomplete page.
+
+### Deprecated
+- **`traceary search --json` becomes an object in v0.35.0 (#1717)** — v0.34.x keeps the historical top-level array of event objects. Session-tier hits cannot be represented in that shape, so when a search matches sessions the count and the upcoming shape are reported on stderr while stdout stays byte-identical; drop `--json` to see the sessions. v0.35.0 replaces the array with `{"events": [...], "sessions": [...]}`. Recorded under the longer-window rule in `docs/cli-stability.md`.
+
 ## [v0.33.1] - 2026-07-31
 
 ### Fixed

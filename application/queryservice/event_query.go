@@ -97,3 +97,12 @@ type TieredEventSearchQuery interface {
 type LegacyEventSearchQuery interface {
 	SearchLegacyPage(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error)
 }
+
+// ProjectionSessionSearchQuery returns session-tier hits from the bounded
+// search projection. Callers that only need event rows do not depend on this
+// port. Hits are never events: a session row means "the trail is here, open it".
+// Sessions already represented by event hits in the same response should be
+// passed in excludeSessionIDs so they are omitted.
+type ProjectionSessionSearchQuery interface {
+	SearchSessionHits(ctx context.Context, criteria apptypes.EventSearchCriteria, excludeSessionIDs []types.SessionID) ([]apptypes.SearchSessionHit, error)
+}

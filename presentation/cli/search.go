@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -243,14 +244,23 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to search event metadata", "イベントメタデータの検索に失敗しました"), err)
 		}
+		sessions, sessionErr := c.searchProjectionSessions(ctx, criteria, sessionIDsFromMetadata(metadata))
+		if sessionErr != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), sessionErr)
+		}
 		if err := writeEventMetadataJSONFields(output, metadata, resolvedFields); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 		}
+		warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
 		return nil
 	}
 	events, err := c.event.Search(ctx, criteria)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
+	}
+	sessions, err := c.searchProjectionSessions(ctx, criteria, sessionIDsFromEvents(events))
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), err)
 	}
 
 	color, err := resolveColorMode(
@@ -273,11 +283,71 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		targetWidth:  terminalWidthOf(output),
 	}
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
-	if err := writeEventsByFormat(output, events, input.asJSON, input.fieldsSet, textOpts, extrasFor); err != nil {
+	if err := writeSearchByFormat(output, events, sessions, input.asJSON, input.fieldsSet, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
+	}
+	if input.asJSON {
+		warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
 	}
 
 	return nil
+}
+
+func (c *RootCLI) searchProjectionSessions(
+	ctx context.Context,
+	criteria apptypes.EventSearchCriteria,
+	exclude []types.SessionID,
+) ([]apptypes.SearchSessionHit, error) {
+	if c.projectionSessionSearch == nil {
+		return []apptypes.SearchSessionHit{}, nil
+	}
+	hits, err := c.projectionSessionSearch.SearchSessionHits(ctx, criteria, exclude)
+	if err != nil {
+		return nil, xerrors.Errorf("search projection session hits: %w", err)
+	}
+	return hits, nil
+}
+
+func sessionIDsFromEvents(events []*model.Event) []types.SessionID {
+	if len(events) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(events))
+	out := make([]types.SessionID, 0, len(events))
+	for _, event := range events {
+		id := event.SessionID()
+		key := id.String()
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func sessionIDsFromMetadata(metadata []apptypes.EventMetadata) []types.SessionID {
+	if len(metadata) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(metadata))
+	out := make([]types.SessionID, 0, len(metadata))
+	for _, event := range metadata {
+		id := event.SessionID()
+		key := id.String()
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func resolveSearchDateValue(primary string, alias string, primaryName string, aliasName string) (string, error) {

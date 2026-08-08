@@ -12,7 +12,7 @@ import (
 
 //nolint:wrapcheck // Cobra boundary intentionally preserves typed usecase errors.
 func (c *RootCLI) newStoreSearchProjectionCommand() *cobra.Command {
-	group := &cobra.Command{Use: "search-projection", Short: "Manage the non-authoritative derived search projection"}
+	group := &cobra.Command{Use: "search-projection", Short: "Manage the derived search projection that serves search reads"}
 	group.AddCommand(c.newStoreSearchProjectionRunCommand("start", true), c.newStoreSearchProjectionRunCommand("resume", false))
 	group.AddCommand(&cobra.Command{Use: "abort", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if c.searchProjection == nil {
