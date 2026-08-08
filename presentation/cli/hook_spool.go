@@ -232,41 +232,45 @@ func (c *RootCLI) replayAntigravitySpoolRecord(ctx context.Context, input io.Rea
 	}
 }
 
+// Replay passes a nil writer, not io.Discard: wake injection (#1684) marks the
+// session as injected once it has written, so a discarded write would consume
+// the marker and silence the live firing. A nil writer makes injection a no-op.
 func (c *RootCLI) replayGrokSpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
 	switch strings.TrimSpace(action) {
 	case "session-start":
-		return c.runHookGrokSessionStart(ctx, input, dbPath)
+		return c.runHookGrokSessionStart(ctx, nil, input, dbPath)
 	case "user-prompt-submit":
-		return c.runHookGrokUserPromptSubmit(ctx, input, dbPath)
+		return c.runHookGrokUserPromptSubmit(ctx, nil, input, dbPath)
 	case "pre-tool-use":
-		return c.runHookGrokPreToolUse(ctx, input, dbPath)
+		return c.runHookGrokPreToolUse(ctx, nil, input, dbPath)
 	case "post-tool-use":
-		return c.runHookGrokPostToolUse(ctx, input, dbPath)
+		return c.runHookGrokPostToolUse(ctx, nil, input, dbPath)
 	case "stop":
-		return c.runHookGrokStop(ctx, input, dbPath)
+		return c.runHookGrokStop(ctx, nil, input, dbPath)
 	case "pre-compact":
-		return c.runHookGrokPreCompact(ctx, input, dbPath)
+		return c.runHookGrokPreCompact(ctx, nil, input, dbPath)
 	case "post-compact":
-		return c.runHookGrokPostCompact(ctx, input, dbPath)
+		return c.runHookGrokPostCompact(ctx, nil, input, dbPath)
 	default:
 		return xerrors.Errorf("unsupported grok spool action: %s", action)
 	}
 }
 
+// nil writer for the same reason as replayGrokSpoolRecord.
 func (c *RootCLI) replayKimiSpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
 	switch strings.TrimSpace(action) {
 	case "session-start":
-		return c.runHookKimiSessionStart(ctx, input, dbPath)
+		return c.runHookKimiSessionStart(ctx, nil, input, dbPath)
 	case "session-end":
-		return c.runHookKimiSessionEnd(ctx, input, dbPath)
+		return c.runHookKimiSessionEnd(ctx, nil, input, dbPath)
 	case "user-prompt-submit":
-		return c.runHookKimiUserPromptSubmit(ctx, input, dbPath)
+		return c.runHookKimiUserPromptSubmit(ctx, nil, input, dbPath)
 	case "pre-tool-use":
-		return c.runHookKimiPreToolUse(ctx, input, dbPath)
+		return c.runHookKimiPreToolUse(ctx, nil, input, dbPath)
 	case "post-tool-use":
-		return c.runHookKimiPostToolUse(ctx, input, dbPath)
+		return c.runHookKimiPostToolUse(ctx, nil, input, dbPath)
 	case "post-tool-use-failure":
-		return c.runHookKimiPostToolUseFailure(ctx, input, dbPath)
+		return c.runHookKimiPostToolUseFailure(ctx, nil, input, dbPath)
 	case "stop":
 		// Spool replay only needs durable side effects; consolidation is a
 		// live host-facing exit and is owned by newHookKimiStopCommand.
@@ -274,11 +278,11 @@ func (c *RootCLI) replayKimiSpoolRecord(ctx context.Context, input io.Reader, ac
 		return err
 
 	case "subagent-stop":
-		return c.runHookKimiSubagentStop(ctx, input, dbPath)
+		return c.runHookKimiSubagentStop(ctx, nil, input, dbPath)
 	case "pre-compact":
-		return c.runHookKimiPreCompact(ctx, input, dbPath)
+		return c.runHookKimiPreCompact(ctx, nil, input, dbPath)
 	case "post-compact":
-		return c.runHookKimiPostCompact(ctx, input, dbPath)
+		return c.runHookKimiPostCompact(ctx, nil, input, dbPath)
 	default:
 		return xerrors.Errorf("unsupported kimi spool action: %s", action)
 	}

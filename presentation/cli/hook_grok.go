@@ -40,11 +40,11 @@ func (c *RootCLI) newHookGrokCommand() *cobra.Command {
 	return cmd
 }
 
-func (c *RootCLI) runHookGrokPreCompact(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookGrokPreCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	return c.runHookGrokCompact(ctx, input, "pre-compact", dbPath)
 }
 
-func (c *RootCLI) runHookGrokPostCompact(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookGrokPostCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	return c.runHookGrokCompact(ctx, input, "post-compact", dbPath)
 }
 
@@ -78,7 +78,7 @@ func ensureGrokCompactTrigger(payload []byte) ([]byte, error) {
 
 func (c *RootCLI) newHookGrokEventCommand(
 	action string,
-	run func(context.Context, io.Reader, string) error,
+	run func(context.Context, io.Writer, io.Reader, string) error,
 ) *cobra.Command {
 	var dbPath string
 	cmd := &cobra.Command{
@@ -93,7 +93,7 @@ func (c *RootCLI) newHookGrokEventCommand(
 				Action:  action,
 				DBPath:  dbPath,
 			}, cmd.InOrStdin(), func(input io.Reader) error {
-				return run(cmd.Context(), input, dbPath)
+				return run(cmd.Context(), cmd.OutOrStdout(), input, dbPath)
 			})
 		},
 	}
@@ -101,7 +101,7 @@ func (c *RootCLI) newHookGrokEventCommand(
 	return cmd
 }
 
-func (c *RootCLI) runHookGrokSessionStart(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookGrokSessionStart(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err
@@ -109,10 +109,11 @@ func (c *RootCLI) runHookGrokSessionStart(ctx context.Context, input io.Reader, 
 	if strings.TrimSpace(hookPayloadString(normalized, "session_id", "")) == "" {
 		return nil
 	}
-	return c.runHookSession(ctx, nil, bytes.NewReader(normalized), grokHookClient, "start", dbPath)
+	// SessionStart stdout is the wake-injection channel for Grok (#1684).
+	return c.runHookSession(ctx, output, bytes.NewReader(normalized), grokHookClient, "start", dbPath)
 }
 
-func (c *RootCLI) runHookGrokUserPromptSubmit(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookGrokUserPromptSubmit(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err
@@ -123,12 +124,12 @@ func (c *RootCLI) runHookGrokUserPromptSubmit(ctx context.Context, input io.Read
 // PreToolUse is intentionally a validation-only boundary. Grok's verified
 // PostToolUse payload already carries both input and result, so recording here
 // would duplicate the completed audit. Exit 0 with no stdout is fail-open.
-func (c *RootCLI) runHookGrokPreToolUse(_ context.Context, input io.Reader, _ string) error {
+func (c *RootCLI) runHookGrokPreToolUse(_ context.Context, _ io.Writer, input io.Reader, _ string) error {
 	_, err := normalizeGrokHookPayload(input)
 	return err
 }
 
-func (c *RootCLI) runHookGrokPostToolUse(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookGrokPostToolUse(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err
@@ -136,7 +137,7 @@ func (c *RootCLI) runHookGrokPostToolUse(ctx context.Context, input io.Reader, d
 	return c.runHookAudit(ctx, bytes.NewReader(normalized), grokHookClient, dbPath)
 }
 
-func (c *RootCLI) runHookGrokStop(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookGrokStop(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err

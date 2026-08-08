@@ -27,6 +27,7 @@ type RootCLI struct {
 	sessionOrphanRange         usecase.SessionOrphanRangeUsecase
 	orphanConsolidation        usecase.OrphanConsolidationUsecase
 	consolidationPressure      usecase.ConsolidationPressureUsecase
+	sessionWakeSummary         queryservice.SessionWakeSummaryQueryService
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
 	memoryEdge                 usecase.MemoryEdgeUsecase
@@ -136,6 +137,11 @@ func WithOrphanConsolidation(orphanConsolidation usecase.OrphanConsolidationUsec
 // WithConsolidationPressure injects the read-only stop-hook pressure check.
 func WithConsolidationPressure(consolidationPressure usecase.ConsolidationPressureUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.consolidationPressure = consolidationPressure }
+}
+
+// WithSessionWakeSummary injects the read-only wake-injection summary query.
+func WithSessionWakeSummary(sessionWakeSummary queryservice.SessionWakeSummaryQueryService) RootCLIOption {
+	return func(c *RootCLI) { c.sessionWakeSummary = sessionWakeSummary }
 }
 
 // WithOneShotRepair injects the evidence-backed historical repair use case.

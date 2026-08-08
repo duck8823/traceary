@@ -87,7 +87,7 @@ func (c *RootCLI) newHookKimiStopCommand() *cobra.Command {
 
 func (c *RootCLI) newHookKimiEventCommand(
 	action string,
-	run func(context.Context, io.Reader, string) error,
+	run func(context.Context, io.Writer, io.Reader, string) error,
 ) *cobra.Command {
 	var dbPath string
 	cmd := &cobra.Command{
@@ -102,7 +102,7 @@ func (c *RootCLI) newHookKimiEventCommand(
 				Action:  action,
 				DBPath:  dbPath,
 			}, cmd.InOrStdin(), func(input io.Reader) error {
-				return run(cmd.Context(), input, dbPath)
+				return run(cmd.Context(), cmd.OutOrStdout(), input, dbPath)
 			})
 		},
 	}
@@ -110,7 +110,7 @@ func (c *RootCLI) newHookKimiEventCommand(
 	return cmd
 }
 
-func (c *RootCLI) runHookKimiSessionStart(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiSessionStart(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -118,10 +118,12 @@ func (c *RootCLI) runHookKimiSessionStart(ctx context.Context, input io.Reader, 
 	if strings.TrimSpace(hookPayloadString(normalized, "session_id", "")) == "" {
 		return nil
 	}
+	// Kimi SessionStart is fire-and-forget — keep output nil so wake injection
+	// happens on the first UserPromptSubmit instead (#1684).
 	return c.runHookSession(ctx, nil, bytes.NewReader(normalized), kimiHookClient, "start", dbPath)
 }
 
-func (c *RootCLI) runHookKimiSessionEnd(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiSessionEnd(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -134,12 +136,30 @@ func (c *RootCLI) runHookKimiSessionEnd(ctx context.Context, input io.Reader, db
 	return errors.Join(sessionErr, usageErr)
 }
 
-func (c *RootCLI) runHookKimiUserPromptSubmit(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiUserPromptSubmit(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
 	}
-	return c.runHookPrompt(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
+	if err := c.runHookPrompt(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath); err != nil {
+		return err
+	}
+	// Kimi injects on the first UserPromptSubmit because SessionStart is ignored.
+	sessionID, err := resolveHookSessionID(normalized, kimiHookClient)
+	if err != nil {
+		slog.Debug("kimi wake injection skipped: session resolve failed", "error", err)
+		return nil
+	}
+	if sessionID == "" {
+		return nil
+	}
+	workspace, err := resolveHookWorkspace(ctx, normalized, kimiHookClient, true)
+	if err != nil {
+		slog.Debug("kimi wake injection skipped: workspace resolve failed", "error", err)
+		return nil
+	}
+	c.maybeInjectWakeSummaries(ctx, output, kimiHookClient, sessionID, workspace, dbPath)
+	return nil
 }
 
 // PreToolUse is a subagent-start boundary for Agent tool calls and a
@@ -148,7 +168,7 @@ func (c *RootCLI) runHookKimiUserPromptSubmit(ctx context.Context, input io.Read
 // would duplicate the completed audit; only Agent calls carry the
 // correlating tool_call_id + tool_input.subagent_type the subagent
 // parent/child attribution needs.
-func (c *RootCLI) runHookKimiPreToolUse(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiPreToolUse(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -162,7 +182,7 @@ func (c *RootCLI) runHookKimiPreToolUse(ctx context.Context, input io.Reader, db
 // Kimi's SubagentStop carries agent_name and the subagent response but no
 // tool_use_id, so the shared subagent-stop path falls back to the latest
 // active child of the parent session (same semantics as Claude).
-func (c *RootCLI) runHookKimiSubagentStop(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiSubagentStop(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -172,7 +192,7 @@ func (c *RootCLI) runHookKimiSubagentStop(ctx context.Context, input io.Reader, 
 
 // Kimi's compact hooks expose trigger and token counts but no summary body,
 // so the shared compact path records markers only (mirroring Grok).
-func (c *RootCLI) runHookKimiPreCompact(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiPreCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -180,7 +200,7 @@ func (c *RootCLI) runHookKimiPreCompact(ctx context.Context, input io.Reader, db
 	return c.runHookCompact(ctx, nil, bytes.NewReader(normalized), kimiHookClient, "pre-compact", dbPath)
 }
 
-func (c *RootCLI) runHookKimiPostCompact(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiPostCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -188,7 +208,7 @@ func (c *RootCLI) runHookKimiPostCompact(ctx context.Context, input io.Reader, d
 	return c.runHookCompact(ctx, nil, bytes.NewReader(normalized), kimiHookClient, "post-compact", dbPath)
 }
 
-func (c *RootCLI) runHookKimiPostToolUse(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiPostToolUse(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -196,7 +216,7 @@ func (c *RootCLI) runHookKimiPostToolUse(ctx context.Context, input io.Reader, d
 	return c.runHookAudit(ctx, bytes.NewReader(normalized), kimiHookClient, dbPath)
 }
 
-func (c *RootCLI) runHookKimiPostToolUseFailure(ctx context.Context, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookKimiPostToolUseFailure(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err

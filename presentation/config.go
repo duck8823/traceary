@@ -20,6 +20,7 @@ type configFile struct {
 	Read          readSection          `json:"read"`
 	Retention     retentionSection     `json:"retention"`
 	Consolidation consolidationSection `json:"consolidation"`
+	WakeInjection wakeInjectionSection `json:"wake_injection"`
 }
 
 type auditSection struct {
@@ -57,6 +58,13 @@ type consolidationSection struct {
 	ThresholdBytes *int64 `json:"threshold_bytes"`
 }
 
+// wakeInjectionSection configures the session-start wake injection budget
+// (#1684). BudgetBytes is a pointer so explicit 0 (disabled) is distinct from
+// an absent key (default 8 KiB), matching consolidationSection.
+type wakeInjectionSection struct {
+	BudgetBytes *int64 `json:"budget_bytes"`
+}
+
 type retentionArchiveThenGCDoc struct {
 	Interval      string `json:"interval"`
 	KeepDays      int    `json:"keep_days"`
@@ -88,7 +96,8 @@ type readPresetFilters struct {
 // Config carries the resolved configuration values consumed by the CLI and
 // MCP server. Zero values mean "fall back to the built-in default" so callers
 // do not need to distinguish between "file missing" and "key missing".
-// Consolidation is the exception: see ConsolidationConfig and LoadConfig.
+// Consolidation and WakeInjection are the exceptions: see ConsolidationConfig,
+// WakeInjectionConfig, and LoadConfig.
 type Config struct {
 	// UILanguage is the operator-facing CLI/TUI language (en / ja). Empty
 	// string means "fall back to the built-in default language". Runtime
@@ -127,6 +136,11 @@ type Config struct {
 	// explicit 0 disables; unreadable or malformed config also resolves to 0
 	// so a broken file cannot re-enable a trigger the operator turned off.
 	Consolidation ConsolidationConfig
+	// WakeInjection holds the session-start summary injection budget.
+	// LoadConfig always resolves BudgetBytes: default 8 KiB when the file/key
+	// is absent; explicit 0 disables; unreadable or malformed config also
+	// resolves to 0 so a broken file cannot re-enable injection.
+	WakeInjection WakeInjectionConfig
 }
 
 // RetentionModeDisabled is the fail-closed default for automatic archive-then-gc.
@@ -138,6 +152,10 @@ const RetentionModeArchiveThenGC = "archive_then_gc"
 // DefaultConsolidationThresholdBytes is the stop-hook pressure threshold when
 // consolidation.threshold_bytes is absent from config.json (64 KiB).
 const DefaultConsolidationThresholdBytes int64 = 64 * 1024
+
+// DefaultWakeInjectionBudgetBytes is the wake-injection stdout budget when
+// wake_injection.budget_bytes is absent from config.json (8 KiB).
+const DefaultWakeInjectionBudgetBytes int64 = 8192
 
 // RetentionConfig is the runtime view of config.json retention.
 type RetentionConfig struct {
@@ -166,6 +184,17 @@ type ConsolidationConfig struct {
 	ThresholdBytes int64
 }
 
+// WakeInjectionConfig is the runtime view of config.json wake_injection.
+type WakeInjectionConfig struct {
+	// BudgetBytes is the maximum number of bytes written to stdout for finished
+	// session summaries at wake. Explicit 0 disables injection. When the config
+	// file or key is absent, LoadConfig sets DefaultWakeInjectionBudgetBytes.
+	// When the file is present but unusable (unreadable / malformed), LoadConfig
+	// sets 0 so injection stays off rather than re-applying the default.
+	// Negative values are treated as disabled by the injection path.
+	BudgetBytes int64
+}
+
 // ReadPreset is the runtime-facing view of a user-defined preset loaded from
 // config.json. It intentionally uses plain fields so callers can apply a
 // preset without importing JSON tag types from this package.
@@ -188,7 +217,7 @@ type ReadPresetFilters struct {
 
 // configLoadStatus reports how loadConfigFile resolved the on-disk file so
 // LoadConfig can treat "operator never configured" differently from "file
-// exists but is unusable" for consolidation only.
+// exists but is unusable" for consolidation and wake injection.
 type configLoadStatus int
 
 const (
@@ -198,7 +227,7 @@ const (
 	configLoadAbsent configLoadStatus = iota
 	// configLoadUnusable: path unresolvable (including dangling symlink),
 	// read error, or malformed JSON. Operator intent is unknown;
-	// consolidation must not fire on defaults.
+	// consolidation and wake injection must not fire on defaults.
 	configLoadUnusable
 	// configLoadOK: file parsed successfully.
 	configLoadOK
@@ -207,9 +236,9 @@ const (
 // LoadConfig reads the optional Traceary config file and returns a Config.
 // For most fields, a missing / unreadable / invalid file yields zero values
 // that fall back to built-in defaults, and a warning is logged via slog.
-// Consolidation is special: absent file → default 64 KiB; present but unusable
-// → threshold 0 (disabled) so a broken config cannot re-enable a trigger the
-// operator may have turned off with an explicit 0.
+// Consolidation and wake injection are special: absent file → published
+// defaults; present but unusable → thresholds/budgets 0 (disabled) so a broken
+// config cannot re-enable a feature the operator may have turned off.
 func LoadConfig() Config {
 	file, status := loadConfigFile()
 	if file == nil {
@@ -217,13 +246,15 @@ func LoadConfig() Config {
 		switch status {
 		case configLoadUnusable:
 			// Keep every other field at zero (built-in defaults). Only
-			// consolidation disables: firing on an unknown configuration can
-			// interrupt someone who set threshold_bytes to 0.
+			// consolidation and wake injection disable: firing on an unknown
+			// configuration can re-enable a feature set to 0.
 			cfg.Consolidation = ConsolidationConfig{ThresholdBytes: 0}
+			cfg.WakeInjection = WakeInjectionConfig{BudgetBytes: 0}
 		default:
 			// Absent (and any unexpected nil-file status): operator never
-			// configured Traceary, so the published default applies.
+			// configured Traceary, so the published defaults apply.
 			cfg.Consolidation = toConsolidationConfig(consolidationSection{})
+			cfg.WakeInjection = toWakeInjectionConfig(wakeInjectionSection{})
 		}
 		return cfg
 	}
@@ -238,6 +269,7 @@ func LoadConfig() Config {
 		ReadColor:             file.Read.Color,
 		Retention:             toRetentionConfig(file.Retention),
 		Consolidation:         toConsolidationConfig(file.Consolidation),
+		WakeInjection:         toWakeInjectionConfig(file.WakeInjection),
 	}
 }
 
@@ -263,6 +295,15 @@ func toConsolidationConfig(raw consolidationSection) ConsolidationConfig {
 	// Explicit zero disables; any other value is used as-is (including negative,
 	// which the use case treats as disabled the same way).
 	return ConsolidationConfig{ThresholdBytes: *raw.ThresholdBytes}
+}
+
+func toWakeInjectionConfig(raw wakeInjectionSection) WakeInjectionConfig {
+	if raw.BudgetBytes == nil {
+		return WakeInjectionConfig{BudgetBytes: DefaultWakeInjectionBudgetBytes}
+	}
+	// Explicit zero disables; any other value is used as-is (including negative,
+	// which the wake path treats as disabled the same way).
+	return WakeInjectionConfig{BudgetBytes: *raw.BudgetBytes}
 }
 
 func toReadPresetMap(raw map[string]readPresetDoc) map[string]ReadPreset {

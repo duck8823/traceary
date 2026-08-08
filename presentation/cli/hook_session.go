@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -102,11 +101,9 @@ func (c *RootCLI) runHookSession(
 				if err := writeHookSessionState(client, sessionID); err != nil {
 					return err
 				}
-				if output != nil {
-					if _, err := fmt.Fprintln(output, sessionID); err != nil {
-						return xerrors.Errorf("failed to print session ID: %w", err)
-					}
-				}
+				// SessionStart stdout is the wake-injection channel only —
+				// never print the bare session id (#1684).
+				c.maybeInjectWakeSummaries(ctx, output, client, sessionID, workspace, dbPath)
 				return nil
 			}
 			return xerrors.Errorf("failed to record hook session start: %w", err)
@@ -143,11 +140,13 @@ func (c *RootCLI) runHookSession(
 		}
 		c.runOpportunisticSessionGC(ctx, resolvedDBPath, event.SessionID())
 		c.runOpportunisticArchiveThenGC(ctx, resolvedDBPath)
-		if output != nil {
-			if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
-				return xerrors.Errorf("failed to print session ID: %w", err)
-			}
+		// SessionStart stdout is the wake-injection channel only — never print
+		// the bare session id (#1684). Prefer the canonical workspace when known.
+		injectWorkspace := workspace
+		if canonicalWorkspace != "" {
+			injectWorkspace = canonicalWorkspace
 		}
+		c.maybeInjectWakeSummaries(ctx, output, client, event.SessionID(), injectWorkspace, resolvedDBPath)
 		return nil
 	case "end":
 		if explicitOneShotRuntimeSessionID() != "" {
