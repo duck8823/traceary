@@ -44,12 +44,14 @@ host ごとのネイティブ連携パッケージを使いたい場合は、ま
 
 ## クライアントごとの差分
 
-| Client | Settings file | Session start | Session end | Audit hook | Notes |
-| --- | --- | --- | --- | --- | --- |
-| Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"` / `matcher: "mcp__.*"` / 組み込み tool matcher (`Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode`) | 現行 Anthropic docs では `Stop` は session-end hook ではなく per-response hook と定義されています |
-| Codex CLI (`codex-cli 0.144.1`) | `~/.codex/hooks.json` | `SessionStart` | なし (MCP `manage_session` / stale GC) | `PostToolUse` | Codex CLI 0.144.1 では `SubagentStart` / `SubagentStop` と `PreCompact` / `PostCompact` も利用できる。`SessionEnd` はなく、`Stop` は assistant 応答ごとに発火するため、Traceary は turn 境界の transcript として扱い session 終了とはしません (#1170) |
-| Gemini CLI (`gemini-cli 0.36.0`) *（レガシー互換）* | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | hook payload は JSON-over-stdin / JSON-over-stdout。`SessionEnd` は best-effort です。Gemini CLI はレガシーパスで、Antigravity が現役の後継です（v0.21.1 からサポート） |
-| Antigravity (v0.21.1 からサポート) | `.agents/hooks.json` or `~/.gemini/config/hooks.json` | `PreInvocation`（`SessionStart` なし） | なし (MCP `manage_session` / stale GC) | `PreToolUse` + `PostToolUse` を `stepIdx` で突き合わせ（`run_command` のみ） | `hooks.json` は top-level の hook-group マップ（共有の `{"hooks": {...}}` 形式ではない）。`Stop` は execution 単位の turn 境界でセッション終了ではない (#1170)。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) |
+| Client | Settings file | Session start | Session end | Audit hook | 起床注入 (#1684) | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"` / `matcher: "mcp__.*"` / 組み込み tool matcher (`Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode`) | `SessionStart` stdout（完成済み要約のみ） | 現行 Anthropic docs では `Stop` は session-end hook ではなく per-response hook と定義されています |
+| Codex CLI (`codex-cli 0.144.1`) | `~/.codex/hooks.json` | `SessionStart` | なし (MCP `manage_session` / stale GC) | `PostToolUse` | `SessionStart` stdout（完成済み要約のみ） | Codex CLI 0.144.1 では `SubagentStart` / `SubagentStop` と `PreCompact` / `PostCompact` も利用できる。`SessionEnd` はなく、`Stop` は assistant 応答ごとに発火するため、Traceary は turn 境界の transcript として扱い session 終了とはしません (#1170) |
+| Gemini CLI (`gemini-cli 0.36.0`) *（レガシー互換）* | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | `SessionStart` stdout（完成済み要約のみ） | hook payload は JSON-over-stdin / JSON-over-stdout。`SessionEnd` は best-effort です。Gemini CLI はレガシーパスで、Antigravity が現役の後継です（v0.21.1 からサポート） |
+| Grok Build | packaged plugin hooks | `SessionStart` | なし (stale GC) | `PostToolUse` | `SessionStart` stdout（完成済み要約のみ） | ネイティブ `traceary hook grok session-start` が stdout を注入チャネルとして使う |
+| Kimi Code | packaged plugin hooks | `SessionStart`（ホストは無視） | `SessionEnd` | `PostToolUse` | 初回 `UserPromptSubmit` stdout | Kimi の `SessionStart` は fire-and-forget のため、初回 prompt で 1 度だけ注入する |
+| Antigravity (v0.21.1 からサポート) | `.agents/hooks.json` or `~/.gemini/config/hooks.json` | `PreInvocation`（`SessionStart` なし） | なし (MCP `manage_session` / stale GC) | `PreToolUse` + `PostToolUse` を `stepIdx` で突き合わせ（`run_command` のみ） | 対象外 (#1714) | `hooks.json` は top-level の hook-group マップ（共有の `{"hooks": {...}}` 形式ではない）。`Stop` は execution 単位の turn 境界でセッション終了ではない (#1170)。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) |
 
 ## 何が記録されるか
 
@@ -62,6 +64,8 @@ host ごとのネイティブ連携パッケージを使いたい場合は、ま
 3. `traceary session start` が新しく生成した ID
 
 解決した session ID は process ごとの state file に保存されるため、client が毎回 `session_id` を送らない場合でも、後続の audit / prompt / compact hook で再利用できます。
+
+**起床注入 (#1684).** `SessionStart`（Claude / Codex / Gemini / Grok）では、同じ workspace の **完成済みセッション要約** を stdout に書き、ホストがモデル文脈へ注入できるようにします。パッケージ済み wrapper は既にその stdout を通し（`preserve_stdout=1`）、チャネルには plain text の想起要約だけが乗ります（生の event body や bare session id は出しません）。注入するものが無いときは **何も書きません**。注入は session あたり最大 1 回です（resume / compact の再発火は no-op）。Kimi は `SessionStart` が fire-and-forget のため、初回 `UserPromptSubmit` で注入します。Antigravity の起床注入は #1714 で別途扱います。予算は [設定](../environment/README.ja.md) の `wake_injection.budget_bytes` です。
 
 ### Audit hooks
 
