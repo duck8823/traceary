@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	domaintypes "github.com/duck8823/traceary/domain/types"
 )
@@ -16,6 +18,11 @@ import (
 const searchProjectionVersion = 1
 const searchProjectionKeywordVersion = 1
 const searchProjectionSummaryVersion = 1
+
+// searchProjectionIndexFamilyName is the durable label for physical bytes of
+// the bounded projection (search_projection_* + literal_search_*). It is never
+// the legacy migration-032 event_search_* family — that number belongs to #1718.
+const searchProjectionIndexFamilyName = "bounded_search_projection"
 
 func generationID() string {
 	var b [16]byte
@@ -56,7 +63,11 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 	if requiresInventory != 0 {
 		g.HighWater = 0
 	}
-	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, formatTimestamp(now.UTC()))
+	familyBytesBefore, measureErr := measureSearchProjectionFamilyBytes(lockCtx, tx)
+	if measureErr != nil {
+		return g, measureErr
+	}
+	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,recent_byte_limit=?,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,updated_at=? WHERE singleton=1 AND state<>'rebuilding'`, g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater, int64(b.RecentAge/time.Second), b.RecentBytes, searchProjectionIndexFamilyName, familyBytesBefore, formatTimestamp(now.UTC()))
 	if e == nil {
 		if n, x := result.RowsAffected(); x != nil || n != 1 {
 			return g, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
@@ -672,7 +683,14 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 			return out, &apptypes.SearchProjectionDriftError{}
 		}
 	}
-	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?))`, p.NextCheckpoint, next, state, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision)
+	familyBytesAfter := int64(0)
+	if p.Completed && state == "complete" {
+		familyBytesAfter, e = measureSearchProjectionFamilyBytes(lockCtx, tx)
+		if e != nil {
+			return out, e
+		}
+	}
+	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,cutover_family_bytes_after=CASE WHEN ? AND ?='complete' THEN ? ELSE cutover_family_bytes_after END,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?))`, p.NextCheckpoint, next, state, p.Completed, state, time.Since(started).Milliseconds(), p.Completed, state, familyBytesAfter, formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision)
 	if e != nil {
 		return out, e
 	}
@@ -753,7 +771,7 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	s.SchemaVersion = "traceary.search-projection-status/v1"
 	s.KeywordVersion = searchProjectionKeywordVersion
 	s.FingerprintVersion = 1
-	e = db.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,recent_byte_limit,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),'') FROM search_projection_state WHERE singleton=1`).Scan(&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed, &s.RecentAgeSeconds, &s.RecentByteLimit, &s.LastBatchMilliseconds, &s.LifecycleState, &s.AbandonedAt)
+	e = db.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,recent_byte_limit,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),''),COALESCE(cutover_index_family,''),cutover_family_bytes_before,cutover_family_bytes_after FROM search_projection_state WHERE singleton=1`).Scan(&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed, &s.RecentAgeSeconds, &s.RecentByteLimit, &s.LastBatchMilliseconds, &s.LifecycleState, &s.AbandonedAt, &s.CutoverIndexFamily, &s.CutoverFamilyBytesBefore, &s.CutoverFamilyBytesAfter)
 	if e != nil {
 		return s, e
 	}
@@ -794,6 +812,153 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	}
 	s.InspectionMilliseconds = time.Since(started).Milliseconds()
 	return s, e
+}
+
+// measureSearchProjectionFamilyBytes returns dbstat physical bytes for the
+// bounded search projection family only (search_projection_* and
+// literal_search_*). It deliberately excludes the legacy event_search_* family.
+//
+//nolint:wrapcheck // SQL errors stay adapter-owned at this boundary.
+func measureSearchProjectionFamilyBytes(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (int64, error) {
+	var bytes int64
+	err := q.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(pgsize), 0)
+		  FROM dbstat
+		 WHERE name IN (
+		         SELECT name
+		           FROM sqlite_schema
+		          WHERE name LIKE 'search_projection_%'
+		             OR tbl_name LIKE 'search_projection_%'
+		             OR name LIKE 'literal_search_%'
+		             OR tbl_name LIKE 'literal_search_%'
+		       )`,
+	).Scan(&bytes)
+	if err != nil {
+		// dbstat is optional on some builds; treat unavailability as zero rather
+		// than blocking generation start. Status already reports the same gap.
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") ||
+			strings.Contains(strings.ToLower(err.Error()), "no such module") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return bytes, nil
+}
+
+// VerifySearchProjectionSessionTier runs a real session-tier query against the
+// generation under construction (not necessarily active_generation_id) and
+// requires it to return the expected session. This is the pre-cleanup gate:
+// reclaiming the previous generation is only safe once the new session tier
+// answers. An empty generation (no joinable summaries) passes vacuously.
+//
+//nolint:wrapcheck // Typed projection errors cross this adapter unchanged.
+func (d *Database) VerifySearchProjectionSessionTier(ctx context.Context, generationID string) error {
+	if strings.TrimSpace(generationID) == "" {
+		return &apptypes.SearchProjectionNoProgressError{Reason: "session tier verification requires a generation id"}
+	}
+	db, err := d.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	return verifySearchProjectionSessionTier(ctx, db, generationID)
+}
+
+func verifySearchProjectionSessionTier(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, generationID string) error {
+	var sessionID, summary string
+	err := q.QueryRowContext(ctx, `
+		SELECT sum.session_id, sum.summary_text
+		  FROM search_projection_session_summaries sum
+		  JOIN sessions s ON s.session_id = sum.session_id
+		 WHERE sum.generation_id = ?
+		   AND length(trim(sum.summary_text)) >= 3
+		 ORDER BY sum.session_id
+		 LIMIT 1`,
+		generationID,
+	).Scan(&sessionID, &summary)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// No joinable session summary: either the corpus is empty or only
+			// orphan events exist. Session tier has nothing to answer; do not
+			// block reclaim of an empty previous generation.
+			return nil
+		}
+		return xerrors.Errorf("select session tier verification candidate: %w", err)
+	}
+	term := sessionTierVerificationTerm(summary)
+	if term == "" {
+		return &apptypes.SearchProjectionNoProgressError{Reason: "session tier verification could not derive a query term"}
+	}
+	// Same contract as queryProjectionSessionHits: keyword equality or summary
+	// LIKE, pinned to the generation under construction and scoped to the
+	// probed session. The scope matters: sessions in one workspace share
+	// vocabulary, so a term drawn from one summary routinely matches others.
+	// The question this gate asks is whether the tier can answer for a session
+	// it holds a summary for — not whether that session outranks its peers.
+	// Ranking is a search concern, and demanding the top slot here would fail
+	// every store whose summaries share a word.
+	keyword := foldSearchASCII(term)
+	likeQuery := "%" + escapeLikeQuery(term) + "%"
+	var hitSession string
+	err = q.QueryRowContext(ctx, `
+		SELECT sum.session_id
+		  FROM search_projection_session_summaries sum
+		  JOIN sessions s ON s.session_id = sum.session_id
+		 WHERE sum.generation_id = ?
+		   AND sum.session_id = ?
+		   AND (
+		         EXISTS (
+		           SELECT 1
+		             FROM search_projection_session_keywords k
+		            WHERE k.generation_id = sum.generation_id
+		              AND k.session_id = sum.session_id
+		              AND k.keyword = ?
+		         )
+		         OR sum.summary_text LIKE ? ESCAPE '\'
+		       )
+		 ORDER BY ts_norm(s.started_at) DESC, s.session_id DESC
+		 LIMIT 1`,
+		generationID, sessionID, keyword, likeQuery,
+	).Scan(&hitSession)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &apptypes.SearchProjectionNoProgressError{
+				Reason: "session tier verification query returned no hits for generation " + generationID,
+			}
+		}
+		return xerrors.Errorf("run session tier verification query: %w", err)
+	}
+	if hitSession != sessionID {
+		return &apptypes.SearchProjectionNoProgressError{
+			Reason: "session tier verification returned unexpected session " + hitSession,
+		}
+	}
+	return nil
+}
+
+// sessionTierVerificationTerm picks a stable ≥3-rune token from a summary so
+// the verification query exercises the same LIKE path production search uses.
+func sessionTierVerificationTerm(summary string) string {
+	fields := strings.Fields(summary)
+	for _, field := range fields {
+		runes := []rune(strings.TrimSpace(field))
+		if len(runes) >= 3 {
+			return string(runes)
+		}
+	}
+	runes := []rune(strings.TrimSpace(summary))
+	if len(runes) < 3 {
+		return ""
+	}
+	if len(runes) > 32 {
+		runes = runes[:32]
+	}
+	return string(runes)
 }
 
 func projectionCutoff(timestamp time.Time) string {

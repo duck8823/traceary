@@ -222,4 +222,30 @@ type SearchProjectionStatus struct {
 	FingerprintLogicalBytes int64            `json:"fingerprint_logical_bytes"`
 	LifecycleState          string           `json:"lifecycle_state"`
 	AbandonedAt             string           `json:"abandoned_at,omitempty"`
+	// CutoverIndexFamily names which physical family CutoverFamilyBytes*
+	// measure. Always "bounded_search_projection" when set — never the
+	// legacy migration-032 event_search_* family (that is #1718).
+	CutoverIndexFamily       string `json:"cutover_index_family,omitempty"`
+	CutoverFamilyBytesBefore int64  `json:"cutover_family_bytes_before,omitempty"`
+	CutoverFamilyBytesAfter  int64  `json:"cutover_family_bytes_after,omitempty"`
+}
+
+// SearchProjectionCatchUpResult is one bounded unit of automatic generation
+// work performed during store initialization. It mirrors the event-search
+// backfill shape: a single open does a bounded amount of work and resumes
+// later without operator action.
+type SearchProjectionCatchUpResult struct {
+	Action                   string `json:"action"`
+	State                    string `json:"state"`
+	Phase                    string `json:"phase"`
+	GenerationID             string `json:"generation_id,omitempty"`
+	Completed                bool   `json:"completed"`
+	Batches                  int    `json:"batches"`
+	Selected                 int    `json:"selected"`
+	Written                  int    `json:"written"`
+	SkippedReason            string `json:"skipped_reason,omitempty"`
+	CutoverIndexFamily       string `json:"cutover_index_family,omitempty"`
+	CutoverFamilyBytesBefore int64  `json:"cutover_family_bytes_before,omitempty"`
+	CutoverFamilyBytesAfter  int64  `json:"cutover_family_bytes_after,omitempty"`
+	SessionTierVerified      bool   `json:"session_tier_verified,omitempty"`
 }

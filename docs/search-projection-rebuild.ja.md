@@ -4,7 +4,9 @@
 
 検索プロジェクションは派生データです。正本のイベントとコマンド監査からいつでも再構築でき、プロジェクションのライフサイクル操作が正本を変更することはありません。v0.34 以降、世代が complete のときは `traceary search` がこのプロジェクションを読みます。再構築後に記録されたイベントは正本テーブルから統合するため、再構築の合間に結果が古くなることはありません。
 
-`traceary store search-projection start`で世代を開始します。`resume`は上限付きバッチを1回実行します。複数のバッチを個別にコミットしながら実行する例を次に示します。
+世代を一度も作っていない store でも、最初の cutover にオペレータのコマンドは不要です。store を開くたびに generation 作業を上限付きで 1 単位進めます（initialize 時の event-search backfill と同じ形）。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。世代が `complete` になるまで legacy の migration-032 索引が authoritative のままです。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。legacy の `event_search_*` ファミリの数字ではありません。
+
+オペレータは同じ機構を明示的に動かせます。`traceary store search-projection start`で世代を開始します。`resume`は上限付きバッチを1回実行します。複数のバッチを個別にコミットしながら実行する例を次に示します。
 
 プロジェクションschemaより前のstoreをupgradeした場合、最初の`resume`バッチ群はpayloadをdecodeする前に、過去のevent identityをinventoryします。このphaseは`status`に明示され、安定したevent ID cursorを使用し、行数、保存バイト数、論理書き込みバイト数、wall time、lock timeの上限に従います。processを再起動すると最後にatomic commitされたcursorから再開します。正本が並行変更された場合は、不完全なinventoryを受け入れずgenerationを無効化します。旧migration 38ですでに投入済みのstoreと新規の空storeは、正本tableをscanせずこのphaseを省略します。
 

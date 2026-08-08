@@ -32,6 +32,12 @@ type SearchProjectionAbandonStore interface {
 	AbandonSearchProjection(context.Context, time.Time) (apptypes.SearchProjectionAbandonResult, error)
 }
 
+// SearchProjectionVerifyStore gates old-generation reclaim on a real
+// session-tier query against the generation under construction.
+type SearchProjectionVerifyStore interface {
+	VerifySearchProjectionSessionTier(context.Context, string) error
+}
+
 // NewSearchProjectionUsecase constructs the projection workflow.
 func NewSearchProjectionUsecase(store SearchProjectionStore) *SearchProjectionUsecase {
 	return &SearchProjectionUsecase{store: store}
@@ -103,6 +109,14 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 			}
 		}
 		return apptypes.SearchProjectionProgress{}, err
+	}
+	// Old-generation reclaim (cleanup_scope=old) must not run until the new
+	// session tier answers a real query. Drifted cleanup_scope=all wipes every
+	// generation and is not a cutover, so verification is skipped there.
+	if snapshot.Phase == "cleanup" && !snapshot.CleanupAll {
+		if err = u.verifySessionTierBeforeReclaim(ctx, b.LockTime, snapshot.Generation, now.UTC()); err != nil {
+			return apptypes.SearchProjectionProgress{}, err
+		}
 	}
 	plan, err := PlanProjectionBatch(snapshot, b)
 	if err != nil {
@@ -196,6 +210,138 @@ func (u *SearchProjectionUsecase) markFailed(ctx context.Context, lock time.Dura
 	failureCtx, cancel := context.WithTimeout(ctx, lock)
 	defer cancel()
 	return u.store.MarkFailed(failureCtx, generation.GenerationID, generation.SourceRevision, class, now)
+}
+
+// verifySessionTierBeforeReclaim runs the pre-abandon session-tier gate. A
+// failing verification marks the generation failed so the previous generation's
+// rows remain until a later successful rebuild cleans them up.
+func (u *SearchProjectionUsecase) verifySessionTierBeforeReclaim(
+	ctx context.Context,
+	lock time.Duration,
+	generation apptypes.SearchProjectionGeneration,
+	now time.Time,
+) error {
+	verifyStore, ok := u.store.(SearchProjectionVerifyStore)
+	if !ok {
+		// Stores without the gate cannot reclaim safely; fail closed rather than
+		// delete the previous generation on faith.
+		return &apptypes.SearchProjectionNoProgressError{Reason: "projection store does not support session tier verification"}
+	}
+	if err := verifyStore.VerifySearchProjectionSessionTier(ctx, generation.GenerationID); err != nil {
+		var noProgress *apptypes.SearchProjectionNoProgressError
+		if errors.As(err, &noProgress) {
+			if markErr := u.markFailed(ctx, lock, generation, "session_tier_unverified", now); markErr != nil {
+				return markErr
+			}
+		}
+		return xerrors.Errorf("verify session tier before reclaim: %w", err)
+	}
+	return nil
+}
+
+// CatchUp advances the bounded search projection by at most one durable unit of
+// work using the existing generation machinery. It is the store-open counterpart
+// of event search backfill: no operator command, no full rebuild, resumable.
+//
+//nolint:wrapcheck // Typed store and projection errors are preserved.
+func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionCatchUpResult, error) {
+	out := apptypes.SearchProjectionCatchUpResult{Action: "none"}
+	if !b.Valid() {
+		return out, &apptypes.SearchProjectionNoProgressError{Reason: "invalid generation budget"}
+	}
+	status, err := u.store.SearchProjectionStatus(ctx)
+	if err != nil {
+		return out, xerrors.Errorf("inspect projection before catch-up: %w", err)
+	}
+	out.State = status.State
+	out.Phase = status.Phase
+	out.CutoverIndexFamily = status.CutoverIndexFamily
+	out.CutoverFamilyBytesBefore = status.CutoverFamilyBytesBefore
+	out.CutoverFamilyBytesAfter = status.CutoverFamilyBytesAfter
+	if status.State == "complete" {
+		out.Action = "already_complete"
+		out.Completed = true
+		return out, nil
+	}
+	// Operator-owned rebuild with a different budget must not be hijacked.
+	if (status.State == "rebuilding" || (status.State == "drifted" && status.Phase == "cleanup")) &&
+		status.ConfigHash != "" && status.ConfigHash != b.ConfigHash() {
+		out.Action = "skipped"
+		out.SkippedReason = "budget does not match generation configuration"
+		return out, nil
+	}
+	switch {
+	case status.State == "rebuilding", status.State == "drifted" && status.Phase == "cleanup":
+		out.Action = "resume"
+	case status.State == "idle", status.State == "failed", status.State == "drifted":
+		// Only auto-start when there is source material. An empty store stays
+		// idle so tests and fresh installs are not left mid-rebuild.
+		needsWork, workErr := u.catchUpHasSourceWork(ctx)
+		if workErr != nil {
+			return out, workErr
+		}
+		if !needsWork && status.State == "idle" {
+			out.Action = "skipped"
+			out.SkippedReason = "no source events to project"
+			return out, nil
+		}
+		generation, startErr := u.StartGeneration(ctx, b, now.UTC())
+		if startErr != nil {
+			return out, startErr
+		}
+		out.Action = "start"
+		out.GenerationID = generation.GenerationID
+		// Fall through to one Resume so a single open does real work.
+	default:
+		out.Action = "skipped"
+		out.SkippedReason = "projection state " + status.State + " is not auto-catchable"
+		return out, nil
+	}
+	progress, resumeErr := u.Resume(ctx, b, now.UTC())
+	if resumeErr != nil {
+		return out, resumeErr
+	}
+	out.Batches = 1
+	out.Selected = progress.Selected
+	out.Written = progress.Written
+	out.Completed = progress.Completed
+	out.GenerationID = progress.GenerationID
+	statusAfter, inspectErr := u.store.SearchProjectionStatus(ctx)
+	if inspectErr != nil {
+		if progress.Completed {
+			return out, xerrors.Errorf("inspect projection after catch-up complete: %w", inspectErr)
+		}
+		// Non-terminal progress is still durable; surface the progress without
+		// failing the unit of work on a transient status read.
+		return out, nil
+	}
+	out.State = statusAfter.State
+	out.Phase = statusAfter.Phase
+	out.CutoverIndexFamily = statusAfter.CutoverIndexFamily
+	out.CutoverFamilyBytesBefore = statusAfter.CutoverFamilyBytesBefore
+	out.CutoverFamilyBytesAfter = statusAfter.CutoverFamilyBytesAfter
+	if progress.Completed {
+		out.SessionTierVerified = true
+		out.Completed = statusAfter.Completed
+	}
+	return out, nil
+}
+
+// catchUpHasSourceWork reports whether the store has events that a generation
+// would need to project. Used to keep empty installs idle.
+func (u *SearchProjectionUsecase) catchUpHasSourceWork(ctx context.Context) (bool, error) {
+	type sourceWorkStore interface {
+		SearchProjectionHasSourceWork(context.Context) (bool, error)
+	}
+	if store, ok := u.store.(sourceWorkStore); ok {
+		hasWork, err := store.SearchProjectionHasSourceWork(ctx)
+		if err != nil {
+			return false, xerrors.Errorf("probe projection source work: %w", err)
+		}
+		return hasWork, nil
+	}
+	// Without a probe, only resume existing rebuilds; never auto-start.
+	return false, nil
 }
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.

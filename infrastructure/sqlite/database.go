@@ -372,6 +372,15 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 			"completed", searchBackfillResult.Completed,
 		)
 	}
+	// Bounded projection generation is driven the same way as event search
+	// backfill: one durable unit per store open, resumable, never blocking
+	// Initialize on a full rebuild. Legacy search stays authoritative until
+	// the generation reaches complete (#1717 / #1680). Projection methods open
+	// via Path(), so skip when SetPath raced against the migrate snapshot.
+	if snapshot == d.Path() {
+		projectionCatchUp, projectionCatchUpErr := catchUpSearchProjection(ctx, d)
+		logSearchProjectionCatchUp(projectionCatchUp, projectionCatchUpErr)
+	}
 	catchUpResult, catchUpErr := catchUpWorkspaceObservations(ctx, db, workspaceObservationCatchUpBatchSize)
 	if catchUpErr != nil {
 		// Catch-up is additive diagnostic coverage. A malformed historical row
