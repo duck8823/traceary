@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/sensitivepath"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
@@ -232,7 +233,16 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 		return xerrors.Errorf("%s: %w", Localize("failed to list events", "イベント一覧の取得に失敗しました"), err)
 	}
 	if input.sensitiveOnly {
+		// Listing joins only fixed-size audit metadata; sensitive classification
+		// needs decoded command/input/output (codec-aware via hydrateAuditPayload).
+		// Full payload includes command, so skip the command-only path below.
+		if err := c.event.HydrateCommandAudits(ctx, events, queryservice.FullCommandAuditPayload()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to hydrate command audit payloads", "command audit ペイロードの復元に失敗しました"), err)
+		}
 		events = filterSensitiveCommandEvents(events, input.limit)
+	} else if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
+		// Body-rendering path: restore command_text only (not I/O).
+		return err
 	}
 	colorMode, err := resolveColorMode(
 		input.color,

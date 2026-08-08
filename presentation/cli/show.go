@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -118,12 +119,27 @@ func eventBodyForDisplay(event *model.Event) string {
 	if body := apptypes.ExtractPlainBody(event.Body()); strings.TrimSpace(body) != "" {
 		return body
 	}
-	// command_executed no longer stores a composed body (#1675); list/search
-	// surfaces show the retained command line from command_audits instead.
+	// command_executed no longer stores a composed body (#1675). List/search/
+	// tail/context hydrate command_text via CommandOnlyPayload before display.
+	// Do not fall back to command_name: a wrapper-stripped name looks like a
+	// real command line ("go") and is worse than empty for consumers that
+	// cannot tell the two apart (public JSON message field).
 	if audit, ok := event.CommandAudit().Value(); ok && audit != nil {
 		if command := strings.TrimSpace(audit.Command()); command != "" {
 			return command
 		}
 	}
 	return ""
+}
+
+// hydrateCommandLinesForDisplay decodes command_text onto listed events so
+// eventBodyForDisplay can show the full command line without loading I/O.
+func (c *RootCLI) hydrateCommandLinesForDisplay(ctx context.Context, events []*model.Event) error {
+	if c == nil || c.event == nil {
+		return nil
+	}
+	if err := c.event.HydrateCommandAudits(ctx, events, queryservice.CommandOnlyPayload()); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to hydrate command audit payloads", "command audit ペイロードの復元に失敗しました"), err)
+	}
+	return nil
 }

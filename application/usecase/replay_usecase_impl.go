@@ -266,18 +266,20 @@ func (u *replayUsecase) loadFailureHotspots(ctx context.Context, criteria apptyp
 	return hotspots, nil
 }
 
-// commandTextForFailureHotspot prefers the retained command_audits record
-// and falls back to a legacy composed body only when the audit is absent.
+// commandTextForFailureHotspot clusters on the joined command_name when
+// available (listing no longer attaches decoded command_text). Full command
+// text is preferred when a consumer has already hydrated it; otherwise the
+// normalized command_name is enough for prefix clustering.
 func commandTextForFailureHotspot(event *model.Event) string {
 	if event == nil {
 		return ""
 	}
 	if audit, ok := event.CommandAudit().Value(); ok && audit != nil {
-		if command := strings.TrimSpace(audit.Command()); command != "" {
-			return command
-		}
 		if name := strings.TrimSpace(audit.CommandIdentity().Command().String()); name != "" && name != "unknown" {
 			return name
+		}
+		if command := strings.TrimSpace(audit.Command()); command != "" {
+			return command
 		}
 	}
 	return event.Body()

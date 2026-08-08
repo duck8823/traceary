@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -71,6 +72,10 @@ func (s *tailEventUsecaseStub) Show(context.Context, types.EventID) (apptypes.Ev
 
 func (s *tailEventUsecaseStub) Context(context.Context, apptypes.EventContextCriteria) ([]*model.Event, error) {
 	return nil, nil
+}
+
+func (s *tailEventUsecaseStub) HydrateCommandAudits(context.Context, []*model.Event, queryservice.CommandAuditPayloadFields) error {
+	return nil
 }
 
 func (s *tailEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {

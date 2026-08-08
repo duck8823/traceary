@@ -346,6 +346,9 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to list initial tail events", "tail 初期イベントの取得に失敗しました"), err)
 		}
+		if err := c.hydrateCommandLinesForDisplay(ctx, initialEvents); err != nil {
+			return err
+		}
 		slices.Reverse(initialEvents)
 		// Advance the cursor over the full (unfiltered) initial window so the
 		// polling loop below resumes after the last observed event even when
@@ -374,6 +377,11 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 			newEvents, err := c.pollTailEvents(ctx, baseCriteria.Build(), cursor, pollSnapshotTo)
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to poll tail events", "tail イベントのポーリングに失敗しました"), err)
+			}
+			// Hydrate after pollTailEvents (not inside it): cockpit reuses the
+			// metadata-only poll path and must not pay for command payloads.
+			if err := c.hydrateCommandLinesForDisplay(ctx, newEvents); err != nil {
+				return err
 			}
 			// Advance over the full poll batch before --follow-session drops
 			// rows so the next poll window starts after the last observed

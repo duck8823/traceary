@@ -33,6 +33,17 @@ func CommandAuditFromSnapshot(snapshot CommandAuditSnapshot) (*CommandAudit, err
 	if command == "" {
 		return nil, xerrors.New("restore command audit: command must not be empty")
 	}
+	return commandAuditFromSnapshot(snapshot, command)
+}
+
+// CommandAuditFromListingMetadata restores the fixed-size columns available on
+// list/search joins. Codec-managed payloads stay empty until a reader hydrates
+// them through the query-service boundary.
+func CommandAuditFromListingMetadata(snapshot CommandAuditSnapshot) (*CommandAudit, error) {
+	return commandAuditFromSnapshot(snapshot, strings.TrimSpace(snapshot.Command))
+}
+
+func commandAuditFromSnapshot(snapshot CommandAuditSnapshot, command string) (*CommandAudit, error) {
 	commandName := snapshot.CommandName
 	if strings.TrimSpace(commandName.String()) == "" {
 		commandName = types.CommandNameUnknown

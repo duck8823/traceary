@@ -702,7 +702,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 				return s.eventBounded.HydrateList(ctx, metadata, bodyLimit)
 			},
 			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
-				return s.event.List(ctx, buildCriteria(limit, offset))
+				return s.listEventsWithCommandPayload(ctx, buildCriteria(limit, offset))
 			},
 			convertFull: func(events []*model.Event) []eventOutput { return convertEventsWithBodyLimit(events, 0) },
 			legacy: func(ctx context.Context, limit, offset int) ([]eventOutput, error) {
@@ -712,7 +712,7 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 					events, err := s.eventBounded.List(ctx, criteria, bodyLimit)
 					return convertBoundedEvents(events), err
 				case apptypes.EventProjectionFull:
-					events, err := s.event.List(ctx, criteria)
+					events, err := s.listEventsWithCommandPayload(ctx, criteria)
 					return convertEventsWithBodyLimit(events, 0), err
 				default:
 					return nil, xerrors.Errorf("event metadata usecase is not configured")
@@ -724,6 +724,39 @@ func (s *Server) listEvents() mcp.ToolHandlerFor[listEventsInput, eventsOutput] 
 		}
 		return nil, output, nil
 	}
+}
+
+// listEventsWithCommandPayload lists events then decodes command_text for
+// command_executed rows so MCP bodies show plaintext rather than codec frames.
+func (s *Server) listEventsWithCommandPayload(ctx context.Context, criteria apptypes.EventListCriteria) ([]*model.Event, error) {
+	events, err := s.event.List(ctx, criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list events: %w", err)
+	}
+	return s.withCommandPayload(ctx, events)
+}
+
+func (s *Server) searchEventsWithCommandPayload(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	events, err := s.event.Search(ctx, criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to search events: %w", err)
+	}
+	return s.withCommandPayload(ctx, events)
+}
+
+func (s *Server) contextEventsWithCommandPayload(ctx context.Context, criteria apptypes.EventContextCriteria) ([]*model.Event, error) {
+	events, err := s.event.Context(ctx, criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to load event context: %w", err)
+	}
+	return s.withCommandPayload(ctx, events)
+}
+
+func (s *Server) withCommandPayload(ctx context.Context, events []*model.Event) ([]*model.Event, error) {
+	if err := s.event.HydrateCommandAudits(ctx, events, queryservice.CommandOnlyPayload()); err != nil {
+		return nil, xerrors.Errorf("failed to hydrate command audits: %w", err)
+	}
+	return events, nil
 }
 
 // resolveBodyLimit picks the effective rune budget for event body
@@ -953,7 +986,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 				return s.eventBounded.HydrateSearch(ctx, metadata, bodyLimit)
 			},
 			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
-				return s.event.Search(ctx, buildCriteria(limit, offset))
+				return s.searchEventsWithCommandPayload(ctx, buildCriteria(limit, offset))
 			},
 			convertFull: func(events []*model.Event) []eventOutput { return convertEventsWithoutBlocksWithBodyLimit(events, 0) },
 			legacy: func(ctx context.Context, limit, offset int) ([]eventOutput, error) {
@@ -963,7 +996,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 					events, err := s.eventBounded.Search(ctx, criteria, bodyLimit)
 					return convertBoundedEvents(events), err
 				case apptypes.EventProjectionFull:
-					events, err := s.event.Search(ctx, criteria)
+					events, err := s.searchEventsWithCommandPayload(ctx, criteria)
 					return convertEventsWithoutBlocksWithBodyLimit(events, 0), err
 				default:
 					return nil, xerrors.Errorf("event metadata usecase is not configured")
@@ -1022,7 +1055,7 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 				return s.eventBounded.HydrateContext(ctx, metadata, bodyLimit)
 			},
 			full: func(ctx context.Context, limit, offset int) ([]*model.Event, error) {
-				return s.event.Context(ctx, buildCriteria(limit, offset))
+				return s.contextEventsWithCommandPayload(ctx, buildCriteria(limit, offset))
 			},
 			convertFull: func(events []*model.Event) []eventOutput { return convertEventsWithoutBlocksWithBodyLimit(events, 0) },
 			legacy: func(ctx context.Context, limit, offset int) ([]eventOutput, error) {
@@ -1032,7 +1065,7 @@ func (s *Server) getContext() mcp.ToolHandlerFor[getContextInput, eventsOutput] 
 					events, err := s.eventBounded.Context(ctx, criteria, bodyLimit)
 					return convertBoundedEvents(events), err
 				case apptypes.EventProjectionFull:
-					events, err := s.event.Context(ctx, criteria)
+					events, err := s.contextEventsWithCommandPayload(ctx, criteria)
 					return convertEventsWithoutBlocksWithBodyLimit(events, 0), err
 				default:
 					return nil, xerrors.Errorf("event metadata usecase is not configured")
@@ -2266,10 +2299,11 @@ func convertEventsInternal(events []*model.Event, includeBlocks bool, bodyLimit 
 	for _, event := range events {
 		plain := apptypes.ExtractPlainBody(event.Body())
 		// command_executed no longer stores a composed body (#1675); surface
-		// the retained command line from the joined audit when present.
+		// the decoded command line when hydrated. Do not fall back to
+		// command_name — a wrapper-stripped name looks like a real line.
 		if strings.TrimSpace(plain) == "" {
 			if audit, ok := event.CommandAudit().Value(); ok && audit != nil {
-				plain = audit.Command()
+				plain = strings.TrimSpace(audit.Command())
 			}
 		}
 		result := apptypes.TruncateCommandPayload(plain, bodyLimit)

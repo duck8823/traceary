@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -45,6 +48,14 @@ type eventUsecaseStub struct {
 	listCalls           int
 	searchCalls         int
 	timelineCriteria    apptypes.TimelineCriteria
+
+	// hydrateCalls / lastHydrateFields record HydrateCommandAudits usage so
+	// body-rendering paths can assert command-only vs full vs none.
+	hydrateCalls       int
+	lastHydrateFields  queryservice.CommandAuditPayloadFields
+	// hydrateCommandByEventID, when set, simulates command-only decode by
+	// replacing metadata-only audits with the mapped command line.
+	hydrateCommandByEventID map[string]string
 
 	// logMu guards logCall/logCalls against concurrent Log() invocations.
 	// Kimi's Stop hook can fire effectively concurrently for the same turn
@@ -179,6 +190,46 @@ func (s *eventUsecaseStub) Context(_ context.Context, _ apptypes.EventContextCri
 func (s *eventUsecaseStub) Timeline(_ context.Context, criteria apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
 	s.timelineCriteria = criteria
 	return s.timelineBlocks, s.timelineErr
+}
+func (s *eventUsecaseStub) HydrateCommandAudits(_ context.Context, events []*model.Event, fields queryservice.CommandAuditPayloadFields) error {
+	s.hydrateCalls++
+	s.lastHydrateFields = fields
+	if !fields.Command || len(s.hydrateCommandByEventID) == 0 {
+		return nil
+	}
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		command, ok := s.hydrateCommandByEventID[event.EventID().String()]
+		if !ok || strings.TrimSpace(command) == "" {
+			continue
+		}
+		audit, ok := event.CommandAudit().Value()
+		if !ok || audit == nil {
+			continue
+		}
+		restored, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
+			EventID:             audit.EventID(),
+			Command:             command,
+			Wrapper:             audit.CommandIdentity().Wrapper(),
+			CommandName:         audit.CommandIdentity().Command(),
+			Input:               audit.Input(),
+			Output:              audit.Output(),
+			InputTruncated:      audit.InputTruncated(),
+			OutputTruncated:     audit.OutputTruncated(),
+			InputOriginalBytes:  audit.InputOriginalBytes(),
+			OutputOriginalBytes: audit.OutputOriginalBytes(),
+			ExitCode:            audit.ExitCode(),
+			Failed:              audit.Failed(),
+			FailureReason:       audit.FailureReason(),
+		})
+		if err != nil {
+			return xerrors.Errorf("stub hydrate command audit: %w", err)
+		}
+		event.AttachCommandAudit(restored)
+	}
+	return nil
 }
 
 // sessionUsecaseStub implements usecase.SessionUsecase for testing.

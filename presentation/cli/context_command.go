@@ -92,6 +92,9 @@ func (c *RootCLI) runContext(ctx context.Context, output io.Writer, input contex
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to get context", "文脈の取得に失敗しました"), err)
 	}
+	if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
+		return err
+	}
 
 	if input.asJSON {
 		return writeContextJSON(output, resolvedSessionID, resolvedWorkspace, events)

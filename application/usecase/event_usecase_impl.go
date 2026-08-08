@@ -20,8 +20,9 @@ const (
 )
 
 type eventUsecase struct {
-	eventRepo  model.EventRepository
-	eventQuery queryservice.EventReadQueryService
+	eventRepo    model.EventRepository
+	eventQuery   queryservice.EventReadQueryService
+	auditPayload queryservice.CommandAuditPayloadQueryService
 }
 
 // NewEventUsecase creates an EventUsecase.
@@ -29,9 +30,21 @@ func NewEventUsecase(
 	eventRepo model.EventRepository,
 	eventQuery queryservice.EventReadQueryService,
 ) EventUsecase {
+	var auditPayload queryservice.CommandAuditPayloadQueryService
+	if payload, ok := any(eventQuery).(queryservice.CommandAuditPayloadQueryService); ok {
+		auditPayload = payload
+	}
+	// The write repository is often the same SQLite adapter and may carry the
+	// payload hydration capability when the read query does not.
+	if auditPayload == nil {
+		if payload, ok := any(eventRepo).(queryservice.CommandAuditPayloadQueryService); ok {
+			auditPayload = payload
+		}
+	}
 	return &eventUsecase{
-		eventRepo:  eventRepo,
-		eventQuery: eventQuery,
+		eventRepo:    eventRepo,
+		eventQuery:   eventQuery,
+		auditPayload: auditPayload,
 	}
 }
 
@@ -311,6 +324,20 @@ func (u *eventUsecase) Timeline(ctx context.Context, criteria apptypes.TimelineC
 		return nil, xerrors.Errorf("failed to list timeline blocks: %w", err)
 	}
 	return blocks, nil
+}
+
+func (u *eventUsecase) HydrateCommandAudits(
+	ctx context.Context,
+	events []*model.Event,
+	fields queryservice.CommandAuditPayloadFields,
+) error {
+	if u.auditPayload == nil {
+		return xerrors.Errorf("command audit payload query is not configured")
+	}
+	if err := u.auditPayload.HydrateCommandAudits(ctx, events, fields); err != nil {
+		return xerrors.Errorf("failed to hydrate command audit payloads: %w", err)
+	}
+	return nil
 }
 
 func hasSearchConstraint(criteria apptypes.EventSearchCriteria) bool {
