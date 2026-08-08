@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,9 +96,11 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("without orphan consolidation still reports zero orphans", func(t *testing.T) {
-		// Read paths and partial CLI wiring must not write refinements; when
-		// the port is absent, gc still succeeds and reports 0 orphans.
+	t.Run("missing orphan consolidation refuses to delete", func(t *testing.T) {
+		// Deletion checks the retention cutoff and nothing else, so without the
+		// consolidation port there is no way to know an event has a summary.
+		// This used to fall through and delete; it now fails closed, because the
+		// failure mode of a wiring regression is irreversible.
 		storeMaint := &storeManagementUsecaseStub{
 			gcResult: apptypes.CollectGarbageResultOf(0, time.Time{}, false),
 		}
@@ -106,10 +109,36 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatal("Execute() error = nil, want a refusal to delete")
+		}
+		if !strings.Contains(err.Error(), "orphan consolidation is not configured") {
+			t.Fatalf("Execute() error = %v, want a refusal naming the missing consolidation", err)
+		}
+		if storeMaint.gcCalled {
+			t.Fatal("CollectGarbage() was called despite the refusal")
+		}
+		if stdout.String() != "" {
+			t.Fatalf("stdout = %q, want no result output", stdout.String())
+		}
+	})
+
+	t.Run("targets consolidation does not protect still prune without it", func(t *testing.T) {
+		// memories and memory_edges hold nothing consolidation preserves, so the
+		// missing port must not block them.
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, false),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(cli.WithStoreManagement(storeMaint)).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--target", "memories"})
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinements: 0\nDeleted: 0\n"
+		want := "Orphan refinements: 0\nDeleted: 3\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}

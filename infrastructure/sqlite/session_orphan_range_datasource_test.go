@@ -886,3 +886,71 @@ func TestSessionOrphanRangeDatasource_DiscoveryPlanUsesNormalizedTimestampIndex(
 		t.Errorf("query plan does not use the normalized timestamp index:\n%s", joined)
 	}
 }
+
+// TestSessionOrphanRangeDatasource_InsertedEventsCarryNormalizedTimestamp pins
+// the invariant the discovery query depends on. Discovery picks a session's
+// latest event with ORDER BY created_at_norm DESC, while Go re-checks coverage
+// with ts_norm(created_at). If an inserted row could leave created_at_norm NULL
+// or disagreeing, SQLite would sort it last, discovery would read an older
+// event as the latest, and the session would be dropped from the candidate set
+// — after which Complete() reports a clean pass and deletion removes events
+// that were never folded.
+//
+// migrate_test covers the migration-031 backfill. This covers the trigger path
+// that every later insert takes.
+func TestSessionOrphanRangeDatasource_InsertedEventsCarryNormalizedTimestamp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+
+	base := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	seedOrphanSession(ctx, t, fx, "sess-norm", []eventSeed{
+		// Whole second and sub-second forms render at different widths under
+		// RFC3339Nano, which is the shape that breaks lexical ordering (#1185).
+		{id: "evt-whole", at: base},
+		{id: "evt-frac", at: base.Add(500 * time.Millisecond)},
+		{id: "evt-nano", at: base.Add(time.Second + 1)},
+	}, true)
+
+	db, err := sql.Open("sqlite", "file:"+fx.dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	rows, err := db.QueryContext(ctx, `
+SELECT id,
+       created_at_norm IS NULL AS is_null,
+       COALESCE(created_at_norm, '') AS stored,
+       COALESCE(ts_norm(created_at), '') AS computed
+  FROM events
+ WHERE session_id = ?
+`, "sess-norm")
+	if err != nil {
+		t.Fatalf("read normalized timestamps: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	seen := 0
+	for rows.Next() {
+		var id, stored, computed string
+		var isNull bool
+		if err := rows.Scan(&id, &isNull, &stored, &computed); err != nil {
+			t.Fatalf("scan normalized timestamp: %v", err)
+		}
+		seen++
+		if isNull {
+			t.Errorf("event %s has NULL created_at_norm; discovery would sort it last and miss it", id)
+			continue
+		}
+		if diff := cmp.Diff(computed, stored); diff != "" {
+			t.Errorf("event %s created_at_norm differs from ts_norm(created_at) (-want +got):\n%s", id, diff)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate normalized timestamps: %v", err)
+	}
+	if seen == 0 {
+		t.Fatal("no events found for the seeded session")
+	}
+}

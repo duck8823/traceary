@@ -36,9 +36,15 @@ func (r OrphanConsolidationResult) HasMore() bool { return r.hasMore }
 // DryRun reports whether the run was a dry run.
 func (r OrphanConsolidationResult) DryRun() bool { return r.dryRun }
 
-// Complete reports that the pass folded every candidate it could see. Only a
-// complete pass permits deletion: a skipped or undiscovered range is one whose
-// events would be deleted with nothing summarising them.
+// Complete reports that the pass folded every candidate discovery returned. It
+// gates deletion: a pass that stopped at its bound or skipped a range leaves
+// events unfolded that the retention cutoff would then remove.
+//
+// It is a statement about this pass, not a proof that nothing unfolded remains
+// anywhere. Discovery sees ended or stale sessions plus recorded markers, so a
+// session that has stayed continuously active for longer than the retention
+// window still holds old unfolded events deletion can reach. That gap predates
+// bounding and is tracked in #1724; do not read Complete() as covering it.
 func (r OrphanConsolidationResult) Complete() bool {
 	return !r.hasMore && r.skipped == 0
 }

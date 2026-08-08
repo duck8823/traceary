@@ -91,9 +91,21 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	// Deletion is by cutoff only and checks no coverage, so an incomplete
 	// consolidation (HasMore or Skipped > 0) must stop the deletion half for
 	// the targets consolidation protects.
+	//
+	// A missing use case fails closed rather than falling through to deletion.
+	// main.go always wires it, so this is unreachable in the shipped binary —
+	// but the failure mode of a future wiring regression would be irreversible
+	// deletion of events nothing summarises, which is not a failure mode worth
+	// leaving open to save one check.
 	var orphanResult apptypes.OrphanConsolidationResult
 	consolidationApplied := false
-	if c.orphanConsolidation != nil && orphanConsolidationAppliesTo(target) {
+	if orphanConsolidationAppliesTo(target) {
+		if c.orphanConsolidation == nil {
+			return xerrors.New(Localize(
+				"orphan consolidation is not configured; refusing to delete events that may have no summary",
+				"orphan range の機械要約が設定されていません。要約のない event を削除する恐れがあるため中止します",
+			))
+		}
 		var orphanErr error
 		orphanResult, orphanErr = c.orphanConsolidation.Consolidate(ctx, usecase.OrphanConsolidationInput{
 			StaleAfter: defaultActiveSessionStaleAfter,
