@@ -31,13 +31,18 @@ store records is deterministic — an oversize row exceeds the same budget on
 every open, `session_tier_unverified` fails the same query, and `abandoned` is
 an operator decision — so restarting automatically would fail identically and
 append a lifecycle row per open. Automatic catch-up skips with a warning naming
-the class; `resume` or `abort` explicitly to unblock it.
+the class. Neither `resume` nor `abort` clears it — `resume` rejects a failed
+generation and `abort` leaves the row failed as `abandoned` — so recovery is an
+explicit `traceary store search-projection start`.
 
 The before/after family byte figures are diagnostic and are measured outside the
 transactions that start and complete a generation, under their own short
-deadline. A measurement that cannot run never fails a generation: `status`
-reports `cutover_family_evidence.status` as `unavailable` with a reason, so a
-zero byte figure is never mistaken for a genuinely empty family.
+deadline, on a context detached from the batch. A measurement that cannot run
+never fails a generation: `status` reports `cutover_before_evidence.status` and
+`cutover_after_evidence.status` as `unavailable` with a reason, so a zero byte
+figure is never mistaken for a genuinely empty family. The two are separate
+because they are measured at different times against families of different
+sizes; an empty status means no measurement has been attempted yet.
 
 ```sh
 traceary store search-projection resume --until-complete --max-batches 4000 --total-wall-time 8h

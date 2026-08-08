@@ -232,10 +232,15 @@ type SearchProjectionStatus struct {
 	CutoverIndexFamily       string `json:"cutover_index_family,omitempty"`
 	CutoverFamilyBytesBefore int64  `json:"cutover_family_bytes_before,omitempty"`
 	CutoverFamilyBytesAfter  int64  `json:"cutover_family_bytes_after,omitempty"`
-	// CutoverFamilyEvidence states whether the byte figures above were actually
-	// measured. Without it a family that could not be measured is reported as
-	// zero bytes, which reads identically to a genuinely empty family.
-	CutoverFamilyEvidence CapacityEvidence `json:"cutover_family_evidence"`
+	// CutoverBeforeEvidence and CutoverAfterEvidence state whether each byte
+	// figure above was actually measured. Without them a family that could not
+	// be measured reports zero bytes, which reads identically to a genuinely
+	// empty family. They are separate because the two walks happen at different
+	// times against families of different sizes: one can succeed while the
+	// other times out. An empty Status means no measurement has been attempted
+	// yet.
+	CutoverBeforeEvidence CapacityEvidence `json:"cutover_before_evidence"`
+	CutoverAfterEvidence  CapacityEvidence `json:"cutover_after_evidence"`
 }
 
 // SearchProjectionCatchUpResult is one bounded unit of automatic generation
@@ -255,9 +260,11 @@ type SearchProjectionCatchUpResult struct {
 	CutoverIndexFamily       string `json:"cutover_index_family,omitempty"`
 	CutoverFamilyBytesBefore int64  `json:"cutover_family_bytes_before,omitempty"`
 	CutoverFamilyBytesAfter  int64  `json:"cutover_family_bytes_after,omitempty"`
-	// CutoverFamilyEvidence carries the same measured/unavailable distinction as
-	// SearchProjectionStatus so a zero in the byte fields above is never read as
-	// an empty family when it only means the walk did not run.
-	CutoverFamilyEvidence CapacityEvidence `json:"cutover_family_evidence"`
+	// CutoverBeforeEvidence and CutoverAfterEvidence carry the same
+	// measured/unavailable distinction as SearchProjectionStatus so a zero in
+	// the byte fields above is never read as an empty family when it only means
+	// the walk did not run.
+	CutoverBeforeEvidence CapacityEvidence `json:"cutover_before_evidence"`
+	CutoverAfterEvidence  CapacityEvidence `json:"cutover_after_evidence"`
 	SessionTierVerified   bool             `json:"session_tier_verified,omitempty"`
 }

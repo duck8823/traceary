@@ -260,7 +260,8 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	out.CutoverIndexFamily = status.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = status.CutoverFamilyBytesBefore
 	out.CutoverFamilyBytesAfter = status.CutoverFamilyBytesAfter
-	out.CutoverFamilyEvidence = status.CutoverFamilyEvidence
+	out.CutoverBeforeEvidence = status.CutoverBeforeEvidence
+	out.CutoverAfterEvidence = status.CutoverAfterEvidence
 	if status.State == "complete" {
 		out.Action = "already_complete"
 		out.Completed = true
@@ -281,8 +282,11 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	// is ever introduced, this is where it gets its exception.
 	if status.State == "failed" {
 		out.Action = "skipped"
+		// Naming the recovery command matters: neither resume nor abort clears
+		// this state. Resume rejects a failed generation, and abort leaves the
+		// row failed with class abandoned. Only an explicit start replaces it.
 		out.SkippedReason = "parked after generation failure " + failureClassOrUnknown(status.FailureClass) +
-			"; resume or abort explicitly to unblock automatic progress"
+			"; run 'traceary store search-projection start' to replace the generation"
 		return out, nil
 	}
 	switch {
@@ -335,7 +339,8 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	out.CutoverIndexFamily = statusAfter.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = statusAfter.CutoverFamilyBytesBefore
 	out.CutoverFamilyBytesAfter = statusAfter.CutoverFamilyBytesAfter
-	out.CutoverFamilyEvidence = statusAfter.CutoverFamilyEvidence
+	out.CutoverBeforeEvidence = statusAfter.CutoverBeforeEvidence
+	out.CutoverAfterEvidence = statusAfter.CutoverAfterEvidence
 	if progress.Completed {
 		out.SessionTierVerified = true
 		out.Completed = statusAfter.Completed
