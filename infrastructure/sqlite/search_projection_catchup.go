@@ -20,14 +20,14 @@ import (
 // multi-minute rebuild of a large store.
 func defaultSearchProjectionCatchUpBudget() apptypes.SearchProjectionBudget {
 	return apptypes.SearchProjectionBudget{
-		Rows:         128,
-		WallTime:     time.Second,
-		LockTime:     250 * time.Millisecond,
-		StoredBytes:  8 << 20,
-		DecodedBytes: 8 << 20,
-		WriteBytes:   8 << 20,
-		RecentAge:    30 * 24 * time.Hour,
-		RecentBytes:  64 << 20,
+		Rows:             128,
+		WallTime:         time.Second,
+		LockTime:         250 * time.Millisecond,
+		StoredBytes:      8 << 20,
+		DecodedBytes:     8 << 20,
+		WriteBytes:       8 << 20,
+		RecentAge:        30 * 24 * time.Hour,
+		IndexFamilyBytes: apptypes.DefaultSearchProjectionIndexFamilyBytes,
 	}
 }
 
@@ -96,16 +96,18 @@ func searchProjectionSchemaComplete(ctx context.Context, db *sql.DB) (bool, stri
 			return false, object, nil
 		}
 	}
-	// Migration 049 adds cutover evidence to an existing table, so presence of
-	// search_projection_state alone does not imply it.
+	// Additive columns land on an existing table, so presence of
+	// search_projection_state alone does not imply a complete schema.
+	// Check the newest required column: a store at 049-054 has
+	// cutover_index_family but not index_family_byte_limit (#1679).
 	var columns int
 	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM pragma_table_info('search_projection_state') WHERE name = 'cutover_index_family'`,
+		`SELECT COUNT(*) FROM pragma_table_info('search_projection_state') WHERE name = 'index_family_byte_limit'`,
 	).Scan(&columns); err != nil {
 		return false, "", xerrors.Errorf("inspect search_projection_state columns: %w", err)
 	}
 	if columns == 0 {
-		return false, "search_projection_state.cutover_index_family", nil
+		return false, "search_projection_state.index_family_byte_limit", nil
 	}
 	return true, "", nil
 }

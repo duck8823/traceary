@@ -62,7 +62,15 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		w := apptypes.ProjectionWrite{Document: d, Keywords: map[string]int{}}
 		w.LiteralFingerprints = apptypes.CharacterizeLiteralQuery(d.Text).Fingerprints()
 		if created, err := time.Parse(time.RFC3339Nano, d.CreatedAt); err == nil {
-			w.RetainRecent = !created.Before(s.Now.Add(-b.RecentAge))
+			// Keep created_at_norm > max(ageCutoff, byteCutoff). Strict greater
+			// errs under budget when timestamps tie (#1679 D4).
+			cutoff := s.Now.Add(-b.RecentAge)
+			if s.RecentCutoffNorm != "" {
+				if byteCutoff, parseErr := time.Parse(time.RFC3339Nano, s.RecentCutoffNorm); parseErr == nil && byteCutoff.After(cutoff) {
+					cutoff = byteCutoff
+				}
+			}
+			w.RetainRecent = created.After(cutoff)
 		}
 		base, ok := summaries[d.SessionID]
 		if !ok {

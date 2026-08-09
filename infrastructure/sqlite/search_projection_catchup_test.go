@@ -183,7 +183,7 @@ func TestSearchProjectionCatchUp_InterruptedMidRebuildResumesWithoutTwoLiveGener
 	tight := apptypes.SearchProjectionBudget{
 		Rows: 1, WallTime: time.Minute, LockTime: time.Second,
 		StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20,
-		RecentAge: 365 * 24 * time.Hour, RecentBytes: 1 << 20,
+		RecentAge: 365 * 24 * time.Hour, IndexFamilyBytes: 1 << 20,
 	}
 	// Match catch-up config by using the same budget for start+resume so the
 	// auto path can take over. Use usecase directly for the interrupted start.
