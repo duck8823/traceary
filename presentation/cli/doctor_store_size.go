@@ -43,22 +43,26 @@ func inspectStoreFileSnapshot(path string, stat func(string) (os.FileInfo, error
 	return storeFileSnapshot{Size: info.Size(), Regular: info.Mode().IsRegular(), Exists: true}
 }
 
-func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string, snapshot storeFileSnapshot) doctorCheck {
+func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string, snapshot storeFileSnapshot) []doctorCheck {
 	return c.inspectStoreGrowthBudgetWithClock(ctx, dbPath, snapshot, time.Now)
 }
 
-func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath string, snapshot storeFileSnapshot, now func() time.Time) doctorCheck {
+// inspectStoreGrowthBudgetWithClock returns the store-size check and, when the
+// retired migration-032 family is still resident, a legacy-search-index check.
+// Both come from one capacity report: the object traversal is the expensive
+// part, and inspecting twice would double the cost of the whole doctor run.
+func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath string, snapshot storeFileSnapshot, now func() time.Time) []doctorCheck {
 	if snapshot.Err != nil {
-		return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("failed to inspect SQLite store metadata: %v", "SQLite store metadataを確認できません: %v", snapshot.Err)}
+		return []doctorCheck{{Name: "store-size", Status: doctorStatusWarn, Message: localizef("failed to inspect SQLite store metadata: %v", "SQLite store metadataを確認できません: %v", snapshot.Err)}}
 	}
 	if !snapshot.Exists {
-		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: Localize("SQLite store file does not exist yet (no size budget concern)", "SQLite ストアファイルはまだありません（サイズ予算の懸念なし）")}
+		return []doctorCheck{{Name: "store-size", Status: doctorStatusPass, Message: Localize("SQLite store file does not exist yet (no size budget concern)", "SQLite ストアファイルはまだありません（サイズ予算の懸念なし）")}}
 	}
 	if !snapshot.Regular {
-		return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: Localize("SQLite store path is not a regular file", "SQLite store pathはregular fileではありません")}
+		return []doctorCheck{{Name: "store-size", Status: doctorStatusWarn, Message: Localize("SQLite store path is not a regular file", "SQLite store pathはregular fileではありません")}}
 	}
 	if c.capacityInspector == nil {
-		return unknownStoreGrowthCheck(snapshot.Size, dbPath, "capacity inspector unavailable")
+		return []doctorCheck{unknownStoreGrowthCheck(snapshot.Size, dbPath, "capacity inspector unavailable")}
 	}
 	inspectCtx, cancel := context.WithTimeout(ctx, doctorGrowthInspectTimeout)
 	defer cancel()
@@ -66,7 +70,7 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	report, err := c.capacityInspector.InspectCapacity(inspectCtx)
 	latency := now().Sub(started)
 	if err != nil {
-		return unknownStoreGrowthCheck(snapshot.Size, dbPath, "bounded capacity signals unavailable or timed out")
+		return []doctorCheck{unknownStoreGrowthCheck(snapshot.Size, dbPath, "bounded capacity signals unavailable or timed out")}
 	}
 	evidence := storeGrowthEvidence{DatabaseBytes: report.DatabaseBytes, ReclaimableBytes: report.FreeBytes, MeasuredLatency: latency}
 	if evidence.DatabaseBytes == 0 {
@@ -75,8 +79,17 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	for _, payload := range report.PayloadClasses {
 		evidence.EventPayloadBytes += payload.Bytes
 	}
+	legacyBytes := int64(0)
 	for _, object := range report.Objects {
 		name := strings.ToLower(object.Name)
+		// The retired family is reported by its own check, not as projection
+		// growth. Counting it here would attribute 16 GiB of dead index to the
+		// live projection's budget and point the operator at compaction, which
+		// is the wrong remedy and the wrong first step.
+		if isLegacySearchIndexObject(name) {
+			legacyBytes += object.Bytes
+			continue
+		}
 		if strings.Contains(name, "search") || strings.Contains(name, "projection") {
 			evidence.ProjectionBytes += object.Bytes
 		}
@@ -87,7 +100,45 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	}
 	check := evaluateStoreGrowthBudget(evidence)
 	check.FixCommand = "traceary store compact plan --db-path " + shellQuote(dbPath)
-	return check
+	return []doctorCheck{check, legacySearchIndexCheck(legacyBytes, dbPath)}
+}
+
+// isLegacySearchIndexObject matches the migration-032 family: the two tables,
+// the FTS5 shadow tables (event_search_fts_data, _idx, _docsize, _config), and
+// the implicit index behind event_search_documents.event_id UNIQUE, which
+// dbstat reports as sqlite_autoindex_event_search_documents_1 — hence Contains
+// rather than HasPrefix, since that name holds millions of event IDs on the
+// stores this check exists for.
+//
+// No bounded-projection object contains this substring; they are named
+// search_projection_* and literal_search_*.
+func isLegacySearchIndexObject(loweredName string) bool {
+	return strings.Contains(loweredName, "event_search_")
+}
+
+func legacySearchIndexCheck(bytes int64, dbPath string) doctorCheck {
+	const name = "legacy-search-index"
+	if bytes <= 0 {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusPass,
+			Message: Localize("the retired legacy search index is not present", "退役済みの legacy search index は残っていません"),
+		}
+	}
+	return doctorCheck{
+		Name:   name,
+		Status: doctorStatusWarn,
+		Message: localizef(
+			"the retired legacy search index is still resident and holds %s; nothing reads or maintains it",
+			"退役済みの legacy search index が %s を占有したまま残っています。読み取りも更新もされていません",
+			formatByteSize(bytes),
+		),
+		Hint: Localize(
+			"run `traceary store search-retire` to drop it, then `traceary store compact plan` to return the bytes to the filesystem; dropping alone only moves pages to the free list",
+			"`traceary store search-retire` で削除し、その後 `traceary store compact plan` でファイルサイズを回収してください。DROP だけではページが free list に戻るだけです",
+		),
+		FixCommand: "traceary store search-retire --db-path " + shellQuote(dbPath),
+	}
 }
 
 func unknownStoreGrowthCheck(size int64, dbPath, reason string) doctorCheck {
@@ -167,7 +218,7 @@ func isLargeStoreForBoundedDoctor(snapshot storeFileSnapshot) bool {
 	return snapshot.Err == nil && snapshot.Exists && snapshot.Regular && snapshot.Size >= doctorLargeStoreMetadataOnlyBytes
 }
 
-func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot) doctorCheck {
+func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot, dbPath string) doctorCheck {
 	if snapshot.Err != nil || !snapshot.Exists || !snapshot.Regular {
 		return doctorCheck{
 			Name:    "large-store-diagnostics",
@@ -175,6 +226,7 @@ func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot) doctorCheck {
 			Message: Localize("failed to use large SQLite store metadata snapshot", "大容量SQLite storeのmetadata snapshotを使用できません"),
 		}
 	}
+	quoted := shellQuote(dbPath)
 	return doctorCheck{
 		Name:   "large-store-diagnostics",
 		Status: doctorStatusWarn,
@@ -183,11 +235,16 @@ func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot) doctorCheck {
 			"%s のストアに対する bounded metadata-only doctor 結果です。SQLite の open、migration、event body、command payload、hook spool、credential、identifier sample は読み取りませんでした",
 			formatByteSize(snapshot.Size),
 		),
-		Hint: Localize(
-			"this is capacity-safe, not a lock diagnosis. Stop competing writers or use a reviewed bounded copy, then retry diagnostics. Preview safe remediation with `traceary store compact plan --db-path PATH`.",
-			"これは capacity-safe な結果であり lock 診断ではありません。競合 writer を停止するかreview済みbounded copyを使って診断を再実行し、`traceary store compact plan --db-path PATH`で安全なremediationをpreviewしてください。",
+		// Whether the retired legacy search index is present cannot be known
+		// without opening SQLite, which this mode exists to avoid. The advice
+		// is therefore unconditional, which is safe because search-retire is a
+		// no-op on a store that no longer carries the family.
+		Hint: localizef(
+			"this is capacity-safe, not a lock diagnosis. Stop competing writers or use a reviewed bounded copy, then retry diagnostics. If this store predates v0.34 it may still carry the retired legacy search index: run `traceary store search-retire --db-path %s` (a no-op if already removed), then preview safe remediation with `traceary store compact plan --db-path %s`.",
+			"これは capacity-safe な結果であり lock 診断ではありません。競合 writer を停止するかreview済みbounded copyを使って診断を再実行してください。v0.34 より前から使っているストアには退役済みの legacy search index が残っている可能性があります。`traceary store search-retire --db-path %s`（削除済みなら no-op）を実行してから、`traceary store compact plan --db-path %s`で安全なremediationをpreviewしてください。",
+			quoted, quoted,
 		),
-		FixCommand: "traceary store compact plan",
+		FixCommand: "traceary store search-retire --db-path " + quoted,
 	}
 }
 

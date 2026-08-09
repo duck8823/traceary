@@ -40,20 +40,4 @@ fixture は canonical production migration と query source を使います。`-
 
 完走した `search` case は privacy-safe な集計 `matched_rows` を含みます。0件も有効であり、body、query value、識別子は出力しません。
 
-## Legacy/tiered search の全件 parity
-
-追加の parity mode は、legacy の全 offset page と tiered の全 authenticated continuation を完走した後だけ membership set の一致を証明します。legacy search の authority は変更しません。private criteria は stdin の JSON、または permission が厳密に `0600` の regular file で渡します。
-
-```sh
-cat /private/tmp/private-parity-manifest.json | \
-  go run ./cmd/store-benchmark --search-parity-manifest - > /private/tmp/search-parity.json
-go run ./cmd/store-benchmark --validate-search-parity /private/tmp/search-parity.json
-```
-
-Manifest の必須 field は `db_path`、`query`、`legacy_page_size`、`tiered_page_size`、`source_rows`、`stored_bytes`、`decoded_bytes`、`timeout_ms`、`expected_revision`、`expected_dirty` です。optional filter は `workspace`、`session_id`、`client`、`agent`、`kind`、`from`、`to`、`failures_only` です。`expected_revision` は `git rev-parse HEAD` から設定し、`expected_dirty` は必須かつ `false`、worktree は clean でなければなりません。不一致なら store access より前に失敗します。evidence 自身が dirty-state assertion に自己参照しないよう、manifest と生成 artifact は repository の外に置きます。
-
-出力は `traceary.tiered-search-parity/v1` と `comparison_contract: membership_set/v1` を使用します。revision/dirty state、membership/duplicate count、page/continuation count、projection revision/high-water、latency または right-censored elapsed lower bound、budget、aggregate logical/physical bytes だけを含みます。query、identifier、path、cursor、continuation、raw error text は出力しません。failure は fixed error class だけを使用します。status precedence は `failed > timeout > mismatch > passed` です。
-
-Validator は unknown/privacy-forbidden field、trailing JSON、inconsistent metric、unknown error class を拒否します。timeout は diagnostic な right-censored evidence であり parity の証明ではありません。両 chain が duplicate なしで完走し、最終 membership set が一致した `passed` だけが parity を証明します。
-
-Artifact key は大文字小文字を区別する厳密な allowlist です。診断値は fixed enum です。`query_class` は `fingerprint_eligible` または `bounded_verification`、`observed_tier` は `historical_fingerprint` または `bounded_verification`、`coverage.complete` は boolean、`partial_reason` は coverage 完了時には空、未完了時には `source_rows`、`stored_bytes`、`decoded_bytes`、`verified_hydration_bytes`、`result_limit` のいずれかです。fingerprint eligible query は bounded verification へ fallback できますが、bounded-verification query は fingerprint tier を主張できません。
+legacy/tiered search の全件 parity mode は v0.34 で廃止しました。全文コーパス版 migration-032 索引と bounded projection を比較する mode でしたが、その索引が退役したため比較対象がありません。詳細は [検索インデックスの退役](search-retirement.ja.md) を参照してください。

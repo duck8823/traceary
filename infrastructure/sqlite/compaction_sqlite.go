@@ -327,17 +327,22 @@ func scrubPayloadCodecs(ctx context.Context, db *sql.DB) error {
 	return rows.Err()
 }
 
+// requireStaticSearchState re-checks at apply time, after the exclusive lease,
+// what Plan checked before the digest. The two are separated by an operator
+// decision, so the family can be removed — or reappear from a restored
+// backup — in between.
+//
+// This replaces the former search_maintenance_control phase check. Migration
+// 052 drops that table, so no store reaching this code can be mid-transition
+// any more, and a partially retired store is caught by the family check with
+// an error the operator can act on.
 func requireStaticSearchState(ctx context.Context, db *sql.DB) error {
-	var exists int
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='search_maintenance_control')`).Scan(&exists); err != nil || exists == 0 {
+	present, err := legacySearchFamilyPresent(ctx, db)
+	if err != nil {
 		return err
 	}
-	var phase string
-	if err := db.QueryRowContext(ctx, `SELECT phase FROM search_maintenance_control WHERE singleton=1`).Scan(&phase); err != nil {
-		return err
-	}
-	if phase == "retiring" || phase == "restoring" {
-		return fmt.Errorf("search maintenance is not static: %s", phase)
+	if present {
+		return errors.New("legacy search index family is still present; run `traceary store search-retire` before compact plan/apply")
 	}
 	return nil
 }

@@ -286,12 +286,12 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	if isLargeStoreForBoundedDoctor(snapshot) {
 		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
 	} else {
-		report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath, snapshot))
+		report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath, snapshot)...)
 	}
 	report.Checks = append(report.Checks, inspectTracearyOnPath())
 	if isLargeStoreForBoundedDoctor(snapshot) {
 		report.Mode = doctorModeMetadataOnlyLargeStore
-		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot))
+		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath))
 		// This is an intentional, successful bounded outcome. Do not initialize
 		// SQLite, list events, scan hook spools, or inspect client state here:
 		// those operations can block behind a live writer and some inspect event

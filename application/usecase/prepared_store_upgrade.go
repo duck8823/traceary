@@ -135,6 +135,20 @@ func (u *preparedStoreUpgradeUsecase) Publish(ctx context.Context, id string) (a
 	return u.recoverAndPublish(ctx, run)
 }
 
+// guardPublication refuses to publish a candidate that still carries the
+// retired migration-032 search index family, on every forward exchange this
+// protocol performs.
+//
+// Only the payload-rehearsal migration recipe is registered today, and that
+// operation is exempt, so this changes nothing that currently runs. It is here
+// because the operation set is a public contract: domain.Operation.Known()
+// admits compaction, and a future recipe registration would otherwise inherit
+// an unguarded publication path with nothing to catch it. The compaction
+// usecase enforces the same rule at its own exchange.
+func (u *preparedStoreUpgradeUsecase) guardPublication(ctx context.Context, run domain.PreparedStoreUpgradeRun) error {
+	return u.files.RejectRetiredSearchIndex(ctx, run)
+}
+
 func (u *preparedStoreUpgradeUsecase) publishLeased(ctx context.Context, run domain.PreparedStoreUpgradeRun, leaseStarted time.Time) (application.PreparedStoreUpgradeReceipt, error) {
 	var err error
 	for run.Phase != domain.PreparedStoreUpgradeCommitted {
@@ -144,7 +158,10 @@ func (u *preparedStoreUpgradeUsecase) publishLeased(ctx context.Context, run dom
 		}
 		switch action {
 		case domain.ActionExchange:
-			err = u.files.Exchange(ctx, run)
+			err = u.guardPublication(ctx, run)
+			if err == nil {
+				err = u.files.Exchange(ctx, run)
+			}
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeSwapped)
 			}
@@ -351,7 +368,15 @@ func (u *preparedStoreUpgradeUsecase) executeRecoveryAction(ctx context.Context,
 	switch action {
 	case domain.ActionSyncRecoveredOrientation:
 		err = u.files.SyncRecoveredOrientation(ctx, run, observation)
-	case domain.ActionExchange, domain.ActionRollbackExchange:
+	case domain.ActionExchange:
+		// Split from the rollback exchange below. They call the same operation
+		// but in opposite directions: this one publishes the candidate, so it
+		// must clear the retired-index refusal first.
+		err = u.guardPublication(ctx, run)
+		if err == nil {
+			err = u.files.Exchange(ctx, run)
+		}
+	case domain.ActionRollbackExchange:
 		err = u.files.Exchange(ctx, run)
 	case domain.ActionPublishRollback:
 		err = u.files.PublishRollback(ctx, run)

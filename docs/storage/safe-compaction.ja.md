@@ -10,8 +10,15 @@
 `plan` は非破壊です。`apply` はソースと同じディレクトリへ `VACUUM
 INTO` し、fsync 後に双方へ同一の互換性・整合性検証を実行してから、
 同一ファイルシステム内でatomic exchangeします。元inodeはロールバック
-用に保持されます。SQLite sidecar、検索メンテナンス遷移中、空き容量不足、
+用に保持されます。SQLite sidecar、レガシー検索インデックスの残存、空き容量不足、
 ファイルidentity変更、atomic exchange非対応環境ではfail closedします。
+
+レガシー検索インデックスの検査はsource digestより前に走るため、数GiBのstore
+全体をハッシュした後ではなく数秒で失敗します。先にcompactすると死んだindexを
+新しいファイルへコピーして固定化してしまうので、`traceary store search-retire`
+を先に実行してください。詳細は
+[`search-retirement.ja.md`](../operations/search-retirement.ja.md) を参照して
+ください。
 
 planは `lease_capability` も報告します。DarwinとLinuxでは通常のphysical
 SQLite connectionが、隣接するstableな `<database>.traceary.lock` にshared

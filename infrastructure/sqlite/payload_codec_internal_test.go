@@ -14,7 +14,6 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	domtypes "github.com/duck8823/traceary/domain/types"
@@ -527,10 +526,15 @@ ON CONFLICT(event_id) DO UPDATE SET body_text=excluded.body_text, command_text=e
 	if err != nil || len(auditSearched) != 1 || auditSearched[0].EventID().String() != "zstd" {
 		t.Fatalf("audit decoded search = %#v, %v", auditSearched, err)
 	}
+	// An unbounded search now walks and decodes candidates rather than
+	// refusing, so it reaches the deliberately corrupted row and reports the
+	// integrity failure by name. Before #1718 the legacy path stopped earlier
+	// with index_incomplete and never decoded it. Whether one unreadable row
+	// should fail a whole search or be skipped is tracked separately.
 	_, err = datasource.Search(ctx, "compressed", "", "", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
-	var unavailable *queryservice.EventSearchUnavailableError
-	if !errors.As(err, &unavailable) || unavailable.Reason != queryservice.EventSearchUnavailableIndexIncomplete {
-		t.Fatalf("unbounded stale projection error = %v, want explicit index-incomplete error", err)
+	var searchIntegrity *PayloadIntegrityError
+	if !errors.As(err, &searchIntegrity) || searchIntegrity.RowID != "corrupt" || searchIntegrity.Field != "body" {
+		t.Fatalf("unbounded search error = %v, want payload integrity error for the corrupt row", err)
 	}
 	details, err := datasource.GetDetails(ctx, "zstd")
 	if err != nil {

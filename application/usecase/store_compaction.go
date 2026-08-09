@@ -64,6 +64,24 @@ func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.C
 	return u.applyLeased(ctx, run)
 }
 
+// guardPublication refuses to publish a candidate that still carries the
+// retired migration-032 search index family.
+//
+// It sits immediately before the forward exchange rather than at the entry to
+// a phase loop. Recovery reaches ActionExchange from resumeLeased without
+// passing through applyLeased at all, so a run journaled at swap_intent by an
+// older binary would otherwise be published by the very path that exists to
+// finish interrupted runs — and neither Plan nor Build is revisited there.
+// Anchoring on the action makes every route to the exchange carry the check.
+//
+// The rollback exchange is deliberately not guarded. It restores the original
+// source, so refusing would strand the store on the candidate it is trying to
+// abandon. So is anything past the exchange: the candidate is live by then,
+// and the only safe direction is forward.
+func (u *storeCompactionUsecase) guardPublication(ctx context.Context, run domain.CompactionRun) error {
+	return u.files.RejectRetiredSearchIndex(ctx, run)
+}
+
 func (u *storeCompactionUsecase) applyLeased(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
 	var err error
 	for run.Phase != domain.CompactionCommitted {
@@ -110,7 +128,10 @@ func (u *storeCompactionUsecase) applyLeased(ctx context.Context, run domain.Com
 		case domain.ActionRecordSwapIntent:
 			run, err = u.advance(ctx, run, domain.CompactionSwapIntent)
 		case domain.ActionExchange:
-			err = u.files.Exchange(ctx, run)
+			err = u.guardPublication(ctx, run)
+			if err == nil {
+				err = u.files.Exchange(ctx, run)
+			}
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionSwapped)
 			}
@@ -197,6 +218,9 @@ func (u *storeCompactionUsecase) resumeLeased(ctx context.Context, run domain.Co
 			continue
 		}
 		if action == domain.ActionExchange {
+			if err := u.guardPublication(ctx, run); err != nil {
+				return run, err
+			}
 			if err := u.files.Exchange(ctx, run); err != nil {
 				return run, err
 			}

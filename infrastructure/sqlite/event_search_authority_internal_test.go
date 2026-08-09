@@ -14,6 +14,7 @@ import (
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
 )
 
 // seedTieredCompleteProjection freezes a complete generation at the current
@@ -45,13 +46,6 @@ func seedTieredCompleteProjection(t *testing.T, database *Database, generation s
 		       state = 'complete',
 		       phase = 'complete'
 		 WHERE singleton = 1`, generation, generation); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = raw.ExecContext(ctx, `
-		UPDATE search_maintenance_control
-		   SET authority = 'tiered',
-		       phase = 'retired'
-		 WHERE singleton = 1`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -142,6 +136,14 @@ func metadataIDs(rows []apptypes.EventMetadata) []string {
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {
 		ids = append(ids, row.EventID().String())
+	}
+	return ids
+}
+
+func eventIDs(events []*model.Event) []string {
+	ids := make([]string, 0, len(events))
+	for _, event := range events {
+		ids = append(ids, event.EventID().String())
 	}
 	return ids
 }
@@ -381,13 +383,6 @@ func TestTieredAuthoritySearchFindsEventsNeverInventoried(t *testing.T) {
 		_ = raw.Close()
 		t.Fatal(err)
 	}
-	if _, err = raw.ExecContext(ctx, `
-		UPDATE search_maintenance_control
-		   SET authority = 'tiered', phase = 'retired'
-		 WHERE singleton = 1`); err != nil {
-		_ = raw.Close()
-		t.Fatal(err)
-	}
 	_ = raw.Close()
 
 	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
@@ -460,13 +455,6 @@ func TestTieredAuthoritySearchWithoutProjectionGeneration(t *testing.T) {
 
 	raw, err := database.open(ctx)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = raw.ExecContext(ctx, `
-		UPDATE search_maintenance_control
-		   SET authority = 'tiered', phase = 'retired'
-		 WHERE singleton = 1`); err != nil {
-		_ = raw.Close()
 		t.Fatal(err)
 	}
 	_ = raw.Close()
@@ -593,13 +581,6 @@ func TestTieredAuthoritySearchBudgetExhaustionWithoutPreFilter(t *testing.T) {
 	// No complete generation: fingerprint pre-filter is skipped entirely.
 	raw, err := database.open(ctx)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = raw.ExecContext(ctx, `
-		UPDATE search_maintenance_control
-		   SET authority = 'tiered', phase = 'retired'
-		 WHERE singleton = 1`); err != nil {
-		_ = raw.Close()
 		t.Fatal(err)
 	}
 	inflatedStored := apptypes.DeepLiteralSearchBudget.StoredBytes + 1

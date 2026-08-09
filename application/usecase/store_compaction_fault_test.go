@@ -75,6 +75,12 @@ func (f faultFiles) Recheck(context.Context, domain.CompactionRun) error {
 	}
 	return nil
 }
+func (f faultFiles) RejectRetiredSearchIndex(context.Context, domain.CompactionRun) error {
+	if f.fail == "retired-search-index" {
+		return errors.New("retired search index fault")
+	}
+	return nil
+}
 func (f faultFiles) RemoveOwnedPartialCandidate(context.Context, domain.CompactionRun, domain.CompactionObservation) error {
 	if f.fail == "cleanup" {
 		return errors.New("cleanup fault")
