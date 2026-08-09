@@ -1,11 +1,18 @@
 -- Resumable in-place payload backfill bookkeeping.
--- Walks events by rowid up to a high-water fixed at run start; recipe_version
--- refuses resume across batch-semantic changes. Constant cost: CREATE only.
+-- Walks events and command_audits by a shared numeric rowid cursor up to a
+-- per-table high-water fixed at run start. recipe_version refuses resume
+-- across batch-semantic changes. Constant cost: CREATE only.
 
 CREATE TABLE payload_backfill_runs (
   run_id TEXT PRIMARY KEY,
   recipe_version TEXT NOT NULL,
+  -- Inclusive events.rowid ceiling fixed at run start. Independent of the
+  -- command_audits sequence: the two tables do not share rowid allocation.
   high_water_rowid INTEGER NOT NULL CHECK (high_water_rowid >= 0),
+  -- Inclusive command_audits.rowid ceiling fixed at run start. Stored
+  -- separately so a later insert into the lagging table cannot land below a
+  -- shared max and either strand the audit frontier or silently skip work.
+  audit_high_water_rowid INTEGER NOT NULL DEFAULT 0 CHECK (audit_high_water_rowid >= 0),
   cursor_rowid INTEGER NOT NULL DEFAULT 0 CHECK (cursor_rowid >= 0),
   pass_count INTEGER NOT NULL DEFAULT 0 CHECK (pass_count >= 0),
   state TEXT NOT NULL CHECK (state IN ('running', 'paused', 'completed', 'failed')),

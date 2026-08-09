@@ -81,8 +81,9 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 | 選択条件 | フィールドごと: `<field>_codec IS NULL OR <field>_codec = 'identity'`。加えて codec 列 5 つが「すべて NULL」でも「すべて埋まっている」でもないフィールドも選ぶ（run を fail closed させるため） |
 | レーン | `events.body`、続けて `command_audits.{command,input,output}_text`。共有の rowid カーソルが両テーブルを歩く。バッチは選択した各 rowid の全対象フィールドを読み、LIMIT で兄弟フィールドが取り残されないようにする |
 | アフィニティ | zstd は BLOB、identity は TEXT で保存し、他の writer と揃える。plaintext を読む SQL（マイグレーション 053 の `LIKE`）が壊れない |
-| カーソル | `events` と `command_audits` で共有する数値 `rowid` ハイウォーター（各テーブルの rowid 列は独立）。イベント `id` / audit `event_id` は乱数なのでカーソルに使わない |
-| ハイウォーター | 実行開始時の `max(max(events.rowid), max(command_audits.rowid))`。実行中に取り込まれた行は identity のまま残り、次の実行対象になる |
+| カーソル | `events` と `command_audits` で共有する数値 `rowid` カーソル（各テーブルの rowid 列は独立）。イベント `id` / audit `event_id` は乱数なのでカーソルに使わない |
+| ハイウォーター | 実行開始時にテーブルごとの天井を固定する: `high_water_rowid` = `MAX(events.rowid)`、`audit_high_water_rowid` = `MAX(command_audits.rowid)`。共有の max だと遅れている側の後続 insert が天井より下に入り、frontier が詰まったり未処理のまま completed になる。resume はチェックポイントから両天井を読み、再計算しない |
+| Scanned rows | **レーン候補**の検査数（`events.body` 1 件、または `command_audits` の text フィールド 1 件）。物理行数ではない。監査行で 3 フィールドが対象なら 3 を加算する。JSON フィールド名 `scanned_rows` は契約上固定 |
 | 不動点 | 書き換えも conflict skip もない完全走査になるまでパスを繰り返す |
 | アトミックバッチ | ソース再検証・エンコード・フィールド + codec 列 5 つの書き込み・チェックポイント更新を 1 トランザクションで行う |
 | 部分メタデータ | 件数を数え結果に id（event id / audit event_id）を載せ、run を fail closed。フィールドは書き換えない |

@@ -75,7 +75,8 @@ func TestRecentCommandPreviewsStoredBytesPreferPlaintextOnCompressedCorpus(t *te
 		t.Fatalf("compress command_text: %v", err)
 	}
 
-	got, err := ds.ListRecentCommandPreviews(ctx, types.SessionID("session-preview"), 10, 64)
+	const previewRunes = 64
+	got, err := ds.ListRecentCommandPreviews(ctx, types.SessionID("session-preview"), 10, previewRunes)
 	if err != nil {
 		t.Fatalf("ListRecentCommandPreviews: %v", err)
 	}
@@ -88,6 +89,12 @@ func TestRecentCommandPreviewsStoredBytesPreferPlaintextOnCompressedCorpus(t *te
 	}
 	if got[0].StoredBytes() == int(encoded.StoredBytes) {
 		t.Fatalf("stored bytes equals compressed size %d; plaintext preference is missing", encoded.StoredBytes)
+	}
+	// After removing the dead substr(command_text) column, the preview body is
+	// still the codec-decoded plaintext (bounded), not empty and not zstd bytes.
+	wantBody := string([]rune(commandPlain)[:previewRunes])
+	if diff := cmp.Diff(wantBody, got[0].Body()); diff != "" {
+		t.Fatalf("preview body mismatch (-want +got):\n%s", diff)
 	}
 }
 

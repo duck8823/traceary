@@ -81,8 +81,9 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 | Selection | Per field: `<field>_codec IS NULL OR <field>_codec = 'identity'`, plus any field whose five codec columns are neither all-NULL nor all-present — those are selected precisely so the run can fail closed on them |
 | Lanes | `events.body`, then `command_audits.{command,input,output}_text`. One shared rowid cursor walks both tables; a batch loads every eligible field of each selected rowid so a limit cut cannot strand a sibling field |
 | Affinity | zstd values are stored as BLOB, identity values as TEXT, matching every other writer. SQL that still reads a plaintext body (migration 053's `LIKE`) keeps working |
-| Cursor | Shared numeric `rowid` high-water across `events` and `command_audits` (each table's rowid sequence is independent). Event `id` / audit `event_id` values are random and must not be used as a cursor |
-| High-water | `max(max(events.rowid), max(command_audits.rowid))` fixed at run start. Rows ingested during the run stay identity and are left for a later run |
+| Cursor | Shared numeric `rowid` cursor across `events` and `command_audits` (each table's rowid sequence is independent). Event `id` / audit `event_id` values are random and must not be used as a cursor |
+| High-water | Per-table ceilings fixed at run start: `high_water_rowid` = `MAX(events.rowid)`, `audit_high_water_rowid` = `MAX(command_audits.rowid)`. Each table is bounded by its own ceiling so a later insert into the lagging sequence cannot land below a shared max. Resume reads both from the checkpoint and never recomputes them |
+| Scanned rows | Counts **lane candidates** examined (one `events.body` or one `command_audits` text field), not physical table rows. An audit row with three eligible fields contributes 3. The JSON field name `scanned_rows` is frozen |
 | Fixpoint | Passes repeat until a full walk rewrites nothing and skips no conflicts |
 | Atomic batch | Re-verify source, encode, write field + five codec columns, advance checkpoint — one transaction |
 | Partial metadata | Counted, named in the result (event id / audit event_id), run fails closed; the field is not rewritten |
