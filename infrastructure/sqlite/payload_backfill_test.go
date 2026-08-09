@@ -702,3 +702,38 @@ func TestPayloadBackfillPersistsPauseOnCancellation(t *testing.T) {
 		t.Fatalf("persisted state mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// Identity bodies are bound as TEXT to preserve the column affinity readers
+// and triggers expect. SQLite TEXT is a byte string, not validated UTF-8, but
+// the rewrite has to prove it: a legacy body is arbitrary bytes and losing any
+// of them would be silent corruption of retained history.
+func TestPayloadBackfillPreservesNonUTF8IdentityBodies(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	// Invalid UTF-8, an embedded NUL, and a lone surrogate — short enough that
+	// zstd expands it, so the recipe keeps identity and rewrites in place.
+	raw := string([]byte{0xff, 0xfe, 0x00, 'a', 0xed, 0xa0, 0x80, 'b'})
+	insertPlaintextEvent(t, db, eventSeed{ID: "raw-bytes", Kind: "note", Body: raw})
+
+	if _, err := ds.Run(ctx, defaultBackfillConfig()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	assertBodyCodec(t, db, "raw-bytes", payloadCodecIdentity)
+	if diff := cmp.Diff([]byte(raw), readDecodedBody(t, db, "raw-bytes")); diff != "" {
+		t.Fatalf("decoded body mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]byte(raw), readStoredBody(t, db, "raw-bytes")); diff != "" {
+		t.Fatalf("stored body mismatch (-want +got):\n%s", diff)
+	}
+	// The affinity itself is the point: a BLOB here breaks migration 053.
+	var storedType string
+	if err := db.QueryRow(`SELECT typeof(body) FROM events WHERE id = 'raw-bytes'`).Scan(&storedType); err != nil {
+		t.Fatalf("read body type: %v", err)
+	}
+	if diff := cmp.Diff("text", storedType); diff != "" {
+		t.Fatalf("stored body type mismatch (-want +got):\n%s", diff)
+	}
+}
