@@ -1430,10 +1430,9 @@ func TestPayloadBackfillPerTableHighWaterIgnoresLaterAuditInserts(t *testing.T) 
 	}
 }
 
-// The same numeric rowid may address a row in both tables. Each lane must be
-// processed exactly once against the correct table — the loader must not let
-// an events.rowid pull in a command_audits row created after the audit ceiling.
-func TestPayloadBackfillSameRowIDIsProcessedPerTable(t *testing.T) {
+// The same numeric rowid present in both tables before the run is processed
+// once per lane against the correct table.
+func TestPayloadBackfillSameRowIDPresentBeforeRunIsProcessedPerTable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, ds, _ := openPayloadBackfillFixture(t)
@@ -1462,9 +1461,7 @@ func TestPayloadBackfillSameRowIDIsProcessedPerTable(t *testing.T) {
 	assertAuditCodec(t, db, "same-rowid-audit-host", "command", payloadCodecZstd)
 	assertAuditCodec(t, db, "same-rowid-audit-host", "input", payloadCodecZstd)
 	assertAuditCodec(t, db, "same-rowid-audit-host", "output", payloadCodecZstd)
-	// One body + three audit fields for the shared rowid, plus the host event
-	// body (empty, likely identity-kept or no-op). Encoded must cover the four
-	// compressible lanes at the shared rowid.
+	// One body + three audit fields for the shared rowid.
 	if result.EncodedRows < 4 {
 		t.Fatalf("encoded_rows = %d, want >= 4 (body + 3 audit fields)", result.EncodedRows)
 	}
@@ -1478,50 +1475,227 @@ func TestPayloadBackfillSameRowIDIsProcessedPerTable(t *testing.T) {
 	}
 }
 
-// Selector/loader split: if every picked rowid becomes ineligible between pick
-// and expansion, an empty batch must not report completed while eligible
-// rowids remain beyond the cursor. Production merges pick and expansion; this
-// test reintroduces the seam via onAfterPickRowIDs.
+// Expansion bounds each lane by its own ceiling: an events.rowid in the pick
+// set must not pull a same-numbered command_audits row created after the audit
+// ceiling was fixed. Without the audit-arm ceiling, the late insert rides in
+// on the events.rowid and is rewritten by this run.
+func TestPayloadBackfillSameRowIDAboveAuditCeilingIsNotLoaded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, path := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	const sharedRowID int64 = 500
+	// A low row so the first batch commits before the shared rowid is selected;
+	// the late audit is inserted then, above the audit ceiling of 1.
+	insertPlaintextEventAtRowID(t, db, 1, eventSeed{
+		ID: "ceiling-early", Kind: "note", Body: compressibleBody("early"),
+	})
+	insertPlaintextEventAtRowID(t, db, sharedRowID, eventSeed{
+		ID: "ceiling-event-500", Kind: "note", Body: compressibleBody("event-500"),
+	})
+	insertPlaintextEvent(t, db, eventSeed{ID: "ceiling-audit-host-1", Kind: "command_executed", Body: ""})
+	insertPlaintextAuditAtRowID(t, db, 1, auditSeed{
+		EventID: "ceiling-audit-host-1",
+		Command: compressibleBody("audit-at-1"),
+		Input:   compressibleBody("audit-in-1"),
+		Output:  compressibleBody("audit-out-1"),
+	})
+
+	var inserted bool
+	ds.onBeforeCommitBatch = func([]backfillCandidate) {
+		if inserted {
+			return
+		}
+		inserted = true
+		side, err := sql.Open("sqlite", directSQLiteRWDSN(path))
+		if err != nil {
+			t.Fatalf("open side conn: %v", err)
+		}
+		defer func() { _ = side.Close() }()
+		// Host for the late audit: auto rowid lands past the events ceiling.
+		insertPlaintextEvent(t, side, eventSeed{ID: "ceiling-late-host", Kind: "command_executed", Body: ""})
+		insertPlaintextAuditAtRowID(t, side, sharedRowID, auditSeed{
+			EventID: "ceiling-late-host",
+			Command: compressibleBody("late-audit-500"),
+			Input:   compressibleBody("late-in-500"),
+			Output:  compressibleBody("late-out-500"),
+		})
+	}
+
+	result, err := ds.Run(ctx, apptypes.PayloadBackfillConfig{BatchRows: 1})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillCompleted), result.State); diff != "" {
+		t.Fatalf("state mismatch (-want +got):\n%s", diff)
+	}
+	assertBodyCodec(t, db, "ceiling-event-500", payloadCodecZstd)
+	// Late audit at rowid 500 must stay unprocessed: above the audit ceiling.
+	var lateCodec sql.NullString
+	if err := db.QueryRow(`SELECT command_codec FROM command_audits WHERE event_id = ?`, "ceiling-late-host").Scan(&lateCodec); err != nil {
+		t.Fatalf("read late audit codec: %v", err)
+	}
+	if lateCodec.Valid {
+		t.Fatalf("late audit command_codec = %q, want NULL (loader must not pull it via events.rowid %d)", lateCodec.String, sharedRowID)
+	}
+	var auditHigh int64
+	if err := db.QueryRow(`SELECT audit_high_water_rowid FROM payload_backfill_runs WHERE run_id = ?`, result.RunID).Scan(&auditHigh); err != nil {
+		t.Fatalf("read audit high water: %v", err)
+	}
+	if auditHigh != 1 {
+		t.Fatalf("audit_high_water_rowid = %d, want 1", auditHigh)
+	}
+}
+
+// Empty selector result with eligible work still past the cursor must not
+// report completed. onSelectedBatch forces the empty result without duplicating
+// the candidate SQL.
 func TestPayloadBackfillDoesNotCompleteWhenPickExpandsEmptyWithRemainingWork(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, ds, _ := openPayloadBackfillFixture(t)
 	defer closePayloadBackfillFixture(t, db)
 
-	// Early rowids that the first pick will take, then a later row left beyond.
-	for _, id := range []string{"split-early-1", "split-early-2"} {
+	for _, id := range []string{"split-early-1", "split-early-2", "split-late"} {
 		insertIdentityEvent(t, db, eventSeed{ID: id, Kind: "note", Body: compressibleBody(id)})
 	}
-	insertIdentityEvent(t, db, eventSeed{
-		ID: "split-late", Kind: "note", Body: compressibleBody("split-late"),
-	})
 
-	var fired bool
-	ds.onAfterPickRowIDs = func(rowIDs []int64) {
-		if fired || len(rowIDs) == 0 {
-			return
+	var forcedEmpty bool
+	ds.onSelectedBatch = func(batch []backfillCandidate) []backfillCandidate {
+		if forcedEmpty || len(batch) == 0 {
+			return batch
 		}
-		fired = true
-		// Make every picked rowid ineligible (as if a concurrent writer already
-		// rewrote them to zstd) so expansion returns empty while "split-late"
-		// remains eligible beyond the cursor.
-		for _, id := range []string{"split-early-1", "split-early-2"} {
-			reencodeBodyToZstd(t, db, id, []byte(compressibleBody(id)))
-		}
+		forcedEmpty = true
+		return nil
 	}
 
 	result, err := ds.Run(ctx, apptypes.PayloadBackfillConfig{BatchRows: 2})
-	// Must not report completed over unwalked work. The fail-closed path
-	// returns an error naming the stranded eligible fields.
-	if err == nil && result.State == string(apptypes.PayloadBackfillCompleted) {
-		t.Fatalf("run reported completed after empty expansion with remaining work; late row codec=%q",
-			bodyCodecOrEmpty(t, db, "split-late"))
+	if err == nil {
+		t.Fatalf("Run err = nil, want remaining-work error; state=%q", result.State)
+	}
+	if !strings.Contains(err.Error(), "eligible fields remain past cursor") {
+		t.Fatalf("error = %v, want remaining-work condition naming eligible fields past cursor", err)
 	}
 	if result.State == string(apptypes.PayloadBackfillCompleted) {
-		t.Fatalf("state = completed; empty expansion must not finish the run while eligible rowids remain")
+		t.Fatalf("state = completed; empty selection must not finish the run while eligible work remains")
 	}
-	// The late row must still be eligible (identity) — never silently skipped.
+	// Fail-safe leaves the run resumable (running when the error is not a cancel).
+	var state string
+	if err := db.QueryRow(`SELECT state FROM payload_backfill_runs`).Scan(&state); err != nil {
+		t.Fatalf("read run state: %v", err)
+	}
+	if !apptypes.PayloadBackfillState(state).CanResume() {
+		t.Fatalf("persisted state = %q, want resumable (running or paused)", state)
+	}
+	// Seeded rows must still be eligible — never silently skipped.
 	assertBodyCodec(t, db, "split-late", payloadCodecIdentity)
+}
+
+// Resume must keep the ceilings fixed at run start. Growing either table while
+// paused must not move the checkpointed high-waters or process the new rows.
+func TestPayloadBackfillResumePreservesBothCeilings(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	// Enough rows that StopAfterBatches=1 leaves work under the original ceilings.
+	for _, id := range []string{"resume-e1", "resume-e2", "resume-e3", "resume-e4"} {
+		insertIdentityEvent(t, db, eventSeed{ID: id, Kind: "note", Body: compressibleBody(id)})
+	}
+	insertPlaintextEvent(t, db, eventSeed{ID: "resume-a1-host", Kind: "command_executed", Body: ""})
+	insertPlaintextAudit(t, db, auditSeed{
+		EventID: "resume-a1-host",
+		Command: compressibleBody("resume-a1"),
+		Input:   compressibleBody("resume-a1-in"),
+		Output:  compressibleBody("resume-a1-out"),
+	})
+	insertPlaintextEvent(t, db, eventSeed{ID: "resume-a2-host", Kind: "command_executed", Body: ""})
+	insertPlaintextAudit(t, db, auditSeed{
+		EventID: "resume-a2-host",
+		Command: compressibleBody("resume-a2"),
+		Input:   compressibleBody("resume-a2-in"),
+		Output:  compressibleBody("resume-a2-out"),
+	})
+
+	var wantEventHigh, wantAuditHigh int64
+	if err := db.QueryRow(`SELECT MAX(rowid) FROM events`).Scan(&wantEventHigh); err != nil {
+		t.Fatalf("read events max: %v", err)
+	}
+	if err := db.QueryRow(`SELECT MAX(rowid) FROM command_audits`).Scan(&wantAuditHigh); err != nil {
+		t.Fatalf("read audits max: %v", err)
+	}
+
+	cfg := defaultBackfillConfig()
+	cfg.BatchRows = 2
+	cfg.StopAfterBatches = 1
+	paused, err := ds.Run(ctx, cfg)
+	if err != nil {
+		t.Fatalf("Run (pause): %v", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillPaused), paused.State); diff != "" {
+		t.Fatalf("paused state mismatch (-want +got):\n%s", diff)
+	}
+
+	// Grow both tables past the recorded ceilings while paused.
+	const pastEventRowID int64 = 5000
+	const pastAuditRowID int64 = 5000
+	if pastEventRowID <= wantEventHigh || pastAuditRowID <= wantAuditHigh {
+		t.Fatalf("test ceiling constants too low: eventHigh=%d auditHigh=%d", wantEventHigh, wantAuditHigh)
+	}
+	insertPlaintextEventAtRowID(t, db, pastEventRowID, eventSeed{
+		ID: "resume-late-event", Kind: "note", Body: compressibleBody("late-event"),
+	})
+	insertPlaintextEvent(t, db, eventSeed{ID: "resume-late-audit-host", Kind: "command_executed", Body: ""})
+	insertPlaintextAuditAtRowID(t, db, pastAuditRowID, auditSeed{
+		EventID: "resume-late-audit-host",
+		Command: compressibleBody("late-audit"),
+		Input:   compressibleBody("late-audit-in"),
+		Output:  compressibleBody("late-audit-out"),
+	})
+
+	cfg.StopAfterBatches = 0
+	done, err := ds.Resume(ctx, cfg)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillCompleted), done.State); diff != "" {
+		t.Fatalf("completed state mismatch (-want +got):\n%s", diff)
+	}
+
+	var gotEventHigh, gotAuditHigh int64
+	if err := db.QueryRow(`
+		SELECT high_water_rowid, audit_high_water_rowid FROM payload_backfill_runs WHERE run_id = ?`,
+		done.RunID,
+	).Scan(&gotEventHigh, &gotAuditHigh); err != nil {
+		t.Fatalf("read checkpointed ceilings: %v", err)
+	}
+	if diff := cmp.Diff(wantEventHigh, gotEventHigh); diff != "" {
+		t.Fatalf("high_water_rowid mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(wantAuditHigh, gotAuditHigh); diff != "" {
+		t.Fatalf("audit_high_water_rowid mismatch (-want +got):\n%s", diff)
+	}
+
+	// Rows added while paused stay outside the walk.
+	var lateEventCodec sql.NullString
+	if err := db.QueryRow(`SELECT body_codec FROM events WHERE id = ?`, "resume-late-event").Scan(&lateEventCodec); err != nil {
+		t.Fatalf("read late event codec: %v", err)
+	}
+	if lateEventCodec.Valid {
+		t.Fatalf("late event body_codec = %q, want NULL (above checkpointed events ceiling)", lateEventCodec.String)
+	}
+	var lateAuditCodec sql.NullString
+	if err := db.QueryRow(`SELECT command_codec FROM command_audits WHERE event_id = ?`, "resume-late-audit-host").Scan(&lateAuditCodec); err != nil {
+		t.Fatalf("read late audit codec: %v", err)
+	}
+	if lateAuditCodec.Valid {
+		t.Fatalf("late audit command_codec = %q, want NULL (above checkpointed audit ceiling)", lateAuditCodec.String)
+	}
+	// In-ceiling rows finished.
+	assertBodyCodec(t, db, "resume-e1", payloadCodecZstd)
+	assertAuditCodec(t, db, "resume-a1-host", "command", payloadCodecZstd)
 }
 
 // Identity audit values are bound as TEXT, matching every other writer. Nothing
@@ -1598,16 +1772,4 @@ func insertPlaintextAuditAtRowID(t *testing.T, db *sql.DB, rowID int64, seed aud
 	); err != nil {
 		t.Fatalf("insert plaintext audit %s at rowid %d: %v", seed.EventID, rowID, err)
 	}
-}
-
-func bodyCodecOrEmpty(t *testing.T, db *sql.DB, id string) string {
-	t.Helper()
-	var got sql.NullString
-	if err := db.QueryRow(`SELECT body_codec FROM events WHERE id = ?`, id).Scan(&got); err != nil {
-		t.Fatalf("read body_codec %s: %v", id, err)
-	}
-	if !got.Valid {
-		return ""
-	}
-	return got.String
 }

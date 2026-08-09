@@ -64,11 +64,11 @@ type PayloadBackfillDatasource struct {
 	// onAfterCommitBatch is a test hook that fires after a batch commits and
 	// before the loop re-checks cancellation. Production leaves it nil.
 	onAfterCommitBatch func(batchCount int64)
-	// onAfterPickRowIDs is a test-only seam between distinct-rowid selection and
-	// candidate expansion. Production leaves it nil and uses a single statement
-	// so there is no intermediate window. When non-nil, selection splits so a
-	// test can make the picked rowids ineligible before expansion.
-	onAfterPickRowIDs func(rowIDs []int64)
+	// onSelectedBatch is a test-only seam that can rewrite the selector result
+	// before the execute loop sees it. Production leaves it nil. Used to force
+	// an empty batch while eligible work remains, exercising the fail-safe that
+	// refuses completed in that case — without duplicating the candidate SQL.
+	onSelectedBatch func(batch []backfillCandidate) []backfillCandidate
 }
 
 // NewPayloadBackfillDatasource binds the live store path.
@@ -79,7 +79,7 @@ func NewPayloadBackfillDatasource(db *Database) *PayloadBackfillDatasource {
 var _ application.PayloadBackfill = (*PayloadBackfillDatasource)(nil)
 
 type backfillRunRow struct {
-	RunID string
+	RunID         string
 	RecipeVersion string
 	// HighWaterRowID is the inclusive events.rowid ceiling fixed at run start.
 	HighWaterRowID int64
@@ -270,17 +270,19 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		if selectErr != nil {
 			return d.abortRun(ctx, closeCtx, db, run, batchCount, selectErr)
 		}
+		if d.onSelectedBatch != nil {
+			batch = d.onSelectedBatch(batch)
+		}
 		if len(batch) == 0 {
 			// End of a cursor walk. Full identity (incompressible) rows stay
 			// selectable forever, so completion is a walk that rewrites nothing
 			// and skips no conflicts — not "zero eligible rows".
 			//
 			// An empty batch with eligible fields still past the cursor is not
-			// end-of-walk: it is the selector/loader split race (pick found
-			// rowids, expansion saw none). Refuse completed so unwalked rowids
-			// cannot be reported done. The production path merges pick and
-			// expansion into one statement, so this branch is only reachable
-			// from the test seam or a future regression of that merge.
+			// end-of-walk: refuse completed so unwalked work cannot be reported
+			// done. Production selection is a single merged statement; this
+			// branch is a fail-safe for a future selector regression (and is
+			// exercised by the test-only onSelectedBatch seam).
 			if !run.passDirty {
 				remaining, countErr := countEligibleBackfillRows(ctx, db, run.CursorRowID, ceilings)
 				if countErr != nil {
@@ -450,7 +452,7 @@ func prepareBackfillRun(ctx context.Context, db *sql.DB, resume bool) (backfillR
 	return backfillRunHandle{backfillRunRow: backfillRunRow{
 		RunID: runID, RecipeVersion: apptypes.PayloadBackfillRecipeVersion,
 		HighWaterRowID: ceilings.Events, AuditHighWaterRowID: ceilings.Audits,
-		State: apptypes.PayloadBackfillRunning,
+		State:       apptypes.PayloadBackfillRunning,
 		WorkerToken: token, StartedAt: now, UpdatedAt: now,
 	}}, nil
 }
@@ -591,24 +593,13 @@ func countEligibleBackfillRows(ctx context.Context, db *sql.DB, afterRowID int64
 // that found rowids then expanded them separately could return an empty batch
 // after every picked row became ineligible, and execute would treat that empty
 // batch as end-of-walk while later eligible rowids remained beyond the cursor.
+// Each expansion arm also bounds by its own table ceiling so an events.rowid
+// cannot pull a same-numbered command_audits row that is above the audit
+// ceiling.
 func (d *PayloadBackfillDatasource) selectBackfillBatch(ctx context.Context, db *sql.DB, afterRowID int64, ceilings backfillHighWaters, limit int) ([]backfillCandidate, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	// Test seam: reintroduce the pick/expand split so a deterministic race can
-	// be injected. Production leaves the hook nil.
-	if d != nil && d.onAfterPickRowIDs != nil {
-		rowIDs, err := selectEligibleBackfillRowIDs(ctx, db, afterRowID, ceilings, limit)
-		if err != nil {
-			return nil, err
-		}
-		d.onAfterPickRowIDs(rowIDs)
-		return loadBackfillCandidatesForRowIDs(ctx, db, ceilings, rowIDs)
-	}
-	return selectBackfillBatchMerged(ctx, db, afterRowID, ceilings, limit)
-}
-
-func selectBackfillBatchMerged(ctx context.Context, db *sql.DB, afterRowID int64, ceilings backfillHighWaters, limit int) ([]backfillCandidate, error) {
 	// Bound parameters:
 	//   ?1 afterRowID (shared cursor)
 	//   ?2 events high-water
@@ -655,82 +646,6 @@ func selectBackfillBatchMerged(ctx context.Context, db *sql.DB, afterRowID int64
 	defer func() { _ = rows.Close() }()
 
 	return scanBackfillCandidates(rows, limit)
-}
-
-// selectEligibleBackfillRowIDs is the pick half of the test-only two-step path.
-func selectEligibleBackfillRowIDs(ctx context.Context, db *sql.DB, afterRowID int64, ceilings backfillHighWaters, limit int) ([]int64, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT rowid FROM (
-			SELECT rowid FROM events
-			 WHERE rowid > ? AND rowid <= ?
-			   AND `+eligibleLanePredicate("body")+`
-			UNION
-			SELECT rowid FROM command_audits
-			 WHERE rowid > ? AND rowid <= ?
-			   AND `+anyAuditLaneEligible()+`
-		)
-		 ORDER BY rowid
-		 LIMIT ?`, afterRowID, ceilings.Events, afterRowID, ceilings.Audits, limit)
-	if err != nil {
-		return nil, xerrors.Errorf("select payload backfill rowids: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	ids := make([]int64, 0, limit)
-	for rows.Next() {
-		var id int64
-		if err = rows.Scan(&id); err != nil {
-			return nil, xerrors.Errorf("scan payload backfill rowid: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, xerrors.Errorf("iterate payload backfill rowids: %w", err)
-	}
-	return ids, nil
-}
-
-// loadBackfillCandidatesForRowIDs expands picked rowids under each lane's own
-// ceiling. Used only by the test-only two-step path; production merges pick and
-// expansion so a concurrent insert above an audit ceiling cannot ride in on a
-// matching events.rowid number.
-func loadBackfillCandidatesForRowIDs(ctx context.Context, db *sql.DB, ceilings backfillHighWaters, rowIDs []int64) ([]backfillCandidate, error) {
-	if len(rowIDs) == 0 {
-		return nil, nil
-	}
-	placeholders := make([]string, len(rowIDs))
-	args := make([]any, len(rowIDs))
-	for i, id := range rowIDs {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-	inList := strings.Join(placeholders, ",")
-
-	parts := make([]string, 0, len(backfillLanes))
-	queryArgs := make([]any, 0, len(backfillLanes)*(len(rowIDs)+1))
-	for _, lane := range backfillLanes {
-		parts = append(parts, `
-			SELECT rowid, `+strconv.Itoa(lane.Ord)+` AS lane_ord, `+quoteSQLString(lane.Field)+` AS field,
-			       `+lane.PKColumn+` AS row_key, `+lane.Column+` AS stored,
-			       `+lane.CodecPrefix+`_codec, `+lane.CodecPrefix+`_format_version,
-			       `+lane.CodecPrefix+`_plaintext_bytes, `+lane.CodecPrefix+`_encoded_bytes,
-			       `+lane.CodecPrefix+`_sha256
-			  FROM `+lane.Table+`
-			 WHERE rowid IN (`+inList+`)
-			   AND rowid <= ?
-			   AND `+eligibleLanePredicate(lane.CodecPrefix))
-		queryArgs = append(queryArgs, args...)
-		queryArgs = append(queryArgs, laneHighWater(lane, ceilings))
-	}
-	query := strings.Join(parts, " UNION ALL ") + ` ORDER BY rowid, lane_ord`
-
-	rows, err := db.QueryContext(ctx, query, queryArgs...)
-	if err != nil {
-		return nil, xerrors.Errorf("select payload backfill candidates: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	return scanBackfillCandidates(rows, len(rowIDs))
 }
 
 func scanBackfillCandidates(rows *sql.Rows, rowIDHint int) ([]backfillCandidate, error) {
