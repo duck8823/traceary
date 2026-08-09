@@ -31,6 +31,9 @@ var (
 	// ErrPayloadBackfillCompatibilityMode refuses to start on a store whose
 	// payload codec compatibility evidence is not the counter.
 	ErrPayloadBackfillCompatibilityMode = errors.New("payload backfill requires counter-mode payload codec compatibility state")
+	// ErrPayloadBackfillRunPreempted means the run left the state this worker
+	// was advancing — another resume of the same run terminated it.
+	ErrPayloadBackfillRunPreempted = errors.New("payload backfill run was terminated by another worker")
 )
 
 // payloadCodecCompatibilityCounterMode is the only compatibility mode whose
@@ -43,6 +46,9 @@ type PayloadBackfillDatasource struct {
 	// onBeforeCommitBatch is a test hook that fires after a batch is selected
 	// and before the verify/encode transaction. Production leaves it nil.
 	onBeforeCommitBatch func(batch []backfillCandidate)
+	// onAfterCommitBatch is a test hook that fires after a batch commits and
+	// before the loop re-checks cancellation. Production leaves it nil.
+	onAfterCommitBatch func(batchCount int64)
 }
 
 // NewPayloadBackfillDatasource binds the live store path.
@@ -188,10 +194,15 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 	var batchCount int64
 	for {
 		if err = ctx.Err(); err != nil {
-			if pauseErr := pauseBackfillRun(ctx, db, run.RunID); pauseErr != nil {
+			// Persisting the pause is the point of noticing the cancellation,
+			// so it cannot run on the context that was just cancelled — the
+			// write would fail and leave the run stuck at 'running', resumable
+			// but reported as active by status and blocking a new run.
+			closeCtx := context.WithoutCancel(ctx)
+			if pauseErr := pauseBackfillRun(closeCtx, db, run.RunID); pauseErr != nil {
 				return apptypes.PayloadBackfillResult{}, xerrors.Errorf("%v; pause payload backfill: %w", err, pauseErr)
 			}
-			loaded, loadErr := loadBackfillRun(ctx, db, run.RunID)
+			loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
 			if loadErr != nil {
 				return apptypes.PayloadBackfillResult{}, loadErr
 			}
@@ -246,6 +257,9 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 			return apptypes.PayloadBackfillResult{}, commitErr
 		}
 		batchCount++
+		if d.onAfterCommitBatch != nil {
+			d.onAfterCommitBatch(batchCount)
+		}
 		run.ScannedRows += stats.Scanned
 		run.EncodedRows += stats.Encoded
 		run.IdentityKeptRows += stats.IdentityKept
@@ -374,11 +388,23 @@ func maxEventRowID(ctx context.Context, db *sql.DB) (int64, error) {
 	return high.Int64, nil
 }
 
-// eligiblePredicate selects rows the recipe may still rewrite. Full identity
-// rows remain selected so a multi-hour run compresses post-v0.34 writes; the
-// fixpoint loop terminates when a full pass rewrites nothing and skips no
-// conflicts (incompressible identity is a no-op rewrite).
-const eligibleBackfillPredicate = `(body_codec IS NULL OR body_codec = 'identity')`
+// eligibleBackfillPredicate selects rows the recipe may still rewrite. Full
+// identity rows remain selected so a multi-hour run compresses post-v0.34
+// writes; the fixpoint loop terminates when a full pass rewrites nothing and
+// skips no conflicts (incompressible identity is a no-op rewrite).
+//
+// The second arm selects rows whose five codec columns are neither all-NULL
+// nor all-present, whatever the codec says. Such a row is unreadable, and the
+// run is specified to fail closed on it; selecting only identity rows would let
+// a corrupt zstd row pass a whole walk uninspected and report completed.
+const eligibleBackfillPredicate = `(
+		   (body_codec IS NULL OR body_codec = 'identity')
+		OR (  (body_codec IS NOT NULL)
+		    + (body_format_version IS NOT NULL)
+		    + (body_plaintext_bytes IS NOT NULL)
+		    + (body_encoded_bytes IS NOT NULL)
+		    + (body_sha256 IS NOT NULL)) NOT IN (0, 5)
+	)`
 
 func countEligibleBackfillRows(ctx context.Context, db *sql.DB, afterRowID, highWater int64) (int64, error) {
 	var n int64
@@ -458,12 +484,9 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 			stats.Conflicted++
 			continue
 		}
-		// Selection may have drifted (codec changed to zstd by another writer).
-		if current.Row.Codec.Valid && current.Row.Codec.String != payloadCodecIdentity {
-			stats.Conflicted++
-			continue
-		}
-
+		// Corruption is checked before drift: a row can be both non-identity
+		// and incoherent, and skipping it as a conflict would report a clean
+		// completion over a row no reader can decode.
 		metaCount := payloadMetadataCount(current.Row)
 		if metaCount != 0 && metaCount != 5 {
 			stats.Partial++
@@ -475,6 +498,11 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 			// failure naming this row, then the outer failBackfillRun records it.
 			_ = tx.Rollback()
 			return stats, ErrPayloadBackfillPartialMetadata
+		}
+		// Selection may have drifted (codec changed to zstd by another writer).
+		if current.Row.Codec.Valid && current.Row.Codec.String != payloadCodecIdentity {
+			stats.Conflicted++
+			continue
 		}
 
 		plaintext, err := current.Row.decode(maxDecodedPayloadBytes)
@@ -502,7 +530,13 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 			continue
 		}
 
-		// Bind body as []byte so SQLite stores a BLOB (corruption modes are real).
+		// Affinity is part of the stored representation, not an encoding
+		// detail. zstd bytes must be a BLOB; an identity body must stay TEXT
+		// because every other identity writer (event delivery, retention
+		// restore) binds string(...) and because migration 053 still re-derives
+		// legacy_source_hook from an identity body, where LIKE only matches
+		// TEXT. Rewriting an incompressible legacy row as a BLOB would silently
+		// drop it from --source-hook.
 		if _, err = tx.ExecContext(ctx, `
 			UPDATE events
 			   SET body = ?,
@@ -512,7 +546,7 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 			       body_encoded_bytes = ?,
 			       body_sha256 = ?
 			 WHERE rowid = ?`,
-			target.Bytes, target.Codec, target.FormatVersion,
+			storedBodyArg(target), target.Codec, target.FormatVersion,
 			target.PlaintextBytes, target.StoredBytes, target.SHA256,
 			current.RowID,
 		); err != nil {
@@ -528,8 +562,13 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 		}
 	}
 
+	// The checkpoint carries the ownership assertion: migration 054 admits one
+	// active run row, not one worker, so a second resume of the same run would
+	// otherwise keep advancing it — and could push a run another worker already
+	// failed back to 'running'. Asserting the state inside the batch
+	// transaction makes losing the run abort the batch instead.
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err = tx.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		UPDATE payload_backfill_runs
 		   SET cursor_rowid = ?,
 		       pass_count = ?,
@@ -542,17 +581,32 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 		       stored_bytes = stored_bytes + ?,
 		       state = 'running',
 		       updated_at = ?
-		 WHERE run_id = ?`,
+		 WHERE run_id = ? AND state = 'running'`,
 		stats.LastCursor, run.PassCount,
 		stats.Scanned, stats.Encoded, stats.IdentityKept, stats.Conflicted, stats.Rewritten,
 		stats.PlaintextBytes, stats.StoredBytes, now, run.RunID,
-	); err != nil {
+	)
+	if err != nil {
 		return stats, xerrors.Errorf("advance payload backfill checkpoint: %w", err)
+	}
+	if affected, affErr := res.RowsAffected(); affErr != nil {
+		return stats, xerrors.Errorf("read payload backfill checkpoint result: %w", affErr)
+	} else if affected != 1 {
+		return stats, xerrors.Errorf("%w: run %s", ErrPayloadBackfillRunPreempted, run.RunID)
 	}
 	if err = tx.Commit(); err != nil {
 		return stats, xerrors.Errorf("commit payload backfill batch: %w", err)
 	}
 	return stats, nil
+}
+
+// storedBodyArg preserves the column affinity each codec is stored with:
+// identity as TEXT (what every other writer binds), zstd as BLOB.
+func storedBodyArg(payload encodedPayload) any {
+	if payload.Codec == payloadCodecIdentity {
+		return string(payload.Bytes)
+	}
+	return payload.Bytes
 }
 
 func reselectBackfillRow(ctx context.Context, tx *sql.Tx, rowID int64) (backfillCandidate, error) {
@@ -676,33 +730,42 @@ func markBackfillRunningFromOrigin(ctx context.Context, db *sql.DB, runID string
 
 func pauseBackfillRun(ctx context.Context, db *sql.DB, runID string) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := db.ExecContext(ctx, `
+	return execOwnedBackfillRun(ctx, db, runID, `
 		UPDATE payload_backfill_runs
 		   SET state = 'paused', updated_at = ?
-		 WHERE run_id = ? AND state = 'running'`, now, runID); err != nil {
-		return xerrors.Errorf("pause payload backfill: %w", err)
-	}
-	return nil
+		 WHERE run_id = ? AND state = 'running'`, now, runID)
 }
 
+// completeBackfillRun and the two helpers below only move a run this worker is
+// still advancing. Without the state condition a slower worker could revive a
+// run another one already failed, misreport it in status, and block a new run.
 func completeBackfillRun(ctx context.Context, db *sql.DB, runID string) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := db.ExecContext(ctx, `
+	return execOwnedBackfillRun(ctx, db, runID, `
 		UPDATE payload_backfill_runs
 		   SET state = 'completed', completed_at = ?, updated_at = ?
-		 WHERE run_id = ?`, now, now, runID); err != nil {
-		return xerrors.Errorf("complete payload backfill: %w", err)
-	}
-	return nil
+		 WHERE run_id = ? AND state = 'running'`, now, now, runID)
 }
 
 func resetBackfillCursor(ctx context.Context, db *sql.DB, runID string) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := db.ExecContext(ctx, `
+	return execOwnedBackfillRun(ctx, db, runID, `
 		UPDATE payload_backfill_runs
 		   SET cursor_rowid = 0, updated_at = ?
-		 WHERE run_id = ?`, now, runID); err != nil {
-		return xerrors.Errorf("reset payload backfill cursor: %w", err)
+		 WHERE run_id = ? AND state = 'running'`, now, runID)
+}
+
+func execOwnedBackfillRun(ctx context.Context, db *sql.DB, runID, query string, args ...any) error {
+	res, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return xerrors.Errorf("advance payload backfill run: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return xerrors.Errorf("read payload backfill run result: %w", err)
+	}
+	if affected != 1 {
+		return xerrors.Errorf("%w: run %s", ErrPayloadBackfillRunPreempted, runID)
 	}
 	return nil
 }
@@ -719,7 +782,7 @@ func failBackfillRun(ctx context.Context, db *sql.DB, runID, eventID, reason str
 		       failure_reason = ?,
 		       completed_at = ?,
 		       updated_at = ?
-		 WHERE run_id = ?`,
+		 WHERE run_id = ? AND state = 'running'`,
 		stats.Partial, eventID, reason, now, now, runID,
 	); err != nil {
 		return backfillRunRow{}, xerrors.Errorf("fail payload backfill: %w", err)

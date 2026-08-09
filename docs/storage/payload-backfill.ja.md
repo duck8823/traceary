@@ -70,7 +70,8 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 
 | 性質 | 挙動 |
 |---|---|
-| 選択条件 | `body_codec IS NULL OR body_codec = 'identity'`。かつ codec 列 5 つがすべて NULL かすべて埋まっている行だけ |
+| 選択条件 | `body_codec IS NULL OR body_codec = 'identity'`。加えて codec 列 5 つが「すべて NULL」でも「すべて埋まっている」でもない行も選ぶ（run を fail closed させるため） |
+| アフィニティ | zstd は BLOB、identity は TEXT で保存し、他の writer と揃える。plaintext を読む SQL（マイグレーション 053 の `LIKE`）が壊れない |
 | カーソル | `events.rowid`（単調）。イベント `id` は乱数なのでカーソルに使わない |
 | ハイウォーター | 実行開始時の `max(rowid)`。実行中に取り込まれた行は identity のまま残り、次の実行対象になる |
 | 不動点 | 書き換えも conflict skip もない完全走査になるまでパスを繰り返す |
@@ -100,6 +101,12 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
   修復してから新しい `run` を開始する（failed は resume 対象外）。
 - resume は常にハイウォーター範囲の先頭からカーソルを再開し、mid-pass の pause で
   conflict skip された行が取り残されないようにする。
+- 1 つの run を進められる worker は 1 つだけ。チェックポイントは毎回 run が
+  `running` のままであることを確認するので、同じ run を 2 つ目の `resume` が
+  掴んでも、先の worker が completed / paused / failed にした run を復活させずに
+  バッチを中断する。
+- プロセスを中断（`Ctrl-C`）した場合は `paused` チェックポイントを永続化してから
+  戻る。`resume` で再開でき、`status` が実行中と誤報しない。
 
 ## 関連ドキュメント
 

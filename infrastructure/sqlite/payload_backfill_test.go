@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -598,4 +599,106 @@ func TestPayloadBackfillRefusesNonCounterCompatibilityMode(t *testing.T) {
 	t.Run("the row is untouched", func(t *testing.T) {
 		assertBodyCodec(t, db, "legacy-mode", payloadCodecIdentity)
 	})
+}
+
+// A row whose five codec columns are neither all-NULL nor all-present is
+// unreadable, and the recipe fails the run closed on it. Selecting only
+// identity rows would let a corrupt non-identity row sit out an entire walk
+// uninspected and report a clean completion over a store no reader can decode.
+func TestPayloadBackfillFailsClosedOnCorruptNonIdentityRow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	insertIdentityEvent(t, db, eventSeed{ID: "healthy", Kind: "note", Body: compressibleBody("healthy")})
+	insertIdentityEvent(t, db, eventSeed{ID: "corrupt-zstd", Kind: "note", Body: compressibleBody("corrupt")})
+	// Claim zstd while dropping the digest: a codec value the eligibility arm
+	// skips, on a row the coherence check must still see.
+	if _, err := db.Exec(`UPDATE events SET body_codec='zstd', body_sha256=NULL WHERE id='corrupt-zstd'`); err != nil {
+		t.Fatalf("corrupt the row: %v", err)
+	}
+
+	result, err := ds.Run(ctx, defaultBackfillConfig())
+	if !errors.Is(err, ErrPayloadBackfillPartialMetadata) {
+		t.Fatalf("Run error = %v, want ErrPayloadBackfillPartialMetadata", err)
+	}
+	if diff := cmp.Diff("corrupt-zstd", result.FailureEventID); diff != "" {
+		t.Fatalf("failure event id mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillFailed), result.State); diff != "" {
+		t.Fatalf("run state mismatch (-want +got):\n%s", diff)
+	}
+	// The batch rolls back whole, so the healthy row is left for a later run.
+	assertBodyCodec(t, db, "healthy", payloadCodecIdentity)
+}
+
+// Migration 054 admits one active run row, not one worker. A second resume of
+// the same run must not keep advancing it after the first worker terminated it,
+// because a resurrected 'running' row misreports status and blocks a new run.
+func TestPayloadBackfillCheckpointRefusesToReviveATerminatedRun(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	insertIdentityEvent(t, db, eventSeed{ID: "revive-1", Kind: "note", Body: compressibleBody("revive-1")})
+
+	// Stand in for the other worker: terminate the run after this batch was
+	// selected but before its checkpoint lands.
+	ds.onBeforeCommitBatch = func([]backfillCandidate) {
+		if _, err := db.Exec(`UPDATE payload_backfill_runs SET state='failed' WHERE state='running'`); err != nil {
+			t.Errorf("terminate run from the other worker: %v", err)
+		}
+	}
+
+	if _, err := ds.Run(ctx, defaultBackfillConfig()); !errors.Is(err, ErrPayloadBackfillRunPreempted) {
+		t.Fatalf("Run error = %v, want ErrPayloadBackfillRunPreempted", err)
+	}
+
+	var state string
+	if err := db.QueryRow(`SELECT state FROM payload_backfill_runs`).Scan(&state); err != nil {
+		t.Fatalf("read run state: %v", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillFailed), state); diff != "" {
+		t.Fatalf("run state mismatch (-want +got):\n%s", diff)
+	}
+	// The batch transaction carries the checkpoint, so losing the run rolls the
+	// rewrite back too.
+	assertBodyCodec(t, db, "revive-1", payloadCodecIdentity)
+}
+
+// Cancelling the run is how an operator stops it, so the pause has to be
+// persisted on a context that is not the cancelled one. Otherwise the run is
+// left at 'running': resumable, but reported active and blocking a new run.
+func TestPayloadBackfillPersistsPauseOnCancellation(t *testing.T) {
+	t.Parallel()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	for i := range 3 {
+		insertIdentityEvent(t, db, eventSeed{
+			ID: "cancel-" + strconv.Itoa(i), Kind: "note", Body: compressibleBody("cancel"),
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ds.onAfterCommitBatch = func(int64) { cancel() }
+
+	result, err := ds.Run(ctx, apptypes.PayloadBackfillConfig{BatchRows: 1})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillPaused), result.State); diff != "" {
+		t.Fatalf("result state mismatch (-want +got):\n%s", diff)
+	}
+
+	var state string
+	if err := db.QueryRow(`SELECT state FROM payload_backfill_runs`).Scan(&state); err != nil {
+		t.Fatalf("read run state: %v", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillPaused), state); diff != "" {
+		t.Fatalf("persisted state mismatch (-want +got):\n%s", diff)
+	}
 }

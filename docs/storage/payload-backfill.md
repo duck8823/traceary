@@ -71,7 +71,8 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 
 | Property | Behaviour |
 |---|---|
-| Selection | `body_codec IS NULL OR body_codec = 'identity'`, only rows whose five codec columns are all-NULL or all-present |
+| Selection | `body_codec IS NULL OR body_codec = 'identity'`, plus any row whose five codec columns are neither all-NULL nor all-present — those are selected precisely so the run can fail closed on them |
+| Affinity | zstd bodies are stored as BLOB, identity bodies as TEXT, matching every other writer. SQL that still reads a plaintext body (migration 053's `LIKE`) keeps working |
 | Cursor | `events.rowid` (monotonic). Event `id` values are random and must not be used as a cursor |
 | High-water | `max(rowid)` fixed at run start. Rows ingested during the run stay identity and are left for a later run |
 | Fixpoint | Passes repeat until a full walk rewrites nothing and skips no conflicts |
@@ -104,6 +105,11 @@ Output is JSON on stdout with aggregate counters only (no body contents).
   start a new `run` after repair).
 - Resume always restarts the cursor at the origin of the high-water range so a
   mid-pass pause cannot strand a conflict-skipped row.
+- Only one worker may advance a run. Every checkpoint asserts the run is still
+  `running`, so a second `resume` of the same run aborts its batch instead of
+  reviving a run the first worker completed, paused or failed.
+- Cancelling the process (`Ctrl-C`) persists a `paused` checkpoint before
+  returning, so `resume` picks it up and `status` does not report it active.
 
 ## Related docs
 

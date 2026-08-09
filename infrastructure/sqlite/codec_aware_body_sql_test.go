@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,41 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 		}
 		if diff := cmp.Diff([]string{id}, listedEventIDs(got)); diff != "" {
 			t.Fatalf("legacy pre_compact IDs mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("incompressible legacy hook survives the identity rewrite", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		db, backfill, path := openPayloadBackfillFixture(t)
+		defer closePayloadBackfillFixture(t, db)
+		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
+
+		// zstd expands a short unique body, so the recipe keeps identity — but
+		// it still rewrites the row to stamp the five codec columns. If that
+		// rewrite changes the column affinity from TEXT to BLOB, migration
+		// 053 re-derives legacy_source_hook (identity is a derivable codec)
+		// and every LIKE misses, dropping the event from --source-hook.
+		const id = "legacy-incompressible"
+		insertPlaintextEvent(t, db, eventSeed{
+			ID: id, Kind: "session_ended", Body: "[phase:subagent] short",
+		})
+		assertLegacySourceHook(t, db, id, "subagent_stop")
+		runPayloadBackfill(ctx, t, backfill)
+		assertBodyCodec(t, db, id, payloadCodecIdentity)
+		assertLegacySourceHook(t, db, id, "subagent_stop")
+
+		got, err := events.ListRecent(
+			ctx, 10, 0,
+			types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""),
+			false, time.Time{}, time.Time{},
+			"subagent_stop",
+		)
+		if err != nil {
+			t.Fatalf("ListRecent(subagent_stop): %v", err)
+		}
+		if diff := cmp.Diff([]string{id}, listedEventIDs(got)); diff != "" {
+			t.Fatalf("incompressible legacy subagent_stop IDs mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -444,6 +480,67 @@ func runPayloadBackfill(ctx context.Context, t *testing.T, ds *PayloadBackfillDa
 	}
 	if result.State != string(apptypes.PayloadBackfillCompleted) {
 		t.Fatalf("payload-backfill state = %q, want completed", result.State)
+	}
+}
+
+func TestTimelineSummary_BlankCandidateDoesNotStealTheSummary(t *testing.T) {
+	t.Parallel()
+
+	// The timeline ranked summary candidates with TRIM(body) != '' so a blank
+	// prompt could not take rn = 1 away from the real one. That predicate reads
+	// the stored bytes: it cannot see through an encoded body, and SQLite's
+	// TRIM does not strip tabs or newlines. Either way the blank row took rn = 1
+	// and the block silently lost its summary, because Go only ever saw the one
+	// candidate SQL had already chosen.
+	tests := []struct {
+		name      string
+		blankBody string
+		wantCodec string
+	}{
+		{
+			name:      "blank prompt compressed into a BLOB TRIM cannot read",
+			blankBody: strings.Repeat(" ", 4096),
+			wantCodec: payloadCodecZstd,
+		},
+		{
+			name:      "blank prompt of tabs and newlines TRIM does not strip",
+			blankBody: "\n\t\n\t",
+			wantCodec: payloadCodecIdentity,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			db, backfill, path := openPayloadBackfillFixture(t)
+			defer closePayloadBackfillFixture(t, db)
+			events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
+
+			insertPlaintextEventAt(t, db, eventSeed{
+				ID: "timeline-blank", Kind: "prompt", Body: tt.blankBody,
+			}, "2026-08-09T00:00:00Z")
+			insertPlaintextEventAt(t, db, eventSeed{
+				ID: "timeline-real", Kind: "prompt", Body: "the real first prompt",
+			}, "2026-08-09T00:00:01Z")
+
+			runPayloadBackfill(ctx, t, backfill)
+			assertBodyCodec(t, db, "timeline-blank", tt.wantCodec)
+
+			blocks, err := events.ListTimelineBlocks(ctx, types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+			if err != nil {
+				t.Fatalf("ListTimelineBlocks: %v", err)
+			}
+			if len(blocks) != 1 || len(blocks[0].WorkspaceBreakdown()) != 1 {
+				t.Fatalf("want one block with one workspace, got %d blocks", len(blocks))
+			}
+			got := blocks[0].WorkspaceBreakdown()[0]
+			if diff := cmp.Diff("the real first prompt", got.Summary()); diff != "" {
+				t.Fatalf("timeline summary mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(apptypes.TimelineSummarySourcePrompt, got.SummarySource()); diff != "" {
+				t.Fatalf("timeline summary source mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
