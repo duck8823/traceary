@@ -30,25 +30,6 @@ const (
 	PreparedStoreUpgradeRolledBack            PreparedStoreUpgradePhase = "rolled_back"
 )
 
-// SwapObserved reports whether the atomic exchange has already happened, so
-// the candidate is now the live store. Preconditions that would refuse to
-// publish must not be re-evaluated past this point: the run is finishing a
-// swap that already took effect, and refusing would strand it half-published.
-func (p PreparedStoreUpgradePhase) SwapObserved() bool {
-	switch p {
-	case PreparedStoreUpgradeSwapped,
-		PreparedStoreUpgradeRollbackPublishIntent,
-		PreparedStoreUpgradeRollbackReady,
-		PreparedStoreUpgradeCommitted,
-		PreparedStoreUpgradeRollbackSwapIntent,
-		PreparedStoreUpgradeRollbackSwapped,
-		PreparedStoreUpgradeRolledBack:
-		return true
-	default:
-		return false
-	}
-}
-
 // StoreFileIdentity fences every destructive filesystem action.
 type StoreFileIdentity struct {
 	Device  uint64 `json:"device"`
