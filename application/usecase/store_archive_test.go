@@ -27,7 +27,7 @@ func (s *archiveStoreStub) CreateBackup(context.Context, string, bool) error {
 func (s *archiveStoreStub) RestoreBackup(context.Context, string, bool) error {
 	return nil
 }
-func (s *archiveStoreStub) CollectGarbage(context.Context, time.Time, time.Time, apptypes.GarbageCollectionTarget, bool) (int, error) {
+func (s *archiveStoreStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (int, error) {
 	return 0, nil
 }
 func (s *archiveStoreStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (int, error) {

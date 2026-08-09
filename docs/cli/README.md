@@ -1149,23 +1149,26 @@ Useful flags:
 - `--target events|sessions|memories|memory_edges|all`
 - `--dry-run`
 
-#### Orphan consolidation runs first, and can defer deletion
+#### The discard runs first, and consolidation follows it
 
-For `--target events`, `sessions`, and `all`, `gc` first folds unfolded event ranges into degraded mechanical summaries, so a summary exists before the events it describes are deleted. That pass is bounded: it discovers a capped number of ranges and stops after a wall-clock budget, because a store that has never been consolidated can present tens of thousands of ranges at once.
+For `--target events`, `sessions`, and `all`, `gc` folds unfolded event ranges into degraded mechanical summaries so that material has a summary before anything removes it. That pass is bounded: it discovers a capped number of ranges and stops after a wall-clock budget, because a store that has never been consolidated can present tens of thousands of ranges at once.
 
-Deletion only checks the retention cutoff — it does not check whether a range was folded. So when a pass leaves anything unfolded, whether because it hit its bound or because a range could not be read, `gc` reports what it consolidated and **skips deletion entirely** rather than removing events that nothing summarizes:
+Consolidation runs **after** the discard, not before it. The discard only touches bodies a refinement already covers, so it reads the coverage that existed when the run began — and a `--dry-run`, which consolidates without writing, reads exactly the same coverage. That is what makes the preview count equal to what an apply removes. What a run folds becomes discardable on the next run, whose preview shows it first.
+
+The count is therefore printed before the consolidation lines, and it is printed even if consolidation then fails: an irreversible step is never left unreported.
 
 ```
+Discarded bodies: 128
 Orphan refinements: 5000
 Orphan ranges skipped: 2
-Deletion skipped: orphan ranges are not fully consolidated; re-run gc to continue
+More orphan ranges remain; re-run gc to continue consolidation
 ```
 
-This exits successfully — the pass made real progress and the refinements it wrote are durable. Re-run `gc` until the deletion line appears. A store with a large backlog may need several runs; each one picks up where the last stopped.
+This exits successfully — the pass made real progress and the refinements it wrote are durable. Re-run `gc` until the "more ranges remain" line stops appearing. A store with a large backlog may need several runs; each one picks up where the last stopped. An incomplete pass no longer blocks the discard, because an unfolded range has no coverage and is out of the discard's reach either way.
 
 An unreadable range is skipped and counted, not fatal. Three consecutive failures abort the pass with an error instead, on the assumption that the mechanism itself is broken rather than one range's data.
 
-`--dry-run` applies the same bounds and reports the same counts, but still reports deletion candidates, because a dry run deletes nothing.
+`--dry-run` applies the same bounds and reports the same counts, and reports discard candidates as well, because a dry run removes nothing.
 
 ## Integration commands
 

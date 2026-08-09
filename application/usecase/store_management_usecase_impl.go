@@ -51,22 +51,18 @@ func (u *storeManagementUsecase) RestoreBackup(ctx context.Context, inputPath st
 func (u *storeManagementUsecase) CollectGarbage(
 	ctx context.Context,
 	before time.Time,
-	foldedBefore time.Time,
 	target apptypes.GarbageCollectionTarget,
 	dryRun bool,
 ) (apptypes.CollectGarbageResult, error) {
 	if before.IsZero() {
 		return apptypes.CollectGarbageResult{}, xerrors.Errorf("before timestamp is required")
 	}
-	if foldedBefore.IsZero() {
-		return apptypes.CollectGarbageResult{}, xerrors.Errorf("foldedBefore timestamp is required")
-	}
 
 	if _, ok := apptypes.GarbageCollectionTargetFrom(target.String()); !ok {
 		return apptypes.CollectGarbageResult{}, xerrors.Errorf("unsupported garbage-collection target: %s", target)
 	}
 
-	deletedCount, err := u.storeManager.CollectGarbage(ctx, before, foldedBefore, target, dryRun)
+	deletedCount, err := u.storeManager.CollectGarbage(ctx, before, target, dryRun)
 	if err != nil {
 		return apptypes.CollectGarbageResult{}, xerrors.Errorf("failed to collect garbage: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(1, 1, 0, false, true),
+			result: apptypes.OrphanConsolidationResultOf(1, 0, 0, false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -53,7 +54,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinement candidates: 1\nCandidates: 3\n"
+		want := "Candidates: 3\nOrphan refinement candidates: 0\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
@@ -70,7 +71,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(4, 4, 0, false, false),
+			result: apptypes.OrphanConsolidationResultOf(4, 0, 0, false, false),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -84,7 +85,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinements: 4\nCollected: 2\n"
+		want := "Collected: 2\nOrphan refinements: 0\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
@@ -97,10 +98,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 	})
 
 	t.Run("missing orphan consolidation refuses to delete", func(t *testing.T) {
-		// Deletion checks the retention cutoff and nothing else, so without the
-		// consolidation port there is no way to know an event has a summary.
-		// This used to fall through and delete; it now fails closed, because the
-		// failure mode of a wiring regression is irreversible.
+		// Without the consolidation port coverage would never grow again while
+		// gc kept reporting success, so a wiring regression fails closed rather
+		// than quietly freezing the store.
 		storeMaint := &storeManagementUsecaseStub{
 			gcResult: apptypes.CollectGarbageResultOf(0, time.Time{}, false),
 		}
@@ -138,28 +138,30 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinements: 0\nDeleted: 3\n"
+		want := "Deleted: 3\nOrphan refinements: 0\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
 	})
 
-	// Consolidation exists to preserve material before events disappear, so it
-	// gates on the target: a failure must abort a run that would delete events
-	// or sessions, and must not touch a memories / memory_edges prune at all.
+	// Consolidation gates on the target: it must not touch a memories /
+	// memory_edges prune at all. Its failure is reported, but it no longer
+	// aborts the discard, which has already run and been printed by then — the
+	// discard requires a covering refinement, so a consolidation that produced
+	// none cannot have widened what it reaches.
 	t.Run("orphan consolidation gates on target", func(t *testing.T) {
 		tests := []struct {
-			name        string
-			target      string
-			wantCalls   int
-			wantErr     bool
-			wantDeleted bool
+			name       string
+			target     string
+			wantCalls  int
+			wantErr    bool
+			wantStdout string
 		}{
-			{name: "events aborts on consolidation failure", target: "events", wantCalls: 1, wantErr: true},
-			{name: "sessions aborts on consolidation failure", target: "sessions", wantCalls: 1, wantErr: true},
-			{name: "all aborts on consolidation failure", target: "all", wantCalls: 1, wantErr: true},
-			{name: "memories proceeds without consolidating", target: "memories", wantCalls: 0, wantDeleted: true},
-			{name: "memory_edges proceeds without consolidating", target: "memory_edges", wantCalls: 0, wantDeleted: true},
+			{name: "events reports the discard then the failure", target: "events", wantCalls: 1, wantErr: true, wantStdout: "Discarded bodies: 2\n"},
+			{name: "sessions reports the deletion then the failure", target: "sessions", wantCalls: 1, wantErr: true, wantStdout: "Deleted: 2\n"},
+			{name: "all reports the collection then the failure", target: "all", wantCalls: 1, wantErr: true, wantStdout: "Collected: 2\n"},
+			{name: "memories proceeds without consolidating", target: "memories", wantCalls: 0, wantStdout: "Deleted: 2\nOrphan refinements: 0\n"},
+			{name: "memory_edges proceeds without consolidating", target: "memory_edges", wantCalls: 0, wantStdout: "Deleted: 2\nOrphan refinements: 0\n"},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -178,7 +180,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 
 				err := rootCmd.Execute()
 				if tt.wantErr && err == nil {
-					t.Fatal("Execute() error = nil, want consolidation failure to abort")
+					t.Fatal("Execute() error = nil, want the consolidation failure to surface")
 				}
 				if !tt.wantErr && err != nil {
 					t.Fatalf("Execute() error = %v, want nil", err)
@@ -186,31 +188,43 @@ func TestRootCLI_GCCommand(t *testing.T) {
 				if len(orphan.calls) != tt.wantCalls {
 					t.Fatalf("orphan consolidation calls = %d, want %d", len(orphan.calls), tt.wantCalls)
 				}
-				if storeMaint.gcCalled != tt.wantDeleted {
-					t.Fatalf("CollectGarbage called = %t, want %t", storeMaint.gcCalled, tt.wantDeleted)
+				if !storeMaint.gcCalled {
+					t.Fatal("CollectGarbage was not called")
+				}
+				// The count is on stdout even in the failing cases, which is
+				// what proves the discard ran before consolidation rather than
+				// after it: an irreversible step is never silently unreported.
+				if stdout.String() != tt.wantStdout {
+					t.Fatalf("stdout = %q, want %q", stdout.String(), tt.wantStdout)
 				}
 			})
 		}
 	})
 
-	t.Run("incomplete consolidation skips cleanup", func(t *testing.T) {
+	// Incomplete consolidation used to block the deletion, because deletion
+	// was by cutoff alone. The discard now requires coverage, so an unfolded
+	// range is out of reach whether or not the pass finished; the run says so
+	// and still discards what earlier runs folded.
+	t.Run("incomplete consolidation still discards what is already folded", func(t *testing.T) {
 		tests := []struct {
 			name   string
 			result apptypes.OrphanConsolidationResult
 			want   string
 		}{
 			{
-				name:   "HasMore blocks deletion",
+				name:   "HasMore",
 				result: apptypes.OrphanConsolidationResultOf(5000, 5000, 0, true, false),
-				want: "Orphan refinements: 5000\n" +
-					"Cleanup skipped: orphan ranges are not fully consolidated; re-run gc to continue\n",
+				want: "Collected: 99\n" +
+					"Orphan refinements: 5000\n" +
+					"More orphan ranges remain; re-run gc to continue consolidation\n",
 			},
 			{
-				name:   "Skipped blocks deletion and prints skip line",
+				name:   "Skipped",
 				result: apptypes.OrphanConsolidationResultOf(10, 8, 2, false, false),
-				want: "Orphan refinements: 8\n" +
+				want: "Collected: 99\n" +
+					"Orphan refinements: 8\n" +
 					"Orphan ranges skipped: 2\n" +
-					"Cleanup skipped: orphan ranges are not fully consolidated; re-run gc to continue\n",
+					"More orphan ranges remain; re-run gc to continue consolidation\n",
 			},
 		}
 		for _, tt := range tests {
@@ -234,24 +248,59 @@ func TestRootCLI_GCCommand(t *testing.T) {
 				if stdout.String() != tt.want {
 					t.Fatalf("stdout = %q, want %q", stdout.String(), tt.want)
 				}
-				if storeMaint.gcCalled {
-					t.Fatal("CollectGarbage was called; incomplete consolidation must skip deletion")
+			})
+		}
+	})
+
+	// The discard reads the coverage that exists when the run begins, so what
+	// this run folds is what the next run discards. Folding therefore never
+	// suppresses the discard, and the count does not depend on how much was
+	// folded alongside it.
+	t.Run("what a run folds does not change what it discards", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			produced int
+		}{
+			{name: "nothing new to fold", produced: 0},
+			{name: "folded three ranges", produced: 3},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				storeMaint := &storeManagementUsecaseStub{
+					gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
+				}
+				orphan := &orphanConsolidationStub{
+					result: apptypes.OrphanConsolidationResultOf(3, tt.produced, 0, false, false),
+				}
+				stdout := &bytes.Buffer{}
+				rootCmd := cli.NewRootCLI(
+					cli.WithStoreManagement(storeMaint),
+					cli.WithOrphanConsolidation(orphan),
+				).Command()
+				rootCmd.SetOut(stdout)
+				rootCmd.SetErr(&bytes.Buffer{})
+				rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+
+				if err := rootCmd.Execute(); err != nil {
+					t.Fatalf("Execute() error = %v", err)
+				}
+				want := "Collected: 2\n" + fmt.Sprintf("Orphan refinements: %d\n", tt.produced)
+				if stdout.String() != want {
+					t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 				}
 			})
 		}
 	})
 
-	// gc consolidates before it discards, and a dry run consolidates without
-	// writing. The discard is therefore bounded by the instant the run began,
-	// so it can only remove bodies whose coverage a preview would also have
-	// seen. Capturing that instant after consolidation instead would defeat the
-	// bound, and nothing in the printed output would show it.
-	t.Run("complete consolidation collects and bounds the discard by the run start", func(t *testing.T) {
+	// The preview is exact because it and the apply both read the coverage
+	// that existed before consolidation: the same store, not a store the apply
+	// has already changed.
+	t.Run("dry-run counts what an apply would discard even when it would fold", func(t *testing.T) {
 		storeMaint := &storeManagementUsecaseStub{
-			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
+			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(3, 3, 0, false, false),
+			result: apptypes.OrphanConsolidationResultOf(2, 2, 0, false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -260,87 +309,13 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--dry-run"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinements: 3\nCollected: 2\n"
-		if stdout.String() != want {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
-		}
-		if !storeMaint.gcCalled {
-			t.Fatal("CollectGarbage was not called for complete consolidation")
-		}
-		if !storeMaint.gcFoldedBefore.Equal(fixedNow) {
-			t.Fatalf("foldedBefore = %v, want the run start %v", storeMaint.gcFoldedBefore, fixedNow)
-		}
-		wantCutoff := fixedNow.AddDate(0, 0, -30)
-		if !storeMaint.gcCutoff.Equal(wantCutoff) {
-			t.Fatalf("cutoff = %v, want %v", storeMaint.gcCutoff, wantCutoff)
-		}
-	})
-
-	t.Run("complete consolidation with nothing new to fold collects", func(t *testing.T) {
-		storeMaint := &storeManagementUsecaseStub{
-			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
-		}
-		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(3, 0, 0, false, false),
-		}
-		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(
-			cli.WithStoreManagement(storeMaint),
-			cli.WithOrphanConsolidation(orphan),
-		).Command()
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
-
-		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("Execute() error = %v", err)
-		}
-		want := "Orphan refinements: 0\nCollected: 2\n"
-		if stdout.String() != want {
-			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
-		}
-		if !storeMaint.gcCalled {
-			t.Fatal("CollectGarbage was not called for complete consolidation")
-		}
-	})
-
-	// gc consolidates before it discards, and a dry run consolidates without
-	// writing. The discard is therefore bounded by the instant the run began,
-	// so it can only remove bodies whose coverage a preview would also have
-	// seen. Capturing that instant after consolidation instead would defeat
-	// the bound entirely, and nothing else in the output would show it.
-	t.Run("bounds the discard by the instant the run began", func(t *testing.T) {
-		storeMaint := &storeManagementUsecaseStub{
-			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
-		}
-		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(3, 3, 0, false, false),
-		}
-		stdout := &bytes.Buffer{}
-		rootCmd := cli.NewRootCLI(
-			cli.WithStoreManagement(storeMaint),
-			cli.WithOrphanConsolidation(orphan),
-		).Command()
-		rootCmd.SetOut(stdout)
-		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
-
-		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("Execute() error = %v", err)
-		}
-		if !storeMaint.gcFoldedBefore.Equal(fixedNow) {
-			t.Fatalf("foldedBefore = %v, want the run start %v", storeMaint.gcFoldedBefore, fixedNow)
-		}
-		wantCutoff := fixedNow.AddDate(0, 0, -30)
-		if !storeMaint.gcCutoff.Equal(wantCutoff) {
-			t.Fatalf("cutoff = %v, want %v", storeMaint.gcCutoff, wantCutoff)
-		}
-		want := "Orphan refinements: 3\nCollected: 2\n"
+		want := "Candidates: 3\n" +
+			"Orphan refinement candidates: 2\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
@@ -365,9 +340,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinement candidates: 4\n" +
+		want := "Candidates: 7\n" +
+			"Orphan refinement candidates: 4\n" +
 			"Orphan ranges skipped: 1\n" +
-			"Candidates: 7\n" +
 			"More orphan ranges remain; re-run gc to continue consolidation\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

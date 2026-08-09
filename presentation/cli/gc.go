@@ -78,42 +78,55 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		return xerrors.New(Localize("--target must be one of events, sessions, memories, memory_edges, all", "--target は events, sessions, memories, memory_edges, all のいずれかである必要があります"))
 	}
 
-	// Captured before consolidation, not after: it is what tells the discard
-	// which refinements already existed when this run began. A dry run
-	// consolidates without writing, so its count can only see those; bounding
-	// the apply the same way makes the preview exact instead of an
-	// understatement of an irreversible loss. Material folded by this run is
-	// discarded by the next one, so nothing is stranded.
-	runStartedAt := gcNowFunc()
+	// Orphan consolidation is a step inside store gc, not a command or a
+	// --target value, and it only runs for targets that can remove the material
+	// it summarises. A memories or memory_edges prune touches nothing
+	// consolidation protects, so it must not be blocked by an unrelated
+	// consolidation failure.
+	//
+	// A missing use case fails closed. main.go always wires it, so this is
+	// unreachable in the shipped binary — but a future wiring regression would
+	// leave coverage permanently frozen while gc kept reporting success, and
+	// the check that rules that out costs one comparison.
+	consolidates := orphanConsolidationAppliesTo(target)
+	if consolidates && c.orphanConsolidation == nil {
+		return xerrors.New(Localize(
+			"orphan consolidation is not configured; refusing to discard event bodies that may have no summary",
+			"orphan range の機械要約が設定されていません。要約のない event 本文を破棄する恐れがあるため中止します",
+		))
+	}
 
-	// Orphan consolidation runs before body discard so a degraded refinement can
-	// land while the events it summarises still exist. No new surface: this is
-	// a step inside store gc, not a command or --target value.
+	// The discard runs before consolidation, and that ordering is the whole
+	// safety argument for --dry-run.
 	//
-	// It only runs for targets that can remove that material, and its failure
-	// aborts the run for exactly those targets: deleting events after the
-	// summary failed to land is the irreversible half. A memories or
-	// memory_edges prune touches nothing consolidation protects, so it must not
-	// be blocked by an unrelated consolidation failure.
+	// The discard only touches bodies a refinement already covers, so it acts
+	// on the coverage that exists when the run begins. A dry run consolidates
+	// without writing and therefore sees exactly that coverage too; if the
+	// apply folded first, it would discard bodies the preview could not have
+	// counted — the one loss --dry-run exists to make visible. Running the
+	// discard first makes the two see the same store by construction, with no
+	// timestamp standing in for "was this already folded".
 	//
-	// Deletion is by cutoff only and checks no coverage, so an incomplete
-	// consolidation (HasMore or Skipped > 0) must stop the deletion half for
-	// the targets consolidation protects.
+	// Consolidating afterwards is not wasted: what this run folds is what the
+	// next run discards, and that run's preview counts it first. Nothing is
+	// stranded, because coverage only ever grows.
 	//
-	// A missing use case fails closed rather than falling through to deletion.
-	// main.go always wires it, so this is unreachable in the shipped binary —
-	// but the failure mode of a future wiring regression would be irreversible
-	// deletion of events nothing summarises, which is not a failure mode worth
-	// leaving open to save one check.
+	// A consolidation failure no longer has to abort ahead of the discard. It
+	// means no new coverage landed, and a discard that requires coverage
+	// cannot act on material that has none.
+	cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
+	result, err := c.storeManagement.CollectGarbage(ctx, cutoff, target, input.dryRun)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to run garbage collection", "gc の実行に失敗しました"), err)
+	}
+	// Printed before consolidation runs so an irreversible discard is always
+	// reported, even when the consolidation that follows it fails.
+	if err := printGCCount(output, input.dryRun, target, result.DeletedCount()); err != nil {
+		return err
+	}
+
 	var orphanResult apptypes.OrphanConsolidationResult
-	consolidationApplied := false
-	if orphanConsolidationAppliesTo(target) {
-		if c.orphanConsolidation == nil {
-			return xerrors.New(Localize(
-				"orphan consolidation is not configured; refusing to discard event bodies that may have no summary",
-				"orphan range の機械要約が設定されていません。要約のない event 本文を破棄する恐れがあるため中止します",
-			))
-		}
+	if consolidates {
 		var orphanErr error
 		orphanResult, orphanErr = c.orphanConsolidation.Consolidate(ctx, usecase.OrphanConsolidationInput{
 			StaleAfter: defaultActiveSessionStaleAfter,
@@ -122,76 +135,59 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		if orphanErr != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to consolidate orphan ranges", "orphan range の機械要約に失敗しました"), orphanErr)
 		}
-		consolidationApplied = true
 	}
 
-	// Dry-run still runs CollectGarbage for its count because a dry run deletes
-	// nothing. Apply mode must not delete when consolidation left uncovered ranges.
-	skipDeletion := consolidationApplied && !orphanResult.Complete() && !input.dryRun
-	var result apptypes.CollectGarbageResult
-	if !skipDeletion {
-		cutoff := runStartedAt.AddDate(0, 0, -input.keepDays)
-		var gcErr error
-		result, gcErr = c.storeManagement.CollectGarbage(ctx, cutoff, runStartedAt, target, input.dryRun)
-		if gcErr != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to run garbage collection", "gc の実行に失敗しました"), gcErr)
-		}
-	}
+	return printOrphanResult(output, input.dryRun, orphanResult)
+}
 
-	if input.dryRun {
-		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan refinement candidates", "orphan 機械要約候補"), orphanResult.ProducedCount()); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
-		}
-		if orphanResult.Skipped() > 0 {
-			if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan ranges skipped", "orphan range のスキップ"), orphanResult.Skipped()); err != nil {
-				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
-			}
-		}
-		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Candidates", "対象候補"), result.DeletedCount()); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
-		}
-		if consolidationApplied && !orphanResult.Complete() {
-			if _, err := fmt.Fprintf(output, "%s\n", Localize(
-				"More orphan ranges remain; re-run gc to continue consolidation",
-				"orphan range が残っています。機械要約を続けるには gc を再実行してください",
-			)); err != nil {
-				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
-			}
-		}
-		return nil
+// printOrphanResult reports the consolidation half of a run. Only the produced
+// count reads differently between a preview and an apply; the rest is one
+// message set, so it is written once.
+func printOrphanResult(output io.Writer, dryRun bool, result apptypes.OrphanConsolidationResult) error {
+	produced := Localize("Orphan refinements", "orphan 機械要約")
+	if dryRun {
+		produced = Localize("Orphan refinement candidates", "orphan 機械要約候補")
 	}
-
-	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan refinements", "orphan 機械要約"), orphanResult.ProducedCount()); err != nil {
+	if _, err := fmt.Fprintf(output, "%s: %d\n", produced, result.ProducedCount()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 	}
-	if orphanResult.Skipped() > 0 {
-		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan ranges skipped", "orphan range のスキップ"), orphanResult.Skipped()); err != nil {
+	if result.Skipped() > 0 {
+		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan ranges skipped", "orphan range のスキップ"), result.Skipped()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
 	}
-	if skipDeletion {
+	// A target that does not consolidate leaves the zero result, which is
+	// complete, so this stays silent rather than claiming ranges remain.
+	if !result.Complete() {
 		if _, err := fmt.Fprintf(output, "%s\n", Localize(
-			"Cleanup skipped: orphan ranges are not fully consolidated; re-run gc to continue",
-			"整理をスキップしました: orphan range の機械要約が未完了です。gc を再実行してください",
+			"More orphan ranges remain; re-run gc to continue consolidation",
+			"orphan range が残っています。機械要約を続けるには gc を再実行してください",
 		)); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
-		return nil
 	}
-	// The count means different things per target, so the label has to as
-	// well: events only discards bodies, all mixes discards with deletions,
-	// and the remaining targets still delete rows.
-	label := Localize("Deleted", "削除しました")
-	switch target {
-	case apptypes.GarbageCollectionTargetEvents:
-		label = Localize("Discarded bodies", "破棄した本文")
-	case apptypes.GarbageCollectionTargetAll:
-		label = Localize("Collected", "整理しました")
+	return nil
+}
+
+// printGCCount reports what the garbage collection did. The count means
+// different things per target, so the label has to as well: events only
+// discards bodies, all mixes discards with deletions, and the remaining
+// targets still delete rows.
+func printGCCount(output io.Writer, dryRun bool, target apptypes.GarbageCollectionTarget, count int) error {
+	label := Localize("Candidates", "対象候補")
+	if !dryRun {
+		switch target {
+		case apptypes.GarbageCollectionTargetEvents:
+			label = Localize("Discarded bodies", "破棄した本文")
+		case apptypes.GarbageCollectionTargetAll:
+			label = Localize("Collected", "整理しました")
+		default:
+			label = Localize("Deleted", "削除しました")
+		}
 	}
-	if _, err := fmt.Fprintf(output, "%s: %d\n", label, result.DeletedCount()); err != nil {
+	if _, err := fmt.Fprintf(output, "%s: %d\n", label, count); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 	}
-
 	return nil
 }
 

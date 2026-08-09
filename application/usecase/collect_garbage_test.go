@@ -13,11 +13,10 @@ import (
 )
 
 type garbageCollectorStub struct {
-	receivedBefore       time.Time
-	receivedFoldedBefore time.Time
-	receivedDryRun       bool
-	deletedCount         int
-	err                  error
+	receivedBefore time.Time
+	receivedDryRun bool
+	deletedCount   int
+	err            error
 }
 
 func (s *garbageCollectorStub) Initialize(_ context.Context) error { return nil }
@@ -40,12 +39,10 @@ func (s *garbageCollectorStub) RestoreContentEventDedupeRun(_ context.Context, _
 func (s *garbageCollectorStub) CollectGarbage(
 	_ context.Context,
 	before time.Time,
-	foldedBefore time.Time,
 	_ apptypes.GarbageCollectionTarget,
 	dryRun bool,
 ) (int, error) {
 	s.receivedBefore = before
-	s.receivedFoldedBefore = foldedBefore
 	s.receivedDryRun = dryRun
 	return s.deletedCount, s.err
 }
@@ -54,7 +51,6 @@ func TestStoreManagementUsecase_CollectGarbage(t *testing.T) {
 	t.Parallel()
 
 	cutoff := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
-	runStart := time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC)
 
 	t.Run("runs garbage collection successfully", func(t *testing.T) {
 		t.Parallel()
@@ -62,15 +58,12 @@ func TestStoreManagementUsecase_CollectGarbage(t *testing.T) {
 		stub := &garbageCollectorStub{deletedCount: 3}
 		sut := usecase.NewStoreManagementUsecase(stub)
 
-		got, err := sut.CollectGarbage(context.Background(), cutoff, runStart, apptypes.GarbageCollectionTargetEvents, true)
+		got, err := sut.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetEvents, true)
 		if err != nil {
 			t.Fatalf("CollectGarbage() error = %v", err)
 		}
 		if !stub.receivedBefore.Equal(cutoff) {
 			t.Fatalf("received before = %v, want %v", stub.receivedBefore, cutoff)
-		}
-		if !stub.receivedFoldedBefore.Equal(runStart) {
-			t.Fatalf("received foldedBefore = %v, want %v", stub.receivedFoldedBefore, runStart)
 		}
 		if !stub.receivedDryRun {
 			t.Fatalf("received dryRun = false, want true")
@@ -85,20 +78,7 @@ func TestStoreManagementUsecase_CollectGarbage(t *testing.T) {
 
 		sut := usecase.NewStoreManagementUsecase(&garbageCollectorStub{})
 
-		_, err := sut.CollectGarbage(context.Background(), time.Time{}, runStart, apptypes.GarbageCollectionTargetEvents, false)
-		if err == nil {
-			t.Fatalf("CollectGarbage() error = nil, want error")
-		}
-	})
-
-	// foldedBefore decides which refinements count as pre-existing coverage, so
-	// a missing one would silently widen what an apply may discard.
-	t.Run("returns error when the run start is missing", func(t *testing.T) {
-		t.Parallel()
-
-		sut := usecase.NewStoreManagementUsecase(&garbageCollectorStub{})
-
-		_, err := sut.CollectGarbage(context.Background(), cutoff, time.Time{}, apptypes.GarbageCollectionTargetEvents, false)
+		_, err := sut.CollectGarbage(context.Background(), time.Time{}, apptypes.GarbageCollectionTargetEvents, false)
 		if err == nil {
 			t.Fatalf("CollectGarbage() error = nil, want error")
 		}

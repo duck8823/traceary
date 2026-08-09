@@ -166,9 +166,9 @@ Durable memory に紐づく artifact ref です。
 - 物理容量回収は分離し、`traceary store compact plan --db-path PATH`でpreviewする。
   GCはin-place `VACUUM`を実行しない
 
-本文破棄の前に、`store gc` は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
+本文破棄のあとに、`store gc` は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
 
-**その run で機械要約したものは、その run では破棄しません。** dry-run は書き込まずに機械要約するため、その候補件数には既存の refinement しか反映されません。apply が先に要約してから破棄すると、preview が数えられなかった本文を失うことになり、それはまさに `--dry-run` が可視化するために存在する損失です。そこで破棄は run 開始時刻で bound されます。`produced_at` がその時刻より前の refinement だけが破棄を認めます。これにより同一 store に対する preview と apply は正確に一致し、各 run は過去の run が要約した分をすべて破棄します。今日要約された本文は、それを先に preview で示す明日の run が破棄します。
+**その run で機械要約したものは、その run では破棄しません。** 破棄は機械要約より先に走るため、run 開始時点の被覆だけを見ます。dry-run は書き込まずに機械要約するので同じ被覆を見ています。もし apply が先に要約してから破棄すると、preview が数えられなかった本文を失うことになり、それはまさに `--dry-run` が可視化するために存在する損失です。この順序にすることで、preview は構造上そのまま正確になります。ある run が要約した分は次の run で破棄対象になり、その run の preview が先に件数を示します。被覆は増えるだけなので、取り残しは生じません。
 
 target ごとの policy:
 

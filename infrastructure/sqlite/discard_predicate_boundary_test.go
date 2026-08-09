@@ -46,7 +46,7 @@ func TestDatasource_CollectGarbage_discardsOnlyBodiesOlderThanTheCutoff(t *testi
 			insertGCSession(t, db, "session-1", true)
 			insertGCFold(t, db, "session-1", "event-1", "event-1")
 
-			if _, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, gcTestRunStart, apptypes.GarbageCollectionTargetEvents, false); err != nil {
+			if _, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, apptypes.GarbageCollectionTargetEvents, false); err != nil {
 				t.Fatalf("CollectGarbage() error = %v", err)
 			}
 			if diff := cmp.Diff(tc.want, gcEventAvailability(t, db, "event-1")); diff != "" {
@@ -72,14 +72,14 @@ func TestDatasource_CollectGarbage_doesNotRecountAlreadyDiscardedBodies(t *testi
 	insertGCSession(t, db, "session-1", true)
 	insertGCFold(t, db, "session-1", "event-1", "event-1")
 
-	first, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, gcTestRunStart, apptypes.GarbageCollectionTargetEvents, false)
+	first, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, apptypes.GarbageCollectionTargetEvents, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() first error = %v", err)
 	}
 	if diff := cmp.Diff(1, first); diff != "" {
 		t.Fatalf("first discard count mismatch (-want +got):\n%s", diff)
 	}
-	second, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, gcTestRunStart, apptypes.GarbageCollectionTargetEvents, false)
+	second, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, apptypes.GarbageCollectionTargetEvents, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() second error = %v", err)
 	}
@@ -127,7 +127,7 @@ func TestDatasource_CollectGarbage_requiresTheFoldRangeToReachTheEvent(t *testin
 			}
 			insertGCFold(t, db, "session-1", lower, upper)
 
-			if _, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, gcTestRunStart, apptypes.GarbageCollectionTargetEvents, false); err != nil {
+			if _, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, apptypes.GarbageCollectionTargetEvents, false); err != nil {
 				t.Fatalf("CollectGarbage() error = %v", err)
 			}
 			if diff := cmp.Diff(tc.want, gcEventAvailability(t, db, "event-1")); diff != "" {
@@ -165,7 +165,7 @@ func TestDatasource_CollectGarbage_ignoresFoldBoundariesFromAnotherSession(t *te
 			execRetentionSQL(t, db, `UPDATE events SET session_id = ? WHERE id IN ('event-lower', 'event-upper')`, tc.boundarySession)
 			insertGCFold(t, db, "session-1", "event-lower", "event-upper")
 
-			if _, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, gcTestRunStart, apptypes.GarbageCollectionTargetEvents, false); err != nil {
+			if _, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, apptypes.GarbageCollectionTargetEvents, false); err != nil {
 				t.Fatalf("CollectGarbage() error = %v", err)
 			}
 			if diff := cmp.Diff(tc.want, gcEventAvailability(t, db, "event-1")); diff != "" {
@@ -208,7 +208,7 @@ func TestDatasource_CollectGarbage_refusesUndatableTimestamps(t *testing.T) {
 			insertGCFold(t, db, "session-1", "event-lower", "event-upper")
 			execRetentionSQL(t, db, `UPDATE events SET created_at = '0' WHERE id = ?`, tc.undatable)
 
-			got, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, gcTestRunStart, apptypes.GarbageCollectionTargetEvents, false)
+			got, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, apptypes.GarbageCollectionTargetEvents, false)
 			if err != nil {
 				t.Fatalf("CollectGarbage() error = %v", err)
 			}
@@ -227,72 +227,5 @@ func saveDiscardBoundaryEvent(t *testing.T, events *sqlite.EventDatasource, id s
 	event := newGCEventFixture(t, id, types.EventKindTranscript, "body", createdAt)
 	if err := events.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save(%s) error = %v", id, err)
-	}
-}
-
-// gc consolidates orphan ranges before it discards, and --dry-run consolidates
-// without writing. Bounding the discard by the instant the run began is what
-// keeps the preview from understating an irreversible loss: a refinement
-// written after that instant does not authorise a discard in the same run, and
-// the next run — whose preview can see it — performs it.
-func TestDatasource_CollectGarbage_ignoresFoldsWrittenAfterTheRunStarted(t *testing.T) {
-	t.Parallel()
-
-	dbPath, events, store := prepareDiscardGCFixture(t)
-	event := newGCEventFixture(t, "event-1", types.EventKindTranscript, "body", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), event); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-	db := openRetentionDB(t, dbPath)
-	defer func() { _ = db.Close() }()
-	insertGCSession(t, db, "session-1", true)
-	// insertGCFold stamps produced_at at 2026-06-02, so this run began before
-	// the fold was written — the shape of an apply that just consolidated.
-	insertGCFold(t, db, "session-1", "event-1", "event-1")
-	runStartedBeforeTheFold := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-
-	got, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, runStartedBeforeTheFold, apptypes.GarbageCollectionTargetEvents, false)
-	if err != nil {
-		t.Fatalf("CollectGarbage() error = %v", err)
-	}
-	if diff := cmp.Diff(0, got); diff != "" {
-		t.Fatalf("discard count mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff("available", gcEventAvailability(t, db, "event-1")); diff != "" {
-		t.Fatalf("availability mismatch (-want +got):\n%s", diff)
-	}
-
-	// The next run starts after the fold and discards what the preview now sees.
-	next, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, gcTestRunStart, apptypes.GarbageCollectionTargetEvents, false)
-	if err != nil {
-		t.Fatalf("CollectGarbage() second error = %v", err)
-	}
-	if diff := cmp.Diff(1, next); diff != "" {
-		t.Fatalf("second discard count mismatch (-want +got):\n%s", diff)
-	}
-}
-
-// A fold whose produced_at cannot be parsed cannot be placed before or after
-// the run start, so it must not authorise a discard either.
-func TestDatasource_CollectGarbage_ignoresFoldsWithUndatableProducedAt(t *testing.T) {
-	t.Parallel()
-
-	dbPath, events, store := prepareDiscardGCFixture(t)
-	event := newGCEventFixture(t, "event-1", types.EventKindTranscript, "body", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), event); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-	db := openRetentionDB(t, dbPath)
-	defer func() { _ = db.Close() }()
-	insertGCSession(t, db, "session-1", true)
-	insertGCFold(t, db, "session-1", "event-1", "event-1")
-	execRetentionSQL(t, db, `UPDATE session_refinements SET produced_at = '0' WHERE session_id = 'session-1'`)
-
-	got, err := store.CollectGarbage(context.Background(), discardBoundaryCutoff, gcTestRunStart, apptypes.GarbageCollectionTargetEvents, false)
-	if err != nil {
-		t.Fatalf("CollectGarbage() error = %v", err)
-	}
-	if diff := cmp.Diff(0, got); diff != "" {
-		t.Fatalf("discard count mismatch (-want +got):\n%s", diff)
 	}
 }

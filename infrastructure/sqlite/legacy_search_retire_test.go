@@ -214,7 +214,6 @@ func TestMigration052_StopsEventGarbageCollectionFromTouchingTheSearchIndex(t *t
 	discarded, err := management.CollectGarbage(
 		ctx,
 		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		gcTestRunStart,
 		apptypes.GarbageCollectionTargetEvents,
 		false,
 	)

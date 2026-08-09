@@ -19,10 +19,8 @@ type StoreManagementUsecase interface {
 	// RestoreBackup restores a backup into the store.
 	RestoreBackup(ctx context.Context, inputPath string, overwrite bool) error
 
-	// CollectGarbage cleans up store records older than before. foldedBefore
-	// bounds the body discard to events covered by a refinement that already
-	// existed at that instant.
-	CollectGarbage(ctx context.Context, before time.Time, foldedBefore time.Time, target apptypes.GarbageCollectionTarget, dryRun bool) (apptypes.CollectGarbageResult, error)
+	// CollectGarbage removes events older than the given time.
+	CollectGarbage(ctx context.Context, before time.Time, target apptypes.GarbageCollectionTarget, dryRun bool) (apptypes.CollectGarbageResult, error)
 
 	// CloseStaleSessions closes sessions that started before the threshold and
 	// have no activity inside it, excluding the protected active sessions.

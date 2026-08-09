@@ -947,7 +947,7 @@ func (s *spoolStoreManagementStub) CreateBackup(context.Context, string, bool) e
 func (s *spoolStoreManagementStub) RestoreBackup(context.Context, string, bool) error {
 	return nil
 }
-func (s *spoolStoreManagementStub) CollectGarbage(context.Context, time.Time, time.Time, apptypes.GarbageCollectionTarget, bool) (apptypes.CollectGarbageResult, error) {
+func (s *spoolStoreManagementStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (apptypes.CollectGarbageResult, error) {
 	return apptypes.CollectGarbageResult{}, nil
 }
 func (s *spoolStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
