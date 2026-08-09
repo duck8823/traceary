@@ -874,9 +874,16 @@ func TestPayloadBackfillPersistsPauseWhenCancelledAfterTheLastBatch(t *testing.T
 	defer cancel()
 	ds.onAfterCommitBatch = func(int64) { cancel() }
 
-	_, err := ds.Run(ctx, apptypes.PayloadBackfillConfig{BatchRows: 1, StopAfterBatches: 1})
-	if err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run error = %v, want nil or context.Canceled", err)
+	// The hook cancels synchronously, so the batch is already durable and the
+	// stop is the one the caller asked for: this returns the paused run, not an
+	// error. Accepting context.Canceled here would let the checkpoint read fall
+	// back to the cancelled context unnoticed.
+	result, err := ds.Run(ctx, apptypes.PayloadBackfillConfig{BatchRows: 1, StopAfterBatches: 1})
+	if err != nil {
+		t.Fatalf("Run error = %v, want nil", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillPaused), result.State); diff != "" {
+		t.Fatalf("result state mismatch (-want +got):\n%s", diff)
 	}
 
 	var state string
@@ -941,10 +948,17 @@ func TestPayloadBackfillRefusesAPreReleaseRunTable(t *testing.T) {
 		t.Fatalf("seed pre-release run table: %v", err)
 	}
 
-	if _, err := ds.Status(ctx); !errors.Is(err, ErrPayloadBackfillSchemaOutdated) {
-		t.Fatalf("Status error = %v, want ErrPayloadBackfillSchemaOutdated", err)
+	// Every public entry point that reads the run table has to refuse it, not
+	// just the one an operator happens to try first.
+	entries := map[string]func() error{
+		"preview": func() error { _, err := ds.Preview(ctx, defaultBackfillConfig()); return err },
+		"status":  func() error { _, err := ds.Status(ctx); return err },
+		"run":     func() error { _, err := ds.Run(ctx, defaultBackfillConfig()); return err },
+		"resume":  func() error { _, err := ds.Resume(ctx, defaultBackfillConfig()); return err },
 	}
-	if _, err := ds.Run(ctx, defaultBackfillConfig()); !errors.Is(err, ErrPayloadBackfillSchemaOutdated) {
-		t.Fatalf("Run error = %v, want ErrPayloadBackfillSchemaOutdated", err)
+	for name, call := range entries {
+		if err := call(); !errors.Is(err, ErrPayloadBackfillSchemaOutdated) {
+			t.Fatalf("%s error = %v, want ErrPayloadBackfillSchemaOutdated", name, err)
+		}
 	}
 }

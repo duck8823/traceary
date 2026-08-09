@@ -46,6 +46,12 @@ var (
 // triggers tolerate a codec transition (migration 036 / 043).
 const payloadCodecCompatibilityCounterMode = "counter"
 
+// payloadBackfillCheckpointTimeout bounds a terminal transition that runs after
+// the caller's context is gone. It is one small UPDATE plus one read, so this
+// is generous against the 1s busy timeout while still letting a run that cannot
+// take the store lease give up rather than hang.
+const payloadBackfillCheckpointTimeout = 10 * time.Second
+
 // PayloadBackfillDatasource rewrites events.body in place through the codec.
 type PayloadBackfillDatasource struct {
 	db *Database
@@ -202,7 +208,14 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 	// terminal transition — complete, reset, pause, fail — records what the
 	// worker already did durably, so running it on the caller's context would
 	// lose that record exactly when the run needs it most.
-	closeCtx := context.WithoutCancel(ctx)
+	//
+	// Bounded, though: WithoutCancel drops the deadline too, and acquiring the
+	// store lease waits on nothing but the context. An unbounded checkpoint
+	// would turn "someone else holds the store" into a process that never
+	// returns. Losing the checkpoint is recoverable — resume reads the cursor
+	// the last committed batch left — and hanging is not.
+	closeCtx, cancelClose := context.WithTimeout(context.WithoutCancel(ctx), payloadBackfillCheckpointTimeout)
+	defer cancelClose()
 
 	var batchCount int64
 	for {

@@ -112,12 +112,18 @@ Output is JSON on stdout with aggregate counters only (no body contents).
   interleaving cursor writes and counters into the same run. A failure that
   cannot be recorded is reported the same way rather than as a row-level
   failure the operator could act on.
-- Cancelling the process (`Ctrl-C`) persists a `paused` checkpoint before
-  returning — whether the cancellation is noticed between batches or inside the
-  select or the batch transaction — so `resume` picks it up and `status` does
-  not report it active. Every terminal transition (complete, reset, pause,
-  fail) runs on a context the cancellation cannot reach, because it records
-  what the worker already did durably.
+- Cancelling the run's context persists a `paused` checkpoint before returning
+  — whether the cancellation is noticed between batches or inside the select or
+  the batch transaction — so `resume` picks it up and `status` does not report
+  it active. Every terminal transition (complete, reset, pause, fail) runs on a
+  context the cancellation cannot reach, because it records what the worker
+  already did durably. That context is bounded, so a checkpoint that cannot
+  take the store lease gives up instead of hanging.
+- Killing the process instead (`Ctrl-C` on the CLI, which does not currently
+  wire signals into the command context — see #1747) writes no checkpoint. The
+  in-flight batch rolls back and the run stays at `running`; `resume` still
+  continues it from the last committed batch, but `run` refuses until then
+  because `status` reports it active.
 - A cancellation does not rename the error. If an I/O, constraint or decode
   failure happens to race the `Ctrl-C`, the checkpoint still lands but the
   reported error is the failure, not "cancelled".
