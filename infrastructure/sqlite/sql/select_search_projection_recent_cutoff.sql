@@ -1,8 +1,21 @@
--- Walk the corpus newest-first and find the first created_at_norm at which
--- the running sum of indexable source bytes exceeds the source ceiling.
--- The byte expression matches SelectSnapshot's DecodedBytes accounting
--- (length(CAST(x AS BLOB)) counts bytes, not characters — #1749).
--- No row means the whole corpus fits; the caller leaves the cutoff empty.
+-- Source-phase prefilter: walk the corpus newest-first and find the first
+-- created_at_norm at which the running sum of *prefilter* source bytes exceeds
+-- the walk ceiling (caller applies a slack factor — see deriveSearchProjectionRecentCutoff).
+--
+-- This is a build-cost bound, not an enforcement mechanism. Eviction enforces
+-- the exact recent_source_ceiling_bytes. The prefilter's byte unit differs from
+-- decoded_bytes in both directions:
+--   - body_plaintext_bytes counts the whole stored envelope (thinking blocks
+--     included); ExtractPlainBody keeps only text blocks, so thinking-only
+--     envelopes project to empty body_text / zero decoded_bytes.
+--   - command_audits payloads that hydrate into the projected body are counted
+--     here, but the reverse is also imperfect — the prefilter is deliberately
+--     loose, not exact. Decoding every body is what this walk exists to avoid.
+--
+-- The byte expression reuses SelectSnapshot-style COALESCE + CAST-as-BLOB
+-- accounting (length() on TEXT counts characters, not bytes — #1749).
+-- No row means the whole corpus fits under the walk ceiling; the caller leaves
+-- the cutoff empty.
 SELECT created_at_norm FROM (
   SELECT e.created_at_norm AS created_at_norm,
          SUM(CASE WHEN e.body_availability = 'available'

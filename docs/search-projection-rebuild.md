@@ -77,16 +77,37 @@ the window stays reachable through the session tier.
 
 ### Guarantee
 
-After a generation completes and the previous generation has been reclaimed, the
-measured active b-tree allocation of the bounded search index family is at or below
-the configured budget. The figure is `dbstat` allocation, not file size: the file
-shrinks at `store compact`, and FTS5 returns space from deleted documents only as
-segments merge.
+The budget is enforced **indirectly**, through a source-text ceiling derived from a
+*measured but estimated* trigram amplification. Eviction holds the recent tier to
+that ceiling exactly. Whether the resulting family actually landed under the
+configured budget is a separate question, and it is **measured and reported**, not
+guaranteed in advance: when a generation completes, the family is re-measured and
+`index_family_within_budget` records `1` (within), `0` (over) or `-1` (not
+measurable).
 
-**Not guaranteed during a rebuild.** `Start` keeps the previous generation readable
+A generation recorded over budget stays that way. Nothing corrects it in place —
+the next `CatchUp` sees a complete generation and returns `already_complete`. Check
+`traceary store search-projection status` for `index_family_within_budget` and
+`capacity_evidence`; a `0` means the amplification estimate was low for this corpus
+and the fix is an explicit `traceary store search-projection start` with a smaller
+`--index-family-bytes`.
+
+The figure is `dbstat` allocation, not file size: the file shrinks at
+`store compact`, and FTS5 returns space from deleted documents only as segments
+merge.
+
+**Not measured during a rebuild.** `Start` keeps the previous generation readable
 until the new one is verified, so a rebuild transiently holds two families. The
 source-phase cutoff keeps the new one from being built at the full age window, but the
 transient peak is not bounded by this budget.
+
+The source-phase cutoff is a **build-cost bound, not an enforcement mechanism**. It
+walks the corpus newest-first over stored envelope bytes, which is not the unit the
+projection indexes: `thinking` blocks count toward the walk but are stripped from the
+indexed text, so a reasoning-heavy corpus over-counts. The walk therefore runs against
+four times the derived ceiling, so it excludes only what is clearly beyond reach and
+leaves the exact decision to eviction. What it excludes it excludes irreversibly for
+that generation — eviction can drop documents, never re-project them.
 
 Three numbers must not be conflated:
 

@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"math"
+	"math/bits"
 	"strings"
 	"time"
 
@@ -64,6 +66,15 @@ const searchProjectionMinAmplificationSampleBytes int64 = 8 << 20
 // timeout yields age-only retention; eviction still enforces the ceiling.
 const searchProjectionCutoffTimeout = 2 * time.Second
 
+// searchProjectionCutoffSlackFactor loosens the source-phase prefilter walk
+// ceiling relative to the derived source-text ceiling. The prefilter counts
+// body_plaintext_bytes (whole envelopes), which diverges from decoded_bytes in
+// both directions; a factor of 4 keeps thinking-heavy corpora from irreversibly
+// excluding text that still fits under the true ceiling. Eviction is the exact
+// enforcement. A ceiling corrected upward after re-derivation still cannot
+// re-project documents the prefilter already excluded (v0.34 follow-up).
+const searchProjectionCutoffSlackFactor int64 = 4
+
 // capacityDerivation holds the measured family split and the derived source
 // ceiling. SplitEvidence answers "was the family byte figure measured"
 // (feeds cutover_before_evidence_*). Evidence answers "was the amplification
@@ -71,14 +82,41 @@ const searchProjectionCutoffTimeout = 2 * time.Second
 // same question: a perfectly measured family with a sample below the minimum
 // is measured for cutover and unavailable for capacity.
 type capacityDerivation struct {
-	// RecentBytes and NonRecentPhysical are the raw dbstat split. NonRecentBytes
-	// is the scoped reserve used for the ceiling (see deriveSearchProjectionCapacity).
-	RecentBytes, NonRecentPhysical, NonRecentBytes int64
-	SampleSourceBytes                              int64
-	AmplificationPPM                               int64
-	SourceCeiling                                  int64
-	SplitEvidence                                  apptypes.CapacityEvidence
-	Evidence                                       apptypes.CapacityEvidence
+	// RecentBytes is recent-tier dbstat allocation. NonRecentPhysical is
+	// NonRecentScoped + NonRecentShared (raw). NonRecentBytes is the reserve
+	// used for the ceiling: shared fully + scoped apportioned by generation
+	// (see deriveSearchProjectionCapacity / scopedNonRecentReserve).
+	RecentBytes, NonRecentScoped, NonRecentShared, NonRecentPhysical, NonRecentBytes int64
+	SampleSourceBytes                                                               int64
+	AmplificationPPM                                                                int64
+	SourceCeiling                                                                   int64
+	SplitEvidence                                                                   apptypes.CapacityEvidence
+	Evidence                                                                        apptypes.CapacityEvidence
+}
+
+// mulDiv returns floor(a*b/c) without intermediate int64 overflow, using
+// math/bits.Mul64 + Div64. Negative inputs are clamped to 0 before bits is
+// reached. c <= 0 yields 0. When the 128-bit product's high half is >= c the
+// quotient would not fit in 64 bits and the result saturates to MaxInt64.
+func mulDiv(a, b, c int64) int64 {
+	if a < 0 {
+		a = 0
+	}
+	if b < 0 {
+		b = 0
+	}
+	if c <= 0 {
+		return 0
+	}
+	hi, lo := bits.Mul64(uint64(a), uint64(b))
+	if hi >= uint64(c) {
+		return math.MaxInt64
+	}
+	quo, _ := bits.Div64(hi, lo, uint64(c))
+	if quo > uint64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	return int64(quo)
 }
 
 func generationID() string {
@@ -159,9 +197,12 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 	if requiresInventory != 0 {
 		g.HighWater = 0
 	}
-	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,index_family_byte_limit=?,capacity_semantics_version=?,recent_source_ceiling_bytes=?,recent_amplification_ppm=?,non_recent_family_bytes=?,recent_cutoff_norm=?,capacity_evidence_status=?,capacity_evidence_reason=?,index_family_within_budget=-1,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_before_evidence_status=?,cutover_before_evidence_reason=?,cutover_after_evidence_status='',cutover_after_evidence_reason='',updated_at=? WHERE singleton=1 AND state<>'rebuilding'`,
+	// Write recent_byte_limit alongside index_family_byte_limit so a binary
+	// rolled back past migration 055 still sees the column it knows
+	// (recent_byte_limit is retired; kept only for that contract).
+	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,index_family_byte_limit=?,recent_byte_limit=?,capacity_semantics_version=?,recent_source_ceiling_bytes=?,recent_amplification_ppm=?,non_recent_family_bytes=?,recent_cutoff_norm=?,capacity_evidence_status=?,capacity_evidence_reason=?,index_family_within_budget=-1,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_before_evidence_status=?,cutover_before_evidence_reason=?,cutover_after_evidence_status='',cutover_after_evidence_reason='',updated_at=? WHERE singleton=1 AND state<>'rebuilding'`,
 		g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater,
-		int64(b.RecentAge/time.Second), b.IndexFamilyBytes,
+		int64(b.RecentAge/time.Second), b.IndexFamilyBytes, b.IndexFamilyBytes,
 		apptypes.SearchProjectionCapacitySemanticsVersion,
 		derivation.SourceCeiling, derivation.AmplificationPPM, derivation.NonRecentBytes, cutoffNorm,
 		derivation.Evidence.Status, derivation.Evidence.Reason,
@@ -811,12 +852,17 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	// Re-derive the source ceiling after the source→eviction transition is
 	// durable, in its own bounded write fenced on generation_id + phase so it
 	// cannot stamp a generation that has moved on. Failure leaves the
-	// Start-time ceiling in place — a valid, more conservative number. A
+	// Start-time ceiling in place — the previous generation's estimate, which
+	// can err in either direction (a higher same-generation amplification
+	// would correctly shrink the ceiling; a lower one would raise it). A
 	// single eviction batch may therefore run against the Start-time ceiling
-	// if re-derivation loses the race; that is bounded imprecision, not
-	// incorrectness (the Start-time ceiling was computed from the previous
-	// generation's sample and is never larger than a same-generation measure
-	// would allow when amplification rose).
+	// if re-derivation loses the race. index_family_within_budget on the
+	// completion record is what surfaces whether the family ultimately held
+	// the configured budget.
+	//
+	// Limitation (v0.34 follow-up): a crash between this commit and the
+	// re-derivation means the re-derivation never retries — the transition is
+	// the only trigger.
 	if p.Phase == "source" && next == "eviction" {
 		d.recordSearchProjectionCapacityRederivation(ctx, db, p.GenerationID, now)
 	}
@@ -973,49 +1019,59 @@ func (d *Database) measureTimeout() time.Duration {
 }
 
 // measureSearchProjectionFamilyBytes returns total dbstat physical bytes for
-// the bounded search projection family (recent + non-recent). Call sites that
-// need the split use measureSearchProjectionFamilySplit.
+// the bounded search projection family (recent + scoped non-recent + shared
+// non-recent). Call sites that need the split use measureSearchProjectionFamilySplit.
 func (d *Database) measureSearchProjectionFamilyBytes(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }) (int64, apptypes.CapacityEvidence) {
-	recent, nonRecent, evidence := d.measureSearchProjectionFamilySplit(ctx, q)
-	return recent + nonRecent, evidence
+	recent, scoped, shared, evidence := d.measureSearchProjectionFamilySplit(ctx, q)
+	return recent + scoped + shared, evidence
 }
 
-// measureSearchProjectionFamilySplit returns recent-tier and non-recent active
-// b-tree allocation for the bounded search index family. Classification uses
-// name and tbl_name with GLOB so FTS shadow tables and recent indexes land on
-// the recent side. Never returns an error: unmeasurable walks become
-// unavailable evidence.
+// measureSearchProjectionFamilySplit returns recent-tier, generation-scoped
+// non-recent, and permanent shared non-recent active b-tree allocation for the
+// bounded search index family. Recent classification uses name and tbl_name
+// with GLOB so FTS shadow tables and recent indexes land on the recent side.
+// Scoped is an explicit tbl_name set so a future table is shared (conservative)
+// rather than silently apportioned. Never returns an error: unmeasurable walks
+// become unavailable evidence.
+//
+// Limitation (v0.34 follow-up): the dbstat walk and a later SUM(decoded_bytes)
+// are not a consistent snapshot, so a concurrent eviction can record a wildly
+// high amplification.
 func (d *Database) measureSearchProjectionFamilySplit(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}) (recentBytes, nonRecentBytes int64, evidence apptypes.CapacityEvidence) {
+}) (recentBytes, nonRecentScoped, nonRecentShared int64, evidence apptypes.CapacityEvidence) {
 	timeout := d.measureTimeout()
 	// WithoutCancel deliberately detaches from the caller's deadline: the batch
 	// context is sized for the write lock, and evidence must be measurable on
 	// its own terms or reported unavailable — never able to fail the batch.
 	measureCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
-	err := q.QueryRowContext(measureCtx, measureSearchProjectionFamilySplitSQL).Scan(&recentBytes, &nonRecentBytes)
+	err := q.QueryRowContext(measureCtx, measureSearchProjectionFamilySplitSQL).Scan(&recentBytes, &nonRecentScoped, &nonRecentShared)
 	if err != nil {
-		return 0, 0, apptypes.CapacityEvidence{
+		return 0, 0, 0, apptypes.CapacityEvidence{
 			Status: searchProjectionEvidenceUnavailable,
 			Method: "dbstat",
 			Reason: truncateEvidenceReason(err.Error()),
 		}
 	}
-	return recentBytes, nonRecentBytes, apptypes.CapacityEvidence{Status: searchProjectionEvidenceMeasured, Method: "dbstat"}
+	return recentBytes, nonRecentScoped, nonRecentShared, apptypes.CapacityEvidence{Status: searchProjectionEvidenceMeasured, Method: "dbstat"}
 }
 
 // deriveSearchProjectionCapacity converts the index-family budget into a
 // source-text ceiling using a measured (or fallback) amplification ratio and a
-// generation-scoped non-recent reserve.
+// non-recent reserve (permanent shared + generation-scoped apportionment).
 //
 // Amplification sample is deliberately unscoped: recentPhysical /
-// SUM(decoded_bytes) must cover the same physical/logical rows. The reserve
-// is scoped to reserveGenerationID — the generation that will survive — so a
-// rebuild does not double-count the outgoing generation's non-recent pages
-// (#1679 MUST 4b). Empty reserveGenerationID scopes to the whole family.
+// SUM(decoded_bytes) must cover the same physical/logical rows. Limitation
+// (v0.34 follow-up): amplification is measured over all generations present,
+// not the new one alone, so it is a blend of outgoing and incoming layouts.
+// The scoped part of the reserve is apportioned to reserveGenerationID — the
+// generation that will survive — so a rebuild does not double-count the
+// outgoing generation's session-tier pages. Empty reserveGenerationID scopes
+// the apportionment to the whole family. Permanent shared pages are never
+// discounted by the generation ratio.
 //
 // A reserve at or above the budget yields SourceCeiling 0 (empty recent tier),
 // never a hard failure: completing a rebuild is what shrinks the family, so
@@ -1024,9 +1080,11 @@ func (d *Database) deriveSearchProjectionCapacity(ctx context.Context, q interfa
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, budget, lastNonRecent int64, reserveGenerationID string) capacityDerivation {
 	out := capacityDerivation{}
-	recent, nonRecentPhysical, splitEvidence := d.measureSearchProjectionFamilySplit(ctx, q)
+	recent, nonRecentScoped, nonRecentShared, splitEvidence := d.measureSearchProjectionFamilySplit(ctx, q)
 	out.RecentBytes = recent
-	out.NonRecentPhysical = nonRecentPhysical
+	out.NonRecentScoped = nonRecentScoped
+	out.NonRecentShared = nonRecentShared
+	out.NonRecentPhysical = nonRecentScoped + nonRecentShared
 	out.SplitEvidence = splitEvidence
 	// Amplification sample is unscoped: numerator and denominator must cover
 	// the same rows across every generation present in the recent tier.
@@ -1048,22 +1106,22 @@ func (d *Database) deriveSearchProjectionCapacity(ctx context.Context, q interfa
 				Method: "dbstat",
 				Reason: "amplification sample below minimum",
 			}
-			out.NonRecentBytes = d.scopedNonRecentReserve(ctx, q, nonRecentPhysical, reserveGenerationID)
+			out.NonRecentBytes = d.scopedNonRecentReserve(ctx, q, nonRecentScoped, nonRecentShared, reserveGenerationID)
 		} else {
 			out.Evidence = apptypes.CapacityEvidence{
 				Status: searchProjectionEvidenceUnavailable,
 				Method: "dbstat",
 				Reason: "recent family empty; amplification unmeasurable",
 			}
-			out.NonRecentBytes = d.scopedNonRecentReserve(ctx, q, nonRecentPhysical, reserveGenerationID)
+			out.NonRecentBytes = d.scopedNonRecentReserve(ctx, q, nonRecentScoped, nonRecentShared, reserveGenerationID)
 		}
 	} else {
-		out.AmplificationPPM = out.RecentBytes * 1_000_000 / out.SampleSourceBytes
+		out.AmplificationPPM = mulDiv(out.RecentBytes, 1_000_000, out.SampleSourceBytes)
 		if out.AmplificationPPM < 1_000_000 {
 			out.AmplificationPPM = 1_000_000
 		}
 		out.Evidence = apptypes.CapacityEvidence{Status: searchProjectionEvidenceMeasured, Method: "dbstat"}
-		out.NonRecentBytes = d.scopedNonRecentReserve(ctx, q, nonRecentPhysical, reserveGenerationID)
+		out.NonRecentBytes = d.scopedNonRecentReserve(ctx, q, nonRecentScoped, nonRecentShared, reserveGenerationID)
 	}
 	if out.NonRecentBytes >= budget {
 		// Permanent tiers that alone exceed the budget mean the recent tier
@@ -1082,37 +1140,50 @@ func (d *Database) deriveSearchProjectionCapacity(ctx context.Context, q interfa
 		)
 		return out
 	}
-	out.SourceCeiling = (budget - out.NonRecentBytes) * 1_000_000 / out.AmplificationPPM
+	out.SourceCeiling = mulDiv(budget-out.NonRecentBytes, 1_000_000, out.AmplificationPPM)
 	if out.SourceCeiling < 0 {
 		out.SourceCeiling = 0
 	}
 	return out
 }
 
-// scopedNonRecentReserve apportions measured non-recent physical pages to the
-// generation that will survive: physical * logical(target) / logical(all).
-// Denominator 0 → share 1 (treat the whole physical figure as the reserve).
+// scopedNonRecentReserve builds the non-recent reserve used for the source
+// ceiling: permanent shared pages in full, plus generation-scoped pages
+// apportioned as scoped * logical(target) / logical(all). Shared is never
+// discounted by the generation ratio — those objects are not reclaimed by
+// cleanup. Denominator 0 → treat the whole scoped figure as belonging to the
+// target (shared is still added in full).
 func (d *Database) scopedNonRecentReserve(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, nonRecentPhysical int64, reserveGenerationID string) int64 {
-	if nonRecentPhysical <= 0 {
-		return 0
+}, nonRecentScoped, nonRecentShared int64, reserveGenerationID string) int64 {
+	if nonRecentScoped < 0 {
+		nonRecentScoped = 0
+	}
+	if nonRecentShared < 0 {
+		nonRecentShared = 0
+	}
+	if nonRecentScoped == 0 {
+		return nonRecentShared
 	}
 	var logicalTarget, logicalAll int64
 	_ = q.QueryRowContext(ctx, selectSearchProjectionLogicalNonRecentBytesSQL, reserveGenerationID).Scan(&logicalTarget)
 	_ = q.QueryRowContext(ctx, selectSearchProjectionLogicalNonRecentBytesSQL, "").Scan(&logicalAll)
 	if logicalAll <= 0 {
-		return nonRecentPhysical
+		return nonRecentShared + nonRecentScoped
 	}
-	return nonRecentPhysical * logicalTarget / logicalAll
+	return nonRecentShared + mulDiv(nonRecentScoped, logicalTarget, logicalAll)
 }
 
 // deriveSearchProjectionRecentCutoff finds the created_at_norm at which the
-// corpus walked newest-first crosses sourceCeiling. Empty cutoff with empty
-// reason means the whole corpus fits (sql.ErrNoRows). Empty cutoff with a
-// non-empty reason means the prefilter did not run (timeout or error) and the
-// caller must fold the reason into capacity evidence. Eviction still enforces
-// the ceiling either way.
+// corpus walked newest-first crosses a loosened walk ceiling derived from
+// sourceCeiling. The prefilter is a build-cost bound, not an enforcement
+// mechanism: its byte unit (body_plaintext_bytes / stored envelopes) differs
+// from decoded_bytes in both directions (thinking blocks inflate the
+// prefilter; audit payloads can go the other way). Eviction enforces the
+// exact ceiling. Empty cutoff with empty reason means the whole corpus fits
+// under the walk ceiling (sql.ErrNoRows). Empty cutoff with a non-empty
+// reason means the prefilter did not run (timeout or error) and the caller
+// must fold the reason into capacity evidence.
 //
 // Uses WithTimeout on the caller's context so a cancelled store open stops the
 // walk; the timeout is the upper bound.
@@ -1122,9 +1193,13 @@ func (d *Database) deriveSearchProjectionRecentCutoff(ctx context.Context, q int
 	if sourceCeiling <= 0 {
 		return "", ""
 	}
+	// Walk against sourceCeiling * slack so systematic prefilter over-count
+	// (thinking-heavy Claude Code transcripts) does not irreversibly shrink
+	// the recent window below what the true ceiling allows.
+	walkCeiling := mulDiv(sourceCeiling, searchProjectionCutoffSlackFactor, 1)
 	cutoffCtx, cancel := context.WithTimeout(ctx, searchProjectionCutoffTimeout)
 	defer cancel()
-	err := q.QueryRowContext(cutoffCtx, selectSearchProjectionRecentCutoffSQL, sourceCeiling).Scan(&cutoff)
+	err := q.QueryRowContext(cutoffCtx, selectSearchProjectionRecentCutoffSQL, walkCeiling).Scan(&cutoff)
 	if err == nil {
 		return cutoff, ""
 	}
@@ -1152,8 +1227,10 @@ func foldEvidenceReason(primary, additional string) string {
 // is durable. Mirrors recordSearchProjectionCutoverEvidence: own bounded
 // context, fenced write, log-and-leave-Start-ceiling on failure.
 //
-// A single eviction batch may run against the Start-time ceiling if this
-// loses the race with the next open — bounded imprecision, not incorrectness.
+// The Start-time ceiling is the previous generation's estimate and can err in
+// either direction; a single eviction batch may run against it if this loses
+// the race with the next open. index_family_within_budget on the completion
+// record surfaces whether the configured budget held.
 func (d *Database) recordSearchProjectionCapacityRederivation(ctx context.Context, db *sql.DB, generationID string, now time.Time) {
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.measureTimeout()+searchProjectionEvidenceWriteTimeout)
 	defer cancel()
@@ -1181,7 +1258,7 @@ func (d *Database) recordSearchProjectionCapacityRederivation(ctx context.Contex
 			"non_recent_family_bytes", derivation.NonRecentBytes,
 		)
 	}
-	if _, err := db.ExecContext(recordCtx, `
+	result, err := db.ExecContext(recordCtx, `
 		UPDATE search_projection_state
 		   SET recent_source_ceiling_bytes = ?,
 		       recent_amplification_ppm = ?,
@@ -1193,10 +1270,25 @@ func (d *Database) recordSearchProjectionCapacityRederivation(ctx context.Contex
 		derivation.SourceCeiling, derivation.AmplificationPPM, derivation.NonRecentBytes,
 		derivation.Evidence.Status, derivation.Evidence.Reason,
 		formatTimestamp(now), generationID,
-	); err != nil {
+	)
+	if err != nil {
 		slog.Warn("search projection capacity re-derivation not recorded; Start-time ceiling remains",
 			"generation_id", generationID,
 			"reason", truncateEvidenceReason(err.Error()),
+		)
+		return
+	}
+	// A concurrent worker advancing the phase makes the fenced UPDATE a
+	// silent no-op; surface that so operators are not left thinking the
+	// re-measure landed.
+	if n, rowErr := result.RowsAffected(); rowErr != nil || n == 0 {
+		reason := "fenced update matched no row"
+		if rowErr != nil {
+			reason = truncateEvidenceReason(rowErr.Error())
+		}
+		slog.Warn("search projection capacity re-derivation not recorded; Start-time ceiling remains",
+			"generation_id", generationID,
+			"reason", reason,
 		)
 	}
 }
@@ -1217,6 +1309,10 @@ const (
 // and is routinely near expiry by the time a generation completes; a write that
 // inherited it would fail exactly when the walk was slow enough to matter,
 // leaving an unrecorded figure sitting at zero.
+//
+// Limitation (v0.34 follow-up): there is no corrective path when a completed
+// generation is recorded over budget (index_family_within_budget=0); the next
+// CatchUp returns already_complete and never corrects it.
 func (d *Database) recordSearchProjectionCutoverEvidence(ctx context.Context, db *sql.DB, generationID string, now time.Time) {
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.measureTimeout()+searchProjectionEvidenceWriteTimeout)
 	defer cancel()

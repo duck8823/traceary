@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,9 +89,22 @@ func driveToCompletion(t *testing.T, store *Database, b apptypes.SearchProjectio
 	t.Fatal("generation did not complete")
 }
 
+// searchProjectionScopedTblNames is the explicit generation-scoped tbl_name set
+// mirrored from measure_search_projection_family_split.sql. Kept as a test
+// fixture so mutating the production set to include a shared table is a red
+// that this exhaustiveness check catches.
+var searchProjectionScopedTblNames = map[string]struct{}{
+	"search_projection_session_summaries":  {},
+	"search_projection_session_keywords":   {},
+	"search_projection_command_aggregates": {},
+	"literal_search_fingerprints":         {},
+}
+
 // TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide asserts
-// the split against sqlite_schema (not a hand-written name list) and that
-// recent + nonRecent equals the total family figure.
+// the three-way split against sqlite_schema (not a hand-written name list) and
+// that recent + nonRecentScoped + nonRecentShared equals the total family
+// figure. Shared permanently-resident objects and all four scoped tables are
+// named explicitly so a silent reclassification fails.
 func TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide(t *testing.T) {
 	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
 		{"e1", strings.Repeat("alpha beta gamma ", 200), "2026-06-01T12:00:00Z"},
@@ -100,7 +114,7 @@ func TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide(t *testi
 	driveToCompletion(t, store, capacityBudget(64<<20), now)
 
 	ctx := context.Background()
-	recent, nonRecent, evidence := store.measureSearchProjectionFamilySplit(ctx, db)
+	recent, nonRecentScoped, nonRecentShared, evidence := store.measureSearchProjectionFamilySplit(ctx, db)
 	if evidence.Status != searchProjectionEvidenceMeasured {
 		t.Fatalf("evidence=%+v", evidence)
 	}
@@ -108,16 +122,19 @@ func TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide(t *testi
 	if totalEvidence.Status != searchProjectionEvidenceMeasured {
 		t.Fatalf("total evidence=%+v", totalEvidence)
 	}
-	if recent+nonRecent != total {
-		t.Fatalf("recent(%d)+nonRecent(%d)=%d, total=%d", recent, nonRecent, recent+nonRecent, total)
+	if recent+nonRecentScoped+nonRecentShared != total {
+		t.Fatalf("recent(%d)+scoped(%d)+shared(%d)=%d, total=%d",
+			recent, nonRecentScoped, nonRecentShared, recent+nonRecentScoped+nonRecentShared, total)
 	}
 	if recent <= 0 {
 		t.Fatalf("recent bytes = %d, want > 0 (documents+fts+indexes)", recent)
 	}
+	if nonRecentShared <= 0 {
+		t.Fatalf("shared bytes = %d, want > 0 (state/source_sequence/etc.)", nonRecentShared)
+	}
 
-	// Classify every family object from sqlite_schema with the same predicate
-	// the SQL uses (name/tbl_name GLOB, no name-contains index clause) and
-	// require every object is classified and recent+nonRecent exhausts total.
+	// Classify every family object from sqlite_schema with the same predicates
+	// the SQL uses and require every object is classified into exactly one bucket.
 	rows, err := db.QueryContext(ctx, `
 		SELECT name, type, tbl_name FROM sqlite_schema
 		 WHERE name GLOB 'search_projection_*' OR tbl_name GLOB 'search_projection_*'
@@ -127,7 +144,7 @@ func TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide(t *testi
 		t.Fatal(err)
 	}
 	defer func() { _ = rows.Close() }()
-	var recentNames, nonRecentNames, allNames []string
+	var recentNames, scopedNames, sharedNames, allNames []string
 	for rows.Next() {
 		var name, typ, tbl string
 		if err = rows.Scan(&name, &typ, &tbl); err != nil {
@@ -135,14 +152,16 @@ func TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide(t *testi
 		}
 		_ = typ // classification is name/tbl_name only; type is not a branch.
 		allNames = append(allNames, name)
-		// Mirrors measure_search_projection_family_split.sql after the
-		// unreachable name-contains index clause was removed.
 		isRecent := strings.HasPrefix(name, "search_projection_recent") ||
 			strings.HasPrefix(tbl, "search_projection_recent")
-		if isRecent {
+		_, isScoped := searchProjectionScopedTblNames[tbl]
+		switch {
+		case isRecent:
 			recentNames = append(recentNames, name)
-		} else {
-			nonRecentNames = append(nonRecentNames, name)
+		case isScoped:
+			scopedNames = append(scopedNames, name)
+		default:
+			sharedNames = append(sharedNames, name)
 		}
 	}
 	if err = rows.Err(); err != nil {
@@ -151,16 +170,16 @@ func TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide(t *testi
 	if len(allNames) == 0 {
 		t.Fatal("sqlite_schema reported no family objects")
 	}
-	if len(recentNames)+len(nonRecentNames) != len(allNames) {
-		t.Fatalf("classification incomplete: recent=%d nonRecent=%d total=%d names=%v",
-			len(recentNames), len(nonRecentNames), len(allNames), allNames)
+	if len(recentNames)+len(scopedNames)+len(sharedNames) != len(allNames) {
+		t.Fatalf("classification incomplete: recent=%d scoped=%d shared=%d total=%d names=%v",
+			len(recentNames), len(scopedNames), len(sharedNames), len(allNames), allNames)
 	}
 	// The Go mirror must agree with the SQL object-for-object, not merely be
 	// complementary to it. Without this, dropping the tbl_name clause from the
 	// SQL misclassifies every index and FTS shadow table onto the non-recent
 	// side — inflating the reserve and shrinking the ceiling — and the
-	// recent+nonRecent==total assertion above still passes.
-	var mirrorRecent int64
+	// recent+scoped+shared==total assertion above still passes.
+	var mirrorRecent, mirrorScoped, mirrorShared int64
 	for _, name := range recentNames {
 		var pages int64
 		if err = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name = ?`, name).Scan(&pages); err != nil {
@@ -168,19 +187,39 @@ func TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide(t *testi
 		}
 		mirrorRecent += pages
 	}
+	for _, name := range scopedNames {
+		var pages int64
+		if err = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name = ?`, name).Scan(&pages); err != nil {
+			t.Fatal(err)
+		}
+		mirrorScoped += pages
+	}
+	for _, name := range sharedNames {
+		var pages int64
+		if err = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name = ?`, name).Scan(&pages); err != nil {
+			t.Fatal(err)
+		}
+		mirrorShared += pages
+	}
 	if mirrorRecent != recent {
 		t.Fatalf("SQL recent=%d, mirror over %v = %d; classification predicates diverged", recent, recentNames, mirrorRecent)
 	}
+	if mirrorScoped != nonRecentScoped {
+		t.Fatalf("SQL scoped=%d, mirror over %v = %d; scoped set diverged", nonRecentScoped, scopedNames, mirrorScoped)
+	}
+	if mirrorShared != nonRecentShared {
+		t.Fatalf("SQL shared=%d, mirror over %v = %d; shared set diverged", nonRecentShared, sharedNames, mirrorShared)
+	}
 	// Must include the documents table, FTS virtual table, and the eviction index
 	// via tbl_name/name prefix alone (proves the removed clause is unnecessary).
-	joined := strings.Join(recentNames, ",")
+	joinedRecent := strings.Join(recentNames, ",")
 	for _, must := range []string{
 		"search_projection_recent_documents",
 		"search_projection_recent_fts",
 		"idx_search_projection_recent_eviction",
 	} {
-		if !strings.Contains(joined, must) {
-			t.Fatalf("recent side missing %q; recent=%v nonRecent=%v", must, recentNames, nonRecentNames)
+		if !strings.Contains(joinedRecent, must) {
+			t.Fatalf("recent side missing %q; recent=%v scoped=%v shared=%v", must, recentNames, scopedNames, sharedNames)
 		}
 	}
 	// Session tier must not be classified as recent.
@@ -189,6 +228,28 @@ func TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide(t *testi
 			t.Fatalf("session tier object %q classified as recent", name)
 		}
 	}
+	// Permanent shared objects — by name, not by exclusion — must land in shared.
+	// search_projection_source_sequence and its UNIQUE index grow forever and
+	// must never be discounted by a generation ratio.
+	joinedShared := strings.Join(sharedNames, ",")
+	if !strings.Contains(joinedShared, "search_projection_source_sequence") {
+		t.Fatalf("shared missing search_projection_source_sequence; shared=%v scoped=%v", sharedNames, scopedNames)
+	}
+	// All four generation-scoped tables land in scoped (tbl_name match).
+	joinedScoped := strings.Join(scopedNames, ",")
+	for _, must := range []string{
+		"search_projection_session_summaries",
+		"search_projection_session_keywords",
+		"search_projection_command_aggregates",
+		"literal_search_fingerprints",
+	} {
+		if !strings.Contains(joinedScoped, must) {
+			t.Fatalf("scoped missing %q; scoped=%v shared=%v", must, scopedNames, sharedNames)
+		}
+	}
+	// Red when the production scoped set is mutated to include a shared table:
+	// source_sequence would appear in scopedNames and fail the shared-by-name
+	// assertion above (and the mirrorScoped/SQL comparison).
 }
 
 // TestSearchProjectionEvictionHonoursPersistedCeiling pins that eviction reads
@@ -342,6 +403,61 @@ func TestSearchProjectionCutoffPrefilterBoundsInsertion(t *testing.T) {
 	}
 	if inserted == 0 {
 		t.Fatal("inserted 0 rows; prefilter over-restricted")
+	}
+}
+
+// TestSearchProjectionCutoffSurvivesThinkingHeavyEnvelopes pins the slack
+// factor. The prefilter counts body_plaintext_bytes — the whole stored
+// envelope — while ExtractPlainBody keeps only text blocks, so a newer
+// thinking-only envelope contributes its full size to the running sum and
+// nothing at all to the projection. Without slack it alone pushes the walk
+// past the ceiling and every older text event is excluded irreversibly:
+// eviction cannot re-project what the source phase never inserted.
+func TestSearchProjectionCutoffSurvivesThinkingHeavyEnvelopes(t *testing.T) {
+	// ~513 KiB of reasoning that projects to nothing, on top of ~6 KiB of text.
+	thinking, err := apptypes.MarshalEventBodyBlocks([]apptypes.EventBodyBlock{
+		{Type: apptypes.EventBodyBlockTypeThinking, Text: strings.Repeat("internal reasoning ", 27000)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := []struct{ id, body, created string }{
+		{"text-1", strings.Repeat("visible corpus text ", 100), "2026-05-01T10:00:00Z"},
+		{"text-2", strings.Repeat("visible corpus text ", 100), "2026-05-01T11:00:00Z"},
+		{"text-3", strings.Repeat("visible corpus text ", 100), "2026-05-01T12:00:00Z"},
+		// Newest, and far larger than the whole visible corpus, but projects to "".
+		{"thinking-only", thinking, "2026-05-01T13:00:00Z"},
+	}
+	store, db := newCapacityTestStore(t, events)
+	now := time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
+	// A 512 KiB budget derives a source ceiling near 220 KiB under the 2.16x
+	// fallback: comfortably above the 6 KiB of visible text, and below the
+	// thinking envelope the prefilter counts. Slack is what closes that gap.
+	b := capacityBudget(512 << 10)
+	b.Rows = 64
+	ctx := context.Background()
+	if _, err = store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 200; i++ {
+		p, resumeErr := resumeProjection(ctx, store, b, now)
+		if resumeErr != nil {
+			t.Fatal(resumeErr)
+		}
+		var phase string
+		_ = db.QueryRow(`SELECT phase FROM search_projection_state`).Scan(&phase)
+		if phase != "source" || p.Completed {
+			break
+		}
+	}
+	var visible int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM search_projection_recent_documents WHERE event_id LIKE 'text-%'`).Scan(&visible); err != nil {
+		t.Fatal(err)
+	}
+	if visible == 0 {
+		var cutoff string
+		_ = db.QueryRow(`SELECT recent_cutoff_norm FROM search_projection_state`).Scan(&cutoff)
+		t.Fatalf("0 visible text documents projected (cutoff=%q); a thinking-only envelope excluded the whole visible corpus", cutoff)
 	}
 }
 
@@ -555,10 +671,51 @@ func TestSearchProjectionZeroCeilingEmptiesRecentTier(t *testing.T) {
 	}
 }
 
+// TestMulDivOverflowSafe pins the exact overflow-safe helper used by reserve
+// and ceiling arithmetic. The wrapping case (4 GiB * 3 GiB) overflows int64
+// when multiply-first; mulDiv must not.
+func TestMulDivOverflowSafe(t *testing.T) {
+	const gib int64 = 1 << 30
+	tests := []struct {
+		name    string
+		a, b, c int64
+		want    int64
+	}{
+		{name: "simple", a: 10, b: 20, c: 5, want: 40},
+		{name: "floor division", a: 10, b: 3, c: 4, want: 7},
+		{name: "zero numerator", a: 0, b: 99, c: 3, want: 0},
+		{name: "zero divisor", a: 10, b: 10, c: 0, want: 0},
+		{name: "negative inputs clamped", a: -4, b: 10, c: 2, want: 0},
+		{name: "negative product factor clamped", a: 10, b: -3, c: 2, want: 0},
+		// 4 GiB * 3 GiB overflows int64 (product ~1.38e19 > MaxInt64 ~9.22e18).
+		// Divide by 4 GiB → expect 3 GiB.
+		{name: "wraps int64 multiply-first (4GiB*3GiB/4GiB)", a: 4 * gib, b: 3 * gib, c: 4 * gib, want: 3 * gib},
+		// Same product, divide by 1 → saturates (hi >= c when c=1 and product needs 2 limbs).
+		{name: "saturates when quotient exceeds 64 bits", a: math.MaxInt64, b: math.MaxInt64, c: 1, want: math.MaxInt64},
+		{name: "amplification-style ppm", a: 2_160_000, b: 1_000_000, c: 1_000_000, want: 2_160_000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mulDiv(tt.a, tt.b, tt.c)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Fatalf("mulDiv(%d,%d,%d) mismatch (-want +got):\n%s", tt.a, tt.b, tt.c, diff)
+			}
+			// The wrapping case must differ from the overflowing expression.
+			if tt.name == "wraps int64 multiply-first (4GiB*3GiB/4GiB)" {
+				//nolint:gosec // intentional overflow demonstration
+				overflowed := tt.a * tt.b / tt.c
+				if overflowed == got {
+					t.Fatalf("overflowing expression accidentally equals mulDiv (%d); test is not discriminating", got)
+				}
+			}
+		})
+	}
+}
+
 // TestSearchProjectionReserveScopedToSurvivingGeneration pins that the
-// non-recent reserve is apportioned by logical share of the target generation,
-// not the full dbstat non-recent figure (which holds both generations during
-// a rebuild).
+// non-recent reserve is shared-in-full plus scoped pages apportioned by
+// logical share of the target generation — not the full dbstat non-recent
+// figure (which holds both generations' scoped pages during a rebuild).
 func TestSearchProjectionReserveScopedToSurvivingGeneration(t *testing.T) {
 	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
 		{"e1", "scoped reserve body", "2026-06-01T12:00:00Z"},
@@ -589,26 +746,29 @@ func TestSearchProjectionReserveScopedToSurvivingGeneration(t *testing.T) {
 	if logicalAll <= logicalActive {
 		t.Fatalf("logicalAll=%d logicalActive=%d; other-gen seed did not inflate the family", logicalAll, logicalActive)
 	}
-	// raw physical non-recent from the split
-	_, nonRecentPhysical, evidence := store.measureSearchProjectionFamilySplit(ctx, db)
+	_, nonRecentScoped, nonRecentShared, evidence := store.measureSearchProjectionFamilySplit(ctx, db)
 	if evidence.Status != searchProjectionEvidenceMeasured {
 		t.Fatalf("split evidence=%+v", evidence)
 	}
-	if nonRecentPhysical <= 0 {
-		t.Fatalf("nonRecentPhysical=%d, want > 0", nonRecentPhysical)
+	if nonRecentScoped <= 0 {
+		t.Fatalf("nonRecentScoped=%d, want > 0", nonRecentScoped)
 	}
-	scoped := store.scopedNonRecentReserve(ctx, db, nonRecentPhysical, activeID)
-	if scoped >= nonRecentPhysical {
-		// Share of active should be strictly less once the other gen exists.
-		if logicalActive < logicalAll && scoped == nonRecentPhysical {
-			t.Fatalf("scoped reserve %d == full physical %d despite logicalActive=%d < logicalAll=%d",
-				scoped, nonRecentPhysical, logicalActive, logicalAll)
-		}
+	if nonRecentShared <= 0 {
+		t.Fatalf("nonRecentShared=%d, want > 0 (permanent state objects)", nonRecentShared)
 	}
-	// Expected arithmetic.
-	want := nonRecentPhysical * logicalActive / logicalAll
-	if scoped != want {
-		t.Fatalf("scoped=%d, want %d (physical=%d * %d / %d)", scoped, want, nonRecentPhysical, logicalActive, logicalAll)
+	got := store.scopedNonRecentReserve(ctx, db, nonRecentScoped, nonRecentShared, activeID)
+	// Shared is never discounted; only scoped is apportioned via mulDiv.
+	want := nonRecentShared + mulDiv(nonRecentScoped, logicalActive, logicalAll)
+	if got != want {
+		t.Fatalf("reserve=%d, want %d (shared=%d + mulDiv(scoped=%d, %d, %d))",
+			got, want, nonRecentShared, nonRecentScoped, logicalActive, logicalAll)
+	}
+	// Apportioned reserve must be strictly less than full scoped+shared once
+	// the other generation exists and owns a positive logical share.
+	full := nonRecentShared + nonRecentScoped
+	if logicalActive < logicalAll && got >= full {
+		t.Fatalf("reserve %d == full non-recent %d despite logicalActive=%d < logicalAll=%d",
+			got, full, logicalActive, logicalAll)
 	}
 }
 
