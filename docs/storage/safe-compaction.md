@@ -16,9 +16,15 @@ traceary store compact status RUN_ID --db-path /path/to/traceary.db
 `plan` is non-destructive. `apply` uses `VACUUM INTO` beside the source,
 fsyncs and verifies both SQLite files through the same compatibility policy,
 then performs an atomic same-filesystem exchange. The original inode is kept as
-a rollback artifact. A source with `-wal`, `-shm`, or `-journal` sidecars, an
-active search-maintenance transition, insufficient free space, changed file
-identity, or an unsupported atomic-exchange platform fails closed.
+a rollback artifact. A source with `-wal`, `-shm`, or `-journal` sidecars, a
+still-resident legacy search index family, insufficient free space, changed
+file identity, or an unsupported atomic-exchange platform fails closed.
+
+The legacy search index check runs before the source digest, so it fails in
+seconds rather than after hashing a multi-GiB store. Compacting first would
+copy the dead index into the new file and bake it in, so run
+`traceary store search-retire` first — see
+[`search-retirement.md`](../operations/search-retirement.md).
 
 The plan reports `lease_capability`. On Darwin and Linux, every normal physical
 SQLite connection holds a shared advisory lock on the stable adjacent

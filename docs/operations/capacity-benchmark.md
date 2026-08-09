@@ -40,20 +40,4 @@ Each case is bounded by `--case-timeout` (default `2m`, minimum `1ms`). Plans ar
 
 A completed `search` case includes privacy-safe aggregate `matched_rows`. Zero is valid; no body, query value, or identifier is emitted.
 
-## Exhaustive legacy/tiered search parity
-
-The additive parity mode proves membership-set equality only after exhausting every legacy offset page and every authenticated tiered continuation. It does not change legacy search authority. Supply private criteria as JSON on stdin, or in a regular file whose permissions are exactly `0600`:
-
-```sh
-cat /private/tmp/private-parity-manifest.json | \
-  go run ./cmd/store-benchmark --search-parity-manifest - > /private/tmp/search-parity.json
-go run ./cmd/store-benchmark --validate-search-parity /private/tmp/search-parity.json
-```
-
-Required manifest fields are `db_path`, `query`, `legacy_page_size`, `tiered_page_size`, `source_rows`, `stored_bytes`, `decoded_bytes`, `timeout_ms`, `expected_revision`, and `expected_dirty`. Optional filters are `workspace`, `session_id`, `client`, `agent`, `kind`, `from`, `to`, and `failures_only`. Set `expected_revision` from `git rev-parse HEAD`; `expected_dirty` is required and must be `false`, and the worktree must be clean. A mismatch fails before store access. Keep the manifest and generated artifact outside the repository so evidence cannot make its own dirty-state assertion self-referential.
-
-Output uses `traceary.tiered-search-parity/v1` and `comparison_contract: membership_set/v1`. It contains only revision/dirty state, membership and duplicate counts, page and continuation counts, projection revision/high-water, latency or right-censored elapsed lower bounds, budgets, and aggregate logical/physical bytes. Queries, identifiers, paths, cursors, continuations, and raw error text are never emitted. Failures use fixed error classes. Status precedence is `failed > timeout > mismatch > passed`.
-
-The validator rejects unknown or privacy-forbidden fields, trailing JSON, inconsistent metrics, and unknown error classes. A timeout is diagnostic right-censored evidence, not parity proof. Only `passed` proves that both chains completed without duplicates and their final membership sets were equal.
-
-Artifact keys are an exact, case-sensitive allowlist. Diagnostic values are fixed enums: `query_class` is `fingerprint_eligible` or `bounded_verification`; `observed_tier` is `historical_fingerprint` or `bounded_verification`; `coverage.complete` is a boolean; and `partial_reason` is empty for complete coverage, otherwise one of `source_rows`, `stored_bytes`, `decoded_bytes`, `verified_hydration_bytes`, or `result_limit`. A fingerprint-eligible query may fall back to bounded verification, while a bounded-verification query cannot claim the fingerprint tier.
+The exhaustive legacy/tiered search parity mode is gone as of v0.34. It compared the full-corpus migration-032 index against the bounded projection; that index is retired, so there is nothing left to compare against. See [search retirement](search-retirement.md).
