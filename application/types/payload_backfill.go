@@ -3,7 +3,10 @@ package types
 // PayloadBackfillRecipeVersion is the batch semantics identifier stored on
 // every run. Resume refuses a checkpoint whose version differs so a newer
 // binary cannot skip a prefix written under different rules.
-const PayloadBackfillRecipeVersion = "events-body-zstd-v1"
+//
+// v1 rewrote only events.body. v2 adds command_audits.{command,input,output}_text
+// through the same rowid high-water / cursor / fixpoint protocol.
+const PayloadBackfillRecipeVersion = "events-body-command-audits-zstd-v2"
 
 // PayloadBackfillState is the persisted live-store backfill workflow state.
 type PayloadBackfillState string
@@ -47,13 +50,16 @@ func (c PayloadBackfillConfig) Valid() bool {
 
 // PayloadBackfillResult is sanitized aggregate evidence for CLI/JSON output.
 type PayloadBackfillResult struct {
-	RunID               string `json:"run_id,omitempty"`
-	State               string `json:"state"`
-	RecipeVersion       string `json:"recipe_version,omitempty"`
-	HighWaterRowID      int64  `json:"high_water_rowid,omitempty"`
-	CursorRowID         int64  `json:"cursor_rowid,omitempty"`
-	PassCount           int64  `json:"pass_count,omitempty"`
-	EligibleRows        int64  `json:"eligible_rows,omitempty"`
+	RunID          string `json:"run_id,omitempty"`
+	State          string `json:"state"`
+	RecipeVersion  string `json:"recipe_version,omitempty"`
+	HighWaterRowID int64  `json:"high_water_rowid,omitempty"`
+	CursorRowID    int64  `json:"cursor_rowid,omitempty"`
+	PassCount      int64  `json:"pass_count,omitempty"`
+	EligibleRows   int64  `json:"eligible_rows,omitempty"`
+	// ScannedRows counts lane candidates examined (one events.body or one
+	// command_audits text field), not physical table rows. An audit row with
+	// three eligible fields contributes 3. The JSON field name is frozen.
 	ScannedRows         int64  `json:"scanned_rows"`
 	EncodedRows         int64  `json:"encoded_rows"`
 	IdentityKeptRows    int64  `json:"identity_kept_rows"`

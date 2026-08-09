@@ -1,6 +1,8 @@
 -- Commands whose events fall inside an orphan range under canonical order.
 -- Bind order: session_id, from_event_id (empty-check + exclusive lower), to_event_id.
-SELECT a.command_text
+-- Select event_id only: command_text is codec-managed and must be decoded
+-- through hydrateAuditPayload, never read as a SQL string.
+SELECT a.event_id
   FROM command_audits AS a
   JOIN events AS e ON e.id = a.event_id
  WHERE e.session_id = ?

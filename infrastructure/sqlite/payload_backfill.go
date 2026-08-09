@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -52,7 +54,8 @@ const payloadCodecCompatibilityCounterMode = "counter"
 // take the store lease give up rather than hang.
 const payloadBackfillCheckpointTimeout = 10 * time.Second
 
-// PayloadBackfillDatasource rewrites events.body in place through the codec.
+// PayloadBackfillDatasource rewrites payload text columns in place through the
+// codec: events.body and command_audits.{command_text,input_text,output_text}.
 type PayloadBackfillDatasource struct {
 	db *Database
 	// onBeforeCommitBatch is a test hook that fires after a batch is selected
@@ -61,6 +64,11 @@ type PayloadBackfillDatasource struct {
 	// onAfterCommitBatch is a test hook that fires after a batch commits and
 	// before the loop re-checks cancellation. Production leaves it nil.
 	onAfterCommitBatch func(batchCount int64)
+	// onSelectedBatch is a test-only seam that can rewrite the selector result
+	// before the execute loop sees it. Production leaves it nil. Used to force
+	// an empty batch while eligible work remains, exercising the fail-safe that
+	// refuses completed in that case — without duplicating the candidate SQL.
+	onSelectedBatch func(batch []backfillCandidate) []backfillCandidate
 }
 
 // NewPayloadBackfillDatasource binds the live store path.
@@ -71,9 +79,14 @@ func NewPayloadBackfillDatasource(db *Database) *PayloadBackfillDatasource {
 var _ application.PayloadBackfill = (*PayloadBackfillDatasource)(nil)
 
 type backfillRunRow struct {
-	RunID               string
-	RecipeVersion       string
-	HighWaterRowID      int64
+	RunID         string
+	RecipeVersion string
+	// HighWaterRowID is the inclusive events.rowid ceiling fixed at run start.
+	HighWaterRowID int64
+	// AuditHighWaterRowID is the inclusive command_audits.rowid ceiling fixed
+	// at run start. The two tables use independent rowid sequences, so a shared
+	// max would let later inserts into the lagging table land below the ceiling.
+	AuditHighWaterRowID int64
 	CursorRowID         int64
 	PassCount           int64
 	State               apptypes.PayloadBackfillState
@@ -93,9 +106,29 @@ type backfillRunRow struct {
 	FailureReason       sql.NullString
 }
 
+// backfillLane is one (table, field) unit the recipe rewrites. Order is the
+// stable walk order within a shared rowid: body, then the three audit texts.
+type backfillLane struct {
+	Table       string
+	Field       string // logical field name used in errors and result naming
+	Column      string // physical TEXT/BLOB column
+	CodecPrefix string // prefix of the five codec metadata columns
+	PKColumn    string // human-facing row key column (id / event_id)
+	Ord         int    // stable order within a rowid
+}
+
+// backfillLanes is the full recipe. Preview/run/resume all walk this list.
+var backfillLanes = []backfillLane{
+	{Table: "events", Field: "body", Column: "body", CodecPrefix: "body", PKColumn: "id", Ord: 0},
+	{Table: "command_audits", Field: "command", Column: "command_text", CodecPrefix: "command", PKColumn: "event_id", Ord: 1},
+	{Table: "command_audits", Field: "input", Column: "input_text", CodecPrefix: "input", PKColumn: "event_id", Ord: 2},
+	{Table: "command_audits", Field: "output", Column: "output_text", CodecPrefix: "output", PKColumn: "event_id", Ord: 3},
+}
+
 type backfillCandidate struct {
+	Lane      backfillLane
 	RowID     int64
-	EventID   string
+	EventID   string // events.id or command_audits.event_id — failure naming
 	Stored    []byte
 	SourceSHA string
 	Row       payloadRow
@@ -133,18 +166,18 @@ func (d *PayloadBackfillDatasource) Preview(ctx context.Context, c apptypes.Payl
 		return apptypes.PayloadBackfillResult{}, err
 	}
 
-	highWater, err := maxEventRowID(ctx, db)
+	ceilings, err := readBackfillHighWaters(ctx, db)
 	if err != nil {
 		return apptypes.PayloadBackfillResult{}, err
 	}
-	eligible, err := countEligibleBackfillRows(ctx, db, 0, highWater)
+	eligible, err := countEligibleBackfillRows(ctx, db, 0, ceilings)
 	if err != nil {
 		return apptypes.PayloadBackfillResult{}, err
 	}
 	return apptypes.PayloadBackfillResult{
 		State:          "planned",
 		RecipeVersion:  apptypes.PayloadBackfillRecipeVersion,
-		HighWaterRowID: highWater,
+		HighWaterRowID: ceilings.Events,
 		EligibleRows:   eligible,
 		MorePending:    eligible > 0,
 	}, nil
@@ -229,15 +262,38 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 			run.passDirty = false
 		}
 
-		batch, selectErr := selectBackfillBatch(ctx, db, run.CursorRowID, run.HighWaterRowID, c.BatchRows)
+		ceilings := backfillHighWaters{
+			Events: run.HighWaterRowID,
+			Audits: run.AuditHighWaterRowID,
+		}
+		batch, selectErr := d.selectBackfillBatch(ctx, db, run.CursorRowID, ceilings, c.BatchRows)
 		if selectErr != nil {
 			return d.abortRun(ctx, closeCtx, db, run, batchCount, selectErr)
+		}
+		if d.onSelectedBatch != nil {
+			batch = d.onSelectedBatch(batch)
 		}
 		if len(batch) == 0 {
 			// End of a cursor walk. Full identity (incompressible) rows stay
 			// selectable forever, so completion is a walk that rewrites nothing
 			// and skips no conflicts — not "zero eligible rows".
+			//
+			// An empty batch with eligible fields still past the cursor is not
+			// end-of-walk: refuse completed so unwalked work cannot be reported
+			// done. Production selection is a single merged statement; this
+			// branch is a fail-safe for a future selector regression (and is
+			// exercised by the test-only onSelectedBatch seam).
 			if !run.passDirty {
+				remaining, countErr := countEligibleBackfillRows(ctx, db, run.CursorRowID, ceilings)
+				if countErr != nil {
+					return d.abortRun(ctx, closeCtx, db, run, batchCount, countErr)
+				}
+				if remaining > 0 {
+					return d.abortRun(ctx, closeCtx, db, run, batchCount, xerrors.Errorf(
+						"payload backfill selection returned no candidates while %d eligible fields remain past cursor %d",
+						remaining, run.CursorRowID,
+					))
+				}
 				if completeErr := completeBackfillRun(closeCtx, db, run); completeErr != nil {
 					return apptypes.PayloadBackfillResult{}, completeErr
 				}
@@ -248,7 +304,7 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 				return resultFromRun(loaded, batchCount, false), nil
 			}
 			// Conflicts or rewrites this pass: restart from rowid 0 under the
-			// same high-water so skipped rows are not stranded.
+			// same high-waters so skipped rows are not stranded.
 			if resetErr := resetBackfillCursor(closeCtx, db, run); resetErr != nil {
 				return apptypes.PayloadBackfillResult{}, resetErr
 			}
@@ -370,7 +426,7 @@ func prepareBackfillRun(ctx context.Context, db *sql.DB, resume bool) (backfillR
 	if err == nil {
 		return backfillRunHandle{}, ErrPayloadBackfillActiveRun
 	}
-	highWater, err := maxEventRowID(ctx, db)
+	ceilings, err := readBackfillHighWaters(ctx, db)
 	if err != nil {
 		return backfillRunHandle{}, err
 	}
@@ -385,16 +441,18 @@ func prepareBackfillRun(ctx context.Context, db *sql.DB, resume bool) (backfillR
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err = db.ExecContext(ctx, `
 		INSERT INTO payload_backfill_runs(
-			run_id, recipe_version, high_water_rowid, cursor_rowid, pass_count, state,
+			run_id, recipe_version, high_water_rowid, audit_high_water_rowid,
+			cursor_rowid, pass_count, state,
 			worker_token, started_at, updated_at
-		) VALUES (?, ?, ?, 0, 0, 'running', ?, ?, ?)`,
-		runID, apptypes.PayloadBackfillRecipeVersion, highWater, token, now, now,
+		) VALUES (?, ?, ?, ?, 0, 0, 'running', ?, ?, ?)`,
+		runID, apptypes.PayloadBackfillRecipeVersion, ceilings.Events, ceilings.Audits, token, now, now,
 	); err != nil {
 		return backfillRunHandle{}, xerrors.Errorf("insert payload backfill run: %w", err)
 	}
 	return backfillRunHandle{backfillRunRow: backfillRunRow{
 		RunID: runID, RecipeVersion: apptypes.PayloadBackfillRecipeVersion,
-		HighWaterRowID: highWater, State: apptypes.PayloadBackfillRunning,
+		HighWaterRowID: ceilings.Events, AuditHighWaterRowID: ceilings.Audits,
+		State:       apptypes.PayloadBackfillRunning,
 		WorkerToken: token, StartedAt: now, UpdatedAt: now,
 	}}, nil
 }
@@ -409,13 +467,16 @@ func requirePayloadBackfillSchema(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("inspect payload backfill schema: %w", err)
 	}
 	// Name the pre-release shape rather than letting every query fail with
-	// "no such column: worker_token" far from the cause.
-	fenced, err := databaseColumnExists(ctx, db, "payload_backfill_runs", "worker_token")
-	if err != nil {
-		return xerrors.Errorf("inspect payload backfill schema: %w", err)
-	}
-	if !fenced {
-		return ErrPayloadBackfillSchemaOutdated
+	// "no such column: worker_token" / "audit_high_water_rowid" far from the cause.
+	// Migration 054 is unreleased and was edited in place more than once.
+	for _, column := range []string{"worker_token", "audit_high_water_rowid"} {
+		exists, colErr := databaseColumnExists(ctx, db, "payload_backfill_runs", column)
+		if colErr != nil {
+			return xerrors.Errorf("inspect payload backfill schema: %w", colErr)
+		}
+		if !exists {
+			return ErrPayloadBackfillSchemaOutdated
+		}
 	}
 	return nil
 }
@@ -443,80 +504,193 @@ func requirePayloadBackfillCounterMode(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func maxEventRowID(ctx context.Context, db *sql.DB) (int64, error) {
-	var high sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT MAX(rowid) FROM events`).Scan(&high); err != nil {
-		return 0, xerrors.Errorf("read events high-water rowid: %w", err)
-	}
-	if !high.Valid {
-		return 0, nil
-	}
-	return high.Int64, nil
+// backfillHighWaters are the inclusive per-table rowid ceilings fixed at run
+// start. The shared cursor walks both sequences under one number, but each
+// table is bounded by its own ceiling so a later insert into the lagging
+// sequence cannot land below a shared max.
+type backfillHighWaters struct {
+	Events int64
+	Audits int64
 }
 
-// eligibleBackfillPredicate selects rows the recipe may still rewrite. Full
+// readBackfillHighWaters measures the ceilings for a new run. Resume must read
+// the checkpointed values instead — recomputing would move the boundary.
+func readBackfillHighWaters(ctx context.Context, db *sql.DB) (backfillHighWaters, error) {
+	var eventHigh, auditHigh sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT MAX(rowid) FROM events`).Scan(&eventHigh); err != nil {
+		return backfillHighWaters{}, xerrors.Errorf("read events high-water rowid: %w", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT MAX(rowid) FROM command_audits`).Scan(&auditHigh); err != nil {
+		return backfillHighWaters{}, xerrors.Errorf("read command_audits high-water rowid: %w", err)
+	}
+	var ceilings backfillHighWaters
+	if eventHigh.Valid {
+		ceilings.Events = eventHigh.Int64
+	}
+	if auditHigh.Valid {
+		ceilings.Audits = auditHigh.Int64
+	}
+	return ceilings, nil
+}
+
+// eligibleLanePredicate selects field values the recipe may still rewrite. Full
 // identity rows remain selected so a multi-hour run compresses post-v0.34
 // writes; the fixpoint loop terminates when a full pass rewrites nothing and
 // skips no conflicts (incompressible identity is a no-op rewrite).
 //
-// The second arm selects rows whose five codec columns are neither all-NULL
-// nor all-present, whatever the codec says. Such a row is unreadable, and the
-// run is specified to fail closed on it; selecting only identity rows would let
-// a corrupt zstd row pass a whole walk uninspected and report completed.
-const eligibleBackfillPredicate = `(
-		   (body_codec IS NULL OR body_codec = 'identity')
-		OR (  (body_codec IS NOT NULL)
-		    + (body_format_version IS NOT NULL)
-		    + (body_plaintext_bytes IS NOT NULL)
-		    + (body_encoded_bytes IS NOT NULL)
-		    + (body_sha256 IS NOT NULL)) NOT IN (0, 5)
+// The second arm selects fields whose five codec columns are neither all-NULL
+// nor all-present, whatever the codec says. Such a field is unreadable, and the
+// run is specified to fail closed on it; selecting only identity fields would
+// let a corrupt zstd field pass a whole walk uninspected and report completed.
+func eligibleLanePredicate(codecPrefix string) string {
+	return `(
+		   (` + codecPrefix + `_codec IS NULL OR ` + codecPrefix + `_codec = 'identity')
+		OR (  (` + codecPrefix + `_codec IS NOT NULL)
+		    + (` + codecPrefix + `_format_version IS NOT NULL)
+		    + (` + codecPrefix + `_plaintext_bytes IS NOT NULL)
+		    + (` + codecPrefix + `_encoded_bytes IS NOT NULL)
+		    + (` + codecPrefix + `_sha256 IS NOT NULL)) NOT IN (0, 5)
 	)`
-
-func countEligibleBackfillRows(ctx context.Context, db *sql.DB, afterRowID, highWater int64) (int64, error) {
-	var n int64
-	if err := db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM events
-		 WHERE rowid > ? AND rowid <= ?
-		   AND `+eligibleBackfillPredicate, afterRowID, highWater).Scan(&n); err != nil {
-		return 0, xerrors.Errorf("count eligible payload backfill rows: %w", err)
-	}
-	return n, nil
 }
 
-func selectBackfillBatch(ctx context.Context, db *sql.DB, afterRowID, highWater int64, limit int) ([]backfillCandidate, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT rowid, id, body,
-		       body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256
-		  FROM events
-		 WHERE rowid > ? AND rowid <= ?
-		   AND `+eligibleBackfillPredicate+`
-		 ORDER BY rowid
-		 LIMIT ?`, afterRowID, highWater, limit)
+// anyAuditLaneEligible is the OR of the three command_audits field predicates.
+// Used when collecting distinct rowids so a partial-metadata field is not
+// stranded because another field of the same row already holds zstd.
+func anyAuditLaneEligible() string {
+	return `(` + eligibleLanePredicate("command") +
+		` OR ` + eligibleLanePredicate("input") +
+		` OR ` + eligibleLanePredicate("output") + `)`
+}
+
+func laneHighWater(lane backfillLane, ceilings backfillHighWaters) int64 {
+	if lane.Table == "command_audits" {
+		return ceilings.Audits
+	}
+	return ceilings.Events
+}
+
+func countEligibleBackfillRows(ctx context.Context, db *sql.DB, afterRowID int64, ceilings backfillHighWaters) (int64, error) {
+	var total int64
+	for _, lane := range backfillLanes {
+		var n int64
+		if err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM `+lane.Table+`
+			 WHERE rowid > ? AND rowid <= ?
+			   AND `+eligibleLanePredicate(lane.CodecPrefix), afterRowID, laneHighWater(lane, ceilings)).Scan(&n); err != nil {
+			return 0, xerrors.Errorf("count eligible payload backfill rows for %s.%s: %w", lane.Table, lane.Field, err)
+		}
+		total += n
+	}
+	return total, nil
+}
+
+// selectBackfillBatch walks both tables under one rowid cursor. BatchRows limits
+// distinct rowids, not field units: every eligible field of a selected rowid is
+// loaded so a LIMIT cut cannot strand command_text while taking body of the
+// same numeric rowid (or vice versa).
+//
+// Pick and expansion are one statement so they share a read snapshot. A split
+// that found rowids then expanded them separately could return an empty batch
+// after every picked row became ineligible, and execute would treat that empty
+// batch as end-of-walk while later eligible rowids remained beyond the cursor.
+// Each expansion arm also bounds by its own table ceiling so an events.rowid
+// cannot pull a same-numbered command_audits row that is above the audit
+// ceiling.
+func (d *PayloadBackfillDatasource) selectBackfillBatch(ctx context.Context, db *sql.DB, afterRowID int64, ceilings backfillHighWaters, limit int) ([]backfillCandidate, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	// Bound parameters:
+	//   ?1 afterRowID (shared cursor)
+	//   ?2 events high-water
+	//   ?3 command_audits high-water
+	//   ?4 batch rowid limit
+	parts := make([]string, 0, len(backfillLanes))
+	for _, lane := range backfillLanes {
+		ceilingParam := "?2"
+		if lane.Table == "command_audits" {
+			ceilingParam = "?3"
+		}
+		parts = append(parts, `
+			SELECT rowid, `+strconv.Itoa(lane.Ord)+` AS lane_ord, `+quoteSQLString(lane.Field)+` AS field,
+			       `+lane.PKColumn+` AS row_key, `+lane.Column+` AS stored,
+			       `+lane.CodecPrefix+`_codec, `+lane.CodecPrefix+`_format_version,
+			       `+lane.CodecPrefix+`_plaintext_bytes, `+lane.CodecPrefix+`_encoded_bytes,
+			       `+lane.CodecPrefix+`_sha256
+			  FROM `+lane.Table+`
+			 WHERE rowid IN (SELECT rowid FROM picked)
+			   AND rowid <= `+ceilingParam+`
+			   AND `+eligibleLanePredicate(lane.CodecPrefix))
+	}
+	query := `
+		WITH picked AS (
+			SELECT rowid FROM (
+				SELECT rowid FROM events
+				 WHERE rowid > ?1 AND rowid <= ?2
+				   AND ` + eligibleLanePredicate("body") + `
+				UNION
+				SELECT rowid FROM command_audits
+				 WHERE rowid > ?1 AND rowid <= ?3
+				   AND ` + anyAuditLaneEligible() + `
+			)
+			 ORDER BY rowid
+			 LIMIT ?4
+		)
+		` + strings.Join(parts, " UNION ALL ") + `
+		 ORDER BY rowid, lane_ord`
+
+	rows, err := db.QueryContext(ctx, query, afterRowID, ceilings.Events, ceilings.Audits, limit)
 	if err != nil {
-		return nil, xerrors.Errorf("select payload backfill batch: %w", err)
+		return nil, xerrors.Errorf("select payload backfill candidates: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	batch := make([]backfillCandidate, 0, limit)
+	return scanBackfillCandidates(rows, limit)
+}
+
+func scanBackfillCandidates(rows *sql.Rows, rowIDHint int) ([]backfillCandidate, error) {
+	batch := make([]backfillCandidate, 0, rowIDHint*len(backfillLanes))
 	for rows.Next() {
-		var c backfillCandidate
-		var body []byte
-		if err = rows.Scan(
-			&c.RowID, &c.EventID, &body,
+		var (
+			c       backfillCandidate
+			laneOrd int
+			field   string
+			stored  []byte
+		)
+		if err := rows.Scan(
+			&c.RowID, &laneOrd, &field, &c.EventID, &stored,
 			&c.Row.Codec, &c.Row.FormatVersion, &c.Row.PlaintextBytes, &c.Row.StoredBytes, &c.Row.SHA256,
 		); err != nil {
-			return nil, xerrors.Errorf("scan payload backfill row: %w", err)
+			return nil, xerrors.Errorf("scan payload backfill candidate: %w", err)
 		}
-		c.Stored = bytes.Clone(body)
+		lane, ok := backfillLaneByOrd(laneOrd)
+		if !ok || lane.Field != field {
+			return nil, xerrors.Errorf("unknown payload backfill lane ord %d field %q", laneOrd, field)
+		}
+		c.Lane = lane
+		c.Stored = bytes.Clone(stored)
 		c.Row.Stored = c.Stored
 		sum := sha256.Sum256(c.Stored)
 		c.SourceSHA = hex.EncodeToString(sum[:])
 		batch = append(batch, c)
 	}
-	if err = rows.Err(); err != nil {
-		return nil, xerrors.Errorf("iterate payload backfill batch: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("iterate payload backfill candidates: %w", err)
 	}
 	return batch, nil
+}
+
+func backfillLaneByOrd(ord int) (backfillLane, bool) {
+	for _, lane := range backfillLanes {
+		if lane.Ord == ord {
+			return lane, true
+		}
+	}
+	return backfillLane{}, false
+}
+
+func quoteSQLString(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle, batch []backfillCandidate) (backfillBatchStats, error) {
@@ -536,7 +710,7 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 			stats.LastCursor = candidate.RowID
 		}
 
-		current, err := reselectBackfillRow(ctx, tx, candidate.RowID)
+		current, err := reselectBackfillCandidate(ctx, tx, candidate)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				stats.Conflicted++
@@ -550,9 +724,9 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 			stats.Conflicted++
 			continue
 		}
-		// Corruption is checked before drift: a row can be both non-identity
+		// Corruption is checked before drift: a field can be both non-identity
 		// and incoherent, and skipping it as a conflict would report a clean
-		// completion over a row no reader can decode.
+		// completion over a field no reader can decode.
 		metaCount := payloadMetadataCount(current.Row)
 		if metaCount != 0 && metaCount != 5 {
 			stats.Partial++
@@ -573,12 +747,12 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 
 		plaintext, err := current.Row.decode(maxDecodedPayloadBytes)
 		if err != nil {
-			return stats, xerrors.Errorf("decode event %s for payload backfill: %w", current.EventID, err)
+			return stats, xerrors.Errorf("decode %s %s for payload backfill: %w", current.EventID, current.Lane.Field, err)
 		}
 
 		encoded, err := encodePayload(plaintext, payloadCodecZstd)
 		if err != nil {
-			return stats, xerrors.Errorf("encode event %s for payload backfill: %w", current.EventID, err)
+			return stats, xerrors.Errorf("encode %s %s for payload backfill: %w", current.EventID, current.Lane.Field, err)
 		}
 
 		// Recipe: shrink → zstd; otherwise keep identity with full metadata.
@@ -586,37 +760,36 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 		if encoded.StoredBytes >= encoded.PlaintextBytes {
 			identity, idErr := encodePayload(plaintext, payloadCodecIdentity)
 			if idErr != nil {
-				return stats, xerrors.Errorf("encode identity event %s for payload backfill: %w", current.EventID, idErr)
+				return stats, xerrors.Errorf("encode identity %s %s for payload backfill: %w", current.EventID, current.Lane.Field, idErr)
 			}
 			target = identity
 		}
 
-		// No-op when the row already carries identical codec metadata and body.
+		// No-op when the field already carries identical codec metadata and bytes.
 		if backfillRowAlreadyMatches(current.Row, target) {
 			continue
 		}
 
 		// Affinity is part of the stored representation, not an encoding
-		// detail. zstd bytes must be a BLOB; an identity body must stay TEXT
-		// because every other identity writer (event delivery, retention
-		// restore) binds string(...) and because migration 053 still re-derives
-		// legacy_source_hook from an identity body, where LIKE only matches
-		// TEXT. Rewriting an incompressible legacy row as a BLOB would silently
-		// drop it from --source-hook.
+		// detail. zstd bytes must be a BLOB; an identity value must stay TEXT
+		// because every other identity writer binds string(...) and because
+		// migration 053 still re-derives legacy_source_hook from an identity
+		// body, where LIKE only matches TEXT. Rewriting an incompressible
+		// legacy row as a BLOB would silently drop it from --source-hook.
 		if _, err = tx.ExecContext(ctx, `
-			UPDATE events
-			   SET body = ?,
-			       body_codec = ?,
-			       body_format_version = ?,
-			       body_plaintext_bytes = ?,
-			       body_encoded_bytes = ?,
-			       body_sha256 = ?
+			UPDATE `+current.Lane.Table+`
+			   SET `+current.Lane.Column+` = ?,
+			       `+current.Lane.CodecPrefix+`_codec = ?,
+			       `+current.Lane.CodecPrefix+`_format_version = ?,
+			       `+current.Lane.CodecPrefix+`_plaintext_bytes = ?,
+			       `+current.Lane.CodecPrefix+`_encoded_bytes = ?,
+			       `+current.Lane.CodecPrefix+`_sha256 = ?
 			 WHERE rowid = ?`,
 			storedBodyArg(target), target.Codec, target.FormatVersion,
 			target.PlaintextBytes, target.StoredBytes, target.SHA256,
 			current.RowID,
 		); err != nil {
-			return stats, xerrors.Errorf("rewrite event %s body: %w", current.EventID, err)
+			return stats, xerrors.Errorf("rewrite %s %s: %w", current.EventID, current.Lane.Field, err)
 		}
 		stats.Rewritten++
 		stats.PlaintextBytes += target.PlaintextBytes
@@ -675,21 +848,25 @@ func storedBodyArg(payload encodedPayload) any {
 	return payload.Bytes
 }
 
-func reselectBackfillRow(ctx context.Context, tx *sql.Tx, rowID int64) (backfillCandidate, error) {
+func reselectBackfillCandidate(ctx context.Context, tx *sql.Tx, candidate backfillCandidate) (backfillCandidate, error) {
+	lane := candidate.Lane
 	var c backfillCandidate
-	var body []byte
+	var stored []byte
 	err := tx.QueryRowContext(ctx, `
-		SELECT rowid, id, body,
-		       body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256
-		  FROM events
-		 WHERE rowid = ?`, rowID).Scan(
-		&c.RowID, &c.EventID, &body,
+		SELECT rowid, `+lane.PKColumn+`, `+lane.Column+`,
+		       `+lane.CodecPrefix+`_codec, `+lane.CodecPrefix+`_format_version,
+		       `+lane.CodecPrefix+`_plaintext_bytes, `+lane.CodecPrefix+`_encoded_bytes,
+		       `+lane.CodecPrefix+`_sha256
+		  FROM `+lane.Table+`
+		 WHERE rowid = ?`, candidate.RowID).Scan(
+		&c.RowID, &c.EventID, &stored,
 		&c.Row.Codec, &c.Row.FormatVersion, &c.Row.PlaintextBytes, &c.Row.StoredBytes, &c.Row.SHA256,
 	)
 	if err != nil {
-		return backfillCandidate{}, xerrors.Errorf("reselect payload backfill row %d: %w", rowID, err)
+		return backfillCandidate{}, xerrors.Errorf("reselect payload backfill %s rowid %d: %w", lane.Field, candidate.RowID, err)
 	}
-	c.Stored = bytes.Clone(body)
+	c.Lane = lane
+	c.Stored = bytes.Clone(stored)
 	c.Row.Stored = c.Stored
 	return c, nil
 }
@@ -728,7 +905,8 @@ func backfillRowAlreadyMatches(r payloadRow, target encodedPayload) bool {
 
 func loadActiveBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, error) {
 	return scanBackfillRun(db.QueryRowContext(ctx, `
-		SELECT run_id, recipe_version, high_water_rowid, cursor_rowid, pass_count, state,
+		SELECT run_id, recipe_version, high_water_rowid, audit_high_water_rowid,
+		       cursor_rowid, pass_count, state,
 		       worker_token, started_at, updated_at, completed_at,
 		       scanned_rows, encoded_rows, identity_kept_rows, conflicted_rows,
 		       partial_metadata_rows, rewritten_rows, plaintext_bytes, stored_bytes,
@@ -741,7 +919,8 @@ func loadActiveBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, err
 
 func loadLatestBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, error) {
 	return scanBackfillRun(db.QueryRowContext(ctx, `
-		SELECT run_id, recipe_version, high_water_rowid, cursor_rowid, pass_count, state,
+		SELECT run_id, recipe_version, high_water_rowid, audit_high_water_rowid,
+		       cursor_rowid, pass_count, state,
 		       worker_token, started_at, updated_at, completed_at,
 		       scanned_rows, encoded_rows, identity_kept_rows, conflicted_rows,
 		       partial_metadata_rows, rewritten_rows, plaintext_bytes, stored_bytes,
@@ -753,7 +932,8 @@ func loadLatestBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, err
 
 func loadBackfillRun(ctx context.Context, db *sql.DB, runID string) (backfillRunRow, error) {
 	return scanBackfillRun(db.QueryRowContext(ctx, `
-		SELECT run_id, recipe_version, high_water_rowid, cursor_rowid, pass_count, state,
+		SELECT run_id, recipe_version, high_water_rowid, audit_high_water_rowid,
+		       cursor_rowid, pass_count, state,
 		       worker_token, started_at, updated_at, completed_at,
 		       scanned_rows, encoded_rows, identity_kept_rows, conflicted_rows,
 		       partial_metadata_rows, rewritten_rows, plaintext_bytes, stored_bytes,
@@ -766,7 +946,8 @@ func scanBackfillRun(row *sql.Row) (backfillRunRow, error) {
 	var r backfillRunRow
 	var state string
 	if err := row.Scan(
-		&r.RunID, &r.RecipeVersion, &r.HighWaterRowID, &r.CursorRowID, &r.PassCount, &state,
+		&r.RunID, &r.RecipeVersion, &r.HighWaterRowID, &r.AuditHighWaterRowID,
+		&r.CursorRowID, &r.PassCount, &state,
 		&r.WorkerToken, &r.StartedAt, &r.UpdatedAt, &r.CompletedAt,
 		&r.ScannedRows, &r.EncodedRows, &r.IdentityKeptRows, &r.ConflictedRows,
 		&r.PartialMetadataRows, &r.RewrittenRows, &r.PlaintextBytes, &r.StoredBytes,

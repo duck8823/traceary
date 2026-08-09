@@ -40,7 +40,9 @@ func (d *EventDatasource) ListRecentCommandPreviews(ctx context.Context, session
 		return nil, xerrors.Errorf("failed to open DB for command previews: %w", err)
 	}
 	defer d.db.release(db)
-	rows, err := db.QueryContext(ctx, selectRecentCommandPreviewsQuery, sessionID.String(), sessionID.String(), limit, bodyRuneLimit)
+	// bodyRuneLimit is applied after codec hydration; the SQL no longer binds
+	// a substr length because it does not select command_text at all.
+	rows, err := db.QueryContext(ctx, selectRecentCommandPreviewsQuery, sessionID.String(), sessionID.String(), limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query recent command previews: %w", err)
 	}
@@ -52,13 +54,13 @@ func (d *EventDatasource) ListRecentCommandPreviews(ctx context.Context, session
 
 	previews := make([]apptypes.EventBodyPreview, 0, limit)
 	for rows.Next() {
-		preview, err := scanEventBodyPreview(rows)
+		meta, err := scanCommandPreviewMetadata(rows)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore command preview row: %w", err)
 		}
 		// Prefer the retained command_audits.command_text; fall back to the
 		// legacy composed events.body for pre-#1675 rows.
-		plain, err := loadCommandPreviewPlaintext(ctx, db, preview.EventID().String())
+		plain, err := loadCommandPreviewPlaintext(ctx, db, meta.eventID.String())
 		if err != nil {
 			return nil, xerrors.Errorf("decode command preview: %w", err)
 		}
@@ -66,7 +68,7 @@ func (d *EventDatasource) ListRecentCommandPreviews(ctx context.Context, session
 		if len(runes) > bodyRuneLimit {
 			runes = runes[:bodyRuneLimit]
 		}
-		preview, err = apptypes.EventBodyPreviewOf(preview.EventID(), string(runes), preview.StoredBytes(), preview.OriginalBytes(), preview.IngestTruncated(), preview.StorageTruncated(), preview.CreatedAt())
+		preview, err := apptypes.EventBodyPreviewOf(meta.eventID, string(runes), meta.storedBytes, meta.originalBytes, meta.ingestTruncated, meta.storageTruncated, meta.createdAt)
 		if err != nil {
 			return nil, xerrors.Errorf("rebuild decoded command preview: %w", err)
 		}
@@ -91,37 +93,51 @@ func loadCommandPreviewPlaintext(ctx context.Context, q queryRowContexter, event
 	return loadEventPlaintext(ctx, q, eventID)
 }
 
-func scanEventBodyPreview(row interface{ Scan(...any) error }) (apptypes.EventBodyPreview, error) {
-	var id, body, createdAtValue string
+// commandPreviewMetadata is the non-body columns returned by
+// select_recent_command_previews.sql. The command line is hydrated separately.
+type commandPreviewMetadata struct {
+	eventID          types.EventID
+	storedBytes      int
+	originalBytes    types.Optional[int]
+	ingestTruncated  types.Optional[bool]
+	storageTruncated types.Optional[bool]
+	createdAt        time.Time
+}
+
+func scanCommandPreviewMetadata(row interface{ Scan(...any) error }) (commandPreviewMetadata, error) {
+	var id, createdAtValue string
 	var stored, original sql.NullInt64
 	var ingest, storage sql.NullBool
-	if err := row.Scan(&id, &body, &stored, &original, &ingest, &storage, &createdAtValue); err != nil {
-		return apptypes.EventBodyPreview{}, xerrors.Errorf("failed to scan event body preview: %w", err)
+	if err := row.Scan(&id, &stored, &original, &ingest, &storage, &createdAtValue); err != nil {
+		return commandPreviewMetadata{}, xerrors.Errorf("failed to scan command preview metadata: %w", err)
 	}
 	eventID, err := types.EventIDFrom(id)
 	if err != nil {
-		return apptypes.EventBodyPreview{}, xerrors.Errorf("failed to restore preview event ID: %w", err)
+		return commandPreviewMetadata{}, xerrors.Errorf("failed to restore preview event ID: %w", err)
 	}
 	if !stored.Valid {
-		return apptypes.EventBodyPreview{}, xerrors.Errorf("stored body bytes are missing for event %s", eventID)
+		return commandPreviewMetadata{}, xerrors.Errorf("stored body bytes are missing for event %s", eventID)
 	}
 	storedBytes, err := checkedInt(stored.Int64, "stored body bytes")
 	if err != nil {
-		return apptypes.EventBodyPreview{}, err
+		return commandPreviewMetadata{}, err
 	}
 	originalBytes, err := optionalInt(original, "original body bytes")
 	if err != nil {
-		return apptypes.EventBodyPreview{}, err
+		return commandPreviewMetadata{}, err
 	}
 	createdAt, err := time.Parse(time.RFC3339Nano, createdAtValue)
 	if err != nil {
-		return apptypes.EventBodyPreview{}, xerrors.Errorf("failed to restore preview created_at: %w", err)
+		return commandPreviewMetadata{}, xerrors.Errorf("failed to restore preview created_at: %w", err)
 	}
-	preview, err := apptypes.EventBodyPreviewOf(eventID, body, storedBytes, originalBytes, optionalBool(ingest), optionalBool(storage), createdAt)
-	if err != nil {
-		return apptypes.EventBodyPreview{}, xerrors.Errorf("failed to restore event body preview: %w", err)
-	}
-	return preview, nil
+	return commandPreviewMetadata{
+		eventID:          eventID,
+		storedBytes:      storedBytes,
+		originalBytes:    originalBytes,
+		ingestTruncated:  optionalBool(ingest),
+		storageTruncated: optionalBool(storage),
+		createdAt:        createdAt,
+	}, nil
 }
 
 // FindLatestPostCompactSummary pages over body-free candidates and hydrates

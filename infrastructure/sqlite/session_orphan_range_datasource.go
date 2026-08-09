@@ -266,11 +266,19 @@ func (d *SessionOrphanRangeDatasource) LoadMaterial(
 	}
 	defer func() { _ = cmdRows.Close() }()
 	for cmdRows.Next() {
-		var command string
-		if err := cmdRows.Scan(&command); err != nil {
-			return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to scan orphan range command: %w", err)
+		var eventID string
+		if err := cmdRows.Scan(&eventID); err != nil {
+			return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to scan orphan range command event id: %w", err)
 		}
-		material.Commands = append(material.Commands, command)
+		// command_text is codec-managed; decode through the shared boundary so
+		// a zstd-compressed audit never surfaces as binary garbage here.
+		command, err := hydrateAuditPayload(ctx, db, eventID, "command")
+		if err != nil {
+			return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to decode orphan range command for %s: %w", eventID, err)
+		}
+		if command.Valid {
+			material.Commands = append(material.Commands, command.String)
+		}
 	}
 	if err := cmdRows.Err(); err != nil {
 		return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to iterate orphan range commands: %w", err)
