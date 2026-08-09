@@ -207,8 +207,8 @@ func (d *EventDatasource) LoadCanonicalBodies(
 	}()
 	bodies := make(map[types.EventID]string, len(eventIDs))
 	for rows.Next() {
-		var eventIDValue, body string
-		if err := rows.Scan(&eventIDValue, &body); err != nil {
+		var eventIDValue string
+		if err := rows.Scan(&eventIDValue); err != nil {
 			return nil, xerrors.Errorf("failed to scan canonical event body: %w", err)
 		}
 		eventID, err := types.EventIDFrom(eventIDValue)
@@ -288,7 +288,7 @@ func hydrateBoundedEvents(
 	if err != nil {
 		return nil, err
 	}
-	rows, err := queryer.QueryContext(ctx, selectBoundedEventBodiesQuery, encoded, bodyRuneLimit)
+	rows, err := queryer.QueryContext(ctx, selectBoundedEventBodiesQuery, encoded)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query bounded event bodies: %w", err)
 	}
@@ -298,26 +298,17 @@ func hydrateBoundedEvents(
 	for rows.Next() {
 		var (
 			eventIDValue      string
-			body              string
-			visibleRunesValue int64
 			availabilityValue string
-			canonicalEnvelope bool
 		)
 		if err := rows.Scan(
 			&eventIDValue,
-			&body,
-			&visibleRunesValue,
 			&availabilityValue,
-			&canonicalEnvelope,
 		); err != nil {
 			return nil, xerrors.Errorf("failed to scan bounded event body: %w", err)
 		}
 		eventID, err := types.EventIDFrom(eventIDValue)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore bounded event ID: %w", err)
-		}
-		if visibleRunesValue < 0 {
-			return nil, xerrors.Errorf("visible body runes must not be negative")
 		}
 		availability, err := types.BodyAvailabilityFrom(availabilityValue)
 		if err != nil {
@@ -327,7 +318,7 @@ func hydrateBoundedEvents(
 		if err != nil {
 			return nil, err
 		}
-		body, canonicalEnvelope = visibleEventBody(string(plain), availability)
+		body, canonicalEnvelope := visibleEventBody(string(plain), availability)
 		bodyRunes := []rune(body)
 		visibleRunes := len(bodyRunes)
 		if len(bodyRunes) > bodyRuneLimit {

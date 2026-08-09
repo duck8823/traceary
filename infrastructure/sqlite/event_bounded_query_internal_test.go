@@ -12,49 +12,37 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestBoundedEventBodyQuery_SelectsOnlyVisiblePrefix(t *testing.T) {
+// The bounded query used to derive the visible-text prefix, its rune count and
+// the canonical-envelope flag in SQL. Every one of those results was scanned
+// and then overwritten by hydrateBoundedEvents from loadEventPlaintext, so the
+// derivation was dead work even before the payload codec — and an encoded body
+// is a BLOB that json_valid() reports as invalid, which would have turned the
+// dead work into a silent wrong answer. #1685 D6 deleted it. This test pins the
+// replacement contract: the query resolves identity and availability, and asks
+// SQLite nothing about what the body contains.
+func TestBoundedEventBodyQuery_DoesNotInterpretBodyContent(t *testing.T) {
 	t.Parallel()
 
 	normalized := strings.ToLower(strings.Join(strings.Fields(selectBoundedEventBodiesQuery), " "))
-	if !strings.Contains(normalized, "substr(visible_body, 1, ?)") {
-		t.Fatalf("bounded query must select a visible-text prefix: %s", normalized)
-	}
-	if !strings.Contains(normalized, "length(visible_body)") {
-		t.Fatalf("bounded query must retain response truncation provenance: %s", normalized)
-	}
-	finalSelectIndex := strings.LastIndex(normalized, ") select ")
-	if finalSelectIndex < 0 {
-		t.Fatalf("bounded query final projection not found: %s", normalized)
-	}
-	finalProjection := normalized[finalSelectIndex+2:]
-	for _, unboundedProjection := range []string{
-		"select e.body,",
-		", e.body,",
-		"select visible_body,",
+	for _, interpretation := range []string{
+		"json_valid(", "json_type(", "json_extract(e.body", "visible_body", "substr(", "like ",
 	} {
-		if strings.Contains(finalProjection, unboundedProjection) {
-			t.Fatalf("bounded query selects an unbounded result column %q: %s", unboundedProjection, finalProjection)
+		if strings.Contains(normalized, interpretation) {
+			t.Fatalf("bounded query interprets body content via %q: %s", interpretation, normalized)
 		}
+	}
+	for _, projected := range []string{"e.body,", "e.body ", ", body,"} {
+		if strings.Contains(normalized, projected) {
+			t.Fatalf("bounded query transfers the stored body %q: %s", projected, normalized)
+		}
+	}
+	if !strings.Contains(normalized, "e.body_availability") {
+		t.Fatalf("bounded query must still resolve body availability: %s", normalized)
 	}
 	for _, forbidden := range []string{"command_text", "input_text", "output_text", "event_search_documents.body_text"} {
 		if strings.Contains(normalized, forbidden) {
 			t.Fatalf("bounded hydration selects forbidden payload source %q: %s", forbidden, normalized)
 		}
-	}
-	if got := strings.Count(normalized, "json_valid("); got != 1 {
-		t.Fatalf("canonical envelope predicate count = %d, want one shared classification: %s", got, normalized)
-	}
-	if !strings.Contains(
-		normalized,
-		"when classified.body_availability <> 'available' then ''",
-	) {
-		t.Fatalf("bounded query does not fail closed for unavailable bodies: %s", normalized)
-	}
-	if !strings.Contains(
-		normalized,
-		"char(10) || char(10) order by cast(key as integer)",
-	) {
-		t.Fatalf("canonical text aggregation does not own array-index order: %s", normalized)
 	}
 }
 
@@ -84,7 +72,6 @@ func TestBoundedEventBodyQuery_UsesEventIdentityIndex(t *testing.T) {
 		ctx,
 		"EXPLAIN QUERY PLAN "+selectBoundedEventBodiesQuery,
 		string(encodedIDs),
-		500,
 	)
 	if err != nil {
 		t.Fatalf("EXPLAIN QUERY PLAN error = %v", err)

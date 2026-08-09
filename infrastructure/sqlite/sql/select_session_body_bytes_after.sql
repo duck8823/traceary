@@ -2,7 +2,9 @@
 -- (ts_norm(created_at), id). Plain TEXT comparison of variable-width
 -- RFC3339Nano is wrong (#1185): '.' < 'Z' would invert fractional vs whole
 -- second timestamps.
-SELECT COALESCE(SUM(length(CAST(e.body AS BLOB))), 0)
+-- Prefer body_plaintext_bytes so compression does not cut consolidation
+-- pressure; fall back to stored length for legacy plaintext rows (#1685 D6).
+SELECT COALESCE(SUM(COALESCE(e.body_plaintext_bytes, length(CAST(e.body AS BLOB)))), 0)
   FROM events AS e
   JOIN events AS boundary ON boundary.id = ?
  WHERE e.session_id = ?

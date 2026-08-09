@@ -230,6 +230,13 @@ The attempted event ID is Traceary's per-callback repository identity. A later h
 
 `traceary report workspace-identity` is read-only and does not run migrations or provenance catch-up. Initialize or migrate the store first with `traceary doctor`; an unready store fails with guidance. The default path does not load event bodies. `--include-heuristic` calls the existing dedupe planner with `Apply=false` and `MaxScanRows` set from the positive `--heuristic-limit`; a body-free count distinguishes a `partial` bounded sample from a `complete` one. Bounded apply is rejected, so cleanup remains a separate, unbounded, explicit, reversible command.
 
+## Payload codec backfill
+
+Existing `events.body` rows can be rewritten in place through the versioned zstd
+codec without freezing writers. See [`payload-backfill.md`](payload-backfill.md).
+Physical file size only drops after `store compact`; the search projection ends
+`drifted`/`stale` and must be rebuilt.
+
 ## Backup defaults
 
 The supported backup story is intentionally simple:

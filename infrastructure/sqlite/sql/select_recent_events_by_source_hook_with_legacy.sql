@@ -1,8 +1,9 @@
 -- Source_hook filtered query: the primary branch uses
 -- `e.source_hook = ?` as a top-level conjunct so hook-specific filtering stays
 -- out of the general recent-events path.
--- A UNION ALL branch matches pre-#672 legacy rows via the body prefix
--- so migration-window data keeps working. See #683.
+-- A UNION ALL branch matches pre-#672 legacy rows via event_metadata_projection
+-- .legacy_source_hook so migration-window data keeps working after bodies are
+-- encoded as opaque BLOBs. See #683 and #1685 D6.
 --
 -- Result limit is applied to the combined set so pagination is stable
 -- even when all hits come from the legacy branch.
@@ -33,12 +34,11 @@ SELECT id, kind, client, agent, session_id, workspace, body, body_availability, 
                ca.input_original_bytes, ca.output_original_bytes, ca.exit_code, ca.failed, ca.failure_reason
           FROM events e
           LEFT JOIN command_audits ca ON ca.event_id = e.id
+          LEFT JOIN event_metadata_projection emp ON emp.id = e.id
          WHERE e.source_hook IS NULL
            AND (
-                 (? = 'subagent_stop' AND e.kind = 'session_ended'
-                      AND e.body LIKE '[phase:subagent]%')
-              OR (? = 'pre_compact' AND e.kind = 'compact_summary'
-                      AND e.body LIKE '[phase:pre-compact]%')
+                 (? = 'subagent_stop' AND emp.legacy_source_hook = 'subagent_stop')
+              OR (? = 'pre_compact' AND emp.legacy_source_hook = 'pre_compact')
                )
            AND (? = '' OR e.kind = ?)
            AND (? = '' OR e.client = ?)

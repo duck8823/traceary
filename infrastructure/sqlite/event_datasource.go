@@ -529,23 +529,20 @@ func (d *EventDatasource) ListTimelineBlocks(
 
 	for rows.Next() {
 		var (
-			blockNum            int
-			blockStart          string
-			blockEnd            string
-			blockEventCount     int
-			agents              string
-			workspace           string
-			wsEventCount        int
-			kinds               string
-			wsAgents            string
-			firstPromptID       string
-			compactSummaryID    string
-			firstTranscriptID   string
-			firstPromptBody     string
-			compactSummaryBody  string
-			firstTranscriptBody string
+			blockNum        int
+			blockStart      string
+			blockEnd        string
+			blockEventCount int
+			agents          string
+			workspace       string
+			wsEventCount    int
+			kinds           string
+			wsAgents        string
+			promptIDs       [timelineSummaryCandidates]string
+			compactIDs      [timelineSummaryCandidates]string
+			transcriptIDs   [timelineSummaryCandidates]string
 		)
-		if err := rows.Scan(
+		scanTargets := []any{
 			&blockNum,
 			&blockStart,
 			&blockEnd,
@@ -555,24 +552,26 @@ func (d *EventDatasource) ListTimelineBlocks(
 			&wsEventCount,
 			&kinds,
 			&wsAgents,
-			&firstPromptID,
-			&compactSummaryID,
-			&firstTranscriptID,
-			&firstPromptBody,
-			&compactSummaryBody,
-			&firstTranscriptBody,
-		); err != nil {
+		}
+		for _, candidates := range []*[timelineSummaryCandidates]string{&promptIDs, &compactIDs, &transcriptIDs} {
+			for i := range candidates {
+				scanTargets = append(scanTargets, &candidates[i])
+			}
+		}
+		if err := rows.Scan(scanTargets...); err != nil {
 			return nil, xerrors.Errorf("failed to scan timeline block: %w", err)
 		}
-		for id, target := range map[string]*string{firstPromptID: &firstPromptBody, compactSummaryID: &compactSummaryBody, firstTranscriptID: &firstTranscriptBody} {
-			if id == "" {
-				continue
-			}
-			plain, err := loadEventPlaintext(ctx, db, id)
-			if err != nil {
-				return nil, err
-			}
-			*target = string(plain)
+		firstPromptBody, err := firstNonBlankCandidate(ctx, db, promptIDs)
+		if err != nil {
+			return nil, err
+		}
+		compactSummaryBody, err := firstNonBlankCandidate(ctx, db, compactIDs)
+		if err != nil {
+			return nil, err
+		}
+		firstTranscriptBody, err := firstNonBlankCandidate(ctx, db, transcriptIDs)
+		if err != nil {
+			return nil, err
 		}
 
 		accum, ok := blockMap[blockNum]
@@ -626,11 +625,41 @@ func (d *EventDatasource) ListTimelineBlocks(
 	return blocks, nil
 }
 
+// timelineSummaryCandidates is how deep list_timeline_blocks.sql ranks summary
+// candidates per kind. SQL cannot judge whether an encoded body is blank, so it
+// hands over the leading candidates and Go decides after decoding. Depth 3 also
+// covers the blanks SQLite's TRIM misses (tabs, newlines) in plaintext rows.
+//
+// The depth is a cap, not a guarantee: a kind whose first three candidates are
+// all blank falls through to the next kind rather than to its own fourth
+// candidate, and only the first non-blank one is decoded, so the usual cost is
+// one hydration per kind. Making it exact needs an unbounded candidate list or
+// a blankness signal that survives encoding — tracked separately (#1746).
+const timelineSummaryCandidates = 3
+
+// firstNonBlankCandidate decodes candidates in rank order and returns the first
+// whose plaintext is not blank. An empty id marks the end of the ranked list.
+func firstNonBlankCandidate(ctx context.Context, db *sql.DB, ids [timelineSummaryCandidates]string) (string, error) {
+	for _, id := range ids {
+		if id == "" {
+			return "", nil
+		}
+		plain, err := loadEventPlaintext(ctx, db, id)
+		if err != nil {
+			return "", err
+		}
+		if body := string(plain); strings.TrimSpace(body) != "" {
+			return body, nil
+		}
+	}
+	return "", nil
+}
+
 // resolveWorkspaceSummary applies the fallback chain
 // compact_summary → prompt → transcript → kind_counts. Whitespace-only
 // candidates are treated as absent so blank rows cannot override a later
-// non-blank candidate (SQLite TRIM only strips spaces, not tabs/newlines,
-// so this defense is enforced in Go rather than in SQL).
+// non-blank candidate; firstNonBlankCandidate has already walked the ranked
+// candidates of each kind, so a blank value here means the kind had none.
 func resolveWorkspaceSummary(compactSummaryBody, firstPromptBody, firstTranscriptBody string) (string, apptypes.TimelineWorkspaceBreakdownSummarySource) {
 	if strings.TrimSpace(compactSummaryBody) != "" {
 		return compactSummaryBody, apptypes.TimelineSummarySourceCompactSummary
