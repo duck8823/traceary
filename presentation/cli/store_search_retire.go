@@ -27,7 +27,7 @@ func (c *RootCLI) newStoreSearchRetireCommand() *cobra.Command {
 		),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if c.legacySearchRetire == nil {
+			if c.legacySearchRetire == nil || c.storeManagement == nil {
 				return xerrors.New("legacy search retire usecase is not configured")
 			}
 			resolved, err := resolveDBPath(path)
@@ -35,6 +35,14 @@ func (c *RootCLI) newStoreSearchRetireCommand() *cobra.Command {
 				return err
 			}
 			c.applyDatabasePath(resolved)
+			// Migrate first. Retirement drops the tables the migration-032
+			// source-side triggers write into, so on a store that has not yet
+			// applied migration 052 those triggers would survive the drop and
+			// fail every subsequent event insert. Nothing else in this command
+			// opens the store in a way that applies pending migrations.
+			if err := c.storeManagement.Initialize(cmd.Context()); err != nil {
+				return err
+			}
 			got, err := c.legacySearchRetire.Retire(cmd.Context())
 			if err != nil {
 				return err

@@ -31,6 +31,12 @@ type CandidateWorkspace interface {
 type StoreReplacementCoordinator interface {
 	Plan(context.Context, domain.CompactionRun) (domain.CompactionRun, error)
 	Recheck(context.Context, domain.CompactionRun) error
+	// RejectRetiredSearchIndex refuses to publish a store that still carries
+	// the retired migration-032 search index family. Plan already checks, but
+	// a run journaled by an older binary carries no such verdict, and resuming
+	// one past candidate verification reaches the exchange without revisiting
+	// Plan or Build. This runs behind the exclusive lease on every path.
+	RejectRetiredSearchIndex(context.Context, domain.CompactionRun) error
 	FenceCandidate(context.Context, domain.CompactionRun) (domain.CompactionRun, error)
 	Exchange(context.Context, domain.CompactionRun) error
 	PublishRollback(context.Context, domain.CompactionRun) error

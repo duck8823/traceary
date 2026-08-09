@@ -4,10 +4,12 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"os"
 
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain"
 )
 
 // legacySearchFamilyTables are the large migration-032 objects removed by
@@ -88,9 +90,24 @@ func (d *Database) RetireLegacySearchProjection(ctx context.Context) (apptypes.L
 }
 
 func dropLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
-	// DROP order: view first (if any remain on pre-052 stores), then FTS, then
-	// content table, then backfill state. Table DROP removes their triggers.
+	// Writer triggers first, then the view, then FTS, content table, and
+	// backfill state.
+	//
+	// Migration 052 already dropped every trigger, and the CLI migrates before
+	// calling this. The triggers are repeated anyway because the failure they
+	// guard against is severe and silent: the source-side triggers live on
+	// events/command_audits, so dropping the tables out from under them leaves
+	// a store where every event insert fails. Eight IF EXISTS statements are a
+	// cheap price for that not depending on call order.
 	for _, statement := range []string{
+		"DROP TRIGGER IF EXISTS events_search_after_insert",
+		"DROP TRIGGER IF EXISTS events_search_after_body_update",
+		"DROP TRIGGER IF EXISTS command_audits_search_after_insert",
+		"DROP TRIGGER IF EXISTS command_audits_search_after_update",
+		"DROP TRIGGER IF EXISTS command_audits_search_after_delete",
+		"DROP TRIGGER IF EXISTS event_search_documents_after_insert",
+		"DROP TRIGGER IF EXISTS event_search_documents_after_delete",
+		"DROP TRIGGER IF EXISTS event_search_documents_after_update",
 		"DROP VIEW IF EXISTS event_search_projection",
 		"DROP TABLE IF EXISTS event_search_fts",
 		"DROP TABLE IF EXISTS event_search_documents",
@@ -150,18 +167,40 @@ func databasePhysicalBytes(ctx context.Context, q interface {
 	return p * s, nil
 }
 
-// rejectLegacySearchFamilyForCompaction stops a plan that would copy multi-GiB
-// dead index data into the candidate. It runs before the digest, so it saves
-// hashing the whole source as well.
+// RejectRetiredSearchIndex refuses to compact or publish a store that still
+// carries the retired migration-032 family, so a multi-GiB dead index is never
+// copied into the candidate and baked into the new file.
 //
-// A source that cannot be read as a database is not this check's business:
-// apply time opens it properly and VerifyStoreCompatibility reports that far
-// more precisely. Only a store that demonstrably still carries the family is
-// rejected here.
-func rejectLegacySearchFamilyForCompaction(ctx context.Context, path string) error {
+// It inspects the candidate once one exists, because the candidate is what
+// gets published; before that there is only the source. That distinction is
+// what makes the check useful on a run journaled by an older binary: resuming
+// such a run past candidate verification reaches the exchange without ever
+// calling Plan or Build, and only the candidate still shows what would land.
+//
+// A prepared migration publication is exempt. That publication is how a store
+// reaches the schema where the family can be retired at all, so refusing it
+// would make the family unremovable on exactly the stores that carry it.
+// `store compact` leaves Operation empty, so this is written as an exclusion
+// rather than a match, and any future operation is guarded by default.
+//
+// A file that cannot be read as a database is not this check's business:
+// VerifyPair and VerifyStoreCompatibility diagnose that far more precisely.
+// Only a store that demonstrably carries the family is rejected here.
+func (PreparedStoreUpgradeFiles) RejectRetiredSearchIndex(ctx context.Context, run domain.CompactionRun) error {
+	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
+		return nil
+	}
+	target := run.SourcePath
+	if info, err := os.Stat(run.CandidatePath); err == nil && info.Size() > 0 {
+		target = run.CandidatePath
+	}
+	return rejectLegacySearchFamilyAt(ctx, target)
+}
+
+func rejectLegacySearchFamilyAt(ctx context.Context, path string) error {
 	db, err := openDirectReadOnly(ctx, path)
 	if err != nil {
-		return nil //nolint:nilerr // unreadable sources are diagnosed at apply time, not here
+		return nil //nolint:nilerr // unreadable files are diagnosed by verification, not here
 	}
 	defer func() { _ = db.Close() }()
 	present, err := legacySearchFamilyPresent(ctx, db)

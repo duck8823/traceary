@@ -59,9 +59,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	50: {50, "000050_fix_search_projection_insert_inventory_drift.sql", "6c80fdcceb682093a466fc6207e084644da4923c6762a4f4f927878aa2418b5b", MigrationConstantInPlace},
 	// 51 only adds four cutover evidence columns to search_projection_state.
 	51: {51, "000051_add_search_projection_cutover_evidence_status.sql", "0d5b692c1039301b2216ef8047e5980e74bfecb3865b40ccf1045a8c339121bc", MigrationConstantInPlace},
-	// 52 only drops five writer triggers, one view, and the control table.
+	// 52 only drops eight writer triggers, one view, and the control table.
 	// The multi-GiB event_search_* tables stay until search-retire.
-	52: {52, "000052_retire_legacy_search_writers.sql", "b7dd6d1dbeef9e876dea92bb4db57172383edb632fcd2fade6ad1f058ca20105", MigrationConstantInPlace},
+	52: {52, "000052_retire_legacy_search_writers.sql", "6ef7a1ff65c1859021a9ffba375d642d9b7c622d1595fe0e58d99c43fcdc3aeb", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

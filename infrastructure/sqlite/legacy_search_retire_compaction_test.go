@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain"
 )
 
 // TestCompactionRefusesAStoreThatStillCarriesTheLegacySearchFamily asserts the
@@ -71,6 +72,38 @@ func TestRequireStaticSearchStateGuardsCandidateConstruction(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "search-retire") {
 		t.Fatalf("requireStaticSearchState() error = %v, want it to name `store search-retire`", err)
+	}
+}
+
+// TestRejectRetiredSearchIndexInspectsWhateverWouldBePublished pins which file
+// the pre-exchange guard reads. A run resumed from CandidateVerified has a
+// built candidate and never revisits Plan or Build, so a clean source proves
+// nothing — only the candidate shows what the exchange would publish.
+func TestRejectRetiredSearchIndexInspectsWhateverWouldBePublished(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	candidate := filepath.Join(dir, "candidate.db")
+	createCompactableStore(t, source)
+	createCompactableStore(t, candidate)
+	addLegacySearchFamilyObject(t, candidate)
+
+	run := domain.CompactionRun{SourcePath: source, CandidatePath: candidate}
+	err := PreparedStoreUpgradeFiles{}.RejectRetiredSearchIndex(ctx, run)
+	if err == nil {
+		t.Fatal("RejectRetiredSearchIndex() error = nil, want a refusal for a candidate carrying the family")
+	}
+	if !strings.Contains(err.Error(), "search-retire") {
+		t.Fatalf("RejectRetiredSearchIndex() error = %v, want it to name `store search-retire`", err)
+	}
+
+	// A prepared-migration publication is how a store reaches the schema where
+	// the family can be retired at all; refusing it would make the family
+	// unremovable on exactly the stores that carry it.
+	rehearsal := run
+	rehearsal.Operation = domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration
+	if err := (PreparedStoreUpgradeFiles{}).RejectRetiredSearchIndex(ctx, rehearsal); err != nil {
+		t.Fatalf("RejectRetiredSearchIndex() on a prepared migration error = %v, want it exempt", err)
 	}
 }
 

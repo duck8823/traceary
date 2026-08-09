@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
@@ -150,6 +151,80 @@ func TestRetireLegacySearchProjection_DropsTheFamilyAndKeepsSearchAnswering(t *t
 	}
 }
 
+// TestRetireLegacySearchProjection_LeavesAPre052StoreWritable covers the order
+// hazard: the migration-032 source-side triggers live on `events`, so dropping
+// the family out from under them turns every subsequent insert into
+// "no such table: event_search_documents". The CLI migrates first, but the drop
+// itself must not depend on that, because the failure is silent until the next
+// write and leaves the store unusable.
+func TestRetireLegacySearchProjection_LeavesAPre052StoreWritable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	seedPre052Store(t, dbPath)
+
+	// Deliberately on the pre-52 migration set: migration 052 never runs here.
+	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 52))
+	if _, err := database.RetireLegacySearchProjection(ctx); err != nil {
+		t.Fatalf("RetireLegacySearchProjection() error = %v", err)
+	}
+
+	sut := infra.NewEventDatasource(database)
+	event := newSearchEventFixture(
+		t,
+		"event-after-retire",
+		types.EventKindNote,
+		legacySearchWorkspace,
+		"written after retirement",
+		time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+	)
+	if err := sut.Save(ctx, event); err != nil {
+		t.Fatalf("Save() after retiring a pre-052 store: %v", err)
+	}
+}
+
+// TestMigration052_StopsEventDeletionFromTouchingTheSearchIndex pins why the
+// documents-side triggers had to go too. event_search_documents.event_id is
+// declared REFERENCES events(id) ON DELETE CASCADE and the store DSN enables
+// foreign_keys, so gc and retention still reach the documents table after the
+// source-side triggers are gone. With the delete trigger alive, each of those
+// cascades appended FTS5 delete markers — growing the very index this
+// retirement exists to remove.
+func TestMigration052_StopsEventDeletionFromTouchingTheSearchIndex(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	seedPre052Store(t, dbPath)
+
+	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	management := infra.NewStoreManagementDatasource(database)
+	if err := management.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	before := countRows(t, dbPath, "event_search_fts_data")
+	if before == 0 {
+		t.Fatal("the fixture event was never indexed; a delete could not disturb an empty index")
+	}
+	deleted, err := management.CollectGarbage(
+		ctx,
+		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		apptypes.GarbageCollectionTargetEvents,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if deleted == 0 {
+		t.Fatal("CollectGarbage() deleted nothing; the fixture event must be prunable for this test to mean anything")
+	}
+	if got := countRows(t, dbPath, "event_search_fts_data"); got != before {
+		t.Fatalf("event_search_fts_data rows = %d after deleting %d events, want %d unchanged", got, deleted, before)
+	}
+}
+
 // seedPre052Store builds a store on the schema that still carried the legacy
 // family, with one indexed event, so the upgrade under test is the real one.
 func seedPre052Store(t *testing.T, dbPath string) {
@@ -189,6 +264,20 @@ func setSearchMaintenanceState(t *testing.T, dbPath, authority, phase string) {
 	); err != nil {
 		t.Fatalf("set search maintenance state %s/%s: %v", authority, phase, err)
 	}
+}
+
+func countRows(t *testing.T, dbPath, table string) int64 {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var count int64
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+		t.Fatalf("count rows in %s: %v", table, err)
+	}
+	return count
 }
 
 func objectExists(t *testing.T, dbPath, name string) bool {

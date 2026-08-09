@@ -65,6 +65,14 @@ func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.C
 }
 
 func (u *storeCompactionUsecase) applyLeased(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+	// Both Apply and Resume land here, at every phase, behind the lease. Once
+	// the exchange has happened the swap is the thing being finished, and
+	// refusing would strand the run half-published, so the check stops there.
+	if !run.Phase.SwapObserved() {
+		if err := u.files.RejectRetiredSearchIndex(ctx, run); err != nil {
+			return run, err
+		}
+	}
 	var err error
 	for run.Phase != domain.CompactionCommitted {
 		action, decisionErr := run.NextAction()

@@ -13,9 +13,16 @@ v0.34 stops maintaining it and gives you one command to remove it.
 
 ## What the upgrade does on its own
 
-Migration 052 runs at first startup and drops only constant-cost objects: the
-five writer triggers, the `event_search_projection` view, and the
+Migration 052 runs at first startup and drops only constant-cost objects: all
+eight writer triggers, the `event_search_projection` view, and the
 `search_maintenance_control` table. It never touches the large tables.
+
+The three triggers on `event_search_documents` go too, not just the five on
+`events` and `command_audits`. `event_search_documents.event_id` is declared
+`ON DELETE CASCADE`, so every `traceary gc` and retention pass still reached
+the index through that foreign key. Leaving those triggers in place would have
+made each deleted event append an FTS5 delete marker — growing the very index
+this retirement removes.
 
 That split is deliberate. Traceary applies every pending migration
 unconditionally when it opens the store, so a multi-GiB `DROP TABLE` inside a
