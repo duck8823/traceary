@@ -670,8 +670,17 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		}
 	}
 	if p.Completed && state == "complete" {
-		if _, e = tx.ExecContext(lockCtx, `UPDATE literal_search_projection_state SET state='complete',updated_at=? WHERE singleton=1 AND generation_id=? AND state='rebuilding'`, formatTimestamp(now), p.GenerationID); e != nil {
+		// Accept 'stale' as well as 'rebuilding': events recorded during a
+		// rebuild flip literal state to stale via migration-039 triggers, so
+		// requiring only 'rebuilding' left the row permanently incomplete on
+		// live stores. Zero rows means this generation is not the one the
+		// literal singleton is finishing — same drift fence as lifecycle.
+		var literalResult sql.Result
+		if literalResult, e = tx.ExecContext(lockCtx, `UPDATE literal_search_projection_state SET state='complete',updated_at=? WHERE singleton=1 AND generation_id=? AND state IN ('rebuilding','stale')`, formatTimestamp(now), p.GenerationID); e != nil {
 			return out, e
+		}
+		if n, rowErr := literalResult.RowsAffected(); rowErr != nil || n != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
 		}
 	}
 	if p.Completed && state == "complete" {

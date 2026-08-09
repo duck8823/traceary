@@ -466,13 +466,28 @@ func TestPersistedTieredAuthorityPreservesDescendingContinuationAndFailsClosed(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 'stale' is what migration 039 writes on every ordinary append, so it is a
+	// tail condition the walk answers, not a "cannot answer" condition. See
+	// event_search_authority_internal_test.go for the append and mutation cases.
 	_, err = raw.ExecContext(ctx, `UPDATE literal_search_projection_state SET state='stale'`)
 	_ = raw.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = datasource.SearchPage(ctx, criteria); err != nil {
+		t.Fatalf("stale literal projection refused a tail-only condition: %v", err)
+	}
+	raw, err = database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = raw.ExecContext(ctx, `UPDATE literal_search_projection_state SET state='rebuilding'`)
+	_ = raw.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err = datasource.SearchPage(ctx, criteria); err == nil {
-		t.Fatal("stale tiered projection did not fail closed")
+		t.Fatal("incomplete tiered projection did not fail closed")
 	}
 }
 
