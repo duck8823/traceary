@@ -115,7 +115,12 @@ Output is JSON on stdout with aggregate counters only (no body contents).
 - Cancelling the process (`Ctrl-C`) persists a `paused` checkpoint before
   returning — whether the cancellation is noticed between batches or inside the
   select or the batch transaction — so `resume` picks it up and `status` does
-  not report it active.
+  not report it active. Every terminal transition (complete, reset, pause,
+  fail) runs on a context the cancellation cannot reach, because it records
+  what the worker already did durably.
+- A cancellation does not rename the error. If an I/O, constraint or decode
+  failure happens to race the `Ctrl-C`, the checkpoint still lands but the
+  reported error is the failure, not "cancelled".
 
 ## Related docs
 

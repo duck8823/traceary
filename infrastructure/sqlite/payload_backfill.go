@@ -28,6 +28,12 @@ var (
 	ErrPayloadBackfillPartialMetadata = errors.New("payload backfill found partial codec metadata")
 	// ErrPayloadBackfillTableMissing means migration 054 has not been applied.
 	ErrPayloadBackfillTableMissing = errors.New("payload backfill bookkeeping table is missing")
+	// ErrPayloadBackfillSchemaOutdated means the store applied a pre-release
+	// revision of migration 054. Migration 054 is unreleased and was edited in
+	// place, so schema_migrations already records version 54 and the migrator
+	// will not re-apply it: the run table exists but is missing a column. Only
+	// a store built from this branch before the edit can reach this.
+	ErrPayloadBackfillSchemaOutdated = errors.New("payload backfill bookkeeping table predates the released migration 054; recreate the store")
 	// ErrPayloadBackfillCompatibilityMode refuses to start on a store whose
 	// payload codec compatibility evidence is not the counter.
 	ErrPayloadBackfillCompatibilityMode = errors.New("payload backfill requires counter-mode payload codec compatibility state")
@@ -192,10 +198,16 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		return apptypes.PayloadBackfillResult{}, err
 	}
 
+	// Checkpoint writes outlive the cancellation that triggers them. Every
+	// terminal transition — complete, reset, pause, fail — records what the
+	// worker already did durably, so running it on the caller's context would
+	// lose that record exactly when the run needs it most.
+	closeCtx := context.WithoutCancel(ctx)
+
 	var batchCount int64
 	for {
 		if err = ctx.Err(); err != nil {
-			return d.pauseCancelledRun(ctx, db, run, batchCount, err)
+			return d.abortRun(ctx, closeCtx, db, run, batchCount, err)
 		}
 
 		// Begin a new pass when the cursor is at the origin.
@@ -206,20 +218,17 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 
 		batch, selectErr := selectBackfillBatch(ctx, db, run.CursorRowID, run.HighWaterRowID, c.BatchRows)
 		if selectErr != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return d.pauseCancelledRun(ctx, db, run, batchCount, ctxErr)
-			}
-			return apptypes.PayloadBackfillResult{}, selectErr
+			return d.abortRun(ctx, closeCtx, db, run, batchCount, selectErr)
 		}
 		if len(batch) == 0 {
 			// End of a cursor walk. Full identity (incompressible) rows stay
 			// selectable forever, so completion is a walk that rewrites nothing
 			// and skips no conflicts — not "zero eligible rows".
 			if !run.passDirty {
-				if completeErr := completeBackfillRun(ctx, db, run); completeErr != nil {
+				if completeErr := completeBackfillRun(closeCtx, db, run); completeErr != nil {
 					return apptypes.PayloadBackfillResult{}, completeErr
 				}
-				loaded, loadErr := loadBackfillRun(ctx, db, run.RunID)
+				loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
 				if loadErr != nil {
 					return apptypes.PayloadBackfillResult{}, loadErr
 				}
@@ -227,7 +236,7 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 			}
 			// Conflicts or rewrites this pass: restart from rowid 0 under the
 			// same high-water so skipped rows are not stranded.
-			if resetErr := resetBackfillCursor(ctx, db, run); resetErr != nil {
+			if resetErr := resetBackfillCursor(closeCtx, db, run); resetErr != nil {
 				return apptypes.PayloadBackfillResult{}, resetErr
 			}
 			run.CursorRowID = 0
@@ -240,16 +249,13 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		stats, commitErr := commitBackfillBatch(ctx, db, run, batch)
 		if commitErr != nil {
 			if errors.Is(commitErr, ErrPayloadBackfillPartialMetadata) {
-				failed, failErr := failBackfillRun(ctx, db, run, stats.PartialEventID, stats.PartialReason, stats)
+				failed, failErr := failBackfillRun(closeCtx, db, run, stats.PartialEventID, stats.PartialReason, stats)
 				if failErr != nil {
 					return apptypes.PayloadBackfillResult{}, failErr
 				}
 				return resultFromRun(failed, batchCount, false), xerrors.Errorf("%w: event %s: %s", ErrPayloadBackfillPartialMetadata, stats.PartialEventID, stats.PartialReason)
 			}
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return d.pauseCancelledRun(ctx, db, run, batchCount, ctxErr)
-			}
-			return apptypes.PayloadBackfillResult{}, commitErr
+			return d.abortRun(ctx, closeCtx, db, run, batchCount, commitErr)
 		}
 		batchCount++
 		if d.onAfterCommitBatch != nil {
@@ -269,10 +275,10 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		}
 
 		if c.StopAfterBatches > 0 && batchCount >= c.StopAfterBatches {
-			if pauseErr := pauseBackfillRun(ctx, db, run); pauseErr != nil {
+			if pauseErr := pauseBackfillRun(closeCtx, db, run); pauseErr != nil {
 				return apptypes.PayloadBackfillResult{}, pauseErr
 			}
-			loaded, loadErr := loadBackfillRun(ctx, db, run.RunID)
+			loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
 			if loadErr != nil {
 				return apptypes.PayloadBackfillResult{}, loadErr
 			}
@@ -281,21 +287,32 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 	}
 }
 
-// pauseCancelledRun persists the pause a cancellation implies. Cancellation can
-// surface at the top of the loop or out of the select/commit call that was in
-// flight, and all three have to land the same checkpoint: a run left at
+// abortRun ends the loop on an error that reached it. When the run was
+// cancelled it also lands the pause the cancellation implies: a run left at
 // 'running' is resumable, but status reports it active and a new run is
-// refused. The write cannot use the context that was just cancelled.
-func (d *PayloadBackfillDatasource) pauseCancelledRun(
+// refused.
+//
+// The checkpoint and the reported error are separate decisions. A real
+// failure — I/O, constraint, decode — that happens to race the cancellation
+// still has to reach the operator as itself; reporting it as "cancelled"
+// because ctx.Err() was set by then would hide the reason the batch stopped.
+// Only a cause that is itself a context error is reported as a cancellation.
+func (d *PayloadBackfillDatasource) abortRun(
 	ctx context.Context,
+	closeCtx context.Context,
 	db *sql.DB,
 	run backfillRunHandle,
 	batchCount int64,
 	cause error,
 ) (apptypes.PayloadBackfillResult, error) {
-	closeCtx := context.WithoutCancel(ctx)
+	if ctx.Err() == nil {
+		return apptypes.PayloadBackfillResult{}, cause
+	}
 	if pauseErr := pauseBackfillRun(closeCtx, db, run); pauseErr != nil {
 		return apptypes.PayloadBackfillResult{}, xerrors.Errorf("%v; pause payload backfill: %w", cause, pauseErr)
+	}
+	if !errors.Is(cause, context.Canceled) && !errors.Is(cause, context.DeadlineExceeded) {
+		return apptypes.PayloadBackfillResult{}, cause
 	}
 	loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
 	if loadErr != nil {
@@ -377,6 +394,15 @@ func requirePayloadBackfillSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if err != nil {
 		return xerrors.Errorf("inspect payload backfill schema: %w", err)
+	}
+	// Name the pre-release shape rather than letting every query fail with
+	// "no such column: worker_token" far from the cause.
+	fenced, err := databaseColumnExists(ctx, db, "payload_backfill_runs", "worker_token")
+	if err != nil {
+		return xerrors.Errorf("inspect payload backfill schema: %w", err)
+	}
+	if !fenced {
+		return ErrPayloadBackfillSchemaOutdated
 	}
 	return nil
 }

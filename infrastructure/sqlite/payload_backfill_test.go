@@ -7,6 +7,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -852,5 +853,98 @@ func TestPayloadBackfillReportsPreemptionWhenAFailureCannotBeRecorded(t *testing
 	}
 	if failureEventID.Valid {
 		t.Fatalf("failure_event_id = %q; a lost run must not be overwritten", failureEventID.String)
+	}
+}
+
+// Cancellation between a committed batch and the --stop-after-batches check
+// still has to land the paused checkpoint. The batch is durable, so a run left
+// at 'running' here reports itself active and refuses the next Run.
+func TestPayloadBackfillPersistsPauseWhenCancelledAfterTheLastBatch(t *testing.T) {
+	t.Parallel()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	for i := range 3 {
+		insertIdentityEvent(t, db, eventSeed{
+			ID: "after-" + strconv.Itoa(i), Kind: "note", Body: compressibleBody("after"),
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ds.onAfterCommitBatch = func(int64) { cancel() }
+
+	_, err := ds.Run(ctx, apptypes.PayloadBackfillConfig{BatchRows: 1, StopAfterBatches: 1})
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want nil or context.Canceled", err)
+	}
+
+	var state string
+	if err := db.QueryRow(`SELECT state FROM payload_backfill_runs`).Scan(&state); err != nil {
+		t.Fatalf("read run state: %v", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillPaused), state); diff != "" {
+		t.Fatalf("persisted state mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// A real failure that races a cancellation is still the failure the operator
+// needs to see. The checkpoint lands either way; only the reported error
+// depends on what actually stopped the batch.
+func TestPayloadBackfillReportsTheRealErrorThatRacedACancellation(t *testing.T) {
+	t.Parallel()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	insertIdentityEvent(t, db, eventSeed{ID: "race-0", Kind: "note", Body: compressibleBody("race")})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	run, err := prepareBackfillRun(ctx, db, false)
+	if err != nil {
+		t.Fatalf("prepareBackfillRun: %v", err)
+	}
+	cancel()
+
+	diskFull := errors.New("disk I/O error")
+	result, got := ds.abortRun(ctx, context.WithoutCancel(ctx), db, run, 1, diskFull)
+	if !errors.Is(got, diskFull) {
+		t.Fatalf("abortRun error = %v, want the disk I/O error", got)
+	}
+	if strings.Contains(got.Error(), "cancelled") {
+		t.Fatalf("abortRun reported a real failure as a cancellation: %v", got)
+	}
+	// A cancellation reports the paused run it checkpointed; a failure reports
+	// no run, because the run is not what went wrong.
+	if diff := cmp.Diff(apptypes.PayloadBackfillResult{}, result); diff != "" {
+		t.Fatalf("failure result mismatch (-want +got):\n%s", diff)
+	}
+
+	var state string
+	if err := db.QueryRow(`SELECT state FROM payload_backfill_runs`).Scan(&state); err != nil {
+		t.Fatalf("read run state: %v", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillPaused), state); diff != "" {
+		t.Fatalf("persisted state mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// Migration 054 is unreleased and was edited in place, so a store built from an
+// earlier revision of this branch keeps the old table and the migrator will not
+// touch it again. Name that store instead of failing deep inside a query.
+func TestPayloadBackfillRefusesAPreReleaseRunTable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	if _, err := db.Exec(`ALTER TABLE payload_backfill_runs DROP COLUMN worker_token`); err != nil {
+		t.Fatalf("seed pre-release run table: %v", err)
+	}
+
+	if _, err := ds.Status(ctx); !errors.Is(err, ErrPayloadBackfillSchemaOutdated) {
+		t.Fatalf("Status error = %v, want ErrPayloadBackfillSchemaOutdated", err)
+	}
+	if _, err := ds.Run(ctx, defaultBackfillConfig()); !errors.Is(err, ErrPayloadBackfillSchemaOutdated) {
+		t.Fatalf("Run error = %v, want ErrPayloadBackfillSchemaOutdated", err)
 	}
 }
