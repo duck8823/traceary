@@ -131,19 +131,26 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 		return nil, xerrors.New("offset must be greater than or equal to 0")
 	}
 	var literalState, literalGeneration, boundedState, boundedGeneration string
-	var literalHigh, sourceHigh int64
-	if err := tx.QueryRowContext(ctx, `SELECT generation_id,high_water,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalHigh, &literalState); err == nil {
-		err = tx.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,''),state FROM search_projection_state WHERE singleton=1`).Scan(&boundedGeneration, &boundedState)
-		if err == nil {
-			err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM search_projection_source_sequence`).Scan(&sourceHigh)
-		}
-		if err != nil {
-			return nil, xerrors.Errorf("read tiered authority projection state: %w", err)
-		}
-	} else {
+	// Generation consistency is a real "cannot answer" condition: mismatched
+	// or non-authoritative projections have no coherent candidate set.
+	// Literal state 'stale' is not one of those conditions — migration 039
+	// flips literal to stale on every events/command_audits write, including
+	// ordinary post-cutover appends whose fingerprint absence already fail-
+	// opens in the walk. Mutated already-projected rows are rejected by the
+	// bounded gate instead: search_projection_complete_* triggers set
+	// bounded state='drifted' and clear active_generation_id. A watermark
+	// gap after completion is also not "cannot answer" — sourceHigh always
+	// advances while literal high_water stays frozen. Post-cutover rows are
+	// visited by the ordered walk below and admitted by the fail-open
+	// fingerprint pre-filter when they lack generation fingerprint rows.
+	if err := tx.QueryRowContext(ctx, `SELECT generation_id,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalState); err != nil {
 		return nil, xerrors.Errorf("read tiered authority projection state: %w", err)
 	}
-	if literalState != "complete" || boundedState != "complete" || literalGeneration == "" || literalGeneration != boundedGeneration || literalHigh != sourceHigh {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,''),state FROM search_projection_state WHERE singleton=1`).Scan(&boundedGeneration, &boundedState); err != nil {
+		return nil, xerrors.Errorf("read tiered authority projection state: %w", err)
+	}
+	literalReady := literalState == "complete" || literalState == "stale"
+	if !literalReady || boundedState != "complete" || literalGeneration == "" || literalGeneration != boundedGeneration {
 		return nil, xerrors.New("tiered search projection is incomplete or stale")
 	}
 	// Empty queries are structural-only searches. They do not require literal
@@ -155,21 +162,26 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 		}
 		return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, candidateIDs)
 	}
-	return d.searchTieredTopKMetadataTx(ctx, tx, criteria, literalGeneration, literalHigh)
+	return d.searchTieredTopKMetadataTx(ctx, tx, criteria, literalGeneration)
 }
 
 // searchTieredTopKMetadataTx separates the source-work budget from the public
-// result limit. Candidates are visited in the public order, so only
-// offset+limit matches need to be retained; broad queries do not become
+// result limit. Candidates are visited in the public order across the full
+// source sequence (including rows appended after the generation completed), so
+// only offset+limit matches need to be retained; broad queries do not become
 // unavailable merely because more than MaxLiteralSearchLimit rows match.
-func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria, generation string, highWater int64) ([]apptypes.EventMetadata, error) {
+// Post-cutover rows are newest, so they are examined first and consume budget first.
+func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria, generation string) ([]apptypes.EventMetadata, error) {
 	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
 		return nil, err
 	}
 	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
 	var builder strings.Builder
-	builder.WriteString(`SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0) FROM search_projection_source_sequence q JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence<=?`)
-	args := []any{highWater}
+	// No sequence<=high_water bound: post-completion source rows form the live
+	// tail and must participate in the same ordered walk as projected events.
+	// Fingerprint pre-filter is fail-open for events with no generation rows.
+	builder.WriteString(`SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0) FROM search_projection_source_sequence q JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE 1=1`)
+	args := []any{}
 	args = appendEventSearchFilters(&builder, args, criteria)
 	if query.Filterable() {
 		fingerprints := query.Fingerprints()
