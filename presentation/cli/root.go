@@ -51,6 +51,7 @@ type RootCLI struct {
 	legacySearchRetire         *usecase.LegacySearchRetireUsecase
 	storeCompactionFactory     func(string) application.StoreCompactionUsecase
 	payloadRehearsal           usecase.PayloadRehearsalUsecase
+	payloadBackfill            usecase.PayloadBackfillUsecase
 	rawBodyRetention           usecase.RawBodyRetentionUsecase
 	fileRetention              usecase.FileRetentionUsecase
 	fileRetentionCapacity      usecase.FileRetentionCapacityInspector
@@ -264,6 +265,11 @@ func WithStoreCompactionFactory(factory func(string) application.StoreCompaction
 // WithPayloadRehearsal injects the copied-store rehearsal workflow.
 func WithPayloadRehearsal(rehearsal usecase.PayloadRehearsalUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.payloadRehearsal = rehearsal }
+}
+
+// WithPayloadBackfill injects the live-store in-place body rewrite workflow.
+func WithPayloadBackfill(backfill usecase.PayloadBackfillUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.payloadBackfill = backfill }
 }
 
 // WithRawBodyRetention injects the opt-in reviewed raw-body retention workflow.

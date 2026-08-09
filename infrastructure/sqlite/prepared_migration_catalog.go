@@ -64,6 +64,8 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	52: {52, "000052_retire_legacy_search_writers.sql", "6ef7a1ff65c1859021a9ffba375d642d9b7c622d1595fe0e58d99c43fcdc3aeb", MigrationConstantInPlace},
 	// 53 only drops and recreates two body-derivation triggers (no data scan).
 	53: {53, "000053_codec_aware_body_derivations.sql", "dc8c32cc5397f5a6afe056e29c992f2e868c9e6ab22a3c4127afa31f3928d12b", MigrationConstantInPlace},
+	// 54 only creates the payload_backfill_runs bookkeeping table (no data scan).
+	54: {54, "000054_add_payload_backfill.sql", "b5e32f5c36a406845f72ca15347616270f156c2d025990fb9e7c1e9ef3151709", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

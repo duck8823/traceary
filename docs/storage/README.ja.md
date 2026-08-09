@@ -229,6 +229,13 @@ migration `000023` は `hook_delivery_attempts` を追加します。各行が�
 
 `traceary report workspace-identity` は読み取り専用で、migration や provenance catch-up を実行しません。先に `traceary doctor` で store を初期化または migrate してください。未準備の store では案内付きで失敗します。既定経路はイベント本文を読み込みません。`--include-heuristic` を指定した場合だけ、正の `--heuristic-limit` を `MaxScanRows` として既存の dedupe 計画を `Apply=false` で呼び出します。本文を含まない件数取得により、上限付きの `partial` サンプルと `complete` 測定を区別します。上限付き apply は拒否されるため、クリーンアップは引き続き別の全件対象・明示的・可逆なコマンドです。
 
+## ペイロード codec バックフィル
+
+既存の `events.body` は、writer を凍結せずにバージョン付き zstd codec で
+その場書き換えできます。詳細は [`payload-backfill.ja.md`](payload-backfill.ja.md)。
+物理的なファイル縮小は `store compact` の後にだけ現れ、検索 projection は
+`drifted`/`stale` で終わるため rebuild が必要です。
+
 ## backup の既定動作
 
 サポートする backup 導線は意図的にシンプルです。

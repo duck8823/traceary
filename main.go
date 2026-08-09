@@ -232,6 +232,7 @@ func run() error {
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 	payloadRehearsalUsecase := usecase.NewPayloadRehearsalUsecase(payloadRehearsalAdapter, payloadRehearsalAdapter, payloadRehearsalAdapter, payloadRehearsalAdapter)
+	payloadBackfillUsecase := usecase.NewPayloadBackfillUsecase(sqlite.NewPayloadBackfillDatasource(db))
 	rawBodyRetentionUsecase := usecase.NewRawBodyRetentionUsecase(storeManagementDatasource, storeManagementDatasource)
 	fileRetentionDatasource := filesystem.NewFileRetentionDatasource()
 	fileRetentionUsecase := usecase.NewFileRetentionUsecase(fileRetentionDatasource, fileRetentionDatasource)
@@ -308,6 +309,7 @@ func run() error {
 			return usecase.NewStoreCompactionUsecase(path, journal, sqlite.SQLiteCompactionBuilder{}, sqlite.StoreReplacementFiles{}, sqlite.StoreLeaseCoordinator{})
 		}),
 		cli.WithPayloadRehearsal(payloadRehearsalUsecase),
+		cli.WithPayloadBackfill(payloadBackfillUsecase),
 		cli.WithRawBodyRetention(rawBodyRetentionUsecase),
 		cli.WithFileRetention(fileRetentionUsecase),
 		cli.WithOneShotRepair(oneShotRepairUsecase),
