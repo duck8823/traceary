@@ -29,8 +29,13 @@ Retirement is an operator-only workflow:
 3. Repeatedly run `resume-retire --rows 128`. Each transaction removes at most
    the requested number of legacy plaintext documents and records progress and
    before/after logical and physical bytes. Interruption is safe to resume.
-4. Check `status`. Normal CLI and MCP search use the persisted tiered authority
-   and fail closed if its projections become incomplete or stale.
+4. Check `status`. Normal CLI and MCP search use the persisted tiered
+   authority. An incomplete, rebuilding, failed, or drifted projection does not
+   make search unavailable: the fingerprint index is only a pre-filter, so
+   searches fall back to decoding each candidate and still return correct
+   results. The cost is work, not correctness — a search in that state is
+   decode-bound, and if it exhausts the deep literal search budget it reports
+   `index_incomplete` rather than truncating the answer.
 
 Rollback uses canonical history, including codec decoding:
 

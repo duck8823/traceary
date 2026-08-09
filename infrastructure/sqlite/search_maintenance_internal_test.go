@@ -380,7 +380,7 @@ func assertSearchMaintenanceStorage(t *testing.T, database *Database, authority,
 	}
 }
 
-func TestPersistedTieredAuthorityPreservesDescendingContinuationAndFailsClosed(t *testing.T) {
+func TestPersistedTieredAuthorityPreservesDescendingContinuationAndAnswersWhenUnusable(t *testing.T) {
 	ctx := context.Background()
 	database := NewDatabase(filepath.Join(t.TempDir(), "store.db"), os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
 	if err := NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
@@ -486,8 +486,14 @@ func TestPersistedTieredAuthorityPreservesDescendingContinuationAndFailsClosed(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = datasource.SearchPage(ctx, criteria); err == nil {
-		t.Fatal("incomplete tiered projection did not fail closed")
+	// Rebuilding makes the fingerprint generation unusable; search must still
+	// answer by decoding rather than refuse with a bare incomplete error.
+	page, err = datasource.SearchPage(ctx, criteria)
+	if err != nil {
+		t.Fatalf("rebuilding projection refused search: %v", err)
+	}
+	if len(page) != 1 || page[0].EventID().String() != "newer" {
+		t.Fatalf("rebuilding page=%v, want [newer]", eventIDs(page))
 	}
 }
 
