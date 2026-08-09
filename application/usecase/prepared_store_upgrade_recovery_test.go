@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,11 @@ func (j *recoveryJournal) Append(_ context.Context, run domain.PreparedStoreUpgr
 type recoveryFiles struct {
 	observation domain.PreparedStoreUpgradeObservation
 	rechecked   bool
+	// allowRecheckForPublish opts into the pre-swap identity fence succeeding.
+	// It is off by default so the after-exchange tests keep failing loudly if
+	// the fence is ever applied to an already-swapped run.
+	allowRecheckForPublish   bool
+	rejectRetiredSearchIndex error
 }
 
 func (f *recoveryFiles) Plan(context.Context, domain.PreparedStoreUpgradeRun) (domain.PreparedStoreUpgradeRun, error) {
@@ -41,8 +47,14 @@ func (f *recoveryFiles) RemoveOwnedPartialCandidate(context.Context, domain.Prep
 	return errors.New("unexpected cleanup")
 }
 func (f *recoveryFiles) Recheck(context.Context, domain.PreparedStoreUpgradeRun) error { return nil }
+func (f *recoveryFiles) RejectRetiredSearchIndex(context.Context, domain.PreparedStoreUpgradeRun) error {
+	return f.rejectRetiredSearchIndex
+}
 func (f *recoveryFiles) RecheckForPublish(context.Context, domain.PreparedStoreUpgradeRun) error {
 	f.rechecked = true
+	if f.allowRecheckForPublish {
+		return nil
+	}
 	return errors.New("pre-swap fence must not run after exchange")
 }
 func (f *recoveryFiles) FenceCandidate(_ context.Context, run domain.PreparedStoreUpgradeRun) (domain.PreparedStoreUpgradeRun, error) {
@@ -105,5 +117,37 @@ func TestPreparedStoreUpgradeRollbackCatchesUpAfterRollbackExchange(t *testing.T
 	}
 	if rolled.Phase != domain.PreparedStoreUpgradeRolledBack || journal.run.Phase != domain.PreparedStoreUpgradeRolledBack {
 		t.Fatalf("rolled=%s journal=%s", rolled.Phase, journal.run.Phase)
+	}
+}
+
+// TestPreparedStoreUpgradeRefusesToPublishARetiredSearchIndex covers the
+// sibling protocol's forward exchange. Only the payload-rehearsal migration
+// recipe is registered today and that operation is exempt from the refusal, so
+// this asserts the wiring rather than a live failure: Operation.Known() admits
+// compaction, and a recipe registered for it must not inherit an unguarded
+// publication path. Recovery is the harder case — it reaches the exchange
+// through executeRecoveryAction, which handled both directions together until
+// the forward one was split out.
+func TestPreparedStoreUpgradeRefusesToPublishARetiredSearchIndex(t *testing.T) {
+	identity := domain.StoreFileIdentity{Device: 1, Inode: 2, Mode: 0o600, Links: 1}
+	run := domain.PreparedStoreUpgradeRun{ID: "run", SourcePath: "/copy.db", Phase: domain.PreparedStoreUpgradeSwapIntent, Operation: domain.PreparedStoreUpgradeOperationCompaction, ConsumerBinding: "binding", Candidate: identity, PreparedCandidateIdentity: identity, Budget: domain.PreparedStoreUpgradeBudget{PublishLockLimit: time.Second}}
+	journal := &recoveryJournal{run: run}
+	files := &recoveryFiles{
+		observation:              domain.PreparedStoreUpgradeObservation{Orientation: domain.OrientationCandidateReady, Source: domain.StoreFileIdentity{Device: 1, Inode: 1}, Candidate: identity, CandidateExists: true},
+		allowRecheckForPublish:   true,
+		rejectRetiredSearchIndex: errors.New("legacy search index family is still present"),
+	}
+	service := NewPreparedStoreUpgradeUsecase(run.SourcePath, journal, files, recoveryLease{}, map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{run.Operation: recoveryRecipe{}})
+
+	_, err := service.Resume(context.Background(), run.ID)
+	if err == nil {
+		t.Fatal("Resume() error = nil, want a refusal to publish a candidate carrying the retired search family")
+	}
+	if !strings.Contains(err.Error(), "legacy search index family") {
+		t.Fatalf("Resume() error = %v, want the retired-search-index refusal", err)
+	}
+	switch journal.run.Phase {
+	case domain.PreparedStoreUpgradeSwapped, domain.PreparedStoreUpgradeCommitted:
+		t.Fatalf("run reached %s; the candidate was published despite the refusal", journal.run.Phase)
 	}
 }

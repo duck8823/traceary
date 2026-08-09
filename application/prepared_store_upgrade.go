@@ -76,6 +76,12 @@ type PreparedStoreUpgradeFiles interface {
 	RemoveOwnedPartialCandidate(context.Context, domain.PreparedStoreUpgradeRun, domain.PreparedStoreUpgradeObservation) error
 	Recheck(context.Context, domain.PreparedStoreUpgradeRun) error
 	RecheckForPublish(context.Context, domain.PreparedStoreUpgradeRun) error
+	// RejectRetiredSearchIndex refuses to publish a store that still carries
+	// the retired migration-032 search index family. Compaction declares the
+	// same method; both protocols reach the same exchange, so both must ask.
+	// A payload-rehearsal migration is exempt — that publication is how a
+	// store reaches the schema where the family can be retired at all.
+	RejectRetiredSearchIndex(context.Context, domain.PreparedStoreUpgradeRun) error
 	FenceCandidate(context.Context, domain.PreparedStoreUpgradeRun) (domain.PreparedStoreUpgradeRun, error)
 	Exchange(context.Context, domain.PreparedStoreUpgradeRun) error
 	PublishRollback(context.Context, domain.PreparedStoreUpgradeRun) error
