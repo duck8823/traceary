@@ -82,6 +82,16 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 
 標準出力は集計カウンタだけの JSON です（本文は含みません）。
 
+## コマンドが自動で確認する前提条件
+
+- **counter モードの compatibility state**。*初版*の migration 36 を適用済みのストアは migration 043 に
+  よって `legacy_index` モードのままになります。migration 036 の `payload_codec_events_update` trigger は
+  `WHERE mode='counter' AND state='valid'` の行を更新し、該当が無ければ abort するため、そのようなストアでは
+  `identity` → `zstd` の遷移が毎回 `constraint failed: invalid payload codec compatibility state` で
+  バッチごと abort します。`preview` と `run` は開始前に拒否してモード名を提示し、開きっぱなしの run を残しません。
+- **実行後は rehearsal が使えなくなります**。`store payload-rehearsal` は live store に non-identity payload が
+  1 件でもあると開始を拒否します。rehearsal の証跡が必要なら、最初の backfill 実行の**前**に取得してください。
+
 ## 失敗と再開
 
 - バッチ間のクラッシュは、正当なストアと `running`/`paused` チェックポイントを残す。

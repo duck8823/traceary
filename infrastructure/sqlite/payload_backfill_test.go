@@ -551,3 +551,51 @@ func assertBodyCodec(t *testing.T, db *sql.DB, id, want string) {
 		t.Fatalf("body_codec mismatch for %s (-want +got):\n%s", id, diff)
 	}
 }
+
+// A store that applied the original migration 36 is left in legacy_index mode
+// by migration 043. Migration 036's payload_codec_events_update trigger updates
+// the counter row WHERE mode='counter' AND state='valid' and RAISE(ABORT)s when
+// that matched nothing, so on such a store every identity -> zstd transition
+// aborts its batch. The run must refuse up front and name the reason instead of
+// leaving an open run that can never advance.
+func TestPayloadBackfillRefusesNonCounterCompatibilityMode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	insertIdentityEvent(t, db, eventSeed{ID: "legacy-mode", Kind: "note", Body: compressibleBody("legacy-mode")})
+	if _, err := db.Exec(`UPDATE payload_codec_compatibility_state SET mode='legacy_index' WHERE singleton=1`); err != nil {
+		t.Fatalf("switch compatibility mode: %v", err)
+	}
+
+	for name, call := range map[string]func() (apptypes.PayloadBackfillResult, error){
+		"preview": func() (apptypes.PayloadBackfillResult, error) {
+			return ds.Preview(ctx, defaultBackfillConfig())
+		},
+		"run": func() (apptypes.PayloadBackfillResult, error) {
+			return ds.Run(ctx, defaultBackfillConfig())
+		},
+	} {
+		name, call := name, call
+		t.Run(name+" refuses legacy_index mode", func(t *testing.T) {
+			if _, err := call(); !errors.Is(err, ErrPayloadBackfillCompatibilityMode) {
+				t.Fatalf("%s error = %v, want ErrPayloadBackfillCompatibilityMode", name, err)
+			}
+		})
+	}
+
+	t.Run("no run row is left behind", func(t *testing.T) {
+		var runs int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM payload_backfill_runs`).Scan(&runs); err != nil {
+			t.Fatalf("count runs: %v", err)
+		}
+		if runs != 0 {
+			t.Fatalf("runs = %d, want 0", runs)
+		}
+	})
+
+	t.Run("the row is untouched", func(t *testing.T) {
+		assertBodyCodec(t, db, "legacy-mode", payloadCodecIdentity)
+	})
+}

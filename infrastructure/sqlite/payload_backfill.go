@@ -28,7 +28,14 @@ var (
 	ErrPayloadBackfillPartialMetadata = errors.New("payload backfill found partial codec metadata")
 	// ErrPayloadBackfillTableMissing means migration 054 has not been applied.
 	ErrPayloadBackfillTableMissing = errors.New("payload backfill bookkeeping table is missing")
+	// ErrPayloadBackfillCompatibilityMode refuses to start on a store whose
+	// payload codec compatibility evidence is not the counter.
+	ErrPayloadBackfillCompatibilityMode = errors.New("payload backfill requires counter-mode payload codec compatibility state")
 )
+
+// payloadCodecCompatibilityCounterMode is the only compatibility mode whose
+// triggers tolerate a codec transition (migration 036 / 043).
+const payloadCodecCompatibilityCounterMode = "counter"
 
 // PayloadBackfillDatasource rewrites events.body in place through the codec.
 type PayloadBackfillDatasource struct {
@@ -103,6 +110,9 @@ func (d *PayloadBackfillDatasource) Preview(ctx context.Context, c apptypes.Payl
 	if err = requirePayloadBackfillSchema(ctx, db); err != nil {
 		return apptypes.PayloadBackfillResult{}, err
 	}
+	if err = requirePayloadBackfillCounterMode(ctx, db); err != nil {
+		return apptypes.PayloadBackfillResult{}, err
+	}
 
 	highWater, err := maxEventRowID(ctx, db)
 	if err != nil {
@@ -164,6 +174,9 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 	defer d.db.release(db)
 
 	if err = requirePayloadBackfillSchema(ctx, db); err != nil {
+		return apptypes.PayloadBackfillResult{}, err
+	}
+	if err = requirePayloadBackfillCounterMode(ctx, db); err != nil {
 		return apptypes.PayloadBackfillResult{}, err
 	}
 
@@ -323,6 +336,29 @@ func requirePayloadBackfillSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if err != nil {
 		return xerrors.Errorf("inspect payload backfill schema: %w", err)
+	}
+	return nil
+}
+
+// requirePayloadBackfillCounterMode refuses to start on a store whose payload
+// codec compatibility evidence is not the counter. Migration 036's
+// payload_codec_events_update trigger updates the counter row WHERE
+// mode='counter' AND state='valid' and then RAISE(ABORT)s if that matched no
+// row, so on a legacy_index store (migration 043: a development database that
+// applied the original migration 36) every identity -> zstd transition aborts
+// its batch with "invalid payload codec compatibility state". Failing here
+// names the reason instead of leaving an open run that can never advance.
+func requirePayloadBackfillCounterMode(ctx context.Context, db *sql.DB) error {
+	var mode, state string
+	err := db.QueryRowContext(ctx, `SELECT mode, state FROM payload_codec_compatibility_state WHERE singleton=1`).Scan(&mode, &state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return xerrors.Errorf("%w: payload codec compatibility state is missing", ErrPayloadBackfillCompatibilityMode)
+	}
+	if err != nil {
+		return xerrors.Errorf("inspect payload codec compatibility state: %w", err)
+	}
+	if state != "valid" || mode != payloadCodecCompatibilityCounterMode {
+		return xerrors.Errorf("%w: mode=%q state=%q", ErrPayloadBackfillCompatibilityMode, mode, state)
 	}
 	return nil
 }

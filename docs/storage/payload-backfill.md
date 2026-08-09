@@ -83,6 +83,18 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 
 Output is JSON on stdout with aggregate counters only (no body contents).
 
+## Preconditions the command checks for you
+
+- **Counter-mode compatibility state.** A store that applied the *original* migration 36 was left in
+  `legacy_index` mode by migration 043. Migration 036's `payload_codec_events_update` trigger updates
+  the counter row `WHERE mode='counter' AND state='valid'` and aborts when that matches nothing, so
+  on such a store every `identity` → `zstd` transition would abort its batch with `constraint failed:
+  invalid payload codec compatibility state`. `preview` and `run` refuse up front and name the mode
+  instead, leaving no open run behind.
+- **Rehearsal becomes unavailable afterwards.** `store payload-rehearsal` refuses to start once the
+  live store holds any non-identity payload. Take whatever rehearsal evidence you want *before* the
+  first backfill run.
+
 ## Failure and resume
 
 - A crash between batches leaves a valid store and a `running`/`paused`
