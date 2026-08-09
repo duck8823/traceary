@@ -30,7 +30,7 @@ func (s *storeBackupCreatorStub) CreateBackup(_ context.Context, outputPath stri
 func (s *storeBackupCreatorStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
 	return nil
 }
-func (s *storeBackupCreatorStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (int, error) {
+func (s *storeBackupCreatorStub) CollectGarbage(_ context.Context, _ time.Time, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (int, error) {
 	return 0, nil
 }
 func (s *storeBackupCreatorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (int, error) {
@@ -61,7 +61,7 @@ func (s *storeBackupRestorerStub) RestoreBackup(_ context.Context, inputPath str
 
 	return s.err
 }
-func (s *storeBackupRestorerStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (int, error) {
+func (s *storeBackupRestorerStub) CollectGarbage(_ context.Context, _ time.Time, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (int, error) {
 	return 0, nil
 }
 func (s *storeBackupRestorerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (int, error) {

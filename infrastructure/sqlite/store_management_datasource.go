@@ -285,11 +285,12 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 func (d *StoreManagementDatasource) CollectGarbage(
 	ctx context.Context,
 	before time.Time,
+	foldedBefore time.Time,
 	target apptypes.GarbageCollectionTarget,
 	dryRun bool,
 ) (int, error) {
 	if dryRun {
-		return d.previewGarbage(ctx, before, target)
+		return d.previewGarbage(ctx, before, foldedBefore, target)
 	}
 
 	db, err := d.db.open(ctx)
@@ -317,7 +318,7 @@ func (d *StoreManagementDatasource) CollectGarbage(
 	}()
 
 	discardedAt := formatTimestamp(d.now().UTC())
-	deleteCount, err := d.collectGarbageInTx(ctx, tx, before, target, discardedAt)
+	deleteCount, err := d.collectGarbageInTx(ctx, tx, before, foldedBefore, target, discardedAt)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to collect garbage: %w", err)
 	}
@@ -332,6 +333,7 @@ func (d *StoreManagementDatasource) CollectGarbage(
 func (d *StoreManagementDatasource) previewGarbage(
 	ctx context.Context,
 	before time.Time,
+	foldedBefore time.Time,
 	target apptypes.GarbageCollectionTarget,
 ) (int, error) {
 	db, err := d.db.openReadOnly(ctx)
@@ -354,7 +356,7 @@ func (d *StoreManagementDatasource) previewGarbage(
 		}
 	}()
 
-	count, err := d.countGarbageInTx(ctx, tx, before, target)
+	count, err := d.countGarbageInTx(ctx, tx, before, foldedBefore, target)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to preview garbage collection: %w", err)
 	}
@@ -368,6 +370,7 @@ func (d *StoreManagementDatasource) countGarbageInTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	before time.Time,
+	foldedBefore time.Time,
 	target apptypes.GarbageCollectionTarget,
 ) (int, error) {
 	if _, ok := apptypes.GarbageCollectionTargetFrom(target.String()); !ok {
@@ -375,6 +378,7 @@ func (d *StoreManagementDatasource) countGarbageInTx(
 	}
 
 	beforeValue := formatTimestamp(before)
+	foldedBeforeValue := formatTimestamp(foldedBefore)
 	memoryEdgeBeforeValue := formatMemoryValidityTimestamp(before)
 	total := 0
 	matched := false
@@ -390,11 +394,11 @@ func (d *StoreManagementDatasource) countGarbageInTx(
 			return 0, err
 		}
 		if supported {
-			countQuery, err := composeDiscardableEventBodiesQuery(countDiscardableEventBodiesQuery)
+			countQuery, err := composeGCDiscardableEventBodiesQuery(countDiscardableEventBodiesQuery)
 			if err != nil {
 				return 0, err
 			}
-			count, err := queryCount(ctx, tx, countQuery, beforeValue)
+			count, err := queryCount(ctx, tx, countQuery, beforeValue, foldedBeforeValue)
 			if err != nil {
 				return 0, xerrors.Errorf("failed to count discardable event bodies: %w", err)
 			}
@@ -466,10 +470,12 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 		QueryRowContext(context.Context, string, ...any) *sql.Row
 	},
 	before time.Time,
+	foldedBefore time.Time,
 	target apptypes.GarbageCollectionTarget,
 	discardedAt string,
 ) (int, error) {
 	beforeValue := formatTimestamp(before)
+	foldedBeforeValue := formatTimestamp(foldedBefore)
 	memoryEdgeBeforeValue := formatMemoryValidityTimestamp(before)
 
 	if _, ok := apptypes.GarbageCollectionTargetFrom(target.String()); !ok {
@@ -485,7 +491,7 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 			return 0, err
 		}
 		if supported {
-			count, err := discardEligibleEventBodies(ctx, tx, beforeValue, discardedAt)
+			count, err := discardEligibleEventBodies(ctx, tx, beforeValue, foldedBeforeValue, discardedAt)
 			if err != nil {
 				return 0, xerrors.Errorf("failed to discard eligible event bodies: %w", err)
 			}
@@ -546,17 +552,17 @@ func discardEligibleEventBodies(
 	executor interface {
 		ExecContext(context.Context, string, ...any) (sql.Result, error)
 	},
-	beforeValue, discardedAt string,
+	beforeValue, foldedBeforeValue, discardedAt string,
 ) (int, error) {
 	marker, err := encodePayload([]byte(types.EventBodyUnavailableRetentionMarker), payloadCodecIdentity)
 	if err != nil {
 		return 0, err
 	}
-	query, err := composeDiscardableEventBodiesQuery(discardEventBodiesQuery)
+	query, err := composeGCDiscardableEventBodiesQuery(discardEventBodiesQuery)
 	if err != nil {
 		return 0, err
 	}
-	return execRowsAffected(ctx, executor, query, string(marker.Bytes), marker.Codec, marker.FormatVersion, marker.PlaintextBytes, marker.StoredBytes, marker.SHA256, discardedAt, beforeValue)
+	return execRowsAffected(ctx, executor, query, string(marker.Bytes), marker.Codec, marker.FormatVersion, marker.PlaintextBytes, marker.StoredBytes, marker.SHA256, discardedAt, beforeValue, foldedBeforeValue)
 }
 
 func execRowsAffected(
@@ -871,6 +877,10 @@ func discardPredicateSupported(
 			return false, nil
 		}
 	}
+	// Only events needs a column check. Its body columns arrived over several
+	// migrations, so the table can exist without them; session_refinements has
+	// carried every column this predicate reads since the migration that
+	// created it, so its presence is already answered above.
 	for _, column := range []string{"body_availability", "body_codec", "body_format_version", "body_plaintext_bytes", "body_encoded_bytes", "body_sha256"} {
 		var exists bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('events') WHERE name = ?)`, column).Scan(&exists); err != nil {

@@ -79,7 +79,7 @@ func (s *restoreStoreBackupUsecaseForTest) RestoreBackup(_ context.Context, _ st
 	s.called = true
 	return nil
 }
-func (s *restoreStoreBackupUsecaseForTest) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (apptypes.CollectGarbageResult, error) {
+func (s *restoreStoreBackupUsecaseForTest) CollectGarbage(_ context.Context, _ time.Time, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (apptypes.CollectGarbageResult, error) {
 	return apptypes.CollectGarbageResult{}, nil
 }
 func (s *restoreStoreBackupUsecaseForTest) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {

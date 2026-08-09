@@ -261,7 +261,7 @@ func TestSessionRefinementDatasource_RetentionDoesNotDeleteRefinements(t *testin
 
 	// Aggressive cutoff: everything old is eligible for GC targets that exist.
 	cutoff := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := fx.store.CollectGarbage(ctx, cutoff, apptypes.GarbageCollectionTargetAll, false); err != nil {
+	if _, err := fx.store.CollectGarbage(ctx, cutoff, gcTestRunStart, apptypes.GarbageCollectionTargetAll, false); err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
 

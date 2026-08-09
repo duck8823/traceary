@@ -156,7 +156,7 @@ func (s *minimalStoreStub) CreateBackup(context.Context, string, bool) error {
 func (s *minimalStoreStub) RestoreBackup(context.Context, string, bool) error {
 	return nil
 }
-func (s *minimalStoreStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (apptypes.CollectGarbageResult, error) {
+func (s *minimalStoreStub) CollectGarbage(context.Context, time.Time, time.Time, apptypes.GarbageCollectionTarget, bool) (apptypes.CollectGarbageResult, error) {
 	return apptypes.CollectGarbageResult{}, nil
 }
 func (s *minimalStoreStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {

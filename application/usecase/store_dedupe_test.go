@@ -29,7 +29,7 @@ func (s *dedupeStoreManagerStub) CreateBackup(context.Context, string, bool) err
 func (s *dedupeStoreManagerStub) RestoreBackup(context.Context, string, bool) error {
 	return nil
 }
-func (s *dedupeStoreManagerStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (int, error) {
+func (s *dedupeStoreManagerStub) CollectGarbage(context.Context, time.Time, time.Time, apptypes.GarbageCollectionTarget, bool) (int, error) {
 	return 0, nil
 }
 func (s *dedupeStoreManagerStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (int, error) {

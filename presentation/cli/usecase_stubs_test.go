@@ -51,8 +51,8 @@ type eventUsecaseStub struct {
 
 	// hydrateCalls / lastHydrateFields record HydrateCommandAudits usage so
 	// body-rendering paths can assert command-only vs full vs none.
-	hydrateCalls       int
-	lastHydrateFields  queryservice.CommandAuditPayloadFields
+	hydrateCalls      int
+	lastHydrateFields queryservice.CommandAuditPayloadFields
 	// hydrateCommandByEventID, when set, simulates command-only decode by
 	// replacing metadata-only audits with the mapped command line.
 	hydrateCommandByEventID map[string]string
@@ -757,6 +757,8 @@ type storeManagementUsecaseStub struct {
 	gcResult          apptypes.CollectGarbageResult
 	gcErr             error
 	gcCalled          bool
+	gcCutoff          time.Time
+	gcFoldedBefore    time.Time
 	dedupeResult      apptypes.ContentEventDedupeResult
 	dedupeErr         error
 	dedupeParams      []apptypes.ContentEventDedupeParams
@@ -794,8 +796,10 @@ func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, path string
 func (s *storeManagementUsecaseStub) RestoreBackup(_ context.Context, _ string, _ bool) error {
 	return s.restoreErr
 }
-func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (apptypes.CollectGarbageResult, error) {
+func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, before time.Time, foldedBefore time.Time, _ apptypes.GarbageCollectionTarget, _ bool) (apptypes.CollectGarbageResult, error) {
 	s.gcCalled = true
+	s.gcCutoff = before
+	s.gcFoldedBefore = foldedBefore
 	return s.gcResult, s.gcErr
 }
 func (s *storeManagementUsecaseStub) DedupeContentEvents(_ context.Context, params apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {

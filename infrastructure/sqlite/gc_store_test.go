@@ -20,6 +20,11 @@ import (
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
+// gcTestRunStart stands in for the instant a gc run began. The discard only
+// considers refinements that already existed then, so fixtures date their
+// folds before it.
+var gcTestRunStart = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
 func TestDatasource_CollectGarbage_DryRun(t *testing.T) {
 	t.Parallel()
 
@@ -28,6 +33,7 @@ func TestDatasource_CollectGarbage_DryRun(t *testing.T) {
 	deletedCount, err := fixture.storeManager.CollectGarbage(
 		context.Background(),
 		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
+		gcTestRunStart,
 		apptypes.GarbageCollectionTargetEvents,
 		true,
 	)
@@ -69,6 +75,7 @@ func TestDatasource_CollectGarbage_DryRunSucceedsOnReadOnlyStore(t *testing.T) {
 	deletedCount, err := fixture.storeManager.CollectGarbage(
 		context.Background(),
 		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
+		gcTestRunStart,
 		apptypes.GarbageCollectionTargetEvents,
 		true,
 	)
@@ -111,6 +118,7 @@ func TestDatasource_CollectGarbage_DryRunDoesNotCreateMissingStore(t *testing.T)
 	if _, err := storeManager.CollectGarbage(
 		context.Background(),
 		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
+		gcTestRunStart,
 		apptypes.GarbageCollectionTargetEvents,
 		true,
 	); err == nil {
@@ -129,6 +137,7 @@ func TestDatasource_CollectGarbage_preservesUncoveredOldEventsAndAudits(t *testi
 	deletedCount, err := fixture.storeManager.CollectGarbage(
 		context.Background(),
 		time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
+		gcTestRunStart,
 		apptypes.GarbageCollectionTargetEvents,
 		false,
 	)
@@ -217,7 +226,7 @@ ALTER TABLE command_audits ADD COLUMN output_plaintext_bytes TEXT;
 ALTER TABLE command_audits ADD COLUMN output_encoded_bytes TEXT;
 ALTER TABLE command_audits ADD COLUMN output_sha256 TEXT;
 CREATE TABLE sessions (session_id TEXT PRIMARY KEY, ended_at TEXT);
-CREATE TABLE session_refinements (session_id TEXT PRIMARY KEY, covers_from_event_id TEXT NOT NULL, covers_to_event_id TEXT NOT NULL);`),
+CREATE TABLE session_refinements (session_id TEXT PRIMARY KEY, covers_from_event_id TEXT NOT NULL, covers_to_event_id TEXT NOT NULL, produced_at TEXT NOT NULL);`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -355,7 +364,7 @@ func TestDatasource_CollectGarbage_deletesOldEmptySessionsButProtectsActiveAndRe
 	execRetentionSQL(t, db, `INSERT INTO events (id, kind, agent, session_id, body, created_at, source_hook, client, workspace) VALUES
 		('event-recent', 'note', 'codex', 'with-event-old', 'recent', '2026-04-08T00:00:00Z', NULL, 'cli', 'repo')`)
 
-	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetSessions, true)
+	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetSessions, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
@@ -363,7 +372,7 @@ func TestDatasource_CollectGarbage_deletesOldEmptySessionsButProtectsActiveAndRe
 		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
 	}
 
-	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetSessions, false)
+	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetSessions, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
@@ -389,7 +398,7 @@ func TestDatasource_CollectGarbageAll_keepsTheEventRowAndSoKeepsItsSession(t *te
 	execRetentionSQL(t, db, `INSERT INTO events (id, kind, agent, session_id, body, created_at, source_hook, client, workspace) VALUES
 		('event-old', 'note', 'codex', 'old-only', 'old', '2026-04-02T00:00:00Z', NULL, 'cli', 'repo')`)
 
-	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetAll, true)
+	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetAll, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
@@ -399,7 +408,7 @@ func TestDatasource_CollectGarbageAll_keepsTheEventRowAndSoKeepsItsSession(t *te
 	assertRetentionIDs(t, db, "events", "id", []string{"event-old"})
 	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-only"})
 
-	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetAll, false)
+	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetAll, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
@@ -431,7 +440,7 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredSupersededAndRejectedMemori
 		('edge-cascade-from', 'mem-expired-old', 'mem-accepted-old', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
 		('edge-cascade-to', 'mem-accepted-old', 'mem-superseded-old', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z')`)
 
-	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemories, true)
+	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetMemories, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
@@ -440,7 +449,7 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredSupersededAndRejectedMemori
 	}
 	assertRetentionIDs(t, db, "memory_edges", "id", []string{"edge-cascade-from", "edge-cascade-to"})
 
-	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemories, false)
+	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetMemories, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
@@ -493,6 +502,7 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 	previewCount, err := storeManager.CollectGarbage(
 		context.Background(),
 		before,
+		gcTestRunStart,
 		apptypes.GarbageCollectionTargetMemories,
 		true,
 	)
@@ -506,6 +516,7 @@ func TestDatasource_CollectGarbage_deletesStaleExtractedCandidatesAfter14d(t *te
 	deletedCount, err := storeManager.CollectGarbage(
 		context.Background(),
 		before,
+		gcTestRunStart,
 		apptypes.GarbageCollectionTargetMemories,
 		false,
 	)
@@ -560,6 +571,7 @@ func TestDatasource_CollectGarbage_clearsSupersedesRefBeforeDeletingStaleExtract
 	if _, err := storeManager.CollectGarbage(
 		context.Background(),
 		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		gcTestRunStart,
 		apptypes.GarbageCollectionTargetMemories,
 		false,
 	); err != nil {
@@ -598,7 +610,7 @@ func TestDatasource_CollectGarbage_deletesOldClosedMemoryEdges(t *testing.T) {
 		('edge-recent-closed', 'mem-a', 'mem-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-08T00:00:00.000000000Z', '2026-04-01T00:00:00Z'),
 		('edge-open', 'mem-a', 'mem-b', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z')`)
 
-	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemoryEdges, true)
+	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetMemoryEdges, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
@@ -606,7 +618,7 @@ func TestDatasource_CollectGarbage_deletesOldClosedMemoryEdges(t *testing.T) {
 		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
 	}
 
-	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemoryEdges, false)
+	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetMemoryEdges, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
@@ -641,7 +653,7 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets(t 
 		('cascade-edge', 'old-memory', 'accepted-a', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
 		('independent-old-edge', 'accepted-a', 'accepted-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-02T00:00:00.000000000Z', '2026-04-01T00:00:00Z')`)
 
-	previewCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, true)
+	previewCount, err := storeManager.CollectGarbage(context.Background(), cutoff, gcTestRunStart, apptypes.GarbageCollectionTargetAll, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
@@ -655,7 +667,7 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets(t 
 	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "old-memory", "stale-candidate"})
 	assertRetentionIDs(t, db, "memory_edges", "id", []string{"cascade-edge", "independent-old-edge"})
 
-	deletedCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, false)
+	deletedCount, err := storeManager.CollectGarbage(context.Background(), cutoff, gcTestRunStart, apptypes.GarbageCollectionTargetAll, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
@@ -703,11 +715,11 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyWithProductionMigration
 		('cascade-edge', 'old-memory', 'accepted-a', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
 		('independent-old-edge', 'accepted-a', 'accepted-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-02T00:00:00.000000000Z', '2026-04-01T00:00:00Z')`)
 
-	previewCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, true)
+	previewCount, err := storeManager.CollectGarbage(context.Background(), cutoff, gcTestRunStart, apptypes.GarbageCollectionTargetAll, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
-	deletedCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, false)
+	deletedCount, err := storeManager.CollectGarbage(context.Background(), cutoff, gcTestRunStart, apptypes.GarbageCollectionTargetAll, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
@@ -884,7 +896,7 @@ func TestDatasource_CollectGarbage_DryRunSkipsUnsupportedLegacyDiscardPredicate(
 	// is skipped is pinned by
 	// TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets.
 	dbPath, store := prepareLegacyGCFixture(t)
-	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetEvents, true)
+	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetEvents, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
@@ -956,7 +968,7 @@ func TestDatasource_CollectGarbage_discardsOnlyFoldedEndedTranscripts(t *testing
 				insertGCFold(t, db, "session-1", "event-1", "event-1")
 			}
 			before := gcEventPreservedFields(t, db, "event-1")
-			got, err := store.CollectGarbage(context.Background(), cutoff, tc.target, false)
+			got, err := store.CollectGarbage(context.Background(), cutoff, gcTestRunStart, tc.target, false)
 			if err != nil {
 				t.Fatalf("CollectGarbage() error = %v", err)
 			}
@@ -999,7 +1011,7 @@ func TestDatasource_CollectGarbage_preservesCommandAuditAndDecodesDiscardMarker(
 	if err := db.QueryRow(`SELECT command_text, input_text FROM command_audits WHERE event_id = ?`, command.EventID().String()).Scan(&commandText, &inputText); err != nil {
 		t.Fatalf("read command audit: %v", err)
 	}
-	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetAll, false)
+	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetAll, false)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
@@ -1043,7 +1055,7 @@ func TestDatasource_CollectGarbage_DryRunReportsEligibleBodiesWithoutMutation(t 
 	defer func() { _ = db.Close() }()
 	insertGCSession(t, db, "session-1", true)
 	insertGCFold(t, db, "session-1", "eligible", "eligible")
-	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetEvents, true)
+	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), gcTestRunStart, apptypes.GarbageCollectionTargetEvents, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}

@@ -78,6 +78,14 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		return xerrors.New(Localize("--target must be one of events, sessions, memories, memory_edges, all", "--target は events, sessions, memories, memory_edges, all のいずれかである必要があります"))
 	}
 
+	// Captured before consolidation, not after: it is what tells the discard
+	// which refinements already existed when this run began. A dry run
+	// consolidates without writing, so its count can only see those; bounding
+	// the apply the same way makes the preview exact instead of an
+	// understatement of an irreversible loss. Material folded by this run is
+	// discarded by the next one, so nothing is stranded.
+	runStartedAt := gcNowFunc()
+
 	// Orphan consolidation runs before body discard so a degraded refinement can
 	// land while the events it summarises still exist. No new surface: this is
 	// a step inside store gc, not a command or --target value.
@@ -119,22 +127,12 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 
 	// Dry-run still runs CollectGarbage for its count because a dry run deletes
 	// nothing. Apply mode must not delete when consolidation left uncovered ranges.
-	//
-	// It must also not discard a body that this very run folded. A dry run
-	// consolidates without writing, so its count only ever sees refinements
-	// that already existed; an apply that folded first would discard bodies
-	// the preview could not have counted, which is precisely the loss
-	// --dry-run exists to make visible. Deferring to the next run costs one
-	// extra invocation and buys a preview that matches what the discard will
-	// actually do. Consolidation converges, so the deferral does not repeat.
-	foldedThisRun := consolidationApplied && orphanResult.ProducedCount() > 0
-	skipDeletion := consolidationApplied && !input.dryRun &&
-		(!orphanResult.Complete() || foldedThisRun)
+	skipDeletion := consolidationApplied && !orphanResult.Complete() && !input.dryRun
 	var result apptypes.CollectGarbageResult
 	if !skipDeletion {
-		cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
+		cutoff := runStartedAt.AddDate(0, 0, -input.keepDays)
 		var gcErr error
-		result, gcErr = c.storeManagement.CollectGarbage(ctx, cutoff, target, input.dryRun)
+		result, gcErr = c.storeManagement.CollectGarbage(ctx, cutoff, runStartedAt, target, input.dryRun)
 		if gcErr != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to run garbage collection", "gc の実行に失敗しました"), gcErr)
 		}
@@ -160,17 +158,6 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
 			}
 		}
-		// Candidates counts what an apply would discard only once nothing new
-		// needs folding. Saying so keeps the number from reading as "this run
-		// will discard fewer bodies than it folds".
-		if foldedThisRun && orphanResult.Complete() {
-			if _, err := fmt.Fprintf(output, "%s\n", Localize(
-				"An apply would fold first and discard nothing; re-run gc to discard what it folded",
-				"apply では機械要約が先に走り、破棄は行われません。要約した本文を破棄するには gc を再実行してください",
-			)); err != nil {
-				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
-			}
-		}
 		return nil
 	}
 
@@ -183,17 +170,10 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		}
 	}
 	if skipDeletion {
-		reason := Localize(
+		if _, err := fmt.Fprintf(output, "%s\n", Localize(
 			"Cleanup skipped: orphan ranges are not fully consolidated; re-run gc to continue",
 			"整理をスキップしました: orphan range の機械要約が未完了です。gc を再実行してください",
-		)
-		if orphanResult.Complete() {
-			reason = Localize(
-				"Cleanup skipped: this run folded ranges that no preview could have counted; re-run gc to discard them",
-				"整理をスキップしました: このrunで機械要約した range は dry-run では数えられません。破棄するには gc を再実行してください",
-			)
-		}
-		if _, err := fmt.Fprintf(output, "%s\n", reason); err != nil {
+		)); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
 		return nil

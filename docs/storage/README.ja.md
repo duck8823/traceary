@@ -168,7 +168,7 @@ Durable memory に紐づく artifact ref です。
 
 本文破棄の前に、`store gc` は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
 
-**機械要約を行った run は破棄しません。** dry-run は書き込まずに機械要約するため、その候補件数には既存の refinement しか反映されません。apply が先に要約してから破棄すると、preview が数えられなかった本文を失うことになり、それはまさに `--dry-run` が可視化するために存在する損失です。したがって orphan 機械要約を 1 件でも生成した run は `Cleanup skipped` を報告し、破棄は次の run に委ねます。次の run の preview は、その run が実際に破棄する件数をそのまま示します。機械要約は収束するため、余分にかかるのは 1 回の実行であり、毎回ではありません。
+**その run で機械要約したものは、その run では破棄しません。** dry-run は書き込まずに機械要約するため、その候補件数には既存の refinement しか反映されません。apply が先に要約してから破棄すると、preview が数えられなかった本文を失うことになり、それはまさに `--dry-run` が可視化するために存在する損失です。そこで破棄は run 開始時刻で bound されます。`produced_at` がその時刻より前の refinement だけが破棄を認めます。これにより同一 store に対する preview と apply は正確に一致し、各 run は過去の run が要約した分をすべて破棄します。今日要約された本文は、それを先に preview で示す明日の run が破棄します。
 
 target ごとの policy:
 
