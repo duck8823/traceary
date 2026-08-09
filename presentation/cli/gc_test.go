@@ -65,7 +65,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("displays deletion count", func(t *testing.T) {
+	t.Run("displays collected count", func(t *testing.T) {
 		storeMaint := &storeManagementUsecaseStub{
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
@@ -84,7 +84,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinements: 4\nDeleted: 2\n"
+		want := "Orphan refinements: 4\nCollected: 2\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
@@ -193,7 +193,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("incomplete consolidation skips deletion", func(t *testing.T) {
+	t.Run("incomplete consolidation skips cleanup", func(t *testing.T) {
 		tests := []struct {
 			name   string
 			result apptypes.OrphanConsolidationResult
@@ -203,14 +203,14 @@ func TestRootCLI_GCCommand(t *testing.T) {
 				name:   "HasMore blocks deletion",
 				result: apptypes.OrphanConsolidationResultOf(5000, 5000, 0, true, false),
 				want: "Orphan refinements: 5000\n" +
-					"Deletion skipped: orphan ranges are not fully consolidated; re-run gc to continue\n",
+					"Cleanup skipped: orphan ranges are not fully consolidated; re-run gc to continue\n",
 			},
 			{
 				name:   "Skipped blocks deletion and prints skip line",
 				result: apptypes.OrphanConsolidationResultOf(10, 8, 2, false, false),
 				want: "Orphan refinements: 8\n" +
 					"Orphan ranges skipped: 2\n" +
-					"Deletion skipped: orphan ranges are not fully consolidated; re-run gc to continue\n",
+					"Cleanup skipped: orphan ranges are not fully consolidated; re-run gc to continue\n",
 			},
 		}
 		for _, tt := range tests {
@@ -241,7 +241,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("complete consolidation deletes", func(t *testing.T) {
+	t.Run("complete consolidation collects", func(t *testing.T) {
 		storeMaint := &storeManagementUsecaseStub{
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
@@ -260,7 +260,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinements: 3\nDeleted: 2\n"
+		want := "Orphan refinements: 3\nCollected: 2\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}

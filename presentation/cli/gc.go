@@ -27,7 +27,7 @@ func (c *RootCLI) newStoreGCCommand() *cobra.Command {
 
 	gcCmd := &cobra.Command{
 		Use:   "gc",
-		Short: Localize("Delete retained store records and compact the store", "保持期間を過ぎたストアレコードを削除して最適化する"),
+		Short: Localize("Discard eligible retained bodies and clean up the store", "対象の保持本文を破棄してストアを整理する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runGC(cmd.Context(), cmd.OutOrStdout(), gcCommandInput{
@@ -40,14 +40,14 @@ func (c *RootCLI) newStoreGCCommand() *cobra.Command {
 	}
 	gcCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	gcCmd.Flags().IntVar(&keepDays, "keep-days", defaultRetentionDays, Localize("number of days to retain", "保持する日数"))
-	gcCmd.Flags().StringVar(&target, "target", "all", Localize("records to prune (events | sessions | memories | memory_edges | all)", "削除対象 (events | sessions | memories | memory_edges | all)"))
+	gcCmd.Flags().StringVar(&target, "target", "all", Localize("targets to clean up; events discards eligible bodies (events | sessions | memories | memory_edges | all)", "整理対象。events は対象本文を破棄 (events | sessions | memories | memory_edges | all)"))
 	gcCmd.Flags().BoolVar(
 		&dryRun,
 		"dry-run",
 		false,
 		Localize(
 			"count candidates using a read-only connection without initializing or migrating the store",
-			"storeをinitialize・migrationせず、read-only connectionで削除対象件数だけを表示する",
+			"storeをinitialize・migrationせず、read-only connectionで対象件数だけを表示する",
 		),
 	)
 
@@ -78,7 +78,7 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		return xerrors.New(Localize("--target must be one of events, sessions, memories, memory_edges, all", "--target は events, sessions, memories, memory_edges, all のいずれかである必要があります"))
 	}
 
-	// Orphan consolidation runs before deletion so a degraded refinement can
+	// Orphan consolidation runs before body discard so a degraded refinement can
 	// land while the events it summarises still exist. No new surface: this is
 	// a step inside store gc, not a command or --target value.
 	//
@@ -102,8 +102,8 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	if orphanConsolidationAppliesTo(target) {
 		if c.orphanConsolidation == nil {
 			return xerrors.New(Localize(
-				"orphan consolidation is not configured; refusing to delete events that may have no summary",
-				"orphan range の機械要約が設定されていません。要約のない event を削除する恐れがあるため中止します",
+				"orphan consolidation is not configured; refusing to discard event bodies that may have no summary",
+				"orphan range の機械要約が設定されていません。要約のない event 本文を破棄する恐れがあるため中止します",
 			))
 		}
 		var orphanErr error
@@ -139,7 +139,7 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
 			}
 		}
-		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Candidates", "削除対象"), result.DeletedCount()); err != nil {
+		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Candidates", "対象候補"), result.DeletedCount()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
 		}
 		if consolidationApplied && !orphanResult.Complete() {
@@ -163,14 +163,24 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	}
 	if skipDeletion {
 		if _, err := fmt.Fprintf(output, "%s\n", Localize(
-			"Deletion skipped: orphan ranges are not fully consolidated; re-run gc to continue",
-			"削除をスキップしました: orphan range の機械要約が未完了です。gc を再実行してください",
+			"Cleanup skipped: orphan ranges are not fully consolidated; re-run gc to continue",
+			"整理をスキップしました: orphan range の機械要約が未完了です。gc を再実行してください",
 		)); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
 		return nil
 	}
-	if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Deleted", "削除しました"), result.DeletedCount()); err != nil {
+	// The count means different things per target, so the label has to as
+	// well: events only discards bodies, all mixes discards with deletions,
+	// and the remaining targets still delete rows.
+	label := Localize("Deleted", "削除しました")
+	switch target {
+	case apptypes.GarbageCollectionTargetEvents:
+		label = Localize("Discarded bodies", "破棄した本文")
+	case apptypes.GarbageCollectionTargetAll:
+		label = Localize("Collected", "整理しました")
+	}
+	if _, err := fmt.Fprintf(output, "%s: %d\n", label, result.DeletedCount()); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 	}
 

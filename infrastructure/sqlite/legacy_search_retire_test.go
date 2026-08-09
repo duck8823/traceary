@@ -184,14 +184,16 @@ func TestRetireLegacySearchProjection_LeavesAPre052StoreWritable(t *testing.T) {
 	}
 }
 
-// TestMigration052_StopsEventDeletionFromTouchingTheSearchIndex pins why the
-// documents-side triggers had to go too. event_search_documents.event_id is
-// declared REFERENCES events(id) ON DELETE CASCADE and the store DSN enables
+// TestMigration052_StopsEventGarbageCollectionFromTouchingTheSearchIndex pins
+// why the documents-side triggers had to go too. event_search_documents.event_id
+// is declared REFERENCES events(id) ON DELETE CASCADE and the store DSN enables
 // foreign_keys, so gc and retention still reach the documents table after the
-// source-side triggers are gone. With the delete trigger alive, each of those
-// cascades appended FTS5 delete markers — growing the very index this
-// retirement exists to remove.
-func TestMigration052_StopsEventDeletionFromTouchingTheSearchIndex(t *testing.T) {
+// source-side triggers are gone. With the trigger alive, each gc write against
+// events appended FTS5 delete markers — growing the very index this retirement
+// exists to remove. Since #1676 the gc write is a body discard rather than a
+// row delete, which touches the documents table through the update trigger
+// instead of the delete cascade; the index must stay unchanged either way.
+func TestMigration052_StopsEventGarbageCollectionFromTouchingTheSearchIndex(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -203,12 +205,13 @@ func TestMigration052_StopsEventDeletionFromTouchingTheSearchIndex(t *testing.T)
 	if err := management.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
+	makeSeededEventDiscardable(t, dbPath)
 
 	before := countRows(t, dbPath, "event_search_fts_data")
 	if before == 0 {
-		t.Fatal("the fixture event was never indexed; a delete could not disturb an empty index")
+		t.Fatal("the fixture event was never indexed; a gc write could not disturb an empty index")
 	}
-	deleted, err := management.CollectGarbage(
+	discarded, err := management.CollectGarbage(
 		ctx,
 		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 		apptypes.GarbageCollectionTargetEvents,
@@ -217,11 +220,36 @@ func TestMigration052_StopsEventDeletionFromTouchingTheSearchIndex(t *testing.T)
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if deleted == 0 {
-		t.Fatal("CollectGarbage() deleted nothing; the fixture event must be prunable for this test to mean anything")
+	if discarded == 0 {
+		t.Fatal("CollectGarbage() discarded nothing; the fixture event must be eligible for this test to mean anything")
 	}
 	if got := countRows(t, dbPath, "event_search_fts_data"); got != before {
-		t.Fatalf("event_search_fts_data rows = %d after deleting %d events, want %d unchanged", got, deleted, before)
+		t.Fatalf("event_search_fts_data rows = %d after discarding %d bodies, want %d unchanged", got, discarded, before)
+	}
+}
+
+// makeSeededEventDiscardable gives the seeded event the ended session and the
+// covering refinement the discard predicate requires.
+func makeSeededEventDiscardable(t *testing.T, dbPath string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(
+		`INSERT INTO sessions (session_id, started_at, ended_at, client, agent, workspace)
+		 VALUES ('session-1', '2026-08-01T00:00:00Z', '2026-08-01T01:00:00Z', 'cli', 'codex', ?)`,
+		legacySearchWorkspace,
+	); err != nil {
+		t.Fatalf("insert ended session: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO session_refinements
+		     (session_id, generation, covers_from_event_id, covers_to_event_id, summary, keywords, produced_by, produced_at, degraded)
+		 VALUES ('session-1', 1, 'event-needle', 'event-needle', 'mechanical', '', 'gc:orphan-consolidation', '2026-08-02T00:00:00Z', 1)`,
+	); err != nil {
+		t.Fatalf("insert covering refinement: %v", err)
 	}
 }
 
@@ -237,7 +265,7 @@ func seedPre052Store(t *testing.T, dbPath string) {
 	event := newSearchEventFixture(
 		t,
 		"event-needle",
-		types.EventKindNote,
+		types.EventKindTranscript,
 		legacySearchWorkspace,
 		"retirement needle",
 		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),

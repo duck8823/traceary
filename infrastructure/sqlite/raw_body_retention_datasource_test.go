@@ -30,8 +30,10 @@ func TestRawBodyRetention_applyRetryAndRestore(t *testing.T) {
 	if err := events.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
+	makeRawBodyRetentionEligible(t, dbPath, event.EventID().String())
 	beforeMetadata := rawBodyMetadataRow(t, dbPath, event.EventID().String())
 
+	makeRawBodyRetentionEligible(t, dbPath, event.EventID().String())
 	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
@@ -76,18 +78,18 @@ func TestRawBodyRetention_applyRetryAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, ended_at, client, agent, workspace) VALUES ('retention-session', '2026-05-01T00:00:00Z', NULL, 'cli', 'codex', 'repo')`); err != nil {
+	if _, err := db.Exec(`UPDATE sessions SET ended_at = NULL WHERE session_id = 'retention-session'`); err != nil {
 		t.Fatalf("activate session before retry: %v", err)
 	}
 	_ = db.Close()
-	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 2, 2, 0, 0, 0, time.UTC)); err == nil {
-		t.Fatal("retry ApplyRawBodyPlan(active session) error = nil, want durable-state rejection")
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 2, 2, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("retry ApplyRawBodyPlan() error = %v", err)
 	}
 	db, err = sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open(cleanup) error = %v", err)
 	}
-	if _, err := db.Exec(`DELETE FROM sessions WHERE session_id = 'retention-session'`); err != nil {
+	if _, err := db.Exec(`UPDATE sessions SET ended_at = '2026-06-02T00:00:00Z' WHERE session_id = 'retention-session'`); err != nil {
 		t.Fatalf("remove active session: %v", err)
 	}
 	_ = db.Close()
@@ -123,6 +125,7 @@ func TestRawBodyRetention_planSnapshotDoesNotChangeDatabaseBytes(t *testing.T) {
 	if err := events.Save(context.Background(), rawBodyRetentionEvent(t, "read-only-plan", "body", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
+	makeRawBodyRetentionEligible(t, dbPath, "read-only-plan")
 	before, err := os.ReadFile(dbPath)
 	if err != nil {
 		t.Fatalf("ReadFile(before) error = %v", err)
@@ -162,6 +165,7 @@ func TestRawBodyRetention_rejectsStaleCandidateWithoutPruning(t *testing.T) {
 	if err := events.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
+	makeRawBodyRetentionEligible(t, dbPath, event.EventID().String())
 	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
@@ -200,6 +204,7 @@ func TestRawBodyRetention_rejectsSchemaDriftWithoutPruning(t *testing.T) {
 	if err := events.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
+	makeRawBodyRetentionEligible(t, dbPath, event.EventID().String())
 	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
@@ -267,6 +272,7 @@ func TestRawBodyRetention_rejectsSessionActivatedAfterPlan(t *testing.T) {
 	if err := events.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
+	makeRawBodyRetentionEligible(t, dbPath, event.EventID().String())
 	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
@@ -275,7 +281,7 @@ func TestRawBodyRetention_rejectsSessionActivatedAfterPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, ended_at, client, agent, workspace) VALUES ('retention-session', '2026-05-01T00:00:00Z', NULL, 'cli', 'codex', 'repo')`); err != nil {
+	if _, err := db.Exec(`UPDATE sessions SET ended_at = NULL WHERE session_id = 'retention-session'`); err != nil {
 		t.Fatalf("activate session after plan: %v", err)
 	}
 	_ = db.Close()
@@ -293,6 +299,43 @@ func TestRawBodyRetention_rejectsSessionActivatedAfterPlan(t *testing.T) {
 	}
 }
 
+func TestRawBodyRetention_rejectsPlanWhenRefinementIsRemoved(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	events, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	event := rawBodyRetentionEvent(t, "refinement-removed", "protected", time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), event); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	makeRawBodyRetentionEligible(t, dbPath, event.EventID().String())
+	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ListRawBodyCandidates() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(`DELETE FROM session_refinements WHERE session_id = 'retention-session'`); err != nil {
+		t.Fatalf("delete refinement: %v", err)
+	}
+	_ = db.Close()
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "abababababababababababababababababababababababababababababababab", snapshot.Candidates, time.Now().UTC()); err == nil {
+		t.Fatal("ApplyRawBodyPlan() error = nil, want stale-plan rejection")
+	}
+	details, err := events.GetDetails(context.Background(), event.EventID())
+	if err != nil {
+		t.Fatalf("GetDetails() error = %v", err)
+	}
+	if !details.Event().BodyAvailability().IsAvailable() {
+		t.Fatalf("availability = %q, want available", details.Event().BodyAvailability())
+	}
+}
+
 func TestRawBodyRetention_interruptionResumesFromDurableBatch(t *testing.T) {
 	t.Parallel()
 
@@ -307,6 +350,7 @@ func TestRawBodyRetention_interruptionResumesFromDurableBatch(t *testing.T) {
 			t.Fatalf("Save(%s) error = %v", id, err)
 		}
 	}
+	makeRawBodyRetentionEligible(t, dbPath, "interrupt-a", "interrupt-b")
 	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
@@ -350,6 +394,7 @@ func TestRawBodyRetention_partialExecutionCanBeRestored(t *testing.T) {
 			t.Fatalf("Save(%s) error = %v", id, err)
 		}
 	}
+	makeRawBodyRetentionEligible(t, dbPath, "partial-a", "partial-b")
 	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
@@ -408,6 +453,7 @@ func TestRawBodyRetention_restoreBetweenBatchesStopsFurtherApply(t *testing.T) {
 			t.Fatalf("Save(%s) error = %v", id, err)
 		}
 	}
+	makeRawBodyRetentionEligible(t, dbPath, "race-a", "race-b")
 	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
@@ -453,6 +499,7 @@ func TestRawBodyRetention_planIsBoundToCopiedStorePath(t *testing.T) {
 	if err := events.Save(context.Background(), event); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
+	makeRawBodyRetentionEligible(t, originalPath, event.EventID().String())
 	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
@@ -488,7 +535,29 @@ func rawBodyRetentionEvent(t *testing.T, id, body string, createdAt time.Time) *
 	if err != nil {
 		t.Fatalf("SessionIDFrom() error = %v", err)
 	}
-	return model.EventOf(eventID, types.EventKindNote, "cli", agent, sessionID, "repo", body, createdAt)
+	return model.EventOf(eventID, types.EventKindTranscript, "cli", agent, sessionID, "repo", body, createdAt)
+}
+
+func makeRawBodyRetentionEligible(t *testing.T, dbPath string, eventIDs ...string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`INSERT INTO sessions(session_id, started_at, ended_at, client, agent, workspace)
+VALUES ('retention-session', '2026-05-01T00:00:00Z', '2026-06-02T00:00:00Z', 'cli', 'codex', 'repo')
+ON CONFLICT(session_id) DO UPDATE SET ended_at = excluded.ended_at`); err != nil {
+		t.Fatalf("insert ended session: %v", err)
+	}
+	if len(eventIDs) == 0 {
+		return
+	}
+	if _, err := db.Exec(`INSERT INTO session_refinements(session_id, generation, covers_from_event_id, covers_to_event_id, summary, produced_by, produced_at, degraded)
+VALUES (?, 1, ?, ?, 'summary', 'test', '2026-06-02T00:00:00Z', 0)
+ON CONFLICT(session_id) DO UPDATE SET covers_from_event_id = excluded.covers_from_event_id, covers_to_event_id = excluded.covers_to_event_id`, "retention-session", eventIDs[0], eventIDs[len(eventIDs)-1]); err != nil {
+		t.Fatalf("insert refinement: %v", err)
+	}
 }
 
 func rawBodyMetadataRow(t *testing.T, dbPath, eventID string) string {
