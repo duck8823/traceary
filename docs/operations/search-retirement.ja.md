@@ -19,9 +19,10 @@ migration 052 は初回起動時に適用され、定数コストのオブジェ
 
 `events` と `command_audits` 上の5つだけでなく、`event_search_documents` 上の
 3つも削除します。`event_search_documents.event_id` は `ON DELETE CASCADE` を
-持つため、`traceary gc` や retention の実行はこの foreign key 経由でインデックス
-に到達し続けていました。これらの trigger を残すと、event を削除するたびに FTS5
-の delete marker が追記され、削除対象のインデックス自体が増え続けます。
+持つため、`traceary store gc` や retention の実行はこの foreign key 経由で
+インデックスに到達し続けていました。これらの trigger を残すと、event を削除
+するたびに FTS5 の delete marker が追記され、削除対象のインデックス自体が
+増え続けます。
 
 この分割は意図的です。Traceary は store を開く際に未適用 migration を無条件で
 適用するため、数 GiB の `DROP TABLE` を migration に入れると、upgrade 後の最初

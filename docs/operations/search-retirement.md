@@ -19,8 +19,9 @@ eight writer triggers, the `event_search_projection` view, and the
 
 The three triggers on `event_search_documents` go too, not just the five on
 `events` and `command_audits`. `event_search_documents.event_id` is declared
-`ON DELETE CASCADE`, so every `traceary gc` and retention pass still reached
-the index through that foreign key. Leaving those triggers in place would have
+`ON DELETE CASCADE`, so every `traceary store gc` and retention pass still
+reached the index through that foreign key. Leaving those triggers in place
+would have
 made each deleted event append an FTS5 delete marker — growing the very index
 this retirement removes.
 
