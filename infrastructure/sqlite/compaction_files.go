@@ -378,6 +378,21 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 	if err := validateStoreLinkIdentity(run.SourcePath); err != nil {
 		return run, err
 	}
+	// After the sidecar rejection the store has no live WAL/SHM, so it is safe
+	// to open. This runs before the digest deliberately: hashing a 24 GiB
+	// source only to copy 16 GiB of dead index into the candidate is the exact
+	// waste the check exists to prevent.
+	//
+	// Everything except a prepared migration publication. That publication is
+	// how a store reaches the schema where the family can be retired at all,
+	// so refusing it there would make the family unremovable on exactly the
+	// stores that carry it. `store compact` leaves Operation empty, so the
+	// test is written as an exclusion rather than a match.
+	if run.Operation != domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
+		if err := rejectLegacySearchFamilyForCompaction(ctx, run.SourcePath); err != nil {
+			return run, err
+		}
+	}
 	id, err := inspectRegularFile(run.SourcePath)
 	if err != nil {
 		return run, err

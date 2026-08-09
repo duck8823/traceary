@@ -3,7 +3,6 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -128,27 +126,14 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 			if diff := cmp.Diff(tc.want, eventIDs(got)); diff != "" {
 				t.Fatalf("Search(%q) IDs mismatch (-want +got):\n%s", tc.query, diff)
 			}
-			criteria := apptypes.NewEventSearchCriteriaBuilder(20).Query(tc.query).Workspace(workspace).Build()
-			legacy, err := sut.SearchLegacyPage(ctx, criteria)
-			if err != nil {
-				t.Fatalf("SearchLegacyPage(%q) error = %v", tc.query, err)
-			}
-			if diff := cmp.Diff(eventIDs(got), eventIDs(legacy)); diff != "" {
-				t.Fatalf("normal/explicit legacy mismatch (-normal +legacy):\n%s", diff)
-			}
 		})
-	}
-	pageCriteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("visible needle").Workspace(workspace).Offset(1).Build()
-	legacyPage, err := sut.SearchLegacyPage(ctx, pageCriteria)
-	if err != nil {
-		t.Fatalf("SearchLegacyPage(offset) error = %v", err)
 	}
 	normalPage, err := sut.Search(ctx, "visible needle", workspace, "", "", "", "", time.Time{}, time.Time{}, 1, 1, false)
 	if err != nil {
 		t.Fatalf("Search(offset) error = %v", err)
 	}
-	if diff := cmp.Diff(eventIDs(normalPage), eventIDs(legacyPage)); diff != "" {
-		t.Fatalf("offset normal/explicit legacy mismatch (-normal +legacy):\n%s", diff)
+	if diff := cmp.Diff([]string{"event-literal"}, eventIDs(normalPage)); diff != "" {
+		t.Fatalf("offset page mismatch (-want +got):\n%s", diff)
 	}
 
 	criteria := apptypes.NewEventSearchCriteriaBuilder(20).
@@ -205,242 +190,11 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 	}
 }
 
-func TestEventSearchFTS_SynchronizesCommandAuditUpdatesAndDeletes(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-	if err := store.Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-	workspace := types.Workspace("github.com/duck8823/traceary")
-	event, audit := newSearchAuditFixture(
-		t,
-		"event-audit-mutation",
-		workspace.String(),
-		time.Date(2026, 7, 25, 1, 0, 0, 0, time.UTC),
-	)
-	if err := sut.SaveWithAudit(ctx, event, audit); err != nil {
-		t.Fatalf("SaveWithAudit() error = %v", err)
-	}
-
-	searchIDs := func(query string) []string {
-		t.Helper()
-		events, err := sut.Search(
-			ctx,
-			query,
-			workspace,
-			"",
-			"",
-			"",
-			"",
-			time.Time{},
-			time.Time{},
-			20,
-			0,
-			false,
-		)
-		if err != nil {
-			t.Fatalf("Search(%q) error = %v", query, err)
-		}
-		return eventIDs(events)
-	}
-	if diff := cmp.Diff(
-		[]string{"event-audit-mutation"},
-		searchIDs("stdout with details"),
-	); diff != "" {
-		t.Fatalf("initial audit IDs mismatch (-want +got):\n%s", diff)
-	}
-
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `
-		UPDATE command_audits
-		   SET output_text = 'replacement audit marker'
-		 WHERE event_id = 'event-audit-mutation'`); err != nil {
-		t.Fatalf("update command audit: %v", err)
-	}
-	if got := searchIDs("stdout with details"); len(got) != 0 {
-		t.Fatalf("old audit text IDs after update = %v, want none", got)
-	}
-	if diff := cmp.Diff(
-		[]string{"event-audit-mutation"},
-		searchIDs("replacement audit marker"),
-	); diff != "" {
-		t.Fatalf("updated audit IDs mismatch (-want +got):\n%s", diff)
-	}
-
-	if _, err := db.ExecContext(ctx, `
-		DELETE FROM command_audits
-		 WHERE event_id = 'event-audit-mutation'`); err != nil {
-		t.Fatalf("delete command audit: %v", err)
-	}
-	if got := searchIDs("replacement audit marker"); len(got) != 0 {
-		t.Fatalf("deleted audit text IDs = %v, want none", got)
-	}
-}
-
-func TestEventSearchBackfill_IsBoundedCompleteAndResumable(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	preMigration := infra.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 32))
-	if err := infra.NewStoreManagementDatasource(preMigration).Initialize(ctx); err != nil {
-		t.Fatalf("initialize pre-32 store: %v", err)
-	}
-	seedHistoricalSearchEvents(t, dbPath, 130, func(index int) string {
-		if index == 129 {
-			return `{"blocks":[{"type":"thinking","text":"legacy-secret-thinking"},{"type":"tool_use","text":"","id":"call-legacy"},{"type":"text","text":"historical needle visible legacy response"}]}`
-		}
-		if index == 128 {
-			return `{"blocks":[{"type":"custom","payload":"legacy-foreign-json-marker"}]}`
-		}
-		if index == 0 {
-			return "historical needle"
-		}
-		return "ordinary historical body"
-	})
-
-	current := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
-	store := infra.NewStoreManagementDatasource(current)
-	sut := infra.NewEventDatasource(current)
-	if err := store.Initialize(ctx); err != nil {
-		t.Fatalf("first current Initialize() error = %v", err)
-	}
-	documentCount, completed := eventSearchProgress(t, dbPath)
-	if documentCount != 128 || completed {
-		t.Fatalf("first bounded backfill = (documents=%d, completed=%v), want (128, false)", documentCount, completed)
-	}
-
-	workspace := types.Workspace("github.com/duck8823/traceary")
-	full, err := sut.Search(
-		ctx,
-		"historical needle",
-		workspace,
-		"",
-		"",
-		"",
-		"",
-		time.Time{},
-		time.Time{},
-		20,
-		0,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("bounded incomplete Search() error = %v", err)
-	}
-	wantIDs := []string{"event-00129", "event-00000"}
-	if diff := cmp.Diff(wantIDs, eventIDs(full)); diff != "" {
-		t.Fatalf("bounded incomplete IDs mismatch (-want +got):\n%s", diff)
-	}
-	thinkingOnly, err := sut.Search(
-		ctx,
-		"legacy-secret-thinking",
-		workspace,
-		"",
-		"",
-		"",
-		"",
-		time.Time{},
-		time.Time{},
-		20,
-		0,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("bounded incomplete thinking Search() error = %v", err)
-	}
-	if len(thinkingOnly) != 0 {
-		t.Fatalf("bounded incomplete thinking IDs = %v, want none", eventIDs(thinkingOnly))
-	}
-	foreignJSON, err := sut.Search(
-		ctx,
-		"legacy-foreign-json-marker",
-		workspace,
-		"",
-		"",
-		"",
-		"",
-		time.Time{},
-		time.Time{},
-		20,
-		0,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("bounded incomplete foreign JSON Search() error = %v", err)
-	}
-	if diff := cmp.Diff([]string{"event-00128"}, eventIDs(foreignJSON)); diff != "" {
-		t.Fatalf("bounded incomplete foreign JSON IDs mismatch (-want +got):\n%s", diff)
-	}
-	metadata, err := sut.SearchMetadata(
-		ctx,
-		apptypes.NewEventSearchCriteriaBuilder(20).
-			Query("historical needle").
-			Workspace(workspace).
-			Build(),
-	)
-	if err != nil {
-		t.Fatalf("bounded incomplete SearchMetadata() error = %v", err)
-	}
-	if diff := cmp.Diff(wantIDs, metadataIDs(metadata)); diff != "" {
-		t.Fatalf("bounded incomplete metadata IDs mismatch (-want +got):\n%s", diff)
-	}
-
-	_, err = sut.Search(
-		ctx,
-		"historical needle",
-		"",
-		"",
-		"",
-		"",
-		"",
-		time.Time{},
-		time.Time{},
-		20,
-		0,
-		false,
-	)
-	if !errors.Is(err, queryservice.ErrEventSearchIndexIncomplete) {
-		t.Fatalf("unbounded incomplete Search() error = %v, want ErrEventSearchIndexIncomplete", err)
-	}
-
-	if err := store.Initialize(ctx); err != nil {
-		t.Fatalf("resumed Initialize() error = %v", err)
-	}
-	documentCount, completed = eventSearchProgress(t, dbPath)
-	if documentCount != 130 || !completed {
-		t.Fatalf("resumed backfill = (documents=%d, completed=%v), want (130, true)", documentCount, completed)
-	}
-	full, err = sut.Search(
-		ctx,
-		"historical needle",
-		"",
-		"",
-		"",
-		"",
-		"",
-		time.Time{},
-		time.Time{},
-		20,
-		0,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("complete unbounded Search() error = %v", err)
-	}
-	if diff := cmp.Diff(wantIDs, eventIDs(full)); diff != "" {
-		t.Fatalf("complete IDs mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestEventSearchShortQuery_RejectsCandidateScopeAboveHardCap(t *testing.T) {
+// A store seeded before migration 32 and then upgraded has no legacy index and
+// no projection inventory for any of its history. The legacy path used to
+// refuse a short query over it as too broad; the tiered walk answers from the
+// canonical rows instead. This is the upgrade case #1718 makes universal.
+func TestEventSearchShortQuery_AnswersUpgradedHistoryWithoutInventory(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	preMigration := infra.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 32))
@@ -454,7 +208,7 @@ func TestEventSearchShortQuery_RejectsCandidateScopeAboveHardCap(t *testing.T) {
 		t.Fatalf("current Initialize() error = %v", err)
 	}
 	sut := infra.NewEventDatasource(current)
-	_, err := sut.Search(
+	got, err := sut.Search(
 		ctx,
 		"xy",
 		types.Workspace("github.com/duck8823/traceary"),
@@ -468,12 +222,11 @@ func TestEventSearchShortQuery_RejectsCandidateScopeAboveHardCap(t *testing.T) {
 		0,
 		false,
 	)
-	if !errors.Is(err, queryservice.ErrEventSearchScopeTooBroad) {
-		t.Fatalf("Search() error = %v, want ErrEventSearchScopeTooBroad", err)
+	if err != nil {
+		t.Fatalf("Search() error = %v, want a filled page", err)
 	}
-	var unavailable *queryservice.EventSearchUnavailableError
-	if !errors.As(err, &unavailable) || unavailable.CandidateCount != 10_001 {
-		t.Fatalf("Search() typed error = %#v, want candidate_count=10001", unavailable)
+	if len(got) != 20 {
+		t.Fatalf("Search() returned %d events, want 20", len(got))
 	}
 }
 
@@ -522,27 +275,6 @@ func seedHistoricalSearchEvents(
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit historical events: %v", err)
 	}
-}
-
-func eventSearchProgress(t *testing.T, dbPath string) (documents int, completed bool) {
-	t.Helper()
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := db.QueryRow(`SELECT COUNT(*) FROM event_search_documents`).Scan(&documents); err != nil {
-		t.Fatalf("count event search documents: %v", err)
-	}
-	var completedValue int
-	if err := db.QueryRow(`
-		SELECT completed
-		  FROM event_search_backfill_state
-		 WHERE singleton = 1`,
-	).Scan(&completedValue); err != nil {
-		t.Fatalf("read event search backfill state: %v", err)
-	}
-	return documents, completedValue != 0
 }
 
 func eventIDs(events []*model.Event) []string {

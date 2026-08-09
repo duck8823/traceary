@@ -84,18 +84,11 @@ type EventBoundedQueryService interface {
 	LoadCanonicalBodies(ctx context.Context, eventIDs []types.EventID) (map[types.EventID]string, error)
 }
 
-// TieredEventSearchQuery is additive while the legacy Search methods remain
-// authoritative. It returns honest bounded coverage rather than overloading a
-// slice API with flags whose empty result could be mistaken for completeness.
+// TieredEventSearchQuery returns honest bounded coverage rather than
+// overloading a slice API with flags whose empty result could be mistaken for
+// completeness.
 type TieredEventSearchQuery interface {
 	SearchLiteralPage(ctx context.Context, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error)
-}
-
-// LegacyEventSearchQuery is the explicit compatibility search capability used
-// by parity evidence and rollback. Normal search composition must not use this
-// port to discover or select its authority.
-type LegacyEventSearchQuery interface {
-	SearchLegacyPage(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error)
 }
 
 // ProjectionSessionSearchQuery returns session-tier hits from the bounded

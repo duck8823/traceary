@@ -32,9 +32,6 @@ var selectRecentEventsBySourceHookQuery string
 //go:embed sql/select_recent_events_by_source_hook_with_legacy.sql
 var selectRecentEventsBySourceHookWithLegacyQuery string
 
-//go:embed sql/search_events.sql
-var searchEventsQuery string
-
 //go:embed sql/get_context_events.sql
 var getContextEventsQuery string
 
@@ -59,9 +56,8 @@ func NewEventDatasource(db *Database) *EventDatasource {
 
 // Compile-time interface assertions.
 var (
-	_ model.EventRepository               = (*EventDatasource)(nil)
-	_ queryservice.EventQueryService      = (*EventDatasource)(nil)
-	_ queryservice.LegacyEventSearchQuery = (*EventDatasource)(nil)
+	_ model.EventRepository          = (*EventDatasource)(nil)
+	_ queryservice.EventQueryService = (*EventDatasource)(nil)
 )
 
 // Save persists an event.
@@ -307,134 +303,6 @@ func (d *EventDatasource) Search(
 		Agent(agent).Kind(kind).From(from).To(to).Offset(offset).
 		FailuresOnly(failuresOnly).Build()
 	return d.searchFullByPersistedAuthority(ctx, criteria)
-}
-
-// SearchLegacyPage executes the pre-tiered event search implementation. It is
-// intentionally separate from Search so parity and rollback retain an
-// independent authority after normal search is cut over.
-func (d *EventDatasource) SearchLegacyPage(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
-	query := criteria.Query()
-	workspace := criteria.Workspace()
-	sessionID := criteria.SessionID()
-	client := criteria.Client()
-	agent := criteria.Agent()
-	kind := criteria.Kind()
-	from, to := criteria.From(), criteria.To()
-	limit, offset := criteria.Limit(), criteria.Offset()
-	failuresOnly := criteria.FailuresOnly()
-	if limit <= 0 {
-		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
-	}
-	if offset < 0 {
-		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
-	}
-	if !from.IsZero() && !to.IsZero() && from.After(to) {
-		return nil, xerrors.Errorf("from must be earlier than to")
-	}
-	db, err := d.db.open(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for legacy event search: %w", err)
-	}
-	defer d.db.release(db)
-	searchSchemaAvailable, err := eventSearchSchemaAvailable(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-	if searchSchemaAvailable {
-		tx, beginErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-		if beginErr != nil {
-			return nil, xerrors.Errorf("failed to begin indexed event search: %w", beginErr)
-		}
-		defer func() {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-				slog.Debug("failed to rollback indexed event search", "error", rollbackErr)
-			}
-		}()
-		// Explicit legacy port always reads the migration-032 index so rollback
-		// and parity remain independent of the bounded projection cut-over.
-		var candidateIDs []string
-		var selectErr error
-		if strings.TrimSpace(query) == "" {
-			candidateIDs, selectErr = queryStructuralEventIDs(ctx, tx, criteria)
-		} else {
-			candidateIDs, selectErr = selectLegacyEventSearchCandidateIDs(ctx, tx, criteria, strings.TrimSpace(query))
-		}
-		if selectErr != nil {
-			return nil, selectErr
-		}
-		events, hydrateErr := hydrateEventSearchCandidates(ctx, tx, candidateIDs)
-		if hydrateErr != nil {
-			return nil, hydrateErr
-		}
-		if commitErr := tx.Commit(); commitErr != nil {
-			return nil, xerrors.Errorf("failed to finish indexed event search: %w", commitErr)
-		}
-		return events, nil
-	}
-
-	queryValue := strings.TrimSpace(query)
-	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"
-	fromValue := ""
-	if !from.IsZero() {
-		fromValue = formatTimestamp(from)
-	}
-	toValue := ""
-	if !to.IsZero() {
-		toValue = formatTimestamp(to)
-	}
-
-	rows, err := db.QueryContext(
-		ctx,
-		searchEventsQuery,
-		queryValue,
-		likeQuery,
-		likeQuery,
-		likeQuery,
-		likeQuery,
-		workspace.String(),
-		workspace.String(),
-		sessionID.String(),
-		sessionID.String(),
-		client.String(),
-		client.String(),
-		agent.String(),
-		agent.String(),
-		kind.String(),
-		kind.String(),
-		fromValue,
-		fromValue,
-		toValue,
-		toValue,
-		boolToInt(failuresOnly),
-		limit,
-		offset,
-	)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to query events: %w", err)
-	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-
-	events := make([]*model.Event, 0, limit)
-	for rows.Next() {
-		event, err := scanEvent(rows)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to restore search result row: %w", err)
-		}
-		event, err = hydrateEventPayload(ctx, db, event)
-		if err != nil {
-			return nil, err
-		}
-		events = append(events, event)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("failed to iterate search result rows: %w", err)
-	}
-
-	return events, nil
 }
 
 // GetContext returns events matching the requested context in descending

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -75,7 +74,7 @@ func TestServer_BuildAndTools(t *testing.T) {
 			t.Fatalf("CallTool(search) error = %v", err)
 		}
 		if searchResult.IsError {
-			t.Fatalf("CallTool(search) returned tool error")
+			t.Fatalf("CallTool(search) returned tool error: %s", mcpToolErrorText(searchResult))
 		}
 		if len(searchResult.Content) == 0 {
 			t.Fatalf("search result content is empty")
@@ -1840,213 +1839,29 @@ func updateSessionParentForMCPTest(ctx context.Context, t *testing.T, dbPath str
 	}
 }
 
+// mcpToolErrorText renders the message a failing tool call carries. Without it
+// a failure reports only that the call errored, which says nothing about why.
+func mcpToolErrorText(result *mcp.CallToolResult) string {
+	texts := make([]string, 0, len(result.Content))
+	for _, content := range result.Content {
+		if text, ok := content.(*mcp.TextContent); ok {
+			texts = append(texts, text.Text)
+		}
+	}
+	if len(texts) == 0 {
+		return "(no text content)"
+	}
+	return strings.Join(texts, "; ")
+}
+
 func newTestServerWithDBPath(t *testing.T) (*mcpserver.Server, string, *mcpReportUsecaseStub) {
 	t.Helper()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    body_availability TEXT NOT NULL DEFAULT 'available',
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-		"000003_create_command_audits.sql": {
-			Data: []byte(`
-CREATE TABLE command_audits (
-    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-	command_text TEXT NOT NULL,
-	command_wrapper TEXT NOT NULL DEFAULT '',
-	command_name TEXT NOT NULL DEFAULT 'unknown',
-    input_text TEXT NOT NULL,
-    output_text TEXT NOT NULL,
-    input_truncated INTEGER NOT NULL DEFAULT 0,
-    output_truncated INTEGER NOT NULL DEFAULT 0,
-    input_original_bytes INTEGER NOT NULL DEFAULT 0,
-    output_original_bytes INTEGER NOT NULL DEFAULT 0,
-    exit_code INTEGER,
-	failed INTEGER NOT NULL DEFAULT 0,
-	failure_reason TEXT NOT NULL DEFAULT 'unknown',
-	command_codec TEXT,
-	command_format_version INTEGER,
-	command_plaintext_bytes INTEGER,
-	command_encoded_bytes INTEGER,
-	command_sha256 TEXT,
-	input_codec TEXT,
-	input_format_version INTEGER,
-	input_plaintext_bytes INTEGER,
-	input_encoded_bytes INTEGER,
-	input_sha256 TEXT,
-	output_codec TEXT,
-	output_format_version INTEGER,
-	output_plaintext_bytes INTEGER,
-	output_encoded_bytes INTEGER,
-	output_sha256 TEXT
-);`),
-		},
-		"000004_create_sessions.sql": {
-			Data: []byte(`
-CREATE TABLE IF NOT EXISTS sessions (
-    session_id TEXT PRIMARY KEY,
-    started_at TEXT NOT NULL,
-    ended_at TEXT,
-    client TEXT NOT NULL DEFAULT '',
-    agent TEXT NOT NULL DEFAULT '',
-    workspace TEXT NOT NULL DEFAULT '',
-    label TEXT NOT NULL DEFAULT '',
-    summary TEXT NOT NULL DEFAULT '',
-    parent_session_id TEXT REFERENCES sessions(session_id)
-);`),
-		},
-		"000014_add_session_spawn_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE sessions ADD COLUMN spawn_event_id TEXT;
-ALTER TABLE sessions ADD COLUMN subagent_kind TEXT NOT NULL DEFAULT '';
-ALTER TABLE sessions ADD COLUMN spawn_order INTEGER;
-CREATE INDEX IF NOT EXISTS idx_sessions_parent_spawn_order
-    ON sessions(parent_session_id, spawn_order);`),
-		},
-		"000020_add_session_model.sql": {
-			Data: []byte(`ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT '';`),
-		},
-		"000024_add_session_lifecycle_state.sql": {
-			Data: []byte(`ALTER TABLE sessions ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'interactive' CHECK (runtime_mode IN ('interactive', 'one_shot', 'resumed', 'background'));
-ALTER TABLE sessions ADD COLUMN terminal_reason TEXT NOT NULL DEFAULT '' CHECK (terminal_reason IN ('', 'success', 'failure', 'timeout', 'signal', 'aborted_stream', 'legacy_unknown'));
-UPDATE sessions SET terminal_reason = 'legacy_unknown' WHERE ended_at IS NOT NULL AND terminal_reason = '';`),
-		},
-		"000021_add_event_body_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN body_original_bytes INTEGER CHECK (body_original_bytes IS NULL OR body_original_bytes >= 0);
-ALTER TABLE events ADD COLUMN body_stored_bytes INTEGER CHECK (body_stored_bytes IS NULL OR body_stored_bytes >= 0);
-ALTER TABLE events ADD COLUMN body_ingest_truncated INTEGER CHECK (body_ingest_truncated IS NULL OR body_ingest_truncated IN (0, 1));
-ALTER TABLE events ADD COLUMN body_storage_truncated INTEGER CHECK (body_storage_truncated IS NULL OR body_storage_truncated IN (0, 1));
-ALTER TABLE events ADD COLUMN body_metadata_version INTEGER CHECK (body_metadata_version IS NULL OR body_metadata_version >= 0);
-UPDATE events SET body_stored_bytes = length(CAST(body AS BLOB)) WHERE body_stored_bytes IS NULL;
-CREATE TRIGGER events_body_metadata_after_insert AFTER INSERT ON events FOR EACH ROW BEGIN
-    UPDATE events SET body_stored_bytes = length(CAST(NEW.body AS BLOB)) WHERE id = NEW.id;
-END;
-CREATE TRIGGER events_body_metadata_after_body_update AFTER UPDATE OF body ON events FOR EACH ROW BEGIN
-    UPDATE events SET body_stored_bytes = length(CAST(NEW.body AS BLOB)) WHERE id = NEW.id;
-END;`),
-		},
-		"000031_add_event_metadata_normalized_timestamp_indexes.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN created_at_norm TEXT;
-UPDATE events SET created_at_norm = created_at;
-CREATE TRIGGER events_created_at_norm_after_insert
-AFTER INSERT ON events FOR EACH ROW BEGIN
-    UPDATE events SET created_at_norm = NEW.created_at WHERE id = NEW.id;
-END;
-CREATE TRIGGER events_created_at_norm_after_update
-AFTER UPDATE OF created_at ON events FOR EACH ROW BEGIN
-    UPDATE events SET created_at_norm = NEW.created_at WHERE id = NEW.id;
-END;
-CREATE INDEX idx_events_created_at_norm_id_desc
-    ON events(created_at_norm DESC, id DESC);
-CREATE INDEX idx_events_workspace_created_at_norm_id_desc
-    ON events(workspace, created_at_norm DESC, id DESC);
-CREATE INDEX idx_events_session_created_at_norm_id_desc
-    ON events(session_id, created_at_norm DESC, id DESC);
-CREATE INDEX idx_events_workspace_session_created_at_norm_id_desc
-    ON events(workspace, session_id, created_at_norm DESC, id DESC);
-CREATE INDEX idx_events_source_hook_created_at_norm_id_desc
-    ON events(source_hook, created_at_norm DESC, id DESC)
-    WHERE source_hook IS NOT NULL;`),
-		},
-		"000034_create_event_metadata_projection.sql": {
-			Data: readMCPServerTestMigration(t, "000034_create_event_metadata_projection.sql"),
-		},
-		"000008_create_memories.sql": {
-			Data: []byte(`
-CREATE TABLE memories (
-    id TEXT PRIMARY KEY,
-    type TEXT NOT NULL,
-    scope_kind TEXT NOT NULL,
-    scope_value TEXT NOT NULL,
-    fact TEXT NOT NULL,
-    status TEXT NOT NULL,
-    confidence TEXT NOT NULL,
-    source TEXT NOT NULL,
-    supersedes_memory_id TEXT REFERENCES memories(id),
-    expires_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE INDEX idx_memories_scope_status_updated
-    ON memories(scope_kind, scope_value, status, updated_at DESC, id DESC);
-
-CREATE INDEX idx_memories_type_status_updated
-    ON memories(type, status, updated_at DESC, id DESC);
-
-CREATE INDEX idx_memories_supersedes_memory_id
-    ON memories(supersedes_memory_id);
-
-CREATE TABLE memory_evidence_refs (
-    memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    ordinal INTEGER NOT NULL,
-    ref_kind TEXT NOT NULL,
-    ref_value TEXT NOT NULL,
-    PRIMARY KEY (memory_id, ordinal)
-);
-
-CREATE INDEX idx_memory_evidence_refs_lookup
-    ON memory_evidence_refs(ref_kind, ref_value);
-
-CREATE TABLE memory_artifact_refs (
-    memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    ordinal INTEGER NOT NULL,
-    ref_kind TEXT NOT NULL,
-    ref_value TEXT NOT NULL,
-    PRIMARY KEY (memory_id, ordinal)
-);
-
-CREATE INDEX idx_memory_artifact_refs_lookup
-    ON memory_artifact_refs(ref_kind, ref_value);`),
-		},
-		"000009_add_memory_validity_window.sql": {
-			Data: []byte(`
-ALTER TABLE memories ADD COLUMN valid_from TEXT;
-ALTER TABLE memories ADD COLUMN valid_to TEXT;
-UPDATE memories SET valid_from = created_at WHERE valid_from IS NULL;
-CREATE INDEX idx_memories_valid_window ON memories(valid_to, valid_from);`),
-		},
-		"000033_add_memory_hygiene_revision.sql": {
-			Data: []byte(`
-CREATE TABLE memory_hygiene_revision (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    revision INTEGER NOT NULL CHECK (revision >= 0)
-);
-INSERT INTO memory_hygiene_revision(singleton, revision) VALUES (1, 0);
-CREATE TRIGGER memories_hygiene_revision_after_insert AFTER INSERT ON memories BEGIN
-    UPDATE memory_hygiene_revision SET revision = revision + 1 WHERE singleton = 1;
-END;
-CREATE TRIGGER memories_hygiene_revision_after_update AFTER UPDATE ON memories BEGIN
-    UPDATE memory_hygiene_revision SET revision = revision + 1 WHERE singleton = 1;
-END;
-CREATE TRIGGER memories_hygiene_revision_after_delete AFTER DELETE ON memories BEGIN
-    UPDATE memory_hygiene_revision SET revision = revision + 1 WHERE singleton = 1;
-END;
-CREATE INDEX idx_memories_hygiene_status_id ON memories(status, id);
-CREATE INDEX idx_memories_hygiene_scope_id ON memories(status, scope_kind, scope_value, id);
-CREATE INDEX idx_memories_hygiene_exact ON memories(status, scope_kind, scope_value, fact, id);
-CREATE INDEX idx_memories_hygiene_candidate_source_id ON memories(status, source, id);`),
-		},
-		"000040_add_search_authority.sql": {
-			Data: []byte(`CREATE TABLE search_maintenance_control(singleton INTEGER PRIMARY KEY,authority TEXT NOT NULL,phase TEXT NOT NULL,progress INTEGER NOT NULL DEFAULT 0); INSERT INTO search_maintenance_control(singleton,authority,phase) VALUES(1,'legacy','active');`),
-		},
-	}
+	// Use the real migration set rather than a transcribed copy. A hand-written
+	// schema drifts silently: this one still declared a fabricated
+	// search_maintenance_control while the search path had moved on to tables the
+	// fixture had never heard of.
+	migrations := os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations"))
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	db := sqlite.NewDatabase(dbPath, migrations)
 	eventDatasource := sqlite.NewEventDatasource(db)
@@ -2083,13 +1898,4 @@ CREATE INDEX idx_memories_hygiene_candidate_source_id ON memories(status, source
 	}
 
 	return server, dbPath, reportUsecase
-}
-
-func readMCPServerTestMigration(t *testing.T, name string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "schema", "sqlite", "migrations", name))
-	if err != nil {
-		t.Fatalf("read test migration %q: %v", name, err)
-	}
-	return data
 }

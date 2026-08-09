@@ -264,64 +264,6 @@ func TestEventBoundedQuery_MatchesCanonicalVisibleTextProjection(t *testing.T) {
 	}
 }
 
-func TestEventBoundedSearch_UsesFTSOnlyForCandidateSelection(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-	if err := store.Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-	event := newEventForSQLiteTest(
-		t,
-		"event-search-authoritative",
-		"hook",
-		"codex",
-		"session-search",
-		"repo-search",
-		"Authoritative MixedCase visible body",
-		time.Date(2026, 7, 26, 2, 0, 0, 0, time.UTC),
-	)
-	if err := sut.Save(ctx, event); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `
-		UPDATE event_search_documents
-		   SET body_text = 'candidate-only needle'
-		 WHERE event_id = ?`,
-		event.EventID().String(),
-	); err != nil {
-		_ = db.Close()
-		t.Fatalf("update search document: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close search DB: %v", err)
-	}
-
-	got, err := sut.SearchBounded(
-		ctx,
-		apptypes.NewEventSearchCriteriaBuilder(1).
-			Query("candidate-only needle").
-			Workspace(types.Workspace("repo-search")).
-			Build(),
-		128,
-	)
-	if err != nil {
-		t.Fatalf("SearchBounded() error = %v", err)
-	}
-	if len(got) != 1 || got[0].Body() != event.Body() {
-		t.Fatalf("SearchBounded() = %+v, want authoritative event body %q", got, event.Body())
-	}
-	if strings.Contains(got[0].Body(), "candidate-only") {
-		t.Fatalf("SearchBounded() returned FTS document content: %q", got[0].Body())
-	}
-}
-
 func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 	t.Parallel()
 

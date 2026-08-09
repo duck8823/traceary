@@ -16,6 +16,18 @@ import (
 	domaintypes "github.com/duck8823/traceary/domain/types"
 )
 
+// lowerSearchASCII folds ASCII only, matching SQLite's bundled lower(). The
+// projection and the query must fold identically, so this cannot be replaced
+// with strings.ToLower: that would fold non-ASCII on one side only.
+func lowerSearchASCII(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, value)
+}
+
 const searchProjectionVersion = 1
 const searchProjectionKeywordVersion = 1
 const searchProjectionSummaryVersion = 1

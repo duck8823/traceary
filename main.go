@@ -302,7 +302,7 @@ func run() error {
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithCapacityInspector(sqlite.NewCapacityInspector(db)),
 		cli.WithSearchProjection(usecase.NewSearchProjectionUsecase(db)),
-		cli.WithSearchMaintenance(usecase.NewSearchMaintenanceUsecase(db)),
+		cli.WithLegacySearchRetire(usecase.NewLegacySearchRetireUsecase(db)),
 		cli.WithStoreCompactionFactory(func(path string) application.StoreCompactionUsecase {
 			journal := &sqlite.CompactionFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-compaction")}
 			return usecase.NewStoreCompactionUsecase(path, journal, sqlite.SQLiteCompactionBuilder{}, sqlite.StoreReplacementFiles{}, sqlite.StoreLeaseCoordinator{})

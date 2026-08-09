@@ -146,21 +146,11 @@ type Database struct {
 	dbPath         string
 	migrations     fs.FS
 	sharedReadOnly *sql.DB
-	// searchMaintenanceHook is a package-private transaction-boundary seam used
-	// by deterministic atomicity tests. Production databases leave it nil.
-	searchMaintenanceHook func(string) error
 	// searchProjectionMeasureTimeoutOverride shortens the cutover evidence
 	// deadline so tests can observe an unavailable measurement without building
 	// a projection family large enough to be genuinely slow. Production
 	// databases leave it zero and get searchProjectionMeasureTimeout.
 	searchProjectionMeasureTimeoutOverride time.Duration
-}
-
-func (d *Database) runSearchMaintenanceHook(point string) error {
-	if d.searchMaintenanceHook != nil {
-		return d.searchMaintenanceHook(point)
-	}
-	return nil
 }
 
 // NewImmutableReadDatabase opens one shared immutable connection group for benchmark orchestration.
@@ -356,32 +346,9 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 	if err := d.migrate(ctx, db); err != nil {
 		return xerrors.Errorf("failed to run SQLite migrations: %w", err)
 	}
-	searchBackfillResult, searchBackfillErr := catchUpEventSearchDocuments(ctx, db, eventSearchBackfillBatchSize)
-	if searchBackfillErr != nil {
-		// Indexed search remains fail-closed while the durable backfill is
-		// incomplete: only hard-bounded legacy fallback is allowed. A transient
-		// catch-up failure therefore must not block event ingestion.
-		slog.Error("event search backfill incomplete; retrying on next initialization",
-			"selected", searchBackfillResult.Selected,
-			"inserted", searchBackfillResult.Inserted,
-			"last_event_id", searchBackfillResult.LastEventID,
-			"target_event_id", searchBackfillResult.TargetID,
-			"error", searchBackfillErr,
-		)
-	} else if searchBackfillResult.Selected > 0 {
-		slog.Debug("event search backfill batch completed",
-			"selected", searchBackfillResult.Selected,
-			"inserted", searchBackfillResult.Inserted,
-			"last_event_id", searchBackfillResult.LastEventID,
-			"target_event_id", searchBackfillResult.TargetID,
-			"completed", searchBackfillResult.Completed,
-		)
-	}
-	// Bounded projection generation is driven the same way as event search
-	// backfill: one durable unit per store open, resumable, never blocking
-	// Initialize on a full rebuild. Legacy search stays authoritative until
-	// the generation reaches complete (#1717 / #1680). Projection methods open
-	// via Path(), so skip when SetPath raced against the migrate snapshot.
+	// Bounded projection generation: one durable unit per store open, resumable,
+	// never blocking Initialize on a full rebuild. Projection methods open via
+	// Path(), so skip when SetPath raced against the migrate snapshot.
 	if snapshot == d.Path() {
 		projectionCatchUp, projectionCatchUpErr := catchUpSearchProjection(ctx, d)
 		logSearchProjectionCatchUp(projectionCatchUp, projectionCatchUpErr)

@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 
-	"golang.org/x/xerrors"
-
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
@@ -17,16 +15,12 @@ type CapacityBenchmarkQuery struct {
 }
 
 // CapacityBenchmarkQueries returns the same SQL sources used by production active/latest/handoff/search reads.
+// Search uses the ordered tiered candidate walk that production tiered search
+// issues against events/command_audits (without a generation-bound fingerprint
+// prefilter, which is optional and store-state dependent).
 func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchmarkQuery, error) {
 	searchCriteria := apptypes.NewEventSearchCriteriaBuilder(20).Query("synthetic-needle").Build()
-	complete, err := eventSearchBackfillComplete(ctx, db)
-	if err != nil {
-		return nil, xerrors.Errorf("inspect production search orchestration: %w", err)
-	}
-	searchSQL, searchArgs := buildFTSEventIDsQuery(searchCriteria, searchCriteria.Query())
-	if !complete {
-		searchSQL, searchArgs = buildIncompleteFTSEventIDsQuery(searchCriteria, searchCriteria.Query())
-	}
+	searchSQL, searchArgs := buildTieredSearchCandidateQuery(searchCriteria, "")
 	latestSQL := latestSessionBoundarySQL(ctx, db)
 	return []CapacityBenchmarkQuery{
 		{Name: "active", SQL: findActiveSessionQuery, Args: []any{"session_started", "", "", "", "", "", "", "session_started", "session_ended"}},

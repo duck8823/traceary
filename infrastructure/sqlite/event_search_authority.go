@@ -33,10 +33,11 @@ func validateSearchCriteriaForAuthority(criteria apptypes.EventSearchCriteria) e
 	return nil
 }
 
-// searchMetadataByPersistedAuthority is the shared projection-neutral boundary
-// for full, metadata, and bounded normal search surfaces.
+// searchMetadataByPersistedAuthority is the shared search boundary for full,
+// metadata, and bounded normal search surfaces. The tiered path is the only
+// reader; the migration-032 family is never consulted.
 func (d *EventDatasource) searchMetadataByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	db, tx, err := d.beginEventProjectionRead(ctx, "persisted search authority")
+	db, tx, err := d.beginEventProjectionRead(ctx, "persisted search")
 	if err != nil {
 		return nil, err
 	}
@@ -52,34 +53,7 @@ func (d *EventDatasource) searchMetadataByPersistedAuthority(ctx context.Context
 }
 
 func (d *EventDatasource) searchMetadataByPersistedAuthorityTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	var authority string
-	if err := tx.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
-		return nil, xerrors.Errorf("read explicit persisted search authority: %w", err)
-	}
-	if err := d.db.runSearchMaintenanceHook("authority-after-read"); err != nil {
-		return nil, err
-	}
-	switch authority {
-	case "legacy":
-		available, err := eventSearchSchemaAvailable(ctx, tx)
-		if err != nil {
-			return nil, err
-		}
-		var ids []string
-		if available {
-			ids, err = selectEventSearchCandidateIDs(ctx, tx, criteria)
-		} else {
-			ids, err = queryLegacyEventIDs(ctx, tx, criteria, criteria.Query())
-		}
-		if err != nil {
-			return nil, err
-		}
-		return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, ids)
-	case "tiered":
-		return d.searchTieredMetadataTx(ctx, tx, criteria)
-	default:
-		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
-	}
+	return d.searchTieredMetadataTx(ctx, tx, criteria)
 }
 
 func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
@@ -88,35 +62,11 @@ func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, cr
 		return nil, err
 	}
 	defer closeEventProjectionRead(db, tx)
-	var authority string
-	if err = tx.QueryRowContext(ctx, `SELECT authority FROM search_maintenance_control WHERE singleton=1`).Scan(&authority); err != nil {
-		return nil, xerrors.Errorf("read explicit persisted search authority: %w", err)
+	metadata, err := d.searchTieredMetadataTx(ctx, tx, criteria)
+	if err != nil {
+		return nil, err
 	}
-	var events []*model.Event
-	switch authority {
-	case "legacy":
-		available, schemaErr := eventSearchSchemaAvailable(ctx, tx)
-		if schemaErr != nil {
-			return nil, schemaErr
-		}
-		var ids []string
-		if available {
-			ids, err = selectEventSearchCandidateIDs(ctx, tx, criteria)
-		} else {
-			ids, err = queryLegacyEventIDs(ctx, tx, criteria, criteria.Query())
-		}
-		if err == nil {
-			events, err = hydrateEventSearchCandidates(ctx, tx, ids)
-		}
-	case "tiered":
-		var metadata []apptypes.EventMetadata
-		metadata, err = d.searchTieredMetadataTx(ctx, tx, criteria)
-		if err == nil {
-			events, err = hydrateFullEventMetadata(ctx, tx, metadata)
-		}
-	default:
-		return nil, xerrors.Errorf("unsupported persisted search authority %q", authority)
-	}
+	events, err := hydrateFullEventMetadata(ctx, tx, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -204,6 +154,54 @@ func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sq
 		return nil, err
 	}
 	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
+	candidateSQL, args := buildTieredSearchCandidateQuery(criteria, generation)
+	rows, err := tx.QueryContext(ctx, candidateSQL, args...)
+	if err != nil {
+		return nil, xerrors.Errorf("query ordered tiered candidates: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	wanted := criteria.Offset() + criteria.Limit()
+	matched := make([]string, 0, wanted)
+	var examined int
+	var storedBytes, decodedBytes int64
+	for rows.Next() {
+		var id string
+		var stored, decoded int64
+		if err = rows.Scan(&id, &stored, &decoded); err != nil {
+			return nil, xerrors.Errorf("scan ordered tiered candidate: %w", err)
+		}
+		if examined == apptypes.DeepLiteralSearchBudget.SourceRows || storedBytes+stored > apptypes.DeepLiteralSearchBudget.StoredBytes || decodedBytes+decoded > apptypes.DeepLiteralSearchBudget.DecodedBytes {
+			return nil, &queryservice.EventSearchUnavailableError{Reason: queryservice.EventSearchUnavailableIndexIncomplete, CandidateLimit: apptypes.DeepLiteralSearchBudget.SourceRows}
+		}
+		examined++
+		storedBytes += stored
+		decodedBytes += decoded
+		ok, matchErr := decodedEventSearchMatch(ctx, tx, id, query.Canonical())
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		if !ok {
+			continue
+		}
+		matched = append(matched, id)
+		if len(matched) == wanted {
+			break
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return nil, xerrors.Errorf("iterate ordered tiered candidates: %w", err)
+	}
+	start := min(criteria.Offset(), len(matched))
+	return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, matched[start:])
+}
+
+// buildTieredSearchCandidateQuery composes the ordered candidate selection the
+// tiered search walk issues. The capacity benchmark measures the same SQL, so
+// it lives here rather than being transcribed there: a copy would drift the
+// moment either side changed, and a benchmark of SQL production no longer runs
+// measures nothing.
+func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, generation string) (string, []any) {
+	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
 	var builder strings.Builder
 	// The candidate set is events, not search_projection_source_sequence.
 	// That table is the projection's own checkpoint ledger: it is populated by
@@ -242,42 +240,5 @@ func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sq
 	}
 	builder.WriteString(" ORDER BY e.created_at_norm DESC,e.id DESC LIMIT ?")
 	args = append(args, apptypes.DeepLiteralSearchBudget.SourceRows+1)
-	rows, err := tx.QueryContext(ctx, builder.String(), args...)
-	if err != nil {
-		return nil, xerrors.Errorf("query ordered tiered candidates: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	wanted := criteria.Offset() + criteria.Limit()
-	matched := make([]string, 0, wanted)
-	var examined int
-	var storedBytes, decodedBytes int64
-	for rows.Next() {
-		var id string
-		var stored, decoded int64
-		if err = rows.Scan(&id, &stored, &decoded); err != nil {
-			return nil, xerrors.Errorf("scan ordered tiered candidate: %w", err)
-		}
-		if examined == apptypes.DeepLiteralSearchBudget.SourceRows || storedBytes+stored > apptypes.DeepLiteralSearchBudget.StoredBytes || decodedBytes+decoded > apptypes.DeepLiteralSearchBudget.DecodedBytes {
-			return nil, &queryservice.EventSearchUnavailableError{Reason: queryservice.EventSearchUnavailableIndexIncomplete, CandidateLimit: apptypes.DeepLiteralSearchBudget.SourceRows}
-		}
-		examined++
-		storedBytes += stored
-		decodedBytes += decoded
-		ok, matchErr := decodedEventSearchMatch(ctx, tx, id, query.Canonical())
-		if matchErr != nil {
-			return nil, matchErr
-		}
-		if !ok {
-			continue
-		}
-		matched = append(matched, id)
-		if len(matched) == wanted {
-			break
-		}
-	}
-	if err = rows.Err(); err != nil {
-		return nil, xerrors.Errorf("iterate ordered tiered candidates: %w", err)
-	}
-	start := min(criteria.Offset(), len(matched))
-	return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, matched[start:])
+	return builder.String(), args
 }

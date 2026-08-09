@@ -52,19 +52,15 @@ func TestSearchProjectionReadPath_CompleteUsesProjectionAndMatchesLegacy(t *test
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
-	legacy, err := sut.SearchLegacyPage(ctx, criteria)
-	if err != nil {
-		t.Fatalf("SearchLegacyPage() error = %v", err)
-	}
-	if diff := cmp.Diff(eventIDs(legacy), eventIDs(got)); diff != "" {
-		t.Fatalf("projection/legacy recent-window mismatch (-legacy +projection):\n%s", diff)
-	}
 	if diff := cmp.Diff([]string{"evt-recent-2", "evt-recent-1"}, eventIDs(got)); diff != "" {
 		t.Fatalf("Search() IDs mismatch (-want +got):\n%s", diff)
 	}
 }
 
-func TestSearchProjectionReadPath_IncompleteFallsBackToLegacySilently(t *testing.T) {
+// An idle projection has no generation and therefore no fingerprints. Since
+// #1735 that is not a failure and there is no legacy path to fall back to: the
+// tiered walk decodes candidates directly and still answers correctly.
+func TestSearchProjectionReadPath_IdleProjectionStillAnswers(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -95,13 +91,6 @@ func TestSearchProjectionReadPath_IncompleteFallsBackToLegacySilently(t *testing
 	got, err := sut.Search(ctx, criteria.Query(), workspace, "", "", "", "", time.Time{}, time.Time{}, 20, 0, false)
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
-	}
-	legacy, err := sut.SearchLegacyPage(ctx, criteria)
-	if err != nil {
-		t.Fatalf("SearchLegacyPage() error = %v", err)
-	}
-	if diff := cmp.Diff(eventIDs(legacy), eventIDs(got)); diff != "" {
-		t.Fatalf("idle projection should match legacy (-legacy +got):\n%s", diff)
 	}
 	if diff := cmp.Diff([]string{"evt-legacy-only"}, eventIDs(got)); diff != "" {
 		t.Fatalf("Search() IDs mismatch (-want +got):\n%s", diff)

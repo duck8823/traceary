@@ -33,9 +33,12 @@ func TestInspectStoreGrowthBudgetMeasuresCompletedInspectionLatency(t *testing.T
 	root := &RootCLI{capacityInspector: growthCapacityStub{report: apptypes.CapacityReport{DatabaseBytes: 128 << 20}}}
 	times := []time.Time{time.Unix(0, 0), time.Unix(0, 0).Add(1600 * time.Millisecond)}
 	index := 0
-	check := root.inspectStoreGrowthBudgetWithClock(context.Background(), path, inspectStoreFileSnapshot(path, os.Stat), func() time.Time { value := times[index]; index++; return value })
-	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "latency") {
-		t.Fatalf("check=%#v", check)
+	checks := root.inspectStoreGrowthBudgetWithClock(context.Background(), path, inspectStoreFileSnapshot(path, os.Stat), func() time.Time { value := times[index]; index++; return value })
+	if len(checks) != 2 || checks[0].Status != doctorStatusWarn || !strings.Contains(checks[0].Message, "latency") {
+		t.Fatalf("checks=%#v", checks)
+	}
+	if checks[1].Name != "legacy-search-index" || checks[1].Status != doctorStatusPass {
+		t.Fatalf("legacy check=%#v", checks[1])
 	}
 }
 
@@ -162,8 +165,14 @@ func TestStoreSnapshotSurvivesDeleteAfterSingleStat(t *testing.T) {
 	if !isLargeStoreForBoundedDoctor(snapshot) {
 		t.Fatal("snapshot lost large-store decision after delete")
 	}
-	check := boundedLargeStoreDoctorCheck(snapshot)
+	check := boundedLargeStoreDoctorCheck(snapshot, "/tmp/other store.db")
 	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "were not read") {
+		t.Fatalf("check=%#v", check)
+	}
+	// The metadata-only mode cannot know whether the retired legacy index is
+	// present, so it advises unconditionally — and must advise on the store the
+	// operator actually named, not the default path.
+	if !strings.Contains(check.Hint, "search-retire") || !strings.Contains(check.FixCommand, shellQuote("/tmp/other store.db")) {
 		t.Fatalf("check=%#v", check)
 	}
 }

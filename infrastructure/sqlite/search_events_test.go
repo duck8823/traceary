@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -16,47 +15,8 @@ import (
 func TestDatasource_Search(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    body_availability TEXT NOT NULL DEFAULT 'available',
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-		"000003_create_command_audits.sql": {
-			Data: []byte(`
-CREATE TABLE command_audits (
-    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    command_text TEXT NOT NULL,
-    command_wrapper TEXT NOT NULL DEFAULT '',
-    command_name TEXT NOT NULL DEFAULT 'unknown',
-    input_text TEXT NOT NULL,
-    output_text TEXT NOT NULL,
-    input_truncated INTEGER NOT NULL DEFAULT 0,
-    output_truncated INTEGER NOT NULL DEFAULT 0,
-    input_original_bytes INTEGER NOT NULL DEFAULT 0,
-    output_original_bytes INTEGER NOT NULL DEFAULT 0,
-    exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0,
-    failure_reason TEXT NOT NULL DEFAULT 'unknown'
-);`),
-		},
-	}
-	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -175,10 +135,8 @@ CREATE TABLE command_audits (
 func TestDatasource_Search_SkipsThinkingOnlyMatches(t *testing.T) {
 	t.Parallel()
 
-	migrations := searchEventsMigrations()
-	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -228,10 +186,8 @@ func TestDatasource_Search_PreservesNonCanonicalBlocksBody(t *testing.T) {
 	// returns the raw body for these, so search must keep the raw body
 	// searchable too — otherwise the search surface and the display
 	// surface disagree.
-	migrations := searchEventsMigrations()
-	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -276,10 +232,8 @@ func TestDatasource_Search_PreservesNonCanonicalBlocksBody(t *testing.T) {
 func TestDatasource_Search_PreservesNonEnvelopeJSONBody(t *testing.T) {
 	t.Parallel()
 
-	migrations := searchEventsMigrations()
-	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -306,47 +260,6 @@ func TestDatasource_Search_PreservesNonEnvelopeJSONBody(t *testing.T) {
 	}
 	if diff := cmp.Diff("event-non-envelope", filtered[0].EventID().String()); diff != "" {
 		t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func searchEventsMigrations() fstest.MapFS {
-	return fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    body_availability TEXT NOT NULL DEFAULT 'available',
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-		"000003_create_command_audits.sql": {
-			Data: []byte(`
-CREATE TABLE command_audits (
-    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    command_text TEXT NOT NULL,
-    command_wrapper TEXT NOT NULL DEFAULT '',
-    command_name TEXT NOT NULL DEFAULT 'unknown',
-    input_text TEXT NOT NULL,
-    output_text TEXT NOT NULL,
-    input_truncated INTEGER NOT NULL DEFAULT 0,
-    output_truncated INTEGER NOT NULL DEFAULT 0,
-    input_original_bytes INTEGER NOT NULL DEFAULT 0,
-    output_original_bytes INTEGER NOT NULL DEFAULT 0,
-    exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0,
-    failure_reason TEXT NOT NULL DEFAULT 'unknown'
-);`),
-		},
 	}
 }
 
@@ -421,47 +334,8 @@ func newSearchAuditFixture(
 func TestDatasource_Search_FindsTermOnlyInCommandAuditOutput(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    body TEXT NOT NULL,
-    body_availability TEXT NOT NULL DEFAULT 'available',
-    created_at TEXT NOT NULL,
-    source_hook TEXT
-);`),
-		},
-		"000002_add_event_metadata.sql": {
-			Data: []byte(`
-ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
-		},
-		"000003_create_command_audits.sql": {
-			Data: []byte(`
-CREATE TABLE command_audits (
-    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    command_text TEXT NOT NULL,
-    command_wrapper TEXT NOT NULL DEFAULT '',
-    command_name TEXT NOT NULL DEFAULT 'unknown',
-    input_text TEXT NOT NULL,
-    output_text TEXT NOT NULL,
-    input_truncated INTEGER NOT NULL DEFAULT 0,
-    output_truncated INTEGER NOT NULL DEFAULT 0,
-    input_original_bytes INTEGER NOT NULL DEFAULT 0,
-    output_original_bytes INTEGER NOT NULL DEFAULT 0,
-    exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0,
-    failure_reason TEXT NOT NULL DEFAULT 'unknown'
-);`),
-		},
-	}
-	addExplicitLegacySearchAuthority(migrations)
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -516,9 +390,4 @@ CREATE TABLE command_audits (
 	if diff := cmp.Diff("", got[0].Body()); diff != "" {
 		t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 	}
-}
-
-func addExplicitLegacySearchAuthority(migrations fstest.MapFS) {
-	migrations["000031_created_norm.sql"] = &fstest.MapFile{Data: []byte(`ALTER TABLE events ADD COLUMN created_at_norm TEXT; CREATE TRIGGER events_created_norm_ai AFTER INSERT ON events BEGIN UPDATE events SET created_at_norm=NEW.created_at WHERE id=NEW.id; END;`)}
-	migrations["000040_search_authority.sql"] = &fstest.MapFile{Data: []byte(`CREATE TABLE search_maintenance_control(singleton INTEGER PRIMARY KEY,authority TEXT NOT NULL,phase TEXT NOT NULL,progress INTEGER NOT NULL DEFAULT 0); INSERT INTO search_maintenance_control(singleton,authority,phase) VALUES(1,'legacy','active');`)}
 }
