@@ -42,6 +42,48 @@ func TestInspectStoreGrowthBudgetMeasuresCompletedInspectionLatency(t *testing.T
 	}
 }
 
+// TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection covers the
+// classification, which is easy to get subtly wrong: dbstat names the FTS5
+// shadow tables and the implicit UNIQUE index in ways that do not share a
+// prefix, and the live projection's own objects also contain "search".
+func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := &RootCLI{capacityInspector: growthCapacityStub{report: apptypes.CapacityReport{
+		DatabaseBytes: 128 << 20,
+		Objects: []apptypes.CapacityObject{
+			{Name: "event_search_documents", Bytes: 3 << 30},
+			{Name: "event_search_fts_data", Bytes: 5 << 30},
+			{Name: "sqlite_autoindex_event_search_documents_1", Bytes: 1 << 30},
+			{Name: "search_projection_recent_fts", Bytes: 64 << 20},
+			{Name: "literal_search_fingerprints", Bytes: 32 << 20},
+			{Name: "events", Bytes: 2 << 30},
+		},
+	}}}
+	checks := root.inspectStoreGrowthBudget(context.Background(), path, inspectStoreFileSnapshot(path, os.Stat))
+	if len(checks) != 2 {
+		t.Fatalf("checks=%#v", checks)
+	}
+	legacy := checks[1]
+	if legacy.Name != "legacy-search-index" || legacy.Status != doctorStatusWarn {
+		t.Fatalf("legacy check=%#v", legacy)
+	}
+	// 3 + 5 + 1 GiB, including the shadow table and the implicit index.
+	if !strings.Contains(legacy.Message, "9.0 GiB") {
+		t.Fatalf("legacy message = %q, want the summed family bytes", legacy.Message)
+	}
+	if !strings.Contains(legacy.FixCommand, "search-retire") {
+		t.Fatalf("legacy fix = %q", legacy.FixCommand)
+	}
+	// The live projection's 96 MiB must not absorb the retired family's 9 GiB,
+	// or the store-size check blames the wrong thing and suggests compaction.
+	if !strings.Contains(checks[0].Message, "projection=96.0 MiB") {
+		t.Fatalf("store-size message = %q, want the live projection only", checks[0].Message)
+	}
+}
+
 func TestInspectStoreSizeBudget_SmallFilePasses(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "small.db")
 	if err := os.WriteFile(path, []byte("tiny"), 0o600); err != nil {

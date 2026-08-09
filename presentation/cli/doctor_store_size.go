@@ -82,11 +82,16 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	legacyBytes := int64(0)
 	for _, object := range report.Objects {
 		name := strings.ToLower(object.Name)
-		if strings.Contains(name, "search") || strings.Contains(name, "projection") {
-			evidence.ProjectionBytes += object.Bytes
-		}
+		// The retired family is reported by its own check, not as projection
+		// growth. Counting it here would attribute 16 GiB of dead index to the
+		// live projection's budget and point the operator at compaction, which
+		// is the wrong remedy and the wrong first step.
 		if isLegacySearchIndexObject(name) {
 			legacyBytes += object.Bytes
+			continue
+		}
+		if strings.Contains(name, "search") || strings.Contains(name, "projection") {
+			evidence.ProjectionBytes += object.Bytes
 		}
 	}
 	if free, freeErr := inspectDoctorDiskFree(dbPath); freeErr == nil {
@@ -98,12 +103,17 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	return []doctorCheck{check, legacySearchIndexCheck(legacyBytes, dbPath)}
 }
 
-// isLegacySearchIndexObject matches the migration-032 family, including the
-// FTS5 shadow tables (event_search_fts_data, _idx, _docsize, _config), and
-// nothing from the bounded projection, whose objects are named
-// search_projection_* / literal_search_*.
+// isLegacySearchIndexObject matches the migration-032 family: the two tables,
+// the FTS5 shadow tables (event_search_fts_data, _idx, _docsize, _config), and
+// the implicit index behind event_search_documents.event_id UNIQUE, which
+// dbstat reports as sqlite_autoindex_event_search_documents_1 — hence Contains
+// rather than HasPrefix, since that name holds millions of event IDs on the
+// stores this check exists for.
+//
+// No bounded-projection object contains this substring; they are named
+// search_projection_* and literal_search_*.
 func isLegacySearchIndexObject(loweredName string) bool {
-	return strings.HasPrefix(loweredName, "event_search_")
+	return strings.Contains(loweredName, "event_search_")
 }
 
 func legacySearchIndexCheck(bytes int64, dbPath string) doctorCheck {
