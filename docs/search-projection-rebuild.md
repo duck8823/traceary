@@ -88,16 +88,20 @@ measurable).
 A generation recorded over budget stays that way. Nothing corrects it in place —
 the next `CatchUp` sees a complete generation and returns `already_complete`. Check
 `traceary store search-projection status` for `index_family_within_budget` and
-`capacity_evidence`; a `0` means the amplification estimate was low for this corpus
-and the fix is an explicit `traceary store search-projection start` with a smaller
-`--index-family-bytes`.
+`capacity_evidence`. A `0` has several possible causes — the amplification estimate
+was low for this corpus, the permanently resident objects grew (`search_projection_source_sequence`
+gains a row per event and is never reclaimed), or FTS5 has not yet merged away the
+pages of deleted documents. The lever is the same regardless: an explicit
+`traceary store search-projection start` with a smaller `--index-family-bytes`.
 
 The figure is `dbstat` allocation, not file size: the file shrinks at
 `store compact`, and FTS5 returns space from deleted documents only as segments
 merge.
 
-**Not measured during a rebuild.** `Start` keeps the previous generation readable
-until the new one is verified, so a rebuild transiently holds two families. The
+**No verdict during a rebuild.** Measurement still happens — `dbstat` is walked at
+`Start` and again at the source→eviction transition — but budget conformance is not
+decided, because `Start` keeps the previous generation readable until the new one is
+verified and a rebuild therefore holds two families at once. The
 source-phase cutoff keeps the new one from being built at the full age window, but the
 transient peak is not bounded by this budget.
 
@@ -108,6 +112,11 @@ indexed text, so a reasoning-heavy corpus over-counts. The walk therefore runs a
 four times the derived ceiling, so it excludes only what is clearly beyond reach and
 leaves the exact decision to eviction. What it excludes it excludes irreversibly for
 that generation — eviction can drop documents, never re-project them.
+
+When the permanent tiers alone exhaust the budget and the derived ceiling is 0, the
+cutoff empties the recent tier by building nothing, rather than building the whole age
+window and then evicting all of it — a store already at its budget should not pay the
+maximum build cost to retain nothing.
 
 Three numbers must not be conflated:
 

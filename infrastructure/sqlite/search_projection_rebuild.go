@@ -75,6 +75,14 @@ const searchProjectionCutoffTimeout = 2 * time.Second
 // re-project documents the prefilter already excluded (v0.34 follow-up).
 const searchProjectionCutoffSlackFactor int64 = 4
 
+// searchProjectionCutoffRetainNothing is the persisted cutoff for a derived
+// ceiling of 0 — the permanent tiers alone exhaust the budget, so the recent
+// tier must stay empty. A far-future timestamp makes the planner's
+// created.After(cutoff) false for every row without a second retention flag.
+// It is deliberately not the empty string: empty already means "the whole
+// corpus fits", the exact opposite.
+const searchProjectionCutoffRetainNothing = "9999-12-31T23:59:59.999999999Z"
+
 // capacityDerivation holds the measured family split and the derived source
 // ceiling. SplitEvidence answers "was the family byte figure measured"
 // (feeds cutover_before_evidence_*). Evidence answers "was the amplification
@@ -1185,13 +1193,19 @@ func (d *Database) scopedNonRecentReserve(ctx context.Context, q interface {
 // reason means the prefilter did not run (timeout or error) and the caller
 // must fold the reason into capacity evidence.
 //
+// A ceiling of 0 returns searchProjectionCutoffRetainNothing instead of an
+// empty cutoff. Empty means "everything qualifies", which at ceiling 0 would
+// build the whole age window into the trigram index and then evict every row
+// of it — maximum build cost to retain nothing, on exactly the stores already
+// at their limit.
+//
 // Uses WithTimeout on the caller's context so a cancelled store open stops the
 // walk; the timeout is the upper bound.
 func (d *Database) deriveSearchProjectionRecentCutoff(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, sourceCeiling int64) (cutoff string, reason string) {
 	if sourceCeiling <= 0 {
-		return "", ""
+		return searchProjectionCutoffRetainNothing, ""
 	}
 	// Walk against sourceCeiling * slack so systematic prefilter over-count
 	// (thinking-heavy Claude Code transcripts) does not irreversibly shrink

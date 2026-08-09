@@ -626,6 +626,66 @@ func TestSearchProjectionReserveAtBudgetYieldsZeroCeilingNotFailure(t *testing.T
 	}
 }
 
+// TestSearchProjectionZeroCeilingBuildsNothingRatherThanEvictingEverything
+// pins the prefilter side of a zero ceiling. Emptying the recent tier via
+// eviction is the right end state but the wrong route: an empty cutoff means
+// "everything qualifies", so the source phase would build the whole age window
+// into the trigram index at full FTS5 cost and then delete every row of it —
+// on exactly the stores already at their budget. Nothing must be inserted.
+func TestSearchProjectionZeroCeilingBuildsNothingRatherThanEvictingEverything(t *testing.T) {
+	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
+		{"e1", strings.Repeat("would be indexed ", 200), "2026-06-01T10:00:00Z"},
+		{"e2", strings.Repeat("would be indexed ", 200), "2026-06-01T11:00:00Z"},
+		{"e3", strings.Repeat("would be indexed ", 200), "2026-06-01T12:00:00Z"},
+	})
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	// Complete once so the session tier exists, then park at idle with a
+	// persisted non-recent figure that exhausts a 1-byte budget.
+	driveToCompletion(t, store, capacityBudget(64<<20), now)
+	ctx := context.Background()
+	if _, err := db.Exec(`
+		DELETE FROM search_projection_recent_documents;
+		UPDATE search_projection_state
+		   SET state='idle',generation_id=NULL,active_generation_id=NULL,
+		       non_recent_family_bytes=1000000
+		 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	b := capacityBudget(1)
+	b.Rows = 64
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	var cutoff string
+	if err := db.QueryRow(`SELECT recent_cutoff_norm FROM search_projection_state`).Scan(&cutoff); err != nil {
+		t.Fatal(err)
+	}
+	if cutoff != searchProjectionCutoffRetainNothing {
+		t.Fatalf("recent_cutoff_norm=%q, want the retain-nothing sentinel at ceiling 0", cutoff)
+	}
+	// Watch every batch: a row inserted and later evicted is the failure this
+	// pins, so a count taken only at the end would not see it.
+	for i := 0; i < 200; i++ {
+		p, err := resumeProjection(ctx, store, b, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var inserted int
+		if err = db.QueryRow(`SELECT COUNT(*) FROM search_projection_recent_documents`).Scan(&inserted); err != nil {
+			t.Fatal(err)
+		}
+		if inserted != 0 {
+			t.Fatalf("batch %d inserted %d recent rows under a zero ceiling; the whole age window is being built and then evicted", i, inserted)
+		}
+		var phase string
+		_ = db.QueryRow(`SELECT phase FROM search_projection_state`).Scan(&phase)
+		if phase != "source" || p.Completed {
+			return
+		}
+	}
+	t.Fatal("source phase did not finish")
+}
+
 // TestSearchProjectionZeroCeilingEmptiesRecentTier pins that a persisted
 // ceiling of 0 empties the recent tier while leaving the session tier intact.
 // Zero is not "age only": the eviction predicate is true for every row.

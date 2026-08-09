@@ -134,8 +134,11 @@ type ProjectionSnapshot struct {
 	CleanupAll    bool
 	Now           time.Time
 	// RecentCutoffNorm is the source-phase prefilter cutoff derived at Start
-	// from the index-family budget. Empty means age-only retention. The pure
-	// planner combines it with RecentAge; it never learns about dbstat.
+	// from the index-family budget. Empty means age-only retention — the whole
+	// corpus fits under the walk ceiling. A far-future timestamp means the
+	// opposite: the derived ceiling is 0, so nothing qualifies and the source
+	// phase must build nothing rather than build everything and evict it. The
+	// pure planner combines this with RecentAge; it never learns about dbstat.
 	RecentCutoffNorm string
 	// RecentSourceCeilingBytes is the persisted source-text ceiling eviction
 	// compares against. Zero means the entire recent tier is over budget and
