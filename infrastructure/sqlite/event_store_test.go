@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -358,42 +359,12 @@ CREATE TABLE command_audits (
 func TestDatasource_ListRecent_SourceHookFilterIncludesLegacyPrefixRows(t *testing.T) {
 	t.Parallel()
 
-	migrations := fstest.MapFS{
-		"000001_init.sql": {
-			Data: []byte(`
-CREATE TABLE events (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    agent TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    client TEXT NOT NULL DEFAULT '',
-    workspace TEXT NOT NULL DEFAULT '',
-    body TEXT NOT NULL,
-    body_availability TEXT NOT NULL DEFAULT 'available',
-    source_hook TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX idx_events_created_at ON events(created_at DESC, id DESC);
-CREATE INDEX idx_events_source_hook_time
-    ON events(source_hook, created_at DESC, id DESC)
-    WHERE source_hook IS NOT NULL;
-CREATE TABLE command_audits (
-    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    command_text TEXT NOT NULL,
-    command_wrapper TEXT NOT NULL DEFAULT '',
-    command_name TEXT NOT NULL DEFAULT 'unknown',
-    input_text TEXT NOT NULL,
-    output_text TEXT NOT NULL,
-    input_truncated INTEGER NOT NULL DEFAULT 0,
-    output_truncated INTEGER NOT NULL DEFAULT 0,
-    input_original_bytes INTEGER NOT NULL DEFAULT 0,
-    output_original_bytes INTEGER NOT NULL DEFAULT 0,
-    exit_code INTEGER,
-    failed INTEGER NOT NULL DEFAULT 0,
-    failure_reason TEXT NOT NULL DEFAULT 'unknown'
-);`),
-		},
-	}
+	// The legacy branch used to infer the hook from the body prefix in SQL, so
+	// a two-table fixture was enough. #1685 D6 moved that inference to
+	// event_metadata_projection.legacy_source_hook, because an encoded body is
+	// a BLOB no LIKE can match. The projection and the trigger that maintains
+	// it are what this now exercises, so the fixture has to be the real schema.
+	migrations := os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations"))
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
 	sut, storeManager := newEventDatasource(t, dbPath, migrations)
 	if err := storeManager.Initialize(context.Background()); err != nil {

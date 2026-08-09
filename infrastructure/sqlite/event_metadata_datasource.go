@@ -46,9 +46,6 @@ var selectRecentEventMetadataBySourceHookQuery string
 //go:embed sql/select_recent_event_metadata_by_source_hook_with_legacy.sql
 var selectRecentEventMetadataBySourceHookWithLegacyQuery string
 
-//go:embed sql/search_event_metadata.sql
-var searchEventMetadataQuery string
-
 //go:embed sql/get_context_event_metadata.sql
 var getContextEventMetadataQuery string
 
