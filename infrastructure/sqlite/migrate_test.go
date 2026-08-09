@@ -399,8 +399,16 @@ func TestMigrations_searchProjectionLifecycleBackfillsExactTerminalState(t *test
 			if err = db.QueryRow(`SELECT state FROM search_projection_generation_lifecycle WHERE generation_id='legacy-generation'`).Scan(&got); err != nil {
 				t.Fatal(err)
 			}
-			if got != state {
-				t.Fatalf("lifecycle state=%q, want %q", got, state)
+			// Migration 041 backfills the terminal state. Catch-up then applies
+			// capacity-semantics obsolescence (#1679): an in-flight rebuild at
+			// the DEFAULT version is abandoned so a replacement can start. Other
+			// terminal states keep their lifecycle row for the legacy id.
+			want := state
+			if state == "rebuilding" {
+				want = "abandoned"
+			}
+			if got != want {
+				t.Fatalf("lifecycle state=%q, want %q", got, want)
 			}
 		})
 	}

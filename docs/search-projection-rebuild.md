@@ -53,3 +53,73 @@ Row, stored-byte, decoded-byte, logical-write-byte, lock-time, and per-batch wal
 Use `traceary store search-projection abort` to idempotently abandon an incomplete generation before restarting with different generation settings. An active completed generation is never abandoned. Inspect `status` for generation lifecycle, checkpoint, high-water, and capacity evidence.
 
 Since v0.34 this projection is the only search index: the full-corpus migration-032 family it once ran beside is retired, so there is no cutover to authorize and no second index to compare against. See [search retirement](operations/search-retirement.md).
+
+## Index-family budget
+
+The operator-facing budget is **physical bytes of the bounded search index family**
+(`search_projection_*` + `literal_search_*`), measured as active b-tree allocation
+via `dbstat` — not source text. The default is 1464 MiB (~1.43 GiB), the residual of
+the 4 GiB store gate after every other Wave 3 removal.
+
+`status.recent_bytes` is deliberately a **different unit**: source text actually
+retained in the recent tier. The budget is configured in index bytes; retained
+source is reported so the amplification is visible, not so operators re-interpret
+the knob as a text ceiling.
+
+What the budget buys is a **variable window**, not a fixed one. Trigram measures
+about 2.16× the source text, so 1464 MiB of family is roughly 0.66 GiB of
+indexable text. Measured weekly volume on the reference corpus varies **eightfold**
+(0.06 to 0.47 GiB per week): about 1.5 to 2 weeks at the median rate, under a week
+during a heavy sprint, and four to five weeks during a quiet one. Compression buys
+**losslessness, not reach** — the index is built over plaintext, so a compressed
+body occupies exactly as much index as an uncompressed one. Everything older than
+the window stays reachable through the session tier.
+
+### Guarantee
+
+The budget is enforced **indirectly**, through a source-text ceiling derived from a
+*measured but estimated* trigram amplification. Eviction holds the recent tier to
+that ceiling exactly. Whether the resulting family actually landed under the
+configured budget is a separate question, and it is **measured and reported**, not
+guaranteed in advance: when a generation completes, the family is re-measured and
+`index_family_within_budget` records `1` (within), `0` (over) or `-1` (not
+measurable).
+
+A generation recorded over budget stays that way. Nothing corrects it in place —
+the next `CatchUp` sees a complete generation and returns `already_complete`. Check
+`traceary store search-projection status` for `index_family_within_budget` and
+`capacity_evidence`. A `0` has several possible causes — the amplification estimate
+was low for this corpus, the permanently resident objects grew (`search_projection_source_sequence`
+gains a row per event and is never reclaimed), or FTS5 has not yet merged away the
+pages of deleted documents. The lever is the same regardless: an explicit
+`traceary store search-projection start` with a smaller `--index-family-bytes`.
+
+The figure is `dbstat` allocation, not file size: the file shrinks at
+`store compact`, and FTS5 returns space from deleted documents only as segments
+merge.
+
+**No verdict during a rebuild.** Measurement still happens — `dbstat` is walked at
+`Start` and again at the source→eviction transition — but budget conformance is not
+decided, because `Start` keeps the previous generation readable until the new one is
+verified and a rebuild therefore holds two families at once. The
+source-phase cutoff keeps the new one from being built at the full age window, but the
+transient peak is not bounded by this budget.
+
+The source-phase cutoff is a **build-cost bound, not an enforcement mechanism**. It
+walks the corpus newest-first over stored envelope bytes, which is not the unit the
+projection indexes: `thinking` blocks count toward the walk but are stripped from the
+indexed text, so a reasoning-heavy corpus over-counts. The walk therefore runs against
+four times the derived ceiling, so it excludes only what is clearly beyond reach and
+leaves the exact decision to eviction. What it excludes it excludes irreversibly for
+that generation — eviction can drop documents, never re-project them.
+
+When the permanent tiers alone exhaust the budget and the derived ceiling is 0, the
+cutoff empties the recent tier by building nothing, rather than building the whole age
+window and then evicting all of it — a store already at its budget should not pay the
+maximum build cost to retain nothing.
+
+Three numbers must not be conflated:
+
+1. **dbstat allocation** — active b-tree pages attributed to the family (the budget unit)
+2. **file size after `store compact`** — shrinks only after `VACUUM`
+3. **rebuild disk peak** — two generations coexist until cleanup reclaims the old one

@@ -6,22 +6,50 @@ import (
 	"time"
 )
 
+// DefaultSearchProjectionIndexFamilyBytes is the whole bounded search index
+// family — documents, trigram index, session tier and literal fingerprints —
+// measured as active b-tree allocation, not source text.
+//
+// 1464 MiB is what the 4 GiB store gate (#1620) leaves once every other Wave 3
+// removal is applied; it is derived, not chosen.
+//
+// What it buys is a *variable* window, not a fixed one. Trigram measures 2.16x
+// the source text, so this is roughly 0.66 GiB of indexable text. Measured
+// weekly volume on the reference corpus varies eightfold (0.06 to 0.47 GiB per
+// week), which is 1.5 to 2 weeks at the median rate, under a week during a
+// heavy sprint and four to five weeks during a quiet one.
+//
+// Compression (#1685, #1742) buys losslessness, not reach: the index is built
+// over plaintext, so a compressed body occupies exactly as much index as an
+// uncompressed one. Everything older than the window stays reachable through
+// the session tier, which is the design's answer to a short recent window.
+const DefaultSearchProjectionIndexFamilyBytes int64 = 1464 << 20
+
+// SearchProjectionCapacitySemanticsVersion is the capacity model this binary
+// builds under. A persisted generation below this value is obsolete and must
+// be replaced even when complete (#1679 / D5).
+const SearchProjectionCapacitySemanticsVersion = 2
+
 type SearchProjectionBudget struct {
 	Rows                      int
 	WallTime, LockTime        time.Duration
 	StoredBytes, DecodedBytes int64
 	// WriteBytes is a strict logical mutation-byte budget. It is not a
 	// physical database, page, journal, or WAL growth bound.
-	WriteBytes  int64
-	RecentAge   time.Duration
-	RecentBytes int64
+	WriteBytes int64
+	RecentAge  time.Duration
+	// IndexFamilyBytes is the operator-facing ceiling on physical bytes of
+	// the bounded search index family (active b-tree allocation via dbstat),
+	// not source text. Eviction compares against the derived source ceiling,
+	// never against this figure directly.
+	IndexFamilyBytes int64
 }
 
 func (b SearchProjectionBudget) Valid() bool {
-	return b.Rows > 0 && b.WallTime > 0 && b.LockTime > 0 && b.StoredBytes > 0 && b.DecodedBytes > 0 && b.WriteBytes > 0 && b.RecentAge > 0 && b.RecentBytes > 0
+	return b.Rows > 0 && b.WallTime > 0 && b.LockTime > 0 && b.StoredBytes > 0 && b.DecodedBytes > 0 && b.WriteBytes > 0 && b.RecentAge > 0 && b.IndexFamilyBytes > 0
 }
 func (b SearchProjectionBudget) ConfigHash() string {
-	return fmt.Sprintf("v1:%d:%d:%d:%d:%d:%d:%d:%d", b.Rows, b.WallTime.Nanoseconds(), b.LockTime.Nanoseconds(), b.StoredBytes, b.DecodedBytes, b.WriteBytes, b.RecentAge.Nanoseconds(), b.RecentBytes)
+	return fmt.Sprintf("v2:%d:%d:%d:%d:%d:%d:%d:%d", b.Rows, b.WallTime.Nanoseconds(), b.LockTime.Nanoseconds(), b.StoredBytes, b.DecodedBytes, b.WriteBytes, b.RecentAge.Nanoseconds(), b.IndexFamilyBytes)
 }
 
 type SearchProjectionGeneration struct {
@@ -105,6 +133,20 @@ type ProjectionSnapshot struct {
 	CleanupDone   bool
 	CleanupAll    bool
 	Now           time.Time
+	// RecentCutoffNorm is the source-phase prefilter cutoff derived at Start
+	// from the index-family budget. Empty means age-only retention — the whole
+	// corpus fits under the walk ceiling. A far-future timestamp means the
+	// opposite: the derived ceiling is 0, so nothing qualifies and the source
+	// phase must build nothing rather than build everything and evict it. The
+	// pure planner combines this with RecentAge; it never learns about dbstat.
+	RecentCutoffNorm string
+	// RecentSourceCeilingBytes is the persisted source-text ceiling eviction
+	// compares against. Zero means the entire recent tier is over budget and
+	// must be emptied: the eviction predicate is
+	// total_bytes - removed_before > ceiling, which is true for every row
+	// when the ceiling is 0. Age-only retention is an empty RecentCutoffNorm
+	// with a positive ceiling (or no ceiling column at all on pre-v2 stores).
+	RecentSourceCeilingBytes int64
 }
 
 type ProjectionCleanupCandidate struct {
@@ -192,36 +234,47 @@ func (*SearchProjectionDriftError) Error() string {
 }
 
 type SearchProjectionStatus struct {
-	SchemaVersion           string           `json:"schema_version"`
-	State                   string           `json:"state"`
-	Phase                   string           `json:"phase"`
-	ProjectionVersion       int              `json:"projection_version"`
-	FTSDesign               string           `json:"fts_design"`
-	ConfigHash              string           `json:"config_hash"`
-	SourceRevision          int64            `json:"source_revision"`
-	HighWater               int64            `json:"high_water"`
-	Checkpoint              int64            `json:"checkpoint"`
-	Completed               bool             `json:"completed"`
-	RecentAgeSeconds        int64            `json:"recent_age_seconds"`
-	RecentByteLimit         int64            `json:"recent_byte_limit"`
-	RecentBytes             int64            `json:"recent_bytes"`
-	RecentDocuments         int64            `json:"recent_documents"`
-	SummarySessions         int64            `json:"summary_sessions"`
-	KeywordRows             int64            `json:"keyword_rows"`
-	SummaryLogicalBytes     int64            `json:"summary_logical_bytes"`
-	KeywordLogicalBytes     int64            `json:"keyword_logical_bytes"`
-	FTSLogicalBytes         int64            `json:"fts_logical_bytes"`
-	PhysicalBytes           int64            `json:"physical_bytes"`
-	PhysicalEvidence        CapacityEvidence `json:"physical_evidence"`
-	LastBatchMilliseconds   int64            `json:"last_batch_milliseconds"`
-	InspectionMilliseconds  int64            `json:"inspection_milliseconds"`
-	MatchProbeMilliseconds  int64            `json:"match_probe_milliseconds"`
-	KeywordVersion          int              `json:"keyword_version"`
-	FingerprintVersion      int              `json:"fingerprint_version"`
-	FingerprintRows         int64            `json:"fingerprint_rows"`
-	FingerprintLogicalBytes int64            `json:"fingerprint_logical_bytes"`
-	LifecycleState          string           `json:"lifecycle_state"`
-	AbandonedAt             string           `json:"abandoned_at,omitempty"`
+	SchemaVersion           string `json:"schema_version"`
+	State                   string `json:"state"`
+	Phase                   string `json:"phase"`
+	ProjectionVersion       int    `json:"projection_version"`
+	FTSDesign               string `json:"fts_design"`
+	ConfigHash              string `json:"config_hash"`
+	SourceRevision          int64  `json:"source_revision"`
+	HighWater               int64  `json:"high_water"`
+	Checkpoint              int64  `json:"checkpoint"`
+	Completed               bool   `json:"completed"`
+	RecentAgeSeconds        int64  `json:"recent_age_seconds"`
+	// IndexFamilyByteLimit is the configured physical-byte budget for the
+	// bounded search index family (the unit the operator sets).
+	IndexFamilyByteLimit int64 `json:"index_family_byte_limit"`
+	// RecentBytes is source text actually retained in the recent tier — a
+	// different unit from IndexFamilyByteLimit, which is the point of #1679.
+	RecentBytes                 int64            `json:"recent_bytes"`
+	RecentDocuments             int64            `json:"recent_documents"`
+	RecentSourceCeilingBytes    int64            `json:"recent_source_ceiling_bytes"`
+	RecentAmplificationPPM      int64            `json:"recent_amplification_ppm"`
+	NonRecentFamilyBytes        int64            `json:"non_recent_family_bytes"`
+	RecentCutoffNorm            string           `json:"recent_cutoff_norm,omitempty"`
+	CapacitySemanticsVersion    int              `json:"capacity_semantics_version"`
+	CapacityEvidence            CapacityEvidence `json:"capacity_evidence"`
+	IndexFamilyWithinBudget     int              `json:"index_family_within_budget"`
+	SummarySessions             int64            `json:"summary_sessions"`
+	KeywordRows                 int64            `json:"keyword_rows"`
+	SummaryLogicalBytes         int64            `json:"summary_logical_bytes"`
+	KeywordLogicalBytes         int64            `json:"keyword_logical_bytes"`
+	FTSLogicalBytes             int64            `json:"fts_logical_bytes"`
+	PhysicalBytes               int64            `json:"physical_bytes"`
+	PhysicalEvidence            CapacityEvidence `json:"physical_evidence"`
+	LastBatchMilliseconds       int64            `json:"last_batch_milliseconds"`
+	InspectionMilliseconds      int64            `json:"inspection_milliseconds"`
+	MatchProbeMilliseconds      int64            `json:"match_probe_milliseconds"`
+	KeywordVersion              int              `json:"keyword_version"`
+	FingerprintVersion          int              `json:"fingerprint_version"`
+	FingerprintRows             int64            `json:"fingerprint_rows"`
+	FingerprintLogicalBytes     int64            `json:"fingerprint_logical_bytes"`
+	LifecycleState              string           `json:"lifecycle_state"`
+	AbandonedAt                 string           `json:"abandoned_at,omitempty"`
 	// FailureClass names why the last generation failed. It is what decides
 	// whether automatic catch-up may start a replacement: a deterministic class
 	// would fail the same way on every open.

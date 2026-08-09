@@ -341,10 +341,20 @@ func TestSearchProjectionRebuildIsBoundedResumableAndEvictsDeterministically(t *
 			t.Fatal(err)
 		}
 	}
-	budget := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Minute, LockTime: time.Second, StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20, RecentAge: 90 * time.Minute, RecentBytes: 25}
+	budget := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Minute, LockTime: time.Second, StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20, RecentAge: 90 * time.Minute, IndexFamilyBytes: 1 << 20}
 	if _, err = store.Start(ctx, budget, now); err != nil {
 		t.Fatal(err)
 	}
+	pinCeiling := func() {
+		t.Helper()
+		// IndexFamilyBytes is the physical index budget; eviction compares the
+		// persisted source ceiling. Re-pin after each batch because the
+		// source→eviction transition re-derives the column.
+		if _, e := db.ExecContext(ctx, `UPDATE search_projection_state SET recent_source_ceiling_bytes=25 WHERE singleton=1`); e != nil {
+			t.Fatal(e)
+		}
+	}
+	pinCeiling()
 	for i := 0; i < 3; i++ {
 		got, e := resumeProjection(ctx, store, budget, now)
 		if e != nil {
@@ -353,6 +363,7 @@ func TestSearchProjectionRebuildIsBoundedResumableAndEvictsDeterministically(t *
 		if got.Selected != 1 {
 			t.Fatalf("batch %d selected=%d", i, got.Selected)
 		}
+		pinCeiling()
 	}
 	var got apptypes.SearchProjectionProgress
 	for i := 0; i < 10 && !got.Completed; i++ {
@@ -360,6 +371,7 @@ func TestSearchProjectionRebuildIsBoundedResumableAndEvictsDeterministically(t *
 		if err != nil || got.WrittenBytes > budget.WriteBytes || got.Cleaned > budget.Rows {
 			t.Fatalf("cleanup batch=%+v err=%v", got, err)
 		}
+		pinCeiling()
 	}
 	if !got.Completed {
 		t.Fatalf("cleanup did not resume to completion: %+v", got)
@@ -456,7 +468,7 @@ func TestSearchProjectionAbandonIsIdempotentAndRestartKeepsCanonicalHistory(t *t
 }
 
 func projectionBudget() apptypes.SearchProjectionBudget {
-	return apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Minute, LockTime: time.Second, StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20, RecentAge: time.Hour, RecentBytes: 1 << 20}
+	return apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Minute, LockTime: time.Second, StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20, RecentAge: time.Hour, IndexFamilyBytes: 1 << 20}
 }
 
 // resetProjectionForInventoryTest undoes auto catch-up so inventory-phase tests
@@ -1032,7 +1044,6 @@ func TestRecentEvictionDeletesOnlyStableMinimalOldestPrefix(t *testing.T) {
 	}
 	b := projectionBudget()
 	b.Rows = 10
-	b.RecentBytes = 10
 	b.WriteBytes = 1 << 20
 	if _, err := store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
@@ -1040,6 +1051,12 @@ func TestRecentEvictionDeletesOnlyStableMinimalOldestPrefix(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		p, err := resumeProjection(ctx, store, b, now)
 		if err != nil {
+			t.Fatal(err)
+		}
+		// Eviction honours the persisted source ceiling. Re-pin after every
+		// batch because the source→eviction transition re-derives the column
+		// from the index-family budget (which is not the unit this test pins).
+		if _, err := db.Exec(`UPDATE search_projection_state SET recent_source_ceiling_bytes=10 WHERE singleton=1`); err != nil {
 			t.Fatal(err)
 		}
 		if p.Completed {
@@ -1086,7 +1103,7 @@ func TestSearchProjectionRecentDocumentsAreASCIIFoldedForCaseSensitiveFTS(t *tes
 	budget := apptypes.SearchProjectionBudget{
 		Rows: 8, WallTime: time.Minute, LockTime: time.Second,
 		StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20,
-		RecentAge: 90 * time.Minute, RecentBytes: 1 << 20,
+		RecentAge: 90 * time.Minute, IndexFamilyBytes: 1 << 20,
 	}
 	if _, err = store.Start(ctx, budget, now); err != nil {
 		t.Fatal(err)

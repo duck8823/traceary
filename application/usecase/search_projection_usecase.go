@@ -4,6 +4,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -262,12 +263,49 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	out.CutoverFamilyBytesAfter = status.CutoverFamilyBytesAfter
 	out.CutoverBeforeEvidence = status.CutoverBeforeEvidence
 	out.CutoverAfterEvidence = status.CutoverAfterEvidence
+	// Capacity semantics version is checked before already_complete so a
+	// completed generation built under an older model is replaced (#1679 D5).
+	// A version number rather than hashing the budget value is deliberate:
+	// hashing would abandon an operator's deliberate --index-family-bytes.
+	//
+	// Restricted to complete / rebuilding / drifted. A failed generation stays
+	// parked (see the failed branch below): un-parking it here would restart
+	// a deterministic failure on every store open. The operator's explicit
+	// `store search-projection start` picks up the new capacity semantics.
+	if status.CapacitySemanticsVersion < apptypes.SearchProjectionCapacitySemanticsVersion &&
+		(status.State == "complete" || status.State == "rebuilding" || status.State == "drifted") {
+		slog.Info("search projection capacity semantics obsolete; replacing generation",
+			"persisted_version", status.CapacitySemanticsVersion,
+			"current_version", apptypes.SearchProjectionCapacitySemanticsVersion,
+			"state", status.State,
+		)
+		if status.State == "rebuilding" || (status.State == "drifted" && status.Phase == "cleanup") {
+			if _, abandonErr := u.Abandon(ctx, now.UTC()); abandonErr != nil {
+				return out, xerrors.Errorf("abandon obsolete capacity generation: %w", abandonErr)
+			}
+		}
+		// complete / drifted (non-cleanup): StartGeneration accepts any
+		// non-rebuilding state and replaces the generation.
+		generation, startErr := u.StartGeneration(ctx, b, now.UTC())
+		if startErr != nil {
+			return out, startErr
+		}
+		out.Action = "start"
+		out.GenerationID = generation.GenerationID
+		progress, resumeErr := u.Resume(ctx, b, now.UTC())
+		if resumeErr != nil {
+			return out, resumeErr
+		}
+		return u.finishCatchUpProgress(ctx, out, progress)
+	}
 	if status.State == "complete" {
 		out.Action = "already_complete"
 		out.Completed = true
 		return out, nil
 	}
 	// Operator-owned rebuild with a different budget must not be hijacked.
+	// Only applies when capacity semantics match; obsolete versions are handled
+	// above regardless of ConfigHash.
 	if (status.State == "rebuilding" || (status.State == "drifted" && status.Phase == "cleanup")) &&
 		status.ConfigHash != "" && status.ConfigHash != b.ConfigHash() {
 		out.Action = "skipped"
@@ -320,6 +358,12 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	if resumeErr != nil {
 		return out, resumeErr
 	}
+	return u.finishCatchUpProgress(ctx, out, progress)
+}
+
+// finishCatchUpProgress records one Resume's progress onto the catch-up result
+// and refreshes cutover evidence fields from a post-batch status read.
+func (u *SearchProjectionUsecase) finishCatchUpProgress(ctx context.Context, out apptypes.SearchProjectionCatchUpResult, progress apptypes.SearchProjectionProgress) (apptypes.SearchProjectionCatchUpResult, error) {
 	out.Batches = 1
 	out.Selected = progress.Selected
 	out.Written = progress.Written

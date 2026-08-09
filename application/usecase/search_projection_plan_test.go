@@ -53,7 +53,7 @@ func (*wallBudgetStore) MarkFailed(context.Context, string, int64, string, time.
 
 func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1000, DecodedBytes: 1000, WriteBytes: 100, RecentAge: time.Hour, RecentBytes: 1000}
+	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1000, DecodedBytes: 1000, WriteBytes: 100, RecentAge: time.Hour, IndexFamilyBytes: 1000}
 	s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{{Sequence: 1, Text: "small", StoredBytes: 5, DecodedBytes: 5}}}
 	_, err := usecase.PlanProjectionBatch(s, b)
 	var oversized *apptypes.SearchProjectionOversizeError
@@ -75,7 +75,7 @@ func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 
 func TestResumeStatusConsumesSameWallBudgetAndPreventsSelectionOrMutation(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, RecentBytes: 1}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
 	store := &wallBudgetStore{budget: b, delayStatus: true}
 	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -102,7 +102,7 @@ func TestProjectionOperatorResultsUseSnakeCaseJSON(t *testing.T) {
 
 func TestResumeWallBudgetCoversSelectionAndPreventsApplyAfterDeadline(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, RecentBytes: 1}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
 	store := &wallBudgetStore{budget: b}
 	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -115,7 +115,7 @@ func TestResumeWallBudgetCoversSelectionAndPreventsApplyAfterDeadline(t *testing
 
 func TestProjectionRetentionPlanRequiresPersistedResumeWhenSnapshotHasMoreRows(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, RecentBytes: 100}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
 	s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g"}, Phase: "cleanup", Cleanup: []apptypes.ProjectionCleanupCandidate{{Class: "summary", RowID: 1, LogicalBytes: 10}}, CleanupDone: false}
 	p, err := usecase.PlanProjectionBatch(s, b)
 	if err != nil {
@@ -161,7 +161,7 @@ func (s *multiBatchProjectionStore) MarkFailed(context.Context, string, int64, s
 
 func TestSearchProjectionResumeUntilRunsDurableBoundedBatches(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, RecentBytes: 100}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
 	store := &multiBatchProjectionStore{budget: b}
 	result, err := usecase.NewSearchProjectionUsecase(store).ResumeUntil(context.Background(), b, apptypes.SearchProjectionRunOptions{MaxBatches: 2, TotalWallTime: time.Minute}, time.Now())
 	if err != nil {
@@ -174,7 +174,7 @@ func TestSearchProjectionResumeUntilRunsDurableBoundedBatches(t *testing.T) {
 
 func TestSearchProjectionResumeUntilContinuesFromDurableCheckpoint(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, RecentBytes: 100}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
 	store := &multiBatchProjectionStore{budget: b}
 	u := usecase.NewSearchProjectionUsecase(store)
 	first, err := u.ResumeUntil(context.Background(), b, apptypes.SearchProjectionRunOptions{MaxBatches: 1, TotalWallTime: time.Minute}, time.Now())
@@ -189,7 +189,7 @@ func TestSearchProjectionResumeUntilContinuesFromDurableCheckpoint(t *testing.T)
 
 func TestSearchProjectionResumeUntilReportsTotalWallTimeWithoutLosingProgress(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, RecentBytes: 1}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
 	store := &wallBudgetStore{budget: b, delayStatus: true}
 	result, err := usecase.NewSearchProjectionUsecase(store).ResumeUntil(context.Background(), b, apptypes.SearchProjectionRunOptions{MaxBatches: 2, TotalWallTime: time.Millisecond}, time.Now())
 	if err != nil || result.StopReason != "total_wall_time" || result.Batches != 0 {
@@ -199,7 +199,7 @@ func TestSearchProjectionResumeUntilReportsTotalWallTimeWithoutLosingProgress(t 
 
 func TestSearchProjectionResumeUntilPreservesParentCancellation(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, RecentBytes: 1}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := usecase.NewSearchProjectionUsecase(&wallBudgetStore{budget: b, delayStatus: true}).ResumeUntil(ctx, b, apptypes.SearchProjectionRunOptions{MaxBatches: 2, TotalWallTime: time.Minute}, time.Now())
@@ -210,7 +210,7 @@ func TestSearchProjectionResumeUntilPreservesParentCancellation(t *testing.T) {
 
 func TestSearchProjectionResumeUntilPreservesPerBatchTimeout(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, RecentBytes: 1}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
 	_, err := usecase.NewSearchProjectionUsecase(&wallBudgetStore{budget: b, delayStatus: true}).ResumeUntil(context.Background(), b, apptypes.SearchProjectionRunOptions{MaxBatches: 2, TotalWallTime: time.Minute}, time.Now())
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error=%v, want per-batch timeout", err)
