@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -251,20 +252,24 @@ func TestTieredAuthorityFingerprintPreFilter(t *testing.T) {
 	}
 }
 
-func TestTieredAuthoritySearchStillFailsWhenProjectionCannotAnswer(t *testing.T) {
+// TestTieredAuthoritySearchAnswersWhenProjectionUnusable asserts that states
+// which previously refused with "tiered search projection is incomplete or
+// stale" now fail open (no fingerprint pre-filter) and still return correct
+// decode-based matches. Fingerprints are an optimisation, not availability.
+func TestTieredAuthoritySearchAnswersWhenProjectionUnusable(t *testing.T) {
 	ctx := context.Background()
 	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	want := []string{"e1"}
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, database *Database)
 	}{
 		{
-			// 'stale' is no longer a refuse condition (append-after-complete).
-			// Incomplete means rebuilding / missing / non-ready states.
-			name: "literal projection incomplete",
+			name: "literal projection rebuilding",
 			setup: func(t *testing.T, database *Database) {
-				insertTieredSearchEvent(t, database, "e1", "needle", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+				insertTieredSearchEvent(t, database, "e1", "needle", base)
 				seedTieredCompleteProjection(t, database, "gen-a")
 				raw, err := database.open(ctx)
 				if err != nil {
@@ -277,9 +282,9 @@ func TestTieredAuthoritySearchStillFailsWhenProjectionCannotAnswer(t *testing.T)
 			},
 		},
 		{
-			name: "bounded projection incomplete",
+			name: "bounded projection rebuilding",
 			setup: func(t *testing.T, database *Database) {
-				insertTieredSearchEvent(t, database, "e1", "needle", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+				insertTieredSearchEvent(t, database, "e1", "needle", base)
 				seedTieredCompleteProjection(t, database, "gen-a")
 				raw, err := database.open(ctx)
 				if err != nil {
@@ -294,7 +299,7 @@ func TestTieredAuthoritySearchStillFailsWhenProjectionCannotAnswer(t *testing.T)
 		{
 			name: "generation mismatch",
 			setup: func(t *testing.T, database *Database) {
-				insertTieredSearchEvent(t, database, "e1", "needle", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+				insertTieredSearchEvent(t, database, "e1", "needle", base)
 				seedTieredCompleteProjection(t, database, "gen-a")
 				raw, err := database.open(ctx)
 				if err != nil {
@@ -311,7 +316,7 @@ func TestTieredAuthoritySearchStillFailsWhenProjectionCannotAnswer(t *testing.T)
 		{
 			name: "empty literal generation",
 			setup: func(t *testing.T, database *Database) {
-				insertTieredSearchEvent(t, database, "e1", "needle", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+				insertTieredSearchEvent(t, database, "e1", "needle", base)
 				seedTieredCompleteProjection(t, database, "gen-a")
 				raw, err := database.open(ctx)
 				if err != nil {
@@ -331,17 +336,306 @@ func TestTieredAuthoritySearchStillFailsWhenProjectionCannotAnswer(t *testing.T)
 			database, datasource := newTieredAuthorityFixture(t)
 			tc.setup(t, database)
 
-			const wantMsg = "tiered search projection is incomplete or stale"
-			_, err := datasource.SearchMetadata(ctx, criteria)
-			if err == nil || err.Error() != wantMsg {
-				t.Fatalf("SearchMetadata() error = %v, want %q", err, wantMsg)
+			got, err := datasource.SearchMetadata(ctx, criteria)
+			if err != nil {
+				t.Fatalf("SearchMetadata() error = %v, want matches without pre-filter", err)
+			}
+			if diff := cmp.Diff(want, metadataIDs(got)); diff != "" {
+				t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
 			}
 
-			_, err = datasource.SearchPage(ctx, criteria)
-			if err == nil || err.Error() != wantMsg {
-				t.Fatalf("SearchPage() error = %v, want %q", err, wantMsg)
+			full, err := datasource.SearchPage(ctx, criteria)
+			if err != nil {
+				t.Fatalf("SearchPage() error = %v, want matches without pre-filter", err)
+			}
+			if diff := cmp.Diff(want, eventIDs(full)); diff != "" {
+				t.Fatalf("SearchPage() IDs mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestTieredAuthoritySearchWithoutProjectionGeneration covers the fresh-store
+// case #1718 creates: tiered authority with no generation ever built.
+// TestTieredAuthoritySearchFindsEventsNeverInventoried covers the upgraded
+// store: events that predate migration 038 have no search_projection_source_
+// sequence row until the rebuild's inventory phase creates one
+// (search_projection_rebuild.go:271). A candidate walk anchored on that table
+// would silently omit the entire pre-upgrade history now that an unusable
+// projection answers instead of refusing.
+func TestTieredAuthoritySearchFindsEventsNeverInventoried(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	insertTieredSearchEvent(t, database, "inventoried", "history needle new", base.Add(time.Second))
+	insertTieredSearchEvent(t, database, "never-inventoried", "history needle old", base)
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce the upgraded-store shape: the event exists but was never
+	// registered, exactly as if it predated the migration-038 insert trigger.
+	if _, err = raw.ExecContext(ctx, `DELETE FROM search_projection_source_sequence WHERE event_id='never-inventoried'`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `
+		UPDATE search_maintenance_control
+		   SET authority = 'tiered', phase = 'retired'
+		 WHERE singleton = 1`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	want := []string{"inventoried", "never-inventoried"}
+
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v", err)
+	}
+	if diff := cmp.Diff(want, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+	}
+	full, err := datasource.SearchPage(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchPage() error = %v", err)
+	}
+	if diff := cmp.Diff(want, eventIDs(full)); diff != "" {
+		t.Fatalf("SearchPage() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestTieredAuthoritySearchIgnoresOrphanedSourceSequenceRows covers the other
+// direction: nothing removes a source-sequence row when its event is deleted,
+// so the table outlives the events it names.
+func TestTieredAuthoritySearchIgnoresOrphanedSourceSequenceRows(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	insertTieredSearchEvent(t, database, "kept", "orphan needle", base)
+	insertTieredSearchEvent(t, database, "removed", "orphan needle gone", base.Add(time.Second))
+	seedTieredCompleteProjection(t, database, "gen-orphan")
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `DELETE FROM events WHERE id='removed'`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	var orphans int
+	if err = raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM search_projection_source_sequence WHERE event_id='removed'`).Scan(&orphans); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+	if orphans != 1 {
+		t.Fatalf("orphaned source-sequence rows = %d, want 1 (fixture no longer reproduces the case)", orphans)
+	}
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"kept"}, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestTieredAuthoritySearchWithoutProjectionGeneration(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	insertTieredSearchEvent(t, database, "older-match", "fresh needle alpha", base)
+	insertTieredSearchEvent(t, database, "noise", "unrelated body", base.Add(time.Second))
+	insertTieredSearchEvent(t, database, "newer-match", "fresh needle beta", base.Add(2*time.Second))
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `
+		UPDATE search_maintenance_control
+		   SET authority = 'tiered', phase = 'retired'
+		 WHERE singleton = 1`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	want := []string{"newer-match", "older-match"}
+
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v", err)
+	}
+	if diff := cmp.Diff(want, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+	}
+	full, err := datasource.SearchPage(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchPage() error = %v", err)
+	}
+	if diff := cmp.Diff(want, eventIDs(full)); diff != "" {
+		t.Fatalf("SearchPage() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestTieredAuthoritySearchDuringRebuildSkipsOldPreFilter proves that after
+// Start points literal at a new generation while bounded still names the
+// previous one, search fails open rather than applying the old generation's
+// fingerprints (which would silently false-negative).
+func TestTieredAuthoritySearchDuringRebuildSkipsOldPreFilter(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	// Body matches "needle", but old-generation fingerprints are from a
+	// non-overlapping string so a usable pre-filter would exclude the row.
+	insertTieredSearchEvent(t, database, "would-exclude", "shared needle decoy", base)
+	insertTieredSearchEvent(t, database, "pre-match", "shared needle alpha", base.Add(time.Second))
+	const oldGeneration = "gen-rebuild-old"
+	seedTieredCompleteProjection(t, database, oldGeneration)
+	seedLiteralFingerprints(t, database, oldGeneration, "would-exclude", "zzzz other text")
+	seedLiteralFingerprints(t, database, oldGeneration, "pre-match", "shared needle alpha")
+
+	// With a usable generation the decoy fingerprints exclude would-exclude.
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	before, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() before Start error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"pre-match"}, metadataIDs(before)); diff != "" {
+		t.Fatalf("usable pre-filter IDs mismatch (-want +got):\n%s", diff)
+	}
+
+	budget := projectionBudget()
+	if _, err = database.Start(ctx, budget, base.Add(time.Hour)); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// After Start: literalGeneration != boundedGeneration → no pre-filter.
+	// would-exclude must now surface because its body really matches.
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() during rebuild error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"pre-match", "would-exclude"}, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() during rebuild IDs mismatch (-want +got):\n%s", diff)
+	}
+	full, err := datasource.SearchPage(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchPage() during rebuild error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"pre-match", "would-exclude"}, eventIDs(full)); diff != "" {
+		t.Fatalf("SearchPage() during rebuild IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestTieredAuthoritySearchAnswersWhenGenerationFailed(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	insertTieredSearchEvent(t, database, "match", "failed needle", base)
+	seedTieredCompleteProjection(t, database, "gen-failed")
+	seedLiteralFingerprints(t, database, "gen-failed", "match", "failed needle")
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `
+		UPDATE search_projection_state
+		   SET state = 'failed', phase = 'complete', failure_class = 'test'
+		 WHERE singleton = 1`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	want := []string{"match"}
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v", err)
+	}
+	if diff := cmp.Diff(want, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+	}
+	full, err := datasource.SearchPage(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchPage() error = %v", err)
+	}
+	if diff := cmp.Diff(want, eventIDs(full)); diff != "" {
+		t.Fatalf("SearchPage() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestTieredAuthoritySearchBudgetExhaustionWithoutPreFilter confirms that
+// decode-bound walks without a fingerprint generation still surface budget
+// exhaustion as EventSearchUnavailableIndexIncomplete rather than truncating.
+func TestTieredAuthoritySearchBudgetExhaustionWithoutPreFilter(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	insertTieredSearchEvent(t, database, "pre-match", "budget needle", base)
+	// No complete generation: fingerprint pre-filter is skipped entirely.
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `
+		UPDATE search_maintenance_control
+		   SET authority = 'tiered', phase = 'retired'
+		 WHERE singleton = 1`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	inflatedStored := apptypes.DeepLiteralSearchBudget.StoredBytes + 1
+	if _, err = raw.ExecContext(ctx, `
+		INSERT INTO events(
+			id, kind, client, agent, session_id, workspace, body, created_at,
+			body_encoded_bytes, body_plaintext_bytes
+		) VALUES (
+			'post-heavy', 'note', 'codex', 'codex', 's', 'w', 'no match here', ?,
+			?, ?
+		)`,
+		base.Add(time.Minute).UTC().Format(time.RFC3339Nano),
+		inflatedStored,
+		inflatedStored,
+	); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Build()
+	_, err = datasource.SearchMetadata(ctx, criteria)
+	var unavailable *queryservice.EventSearchUnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("SearchMetadata() error = %v, want EventSearchUnavailableError", err)
+	}
+	if unavailable.Reason != queryservice.EventSearchUnavailableIndexIncomplete {
+		t.Fatalf("unavailable reason = %q, want %q", unavailable.Reason, queryservice.EventSearchUnavailableIndexIncomplete)
+	}
+	if unavailable.CandidateLimit != apptypes.DeepLiteralSearchBudget.SourceRows {
+		t.Fatalf("CandidateLimit = %d, want %d", unavailable.CandidateLimit, apptypes.DeepLiteralSearchBudget.SourceRows)
+	}
+
+	_, err = datasource.SearchPage(ctx, criteria)
+	if !errors.As(err, &unavailable) || unavailable.Reason != queryservice.EventSearchUnavailableIndexIncomplete {
+		t.Fatalf("SearchPage() error = %v, want index_incomplete", err)
 	}
 }
 
@@ -494,27 +788,38 @@ func TestTieredAuthorityAppendLeavesLiteralStaleAndStillAnswers(t *testing.T) {
 	}
 }
 
-func TestTieredAuthorityBodyUpdateOfProjectedEventDriftsAndRefuses(t *testing.T) {
-	// Case 2: body update of an already-projected event → bounded drifted →
-	// search refused. Assert bounded became drifted so a silent trigger
-	// regression fails loudly rather than masking wrong answers.
+func TestTieredAuthorityBodyUpdateOfProjectedEventDriftsAndAnswersMutated(t *testing.T) {
+	// Case 2: body update of an already-projected event → bounded drifted with
+	// active_generation_id=NULL → search still answers the *mutated* body by
+	// decoding (pre-filter skipped). Assert bounded became drifted so a silent
+	// trigger regression fails loudly rather than masking wrong answers.
 	ctx := context.Background()
 	database, datasource := newTieredAuthorityFixture(t)
 	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 
-	insertTieredSearchEvent(t, database, "projected", "update needle", base)
+	// Original body does not contain "mutated-unique"; fingerprints would
+	// only cover the original. After mutation the decode path must find it.
+	insertTieredSearchEvent(t, database, "projected", "update needle original", base)
 	seedTieredCompleteProjection(t, database, "gen-update")
-	seedLiteralFingerprints(t, database, "gen-update", "projected", "update needle")
+	seedLiteralFingerprints(t, database, "gen-update", "projected", "update needle original")
 
 	raw, err := database.open(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = raw.ExecContext(ctx, `UPDATE events SET body='mutated needle' WHERE id='projected'`); err != nil {
+	if _, err = raw.ExecContext(ctx, `UPDATE events SET body='mutated-unique content for drift' WHERE id='projected'`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	var activeGeneration sql.NullString
+	if err = raw.QueryRowContext(ctx, `SELECT active_generation_id FROM search_projection_state WHERE singleton=1`).Scan(&activeGeneration); err != nil {
 		_ = raw.Close()
 		t.Fatal(err)
 	}
 	_ = raw.Close()
+	if activeGeneration.Valid && activeGeneration.String != "" {
+		t.Fatalf("active_generation_id = %q, want NULL after drift trigger", activeGeneration.String)
+	}
 
 	literalState, boundedState := readProjectionStates(t, database)
 	if boundedState != "drifted" {
@@ -524,19 +829,33 @@ func TestTieredAuthorityBodyUpdateOfProjectedEventDriftsAndRefuses(t *testing.T)
 		t.Fatalf("literal state = %q, want stale after body update", literalState)
 	}
 
-	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
-	const wantMsg = "tiered search projection is incomplete or stale"
-	if _, err = datasource.SearchMetadata(ctx, criteria); err == nil || err.Error() != wantMsg {
-		t.Fatalf("SearchMetadata() error = %v, want %q", err, wantMsg)
+	// Query unique to the mutated body so an answer proves decode, not the
+	// pre-mutation fingerprint index.
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("mutated-unique").Build()
+	want := []string{"projected"}
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v, want mutated content match", err)
 	}
-	if _, err = datasource.SearchPage(ctx, criteria); err == nil || err.Error() != wantMsg {
-		t.Fatalf("SearchPage() error = %v, want %q", err, wantMsg)
+	if diff := cmp.Diff(want, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+	}
+	full, err := datasource.SearchPage(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchPage() error = %v, want mutated content match", err)
+	}
+	if diff := cmp.Diff(want, eventIDs(full)); diff != "" {
+		t.Fatalf("SearchPage() IDs mismatch (-want +got):\n%s", diff)
+	}
+	if full[0].Body() != "mutated-unique content for drift" {
+		t.Fatalf("SearchPage() body = %q, want mutated content", full[0].Body())
 	}
 }
 
-func TestTieredAuthorityAuditInsertOnProjectedEventDriftsAndRefuses(t *testing.T) {
+func TestTieredAuthorityAuditInsertOnProjectedEventDriftsAndAnswers(t *testing.T) {
 	// Case 3: command_audits insert against an already-projected event
-	// (sequence <= high_water) → bounded drifted → refused.
+	// (sequence <= high_water) → bounded drifted → search still finds the
+	// audit text by decoding without a fingerprint pre-filter.
 	ctx := context.Background()
 	database, datasource := newTieredAuthorityFixture(t)
 	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
@@ -551,9 +870,13 @@ func TestTieredAuthorityAuditInsertOnProjectedEventDriftsAndRefuses(t *testing.T
 	}
 
 	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
-	const wantMsg = "tiered search projection is incomplete or stale"
-	if _, err := datasource.SearchMetadata(ctx, criteria); err == nil || err.Error() != wantMsg {
-		t.Fatalf("SearchMetadata() error = %v, want %q", err, wantMsg)
+	want := []string{"projected"}
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v, want audit match after drift", err)
+	}
+	if diff := cmp.Diff(want, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
 	}
 }
 

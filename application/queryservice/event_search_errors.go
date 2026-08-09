@@ -21,8 +21,10 @@ const (
 	// EventSearchUnavailableScopeTooBroad rejects a legacy fallback whose
 	// structural/time candidate set cannot be proven below the hard cap.
 	EventSearchUnavailableScopeTooBroad EventSearchUnavailableReason = "scope_too_broad"
-	// EventSearchUnavailableIndexIncomplete rejects an unbounded indexed query
-	// while historical search documents are still being backfilled.
+	// EventSearchUnavailableIndexIncomplete rejects a query the index could not
+	// finish answering: a legacy backfill still in progress, or a tiered walk
+	// that ran out of candidate budget because no trustworthy fingerprint
+	// generation was available to pre-filter with.
 	EventSearchUnavailableIndexIncomplete EventSearchUnavailableReason = "index_incomplete"
 )
 
@@ -38,8 +40,16 @@ type EventSearchUnavailableError struct {
 func (e *EventSearchUnavailableError) Error() string {
 	switch e.Reason {
 	case EventSearchUnavailableIndexIncomplete:
+		// Two very different situations reach this reason, and the message
+		// must not name only one of them. A legacy store is mid-backfill; a
+		// tiered store has no usable fingerprint generation, so every
+		// candidate is decoded and the budget runs out on a wide query. Both
+		// are fixed either by narrowing the query or by finishing the index,
+		// so the message names both remedies rather than guessing which.
 		return fmt.Sprintf(
-			"event search index backfill is incomplete; add workspace/session and from/to bounds (legacy candidate limit %d)",
+			"event search could not finish within the candidate budget of %d rows; "+
+				"add workspace/session and from/to bounds, "+
+				"or complete the search projection with 'traceary store search-projection start'",
 			e.CandidateLimit,
 		)
 	default:

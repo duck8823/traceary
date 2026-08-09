@@ -31,7 +31,12 @@ DROP、VACUUM しません。
    legacy plaintext document は指定行数以内です。進捗と前後の logical /
    physical bytes を永続化するため、中断後も再開できます。
 4. `status` を確認します。通常の CLI / MCP 検索は永続化された tiered
-   authority を使用し、projection が incomplete / stale なら fail closed します。
+   authority を使用します。projection が incomplete / rebuilding / failed /
+   drifted でも検索は利用不能になりません。fingerprint index は pre-filter に
+   すぎないため、候補を復号して判定する経路へ fail open し、正しい結果を返します。
+   代償は正しさではなく処理量です。この状態の検索は decode-bound になり、deep
+   literal search budget を使い切った場合は結果を切り詰めずに `index_incomplete`
+   を報告します。
 
 rollback は codec decode を含む canonical history から再構築します。
 
