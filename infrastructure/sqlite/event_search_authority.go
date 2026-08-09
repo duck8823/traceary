@@ -162,11 +162,22 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 // triggers set bounded state='drifted' and clear active_generation_id, so
 // such a generation stops being usable here and the walk decodes live content.
 //
-// A rebuild in progress is deliberately not answered from the previous
-// generation's fingerprints. Whether the rebuild has already overwritten or
-// deleted those rows is not observable from the read side, and trusting them
-// wrongly is a silent false negative. The cost is that searches decode every
-// candidate until the rebuild completes.
+// A rebuild in progress is not answered from the previous generation's
+// fingerprints, and the cost of that is real: searches decode every candidate
+// until the rebuild completes, so a wide query on a large store exhausts the
+// budget and reports index_incomplete.
+//
+// Those rows do survive. Start only repoints the literal singleton
+// (search_projection_rebuild.go:82), fingerprint writes are additive inserts
+// keyed by generation (:624), and old-generation rows are removed only in the
+// new generation's cleanup phase (:445, :633). So the previous generation is
+// still identifiable through active_generation_id and still readable.
+//
+// Using it safely needs more than identifying it: the rebuild must not have
+// entered cleanup, and no canonical mutation may have landed since the old
+// generation completed, or its fingerprints describe rows that have changed.
+// That is a distinct piece of work with its own failure modes, tracked
+// separately, so this deliberately takes the slow, always-correct path.
 func usableLiteralFingerprintGeneration(ctx context.Context, tx *sql.Tx) (string, error) {
 	var literalState, literalGeneration, boundedState, boundedGeneration string
 	if err := tx.QueryRowContext(ctx, `SELECT generation_id,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalState); err != nil {
