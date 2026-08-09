@@ -465,6 +465,17 @@ func TestPayloadBackfill(t *testing.T) {
 		insertPlaintextEvent(t, db, eventSeed{
 			ID: "canon-2", Kind: "note", Body: compressibleBody("canon-2"),
 		})
+		insertPlaintextEvent(t, db, eventSeed{
+			ID: "canon-cmd", Kind: "command_executed", Body: "",
+		})
+		insertPlaintextAudit(t, db, auditSeed{
+			EventID:             "canon-cmd",
+			Command:             compressibleBody("canon-cmd"),
+			Input:               compressibleBody("canon-in"),
+			Output:              compressibleBody("canon-out"),
+			InputOriginalBytes:  111,
+			OutputOriginalBytes: 222,
+		})
 
 		before, err := CanonicalEventAuditDigest(ctx, db)
 		if err != nil {
@@ -483,7 +494,379 @@ func TestPayloadBackfill(t *testing.T) {
 		if before.EventCount != after.EventCount {
 			t.Fatalf("event count %d → %d", before.EventCount, after.EventCount)
 		}
+		if before.AuditCount != after.AuditCount {
+			t.Fatalf("audit count %d → %d", before.AuditCount, after.AuditCount)
+		}
 	})
+}
+
+// Command-audit lanes share the events.body engine: same predicate, fixpoint,
+// high-water, and recipe version. These cases pin the three extra fields and
+// the provenance columns the issue forbids rewriting.
+func TestPayloadBackfillCommandAudits(t *testing.T) {
+	t.Parallel()
+
+	t.Run("round-trips all three audit text fields", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		db, ds, _ := openPayloadBackfillFixture(t)
+		defer closePayloadBackfillFixture(t, db)
+
+		const id = "audit-rt"
+		want := auditSeed{
+			EventID:             id,
+			Command:             compressibleBody("cmd"),
+			Input:               compressibleBody("in"),
+			Output:              compressibleBody("out"),
+			InputOriginalBytes:  9001,
+			OutputOriginalBytes: 9002,
+		}
+		insertPlaintextEvent(t, db, eventSeed{ID: id, Kind: "command_executed", Body: ""})
+		insertPlaintextAudit(t, db, want)
+
+		result, err := ds.Run(ctx, defaultBackfillConfig())
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if diff := cmp.Diff(string(apptypes.PayloadBackfillCompleted), result.State); diff != "" {
+			t.Fatalf("state mismatch (-want +got):\n%s", diff)
+		}
+		assertAuditCodec(t, db, id, "command", payloadCodecZstd)
+		assertAuditCodec(t, db, id, "input", payloadCodecZstd)
+		assertAuditCodec(t, db, id, "output", payloadCodecZstd)
+		got := readDecodedAudit(t, db, id)
+		if diff := cmp.Diff(want.Command, got.Command); diff != "" {
+			t.Fatalf("command mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(want.Input, got.Input); diff != "" {
+			t.Fatalf("input mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(want.Output, got.Output); diff != "" {
+			t.Fatalf("output mismatch (-want +got):\n%s", diff)
+		}
+		assertAuditOriginalBytes(t, db, id, want.InputOriginalBytes, want.OutputOriginalBytes)
+	})
+
+	t.Run("round-trips identity write path for audits", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		db, ds, _ := openPayloadBackfillFixture(t)
+		defer closePayloadBackfillFixture(t, db)
+
+		const id = "audit-identity-rt"
+		want := auditSeed{
+			EventID:             id,
+			Command:             compressibleBody("id-cmd"),
+			Input:               compressibleBody("id-in"),
+			Output:              compressibleBody("id-out"),
+			InputOriginalBytes:  42,
+			OutputOriginalBytes: 43,
+		}
+		insertPlaintextEvent(t, db, eventSeed{ID: id, Kind: "command_executed", Body: ""})
+		insertIdentityAudit(t, db, want)
+
+		if _, err := ds.Run(ctx, defaultBackfillConfig()); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		assertAuditCodec(t, db, id, "command", payloadCodecZstd)
+		assertAuditCodec(t, db, id, "input", payloadCodecZstd)
+		assertAuditCodec(t, db, id, "output", payloadCodecZstd)
+		got := readDecodedAudit(t, db, id)
+		if diff := cmp.Diff(want.Command, got.Command); diff != "" {
+			t.Fatalf("command mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(want.Input, got.Input); diff != "" {
+			t.Fatalf("input mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(want.Output, got.Output); diff != "" {
+			t.Fatalf("output mismatch (-want +got):\n%s", diff)
+		}
+		assertAuditOriginalBytes(t, db, id, want.InputOriginalBytes, want.OutputOriginalBytes)
+	})
+
+	t.Run("partial audit metadata fails closed and leaves fields untouched", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		db, ds, _ := openPayloadBackfillFixture(t)
+		defer closePayloadBackfillFixture(t, db)
+
+		const id = "audit-partial"
+		seed := auditSeed{
+			EventID: id,
+			Command: "partial command stays plaintext",
+			Input:   "partial input stays plaintext",
+			Output:  "partial output stays plaintext",
+		}
+		insertPlaintextEvent(t, db, eventSeed{ID: id, Kind: "command_executed", Body: ""})
+		insertPlaintextAudit(t, db, seed)
+		// command_codec NULL but command_sha256 set → incomplete metadata.
+		if _, err := db.Exec(`UPDATE command_audits SET command_sha256 = ? WHERE event_id = ?`, "deadbeef", id); err != nil {
+			t.Fatalf("seed partial metadata: %v", err)
+		}
+		before := readStoredAudit(t, db, id)
+
+		result, err := ds.Run(ctx, defaultBackfillConfig())
+		if !errors.Is(err, ErrPayloadBackfillPartialMetadata) {
+			t.Fatalf("error = %v, want ErrPayloadBackfillPartialMetadata", err)
+		}
+		if result.State != string(apptypes.PayloadBackfillFailed) {
+			t.Fatalf("state = %q, want failed", result.State)
+		}
+		if diff := cmp.Diff(id, result.FailureEventID); diff != "" {
+			t.Fatalf("failure_event_id mismatch (-want +got):\n%s", diff)
+		}
+		after := readStoredAudit(t, db, id)
+		if diff := cmp.Diff(before, after); diff != "" {
+			t.Fatalf("partial-metadata row was rewritten (-before +after):\n%s", diff)
+		}
+	})
+
+	t.Run("compatibility counters match encoded audit fields", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		db, ds, _ := openPayloadBackfillFixture(t)
+		defer closePayloadBackfillFixture(t, db)
+
+		for _, id := range []string{"cc-a1", "cc-a2"} {
+			insertPlaintextEvent(t, db, eventSeed{ID: id, Kind: "command_executed", Body: ""})
+			insertIdentityAudit(t, db, auditSeed{
+				EventID: id,
+				Command: compressibleBody(id + "-cmd"),
+				Input:   compressibleBody(id + "-in"),
+				Output:  compressibleBody(id + "-out"),
+			})
+		}
+		result, err := ds.Run(ctx, defaultBackfillConfig())
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		var commandN, inputN, outputN int64
+		if err := db.QueryRow(`
+			SELECT audit_command_nonidentity, audit_input_nonidentity, audit_output_nonidentity
+			  FROM payload_codec_compatibility_state WHERE singleton = 1`).Scan(&commandN, &inputN, &outputN); err != nil {
+			t.Fatalf("read audit counters: %v", err)
+		}
+		if commandN != 2 || inputN != 2 || outputN != 2 {
+			t.Fatalf("audit nonidentity counters = command %d input %d output %d, want 2 each", commandN, inputN, outputN)
+		}
+		// Six audit fields encoded; event bodies empty/identity may or may not
+		// compress. EncodedRows must at least cover the six audit fields.
+		if result.EncodedRows < 6 {
+			t.Fatalf("encoded_rows = %d, want >= 6", result.EncodedRows)
+		}
+	})
+
+	t.Run("audit-only corpus completes under the shared high-water", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		db, ds, _ := openPayloadBackfillFixture(t)
+		defer closePayloadBackfillFixture(t, db)
+
+		// No event body work: empty bodies are tiny and stay identity. The
+		// run must still walk command_audits and terminate.
+		const id = "audit-only"
+		insertPlaintextEvent(t, db, eventSeed{ID: id, Kind: "command_executed", Body: ""})
+		insertPlaintextAudit(t, db, auditSeed{
+			EventID: id,
+			Command: compressibleBody("only-cmd"),
+			Input:   compressibleBody("only-in"),
+			Output:  compressibleBody("only-out"),
+		})
+		result, err := ds.Run(ctx, defaultBackfillConfig())
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if result.State != string(apptypes.PayloadBackfillCompleted) {
+			t.Fatalf("state = %q, want completed", result.State)
+		}
+		assertAuditCodec(t, db, id, "command", payloadCodecZstd)
+		assertAuditCodec(t, db, id, "input", payloadCodecZstd)
+		assertAuditCodec(t, db, id, "output", payloadCodecZstd)
+	})
+
+	t.Run("input_original_bytes and output_original_bytes are unchanged", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		db, ds, _ := openPayloadBackfillFixture(t)
+		defer closePayloadBackfillFixture(t, db)
+
+		const id = "audit-orig"
+		const wantIn, wantOut int64 = 12345, 67890
+		insertPlaintextEvent(t, db, eventSeed{ID: id, Kind: "command_executed", Body: ""})
+		insertIdentityAudit(t, db, auditSeed{
+			EventID:             id,
+			Command:             compressibleBody("orig-cmd"),
+			Input:               compressibleBody("orig-in"),
+			Output:              compressibleBody("orig-out"),
+			InputOriginalBytes:  wantIn,
+			OutputOriginalBytes: wantOut,
+		})
+		if _, err := ds.Run(ctx, defaultBackfillConfig()); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		// Codecs must have changed so a silent no-op would not hide a write.
+		assertAuditCodec(t, db, id, "output", payloadCodecZstd)
+		assertAuditOriginalBytes(t, db, id, wantIn, wantOut)
+	})
+}
+
+type auditSeed struct {
+	EventID             string
+	Command             string
+	Input               string
+	Output              string
+	InputOriginalBytes  int64
+	OutputOriginalBytes int64
+}
+
+type decodedAudit struct {
+	Command string
+	Input   string
+	Output  string
+}
+
+type storedAudit struct {
+	Command []byte
+	Input   []byte
+	Output  []byte
+}
+
+func insertPlaintextAudit(t *testing.T, db *sql.DB, seed auditSeed) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO command_audits(
+			event_id, command_text, input_text, output_text,
+			input_truncated, output_truncated, input_original_bytes, output_original_bytes,
+			exit_code, failed
+		) VALUES (?, ?, ?, ?, 0, 0, ?, ?, 0, 0)`,
+		seed.EventID, seed.Command, seed.Input, seed.Output,
+		seed.InputOriginalBytes, seed.OutputOriginalBytes,
+	); err != nil {
+		t.Fatalf("insert plaintext audit %s: %v", seed.EventID, err)
+	}
+}
+
+func insertIdentityAudit(t *testing.T, db *sql.DB, seed auditSeed) {
+	t.Helper()
+	command, err := encodePayload([]byte(seed.Command), payloadCodecIdentity)
+	if err != nil {
+		t.Fatalf("encode command identity: %v", err)
+	}
+	input, err := encodePayload([]byte(seed.Input), payloadCodecIdentity)
+	if err != nil {
+		t.Fatalf("encode input identity: %v", err)
+	}
+	output, err := encodePayload([]byte(seed.Output), payloadCodecIdentity)
+	if err != nil {
+		t.Fatalf("encode output identity: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO command_audits(
+			event_id, command_text, input_text, output_text,
+			input_truncated, output_truncated, input_original_bytes, output_original_bytes,
+			exit_code, failed,
+			command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
+			input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
+			output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256
+		) VALUES (?, ?, ?, ?, 0, 0, ?, ?, 0, 0,
+		          ?, ?, ?, ?, ?,
+		          ?, ?, ?, ?, ?,
+		          ?, ?, ?, ?, ?)`,
+		seed.EventID, string(command.Bytes), string(input.Bytes), string(output.Bytes),
+		seed.InputOriginalBytes, seed.OutputOriginalBytes,
+		command.Codec, command.FormatVersion, command.PlaintextBytes, command.StoredBytes, command.SHA256,
+		input.Codec, input.FormatVersion, input.PlaintextBytes, input.StoredBytes, input.SHA256,
+		output.Codec, output.FormatVersion, output.PlaintextBytes, output.StoredBytes, output.SHA256,
+	); err != nil {
+		t.Fatalf("insert identity audit %s: %v", seed.EventID, err)
+	}
+}
+
+func reencodeAuditFieldToZstd(t *testing.T, db *sql.DB, eventID, field, plaintext string) {
+	t.Helper()
+	encoded, err := encodePayload([]byte(plaintext), payloadCodecZstd)
+	if err != nil {
+		t.Fatalf("encode zstd %s: %v", field, err)
+	}
+	if encoded.StoredBytes >= encoded.PlaintextBytes {
+		t.Fatalf("zstd did not shrink %s (%d → %d)", field, encoded.PlaintextBytes, encoded.StoredBytes)
+	}
+	column := field + "_text"
+	prefix := field
+	if field == "command" {
+		column = "command_text"
+		prefix = "command"
+	}
+	if _, err := db.Exec(`
+		UPDATE command_audits
+		   SET `+column+` = ?,
+		       `+prefix+`_codec = ?,
+		       `+prefix+`_format_version = ?,
+		       `+prefix+`_plaintext_bytes = ?,
+		       `+prefix+`_encoded_bytes = ?,
+		       `+prefix+`_sha256 = ?
+		 WHERE event_id = ?`,
+		encoded.Bytes, encoded.Codec, encoded.FormatVersion,
+		encoded.PlaintextBytes, encoded.StoredBytes, encoded.SHA256, eventID,
+	); err != nil {
+		t.Fatalf("re-encode audit %s to zstd: %v", field, err)
+	}
+}
+
+func readDecodedAudit(t *testing.T, db *sql.DB, eventID string) decodedAudit {
+	t.Helper()
+	ctx := context.Background()
+	command, err := hydrateAuditPayload(ctx, db, eventID, "command")
+	if err != nil {
+		t.Fatalf("hydrate command: %v", err)
+	}
+	input, err := hydrateAuditPayload(ctx, db, eventID, "input")
+	if err != nil {
+		t.Fatalf("hydrate input: %v", err)
+	}
+	output, err := hydrateAuditPayload(ctx, db, eventID, "output")
+	if err != nil {
+		t.Fatalf("hydrate output: %v", err)
+	}
+	return decodedAudit{Command: command.String, Input: input.String, Output: output.String}
+}
+
+func readStoredAudit(t *testing.T, db *sql.DB, eventID string) storedAudit {
+	t.Helper()
+	var got storedAudit
+	if err := db.QueryRow(`
+		SELECT command_text, input_text, output_text FROM command_audits WHERE event_id = ?`, eventID,
+	).Scan(&got.Command, &got.Input, &got.Output); err != nil {
+		t.Fatalf("read stored audit %s: %v", eventID, err)
+	}
+	return got
+}
+
+func assertAuditCodec(t *testing.T, db *sql.DB, eventID, field, want string) {
+	t.Helper()
+	var got sql.NullString
+	if err := db.QueryRow(`SELECT `+field+`_codec FROM command_audits WHERE event_id = ?`, eventID).Scan(&got); err != nil {
+		t.Fatalf("read %s_codec %s: %v", field, eventID, err)
+	}
+	if !got.Valid {
+		t.Fatalf("%s_codec for %s is NULL, want %q", field, eventID, want)
+	}
+	if diff := cmp.Diff(want, got.String); diff != "" {
+		t.Fatalf("%s_codec mismatch for %s (-want +got):\n%s", field, eventID, diff)
+	}
+}
+
+func assertAuditOriginalBytes(t *testing.T, db *sql.DB, eventID string, wantIn, wantOut int64) {
+	t.Helper()
+	var gotIn, gotOut int64
+	if err := db.QueryRow(`
+		SELECT input_original_bytes, output_original_bytes FROM command_audits WHERE event_id = ?`, eventID,
+	).Scan(&gotIn, &gotOut); err != nil {
+		t.Fatalf("read original bytes %s: %v", eventID, err)
+	}
+	if gotIn != wantIn || gotOut != wantOut {
+		t.Fatalf("original bytes = input %d output %d, want input %d output %d", gotIn, gotOut, wantIn, wantOut)
+	}
 }
 
 func defaultBackfillConfig() apptypes.PayloadBackfillConfig {

@@ -17,6 +17,11 @@ func TestEventPreviewQuery_SelectsBoundedCommandPrefix(t *testing.T) {
 	if !strings.Contains(normalized, "left join command_audits a on a.event_id = selected.id") {
 		t.Fatalf("preview query must join command_audits for retained command text: %s", normalized)
 	}
+	// After payload compression, length(command_text) is the physical size.
+	// StoredBytes must prefer the codec plaintext figure.
+	if !strings.Contains(normalized, "coalesce(a.command_plaintext_bytes, length(cast(a.command_text as blob)), selected.body_stored_bytes)") {
+		t.Fatalf("preview query must prefer command_plaintext_bytes for stored extent: %s", normalized)
+	}
 	if strings.Contains(normalized, "select e.body,") || strings.Contains(normalized, ", e.body,") {
 		t.Fatalf("preview query selects an unbounded body column: %s", normalized)
 	}

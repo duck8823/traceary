@@ -2,9 +2,16 @@
 
 [日本語](payload-backfill.ja.md)
 
-`traceary store payload-backfill` rewrites every existing `events.body` through
-the versioned zstd codec already shipped in `payload_codec.go`. It is the
-operator command that applies compression to retained history.
+`traceary store payload-backfill` rewrites every existing compressible payload
+text column through the versioned zstd codec already shipped in
+`payload_codec.go`:
+
+| Table | Columns |
+|---|---|
+| `events` | `body` |
+| `command_audits` | `command_text`, `input_text`, `output_text` |
+
+It is the operator command that applies compression to retained history.
 
 This is **not** `store payload-rehearsal`. Rehearsal writes only to a shadow
 table on a *copy*, freezes inserts, and refuses to start once the live store
@@ -17,11 +24,9 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 - After upgrading to a build that includes migration 053 (codec-aware body
   provenance triggers) and 054 (backfill bookkeeping).
 - Before relying on the #1620 store-size gate numbers that assume compressed
-  event bodies.
+  event bodies **and** compressed command-audit text.
 - On a maintenance window where you can rebuild the search projection and run
   `store compact` afterwards.
-
-`command_audits` text columns are **out of scope** (tracked separately).
 
 ## Procedure
 
@@ -54,7 +59,9 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 
 6. **Rebuild the search projection.** The backfill updates `events.body`, so the
    projection invalidation triggers fire and leave the projection `drifted` /
-   `stale`. That end state is correct — rebuild with the existing command:
+   `stale`. Audit-text rewrites do not drive projection invalidation (no
+   search writer reads them after migration 052), but a rebuild is still
+   required whenever body rows changed. Rebuild with the existing command:
 
    ```sh
    traceary store search-projection rebuild
@@ -71,16 +78,17 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 
 | Property | Behaviour |
 |---|---|
-| Selection | `body_codec IS NULL OR body_codec = 'identity'`, plus any row whose five codec columns are neither all-NULL nor all-present — those are selected precisely so the run can fail closed on them |
-| Affinity | zstd bodies are stored as BLOB, identity bodies as TEXT, matching every other writer. SQL that still reads a plaintext body (migration 053's `LIKE`) keeps working |
-| Cursor | `events.rowid` (monotonic). Event `id` values are random and must not be used as a cursor |
-| High-water | `max(rowid)` fixed at run start. Rows ingested during the run stay identity and are left for a later run |
+| Selection | Per field: `<field>_codec IS NULL OR <field>_codec = 'identity'`, plus any field whose five codec columns are neither all-NULL nor all-present — those are selected precisely so the run can fail closed on them |
+| Lanes | `events.body`, then `command_audits.{command,input,output}_text`. One shared rowid cursor walks both tables; a batch loads every eligible field of each selected rowid so a limit cut cannot strand a sibling field |
+| Affinity | zstd values are stored as BLOB, identity values as TEXT, matching every other writer. SQL that still reads a plaintext body (migration 053's `LIKE`) keeps working |
+| Cursor | Shared numeric `rowid` high-water across `events` and `command_audits` (each table's rowid sequence is independent). Event `id` / audit `event_id` values are random and must not be used as a cursor |
+| High-water | `max(max(events.rowid), max(command_audits.rowid))` fixed at run start. Rows ingested during the run stay identity and are left for a later run |
 | Fixpoint | Passes repeat until a full walk rewrites nothing and skips no conflicts |
-| Atomic batch | Re-verify source, encode, write body + five codec columns, advance checkpoint — one transaction |
-| Partial metadata | Counted, named in the result, run fails closed; the row is not rewritten |
-| Provenance | `body_stored_bytes`, `body_original_bytes`, and `source_hook` / `legacy_source_hook` are not written by the backfill; migration 053 carries them across representation changes |
-| Projection | Not suppressed. Expect `drifted`/`stale` and rebuild |
-| Recipe version | Checkpointed. A different binary recipe refuses resume rather than skip a prefix |
+| Atomic batch | Re-verify source, encode, write field + five codec columns, advance checkpoint — one transaction |
+| Partial metadata | Counted, named in the result (event id / audit event_id), run fails closed; the field is not rewritten |
+| Provenance | `body_stored_bytes`, `body_original_bytes`, `source_hook` / `legacy_source_hook`, and `input_original_bytes` / `output_original_bytes` are not written by the backfill; migration 053 carries body provenance across representation changes |
+| Projection | Not suppressed for body rewrites. Expect `drifted`/`stale` and rebuild |
+| Recipe version | Checkpointed. A different binary recipe refuses resume rather than skip a prefix. Current recipe: `events-body-command-audits-zstd-v2` |
 
 Output is JSON on stdout with aggregate counters only (no body contents).
 

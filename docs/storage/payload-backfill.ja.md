@@ -2,8 +2,15 @@
 
 [English](payload-backfill.md)
 
-`traceary store payload-backfill` は、既存のすべての `events.body` を、すでに
-`payload_codec.go` に実装されているバージョン付き zstd codec 経由で書き直します。
+`traceary store payload-backfill` は、既存の圧縮可能なペイロードテキスト列を、
+すでに `payload_codec.go` に実装されているバージョン付き zstd codec 経由で
+書き直します。対象は次のとおりです。
+
+| テーブル | 列 |
+|---|---|
+| `events` | `body` |
+| `command_audits` | `command_text`, `input_text`, `output_text` |
+
 保持している履歴に圧縮を適用するオペレータ向けコマンドです。
 
 これは **`store payload-rehearsal` ではありません**。rehearsal は *コピー* 上の
@@ -16,10 +23,9 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 
 - マイグレーション 053（codec 対応の body 由来トリガ）と 054（バックフィル用
   ブックキーピング）を含むビルドへアップグレードしたあと
-- 圧縮済みイベント本文を前提にした #1620 のストアサイズゲート数値を使う前
+- 圧縮済みイベント本文 **および** 圧縮済み command_audits テキストを前提にした
+  #1620 のストアサイズゲート数値を使う前
 - 検索 projection の rebuild と、その後の `store compact` を行えるメンテ窓
-
-`command_audits` のテキスト列は **対象外** です（別チケットで追跡）。
 
 ## 手順
 
@@ -51,8 +57,10 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
    ```
 
 6. **検索 projection を rebuild する。** backfill は `events.body` を更新するため、
-   無効化トリガが発火し projection は `drifted` / `stale` になります。これは正しい
-   終端状態です。既存コマンドで rebuild してください:
+   無効化トリガが発火し projection は `drifted` / `stale` になります。audit テキスト
+   の書き換えは projection 無効化を起こしません（migration 052 以降、検索 writer は
+   それらを読まない）が、body が変わった場合は rebuild が必要です。既存コマンドで
+   rebuild してください:
 
    ```sh
    traceary store search-projection rebuild
@@ -70,16 +78,17 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 
 | 性質 | 挙動 |
 |---|---|
-| 選択条件 | `body_codec IS NULL OR body_codec = 'identity'`。加えて codec 列 5 つが「すべて NULL」でも「すべて埋まっている」でもない行も選ぶ（run を fail closed させるため） |
+| 選択条件 | フィールドごと: `<field>_codec IS NULL OR <field>_codec = 'identity'`。加えて codec 列 5 つが「すべて NULL」でも「すべて埋まっている」でもないフィールドも選ぶ（run を fail closed させるため） |
+| レーン | `events.body`、続けて `command_audits.{command,input,output}_text`。共有の rowid カーソルが両テーブルを歩く。バッチは選択した各 rowid の全対象フィールドを読み、LIMIT で兄弟フィールドが取り残されないようにする |
 | アフィニティ | zstd は BLOB、identity は TEXT で保存し、他の writer と揃える。plaintext を読む SQL（マイグレーション 053 の `LIKE`）が壊れない |
-| カーソル | `events.rowid`（単調）。イベント `id` は乱数なのでカーソルに使わない |
-| ハイウォーター | 実行開始時の `max(rowid)`。実行中に取り込まれた行は identity のまま残り、次の実行対象になる |
+| カーソル | `events` と `command_audits` で共有する数値 `rowid` ハイウォーター（各テーブルの rowid 列は独立）。イベント `id` / audit `event_id` は乱数なのでカーソルに使わない |
+| ハイウォーター | 実行開始時の `max(max(events.rowid), max(command_audits.rowid))`。実行中に取り込まれた行は identity のまま残り、次の実行対象になる |
 | 不動点 | 書き換えも conflict skip もない完全走査になるまでパスを繰り返す |
-| アトミックバッチ | ソース再検証・エンコード・body + codec 列 5 つの書き込み・チェックポイント更新を 1 トランザクションで行う |
-| 部分メタデータ | 件数を数え結果に id を載せ、run を fail closed。行は書き換えない |
-| 由来情報 | `body_stored_bytes` / `body_original_bytes` / `source_hook`・`legacy_source_hook` は backfill が直接書かない。マイグレーション 053 が表現変更をまたいで引き継ぐ |
-| Projection | 抑制しない。`drifted`/`stale` を前提に rebuild する |
-| Recipe version | チェックポイントに記録。別 recipe の resume は拒否し、未書き込み prefix を飛ばさない |
+| アトミックバッチ | ソース再検証・エンコード・フィールド + codec 列 5 つの書き込み・チェックポイント更新を 1 トランザクションで行う |
+| 部分メタデータ | 件数を数え結果に id（event id / audit event_id）を載せ、run を fail closed。フィールドは書き換えない |
+| 由来情報 | `body_stored_bytes` / `body_original_bytes` / `source_hook`・`legacy_source_hook`、および `input_original_bytes` / `output_original_bytes` は backfill が直接書かない。body 由来はマイグレーション 053 が表現変更をまたいで引き継ぐ |
+| Projection | body 書き換えでは抑制しない。`drifted`/`stale` を前提に rebuild する |
+| Recipe version | チェックポイントに記録。別 recipe の resume は拒否し、未書き込み prefix を飛ばさない。現行 recipe: `events-body-command-audits-zstd-v2` |
 
 標準出力は集計カウンタだけの JSON です（本文は含みません）。
 

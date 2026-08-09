@@ -3,7 +3,10 @@ package types
 // PayloadBackfillRecipeVersion is the batch semantics identifier stored on
 // every run. Resume refuses a checkpoint whose version differs so a newer
 // binary cannot skip a prefix written under different rules.
-const PayloadBackfillRecipeVersion = "events-body-zstd-v1"
+//
+// v1 rewrote only events.body. v2 adds command_audits.{command,input,output}_text
+// through the same rowid high-water / cursor / fixpoint protocol.
+const PayloadBackfillRecipeVersion = "events-body-command-audits-zstd-v2"
 
 // PayloadBackfillState is the persisted live-store backfill workflow state.
 type PayloadBackfillState string

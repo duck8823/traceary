@@ -16,7 +16,10 @@ WITH selected AS (
 )
 SELECT selected.id,
        substr(COALESCE(a.command_text, e.body), 1, ?),
-       COALESCE(length(CAST(a.command_text AS BLOB)), selected.body_stored_bytes),
+       -- Prefer command_plaintext_bytes: once the payload codec is on,
+       -- length(command_text) is the compressed (or BLOB) size, not the
+       -- logical command size callers report as StoredBytes.
+       COALESCE(a.command_plaintext_bytes, length(CAST(a.command_text AS BLOB)), selected.body_stored_bytes),
        selected.body_original_bytes,
        selected.body_ingest_truncated,
        selected.body_storage_truncated,
