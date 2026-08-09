@@ -168,9 +168,11 @@ Durable memory に紐づく artifact ref です。
 
 本文破棄の前に、`store gc` は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
 
+**機械要約を行った run は破棄しません。** dry-run は書き込まずに機械要約するため、その候補件数には既存の refinement しか反映されません。apply が先に要約してから破棄すると、preview が数えられなかった本文を失うことになり、それはまさに `--dry-run` が可視化するために存在する損失です。したがって orphan 機械要約を 1 件でも生成した run は `Cleanup skipped` を報告し、破棄は次の run に委ねます。次の run の preview は、その run が実際に破棄する件数をそのまま示します。機械要約は収束するため、余分にかかるのは 1 回の実行であり、毎回ではありません。
+
 target ごとの policy:
 
-- `events`: event row は削除しません。終了済み session で refinement に被覆された古い `transcript` 本文だけを不可逆に retention marker へ置換します。event skeleton、`prompt` 本文、他の kind、`command_audits.command_text` / `input_text` は常に残ります。この経路は retention ledger を書きません。review 可能かつ archive から復元可能な経路は `store retention` です。
+- `events`: event row は削除しません。終了済み session で refinement に被覆された古い `transcript` 本文だけを不可逆に retention marker へ置換します。ここでの被覆とは、同一 session の refinement であり、その境界 event も同じ session に属し、範囲が対象 event に届いていることを指します。`created_at` が parse できない event は、年齢を判定できないため破棄しません。event skeleton、`prompt` 本文、他の kind、`command_audits.command_text` / `input_text` は常に残ります。この経路は retention ledger を書きません。review 可能かつ archive から復元可能な経路は `store retention` です。
 - `sessions`: `COALESCE(ended_at, started_at) < cutoff` かつ surviving event から参照されていない終了済み session を削除します。active session (`ended_at IS NULL`) は常に保護されます。
 - `memories`: `updated_at < cutoff` の `expired` / `superseded` / `rejected` memory を物理削除します。`accepted` と `candidate` は age 削除しません。**例外:** 未レビューの auto-extracted candidate (`source IN (extracted, extracted-hidden, compact-summary)`) は 14 日超で **hard delete ではなく `expired` へ decay** し、keep-days の物理 GC まで restore 可能です（#1368）。物理削除時は evidence/artifact ref が cascade され、削除または decay 直前の行を指す `supersedes_memory_id` は先に NULL へ更新されます。
 - `memory_edges`: `valid_to < cutoff` の終了済み edge を削除します。endpoint の memory が削除される場合も edge は自動 cascade されます。

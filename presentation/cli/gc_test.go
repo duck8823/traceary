@@ -39,7 +39,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(1, 1, 0, false, true),
+			result: apptypes.OrphanConsolidationResultOf(1, 0, 0, false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -53,7 +53,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinement candidates: 1\nCandidates: 3\n"
+		want := "Orphan refinement candidates: 0\nCandidates: 3\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
@@ -69,8 +69,10 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		storeMaint := &storeManagementUsecaseStub{
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
+		// Nothing new was folded, so the count a preview would have printed is
+		// the count this apply acts on and the cleanup runs.
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(4, 4, 0, false, false),
+			result: apptypes.OrphanConsolidationResultOf(4, 0, 0, false, false),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -84,7 +86,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinements: 4\nCollected: 2\n"
+		want := "Orphan refinements: 0\nCollected: 2\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
@@ -241,7 +243,39 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("complete consolidation collects", func(t *testing.T) {
+	t.Run("complete consolidation with nothing new to fold collects", func(t *testing.T) {
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
+		}
+		orphan := &orphanConsolidationStub{
+			result: apptypes.OrphanConsolidationResultOf(3, 0, 0, false, false),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(storeMaint),
+			cli.WithOrphanConsolidation(orphan),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		want := "Orphan refinements: 0\nCollected: 2\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+		if !storeMaint.gcCalled {
+			t.Fatal("CollectGarbage was not called for complete consolidation")
+		}
+	})
+
+	// A dry run consolidates without writing, so its candidate count can only
+	// see refinements that already existed. An apply that folded first would
+	// discard bodies that count never included — the one loss --dry-run exists
+	// to make visible — so the discard waits for the next run instead.
+	t.Run("folding defers cleanup to the next run", func(t *testing.T) {
 		storeMaint := &storeManagementUsecaseStub{
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
@@ -260,12 +294,40 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		want := "Orphan refinements: 3\nCollected: 2\n"
+		want := "Orphan refinements: 3\n" +
+			"Cleanup skipped: this run folded ranges that no preview could have counted; re-run gc to discard them\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
-		if !storeMaint.gcCalled {
-			t.Fatal("CollectGarbage was not called for complete consolidation")
+		if storeMaint.gcCalled {
+			t.Fatal("CollectGarbage was called; a run that folded must not discard in the same pass")
+		}
+	})
+
+	t.Run("dry-run says an apply would fold before discarding", func(t *testing.T) {
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
+		}
+		orphan := &orphanConsolidationStub{
+			result: apptypes.OrphanConsolidationResultOf(2, 2, 0, false, true),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(storeMaint),
+			cli.WithOrphanConsolidation(orphan),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30", "--dry-run"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		want := "Orphan refinement candidates: 2\n" +
+			"Candidates: 3\n" +
+			"An apply would fold first and discard nothing; re-run gc to discard what it folded\n"
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
 	})
 

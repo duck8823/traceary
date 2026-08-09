@@ -119,7 +119,17 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 
 	// Dry-run still runs CollectGarbage for its count because a dry run deletes
 	// nothing. Apply mode must not delete when consolidation left uncovered ranges.
-	skipDeletion := consolidationApplied && !orphanResult.Complete() && !input.dryRun
+	//
+	// It must also not discard a body that this very run folded. A dry run
+	// consolidates without writing, so its count only ever sees refinements
+	// that already existed; an apply that folded first would discard bodies
+	// the preview could not have counted, which is precisely the loss
+	// --dry-run exists to make visible. Deferring to the next run costs one
+	// extra invocation and buys a preview that matches what the discard will
+	// actually do. Consolidation converges, so the deferral does not repeat.
+	foldedThisRun := consolidationApplied && orphanResult.ProducedCount() > 0
+	skipDeletion := consolidationApplied && !input.dryRun &&
+		(!orphanResult.Complete() || foldedThisRun)
 	var result apptypes.CollectGarbageResult
 	if !skipDeletion {
 		cutoff := gcNowFunc().AddDate(0, 0, -input.keepDays)
@@ -150,6 +160,17 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
 			}
 		}
+		// Candidates counts what an apply would discard only once nothing new
+		// needs folding. Saying so keeps the number from reading as "this run
+		// will discard fewer bodies than it folds".
+		if foldedThisRun && orphanResult.Complete() {
+			if _, err := fmt.Fprintf(output, "%s\n", Localize(
+				"An apply would fold first and discard nothing; re-run gc to discard what it folded",
+				"apply では機械要約が先に走り、破棄は行われません。要約した本文を破棄するには gc を再実行してください",
+			)); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print dry-run result", "dry-run 結果の出力に失敗しました"), err)
+			}
+		}
 		return nil
 	}
 
@@ -162,10 +183,17 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 		}
 	}
 	if skipDeletion {
-		if _, err := fmt.Fprintf(output, "%s\n", Localize(
+		reason := Localize(
 			"Cleanup skipped: orphan ranges are not fully consolidated; re-run gc to continue",
 			"整理をスキップしました: orphan range の機械要約が未完了です。gc を再実行してください",
-		)); err != nil {
+		)
+		if orphanResult.Complete() {
+			reason = Localize(
+				"Cleanup skipped: this run folded ranges that no preview could have counted; re-run gc to discard them",
+				"整理をスキップしました: このrunで機械要約した range は dry-run では数えられません。破棄するには gc を再実行してください",
+			)
+		}
+		if _, err := fmt.Fprintf(output, "%s\n", reason); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
 		return nil
