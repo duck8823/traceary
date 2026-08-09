@@ -65,6 +65,7 @@ type backfillRunRow struct {
 	CursorRowID         int64
 	PassCount           int64
 	State               apptypes.PayloadBackfillState
+	WorkerToken         string
 	StartedAt           string
 	UpdatedAt           string
 	CompletedAt         sql.NullString
@@ -194,19 +195,7 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 	var batchCount int64
 	for {
 		if err = ctx.Err(); err != nil {
-			// Persisting the pause is the point of noticing the cancellation,
-			// so it cannot run on the context that was just cancelled — the
-			// write would fail and leave the run stuck at 'running', resumable
-			// but reported as active by status and blocking a new run.
-			closeCtx := context.WithoutCancel(ctx)
-			if pauseErr := pauseBackfillRun(closeCtx, db, run.RunID); pauseErr != nil {
-				return apptypes.PayloadBackfillResult{}, xerrors.Errorf("%v; pause payload backfill: %w", err, pauseErr)
-			}
-			loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
-			if loadErr != nil {
-				return apptypes.PayloadBackfillResult{}, loadErr
-			}
-			return resultFromRun(loaded, batchCount, true), xerrors.Errorf("payload backfill cancelled: %w", err)
+			return d.pauseCancelledRun(ctx, db, run, batchCount, err)
 		}
 
 		// Begin a new pass when the cursor is at the origin.
@@ -217,6 +206,9 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 
 		batch, selectErr := selectBackfillBatch(ctx, db, run.CursorRowID, run.HighWaterRowID, c.BatchRows)
 		if selectErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return d.pauseCancelledRun(ctx, db, run, batchCount, ctxErr)
+			}
 			return apptypes.PayloadBackfillResult{}, selectErr
 		}
 		if len(batch) == 0 {
@@ -224,7 +216,7 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 			// selectable forever, so completion is a walk that rewrites nothing
 			// and skips no conflicts — not "zero eligible rows".
 			if !run.passDirty {
-				if completeErr := completeBackfillRun(ctx, db, run.RunID); completeErr != nil {
+				if completeErr := completeBackfillRun(ctx, db, run); completeErr != nil {
 					return apptypes.PayloadBackfillResult{}, completeErr
 				}
 				loaded, loadErr := loadBackfillRun(ctx, db, run.RunID)
@@ -235,7 +227,7 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 			}
 			// Conflicts or rewrites this pass: restart from rowid 0 under the
 			// same high-water so skipped rows are not stranded.
-			if resetErr := resetBackfillCursor(ctx, db, run.RunID); resetErr != nil {
+			if resetErr := resetBackfillCursor(ctx, db, run); resetErr != nil {
 				return apptypes.PayloadBackfillResult{}, resetErr
 			}
 			run.CursorRowID = 0
@@ -248,11 +240,14 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		stats, commitErr := commitBackfillBatch(ctx, db, run, batch)
 		if commitErr != nil {
 			if errors.Is(commitErr, ErrPayloadBackfillPartialMetadata) {
-				failed, failErr := failBackfillRun(ctx, db, run.RunID, stats.PartialEventID, stats.PartialReason, stats)
+				failed, failErr := failBackfillRun(ctx, db, run, stats.PartialEventID, stats.PartialReason, stats)
 				if failErr != nil {
 					return apptypes.PayloadBackfillResult{}, failErr
 				}
 				return resultFromRun(failed, batchCount, false), xerrors.Errorf("%w: event %s: %s", ErrPayloadBackfillPartialMetadata, stats.PartialEventID, stats.PartialReason)
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return d.pauseCancelledRun(ctx, db, run, batchCount, ctxErr)
 			}
 			return apptypes.PayloadBackfillResult{}, commitErr
 		}
@@ -274,7 +269,7 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		}
 
 		if c.StopAfterBatches > 0 && batchCount >= c.StopAfterBatches {
-			if pauseErr := pauseBackfillRun(ctx, db, run.RunID); pauseErr != nil {
+			if pauseErr := pauseBackfillRun(ctx, db, run); pauseErr != nil {
 				return apptypes.PayloadBackfillResult{}, pauseErr
 			}
 			loaded, loadErr := loadBackfillRun(ctx, db, run.RunID)
@@ -284,6 +279,29 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 			return resultFromRun(loaded, batchCount, true), nil
 		}
 	}
+}
+
+// pauseCancelledRun persists the pause a cancellation implies. Cancellation can
+// surface at the top of the loop or out of the select/commit call that was in
+// flight, and all three have to land the same checkpoint: a run left at
+// 'running' is resumable, but status reports it active and a new run is
+// refused. The write cannot use the context that was just cancelled.
+func (d *PayloadBackfillDatasource) pauseCancelledRun(
+	ctx context.Context,
+	db *sql.DB,
+	run backfillRunHandle,
+	batchCount int64,
+	cause error,
+) (apptypes.PayloadBackfillResult, error) {
+	closeCtx := context.WithoutCancel(ctx)
+	if pauseErr := pauseBackfillRun(closeCtx, db, run); pauseErr != nil {
+		return apptypes.PayloadBackfillResult{}, xerrors.Errorf("%v; pause payload backfill: %w", cause, pauseErr)
+	}
+	loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
+	if loadErr != nil {
+		return apptypes.PayloadBackfillResult{}, loadErr
+	}
+	return resultFromRun(loaded, batchCount, true), xerrors.Errorf("payload backfill cancelled: %w", cause)
 }
 
 // passDirty is tracked on the in-memory handle for the current pass only.
@@ -307,10 +325,15 @@ func prepareBackfillRun(ctx context.Context, db *sql.DB, resume bool) (backfillR
 		// Restart the cursor so a resume cannot complete a mid-pass walk and
 		// strand conflicts that were skipped before the pause. No-ops are
 		// cheap; missing a conflicted row is silent data loss.
-		if err = markBackfillRunningFromOrigin(ctx, db, active.RunID); err != nil {
+		token, tokenErr := newPayloadBackfillRunID()
+		if tokenErr != nil {
+			return backfillRunHandle{}, tokenErr
+		}
+		if err = markBackfillRunningFromOrigin(ctx, db, active.RunID, token); err != nil {
 			return backfillRunHandle{}, err
 		}
 		active.State = apptypes.PayloadBackfillRunning
+		active.WorkerToken = token
 		active.CursorRowID = 0
 		return backfillRunHandle{backfillRunRow: active, passDirty: false}, nil
 	}
@@ -325,20 +348,24 @@ func prepareBackfillRun(ctx context.Context, db *sql.DB, resume bool) (backfillR
 	if err != nil {
 		return backfillRunHandle{}, err
 	}
+	token, err := newPayloadBackfillRunID()
+	if err != nil {
+		return backfillRunHandle{}, err
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err = db.ExecContext(ctx, `
 		INSERT INTO payload_backfill_runs(
 			run_id, recipe_version, high_water_rowid, cursor_rowid, pass_count, state,
-			started_at, updated_at
-		) VALUES (?, ?, ?, 0, 0, 'running', ?, ?)`,
-		runID, apptypes.PayloadBackfillRecipeVersion, highWater, now, now,
+			worker_token, started_at, updated_at
+		) VALUES (?, ?, ?, 0, 0, 'running', ?, ?, ?)`,
+		runID, apptypes.PayloadBackfillRecipeVersion, highWater, token, now, now,
 	); err != nil {
 		return backfillRunHandle{}, xerrors.Errorf("insert payload backfill run: %w", err)
 	}
 	return backfillRunHandle{backfillRunRow: backfillRunRow{
 		RunID: runID, RecipeVersion: apptypes.PayloadBackfillRecipeVersion,
 		HighWaterRowID: highWater, State: apptypes.PayloadBackfillRunning,
-		StartedAt: now, UpdatedAt: now,
+		WorkerToken: token, StartedAt: now, UpdatedAt: now,
 	}}, nil
 }
 
@@ -581,10 +608,10 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 		       stored_bytes = stored_bytes + ?,
 		       state = 'running',
 		       updated_at = ?
-		 WHERE run_id = ? AND state = 'running'`,
+		 WHERE run_id = ? AND state = 'running' AND worker_token = ?`,
 		stats.LastCursor, run.PassCount,
 		stats.Scanned, stats.Encoded, stats.IdentityKept, stats.Conflicted, stats.Rewritten,
-		stats.PlaintextBytes, stats.StoredBytes, now, run.RunID,
+		stats.PlaintextBytes, stats.StoredBytes, now, run.RunID, run.WorkerToken,
 	)
 	if err != nil {
 		return stats, xerrors.Errorf("advance payload backfill checkpoint: %w", err)
@@ -663,7 +690,7 @@ func backfillRowAlreadyMatches(r payloadRow, target encodedPayload) bool {
 func loadActiveBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, error) {
 	return scanBackfillRun(db.QueryRowContext(ctx, `
 		SELECT run_id, recipe_version, high_water_rowid, cursor_rowid, pass_count, state,
-		       started_at, updated_at, completed_at,
+		       worker_token, started_at, updated_at, completed_at,
 		       scanned_rows, encoded_rows, identity_kept_rows, conflicted_rows,
 		       partial_metadata_rows, rewritten_rows, plaintext_bytes, stored_bytes,
 		       failure_event_id, failure_reason
@@ -676,7 +703,7 @@ func loadActiveBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, err
 func loadLatestBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, error) {
 	return scanBackfillRun(db.QueryRowContext(ctx, `
 		SELECT run_id, recipe_version, high_water_rowid, cursor_rowid, pass_count, state,
-		       started_at, updated_at, completed_at,
+		       worker_token, started_at, updated_at, completed_at,
 		       scanned_rows, encoded_rows, identity_kept_rows, conflicted_rows,
 		       partial_metadata_rows, rewritten_rows, plaintext_bytes, stored_bytes,
 		       failure_event_id, failure_reason
@@ -688,7 +715,7 @@ func loadLatestBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, err
 func loadBackfillRun(ctx context.Context, db *sql.DB, runID string) (backfillRunRow, error) {
 	return scanBackfillRun(db.QueryRowContext(ctx, `
 		SELECT run_id, recipe_version, high_water_rowid, cursor_rowid, pass_count, state,
-		       started_at, updated_at, completed_at,
+		       worker_token, started_at, updated_at, completed_at,
 		       scanned_rows, encoded_rows, identity_kept_rows, conflicted_rows,
 		       partial_metadata_rows, rewritten_rows, plaintext_bytes, stored_bytes,
 		       failure_event_id, failure_reason
@@ -701,7 +728,7 @@ func scanBackfillRun(row *sql.Row) (backfillRunRow, error) {
 	var state string
 	if err := row.Scan(
 		&r.RunID, &r.RecipeVersion, &r.HighWaterRowID, &r.CursorRowID, &r.PassCount, &state,
-		&r.StartedAt, &r.UpdatedAt, &r.CompletedAt,
+		&r.WorkerToken, &r.StartedAt, &r.UpdatedAt, &r.CompletedAt,
 		&r.ScannedRows, &r.EncodedRows, &r.IdentityKeptRows, &r.ConflictedRows,
 		&r.PartialMetadataRows, &r.RewrittenRows, &r.PlaintextBytes, &r.StoredBytes,
 		&r.FailureEventID, &r.FailureReason,
@@ -712,12 +739,15 @@ func scanBackfillRun(row *sql.Row) (backfillRunRow, error) {
 	return r, nil
 }
 
-func markBackfillRunningFromOrigin(ctx context.Context, db *sql.DB, runID string) error {
+// markBackfillRunningFromOrigin claims the run for this worker. Re-stamping the
+// token fences whichever worker held it before, so a takeover of a run whose
+// process is still alive aborts that worker's next checkpoint.
+func markBackfillRunningFromOrigin(ctx context.Context, db *sql.DB, runID, token string) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := db.ExecContext(ctx, `
 		UPDATE payload_backfill_runs
-		   SET state = 'running', cursor_rowid = 0, updated_at = ?
-		 WHERE run_id = ? AND state IN ('running', 'paused')`, now, runID)
+		   SET state = 'running', cursor_rowid = 0, worker_token = ?, updated_at = ?
+		 WHERE run_id = ? AND state IN ('running', 'paused')`, token, now, runID)
 	if err != nil {
 		return xerrors.Errorf("mark payload backfill running: %w", err)
 	}
@@ -728,31 +758,31 @@ func markBackfillRunningFromOrigin(ctx context.Context, db *sql.DB, runID string
 	return nil
 }
 
-func pauseBackfillRun(ctx context.Context, db *sql.DB, runID string) error {
+func pauseBackfillRun(ctx context.Context, db *sql.DB, run backfillRunHandle) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	return execOwnedBackfillRun(ctx, db, runID, `
+	return execOwnedBackfillRun(ctx, db, run.RunID, `
 		UPDATE payload_backfill_runs
 		   SET state = 'paused', updated_at = ?
-		 WHERE run_id = ? AND state = 'running'`, now, runID)
+		 WHERE run_id = ? AND state = 'running' AND worker_token = ?`, now, run.RunID, run.WorkerToken)
 }
 
 // completeBackfillRun and the two helpers below only move a run this worker is
 // still advancing. Without the state condition a slower worker could revive a
 // run another one already failed, misreport it in status, and block a new run.
-func completeBackfillRun(ctx context.Context, db *sql.DB, runID string) error {
+func completeBackfillRun(ctx context.Context, db *sql.DB, run backfillRunHandle) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	return execOwnedBackfillRun(ctx, db, runID, `
+	return execOwnedBackfillRun(ctx, db, run.RunID, `
 		UPDATE payload_backfill_runs
 		   SET state = 'completed', completed_at = ?, updated_at = ?
-		 WHERE run_id = ? AND state = 'running'`, now, now, runID)
+		 WHERE run_id = ? AND state = 'running' AND worker_token = ?`, now, now, run.RunID, run.WorkerToken)
 }
 
-func resetBackfillCursor(ctx context.Context, db *sql.DB, runID string) error {
+func resetBackfillCursor(ctx context.Context, db *sql.DB, run backfillRunHandle) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	return execOwnedBackfillRun(ctx, db, runID, `
+	return execOwnedBackfillRun(ctx, db, run.RunID, `
 		UPDATE payload_backfill_runs
 		   SET cursor_rowid = 0, updated_at = ?
-		 WHERE run_id = ? AND state = 'running'`, now, runID)
+		 WHERE run_id = ? AND state = 'running' AND worker_token = ?`, now, run.RunID, run.WorkerToken)
 }
 
 func execOwnedBackfillRun(ctx context.Context, db *sql.DB, runID, query string, args ...any) error {
@@ -770,11 +800,13 @@ func execOwnedBackfillRun(ctx context.Context, db *sql.DB, runID, query string, 
 	return nil
 }
 
-func failBackfillRun(ctx context.Context, db *sql.DB, runID, eventID, reason string, stats backfillBatchStats) (backfillRunRow, error) {
+func failBackfillRun(ctx context.Context, db *sql.DB, run backfillRunHandle, eventID, reason string, stats backfillBatchStats) (backfillRunRow, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	// No row was rewritten in the failed batch (rolled back). Record the
-	// partial-metadata count and close the run.
-	if _, err := db.ExecContext(ctx, `
+	// partial-metadata count and close the run. Losing the run here means the
+	// failure was never recorded, so it is reported as preemption rather than
+	// as a failure the caller can act on.
+	if err := execOwnedBackfillRun(ctx, db, run.RunID, `
 		UPDATE payload_backfill_runs
 		   SET state = 'failed',
 		       partial_metadata_rows = partial_metadata_rows + ?,
@@ -782,12 +814,12 @@ func failBackfillRun(ctx context.Context, db *sql.DB, runID, eventID, reason str
 		       failure_reason = ?,
 		       completed_at = ?,
 		       updated_at = ?
-		 WHERE run_id = ? AND state = 'running'`,
-		stats.Partial, eventID, reason, now, now, runID,
+		 WHERE run_id = ? AND state = 'running' AND worker_token = ?`,
+		stats.Partial, eventID, reason, now, now, run.RunID, run.WorkerToken,
 	); err != nil {
-		return backfillRunRow{}, xerrors.Errorf("fail payload backfill: %w", err)
+		return backfillRunRow{}, err
 	}
-	return loadBackfillRun(ctx, db, runID)
+	return loadBackfillRun(ctx, db, run.RunID)
 }
 
 func resultFromRun(run backfillRunRow, batchCount int64, morePending bool) apptypes.PayloadBackfillResult {

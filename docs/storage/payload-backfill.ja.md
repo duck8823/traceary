@@ -101,12 +101,15 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
   修復してから新しい `run` を開始する（failed は resume 対象外）。
 - resume は常にハイウォーター範囲の先頭からカーソルを再開し、mid-pass の pause で
   conflict skip された行が取り残されないようにする。
-- 1 つの run を進められる worker は 1 つだけ。チェックポイントは毎回 run が
-  `running` のままであることを確認するので、同じ run を 2 つ目の `resume` が
-  掴んでも、先の worker が completed / paused / failed にした run を復活させずに
-  バッチを中断する。
+- 1 つの run を進められる worker は 1 つだけ。`resume` は新しい worker token を
+  打ち直して run を掴み、チェックポイントは毎回その token と `state = 'running'`
+  の両方を確認する。したがって 2 つ目の `resume` は先の worker を fence し、
+  先の worker は次のバッチで「run was terminated by another worker」として中断する。
+  カーソルやカウンタを同じ run に二重書きしない。失敗を記録できなかった場合も、
+  行レベルの失敗ではなく同じ preemption として報告する。
 - プロセスを中断（`Ctrl-C`）した場合は `paused` チェックポイントを永続化してから
-  戻る。`resume` で再開でき、`status` が実行中と誤報しない。
+  戻る。バッチ間で気付いても、select やバッチトランザクションの中で気付いても同じ。
+  `resume` で再開でき、`status` が実行中と誤報しない。
 
 ## 関連ドキュメント
 

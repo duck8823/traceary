@@ -629,6 +629,12 @@ func (d *EventDatasource) ListTimelineBlocks(
 // candidates per kind. SQL cannot judge whether an encoded body is blank, so it
 // hands over the leading candidates and Go decides after decoding. Depth 3 also
 // covers the blanks SQLite's TRIM misses (tabs, newlines) in plaintext rows.
+//
+// The depth is a cap, not a guarantee: a kind whose first three candidates are
+// all blank falls through to the next kind rather than to its own fourth
+// candidate, and only the first non-blank one is decoded, so the usual cost is
+// one hydration per kind. Making it exact needs an unbounded candidate list or
+// a blankness signal that survives encoding — tracked separately (#1746).
 const timelineSummaryCandidates = 3
 
 // firstNonBlankCandidate decodes candidates in rank order and returns the first

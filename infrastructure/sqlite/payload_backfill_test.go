@@ -737,3 +737,120 @@ func TestPayloadBackfillPreservesNonUTF8IdentityBodies(t *testing.T) {
 		t.Fatalf("stored body type mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// Cancellation can surface at the top of the loop or out of the select/commit
+// call that was in flight. All three have to land the same paused checkpoint,
+// or the operator is left with a run that status reports as active.
+func TestPayloadBackfillPersistsPauseWhenCancelledMidBatch(t *testing.T) {
+	t.Parallel()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	for i := range 3 {
+		insertIdentityEvent(t, db, eventSeed{
+			ID: "mid-" + strconv.Itoa(i), Kind: "note", Body: compressibleBody("mid"),
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Cancel while the batch is selected but before its transaction runs, so
+	// the cancellation surfaces out of commitBackfillBatch, not out of the
+	// loop's own ctx.Err() check.
+	ds.onBeforeCommitBatch = func([]backfillCandidate) { cancel() }
+
+	result, err := ds.Run(ctx, apptypes.PayloadBackfillConfig{BatchRows: 1})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillPaused), result.State); diff != "" {
+		t.Fatalf("result state mismatch (-want +got):\n%s", diff)
+	}
+
+	var state string
+	if err := db.QueryRow(`SELECT state FROM payload_backfill_runs`).Scan(&state); err != nil {
+		t.Fatalf("read run state: %v", err)
+	}
+	if diff := cmp.Diff(string(apptypes.PayloadBackfillPaused), state); diff != "" {
+		t.Fatalf("persisted state mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// A resume takes the run over by re-stamping its worker token. The active-run
+// index admits one run row, not one worker, so without the token two live
+// workers would both satisfy state = 'running' and interleave cursor writes and
+// counters into the same run.
+func TestPayloadBackfillResumeFencesTheWorkerItTookOver(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, path := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	for i := range 4 {
+		insertIdentityEvent(t, db, eventSeed{
+			ID: "fence-" + strconv.Itoa(i), Kind: "note", Body: compressibleBody("fence"),
+		})
+	}
+
+	// First worker pauses mid-run, leaving a resumable checkpoint.
+	if _, err := ds.Run(ctx, apptypes.PayloadBackfillConfig{BatchRows: 1, StopAfterBatches: 1}); err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+
+	// Second worker takes the run over between the first worker's batches.
+	first := NewPayloadBackfillDatasource(NewDatabase(path, preparedMigrations(t)))
+	var tookOver bool
+	first.onBeforeCommitBatch = func([]backfillCandidate) {
+		if tookOver {
+			return
+		}
+		tookOver = true
+		// Claim the run the way a second resume does, and stop there: the run
+		// stays 'running', so only the token can tell the two workers apart.
+		var runID string
+		if err := db.QueryRow(`SELECT run_id FROM payload_backfill_runs WHERE state = 'running'`).Scan(&runID); err != nil {
+			t.Errorf("read the running run: %v", err)
+			return
+		}
+		if err := markBackfillRunningFromOrigin(ctx, db, runID, "takeover-token"); err != nil {
+			t.Errorf("takeover claim: %v", err)
+		}
+	}
+
+	if _, err := first.Resume(ctx, apptypes.PayloadBackfillConfig{BatchRows: 1}); !errors.Is(err, ErrPayloadBackfillRunPreempted) {
+		t.Fatalf("fenced worker error = %v, want ErrPayloadBackfillRunPreempted", err)
+	}
+}
+
+// The partial-metadata failure is the only signal that names the corrupt row.
+// If the run was taken over before the record lands, the caller has to hear
+// that the failure was never recorded rather than a failure it can act on.
+func TestPayloadBackfillReportsPreemptionWhenAFailureCannotBeRecorded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, ds, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	insertIdentityEvent(t, db, eventSeed{ID: "corrupt", Kind: "note", Body: compressibleBody("corrupt")})
+	if _, err := db.Exec(`UPDATE events SET body_codec='zstd', body_sha256=NULL WHERE id='corrupt'`); err != nil {
+		t.Fatalf("corrupt the row: %v", err)
+	}
+	// Another worker terminates the run between the batch rollback and the
+	// failure record.
+	ds.onBeforeCommitBatch = func([]backfillCandidate) {
+		if _, err := db.Exec(`UPDATE payload_backfill_runs SET state='completed' WHERE state='running'`); err != nil {
+			t.Errorf("terminate run from the other worker: %v", err)
+		}
+	}
+
+	if _, err := ds.Run(ctx, defaultBackfillConfig()); !errors.Is(err, ErrPayloadBackfillRunPreempted) {
+		t.Fatalf("Run error = %v, want ErrPayloadBackfillRunPreempted", err)
+	}
+	var failureEventID sql.NullString
+	if err := db.QueryRow(`SELECT failure_event_id FROM payload_backfill_runs`).Scan(&failureEventID); err != nil {
+		t.Fatalf("read failure event id: %v", err)
+	}
+	if failureEventID.Valid {
+		t.Fatalf("failure_event_id = %q; a lost run must not be overwritten", failureEventID.String)
+	}
+}

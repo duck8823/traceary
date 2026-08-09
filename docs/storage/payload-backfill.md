@@ -105,11 +105,17 @@ Output is JSON on stdout with aggregate counters only (no body contents).
   start a new `run` after repair).
 - Resume always restarts the cursor at the origin of the high-water range so a
   mid-pass pause cannot strand a conflict-skipped row.
-- Only one worker may advance a run. Every checkpoint asserts the run is still
-  `running`, so a second `resume` of the same run aborts its batch instead of
-  reviving a run the first worker completed, paused or failed.
+- Only one worker may advance a run. A `resume` claims the run by stamping a
+  fresh worker token, and every checkpoint asserts both that token and
+  `state = 'running'`. A second `resume` therefore fences the first worker: its
+  next batch aborts with "run was terminated by another worker" instead of
+  interleaving cursor writes and counters into the same run. A failure that
+  cannot be recorded is reported the same way rather than as a row-level
+  failure the operator could act on.
 - Cancelling the process (`Ctrl-C`) persists a `paused` checkpoint before
-  returning, so `resume` picks it up and `status` does not report it active.
+  returning — whether the cancellation is noticed between batches or inside the
+  select or the batch transaction — so `resume` picks it up and `status` does
+  not report it active.
 
 ## Related docs
 

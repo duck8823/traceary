@@ -9,6 +9,11 @@ CREATE TABLE payload_backfill_runs (
   cursor_rowid INTEGER NOT NULL DEFAULT 0 CHECK (cursor_rowid >= 0),
   pass_count INTEGER NOT NULL DEFAULT 0 CHECK (pass_count >= 0),
   state TEXT NOT NULL CHECK (state IN ('running', 'paused', 'completed', 'failed')),
+  -- Fences one worker off a run another worker took over. The active-run index
+  -- admits one run row, not one worker: a second resume re-stamps this token,
+  -- so the first worker's next checkpoint matches nothing and aborts instead of
+  -- interleaving cursor writes and double-counting into the same run.
+  worker_token TEXT NOT NULL DEFAULT '',
   started_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT,
