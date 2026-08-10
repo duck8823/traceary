@@ -12,6 +12,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **bounded search projection が検索の正の読み取り経路になりました (#1717)** — projection 世代が complete かつ有効なとき、`traceary search` は直近の全文ヒットをその projection から読み、古い履歴はセッション要約とキーワードで答え、別グループ `SESSIONS` として表示します。世代を再構築していないストアは従来どおり legacy 索引を無言で使い続けるため、検索を維持するための再構築は不要です。3 文字未満のクエリはどちらの trigram 索引でも一致しないため、従来どおり bounded decoded scan で解決します。complete な世代はスナップショットなので、その後に記録された event は正本テーブルから読んで同じ結果に統合し、再構築の合間に検索結果が古くなることはありません。tail が bounded candidate limit を超えた場合は、不完全なページを返す代わりに legacy 索引へフォールバックします。
 
 ### Deprecated
+- **`traceary sessions` の対話 dashboard は v0.34.0 で非推奨、v0.35.0 で削除 (#1765)** — 代わりに `traceary sessions --snapshot` を使ってください。互換期間中、snapshot と非 TTY の出力は変更しません。
 - **`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除 (#1688)** — 代わりに `traceary sessions`（`--snapshot` / `--snapshot --json` を含む）を使ってください。互換期間中、stdout はバイト単位で同一です。
 - **`traceary tui` / `traceary dashboard` と bare `traceary` の TTY 既定動作は v0.34.0 で非推奨、v0.35.0 で削除 (#1687)** — cockpit command の代わりに `traceary sessions --snapshot`、bare default の代わりに `traceary --help` を使ってください。非 TTY の bare `traceary` は変更しません。
 - **`traceary search --json` は v0.35.0 でオブジェクトになります (#1717)** — v0.34.x では従来どおり event オブジェクトのトップレベル配列を維持します。セッション階層ヒットはこの形状で表現できないため、セッションに一致した場合は件数と次の形状を stderr に通知し、stdout はバイト単位で変わりません。セッションを見るには `--json` を外してください。v0.35.0 で配列を `{"events": [...], "sessions": [...]}` に置き換えます。`docs/cli-stability.md` の「窓を延ばす」規定に基づく記録です。

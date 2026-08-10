@@ -49,7 +49,7 @@ traceary list --workspace github.com/duck8823/traceary --client codex
 
 ### 3. "Which sessions are running right now?" → `traceary sessions`
 
-Use `sessions` to watch a live multi-pane dashboard of the workspace. The screen is split into five panes:
+Use `sessions` to watch a live multi-pane dashboard of the workspace. This interactive rendering is deprecated in v0.34.0 and will be removed in v0.35.0; use `traceary sessions --snapshot` as the surviving form. The screen is split into five panes:
 
 - **sessions** — active session tree (workspace, agent role, latest event time, latest event as `<kind>: <message>`)
 - **failures** — recent failed `command_executed` events

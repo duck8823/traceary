@@ -49,7 +49,7 @@ traceary list --workspace github.com/duck8823/traceary --client codex
 
 ### 3. 「今どの session が動いているか」を見たい → `traceary sessions`
 
-ワークスペースの状況をライブの multi-pane dashboard で眺めたいときは `sessions` を使います。画面は次の 5 ペイン構成です。
+ワークスペースの状況をライブの multi-pane dashboard で眺めたいときは `sessions` を使います。この対話表示は v0.34.0 で非推奨となり v0.35.0 で削除されます。存続する形式として `traceary sessions --snapshot` を使用してください。画面は次の 5 ペイン構成です。
 
 - **sessions** — active session tree (workspace、agent role、latest event 時刻、latest event を `<kind>: <message>`)
 - **failures** — 直近の失敗 `command_executed`

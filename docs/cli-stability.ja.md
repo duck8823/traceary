@@ -84,6 +84,7 @@ v0.15 の admin コマンド：
 
 現在非推奨：
 
+- `traceary sessions` の対話 dashboard → `traceary sessions --snapshot`（v0.34.0 で非推奨、v0.35.0 で削除）
 - `traceary top` → `traceary sessions`（v0.34.0 で非推奨、v0.35.0 で削除）
 - `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot`（v0.34.0 で非推奨、v0.35.0 で削除）
 - bare `traceary` の TTY 既定動作 → `traceary --help`（v0.34.0 で非推奨、v0.35.0 で削除）

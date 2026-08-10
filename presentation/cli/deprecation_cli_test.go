@@ -374,3 +374,64 @@ func TestRootCLI_TopSnapshotOutputMatchesSessions(t *testing.T) {
 		})
 	}
 }
+
+func TestRootCLI_SessionsNonTTYMatchesSnapshot(t *testing.T) {
+	run := func(args ...string) (string, string, error) {
+		stdout := &bytes.Buffer{}
+		stderr := &bytes.Buffer{}
+		root := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(&sessionUsecaseStub{}),
+			cli.WithEvent(&topPaneEventStub{}),
+			cli.WithMemory(&memoryUsecaseStub{}),
+		).Command()
+		root.SetOut(stdout)
+		root.SetErr(stderr)
+		root.SetArgs(args)
+		err := root.Execute()
+		return stdout.String(), stderr.String(), err
+	}
+
+	bareStdout, bareStderr, err := run("sessions", "--db-path", "/tmp/traceary-sessions-nontty.db")
+	if err != nil {
+		t.Fatalf("bare sessions error = %v", err)
+	}
+	snapshotStdout, snapshotStderr, err := run("sessions", "--db-path", "/tmp/traceary-sessions-nontty.db", "--snapshot")
+	if err != nil {
+		t.Fatalf("sessions --snapshot error = %v", err)
+	}
+	if diff := cmp.Diff(snapshotStdout, bareStdout); diff != "" {
+		t.Errorf("non-TTY bare sessions stdout differs from snapshot (-snapshot +bare):\n%s", diff)
+	}
+	if diff := cmp.Diff("", bareStderr+snapshotStderr); diff != "" {
+		t.Errorf("non-TTY sessions emitted stderr (-want +got):\n%s", diff)
+	}
+}
+
+func TestRootCLI_SessionsValidationRequiresSnapshot(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "json", args: []string{"sessions", "--json"}, want: "--json requires --snapshot"},
+		{name: "ai profile", args: []string{"sessions", "--profile", "ai"}, want: "--profile ai requires --snapshot --json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithSession(&sessionUsecaseStub{}),
+				cli.WithEvent(&topPaneEventStub{}),
+				cli.WithMemory(&memoryUsecaseStub{}),
+			).Command()
+			root.SetOut(&bytes.Buffer{})
+			root.SetErr(&bytes.Buffer{})
+			root.SetArgs(tt.args)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Execute() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
