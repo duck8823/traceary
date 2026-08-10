@@ -88,6 +88,8 @@ v0.15 の admin コマンド：
 - `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot`（v0.34.0 で非推奨、v0.35.0 で削除）
 - bare `traceary` の TTY 既定動作 → `traceary --help`（v0.34.0 で非推奨、v0.35.0 で削除）
 - `traceary search --json` のトップレベル配列 → `{"events": [...], "sessions": [...]}` オブジェクト（v0.34.0 で予告、v0.35.0 で置換）
+- `traceary memory admin graph add` と `traceary memory admin graph list`（v0.34.0 で非推奨、v0.35.0 で削除。reference store の `memory_edges` が 0 行のため置き換え先なし）
+- `traceary session label`、`traceary session list --label`、`LABEL` 列、`label` JSON フィールド（v0.34.0 で非推奨、v0.35.0 で削除。reference store の label 付き session が 0 件のため置き換え先なし）
 
 過去の削除履歴：
 
@@ -117,10 +119,11 @@ DEPRECATED: このコマンドは非推奨です。代わりに `<canonical repl
 通知ルール：
 
 - 通知文には canonical 置き換え先のコマンド（サブコマンドのフルパス、たとえば `traceary memory admin hygiene scan`）を含める。親グループ名だけで省略しない。
+- 後継なしで削除するサーフェスでは、置き換え先を記載せず、置き換え先がないことを通知する。非推奨項目には、何も失われないことの根拠を記載する。
 - 通知文に削除予定バージョン（`v0.15`、`v1.0` など）を含める。
 - 通知は **stderr** に出す。これにより stdout / `--json` / NDJSON の出力は canonical コマンドとバイト一致を保てる。Cobra 組み込みの `Deprecated` フィールドは stdout に出すため、Traceary は自前で stderr に書く。
 - 1 回の実行で通知は 1 行のみ。非推奨コマンドが親グループでサブコマンドが実エントリーの場合も、実行された leaf に対して 1 度だけ発火し、canonical leaf の正確なパスを指す。
-- 通知はコマンドが実際に実行されたときに出る。Cobra は `--help` の解決と引数エラーの判定をコマンド hook より前に行うため、これらの経路では通知は出ない。その代わり、非推奨コマンドの `Short` / `Long` には非推奨である旨と削除予定バージョンを必ず含め、`--help` だけでも呼び出し側に伝わるようにする。
+- 通知はコマンドが実際に実行されたときに出る。そのため pre-run hook ではなく run 段に取り付ける。Cobra は `--help` の解決、引数エラーの判定、必須フラグの検証をコマンド実行より前に行うため、いずれの経路でも通知は出ない。その代わり、非推奨コマンドの `Short` / `Long` には非推奨である旨と削除予定バージョンを必ず含め、`--help` だけでも呼び出し側に伝わるようにする。
 
 ### stdout / JSON / NDJSON 互換性
 

@@ -649,7 +649,7 @@ process 認証済み page が必要な場合は
 
 #### `traceary memory admin graph add <from-memory-id> --to <to-memory-id> --relation <type>`
 
-2 つの memory 間に型付き関係を記録します（v0.9.0 で導入された graph overlay）。語彙と overlay の設計は [temporal memory architecture](../architecture/temporal-memory.ja.md) を参照してください。
+**v0.34.0 で非推奨、v0.35.0 で削除。置き換え先なし** — reference store の `memory_edges` は 0 行です。2 つの memory 間に型付き関係を記録します（v0.9.0 で導入された graph overlay）。語彙と overlay の設計は [temporal memory architecture](../architecture/temporal-memory.ja.md) を参照してください。
 
 主な flag:
 
@@ -661,7 +661,7 @@ process 認証済み page が必要な場合は
 
 #### `traceary memory admin graph list`
 
-指定 filter に一致する edge を表示します。`memory list --as-of` と同じ半開区間 `[valid_from, valid_to)` の semantics。
+**v0.34.0 で非推奨、v0.35.0 で削除。置き換え先なし** — reference store の `memory_edges` は 0 行です。指定 filter に一致する edge を表示します。`memory list --as-of` と同じ半開区間 `[valid_from, valid_to)` の semantics。
 
 主な flag:
 
@@ -905,7 +905,7 @@ session の一覧サマリーを表示します。
 
 - `--workspace`
 - `--agent`
-- `--label`
+- `--label` — **v0.34.0 で非推奨、v0.35.0 で削除。置き換え先なし**
 - `--from`
 - `--to`
 - `--limit`
@@ -932,9 +932,9 @@ session の一覧サマリーを表示します。
 
 - `--json`
 
-### `traceary session label <label-text>`
+### `traceary session label <label-text>` — **v0.34.0 で非推奨、v0.35.0 で削除。置き換え先なし**
 
-session の label を設定または更新します。
+session の label を設定または更新します。`LABEL` の表列と `label` JSON フィールドも v0.34.0 で非推奨、v0.35.0 で削除します。reference store の label 付き session は 0 件です。
 
 既定値:
 

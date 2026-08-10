@@ -35,6 +35,9 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 		Short: Localize("List session summaries", "セッション一覧を表示する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cmd.Flags().Changed("label") {
+				writeDeprecationNotice(cmd, "the `--label` flag", "`--label` フラグ", noReplacement, "v0.35")
+			}
 			ctx := cmd.Context()
 			output := cmd.OutOrStdout()
 
@@ -98,7 +101,7 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 	listCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
 	listCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路でフィルタ"))
 	listCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "エージェントでフィルタ"))
-	listCmd.Flags().StringVar(&label, "label", "", Localize("filter by label", "ラベルでフィルタ"))
+	listCmd.Flags().StringVar(&label, "label", "", Localize("filter by label (deprecated in v0.34.0; removed in v0.35.0; no replacement)", "ラベルでフィルタ (v0.34.0 で非推奨、v0.35.0 で削除、置き換え先なし)"))
 	listCmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD or RFC3339; alias: --since)", "開始日 (YYYY-MM-DD または RFC3339; 別名: --since)"))
 	listCmd.Flags().StringVar(&to, "to", "", Localize("end date (YYYY-MM-DD or RFC3339; alias: --until)", "終了日 (YYYY-MM-DD または RFC3339; 別名: --until)"))
 	listCmd.Flags().StringVar(&since, "since", "", Localize("start date (YYYY-MM-DD or RFC3339; alias for --from)", "開始日 (YYYY-MM-DD または RFC3339; --from の別名)"))

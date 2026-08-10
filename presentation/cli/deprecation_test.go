@@ -65,3 +65,38 @@ func TestApplyCommandDeprecation(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteDeprecationNoticeWithoutReplacement(t *testing.T) {
+	tests := []struct {
+		name       string
+		language   string
+		wantNotice string
+	}{
+		{
+			name:       "English notice",
+			wantNotice: "DEPRECATED: this command is deprecated with no replacement. Removal target: v0.35.\n",
+		},
+		{
+			name:       "Japanese notice",
+			language:   "ja",
+			wantNotice: "DEPRECATED: このコマンドは非推奨です。置き換え先はありません。削除予定: v0.35。\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.language != "" {
+				t.Setenv(cliLanguageEnvKey, tt.language)
+			}
+			var stderr bytes.Buffer
+			cmd := &cobra.Command{Use: "test"}
+			cmd.SetErr(&stderr)
+
+			writeDeprecationNotice(cmd, "this command", "このコマンド", "", "v0.35")
+
+			if diff := cmp.Diff(tt.wantNotice, stderr.String()); diff != "" {
+				t.Errorf("stderr notice mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

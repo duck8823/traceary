@@ -657,7 +657,7 @@ Useful flags:
 
 #### `traceary memory admin graph add <from-memory-id> --to <to-memory-id> --relation <type>`
 
-Record a typed relationship between two memories (graph overlay introduced in v0.9.0). See [temporal memory architecture](../architecture/temporal-memory.md) for the relation vocabulary and overlay design.
+**Deprecated in v0.34.0; removed in v0.35.0; no replacement** — the reference store has zero `memory_edges` rows. Record a typed relationship between two memories (graph overlay introduced in v0.9.0). See [temporal memory architecture](../architecture/temporal-memory.md) for the relation vocabulary and overlay design.
 
 Useful flags:
 
@@ -669,7 +669,7 @@ Useful flags:
 
 #### `traceary memory admin graph list`
 
-List edges matching the given filters. Uses the same half-open `[valid_from, valid_to)` semantics as `memory list --as-of`.
+**Deprecated in v0.34.0; removed in v0.35.0; no replacement** — the reference store has zero `memory_edges` rows. List edges matching the given filters. Uses the same half-open `[valid_from, valid_to)` semantics as `memory list --as-of`.
 
 Useful flags:
 
@@ -912,7 +912,7 @@ Useful flags:
 
 - `--workspace`
 - `--agent`
-- `--label`
+- `--label` — **deprecated in v0.34.0; removed in v0.35.0; no replacement**
 - `--from`
 - `--to`
 - `--limit`
@@ -939,9 +939,9 @@ Useful flags:
 
 - `--json`
 
-### `traceary session label <label-text>`
+### `traceary session label <label-text>` — **deprecated in v0.34.0; removed in v0.35.0; no replacement**
 
-Set or update a session label.
+Set or update a session label. The `LABEL` table column and `label` JSON field are also deprecated in v0.34.0 and removed in v0.35.0; the reference store has zero labelled sessions.
 
 Defaults:
 
