@@ -11,13 +11,22 @@ import (
 const noReplacement = ""
 
 // applyCommandDeprecation adds the one notice emitted by a deprecated command.
+//
+// The notice is attached to the run step, not to PreRunE: cobra validates
+// required flags between the two, so a PreRunE notice would fire for
+// invocations that never run. See the notice rules in docs/cli-stability.md.
 func applyCommandDeprecation(cmd *cobra.Command, replacement string, removalVersion string) {
-	previous := cmd.PreRunE
-	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+	previous := cmd.RunE
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		writeDeprecationNotice(cmd, "this command", "このコマンド", replacement, removalVersion)
 
 		if previous != nil {
 			return previous(cmd, args)
+		}
+		// Cobra prefers RunE once it is set, so a command that only had Run
+		// keeps running through it here.
+		if cmd.Run != nil {
+			cmd.Run(cmd, args)
 		}
 		return nil
 	}

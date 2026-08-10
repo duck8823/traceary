@@ -140,6 +140,42 @@ func TestRootCLI_NoReplacementDeprecationNotice(t *testing.T) {
 	}
 }
 
+// Cobra validates required flags after PreRunE but before the run step, so a
+// notice attached to PreRunE would fire for an invocation that never runs.
+func TestRootCLI_DeprecationNoticeSkipsRequiredFlagFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "graph add without --to", args: []string{"memory", "admin", "graph", "add", "memory-a", "--relation", "supports"}},
+		{name: "graph add without --relation", args: []string{"memory", "admin", "graph", "add", "memory-a", "--to", "memory-b"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemoryEdge(&memoryEdgeUsecaseStub{}),
+			).Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs(tt.args)
+
+			if err := root.Execute(); err == nil {
+				t.Fatalf("Execute() error = nil, want a required-flag error")
+			}
+			if diff := cmp.Diff("", stderr.String()); diff != "" {
+				t.Errorf("unexpected notice for an invocation that never ran (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff("", stdout.String()); diff != "" {
+				t.Errorf("stdout mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestRootCLI_NoReplacementDeprecationNoticeJapanese(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "ja")
 	tests := []struct {
