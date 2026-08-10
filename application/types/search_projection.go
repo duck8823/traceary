@@ -53,12 +53,21 @@ func (b SearchProjectionBudget) Valid() bool {
 	return b.Rows > 0 && b.WallTime > 0 && b.LockTime > 0 && b.StoredBytes > 0 && b.DecodedBytes > 0 && b.WriteBytes > 0 && b.RecentAge > 0 && b.IndexFamilyBytes > 0
 }
 
-// ConfigHash contains only budgets that define generation contents. DecodedBytes
-// remains semantic because it decides which rows are rejected; RecentAge and
-// IndexFamilyBytes define retention. Rows, WallTime, LockTime, StoredBytes and
-// WriteBytes only bound one batch's working set, so they must stay out of the
-// generation identity: a batch that cannot fit its lock cap must be allowed to
-// resume with a smaller unit of work without discarding durable progress.
+// ConfigHash contains only budgets that define generation contents. RecentAge
+// and IndexFamilyBytes decide what the generation retains, so resuming with a
+// different value would leave an index that no single budget describes.
+//
+// Rows, WallTime, LockTime, StoredBytes and WriteBytes only bound one batch's
+// working set, so they stay out of the generation identity: a batch that cannot
+// fit its lock cap must be allowed to resume with a smaller unit of work rather
+// than discard durable progress. StoredBytes and WriteBytes can reject an
+// oversized row, but rejection fails the generation outright — it never quietly
+// admits a different set of rows — so they change no content either.
+//
+// DecodedBytes is held in by choice, not by that argument. It rejects rows the
+// same way, and #1794 decides what an over-budget row should do instead; until
+// that lands, keeping it here means a widened budget starts a new generation
+// rather than silently changing the meaning of a partial one.
 func (b SearchProjectionBudget) ConfigHash() string {
 	return fmt.Sprintf("v3:%d:%d:%d", b.DecodedBytes, b.RecentAge.Nanoseconds(), b.IndexFamilyBytes)
 }
