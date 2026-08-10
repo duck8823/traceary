@@ -52,8 +52,15 @@ type SearchProjectionBudget struct {
 func (b SearchProjectionBudget) Valid() bool {
 	return b.Rows > 0 && b.WallTime > 0 && b.LockTime > 0 && b.StoredBytes > 0 && b.DecodedBytes > 0 && b.WriteBytes > 0 && b.RecentAge > 0 && b.IndexFamilyBytes > 0
 }
+
+// ConfigHash contains only budgets that define generation contents. DecodedBytes
+// remains semantic because it decides which rows are rejected; RecentAge and
+// IndexFamilyBytes define retention. Rows, WallTime, LockTime, StoredBytes and
+// WriteBytes only bound one batch's working set, so they must stay out of the
+// generation identity: a batch that cannot fit its lock cap must be allowed to
+// resume with a smaller unit of work without discarding durable progress.
 func (b SearchProjectionBudget) ConfigHash() string {
-	return fmt.Sprintf("v2:%d:%d:%d:%d:%d:%d:%d:%d", b.Rows, b.WallTime.Nanoseconds(), b.LockTime.Nanoseconds(), b.StoredBytes, b.DecodedBytes, b.WriteBytes, b.RecentAge.Nanoseconds(), b.IndexFamilyBytes)
+	return fmt.Sprintf("v3:%d:%d:%d", b.DecodedBytes, b.RecentAge.Nanoseconds(), b.IndexFamilyBytes)
 }
 
 type SearchProjectionGeneration struct {
@@ -225,7 +232,17 @@ func (e *SearchProjectionOversizeError) Error() string {
 	return fmt.Sprintf("search projection %s exceeds batch budget (%d > %d)", e.Class, e.Bytes, e.Limit)
 }
 
-type SearchProjectionNoProgressError struct{ Reason string }
+type SearchProjectionNoProgressCode string
+
+const (
+	SearchProjectionNoProgressLockDurationCap          SearchProjectionNoProgressCode = "lock_duration_cap_exceeded"
+	SearchProjectionNoProgressSingleRowLockDurationCap SearchProjectionNoProgressCode = "single_row_lock_duration_cap_exceeded"
+)
+
+type SearchProjectionNoProgressError struct {
+	Code   SearchProjectionNoProgressCode
+	Reason string
+}
 
 func (e *SearchProjectionNoProgressError) Error() string {
 	return "search projection made no progress: " + e.Reason

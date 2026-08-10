@@ -462,7 +462,7 @@ func TestSearchProjectionAbandonIsIdempotentAndRestartKeepsCanonicalHistory(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.GenerationID == first.GenerationID || second.ConfigHash == first.ConfigHash {
+	if second.GenerationID == first.GenerationID {
 		t.Fatalf("restart did not create immutable generation: %+v %+v", first, second)
 	}
 }

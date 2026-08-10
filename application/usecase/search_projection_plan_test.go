@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 )
@@ -135,6 +137,112 @@ type multiBatchProjectionStore struct {
 	budget     apptypes.SearchProjectionBudget
 	checkpoint int64
 	batches    int
+}
+
+type adaptiveProjectionStore struct {
+	budget       apptypes.SearchProjectionBudget
+	maxRows      int
+	checkpoints  []int64
+	plannedRows  []int
+	alwaysTooBig bool
+}
+
+func (s *adaptiveProjectionStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
+	return apptypes.SearchProjectionGeneration{}, nil
+}
+func (s *adaptiveProjectionStore) SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error) {
+	return apptypes.SearchProjectionStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash()}, nil
+}
+func (s *adaptiveProjectionStore) SelectSnapshot(_ context.Context, b apptypes.SearchProjectionBudget, _ time.Time) (apptypes.ProjectionSnapshot, error) {
+	s.plannedRows = append(s.plannedRows, b.Rows)
+	documents := make([]apptypes.ProjectionDocument, 0, b.Rows)
+	for sequence := s.checkpoint() + 1; sequence <= 3 && len(documents) < b.Rows; sequence++ {
+		documents = append(documents, apptypes.ProjectionDocument{Sequence: sequence, EventID: fmt.Sprintf("e%d", sequence), SessionID: "s", CreatedAt: "2026-08-10T00:00:00Z", Text: "body", StoredBytes: 4, DecodedBytes: 4})
+	}
+	return apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", ConfigHash: s.budget.ConfigHash(), SourceRevision: 1, HighWater: 3, Checkpoint: s.checkpoint()}, Phase: "source", Documents: documents, SourceDone: len(documents) > 0 && documents[len(documents)-1].Sequence == 3, Now: time.Now().UTC()}, nil
+}
+func (s *adaptiveProjectionStore) ApplyBatch(_ context.Context, p apptypes.ProjectionBatchPlan, _ time.Duration, _ time.Time) (apptypes.SearchProjectionProgress, error) {
+	if len(p.Writes) > s.maxRows || s.alwaysTooBig {
+		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
+	}
+	s.checkpoints = append(s.checkpoints, p.NextCheckpoint)
+	return apptypes.SearchProjectionProgress{Selected: len(p.Writes), Written: len(p.Writes), GenerationID: "g"}, nil
+}
+func (s *adaptiveProjectionStore) CleanupBatch(context.Context, apptypes.ProjectionBatchPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error) {
+	return apptypes.SearchProjectionProgress{}, nil
+}
+func (s *adaptiveProjectionStore) MarkFailed(context.Context, string, int64, string, time.Time) error {
+	return nil
+}
+func (s *adaptiveProjectionStore) checkpoint() int64 {
+	if len(s.checkpoints) == 0 {
+		return 0
+	}
+	return s.checkpoints[len(s.checkpoints)-1]
+}
+
+func TestSearchProjectionConfigHashSeparatesSemanticAndThroughputBudgets(t *testing.T) {
+	t.Parallel()
+	base := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 200, WriteBytes: 300, RecentAge: time.Hour, IndexFamilyBytes: 400}
+	tests := []struct {
+		name   string
+		mutate func(*apptypes.SearchProjectionBudget)
+		match  bool
+	}{
+		{name: "rows", mutate: func(b *apptypes.SearchProjectionBudget) { b.Rows = 1 }, match: true},
+		{name: "lock time", mutate: func(b *apptypes.SearchProjectionBudget) { b.LockTime = 2 * time.Second }, match: true},
+		{name: "wall time", mutate: func(b *apptypes.SearchProjectionBudget) { b.WallTime = 2 * time.Second }, match: true},
+		{name: "stored bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.StoredBytes = 101 }, match: true},
+		{name: "write bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.WriteBytes = 301 }, match: true},
+		{name: "recent age", mutate: func(b *apptypes.SearchProjectionBudget) { b.RecentAge = 2 * time.Hour }, match: false},
+		{name: "index family bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.IndexFamilyBytes = 401 }, match: false},
+		{name: "decoded bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.DecodedBytes = 201 }, match: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := base
+			tt.mutate(&got)
+			if diff := cmp.Diff(tt.match, base.ConfigHash() == got.ConfigHash()); diff != "" {
+				t.Fatalf("hash match (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSearchProjectionResumeUntilShrinksOnlyTheFailedBatch(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, maxRows: 2}
+	result, err := usecase.NewSearchProjectionUsecase(store).ResumeUntil(context.Background(), b, apptypes.SearchProjectionRunOptions{MaxBatches: 2, TotalWallTime: time.Minute}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(2, result.Batches); diff != "" {
+		t.Fatalf("successful batches (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int{4, 2, 4}, store.plannedRows); diff != "" {
+		t.Fatalf("planned rows (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int64{2, 3}, store.checkpoints); diff != "" {
+		t.Fatalf("checkpoints (-want +got):\n%s", diff)
+	}
+}
+
+func TestSearchProjectionResumeUntilReportsSingleRowLockCap(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, maxRows: 0, alwaysTooBig: true}
+	_, err := usecase.NewSearchProjectionUsecase(store).ResumeUntil(context.Background(), b, apptypes.SearchProjectionRunOptions{MaxBatches: 1, TotalWallTime: time.Minute}, time.Now())
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if !errors.As(err, &noProgress) {
+		t.Fatalf("error=%v, want no-progress error", err)
+	}
+	if diff := cmp.Diff(apptypes.SearchProjectionNoProgressSingleRowLockDurationCap, noProgress.Code); diff != "" {
+		t.Fatalf("error code (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int{4, 2, 1}, store.plannedRows); diff != "" {
+		t.Fatalf("planned rows (-want +got):\n%s", diff)
+	}
 }
 
 func (s *multiBatchProjectionStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
