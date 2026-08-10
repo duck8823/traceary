@@ -177,7 +177,7 @@ func (s *adaptiveProjectionStore) SearchProjectionStatus(context.Context) (appty
 	return apptypes.SearchProjectionStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash()}, nil
 }
 func (s *adaptiveProjectionStore) SearchProjectionControlStatus(context.Context) (apptypes.SearchProjectionControlStatus, error) {
-	return apptypes.SearchProjectionControlStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash()}, nil
+	return apptypes.SearchProjectionControlStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash(), CapacitySemanticsVersion: apptypes.SearchProjectionCapacitySemanticsVersion}, nil
 }
 func (s *adaptiveProjectionStore) SelectSnapshot(_ context.Context, b apptypes.SearchProjectionBudget, _ time.Time) (apptypes.ProjectionSnapshot, error) {
 	s.plannedRows = append(s.plannedRows, b.Rows)
@@ -285,6 +285,59 @@ func TestSearchProjectionResumeUntilShrinksOnlyTheFailedBatch(t *testing.T) {
 	}
 	if diff := cmp.Diff([]int64{2, 3}, store.checkpoints); diff != "" {
 		t.Fatalf("checkpoints (-want +got):\n%s", diff)
+	}
+}
+
+func TestSearchProjectionCatchUpShrinksFailedBatch(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: 250 * time.Millisecond, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, maxRows: 2}
+	result, err := usecase.NewSearchProjectionUsecase(store).CatchUp(context.Background(), b, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]int{4, 2}, store.plannedRows); diff != "" {
+		t.Fatalf("planned rows (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, result.Batches); diff != "" {
+		t.Fatalf("catch-up batches (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(2, result.Selected); diff != "" {
+		t.Fatalf("catch-up selected rows (-want +got):\n%s", diff)
+	}
+}
+
+func TestSearchProjectionCatchUpBoundsAdaptiveAttempts(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 128, WallTime: time.Second, LockTime: 250 * time.Millisecond, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, alwaysTooBig: true}
+	_, err := usecase.NewSearchProjectionUsecase(store).CatchUp(context.Background(), b, time.Now())
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if !errors.As(err, &noProgress) {
+		t.Fatalf("error=%v, want no-progress error", err)
+	}
+	if diff := cmp.Diff(apptypes.SearchProjectionNoProgressSingleRowLockDurationCap, noProgress.Code); diff != "" {
+		t.Fatalf("error code (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int{128, 64, 32, 16, 8, 4, 2, 1}, store.plannedRows); diff != "" {
+		t.Fatalf("planned rows (-want +got):\n%s", diff)
+	}
+}
+
+func TestSearchProjectionResumeDoesNotShrinkSingleBatch(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, maxRows: 0, alwaysTooBig: true}
+	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if !errors.As(err, &noProgress) {
+		t.Fatalf("error=%v, want no-progress error", err)
+	}
+	if diff := cmp.Diff(apptypes.SearchProjectionNoProgressLockDurationCap, noProgress.Code); diff != "" {
+		t.Fatalf("error code (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int{4}, store.plannedRows); diff != "" {
+		t.Fatalf("planned rows (-want +got):\n%s", diff)
 	}
 }
 

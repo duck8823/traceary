@@ -142,6 +142,10 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 }
 
 func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions, now time.Time) (apptypes.SearchProjectionRunResult, error) {
+	return u.resumeUntil(ctx, b, opts, now)
+}
+
+func (u *SearchProjectionUsecase) resumeUntil(ctx context.Context, b apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions, now time.Time) (apptypes.SearchProjectionRunResult, error) {
 	started := time.Now()
 	result := apptypes.SearchProjectionRunResult{}
 	if opts.MaxBatches <= 0 || opts.TotalWallTime <= 0 {
@@ -207,6 +211,19 @@ func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.Se
 	}
 	result.ElapsedMilliseconds = time.Since(started).Milliseconds()
 	return result, nil
+}
+
+// resumeCatchUpBatch uses the same adaptive loop as the operator's
+// ResumeUntil path. The fixed catch-up budget starts at 128 rows, so the
+// halving floor reaches one row in eight attempts; the total wall bound keeps
+// a store open from inheriting an unbounded retry cost from transient lock
+// contention.
+func (u *SearchProjectionUsecase) resumeCatchUpBatch(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	result, err := u.resumeUntil(ctx, b, apptypes.SearchProjectionRunOptions{
+		MaxBatches:    1,
+		TotalWallTime: 8 * b.LockTime,
+	}, now)
+	return result.Progress, err
 }
 
 func (u *SearchProjectionUsecase) Abandon(ctx context.Context, now time.Time) (apptypes.SearchProjectionAbandonResult, error) {
@@ -309,7 +326,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		}
 		out.Action = "start"
 		out.GenerationID = generation.GenerationID
-		progress, resumeErr := u.Resume(ctx, b, now.UTC())
+		progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 		if resumeErr != nil {
 			return out, resumeErr
 		}
@@ -371,7 +388,10 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		out.SkippedReason = "projection state " + status.State + " is not auto-catchable"
 		return out, nil
 	}
-	progress, resumeErr := u.Resume(ctx, b, now.UTC())
+	// A lock-duration cap may be transient contention, so this path retries on
+	// the next open instead of parking the generation as a deterministic row
+	// failure. Oversized rows retain the existing explicit failure transition.
+	progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 	if resumeErr != nil {
 		return out, resumeErr
 	}
