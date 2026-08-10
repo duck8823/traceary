@@ -448,6 +448,122 @@ func TestSessionRefinementDatasource_SaveIfAdvances_CASGuards(t *testing.T) {
 	assertRefinementUnchanged(ctx, t, fx.sut, sessionID, 2, "evt-3", "advanced summary")
 }
 
+func TestSessionRefinementDatasource_SaveIfAdvances_LowerBoundGuard(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		coversFrom     string
+		wantWritten    bool
+		wantStoredFrom string
+	}{
+		{
+			name:           "rejects advancing upper bound with a forward lower bound",
+			coversFrom:     "evt-2",
+			wantWritten:    false,
+			wantStoredFrom: "evt-1",
+		},
+		{
+			name:           "accepts advancing both bounds in the widening direction",
+			coversFrom:     "sess-lower-bound-start",
+			wantWritten:    true,
+			wantStoredFrom: "sess-lower-bound-start",
+		},
+		{
+			name:           "accepts an unchanged lower bound",
+			coversFrom:     "evt-1",
+			wantWritten:    true,
+			wantStoredFrom: "evt-1",
+		},
+		// The tie-break is the part of the comparison a mutation would slip
+		// through: with equal timestamps the guard falls back to id order, and
+		// both cases below pass under either <= or >= unless they are paired.
+		{
+			name:           "accepts an equal timestamp with a lower id",
+			coversFrom:     "evt-0-tie",
+			wantWritten:    true,
+			wantStoredFrom: "evt-0-tie",
+		},
+		{
+			name:           "rejects an equal timestamp with a higher id",
+			coversFrom:     "evt-1-zz",
+			wantWritten:    false,
+			wantStoredFrom: "evt-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fx := newSessionRefinementFixture(t)
+			sessionID := seedRefinementSession(context.Background(), t, fx.sessions, fx.events, "sess-lower-bound", []eventSeed{
+				{id: "evt-1", at: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)},
+				{id: "evt-2", at: time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)},
+				{id: "evt-3", at: time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)},
+				// Same instant as evt-1, sorting either side of it by id.
+				{id: "evt-0-tie", at: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)},
+				{id: "evt-1-zz", at: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)},
+			})
+			seed, err := model.NewSessionRefinement(
+				sessionID, 1, "evt-1", "evt-2", "seed summary", "", "agent",
+				time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC), false,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if written, err := fx.sut.SaveIfAdvances(context.Background(), seed, 0); err != nil || !written {
+				t.Fatalf("seed SaveIfAdvances() = (%v, %v), want (true, nil)", written, err)
+			}
+
+			candidate, err := model.NewSessionRefinement(
+				sessionID, 2, types.EventID(tt.coversFrom), "evt-3", "candidate summary", "", "agent",
+				time.Date(2026, 8, 1, 13, 0, 0, 0, time.UTC), false,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			written, err := fx.sut.SaveIfAdvances(context.Background(), candidate, 1)
+			if err != nil {
+				t.Fatalf("SaveIfAdvances() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWritten, written); diff != "" {
+				t.Fatalf("SaveIfAdvances() written mismatch (-want +got):\n%s", diff)
+			}
+
+			got, err := fx.sut.FindBySessionID(context.Background(), sessionID)
+			if err != nil {
+				t.Fatalf("FindBySessionID() error = %v", err)
+			}
+			stored, ok := got.Value()
+			if !ok {
+				t.Fatal("refinement missing")
+			}
+			want := struct {
+				Generation int
+				From       string
+				To         string
+				Summary    string
+			}{1, tt.wantStoredFrom, "evt-2", "seed summary"}
+			if tt.wantWritten {
+				want = struct {
+					Generation int
+					From       string
+					To         string
+					Summary    string
+				}{2, tt.wantStoredFrom, "evt-3", "candidate summary"}
+			}
+			gotSnapshot := struct {
+				Generation int
+				From       string
+				To         string
+				Summary    string
+			}{stored.Generation(), stored.CoversFromEventID().String(), stored.CoversToEventID().String(), stored.Summary()}
+			if diff := cmp.Diff(want, gotSnapshot); diff != "" {
+				t.Fatalf("stored refinement mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func assertRefinementUnchanged(
 	ctx context.Context,
 	t *testing.T,
