@@ -220,21 +220,22 @@ func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRec
 func (c *RootCLI) replayAntigravitySpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
 	switch strings.TrimSpace(action) {
 	case "pre-invocation":
-		return c.runHookAntigravityPreInvocation(ctx, io.Discard, input, dbPath)
+		return c.runHookAntigravityPreInvocation(ctx, nil, input, dbPath)
 	case "pre-tool-use":
-		return c.runHookAntigravityPreToolUse(ctx, io.Discard, input, dbPath)
+		return c.runHookAntigravityPreToolUse(ctx, nil, input, dbPath)
 	case "post-tool-use":
-		return c.runHookAntigravityPostToolUse(ctx, io.Discard, input, dbPath)
+		return c.runHookAntigravityPostToolUse(ctx, nil, input, dbPath)
 	case "stop":
-		return c.runHookAntigravityStop(ctx, io.Discard, input, dbPath)
+		return c.runHookAntigravityStop(ctx, nil, input, dbPath)
 	default:
 		return xerrors.Errorf("unsupported antigravity spool action: %s", action)
 	}
 }
 
-// Replay passes a nil writer, not io.Discard: wake injection (#1684) marks the
-// session as injected once it has written, so a discarded write would consume
-// the marker and silence the live firing. A nil writer makes injection a no-op.
+// Spool replay passes a nil writer, not io.Discard: wake injection (#1684) marks
+// the session as injected once it has written, so a discarded write would
+// consume the marker and silence the live firing. A nil writer makes injection
+// a no-op.
 func (c *RootCLI) replayGrokSpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
 	switch strings.TrimSpace(action) {
 	case "session-start":

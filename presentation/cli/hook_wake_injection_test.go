@@ -293,6 +293,59 @@ func TestHookAntigravityPreInvocationWakeInjection(t *testing.T) {
 	}
 }
 
+func TestHookAntigravityPreInvocationWakeInjectionSurvivesSpoolReplay(t *testing.T) {
+	const workspace = "github.com/duck8823/traceary"
+	const conversationID = "conv-antigravity-replay"
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	stateDir := t.TempDir()
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+	t.Setenv("TRACEARY_WORKSPACE", workspace)
+
+	fx := newWakeInjectionFixture(t)
+	fx.seedSummary(context.Background(), t, "sess-antigravity-replay", workspace, time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC), "replayed summary", false, "")
+
+	spoolRecord := map[string]any{
+		"schema_version": 1,
+		"command":        "antigravity",
+		"client":         "antigravity",
+		"action":         "pre-invocation",
+		"db_path":        fx.dbPath,
+		"payload":        `{"conversationId":"` + conversationID + `","workspacePaths":["/repo"]}`,
+		"created_at":     time.Now().UTC(),
+	}
+	recordJSON, err := json.Marshal(spoolRecord)
+	if err != nil {
+		t.Fatalf("marshal spool record: %v", err)
+	}
+	spoolDir := filepath.Join(stateDir, "spool")
+	if err := os.MkdirAll(spoolDir, 0o700); err != nil {
+		t.Fatalf("create spool directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(spoolDir, "antigravity-replay.json"), recordJSON, 0o600); err != nil {
+		t.Fatalf("write spool record: %v", err)
+	}
+
+	wantText, err := runHookSessionStart(t, fx, "conv-session-start-reference", workspace)
+	if err != nil {
+		t.Fatalf("SessionStart formatter reference error = %v", err)
+	}
+	gotJSON := runHookAntigravityWithWake(t, fx, conversationID)
+	var got map[string]any
+	if err := json.Unmarshal([]byte(gotJSON), &got); err != nil {
+		t.Fatalf("live PreInvocation output is invalid JSON: %v; output=%q", err, gotJSON)
+	}
+	want := map[string]any{
+		"injectSteps": []any{
+			map[string]any{"ephemeralMessage": wantText},
+		},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("live PreInvocation JSON mismatch after spool replay (-want +got):\n%s", diff)
+	}
+}
+
 func TestHookSessionStart_MissingRefinementsTableInjectsNothing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

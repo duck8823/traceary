@@ -203,6 +203,9 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 		}
 	}
 	c.runOpportunisticSessionGC(ctx, resolvedDBPath, sessionID)
+	if output == nil {
+		return nil
+	}
 	var wakeText string
 	c.injectWakeSummaries(ctx, antigravityHookClient, sessionID, workspace, resolvedDBPath, func(text string) error {
 		wakeText = text
