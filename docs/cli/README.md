@@ -85,9 +85,9 @@ Session resolution follows the same rules as `traceary log`.
 
 Open the Traceary operator cockpit TUI.
 
-Use bare `traceary` in an interactive terminal when you want one terminal surface for the operator loop instead of remembering individual subcommands. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit opens Tail-first and summarizes active work, recent failures, doctor status, and new events since the last live-tail visit. The Sessions tab stays session-centric (sessions, failures, commands, and health); memory candidates and stale-memory cleanup belong in the dedicated Memory tab. From the cockpit you can jump into live tail, doctor details, and memory inbox review.
+Use bare `traceary` in an interactive terminal when you want one terminal surface for the operator loop instead of remembering individual subcommands. The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary --help` for the default entrypoint and `traceary sessions --snapshot` for the replacement cockpit. The cockpit opens Tail-first and summarizes active work, recent failures, doctor status, and new events since the last live-tail visit. The Sessions tab stays session-centric (sessions, failures, commands, and health); memory candidates and stale-memory cleanup belong in the dedicated Memory tab. From the cockpit you can jump into live tail, doctor details, and memory inbox review.
 
-`traceary tui` requires an interactive terminal. Non-TTY callers receive a refusal with exit code `2` and guidance to use the script-friendly commands instead (`list`, `sessions --snapshot [--json]`, `doctor --json`, `session handoff`, and `memory inbox list`; `top --snapshot [--json]` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0). Bare non-TTY `traceary` prints help plus fallback guidance rather than starting the cockpit.
+`traceary tui` is deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions --snapshot` instead. It requires an interactive terminal. Non-TTY callers receive a refusal with exit code `2` and guidance to use the script-friendly commands instead (`list`, `sessions --snapshot [--json]`, `doctor --json`, `session handoff`, and `memory inbox list`; `top --snapshot [--json]` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0). Bare non-TTY `traceary` prints help plus fallback guidance rather than starting the cockpit.
 
 Useful flags:
 
@@ -97,7 +97,7 @@ Useful flags:
 Compatibility:
 
 - interactive bare `traceary` now opens the Tail-first cockpit by default
-- use `traceary tui` when you prefer an explicit named entrypoint or need a stable compatibility path
+- use `traceary sessions --snapshot` for the replacement cockpit; the bare TTY default becomes `traceary --help` in v0.35.0
 
 ### `traceary list`
 

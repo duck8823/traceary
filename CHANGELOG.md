@@ -13,6 +13,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ### Deprecated
 - **`traceary top` is deprecated in v0.34.0 and removed in v0.35.0 (#1688)** — use `traceary sessions` (including `--snapshot` / `--snapshot --json`) instead; stdout remains byte-identical during the compatibility window.
+- **`traceary tui` / `traceary dashboard` and the bare `traceary` TTY default are deprecated in v0.34.0 and removed in v0.35.0 (#1687)** — use `traceary sessions --snapshot` instead of the cockpit commands, and `traceary --help` for the bare default; non-TTY bare `traceary` remains unchanged.
 - **`traceary search --json` becomes an object in v0.35.0 (#1717)** — v0.34.x keeps the historical top-level array of event objects. Session-tier hits cannot be represented in that shape, so when a search matches sessions the count and the upcoming shape are reported on stderr while stdout stays byte-identical; drop `--json` to see the sessions. v0.35.0 replaces the array with `{"events": [...], "sessions": [...]}`. Recorded under the longer-window rule in `docs/cli-stability.md`.
 
 ## [v0.33.1] - 2026-07-31

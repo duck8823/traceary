@@ -9,7 +9,7 @@
 
 現在の Traceary には、インタラクティブ利用を支える基本機能として次の 3 つがあります。
 
-- Tail-first operator cockpit entrypoint としての bare `traceary`（明示的な互換 path として `traceary tui` も維持）
+- Tail-first operator cockpit entrypoint としての bare `traceary`（TTY の既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除）
 - shell completion
 - `traceary tail` による live follow
 
@@ -22,7 +22,7 @@
 
 ### 1. 「まず1か所から始めたい」 → `traceary`
 
-対話 terminal で Traceary の Tail-first operator cockpit を開きたいときは bare `traceary` を使います。`traceary tui` は同じ cockpit を明示的に開く互換 entrypoint として残ります。cockpit は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。そこから次の画面へ移動できます。
+対話 terminal で Traceary の Tail-first operator cockpit を開きたいときは bare `traceary` を使います。bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。置き換え cockpit には `traceary sessions --snapshot` を使用してください。cockpit は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。そこから次の画面へ移動できます。
 
 - live event tail
 - doctor details
@@ -132,11 +132,11 @@ v0.19.0 では、stdin/stdout が対話 terminal に接続されている場合�
 
 互換性の contract は次の通りです。
 
-- `traceary tui` は、名前付き command を好む operator 向けの安定した明示 entrypoint として残す。
+- bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除する。既定の入口には `traceary --help`、置き換え cockpit には `traceary sessions --snapshot` を使用する。
 - 非 TTY の `traceary` は deterministic な help / script behavior を維持する。
 - completion generation と help example を壊さない。
 - script 向けには `list`、`sessions --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list` を推奨 path として維持する。`top --snapshot [--json]` は互換 path として残す。
-- release notes には default entrypoint の変更と、明示的な `traceary tui` 互換 path を書く。
+- release notes には非推奨となる default entrypoint の動作と `traceary tui`、v0.35.0 の削除予定を書く。
 
 ## 今後の改善候補
 

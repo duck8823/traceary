@@ -62,16 +62,17 @@ func (c *RootCLI) newCockpitCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "tui",
 		Aliases: []string{"dashboard"},
-		Short:   Localize("Open the Traceary operator cockpit TUI", "Traceary operator cockpit TUI を開く"),
+		Short:   Localize("Deprecated cockpit TUI; removed in v0.35. Use `traceary sessions --snapshot` instead.", "非推奨の cockpit TUI（v0.35 で削除）。代わりに `traceary sessions --snapshot` を使用してください。"),
 		Long: Localize(
-			"Open the Traceary operator cockpit TUI. It gathers Tail (`tail`), Sessions (`sessions`), Doctor (`doctor`), Handoff, and memory review workflows behind one TTY-only shell; `traceary top` remains a non-interactive compatibility command. In an interactive terminal, bare `traceary` opens the same Tail-first TUI by default; `traceary tui` remains the explicit compatibility entrypoint for operators who prefer a named command.",
-			"Traceary operator cockpit TUI を開きます。Tail (`tail`) / Sessions (`sessions`) / Doctor (`doctor`) / Handoff / メモリ確認を 1 つの TTY 専用 shell にまとめます。`traceary top` は非対話の互換 command として残ります。対話 terminal では subcommand なしの `traceary` も同じ Tail-first TUI をデフォルトで開きます。`traceary tui` は明示的に呼びたい operator のための互換 entrypoint として残ります。",
+			"Open the Traceary operator cockpit TUI. This command is deprecated in v0.34 and will be removed in v0.35; use `traceary sessions --snapshot` instead. It gathers Tail (`tail`), Sessions (`sessions`), Doctor (`doctor`), Handoff, and memory review workflows behind one TTY-only shell. `traceary top` remains a non-interactive compatibility command. In an interactive terminal, bare `traceary` opens the same Tail-first TUI by default.",
+			"Traceary operator cockpit TUI を開きます。この command は v0.34 で非推奨となり、v0.35 で削除されます。代わりに `traceary sessions --snapshot` を使用してください。Tail (`tail`) / Sessions (`sessions`) / Doctor (`doctor`) / Handoff / メモリ確認を 1 つの TTY 専用 shell にまとめます。`traceary top` は非対話の互換 command として残ります。対話 terminal では subcommand なしの `traceary` も同じ Tail-first TUI をデフォルトで開きます。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runCockpit(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
+	applyCommandDeprecation(cmd, "traceary sessions --snapshot", "v0.35")
 	bindCockpitFlags(cmd, &opts)
 	return cmd
 }

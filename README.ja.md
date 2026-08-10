@@ -56,7 +56,7 @@ go install github.com/duck8823/traceary@latest
 
 タグ付きリリースでは macOS / Linux 向けアーカイブを [GitHub Releases](https://github.com/duck8823/traceary/releases) に公開しています。配布形態の詳細は [リリースガイド](./docs/release/README.ja.md) を参照してください。
 
-インストール後、対話 terminal で `traceary` を実行すると Tail-first TUI が開きます。script、pipe、CI など TTY がない場所では `traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` などの script-friendly subcommand を直接呼んでください。`traceary top --snapshot [--json]` はv0.34.0 で非推奨、v0.35.0 で削除される互換 alias として引き続き使え、同じ cockpit を明示的に開く互換 entrypoint として `traceary tui` も残ります。
+インストール後、対話 terminal で `traceary` を実行すると Tail-first TUI が開きます。script、pipe、CI など TTY がない場所では `traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` などの script-friendly subcommand を直接呼んでください。`traceary top --snapshot [--json]` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias として引き続き使えます。`traceary tui` cockpit entrypoint も v0.34.0 で非推奨、v0.35.0 で削除されます。代わりに `traceary sessions --snapshot` を使用してください。
 
 ### Step 2: エージェント向けパッケージを入れる
 
@@ -168,7 +168,7 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 
 | 目的 | コマンド | 使いどころ |
 |---|---|---|
-| operator cockpit から始める | `traceary`（明示するなら `traceary tui`） | live tail、session 状態、doctor warning、直近の失敗を追い、memory review へ移動 |
+| operator cockpit から始める | `traceary` | live tail、session 状態、doctor warning、直近の失敗を追い、memory review へ移動 |
 | workspace dashboard を見る | `traceary sessions`（`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除） | active session、直近の失敗 / command、メモリ候補、stale memory を 1 つの TUI で確認 |
 | いま動いているものを追う | `traceary tail` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
 | ある期間の流れを俯瞰する | `traceary timeline` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
@@ -181,7 +181,7 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 traceary tui
 ```
 
-対話 terminal では `traceary` が Tail-first operator cockpit を開きます。`traceary tui` は同じ cockpit を明示的に開く互換 entrypoint として残ります。cockpit は TTY 専用の surface で、live tail、session 状態、doctor warning、直近の失敗、新着 event を追い、専用の Memory タブからメモリ候補を review できます。cockpit の Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。非対話 shell では bare `traceary` は deterministic な help / fallback guidance を表示するため、script からは `traceary list`、`traceary sessions --snapshot [--json]`、`traceary top --snapshot [--json]`、`traceary doctor --json` などの明示的な command を優先してください。
+対話 terminal の bare `traceary` の既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。既定の入口には `traceary --help`、置き換え cockpit には `traceary sessions --snapshot` を使用してください。cockpit は TTY 専用の surface で、live tail、session 状態、doctor warning、直近の失敗、新着 event を追い、専用の Memory タブからメモリ候補を review できます。cockpit の Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。非対話 shell では bare `traceary` は deterministic な help / fallback guidance を表示するため、script からは `traceary list`、`traceary sessions --snapshot [--json]`、`traceary top --snapshot [--json]`、`traceary doctor --json` などの明示的な command を優先してください。
 
 ### `traceary sessions`
 

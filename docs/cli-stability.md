@@ -85,6 +85,8 @@ Stability and deprecation expectations for these runtime entrypoints:
 Currently deprecated:
 
 - `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
+- `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
+- bare `traceary` TTY default → `traceary --help` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary search --json` top-level array → `{"events": [...], "sessions": [...]}` object (replaced in v0.35.0; announced in v0.34.0)
 
 Historical removal log:
@@ -96,7 +98,7 @@ Historical removal log:
 
 ## Deprecation notice expectations
 
-When a public or admin command path, flag, JSON field name, or output shape needs to change in a way that affects callers, Traceary follows a single deprecation flow.
+When a public or admin command path, flag, JSON field name, or output shape needs to change in a way that affects callers, Traceary follows a single deprecation flow. The same single notice form also covers a default-behaviour change; in that case, the subject named in the notice is the behaviour rather than the command path.
 
 ### Stderr notice
 

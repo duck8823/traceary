@@ -529,6 +529,7 @@ func applyStrictGroups(cmd *cobra.Command) {
 func (c *RootCLI) runRootDefault(cmd *cobra.Command, opts cockpitCommandOptions) error {
 	stdin, stdout, ok := cockpitIO(cmd.InOrStdin(), cmd.OutOrStdout())
 	if ok && c.isCockpitInteractive(stdin, stdout) {
+		applyBehaviorDeprecation(cmd, "opening the cockpit from a bare `traceary`", "bare `traceary` から cockpit を開く動作", "traceary --help", "v0.35")
 		return c.cockpitRunnerFunc()(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 	}
 

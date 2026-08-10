@@ -85,6 +85,8 @@ v0.15 の admin コマンド：
 現在非推奨：
 
 - `traceary top` → `traceary sessions`（v0.34.0 で非推奨、v0.35.0 で削除）
+- `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot`（v0.34.0 で非推奨、v0.35.0 で削除）
+- bare `traceary` の TTY 既定動作 → `traceary --help`（v0.34.0 で非推奨、v0.35.0 で削除）
 - `traceary search --json` のトップレベル配列 → `{"events": [...], "sessions": [...]}` オブジェクト（v0.34.0 で予告、v0.35.0 で置換）
 
 過去の削除履歴：
@@ -96,7 +98,7 @@ v0.15 の admin コマンド：
 
 ## 非推奨通知の出し方
 
-公開・admin の command path、フラグ、JSON フィールド名、出力形状を caller に影響する形で変更する必要が生じたとき、Traceary は以下の単一フローに従います。
+公開・admin の command path、フラグ、JSON フィールド名、出力形状を caller に影響する形で変更する必要が生じたとき、Traceary は以下の単一フローに従います。同じ単一の通知形式は default behaviour の変更にも適用します。この場合、通知で示す subject は command path ではなく、その動作です。
 
 ### stderr 通知
 

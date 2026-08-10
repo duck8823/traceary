@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestRootCLI_Command_SilencesCobraErrorOutput(t *testing.T) {
@@ -156,8 +158,60 @@ func TestRootCLI_BareInteractiveDispatchesCockpit(t *testing.T) {
 	if gotInput != stdin || gotOutput != stdout {
 		t.Fatalf("runner I/O = (%T, %T), want temp stdin/stdout", gotInput, gotOutput)
 	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty stderr", stderr.String())
+	if diff := cmp.Diff("DEPRECATED: opening the cockpit from a bare `traceary` is deprecated, use `traceary --help` instead. Removal target: v0.35.\n", stderr.String()); diff != "" {
+		t.Fatalf("stderr notice mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestRootCLI_BareInteractiveDeprecationNoticeJapanese(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+
+	stdin := createTempFile(t)
+	stdout := createTempFile(t)
+	stderr := &bytes.Buffer{}
+	root := NewRootCLI(withCockpitRuntimeForTest(
+		func(*os.File, *os.File) bool { return true },
+		func(context.Context, io.Reader, io.Writer, cockpitCommandOptions) error { return nil },
+	))
+	rootCmd := root.Command()
+	rootCmd.SetIn(stdin)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := "DEPRECATED: bare `traceary` から cockpit を開く動作は非推奨です。代わりに `traceary --help` を使用してください。削除予定: v0.35。\n"
+	if diff := cmp.Diff(want, stderr.String()); diff != "" {
+		t.Fatalf("stderr notice mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestRootCLI_BareNonInteractiveOutputIsUnchangedAndUnnotified(t *testing.T) {
+	run := func(args ...string) (string, string) {
+		stdout := &bytes.Buffer{}
+		stderr := &bytes.Buffer{}
+		rootCmd := NewRootCLI().Command()
+		rootCmd.SetIn(strings.NewReader(""))
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(stderr)
+		rootCmd.SetArgs(args)
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute(%v) error = %v", args, err)
+		}
+		return stdout.String(), stderr.String()
+	}
+
+	bareStdout, bareStderr := run()
+	helpStdout, helpStderr := run("--help")
+	if diff := cmp.Diff(helpStdout, bareStdout); diff != "" {
+		t.Errorf("bare stdout differs from help (-help +bare):\n%s", diff)
+	}
+	if diff := cmp.Diff(helpStderr, bareStderr); diff != "" {
+		t.Errorf("bare stderr differs from help (-help +bare):\n%s", diff)
+	}
+	if strings.Contains(bareStderr, "DEPRECATED:") {
+		t.Errorf("bare non-TTY emitted a deprecation notice: %q", bareStderr)
 	}
 }
 
