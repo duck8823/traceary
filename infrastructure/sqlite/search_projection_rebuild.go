@@ -382,10 +382,15 @@ func isSearchProjectionDeadline(err error) bool {
 // reclaimSearchProjectionFTS runs FTS5's incremental-optimize protocol until
 // the caller's reclaim budget is spent. The negative first step starts a
 // merge; positive steps continue it. A bare positive step is deliberately not
-// used because it may be a no-op. Budget exhaustion is normal: the transaction
-// still contains useful cleanup work and the next batch resumes the merge.
+// used because it may be a no-op.
 //
-//nolint:wrapcheck // The caller classifies the driver deadline at the transaction boundary.
+// Each step commits on its own, so budget exhaustion is normal and costs
+// nothing: every completed step is already durable and the next batch picks
+// the merge up again. Nothing else shares these transactions, which is the
+// point — an interrupted merge rolls its transaction back, and when that
+// transaction also held the batch's cleanup deletes it discarded them.
+//
+//nolint:wrapcheck // The caller logs this: reclaim is maintenance and never fails a batch.
 func reclaimSearchProjectionFTS(ctx context.Context, db *sql.DB, budget time.Duration) error {
 	if budget <= 0 {
 		return nil
