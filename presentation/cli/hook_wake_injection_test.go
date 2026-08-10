@@ -346,6 +346,56 @@ func TestHookAntigravityPreInvocationWakeInjectionSurvivesSpoolReplay(t *testing
 	}
 }
 
+func TestHookSessionStartWakeInjectionSurvivesSpoolReplay(t *testing.T) {
+	const workspace = "github.com/duck8823/traceary"
+	const replaySessionID = "sess-generic-replay"
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	stateDir := t.TempDir()
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+	t.Setenv("TRACEARY_WORKSPACE", workspace)
+
+	fx := newWakeInjectionFixture(t)
+	fx.seedSummary(context.Background(), t, "sess-wake-source", workspace, time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC), "replayed session summary", false, "")
+	if _, err := fx.sessionUC.Start(context.Background(), types.Client("hook"), types.Agent("codex"), types.SessionID(replaySessionID), types.Workspace(workspace), ""); err != nil {
+		t.Fatalf("seed replay session: %v", err)
+	}
+
+	spoolRecord := map[string]any{
+		"schema_version": 1,
+		"command":        "session",
+		"client":         "codex",
+		"action":         "start",
+		"db_path":        fx.dbPath,
+		"payload":        `{"session_id":"` + replaySessionID + `","cwd":"/tmp","hook_event_name":"SessionStart"}`,
+		"created_at":     time.Now().UTC(),
+	}
+	recordJSON, err := json.Marshal(spoolRecord)
+	if err != nil {
+		t.Fatalf("marshal spool record: %v", err)
+	}
+	spoolDir := filepath.Join(stateDir, "spool")
+	if err := os.MkdirAll(spoolDir, 0o700); err != nil {
+		t.Fatalf("create spool directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(spoolDir, "session-replay.json"), recordJSON, 0o600); err != nil {
+		t.Fatalf("write spool record: %v", err)
+	}
+
+	if _, err := runHookSessionStart(t, fx, "sess-drain-trigger", workspace); err != nil {
+		t.Fatalf("drain-trigger SessionStart error = %v", err)
+	}
+
+	stdout, err := runHookSessionStart(t, fx, replaySessionID, workspace)
+	if err != nil {
+		t.Fatalf("live SessionStart after spool replay error = %v", err)
+	}
+	if diff := cmp.Diff(true, strings.Contains(stdout, "replayed session summary")); diff != "" {
+		t.Fatalf("live SessionStart after spool replay did not emit the summary (-want +got):\n%s\nstdout=%q", diff, stdout)
+	}
+}
+
 func TestHookSessionStart_MissingRefinementsTableInjectsNothing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
