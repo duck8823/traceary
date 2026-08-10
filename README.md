@@ -57,7 +57,7 @@ go install github.com/duck8823/traceary@latest
 Tagged releases also publish macOS and Linux archives on [GitHub Releases](https://github.com/duck8823/traceary/releases).
 See the [release guide](./docs/release/README.md) for packaging details.
 
-After installing, run `traceary` in an interactive terminal to open the Tail-first TUI. In scripts, pipes, or CI where no TTY is attached, call the script-friendly subcommand directly (`traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, etc.); `traceary top --snapshot [--json]` remains available as a permanent compatibility alias, and `traceary tui` remains an explicit compatibility entrypoint for the same cockpit.
+After installing, run `traceary` in an interactive terminal to open the Tail-first TUI. In scripts, pipes, or CI where no TTY is attached, call the script-friendly subcommand directly (`traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, etc.); `traceary top --snapshot [--json]` remains available as a compatibility alias deprecated in v0.34.0 and removed in v0.35.0, and `traceary tui` remains an explicit compatibility entrypoint for the same cockpit.
 
 ### Step 2: Install the plugin for your agent host
 
@@ -172,7 +172,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 | When | Command | Use it to |
 |---|---|---|
 | Starting from one operator cockpit | `traceary` (`traceary tui` explicitly) | follow live tail, session health, doctor warnings, recent failures, and jump into memory review |
-| Watching the workspace dashboard | `traceary sessions` (`traceary top` permanent compatibility) | browse active sessions, recent failures / commands, memory candidates, and stale memories in one TUI |
+| Watching the workspace dashboard | `traceary sessions` (`traceary top` deprecated in v0.34.0, removed in v0.35.0) | browse active sessions, recent failures / commands, memory candidates, and stale memories in one TUI |
 | Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
@@ -192,7 +192,7 @@ traceary tui
 traceary sessions
 ```
 
-`sessions` opens a five-pane Bubble Tea dashboard for active sessions, recent failures, recent commands, memory candidates, and stale memories. Those memory panes remain in the standalone Sessions dashboard and in `traceary sessions --snapshot [--json]` / `traceary top --snapshot [--json]` for compatibility while the cockpit Sessions tab stays narrower. Use `tab` / `shift+tab` to move between panes, `/` to filter the focused pane incrementally, and Enter to drill into the highlighted session, event, or memory detail. In non-TTY shells, `traceary sessions --snapshot` and `traceary sessions --snapshot --json` expose the same data for scripts, including the `stale_memories` envelope key. `traceary top` remains available as a permanent compatibility alias for existing scripts.
+`sessions` opens a five-pane Bubble Tea dashboard for active sessions, recent failures, recent commands, memory candidates, and stale memories. Those memory panes remain in the standalone Sessions dashboard and in `traceary sessions --snapshot [--json]` / `traceary top --snapshot [--json]` for compatibility while the cockpit Sessions tab stays narrower. Use `tab` / `shift+tab` to move between panes, `/` to filter the focused pane incrementally, and Enter to drill into the highlighted session, event, or memory detail. In non-TTY shells, `traceary sessions --snapshot` and `traceary sessions --snapshot --json` expose the same data for scripts, including the `stale_memories` envelope key. `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0 for existing scripts.
 
 ### `traceary tail`
 

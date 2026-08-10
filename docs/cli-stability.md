@@ -34,7 +34,7 @@ The public surface is the operator-facing daily-use surface. Public commands kee
 Current public commands, including compatibility aliases introduced after v0.15, are grouped by intent:
 
 - **Event recording** — `traceary log`, `traceary audit`
-- **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary sessions` (and `traceary sessions --snapshot` / `--snapshot --json`), plus the permanent compatibility alias `traceary top` (including `traceary top --snapshot` / `--snapshot --json`)
+- **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary sessions` (and `traceary sessions --snapshot` / `--snapshot --json`), plus the compatibility alias `traceary top` (deprecated in v0.34.0 and removed in v0.35.0; including `traceary top --snapshot` / `--snapshot --json`)
 - **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session tree`, `traceary session lineage`, `traceary session label`, `traceary session refine`, `traceary session latest`, `traceary session active`
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox review` (TTY-only)
@@ -49,7 +49,7 @@ The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-
 
 `traceary doctor` defaults to exit code `0` for all-pass reports, `1` when any check fails, and `2` for warning-only reports. Automation that treats warnings as operator-visible drift but not a broken install should pass `--warnings-ok`; in that mode warning-only reports exit `0`, failures still exit `1`, and the JSON `summary` / per-check severities remain unchanged.
 
-`traceary top` is not deprecated in v0.19.0; it remains a permanent compatibility alias for every `traceary sessions` form. Removing it later would require the deprecation flow below. The v0.19.0 text snapshot intentionally inserts `name="..."` before the raw `workspace=` / `agent=` metadata for readability; scripts that need a stable machine contract should prefer the unchanged `--json` envelope or parse text fields by key rather than by position.
+`traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0 because it duplicates `traceary sessions` exactly. v0.34 narrows Traceary to the 記録 / 記憶 pillars, and a second name for one command serves neither. The v0.19.0 text snapshot intentionally inserts `name="..."` before the raw `workspace=` / `agent=` metadata for readability; scripts that need a stable machine contract should prefer the unchanged `--json` envelope or parse text fields by key rather than by position.
 
 > Public commands that are TTY-only (currently `traceary memory inbox review`) document the TTY requirement explicitly and exit with a non-zero code that names the scripted fallback when stdin/stdout is not a TTY. Adding a new TTY-only public command requires a documented batch fallback path.
 
@@ -81,6 +81,10 @@ Stability and deprecation expectations for these runtime entrypoints:
 - The command path and argument shape stay stable across patch releases (`v0.N.x`).
 - Across minor boundaries (`v0.N.0` → `v0.(N+1).0`) and across `v1.x` minors once v1.0 ships, they may be renamed, removed, or have their argument shape changed without going through the public stderr deprecation flow, provided the new minor's `traceary hooks install` regenerates compatible scripts and the changelog calls out that hooks must be reinstalled to upgrade.
 - Adding a new hidden runtime entrypoint follows the same rule: it is allowed at any minor boundary as long as it is paired with a same-version `traceary hooks print` / `traceary hooks install` update.
+
+Currently deprecated:
+
+- `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
 
 Historical removal log:
 

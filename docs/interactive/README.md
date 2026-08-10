@@ -34,7 +34,7 @@ traceary tui
 traceary tui --reset-state
 ```
 
-The cockpit is intentionally TTY-only. Non-interactive callers should keep using `traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`; `traceary top --snapshot [--json]` remains a permanent compatibility alias. Bare non-TTY `traceary` prints help plus fallback guidance instead of launching the cockpit.
+The cockpit is intentionally TTY-only. Non-interactive callers should keep using `traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`; `traceary top --snapshot [--json]` remains a compatibility alias deprecated in v0.34.0 and removed in v0.35.0. Bare non-TTY `traceary` prints help plus fallback guidance instead of launching the cockpit.
 
 ### 2. "What just happened?" → `traceary list`
 
@@ -64,7 +64,7 @@ traceary sessions --snapshot
 traceary sessions --snapshot --json
 ```
 
-Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. This standalone dashboard and its non-TTY snapshots intentionally keep the memory panes for compatibility even though the cockpit Sessions tab is session-only. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the dashboard for scripts: the text snapshot starts with `RELIABILITY`, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys. `traceary top` remains available as a permanent compatibility alias.
+Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. This standalone dashboard and its non-TTY snapshots intentionally keep the memory panes for compatibility even though the cockpit Sessions tab is session-only. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the dashboard for scripts: the text snapshot starts with `RELIABILITY`, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys. `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions` instead.
 
 ### 4. "Is the system writing events right now?" → `traceary tail`
 
