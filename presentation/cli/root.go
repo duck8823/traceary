@@ -47,6 +47,7 @@ type RootCLI struct {
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
 	capacityInspector          application.CapacityInspector
+	payloadCodecInspector application.PayloadCodecInspector
 	searchProjection           *usecase.SearchProjectionUsecase
 	legacySearchRetire         *usecase.LegacySearchRetireUsecase
 	storeCompactionFactory     func(string) application.StoreCompactionUsecase
@@ -245,6 +246,11 @@ func WithStoreManagement(storeManagement usecase.StoreManagementUsecase) RootCLI
 // WithCapacityInspector injects metadata-only SQLite capacity diagnostics.
 func WithCapacityInspector(inspector application.CapacityInspector) RootCLIOption {
 	return func(c *RootCLI) { c.capacityInspector = inspector }
+}
+
+// WithPayloadCodecInspector injects read-only payload representation status.
+func WithPayloadCodecInspector(inspector application.PayloadCodecInspector) RootCLIOption {
+	return func(c *RootCLI) { c.payloadCodecInspector = inspector }
 }
 
 // WithSearchProjection injects the explicit derived-projection lifecycle workflow.

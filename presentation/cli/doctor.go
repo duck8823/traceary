@@ -283,6 +283,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Message: localizef("resolved DB path: %s", "解決した DB パス: %s", resolvedDBPath),
 	})
 	snapshot := inspectStoreFileSnapshot(resolvedDBPath, os.Stat)
+	if c.payloadCodecInspector != nil {
+		report.Checks = append(report.Checks, c.inspectPayloadCodec(ctx, snapshot))
+	}
 	if isLargeStoreForBoundedDoctor(snapshot) {
 		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
 	} else {

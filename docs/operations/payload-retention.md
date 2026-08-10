@@ -4,6 +4,19 @@
 
 Status: v0.31.0 contract for Issues #1446, #1444, #1443, and #1445. The copied-store [dogfood and recovery evidence](./retention-dogfood-v0.31.md) authorizes the public manual commands; automatic retention remains disabled by default.
 
+## Payload codec and downgrade warning
+
+Traceary v0.34 compresses new canonical event and command-audit payloads with
+zstd when the encoded value is smaller. Incompressible and short values remain
+identity-encoded TEXT. Existing rows are not converted by this write-path
+change; the existing-row rewrite is a separate operation.
+
+Run `traceary doctor` to inspect the codec state. Take `traceary store backup`
+before first running v0.34 if you need a downgrade fallback. After v0.34 has
+written compressed rows, Traceary v0.33.1 or earlier reads those bodies as
+garbage; nothing in v0.34 can prevent that. A backup taken afterward is not a
+fallback to the pre-compression representation.
+
 ## Requirement summary
 
 Traceary must bound local storage without treating resumable session metadata and short-lived raw payloads as one retention class. Planning must be read-only, execution must use the exact reviewed plan, and install or upgrade must never apply retention automatically.

@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **canonical payload の圧縮書込み (#1618)** — v0.34 の canonical event と command-audit 書込みは、payload が小さくなる場合に versioned zstd codec を使い、それ以外は identity の TEXT を保持します。この変更は既存行を書き換えません。downgrade 用 fallback が必要なら、v0.34 を初めて実行する前に `traceary store backup` を実行してください。v0.34 が圧縮行を書いた後は v0.33.1 以前の binary が body を garbage として読み、v0.34 の機能でそれを防ぐことはできません。`traceary doctor` は healthy な圧縮 store を warning にせず、representation と reader boundary を報告します。
 - **command output の二重保存を停止 (#1675)** — `command_executed` は合成した `events.body`（`command` + `INPUT` + `OUTPUT`）を保存しなくなりました。保持される実行記録は `command_audits` のみです。migration `000048`（`data_dependent_offline`）が履歴の `kind='command_executed'` の `events.body` を空にします。検索は body と独立に `command_text` / `input_text` / `output_text` を索引し続けます。list・doctor sensitive-path・replay failure hotspot は同一クエリで join した audit 列を読みます（行ごとの audit 再取得はしません）。body が空のとき、表示面は audit の command line を示します。
 - **bounded search projection が検索の正の読み取り経路になりました (#1717)** — projection 世代が complete かつ有効なとき、`traceary search` は直近の全文ヒットをその projection から読み、古い履歴はセッション要約とキーワードで答え、別グループ `SESSIONS` として表示します。世代を再構築していないストアは従来どおり legacy 索引を無言で使い続けるため、検索を維持するための再構築は不要です。3 文字未満のクエリはどちらの trigram 索引でも一致しないため、従来どおり bounded decoded scan で解決します。complete な世代はスナップショットなので、その後に記録された event は正本テーブルから読んで同じ結果に統合し、再構築の合間に検索結果が古くなることはありません。tail が bounded candidate limit を超えた場合は、不完全なページを返す代わりに legacy 索引へフォールバックします。
 

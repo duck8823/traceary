@@ -302,6 +302,7 @@ func run() error {
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithCapacityInspector(sqlite.NewCapacityInspector(db)),
+		cli.WithPayloadCodecInspector(sqlite.NewPayloadCodecInspector(db)),
 		cli.WithSearchProjection(usecase.NewSearchProjectionUsecase(db)),
 		cli.WithLegacySearchRetire(usecase.NewLegacySearchRetireUsecase(db)),
 		cli.WithStoreCompactionFactory(func(path string) application.StoreCompactionUsecase {
