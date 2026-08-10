@@ -206,10 +206,26 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect pending rehearsal migrations: %w", err)
 	}
 	var eventRows, auditRows, eventBytes, auditBytes int64
-	if err = db.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(length(body)),0) FROM events`).Scan(&eventRows, &eventBytes); err != nil {
+	// Codec metadata is authoritative for encoded rows. Legacy rows have no
+	// plaintext byte metadata and are identity-encoded, so their BLOB length is
+	// the plaintext byte count. Never use SQLite length(TEXT), which counts
+	// characters rather than UTF-8 bytes.
+	eventAggregateQuery := `SELECT count(*),coalesce(sum(CASE WHEN body_plaintext_bytes IS NOT NULL THEN body_plaintext_bytes ELSE length(CAST(body AS BLOB)) END),0) FROM events`
+	auditAggregateQuery := `SELECT count(*),coalesce(sum(CASE WHEN command_plaintext_bytes IS NOT NULL THEN command_plaintext_bytes ELSE length(CAST(command_text AS BLOB)) END+CASE WHEN input_plaintext_bytes IS NOT NULL THEN input_plaintext_bytes ELSE length(CAST(input_text AS BLOB)) END+CASE WHEN output_plaintext_bytes IS NOT NULL THEN output_plaintext_bytes ELSE length(CAST(output_text AS BLOB)) END),0) FROM command_audits`
+	var codecMetadata bool
+	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('events') WHERE name='body_plaintext_bytes')`).Scan(&codecMetadata); err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect payload codec metadata: %w", err)
+	}
+	if !codecMetadata {
+		// The copied target may predate the codec foundation. Its migration plan
+		// is still measurable, but the metadata columns do not exist yet.
+		eventAggregateQuery = `SELECT count(*),coalesce(sum(length(CAST(body AS BLOB))),0) FROM events`
+		auditAggregateQuery = `SELECT count(*),coalesce(sum(length(CAST(command_text AS BLOB))+length(CAST(input_text AS BLOB))+length(CAST(output_text AS BLOB))),0) FROM command_audits`
+	}
+	if err = db.QueryRowContext(ctx, eventAggregateQuery).Scan(&eventRows, &eventBytes); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect event aggregates: %w", err)
 	}
-	if err = db.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(length(command_text)+length(input_text)+length(output_text)),0) FROM command_audits`).Scan(&auditRows, &auditBytes); err != nil {
+	if err = db.QueryRowContext(ctx, auditAggregateQuery).Scan(&auditRows, &auditBytes); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("inspect audit aggregates: %w", err)
 	}
 	if err = db.Close(); err != nil {

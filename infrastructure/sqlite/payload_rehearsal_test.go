@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -19,6 +20,72 @@ import (
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
+
+func TestPayloadRehearsalPreviewReportsPlaintextBytesForLegacyAndEncodedRows(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name               string
+		encoded            bool
+		wantPlaintextBytes int64
+	}{
+		{name: "legacy multibyte text", wantPlaintextBytes: int64(len([]byte("あいうえお")) + len([]byte("入力")) + len([]byte("出力")))},
+		{name: "encoded row uses recorded plaintext bytes", encoded: true, wantPlaintextBytes: int64(len([]byte("あいうえお")) + len([]byte("入力")) + len([]byte("出力")))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			dir, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			live, target := filepath.Join(dir, "live.db"), filepath.Join(dir, "target.db")
+			migrations, err := sqliteschema.Migrations()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = infra.NewStoreManagementDatasource(infra.NewDatabase(live, migrations)).Initialize(ctx); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", live)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES('event-1','prompt','test','session-1',?,'2026-08-01T00:00:00Z')`, "あいうえお"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(`INSERT INTO command_audits(event_id,command_text,input_text,output_text) VALUES('event-1',?,?,?)`, "", "入力", "出力"); err != nil {
+				t.Fatal(err)
+			}
+			if err = db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			copyTestFile(t, live, target)
+			if tt.encoded {
+				db, err = sql.Open("sqlite", target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = db.Exec(`UPDATE events SET body=?,body_codec='zstd',body_format_version=1,body_plaintext_bytes=?,body_encoded_bytes=2,body_sha256=? WHERE id='event-1'`, []byte{0, 1}, len([]byte("あいうえお")), strings.Repeat("0", 64)); err != nil {
+					t.Fatal(err)
+				}
+				if _, err = db.Exec(`PRAGMA journal_mode=DELETE`); err != nil {
+					t.Fatal(err)
+				}
+				if err = db.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			adapter := newRehearsalAdapter(t, migrations, live)
+			metrics, err := adapter.Preview(ctx, rehearsalTestConfig(target, live, filepath.Join(dir, "backup.db")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tt.wantPlaintextBytes, metrics.PlaintextBytes); diff != "" {
+				t.Fatalf("plaintext bytes mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestPayloadRehearsalDeterministicStopResumeScrubRollback(t *testing.T) {
 	ctx := context.Background()
