@@ -62,8 +62,10 @@ func (d *SessionRefinementDatasource) FindBySessionID(
 }
 
 // SaveIfAdvances stores refinement only when the persisted row is still at
-// expectedGeneration (0 means "no row yet") and the incoming covers_to
-// strictly advances coverage under canonical event order.
+// expectedGeneration (0 means "no row yet") and the incoming range subsumes the
+// stored one under canonical event order: covers_to strictly advances, and
+// covers_from does not move forward. Coverage authorises an irreversible body
+// discard, so it may widen but never shrink.
 func (d *SessionRefinementDatasource) SaveIfAdvances(
 	ctx context.Context,
 	refinement *model.SessionRefinement,

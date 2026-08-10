@@ -475,6 +475,21 @@ func TestSessionRefinementDatasource_SaveIfAdvances_LowerBoundGuard(t *testing.T
 			wantWritten:    true,
 			wantStoredFrom: "evt-1",
 		},
+		// The tie-break is the part of the comparison a mutation would slip
+		// through: with equal timestamps the guard falls back to id order, and
+		// both cases below pass under either <= or >= unless they are paired.
+		{
+			name:           "accepts an equal timestamp with a lower id",
+			coversFrom:     "evt-0-tie",
+			wantWritten:    true,
+			wantStoredFrom: "evt-0-tie",
+		},
+		{
+			name:           "rejects an equal timestamp with a higher id",
+			coversFrom:     "evt-1-zz",
+			wantWritten:    false,
+			wantStoredFrom: "evt-1",
+		},
 	}
 
 	for _, tt := range tests {
@@ -484,6 +499,9 @@ func TestSessionRefinementDatasource_SaveIfAdvances_LowerBoundGuard(t *testing.T
 				{id: "evt-1", at: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)},
 				{id: "evt-2", at: time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)},
 				{id: "evt-3", at: time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)},
+				// Same instant as evt-1, sorting either side of it by id.
+				{id: "evt-0-tie", at: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)},
+				{id: "evt-1-zz", at: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)},
 			})
 			seed, err := model.NewSessionRefinement(
 				sessionID, 1, "evt-1", "evt-2", "seed summary", "", "agent",
