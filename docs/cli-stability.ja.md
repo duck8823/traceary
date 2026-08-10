@@ -85,6 +85,7 @@ v0.15 の admin コマンド：
 現在非推奨：
 
 - `traceary top` → `traceary sessions`（v0.34.0 で非推奨、v0.35.0 で削除）
+- `traceary search --json` のトップレベル配列 → `{"events": [...], "sessions": [...]}` オブジェクト（v0.34.0 で予告、v0.35.0 で置換）
 
 過去の削除履歴：
 

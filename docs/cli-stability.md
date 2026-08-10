@@ -85,6 +85,7 @@ Stability and deprecation expectations for these runtime entrypoints:
 Currently deprecated:
 
 - `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
+- `traceary search --json` top-level array → `{"events": [...], "sessions": [...]}` object (replaced in v0.35.0; announced in v0.34.0)
 
 Historical removal log:
 
