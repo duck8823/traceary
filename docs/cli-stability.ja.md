@@ -34,7 +34,7 @@ Traceary の各サブコマンドは必ず以下のいずれか 1 ティアに�
 v0.15 以降に追加された互換 alias も含む現在の公開コマンド（用途別）：
 
 - **イベント記録** — `traceary log`、`traceary audit`
-- **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`、`traceary sessions`（および `traceary sessions --snapshot` / `--snapshot --json`）、恒久的な互換 alias の `traceary top`（`traceary top --snapshot` / `--snapshot --json` を含む）
+- **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`、`traceary sessions`（および `traceary sessions --snapshot` / `--snapshot --json`）、v0.34.0 で非推奨、v0.35.0 で削除される互換 alias の `traceary top`（`traceary top --snapshot` / `--snapshot --json` を含む）
 - **セッション** — `traceary session start`、`traceary session end`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session tree`、`traceary session lineage`、`traceary session label`、`traceary session refine`、`traceary session latest`、`traceary session active`
 - **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox review`（TTY のみ）
@@ -49,7 +49,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 
 `traceary doctor` は既定で、全 check が pass なら exit code `0`、1 件でも fail があれば `1`、warning-only report なら `2` で終了します。warning を operator-visible な drift として見たいが、壊れた install だけを失敗扱いにしたい automation では `--warnings-ok` を指定してください。この場合 warning-only report は `0`、failure は引き続き `1` で終了し、JSON の `summary` と各 check の severity は変わりません。
 
-`traceary top` は v0.19.0 では非推奨ではありません。すべての `traceary sessions` 形式に対する恒久的な互換 alias として残ります。将来削除する場合は後述の非推奨フローが必要です。v0.19.0 の text snapshot は読みやすさのため raw な `workspace=` / `agent=` metadata の前に `name="..."` を意図的に挿入します。機械的に安定した契約が必要な script は、変更のない `--json` envelope を優先するか、テキストを位置ではなく key で parse してください。
+`traceary top` は `traceary sessions` と完全に重複するため、v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。v0.34 では Traceary を 記録 / 記憶 の柱に絞り、1 つの command に 2 つ目の名前を持たせても、どちらの柱にも役立ちません。v0.19.0 の text snapshot は読みやすさのため raw な `workspace=` / `agent=` metadata の前に `name="..."` を意図的に挿入します。機械的に安定した契約が必要な script は、変更のない `--json` envelope を優先するか、テキストを位置ではなく key で parse してください。
 
 > TTY 必須の公開コマンド（現状は `traceary memory inbox review`）は TTY 要件を明示し、stdin/stdout が TTY でないときは非ゼロ終了コードでスクリプト用フォールバックを案内します。新しい TTY-only 公開コマンドを追加するときも、必ず batch / scripted フォールバック経路を文書化してください。
 
@@ -82,6 +82,11 @@ v0.15 の admin コマンド：
 - マイナー境界 (`v0.N.0` → `v0.(N+1).0`)、および v1.0 以降の `v1.x` マイナー間でも、新マイナーの `traceary hooks install` が互換 script を再生成し、CHANGELOG で「hook を再インストールする必要がある」旨を案内することを前提に、改名・削除・引数形状変更を公開の stderr 非推奨フローを通さずに行ってよい。
 - 新しい hidden ランタイム入口の追加も同じルール。マイナー境界で追加してよく、同じバージョンの `traceary hooks print` / `traceary hooks install` 更新と組で出荷する。
 
+現在非推奨：
+
+- `traceary top` → `traceary sessions`（v0.34.0 で非推奨、v0.35.0 で削除）
+- `traceary search --json` のトップレベル配列 → `{"events": [...], "sessions": [...]}` オブジェクト（v0.34.0 で予告、v0.35.0 で置換）
+
 過去の削除履歴：
 
 - v0.14.0 で削除: `traceary init` → `traceary store init`、`traceary backup` → `traceary store backup ...`、`traceary gc` → `traceary store gc`、`traceary handoff` → `traceary session handoff`、`traceary compact-summary` → `traceary session handoff --compact-only`、廃止済み `traceary integration codex install` helper → Codex 公式 `/plugins` flow。
@@ -113,6 +118,7 @@ DEPRECATED: このコマンドは非推奨です。代わりに `<canonical repl
 - 通知文に削除予定バージョン（`v0.15`、`v1.0` など）を含める。
 - 通知は **stderr** に出す。これにより stdout / `--json` / NDJSON の出力は canonical コマンドとバイト一致を保てる。Cobra 組み込みの `Deprecated` フィールドは stdout に出すため、Traceary は自前で stderr に書く。
 - 1 回の実行で通知は 1 行のみ。非推奨コマンドが親グループでサブコマンドが実エントリーの場合も、実行された leaf に対して 1 度だけ発火し、canonical leaf の正確なパスを指す。
+- 通知はコマンドが実際に実行されたときに出る。Cobra は `--help` の解決と引数エラーの判定をコマンド hook より前に行うため、これらの経路では通知は出ない。その代わり、非推奨コマンドの `Short` / `Long` には非推奨である旨と削除予定バージョンを必ず含め、`--help` だけでも呼び出し側に伝わるようにする。
 
 ### stdout / JSON / NDJSON 互換性
 

@@ -71,16 +71,17 @@ func (c *RootCLI) newTopCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "top",
-		Short: Localize("Compatibility alias for the Sessions dashboard", "Sessions ダッシュボードの互換 alias"),
+		Short: Localize("Deprecated compatibility alias for the Sessions dashboard; removed in v0.35.", "Sessions ダッシュボードの非推奨互換 alias（v0.35 で削除）"),
 		Long: Localize(
-			"`traceary top` remains as a compatibility alias for the Sessions dashboard. New interactive and script usage should prefer `traceary sessions` or `traceary sessions --snapshot [--json]`.",
-			"`traceary top` は Sessions ダッシュボードの互換 alias として残っています。新しい対話操作や script では `traceary sessions` または `traceary sessions --snapshot [--json]` を優先してください。",
+			"`traceary top` is a deprecated compatibility alias for the Sessions dashboard and will be removed in v0.35. New interactive and script usage should prefer `traceary sessions` or `traceary sessions --snapshot [--json]`.",
+			"`traceary top` は Sessions ダッシュボードの非推奨互換 alias で、v0.35 で削除されます。新しい対話操作や script では `traceary sessions` または `traceary sessions --snapshot [--json]` を優先してください。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runTop(cmd.Context(), cmd.OutOrStdout(), opts)
 		},
 	}
+	applyCommandDeprecation(cmd, "traceary sessions", "v0.35")
 
 	bindTopFlags(cmd, &opts)
 

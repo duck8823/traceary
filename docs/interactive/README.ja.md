@@ -34,7 +34,7 @@ traceary tui
 traceary tui --reset-state
 ```
 
-cockpit は意図的に TTY 専用です。非対話シェルでは `traceary sessions --snapshot [--json]`、`traceary tail [--json]`、`traceary doctor --json`、`traceary session handoff`、`traceary memory inbox list` を使ってください。`traceary top --snapshot [--json]` は恒久的な互換 alias として引き続き使えます。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
+cockpit は意図的に TTY 専用です。非対話シェルでは `traceary sessions --snapshot [--json]`、`traceary tail [--json]`、`traceary doctor --json`、`traceary session handoff`、`traceary memory inbox list` を使ってください。`traceary top --snapshot [--json]` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias として引き続き使えます。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
 
 ### 2. 「今なにが起きたか」をざっと見たい → `traceary list`
 
@@ -64,7 +64,7 @@ traceary sessions --snapshot
 traceary sessions --snapshot --json
 ```
 
-dashboard 内では `tab` / `shift+tab` でフォーカスペインを切り替え、`↑/↓` (`k/j`) で 1 行ずつスクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾、`r` で snapshot 再取得、`?` でヘルプ切替、`q` / Ctrl-C / Esc は共通の安全網を経由して終了します。この standalone dashboard と非 TTY snapshot は、cockpit の Sessions タブを session-only にした後も互換性のため memory pane を維持します。非 TTY (パイプ / CI ログ) では自動的に snapshot text 出力にフォールバックします。`--snapshot` / `--snapshot --json` も dashboard に合わせて拡張されており、テキスト出力は先頭の `RELIABILITY` に続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)` のセクション、JSON 出力は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope オブジェクトを返します。`traceary top` は恒久的な互換 alias として引き続き使えます。
+dashboard 内では `tab` / `shift+tab` でフォーカスペインを切り替え、`↑/↓` (`k/j`) で 1 行ずつスクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾、`r` で snapshot 再取得、`?` でヘルプ切替、`q` / Ctrl-C / Esc は共通の安全網を経由して終了します。この standalone dashboard と非 TTY snapshot は、cockpit の Sessions タブを session-only にした後も互換性のため memory pane を維持します。非 TTY (パイプ / CI ログ) では自動的に snapshot text 出力にフォールバックします。`--snapshot` / `--snapshot --json` も dashboard に合わせて拡張されており、テキスト出力は先頭の `RELIABILITY` に続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)` のセクション、JSON 出力は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope オブジェクトを返します。`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。代わりに `traceary sessions` を使ってください。
 
 ### 4. 「今まさに書き込まれているか」を追いたい → `traceary tail`
 

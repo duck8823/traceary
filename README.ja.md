@@ -56,7 +56,7 @@ go install github.com/duck8823/traceary@latest
 
 タグ付きリリースでは macOS / Linux 向けアーカイブを [GitHub Releases](https://github.com/duck8823/traceary/releases) に公開しています。配布形態の詳細は [リリースガイド](./docs/release/README.ja.md) を参照してください。
 
-インストール後、対話 terminal で `traceary` を実行すると Tail-first TUI が開きます。script、pipe、CI など TTY がない場所では `traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` などの script-friendly subcommand を直接呼んでください。`traceary top --snapshot [--json]` は恒久的な互換 alias として引き続き使え、同じ cockpit を明示的に開く互換 entrypoint として `traceary tui` も残ります。
+インストール後、対話 terminal で `traceary` を実行すると Tail-first TUI が開きます。script、pipe、CI など TTY がない場所では `traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` などの script-friendly subcommand を直接呼んでください。`traceary top --snapshot [--json]` はv0.34.0 で非推奨、v0.35.0 で削除される互換 alias として引き続き使え、同じ cockpit を明示的に開く互換 entrypoint として `traceary tui` も残ります。
 
 ### Step 2: エージェント向けパッケージを入れる
 
@@ -169,7 +169,7 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 | 目的 | コマンド | 使いどころ |
 |---|---|---|
 | operator cockpit から始める | `traceary`（明示するなら `traceary tui`） | live tail、session 状態、doctor warning、直近の失敗を追い、memory review へ移動 |
-| workspace dashboard を見る | `traceary sessions`（`traceary top` は恒久互換） | active session、直近の失敗 / command、メモリ候補、stale memory を 1 つの TUI で確認 |
+| workspace dashboard を見る | `traceary sessions`（`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除） | active session、直近の失敗 / command、メモリ候補、stale memory を 1 つの TUI で確認 |
 | いま動いているものを追う | `traceary tail` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
 | ある期間の流れを俯瞰する | `traceary timeline` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
 | 生 event を直接掘る | `traceary list` / `traceary search` | kind / session / query をピンポイントで指定 |
@@ -189,7 +189,7 @@ traceary tui
 traceary sessions
 ```
 
-`sessions` は Bubble Tea ベースの 5 ペイン dashboard で、active sessions、直近の failures、recent commands、メモリ候補、stale memories をまとめて表示します。この standalone dashboard と `traceary sessions --snapshot [--json]` / `traceary top --snapshot [--json]` は、cockpit の Sessions タブを狭く保った後も互換性のため memory pane を維持します。`tab` / `shift+tab` でペインを移動し、`/` でフォーカス中ペインを incremental filter し、Enter で highlight 中の session / event / memory detail を開けます。非 TTY では `traceary sessions --snapshot` と `traceary sessions --snapshot --json` が同じデータを script 向けに出力し、JSON envelope には `stale_memories` キーも含まれます。`traceary top` は既存 script 向けの恒久的な互換 alias として引き続き使えます。
+`sessions` は Bubble Tea ベースの 5 ペイン dashboard で、active sessions、直近の failures、recent commands、メモリ候補、stale memories をまとめて表示します。この standalone dashboard と `traceary sessions --snapshot [--json]` / `traceary top --snapshot [--json]` は、cockpit の Sessions タブを狭く保った後も互換性のため memory pane を維持します。`tab` / `shift+tab` でペインを移動し、`/` でフォーカス中ペインを incremental filter し、Enter で highlight 中の session / event / memory detail を開けます。非 TTY では `traceary sessions --snapshot` と `traceary sessions --snapshot --json` が同じデータを script 向けに出力し、JSON envelope には `stale_memories` キーも含まれます。既存 script 向けの `traceary top` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。
 
 ### `traceary tail`
 
