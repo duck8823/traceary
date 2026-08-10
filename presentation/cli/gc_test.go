@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -17,13 +19,17 @@ import (
 var errOrphanConsolidationStub = errors.New("orphan consolidation failed")
 
 type orphanConsolidationStub struct {
-	result apptypes.OrphanConsolidationResult
-	err    error
-	calls  []usecase.OrphanConsolidationInput
+	result  apptypes.OrphanConsolidationResult
+	err     error
+	calls   []usecase.OrphanConsolidationInput
+	callLog *[]string
 }
 
 func (s *orphanConsolidationStub) Consolidate(_ context.Context, input usecase.OrphanConsolidationInput) (apptypes.OrphanConsolidationResult, error) {
 	s.calls = append(s.calls, input)
+	if s.callLog != nil {
+		*s.callLog = append(*s.callLog, "consolidate")
+	}
 	if s.err != nil {
 		return apptypes.OrphanConsolidationResult{}, s.err
 	}
@@ -40,7 +46,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(1, 0, 0, false, true),
+			result: apptypes.OrphanConsolidationResultOf(0, 0, 0, false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -71,7 +77,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(4, 0, 0, false, false),
+			result: apptypes.OrphanConsolidationResultOf(0, 0, 0, false, false),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -141,6 +147,50 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		want := "Deleted: 3\nOrphan refinements: 0\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	})
+
+	// The discard must observe the coverage that existed when the run began,
+	// which is only true while it runs first. The failure cases below prove it
+	// indirectly — the count is already on stdout when consolidation errors —
+	// but the successful path is the one that runs every day, so the order is
+	// pinned directly there too.
+	t.Run("the discard runs before consolidation", func(t *testing.T) {
+		for _, dryRun := range []bool{false, true} {
+			name := "apply"
+			if dryRun {
+				name = "dry-run"
+			}
+			t.Run(name, func(t *testing.T) {
+				var calls []string
+				storeMaint := &storeManagementUsecaseStub{
+					gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, dryRun),
+					callLog:  &calls,
+				}
+				orphan := &orphanConsolidationStub{
+					result:  apptypes.OrphanConsolidationResultOf(1, 1, 0, false, dryRun),
+					callLog: &calls,
+				}
+				rootCmd := cli.NewRootCLI(
+					cli.WithStoreManagement(storeMaint),
+					cli.WithOrphanConsolidation(orphan),
+				).Command()
+				rootCmd.SetOut(&bytes.Buffer{})
+				rootCmd.SetErr(&bytes.Buffer{})
+				args := []string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"}
+				if dryRun {
+					args = append(args, "--dry-run")
+				}
+				rootCmd.SetArgs(args)
+
+				if err := rootCmd.Execute(); err != nil {
+					t.Fatalf("Execute() error = %v", err)
+				}
+				want := []string{"gc", "consolidate"}
+				if diff := cmp.Diff(want, calls); diff != "" {
+					t.Fatalf("call order mismatch (-want +got):\n%s", diff)
+				}
+			})
 		}
 	})
 
@@ -270,7 +320,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 					gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 				}
 				orphan := &orphanConsolidationStub{
-					result: apptypes.OrphanConsolidationResultOf(3, tt.produced, 0, false, false),
+					result: apptypes.OrphanConsolidationResultOf(tt.produced, tt.produced, 0, false, false),
 				}
 				stdout := &bytes.Buffer{}
 				rootCmd := cli.NewRootCLI(
