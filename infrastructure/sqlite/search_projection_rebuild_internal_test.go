@@ -293,6 +293,52 @@ func resumeProjection(ctx context.Context, store *Database, budget apptypes.Sear
 	return usecase.NewSearchProjectionUsecase(store).Resume(ctx, budget, now)
 }
 
+func TestSearchProjectionApplyPathsTagLockDurationCap(t *testing.T) {
+	tests := []struct {
+		name  string
+		apply func(*Database) error
+	}{
+		{
+			name: "inventory batch",
+			apply: func(store *Database) error {
+				_, err := store.ApplyInventoryBatch(context.Background(), apptypes.SearchProjectionInventoryPlan{}, 0, time.Now())
+				return err
+			},
+		},
+		{
+			name: "projection batch",
+			apply: func(store *Database) error {
+				_, err := store.ApplyBatch(context.Background(), apptypes.ProjectionBatchPlan{Phase: "source"}, 0, time.Now())
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "store.db")
+			migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := NewDatabase(path, migrations)
+			if err := store.initialize(ctx); err != nil {
+				t.Fatal(err)
+			}
+
+			err = tt.apply(store)
+			var noProgress *apptypes.SearchProjectionNoProgressError
+			if !errors.As(err, &noProgress) {
+				t.Fatalf("error=%T %v, want SearchProjectionNoProgressError", err, err)
+			}
+			if diff := cmp.Diff(apptypes.SearchProjectionNoProgressLockDurationCap, noProgress.Code); diff != "" {
+				t.Errorf("no-progress code mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestBundledSQLiteContentlessDeleteSemantics(t *testing.T) {
 	t.Parallel()
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "probe.db"))
