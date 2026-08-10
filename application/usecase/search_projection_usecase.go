@@ -157,8 +157,26 @@ func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.Se
 			result.ElapsedMilliseconds = time.Since(started).Milliseconds()
 			return result, nil
 		}
-		progress, err := u.Resume(runCtx, b, now.UTC())
-		if err != nil {
+		batchBudget := b
+		for {
+			progress, err := u.Resume(runCtx, batchBudget, now.UTC())
+			if err == nil {
+				result.Batches++
+				result.Progress.Selected += progress.Selected
+				result.Progress.Written += progress.Written
+				result.Progress.Evicted += progress.Evicted
+				result.Progress.Cleaned += progress.Cleaned
+				result.Progress.StoredBytes += progress.StoredBytes
+				result.Progress.DecodedBytes += progress.DecodedBytes
+				result.Progress.WrittenBytes += progress.WrittenBytes
+				result.Progress.CleanupBytes += progress.CleanupBytes
+				result.Progress.Completed = progress.Completed
+				result.Progress.GenerationID = progress.GenerationID
+				if progress.Completed {
+					result.StopReason = "complete"
+				}
+				break
+			}
 			if ctx.Err() != nil {
 				return result, xerrors.Errorf("resume projection batches: %w", ctx.Err())
 			}
@@ -167,21 +185,19 @@ func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.Se
 				result.ElapsedMilliseconds = time.Since(started).Milliseconds()
 				return result, nil
 			}
-			return result, err
+			var noProgress *apptypes.SearchProjectionNoProgressError
+			if !errors.As(err, &noProgress) || noProgress.Code != apptypes.SearchProjectionNoProgressLockDurationCap {
+				return result, err
+			}
+			if batchBudget.Rows <= 1 {
+				return result, &apptypes.SearchProjectionNoProgressError{
+					Code:   apptypes.SearchProjectionNoProgressSingleRowLockDurationCap,
+					Reason: "a single row exceeded the projection lock duration cap at the minimum batch size",
+				}
+			}
+			batchBudget.Rows /= 2
 		}
-		result.Batches++
-		result.Progress.Selected += progress.Selected
-		result.Progress.Written += progress.Written
-		result.Progress.Evicted += progress.Evicted
-		result.Progress.Cleaned += progress.Cleaned
-		result.Progress.StoredBytes += progress.StoredBytes
-		result.Progress.DecodedBytes += progress.DecodedBytes
-		result.Progress.WrittenBytes += progress.WrittenBytes
-		result.Progress.CleanupBytes += progress.CleanupBytes
-		result.Progress.Completed = progress.Completed
-		result.Progress.GenerationID = progress.GenerationID
-		if progress.Completed {
-			result.StopReason = "complete"
+		if result.StopReason == "complete" {
 			break
 		}
 	}

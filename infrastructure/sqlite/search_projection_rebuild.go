@@ -361,15 +361,16 @@ func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchPro
 			remaining = time.Until(deadline)
 		}
 		if remaining <= 0 {
-			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
+			return out, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "inventory lock duration cap exceeded"}
 		}
 		out, err = d.applyInventoryBatchOnce(lockCtx, p, remaining, now)
-		if err == nil || !isSearchProjectionSQLiteBusy(err) {
-			return out, err
+		classified, retry, classifiedErr := classifySearchProjectionApplyResult(out, err)
+		if classifiedErr != nil || !retry {
+			return classified, classifiedErr
 		}
 		select {
 		case <-lockCtx.Done():
-			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
+			return out, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "inventory lock duration cap exceeded"}
 		case <-time.After(min(5*time.Millisecond, remaining)):
 		}
 	}
@@ -733,7 +734,7 @@ func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.
 			remaining = time.Until(deadline)
 		}
 		if remaining <= 0 {
-			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
 		}
 		out, err := d.applyProjectionPlan(lockCtx, p, remaining, now)
 		classified, retry, classifiedErr := classifySearchProjectionApplyResult(out, err)
@@ -742,7 +743,7 @@ func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.
 		}
 		select {
 		case <-lockCtx.Done():
-			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
 		case <-time.After(min(5*time.Millisecond, remaining)):
 		}
 	}
@@ -755,7 +756,7 @@ func isSearchProjectionSQLiteBusy(err error) bool {
 
 func classifySearchProjectionApplyResult(out apptypes.SearchProjectionProgress, err error) (apptypes.SearchProjectionProgress, bool, error) {
 	if isSearchProjectionDeadline(err) {
-		return apptypes.SearchProjectionProgress{}, false, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+		return apptypes.SearchProjectionProgress{}, false, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
 	}
 	if err == nil {
 		return out, false, nil
