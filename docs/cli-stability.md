@@ -131,6 +131,8 @@ For the duration of the deprecation window, the deprecated command must keep emi
 - the same exit codes,
 - the same `--id-only` byte shape.
 
+Help and usage text is deliberately outside this guarantee. The notice rule above *requires* a deprecated command to change its `Short` and `Long`, which changes the parent's command listing, so freezing help bytes would make the flow self-contradictory. Automation must not parse `--help`; it is the one output shape that announces deprecations rather than preserving them.
+
 Adding a new optional flag to a deprecated alias is allowed only when the canonical replacement has the same flag (so callers can move without rewriting their argument list).
 
 When a flag itself is being deprecated (rather than the whole command), the same stderr notice form is used. The flag must keep its old behavior for the deprecation window, the notice names the replacement flag, and the change appears in `CHANGELOG.md` under "Deprecated".

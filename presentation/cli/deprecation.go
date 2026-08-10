@@ -8,14 +8,9 @@ import (
 
 // applyCommandDeprecation adds the one notice emitted by a deprecated command.
 func applyCommandDeprecation(cmd *cobra.Command, replacement string, removalVersion string) {
-	applyDeprecation(cmd, "this command", "このコマンド", replacement, removalVersion)
-}
-
-// applyDeprecation adds a localized deprecation notice to a command hook.
-func applyDeprecation(cmd *cobra.Command, subject string, japaneseSubject string, replacement string, removalVersion string) {
 	previous := cmd.PreRunE
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		writeDeprecationNotice(cmd, subject, japaneseSubject, replacement, removalVersion)
+		writeDeprecationNotice(cmd, "this command", "このコマンド", replacement, removalVersion)
 
 		if previous != nil {
 			return previous(cmd, args)
