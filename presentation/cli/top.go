@@ -93,7 +93,7 @@ func (c *RootCLI) newSessionsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "sessions",
-		Short: Localize("Deprecated live Sessions dashboard; use --snapshot; removed in v0.35.", "非推奨の Sessions ライブダッシュボード。--snapshot を使用（v0.35 で削除）"),
+		Short: Localize("Sessions dashboard; the live interactive default is deprecated, use --snapshot (removed in v0.35).", "Sessions ダッシュボード。ライブ表示の既定動作は非推奨（v0.35 で削除）。--snapshot を使用"),
 		Long: Localize(
 			"Show a live, auto-refreshing Sessions dashboard for active sessions, failures, commands, memory review, and health. This interactive rendering is deprecated in v0.34 and will be removed in v0.35; use `traceary sessions --snapshot` instead. Press q or Ctrl-C to quit. Use --snapshot --json for a one-shot Sessions JSON snapshot with latest-event metadata.",
 			"active session、失敗、コマンド、メモリ確認、状態をまとめた Sessions ダッシュボードをライブ自動更新で表示します。この対話表示は v0.34 で非推奨となり v0.35 で削除されます。代わりに `traceary sessions --snapshot` を使用してください。q または Ctrl-C で終了します。--snapshot --json で latest event metadata を含む Sessions JSON snapshot を一回出力します。",
@@ -694,6 +694,16 @@ func formatTopLatestEvent(s apptypes.SessionSummary) string {
 	return fmt.Sprintf("%s: %s", s.LatestEventKind(), truncateMessage(s.LatestEventMessage()))
 }
 
+// interactiveDashboardNoticeApplies reports whether the live-dashboard
+// deprecation notice belongs to this invocation. `top` is excluded because the
+// whole command is already deprecated and its command notice names the
+// replacement for the mode as well; emitting both would put two notices on one
+// invocation, which docs/cli-stability.md forbids. Do not drop this condition
+// before `top` itself is removed in v0.35.
+func interactiveDashboardNoticeApplies(commandName string) bool {
+	return commandName != "top"
+}
+
 // runTopTUI launches the multi-pane Bubble Tea dashboard. The runner
 // inherits the shared TUI safety net (TTY guard, terminal restore, signal
 // handling); a non-TTY caller falls back to the snapshot text writer so
@@ -737,7 +747,7 @@ func (c *RootCLI) runTopTUI(ctx context.Context, cmd *cobra.Command, output io.W
 		}
 		return writeTopSnapshotText(output, snap, opts.idle, snap.Now)
 	}
-	if commandName != "top" {
+	if interactiveDashboardNoticeApplies(commandName) {
 		writeDeprecationNotice(
 			cmd,
 			"the interactive `traceary sessions` dashboard",
