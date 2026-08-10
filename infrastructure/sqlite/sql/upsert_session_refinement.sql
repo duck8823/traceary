@@ -47,3 +47,17 @@ WHERE session_refinements.generation = ?
           JOIN events AS right_event ON right_event.id = session_refinements.covers_to_event_id
          WHERE left_event.id = excluded.covers_to_event_id
       ) = 1
+  -- The lower bound must stay at or before its predecessor's lower bound.
+  -- Keep this comparison explicit: unlike covers_to, equality is accepted.
+  -- Missing event rows produce NULL and therefore fail closed, as above.
+  AND (
+        SELECT CASE
+                 WHEN ts_norm(left_event.created_at) < ts_norm(right_event.created_at) THEN 1
+                 WHEN ts_norm(left_event.created_at) > ts_norm(right_event.created_at) THEN 0
+                 WHEN left_event.id <= right_event.id THEN 1
+                 ELSE 0
+               END
+          FROM events AS left_event
+          JOIN events AS right_event ON right_event.id = session_refinements.covers_from_event_id
+         WHERE left_event.id = excluded.covers_from_event_id
+      ) = 1
