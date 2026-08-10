@@ -84,6 +84,7 @@ Stability and deprecation expectations for these runtime entrypoints:
 
 Currently deprecated:
 
+- `traceary sessions` interactive dashboard → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
 - bare `traceary` TTY default → `traceary --help` (removed in v0.35.0; deprecated in v0.34.0)
