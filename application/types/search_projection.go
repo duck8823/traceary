@@ -328,6 +328,22 @@ type SearchProjectionStatus struct {
 	CutoverAfterEvidence  CapacityEvidence `json:"cutover_after_evidence"`
 }
 
+// SearchProjectionControlStatus contains only persisted state-machine data.
+// It deliberately excludes derived measurements so lifecycle operations cannot
+// accidentally put whole-family scans on their control path.
+type SearchProjectionControlStatus struct {
+	State                    string
+	Phase                    string
+	ConfigHash               string
+	CapacitySemanticsVersion int
+	FailureClass             string
+	CutoverIndexFamily       string
+	CutoverFamilyBytesBefore int64
+	CutoverFamilyBytesAfter  int64
+	CutoverBeforeEvidence    CapacityEvidence
+	CutoverAfterEvidence     CapacityEvidence
+}
+
 // SearchProjectionCatchUpResult is one bounded unit of automatic generation
 // work performed during store initialization. It mirrors the event-search
 // backfill shape: a single open does a bounded amount of work and resumes

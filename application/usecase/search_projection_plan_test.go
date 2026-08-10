@@ -10,16 +10,21 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 )
 
 type wallBudgetStore struct {
-	budget      apptypes.SearchProjectionBudget
-	applied     bool
-	delayStatus bool
-	selected    bool
+	budget             apptypes.SearchProjectionBudget
+	applied            bool
+	delayStatus        bool
+	delayControlStatus bool
+	selected           bool
+	controlReads       int
+	measuredReads      int
+	state              string
 }
 
 func (s *wallBudgetStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
@@ -28,11 +33,25 @@ func (s *wallBudgetStore) Start(context.Context, apptypes.SearchProjectionBudget
 
 //nolint:wrapcheck // Test fake preserves context cancellation identity.
 func (s *wallBudgetStore) SearchProjectionStatus(ctx context.Context) (apptypes.SearchProjectionStatus, error) {
+	s.measuredReads++
 	if s.delayStatus {
 		<-ctx.Done()
 		return apptypes.SearchProjectionStatus{}, ctx.Err()
 	}
 	return apptypes.SearchProjectionStatus{State: "rebuilding", ConfigHash: s.budget.ConfigHash()}, nil
+}
+
+func (s *wallBudgetStore) SearchProjectionControlStatus(ctx context.Context) (apptypes.SearchProjectionControlStatus, error) {
+	s.controlReads++
+	if s.delayControlStatus {
+		<-ctx.Done()
+		return apptypes.SearchProjectionControlStatus{}, xerrors.Errorf("control status: %w", ctx.Err())
+	}
+	state := s.state
+	if state == "" {
+		state = "rebuilding"
+	}
+	return apptypes.SearchProjectionControlStatus{State: state, ConfigHash: s.budget.ConfigHash()}, nil
 }
 
 //nolint:wrapcheck // Test fake preserves context cancellation identity.
@@ -78,7 +97,7 @@ func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 func TestResumeStatusConsumesSameWallBudgetAndPreventsSelectionOrMutation(t *testing.T) {
 	t.Parallel()
 	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
-	store := &wallBudgetStore{budget: b, delayStatus: true}
+	store := &wallBudgetStore{budget: b, delayControlStatus: true}
 	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error=%v", err)
@@ -153,6 +172,9 @@ func (s *adaptiveProjectionStore) Start(context.Context, apptypes.SearchProjecti
 func (s *adaptiveProjectionStore) SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error) {
 	return apptypes.SearchProjectionStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash()}, nil
 }
+func (s *adaptiveProjectionStore) SearchProjectionControlStatus(context.Context) (apptypes.SearchProjectionControlStatus, error) {
+	return apptypes.SearchProjectionControlStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash()}, nil
+}
 func (s *adaptiveProjectionStore) SelectSnapshot(_ context.Context, b apptypes.SearchProjectionBudget, _ time.Time) (apptypes.ProjectionSnapshot, error) {
 	s.plannedRows = append(s.plannedRows, b.Rows)
 	documents := make([]apptypes.ProjectionDocument, 0, b.Rows)
@@ -189,6 +211,9 @@ type adaptiveInventoryProjectionStore struct {
 
 func (s *adaptiveInventoryProjectionStore) SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error) {
 	return apptypes.SearchProjectionStatus{State: "rebuilding", Phase: "inventory", ConfigHash: s.budget.ConfigHash()}, nil
+}
+func (s *adaptiveInventoryProjectionStore) SearchProjectionControlStatus(context.Context) (apptypes.SearchProjectionControlStatus, error) {
+	return apptypes.SearchProjectionControlStatus{State: "rebuilding", Phase: "inventory", ConfigHash: s.budget.ConfigHash()}, nil
 }
 
 func (s *adaptiveInventoryProjectionStore) SelectInventory(_ context.Context, b apptypes.SearchProjectionBudget) (apptypes.SearchProjectionInventorySnapshot, error) {
@@ -297,6 +322,9 @@ func (s *multiBatchProjectionStore) Start(context.Context, apptypes.SearchProjec
 }
 func (s *multiBatchProjectionStore) SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error) {
 	return apptypes.SearchProjectionStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash()}, nil
+}
+func (s *multiBatchProjectionStore) SearchProjectionControlStatus(context.Context) (apptypes.SearchProjectionControlStatus, error) {
+	return apptypes.SearchProjectionControlStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash()}, nil
 }
 func (s *multiBatchProjectionStore) SelectSnapshot(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.ProjectionSnapshot, error) {
 	next := s.checkpoint + 1
