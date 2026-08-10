@@ -224,6 +224,38 @@ func TestBodyCodecDerivationTriggers(t *testing.T) {
 		assertBodyStoredBytes(t, db, id, int64(len(body)), int64(len(body)))
 		assertLegacySourceHook(t, db, id, "")
 	})
+
+	// The case above supplies body_stored_bytes, so it exercises only the first
+	// arm of the trigger's COALESCE. insertEventAndAudit does not write that
+	// column at all, which is the shape every canonical write actually has.
+	t.Run("nonidentity insert without stored bytes falls back to plaintext bytes", func(t *testing.T) {
+		t.Parallel()
+		db := openBodyCodecDerivationDB(t)
+		defer closeBodyCodecDerivationDB(t, db)
+
+		const id = "zstd-insert-no-stored"
+		body := []byte("[phase:subagent] " + compressibleBody("canonical"))
+		encoded, err := encodePayload(body, payloadCodecZstd)
+		if err != nil {
+			t.Fatalf("encode zstd payload: %v", err)
+		}
+		if _, err := db.Exec(`
+			INSERT INTO events(
+				id, kind, client, agent, session_id, workspace, body, created_at,
+				body_codec, body_format_version, body_plaintext_bytes,
+				body_encoded_bytes, body_sha256
+			) VALUES (?, 'session_ended', 'cli', 'codex', 'session-codec', 'ws-codec', ?,
+				'2026-08-09T00:00:00Z', ?, ?, ?, ?, ?)
+		`, id, encoded.Bytes, encoded.Codec, encoded.FormatVersion,
+			encoded.PlaintextBytes, encoded.StoredBytes, encoded.SHA256); err != nil {
+			t.Fatalf("insert zstd event: %v", err)
+		}
+
+		// Not encoded.StoredBytes: a compressed row must still report the
+		// plaintext size, so it agrees with a row #1685 backfilled to zstd.
+		assertBodyStoredBytes(t, db, id, int64(len(body)), int64(len(body)))
+		assertLegacySourceHook(t, db, id, "")
+	})
 }
 
 type eventSeed struct {
