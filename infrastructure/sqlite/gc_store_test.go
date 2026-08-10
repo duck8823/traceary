@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -33,7 +34,7 @@ func TestDatasource_CollectGarbage_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(1, deletedCount); diff != "" {
+	if diff := cmp.Diff(0, deletedCount); diff != "" {
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 
@@ -74,7 +75,7 @@ func TestDatasource_CollectGarbage_DryRunSucceedsOnReadOnlyStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(1, deletedCount); diff != "" {
+	if diff := cmp.Diff(0, deletedCount); diff != "" {
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 
@@ -120,7 +121,7 @@ func TestDatasource_CollectGarbage_DryRunDoesNotCreateMissingStore(t *testing.T)
 	}
 }
 
-func TestDatasource_CollectGarbage_deletesOldEventsAndAudits(t *testing.T) {
+func TestDatasource_CollectGarbage_preservesUncoveredOldEventsAndAudits(t *testing.T) {
 	t.Parallel()
 
 	dbPath, fixture := prepareGCFixture(t)
@@ -134,14 +135,14 @@ func TestDatasource_CollectGarbage_deletesOldEventsAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(1, deletedCount); diff != "" {
+	if diff := cmp.Diff(0, deletedCount); diff != "" {
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 
-	if diff := cmp.Diff(1, countEvents(t, dbPath)); diff != "" {
+	if diff := cmp.Diff(2, countEvents(t, dbPath)); diff != "" {
 		t.Fatalf("event count mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(0, countCommandAudits(t, dbPath)); diff != "" {
+	if diff := cmp.Diff(1, countCommandAudits(t, dbPath)); diff != "" {
 		t.Fatalf("command audit count mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -190,6 +191,33 @@ CREATE TABLE command_audits (
     failed INTEGER NOT NULL DEFAULT 0,
     failure_reason TEXT NOT NULL DEFAULT 'unknown'
 );`),
+		},
+		"000004_add_gc_discard_dependencies.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN body_codec TEXT;
+ALTER TABLE events ADD COLUMN body_format_version INTEGER;
+ALTER TABLE events ADD COLUMN body_plaintext_bytes INTEGER;
+ALTER TABLE events ADD COLUMN body_encoded_bytes INTEGER;
+ALTER TABLE events ADD COLUMN body_sha256 TEXT;
+ALTER TABLE events ADD COLUMN body_pruned_at TEXT;
+ALTER TABLE events ADD COLUMN body_pruned_plan_id TEXT;
+ALTER TABLE command_audits ADD COLUMN command_codec TEXT;
+ALTER TABLE command_audits ADD COLUMN command_format_version TEXT;
+ALTER TABLE command_audits ADD COLUMN command_plaintext_bytes TEXT;
+ALTER TABLE command_audits ADD COLUMN command_encoded_bytes TEXT;
+ALTER TABLE command_audits ADD COLUMN command_sha256 TEXT;
+ALTER TABLE command_audits ADD COLUMN input_codec TEXT;
+ALTER TABLE command_audits ADD COLUMN input_format_version TEXT;
+ALTER TABLE command_audits ADD COLUMN input_plaintext_bytes TEXT;
+ALTER TABLE command_audits ADD COLUMN input_encoded_bytes TEXT;
+ALTER TABLE command_audits ADD COLUMN input_sha256 TEXT;
+ALTER TABLE command_audits ADD COLUMN output_codec TEXT;
+ALTER TABLE command_audits ADD COLUMN output_format_version TEXT;
+ALTER TABLE command_audits ADD COLUMN output_plaintext_bytes TEXT;
+ALTER TABLE command_audits ADD COLUMN output_encoded_bytes TEXT;
+ALTER TABLE command_audits ADD COLUMN output_sha256 TEXT;
+CREATE TABLE sessions (session_id TEXT PRIMARY KEY, ended_at TEXT);
+CREATE TABLE session_refinements (session_id TEXT PRIMARY KEY, covers_from_event_id TEXT NOT NULL, covers_to_event_id TEXT NOT NULL);`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -346,7 +374,10 @@ func TestDatasource_CollectGarbage_deletesOldEmptySessionsButProtectsActiveAndRe
 	assertNoForeignKeyViolations(t, db)
 }
 
-func TestDatasource_CollectGarbageAll_deletesEventsThenEmptySessions(t *testing.T) {
+// A surviving event keeps its session alive. Because gc no longer deletes
+// event rows, the "no surviving events" condition on the empty-session sweep
+// can no longer be satisfied by gc itself, so --target all removes neither.
+func TestDatasource_CollectGarbageAll_keepsTheEventRowAndSoKeepsItsSession(t *testing.T) {
 	t.Parallel()
 
 	dbPath, storeManager := prepareRetentionFixture(t)
@@ -362,7 +393,7 @@ func TestDatasource_CollectGarbageAll_deletesEventsThenEmptySessions(t *testing.
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
-	if diff := cmp.Diff(2, previewCount); diff != "" {
+	if diff := cmp.Diff(0, previewCount); diff != "" {
 		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
 	}
 	assertRetentionIDs(t, db, "events", "id", []string{"event-old"})
@@ -372,11 +403,11 @@ func TestDatasource_CollectGarbageAll_deletesEventsThenEmptySessions(t *testing.
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(2, deletedCount); diff != "" {
+	if diff := cmp.Diff(0, deletedCount); diff != "" {
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
-	assertRetentionIDs(t, db, "events", "id", nil)
-	assertRetentionIDs(t, db, "sessions", "session_id", nil)
+	assertRetentionIDs(t, db, "events", "id", []string{"event-old"})
+	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-only"})
 	assertNoForeignKeyViolations(t, db)
 }
 
@@ -614,7 +645,9 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets(t 
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
-	if diff := cmp.Diff(5, previewCount); diff != "" {
+	// The event is a note, so it is not discardable, and its survival keeps
+	// old-session referenced. Only the memory and memory-edge targets act.
+	if diff := cmp.Diff(3, previewCount); diff != "" {
 		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
 	}
 	assertRetentionIDs(t, db, "events", "id", []string{"old-event"})
@@ -629,8 +662,8 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets(t 
 	if diff := cmp.Diff(previewCount, deletedCount); diff != "" {
 		t.Fatalf("preview/apply count mismatch (-preview +apply):\n%s", diff)
 	}
-	assertRetentionIDs(t, db, "events", "id", nil)
-	assertRetentionIDs(t, db, "sessions", "session_id", nil)
+	assertRetentionIDs(t, db, "events", "id", []string{"old-event"})
+	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-session"})
 	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "stale-candidate"})
 	assertRetentionIDs(t, db, "memory_edges", "id", nil)
 
@@ -678,14 +711,17 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyWithProductionMigration
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(5, previewCount); diff != "" {
+	// Same expectation as the hand-written fixture, on the real migration set:
+	// the note survives, so its session survives, and only memories and
+	// memory edges are collected.
+	if diff := cmp.Diff(3, previewCount); diff != "" {
 		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(previewCount, deletedCount); diff != "" {
 		t.Fatalf("preview/apply count mismatch (-preview +apply):\n%s", diff)
 	}
-	assertRetentionIDs(t, db, "events", "id", nil)
-	assertRetentionIDs(t, db, "sessions", "session_id", nil)
+	assertRetentionIDs(t, db, "events", "id", []string{"old-event"})
+	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-session"})
 	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "stale-candidate"})
 	assertRetentionIDs(t, db, "memory_edges", "id", nil)
 	assertNoForeignKeyViolations(t, db)
@@ -837,4 +873,227 @@ func assertNoForeignKeyViolations(t *testing.T, db *sql.DB) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("foreign_key_check iteration: %v", err)
 	}
+}
+
+func TestDatasource_CollectGarbage_DryRunSkipsUnsupportedLegacyDiscardPredicate(t *testing.T) {
+	t.Parallel()
+
+	// Only the events target is exercised here: the fixture deliberately stops
+	// at the fold schema, so it cannot serve the memory targets that --target
+	// all also counts. That the other targets keep counting when this branch
+	// is skipped is pinned by
+	// TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets.
+	dbPath, store := prepareLegacyGCFixture(t)
+	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetEvents, true)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if diff := cmp.Diff(0, got); diff != "" {
+		t.Fatalf("discard count mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, countEvents(t, dbPath)); diff != "" {
+		t.Fatalf("event count mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func prepareLegacyGCFixture(t *testing.T) (string, *sqlite.StoreManagementDatasource) {
+	t.Helper()
+	// Mirrors the schema the released binary writes today: body_availability
+	// and sessions are present, session_refinements is not, so there is no
+	// fold evidence for the discard predicate to read.
+	migrations := fstest.MapFS{"000001_init.sql": {Data: []byte(`
+CREATE TABLE events (
+ id TEXT PRIMARY KEY, kind TEXT NOT NULL, agent TEXT NOT NULL, session_id TEXT NOT NULL,
+ body TEXT NOT NULL, body_availability TEXT NOT NULL DEFAULT 'available', created_at TEXT NOT NULL, source_hook TEXT
+);
+CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, ended_at TEXT);`)}}
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	store := newStoreManagementDatasource(t, dbPath, migrations)
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db := openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	execRetentionSQL(t, db, `INSERT INTO events(id, kind, agent, session_id, body, body_availability, created_at) VALUES ('legacy', 'transcript', 'codex', 'legacy-session', 'body', 'available', '2026-04-01T00:00:00Z')`)
+	return dbPath, store
+}
+
+func TestDatasource_CollectGarbage_discardsOnlyFoldedEndedTranscripts(t *testing.T) {
+	t.Parallel()
+
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name    string
+		kind    types.EventKind
+		session string
+		ended   bool
+		folded  bool
+		target  apptypes.GarbageCollectionTarget
+		want    string
+	}{
+		{name: "folded ended transcript", kind: types.EventKindTranscript, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents, want: "unavailable_retention"},
+		{name: "prompt survives events", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents, want: "available"},
+		{name: "prompt survives all", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetAll, want: "available"},
+		{name: "prompt survives sessions", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetSessions, want: "available"},
+		{name: "note survives", kind: types.EventKindNote, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents, want: "available"},
+		{name: "unfolded transcript survives", kind: types.EventKindTranscript, session: "ended", ended: true, target: apptypes.GarbageCollectionTargetEvents, want: "available"},
+		{name: "missing session survives", kind: types.EventKindTranscript, session: "missing", target: apptypes.GarbageCollectionTargetEvents, want: "available"},
+		{name: "active session survives", kind: types.EventKindTranscript, session: "active", folded: true, target: apptypes.GarbageCollectionTargetEvents, want: "available"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath, events, store := prepareDiscardGCFixture(t)
+			event := newGCEventFixture(t, "event-1", tc.kind, "retained metadata", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+			if err := events.Save(context.Background(), event); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+			db := openRetentionDB(t, dbPath)
+			defer func() { _ = db.Close() }()
+			if tc.session != "missing" {
+				insertGCSession(t, db, "session-1", tc.ended)
+			}
+			if tc.folded {
+				insertGCFold(t, db, "session-1", "event-1", "event-1")
+			}
+			before := gcEventPreservedFields(t, db, "event-1")
+			got, err := store.CollectGarbage(context.Background(), cutoff, tc.target, false)
+			if err != nil {
+				t.Fatalf("CollectGarbage() error = %v", err)
+			}
+			wantCount := 0
+			if tc.want == "unavailable_retention" {
+				wantCount = 1
+			}
+			if diff := cmp.Diff(wantCount, got); diff != "" {
+				t.Fatalf("discard count mismatch (-want +got):\n%s", diff)
+			}
+			availability := gcEventAvailability(t, db, "event-1")
+			if diff := cmp.Diff(tc.want, availability); diff != "" {
+				t.Fatalf("availability mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(before, gcEventPreservedFields(t, db, "event-1")); diff != "" {
+				t.Fatalf("preserved fields changed (-before +after):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDatasource_CollectGarbage_preservesCommandAuditAndDecodesDiscardMarker(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	transcript := newGCEventFixture(t, "transcript", types.EventKindTranscript, "discard me", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), transcript); err != nil {
+		t.Fatalf("Save(transcript) error = %v", err)
+	}
+	command, audit := newOldAuditFixture(t)
+	if err := events.SaveWithAudit(context.Background(), command, audit); err != nil {
+		t.Fatalf("SaveWithAudit() error = %v", err)
+	}
+	db := openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	insertGCSession(t, db, "session-1", true)
+	insertGCFold(t, db, "session-1", "transcript", "transcript")
+	prunedAt := time.Date(2026, 7, 2, 3, 4, 5, 6, time.UTC)
+	store.SetGarbageCollectionNowForTest(func() time.Time { return prunedAt })
+	var commandText, inputText string
+	if err := db.QueryRow(`SELECT command_text, input_text FROM command_audits WHERE event_id = ?`, command.EventID().String()).Scan(&commandText, &inputText); err != nil {
+		t.Fatalf("read command audit: %v", err)
+	}
+	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetAll, false)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if diff := cmp.Diff(1, got); diff != "" {
+		t.Fatalf("discard count mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(2, countEvents(t, dbPath)); diff != "" {
+		t.Fatalf("event row count mismatch (-want +got):\n%s", diff)
+	}
+	var recordedPrunedAt string
+	if err := db.QueryRow(`SELECT body_pruned_at FROM events WHERE id = 'transcript'`).Scan(&recordedPrunedAt); err != nil {
+		t.Fatalf("query body_pruned_at: %v", err)
+	}
+	if diff := cmp.Diff(prunedAt.Format(time.RFC3339Nano), recordedPrunedAt); diff != "" {
+		t.Fatalf("body_pruned_at mismatch (-want +got):\n%s", diff)
+	}
+	var afterCommand, afterInput string
+	if err := db.QueryRow(`SELECT command_text, input_text FROM command_audits WHERE event_id = ?`, command.EventID().String()).Scan(&afterCommand, &afterInput); err != nil {
+		t.Fatalf("read command audit after gc: %v", err)
+	}
+	if diff := cmp.Diff([]string{commandText, inputText}, []string{afterCommand, afterInput}); diff != "" {
+		t.Fatalf("command audit changed (-before +after):\n%s", diff)
+	}
+	plaintext, err := sqlite.LoadEventPlaintextForTest(context.Background(), db, transcript.EventID().String())
+	if err != nil {
+		t.Fatalf("loadEventPlaintext() error = %v", err)
+	}
+	if diff := cmp.Diff(types.EventBodyUnavailableRetentionMarker, string(plaintext)); diff != "" {
+		t.Fatalf("decoded marker mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestDatasource_CollectGarbage_DryRunReportsEligibleBodiesWithoutMutation(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	event := newGCEventFixture(t, "eligible", types.EventKindTranscript, "body", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), event); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	db := openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	insertGCSession(t, db, "session-1", true)
+	insertGCFold(t, db, "session-1", "eligible", "eligible")
+	got, err := store.CollectGarbage(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetEvents, true)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if diff := cmp.Diff(1, got); diff != "" {
+		t.Fatalf("candidate count mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("available", gcEventAvailability(t, db, "eligible")); diff != "" {
+		t.Fatalf("availability mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func prepareDiscardGCFixture(t *testing.T) (string, *sqlite.EventDatasource, *sqlite.StoreManagementDatasource) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	events, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	return dbPath, events, store
+}
+func insertGCSession(t *testing.T, db *sql.DB, id string, ended bool) {
+	t.Helper()
+	var endedAt any
+	if ended {
+		endedAt = "2026-06-02T00:00:00Z"
+	}
+	execRetentionSQL(t, db, `INSERT INTO sessions(session_id, started_at, ended_at, client, agent, workspace) VALUES (?, '2026-06-01T00:00:00Z', ?, 'cli', 'codex', 'repo')`, id, endedAt)
+}
+func insertGCFold(t *testing.T, db *sql.DB, sessionID, from, to string) {
+	t.Helper()
+	execRetentionSQL(t, db, `INSERT INTO session_refinements(session_id, generation, covers_from_event_id, covers_to_event_id, summary, produced_by, produced_at, degraded) VALUES (?, 1, ?, ?, 'summary', 'test', '2026-06-02T00:00:00Z', 0)`, sessionID, from, to)
+}
+func gcEventAvailability(t *testing.T, db *sql.DB, id string) string {
+	t.Helper()
+	var value string
+	if err := db.QueryRow(`SELECT body_availability FROM events WHERE id = ?`, id).Scan(&value); err != nil {
+		t.Fatalf("query availability: %v", err)
+	}
+	return value
+}
+func gcEventPreservedFields(t *testing.T, db *sql.DB, id string) []string {
+	t.Helper()
+	var original, stored sql.NullInt64
+	var createdAt, kind string
+	var count int
+	if err := db.QueryRow(`SELECT body_original_bytes, body_stored_bytes, created_at, kind FROM events WHERE id = ?`, id).Scan(&original, &stored, &createdAt, &kind); err != nil {
+		t.Fatalf("query preserved fields: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&count); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	return []string{nullableInt(original), nullableInt(stored), createdAt, kind, strconv.Itoa(count)}
 }

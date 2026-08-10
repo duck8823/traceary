@@ -24,6 +24,10 @@ import (
 // fixed-width form for boundary-correct TEXT comparisons. See
 // normalizeRFC3339NanoForCompare and #1185.
 const sqlTimestampNormalizeFunc = "ts_norm"
+
+// sqlTimestampValidFunc is the name of the SQLite scalar function that reports
+// whether a stored timestamp parses at all. See validTimestampSQLFunc.
+const sqlTimestampValidFunc = "ts_valid"
 const sqlPayloadDecodeFunc = "traceary_payload_decode"
 
 const (
@@ -43,6 +47,7 @@ func init() {
 		1,
 		normalizeTimestampSQLFunc,
 	)
+	sqlite.MustRegisterDeterministicScalarFunction(sqlTimestampValidFunc, 1, validTimestampSQLFunc)
 	sqlite.MustRegisterDeterministicScalarFunction(sqlPayloadDecodeFunc, 6, decodePayloadSQLFunc)
 	probe, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -110,6 +115,27 @@ func normalizeTimestampSQLFunc(_ *sqlite.FunctionContext, args []driver.Value) (
 		return args[0], nil
 	}
 	return normalizeRFC3339NanoForCompare(raw), nil
+}
+
+// validTimestampSQLFunc reports whether a column holds a timestamp whose age
+// can actually be determined. ts_norm deliberately degrades a malformed value
+// to lexical comparison so a read query never errors on a historical row, but
+// a comparison that only happens to succeed is not a safe basis for discarding
+// a body: "0" sorts before every real cutoff and would make an event of
+// unknown age look old enough to discard. Guards on irreversible writes pair
+// ts_norm with ts_valid so an undatable row fails closed instead.
+func validTimestampSQLFunc(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if len(args) != 1 {
+		return nil, xerrors.Errorf("%s expects exactly one argument, got %d", sqlTimestampValidFunc, len(args))
+	}
+	raw, ok := args[0].(string)
+	if !ok {
+		return int64(0), nil
+	}
+	if _, err := time.Parse(time.RFC3339Nano, raw); err != nil {
+		return int64(0), nil
+	}
+	return int64(1), nil
 }
 
 // normalizeRFC3339NanoForCompare rewrites a variable-width RFC3339Nano

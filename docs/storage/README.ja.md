@@ -162,24 +162,30 @@ Durable memory に紐づく artifact ref です。
 - 既定 retention: `90` 日 (`--keep-days 90`)
 - 既定 target: `all` (`--target all`)
 - 利用可能な target: `events`, `sessions`, `memories`, `memory_edges`, `all`
-- `--dry-run`: 同じ削除計画を rollback される transaction 内で実行し、候補件数だけ表示
+- `--dry-run`: 同じ整理計画を rollback される transaction 内で実行し、候補件数だけ表示
 - 物理容量回収は分離し、`traceary store compact plan --db-path PATH`でpreviewする。
   GCはin-place `VACUUM`を実行しない
 
-削除の前に、`store gc` は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。出力は orphan 機械要約件数と削除件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
+本文破棄のあとに、`store gc` は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
+
+**その run で機械要約したものは、その run では破棄しません。** 破棄は機械要約より先に走るため、run 開始時点の被覆だけを見ます。dry-run は書き込まずに機械要約するので同じ被覆を見ています。もし apply が先に要約してから破棄すると、preview が数えられなかった本文を失うことになり、それはまさに `--dry-run` が可視化するために存在する損失です。この順序にすることで、preview は構造上そのまま正確になります。ある run が要約した分は次の run で破棄対象になり、その run の preview が先に件数を示します。被覆は増えるだけなので、取り残しは生じません。
 
 target ごとの policy:
 
-- `events`: `events.created_at < cutoff` の row を削除します。紐づく `command_audits` は foreign key により cascade されます。
+- `events`: event row は削除しません。終了済み session で refinement に被覆された古い `transcript` 本文だけを不可逆に retention marker へ置換します。ここでの被覆とは、同一 session の refinement であり、その境界 event も同じ session に属し、範囲が対象 event に届いていることを指します。`created_at` が parse できない event は、年齢を判定できないため破棄しません。event skeleton、`prompt` 本文、他の kind、`command_audits.command_text` / `input_text` は常に残ります。この経路は retention ledger を書きません。review 可能かつ archive から復元可能な経路は `store retention` です。
 - `sessions`: `COALESCE(ended_at, started_at) < cutoff` かつ surviving event から参照されていない終了済み session を削除します。active session (`ended_at IS NULL`) は常に保護されます。
 - `memories`: `updated_at < cutoff` の `expired` / `superseded` / `rejected` memory を物理削除します。`accepted` と `candidate` は age 削除しません。**例外:** 未レビューの auto-extracted candidate (`source IN (extracted, extracted-hidden, compact-summary)`) は 14 日超で **hard delete ではなく `expired` へ decay** し、keep-days の物理 GC まで restore 可能です（#1368）。物理削除時は evidence/artifact ref が cascade され、削除または decay 直前の行を指す `supersedes_memory_id` は先に NULL へ更新されます。
 - `memory_edges`: `valid_to < cutoff` の終了済み edge を削除します。endpoint の memory が削除される場合も edge は自動 cascade されます。
-- `all`: events、sessions、memories、memory_edges の順に依存関係を保って適用します。
+- `all`: events、sessions、memories、memory_edges の順に依存関係を保って適用します。event row が残るため、`delete_empty_sessions.sql` は event 削除によって候補を得なくなります。
+
+fold schema より前の store には被覆の証跡が無いため、破棄候補も存在しません。store を read-only・未 migration で読む `--dry-run` は、そのような store の `events` target について失敗ではなく `0` を報告します。他の target は通常どおり数えます。
+
+将来の破棄理由は additive な sidecar column で表し、`body_availability` の値を増やしてはいけません。CHECK を広げるには `events` の再構築が必要で、additive-migration rollback 契約に反するためです。
 
 実務上の意味:
 
 - `gc` は opt-in であり、Traceary が background で自動削除することはありません
-- 従来どおり event だけを掃除したい場合は `--target events` を使ってください
+- 被覆済みの transcript 本文だけを破棄したい場合は `--target events` を使ってください
 - 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
 - cold 行の export と **verify-before-delete** は [Archive-before-GC](./archive-before-gc.ja.md)（#1309）を参照。フルファイル backup は [バックアップガイド](../backup/README.ja.md)
 

@@ -163,24 +163,30 @@ If you need a portable copy, use `traceary store backup create` instead of editi
 - default retention: `90` days (`--keep-days 90`)
 - default target: `all` (`--target all`)
 - available targets: `events`, `sessions`, `memories`, `memory_edges`, `all`
-- `--dry-run`: run the same deletion plan inside a rolled-back transaction and print only the candidate count
+- `--dry-run`: run the same cleanup plan inside a rolled-back transaction and print only the candidate count
 - physical reclamation is separate: preview `traceary store compact plan
   --db-path PATH`; GC never runs an in-place `VACUUM`
 
-Before deletion, `store gc` consolidates **orphan ranges**: event spans past `session_refinements.covers_to` that an agent can no longer fold (session ended, treated as stale after 24h of inactivity, or front-loaded at a post-compact marker). For each still-unfolded range it writes a mechanical `degraded=1` refinement (`produced_by=gc:orphan-consolidation`) covering when, which event kinds, how often, and which commands ran — not agent reasoning. Output reports both the orphan-refinement count and the deletion count. `--dry-run` counts both and writes neither. There is no separate command or `--target` for this step.
+After body discard, `store gc` consolidates **orphan ranges**: event spans past `session_refinements.covers_to` that an agent can no longer fold (session ended, treated as stale after 24h of inactivity, or front-loaded at a post-compact marker). For each still-unfolded range it writes a mechanical `degraded=1` refinement (`produced_by=gc:orphan-consolidation`) covering when, which event kinds, how often, and which commands ran — not agent reasoning. That mechanical refinement **is** sufficient coverage for discard: what a discard removes is the text, and what it promises to keep — bytes, timestamps, counts — is exactly what the refinement records. Output reports both the orphan-refinement count and the cleanup count. `--dry-run` counts both and writes neither. There is no separate command or `--target` for this step.
+
+**A run never discards what it just folded.** The discard runs before consolidation, so it acts on the coverage that existed when the run began. A dry run consolidates without writing and therefore sees the same coverage; if an apply folded first, it would discard bodies the preview could not have counted — the one loss `--dry-run` exists to make visible. Ordering the two steps this way makes the preview exact by construction. What a run folds becomes discardable on the next run, whose preview counts it first, and coverage only ever grows, so nothing is stranded.
 
 Target policies:
 
-- `events`: delete rows where `events.created_at < cutoff`; linked `command_audits` cascade via foreign keys.
+- `events`: never deletes event rows. It irreversibly discards only old, covered `transcript` bodies from ended sessions, replacing them with the retention marker. Coverage means a refinement of that same session whose boundary events also belong to that session and whose range reaches the event; an event whose `created_at` does not parse is never discarded, because its age cannot be established. Event skeletons, `prompt` bodies, all other kinds, and `command_audits.command_text` / `input_text` always remain. This path writes no retention ledger; use `store retention` for reviewable, archive-restorable pruning.
 - `sessions`: delete ended sessions where `COALESCE(ended_at, started_at) < cutoff` and no surviving events reference the session. Active sessions (`ended_at IS NULL`) are always protected.
 - `memories`: physically delete `expired`, `superseded`, or `rejected` memories where `updated_at < cutoff`. `accepted` and `candidate` rows are not age-deleted. **Exception:** unreviewed auto-extracted candidates (`source IN (extracted, extracted-hidden, compact-summary)`) older than 14 days are **decayed to `expired`** (not hard-deleted) so they remain restorable until keep-days GC (#1368). Evidence/artifact refs cascade on physical delete; `supersedes_memory_id` pointers to deleted or about-to-decay rows are cleared first.
 - `memory_edges`: delete closed edges where `valid_to < cutoff`; edges also cascade automatically when either endpoint memory is deleted.
-- `all`: apply the policies in dependency order: events, sessions, memories, then memory_edges.
+- `all`: apply the policies in dependency order: events, sessions, memories, then memory_edges. Because events now survive, `delete_empty_sessions.sql` is no longer fed by event deletion.
+
+A store that predates the fold schema holds no coverage evidence, so it has no discard candidates. `--dry-run`, which deliberately reads the store read-only and unmigrated, reports `0` for the `events` target on such a store instead of failing; the other targets are counted as usual.
+
+Future discard reasons must use an additive sidecar column, never a new `body_availability` value: widening its CHECK would rebuild `events` and violate the additive-migration rollback contract.
 
 Practical implications:
 
 - `gc` is opt-in; Traceary does not delete history automatically in the background
-- use `--target events` for legacy event-only cleanup
+- use `--target events` to discard covered transcript bodies only
 - if you care about long-term audit history, take a backup before an aggressive cleanup
 - for cold-row export with **verify-before-delete**, see [Archive-before-GC](./archive-before-gc.md) (#1309); full-file backup remains [Backup guide](../backup/README.md)
 

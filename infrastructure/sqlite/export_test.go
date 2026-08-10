@@ -2,6 +2,8 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"time"
 
 	"github.com/duck8823/traceary/domain/model"
 )
@@ -31,4 +33,14 @@ func (d *SessionDatasource) SaveSessionBoundaryForTest(ctx context.Context, sess
 	}
 	defer func() { _ = db.Close() }()
 	return saveSessionBoundary(ctx, db, session)
+}
+
+// LoadEventPlaintextForTest exposes codec decoding for persistence assertions.
+func LoadEventPlaintextForTest(ctx context.Context, db *sql.DB, eventID string) ([]byte, error) {
+	return loadEventPlaintext(ctx, db, eventID)
+}
+
+// SetGarbageCollectionNowForTest fixes the timestamp persisted by gc discards.
+func (d *StoreManagementDatasource) SetGarbageCollectionNowForTest(now func() time.Time) {
+	d.now = now
 }

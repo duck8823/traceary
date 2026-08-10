@@ -49,16 +49,11 @@ func (d *StoreManagementDatasource) ListRawBodyCandidates(ctx context.Context, b
 	if err != nil {
 		return apptypes.RawBodyRetentionSnapshot{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `
-SELECT e.id, e.created_at, e.body_stored_bytes, e.body
-  FROM events AS e
- WHERE e.body_availability = 'available'
-   AND ts_norm(e.created_at) < ts_norm(?)
-   AND NOT EXISTS (
-       SELECT 1 FROM sessions AS s
-        WHERE s.session_id = e.session_id AND s.ended_at IS NULL
-   )
- ORDER BY ts_norm(e.created_at), e.id`, formatTimestamp(before))
+	candidateQuery, err := composeDiscardableEventBodiesQuery(listRawBodyCandidatesQuery)
+	if err != nil {
+		return apptypes.RawBodyRetentionSnapshot{}, err
+	}
+	rows, err := tx.QueryContext(ctx, candidateQuery, formatTimestamp(before))
 	if err != nil {
 		return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to query raw-body candidates: %w", err)
 	}
@@ -136,7 +131,7 @@ func (d *StoreManagementDatasource) ApplyRawBodyPlan(ctx context.Context, databa
 	}
 	defer closeRawBodyResource(db)
 	stamp := formatTimestamp(appliedAt)
-	if err := preflightRawBodyCandidates(ctx, db, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest, planID, candidates); err != nil {
+	if err := preflightRawBodyCandidates(ctx, db, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest, planID, candidates, stamp); err != nil {
 		return result, err
 	}
 	if err := startRawBodyExecution(ctx, db, sourcePath, databaseIdentity, sqliteUserVersion, migrationDigest, planID, len(candidates), stamp); err != nil {
@@ -225,7 +220,7 @@ func applyRawBodyCandidate(ctx context.Context, db *sql.DB, sourcePath, database
 	} else if executionStatus != "completed" {
 		return false, xerrors.Errorf("raw-body execution cannot apply from status %s", executionStatus)
 	}
-	body, alreadyPruned, err := verifyRawBodyCandidateState(ctx, tx, planID, candidate)
+	body, alreadyPruned, err := verifyRawBodyCandidateState(ctx, tx, planID, candidate, stamp)
 	if err != nil {
 		return false, err
 	}
@@ -279,7 +274,7 @@ SET pruned_count = (SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_i
 	return true, nil
 }
 
-func preflightRawBodyCandidates(ctx context.Context, db *sql.DB, sourcePath, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidates []apptypes.RawBodyCandidate) error {
+func preflightRawBodyCandidates(ctx context.Context, db *sql.DB, sourcePath, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidates []apptypes.RawBodyCandidate, appliedAt string) error {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return xerrors.Errorf("failed to begin raw-body preflight: %w", err)
@@ -289,7 +284,7 @@ func preflightRawBodyCandidates(ctx context.Context, db *sql.DB, sourcePath, dat
 		return err
 	}
 	for _, candidate := range candidates {
-		if _, _, err := verifyRawBodyCandidateState(ctx, tx, planID, candidate); err != nil {
+		if _, _, err := verifyRawBodyCandidateState(ctx, tx, planID, candidate, appliedAt); err != nil {
 			return err
 		}
 	}
@@ -299,14 +294,17 @@ func preflightRawBodyCandidates(ctx context.Context, db *sql.DB, sourcePath, dat
 	return nil
 }
 
-func verifyRawBodyCandidateState(ctx context.Context, tx *sql.Tx, planID string, candidate apptypes.RawBodyCandidate) (string, bool, error) {
+func verifyRawBodyCandidateState(ctx context.Context, tx *sql.Tx, planID string, candidate apptypes.RawBodyCandidate, appliedAt string) (string, bool, error) {
 	var body, createdAt, availability string
 	var stored int
 	var prunedPlan sql.NullString
-	var activeSession bool
-	err := tx.QueryRowContext(ctx, `SELECT e.body, e.created_at, e.body_availability, e.body_stored_bytes, e.body_pruned_plan_id,
-EXISTS(SELECT 1 FROM sessions AS s WHERE s.session_id = e.session_id AND s.ended_at IS NULL)
-FROM events AS e WHERE e.id = ?`, candidate.EventID).Scan(&body, &createdAt, &availability, &stored, &prunedPlan, &activeSession)
+	var eligible bool
+	verifyQuery, err := composeDiscardableEventBodiesQuery(verifyRawBodyCandidateStateQuery)
+	if err != nil {
+		return "", false, err
+	}
+	// An event old enough when planned remains old enough at apply time.
+	err = tx.QueryRowContext(ctx, verifyQuery, appliedAt, candidate.EventID, candidate.EventID).Scan(&body, &createdAt, &availability, &stored, &prunedPlan, &eligible)
 	if err != nil {
 		return "", false, xerrors.Errorf("failed to verify raw-body candidate %s: %w", candidate.EventID, err)
 	}
@@ -316,13 +314,13 @@ FROM events AS e WHERE e.id = ?`, candidate.EventID).Scan(&body, &createdAt, &av
 			return "", false, xerrors.Errorf("raw-body execution ledger does not match pruned event %s", candidate.EventID)
 		}
 		persistedCreatedAt, parseErr := time.Parse(time.RFC3339Nano, createdAt)
-		if parseErr != nil || !persistedCreatedAt.Equal(candidate.CreatedAt) || stored != candidate.StoredBytes || body != domtypes.EventBodyUnavailableRetentionMarker || activeSession {
+		if parseErr != nil || !persistedCreatedAt.Equal(candidate.CreatedAt) || stored != candidate.StoredBytes || body != domtypes.EventBodyUnavailableRetentionMarker {
 			return "", false, xerrors.Errorf("durable raw-body candidate state changed for event %s", candidate.EventID)
 		}
 		return body, true, nil
 	}
-	if activeSession {
-		return "", false, xerrors.Errorf("raw-body plan is stale because event %s belongs to an active session", candidate.EventID)
+	if !eligible {
+		return "", false, xerrors.Errorf("raw-body plan is stale because event %s is no longer discardable", candidate.EventID)
 	}
 	plain, decodeErr := loadEventPlaintext(ctx, tx, candidate.EventID)
 	if decodeErr != nil {
