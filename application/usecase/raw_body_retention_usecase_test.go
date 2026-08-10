@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,16 +19,15 @@ import (
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
-func TestRawBodyRetentionPlanReportsNetBodyColumnChange(t *testing.T) {
+func TestRawBodyRetentionPlanStoresEncodedExtentsAndProjectedMarkers(t *testing.T) {
 	t.Parallel()
 
 	const (
 		compressedID       = "retention-compressed"
 		legacyID           = "retention-legacy"
 		markerEncodedBytes = 37 // measured by encodePayload(marker, payloadCodecIdentity)
-		compressedNetBytes = 44 - markerEncodedBytes
-		legacyNetBytes     = 9 - markerEncodedBytes
-		totalNetBytes      = compressedNetBytes + legacyNetBytes
+		currentBytes       = 44 + 9
+		projectedBytes     = markerEncodedBytes * 2
 	)
 	if markerEncodedBytes != len([]byte(domtypes.EventBodyUnavailableRetentionMarker)) {
 		t.Fatalf("retention marker encoded size fixture is stale")
@@ -65,20 +65,25 @@ func TestRawBodyRetentionPlanReportsNetBodyColumnChange(t *testing.T) {
 				t.Fatalf("decodeRetentionPlan() error = %v", err)
 			}
 			got := struct {
-				Total      string
+				Current    string
+				Projected  string
 				Candidates []string
-			}{
-				Total: plan.CanonicalPayload.ClassResults[0].Ceilings[0].Current.Bytes,
-			}
+			}{}
 			for _, candidate := range plan.CanonicalPayload.Candidates {
 				got.Candidates = append(got.Candidates, candidate.LogicalExtent.Bytes)
 			}
 			want := struct {
-				Total      string
+				Current    string
+				Projected  string
 				Candidates []string
-			}{Total: "-21", Candidates: []string{"7", "-28"}}
+			}{Current: "53", Projected: "74", Candidates: []string{"44", "9"}}
+			got.Current = plan.CanonicalPayload.ClassResults[0].Ceilings[0].Current.Bytes
+			got.Projected = plan.CanonicalPayload.ClassResults[0].Ceilings[0].Projected.Bytes
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Fatalf("retention plan extents mismatch (-want +got):\n%s", diff)
+			}
+			if got.Current != strconv.Itoa(currentBytes) || got.Projected != strconv.Itoa(projectedBytes) {
+				t.Fatalf("retention plan totals are not exact: current=%s projected=%s", got.Current, got.Projected)
 			}
 
 			if _, err := workflow.Apply(context.Background(), planData, recoveryPath, plan.PlanID, now.Add(time.Hour)); err != nil {

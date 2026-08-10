@@ -7,7 +7,7 @@ type RetentionPlan struct {
 	Display          RetentionPlanDisplay      `json:"display,omitempty"`
 }
 
-// RetentionCanonicalPayload is the hashed portion of retention-plan/v1.
+// RetentionCanonicalPayload is the hashed portion of retention-plan/v2.
 type RetentionCanonicalPayload struct {
 	SchemaVersion        string                   `json:"schema_version"`
 	CreatedAt            string                   `json:"created_at"`

@@ -37,6 +37,7 @@
       "x-traceary-order": ["satisfied", "unsatisfied", "indeterminate"]
     },
     "decimal": {"type": "string", "pattern": "^(0|-[1-9][0-9]*|[1-9][0-9]*)$"},
+    "unsignedDecimal": {"type": "string", "pattern": "^(0|[1-9][0-9]*)$"},
     "safeCount": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
     "instant": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -46,7 +47,7 @@
       "required": ["availability"],
       "properties": {
         "availability": {"type": "string", "enum": ["known", "unknown"]},
-        "bytes": {"$ref": "#/$defs/decimal"}
+        "bytes": {"$ref": "#/$defs/unsignedDecimal"}
       },
       "allOf": [
         {"if": {"properties": {"availability": {"const": "known"}}}, "then": {"required": ["bytes"]}},
@@ -179,7 +180,7 @@
       "additionalProperties": false,
       "required": ["schema_version", "created_at", "snapshot_at", "source", "policy", "class_results", "candidates", "exclusions", "recovery_requirements", "phases"],
       "properties": {
-        "schema_version": {"const": "retention-plan/v1"},
+        "schema_version": {"const": "retention-plan/v2"},
         "created_at": {"$ref": "#/$defs/instant"},
         "snapshot_at": {"$ref": "#/$defs/instant"},
         "source": {"$ref": "#/$defs/source"},

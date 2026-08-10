@@ -11,6 +11,34 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
+func TestRetentionNetChangeDisplaysDifferenceForLargerAndSmallerCandidates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		current   string
+		projected string
+		want      string
+	}{
+		{name: "candidate exceeds marker", current: "44", projected: "37", want: "7"},
+		{name: "candidate is smaller than marker", current: "9", projected: "37", want: "-28"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := retentionNetChange(test.current, test.projected)
+			if err != nil {
+				t.Fatalf("retentionNetChange() error = %v", err)
+			}
+			if got != test.want {
+				t.Fatalf("retentionNetChange() = %q, want %q", got, test.want)
+			}
+			if got == test.current || got == test.projected {
+				t.Fatalf("displayed figure reused a stored extent: %q", got)
+			}
+		})
+	}
+}
+
 type rawBodyRetentionStub struct {
 	plan []byte
 }
