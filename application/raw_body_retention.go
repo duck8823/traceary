@@ -10,6 +10,7 @@ import (
 // RawBodyRetentionPlanner provides a body-free snapshot for immutable plan creation.
 type RawBodyRetentionPlanner interface {
 	ListRawBodyCandidates(ctx context.Context, before time.Time) (apptypes.RawBodyRetentionSnapshot, error)
+	RetentionMarkerEncodedBytes() (int, error)
 }
 
 // RawBodyRetentionExecutor applies and restores exact reviewed body identities.

@@ -7,9 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"golang.org/x/xerrors"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 func TestCanonicalizeJSON_matchesCheckedInGoldenVector(t *testing.T) {
@@ -40,7 +43,7 @@ func TestCanonicalizeJSON_matchesCheckedInGoldenVector(t *testing.T) {
 		t.Fatal("canonical bytes do not match checked-in golden vector")
 	}
 	digest := sha256.Sum256(got)
-	if hex.EncodeToString(digest[:]) != "3b101f3dcfeb284816dd34fc8de8c1f28df96181f505a385bbdbd0ff9cfdbba8" {
+	if hex.EncodeToString(digest[:]) != "519b1e4039fcf9afb33619ae18931d0f7344649b22b04b9fc9716e672722b69e" {
 		t.Fatalf("canonical digest = %s", hex.EncodeToString(digest[:]))
 	}
 }
@@ -59,6 +62,34 @@ func TestRawBodyCandidateIdentity_roundTripsOpaqueEventID(t *testing.T) {
 	}
 	if gotID != eventID || gotDigest != digest {
 		t.Fatalf("round trip = (%q, %q)", gotID, gotDigest)
+	}
+}
+
+func TestDecodeRetentionPlanRejectsV1WithVersionInFailure(t *testing.T) {
+	t.Parallel()
+
+	planData, err := os.ReadFile(filepath.Join("..", "..", "docs", "operations", "testdata", "retention-plan.golden.json"))
+	if err != nil {
+		t.Fatalf("read golden plan: %v", err)
+	}
+	var plan apptypes.RetentionPlan
+	if err := json.Unmarshal(planData, &plan); err != nil {
+		t.Fatalf("unmarshal golden plan: %v", err)
+	}
+	plan.CanonicalPayload.SchemaVersion = "retention-plan/v1"
+	canonical, err := canonicalRetentionPayload(plan.CanonicalPayload)
+	if err != nil {
+		t.Fatalf("canonicalize v1 payload: %v", err)
+	}
+	digest := sha256.Sum256(canonical)
+	plan.PlanID = hex.EncodeToString(digest[:])
+	planData, err = json.Marshal(plan)
+	if err != nil {
+		t.Fatalf("marshal v1 plan: %v", err)
+	}
+	_, err = decodeRetentionPlan(planData)
+	if err == nil || !strings.Contains(err.Error(), `unsupported retention plan schema "retention-plan/v1"`) {
+		t.Fatalf("decodeRetentionPlan() error = %v, want named v1 version failure", err)
 	}
 }
 

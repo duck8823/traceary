@@ -1,7 +1,7 @@
 {
-  "plan_id": "3b101f3dcfeb284816dd34fc8de8c1f28df96181f505a385bbdbd0ff9cfdbba8",
+  "plan_id": "519b1e4039fcf9afb33619ae18931d0f7344649b22b04b9fc9716e672722b69e",
   "canonical_payload": {
-    "schema_version": "retention-plan/v1",
+    "schema_version": "retention-plan/v2",
     "created_at": "2026-07-22T00:00:00Z",
     "snapshot_at": "2026-07-22T00:00:00Z",
     "source": {

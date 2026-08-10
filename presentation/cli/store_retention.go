@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -139,10 +140,48 @@ func (c *RootCLI) runStoreRetentionPlan(ctx context.Context, output io.Writer, i
 	if err := json.Unmarshal(plan, &header); err != nil {
 		return xerrors.Errorf("read generated plan ID: %w", err)
 	}
-	if _, err := fmt.Fprintf(output, "Plan: %s\nPlan ID: %s\n", input.outputPath, header.PlanID); err != nil {
+	var figure struct {
+		CanonicalPayload struct {
+			ClassResults []struct {
+				Ceilings []struct {
+					Current struct {
+						Bytes string `json:"bytes"`
+					} `json:"current"`
+					Projected struct {
+						Bytes string `json:"bytes"`
+					} `json:"projected"`
+				} `json:"ceilings"`
+			} `json:"class_results"`
+		} `json:"canonical_payload"`
+	}
+	if err := json.Unmarshal(plan, &figure); err != nil {
+		return xerrors.Errorf("read retention plan reclaim figure: %w", err)
+	}
+	netChange := "0"
+	if len(figure.CanonicalPayload.ClassResults) == 1 && len(figure.CanonicalPayload.ClassResults[0].Ceilings) == 1 {
+		ceiling := figure.CanonicalPayload.ClassResults[0].Ceilings[0]
+		current, err := retentionNetChange(ceiling.Current.Bytes, ceiling.Projected.Bytes)
+		if err != nil {
+			return xerrors.Errorf("compute retention plan reclaim figure: %w", err)
+		}
+		netChange = current
+	}
+	if _, err := fmt.Fprintf(output, "Plan: %s\nPlan ID: %s\nNet body-column change after retention markers are written (encoded bytes): %s\n", input.outputPath, header.PlanID, netChange); err != nil {
 		return xerrors.Errorf("print retention plan result: %w", err)
 	}
 	return nil
+}
+
+func retentionNetChange(current, projected string) (string, error) {
+	currentBytes, err := strconv.Atoi(current)
+	if err != nil || currentBytes < 0 {
+		return "", xerrors.Errorf("invalid current retention extent")
+	}
+	projectedBytes, err := strconv.Atoi(projected)
+	if err != nil || projectedBytes < 0 {
+		return "", xerrors.Errorf("invalid projected retention extent")
+	}
+	return strconv.Itoa(currentBytes - projectedBytes), nil
 }
 
 func (c *RootCLI) runStoreRetentionApply(ctx context.Context, output io.Writer, input storeRetentionExecutionInput) error {

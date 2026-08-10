@@ -19,7 +19,7 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-const retentionPlanSchemaVersion = "retention-plan/v1"
+const retentionPlanSchemaVersion = "retention-plan/v2"
 
 var (
 	canonicalUnsignedInteger = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
