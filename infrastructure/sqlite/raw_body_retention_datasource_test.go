@@ -277,6 +277,52 @@ func TestRawBodyRetention_rejectsStaleCandidateWithoutPruning(t *testing.T) {
 	}
 }
 
+func TestRawBodyRetention_rejectsReencodedCandidate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "encoded extent changed", body: "body whose representation changes"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "traceary.db")
+			events, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+			if err := store.Initialize(context.Background()); err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+			const eventID = "reencoded-event"
+			if err := events.Save(context.Background(), rawBodyRetentionEvent(t, eventID, test.body, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+			makeRawBodyRetentionEligible(t, dbPath, eventID)
+			snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+			if err != nil {
+				t.Fatalf("ListRawBodyCandidates() error = %v", err)
+			}
+			before := snapshot.Candidates[0].EncodedBytes
+			db, err := sql.Open("sqlite", "file:"+dbPath)
+			if err != nil {
+				t.Fatalf("sql.Open() error = %v", err)
+			}
+			if _, err := db.Exec(`UPDATE events SET body_encoded_bytes = body_encoded_bytes + 1 WHERE id = ?`, eventID); err != nil {
+				t.Fatalf("simulate re-encode: %v", err)
+			}
+			_ = db.Close()
+
+			_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", snapshot.Candidates, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC))
+			if err == nil {
+				t.Fatal("ApplyRawBodyPlan() error = nil, want encoded-extent stale-plan rejection")
+			}
+			if diff := cmp.Diff(before+1, rawBodyEncodedBytes(t, dbPath, eventID)); diff != "" {
+				t.Fatalf("encoded extent after simulated re-encode mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestRawBodyRetention_rejectsSchemaDriftWithoutPruning(t *testing.T) {
 	t.Parallel()
 
@@ -660,6 +706,20 @@ FROM events WHERE id = ?`, eventID).Scan(&kind, &client, &agent, &sessionID, &wo
 		t.Fatalf("metadata query: %v", err)
 	}
 	return kind + "|" + client + "|" + agent + "|" + sessionID + "|" + workspace + "|" + createdAt + "|" + nullableInt(original) + "|" + nullableInt(stored) + "|" + nullableInt(ingest) + "|" + nullableInt(storage) + "|" + nullableInt(version)
+}
+
+func rawBodyEncodedBytes(t *testing.T, dbPath, eventID string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open(encoded bytes) error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var encoded int
+	if err := db.QueryRow(`SELECT body_encoded_bytes FROM events WHERE id = ?`, eventID).Scan(&encoded); err != nil {
+		t.Fatalf("read encoded bytes: %v", err)
+	}
+	return encoded
 }
 
 func nullableInt(value sql.NullInt64) string {
