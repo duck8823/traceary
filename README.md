@@ -184,7 +184,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 traceary tui
 ```
 
-`traceary` opens the Tail-first operator cockpit in an interactive terminal. The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions --snapshot` for the replacement cockpit and `traceary --help` for the default entrypoint. In non-interactive shells, bare `traceary` prints deterministic help/fallback guidance so scripts should continue calling explicit commands such as `traceary list`, `traceary sessions --snapshot [--json]`, `traceary top --snapshot [--json]`, and `traceary doctor --json`.
+`traceary` opens the Tail-first operator cockpit in an interactive terminal. The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions --snapshot` for the surviving script-friendly view of the same data and `traceary --help` for the default entrypoint. In non-interactive shells, bare `traceary` prints deterministic help/fallback guidance so scripts should continue calling explicit commands such as `traceary list`, `traceary sessions --snapshot [--json]`, `traceary top --snapshot [--json]`, and `traceary doctor --json`.
 
 ### `traceary sessions`
 

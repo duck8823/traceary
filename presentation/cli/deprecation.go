@@ -24,7 +24,9 @@ func applyDeprecation(cmd *cobra.Command, subject string, japaneseSubject string
 	}
 }
 
-// writeDeprecationNotice emits the same notice form for a deprecated default behavior.
+// writeDeprecationNotice emits the notice immediately. Callers that deprecate a
+// default behaviour rather than a command path use it directly, at the point
+// where the behaviour is about to happen; `apply*` installs a hook instead.
 func writeDeprecationNotice(cmd *cobra.Command, subject string, japaneseSubject string, replacement string, removalVersion string) {
 	message := Localize(
 		fmt.Sprintf("DEPRECATED: %s is deprecated, use `%s` instead. Removal target: %s.", subject, replacement, removalVersion),
@@ -32,8 +34,4 @@ func writeDeprecationNotice(cmd *cobra.Command, subject string, japaneseSubject 
 	)
 	// The notice is advisory; a broken stderr writer must not change the command contract.
 	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), message)
-}
-
-func applyBehaviorDeprecation(cmd *cobra.Command, subject string, japaneseSubject string, replacement string, removalVersion string) {
-	writeDeprecationNotice(cmd, subject, japaneseSubject, replacement, removalVersion)
 }

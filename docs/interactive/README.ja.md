@@ -22,7 +22,7 @@
 
 ### 1. 「まず1か所から始めたい」 → `traceary`
 
-対話 terminal で Traceary の Tail-first operator cockpit を開きたいときは bare `traceary` を使います。bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。置き換え cockpit には `traceary sessions --snapshot` を使用してください。cockpit は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。そこから次の画面へ移動できます。
+対話 terminal で Traceary の Tail-first operator cockpit を開きたいときは bare `traceary` を使います。bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。代わりに `traceary sessions --snapshot` を使用してください。cockpit は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。そこから次の画面へ移動できます。
 
 - live event tail
 - doctor details
@@ -132,7 +132,7 @@ v0.19.0 では、stdin/stdout が対話 terminal に接続されている場合�
 
 互換性の contract は次の通りです。
 
-- bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除する。既定の入口には `traceary --help`、置き換え cockpit には `traceary sessions --snapshot` を使用する。
+- bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除する。既定の入口には `traceary --help`、同じデータを見るには、script から使える `traceary sessions --snapshot` を使用する。
 - 非 TTY の `traceary` は deterministic な help / script behavior を維持する。
 - completion generation と help example を壊さない。
 - script 向けには `list`、`sessions --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list` を推奨 path として維持する。`top --snapshot [--json]` は互換 path として残す。

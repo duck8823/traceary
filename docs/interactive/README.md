@@ -134,7 +134,7 @@ For v0.19.0, bare `traceary` opens the Tail-first cockpit when stdin/stdout are 
 
 The compatibility contract is:
 
-- The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary --help` for the default entrypoint and `traceary sessions --snapshot` for the replacement cockpit.
+- The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary --help` for the default entrypoint and `traceary sessions --snapshot` for the surviving script-friendly view of the same data.
 - Non-TTY `traceary` must keep deterministic help/script behavior.
 - Completion generation and help examples must remain stable.
 - Script-facing commands (`sessions --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path; `top --snapshot` remains compatible.

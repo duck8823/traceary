@@ -181,7 +181,7 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 traceary tui
 ```
 
-対話 terminal の bare `traceary` の既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。既定の入口には `traceary --help`、置き換え cockpit には `traceary sessions --snapshot` を使用してください。cockpit は TTY 専用の surface で、live tail、session 状態、doctor warning、直近の失敗、新着 event を追い、専用の Memory タブからメモリ候補を review できます。cockpit の Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。非対話 shell では bare `traceary` は deterministic な help / fallback guidance を表示するため、script からは `traceary list`、`traceary sessions --snapshot [--json]`、`traceary top --snapshot [--json]`、`traceary doctor --json` などの明示的な command を優先してください。
+対話 terminal の bare `traceary` の既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。既定の入口には `traceary --help`、同じデータを見るには、script から使える `traceary sessions --snapshot` を使用してください。cockpit は TTY 専用の surface で、live tail、session 状態、doctor warning、直近の失敗、新着 event を追い、専用の Memory タブからメモリ候補を review できます。cockpit の Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。非対話 shell では bare `traceary` は deterministic な help / fallback guidance を表示するため、script からは `traceary list`、`traceary sessions --snapshot [--json]`、`traceary top --snapshot [--json]`、`traceary doctor --json` などの明示的な command を優先してください。
 
 ### `traceary sessions`
 
