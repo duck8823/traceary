@@ -31,11 +31,8 @@ var selectSearchProjectionRecentCutoffSQL string
 //go:embed sql/select_search_projection_logical_non_recent_bytes.sql
 var selectSearchProjectionLogicalNonRecentBytesSQL string
 
-//go:embed sql/reclaim_search_projection_fts_start.sql
-var reclaimSearchProjectionFTSStartSQL string
-
-//go:embed sql/reclaim_search_projection_fts_continue.sql
-var reclaimSearchProjectionFTSContinueSQL string
+//go:embed sql/reclaim_search_projection_fts.sql
+var reclaimSearchProjectionFTSSQL string
 
 //go:embed sql/select_search_projection_fts_logical_bytes.sql
 var selectSearchProjectionFTSLogicalBytesSQL string
@@ -71,11 +68,17 @@ const searchProjectionFallbackAmplificationPPM int64 = 2_160_000
 // dominated by fixed per-table overhead.
 const searchProjectionMinAmplificationSampleBytes int64 = 8 << 20
 
-// This output-page bound was measured against a 49,664,000-byte shadow-table
-// fixture (220 50-KiB documents, five churn generations). Each step stayed
-// below 3 ms on SQLite 3.51.0, well inside the 250 ms CLI lock cap. The bound
+// Each incremental merge step is limited to this many FTS5 output pages. The
+// reclaim loop checks its time budget before every step; this page bound also
 // limits output pages, not the amount of input scanned by FTS5.
 const searchProjectionFTSMergePages int64 = 16
+
+// Reclaim is best effort. Keep enough of the lock cap for the cleanup/state
+// writes and commit after the last merge step. The step cap prevents one
+// unexpectedly expensive reclaim loop from consuming the whole window; a
+// partial merge remains durable when the transaction commits.
+const searchProjectionFTSReclaimHeadroom = 100 * time.Millisecond
+const searchProjectionFTSReclaimStepCap = 8
 
 // searchProjectionCutoffTimeout bounds the source-phase prefilter walk. A
 // timeout yields age-only retention; eviction still enforces the ceiling.
@@ -378,20 +381,36 @@ func isSearchProjectionDeadline(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded)
 }
 
-// reclaimSearchProjectionFTS runs FTS5's incremental-optimize protocol. The
-// negative first step starts a merge; positive steps continue it. A bare
-// positive step is deliberately not used because it may be a no-op.
+// reclaimSearchProjectionFTS runs FTS5's incremental-optimize protocol until
+// the caller's reclaim budget is spent. The negative first step starts a
+// merge; positive steps continue it. A bare positive step is deliberately not
+// used because it may be a no-op. Budget exhaustion is normal: the transaction
+// still contains useful cleanup work and the next batch resumes the merge.
 //
 //nolint:wrapcheck // The caller classifies the driver deadline at the transaction boundary.
-func reclaimSearchProjectionFTS(ctx context.Context, tx *sql.Tx) error {
+func reclaimSearchProjectionFTS(ctx context.Context, tx *sql.Tx, remaining time.Duration) error {
+	if remaining <= searchProjectionFTSReclaimHeadroom {
+		return nil
+	}
+	deadline := time.Now().Add(remaining - searchProjectionFTSReclaimHeadroom)
 	var before, after int64
+	if time.Until(deadline) <= 0 {
+		return nil
+	}
 	if err := tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, reclaimSearchProjectionFTSStartSQL, -searchProjectionFTSMergePages); err != nil {
+	if time.Until(deadline) <= 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, reclaimSearchProjectionFTSSQL, -searchProjectionFTSMergePages); err != nil {
 		return err
 	}
+	steps := 1
 	for {
+		if steps >= searchProjectionFTSReclaimStepCap || time.Until(deadline) <= 0 {
+			return nil
+		}
 		if err := tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after); err != nil {
 			return err
 		}
@@ -400,9 +419,10 @@ func reclaimSearchProjectionFTS(ctx context.Context, tx *sql.Tx) error {
 		if delta < 2 {
 			return nil
 		}
-		if _, err := tx.ExecContext(ctx, reclaimSearchProjectionFTSContinueSQL, searchProjectionFTSMergePages); err != nil {
+		if _, err := tx.ExecContext(ctx, reclaimSearchProjectionFTSSQL, searchProjectionFTSMergePages); err != nil {
 			return err
 		}
+		steps++
 	}
 }
 
@@ -700,14 +720,9 @@ func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.
 			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
 		}
 		out, err := d.applyProjectionPlan(lockCtx, p, remaining, now)
-		if err == nil || (!isSearchProjectionSQLiteBusy(err) && !isSearchProjectionDeadline(err)) {
-			if isSearchProjectionDeadline(err) || lockCtx.Err() == context.DeadlineExceeded {
-				return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
-			}
-			return out, err
-		}
-		if isSearchProjectionDeadline(err) {
-			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+		classified, retry, classifiedErr := classifySearchProjectionApplyResult(out, err)
+		if classifiedErr != nil || !retry {
+			return classified, classifiedErr
 		}
 		select {
 		case <-lockCtx.Done():
@@ -720,6 +735,19 @@ func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.
 func isSearchProjectionSQLiteBusy(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "sqlite_busy") || strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked")
+}
+
+func classifySearchProjectionApplyResult(out apptypes.SearchProjectionProgress, err error) (apptypes.SearchProjectionProgress, bool, error) {
+	if isSearchProjectionDeadline(err) {
+		return apptypes.SearchProjectionProgress{}, false, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+	}
+	if err == nil {
+		return out, false, nil
+	}
+	if isSearchProjectionSQLiteBusy(err) {
+		return out, true, nil
+	}
+	return out, false, err
 }
 
 // MarkFailed makes an oversize generation recoverable without advancing its checkpoint.
@@ -858,12 +886,16 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		out.Cleaned += int(n)
 		out.CleanupBytes += c.LogicalBytes
 	}
-	// Reclaim only on the final old-generation cleanup batch. Eviction and
-	// intermediate cleanup batches must be allowed to commit their deletes
-	// without repeatedly retrying a whole-index merge; otherwise a merge that
-	// hits the lock cap could starve cleanup indefinitely.
-	if p.Phase == "cleanup" && p.Completed {
-		if e = reclaimSearchProjectionFTS(lockCtx, tx); e != nil {
+	// Reclaim on every cleanup batch. Eviction and old-generation cleanup both
+	// create FTS tombstones continuously; waiting for the final batch lets them
+	// accumulate between generations. The reclaim loop is independently bounded
+	// and never makes the cleanup transaction fail.
+	if p.Phase != "source" {
+		remainingReclaim := lock
+		if deadline, ok := lockCtx.Deadline(); ok {
+			remainingReclaim = time.Until(deadline)
+		}
+		if e = reclaimSearchProjectionFTS(lockCtx, tx, remainingReclaim); e != nil {
 			return out, e
 		}
 	}

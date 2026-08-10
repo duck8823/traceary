@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 func TestSearchProjectionFTSReclaimKeepsConstantLargeCorpusBounded(t *testing.T) {
@@ -19,8 +21,13 @@ func TestSearchProjectionFTSReclaimKeepsConstantLargeCorpusBounded(t *testing.T)
 		name        string
 		generations int
 	}{
-		{name: "three churn generations", generations: 3},
+		{name: "ten churn generations", generations: 10},
 	}
+	const (
+		steadyStateGeneration = 2
+		steadyStateTolerance  = 0.05
+		maxFinalToInitial     = 2.0
+	)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "store.db")
@@ -74,7 +81,7 @@ func TestSearchProjectionFTSReclaimKeepsConstantLargeCorpusBounded(t *testing.T)
 				if txErr != nil {
 					t.Fatal(txErr)
 				}
-				if txErr = reclaimSearchProjectionFTS(context.Background(), tx); txErr != nil {
+				if txErr = reclaimSearchProjectionFTS(context.Background(), tx, apptypes.DefaultSearchProjectionLockTime); txErr != nil {
 					_ = tx.Rollback()
 					t.Fatal(txErr)
 				}
@@ -83,15 +90,20 @@ func TestSearchProjectionFTSReclaimKeepsConstantLargeCorpusBounded(t *testing.T)
 				}
 				sizes = append(sizes, shadowBytes())
 			}
-			increasing := true
-			for i := 1; i < len(sizes); i++ {
-				if sizes[i] <= sizes[i-1] {
-					increasing = false
+			steadyState := float64(sizes[steadyStateGeneration])
+			for generation := steadyStateGeneration + 1; generation < len(sizes); generation++ {
+				deviation := (float64(sizes[generation]) - steadyState) / steadyState
+				if deviation < -steadyStateTolerance || deviation > steadyStateTolerance {
+					t.Fatalf("shadow size generation %d deviated %.1f%% from steady state beyond %.0f%% tolerance: sizes=%v", generation, deviation*100, steadyStateTolerance*100, sizes)
 				}
 			}
-			if diff := cmp.Diff(false, increasing); diff != "" {
-				t.Fatalf("shadow sizes grew monotonically (-want +got):\n%s\nsizes=%v", diff, sizes)
+			if finalToInitial := float64(sizes[len(sizes)-1]) / float64(sizes[0]); finalToInitial > maxFinalToInitial {
+				t.Fatalf("final shadow size is %.2fx the initial size, exceeds %.1fx bound: sizes=%v", finalToInitial, maxFinalToInitial, sizes)
 			}
+			// Measured on the production 250 ms budget: 11,395,072 initially,
+			// 13,733,888 after generation 1, 19,509,248 at steady state, then
+			// roughly 19.5 MB through generation 10. The 5% tolerance and 2.0x
+			// bound are deliberate limits, not a proxy for monotonic growth.
 			t.Logf("shadow-table sizes before/after churn: %v", sizes)
 		})
 	}
@@ -132,5 +144,77 @@ func TestSearchProjectionStatusReportsFTSShadowLogicalBytes(t *testing.T) {
 	}
 	if diff := cmp.Diff(true, status.FTSLogicalBytes > status.RecentBytes); diff != "" {
 		t.Fatalf("FTS logical bytes must describe shadow tables, not source text (-want +got):\n%s", diff)
+	}
+}
+
+func TestSearchProjectionApplySuccessRemainsProgressAfterDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	want := apptypes.SearchProjectionProgress{Selected: 1, Completed: true, GenerationID: "committed"}
+	got, retry, err := classifySearchProjectionApplyResult(want, nil)
+	if retry || err != nil || got != want {
+		t.Fatalf("classified committed batch = %+v retry=%v err=%v, want progress", got, retry, err)
+	}
+	if err := ctx.Err(); err == nil {
+		t.Fatal("test context did not expire")
+	}
+}
+
+func TestSearchProjectionRepeatedReclaimBudgetExhaustionReachesComplete(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewDatabase(path, migrations)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	budget := projectionBudget()
+	generation, err := store.Start(ctx, budget, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = db.Exec(`UPDATE search_projection_state SET phase='cleanup',checkpoint=0 WHERE generation_id=?`, generation.GenerationID); err != nil {
+		t.Fatal(err)
+	}
+	largeBody := strings.Repeat("cleanup reclaim measurement text ", 6000)
+	for i := 0; i < 220; i++ {
+		if _, err = db.Exec(`INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, generation.GenerationID, i+1, fmt.Sprintf("event-%d", i), formatTimestamp(now), largeBody, len(largeBody)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		plan := apptypes.ProjectionBatchPlan{
+			GenerationID: generation.GenerationID, Phase: "cleanup", ExpectedRevision: generation.SourceRevision,
+			ExpectedCheckpoint: int64(i), NextCheckpoint: int64(i + 1),
+			Cleanup: []apptypes.ProjectionCleanupCandidate{{Class: "recent", RowID: int64(i + 1), LogicalBytes: 7}},
+		}
+		if i == 2 {
+			plan.Completed = true
+			plan.NextPhase = "complete"
+			plan.FinalState = "complete"
+		}
+		progress, applyErr := store.CleanupBatch(ctx, plan, 80*time.Millisecond, now)
+		if applyErr != nil {
+			t.Fatalf("cleanup batch %d: progress=%+v err=%v", i, progress, applyErr)
+		}
+		if i < 2 && progress.Completed {
+			t.Fatalf("intermediate cleanup batch %d completed generation: %+v", i, progress)
+		}
+	}
+	var state, phase string
+	if err = db.QueryRow(`SELECT state,phase FROM search_projection_state WHERE generation_id=?`, generation.GenerationID).Scan(&state, &phase); err != nil {
+		t.Fatal(err)
+	}
+	if state != "complete" || phase != "complete" {
+		t.Fatalf("generation state=%s phase=%s, want complete/complete", state, phase)
 	}
 }

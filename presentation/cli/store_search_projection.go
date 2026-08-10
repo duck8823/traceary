@@ -90,7 +90,7 @@ func (c *RootCLI) newStoreSearchProjectionRunCommand(name string, start bool) *c
 	}}
 	cmd.Flags().IntVar(&rows, "rows", 128, "maximum source rows")
 	cmd.Flags().DurationVar(&wall, "wall-time", time.Second, "maximum total batch duration")
-	cmd.Flags().DurationVar(&lock, "lock-time", 250*time.Millisecond, "maximum write-lock duration")
+	cmd.Flags().DurationVar(&lock, "lock-time", apptypes.DefaultSearchProjectionLockTime, "maximum write-lock duration")
 	cmd.Flags().Int64Var(&stored, "stored-bytes", 8<<20, "maximum stored source bytes")
 	cmd.Flags().Int64Var(&decoded, "decoded-bytes", 8<<20, "maximum decoded source bytes")
 	cmd.Flags().Int64Var(&written, "write-bytes", 8<<20, "maximum logical write bytes")

@@ -25,6 +25,10 @@ import (
 // the session tier, which is the design's answer to a short recent window.
 const DefaultSearchProjectionIndexFamilyBytes int64 = 1464 << 20
 
+// DefaultSearchProjectionLockTime is the maximum write-lock duration used by
+// the CLI and automatic catch-up path for one projection batch.
+const DefaultSearchProjectionLockTime = 250 * time.Millisecond
+
 // SearchProjectionCapacitySemanticsVersion is the capacity model this binary
 // builds under. A persisted generation below this value is obsolete and must
 // be replaced even when complete (#1679 / D5).

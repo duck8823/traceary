@@ -22,7 +22,7 @@ func defaultSearchProjectionCatchUpBudget() apptypes.SearchProjectionBudget {
 	return apptypes.SearchProjectionBudget{
 		Rows:             128,
 		WallTime:         time.Second,
-		LockTime:         250 * time.Millisecond,
+		LockTime:         apptypes.DefaultSearchProjectionLockTime,
 		StoredBytes:      8 << 20,
 		DecodedBytes:     8 << 20,
 		WriteBytes:       8 << 20,
