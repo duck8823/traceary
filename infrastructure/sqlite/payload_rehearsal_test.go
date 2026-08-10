@@ -147,7 +147,9 @@ func TestPayloadRehearsalPreviewMeasuresBytesOnATargetPredatingTheCodecColumns(t
 }
 
 // migrationsBelowVersion returns the migration catalog truncated to versions
-// strictly below limit, so a store can be built at an older schema.
+// strictly below limit, so a store can be built at an older schema. This is the
+// catalog's own prefix, not a reconstruction of any particular past release --
+// enough to reach the pre-codec schema, which is what the fallback needs.
 func migrationsBelowVersion(t *testing.T, migrations fs.FS, limit int) fs.FS {
 	t.Helper()
 	paths, err := fs.Glob(migrations, "*.sql")
