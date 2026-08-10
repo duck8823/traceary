@@ -22,6 +22,7 @@ type SearchProjectionStore interface {
 	CleanupBatch(context.Context, apptypes.ProjectionBatchPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error)
 	MarkFailed(context.Context, string, int64, string, time.Time) error
 	SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error)
+	SearchProjectionControlStatus(context.Context) (apptypes.SearchProjectionControlStatus, error)
 }
 
 type SearchProjectionInventoryStore interface {
@@ -51,7 +52,7 @@ func (u *SearchProjectionUsecase) StartGeneration(ctx context.Context, b apptype
 	if !b.Valid() {
 		return apptypes.SearchProjectionGeneration{}, &apptypes.SearchProjectionNoProgressError{Reason: "invalid generation budget"}
 	}
-	status, err := u.store.SearchProjectionStatus(ctx)
+	status, err := u.store.SearchProjectionControlStatus(ctx)
 	if err != nil {
 		return apptypes.SearchProjectionGeneration{}, xerrors.Errorf("inspect projection before start: %w", err)
 	}
@@ -65,7 +66,7 @@ func (u *SearchProjectionUsecase) StartGeneration(ctx context.Context, b apptype
 func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
 	wallCtx, cancel := context.WithTimeout(ctx, b.WallTime)
 	defer cancel()
-	status, err := u.store.SearchProjectionStatus(wallCtx)
+	status, err := u.store.SearchProjectionControlStatus(wallCtx)
 	if err != nil {
 		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("inspect projection before resume: %w", err)
 	}
@@ -268,7 +269,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	if !b.Valid() {
 		return out, &apptypes.SearchProjectionNoProgressError{Reason: "invalid generation budget"}
 	}
-	status, err := u.store.SearchProjectionStatus(ctx)
+	status, err := u.store.SearchProjectionControlStatus(ctx)
 	if err != nil {
 		return out, xerrors.Errorf("inspect projection before catch-up: %w", err)
 	}
@@ -385,7 +386,7 @@ func (u *SearchProjectionUsecase) finishCatchUpProgress(ctx context.Context, out
 	out.Written = progress.Written
 	out.Completed = progress.Completed
 	out.GenerationID = progress.GenerationID
-	statusAfter, inspectErr := u.store.SearchProjectionStatus(ctx)
+	statusAfter, inspectErr := u.store.SearchProjectionControlStatus(ctx)
 	if inspectErr != nil {
 		if progress.Completed {
 			return out, xerrors.Errorf("inspect projection after catch-up complete: %w", inspectErr)
@@ -403,7 +404,7 @@ func (u *SearchProjectionUsecase) finishCatchUpProgress(ctx context.Context, out
 	out.CutoverAfterEvidence = statusAfter.CutoverAfterEvidence
 	if progress.Completed {
 		out.SessionTierVerified = true
-		out.Completed = statusAfter.Completed
+		out.Completed = statusAfter.State == "complete"
 	}
 	return out, nil
 }
