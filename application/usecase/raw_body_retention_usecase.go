@@ -56,11 +56,11 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 	for _, candidate := range snapshot.Candidates {
 		identity := rawBodyCandidateIdentity(candidate.EventID, candidate.BodySHA256)
 		identities = append(identities, identity)
-		totalBytes += candidate.StoredBytes
+		totalBytes += candidate.EncodedBytes
 		candidates = append(candidates, apptypes.RetentionPlanCandidate{
 			Class: "raw_body", IdentityKind: "database", DatabaseIdentity: candidate.EventID,
 			RootID: "", RelativePath: "", Timestamp: candidate.CreatedAt.UTC().Format(time.RFC3339Nano), CandidateIdentity: identity,
-			LogicalExtent:   apptypes.RetentionExtent{Availability: "known", Bytes: strconv.Itoa(candidate.StoredBytes)},
+			LogicalExtent:   apptypes.RetentionExtent{Availability: "known", Bytes: strconv.Itoa(candidate.EncodedBytes)},
 			AllocatedExtent: apptypes.RetentionExtent{Availability: "unknown"}, Reasons: []string{"age"},
 		})
 	}
@@ -171,15 +171,18 @@ func (u *rawBodyRetentionUsecase) prepareExecution(plan apptypes.RetentionPlan, 
 		if err != nil {
 			return nil, nil, xerrors.Errorf("parse retention candidate timestamp: %w", err)
 		}
-		storedBytes, err := strconv.Atoi(planned.LogicalExtent.Bytes)
-		if err != nil || storedBytes < 0 {
+		encodedBytes, err := strconv.Atoi(planned.LogicalExtent.Bytes)
+		if err != nil || encodedBytes < 0 {
 			return nil, nil, xerrors.Errorf("invalid retention candidate stored bytes")
 		}
-		candidates = append(candidates, apptypes.RawBodyCandidate{EventID: eventID, CreatedAt: createdAt, StoredBytes: storedBytes, BodySHA256: digest})
+		candidates = append(candidates, apptypes.RawBodyCandidate{EventID: eventID, CreatedAt: createdAt, EncodedBytes: encodedBytes, BodySHA256: digest})
 	}
 	bodies, recoveryDigest, err := loadRawBodyRecovery(recoveryPath, candidates)
 	if err != nil {
 		return nil, nil, err
+	}
+	for index := range candidates {
+		candidates[index].PlaintextBytes = bodies[index].Candidate.PlaintextBytes
 	}
 	if recoveryDigest != plan.CanonicalPayload.RecoveryRequirements[0].Digest {
 		return nil, nil, xerrors.Errorf("recovery package digest does not match reviewed plan")
@@ -200,7 +203,7 @@ func (u *rawBodyRetentionUsecase) prepareExecution(plan apptypes.RetentionPlan, 
 	totalBytes := 0
 	for index, candidate := range plan.CanonicalPayload.Candidates {
 		identities[index] = candidate.CandidateIdentity
-		totalBytes += candidates[index].StoredBytes
+		totalBytes += candidates[index].EncodedBytes
 	}
 	coverage := sha256.Sum256([]byte(joinIdentities(identities)))
 	if recovery.CoverageDigest != hex.EncodeToString(coverage[:]) {
@@ -263,9 +266,10 @@ func loadRawBodyRecovery(path string, candidates []apptypes.RawBodyCandidate) ([
 			return nil, "", xerrors.Errorf("recovery package timestamp does not match event %s", candidate.EventID)
 		}
 		bodyDigest := sha256.Sum256([]byte(archived.body))
-		if len(archived.body) != candidate.StoredBytes || hex.EncodeToString(bodyDigest[:]) != candidate.BodySHA256 {
+		if hex.EncodeToString(bodyDigest[:]) != candidate.BodySHA256 {
 			return nil, "", xerrors.Errorf("recovery package body does not match event %s", candidate.EventID)
 		}
+		candidate.PlaintextBytes = len(archived.body)
 		bodies = append(bodies, apptypes.RawBodyRecoveryBody{Candidate: candidate, Body: archived.body})
 	}
 	return bodies, hex.EncodeToString(digest[:]), nil

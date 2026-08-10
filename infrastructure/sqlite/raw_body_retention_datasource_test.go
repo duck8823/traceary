@@ -11,12 +11,97 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
+
+func TestRawBodyRetention_snapshotReportsEncodedExtents(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	events, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	compressedBody := string(bytes.Repeat([]byte("compressible body "), 4096))
+	fixtures := []struct {
+		name string
+		id   string
+		body string
+	}{
+		{name: "compressed", id: "retention-compressed", body: compressedBody},
+		{name: "legacy UTF-8", id: "retention-legacy", body: "日本語"},
+	}
+	for _, fixture := range fixtures {
+		if err := events.Save(context.Background(), rawBodyRetentionEvent(t, fixture.id, fixture.body, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))); err != nil {
+			t.Fatalf("Save(%s) error = %v", fixture.name, err)
+		}
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(`UPDATE events
+SET body=?, body_codec=NULL, body_format_version=NULL, body_plaintext_bytes=NULL,
+    body_encoded_bytes=NULL, body_sha256=NULL
+WHERE id='retention-legacy'`, "日本語"); err != nil {
+		t.Fatalf("make legacy event: %v", err)
+	}
+	_ = db.Close()
+	makeRawBodyRetentionEligible(t, dbPath, "retention-compressed", "retention-legacy")
+
+	snapshot, err := store.ListRawBodyCandidates(context.Background(), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ListRawBodyCandidates() error = %v", err)
+	}
+	tests := []struct {
+		name           string
+		id             string
+		encodedBytes   int
+		plaintextBytes int
+	}{
+		{name: "compressed candidate", id: "retention-compressed", encodedBytes: 44, plaintextBytes: len([]byte(compressedBody))},
+		{name: "legacy UTF-8 candidate", id: "retention-legacy", encodedBytes: len([]byte("日本語")), plaintextBytes: len([]byte("日本語"))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var got struct {
+				ID             string
+				EncodedBytes   int
+				PlaintextBytes int
+			}
+			for _, candidate := range snapshot.Candidates {
+				if candidate.EventID == test.id {
+					got = struct {
+						ID             string
+						EncodedBytes   int
+						PlaintextBytes int
+					}{candidate.EventID, candidate.EncodedBytes, candidate.PlaintextBytes}
+				}
+			}
+			want := struct {
+				ID             string
+				EncodedBytes   int
+				PlaintextBytes int
+			}{test.id, test.encodedBytes, test.plaintextBytes}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("candidate extent mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+	total := 0
+	for _, candidate := range snapshot.Candidates {
+		total += candidate.EncodedBytes
+	}
+	wantTotal := 44 + len([]byte("日本語"))
+	if diff := cmp.Diff(wantTotal, total); diff != "" {
+		t.Fatalf("encoded reclaim total mismatch (-want +got):\n%s", diff)
+	}
+}
 
 func TestRawBodyRetention_applyRetryAndRestore(t *testing.T) {
 	t.Parallel()

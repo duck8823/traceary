@@ -2,12 +2,15 @@ package types
 
 import "time"
 
-// RawBodyCandidate identifies one exact persisted event-body version.
+// RawBodyCandidate identifies one exact persisted event-body version. EncodedBytes
+// is the reclaimable extent; PlaintextBytes remains provenance for recovery and
+// retention-ledger validation.
 type RawBodyCandidate struct {
-	EventID     string
-	CreatedAt   time.Time
-	StoredBytes int
-	BodySHA256  string
+	EventID        string
+	CreatedAt      time.Time
+	EncodedBytes   int
+	PlaintextBytes int
+	BodySHA256     string
 }
 
 // RawBodyRetentionSnapshot is the body-safe result of a read-only planner scan.

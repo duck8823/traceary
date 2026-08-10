@@ -62,12 +62,12 @@ func (d *StoreManagementDatasource) ListRawBodyCandidates(ctx context.Context, b
 	candidates := make([]apptypes.RawBodyCandidate, 0)
 	for rows.Next() {
 		var id, createdAtValue, body string
-		var stored sql.NullInt64
-		if err := rows.Scan(&id, &createdAtValue, &stored, &body); err != nil {
+		var stored, encoded sql.NullInt64
+		if err := rows.Scan(&id, &createdAtValue, &stored, &encoded, &body); err != nil {
 			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to scan raw-body candidate: %w", err)
 		}
-		if !stored.Valid || stored.Int64 < 0 {
-			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("event %s has indeterminate stored body bytes", id)
+		if !stored.Valid || stored.Int64 < 0 || !encoded.Valid || encoded.Int64 < 0 {
+			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("event %s has indeterminate body extent", id)
 		}
 		plain, err := loadEventPlaintext(ctx, tx, id)
 		if err != nil {
@@ -79,12 +79,19 @@ func (d *StoreManagementDatasource) ListRawBodyCandidates(ctx context.Context, b
 			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to parse candidate created_at: %w", err)
 		}
 		digest := sha256.Sum256([]byte(body))
-		storedBytes, err := checkedInt(int64(len(plain)), "stored body bytes")
+		plaintextBytes, err := checkedInt(int64(len(plain)), "plaintext body bytes")
+		if err != nil {
+			return apptypes.RawBodyRetentionSnapshot{}, err
+		}
+		if stored.Int64 != int64(plaintextBytes) {
+			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("event %s has inconsistent plaintext body bytes", id)
+		}
+		encodedBytes, err := checkedInt(encoded.Int64, "encoded body bytes")
 		if err != nil {
 			return apptypes.RawBodyRetentionSnapshot{}, err
 		}
 		candidates = append(candidates, apptypes.RawBodyCandidate{
-			EventID: id, CreatedAt: createdAt, StoredBytes: storedBytes, BodySHA256: hex.EncodeToString(digest[:]),
+			EventID: id, CreatedAt: createdAt, EncodedBytes: encodedBytes, PlaintextBytes: plaintextBytes, BodySHA256: hex.EncodeToString(digest[:]),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -261,7 +268,7 @@ WHERE id=? AND body_availability='available' AND body_sha256=?`
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO raw_body_retention_entries(plan_id, event_id, body_sha256, stored_bytes, pruned_at)
 VALUES (?, ?, ?, ?, ?)
-`, planID, candidate.EventID, candidate.BodySHA256, candidate.StoredBytes, stamp); err != nil {
+`, planID, candidate.EventID, candidate.BodySHA256, candidate.PlaintextBytes, stamp); err != nil {
 		return false, xerrors.Errorf("failed to record raw-body entry: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE raw_body_retention_executions
@@ -296,7 +303,7 @@ func preflightRawBodyCandidates(ctx context.Context, db *sql.DB, sourcePath, dat
 
 func verifyRawBodyCandidateState(ctx context.Context, tx *sql.Tx, planID string, candidate apptypes.RawBodyCandidate, appliedAt string) (string, bool, error) {
 	var body, createdAt, availability string
-	var stored int
+	var stored, encoded int
 	var prunedPlan sql.NullString
 	var eligible bool
 	verifyQuery, err := composeDiscardableEventBodiesQuery(verifyRawBodyCandidateStateQuery)
@@ -304,17 +311,17 @@ func verifyRawBodyCandidateState(ctx context.Context, tx *sql.Tx, planID string,
 		return "", false, err
 	}
 	// An event old enough when planned remains old enough at apply time.
-	err = tx.QueryRowContext(ctx, verifyQuery, appliedAt, candidate.EventID, candidate.EventID).Scan(&body, &createdAt, &availability, &stored, &prunedPlan, &eligible)
+	err = tx.QueryRowContext(ctx, verifyQuery, appliedAt, candidate.EventID, candidate.EventID).Scan(&body, &createdAt, &availability, &stored, &encoded, &prunedPlan, &eligible)
 	if err != nil {
 		return "", false, xerrors.Errorf("failed to verify raw-body candidate %s: %w", candidate.EventID, err)
 	}
 	if availability == domtypes.BodyAvailabilityUnavailableRetention.String() && prunedPlan.String == planID {
 		var entryCount int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_id = ? AND event_id = ? AND body_sha256 = ? AND stored_bytes = ?`, planID, candidate.EventID, candidate.BodySHA256, candidate.StoredBytes).Scan(&entryCount); err != nil || entryCount != 1 {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_body_retention_entries WHERE plan_id = ? AND event_id = ? AND body_sha256 = ? AND stored_bytes = ?`, planID, candidate.EventID, candidate.BodySHA256, candidate.PlaintextBytes).Scan(&entryCount); err != nil || entryCount != 1 {
 			return "", false, xerrors.Errorf("raw-body execution ledger does not match pruned event %s", candidate.EventID)
 		}
 		persistedCreatedAt, parseErr := time.Parse(time.RFC3339Nano, createdAt)
-		if parseErr != nil || !persistedCreatedAt.Equal(candidate.CreatedAt) || stored != candidate.StoredBytes || body != domtypes.EventBodyUnavailableRetentionMarker {
+		if parseErr != nil || !persistedCreatedAt.Equal(candidate.CreatedAt) || stored != candidate.PlaintextBytes || body != domtypes.EventBodyUnavailableRetentionMarker {
 			return "", false, xerrors.Errorf("durable raw-body candidate state changed for event %s", candidate.EventID)
 		}
 		return body, true, nil
@@ -333,7 +340,7 @@ func verifyRawBodyCandidateState(ctx context.Context, tx *sql.Tx, planID string,
 		return "", false, xerrors.Errorf("failed to parse raw-body candidate timestamp %s: %w", candidate.EventID, parseErr)
 	}
 	digest := sha256.Sum256([]byte(body))
-	if availability != domtypes.BodyAvailabilityAvailable.String() || !persistedCreatedAt.Equal(candidate.CreatedAt) || stored != candidate.StoredBytes || hex.EncodeToString(digest[:]) != candidate.BodySHA256 {
+	if availability != domtypes.BodyAvailabilityAvailable.String() || !persistedCreatedAt.Equal(candidate.CreatedAt) || stored != candidate.PlaintextBytes || encoded != candidate.EncodedBytes || hex.EncodeToString(digest[:]) != candidate.BodySHA256 {
 		return "", false, xerrors.Errorf("raw-body plan is stale or mismatched at event %s", candidate.EventID)
 	}
 	return body, false, nil
@@ -422,7 +429,7 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 	stamp := formatTimestamp(restoredAt)
 	for _, recovery := range bodies {
 		digest := sha256.Sum256([]byte(recovery.Body))
-		if len(recovery.Body) != recovery.Candidate.StoredBytes || hex.EncodeToString(digest[:]) != recovery.Candidate.BodySHA256 {
+		if len(recovery.Body) != recovery.Candidate.PlaintextBytes || hex.EncodeToString(digest[:]) != recovery.Candidate.BodySHA256 {
 			return result, xerrors.Errorf("recovery body does not match plan for event %s", recovery.Candidate.EventID)
 		}
 		var body, availability string
@@ -443,7 +450,7 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 			result.AlreadyRestored++
 			continue
 		}
-		if ledgerErr != nil || ledgerDigest != recovery.Candidate.BodySHA256 || ledgerStored != recovery.Candidate.StoredBytes {
+		if ledgerErr != nil || ledgerDigest != recovery.Candidate.BodySHA256 || ledgerStored != recovery.Candidate.PlaintextBytes {
 			return result, xerrors.Errorf("raw-body restore ledger does not match event %s", recovery.Candidate.EventID)
 		}
 		if availability == domtypes.BodyAvailabilityAvailable.String() {
