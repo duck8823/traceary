@@ -236,6 +236,10 @@ func (c *RootCLI) replayAntigravitySpoolRecord(ctx context.Context, input io.Rea
 // the session as injected once it has written, so a discarded write would
 // consume the marker and silence the live firing. A nil writer makes injection
 // a no-op.
+//
+// The generic session replay above is the one exception left, and it is a
+// defect rather than a decision: it still passes io.Discard and consumes the
+// marker for Claude, Gemini and Codex. Tracked by #1785.
 func (c *RootCLI) replayGrokSpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
 	switch strings.TrimSpace(action) {
 	case "session-start":
