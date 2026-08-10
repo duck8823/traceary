@@ -118,6 +118,7 @@ Notice rules:
 - The notice must name the removal target version (`v0.15`, `v1.0`, etc.).
 - The notice goes to **stderr** so stdout / `--json` / NDJSON output stays byte-for-byte identical to the canonical command. Cobra's built-in `Deprecated` field routes its warning through stdout, so Traceary emits the notice itself instead.
 - A single invocation must not emit more than one notice — even when the deprecated command is a parent group whose subcommand is the actual entry point, the notice fires once for the executing leaf and names the precise canonical leaf.
+- The notice fires when the command actually runs. Cobra resolves `--help` and rejects invalid arguments before any command hook, so those paths emit no notice; in exchange, a deprecated command's `Short` and `Long` text must name the deprecation and the removal target so `--help` still tells the caller.
 
 ### Stdout / JSON / NDJSON compatibility
 
