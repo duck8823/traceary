@@ -121,6 +121,25 @@ func encodePayload(plaintext []byte, codec string) (encodedPayload, error) {
 	return result, nil
 }
 
+// encodeCanonicalPayload applies the canonical-write policy. Codec metadata is
+// the capability boundary: without it, a compressed value would be
+// unrecoverable because readers would have no codec contract to follow.
+// Compression is accepted only when it shrinks the payload; identity remains
+// TEXT through storedBodyArg so SQLite affinity stays part of the contract.
+func encodeCanonicalPayload(plaintext []byte, codecMetadata bool) (encodedPayload, error) {
+	if !codecMetadata {
+		return encodePayload(plaintext, payloadCodecIdentity)
+	}
+	compressed, err := encodePayload(plaintext, payloadCodecZstd)
+	if err != nil {
+		return encodedPayload{}, err
+	}
+	if compressed.StoredBytes < compressed.PlaintextBytes {
+		return compressed, nil
+	}
+	return encodePayload(plaintext, payloadCodecIdentity)
+}
+
 func decodePayload(stored []byte, codec string, formatVersion int, plaintextBytes int64, checksum string, limit int64) ([]byte, error) {
 	if formatVersion != payloadFormatVersion {
 		return nil, &PayloadIntegrityError{Codec: codec, Reason: "unsupported format version"}

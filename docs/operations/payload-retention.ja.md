@@ -4,6 +4,17 @@
 
 Status: Issue #1446、#1444、#1443、#1445 の v0.31.0 contract。copied-store の [dogfooding と recovery 証拠](./retention-dogfood-v0.31.ja.md) に基づいて手動 command を公開し、automatic retention は既定無効のままにします。
 
+## Payload codec と downgrade 警告
+
+Traceary v0.34 は、新しい canonical event と command-audit payload について、
+圧縮後に小さくなる場合だけ zstd を使います。圧縮に向かない値と短い値は
+identity の TEXT のままです。この書込み経路の変更は既存行を変換しません。
+既存行の書き換えは別の処理です。
+
+`traceary doctor` で codec 状態を確認できます。圧縮行が一つでも存在すると、
+Traceary v0.33.1 以前はその行を読み取れません。downgrade 用の fallback が必要なら、
+upgrade 前に `traceary store backup` を実行してください。
+
 ## 要求要約
 
 Traceary は、resume・監査に必要な session metadata と短期 debug 用の raw payload を同じ保持 class として扱わず、local storage の増加を制限します。plan は read-only、実行は review 済みの同一 plan を使い、install / update だけで retention を実行しません。

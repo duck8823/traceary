@@ -154,6 +154,78 @@ SELECT e.kind, a.command_text, a.command_wrapper, a.command_name,
 	}
 }
 
+func TestDatasource_SaveWithAuditCanonicalPayloadPolicy(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	newEvent := func(id, body string) *model.Event {
+		return model.EventOf(types.EventID(id), types.EventKindCommandExecuted, "cli", types.Agent("codex"), types.SessionID("session"), "workspace", body, time.Now().UTC())
+	}
+	save := func(event *model.Event, command, input, output string) {
+		audit, err := model.NewCommandAudit(event.EventID(), command, input, output, false, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := sut.SaveWithAudit(ctx, event, audit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	compressedBody := strings.Repeat("canonical payload should compress ", 256)
+	save(newEvent("compressed", compressedBody), strings.Repeat("command ", 128), strings.Repeat("input ", 128), strings.Repeat("output ", 128))
+	save(newEvent("short", "x"), "x", "y", "z")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var bodyCodec, bodyType, commandCodec, commandType string
+	if err := db.QueryRow(`SELECT body_codec, typeof(body) FROM events WHERE id='compressed'`).Scan(&bodyCodec, &bodyType); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]string{"zstd", "blob"}, []string{bodyCodec, bodyType}); diff != "" {
+		t.Fatalf("compressed event storage mismatch (-want +got):\n%s", diff)
+	}
+	if err := db.QueryRow(`SELECT command_codec, typeof(command_text) FROM command_audits WHERE event_id='compressed'`).Scan(&commandCodec, &commandType); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]string{"zstd", "blob"}, []string{commandCodec, commandType}); diff != "" {
+		t.Fatalf("compressed audit storage mismatch (-want +got):\n%s", diff)
+	}
+	var shortCodec, shortType string
+	if err := db.QueryRow(`SELECT body_codec, typeof(body) FROM events WHERE id='short'`).Scan(&shortCodec, &shortType); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]string{"identity", "text"}, []string{shortCodec, shortType}); diff != "" {
+		t.Fatalf("identity fallback storage mismatch (-want +got):\n%s", diff)
+	}
+	details, err := sut.GetDetails(ctx, types.EventID("compressed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(compressedBody, details.Event().Body()); diff != "" {
+		t.Fatalf("compressed body round trip mismatch (-want +got):\n%s", diff)
+	}
+	audit, ok := details.CommandAudit().Value()
+	if !ok {
+		t.Fatal("compressed audit missing")
+	}
+	if diff := cmp.Diff(strings.Repeat("output ", 128), audit.Output()); diff != "" {
+		t.Fatalf("compressed audit round trip mismatch (-want +got):\n%s", diff)
+	}
+	matches, err := sut.Search(ctx, "canonical payload", "", "", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) == 0 || matches[0].EventID() != types.EventID("compressed") {
+		t.Fatalf("compressed search matches = %#v, want compressed event", matches)
+	}
+}
+
 func TestCommandAuditNormalizationMigrationPreservesLegacyUnknowns(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

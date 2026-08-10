@@ -750,20 +750,14 @@ func commitBackfillBatch(ctx context.Context, db *sql.DB, run backfillRunHandle,
 			return stats, xerrors.Errorf("decode %s %s for payload backfill: %w", current.EventID, current.Lane.Field, err)
 		}
 
-		encoded, err := encodePayload(plaintext, payloadCodecZstd)
+		encoded, err := encodeCanonicalPayload(plaintext, true)
 		if err != nil {
 			return stats, xerrors.Errorf("encode %s %s for payload backfill: %w", current.EventID, current.Lane.Field, err)
 		}
 
-		// Recipe: shrink → zstd; otherwise keep identity with full metadata.
+		// encodeCanonicalPayload owns the shared shrink → zstd, otherwise
+		// identity recipe used by both backfill and canonical writes.
 		target := encoded
-		if encoded.StoredBytes >= encoded.PlaintextBytes {
-			identity, idErr := encodePayload(plaintext, payloadCodecIdentity)
-			if idErr != nil {
-				return stats, xerrors.Errorf("encode identity %s %s for payload backfill: %w", current.EventID, current.Lane.Field, idErr)
-			}
-			target = identity
-		}
 
 		// No-op when the field already carries identical codec metadata and bytes.
 		if backfillRowAlreadyMatches(current.Row, target) {

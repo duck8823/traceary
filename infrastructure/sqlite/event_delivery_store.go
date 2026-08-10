@@ -174,10 +174,7 @@ func insertHookDeliveryAttempt(ctx context.Context, tx *sql.Tx, event *model.Eve
 }
 
 func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, audit *model.CommandAudit, codecMetadata bool) error {
-	// v0.34 deliberately encodes canonical writes as identity. The same adapter
-	// is used for zstd shadow/benchmark coverage, preventing a later activation
-	// from bypassing integrity metadata or the pre-existing redaction boundary.
-	eventPayload, err := encodePayload([]byte(event.Body()), payloadCodecIdentity)
+	eventPayload, err := encodeCanonicalPayload([]byte(event.Body()), codecMetadata)
 	if err != nil {
 		return xerrors.Errorf("encode event payload: %w", err)
 	}
@@ -190,7 +187,7 @@ func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, au
 		event.Agent().String(),
 		event.SessionID().String(),
 		event.Workspace().String(),
-		string(eventPayload.Bytes),
+		storedBodyArg(eventPayload),
 		formatTimestamp(event.CreatedAt()),
 		nullableString(event.SourceHook())}
 	if eventHasCodec {
@@ -205,15 +202,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if audit == nil {
 		return nil
 	}
-	commandPayload, err := encodePayload([]byte(audit.Command()), payloadCodecIdentity)
+	commandPayload, err := encodeCanonicalPayload([]byte(audit.Command()), codecMetadata)
 	if err != nil {
 		return xerrors.Errorf("encode command payload: %w", err)
 	}
-	inputPayload, err := encodePayload([]byte(audit.Input()), payloadCodecIdentity)
+	inputPayload, err := encodeCanonicalPayload([]byte(audit.Input()), codecMetadata)
 	if err != nil {
 		return xerrors.Errorf("encode command input payload: %w", err)
 	}
-	outputPayload, err := encodePayload([]byte(audit.Output()), payloadCodecIdentity)
+	outputPayload, err := encodeCanonicalPayload([]byte(audit.Output()), codecMetadata)
 	if err != nil {
 		return xerrors.Errorf("encode command output payload: %w", err)
 	}
@@ -229,11 +226,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	auditQuery := insertCommandAuditQuery
 	auditArgs := []any{
 		audit.EventID().String(),
-		string(commandPayload.Bytes),
+		storedBodyArg(commandPayload),
 		wrapper,
 		audit.CommandIdentity().Command().String(),
-		string(inputPayload.Bytes),
-		string(outputPayload.Bytes),
+		storedBodyArg(inputPayload),
+		storedBodyArg(outputPayload),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
 		audit.InputOriginalBytes(),
