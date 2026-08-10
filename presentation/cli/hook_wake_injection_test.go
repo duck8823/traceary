@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -200,6 +201,149 @@ func TestHookSessionStart_WakeInjection(t *testing.T) {
 			t.Fatalf("expected injection content, got %q", outs[0])
 		}
 	})
+}
+
+func TestHookAntigravityPreInvocationWakeInjection(t *testing.T) {
+	const workspace = "github.com/duck8823/traceary"
+
+	tests := []struct {
+		name       string
+		seed       func(context.Context, *testing.T, *wakeInjectionFixture)
+		budgetJSON string
+		secondCall bool
+		wantText   bool
+	}{
+		{
+			name: "eligible summaries use ephemeral message",
+			seed: func(ctx context.Context, t *testing.T, fx *wakeInjectionFixture) {
+				fx.seedSummary(ctx, t, "sess-antigravity", workspace, time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC), "recalled summary", false, "")
+			},
+			wantText: true,
+		},
+		{
+			name: "second PreInvocation is empty",
+			seed: func(ctx context.Context, t *testing.T, fx *wakeInjectionFixture) {
+				fx.seedSummary(ctx, t, "sess-antigravity", workspace, time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC), "recalled summary", false, "")
+			},
+			secondCall: true,
+			wantText:   true,
+		},
+		{
+			name: "no eligible summaries are empty",
+		},
+		{
+			name:       "zero budget is empty",
+			budgetJSON: "0",
+		},
+		{
+			name:       "negative budget is empty",
+			budgetJSON: "-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+			t.Setenv("TRACEARY_WORKSPACE", workspace)
+			if tt.budgetJSON != "" {
+				writeWakeAndConsolidationConfig(t, home, tt.budgetJSON, "")
+			}
+
+			fx := newWakeInjectionFixture(t)
+			if tt.seed != nil {
+				tt.seed(context.Background(), t, fx)
+			}
+			var wantText string
+			if tt.wantText {
+				var err error
+				wantText, err = runHookSessionStart(t, fx, "conv-session-start", workspace)
+				if err != nil {
+					t.Fatalf("SessionStart formatter reference error = %v", err)
+				}
+			}
+			first := runHookAntigravityWithWake(t, fx, "conv-antigravity")
+			var got map[string]any
+			if err := json.Unmarshal([]byte(first), &got); err != nil {
+				t.Fatalf("first PreInvocation output is invalid JSON: %v; output=%q", err, first)
+			}
+
+			want := map[string]any{}
+			if tt.wantText {
+				want["injectSteps"] = []any{
+					map[string]any{"ephemeralMessage": wantText},
+				}
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("first PreInvocation JSON mismatch (-want +got):\n%s", diff)
+			}
+
+			if tt.secondCall {
+				second := runHookAntigravityWithWake(t, fx, "conv-antigravity")
+				var gotSecond map[string]any
+				if err := json.Unmarshal([]byte(second), &gotSecond); err != nil {
+					t.Fatalf("second PreInvocation output is invalid JSON: %v; output=%q", err, second)
+				}
+				if diff := cmp.Diff(map[string]any{}, gotSecond); diff != "" {
+					t.Fatalf("second PreInvocation JSON mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestHookAntigravityPreInvocationWakeInjectionSurvivesSpoolReplay(t *testing.T) {
+	const workspace = "github.com/duck8823/traceary"
+	const conversationID = "conv-antigravity-replay"
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	stateDir := t.TempDir()
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+	t.Setenv("TRACEARY_WORKSPACE", workspace)
+
+	fx := newWakeInjectionFixture(t)
+	fx.seedSummary(context.Background(), t, "sess-antigravity-replay", workspace, time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC), "replayed summary", false, "")
+
+	spoolRecord := map[string]any{
+		"schema_version": 1,
+		"command":        "antigravity",
+		"client":         "antigravity",
+		"action":         "pre-invocation",
+		"db_path":        fx.dbPath,
+		"payload":        `{"conversationId":"` + conversationID + `","workspacePaths":["/repo"]}`,
+		"created_at":     time.Now().UTC(),
+	}
+	recordJSON, err := json.Marshal(spoolRecord)
+	if err != nil {
+		t.Fatalf("marshal spool record: %v", err)
+	}
+	spoolDir := filepath.Join(stateDir, "spool")
+	if err := os.MkdirAll(spoolDir, 0o700); err != nil {
+		t.Fatalf("create spool directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(spoolDir, "antigravity-replay.json"), recordJSON, 0o600); err != nil {
+		t.Fatalf("write spool record: %v", err)
+	}
+
+	wantText, err := runHookSessionStart(t, fx, "conv-session-start-reference", workspace)
+	if err != nil {
+		t.Fatalf("SessionStart formatter reference error = %v", err)
+	}
+	gotJSON := runHookAntigravityWithWake(t, fx, conversationID)
+	var got map[string]any
+	if err := json.Unmarshal([]byte(gotJSON), &got); err != nil {
+		t.Fatalf("live PreInvocation output is invalid JSON: %v; output=%q", err, gotJSON)
+	}
+	want := map[string]any{
+		"injectSteps": []any{
+			map[string]any{"ephemeralMessage": wantText},
+		},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("live PreInvocation JSON mismatch after spool replay (-want +got):\n%s", diff)
+	}
 }
 
 func TestHookSessionStart_MissingRefinementsTableInjectsNothing(t *testing.T) {
@@ -529,6 +673,25 @@ func runHookKimi(t *testing.T, fx *wakeInjectionFixture, action, sessionID, work
 	rootCmd.SetArgs([]string{"hook", "kimi", action, "--db-path", fx.dbPath})
 	err := rootCmd.Execute()
 	return stdout.String(), err
+}
+
+func runHookAntigravityWithWake(t *testing.T, fx *wakeInjectionFixture, conversationID string) string {
+	t.Helper()
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(fx.storeUC),
+		cli.WithSession(fx.sessionUC),
+		cli.WithSessionWakeSummary(fx.wake),
+		cli.WithDatabasePathSetter(fx.database.SetPath),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(`{"conversationId":"` + conversationID + `","workspacePaths":["/repo"]}`))
+	rootCmd.SetArgs([]string{"hook", "antigravity", "pre-invocation", "--db-path", fx.dbPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(hook antigravity pre-invocation) error = %v", err)
+	}
+	return stdout.String()
 }
 
 func assertWakeStdout(t *testing.T, stdout string, wantSub, wantAbsent []string, wantEmpty bool, maxLen int64) {

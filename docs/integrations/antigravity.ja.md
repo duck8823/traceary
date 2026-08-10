@@ -12,12 +12,22 @@ Antigravity の `hooks.json` は *hook-group 名* から event config への top
 
 | Antigravity event | Traceary の効果 |
 | --- | --- |
-| `PreInvocation` | `conversationId` を key にした冪等な session 開始/更新（Antigravity に `SessionStart` はありません）。最初の workspace path を workspace とする |
+| `PreInvocation` | `conversationId` を key にした冪等な session 開始/更新（Antigravity に `SessionStart` はありません）。最初の workspace path を workspace とし、最初の対象発火で `injectSteps` を通じて想起要約を注入する |
 | `PreToolUse` (`run_command`) | 提案された `{CommandLine, Cwd}` を `conversationId + stepIdx` で永続化。ブロックしない（`{"decision":"allow"}`） |
 | `PostToolUse` (`run_command`) | 同一 step の `PreToolUse` が永続化した command を突き合わせ、`command_executed` audit を記録（step の `error` 付き）。pending が無ければ fail soft |
 | `Stop` | `transcriptPath` から最新の user prompt と model response を復元し、`prompt` + `transcript`、続いて turn 境界を記録。session は**閉じない** |
 
 Antigravity の payload は camelCase フィールド（`conversationId`, `workspacePaths`, `transcriptPath`, `toolCall.name`, `toolCall.args.CommandLine`, `toolCall.args.Cwd`, `stepIdx`, `terminationReason`）を使います。Traceary は共有 runtime（session / audit / transcript）を再利用する前に、これらを内部形式へ正規化します。
+
+### hook の出力語彙
+
+Antigravity は hook の stdout を JSON として解釈します。Traceary が使う出力語彙は次のとおりです。
+
+- `PreInvocation`: `{ "injectSteps": [...] }`。各 step は `toolCall`、`userMessage`、`ephemeralMessage` のいずれかです。Traceary は想起した wake summary を 1 つの `ephemeralMessage` で注入します。これは user が入力した本文ではないため、`userMessage` は使いません。
+- `PreToolUse`: `{ "decision": "allow" }`。
+- `Stop`: `{ "decision": "" }`。
+
+`PreInvocation` contract は、Antigravity CLI に同梱された vendor 文書 `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md` で確認しました（公開版は [Antigravity hooks](https://antigravity.google/docs/hooks) にもあります）。contract の例は `injectSteps` と `ephemeralMessage` を使っています。matcher は無視され、handler は flat list で、既定の handler timeout は 30 秒です。
 
 packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-server` も公開し、`traceary-session-history`、`traceary-memory-review`、`traceary-memory-remember` の文脈 skill を同梱します。`traceary hooks install` の直接設定は hook のみを導入します。Antigravity に MCP tool と skill を自動検出させる場合は packaged plugin を使用してください。
 

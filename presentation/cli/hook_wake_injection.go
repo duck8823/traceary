@@ -88,6 +88,30 @@ func (c *RootCLI) maybeInjectWakeSummaries(
 	if output == nil {
 		return
 	}
+	c.injectWakeSummaries(ctx, client, sessionID, workspace, dbPath, func(text string) error {
+		_, err := io.WriteString(output, text)
+		if err != nil {
+			return xerrors.Errorf("failed to write wake injection: %w", err)
+		}
+		return nil
+	})
+}
+
+// injectWakeSummaries selects and delivers finished session summaries at most
+// once per client+session. The sink lets structured-output hosts embed the
+// same text without duplicating selection or marker semantics. Failures are
+// swallowed: injection must never fail the hook.
+func (c *RootCLI) injectWakeSummaries(
+	ctx context.Context,
+	client string,
+	sessionID types.SessionID,
+	workspace types.Workspace,
+	dbPath string,
+	sink func(string) error,
+) {
+	if sink == nil {
+		return
+	}
 	if strings.TrimSpace(sessionID.String()) == "" {
 		return
 	}
@@ -117,7 +141,7 @@ func (c *RootCLI) maybeInjectWakeSummaries(
 	}
 
 	if text != "" {
-		if _, err := io.WriteString(output, text); err != nil {
+		if err := sink(text); err != nil {
 			slog.Debug("wake injection write failed", "error", err, "session_id", sessionID.String())
 			// Do not mark: a failed write may be retried on the next firing.
 			return
