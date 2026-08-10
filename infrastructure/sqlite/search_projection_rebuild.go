@@ -361,15 +361,16 @@ func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchPro
 			remaining = time.Until(deadline)
 		}
 		if remaining <= 0 {
-			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
+			return out, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "inventory lock duration cap exceeded"}
 		}
 		out, err = d.applyInventoryBatchOnce(lockCtx, p, remaining, now)
-		if err == nil || !isSearchProjectionSQLiteBusy(err) {
-			return out, err
+		classified, retry, classifiedErr := classifySearchProjectionApplyResult(out, err)
+		if classifiedErr != nil || !retry {
+			return classified, classifiedErr
 		}
 		select {
 		case <-lockCtx.Done():
-			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
+			return out, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "inventory lock duration cap exceeded"}
 		case <-time.After(min(5*time.Millisecond, remaining)):
 		}
 	}

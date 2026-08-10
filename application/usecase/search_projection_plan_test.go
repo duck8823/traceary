@@ -181,6 +181,37 @@ func (s *adaptiveProjectionStore) checkpoint() int64 {
 	return s.checkpoints[len(s.checkpoints)-1]
 }
 
+type adaptiveInventoryProjectionStore struct {
+	adaptiveProjectionStore
+	cursor               int
+	plannedInventoryRows []int
+}
+
+func (s *adaptiveInventoryProjectionStore) SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error) {
+	return apptypes.SearchProjectionStatus{State: "rebuilding", Phase: "inventory", ConfigHash: s.budget.ConfigHash()}, nil
+}
+
+func (s *adaptiveInventoryProjectionStore) SelectInventory(_ context.Context, b apptypes.SearchProjectionBudget) (apptypes.SearchProjectionInventorySnapshot, error) {
+	s.plannedInventoryRows = append(s.plannedInventoryRows, b.Rows)
+	items := make([]apptypes.SearchProjectionInventoryItem, 0, b.Rows)
+	for id := s.cursor + 1; id <= 3 && len(items) < b.Rows; id++ {
+		items = append(items, apptypes.SearchProjectionInventoryItem{EventID: fmt.Sprintf("e%d", id), LogicalBytes: 1, Missing: true})
+	}
+	return apptypes.SearchProjectionInventorySnapshot{
+		Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", ConfigHash: s.budget.ConfigHash(), SourceRevision: 1},
+		Cursor:     fmt.Sprintf("e%d", s.cursor), CursorStarted: s.cursor > 0,
+		Items: items, Done: s.cursor+len(items) == 3,
+	}, nil
+}
+
+func (s *adaptiveInventoryProjectionStore) ApplyInventoryBatch(_ context.Context, p apptypes.SearchProjectionInventoryPlan, _ time.Duration, _ time.Time) (apptypes.SearchProjectionProgress, error) {
+	if p.Ledger.Rows > s.maxRows {
+		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "inventory lock duration cap exceeded"}
+	}
+	s.cursor += p.Ledger.Rows
+	return apptypes.SearchProjectionProgress{Selected: p.Ledger.Rows, Written: p.Ledger.Rows, Completed: p.Done, GenerationID: p.GenerationID}, nil
+}
+
 func TestSearchProjectionConfigHashSeparatesSemanticAndThroughputBudgets(t *testing.T) {
 	t.Parallel()
 	base := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 200, WriteBytes: 300, RecentAge: time.Hour, IndexFamilyBytes: 400}
@@ -225,6 +256,22 @@ func TestSearchProjectionResumeUntilShrinksOnlyTheFailedBatch(t *testing.T) {
 	}
 	if diff := cmp.Diff([]int64{2, 3}, store.checkpoints); diff != "" {
 		t.Fatalf("checkpoints (-want +got):\n%s", diff)
+	}
+}
+
+func TestSearchProjectionResumeUntilShrinksInventoryBatch(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveInventoryProjectionStore{adaptiveProjectionStore: adaptiveProjectionStore{budget: b, maxRows: 2}}
+	result, err := usecase.NewSearchProjectionUsecase(store).ResumeUntil(context.Background(), b, apptypes.SearchProjectionRunOptions{MaxBatches: 2, TotalWallTime: time.Minute}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(2, result.Batches); diff != "" {
+		t.Fatalf("successful batches (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int{4, 2, 4}, store.plannedInventoryRows); diff != "" {
+		t.Fatalf("planned inventory rows (-want +got):\n%s", diff)
 	}
 }
 
