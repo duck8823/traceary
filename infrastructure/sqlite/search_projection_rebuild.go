@@ -2,9 +2,9 @@ package sqlite
 
 import (
 	"context"
-	_ "embed"
 	"crypto/rand"
 	"database/sql"
+	_ "embed"
 	"encoding/hex"
 	"errors"
 	"log/slog"
@@ -30,6 +30,15 @@ var selectSearchProjectionRecentCutoffSQL string
 
 //go:embed sql/select_search_projection_logical_non_recent_bytes.sql
 var selectSearchProjectionLogicalNonRecentBytesSQL string
+
+//go:embed sql/reclaim_search_projection_fts_start.sql
+var reclaimSearchProjectionFTSStartSQL string
+
+//go:embed sql/reclaim_search_projection_fts_continue.sql
+var reclaimSearchProjectionFTSContinueSQL string
+
+//go:embed sql/select_search_projection_fts_logical_bytes.sql
+var selectSearchProjectionFTSLogicalBytesSQL string
 
 // lowerSearchASCII folds ASCII only, matching SQLite's bundled lower(). The
 // projection and the query must fold identically, so this cannot be replaced
@@ -61,6 +70,12 @@ const searchProjectionFallbackAmplificationPPM int64 = 2_160_000
 // required before a measured amplification is trusted. Below this the ratio is
 // dominated by fixed per-table overhead.
 const searchProjectionMinAmplificationSampleBytes int64 = 8 << 20
+
+// This output-page bound was measured against a 49,664,000-byte shadow-table
+// fixture (220 50-KiB documents, five churn generations). Each step stayed
+// below 3 ms on SQLite 3.51.0, well inside the 250 ms CLI lock cap. The bound
+// limits output pages, not the amount of input scanned by FTS5.
+const searchProjectionFTSMergePages int64 = 16
 
 // searchProjectionCutoffTimeout bounds the source-phase prefilter walk. A
 // timeout yields age-only retention; eviction still enforces the ceiling.
@@ -95,11 +110,11 @@ type capacityDerivation struct {
 	// used for the ceiling: shared fully + scoped apportioned by generation
 	// (see deriveSearchProjectionCapacity / scopedNonRecentReserve).
 	RecentBytes, NonRecentScoped, NonRecentShared, NonRecentPhysical, NonRecentBytes int64
-	SampleSourceBytes                                                               int64
-	AmplificationPPM                                                                int64
-	SourceCeiling                                                                   int64
-	SplitEvidence                                                                   apptypes.CapacityEvidence
-	Evidence                                                                        apptypes.CapacityEvidence
+	SampleSourceBytes                                                                int64
+	AmplificationPPM                                                                 int64
+	SourceCeiling                                                                    int64
+	SplitEvidence                                                                    apptypes.CapacityEvidence
+	Evidence                                                                         apptypes.CapacityEvidence
 }
 
 // mulDiv returns floor(a*b/c) without intermediate int64 overflow, using
@@ -355,6 +370,38 @@ func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchPro
 		case <-lockCtx.Done():
 			return out, &apptypes.SearchProjectionNoProgressError{Reason: "inventory lock duration cap exceeded"}
 		case <-time.After(min(5*time.Millisecond, remaining)):
+		}
+	}
+}
+
+func isSearchProjectionDeadline(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+// reclaimSearchProjectionFTS runs FTS5's incremental-optimize protocol. The
+// negative first step starts a merge; positive steps continue it. A bare
+// positive step is deliberately not used because it may be a no-op.
+//
+//nolint:wrapcheck // The caller classifies the driver deadline at the transaction boundary.
+func reclaimSearchProjectionFTS(ctx context.Context, tx *sql.Tx) error {
+	var before, after int64
+	if err := tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, reclaimSearchProjectionFTSStartSQL, -searchProjectionFTSMergePages); err != nil {
+		return err
+	}
+	for {
+		if err := tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after); err != nil {
+			return err
+		}
+		delta := after - before
+		before = after
+		if delta < 2 {
+			return nil
+		}
+		if _, err := tx.ExecContext(ctx, reclaimSearchProjectionFTSContinueSQL, searchProjectionFTSMergePages); err != nil {
+			return err
 		}
 	}
 }
@@ -653,8 +700,14 @@ func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.
 			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
 		}
 		out, err := d.applyProjectionPlan(lockCtx, p, remaining, now)
-		if err == nil || !isSearchProjectionSQLiteBusy(err) {
+		if err == nil || (!isSearchProjectionSQLiteBusy(err) && !isSearchProjectionDeadline(err)) {
+			if isSearchProjectionDeadline(err) || lockCtx.Err() == context.DeadlineExceeded {
+				return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+			}
 			return out, err
+		}
+		if isSearchProjectionDeadline(err) {
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
 		}
 		select {
 		case <-lockCtx.Done():
@@ -804,6 +857,15 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		out.Evicted += int(n)
 		out.Cleaned += int(n)
 		out.CleanupBytes += c.LogicalBytes
+	}
+	// Reclaim only on the final old-generation cleanup batch. Eviction and
+	// intermediate cleanup batches must be allowed to commit their deletes
+	// without repeatedly retrying a whole-index merge; otherwise a merge that
+	// hits the lock cap could starve cleanup indefinitely.
+	if p.Phase == "cleanup" && p.Completed {
+		if e = reclaimSearchProjectionFTS(lockCtx, tx); e != nil {
+			return out, e
+		}
 	}
 	next := p.Phase
 	if p.NextPhase != "" {
@@ -988,7 +1050,9 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16),0) FROM literal_search_fingerprints WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.FingerprintRows, &s.FingerprintLogicalBytes); e != nil {
 		return s, e
 	}
-	s.FTSLogicalBytes = s.RecentBytes
+	if e = db.QueryRowContext(ctx, selectSearchProjectionFTSLogicalBytesSQL).Scan(&s.FTSLogicalBytes); e != nil {
+		return s, e
+	}
 	probeStarted := time.Now()
 	var ignored int
 	if probeErr := db.QueryRowContext(ctx, `SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH 'traceary_projection_probe_no_payload_7f42'`).Scan(&ignored); probeErr != nil {
