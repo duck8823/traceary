@@ -114,10 +114,12 @@ const antigravityHookClient = "antigravity"
 
 // runHookAntigravityPreInvocation starts or refreshes a Traceary session keyed
 // by conversationId. PreInvocation fires before every model call, so this is
-// idempotent: an existing session is treated as already started. Output is an
-// empty object so Antigravity injects no steps.
+// idempotent: an existing session is treated as already started. Wake
+// summaries are returned as a transient system message at most once per
+// conversation.
 func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
-	defer func() { _ = writeAntigravityJSON(output, map[string]any{}) }()
+	response := map[string]any{}
+	defer func() { _ = writeAntigravityJSON(output, response) }()
 
 	if c.storeManagement == nil || c.session == nil {
 		return nil
@@ -201,6 +203,14 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 		}
 	}
 	c.runOpportunisticSessionGC(ctx, resolvedDBPath, sessionID)
+	var wakeText string
+	c.injectWakeSummaries(ctx, antigravityHookClient, sessionID, workspace, resolvedDBPath, func(text string) error {
+		wakeText = text
+		return nil
+	})
+	if wakeText != "" {
+		response["injectSteps"] = []map[string]any{{"ephemeralMessage": wakeText}}
+	}
 	return nil
 }
 

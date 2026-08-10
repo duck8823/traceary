@@ -12,12 +12,22 @@ Antigravity's `hooks.json` is a top-level map of *hook-group name* to event conf
 
 | Antigravity event | Traceary effect |
 | --- | --- |
-| `PreInvocation` | Idempotent session start/refresh keyed by `conversationId` (Antigravity has no `SessionStart`); the first workspace path becomes the workspace |
+| `PreInvocation` | Idempotent session start/refresh keyed by `conversationId` (Antigravity has no `SessionStart`); the first workspace path becomes the workspace; on the first eligible firing, injects recalled summaries through `injectSteps` |
 | `PreToolUse` (`run_command`) | Persists the proposed `{CommandLine, Cwd}` keyed by `conversationId + stepIdx`; never blocks (`{"decision":"allow"}`) |
 | `PostToolUse` (`run_command`) | Pairs the command persisted by `PreToolUse` for the same step and records a `command_executed` audit (with the step `error`); fails soft when no pending command exists |
 | `Stop` | Recovers the latest user prompt and model response from `transcriptPath`, records `prompt` + `transcript`, then records a turn boundary; **does not** close the session |
 
 Antigravity payloads use camelCase fields (`conversationId`, `workspacePaths`, `transcriptPath`, `toolCall.name`, `toolCall.args.CommandLine`, `toolCall.args.Cwd`, `stepIdx`, `terminationReason`). Traceary normalizes these into its internal shape before reusing the shared session / audit / transcript runtime.
+
+### Hook output vocabulary
+
+Antigravity parses hook stdout as JSON. The output vocabulary used by Traceary is:
+
+- `PreInvocation`: `{ "injectSteps": [...] }`, where each step may be a `toolCall`, `userMessage`, or `ephemeralMessage`. Traceary uses one `ephemeralMessage` for recalled wake summaries, not `userMessage`, because the text is not something the user typed.
+- `PreToolUse`: `{ "decision": "allow" }`.
+- `Stop`: `{ "decision": "" }`.
+
+The `PreInvocation` contract was confirmed in the vendor documentation shipped with the Antigravity CLI at `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md` (the public contract is also documented at [Antigravity hooks](https://antigravity.google/docs/hooks)). Its contract example uses `injectSteps` with `ephemeralMessage`; the matcher is ignored, handlers are a flat list, and the default handler timeout is 30 seconds.
 
 The packaged plugin also exposes the local `traceary mcp-server` through `mcp_config.json` and includes the `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember` contextual skills. Direct `traceary hooks install` routes install hooks only; use the packaged plugin when Antigravity should discover the MCP tools and skills automatically.
 
