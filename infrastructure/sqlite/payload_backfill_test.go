@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -1087,6 +1089,61 @@ func TestPayloadBackfillPersistsPauseOnCancellation(t *testing.T) {
 	}
 }
 
+func TestPayloadBackfillCheckpointWindowStartsAtEachTransition(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		stopAfterBatch int64
+		wantState      string
+	}{
+		{
+			name:      "completion after a slow committed batch",
+			wantState: string(apptypes.PayloadBackfillCompleted),
+		},
+		{
+			name:           "pause after a slow committed batch",
+			stopAfterBatch: 1,
+			wantState:      string(apptypes.PayloadBackfillPaused),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, ds, _ := openPayloadBackfillFixture(t)
+			defer closePayloadBackfillFixture(t, db)
+			insertIdentityEvent(t, db, eventSeed{
+				ID: "checkpoint-window", Kind: "note", Body: compressibleBody("checkpoint-window"),
+			})
+
+			ds.checkpointTimeout = 5 * time.Millisecond
+			var once sync.Once
+			ds.onAfterCommitBatch = func(int64) {
+				once.Do(func() { time.Sleep(25 * time.Millisecond) })
+			}
+
+			result, err := ds.Run(context.Background(), apptypes.PayloadBackfillConfig{
+				BatchRows:        1,
+				StopAfterBatches: tt.stopAfterBatch,
+			})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if diff := cmp.Diff(tt.wantState, result.State); diff != "" {
+				t.Fatalf("result state mismatch (-want +got):\n%s", diff)
+			}
+
+			var persistedState string
+			if err := db.QueryRow(`SELECT state FROM payload_backfill_runs`).Scan(&persistedState); err != nil {
+				t.Fatalf("read persisted state: %v", err)
+			}
+			if diff := cmp.Diff(tt.wantState, persistedState); diff != "" {
+				t.Fatalf("persisted state mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // Identity bodies are bound as TEXT to preserve the column affinity readers
 // and triggers expect. SQLite TEXT is a byte string, not validated UTF-8, but
 // the rewrite has to prove it: a legacy body is arbitrary bytes and losing any
@@ -1296,7 +1353,7 @@ func TestPayloadBackfillReportsTheRealErrorThatRacedACancellation(t *testing.T) 
 	cancel()
 
 	diskFull := errors.New("disk I/O error")
-	result, got := ds.abortRun(ctx, context.WithoutCancel(ctx), db, run, 1, diskFull)
+	result, got := ds.abortRun(ctx, db, run, 1, diskFull)
 	if !errors.Is(got, diskFull) {
 		t.Fatalf("abortRun error = %v, want the disk I/O error", got)
 	}

@@ -58,6 +58,9 @@ const payloadBackfillCheckpointTimeout = 10 * time.Second
 // codec: events.body and command_audits.{command_text,input_text,output_text}.
 type PayloadBackfillDatasource struct {
 	db *Database
+	// checkpointTimeout bounds test-injected checkpoint windows. Production
+	// leaves it zero, which uses payloadBackfillCheckpointTimeout.
+	checkpointTimeout time.Duration
 	// onBeforeCommitBatch is a test hook that fires after a batch is selected
 	// and before the verify/encode transaction. Production leaves it nil.
 	onBeforeCommitBatch func(batch []backfillCandidate)
@@ -237,23 +240,10 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		return apptypes.PayloadBackfillResult{}, err
 	}
 
-	// Checkpoint writes outlive the cancellation that triggers them. Every
-	// terminal transition — complete, reset, pause, fail — records what the
-	// worker already did durably, so running it on the caller's context would
-	// lose that record exactly when the run needs it most.
-	//
-	// Bounded, though: WithoutCancel drops the deadline too, and acquiring the
-	// store lease waits on nothing but the context. An unbounded checkpoint
-	// would turn "someone else holds the store" into a process that never
-	// returns. Losing the checkpoint is recoverable — resume reads the cursor
-	// the last committed batch left — and hanging is not.
-	closeCtx, cancelClose := context.WithTimeout(context.WithoutCancel(ctx), payloadBackfillCheckpointTimeout)
-	defer cancelClose()
-
 	var batchCount int64
 	for {
 		if err = ctx.Err(); err != nil {
-			return d.abortRun(ctx, closeCtx, db, run, batchCount, err)
+			return d.abortRun(ctx, db, run, batchCount, err)
 		}
 
 		// Begin a new pass when the cursor is at the origin.
@@ -268,7 +258,7 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		}
 		batch, selectErr := d.selectBackfillBatch(ctx, db, run.CursorRowID, ceilings, c.BatchRows)
 		if selectErr != nil {
-			return d.abortRun(ctx, closeCtx, db, run, batchCount, selectErr)
+			return d.abortRun(ctx, db, run, batchCount, selectErr)
 		}
 		if d.onSelectedBatch != nil {
 			batch = d.onSelectedBatch(batch)
@@ -286,18 +276,22 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 			if !run.passDirty {
 				remaining, countErr := countEligibleBackfillRows(ctx, db, run.CursorRowID, ceilings)
 				if countErr != nil {
-					return d.abortRun(ctx, closeCtx, db, run, batchCount, countErr)
+					return d.abortRun(ctx, db, run, batchCount, countErr)
 				}
 				if remaining > 0 {
-					return d.abortRun(ctx, closeCtx, db, run, batchCount, xerrors.Errorf(
+					return d.abortRun(ctx, db, run, batchCount, xerrors.Errorf(
 						"payload backfill selection returned no candidates while %d eligible fields remain past cursor %d",
 						remaining, run.CursorRowID,
 					))
 				}
-				if completeErr := completeBackfillRun(closeCtx, db, run); completeErr != nil {
+				checkpointCtx, cancelCheckpoint := d.checkpointContext(ctx)
+				completeErr := completeBackfillRun(checkpointCtx, db, run)
+				if completeErr != nil {
+					cancelCheckpoint()
 					return apptypes.PayloadBackfillResult{}, completeErr
 				}
-				loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
+				loaded, loadErr := loadBackfillRun(checkpointCtx, db, run.RunID)
+				cancelCheckpoint()
 				if loadErr != nil {
 					return apptypes.PayloadBackfillResult{}, loadErr
 				}
@@ -305,7 +299,10 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 			}
 			// Conflicts or rewrites this pass: restart from rowid 0 under the
 			// same high-waters so skipped rows are not stranded.
-			if resetErr := resetBackfillCursor(closeCtx, db, run); resetErr != nil {
+			checkpointCtx, cancelCheckpoint := d.checkpointContext(ctx)
+			resetErr := resetBackfillCursor(checkpointCtx, db, run)
+			cancelCheckpoint()
+			if resetErr != nil {
 				return apptypes.PayloadBackfillResult{}, resetErr
 			}
 			run.CursorRowID = 0
@@ -318,13 +315,15 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		stats, commitErr := commitBackfillBatch(ctx, db, run, batch)
 		if commitErr != nil {
 			if errors.Is(commitErr, ErrPayloadBackfillPartialMetadata) {
-				failed, failErr := failBackfillRun(closeCtx, db, run, stats.PartialEventID, stats.PartialReason, stats)
+				checkpointCtx, cancelCheckpoint := d.checkpointContext(ctx)
+				failed, failErr := failBackfillRun(checkpointCtx, db, run, stats.PartialEventID, stats.PartialReason, stats)
+				cancelCheckpoint()
 				if failErr != nil {
 					return apptypes.PayloadBackfillResult{}, failErr
 				}
 				return resultFromRun(failed, batchCount, false), xerrors.Errorf("%w: event %s: %s", ErrPayloadBackfillPartialMetadata, stats.PartialEventID, stats.PartialReason)
 			}
-			return d.abortRun(ctx, closeCtx, db, run, batchCount, commitErr)
+			return d.abortRun(ctx, db, run, batchCount, commitErr)
 		}
 		batchCount++
 		if d.onAfterCommitBatch != nil {
@@ -344,16 +343,40 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 		}
 
 		if c.StopAfterBatches > 0 && batchCount >= c.StopAfterBatches {
-			if pauseErr := pauseBackfillRun(closeCtx, db, run); pauseErr != nil {
+			checkpointCtx, cancelCheckpoint := d.checkpointContext(ctx)
+			pauseErr := pauseBackfillRun(checkpointCtx, db, run)
+			if pauseErr != nil {
+				cancelCheckpoint()
 				return apptypes.PayloadBackfillResult{}, pauseErr
 			}
-			loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
+			loaded, loadErr := loadBackfillRun(checkpointCtx, db, run.RunID)
+			cancelCheckpoint()
 			if loadErr != nil {
 				return apptypes.PayloadBackfillResult{}, loadErr
 			}
 			return resultFromRun(loaded, batchCount, true), nil
 		}
 	}
+}
+
+func (d *PayloadBackfillDatasource) checkpointContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	// Checkpoint writes outlive the cancellation that triggers them. Every
+	// terminal transition — complete, reset, pause, fail — records what the
+	// worker already did durably, so running it on the caller's context would
+	// lose that record exactly when the run needs it most. Derive this context
+	// when the transition is taken, not when the run starts, so the budget is
+	// not consumed by the preceding work.
+	//
+	// Bounded, though: WithoutCancel drops the deadline too, and acquiring the
+	// store lease waits on nothing but the context. An unbounded checkpoint
+	// would turn "someone else holds the store" into a process that never
+	// returns. Losing the checkpoint is recoverable — resume reads the cursor
+	// the last committed batch left — and hanging is not.
+	timeout := d.checkpointTimeout
+	if timeout == 0 {
+		timeout = payloadBackfillCheckpointTimeout
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
 }
 
 // abortRun ends the loop on an error that reached it. When the run was
@@ -368,7 +391,6 @@ func (d *PayloadBackfillDatasource) execute(ctx context.Context, c apptypes.Payl
 // Only a cause that is itself a context error is reported as a cancellation.
 func (d *PayloadBackfillDatasource) abortRun(
 	ctx context.Context,
-	closeCtx context.Context,
 	db *sql.DB,
 	run backfillRunHandle,
 	batchCount int64,
@@ -377,13 +399,15 @@ func (d *PayloadBackfillDatasource) abortRun(
 	if ctx.Err() == nil {
 		return apptypes.PayloadBackfillResult{}, cause
 	}
-	if pauseErr := pauseBackfillRun(closeCtx, db, run); pauseErr != nil {
+	checkpointCtx, cancelCheckpoint := d.checkpointContext(ctx)
+	defer cancelCheckpoint()
+	if pauseErr := pauseBackfillRun(checkpointCtx, db, run); pauseErr != nil {
 		return apptypes.PayloadBackfillResult{}, xerrors.Errorf("%v; pause payload backfill: %w", cause, pauseErr)
 	}
 	if !errors.Is(cause, context.Canceled) && !errors.Is(cause, context.DeadlineExceeded) {
 		return apptypes.PayloadBackfillResult{}, cause
 	}
-	loaded, loadErr := loadBackfillRun(closeCtx, db, run.RunID)
+	loaded, loadErr := loadBackfillRun(checkpointCtx, db, run.RunID)
 	if loadErr != nil {
 		return apptypes.PayloadBackfillResult{}, loadErr
 	}
