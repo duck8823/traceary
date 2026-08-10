@@ -218,7 +218,9 @@ func (a *PayloadRehearsalAdapter) Preview(ctx context.Context, c apptypes.Payloa
 	}
 	if !codecMetadata {
 		// The copied target may predate the codec foundation. Its migration plan
-		// is still measurable, but the metadata columns do not exist yet.
+		// is still measurable, but the metadata columns do not exist yet. One
+		// probe covers both tables: migration 036 adds every *_plaintext_bytes
+		// column in a single step, so events and command_audits cannot disagree.
 		eventAggregateQuery = `SELECT count(*),coalesce(sum(length(CAST(body AS BLOB))),0) FROM events`
 		auditAggregateQuery = `SELECT count(*),coalesce(sum(length(CAST(command_text AS BLOB))+length(CAST(input_text AS BLOB))+length(CAST(output_text AS BLOB))),0) FROM command_audits`
 	}
