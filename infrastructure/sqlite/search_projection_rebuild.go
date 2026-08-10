@@ -2,9 +2,9 @@ package sqlite
 
 import (
 	"context"
-	_ "embed"
 	"crypto/rand"
 	"database/sql"
+	_ "embed"
 	"encoding/hex"
 	"errors"
 	"log/slog"
@@ -30,6 +30,12 @@ var selectSearchProjectionRecentCutoffSQL string
 
 //go:embed sql/select_search_projection_logical_non_recent_bytes.sql
 var selectSearchProjectionLogicalNonRecentBytesSQL string
+
+//go:embed sql/reclaim_search_projection_fts.sql
+var reclaimSearchProjectionFTSSQL string
+
+//go:embed sql/select_search_projection_fts_logical_bytes.sql
+var selectSearchProjectionFTSLogicalBytesSQL string
 
 // lowerSearchASCII folds ASCII only, matching SQLite's bundled lower(). The
 // projection and the query must fold identically, so this cannot be replaced
@@ -61,6 +67,16 @@ const searchProjectionFallbackAmplificationPPM int64 = 2_160_000
 // required before a measured amplification is trusted. Below this the ratio is
 // dominated by fixed per-table overhead.
 const searchProjectionMinAmplificationSampleBytes int64 = 8 << 20
+
+// Each incremental merge step is limited to this many FTS5 output pages. The
+// reclaim loop checks its time budget before every step; this page bound also
+// limits output pages, not the amount of input scanned by FTS5.
+const searchProjectionFTSMergePages int64 = 16
+
+// The step cap prevents one unexpectedly expensive reclaim loop from consuming
+// the whole window. Each step is committed independently, so a partial merge
+// remains durable when a later step fails.
+const searchProjectionFTSReclaimStepCap = 8
 
 // searchProjectionCutoffTimeout bounds the source-phase prefilter walk. A
 // timeout yields age-only retention; eviction still enforces the ceiling.
@@ -95,11 +111,11 @@ type capacityDerivation struct {
 	// used for the ceiling: shared fully + scoped apportioned by generation
 	// (see deriveSearchProjectionCapacity / scopedNonRecentReserve).
 	RecentBytes, NonRecentScoped, NonRecentShared, NonRecentPhysical, NonRecentBytes int64
-	SampleSourceBytes                                                               int64
-	AmplificationPPM                                                                int64
-	SourceCeiling                                                                   int64
-	SplitEvidence                                                                   apptypes.CapacityEvidence
-	Evidence                                                                        apptypes.CapacityEvidence
+	SampleSourceBytes                                                                int64
+	AmplificationPPM                                                                 int64
+	SourceCeiling                                                                    int64
+	SplitEvidence                                                                    apptypes.CapacityEvidence
+	Evidence                                                                         apptypes.CapacityEvidence
 }
 
 // mulDiv returns floor(a*b/c) without intermediate int64 overflow, using
@@ -358,6 +374,73 @@ func (d *Database) ApplyInventoryBatch(ctx context.Context, p apptypes.SearchPro
 		}
 	}
 }
+
+func isSearchProjectionDeadline(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+// reclaimSearchProjectionFTS runs FTS5's incremental-optimize protocol until
+// the caller's reclaim budget is spent. The negative first step starts a
+// merge; positive steps continue it. A bare positive step is deliberately not
+// used because it may be a no-op.
+//
+// Each step commits on its own, so budget exhaustion is normal and costs
+// nothing: every completed step is already durable and the next batch picks
+// the merge up again. Nothing else shares these transactions, which is the
+// point — an interrupted merge rolls its transaction back, and when that
+// transaction also held the batch's cleanup deletes it discarded them.
+//
+//nolint:wrapcheck // The caller logs this: reclaim is maintenance and never fails a batch.
+func reclaimSearchProjectionFTS(ctx context.Context, db *sql.DB, budget time.Duration) error {
+	if budget <= 0 {
+		return nil
+	}
+	deadline := time.Now().Add(budget)
+	for step := 0; step < searchProjectionFTSReclaimStepCap; step++ {
+		if time.Until(deadline) <= 0 {
+			return nil
+		}
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		rollback := func() {
+			_ = tx.Rollback()
+		}
+		var before, after int64
+		if err = tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before); err != nil {
+			rollback()
+			return err
+		}
+		mergePages := searchProjectionFTSMergePages
+		if step == 0 {
+			mergePages = -mergePages
+		}
+		if _, err = tx.ExecContext(ctx, reclaimSearchProjectionFTSSQL, mergePages); err != nil {
+			rollback()
+			return err
+		}
+		if err = tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after); err != nil {
+			rollback()
+			return err
+		}
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+		// A merge step is indivisible. It intentionally uses the caller's
+		// context without the batch deadline: a step can overshoot the budget
+		// by its own measured 1-3 ms, but cannot be cancelled mid-write. The
+		// budget is therefore enforced between independently committed steps.
+		if after-before < 2 {
+			return nil
+		}
+	}
+	return nil
+}
+
+// reclaimSearchProjectionFTSFn exists so tests can pin that reclaim is
+// maintenance and cannot fail an already committed batch.
+var reclaimSearchProjectionFTSFn = reclaimSearchProjectionFTS
 
 //nolint:wrapcheck,errcheck // SQL errors preserve the typed inventory contract; rollback is best effort.
 func (d *Database) applyInventoryBatchOnce(ctx context.Context, p apptypes.SearchProjectionInventoryPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
@@ -653,8 +736,9 @@ func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.
 			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
 		}
 		out, err := d.applyProjectionPlan(lockCtx, p, remaining, now)
-		if err == nil || !isSearchProjectionSQLiteBusy(err) {
-			return out, err
+		classified, retry, classifiedErr := classifySearchProjectionApplyResult(out, err)
+		if classifiedErr != nil || !retry {
+			return classified, classifiedErr
 		}
 		select {
 		case <-lockCtx.Done():
@@ -667,6 +751,19 @@ func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.
 func isSearchProjectionSQLiteBusy(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "sqlite_busy") || strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked")
+}
+
+func classifySearchProjectionApplyResult(out apptypes.SearchProjectionProgress, err error) (apptypes.SearchProjectionProgress, bool, error) {
+	if isSearchProjectionDeadline(err) {
+		return apptypes.SearchProjectionProgress{}, false, &apptypes.SearchProjectionNoProgressError{Reason: "projection lock duration cap exceeded"}
+	}
+	if err == nil {
+		return out, false, nil
+	}
+	if isSearchProjectionSQLiteBusy(err) {
+		return out, true, nil
+	}
+	return out, false, err
 }
 
 // MarkFailed makes an oversize generation recoverable without advancing its checkpoint.
@@ -857,6 +954,14 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	if e = tx.Commit(); e != nil {
 		return out, e
 	}
+	if p.Phase != "source" {
+		// Reclaim is maintenance after the batch commit. Strip the lock
+		// deadline so an indivisible merge step cannot interrupt and roll back
+		// its own transaction; the reclaim budget is checked between steps.
+		if reclaimErr := reclaimSearchProjectionFTSFn(context.WithoutCancel(ctx), db, lock); reclaimErr != nil {
+			slog.Debug("search projection FTS reclaim failed", "error", reclaimErr)
+		}
+	}
 	// Re-derive the source ceiling after the source→eviction transition is
 	// durable, in its own bounded write fenced on generation_id + phase so it
 	// cannot stamp a generation that has moved on. Failure leaves the
@@ -988,7 +1093,9 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16),0) FROM literal_search_fingerprints WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.FingerprintRows, &s.FingerprintLogicalBytes); e != nil {
 		return s, e
 	}
-	s.FTSLogicalBytes = s.RecentBytes
+	if e = db.QueryRowContext(ctx, selectSearchProjectionFTSLogicalBytesSQL).Scan(&s.FTSLogicalBytes); e != nil {
+		return s, e
+	}
 	probeStarted := time.Now()
 	var ignored int
 	if probeErr := db.QueryRowContext(ctx, `SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH 'traceary_projection_probe_no_payload_7f42'`).Scan(&ignored); probeErr != nil {
