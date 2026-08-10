@@ -1068,13 +1068,7 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if e != nil {
 		return s, e
 	}
-	// Method is not persisted: dbstat is the only way this figure is ever
-	// produced, so it is derived rather than stored per row.
-	for _, evidence := range []*apptypes.CapacityEvidence{&s.CutoverBeforeEvidence, &s.CutoverAfterEvidence, &s.CapacityEvidence} {
-		if evidence.Status != "" {
-			evidence.Method = "dbstat"
-		}
-	}
+	enrichCapacityEvidenceMethod(&s.CutoverBeforeEvidence, &s.CutoverAfterEvidence, &s.CapacityEvidence)
 	var inventoryState string
 	if e = db.QueryRowContext(ctx, `SELECT state FROM search_projection_inventory_state WHERE singleton=1`).Scan(&inventoryState); e != nil {
 		return s, e

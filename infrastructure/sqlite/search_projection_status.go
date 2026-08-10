@@ -13,6 +13,15 @@ import (
 //go:embed sql/select_search_projection_control_status.sql
 var selectSearchProjectionControlStatusSQL string
 
+func enrichCapacityEvidenceMethod(evidence ...*apptypes.CapacityEvidence) {
+	// The method is derived because persisted capacity figures only come from dbstat.
+	for _, item := range evidence {
+		if item.Status != "" {
+			item.Method = "dbstat"
+		}
+	}
+}
+
 // SearchProjectionControlStatus reads only the singleton state-machine rows.
 // Keeping this query separate prevents lifecycle control paths from paying for
 // operator-facing measurement queries.
@@ -42,6 +51,7 @@ func (d *Database) SearchProjectionControlStatus(ctx context.Context) (s apptype
 	if err != nil {
 		return s, xerrors.Errorf("scan projection control status: %w", err)
 	}
+	enrichCapacityEvidenceMethod(&s.CutoverBeforeEvidence, &s.CutoverAfterEvidence)
 	if err = tx.Commit(); err != nil {
 		return s, xerrors.Errorf("commit projection control status read: %w", err)
 	}

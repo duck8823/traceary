@@ -25,6 +25,7 @@ type wallBudgetStore struct {
 	controlReads       int
 	measuredReads      int
 	state              string
+	resumeReady        bool
 }
 
 func (s *wallBudgetStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
@@ -51,12 +52,15 @@ func (s *wallBudgetStore) SearchProjectionControlStatus(ctx context.Context) (ap
 	if state == "" {
 		state = "rebuilding"
 	}
-	return apptypes.SearchProjectionControlStatus{State: state, ConfigHash: s.budget.ConfigHash()}, nil
+	return apptypes.SearchProjectionControlStatus{State: state, ConfigHash: s.budget.ConfigHash(), CapacitySemanticsVersion: apptypes.SearchProjectionCapacitySemanticsVersion}, nil
 }
 
 //nolint:wrapcheck // Test fake preserves context cancellation identity.
 func (s *wallBudgetStore) SelectSnapshot(ctx context.Context, _ apptypes.SearchProjectionBudget, _ time.Time) (apptypes.ProjectionSnapshot, error) {
 	s.selected = true
+	if s.resumeReady {
+		return apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "generation"}, Phase: "source", Now: time.Now()}, nil
+	}
 	<-ctx.Done()
 	return apptypes.ProjectionSnapshot{}, ctx.Err()
 }
