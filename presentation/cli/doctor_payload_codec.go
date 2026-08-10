@@ -25,13 +25,13 @@ func (c *RootCLI) inspectPayloadCodec(ctx context.Context, snapshot storeFileSna
 	if state.CompatibilityMode != "counter" {
 		return doctorCheck{Name: name, Status: doctorStatusWarn, Message: localizef("payload codec compatibility evidence uses %s mode; compressed-row counts are unavailable", "payload codec compatibility evidence は %s mode です。圧縮行の件数は利用できません", state.CompatibilityMode)}
 	}
-	zstdRows := state.EventBodyZstd + state.AuditCommandZstd + state.AuditInputZstd + state.AuditOutputZstd
+	zstdRows := state.EventBodyNonIdentity + state.AuditCommandNonIdentity + state.AuditInputNonIdentity + state.AuditOutputNonIdentity
 	if zstdRows == 0 {
 		return doctorCheck{Name: name, Status: doctorStatusPass, Message: localizef("payload codec is ready; no compressed rows exist (minimum reader v%d)", "payload codec は準備済みです。圧縮行はまだありません（minimum reader v%d）", state.MinimumReader)}
 	}
 	return doctorCheck{
 		Name:    name,
 		Status:  doctorStatusPass,
-		Message: localizef("payload codec has compressed rows (events.body=%d, command_audits command=%d input=%d output=%d); downgrade to v0.33 or earlier cannot read them", "payload codec に圧縮行があります（events.body=%d、command_audits command=%d input=%d output=%d）。v0.33 以前へ downgrade すると読み取れません", state.EventBodyZstd, state.AuditCommandZstd, state.AuditInputZstd, state.AuditOutputZstd),
+		Message: localizef("payload codec has compressed rows (events.body=%d, command_audits command=%d input=%d output=%d); downgrade to v0.33 or earlier cannot read them", "payload codec に圧縮行があります（events.body=%d、command_audits command=%d input=%d output=%d）。v0.33 以前へ downgrade すると読み取れません", state.EventBodyNonIdentity, state.AuditCommandNonIdentity, state.AuditInputNonIdentity, state.AuditOutputNonIdentity),
 	}
 }

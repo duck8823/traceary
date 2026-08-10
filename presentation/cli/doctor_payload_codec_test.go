@@ -26,8 +26,8 @@ func TestInspectPayloadCodecReportsCompressedRowsWithoutWarning(t *testing.T) {
 		state       application.PayloadCodecState
 		wantMessage string
 	}{
-		{name: "English", language: "en", state: application.PayloadCodecState{MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "valid", EventBodyZstd: 2, AuditOutputZstd: 3}, wantMessage: "payload codec has compressed rows (events.body=2, command_audits command=0 input=0 output=3); downgrade to v0.33 or earlier cannot read them"},
-		{name: "Japanese", language: "ja", state: application.PayloadCodecState{MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "valid", EventBodyZstd: 1}, wantMessage: "payload codec に圧縮行があります（events.body=1、command_audits command=0 input=0 output=0）。v0.33 以前へ downgrade すると読み取れません"},
+		{name: "English", language: "en", state: application.PayloadCodecState{MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "valid", EventBodyNonIdentity: 2, AuditOutputNonIdentity: 3}, wantMessage: "payload codec has compressed rows (events.body=2, command_audits command=0 input=0 output=3); downgrade to v0.33 or earlier cannot read them"},
+		{name: "Japanese", language: "ja", state: application.PayloadCodecState{MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "valid", EventBodyNonIdentity: 1}, wantMessage: "payload codec に圧縮行があります（events.body=1、command_audits command=0 input=0 output=0）。v0.33 以前へ downgrade すると読み取れません"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -48,7 +48,7 @@ func TestInspectPayloadCodecReportsCompressedRowsWithoutWarning(t *testing.T) {
 
 func TestInspectPayloadCodecReportsInvalidCompatibilityEvidence(t *testing.T) {
 	check := (&RootCLI{payloadCodecInspector: payloadCodecInspectorStub{state: application.PayloadCodecState{
-		MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "invalid", EventBodyZstd: 999,
+		MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "invalid", EventBodyNonIdentity: 999,
 	}}}).inspectPayloadCodec(context.Background(), storeFileSnapshot{Exists: true})
 	if diff := cmp.Diff(doctorStatusWarn, check.Status); diff != "" {
 		t.Fatalf("status mismatch (-want +got):\n%s", diff)

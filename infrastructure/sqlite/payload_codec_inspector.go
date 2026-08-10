@@ -45,10 +45,10 @@ func (i *PayloadCodecInspector) InspectPayloadCodec(ctx context.Context) (_ appl
 FROM payload_codec_compatibility_state WHERE singleton=1`).Scan(
 		&state.CompatibilityMode,
 		&state.CompatibilityState,
-		&state.EventBodyZstd,
-		&state.AuditCommandZstd,
-		&state.AuditInputZstd,
-		&state.AuditOutputZstd,
+		&state.EventBodyNonIdentity,
+		&state.AuditCommandNonIdentity,
+		&state.AuditInputNonIdentity,
+		&state.AuditOutputNonIdentity,
 	); err != nil {
 		return state, xerrors.Errorf("read payload codec compatibility state: %w", err)
 	}

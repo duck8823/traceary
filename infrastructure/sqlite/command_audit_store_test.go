@@ -2,7 +2,9 @@ package sqlite_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -175,34 +177,88 @@ func TestDatasource_SaveWithAuditCanonicalPayloadPolicy(t *testing.T) {
 		}
 	}
 	compressedBody := strings.Repeat("canonical payload should compress ", 256)
-	save(newEvent("compressed", compressedBody), strings.Repeat("command ", 128), strings.Repeat("input ", 128), strings.Repeat("output ", 128))
+	// Pre-trimmed: NewCommandAudit trims the command, and the checksum below is
+	// over what is stored, not over what was handed to the constructor.
+	compressedCommand := strings.TrimSpace(strings.Repeat("command ", 128))
+	compressedInput := strings.Repeat("input ", 128)
+	compressedOutput := strings.Repeat("output ", 128)
+	save(newEvent("compressed", compressedBody), compressedCommand, compressedInput, compressedOutput)
 	save(newEvent("short", "x"), "x", "y", "z")
+	// input_text and output_text are frequently empty in practice. An empty
+	// value must stay identity -- a zstd frame around nothing is still several
+	// bytes, which would grow it -- and must stay TEXT so it reads back as an
+	// empty string rather than as a zero-length BLOB.
+	save(newEvent("empty", "x"), "x", "", "")
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	var bodyCodec, bodyType, commandCodec, commandType string
-	if err := db.QueryRow(`SELECT body_codec, typeof(body) FROM events WHERE id='compressed'`).Scan(&bodyCodec, &bodyType); err != nil {
-		t.Fatal(err)
+	// Every payload lane, not only the two pinned first: a lane that stopped
+	// going through storedBodyArg would still round trip in process while
+	// storing an affinity the body derivation triggers cannot match.
+	storage := []struct {
+		name       string
+		query      string
+		wantCodec  string
+		wantTypeOf string
+	}{
+		{name: "compressed event body", query: `SELECT body_codec, typeof(body) FROM events WHERE id='compressed'`, wantCodec: "zstd", wantTypeOf: "blob"},
+		{name: "compressed audit command", query: `SELECT command_codec, typeof(command_text) FROM command_audits WHERE event_id='compressed'`, wantCodec: "zstd", wantTypeOf: "blob"},
+		{name: "compressed audit input", query: `SELECT input_codec, typeof(input_text) FROM command_audits WHERE event_id='compressed'`, wantCodec: "zstd", wantTypeOf: "blob"},
+		{name: "compressed audit output", query: `SELECT output_codec, typeof(output_text) FROM command_audits WHERE event_id='compressed'`, wantCodec: "zstd", wantTypeOf: "blob"},
+		{name: "short event body", query: `SELECT body_codec, typeof(body) FROM events WHERE id='short'`, wantCodec: "identity", wantTypeOf: "text"},
+		{name: "short audit command", query: `SELECT command_codec, typeof(command_text) FROM command_audits WHERE event_id='short'`, wantCodec: "identity", wantTypeOf: "text"},
+		{name: "empty audit input", query: `SELECT input_codec, typeof(input_text) FROM command_audits WHERE event_id='empty'`, wantCodec: "identity", wantTypeOf: "text"},
+		{name: "empty audit output", query: `SELECT output_codec, typeof(output_text) FROM command_audits WHERE event_id='empty'`, wantCodec: "identity", wantTypeOf: "text"},
 	}
-	if diff := cmp.Diff([]string{"zstd", "blob"}, []string{bodyCodec, bodyType}); diff != "" {
-		t.Fatalf("compressed event storage mismatch (-want +got):\n%s", diff)
+	for _, tt := range storage {
+		var codec, sqliteType string
+		if err := db.QueryRow(tt.query).Scan(&codec, &sqliteType); err != nil {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+		if diff := cmp.Diff([]string{tt.wantCodec, tt.wantTypeOf}, []string{codec, sqliteType}); diff != "" {
+			t.Errorf("%s storage mismatch (-want +got):\n%s", tt.name, diff)
+		}
 	}
-	if err := db.QueryRow(`SELECT command_codec, typeof(command_text) FROM command_audits WHERE event_id='compressed'`).Scan(&commandCodec, &commandType); err != nil {
-		t.Fatal(err)
+
+	// Integrity metadata is what makes a compressed row readable at all:
+	// payloadRow.decode rejects a row whose encoded byte count disagrees with
+	// the stored value, or whose checksum is not the checksum of the plaintext.
+	// Pinning plaintext provenance separately from the encoded size is the
+	// point -- writing the compressed size into either would fail every read.
+	metadata := []struct {
+		name      string
+		query     string
+		plaintext string
+	}{
+		{name: "event body", query: `SELECT body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256, length(CAST(body AS BLOB)) FROM events WHERE id='compressed'`, plaintext: compressedBody},
+		{name: "audit command", query: `SELECT command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256, length(CAST(command_text AS BLOB)) FROM command_audits WHERE event_id='compressed'`, plaintext: compressedCommand},
+		{name: "audit input", query: `SELECT input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256, length(CAST(input_text AS BLOB)) FROM command_audits WHERE event_id='compressed'`, plaintext: compressedInput},
+		{name: "audit output", query: `SELECT output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256, length(CAST(output_text AS BLOB)) FROM command_audits WHERE event_id='compressed'`, plaintext: compressedOutput},
 	}
-	if diff := cmp.Diff([]string{"zstd", "blob"}, []string{commandCodec, commandType}); diff != "" {
-		t.Fatalf("compressed audit storage mismatch (-want +got):\n%s", diff)
+	for _, tt := range metadata {
+		var formatVersion, plaintextBytes, encodedBytes, storedLength int64
+		var checksum string
+		if err := db.QueryRow(tt.query).Scan(&formatVersion, &plaintextBytes, &encodedBytes, &checksum, &storedLength); err != nil {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+		sum := sha256.Sum256([]byte(tt.plaintext))
+		// 1 is payloadFormatVersion, spelled out because this is an external
+		// test package and the constant is the persisted contract anyway.
+		want := []int64{1, int64(len(tt.plaintext)), storedLength}
+		if diff := cmp.Diff(want, []int64{formatVersion, plaintextBytes, encodedBytes}); diff != "" {
+			t.Errorf("%s integrity metadata mismatch (-want +got):\n%s", tt.name, diff)
+		}
+		if diff := cmp.Diff(hex.EncodeToString(sum[:]), checksum); diff != "" {
+			t.Errorf("%s checksum mismatch (-want +got):\n%s", tt.name, diff)
+		}
+		if encodedBytes >= plaintextBytes {
+			t.Errorf("%s encoded bytes = %d, want fewer than plaintext %d", tt.name, encodedBytes, plaintextBytes)
+		}
 	}
-	var shortCodec, shortType string
-	if err := db.QueryRow(`SELECT body_codec, typeof(body) FROM events WHERE id='short'`).Scan(&shortCodec, &shortType); err != nil {
-		t.Fatal(err)
-	}
-	if diff := cmp.Diff([]string{"identity", "text"}, []string{shortCodec, shortType}); diff != "" {
-		t.Fatalf("identity fallback storage mismatch (-want +got):\n%s", diff)
-	}
+
 	details, err := sut.GetDetails(ctx, types.EventID("compressed"))
 	if err != nil {
 		t.Fatal(err)
@@ -214,8 +270,19 @@ func TestDatasource_SaveWithAuditCanonicalPayloadPolicy(t *testing.T) {
 	if !ok {
 		t.Fatal("compressed audit missing")
 	}
-	if diff := cmp.Diff(strings.Repeat("output ", 128), audit.Output()); diff != "" {
+	if diff := cmp.Diff([]string{compressedCommand, compressedInput, compressedOutput}, []string{audit.Command(), audit.Input(), audit.Output()}); diff != "" {
 		t.Fatalf("compressed audit round trip mismatch (-want +got):\n%s", diff)
+	}
+	emptyDetails, err := sut.GetDetails(ctx, types.EventID("empty"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyAudit, ok := emptyDetails.CommandAudit().Value()
+	if !ok {
+		t.Fatal("empty audit missing")
+	}
+	if diff := cmp.Diff([]string{"", ""}, []string{emptyAudit.Input(), emptyAudit.Output()}); diff != "" {
+		t.Fatalf("empty audit round trip mismatch (-want +got):\n%s", diff)
 	}
 	matches, err := sut.Search(ctx, "canonical payload", "", "", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
 	if err != nil {
