@@ -41,7 +41,7 @@ func (c *RootCLI) newMemoryGraphAddCommand() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "add <from-memory-id>",
-		Short: Localize("Record a typed relationship between two memories", "memory 間の型付き関係を記録する"),
+		Short: Localize("Deprecated: record a typed relationship between two memories; removed in v0.35", "非推奨: memory 間の型付き関係を記録する; v0.35 で削除"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return c.runMemoryGraphAdd(cmd.Context(), cmd.OutOrStdout(), memoryGraphAddInput{
@@ -55,6 +55,7 @@ func (c *RootCLI) newMemoryGraphAddCommand() *cobra.Command {
 			})
 		},
 	}
+	applyCommandDeprecation(cmd, "", "v0.35")
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&toMemory, "to", "", Localize("target memory ID (required)", "関係の対象 memory ID (必須)"))
 	cmd.Flags().StringVar(&relation, "relation", "", Localize("relation type (e.g. supersedes, contradicts, supports, related-to, causes)", "関係種別 (例: supersedes, contradicts, supports, related-to, causes)"))
@@ -77,7 +78,7 @@ func (c *RootCLI) newMemoryGraphListCommand() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: Localize("List memory edges matching the given filters", "指定した filter に一致する memory edge を表示する"),
+		Short: Localize("Deprecated: list memory edges matching the given filters; removed in v0.35", "非推奨: 指定した filter に一致する memory edge を表示する; v0.35 で削除"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runMemoryGraphList(cmd.Context(), cmd.OutOrStdout(), memoryGraphListInput{
@@ -90,6 +91,7 @@ func (c *RootCLI) newMemoryGraphListCommand() *cobra.Command {
 			})
 		},
 	}
+	applyCommandDeprecation(cmd, "", "v0.35")
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&memoryID, "memory-id", "", Localize("restrict to edges touching this memory (source or target)", "この memory に接続する edge (source / target どちらでも) に絞る"))
 	cmd.Flags().StringVar(&relation, "relation", "", Localize("filter by relation type", "関係種別でフィルタ"))

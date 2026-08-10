@@ -18,7 +18,7 @@ func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
 
 	labelCmd := &cobra.Command{
 		Use:   "label [label-text]",
-		Short: Localize("Set a label on a session", "セッションにラベルを設定する"),
+		Short: Localize("Deprecated: set a label on a session; removed in v0.35", "非推奨: セッションにラベルを設定する; v0.35 で削除"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -46,6 +46,7 @@ func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
 			return printSessionLabelResult(output, resolvedSessionID, args[0])
 		},
 	}
+	applyCommandDeprecation(labelCmd, "", "v0.35")
 
 	labelCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	labelCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to label", "ラベルを設定するセッション ID"))

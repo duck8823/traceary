@@ -88,6 +88,8 @@ Currently deprecated:
 - `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
 - bare `traceary` TTY default → `traceary --help` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary search --json` top-level array → `{"events": [...], "sessions": [...]}` object (replaced in v0.35.0; announced in v0.34.0)
+- `traceary memory admin graph add` and `traceary memory admin graph list` (removed in v0.35.0; deprecated in v0.34.0; no replacement because the reference store has zero `memory_edges` rows)
+- `traceary session label`, `traceary session list --label`, the `LABEL` column, and the `label` JSON field (removed in v0.35.0; deprecated in v0.34.0; no replacement because the reference store has zero labelled sessions)
 
 Historical removal log:
 
@@ -117,6 +119,7 @@ DEPRECATED: このコマンドは非推奨です。代わりに `<canonical repl
 Notice rules:
 
 - The notice must name the canonical replacement command (with subcommand path, e.g. `traceary memory admin hygiene scan`, not just the parent group).
+- When a surface is removed without a successor, the notice says that there is no replacement instead of naming one; the deprecation entry must state the evidence that nothing is lost.
 - The notice must name the removal target version (`v0.15`, `v1.0`, etc.).
 - The notice goes to **stderr** so stdout / `--json` / NDJSON output stays byte-for-byte identical to the canonical command. Cobra's built-in `Deprecated` field routes its warning through stdout, so Traceary emits the notice itself instead.
 - A single invocation must not emit more than one notice — even when the deprecated command is a parent group whose subcommand is the actual entry point, the notice fires once for the executing leaf and names the precise canonical leaf.

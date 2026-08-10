@@ -35,6 +35,9 @@ func (c *RootCLI) newSessionListCommand() *cobra.Command {
 		Short: Localize("List session summaries", "セッション一覧を表示する"),
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cmd.Flags().Changed("label") {
+				writeDeprecationNotice(cmd, "the `--label` flag", "`--label` フラグ", "", "v0.35")
+			}
 			ctx := cmd.Context()
 			output := cmd.OutOrStdout()
 

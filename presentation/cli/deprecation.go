@@ -23,6 +23,14 @@ func applyCommandDeprecation(cmd *cobra.Command, replacement string, removalVers
 // default behaviour rather than a command path use it directly, at the point
 // where the behaviour is about to happen; `apply*` installs a hook instead.
 func writeDeprecationNotice(cmd *cobra.Command, subject string, japaneseSubject string, replacement string, removalVersion string) {
+	if replacement == "" {
+		message := Localize(
+			fmt.Sprintf("DEPRECATED: %s is deprecated with no replacement. Removal target: %s.", subject, removalVersion),
+			fmt.Sprintf("DEPRECATED: %sは非推奨です。置き換え先はありません。削除予定: %s。", japaneseSubject, removalVersion),
+		)
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), message)
+		return
+	}
 	message := Localize(
 		fmt.Sprintf("DEPRECATED: %s is deprecated, use `%s` instead. Removal target: %s.", subject, replacement, removalVersion),
 		fmt.Sprintf("DEPRECATED: %sは非推奨です。代わりに `%s` を使用してください。削除予定: %s。", japaneseSubject, replacement, removalVersion),
