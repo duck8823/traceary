@@ -9,7 +9,7 @@ It focuses on read-side workflows for humans rather than on the write-side hook 
 
 Traceary now ships three baseline interactive conveniences:
 
-- bare `traceary` as the Tail-first operator cockpit entrypoint, with `traceary tui` kept as the explicit compatibility path
+- bare `traceary` as the Tail-first operator cockpit entrypoint; its TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0
 - shell completion
 - `traceary tail` for live-follow inspection
 
@@ -22,7 +22,7 @@ Use the commands below according to the question you are trying to answer.
 
 ### 1. "I want one place to start" → `traceary`
 
-Use bare `traceary` when you are at an interactive terminal and want Traceary to show the Tail-first operator cockpit first. `traceary tui` remains the explicit compatibility entrypoint for the same cockpit. The cockpit summarizes active work, doctor warnings/failures, recent failures, and new events since the last live-tail visit. The Sessions tab stays session-centric (sessions, failures, commands, and health); memory candidates and stale-memory cleanup belong in the dedicated Memory tab. From there you can jump into:
+Use bare `traceary` when you are at an interactive terminal and want Traceary to show the Tail-first operator cockpit first. The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions --snapshot` instead. The cockpit summarizes active work, doctor warnings/failures, recent failures, and new events since the last live-tail visit. The Sessions tab stays session-centric (sessions, failures, commands, and health); memory candidates and stale-memory cleanup belong in the dedicated Memory tab. From there you can jump into:
 
 - live event tail
 - doctor details
@@ -134,11 +134,11 @@ For v0.19.0, bare `traceary` opens the Tail-first cockpit when stdin/stdout are 
 
 The compatibility contract is:
 
-- `traceary tui` remains a stable explicit entrypoint for operators who prefer a named command.
+- The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary --help` for the default entrypoint and `traceary sessions --snapshot` for the surviving script-friendly view of the same data.
 - Non-TTY `traceary` must keep deterministic help/script behavior.
 - Completion generation and help examples must remain stable.
 - Script-facing commands (`sessions --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path; `top --snapshot` remains compatible.
-- Release notes must call out the default-entrypoint change and the explicit `traceary tui` compatibility path.
+- Release notes must call out the deprecated default-entrypoint behavior and `traceary tui`, with their v0.35.0 removal target.
 
 ## Still future-facing
 

@@ -13,6 +13,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ### Deprecated
 - **`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除 (#1688)** — 代わりに `traceary sessions`（`--snapshot` / `--snapshot --json` を含む）を使ってください。互換期間中、stdout はバイト単位で同一です。
+- **`traceary tui` / `traceary dashboard` と bare `traceary` の TTY 既定動作は v0.34.0 で非推奨、v0.35.0 で削除 (#1687)** — cockpit command の代わりに `traceary sessions --snapshot`、bare default の代わりに `traceary --help` を使ってください。非 TTY の bare `traceary` は変更しません。
 - **`traceary search --json` は v0.35.0 でオブジェクトになります (#1717)** — v0.34.x では従来どおり event オブジェクトのトップレベル配列を維持します。セッション階層ヒットはこの形状で表現できないため、セッションに一致した場合は件数と次の形状を stderr に通知し、stdout はバイト単位で変わりません。セッションを見るには `--json` を外してください。v0.35.0 で配列を `{"events": [...], "sessions": [...]}` に置き換えます。`docs/cli-stability.md` の「窓を延ばす」規定に基づく記録です。
 
 ## [v0.33.1] - 2026-07-31

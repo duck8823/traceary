@@ -85,6 +85,8 @@ Stability and deprecation expectations for these runtime entrypoints:
 Currently deprecated:
 
 - `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
+- `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
+- bare `traceary` TTY default → `traceary --help` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary search --json` top-level array → `{"events": [...], "sessions": [...]}` object (replaced in v0.35.0; announced in v0.34.0)
 
 Historical removal log:
@@ -96,7 +98,7 @@ Historical removal log:
 
 ## Deprecation notice expectations
 
-When a public or admin command path, flag, JSON field name, or output shape needs to change in a way that affects callers, Traceary follows a single deprecation flow.
+When a public or admin command path, flag, JSON field name, or output shape needs to change in a way that affects callers, Traceary follows a single deprecation flow. The same single notice form also covers a default-behaviour change; in that case, the subject named in the notice is the behaviour rather than the command path.
 
 ### Stderr notice
 
@@ -128,6 +130,8 @@ For the duration of the deprecation window, the deprecated command must keep emi
 - the same `--json` output (same field names, same field order where the contract documents one, same NDJSON line shape),
 - the same exit codes,
 - the same `--id-only` byte shape.
+
+Help and usage text is deliberately outside this guarantee. The notice rule above *requires* a deprecated command to change its `Short` and `Long`, which changes the parent's command listing, so freezing help bytes would make the flow self-contradictory. Automation must not parse `--help`; it is the one output shape that announces deprecations rather than preserving them.
 
 Adding a new optional flag to a deprecated alias is allowed only when the canonical replacement has the same flag (so callers can move without rewriting their argument list).
 

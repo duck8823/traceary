@@ -31,6 +31,16 @@ func TestRootCLI_DeprecationNotice(t *testing.T) {
 			name:    "sessions snapshot",
 			command: "sessions",
 		},
+		{
+			name:       "cockpit TUI",
+			command:    "tui",
+			wantNotice: "DEPRECATED: this command is deprecated, use `traceary sessions --snapshot` instead. Removal target: v0.35.\n",
+		},
+		{
+			name:       "cockpit dashboard alias",
+			command:    "dashboard",
+			wantNotice: "DEPRECATED: this command is deprecated, use `traceary sessions --snapshot` instead. Removal target: v0.35.\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -49,14 +59,86 @@ func TestRootCLI_DeprecationNotice(t *testing.T) {
 			}
 			root.SetOut(stdout)
 			root.SetErr(stderr)
-			root.SetArgs(args)
-			if err := root.Execute(); err != nil {
+			if tt.command == "tui" || tt.command == "dashboard" {
+				root.SetArgs([]string{tt.command})
+			} else {
+				root.SetArgs(args)
+			}
+			if err := root.Execute(); err != nil && tt.wantNotice == "" {
 				t.Fatalf("Execute() error = %v", err)
 			}
 			if diff := cmp.Diff(tt.wantNotice, stderr.String()); diff != "" {
 				t.Errorf("stderr notice mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(strings.Count(tt.wantNotice, "\n"), strings.Count(stderr.String(), "\n")); diff != "" {
+				t.Errorf("stderr line count mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRootCLI_CockpitDeprecationNoticeSkipsHelp(t *testing.T) {
+	tests := []struct {
+		name          string
+		language      string
+		wantStdoutHas string
+	}{
+		{name: "English", wantStdoutHas: "removed in v0.35"},
+		{name: "Japanese", language: "ja", wantStdoutHas: "v0.35 で削除"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.language != "" {
+				t.Setenv("TRACEARY_LANG", tt.language)
+			}
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI().Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs([]string{"tui", "--help"})
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if diff := cmp.Diff("", stderr.String()); diff != "" {
+				t.Errorf("stderr mismatch (-want +got):\n%s", diff)
+			}
+			if !strings.Contains(stdout.String(), tt.wantStdoutHas) {
+				t.Errorf("stdout = %q, want %q", stdout.String(), tt.wantStdoutHas)
+			}
+		})
+	}
+}
+
+func TestRootCLI_CockpitDeprecationNoticeJapanese(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+	tests := []struct {
+		name    string
+		command string
+	}{
+		{name: "tui", command: "tui"},
+		{name: "dashboard alias", command: "dashboard"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI().Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs([]string{tt.command})
+
+			if err := root.Execute(); err == nil {
+				t.Fatal("Execute() error = nil, want non-interactive TUI error")
+			}
+			want := "DEPRECATED: このコマンドは非推奨です。代わりに `traceary sessions --snapshot` を使用してください。削除予定: v0.35。\n"
+			if diff := cmp.Diff(want, stderr.String()); diff != "" {
+				t.Errorf("stderr notice mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(1, strings.Count(stderr.String(), "\n")); diff != "" {
 				t.Errorf("stderr line count mismatch (-want +got):\n%s", diff)
 			}
 		})

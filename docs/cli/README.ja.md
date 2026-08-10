@@ -85,9 +85,9 @@ session 解決ルールは `traceary log` と同じです。
 
 Traceary operator cockpit TUI を開きます。
 
-個別の subcommand を覚える代わりに、operator loop を 1 つのターミナル画面から始めたいときは、対話 terminal で bare `traceary` を使います。`traceary tui` は同じ cockpit を明示的に開く互換 entrypoint として残ります。cockpit は Tail-first で開き、active work、直近の失敗、doctor status、前回 live-tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。cockpit から live tail、doctor details、memory inbox review へ移動できます。
+個別の subcommand を覚える代わりに、operator loop を 1 つのターミナル画面から始めたいときは、対話 terminal で bare `traceary` を使います。bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。既定の入口には `traceary --help`、同じデータを見るには、script から使える `traceary sessions --snapshot` を使用してください。cockpit は Tail-first で開き、active work、直近の失敗、doctor status、前回 live-tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。cockpit から live tail、doctor details、memory inbox review へ移動できます。
 
-`traceary tui` は対話 terminal が必要です。非 TTY で起動した場合は exit code `2` で拒否し、script 向け command (`list`、`sessions --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list`。`top --snapshot [--json]` は v0.34.0 で非推奨、v0.35.0 で削除される互換 path) の利用を案内します。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
+`traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。代わりに `traceary sessions --snapshot` を使用してください。対話 terminal が必要です。非 TTY で起動した場合は exit code `2` で拒否し、script 向け command (`list`、`sessions --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list`。`top --snapshot [--json]` は v0.34.0 で非推奨、v0.35.0 で削除される互換 path) の利用を案内します。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
 
 主な flag:
 
@@ -97,7 +97,7 @@ Traceary operator cockpit TUI を開きます。
 互換性:
 
 - 対話 terminal の bare `traceary` は Tail-first cockpit をデフォルトで開きます
-- 明示的な名前付き entrypoint や互換 path が必要な場合は `traceary tui` を使ってください
+- 同じデータを見るには、script から使える `traceary sessions --snapshot` を使用してください。bare TTY の既定動作は v0.35.0 で `traceary --help` になります
 
 ### `traceary list`
 
