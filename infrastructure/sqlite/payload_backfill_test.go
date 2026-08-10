@@ -1116,10 +1116,13 @@ func TestPayloadBackfillCheckpointWindowStartsAtEachTransition(t *testing.T) {
 				ID: "checkpoint-window", Kind: "note", Body: compressibleBody("checkpoint-window"),
 			})
 
-			ds.checkpointTimeout = 5 * time.Millisecond
+			// The window has to outlast two SQLite writes on a loaded runner
+			// while the sleep still overruns it several times over. Shrinking
+			// both further would test the scheduler rather than the anchoring.
+			ds.checkpointTimeout = 150 * time.Millisecond
 			var once sync.Once
 			ds.onAfterCommitBatch = func(int64) {
-				once.Do(func() { time.Sleep(25 * time.Millisecond) })
+				once.Do(func() { time.Sleep(750 * time.Millisecond) })
 			}
 
 			result, err := ds.Run(context.Background(), apptypes.PayloadBackfillConfig{
