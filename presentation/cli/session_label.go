@@ -46,7 +46,7 @@ func (c *RootCLI) newSessionLabelCommand() *cobra.Command {
 			return printSessionLabelResult(output, resolvedSessionID, args[0])
 		},
 	}
-	applyCommandDeprecation(labelCmd, "", "v0.35")
+	applyCommandDeprecation(labelCmd, noReplacement, "v0.35")
 
 	labelCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	labelCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("session ID to label", "ラベルを設定するセッション ID"))

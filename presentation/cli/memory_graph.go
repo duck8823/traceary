@@ -55,7 +55,7 @@ func (c *RootCLI) newMemoryGraphAddCommand() *cobra.Command {
 			})
 		},
 	}
-	applyCommandDeprecation(cmd, "", "v0.35")
+	applyCommandDeprecation(cmd, noReplacement, "v0.35")
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&toMemory, "to", "", Localize("target memory ID (required)", "関係の対象 memory ID (必須)"))
 	cmd.Flags().StringVar(&relation, "relation", "", Localize("relation type (e.g. supersedes, contradicts, supports, related-to, causes)", "関係種別 (例: supersedes, contradicts, supports, related-to, causes)"))
@@ -91,7 +91,7 @@ func (c *RootCLI) newMemoryGraphListCommand() *cobra.Command {
 			})
 		},
 	}
-	applyCommandDeprecation(cmd, "", "v0.35")
+	applyCommandDeprecation(cmd, noReplacement, "v0.35")
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&memoryID, "memory-id", "", Localize("restrict to edges touching this memory (source or target)", "この memory に接続する edge (source / target どちらでも) に絞る"))
 	cmd.Flags().StringVar(&relation, "relation", "", Localize("filter by relation type", "関係種別でフィルタ"))
