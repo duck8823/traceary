@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math/bits"
 	"strings"
 	"time"
 
@@ -142,10 +143,6 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 }
 
 func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions, now time.Time) (apptypes.SearchProjectionRunResult, error) {
-	return u.resumeUntil(ctx, b, opts, now)
-}
-
-func (u *SearchProjectionUsecase) resumeUntil(ctx context.Context, b apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions, now time.Time) (apptypes.SearchProjectionRunResult, error) {
 	started := time.Now()
 	result := apptypes.SearchProjectionRunResult{}
 	if opts.MaxBatches <= 0 || opts.TotalWallTime <= 0 {
@@ -214,14 +211,14 @@ func (u *SearchProjectionUsecase) resumeUntil(ctx context.Context, b apptypes.Se
 }
 
 // resumeCatchUpBatch uses the same adaptive loop as the operator's
-// ResumeUntil path. The fixed catch-up budget starts at 128 rows, so the
-// halving floor reaches one row in eight attempts; the total wall bound keeps
-// a store open from inheriting an unbounded retry cost from transient lock
-// contention.
+// ResumeUntil path. The number of attempts is the halving floor expressed in
+// wall time: each failed attempt halves the row budget until one row, followed
+// by the final one-row attempt. This keeps a store open from inheriting an
+// unbounded retry cost from transient lock contention.
 func (u *SearchProjectionUsecase) resumeCatchUpBatch(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
-	result, err := u.resumeUntil(ctx, b, apptypes.SearchProjectionRunOptions{
+	result, err := u.ResumeUntil(ctx, b, apptypes.SearchProjectionRunOptions{
 		MaxBatches:    1,
-		TotalWallTime: 8 * b.LockTime,
+		TotalWallTime: time.Duration(bits.Len(uint(b.Rows))) * b.LockTime,
 	}, now)
 	return result.Progress, err
 }
