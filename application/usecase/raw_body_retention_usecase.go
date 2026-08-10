@@ -49,18 +49,26 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 		return nil, err
 	}
 	_ = recovery
+	markerEncodedBytes, err := u.planner.RetentionMarkerEncodedBytes()
+	if err != nil {
+		return nil, xerrors.Errorf("measure retention marker: %w", err)
+	}
 
 	candidates := make([]apptypes.RetentionPlanCandidate, 0, len(snapshot.Candidates))
 	identities := make([]string, 0, len(snapshot.Candidates))
 	totalBytes := 0
 	for _, candidate := range snapshot.Candidates {
+		netBytes, err := retentionNetBytes(candidate.EncodedBytes, markerEncodedBytes)
+		if err != nil {
+			return nil, err
+		}
 		identity := rawBodyCandidateIdentity(candidate.EventID, candidate.BodySHA256)
 		identities = append(identities, identity)
-		totalBytes += candidate.EncodedBytes
+		totalBytes += netBytes
 		candidates = append(candidates, apptypes.RetentionPlanCandidate{
 			Class: "raw_body", IdentityKind: "database", DatabaseIdentity: candidate.EventID,
 			RootID: "", RelativePath: "", Timestamp: candidate.CreatedAt.UTC().Format(time.RFC3339Nano), CandidateIdentity: identity,
-			LogicalExtent:   apptypes.RetentionExtent{Availability: "known", Bytes: strconv.Itoa(candidate.EncodedBytes)},
+			LogicalExtent:   apptypes.RetentionExtent{Availability: "known", Bytes: strconv.Itoa(netBytes)},
 			AllocatedExtent: apptypes.RetentionExtent{Availability: "unknown"}, Reasons: []string{"age"},
 		})
 	}
@@ -161,6 +169,10 @@ func decodeConfirmedRetentionPlan(planData []byte, confirmedPlanID string) (appt
 }
 
 func (u *rawBodyRetentionUsecase) prepareExecution(plan apptypes.RetentionPlan, recoveryPath string) ([]apptypes.RawBodyCandidate, []apptypes.RawBodyRecoveryBody, error) {
+	markerEncodedBytes, err := u.planner.RetentionMarkerEncodedBytes()
+	if err != nil {
+		return nil, nil, xerrors.Errorf("measure retention marker: %w", err)
+	}
 	candidates := make([]apptypes.RawBodyCandidate, 0, len(plan.CanonicalPayload.Candidates))
 	for _, planned := range plan.CanonicalPayload.Candidates {
 		eventID, digest, err := parseRawBodyCandidateIdentity(planned.CandidateIdentity)
@@ -171,9 +183,13 @@ func (u *rawBodyRetentionUsecase) prepareExecution(plan apptypes.RetentionPlan, 
 		if err != nil {
 			return nil, nil, xerrors.Errorf("parse retention candidate timestamp: %w", err)
 		}
-		encodedBytes, err := strconv.Atoi(planned.LogicalExtent.Bytes)
-		if err != nil || encodedBytes < 0 {
+		netBytes, err := strconv.Atoi(planned.LogicalExtent.Bytes)
+		if err != nil {
 			return nil, nil, xerrors.Errorf("invalid retention candidate stored bytes")
+		}
+		encodedBytes, err := retentionGrossBytes(netBytes, markerEncodedBytes)
+		if err != nil {
+			return nil, nil, err
 		}
 		candidates = append(candidates, apptypes.RawBodyCandidate{EventID: eventID, CreatedAt: createdAt, EncodedBytes: encodedBytes, BodySHA256: digest})
 	}
@@ -203,7 +219,11 @@ func (u *rawBodyRetentionUsecase) prepareExecution(plan apptypes.RetentionPlan, 
 	totalBytes := 0
 	for index, candidate := range plan.CanonicalPayload.Candidates {
 		identities[index] = candidate.CandidateIdentity
-		totalBytes += candidates[index].EncodedBytes
+		netBytes, err := retentionNetBytes(candidates[index].EncodedBytes, markerEncodedBytes)
+		if err != nil {
+			return nil, nil, err
+		}
+		totalBytes += netBytes
 	}
 	coverage := sha256.Sum256([]byte(joinIdentities(identities)))
 	if recovery.CoverageDigest != hex.EncodeToString(coverage[:]) {
@@ -218,6 +238,24 @@ func (u *rawBodyRetentionUsecase) prepareExecution(plan apptypes.RetentionPlan, 
 		return nil, nil, xerrors.Errorf("retention class result does not match reviewed candidates")
 	}
 	return candidates, bodies, nil
+}
+
+func retentionNetBytes(encodedBytes, markerEncodedBytes int) (int, error) {
+	if encodedBytes < 0 || markerEncodedBytes < 0 {
+		return 0, xerrors.Errorf("retention body extent must not be negative")
+	}
+	return encodedBytes - markerEncodedBytes, nil
+}
+
+func retentionGrossBytes(netBytes, markerEncodedBytes int) (int, error) {
+	if markerEncodedBytes < 0 || netBytes > int(^uint(0)>>1)-markerEncodedBytes {
+		return 0, xerrors.Errorf("retention candidate stored bytes overflow")
+	}
+	encodedBytes := netBytes + markerEncodedBytes
+	if encodedBytes < 0 {
+		return 0, xerrors.Errorf("retention candidate stored bytes must not be negative")
+	}
+	return encodedBytes, nil
 }
 
 func loadRawBodyRecovery(path string, candidates []apptypes.RawBodyCandidate) ([]apptypes.RawBodyRecoveryBody, string, error) {

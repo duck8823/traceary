@@ -128,6 +128,15 @@ SELECT e.id
 	}, nil
 }
 
+// RetentionMarkerEncodedBytes measures the exact marker written by body pruning.
+func (d *StoreManagementDatasource) RetentionMarkerEncodedBytes() (int, error) {
+	marker, err := encodePayload([]byte(domtypes.EventBodyUnavailableRetentionMarker), payloadCodecIdentity)
+	if err != nil {
+		return 0, xerrors.Errorf("encode retention marker: %w", err)
+	}
+	return checkedInt(marker.StoredBytes, "retention marker encoded bytes")
+}
+
 // ApplyRawBodyPlan prunes exact candidate versions in durable, resumable batches.
 func (d *StoreManagementDatasource) ApplyRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidates []apptypes.RawBodyCandidate, appliedAt time.Time) (apptypes.RawBodyApplyResult, error) {
 	result := apptypes.RawBodyApplyResult{PlanID: planID, CandidateCount: len(candidates)}

@@ -36,7 +36,7 @@
       "enum": ["satisfied", "unsatisfied", "indeterminate"],
       "x-traceary-order": ["satisfied", "unsatisfied", "indeterminate"]
     },
-    "decimal": {"type": "string", "pattern": "^(0|[1-9][0-9]*)$"},
+    "decimal": {"type": "string", "pattern": "^(0|-[1-9][0-9]*|[1-9][0-9]*)$"},
     "safeCount": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
     "instant": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

@@ -139,7 +139,25 @@ func (c *RootCLI) runStoreRetentionPlan(ctx context.Context, output io.Writer, i
 	if err := json.Unmarshal(plan, &header); err != nil {
 		return xerrors.Errorf("read generated plan ID: %w", err)
 	}
-	if _, err := fmt.Fprintf(output, "Plan: %s\nPlan ID: %s\n", input.outputPath, header.PlanID); err != nil {
+	var figure struct {
+		CanonicalPayload struct {
+			ClassResults []struct {
+				Ceilings []struct {
+					Current struct {
+						Bytes string `json:"bytes"`
+					} `json:"current"`
+				} `json:"ceilings"`
+			} `json:"class_results"`
+		} `json:"canonical_payload"`
+	}
+	if err := json.Unmarshal(plan, &figure); err != nil {
+		return xerrors.Errorf("read retention plan reclaim figure: %w", err)
+	}
+	current := "0"
+	if len(figure.CanonicalPayload.ClassResults) == 1 && len(figure.CanonicalPayload.ClassResults[0].Ceilings) == 1 {
+		current = figure.CanonicalPayload.ClassResults[0].Ceilings[0].Current.Bytes
+	}
+	if _, err := fmt.Fprintf(output, "Plan: %s\nPlan ID: %s\nNet body-column change after retention markers are written (encoded bytes): %s\n", input.outputPath, header.PlanID, current); err != nil {
 		return xerrors.Errorf("print retention plan result: %w", err)
 	}
 	return nil

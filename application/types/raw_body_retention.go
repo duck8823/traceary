@@ -3,7 +3,7 @@ package types
 import "time"
 
 // RawBodyCandidate identifies one exact persisted event-body version. EncodedBytes
-// is the reclaimable extent; PlaintextBytes remains provenance for recovery and
+// is the stored extent; PlaintextBytes remains provenance for recovery and
 // retention-ledger validation.
 type RawBodyCandidate struct {
 	EventID        string

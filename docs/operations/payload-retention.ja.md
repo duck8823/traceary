@@ -61,7 +61,7 @@ Traceary は、resume・監査に必要な session metadata と短期 debug 用�
 
 候補は class 固有の age、stable identity、path で決定的に並べます。候補は複数 reason（`age`, `count`, `logical_bytes`, `allocated_bytes`）を持てますが、一度だけ出現します。byte ceiling は既知 extent だけを使います。unknown extent は表示し、回収可能と仮定しません。count/age rule からは候補にできます。
 
-Allocated bytes は選択 payload/file の占有量推定であり、filesystem が直ちに回収する保証ではありません。SQLite row pruning は各 body の encoded extent に基づく、SQLite ファイル内部で解放される logical bytes を報告します。これは `store compact` の後で初めて free disk space になります。SQLite の candidate 単位 allocated bytes は加算できないため、v0.31 の `raw_body` 候補選択には使いません。DB 全体の allocated bytes は compaction 前後の観測専用です。
+Allocated bytes は選択 payload/file の占有量推定であり、filesystem が直ちに回収する保証ではありません。raw-body plan は、各 retention marker を書き込んだ後の body column の符号付き net change を報告します。これは candidate の encoded extent から marker の encoded extent を引いた値で、zero または negative になり得ます。free disk space になるのは `store compact` の後です。SQLite の candidate 単位 allocated bytes は加算できないため、v0.31 の `raw_body` 候補選択には使いません。DB 全体の allocated bytes は compaction 前後の観測専用です。
 
 設定済み ceiling は projected post-plan state に対して個別に `satisfied`、`unsatisfied`、`indeterminate` を評価します。class result は AND reduction です。どれかが `unsatisfied` なら class も `unsatisfied`、それ以外で一つでも `indeterminate` なら `indeterminate`、全 ceiling が `satisfied` の場合だけ `satisfied` です。age/count と併用していても、設定 byte ceiling の current measurement または candidate extent が unknown なら `indeterminate` です。allocated-byte measurement 非対応も `indeterminate` です。`indeterminate` / `unsatisfied` plan は apply できません。
 

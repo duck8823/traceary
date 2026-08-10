@@ -23,6 +23,7 @@ const retentionPlanSchemaVersion = "retention-plan/v1"
 
 var (
 	canonicalUnsignedInteger = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
+	canonicalSignedInteger   = regexp.MustCompile(`^(0|-[1-9][0-9]*|[1-9][0-9]*)$`)
 	lowerHexDigest           = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -239,7 +240,7 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 		return xerrors.Errorf("raw-body retention class result is invalid")
 	}
 	ceilingResult := payload.ClassResults[0].Ceilings[0]
-	if ceilingResult.Ceiling != "age" || ceilingResult.Status != payload.ClassResults[0].Status || !validKnownExtent(ceilingResult.Current) || !validKnownExtent(ceilingResult.Projected) {
+	if ceilingResult.Ceiling != "age" || ceilingResult.Status != payload.ClassResults[0].Status || !validKnownSignedExtent(ceilingResult.Current) || !validKnownSignedExtent(ceilingResult.Projected) {
 		return xerrors.Errorf("raw-body retention ceiling result is invalid")
 	}
 	seen := make(map[string]struct{}, len(payload.Candidates))
@@ -247,7 +248,7 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 		if candidate.Class != "raw_body" || candidate.IdentityKind != "database" || candidate.DatabaseIdentity == "" || candidate.RootID != "" || candidate.RelativePath != "" {
 			return xerrors.Errorf("retention plan contains a non-raw-body candidate")
 		}
-		if candidate.LogicalExtent.Availability != "known" || !canonicalUnsignedInteger.MatchString(candidate.LogicalExtent.Bytes) || candidate.AllocatedExtent.Availability != "unknown" {
+		if candidate.LogicalExtent.Availability != "known" || !canonicalSignedInteger.MatchString(candidate.LogicalExtent.Bytes) || candidate.AllocatedExtent.Availability != "unknown" {
 			return xerrors.Errorf("retention candidate extent is invalid")
 		}
 		if candidate.AllocatedExtent.Bytes != "" || len(candidate.Reasons) != 1 || candidate.Reasons[0] != "age" {
@@ -318,8 +319,8 @@ func validRetentionStatus(value string) bool {
 	return value == "satisfied" || value == "unsatisfied" || value == "indeterminate"
 }
 
-func validKnownExtent(value apptypes.RetentionExtent) bool {
-	return value.Availability == "known" && canonicalUnsignedInteger.MatchString(value.Bytes)
+func validKnownSignedExtent(value apptypes.RetentionExtent) bool {
+	return value.Availability == "known" && canonicalSignedInteger.MatchString(value.Bytes)
 }
 
 func normalizeRetentionPlan(plan *apptypes.RetentionPlan) {

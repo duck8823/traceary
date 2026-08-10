@@ -15,15 +15,23 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
+	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
-func TestRawBodyRetentionPlanReportsEncodedExtents(t *testing.T) {
+func TestRawBodyRetentionPlanReportsNetBodyColumnChange(t *testing.T) {
 	t.Parallel()
 
 	const (
-		compressedID = "retention-compressed"
-		legacyID     = "retention-legacy"
+		compressedID       = "retention-compressed"
+		legacyID           = "retention-legacy"
+		markerEncodedBytes = 37 // measured by encodePayload(marker, payloadCodecIdentity)
+		compressedNetBytes = 44 - markerEncodedBytes
+		legacyNetBytes     = 9 - markerEncodedBytes
+		totalNetBytes      = compressedNetBytes + legacyNetBytes
 	)
+	if markerEncodedBytes != len([]byte(domtypes.EventBodyUnavailableRetentionMarker)) {
+		t.Fatalf("retention marker encoded size fixture is stale")
+	}
 	compressedBody := strings.Repeat("compressible body ", 4096)
 	legacyBody := "日本語"
 	now := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
@@ -41,7 +49,7 @@ func TestRawBodyRetentionPlanReportsEncodedExtents(t *testing.T) {
 			recoveryPath := filepath.Join(t.TempDir(), "recovery.archive")
 			candidates := retentionTestCandidates(compressedID, test.compressedBody, legacyID, test.legacyBody, createdAt)
 			writeRetentionTestRecovery(t, recoveryPath, candidates, test.compressedBody, test.legacyBody)
-			planner := &retentionPlannerStub{snapshot: apptypes.RawBodyRetentionSnapshot{
+			planner := &retentionPlannerStub{markerEncodedBytes: markerEncodedBytes, snapshot: apptypes.RawBodyRetentionSnapshot{
 				DatabaseIdentity: testDigest("db"), SQLiteUserVersion: 53, MigrationDigest: testDigest("migration"), SnapshotAt: now,
 				Candidates: candidates,
 			}}
@@ -68,7 +76,7 @@ func TestRawBodyRetentionPlanReportsEncodedExtents(t *testing.T) {
 			want := struct {
 				Total      string
 				Candidates []string
-			}{Total: "53", Candidates: []string{"44", "9"}}
+			}{Total: "-21", Candidates: []string{"7", "-28"}}
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Fatalf("retention plan extents mismatch (-want +got):\n%s", diff)
 			}
@@ -118,11 +126,16 @@ func testDigest(value string) string {
 }
 
 type retentionPlannerStub struct {
-	snapshot apptypes.RawBodyRetentionSnapshot
+	snapshot           apptypes.RawBodyRetentionSnapshot
+	markerEncodedBytes int
 }
 
 func (s *retentionPlannerStub) ListRawBodyCandidates(context.Context, time.Time) (apptypes.RawBodyRetentionSnapshot, error) {
 	return s.snapshot, nil
+}
+
+func (s *retentionPlannerStub) RetentionMarkerEncodedBytes() (int, error) {
+	return s.markerEncodedBytes, nil
 }
 
 type retentionExecutorStub struct{ candidates []int }
