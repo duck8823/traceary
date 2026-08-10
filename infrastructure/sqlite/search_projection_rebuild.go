@@ -73,11 +73,9 @@ const searchProjectionMinAmplificationSampleBytes int64 = 8 << 20
 // limits output pages, not the amount of input scanned by FTS5.
 const searchProjectionFTSMergePages int64 = 16
 
-// Reclaim is best effort. Keep enough of the lock cap for the cleanup/state
-// writes and commit after the last merge step. The step cap prevents one
-// unexpectedly expensive reclaim loop from consuming the whole window; a
-// partial merge remains durable when the transaction commits.
-const searchProjectionFTSReclaimHeadroom = 100 * time.Millisecond
+// The step cap prevents one unexpectedly expensive reclaim loop from consuming
+// the whole window. Each step is committed independently, so a partial merge
+// remains durable when a later step fails.
 const searchProjectionFTSReclaimStepCap = 8
 
 // searchProjectionCutoffTimeout bounds the source-phase prefilter walk. A
@@ -388,43 +386,56 @@ func isSearchProjectionDeadline(err error) bool {
 // still contains useful cleanup work and the next batch resumes the merge.
 //
 //nolint:wrapcheck // The caller classifies the driver deadline at the transaction boundary.
-func reclaimSearchProjectionFTS(ctx context.Context, tx *sql.Tx, remaining time.Duration) error {
-	if remaining <= searchProjectionFTSReclaimHeadroom {
+func reclaimSearchProjectionFTS(ctx context.Context, db *sql.DB, budget time.Duration) error {
+	if budget <= 0 {
 		return nil
 	}
-	deadline := time.Now().Add(remaining - searchProjectionFTSReclaimHeadroom)
-	var before, after int64
-	if time.Until(deadline) <= 0 {
-		return nil
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before); err != nil {
-		return err
-	}
-	if time.Until(deadline) <= 0 {
-		return nil
-	}
-	if _, err := tx.ExecContext(ctx, reclaimSearchProjectionFTSSQL, -searchProjectionFTSMergePages); err != nil {
-		return err
-	}
-	steps := 1
-	for {
-		if steps >= searchProjectionFTSReclaimStepCap || time.Until(deadline) <= 0 {
+	deadline := time.Now().Add(budget)
+	for step := 0; step < searchProjectionFTSReclaimStepCap; step++ {
+		if time.Until(deadline) <= 0 {
 			return nil
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after); err != nil {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
 			return err
 		}
-		delta := after - before
-		before = after
-		if delta < 2 {
+		rollback := func() {
+			_ = tx.Rollback()
+		}
+		var before, after int64
+		if err = tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before); err != nil {
+			rollback()
+			return err
+		}
+		mergePages := searchProjectionFTSMergePages
+		if step == 0 {
+			mergePages = -mergePages
+		}
+		if _, err = tx.ExecContext(ctx, reclaimSearchProjectionFTSSQL, mergePages); err != nil {
+			rollback()
+			return err
+		}
+		if err = tx.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after); err != nil {
+			rollback()
+			return err
+		}
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+		// A merge step is indivisible. It intentionally uses the caller's
+		// context without the batch deadline: a step can overshoot the budget
+		// by its own measured 1-3 ms, but cannot be cancelled mid-write. The
+		// budget is therefore enforced between independently committed steps.
+		if after-before < 2 {
 			return nil
 		}
-		if _, err := tx.ExecContext(ctx, reclaimSearchProjectionFTSSQL, searchProjectionFTSMergePages); err != nil {
-			return err
-		}
-		steps++
 	}
+	return nil
 }
+
+// reclaimSearchProjectionFTSFn exists so tests can pin that reclaim is
+// maintenance and cannot fail an already committed batch.
+var reclaimSearchProjectionFTSFn = reclaimSearchProjectionFTS
 
 //nolint:wrapcheck,errcheck // SQL errors preserve the typed inventory contract; rollback is best effort.
 func (d *Database) applyInventoryBatchOnce(ctx context.Context, p apptypes.SearchProjectionInventoryPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
@@ -886,19 +897,6 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		out.Cleaned += int(n)
 		out.CleanupBytes += c.LogicalBytes
 	}
-	// Reclaim on every cleanup batch. Eviction and old-generation cleanup both
-	// create FTS tombstones continuously; waiting for the final batch lets them
-	// accumulate between generations. The reclaim loop is independently bounded
-	// and never makes the cleanup transaction fail.
-	if p.Phase != "source" {
-		remainingReclaim := lock
-		if deadline, ok := lockCtx.Deadline(); ok {
-			remainingReclaim = time.Until(deadline)
-		}
-		if e = reclaimSearchProjectionFTS(lockCtx, tx, remainingReclaim); e != nil {
-			return out, e
-		}
-	}
 	next := p.Phase
 	if p.NextPhase != "" {
 		next = p.NextPhase
@@ -950,6 +948,14 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	}
 	if e = tx.Commit(); e != nil {
 		return out, e
+	}
+	if p.Phase != "source" {
+		// Reclaim is maintenance after the batch commit. Strip the lock
+		// deadline so an indivisible merge step cannot interrupt and roll back
+		// its own transaction; the reclaim budget is checked between steps.
+		if reclaimErr := reclaimSearchProjectionFTSFn(context.WithoutCancel(ctx), db, lock); reclaimErr != nil {
+			slog.Debug("search projection FTS reclaim failed", "error", reclaimErr)
+		}
 	}
 	// Re-derive the source ceiling after the source→eviction transition is
 	// durable, in its own bounded write fenced on generation_id + phase so it

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -77,16 +78,8 @@ func TestSearchProjectionFTSReclaimKeepsConstantLargeCorpusBounded(t *testing.T)
 					t.Fatal(err)
 				}
 				insertCorpus(generation)
-				tx, txErr := db.Begin()
-				if txErr != nil {
-					t.Fatal(txErr)
-				}
-				if txErr = reclaimSearchProjectionFTS(context.Background(), tx, apptypes.DefaultSearchProjectionLockTime); txErr != nil {
-					_ = tx.Rollback()
-					t.Fatal(txErr)
-				}
-				if txErr = tx.Commit(); txErr != nil {
-					t.Fatal(txErr)
+				if err = reclaimSearchProjectionFTS(context.Background(), db, apptypes.DefaultSearchProjectionLockTime); err != nil {
+					t.Fatal(err)
 				}
 				sizes = append(sizes, shadowBytes())
 			}
@@ -100,10 +93,11 @@ func TestSearchProjectionFTSReclaimKeepsConstantLargeCorpusBounded(t *testing.T)
 			if finalToInitial := float64(sizes[len(sizes)-1]) / float64(sizes[0]); finalToInitial > maxFinalToInitial {
 				t.Fatalf("final shadow size is %.2fx the initial size, exceeds %.1fx bound: sizes=%v", finalToInitial, maxFinalToInitial, sizes)
 			}
-			// Measured on the production 250 ms budget: 11,395,072 initially,
-			// 13,733,888 after generation 1, 19,509,248 at steady state, then
-			// roughly 19.5 MB through generation 10. The 5% tolerance and 2.0x
-			// bound are deliberate limits, not a proxy for monotonic growth.
+			// Measured with one transaction per step on the production 250 ms
+			// budget: 11,395,072 initially, 13,733,888 after generation 1,
+			// 19,509,248 at steady state, then 19,505,152-19,513,344 through
+			// generation 10. The 5% tolerance and 2.0x bound are deliberate
+			// limits, not a proxy for monotonic growth.
 			t.Logf("shadow-table sizes before/after churn: %v", sizes)
 		})
 	}
@@ -160,8 +154,13 @@ func TestSearchProjectionApplySuccessRemainsProgressAfterDeadline(t *testing.T) 
 	}
 }
 
-func TestSearchProjectionRepeatedReclaimBudgetExhaustionReachesComplete(t *testing.T) {
+func TestSearchProjectionFailingReclaimDoesNotFailCommittedBatch(t *testing.T) {
 	ctx := context.Background()
+	originalReclaim := reclaimSearchProjectionFTSFn
+	reclaimSearchProjectionFTSFn = func(context.Context, *sql.DB, time.Duration) error {
+		return errors.New("reclaim failed in test")
+	}
+	defer func() { reclaimSearchProjectionFTSFn = originalReclaim }()
 	path := filepath.Join(t.TempDir(), "store.db")
 	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
 	if err != nil {
@@ -191,6 +190,7 @@ func TestSearchProjectionRepeatedReclaimBudgetExhaustionReachesComplete(t *testi
 			t.Fatal(err)
 		}
 	}
+	var finalProgress apptypes.SearchProjectionProgress
 	for i := 0; i < 3; i++ {
 		plan := apptypes.ProjectionBatchPlan{
 			GenerationID: generation.GenerationID, Phase: "cleanup", ExpectedRevision: generation.SourceRevision,
@@ -203,9 +203,14 @@ func TestSearchProjectionRepeatedReclaimBudgetExhaustionReachesComplete(t *testi
 			plan.FinalState = "complete"
 		}
 		progress, applyErr := store.CleanupBatch(ctx, plan, 80*time.Millisecond, now)
-		if applyErr != nil {
-			t.Fatalf("cleanup batch %d: progress=%+v err=%v", i, progress, applyErr)
+		if diff := cmp.Diff(nil, applyErr); diff != "" {
+			t.Fatalf("cleanup batch %d returned reclaim failure (-want +got):\n%s", i, diff)
 		}
+		var noProgress *apptypes.SearchProjectionNoProgressError
+		if errors.As(applyErr, &noProgress) {
+			t.Fatalf("cleanup batch %d returned no-progress error: %v", i, noProgress)
+		}
+		finalProgress = progress
 		if i < 2 && progress.Completed {
 			t.Fatalf("intermediate cleanup batch %d completed generation: %+v", i, progress)
 		}
@@ -216,5 +221,8 @@ func TestSearchProjectionRepeatedReclaimBudgetExhaustionReachesComplete(t *testi
 	}
 	if state != "complete" || phase != "complete" {
 		t.Fatalf("generation state=%s phase=%s, want complete/complete", state, phase)
+	}
+	if diff := cmp.Diff(apptypes.SearchProjectionProgress{Selected: 0, Evicted: 1, Cleaned: 1, CleanupBytes: 7, Completed: true, GenerationID: generation.GenerationID}, finalProgress); diff != "" {
+		t.Fatalf("final cleanup progress (-want +got):\n%s", diff)
 	}
 }
