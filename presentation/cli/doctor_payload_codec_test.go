@@ -3,8 +3,9 @@ package cli
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/duck8823/traceary/application"
 )
@@ -18,26 +19,52 @@ func (s payloadCodecInspectorStub) InspectPayloadCodec(context.Context) (applica
 	return s.state, s.err
 }
 
-func TestInspectPayloadCodecReportsCompressionAndDowngradeWarning(t *testing.T) {
-	t.Setenv(cliLanguageEnvKey, "en")
-	check := (&RootCLI{payloadCodecInspector: payloadCodecInspectorStub{state: application.PayloadCodecState{
-		MetadataAvailable: true, MinimumReader: 34, EventBodyZstd: 2, AuditOutputZstd: 3,
-	}}}).inspectPayloadCodec(context.Background(), storeFileSnapshot{Exists: true})
-	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "v0.33") || !strings.Contains(check.Hint, "store backup") {
-		t.Fatalf("check=%#v", check)
+func TestInspectPayloadCodecReportsCompressedRowsWithoutWarning(t *testing.T) {
+	tests := []struct {
+		name        string
+		language    string
+		state       application.PayloadCodecState
+		wantMessage string
+	}{
+		{name: "English", language: "en", state: application.PayloadCodecState{MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "valid", EventBodyZstd: 2, AuditOutputZstd: 3}, wantMessage: "payload codec has compressed rows (events.body=2, command_audits command=0 input=0 output=3); downgrade to v0.33 or earlier cannot read them"},
+		{name: "Japanese", language: "ja", state: application.PayloadCodecState{MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "valid", EventBodyZstd: 1}, wantMessage: "payload codec に圧縮行があります（events.body=1、command_audits command=0 input=0 output=0）。v0.33 以前へ downgrade すると読み取れません"},
 	}
-	t.Setenv(cliLanguageEnvKey, "ja")
-	check = (&RootCLI{payloadCodecInspector: payloadCodecInspectorStub{state: application.PayloadCodecState{
-		MetadataAvailable: true, MinimumReader: 34, EventBodyZstd: 1,
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(cliLanguageEnvKey, tt.language)
+			check := (&RootCLI{payloadCodecInspector: payloadCodecInspectorStub{state: tt.state}}).inspectPayloadCodec(context.Background(), storeFileSnapshot{Exists: true})
+			if diff := cmp.Diff(doctorStatusPass, check.Status); diff != "" {
+				t.Fatalf("status mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantMessage, check.Message); diff != "" {
+				t.Fatalf("message mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff("", check.Hint); diff != "" {
+				t.Fatalf("hint mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestInspectPayloadCodecReportsInvalidCompatibilityEvidence(t *testing.T) {
+	check := (&RootCLI{payloadCodecInspector: payloadCodecInspectorStub{state: application.PayloadCodecState{
+		MetadataAvailable: true, CompatibilityMode: "counter", CompatibilityState: "invalid", EventBodyZstd: 999,
 	}}}).inspectPayloadCodec(context.Background(), storeFileSnapshot{Exists: true})
-	if !strings.Contains(check.Message, "v0.33") || !strings.Contains(check.Hint, "store backup") {
-		t.Fatalf("Japanese check=%#v", check)
+	if diff := cmp.Diff(doctorStatusWarn, check.Status); diff != "" {
+		t.Fatalf("status mismatch (-want +got):\n%s", diff)
+	}
+	want := "payload codec compatibility evidence is invalid (mode=counter); compressed-row counts are unavailable"
+	if diff := cmp.Diff(want, check.Message); diff != "" {
+		t.Fatalf("message mismatch (-want +got):\n%s", diff)
 	}
 }
 
 func TestInspectPayloadCodecFailsClosedWhenUnavailable(t *testing.T) {
 	check := (&RootCLI{payloadCodecInspector: payloadCodecInspectorStub{err: errors.New("read failed")}}).inspectPayloadCodec(context.Background(), storeFileSnapshot{Exists: true})
-	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "failed to inspect") {
-		t.Fatalf("check=%#v", check)
+	if diff := cmp.Diff(doctorStatusWarn, check.Status); diff != "" {
+		t.Fatalf("status mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("failed to inspect payload codec state: read failed", check.Message); diff != "" {
+		t.Fatalf("message mismatch (-want +got):\n%s", diff)
 	}
 }

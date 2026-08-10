@@ -11,9 +11,11 @@ zstd when the encoded value is smaller. Incompressible and short values remain
 identity-encoded TEXT. Existing rows are not converted by this write-path
 change; the existing-row rewrite is a separate operation.
 
-Run `traceary doctor` to inspect the codec state. Once a compressed row exists,
-Traceary v0.33.1 or earlier cannot read that row. Before upgrading, run
-`traceary store backup` if you need a fallback for downgrade.
+Run `traceary doctor` to inspect the codec state. Take `traceary store backup`
+before first running v0.34 if you need a downgrade fallback. After v0.34 has
+written compressed rows, Traceary v0.33.1 or earlier reads those bodies as
+garbage; nothing in v0.34 can prevent that. A backup taken afterward is not a
+fallback to the pre-compression representation.
 
 ## Requirement summary
 

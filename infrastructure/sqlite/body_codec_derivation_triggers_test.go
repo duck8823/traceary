@@ -197,6 +197,33 @@ func TestBodyCodecDerivationTriggers(t *testing.T) {
 
 		assertBodyStoredBytes(t, db, id, wantStored, wantStored)
 	})
+
+	t.Run("nonidentity insert preserves provenance and skips hook inference", func(t *testing.T) {
+		t.Parallel()
+		db := openBodyCodecDerivationDB(t)
+		defer closeBodyCodecDerivationDB(t, db)
+
+		const id = "zstd-insert"
+		body := []byte("[phase:subagent] " + compressibleBody("insert"))
+		encoded, err := encodePayload(body, payloadCodecZstd)
+		if err != nil {
+			t.Fatalf("encode zstd payload: %v", err)
+		}
+		if _, err := db.Exec(`
+			INSERT INTO events(
+				id, kind, client, agent, session_id, workspace, body, created_at,
+				body_stored_bytes, body_codec, body_format_version, body_plaintext_bytes,
+				body_encoded_bytes, body_sha256
+			) VALUES (?, 'session_ended', 'cli', 'codex', 'session-codec', 'ws-codec', ?,
+				'2026-08-09T00:00:00Z', ?, ?, ?, ?, ?, ?)
+		`, id, encoded.Bytes, len(body), encoded.Codec, encoded.FormatVersion,
+			encoded.PlaintextBytes, encoded.StoredBytes, encoded.SHA256); err != nil {
+			t.Fatalf("insert zstd event: %v", err)
+		}
+
+		assertBodyStoredBytes(t, db, id, int64(len(body)), int64(len(body)))
+		assertLegacySourceHook(t, db, id, "")
+	})
 }
 
 type eventSeed struct {

@@ -41,19 +41,16 @@ func (i *PayloadCodecInspector) InspectPayloadCodec(ctx context.Context) (_ appl
 	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton=1`).Scan(&state.MinimumReader); err != nil {
 		return state, xerrors.Errorf("read payload codec reader boundary: %w", err)
 	}
-	queries := []struct {
-		field *int64
-		query string
-	}{
-		{&state.EventBodyZstd, `SELECT COUNT(*) FROM events WHERE body_codec='zstd'`},
-		{&state.AuditCommandZstd, `SELECT COUNT(*) FROM command_audits WHERE command_codec='zstd'`},
-		{&state.AuditInputZstd, `SELECT COUNT(*) FROM command_audits WHERE input_codec='zstd'`},
-		{&state.AuditOutputZstd, `SELECT COUNT(*) FROM command_audits WHERE output_codec='zstd'`},
-	}
-	for _, item := range queries {
-		if err := db.QueryRowContext(ctx, item.query).Scan(item.field); err != nil {
-			return state, xerrors.Errorf("count compressed payloads: %w", err)
-		}
+	if err := db.QueryRowContext(ctx, `SELECT mode,state,event_body_nonidentity,audit_command_nonidentity,audit_input_nonidentity,audit_output_nonidentity
+FROM payload_codec_compatibility_state WHERE singleton=1`).Scan(
+		&state.CompatibilityMode,
+		&state.CompatibilityState,
+		&state.EventBodyZstd,
+		&state.AuditCommandZstd,
+		&state.AuditInputZstd,
+		&state.AuditOutputZstd,
+	); err != nil {
+		return state, xerrors.Errorf("read payload codec compatibility state: %w", err)
 	}
 	return state, nil
 }

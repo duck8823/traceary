@@ -47,7 +47,7 @@ type RootCLI struct {
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
 	capacityInspector          application.CapacityInspector
-	payloadCodecInspector      application.PayloadCodecInspector
+	payloadCodecInspector application.PayloadCodecInspector
 	searchProjection           *usecase.SearchProjectionUsecase
 	legacySearchRetire         *usecase.LegacySearchRetireUsecase
 	storeCompactionFactory     func(string) application.StoreCompactionUsecase
