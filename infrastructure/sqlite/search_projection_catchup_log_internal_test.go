@@ -25,40 +25,73 @@ func (h *catchUpLogHandler) Handle(_ context.Context, record slog.Record) error 
 func (h *catchUpLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h *catchUpLogHandler) WithGroup(string) slog.Handler      { return h }
 
-func TestLogSearchProjectionCatchUp_SingleRowLockCapNamesCheckpointAndRecovery(t *testing.T) {
-	handler := &catchUpLogHandler{}
-	previous := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	t.Cleanup(func() { slog.SetDefault(previous) })
-
-	result := apptypes.SearchProjectionCatchUpResult{
-		Action:       "resume",
-		State:        "rebuilding",
-		Phase:        "source",
-		Checkpoint:   1842,
-		GenerationID: "gen-stuck",
+func TestLogSearchProjectionCatchUp_SingleRowLockCapSeparatesFromTheTransientMessage(t *testing.T) {
+	tests := []struct {
+		name           string
+		phase          string
+		wantCheckpoint any
+	}{
+		{
+			// The source walk stops at the checkpoint, so it identifies the row.
+			name:           "the source checkpoint identifies where the walk stopped",
+			phase:          "source",
+			wantCheckpoint: int64(1842),
+		},
+		{
+			// Inventory advances a cursor and never moves the checkpoint. The
+			// number is real but describes other work, and a stop position that
+			// is exactly wrong is worse than one that is absent.
+			name:           "no checkpoint is reported for work that does not use it",
+			phase:          "inventory",
+			wantCheckpoint: nil,
+		},
 	}
-	err := xerrors.Errorf("wrapped: %w", &apptypes.SearchProjectionNoProgressError{
-		Code:   apptypes.SearchProjectionNoProgressSingleRowLockDurationCap,
-		Reason: "single row exceeded lock cap",
-	})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &catchUpLogHandler{}
+			previous := slog.Default()
+			slog.SetDefault(slog.New(handler))
+			t.Cleanup(func() { slog.SetDefault(previous) })
 
-	logSearchProjectionCatchUp(result, err)
+			result := apptypes.SearchProjectionCatchUpResult{
+				Action:       "resume",
+				State:        "rebuilding",
+				Phase:        test.phase,
+				Checkpoint:   1842,
+				GenerationID: "gen-stuck",
+			}
+			err := xerrors.Errorf("wrapped: %w", &apptypes.SearchProjectionNoProgressError{
+				Code:   apptypes.SearchProjectionNoProgressSingleRowLockDurationCap,
+				Reason: "single row exceeded lock cap",
+			})
 
-	if diff := cmp.Diff(1, len(handler.records)); diff != "" {
-		t.Fatalf("unexpected record count (-want +got):\n%s", diff)
-	}
-	record := handler.records[0]
-	if diff := cmp.Diff("search projection catch-up cannot advance past checkpoint; re-running will not change this on its own; abort and start a new generation with a larger lock duration", record.Message); diff != "" {
-		t.Fatalf("unexpected log message (-want +got):\n%s", diff)
-	}
-	attrs := map[string]any{}
-	record.Attrs(func(attr slog.Attr) bool {
-		attrs[attr.Key] = attr.Value.Any()
-		return true
-	})
-	if diff := cmp.Diff(int64(1842), attrs["checkpoint"]); diff != "" {
-		t.Fatalf("unexpected checkpoint attribute (-want +got):\n%s", diff)
+			logSearchProjectionCatchUp(result, err)
+
+			if diff := cmp.Diff(1, len(handler.records)); diff != "" {
+				t.Fatalf("unexpected record count (-want +got):\n%s", diff)
+			}
+			record := handler.records[0]
+			if diff := cmp.Diff("search projection catch-up committed no row at the minimum batch size; search stays incomplete until it advances", record.Message); diff != "" {
+				t.Fatalf("unexpected log message (-want +got):\n%s", diff)
+			}
+			attrs := map[string]any{}
+			record.Attrs(func(attr slog.Attr) bool {
+				attrs[attr.Key] = attr.Value.Any()
+				return true
+			})
+			if diff := cmp.Diff(test.wantCheckpoint, attrs["checkpoint"]); diff != "" {
+				t.Fatalf("unexpected checkpoint attribute (-want +got):\n%s", diff)
+			}
+			// Resume, not abort: LockTime is outside the generation's config
+			// hash, so a larger cap is accepted without discarding progress.
+			recovery, _ := attrs["recovery"].(string)
+			if !strings.Contains(recovery, "resume --until-complete --lock-time") {
+				t.Fatalf("recovery attribute = %q, want a resume command with a larger lock time", recovery)
+			}
+			if strings.Contains(record.Message, "abort") || strings.Contains(recovery, "abort") {
+				t.Fatalf("message %q / recovery %q must not send an operator to abort a generation", record.Message, recovery)
+			}
+		})
 	}
 }
 

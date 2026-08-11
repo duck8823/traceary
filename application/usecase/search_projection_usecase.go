@@ -281,14 +281,6 @@ func (u *SearchProjectionUsecase) verifySessionTierBeforeReclaim(
 	return nil
 }
 
-// newGenerationCheckpoint is where a generation begins. Starting one resets the
-// persisted checkpoint, so the value read before the start describes the
-// generation that was just replaced. The catch-up result carries the checkpoint
-// as the row a stalled generation cannot advance past; reporting the old one
-// there would name a row this generation never reached, and an operator
-// diagnosing a stall has nothing on screen to contradict it.
-const newGenerationCheckpoint int64 = 0
-
 // CatchUp advances the bounded search projection by at most one durable unit of
 // work using the existing generation machinery. It is the store-open counterpart
 // of event search backfill: no operator command, no full rebuild, resumable.
@@ -340,10 +332,9 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		}
 		out.Action = "start"
 		out.GenerationID = generation.GenerationID
-		out.Checkpoint = newGenerationCheckpoint
 		progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 		if resumeErr != nil {
-			return out, resumeErr
+			return u.refreshCatchUpPosition(ctx, out), resumeErr
 		}
 		return u.finishCatchUpProgress(ctx, out, progress)
 	}
@@ -397,7 +388,6 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		}
 		out.Action = "start"
 		out.GenerationID = generation.GenerationID
-		out.Checkpoint = newGenerationCheckpoint
 		// Fall through to one Resume so a single open does real work.
 	default:
 		out.Action = "skipped"
@@ -409,9 +399,27 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	// failure. Oversized rows retain the existing explicit failure transition.
 	progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 	if resumeErr != nil {
-		return out, resumeErr
+		return u.refreshCatchUpPosition(ctx, out), resumeErr
 	}
 	return u.finishCatchUpProgress(ctx, out, progress)
+}
+
+// refreshCatchUpPosition re-reads where the projection actually stands before a
+// failure is reported. The position read at entry is stale by then in two ways:
+// catch-up may have replaced the generation, which resets the checkpoint, and a
+// concurrent opener may have committed a batch past it. Both would name a
+// position this attempt never stopped at, in a message an operator has nothing
+// else to check against. A failed re-read leaves the entry values, which are at
+// worst as wrong as they already were.
+func (u *SearchProjectionUsecase) refreshCatchUpPosition(ctx context.Context, out apptypes.SearchProjectionCatchUpResult) apptypes.SearchProjectionCatchUpResult {
+	status, err := u.store.SearchProjectionControlStatus(ctx)
+	if err != nil {
+		return out
+	}
+	out.State = status.State
+	out.Phase = status.Phase
+	out.Checkpoint = status.Checkpoint
+	return out
 }
 
 // finishCatchUpProgress records one Resume's progress onto the catch-up result

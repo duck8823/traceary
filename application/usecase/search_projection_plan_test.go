@@ -238,6 +238,9 @@ type adaptiveProjectionStore struct {
 	// shape the other tests rely on.
 	controlState      string
 	controlCheckpoint int64
+	// checkpointOnFailure stands in for another opener committing a batch
+	// while this one was failing; zero leaves the checkpoint where it was.
+	checkpointOnFailure int64
 }
 
 func (s *adaptiveProjectionStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
@@ -273,6 +276,9 @@ func (s *adaptiveProjectionStore) ApplyBatch(_ context.Context, p apptypes.Proje
 		<-timer.C
 	}
 	if len(p.Writes) > s.maxRows || s.alwaysTooBig {
+		if s.checkpointOnFailure != 0 {
+			s.controlCheckpoint = s.checkpointOnFailure
+		}
 		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
 	}
 	s.checkpoints = append(s.checkpoints, p.NextCheckpoint)
@@ -447,9 +453,10 @@ func TestSearchProjectionCatchUpBoundsAdaptiveAttempts(t *testing.T) {
 func TestSearchProjectionCatchUpReportsTheStalledGenerationsCheckpoint(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name         string
-		controlState string
-		want         int64
+		name                string
+		controlState        string
+		checkpointOnFailure int64
+		want                int64
 	}{
 		{
 			name:         "resuming in place reports the persisted checkpoint",
@@ -461,12 +468,18 @@ func TestSearchProjectionCatchUpReportsTheStalledGenerationsCheckpoint(t *testin
 			controlState: "drifted",
 			want:         0,
 		},
+		{
+			name:                "a concurrent opener's committed batch is reported, not the entry read",
+			controlState:        "rebuilding",
+			checkpointOnFailure: 1900,
+			want:                1900,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: 250 * time.Millisecond, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
-			store := &adaptiveProjectionStore{budget: b, alwaysTooBig: true, controlState: test.controlState, controlCheckpoint: 1842}
+			store := &adaptiveProjectionStore{budget: b, alwaysTooBig: true, controlState: test.controlState, controlCheckpoint: 1842, checkpointOnFailure: test.checkpointOnFailure}
 			result, err := usecase.NewSearchProjectionUsecase(store).CatchUp(context.Background(), b, time.Now())
 			var noProgress *apptypes.SearchProjectionNoProgressError
 			if !errors.As(err, &noProgress) || noProgress.Code != apptypes.SearchProjectionNoProgressSingleRowLockDurationCap {
