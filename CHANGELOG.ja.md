@@ -8,7 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
-- **orphan GC の失敗を対処可能に (#1795)** — `traceary store gc` が、再実行しても再びスキップされる候補について、session と失敗理由を表示するようになりました。再実行の案内は、未発見の orphan range が実際に残る場合だけ表示し、失敗詳細が上限で切り詰められた場合も明示します。
+- **orphan GC の失敗を対処可能に (#1795)** — `traceary store gc` が、候補をスキップしただけで毎回「再実行してください」と表示することがなくなりました。スキップした session ごとに失敗理由を表示し、「orphan range が残っています」の案内は未発見の range が実際に残る場合だけ表示します。スキップが再発するかどうかは断定しません。読めないデータは毎回同じ理由で失敗しますが、lock 競合や書き込み競合は次回成功し得るうえ、どちらも同じ error として届くためです。両者を見分けられるのは理由そのものなので、それを表示します。失敗詳細は上限で切り詰め、切り詰めた場合は明示します。session id と理由は端末へ出力する前に制御文字を除去します。
 - **未使用の literal fingerprint candidate index を削除 (#1808)** — migration `000059` が、どの reader も依存していない 118,489,088 バイトの index を `literal_search_fingerprints` テーブルから削除します。2 つの fingerprint subquery は index の有無にかかわらず primary key で解決するため、query plan も generation も変わりません。migration 自体も有界で、7.1 GB の store で 0.096 秒でした（index の削除はページを書き換えずに解放するため）。SQLite は解放されたページを store 内で再利用しますが、`traceary store compact` / `VACUUM` を実行するまで filesystem には返却されません。
 - **MCP から session-tier search 結果を公開 (#1727)** — MCP の `search` tool が、古い履歴に一致する session trail を専用の `sessions` field で返し、`session_matches` または `session_projection_not_ready` reason を報告するようになりました。この schema 変更は意図的に `search` だけに限定しており、`list_events` と `get_context` は変更しません。
 - **bounded search projection の既定予算を統一 (#1806)** — CLI と自動 catch-up path が共有する既定値を 1 つにし、generation configuration hash のずれを構造的に防ぎます。内部実装の変更であり、operator-visible な動作の変更はありません。
