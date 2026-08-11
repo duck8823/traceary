@@ -173,7 +173,10 @@ external-content FTS5 delete appends inverse entries that survive until a segmen
 merge removes them, and the merge that runs after each batch is bounded and does not
 run at all during the source phase. The store copy in that measurement carried four
 resident generations rather than the two a clean upgrade holds, so the magnitude is
-not a clean-upgrade figure — but the shape is not an artefact of that.
+not a clean-upgrade figure — but the shape is not an artefact of that. Note what
+the dominant object is: `search_projection_recent_fts` is the tier nothing reads
+(#1842), so the disk this peak consumes currently buys retention rather than any
+search result.
 
 **Do not size free disk from the configured budget.** A rebuild can require several
 times it, and it can fail for lack of space. Details in
