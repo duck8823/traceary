@@ -395,6 +395,7 @@ type SearchProjectionExclusion struct {
 type SearchProjectionControlStatus struct {
 	State                    string
 	Phase                    string
+	Checkpoint               int64
 	ConfigHash               string
 	CapacitySemanticsVersion int
 	FailureClass             string
@@ -413,6 +414,7 @@ type SearchProjectionCatchUpResult struct {
 	Action                   string `json:"action"`
 	State                    string `json:"state"`
 	Phase                    string `json:"phase"`
+	Checkpoint               int64  `json:"checkpoint"`
 	GenerationID             string `json:"generation_id,omitempty"`
 	Completed                bool   `json:"completed"`
 	Batches                  int    `json:"batches"`

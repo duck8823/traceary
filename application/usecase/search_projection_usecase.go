@@ -297,6 +297,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	}
 	out.State = status.State
 	out.Phase = status.Phase
+	out.Checkpoint = status.Checkpoint
 	out.CutoverIndexFamily = status.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = status.CutoverFamilyBytesBefore
 	out.CutoverFamilyBytesAfter = status.CutoverFamilyBytesAfter
@@ -333,7 +334,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		out.GenerationID = generation.GenerationID
 		progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 		if resumeErr != nil {
-			return out, resumeErr
+			return u.refreshCatchUpPosition(ctx, out), resumeErr
 		}
 		return u.finishCatchUpProgress(ctx, out, progress)
 	}
@@ -398,9 +399,27 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	// failure. Oversized rows retain the existing explicit failure transition.
 	progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 	if resumeErr != nil {
-		return out, resumeErr
+		return u.refreshCatchUpPosition(ctx, out), resumeErr
 	}
 	return u.finishCatchUpProgress(ctx, out, progress)
+}
+
+// refreshCatchUpPosition re-reads where the projection actually stands before a
+// failure is reported. The position read at entry is stale by then in two ways:
+// catch-up may have replaced the generation, which resets the checkpoint, and a
+// concurrent opener may have committed a batch past it. Both would name a
+// position this attempt never stopped at, in a message an operator has nothing
+// else to check against. A failed re-read leaves the entry values, which are at
+// worst as wrong as they already were.
+func (u *SearchProjectionUsecase) refreshCatchUpPosition(ctx context.Context, out apptypes.SearchProjectionCatchUpResult) apptypes.SearchProjectionCatchUpResult {
+	status, err := u.store.SearchProjectionControlStatus(ctx)
+	if err != nil {
+		return out
+	}
+	out.State = status.State
+	out.Phase = status.Phase
+	out.Checkpoint = status.Checkpoint
+	return out
 }
 
 // finishCatchUpProgress records one Resume's progress onto the catch-up result
@@ -422,6 +441,7 @@ func (u *SearchProjectionUsecase) finishCatchUpProgress(ctx context.Context, out
 	}
 	out.State = statusAfter.State
 	out.Phase = statusAfter.Phase
+	out.Checkpoint = statusAfter.Checkpoint
 	out.CutoverIndexFamily = statusAfter.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = statusAfter.CutoverFamilyBytesBefore
 	out.CutoverFamilyBytesAfter = statusAfter.CutoverFamilyBytesAfter

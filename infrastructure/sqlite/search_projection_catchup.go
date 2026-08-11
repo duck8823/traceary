@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -136,6 +137,39 @@ func (d *Database) SearchProjectionHasSourceWork(ctx context.Context) (bool, err
 // logSearchProjectionCatchUp emits structured progress without failing Initialize.
 func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, err error) {
 	if err != nil {
+		var noProgress *apptypes.SearchProjectionNoProgressError
+		if errors.As(err, &noProgress) && noProgress.Code == apptypes.SearchProjectionNoProgressSingleRowLockDurationCap {
+			// Deliberately not "this will not recover on its own". Another
+			// writer holding the lock past the cap arrives here identically to
+			// a row whose own work exceeds it: the wait happens inside the
+			// driver and surfaces as the same deadline, so contention that
+			// clears leaves nothing to distinguish it (#1833). Claiming
+			// permanence would send an operator to rebuild a generation that
+			// was about to advance. What is known is that the shrink loop
+			// reached one row and that row did not commit — and that searches
+			// stay incomplete for as long as that holds.
+			//
+			// The recovery is resume, not abort: LockTime is deliberately
+			// outside the generation's config hash (application/types/
+			// search_projection.go:85-96), so a larger cap is accepted by the
+			// same generation and nothing durable is discarded.
+			attrs := []any{
+				"action", result.Action,
+				"state", result.State,
+				"phase", result.Phase,
+				"generation_id", result.GenerationID,
+				"recovery", "traceary store search-projection resume --until-complete --lock-time <larger than the current cap>",
+				"error", err,
+			}
+			// Only the source walk stops at the checkpoint. Inventory advances
+			// a cursor and cleanup consumes its own scope, so printing this
+			// number there would name a position the work never used.
+			if result.Phase == "source" {
+				attrs = append(attrs, "checkpoint", result.Checkpoint)
+			}
+			slog.Error("search projection catch-up committed no row at the minimum batch size; search stays incomplete until it advances", attrs...)
+			return
+		}
 		slog.Error("search projection catch-up incomplete; retrying on next initialization",
 			"action", result.Action,
 			"state", result.State,
