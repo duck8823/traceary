@@ -97,9 +97,11 @@ func (c *RootCLI) newStoreSearchProjectionRunCommand(name string, start bool) *c
 	cmd.Flags().DurationVar(&timeAge, "recent-age", 30*24*time.Hour, "recent projection age")
 	// Index-family budget: physical bytes of documents, trigram index, session
 	// tier and literal fingerprints (active b-tree allocation), not source text.
-	// 1464 MiB is what the 4 GiB store gate leaves; trigram ~2.16x yields a
-	// variable recent window (~1.5–2 weeks at the median rate).
-	cmd.Flags().Int64Var(&recent, "index-family-bytes", apptypes.DefaultSearchProjectionIndexFamilyBytes, "physical byte ceiling for the bounded search index family (not source text)")
+	// It is a target, not a cap. The corpus-proportional tiers are subtracted
+	// from it as a reserve and the remainder becomes the recent tier's evictable
+	// ceiling; only that remainder is enforced. The family total is re-measured
+	// at completion and reported through index_family_within_budget.
+	cmd.Flags().Int64Var(&recent, "index-family-bytes", apptypes.DefaultSearchProjectionIndexFamilyBytes, "physical byte budget for the bounded search index family, in index bytes rather than source text; enforced by evicting the recent tier and reported at completion")
 	if !start {
 		cmd.Flags().BoolVar(&untilComplete, "until-complete", false, "resume bounded batches until complete or a command bound is reached")
 		cmd.Flags().IntVar(&maxBatches, "max-batches", 100, "maximum durable batches in one command")
