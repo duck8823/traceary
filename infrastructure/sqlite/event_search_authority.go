@@ -147,7 +147,7 @@ func usableLiteralFingerprintGeneration(ctx context.Context, tx *sql.Tx) (string
 // result limit. Candidates are visited in the public order across the full
 // source sequence (including rows appended after the generation completed), so
 // only offset+limit matches need to be retained; broad queries do not become
-// unavailable merely because more than MaxLiteralSearchLimit rows match.
+// unavailable merely because more than the bounded window rows match.
 // Post-cutover rows are newest, so they are examined first and consume budget first.
 func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria, generation string) ([]apptypes.EventMetadata, error) {
 	if err := validateSearchCriteriaForAuthority(criteria); err != nil {

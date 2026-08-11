@@ -1,12 +1,12 @@
 {
-  "listToolsBytes": 46557,
-  "inputSchemaBytes": 15245,
+  "listToolsBytes": 46044,
+  "inputSchemaBytes": 14999,
   "tools": [
     {
       "name": "get_context",
-      "toolBytes": 6211,
+      "toolBytes": 6122,
       "inputSchemaBytes": 1067,
-      "outputSchemaBytes": 4911
+      "outputSchemaBytes": 4822
     },
     {
       "name": "get_report",
@@ -16,9 +16,9 @@
     },
     {
       "name": "list_events",
-      "toolBytes": 7058,
+      "toolBytes": 6969,
       "inputSchemaBytes": 1948,
-      "outputSchemaBytes": 4911
+      "outputSchemaBytes": 4822
     },
     {
       "name": "manage_memory",
@@ -46,9 +46,9 @@
     },
     {
       "name": "search",
-      "toolBytes": 6753,
-      "inputSchemaBytes": 1627,
-      "outputSchemaBytes": 4911
+      "toolBytes": 6418,
+      "inputSchemaBytes": 1381,
+      "outputSchemaBytes": 4822
     },
     {
       "name": "session_status",

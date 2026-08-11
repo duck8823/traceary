@@ -49,7 +49,6 @@ type eventsOutput struct {
 	Partial      bool                `json:"partial" jsonschema:"whether another page or body-budget reduction remains"`
 	Reasons      []string            `json:"reasons,omitempty" jsonschema:"machine-readable partial reasons: more_results, aggregate_body_budget"`
 	Continuation string              `json:"continuation,omitempty" jsonschema:"opaque cursor for the next page; use only with the same tool and filters"`
-	Tier         string              `json:"tier,omitempty" jsonschema:"candidate provenance for tiered literal preview"`
 }
 
 type eventCoverageOutput struct {

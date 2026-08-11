@@ -268,10 +268,6 @@
             "null",
             "array"
           ]
-        },
-        "tier": {
-          "description": "candidate provenance for tiered literal preview",
-          "type": "string"
         }
       },
       "required": [
@@ -1477,10 +1473,6 @@
             "null",
             "array"
           ]
-        },
-        "tier": {
-          "description": "candidate provenance for tiered literal preview",
-          "type": "string"
         }
       },
       "required": [
@@ -2149,10 +2141,6 @@
           "description": "opaque continuation returned by this same tool",
           "type": "string"
         },
-        "deep": {
-          "description": "increase tiered preview resource budgets without changing search semantics",
-          "type": "boolean"
-        },
         "from": {
           "description": "start time (YYYY-MM-DD or RFC3339)",
           "type": "string"
@@ -2172,10 +2160,6 @@
         "query": {
           "description": "literal search text; boolean-looking OR is treated as text, not any-match syntax",
           "type": "string"
-        },
-        "tiered_preview": {
-          "description": "use bounded historical literal preview with explicit coverage and provenance",
-          "type": "boolean"
         },
         "timezone": {
           "description": "IANA timezone for date-only bounds (default: UTC)",
@@ -2420,10 +2404,6 @@
             "null",
             "array"
           ]
-        },
-        "tier": {
-          "description": "candidate provenance for tiered literal preview",
-          "type": "string"
         }
       },
       "required": [
