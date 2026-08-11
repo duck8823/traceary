@@ -20,6 +20,14 @@ type memoryHygieneUsecase struct {
 	memory              memoryHygieneWriter
 	memoryQuery         queryservice.MemoryQueryService
 	extraRedactPatterns []string
+	nowFunc             func() time.Time
+}
+
+func (u *memoryHygieneUsecase) now() time.Time {
+	if u.nowFunc == nil {
+		return time.Now()
+	}
+	return u.nowFunc()
 }
 
 // defaultStalenessThreshold controls the expiry-suggestion window when
@@ -101,7 +109,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		Consistency:       consistency,
 		ConsistencyReason: consistencyReason,
 	}
-	startedAt := time.Now()
+	startedAt := u.now()
 	finishPartial := func(reason apptypes.MemoryHygieneStopReason) (apptypes.MemoryHygieneScanResult, error) {
 		return finishPartialMemoryHygieneResult(
 			result,
@@ -113,7 +121,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 			consistencyReason,
 			digest,
 			now,
-			startedAt,
+			u.now().Sub(startedAt),
 			initialPhase,
 			initialKeyset,
 			initialRevision,
@@ -123,7 +131,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 	defer cancel()
 
 	for {
-		if time.Since(startedAt) >= budget.MaxDuration() {
+		if u.now().Sub(startedAt) >= budget.MaxDuration() {
 			if _, hasRevision := revision.Value(); hasRevision {
 				return finishPartial(apptypes.MemoryHygieneStopReasonTimeLimit)
 			}
@@ -173,7 +181,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 				result.Consistency = consistency
 				result.ConsistencyReason = consistencyReason
 				revisionChangedWhileRetrying = true
-				if errors.Is(scanCtx.Err(), context.DeadlineExceeded) || time.Since(startedAt) >= budget.MaxDuration() {
+				if errors.Is(scanCtx.Err(), context.DeadlineExceeded) || u.now().Sub(startedAt) >= budget.MaxDuration() {
 					return finishPartial(apptypes.MemoryHygieneStopReasonRevisionChanged)
 				}
 				continue
@@ -194,7 +202,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 		result.Usage.Comparisons += page.Comparisons
 
 		for _, unit := range page.Units {
-			if time.Since(startedAt) >= budget.MaxDuration() {
+			if u.now().Sub(startedAt) >= budget.MaxDuration() {
 				return finishPartial(apptypes.MemoryHygieneStopReasonTimeLimit)
 			}
 			matches := u.matchesForScanUnit(phase, unit, now, staleness, similarity)
@@ -229,7 +237,7 @@ func (u *memoryHygieneUsecase) Scan(ctx context.Context, criteria apptypes.Memor
 				result.StopReason = apptypes.MemoryHygieneStopReasonComplete
 				result.Consistency = consistency
 				result.ConsistencyReason = consistencyReason
-				result.Usage.Elapsed = time.Since(startedAt)
+				result.Usage.Elapsed = u.now().Sub(startedAt)
 				result.Usage.ElapsedMillis = result.Usage.Elapsed.Milliseconds()
 				return result, nil
 			}
@@ -509,7 +517,7 @@ func finishPartialMemoryHygieneResult(
 	consistencyReason apptypes.MemoryHygieneConsistencyReason,
 	digest string,
 	now time.Time,
-	startedAt time.Time,
+	elapsed time.Duration,
 	initialPhase apptypes.MemoryHygieneScanPhase,
 	initialKeyset apptypes.MemoryHygieneScanKeyset,
 	initialRevision domtypes.Optional[int64],
@@ -543,7 +551,7 @@ func finishPartialMemoryHygieneResult(
 	result.Consistency = consistency
 	result.ConsistencyReason = consistencyReason
 	result.NextCursor = cursor
-	result.Usage.Elapsed = time.Since(startedAt)
+	result.Usage.Elapsed = elapsed
 	result.Usage.ElapsedMillis = result.Usage.Elapsed.Milliseconds()
 	return result, nil
 }
