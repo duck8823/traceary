@@ -10,8 +10,12 @@ import (
 // family — documents, trigram index, session tier and literal fingerprints —
 // measured as active b-tree allocation, not source text.
 //
-// 1464 MiB is what the 4 GiB store gate (#1620) leaves once every other Wave 3
-// removal is applied; it is derived, not chosen.
+// It is a *target*, not a cap. Only the recent tier can be evicted, so only it
+// is enforced: the corpus-proportional tiers (session summaries and keywords,
+// literal fingerprints) are measured and subtracted from this figure as a
+// reserve, and the remainder becomes the recent tier's source-text ceiling. The
+// family total is re-measured when a generation completes and recorded through
+// index_family_within_budget — reported, not guaranteed in advance.
 //
 // What it buys is a *variable* window, not a fixed one. Trigram measures 2.16x
 // the source text, so this is roughly 0.66 GiB of indexable text. Measured
@@ -42,10 +46,12 @@ type SearchProjectionBudget struct {
 	// physical database, page, journal, or WAL growth bound.
 	WriteBytes int64
 	RecentAge  time.Duration
-	// IndexFamilyBytes is the operator-facing ceiling on physical bytes of
+	// IndexFamilyBytes is the operator-facing budget for physical bytes of
 	// the bounded search index family (active b-tree allocation via dbstat),
-	// not source text. Eviction compares against the derived source ceiling,
-	// never against this figure directly.
+	// not source text. It is a target rather than a cap: eviction compares
+	// against the source ceiling derived from it after the non-recent reserve
+	// is subtracted, never against this figure directly, and the family total
+	// is reported at completion rather than enforced.
 	IndexFamilyBytes int64
 }
 
