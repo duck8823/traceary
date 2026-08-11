@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/xerrors"
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -328,6 +329,93 @@ func TestPayloadRehearsalDeterministicStopResumeScrubRollback(t *testing.T) {
 	rolledBack, err := u.Rollback(ctx, config)
 	if err != nil || !rolledBack.RollbackVerified {
 		t.Fatalf("rollback=%+v err=%v", rolledBack, err)
+	}
+}
+
+func TestPayloadRehearsalSelectsLatestRunByNormalizedStartedAt(t *testing.T) {
+	tests := []struct {
+		name   string
+		state  string
+		invoke func(context.Context, *infra.PayloadRehearsalAdapter, apptypes.PayloadRehearsalConfig) error
+	}{
+		{
+			name:  "completed-only scrub query",
+			state: "completed",
+			invoke: func(ctx context.Context, adapter *infra.PayloadRehearsalAdapter, config apptypes.PayloadRehearsalConfig) error {
+				_, err := adapter.Scrub(ctx, config)
+				if err != nil {
+					return xerrors.Errorf("Scrub: %w", err)
+				}
+				return nil
+			},
+		},
+		{
+			name:  "unconditional rollback query",
+			state: "failed",
+			invoke: func(ctx context.Context, adapter *infra.PayloadRehearsalAdapter, config apptypes.PayloadRehearsalConfig) error {
+				_, err := adapter.Rollback(ctx, config)
+				if err != nil {
+					return xerrors.Errorf("Rollback: %w", err)
+				}
+				return nil
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			dir, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			live, target, backup := filepath.Join(dir, "live.db"), filepath.Join(dir, "target.db"), filepath.Join(dir, "backup.db")
+			migrations, err := sqliteschema.Migrations()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = infra.NewStoreManagementDatasource(infra.NewDatabase(live, migrations)).Initialize(ctx); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", live)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at) VALUES('event-1','prompt','test','session-1','body','2026-08-01T00:00:00Z')`); err != nil {
+				t.Fatal(err)
+			}
+			if err = db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			copyTestFile(t, live, target)
+			adapter := newRehearsalAdapter(t, migrations, live)
+			config := rehearsalTestConfig(target, live, backup)
+			result, err := adapter.Run(ctx, config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart})
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+
+			db, err = sql.Open("sqlite", target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(`UPDATE payload_rehearsal_runs SET started_at='2026-01-01T00:00:00.5Z',updated_at='2026-01-01T00:00:00.5Z' WHERE run_id=?`, result.RunID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(`INSERT INTO payload_rehearsal_runs(run_id,target_fingerprint,config_hash,state,event_high_water,audit_high_water,started_at,updated_at,rollback_digest,target_device,target_inode) VALUES('lexical-winner','wrong-fingerprint','','` + tt.state + `','','','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','wrong-digest','wrong-device','wrong-inode')`); err != nil {
+				t.Fatal(err)
+			}
+			if err = db.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			gotErr := ""
+			if err = tt.invoke(ctx, adapter, config); err != nil {
+				gotErr = err.Error()
+			}
+			if diff := cmp.Diff("", gotErr); diff != "" {
+				t.Fatalf("latest run was not selected by normalized timestamp (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
