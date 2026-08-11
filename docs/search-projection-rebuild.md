@@ -58,8 +58,38 @@ Since v0.34 this projection is the only search index: the full-corpus migration-
 
 The operator-facing budget is **physical bytes of the bounded search index family**
 (`search_projection_*` + `literal_search_*`), measured as active b-tree allocation
-via `dbstat` — not source text. The default is 1464 MiB (~1.43 GiB), the residual of
-the 4 GiB store gate after every other Wave 3 removal.
+via `dbstat` — not source text. The default is 1464 MiB (~1.43 GiB).
+
+### What the budget actually bounds
+
+Only one part of the family is **evictable**, and only that part is held to a
+ceiling: `search_projection_recent_documents`, its indexes, and the
+`search_projection_recent_fts_*` shadow tables. Eviction has rows to take there
+because the recent tier is a window — dropping its oldest document is a supported
+outcome that leaves search correct, because everything it drops stays reachable
+through the session tier.
+
+The rest of the family is **corpus-proportional by design** and no ceiling bounds
+it:
+
+| tier | grows with | why it cannot be evicted |
+|---|---|---|
+| `search_projection_session_summaries`, `_session_keywords`, `_command_aggregates` | number of sessions | it is the fallback the recent tier evicts *into*; dropping it loses the history outright |
+| `literal_search_fingerprints` | number of events | a missing fingerprint is a false negative in the pre-filter, not a slower answer |
+| `search_projection_source_sequence`, `_exclusions` | number of events | they are the rebuild's own bookkeeping |
+
+These tiers enter the derivation as the **non-recent reserve**, subtracted from the
+budget before the source-text ceiling is computed. That keeps the arithmetic honest
+about the family total, and it has a consequence operators should expect: as the
+corpus grows, the reserve grows and the ceiling shrinks, so the recent window gets
+shorter at a fixed budget. On the reference corpus the session tier and fingerprints
+were already 80.5% of a 1464 MiB budget at 36% of one walk. When the reserve reaches
+the budget the derived ceiling is 0, the recent tier is built empty, and search falls
+back entirely to the session tier — reported, not silently degraded (`capacity_evidence`
+reads `non-recent reserve at or above index-family budget`).
+
+Raising `--index-family-bytes` buys recent-window length. It does not shrink the
+corpus-proportional tiers; nothing in this projection does.
 
 `status.recent_bytes` is deliberately a **different unit**: source text actually
 retained in the recent tier. The budget is configured in index bytes; retained
@@ -101,9 +131,21 @@ merge.
 **No verdict during a rebuild.** Measurement still happens — `dbstat` is walked at
 `Start` and again at the source→eviction transition — but budget conformance is not
 decided, because `Start` keeps the previous generation readable until the new one is
-verified and a rebuild therefore holds two families at once. The
-source-phase cutoff keeps the new one from being built at the full age window, but the
-transient peak is not bounded by this budget.
+verified and a rebuild therefore holds two families at once.
+
+Since v0.34 the new generation's own recent tier **is** bounded while it is being
+built. Eviction is interleaved with the source walk: every batch compares the
+generation's running source-text total against its derived ceiling and, when the total
+is over or a row has aged past the cutoff, evicts its oldest documents before admitting
+more. The persisted `recent_source_bytes` counter is what the comparison reads, so the
+bound survives a restart. Before v0.34 eviction could not start until the last source
+row was walked, and a rebuild peaked at whatever the full age window happened to weigh
+— measured at 3.74 GiB against a 1.43 GiB ceiling, 36% of the way through one walk.
+
+What is still **not** bounded by this budget is the sum across generations. The
+previous generation stays fully resident — that is what keeps search answerable during
+the rebuild — and is reclaimed only in the terminal cleanup phase. So plan free space
+for roughly the old family plus the new ceiling, not for one budget.
 
 The source-phase cutoff is a **build-cost bound, not an enforcement mechanism**. It
 walks the corpus newest-first over stored envelope bytes, which is not the unit the
