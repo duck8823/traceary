@@ -28,6 +28,8 @@ var selectSearchProjectionFamilyTotalSQL string
 //go:embed sql/select_search_projection_recent_cutoff.sql
 var selectSearchProjectionRecentCutoffSQL string
 
+const selectSearchProjectionRecentRangeSQL = `SELECT COALESCE(MIN(created_at_norm),''),COALESCE(MAX(created_at_norm),'') FROM search_projection_recent_documents WHERE generation_id=(SELECT generation_id FROM search_projection_state WHERE singleton=1)`
+
 //go:embed sql/select_search_projection_logical_non_recent_bytes.sql
 var selectSearchProjectionLogicalNonRecentBytesSQL string
 
@@ -1098,6 +1100,9 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 		&s.LastBatchMilliseconds, &s.LifecycleState, &s.AbandonedAt, &s.CutoverIndexFamily, &s.CutoverFamilyBytesBefore, &s.CutoverFamilyBytesAfter,
 		&s.CutoverBeforeEvidence.Status, &s.CutoverBeforeEvidence.Reason, &s.CutoverAfterEvidence.Status, &s.CutoverAfterEvidence.Reason, &s.FailureClass)
 	if e != nil {
+		return s, e
+	}
+	if e = db.QueryRowContext(ctx, selectSearchProjectionRecentRangeSQL).Scan(&s.RecentOldestNorm, &s.RecentNewestNorm); e != nil {
 		return s, e
 	}
 	enrichCapacityEvidenceMethod(&s.CutoverBeforeEvidence, &s.CutoverAfterEvidence, &s.CapacityEvidence)

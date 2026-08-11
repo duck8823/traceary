@@ -336,6 +336,8 @@ type SearchProjectionStatus struct {
 	RecentAmplificationPPM      int64            `json:"recent_amplification_ppm"`
 	NonRecentFamilyBytes        int64            `json:"non_recent_family_bytes"`
 	RecentCutoffNorm            string           `json:"recent_cutoff_norm,omitempty"`
+	RecentOldestNorm            string           `json:"recent_oldest_norm,omitempty"`
+	RecentNewestNorm            string           `json:"recent_newest_norm,omitempty"`
 	CapacitySemanticsVersion    int              `json:"capacity_semantics_version"`
 	CapacityEvidence            CapacityEvidence `json:"capacity_evidence"`
 	IndexFamilyWithinBudget     int              `json:"index_family_within_budget"`

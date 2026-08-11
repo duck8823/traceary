@@ -96,6 +96,12 @@ retained in the recent tier. The budget is configured in index bytes; retained
 source is reported so the amplification is visible, not so operators re-interpret
 the knob as a text ceiling.
 
+`status.recent_oldest_norm` and `status.recent_newest_norm` report the oldest and
+newest `created_at_norm` values actually retained in the full-text recent tier for
+the generation described by the status row. They are omitted when that tier is
+empty. This is the full-text range only; events outside it remain answerable
+through the session tier.
+
 What the budget buys is a **variable window**, not a fixed one. Trigram measures
 about 2.16× the source text, so 1464 MiB of family is roughly 0.66 GiB of
 indexable text. Measured weekly volume on the reference corpus varies **eightfold**
