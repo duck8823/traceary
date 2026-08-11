@@ -700,7 +700,7 @@ func (a *PayloadRehearsalAdapter) PrepareScrub(ctx context.Context, c apptypes.P
 		return nil, apptypes.PayloadRehearsalMetrics{}, xerrors.Errorf("disable scrub WAL autocheckpoint: %w", err)
 	}
 	var run, recordedFingerprint, recordedDevice, recordedInode string
-	if err = db.QueryRowContext(ctx, `SELECT run_id,target_fingerprint,target_device,target_inode FROM payload_rehearsal_runs WHERE state='completed' ORDER BY started_at DESC LIMIT 1`).Scan(&run, &recordedFingerprint, &recordedDevice, &recordedInode); err != nil {
+	if err = db.QueryRowContext(ctx, `SELECT run_id,target_fingerprint,target_device,target_inode FROM payload_rehearsal_runs WHERE state='completed' ORDER BY ts_norm(started_at) DESC, run_id DESC LIMIT 1`).Scan(&run, &recordedFingerprint, &recordedDevice, &recordedInode); err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("no completed rehearsal run")
 	}
 	if recordedFingerprint != id.opaque || recordedDevice != id.device || recordedInode != id.inode {
@@ -932,7 +932,7 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	}
 	var recordedDigest, runState string
 	var activeLease int
-	stateErr := currentDB.QueryRowContext(ctx, `SELECT rollback_digest,state,lease_token IS NOT NULL FROM payload_rehearsal_runs ORDER BY started_at DESC LIMIT 1`).Scan(&recordedDigest, &runState, &activeLease)
+	stateErr := currentDB.QueryRowContext(ctx, `SELECT rollback_digest,state,lease_token IS NOT NULL FROM payload_rehearsal_runs ORDER BY ts_norm(started_at) DESC, run_id DESC LIMIT 1`).Scan(&recordedDigest, &runState, &activeLease)
 	_ = currentDB.Close()
 	safeState := runState == "paused" || runState == "completed" || runState == "scrubbed" || runState == "failed"
 	if stateErr != nil || !safeState || activeLease != 0 || recordedDigest != digest {

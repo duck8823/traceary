@@ -456,6 +456,50 @@ func TestDatasource_ListSummaries(t *testing.T) {
 
 }
 
+func TestDatasource_ListSummariesOrdersSubsecondStartedAtAfterWholeSecond(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		limit int
+		want  []string
+	}{
+		{name: "limited listing selects genuinely latest session", limit: 1, want: []string{"sess-b"}},
+		{name: "listing orders all selected sessions by normalized timestamp", limit: 2, want: []string{"sess-b", "sess-a"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+			ctx := context.Background()
+			if err := fixture.storeManager.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+			for _, session := range []struct {
+				id      string
+				started time.Time
+			}{
+				{id: "sess-a", started: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+				{id: "sess-b", started: time.Date(2026, 1, 1, 0, 0, 0, 500_000_000, time.UTC)},
+			} {
+				saveTestSession(ctx, t, fixture.sessionDS, session.id, session.started, types.None[time.Time](), "codex", "workspace")
+			}
+
+			got, err := fixture.sessionDS.ListSummaries(ctx, tt.limit, 0, types.SessionID(""), types.Workspace(""), types.Client(""), types.Agent(""), "", false, types.None[time.Time](), types.None[time.Time]())
+			if err != nil {
+				t.Fatalf("ListSummaries() error = %v", err)
+			}
+			gotIDs := make([]string, 0, len(got))
+			for _, summary := range got {
+				gotIDs = append(gotIDs, summary.SessionID().String())
+			}
+			if diff := cmp.Diff(tt.want, gotIDs); diff != "" {
+				t.Fatalf("session IDs mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestDatasource_LineageOfCycleDetection(t *testing.T) {
 	t.Parallel()
 
