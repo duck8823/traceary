@@ -23,6 +23,7 @@ type memoryUsecase struct {
 	eventQuery          queryservice.EventQueryService
 	codexSource         application.CodexMemorySource
 	extraRedactPatterns []string
+	nowFunc             func() time.Time
 }
 
 // MemoryUsecaseDependencies carries the optional dependency set needed by
@@ -34,6 +35,7 @@ type MemoryUsecaseDependencies struct {
 	SessionQuery queryservice.SessionQueryService
 	EventQuery   queryservice.EventQueryService
 	CodexSource  application.CodexMemorySource
+	NowFunc      func() time.Time
 }
 
 // NewMemoryUsecase creates a consolidated MemoryUsecase facade.
@@ -47,12 +49,16 @@ func NewMemoryUsecase(
 		memoryRepo:          memoryRepo,
 		memoryQuery:         memoryQuery,
 		extraRedactPatterns: slices.Clone(extraRedactPatterns),
+		nowFunc:             time.Now,
 	}
 	if len(optionalDeps) > 0 {
 		deps := optionalDeps[0]
 		usecase.sessionQuery = deps.SessionQuery
 		usecase.eventQuery = deps.EventQuery
 		usecase.codexSource = deps.CodexSource
+		if deps.NowFunc != nil {
+			usecase.nowFunc = deps.NowFunc
+		}
 	}
 	return usecase
 }
@@ -702,6 +708,7 @@ func (u *memoryUsecase) Scan(ctx context.Context, criteria apptypes.MemoryHygien
 		memory:              u,
 		memoryQuery:         u.memoryQuery,
 		extraRedactPatterns: u.extraRedactPatterns,
+		nowFunc:             u.nowFunc,
 	}).Scan(ctx, criteria)
 }
 
@@ -710,6 +717,7 @@ func (u *memoryUsecase) Apply(ctx context.Context, criteria apptypes.MemoryHygie
 		memory:              u,
 		memoryQuery:         u.memoryQuery,
 		extraRedactPatterns: u.extraRedactPatterns,
+		nowFunc:             u.nowFunc,
 	}).Apply(ctx, criteria)
 }
 

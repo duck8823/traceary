@@ -616,15 +616,17 @@ func TestMemoryHygieneScan_RevisionChurnReturnsPartialOnlyAfterDurationExhausts(
 
 	scope := workspaceScope(t, "github.com/example/repo")
 	now := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	clock := &memoryHygieneTestClock{now: now}
 	query := &stubMemoryQueryService{
 		scanRevision: 1,
+		scanClock:    clock,
 		summaries: []apptypes.MemorySummary{
 			candidateSummary(t, "mem-a", scope, "git status", domtypes.MemorySourceExtracted, now),
 			candidateSummary(t, "mem-b", scope, "go test ./...", domtypes.MemorySourceExtracted, now),
 			candidateSummary(t, "mem-c", scope, "gh pr checks", domtypes.MemorySourceExtracted, now),
 		},
 	}
-	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil, usecase.MemoryUsecaseDependencies{NowFunc: clock.Now})
 	first, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
 		Now:    now,
 		Budget: memoryHygieneTestBudget(t, 2, 1<<20, 100),
@@ -647,7 +649,7 @@ func TestMemoryHygieneScan_RevisionChurnReturnsPartialOnlyAfterDurationExhausts(
 		t.Fatalf("MemoryHygieneScanBudgetFrom() error = %v", err)
 	}
 	query.advanceScanRevision = true
-	query.scanDelay = 5 * time.Millisecond
+	query.scanAdvance = shortBudget.MaxDuration()
 	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{
 		Cursor: first.NextCursor,
 		Budget: shortBudget,
@@ -771,12 +773,13 @@ func TestMemoryHygieneScan_TimeLimitWithoutCursorProgressReturnsTypedError(t *te
 
 	scope := workspaceScope(t, "github.com/example/repo")
 	query := &stubMemoryQueryService{
-		scanDelay: 5 * time.Millisecond,
+		scanClock:   &memoryHygieneTestClock{now: time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)},
+		scanAdvance: time.Millisecond,
 		summaries: []apptypes.MemorySummary{
 			acceptedSummaryAt(t, "mem-a", scope, "git status", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
 		},
 	}
-	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil, usecase.MemoryUsecaseDependencies{NowFunc: query.scanClock.Now})
 	budget, err := apptypes.MemoryHygieneScanBudgetFrom(apptypes.MemoryHygieneScanBudgetParams{
 		MaxRows:        2,
 		MaxScanBytes:   1 << 20,

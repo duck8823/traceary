@@ -1,0 +1,19 @@
+-- Drop an unused access path; rows and query semantics are unchanged, so no
+-- generation needs invalidating.
+--
+-- "Unused" means no reader depends on it. Both fingerprint readers filter on a
+-- prefix of the primary key (generation_id,event_id,fingerprint) and resolve
+-- through sqlite_autoindex_literal_search_fingerprints_1 with or without this
+-- index. The one plan that did name it is the ON DELETE CASCADE child lookup
+-- from search_projection_source_sequence, and only as a full covering SCAN --
+-- source_sequence is the third column here, so a seek was never available
+-- without ANALYZE, which this store never runs. Nothing in production deletes
+-- from that parent table in any case. After the drop the same cascade scans
+-- the table instead of the index: the same full scan over a comparable extent.
+--
+-- Bounded despite the size: measured at 0.096s on the 7.1 GB dogfood store
+-- whose copy of this index was 118,489,088 bytes, because dropping an index
+-- moves its pages onto the freelist rather than rewriting them. That is the
+-- test migration 000052's warning asks for -- it forbids DROPs that would
+-- block store open, not DROPs of large objects as such.
+DROP INDEX IF EXISTS idx_literal_search_fingerprint_candidate;
