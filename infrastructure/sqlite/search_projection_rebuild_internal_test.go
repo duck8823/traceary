@@ -920,7 +920,7 @@ func TestConcurrentApplyBatchFencesSameCheckpoint(t *testing.T) {
 	}
 }
 
-func TestSearchProjectionOversizeRowIsExcludedAndLargerGenerationCanStart(t *testing.T) {
+func TestSearchProjectionOversizeRowIsExcludedAndGenerationCompletes(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
 	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")

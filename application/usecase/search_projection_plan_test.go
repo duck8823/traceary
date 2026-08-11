@@ -109,9 +109,9 @@ func TestProjectionBatchPlanClassifiesAndSkipsRowsAtSourceBoundaries(t *testing.
 		wantClass               string
 		wantMeasured, wantLimit int64
 	}{
-		{name: "stored boundary admitted", stored: 10, decoded: 10},
+		{name: "stored boundary admitted", stored: 10, decoded: 5},
 		{name: "stored one over excluded", stored: 11, decoded: 10, wantClass: "stored_bytes", wantMeasured: 11, wantLimit: 10},
-		{name: "decoded boundary admitted", stored: 10, decoded: 10},
+		{name: "decoded boundary admitted", stored: 5, decoded: 10},
 		{name: "decoded one over excluded", stored: 5, decoded: 11, wantClass: "decoded_bytes", wantMeasured: 11, wantLimit: 10},
 	}
 	for _, tt := range tests {

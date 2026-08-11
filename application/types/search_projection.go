@@ -149,9 +149,9 @@ type ProjectionDocument struct {
 type ProjectionDisposition string
 
 const (
-	ProjectionDispositionAdmitted ProjectionDisposition = "admitted"
-	ProjectionDispositionDeleted  ProjectionDisposition = "deleted"
-	ProjectionDispositionExcluded ProjectionDisposition = "excluded"
+	ProjectionDispositionAdmitted  ProjectionDisposition = "admitted"
+	ProjectionDispositionDeleted   ProjectionDisposition = "deleted"
+	ProjectionDispositionExcluded  ProjectionDisposition = "excluded"
 	ProjectionDispositionBatchFull ProjectionDisposition = ""
 )
 
@@ -197,7 +197,7 @@ type ProjectionWrite struct {
 
 type ProjectionExclusion struct {
 	Sequence, MeasuredBytes, ByteLimit int64
-	EventID, Class                   string
+	EventID, Class                     string
 }
 
 // ProjectionBatchPlan is a pure application-owned decision. Adapters may only
