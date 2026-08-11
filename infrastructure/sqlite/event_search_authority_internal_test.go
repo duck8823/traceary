@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -251,6 +252,62 @@ func TestTieredAuthorityFingerprintPreFilter(t *testing.T) {
 	}
 	if diff := cmp.Diff([]string{"pre-match"}, eventIDs(full)); diff != "" {
 		t.Fatalf("SearchPage() fingerprint IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestTieredAuthorityFingerprintReadersUsePrimaryKeyAfterCandidateIndexDrop(t *testing.T) {
+	ctx := context.Background()
+	database, _ := newTieredAuthorityFixture(t)
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	query, args := buildTieredSearchCandidateQuery(criteria, "generation")
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+
+	var indexCount int
+	if err = raw.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		  FROM sqlite_schema
+		 WHERE type='index' AND name='idx_literal_search_fingerprint_candidate'`).Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(0, indexCount); diff != "" {
+		t.Fatalf("candidate index still exists (-want +got):\n%s", diff)
+	}
+
+	rows, err := raw.QueryContext(ctx, "EXPLAIN QUERY PLAN "+query, args...)
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN error = %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err = rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(detail)
+		plan.WriteByte('\n')
+	}
+	if err = rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	normalized := strings.ToLower(plan.String())
+	for _, reader := range []string{"known", "matched"} {
+		t.Run(reader, func(t *testing.T) {
+			want := "search " + reader + " using index sqlite_autoindex_literal_search_fingerprints_1"
+			if !strings.Contains(normalized, want) {
+				t.Fatalf("fingerprint reader does not use the primary key; want %q in:\n%s", want, plan.String())
+			}
+		})
+	}
+	if strings.Contains(normalized, "idx_literal_search_fingerprint_candidate") {
+		t.Fatalf("fingerprint query plan still names the dropped candidate index:\n%s", plan.String())
 	}
 }
 
