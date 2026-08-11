@@ -281,9 +281,10 @@ func TestRootCLI_GCCommand(t *testing.T) {
 				want: "Collected: 99\n" +
 					"Orphan refinements: 8\n" +
 					"Orphan ranges skipped: 2\n" +
-					"Skipped orphan range failures (re-running gc will skip these again):\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
 					"  sess-bad-1: invalid created_at\n" +
-					"  sess-bad-2: missing event timestamp\n",
+					"  sess-bad-2: missing event timestamp\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
 			},
 			{
 				// Both facts are true at once, and neither is allowed to
@@ -298,8 +299,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 				want: "Collected: 99\n" +
 					"Orphan refinements: 7\n" +
 					"Orphan ranges skipped: 1\n" +
-					"Skipped orphan range failures (re-running gc will skip these again):\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
 					"  sess-bad-1: invalid created_at\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n" +
 					"More orphan ranges remain; re-run gc to continue consolidation\n",
 			},
 			{
@@ -313,8 +315,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 				want: "Collected: 99\n" +
 					"Orphan refinements: 0\n" +
 					"Orphan ranges skipped: 1\n" +
-					"Skipped orphan range failures (re-running gc will skip these again):\n" +
-					"  sess-bad-1: load orphan range: parse created_at: empty value\n",
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-bad-1: load orphan range: parse created_at: empty value\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
 			},
 			{
 				// An error that embeds a row value or a query is unbounded.
@@ -326,8 +329,47 @@ func TestRootCLI_GCCommand(t *testing.T) {
 				want: "Collected: 99\n" +
 					"Orphan refinements: 0\n" +
 					"Orphan ranges skipped: 1\n" +
-					"Skipped orphan range failures (re-running gc will skip these again):\n" +
-					"  sess-bad-1: " + strings.Repeat("x", 200) + "\u2026\n",
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-bad-1: " + strings.Repeat("x", 200) + "\u2026\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
+			},
+			{
+				// Both fields are read back out of the store, so both carry
+				// whatever a hook wrote \u2014 the reason quotes row values, and a
+				// session id is only trimmed on the way in. An ESC sequence
+				// reaching the terminal could erase the lines around it,
+				// including the ones this listing exists to show, so it is
+				// removed before either is printed.
+				name: "terminal control sequences are removed from both fields",
+				result: apptypes.OrphanConsolidationResultOf(1, 0, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf(
+						"sess-\x1b[2Jbad",
+						"invalid created_at \x1b[1;31m\"\"\x1b[0m",
+					),
+				), false, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 0\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-[2Jbad: invalid created_at [1;31m\"\"[0m\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
+			},
+			{
+				// Elision cuts at a rune count, which can fall between an
+				// escape and its reset. Stripping first means there is no
+				// sequence left to cut in half.
+				name: "an escape cannot survive elision",
+				result: apptypes.OrphanConsolidationResultOf(1, 0, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf(
+						"sess-bad-1", strings.Repeat("y", 195)+"\x1b[8m"+strings.Repeat("z", 60)+"\x1b[0m",
+					),
+				), false, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 0\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-bad-1: " + strings.Repeat("y", 195) + "[8m" + strings.Repeat("z", 2) + "\u2026\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
 			},
 		}
 		for _, tt := range tests {
@@ -389,7 +431,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		if strings.Count(got, "  sess-bad-") != listed {
 			t.Fatalf("listed failure count = %d, want %d; stdout = %q", strings.Count(got, "  sess-bad-"), listed, got)
 		}
-		if !strings.Contains(got, "Only the first 10 skipped orphan range failures are listed.") {
+		if !strings.Contains(got, "Only the first 10 skipped orphan ranges are listed.") {
 			t.Fatalf("stdout missing truncation notice: %q", got)
 		}
 		if strings.Contains(got, "sess-bad-10") {
@@ -490,8 +532,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		want := "Candidates: 7\n" +
 			"Orphan refinement candidates: 4\n" +
 			"Orphan ranges skipped: 1\n" +
-			"Skipped orphan range failures (re-running gc will skip these again):\n" +
+			"Each skipped orphan range, with the reason it failed:\n" +
 			"  sess-bad: invalid created_at\n" +
+			"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n" +
 			"More orphan ranges remain; re-run gc to continue consolidation\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

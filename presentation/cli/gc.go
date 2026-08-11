@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -152,8 +151,15 @@ const maxOrphanFailureReasonRunes = 200
 // wrapped error may contain newlines, and a multi-line reason would break the
 // "session: reason" shape the listing depends on — the second line would read
 // as if it were another session.
+//
+// Control characters go first, through the same helper the event listing uses.
+// A reason is a wrapped error chain that quotes values read out of the store,
+// so it can carry whatever a hook wrote; an ESC sequence reaching the terminal
+// could erase the lines around it, and elision at a fixed rune count can cut a
+// sequence off from its reset. Either turns this listing into the silent
+// nothing it exists to replace.
 func singleLineFailureReason(reason string) string {
-	collapsed := strings.Join(strings.Fields(reason), " ")
+	collapsed := normalizeTabularColumn(reason)
 	if collapsed == "" {
 		return Localize("(no reason reported)", "(理由の報告なし)")
 	}
@@ -180,24 +186,37 @@ func printOrphanResult(output io.Writer, dryRun bool, result apptypes.OrphanCons
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
 		if _, err := fmt.Fprintf(output, "%s\n", Localize(
-			"Skipped orphan range failures (re-running gc will skip these again):",
-			"スキップした orphan range の失敗（gc を再実行しても同じ範囲を再びスキップします）:",
+			"Each skipped orphan range, with the reason it failed:",
+			"スキップした orphan range と失敗した理由:",
 		)); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
 		failures := result.Failures().Items()
 		for _, failure := range failures {
-			if _, err := fmt.Fprintf(output, "  %s: %s\n", failure.SessionID(), singleLineFailureReason(failure.Reason())); err != nil {
+			if _, err := fmt.Fprintf(output, "  %s: %s\n", normalizeTabularColumn(failure.SessionID()), singleLineFailureReason(failure.Reason())); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 			}
 		}
 		if result.Failures().Truncated() {
 			if _, err := fmt.Fprintf(output, Localize(
-				"Only the first %d skipped orphan range failures are listed.\n",
-				"スキップした orphan range の失敗は先頭 %d 件だけ表示しています。\n",
+				"Only the first %d skipped orphan ranges are listed.\n",
+				"スキップした orphan range は先頭 %d 件だけ表示しています。\n",
 			), len(failures)); err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 			}
+		}
+		// Deliberately not "re-running will skip these again". A skip can come
+		// from data that cannot be read, which recurs, or from a lock or a
+		// contended write, which does not — and the command cannot tell the two
+		// apart, because both arrive as one wrapped error. Promising recurrence
+		// would replace the #1795 loop with its mirror image: an operator who
+		// stops re-running a range that would have consolidated next pass. The
+		// reason is printed because it is what distinguishes them.
+		if _, err := fmt.Fprintf(output, "%s\n", Localize(
+			"Re-running gc retries these; a range whose data cannot be read fails the same way each time.",
+			"gc を再実行するとこれらも再試行します。データを読めない range は毎回同じ理由で失敗します",
+		)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
 	}
 	// A target that does not consolidate leaves the zero result, which has no
