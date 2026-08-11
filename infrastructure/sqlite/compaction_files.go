@@ -406,7 +406,7 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 		return run, err
 	}
 	if required > available {
-		return run, fmt.Errorf("insufficient free space: need %d bytes, have %d", required, available)
+		return run, insufficientCompactionSpaceError(required, available, id.Size)
 	}
 	run.SourceIdentity = id
 	digest, err := fileDigest(run.SourcePath)
@@ -424,6 +424,10 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 		return run, errors.New("cross-process store lease capability unavailable")
 	}
 	return run, nil
+}
+
+func insufficientCompactionSpaceError(required, available uint64, sourceSize int64) error {
+	return fmt.Errorf("insufficient free space: need %d bytes, have %d bytes, shortfall %d bytes; this worst-case reservation assumes the compacted store is as large as the source because its output size is unknown before writing and is usually much smaller; after success, a rollback copy of the %d-byte source is retained as <db>.rollback-<run id> and is not removed automatically (deleting it is the operator's decision and makes store compact rollback for that run impossible)", required, available, required-available, sourceSize)
 }
 
 func (PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.CompactionRun) error {

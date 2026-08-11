@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **`store compact` のディスク容量案内 (#1790)** — 空き容量不足の拒否メッセージが shortfall、worst-case の source-size reservation、成功後も source-size の rollback copy が残ることを伝えるようになりました。運用者向けドキュメントに 1.1 倍の headroom と保持される rollback のコストを記載しました。必要容量自体は変更していません。
 - **MCP から session-tier search 結果を公開 (#1727)** — MCP の `search` tool が、古い履歴に一致する session trail を専用の `sessions` field で返し、`session_matches` または `session_projection_not_ready` reason を報告するようになりました。この schema 変更は意図的に `search` だけに限定しており、`list_events` と `get_context` は変更しません。
 - **bounded search projection の既定予算を統一 (#1806)** — CLI と自動 catch-up path が共有する既定値を 1 つにし、generation configuration hash のずれを構造的に防ぎます。内部実装の変更であり、operator-visible な動作の変更はありません。
 - **未リリースのtiered literal previewを削除 (#1725)** — undocumentedなCLIの`--tiered-preview` / `--deep` / `--continuation` entry pointと、MCPの`tiered_preview` / `deep` fieldを削除しました。これらは2026-08-02に追加されましたが、release tag（最新はv0.33.1）には一度も含まれていないため、deprecation windowは適用せず、bounded projection searchだけを検索経路として残します。

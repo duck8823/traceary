@@ -11,6 +11,7 @@ import (
 
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain"
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestCompactionFileJournalRoundTripAndTransitionValidation(t *testing.T) {
@@ -310,6 +311,33 @@ func TestCompactionRequiredBytesIsOverflowSafe(t *testing.T) {
 	}
 	if required != uint64(100)+(64<<20) || margin != 64<<20 {
 		t.Fatalf("required=%d margin=%d", required, margin)
+	}
+}
+
+func TestInsufficientCompactionSpaceErrorStatesOperatorCosts(t *testing.T) {
+	tests := []struct {
+		name      string
+		required  uint64
+		available uint64
+		source    int64
+		want      string
+	}{
+		{
+			name:      "reports shortfall and retained rollback",
+			required:  1100,
+			available: 700,
+			source:    1000,
+			want:      "insufficient free space: need 1100 bytes, have 700 bytes, shortfall 400 bytes; this worst-case reservation assumes the compacted store is as large as the source because its output size is unknown before writing and is usually much smaller; after success, a rollback copy of the 1000-byte source is retained as <db>.rollback-<run id> and is not removed automatically (deleting it is the operator's decision and makes store compact rollback for that run impossible)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := insufficientCompactionSpaceError(tt.required, tt.available, tt.source).Error()
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("insufficient space error (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
