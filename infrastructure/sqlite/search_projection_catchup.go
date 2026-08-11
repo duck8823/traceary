@@ -23,8 +23,14 @@ func defaultSearchProjectionCatchUpBudget() apptypes.SearchProjectionBudget {
 // catchUpSearchProjection advances the bounded projection by one durable unit
 // of work during store initialization. Failures are returned to the caller so
 // Initialize can log and continue — the same fail-open pattern as event search
-// backfill. The legacy index remains authoritative until a generation reaches
-// complete (#1717).
+// backfill.
+//
+// Failing open costs work, not correctness. It used to say the legacy index
+// stayed authoritative until a generation completed; that stopped being true
+// when #1718 retired the migration-032 family, and event_search_authority.go
+// never consults it. Until a generation completes, the tiered path decides
+// each candidate by decoding it, so results stay correct and a broad query on
+// a large store reports index_incomplete instead of returning a partial page.
 func catchUpSearchProjection(ctx context.Context, store *Database) (apptypes.SearchProjectionCatchUpResult, error) {
 	db, err := store.open(ctx)
 	if err != nil {
