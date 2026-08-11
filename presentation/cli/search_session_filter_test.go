@@ -35,20 +35,20 @@ func TestRootCLI_SearchKindSuppressionAnnouncement(t *testing.T) {
 			name:       "text",
 			locale:     "en",
 			wantOutput: "needle",
-			wantWarn:   "--kind",
+			wantWarn:   "traceary: matching sessions were suppressed because --kind cannot be applied to session summaries. Run the same search without --kind to see them.\n",
 		},
 		{
 			name:       "json does not repeat the JSON shape notice",
 			json:       true,
 			locale:     "en",
 			wantOutput: "evt-kind",
-			wantWarn:   "--kind",
+			wantWarn:   "traceary: matching sessions were suppressed because --kind cannot be applied to session summaries. Run the same search without --kind to see them.\n",
 		},
 		{
 			name:       "Japanese",
 			locale:     "ja",
 			wantOutput: "needle",
-			wantWarn:   "セッション要約",
+			wantWarn:   "traceary: セッション要約には --kind を適用できないため、一致したセッションを表示していません。--kind を外して同じ検索を実行すると確認できます。\n",
 		},
 	}
 	for _, tc := range testCases {
@@ -63,11 +63,11 @@ func TestRootCLI_SearchKindSuppressionAnnouncement(t *testing.T) {
 			if !strings.Contains(string(stdout), tc.wantOutput) {
 				t.Fatalf("stdout = %q, want substring %q", stdout, tc.wantOutput)
 			}
-			if !strings.Contains(string(stderr), tc.wantWarn) {
-				t.Fatalf("stderr = %q, want substring %q", stderr, tc.wantWarn)
-			}
-			if tc.json && strings.Contains(string(stderr), "v0.35") {
-				t.Fatalf("kind suppression must not also emit the JSON omission notice: %q", stderr)
+			// Exact match, not a substring: it pins that the notice states
+			// presence rather than a count, and that the JSON shape notice is
+			// not also emitted for sessions --kind already suppressed.
+			if diff := cmp.Diff(tc.wantWarn, string(stderr)); diff != "" {
+				t.Fatalf("stderr (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(2, stub.calls); diff != "" {
 				t.Fatalf("kind-filtered search must probe once (-want +got):\n%s", diff)
@@ -121,6 +121,37 @@ func TestRootCLI_SearchKindProbeKeepsEveryOtherFilter(t *testing.T) {
 	}
 	if diff := cmp.Diff("", stub.criteria[1].Kind().String()); diff != "" {
 		t.Fatalf("probe criteria kind (-want +got):\n%s", diff)
+	}
+}
+
+// The real call excludes sessions already visible in the event group. Those ids
+// come from a page the --kind filter shaped, so they are not the ids a kind-less
+// search would have produced: reusing them would drop sessions from the probe
+// that --kind is exactly what hid. The probe therefore asks the unqualified
+// question, with no exclusions at all.
+func TestRootCLI_SearchKindProbeIgnoresKindFilteredExclusions(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) { return "", nil })
+	defer cli.ResetDetectRepoContextFunc()
+
+	event := mustGoldenEvent(t, "evt-kind", types.EventKindNote, "cli", "codex", "session-kind", "", "needle", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "")
+	stub := &projectionSessionSearchStub{hits: []apptypes.SearchSessionHit{mustSessionHit(t, "session-old")}}
+	_, stderr := executeSearchWithSessionStub(t, []string{
+		"search", "--db-path", "/tmp/test-traceary.db", "--kind", "note", "needle",
+	}, &eventUsecaseStub{searchEvents: []*model.Event{event}}, stub)
+
+	if diff := cmp.Diff(2, stub.calls); diff != "" {
+		t.Fatalf("kind-filtered search must probe once (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]types.SessionID{"session-kind"}, stub.excludes[0]); diff != "" {
+		t.Fatalf("real call must exclude sessions already shown as events (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]types.SessionID(nil), stub.excludes[1]); diff != "" {
+		t.Fatalf("probe must carry no exclusion list (-want +got):\n%s", diff)
+	}
+	if !strings.Contains(string(stderr), "--kind") {
+		t.Fatalf("stderr = %q, want the kind suppression notice", stderr)
 	}
 }
 

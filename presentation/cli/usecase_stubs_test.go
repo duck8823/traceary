@@ -86,18 +86,20 @@ type projectionSessionSearchStub struct {
 	err      error
 	calls    int
 	criteria []apptypes.EventSearchCriteria
+	excludes [][]types.SessionID
 }
 
 func (s *projectionSessionSearchStub) SearchSessionHits(
 	_ context.Context,
 	criteria apptypes.EventSearchCriteria,
-	_ []types.SessionID,
+	exclude []types.SessionID,
 ) ([]apptypes.SearchSessionHit, error) {
 	if s == nil {
 		return nil, nil
 	}
 	s.calls++
 	s.criteria = append(s.criteria, criteria)
+	s.excludes = append(s.excludes, exclude)
 	if s.err != nil {
 		return nil, s.err
 	}

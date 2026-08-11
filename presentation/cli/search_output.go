@@ -37,14 +37,19 @@ func warnSearchSessionsOmittedFromJSON(warnWriter io.Writer, sessionCount int) {
 	_, _ = fmt.Fprintf(warnWriter, searchSessionsJSONNotice, sessionCount)
 }
 
-func warnSearchSessionsSuppressedByKind(warnWriter io.Writer, sessionCount int) {
-	if warnWriter == nil || sessionCount == 0 {
+// warnSearchSessionsSuppressedByKind reports that the SESSIONS group is empty
+// only because --kind was applied. It states presence, not a count: an accurate
+// count would have to reproduce the whole kind-less search, including the event
+// page whose ids are excluded from the session tier, and the number would not
+// change what the operator does about it.
+func warnSearchSessionsSuppressedByKind(warnWriter io.Writer) {
+	if warnWriter == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(warnWriter, Localize(
-		"traceary: %d matching session(s) were suppressed because --kind cannot be applied to session summaries. Run the same search without --kind to see them.\n",
-		"traceary: セッション要約には --kind を適用できないため、一致したセッション %d 件を表示していません。--kind を外して同じ検索を実行すると確認できます。\n",
-	), sessionCount)
+	_, _ = fmt.Fprint(warnWriter, Localize(
+		"traceary: matching sessions were suppressed because --kind cannot be applied to session summaries. Run the same search without --kind to see them.\n",
+		"traceary: セッション要約には --kind を適用できないため、一致したセッションを表示していません。--kind を外して同じ検索を実行すると確認できます。\n",
+	))
 }
 
 // writeSearchByFormat renders search results as either event-only output
