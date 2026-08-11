@@ -29,12 +29,21 @@ var selectSearchProjectionFamilyTotalSQL string
 var selectSearchProjectionRecentCutoffSQL string
 
 // selectSearchProjectionRecentRangeSQL reads the full-text range search can
-// actually answer from, which is the *active* generation — the one
-// event_search_authority.go:136 resolves — not the one being built. During a
-// rebuild those differ, and scoping this to generation_id would advertise
-// coverage from a generation search does not read yet, in the same JSON object
-// whose recent_documents counts the active one.
-const selectSearchProjectionRecentRangeSQL = `SELECT COALESCE(MIN(created_at_norm),''),COALESCE(MAX(created_at_norm),'') FROM search_projection_recent_documents WHERE generation_id=(SELECT active_generation_id FROM search_projection_state WHERE singleton=1)`
+// actually answer from. Naming the active generation is not enough: rows of a
+// previous generation survive a rebuild and stay identifiable through
+// active_generation_id, but searchProjectionReadReady (event_search_query.go:49)
+// refuses to read the projection unless state is 'complete', so during a
+// rebuild those rows exist and answer nothing. The readiness condition is
+// therefore repeated here verbatim — state='complete' with a non-empty
+// active generation — and the range is empty in every other state. Reporting
+// it anyway would tell an operator that full-text search covers a window
+// during exactly the period when broad queries decode every candidate and can
+// come back index_incomplete.
+//
+// The gate lives inside this one statement so the range and the generation it
+// describes come from a single snapshot. The rest of the status object still
+// re-resolves the generation per statement (#1839).
+const selectSearchProjectionRecentRangeSQL = `SELECT COALESCE(MIN(created_at_norm),''),COALESCE(MAX(created_at_norm),'') FROM search_projection_recent_documents WHERE generation_id=(SELECT active_generation_id FROM search_projection_state WHERE singleton=1 AND state='complete' AND COALESCE(active_generation_id,'')<>'')`
 
 //go:embed sql/select_search_projection_logical_non_recent_bytes.sql
 var selectSearchProjectionLogicalNonRecentBytesSQL string

@@ -16,38 +16,62 @@ import (
 func TestSearchProjectionStatusReportsRecentRangeForStatusGeneration(t *testing.T) {
 	t.Parallel()
 
+	// bothGenerations holds documents for the published generation and for one
+	// being built, with deliberately wider timestamps on the latter: any case
+	// that reports the building generation's range is reporting coverage
+	// searchProjectionReadReady refuses to serve.
+	const bothGenerations = `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES('current',1,'active-old','2026-08-01T00:00:00Z','active',1),('current',2,'active-new','2026-08-03T00:00:00Z','active',1),('next',3,'building-old','2020-01-01T00:00:00Z','building',1),('next',4,'building-new','2099-01-01T00:00:00Z','building',1);`
+
 	for _, test := range []struct {
 		name string
-		// building is the generation_id the status row carries. It differs
-		// from active whenever a rebuild is in flight, which is the case that
-		// distinguishes the generation search reads from the one being built.
+		// building is the generation_id the status row carries, and state is
+		// the projection state. They differ from the active generation exactly
+		// while a rebuild is in flight.
 		building   string
+		state      string
+		active     string
 		rows       string
 		wantOldest string
 		wantNewest string
 		wantJSON   map[string]any
 	}{
 		{
-			name:       "scopes range to the active generation",
+			name:       "reports the active generation's range when the projection is read-ready",
 			building:   "current",
-			rows:       `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES('other',1,'other-old','2000-01-01T00:00:00Z','other',1),('current',2,'current-old','2026-08-01T00:00:00Z','current',1),('current',3,'current-new','2026-08-03T00:00:00Z','current',1),('other',4,'other-new','2099-01-01T00:00:00Z','other',1);`,
+			state:      "complete",
+			active:     "current",
+			rows:       bothGenerations,
 			wantOldest: "2026-08-01T00:00:00Z",
 			wantNewest: "2026-08-03T00:00:00Z",
 		},
 		{
-			// The rebuilding generation has admitted a wider range than the
-			// one search answers from. Reporting it would advertise coverage
-			// the read path does not have, in the same object whose
-			// recent_documents counts the active generation.
-			name:       "reports the active generation while a newer one is building",
-			building:   "next",
-			rows:       `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES('current',1,'active-old','2026-08-01T00:00:00Z','active',1),('current',2,'active-new','2026-08-03T00:00:00Z','active',1),('next',3,'building-old','2020-01-01T00:00:00Z','building',1),('next',4,'building-new','2099-01-01T00:00:00Z','building',1);`,
-			wantOldest: "2026-08-01T00:00:00Z",
-			wantNewest: "2026-08-03T00:00:00Z",
+			// searchProjectionReadReady (event_search_query.go:49) refuses the
+			// projection unless state is complete, so during a rebuild the
+			// previous generation's rows answer nothing. Reporting their range
+			// would claim full-text coverage for the period in which broad
+			// queries decode every candidate and can return index_incomplete.
+			name:     "omits the range while a rebuild is in flight",
+			building: "next",
+			state:    "rebuilding",
+			active:   "current",
+			rows:     bothGenerations,
+			wantJSON: map[string]any{},
 		},
 		{
-			name:     "omits empty range",
+			// A canonical mutation flips the bounded side to drifted and
+			// clears the active generation (search_projection_rebuild.go:839).
+			name:     "omits the range when the projection has drifted",
 			building: "current",
+			state:    "drifted",
+			active:   "",
+			rows:     bothGenerations,
+			wantJSON: map[string]any{},
+		},
+		{
+			name:     "omits the range when the active tier is empty",
+			building: "current",
+			state:    "complete",
+			active:   "current",
 			wantJSON: map[string]any{},
 		},
 	} {
@@ -56,7 +80,7 @@ func TestSearchProjectionStatusReportsRecentRangeForStatusGeneration(t *testing.
 			if _, err := db.Exec(`INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water) VALUES('current','complete','hash',0,0),('next','rebuilding','hash',0,0);`); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := db.Exec(`UPDATE search_projection_state SET generation_id=?,active_generation_id='current',state='complete',config_hash='hash' WHERE singleton=1`, test.building); err != nil {
+			if _, err := db.Exec(`UPDATE search_projection_state SET generation_id=?,active_generation_id=NULLIF(?,''),state=?,config_hash='hash' WHERE singleton=1`, test.building, test.active, test.state); err != nil {
 				t.Fatal(err)
 			}
 			if test.rows != "" {
@@ -109,7 +133,7 @@ func TestSelectSearchProjectionRecentRangeUsesEvictionIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Exec(`CREATE TABLE search_projection_state(singleton INTEGER PRIMARY KEY,generation_id TEXT,active_generation_id TEXT); INSERT INTO search_projection_state VALUES(1,'next','current'); CREATE TABLE search_projection_recent_documents(document_id INTEGER PRIMARY KEY,generation_id TEXT NOT NULL,event_rowid INTEGER NOT NULL,created_at_norm TEXT NOT NULL); CREATE INDEX idx_search_projection_recent_eviction ON search_projection_recent_documents(generation_id,created_at_norm,event_rowid);`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE search_projection_state(singleton INTEGER PRIMARY KEY,generation_id TEXT,active_generation_id TEXT,state TEXT NOT NULL); INSERT INTO search_projection_state VALUES(1,'next','current','complete'); CREATE TABLE search_projection_recent_documents(document_id INTEGER PRIMARY KEY,generation_id TEXT NOT NULL,event_rowid INTEGER NOT NULL,created_at_norm TEXT NOT NULL); CREATE INDEX idx_search_projection_recent_eviction ON search_projection_recent_documents(generation_id,created_at_norm,event_rowid);`); err != nil {
 		t.Fatal(err)
 	}
 

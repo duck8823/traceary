@@ -97,14 +97,17 @@ source is reported so the amplification is visible, not so operators re-interpre
 the knob as a text ceiling.
 
 `status.recent_oldest_norm` and `status.recent_newest_norm` report the oldest and
-newest `created_at_norm` values actually retained in the full-text recent tier of
-the **active** generation — the one `traceary search` reads. During a rebuild the
-generation being built may already hold a wider range; that range is deliberately
-not reported, because search cannot answer from it yet. Both fields are omitted
-when the active tier is empty, which includes a store whose first generation has
-not completed. This is the full-text range only: events outside it remain
-answerable through the session tier, so a range that starts last Tuesday does not
-mean nothing older is searchable.
+newest `created_at_norm` values actually retained in the full-text recent tier
+**that `traceary search` currently reads**. They carry the same condition the read
+path applies: a complete generation, named as the active one. Both fields are
+therefore omitted whenever search is not reading the projection at all — while a
+rebuild is in flight, after a drift, and on a store whose first generation has not
+completed — and also when the tier it reads is empty. During a rebuild the
+generation being built may already hold a wider range; reporting it would advertise
+full-text coverage for exactly the period in which broad queries fall back to
+decoding every candidate. This is the full-text range only: events outside it
+remain answerable through the session tier, so a range that starts last Tuesday
+does not mean nothing older is searchable.
 
 What the budget buys is a **variable window**, not a fixed one. Trigram measures
 about 2.16× the source text, so 1464 MiB of family is roughly 0.66 GiB of
