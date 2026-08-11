@@ -233,16 +233,29 @@ type adaptiveProjectionStore struct {
 	delayAttempt int
 	attempts     int
 	attemptDelay time.Duration
+	// controlState and controlCheckpoint describe a persisted generation that
+	// catch-up is about to replace; empty and zero keep the resume-in-place
+	// shape the other tests rely on.
+	controlState      string
+	controlCheckpoint int64
 }
 
 func (s *adaptiveProjectionStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
+	// Starting a generation moves the row to rebuilding and resets its
+	// checkpoint, which is what the resume that follows reads back.
+	s.controlState = "rebuilding"
+	s.controlCheckpoint = 0
 	return apptypes.SearchProjectionGeneration{}, nil
 }
 func (s *adaptiveProjectionStore) SearchProjectionStatus(context.Context) (apptypes.SearchProjectionStatus, error) {
 	return apptypes.SearchProjectionStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash()}, nil
 }
 func (s *adaptiveProjectionStore) SearchProjectionControlStatus(context.Context) (apptypes.SearchProjectionControlStatus, error) {
-	return apptypes.SearchProjectionControlStatus{State: "rebuilding", Phase: "source", ConfigHash: s.budget.ConfigHash(), CapacitySemanticsVersion: apptypes.SearchProjectionCapacitySemanticsVersion}, nil
+	state := s.controlState
+	if state == "" {
+		state = "rebuilding"
+	}
+	return apptypes.SearchProjectionControlStatus{State: state, Phase: "source", Checkpoint: s.controlCheckpoint, ConfigHash: s.budget.ConfigHash(), CapacitySemanticsVersion: apptypes.SearchProjectionCapacitySemanticsVersion}, nil
 }
 func (s *adaptiveProjectionStore) SelectSnapshot(_ context.Context, b apptypes.SearchProjectionBudget, _ time.Time) (apptypes.ProjectionSnapshot, error) {
 	s.plannedRows = append(s.plannedRows, b.Rows)
@@ -425,6 +438,44 @@ func TestSearchProjectionCatchUpBoundsAdaptiveAttempts(t *testing.T) {
 	}
 	if diff := cmp.Diff([]int{256, 128, 64, 32, 16, 8, 4, 2, 1}, store.plannedRows); diff != "" {
 		t.Fatalf("planned rows (-want +got):\n%s", diff)
+	}
+}
+
+// The catch-up log names this checkpoint as the row the generation cannot get
+// past, so it has to belong to the generation that stalled. Catch-up may replace
+// the generation before it resumes, and the replacement starts from zero.
+func TestSearchProjectionCatchUpReportsTheStalledGenerationsCheckpoint(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		controlState string
+		want         int64
+	}{
+		{
+			name:         "resuming in place reports the persisted checkpoint",
+			controlState: "rebuilding",
+			want:         1842,
+		},
+		{
+			name:         "replacing the generation reports the new one, not the replaced one",
+			controlState: "drifted",
+			want:         0,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: 250 * time.Millisecond, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+			store := &adaptiveProjectionStore{budget: b, alwaysTooBig: true, controlState: test.controlState, controlCheckpoint: 1842}
+			result, err := usecase.NewSearchProjectionUsecase(store).CatchUp(context.Background(), b, time.Now())
+			var noProgress *apptypes.SearchProjectionNoProgressError
+			if !errors.As(err, &noProgress) || noProgress.Code != apptypes.SearchProjectionNoProgressSingleRowLockDurationCap {
+				t.Fatalf("error=%v, want single-row lock duration cap", err)
+			}
+			if diff := cmp.Diff(test.want, result.Checkpoint); diff != "" {
+				t.Fatalf("reported checkpoint (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

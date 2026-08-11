@@ -2,18 +2,67 @@ package sqlite
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-func TestLogSearchProjectionCatchUp_LogsSkipsButNotQuietStates(t *testing.T) {
-	t.Parallel()
+type catchUpLogHandler struct {
+	records []slog.Record
+}
 
+func (h *catchUpLogHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *catchUpLogHandler) Handle(_ context.Context, record slog.Record) error {
+	h.records = append(h.records, record)
+	return nil
+}
+func (h *catchUpLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *catchUpLogHandler) WithGroup(string) slog.Handler      { return h }
+
+func TestLogSearchProjectionCatchUp_SingleRowLockCapNamesCheckpointAndRecovery(t *testing.T) {
+	handler := &catchUpLogHandler{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	result := apptypes.SearchProjectionCatchUpResult{
+		Action:       "resume",
+		State:        "rebuilding",
+		Phase:        "source",
+		Checkpoint:   1842,
+		GenerationID: "gen-stuck",
+	}
+	err := xerrors.Errorf("wrapped: %w", &apptypes.SearchProjectionNoProgressError{
+		Code:   apptypes.SearchProjectionNoProgressSingleRowLockDurationCap,
+		Reason: "single row exceeded lock cap",
+	})
+
+	logSearchProjectionCatchUp(result, err)
+
+	if diff := cmp.Diff(1, len(handler.records)); diff != "" {
+		t.Fatalf("unexpected record count (-want +got):\n%s", diff)
+	}
+	record := handler.records[0]
+	if diff := cmp.Diff("search projection catch-up cannot advance past checkpoint; re-running will not change this on its own; abort and start a new generation with a larger lock duration", record.Message); diff != "" {
+		t.Fatalf("unexpected log message (-want +got):\n%s", diff)
+	}
+	attrs := map[string]any{}
+	record.Attrs(func(attr slog.Attr) bool {
+		attrs[attr.Key] = attr.Value.Any()
+		return true
+	})
+	if diff := cmp.Diff(int64(1842), attrs["checkpoint"]); diff != "" {
+		t.Fatalf("unexpected checkpoint attribute (-want +got):\n%s", diff)
+	}
+}
+
+func TestLogSearchProjectionCatchUp_LogsSkipsButNotQuietStates(t *testing.T) {
 	var buf bytes.Buffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))

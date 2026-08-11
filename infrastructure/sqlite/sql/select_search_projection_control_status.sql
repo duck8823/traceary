@@ -1,6 +1,7 @@
 SELECT
     s.state,
     CASE WHEN s.state = 'rebuilding' AND i.state = 'rebuilding' THEN 'inventory' ELSE s.phase END,
+    s.checkpoint,
     s.config_hash,
     s.capacity_semantics_version,
     COALESCE(s.failure_class, ''),

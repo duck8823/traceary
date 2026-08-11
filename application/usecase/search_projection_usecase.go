@@ -281,6 +281,14 @@ func (u *SearchProjectionUsecase) verifySessionTierBeforeReclaim(
 	return nil
 }
 
+// newGenerationCheckpoint is where a generation begins. Starting one resets the
+// persisted checkpoint, so the value read before the start describes the
+// generation that was just replaced. The catch-up result carries the checkpoint
+// as the row a stalled generation cannot advance past; reporting the old one
+// there would name a row this generation never reached, and an operator
+// diagnosing a stall has nothing on screen to contradict it.
+const newGenerationCheckpoint int64 = 0
+
 // CatchUp advances the bounded search projection by at most one durable unit of
 // work using the existing generation machinery. It is the store-open counterpart
 // of event search backfill: no operator command, no full rebuild, resumable.
@@ -297,6 +305,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	}
 	out.State = status.State
 	out.Phase = status.Phase
+	out.Checkpoint = status.Checkpoint
 	out.CutoverIndexFamily = status.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = status.CutoverFamilyBytesBefore
 	out.CutoverFamilyBytesAfter = status.CutoverFamilyBytesAfter
@@ -331,6 +340,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		}
 		out.Action = "start"
 		out.GenerationID = generation.GenerationID
+		out.Checkpoint = newGenerationCheckpoint
 		progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 		if resumeErr != nil {
 			return out, resumeErr
@@ -387,6 +397,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		}
 		out.Action = "start"
 		out.GenerationID = generation.GenerationID
+		out.Checkpoint = newGenerationCheckpoint
 		// Fall through to one Resume so a single open does real work.
 	default:
 		out.Action = "skipped"
@@ -422,6 +433,7 @@ func (u *SearchProjectionUsecase) finishCatchUpProgress(ctx context.Context, out
 	}
 	out.State = statusAfter.State
 	out.Phase = statusAfter.Phase
+	out.Checkpoint = statusAfter.Checkpoint
 	out.CutoverIndexFamily = statusAfter.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = statusAfter.CutoverFamilyBytesBefore
 	out.CutoverFamilyBytesAfter = statusAfter.CutoverFamilyBytesAfter

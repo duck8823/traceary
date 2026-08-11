@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -130,6 +131,18 @@ func (d *Database) SearchProjectionHasSourceWork(ctx context.Context) (bool, err
 // logSearchProjectionCatchUp emits structured progress without failing Initialize.
 func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, err error) {
 	if err != nil {
+		var noProgress *apptypes.SearchProjectionNoProgressError
+		if errors.As(err, &noProgress) && noProgress.Code == apptypes.SearchProjectionNoProgressSingleRowLockDurationCap {
+			slog.Error("search projection catch-up cannot advance past checkpoint; re-running will not change this on its own; abort and start a new generation with a larger lock duration",
+				"action", result.Action,
+				"state", result.State,
+				"phase", result.Phase,
+				"checkpoint", result.Checkpoint,
+				"generation_id", result.GenerationID,
+				"error", err,
+			)
+			return
+		}
 		slog.Error("search projection catch-up incomplete; retrying on next initialization",
 			"action", result.Action,
 			"state", result.State,
