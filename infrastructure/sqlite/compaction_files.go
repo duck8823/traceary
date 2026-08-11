@@ -426,8 +426,17 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 	return run, nil
 }
 
+// insufficientCompactionSpaceError explains a refusal the operator has to act
+// on, which "need N, have M" does not: it leaves them to subtract two
+// eleven-digit numbers, and it implies the whole requirement is real when most
+// of it is a reservation against an unknown. It is written across several
+// lines because it is read in a terminal, at the moment the store is already
+// too large to compact.
 func insufficientCompactionSpaceError(required, available uint64, sourceSize int64) error {
-	return fmt.Errorf("insufficient free space: need %d bytes, have %d bytes, shortfall %d bytes; this worst-case reservation assumes the compacted store is as large as the source because its output size is unknown before writing and is usually much smaller; after success, a rollback copy of the %d-byte source is retained as <db>.rollback-<run id> and is not removed automatically (deleting it is the operator's decision and makes store compact rollback for that run impossible)", required, available, required-available, sourceSize)
+	return fmt.Errorf(`insufficient free space: free %d more bytes to proceed (need %d, have %d)
+	most of that is a worst-case reservation: VACUUM INTO cannot report the compacted size until it has written it, so the requirement assumes the result could be as large as the %d-byte source. It is usually far smaller, but reserving less risks a half-written candidate on a full disk
+	the space is not all returned when the run succeeds: a rollback copy of the source is kept as <db>.rollback-<run id>, and nothing removes it. Deleting it is your decision, and gives up "store compact rollback" for that run`,
+		required-available, required, available, sourceSize)
 }
 
 func (PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.CompactionRun) error {

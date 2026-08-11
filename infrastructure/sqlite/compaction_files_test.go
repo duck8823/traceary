@@ -327,7 +327,9 @@ func TestInsufficientCompactionSpaceErrorStatesOperatorCosts(t *testing.T) {
 			required:  1100,
 			available: 700,
 			source:    1000,
-			want:      "insufficient free space: need 1100 bytes, have 700 bytes, shortfall 400 bytes; this worst-case reservation assumes the compacted store is as large as the source because its output size is unknown before writing and is usually much smaller; after success, a rollback copy of the 1000-byte source is retained as <db>.rollback-<run id> and is not removed automatically (deleting it is the operator's decision and makes store compact rollback for that run impossible)",
+			want: `insufficient free space: free 400 more bytes to proceed (need 1100, have 700)
+	most of that is a worst-case reservation: VACUUM INTO cannot report the compacted size until it has written it, so the requirement assumes the result could be as large as the 1000-byte source. It is usually far smaller, but reserving less risks a half-written candidate on a full disk
+	the space is not all returned when the run succeeds: a rollback copy of the source is kept as <db>.rollback-<run id>, and nothing removes it. Deleting it is your decision, and gives up "store compact rollback" for that run`,
 		},
 	}
 
