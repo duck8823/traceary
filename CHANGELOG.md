@@ -5,7 +5,7 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
-## [Unreleased]
+## [v0.34.0] - 2026-08-12
 
 ### Changed
 - **Separate a stalled search projection from a slow one (#1804)** — when the adaptive shrink loop reaches one row and that row still does not commit within the lock-duration cap, store open logged the generic `search projection catch-up incomplete; retrying on next initialization`. That is the same line an ordinary bounded batch produces, so the condition that keeps broad searches reporting `index_incomplete` was indistinguishable from routine progress. It now gets its own message, naming the phase, the source checkpoint where the walk stopped, and the recovery: `store search-projection resume --until-complete --lock-time <larger>`, which the existing generation accepts because the lock cap is deliberately not part of its identity — no rebuild, nothing durable discarded. The message does not claim the condition is permanent: another writer holding the lock past the cap arrives here identically to a row that is genuinely too slow, so a stall that clears on its own is indistinguishable from one that does not. Nothing is skipped and no new state is persisted; separating lock wait from row work is #1833.

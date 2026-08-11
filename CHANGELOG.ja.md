@@ -5,7 +5,7 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
-## [Unreleased]
+## [v0.34.0] - 2026-08-12
 
 ### Changed
 - **停止した search projection を通常の遅延と区別 (#1804)** — 適応的な縮小ループが 1 行まで縮んでもその行が lock duration cap 内に commit できない場合、store の起動時には汎用の `search projection catch-up incomplete; retrying on next initialization` だけを記録していました。これは通常の bounded batch と同じ行のため、広い検索が `index_incomplete` を返し続ける状態を通常の進行と区別できませんでした。今後は専用のメッセージとして、phase、source walk が停止した checkpoint、および復旧手順 `store search-projection resume --until-complete --lock-time <より大きな値>` を記録します。lock cap は generation の識別子に意図的に含まれないため、この resume は既存 generation がそのまま受け付け、rebuild も durable な進捗の破棄も発生しません。この状態が恒久的だとは断定しません。別の writer が cap を超えて lock を保持した場合も同じ形で現れるため、自然に解消する停止と解消しない停止は区別できないからです。行のスキップも新たな状態の永続化も行いません。lock 待ちと行の処理時間の分離は #1833 です。
