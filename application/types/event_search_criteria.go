@@ -59,6 +59,15 @@ func (c EventSearchCriteria) FailuresOnly() bool { return c.failuresOnly }
 // PageAnchor returns the last event from the preceding descending page.
 func (c EventSearchCriteria) PageAnchor() EventPageAnchor { return c.pageAnchor }
 
+// WithoutKind returns the same criteria with the event-kind filter cleared.
+// It exists so callers that must ask "what would this search have matched
+// without --kind" cannot silently drop a filter added here later, which
+// field-by-field reconstruction through the builder would.
+func (c EventSearchCriteria) WithoutKind() EventSearchCriteria {
+	c.kind = ""
+	return c
+}
+
 // EventSearchCriteriaBuilder builds an EventSearchCriteria value.
 type EventSearchCriteriaBuilder struct {
 	criteria EventSearchCriteria

@@ -273,19 +273,11 @@ func (c *RootCLI) searchProjectionSessions(
 		return hits, 0, nil
 	}
 
-	probeCriteria := apptypes.NewEventSearchCriteriaBuilder(criteria.Limit()).
-		Query(criteria.Query()).
-		Workspace(criteria.Workspace()).
-		SessionID(criteria.SessionID()).
-		Client(criteria.Client()).
-		Agent(criteria.Agent()).
-		From(criteria.From()).
-		To(criteria.To()).
-		Offset(criteria.Offset()).
-		PageAnchor(criteria.PageAnchor()).
-		FailuresOnly(criteria.FailuresOnly()).
-		Build()
-	probeHits, err := c.projectionSessionSearch.SearchSessionHits(ctx, probeCriteria, exclude)
+	// Derive the probe from the criteria rather than rebuilding it field by
+	// field: a filter added to EventSearchCriteria later must narrow the probe
+	// too, or the notice claims sessions were suppressed by --kind when that
+	// other filter would have excluded them anyway.
+	probeHits, err := c.projectionSessionSearch.SearchSessionHits(ctx, criteria.WithoutKind(), exclude)
 	if err != nil {
 		return nil, 0, xerrors.Errorf("probe projection session hits: %w", err)
 	}

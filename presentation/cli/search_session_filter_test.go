@@ -88,6 +88,42 @@ func TestRootCLI_SearchKindSuppressionNoFalseAnnouncement(t *testing.T) {
 	}
 }
 
+// The probe exists to answer "would these sessions have matched without
+// --kind". If it drops any other filter, it announces sessions the user's own
+// filters would have excluded. Assert it differs from the real criteria in
+// exactly the kind field.
+func TestRootCLI_SearchKindProbeKeepsEveryOtherFilter(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) { return "", nil })
+	defer cli.ResetDetectRepoContextFunc()
+
+	stub := &projectionSessionSearchStub{hits: []apptypes.SearchSessionHit{mustSessionHit(t, "session-old")}}
+	_, _ = executeSearchWithSessionStub(t, []string{
+		"search", "--db-path", "/tmp/test-traceary.db",
+		"--kind", "note",
+		"--workspace", "github.com/duck8823/traceary",
+		"--session-id", "session-scoped",
+		"--client", "cli",
+		"--agent", "codex",
+		"--from", "2026-01-01T00:00:00Z",
+		"--to", "2026-02-01T00:00:00Z",
+		"--limit", "7",
+		"--failures",
+		"needle",
+	}, &eventUsecaseStub{}, stub)
+
+	if diff := cmp.Diff(2, stub.calls); diff != "" {
+		t.Fatalf("kind-filtered search must probe once (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(stub.criteria[0].WithoutKind(), stub.criteria[1], cmp.AllowUnexported(apptypes.EventSearchCriteria{}, apptypes.EventPageAnchor{})); diff != "" {
+		t.Fatalf("probe criteria must differ only in kind (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("", stub.criteria[1].Kind().String()); diff != "" {
+		t.Fatalf("probe criteria kind (-want +got):\n%s", diff)
+	}
+}
+
 func TestRootCLI_SearchWithoutKindDoesNotProbe(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	stub := &projectionSessionSearchStub{}
