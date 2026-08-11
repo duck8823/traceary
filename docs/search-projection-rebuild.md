@@ -2,7 +2,7 @@
 
 [日本語](search-projection-rebuild.ja.md)
 
-The search projection is derived: it can always be rebuilt from canonical events and command audits, and projection lifecycle commands never change them. Since v0.34 it is what `traceary search` reads when a generation is complete, with events recorded after the rebuild merged in from the canonical tables so results do not go stale between rebuilds.
+The search projection is derived: it can always be rebuilt from canonical events and command audits, and projection lifecycle commands never change them. Since v0.34 a complete generation supplies the fingerprint pre-filter and the session tier to `traceary search`; literal matches still come from the newest-first decode walk over canonical tables, with events recorded after the rebuild merged in so results do not go stale between rebuilds.
 
 Stores that have never built a generation do not need an operator command. Every store open runs one bounded unit of generation work: start if idle and source events exist, otherwise resume a matching rebuild. Search works throughout — a generation that is not yet `complete` only means the fingerprint pre-filter is unavailable, so candidates are decoded directly and results stay correct. Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only.
 
@@ -52,7 +52,7 @@ Row, stored-byte, decoded-byte, logical-write-byte, lock-time, and per-batch wal
 
 Use `traceary store search-projection abort` to idempotently abandon an incomplete generation before restarting with different generation settings. An active completed generation is never abandoned. Inspect `status` for generation lifecycle, checkpoint, high-water, and capacity evidence.
 
-Since v0.34 this projection is the only search index: the full-corpus migration-032 family it once ran beside is retired, so there is no cutover to authorize and no second index to compare against. See [search retirement](operations/search-retirement.md).
+Since v0.34 this projection is the only maintained search-derived family: the full-corpus migration-032 family it once ran beside is retired, so there is no cutover to authorize and no second index to compare against. See [search retirement](operations/search-retirement.md).
 
 ## Index-family budget
 
@@ -65,17 +65,18 @@ via `dbstat` — not source text. The default is 1464 MiB (~1.43 GiB).
 Only one part of the family is **evictable**, and only that part is held to a
 ceiling: `search_projection_recent_documents`, its indexes, and the
 `search_projection_recent_fts_*` shadow tables. Eviction has rows to take there
-because the recent tier is a window — dropping its oldest document is a supported
-outcome that leaves search correct, because everything it drops stays reachable
-through the session tier.
+because the recent tier is bounded retention. Dropping its oldest document is
+currently safe because nothing reads this tier; literal search remains correct
+through the canonical decode walk, while the session tier is an additional,
+lossy surface for summary and keyword matches.
 
 The rest of the family is **corpus-proportional by design** and no ceiling bounds
 it:
 
 | tier | grows with | why it cannot be evicted |
 |---|---|---|
-| `search_projection_session_summaries`, `_session_keywords`, `_command_aggregates` | number of sessions | it is the fallback the recent tier evicts *into*; dropping it loses the history outright |
-| `literal_search_fingerprints` | number of events | a missing fingerprint is a false negative in the pre-filter, not a slower answer |
+| `search_projection_session_summaries`, `_session_keywords`, `_command_aggregates` | number of sessions | it is an additional session-match surface; dropping it loses those matches |
+| `literal_search_fingerprints` | number of events | a missing fingerprint makes the pre-filter fail open and costs decoding, not correctness |
 | `search_projection_source_sequence`, `_exclusions` | number of events | they are the rebuild's own bookkeeping |
 
 These tiers enter the derivation as the **non-recent reserve**, subtracted from the
@@ -84,11 +85,12 @@ about the family total, and it has a consequence operators should expect: as the
 corpus grows, the reserve grows and the ceiling shrinks, so the recent window gets
 shorter at a fixed budget. On the reference corpus the session tier and fingerprints
 were already 80.5% of a 1464 MiB budget at 36% of one walk. When the reserve reaches
-the budget the derived ceiling is 0, the recent tier is built empty, and search falls
-back entirely to the session tier — reported, not silently degraded (`capacity_evidence`
-reads `non-recent reserve at or above index-family budget`).
+the budget the derived ceiling is 0, the recent tier is built empty. Search is unaffected because it uses the canonical decode
+walk; the empty unread tier is reported, not silently hidden (`capacity_evidence` reads
+`non-recent reserve at or above index-family budget`).
 
-Raising `--index-family-bytes` buys recent-window length. It does not shrink the
+Raising `--index-family-bytes` buys retention in the recent tier, which nothing
+currently reads. It does not increase searchable reach or shrink the
 corpus-proportional tiers; nothing in this projection does.
 
 `status.recent_bytes` is deliberately a **different unit**: source text actually
@@ -96,14 +98,15 @@ retained in the recent tier. The budget is configured in index bytes; retained
 source is reported so the amplification is visible, not so operators re-interpret
 the knob as a text ceiling.
 
-What the budget buys is a **variable window**, not a fixed one. Trigram measures
+What the budget buys is a **variable retention window**, not searchable reach. Trigram measures
 about 2.16× the source text, so 1464 MiB of family is roughly 0.66 GiB of
 indexable text. Measured weekly volume on the reference corpus varies **eightfold**
 (0.06 to 0.47 GiB per week): about 1.5 to 2 weeks at the median rate, under a week
 during a heavy sprint, and four to five weeks during a quiet one. Compression buys
 **losslessness, not reach** — the index is built over plaintext, so a compressed
-body occupies exactly as much index as an uncompressed one. Everything older than
-the window stays reachable through the session tier.
+body occupies exactly as much index as an uncompressed one. The session tier is
+an additional, lossy surface; full-text reach comes from the canonical decode walk
+and is not bounded by this retention window.
 
 ### Guarantee
 

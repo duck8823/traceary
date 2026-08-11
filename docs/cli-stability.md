@@ -166,7 +166,7 @@ When the change affects a heavily scripted output (a public `--json` envelope, a
 
 Announced under this rule:
 
-- **`traceary search --json` becomes an object in v0.35.0.** v0.34.0 makes the bounded search projection the authoritative read path, which introduces a second class of result — session-tier hits for history older than the recent window. That class cannot be expressed inside the existing top-level array without interleaving session rows among event rows, so the array becomes `{"events": [...], "sessions": [...]}` in v0.35.0. v0.34.x keeps the array unchanged and emits a stderr notice naming the count of omitted session hits and the new shape; a v0.34 consumer therefore never receives a silently incomplete result without being told. Session hits are fully visible in v0.34 text output. Recorded in #1717.
+- **`traceary search --json` becomes an object in v0.35.0.** v0.34.0 adds a session-tier result class for sessions whose summaries or keywords match the query, alongside literal event matches. That class cannot be expressed inside the existing top-level array without interleaving session rows among event rows, so the array becomes `{"events": [...], "sessions": [...]}` in v0.35.0. v0.34.x keeps the array unchanged and emits a stderr notice naming the count of omitted session hits and the new shape; a v0.34 consumer therefore never receives a silently incomplete result without being told. Session hits are fully visible in v0.34 text output. Recorded in #1717.
 
 ### When no window is required
 

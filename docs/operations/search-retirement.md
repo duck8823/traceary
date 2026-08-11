@@ -82,8 +82,10 @@ retirement. Take one first if that matters to you.
 
 ## What search does afterwards
 
-Search is served entirely by the bounded tiered projection, which is what
-already answered every query before this change. Results are unchanged.
+Literal search is authoritative through the newest-first decode walk over the
+canonical events and command audits. The projection supplies the fingerprint
+pre-filter and the session tier; retiring migration-032 changed no result
+because that family was already unread. Results are unchanged.
 
 An incomplete, rebuilding, or drifted projection does not make search
 unavailable: the fingerprint index is only a pre-filter, so searches fall back
