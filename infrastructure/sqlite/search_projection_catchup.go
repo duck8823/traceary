@@ -13,22 +13,11 @@ import (
 )
 
 // defaultSearchProjectionCatchUpBudget is the automatic generation budget used
-// on every store open. It matches the CLI search-projection defaults so an
-// operator-started generation with default flags and the auto path share a
-// config hash and can resume each other. One Resume per open keeps the unit of
-// work bounded; wall-time is deliberately short so Initialize never blocks on a
-// multi-minute rebuild of a large store.
+// on every store open. One Resume per open keeps the unit of work bounded;
+// wall-time is deliberately short so Initialize never blocks on a multi-minute
+// rebuild of a large store.
 func defaultSearchProjectionCatchUpBudget() apptypes.SearchProjectionBudget {
-	return apptypes.SearchProjectionBudget{
-		Rows:             128,
-		WallTime:         time.Second,
-		LockTime:         apptypes.DefaultSearchProjectionLockTime,
-		StoredBytes:      8 << 20,
-		DecodedBytes:     8 << 20,
-		WriteBytes:       8 << 20,
-		RecentAge:        30 * 24 * time.Hour,
-		IndexFamilyBytes: apptypes.DefaultSearchProjectionIndexFamilyBytes,
-	}
+	return apptypes.DefaultSearchProjectionBudget()
 }
 
 // catchUpSearchProjection advances the bounded projection by one durable unit

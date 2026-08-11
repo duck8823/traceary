@@ -33,6 +33,21 @@ const DefaultSearchProjectionIndexFamilyBytes int64 = 1464 << 20
 // the CLI and automatic catch-up path for one projection batch.
 const DefaultSearchProjectionLockTime = 250 * time.Millisecond
 
+// DefaultSearchProjectionBudget is the bounded search projection budget used
+// by both the CLI and automatic catch-up path.
+func DefaultSearchProjectionBudget() SearchProjectionBudget {
+	return SearchProjectionBudget{
+		Rows:             128,
+		WallTime:         time.Second,
+		LockTime:         DefaultSearchProjectionLockTime,
+		StoredBytes:      8 << 20,
+		DecodedBytes:     8 << 20,
+		WriteBytes:       8 << 20,
+		RecentAge:        30 * 24 * time.Hour,
+		IndexFamilyBytes: DefaultSearchProjectionIndexFamilyBytes,
+	}
+}
+
 // SearchProjectionCapacitySemanticsVersion is the capacity model this binary
 // builds under. A persisted generation below this value is obsolete and must
 // be replaced even when complete (#1679 / D5).

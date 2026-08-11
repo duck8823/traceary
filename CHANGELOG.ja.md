@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **bounded search projection の既定予算を統一 (#1806)** — CLI と自動 catch-up path が共有する既定値を 1 つにし、generation configuration hash のずれを構造的に防ぎます。内部実装の変更であり、operator-visible な動作の変更はありません。
 - **未リリースのtiered literal previewを削除 (#1725)** — undocumentedなCLIの`--tiered-preview` / `--deep` / `--continuation` entry pointと、MCPの`tiered_preview` / `deep` fieldを削除しました。これらは2026-08-02に追加されましたが、release tag（最新はv0.33.1）には一度も含まれていないため、deprecation windowは適用せず、bounded projection searchだけを検索経路として残します。
 - **canonical payload の圧縮書込み (#1618)** — v0.34 の canonical event と command-audit 書込みは、payload が小さくなる場合に versioned zstd codec を使い、それ以外は identity の TEXT を保持します。この変更は既存行を書き換えません。downgrade 用 fallback が必要なら、v0.34 を初めて実行する前に `traceary store backup` を実行してください。v0.34 が圧縮行を書いた後は v0.33.1 以前の binary が body を garbage として読み、v0.34 の機能でそれを防ぐことはできません。`traceary doctor` は healthy な圧縮 store を warning にせず、representation と reader boundary を報告します。
 - **command output の二重保存を停止 (#1675)** — `command_executed` は合成した `events.body`（`command` + `INPUT` + `OUTPUT`）を保存しなくなりました。保持される実行記録は `command_audits` のみです。migration `000048`（`data_dependent_offline`）が履歴の `kind='command_executed'` の `events.body` を空にします。検索は body と独立に `command_text` / `input_text` / `output_text` を索引し続けます。list・doctor sensitive-path・replay failure hotspot は同一クエリで join した audit 列を読みます（行ごとの audit 再取得はしません）。body が空のとき、表示面は audit の command line を示します。
