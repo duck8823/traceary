@@ -51,21 +51,32 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		return p, nil
 	}
 	summaries := map[string]string{}
+	// recordExclusion charges the exclusion row against the same WriteBytes
+	// budget as every other mutation, so the ledger stays the whole account of
+	// what the transaction writes. It reports whether the batch can hold the
+	// row; blockedExclusionBytes then lets the batch-level check tell "this
+	// batch is full" apart from "no progress was ever possible".
 	var blockedExclusionBytes int64
+	recordExclusion := func(e apptypes.ProjectionExclusion) bool {
+		cost := projectionExclusionLogicalBytes(p.GenerationID, e)
+		if p.Ledger.LogicalWriteBytes+cost > b.WriteBytes {
+			blockedExclusionBytes = cost
+			return false
+		}
+		p.Exclusions = append(p.Exclusions, e)
+		p.Ledger.LogicalWriteBytes += cost
+		p.NextCheckpoint = e.Sequence
+		return true
+	}
 	for _, d := range s.Documents {
 		class, bytes, limit, err := classifyProjectionExclusion(d, b)
 		if err != nil {
 			return p, err
 		}
 		if class != "" {
-			exclusion := apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: class, MeasuredBytes: bytes, ByteLimit: limit}
-			if p.Ledger.LogicalWriteBytes+projectionExclusionLogicalBytes(p.GenerationID, exclusion) > b.WriteBytes {
-				blockedExclusionBytes = projectionExclusionLogicalBytes(p.GenerationID, exclusion)
+			if !recordExclusion(apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: class, MeasuredBytes: bytes, ByteLimit: limit}) {
 				break
 			}
-			p.Exclusions = append(p.Exclusions, exclusion)
-			p.Ledger.LogicalWriteBytes += projectionExclusionLogicalBytes(p.GenerationID, exclusion)
-			p.NextCheckpoint = d.Sequence
 			continue
 		}
 		if p.Ledger.Rows >= b.Rows || p.Ledger.StoredBytes+d.StoredBytes > b.StoredBytes || p.Ledger.DecodedBytes+d.DecodedBytes > b.DecodedBytes {
@@ -94,14 +105,9 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		}
 		w.LogicalBytes = projectionWriteLogicalBytes(p.GenerationID, w)
 		if checkpointBytes+w.LogicalBytes > b.WriteBytes {
-			exclusion := apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: "write_bytes", MeasuredBytes: w.LogicalBytes, ByteLimit: b.WriteBytes}
-			if p.Ledger.LogicalWriteBytes+projectionExclusionLogicalBytes(p.GenerationID, exclusion) > b.WriteBytes {
-				blockedExclusionBytes = projectionExclusionLogicalBytes(p.GenerationID, exclusion)
+			if !recordExclusion(apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: "write_bytes", MeasuredBytes: w.LogicalBytes, ByteLimit: b.WriteBytes}) {
 				break
 			}
-			p.Exclusions = append(p.Exclusions, exclusion)
-			p.Ledger.LogicalWriteBytes += projectionExclusionLogicalBytes(p.GenerationID, exclusion)
-			p.NextCheckpoint = d.Sequence
 			continue
 		}
 		if p.Ledger.LogicalWriteBytes+w.LogicalBytes > b.WriteBytes {
