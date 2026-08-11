@@ -119,6 +119,14 @@ guaranteed in advance: when a generation completes, the family is re-measured an
 `index_family_within_budget` records `1` (within), `0` (over) or `-1` (not
 measurable).
 
+`-1` means **unknown**. It never means "within budget", and on a large store it is
+the answer for the entire build: the `dbstat` walk the verdict needs runs under a
+deadline that a multi-GB store does not fit, so `capacity_evidence` reports
+`unavailable` and the verdict is never produced. Measured across all 118 samples of
+one 408,893-event rebuild. `physical_bytes` remains measurable in the same output,
+so the family size is still observable even when the verdict is not
+([#1835](https://github.com/duck8823/traceary/issues/1835)).
+
 A generation recorded over budget stays that way. Nothing corrects it in place —
 the next `CatchUp` sees a complete generation and returns `already_complete`. Check
 `traceary store search-projection status` for `index_family_within_budget` and
@@ -137,19 +145,51 @@ merge.
 decided, because `Start` keeps the previous generation readable until the new one is
 verified and a rebuild therefore holds two families at once.
 
-Since v0.34 the new generation's own recent tier **is** bounded while it is being
+Since v0.34 the new generation's retained **source text** is bounded while it is being
 built. Eviction is interleaved with the source walk: every batch compares the
 generation's running source-text total against its derived ceiling and, when the total
 is over or a row has aged past the cutoff, evicts its oldest documents before admitting
 more. The persisted `recent_source_bytes` counter is what the comparison reads, so the
 bound survives a restart. Before v0.34 eviction could not start until the last source
-row was walked, and a rebuild peaked at whatever the full age window happened to weigh
-— measured at 3.74 GiB against a 1.43 GiB ceiling, 36% of the way through one walk.
+row was walked, and admission ran to whatever the full age window happened to weigh.
+Measured on a 408,893-event store: `recent_source_bytes` stayed pinned at 690,430,718
+against a 690,432,000 ceiling for the whole walk.
 
-What is still **not** bounded by this budget is the sum across generations. The
+### The rebuild peak is not bounded
+
+Bounding admitted source text does **not** bound index bytes, and the difference is
+large. On that same store, with `index_family_byte_limit` at 1.43 GiB:
+
+| point | index-family physical | store file |
+|---|---|---|
+| previous generation, complete | 3.99 GB | 7.16 GB |
+| end of the source walk | 10.32 GB | 13.38 GB |
+| five cleanup batches later | **>= 14.31 GB** | 17.42 GB |
+
+The run then failed with `database or disk is full`, with 83,209 old-generation
+documents still to reclaim, so 14.31 GB is a **lower bound on the peak, not a peak**.
+Growth was dominated by `search_projection_recent_fts_data` (9.0 GB): an
+external-content FTS5 delete appends inverse entries that survive until a segment
+merge removes them, and the merge that runs after each batch is bounded and does not
+run at all during the source phase. The store copy in that measurement carried four
+resident generations rather than the two a clean upgrade holds, so the magnitude is
+not a clean-upgrade figure — but the shape is not an artefact of that.
+
+**Do not size free disk from the configured budget.** A rebuild can require several
+times it, and it can fail for lack of space. Details in
+[#1620](https://github.com/duck8823/traceary/issues/1620); the disk promise itself is
+open work in [#1753](https://github.com/duck8823/traceary/issues/1753).
+
+If free space is tight, the rebuild has a durable off switch. `traceary store
+search-projection abort` parks the generation (`state=failed`,
+`failure_class=abandoned`), and automatic catch-up does not restart a parked
+generation — so the growth stops and stays stopped until an explicit `traceary store
+search-projection start`. Search keeps working from whatever generation was last
+complete, or from the bounded decoded scan if none was.
+
+What is also **not** bounded by this budget is the sum across generations. The
 previous generation stays fully resident — that is what keeps search answerable during
-the rebuild — and is reclaimed only in the terminal cleanup phase. So plan free space
-for roughly the old family plus the new ceiling, not for one budget.
+the rebuild — and is reclaimed only in the terminal cleanup phase.
 
 The source-phase cutoff is a **build-cost bound, not an enforcement mechanism**. It
 walks the corpus newest-first over stored envelope bytes, which is not the unit the
@@ -168,4 +208,4 @@ Three numbers must not be conflated:
 
 1. **dbstat allocation** — active b-tree pages attributed to the family (the budget unit)
 2. **file size after `store compact`** — shrinks only after `VACUUM`
-3. **rebuild disk peak** — two generations coexist until cleanup reclaims the old one
+3. **rebuild disk peak** — two generations coexist until cleanup reclaims the old one, and no configured value bounds it (see [The rebuild peak is not bounded](#the-rebuild-peak-is-not-bounded))
