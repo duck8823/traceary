@@ -140,81 +140,90 @@ func (c *RootCLI) runStoreRetentionPlan(ctx context.Context, output io.Writer, i
 	if err := json.Unmarshal(plan, &header); err != nil {
 		return xerrors.Errorf("read generated plan ID: %w", err)
 	}
-	var figure struct {
-		CanonicalPayload struct {
-			ClassResults []struct {
-				Ceilings []struct {
-					Current struct {
-						Bytes string `json:"bytes"`
-					} `json:"current"`
-					Projected struct {
-						Bytes string `json:"bytes"`
-					} `json:"projected"`
-				} `json:"ceilings"`
-			} `json:"class_results"`
-			Candidates []struct {
-				LogicalExtent struct {
-					Bytes string `json:"bytes"`
-				} `json:"logical_extent"`
-			} `json:"candidates"`
-		} `json:"canonical_payload"`
-	}
+	var figure retentionPlanFigure
 	if err := json.Unmarshal(plan, &figure); err != nil {
 		return xerrors.Errorf("read retention plan reclaim figure: %w", err)
 	}
+	payload := figure.CanonicalPayload
 	netChange := "0"
-	if len(figure.CanonicalPayload.ClassResults) == 1 && len(figure.CanonicalPayload.ClassResults[0].Ceilings) == 1 {
-		ceiling := figure.CanonicalPayload.ClassResults[0].Ceilings[0]
+	if len(payload.ClassResults) == 1 && len(payload.ClassResults[0].Ceilings) == 1 {
+		ceiling := payload.ClassResults[0].Ceilings[0]
 		current, err := retentionNetChange(ceiling.Current.Bytes, ceiling.Projected.Bytes)
 		if err != nil {
 			return xerrors.Errorf("compute retention plan reclaim figure: %w", err)
 		}
 		netChange = current
 	}
-	if _, err := fmt.Fprintf(output, "Plan: %s\nPlan ID: %s\nNet body-column change after retention markers are written (encoded bytes): %s\nCandidates: %d\n", input.outputPath, header.PlanID, netChange, len(figure.CanonicalPayload.Candidates)); err != nil {
+	if _, err := fmt.Fprintf(output, "Plan: %s\nPlan ID: %s\nNet body-column change after retention markers are written (encoded bytes): %s\nBodies discarded: %d\n", input.outputPath, header.PlanID, netChange, len(payload.Candidates)); err != nil {
 		return xerrors.Errorf("print retention plan result: %w", err)
 	}
-	if zeroReclaim, ok := retentionZeroReclaimCount(figure.CanonicalPayload.Candidates, figure.CanonicalPayload.ClassResults); ok {
-		if _, err := fmt.Fprintf(output, "Bodies still discarded while reclaiming essentially nothing (encoded extent at or below marker): %d\n", zeroReclaim); err != nil {
+	// Reported only when there is something to report. A plan where every
+	// candidate reclaims real space needs no line about the ones that do not,
+	// and printing a zero on every healthy plan would train the operator to
+	// skip the line on the plan where it matters.
+	if zeroReclaim := payload.zeroReclaimCount(); zeroReclaim > 0 {
+		if _, err := fmt.Fprintf(output, "Of those, %d reclaim nothing: their bodies are no larger than the marker that replaces them, and they are discarded anyway.\n", zeroReclaim); err != nil {
 			return xerrors.Errorf("print retention plan disclosure: %w", err)
 		}
 	}
 	return nil
 }
 
-func retentionZeroReclaimCount(candidates []struct {
-	LogicalExtent struct {
-		Bytes string `json:"bytes"`
-	} `json:"logical_extent"`
-}, classResults []struct {
-	Ceilings []struct {
-		Current struct {
-			Bytes string `json:"bytes"`
-		} `json:"current"`
-		Projected struct {
-			Bytes string `json:"bytes"`
-		} `json:"projected"`
-	} `json:"ceilings"`
-}) (int, bool) {
-	if len(candidates) == 0 || len(classResults) != 1 || len(classResults[0].Ceilings) != 1 {
-		return 0, false
+// retentionPlanFigure is the part of a written plan this command reads back to
+// describe it. It is a reader, not a contract: the plan on disk is authored by
+// the usecase, and anything this type fails to recognise is reported as
+// underivable rather than guessed at.
+type retentionPlanFigure struct {
+	CanonicalPayload retentionPlanFigurePayload `json:"canonical_payload"`
+}
+
+type retentionPlanFigurePayload struct {
+	ClassResults []struct {
+		Ceilings []struct {
+			Current   retentionPlanFigureExtent `json:"current"`
+			Projected retentionPlanFigureExtent `json:"projected"`
+		} `json:"ceilings"`
+	} `json:"class_results"`
+	Candidates []struct {
+		LogicalExtent retentionPlanFigureExtent `json:"logical_extent"`
+	} `json:"candidates"`
+}
+
+type retentionPlanFigureExtent struct {
+	Bytes string `json:"bytes"`
+}
+
+// zeroReclaimCount reports how many candidates are no larger than the marker
+// that will replace them, and therefore free nothing while still discarding a
+// body irreversibly. They are deliberately still selected: --keep-days is a
+// policy about how long bodies persist, not a space optimizer, and a body that
+// outlived the window because it happened to be small would be a silent
+// exception to the policy the operator set.
+//
+// The marker's own encoded size is not carried in the plan, but the projected
+// extent is exactly marker x candidate count, so it divides out. A payload
+// this does not recognise yields 0 rather than a guess: an approximate count
+// here would be read as exact.
+func (p retentionPlanFigurePayload) zeroReclaimCount() int {
+	if len(p.Candidates) == 0 || len(p.ClassResults) != 1 || len(p.ClassResults[0].Ceilings) != 1 {
+		return 0
 	}
-	markerBytes, err := strconv.Atoi(classResults[0].Ceilings[0].Projected.Bytes)
-	if err != nil || markerBytes < 0 || markerBytes%len(candidates) != 0 {
-		return 0, false
+	projected, err := strconv.Atoi(p.ClassResults[0].Ceilings[0].Projected.Bytes)
+	if err != nil || projected < 0 || projected%len(p.Candidates) != 0 {
+		return 0
 	}
-	markerBytes /= len(candidates)
+	markerBytes := projected / len(p.Candidates)
 	zeroReclaim := 0
-	for _, candidate := range candidates {
+	for _, candidate := range p.Candidates {
 		encodedBytes, err := strconv.Atoi(candidate.LogicalExtent.Bytes)
 		if err != nil || encodedBytes < 0 {
-			return 0, false
+			return 0
 		}
 		if encodedBytes <= markerBytes {
 			zeroReclaim++
 		}
 	}
-	return zeroReclaim, true
+	return zeroReclaim
 }
 
 func retentionNetChange(current, projected string) (string, error) {

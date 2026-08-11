@@ -8,7 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
-- **retention plan の破棄件数を公開 (#1786)** — `store retention plan` が破棄する候補本文の件数と、encoded extent が retention marker 以下で実質的に何も reclaim しない候補の件数を表示するようになりました。選択処理は意図的に変更していません。`--keep-days` は容量最適化ではなく保持ポリシーであり、全候補に recovery が必須で、v2 の `reasons` field は `['age']` 固定の契約のため、別の reason を追加すると plan の適用を壊すためです。
+- **retention plan の破棄件数を公開 (#1786)** — `store retention plan` が破棄する本文の件数を表示し、置き換える marker より大きくないために何も reclaim しない候補が存在する場合だけ、その件数も表示するようになりました。選択処理は意図的に変更していません。`--keep-days` は容量最適化ではなく保持ポリシーであり、全候補に recovery が必須で、v2 の `reasons` field は `['age']` 固定の契約のため、別の reason を追加すると plan の適用を壊すためです。
 - **MCP から session-tier search 結果を公開 (#1727)** — MCP の `search` tool が、古い履歴に一致する session trail を専用の `sessions` field で返し、`session_matches` または `session_projection_not_ready` reason を報告するようになりました。この schema 変更は意図的に `search` だけに限定しており、`list_events` と `get_context` は変更しません。
 - **bounded search projection の既定予算を統一 (#1806)** — CLI と自動 catch-up path が共有する既定値を 1 つにし、generation configuration hash のずれを構造的に防ぎます。内部実装の変更であり、operator-visible な動作の変更はありません。
 - **未リリースのtiered literal previewを削除 (#1725)** — undocumentedなCLIの`--tiered-preview` / `--deep` / `--continuation` entry pointと、MCPの`tiered_preview` / `deep` fieldを削除しました。これらは2026-08-02に追加されましたが、release tag（最新はv0.33.1）には一度も含まれていないため、deprecation windowは適用せず、bounded projection searchだけを検索経路として残します。

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,38 +97,45 @@ func TestStoreRetentionPlanDisclosesCandidatesThatReclaimEssentiallyNothing(t *t
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		candidate  []string
-		marker     string
-		current    string
+		name      string
+		candidate []string
+		marker    string
+		current   string
+		// wantOutput omits the leading "Plan: <path>" line, which carries the
+		// test's temporary directory and says nothing about the behaviour
+		// under test.
 		wantOutput string
 	}{
 		{
 			name:      "every candidate reclaims bytes",
 			candidate: []string{"50", "60"}, marker: "10", current: "110",
-			wantOutput: "Plan: plan.json\nPlan ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
-				"Net body-column change after retention markers are written (encoded bytes): 90\nCandidates: 2\n" +
-				"Bodies still discarded while reclaiming essentially nothing (encoded extent at or below marker): 0\n",
+			wantOutput: "Plan ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+				"Net body-column change after retention markers are written (encoded bytes): 90\nBodies discarded: 2\n",
 		},
 		{
 			name:      "some candidates reclaim nothing",
 			candidate: []string{"10", "20", "9"}, marker: "10", current: "39",
-			wantOutput: "Plan: plan.json\nPlan ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
-				"Net body-column change after retention markers are written (encoded bytes): 9\nCandidates: 3\n" +
-				"Bodies still discarded while reclaiming essentially nothing (encoded extent at or below marker): 2\n",
+			wantOutput: "Plan ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+				"Net body-column change after retention markers are written (encoded bytes): 9\nBodies discarded: 3\n" +
+				"Of those, 2 reclaim nothing: their bodies are no larger than the marker that replaces them, and they are discarded anyway.\n",
 		},
 		{
+			// The case the disclosure exists for: three bodies destroyed, one
+			// byte gained. Nothing but the second line tells the operator that
+			// before they apply it.
 			name:      "every candidate reclaims nothing",
 			candidate: []string{"10", "9"}, marker: "10", current: "19",
-			wantOutput: "Plan: plan.json\nPlan ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
-				"Net body-column change after retention markers are written (encoded bytes): -1\nCandidates: 2\n" +
-				"Bodies still discarded while reclaiming essentially nothing (encoded extent at or below marker): 2\n",
+			wantOutput: "Plan ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+				"Net body-column change after retention markers are written (encoded bytes): -1\nBodies discarded: 2\n" +
+				"Of those, 2 reclaim nothing: their bodies are no larger than the marker that replaces them, and they are discarded anyway.\n",
 		},
 		{
+			// No division by the candidate count, and no line about a set that
+			// is empty.
 			name:      "no candidates",
 			candidate: nil, marker: "0", current: "0",
-			wantOutput: "Plan: plan.json\nPlan ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
-				"Net body-column change after retention markers are written (encoded bytes): 0\nCandidates: 0\n",
+			wantOutput: "Plan ID: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+				"Net body-column change after retention markers are written (encoded bytes): 0\nBodies discarded: 0\n",
 		},
 	}
 	for _, test := range tests {
@@ -145,7 +153,11 @@ func TestStoreRetentionPlanDisclosesCandidatesThatReclaimEssentiallyNothing(t *t
 			}); err != nil {
 				t.Fatalf("runStoreRetentionPlan() error = %v", err)
 			}
-			if diff := cmp.Diff(test.wantOutput, output.String()); diff != "" {
+			got := strings.TrimPrefix(output.String(), "Plan: "+outputPath+"\n")
+			if got == output.String() {
+				t.Fatalf("output did not start with the plan path: %q", output.String())
+			}
+			if diff := cmp.Diff(test.wantOutput, got); diff != "" {
 				t.Errorf("runStoreRetentionPlan() output mismatch (-want +got):\n%s", diff)
 			}
 		})
