@@ -72,6 +72,8 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 56 only drops and recreates two body-derivation insert triggers (no data scan).
 	56: {56, "000056_codec_aware_body_derivations_on_insert.sql", "266a02e9be0509b3067050319f4d5654c0623034f0ed4c18920e6b0ff8ae7f32", MigrationConstantInPlace},
 	57: {57, "000057_add_search_projection_exclusions.sql", "8d7c63f873ef1d0358078a03a3704e8ae95615035d6521f466f23aba94283435", MigrationConstantInPlace},
+	// 58 adds a constant-default column and updates only singleton/lifecycle rows; it does not scan store-sized data.
+	58: {58, "000058_bound_recent_projection_source_bytes.sql", "9372a60c1c89910bae7d9ebd57c80e92837cb1ea55699a02122a987e53f5d155", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

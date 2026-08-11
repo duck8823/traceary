@@ -150,6 +150,48 @@ func TestSearchProjectionCatchUp_EmptyStoreStaysIdle(t *testing.T) {
 	}
 }
 
+func TestSearchProjectionMigration58AbandonedRebuildAutoStartsReplacement(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "traceary.db")
+	legacy := infra.NewDatabase(path, onDiskSQLiteMigrationsBefore(t, 58))
+	if err := infra.NewStoreManagementDatasource(legacy).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	openRawDB(t, path, func(db *sql.DB) {
+		if _, err := db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('migration-58-event','note','agent','session','body',?,'client','workspace')`, now.Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE search_projection_state SET generation_id='old-generation',state='rebuilding',phase='source',high_water=(SELECT max(sequence) FROM search_projection_source_sequence) WHERE singleton=1`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water) VALUES('old-generation','rebuilding','old',0,(SELECT max(sequence) FROM search_projection_source_sequence))`); err != nil {
+			t.Fatal(err)
+		}
+	})
+	head := infra.NewDatabase(path, onDiskSQLiteMigrations(t))
+	if err := infra.NewStoreManagementDatasource(head).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status := projectionStatus(t, head)
+	if status.State == "idle" {
+		t.Fatalf("automatic catch-up did not start replacement: %+v", status)
+	}
+	openRawDB(t, path, func(db *sql.DB) {
+		var oldState, current string
+		if err := db.QueryRow(`SELECT state FROM search_projection_generation_lifecycle WHERE generation_id='old-generation'`).Scan(&oldState); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow(`SELECT generation_id FROM search_projection_state WHERE singleton=1`).Scan(&current); err != nil {
+			t.Fatal(err)
+		}
+		if oldState != "abandoned" || current == "old-generation" {
+			t.Fatalf("migration/catch-up lifecycle old=%q current=%q", oldState, current)
+		}
+	})
+}
+
 func TestSearchProjectionCatchUp_InterruptedMidRebuildResumesWithoutTwoLiveGenerations(t *testing.T) {
 	t.Parallel()
 

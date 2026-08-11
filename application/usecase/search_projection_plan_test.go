@@ -580,3 +580,105 @@ func TestSearchProjectionResumeUntilPreservesPerBatchTimeout(t *testing.T) {
 		t.Fatalf("error=%v, want per-batch timeout", err)
 	}
 }
+
+func TestPlanProjectionBatchEvictsOneRowWithoutCheckpoint(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 100, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	s := apptypes.ProjectionSnapshot{
+		Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1, Checkpoint: 7},
+		Phase:      "source", Now: now, RecentSourceBytes: 12, RecentSourceCeilingBytes: 10,
+		Cleanup: []apptypes.ProjectionCleanupCandidate{{Class: "eviction", RowID: 3, LogicalBytes: 4, ReleasedSourceBytes: 5, CreatedAtNorm: now.Format(time.RFC3339Nano), Expired: true}},
+	}
+	got, err := usecase.PlanProjectionBatch(s, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []apptypes.ProjectionCleanupCandidate{s.Cleanup[0]}
+	if diff := cmp.Diff(want, got.Cleanup); diff != "" {
+		t.Fatalf("cleanup (-want +got):\n%s", diff)
+	}
+	if got.NextCheckpoint != s.Generation.Checkpoint || got.Ledger.Rows != 1 {
+		t.Fatalf("plan=%+v, want one eviction without checkpoint movement", got)
+	}
+}
+
+func TestPlanProjectionBatchAdmitsAfterUnparseableCandidateIsNotExpired(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	s := apptypes.ProjectionSnapshot{
+		Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1, Checkpoint: 7},
+		Phase:      "source", Now: now, RecentSourceBytes: 1, RecentSourceCeilingBytes: 100,
+		Cleanup:   []apptypes.ProjectionCleanupCandidate{{Class: "eviction", RowID: 3, LogicalBytes: 4, ReleasedSourceBytes: 5, CreatedAtNorm: "not-a-timestamp"}},
+		Documents: []apptypes.ProjectionDocument{{Sequence: 8, EventID: "e", SessionID: "s", CreatedAt: "not-a-timestamp", Text: "body", StoredBytes: 4, DecodedBytes: 4}},
+	}
+	got, err := usecase.PlanProjectionBatch(s, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(int64(8), got.NextCheckpoint); diff != "" {
+		t.Fatalf("checkpoint (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, len(got.Writes)); diff != "" {
+		t.Fatalf("writes (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(0, len(got.Cleanup)); diff != "" {
+		t.Fatalf("cleanup (-want +got):\n%s", diff)
+	}
+}
+
+func TestPlanProjectionBatchCapacityBoundaries(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	base := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	tests := []struct {
+		name           string
+		snapshot       apptypes.ProjectionSnapshot
+		wantCleanup    int
+		wantNextPhase  string
+		wantCheckpoint int64
+		wantWrites     int
+	}{
+		{
+			name:          "eviction under ceiling does not delegate to retention",
+			snapshot:      apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g"}, Phase: "eviction", Now: now, RecentSourceBytes: 1, RecentSourceCeilingBytes: 100, CleanupDone: true, Cleanup: []apptypes.ProjectionCleanupCandidate{{Class: "eviction", RowID: 1, ReleasedSourceBytes: 1, LogicalBytes: 1, Expired: false}}},
+			wantNextPhase: "cleanup",
+		},
+		{
+			name:        "expired row is evicted",
+			snapshot:    apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g"}, Phase: "eviction", Now: now, RecentSourceBytes: 1, RecentSourceCeilingBytes: 100, CleanupDone: true, Cleanup: []apptypes.ProjectionCleanupCandidate{{Class: "eviction", RowID: 1, ReleasedSourceBytes: 1, LogicalBytes: 1, Expired: true}}},
+			wantCleanup: 1, wantNextPhase: "cleanup",
+		},
+		{
+			name:           "rows one advances one checkpoint",
+			snapshot:       apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", Checkpoint: 4}, Phase: "source", Now: now, Documents: []apptypes.ProjectionDocument{{Sequence: 5, EventID: "e", SessionID: "s", CreatedAt: now.Format(time.RFC3339Nano), Text: "body", StoredBytes: 4, DecodedBytes: 4}}},
+			wantCheckpoint: 5, wantWrites: 1,
+		},
+		{
+			name:           "zero ceiling admits no source rows",
+			snapshot:       apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g"}, Phase: "source", Now: now, RecentSourceCeilingBytes: 0, RecentCutoffNorm: "9999-12-31T23:59:59.999999999Z", Documents: []apptypes.ProjectionDocument{{Sequence: 1, EventID: "e", SessionID: "s", CreatedAt: now.Format(time.RFC3339Nano), Text: "body", StoredBytes: 4, DecodedBytes: 4}}},
+			wantCheckpoint: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := usecase.PlanProjectionBatch(tt.snapshot, base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tt.wantCleanup, len(got.Cleanup)); diff != "" {
+				t.Errorf("cleanup (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantNextPhase, got.NextPhase); diff != "" {
+				t.Errorf("next phase (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantCheckpoint, got.NextCheckpoint); diff != "" {
+				t.Errorf("checkpoint (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantWrites, len(got.Writes)); diff != "" {
+				t.Errorf("writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
