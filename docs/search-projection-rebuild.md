@@ -85,8 +85,9 @@ about the family total, and it has a consequence operators should expect: as the
 corpus grows, the reserve grows and the ceiling shrinks, so the recent window gets
 shorter at a fixed budget. On the reference corpus the session tier and fingerprints
 were already 80.5% of a 1464 MiB budget at 36% of one walk. When the reserve reaches
-the budget the derived ceiling is 0, the recent tier is built empty. Search is unaffected because it uses the canonical decode
-walk; the empty unread tier is reported, not silently hidden (`capacity_evidence` reads
+the budget the derived ceiling is 0 and the recent tier is built empty. Search is
+unaffected — it decodes candidates from the canonical tables either way — and the
+empty tier is reported rather than silently hidden (`capacity_evidence` reads
 `non-recent reserve at or above index-family budget`).
 
 Raising `--index-family-bytes` buys retention in the recent tier, which nothing
@@ -98,8 +99,8 @@ retained in the recent tier. The budget is configured in index bytes; retained
 source is reported so the amplification is visible, not so operators re-interpret
 the knob as a text ceiling.
 
-What the budget buys is a **variable retention window**, not searchable reach. Trigram measures
-about 2.16× the source text, so 1464 MiB of family is roughly 0.66 GiB of
+What the budget buys is a **variable retention window**, not searchable reach.
+Trigram measures about 2.16× the source text, so 1464 MiB of family is roughly 0.66 GiB of
 indexable text. Measured weekly volume on the reference corpus varies **eightfold**
 (0.06 to 0.47 GiB per week): about 1.5 to 2 weeks at the median rate, under a week
 during a heavy sprint, and four to five weeks during a quiet one. Compression buys
