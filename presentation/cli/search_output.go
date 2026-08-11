@@ -37,6 +37,16 @@ func warnSearchSessionsOmittedFromJSON(warnWriter io.Writer, sessionCount int) {
 	_, _ = fmt.Fprintf(warnWriter, searchSessionsJSONNotice, sessionCount)
 }
 
+func warnSearchSessionsSuppressedByKind(warnWriter io.Writer, sessionCount int) {
+	if warnWriter == nil || sessionCount == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(warnWriter, Localize(
+		"traceary: %d matching session(s) were suppressed because --kind cannot be applied to session summaries. Run the same search without --kind to see them.\n",
+		"traceary: セッション要約には --kind を適用できないため、一致したセッション %d 件を表示していません。--kind を外して同じ検索を実行すると確認できます。\n",
+	), sessionCount)
+}
+
 // writeSearchByFormat renders search results as either event-only output
 // (byte-compatible with historical `traceary search` when sessions is empty)
 // or labelled event/session groups when older session hits are present.

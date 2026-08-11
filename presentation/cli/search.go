@@ -195,14 +195,18 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to search event metadata", "イベントメタデータの検索に失敗しました"), err)
 		}
-		sessions, sessionErr := c.searchProjectionSessions(ctx, criteria, sessionIDsFromMetadata(metadata))
+		sessions, kindSuppressedCount, sessionErr := c.searchProjectionSessions(ctx, criteria, sessionIDsFromMetadata(metadata))
 		if sessionErr != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), sessionErr)
 		}
 		if err := writeEventMetadataJSONFields(output, metadata, resolvedFields); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 		}
-		warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
+		if kindSuppressedCount > 0 {
+			warnSearchSessionsSuppressedByKind(warnWriter, kindSuppressedCount)
+		} else {
+			warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
+		}
 		return nil
 	}
 	events, err := c.event.Search(ctx, criteria)
@@ -212,7 +216,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
 		return err
 	}
-	sessions, err := c.searchProjectionSessions(ctx, criteria, sessionIDsFromEvents(events))
+	sessions, kindSuppressedCount, err := c.searchProjectionSessions(ctx, criteria, sessionIDsFromEvents(events))
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), err)
 	}
@@ -241,7 +245,13 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
 	if input.asJSON {
-		warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
+		if kindSuppressedCount > 0 {
+			warnSearchSessionsSuppressedByKind(warnWriter, kindSuppressedCount)
+		} else {
+			warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
+		}
+	} else if kindSuppressedCount > 0 {
+		warnSearchSessionsSuppressedByKind(warnWriter, kindSuppressedCount)
 	}
 
 	return nil
@@ -251,15 +261,35 @@ func (c *RootCLI) searchProjectionSessions(
 	ctx context.Context,
 	criteria apptypes.EventSearchCriteria,
 	exclude []types.SessionID,
-) ([]apptypes.SearchSessionHit, error) {
+) ([]apptypes.SearchSessionHit, int, error) {
 	if c.projectionSessionSearch == nil {
-		return []apptypes.SearchSessionHit{}, nil
+		return []apptypes.SearchSessionHit{}, 0, nil
 	}
 	hits, err := c.projectionSessionSearch.SearchSessionHits(ctx, criteria, exclude)
 	if err != nil {
-		return nil, xerrors.Errorf("search projection session hits: %w", err)
+		return nil, 0, xerrors.Errorf("search projection session hits: %w", err)
 	}
-	return hits, nil
+	if strings.TrimSpace(criteria.Kind().String()) == "" {
+		return hits, 0, nil
+	}
+
+	probeCriteria := apptypes.NewEventSearchCriteriaBuilder(criteria.Limit()).
+		Query(criteria.Query()).
+		Workspace(criteria.Workspace()).
+		SessionID(criteria.SessionID()).
+		Client(criteria.Client()).
+		Agent(criteria.Agent()).
+		From(criteria.From()).
+		To(criteria.To()).
+		Offset(criteria.Offset()).
+		PageAnchor(criteria.PageAnchor()).
+		FailuresOnly(criteria.FailuresOnly()).
+		Build()
+	probeHits, err := c.projectionSessionSearch.SearchSessionHits(ctx, probeCriteria, exclude)
+	if err != nil {
+		return nil, 0, xerrors.Errorf("probe projection session hits: %w", err)
+	}
+	return hits, len(probeHits), nil
 }
 
 func sessionIDsFromEvents(events []*model.Event) []types.SessionID {
