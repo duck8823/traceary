@@ -76,7 +76,7 @@ it:
 | tier | grows with | why it cannot be evicted |
 |---|---|---|
 | `search_projection_session_summaries`, `_session_keywords`, `_command_aggregates` | number of sessions | it is an additional session-match surface; dropping it loses those matches |
-| `literal_search_fingerprints` | number of events | the pre-filter fails open only for an event with *no* rows at all; drop some of an event's rows and it is excluded before decoding — a false negative, not a slower answer |
+| `literal_search_fingerprints` | number of events | the pre-filter fails open only for an event with *no* rows at all; once it has rows, a query whose fingerprints are not all present excludes it before decoding — a false negative, not a slower answer |
 | `search_projection_source_sequence`, `_exclusions` | number of events | they are the rebuild's own bookkeeping |
 
 These tiers enter the derivation as the **non-recent reserve**, subtracted from the

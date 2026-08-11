@@ -46,7 +46,7 @@ b-tree 割当であり、ソーステキストではありません。デフォ�
 | ティア | 比例する対象 | evict できない理由 |
 |---|---|---|
 | `search_projection_session_summaries` / `_session_keywords` / `_command_aggregates` | セッション数 | セッション一致を返す追加の面。落とすとその一致を失う |
-| `literal_search_fingerprints` | イベント数 | pre-filter が fail open するのは、その event の行が 1 件も無い場合だけ。一部だけ落とすと復号前に除外され、遅くなるのではなく偽陰性になる |
+| `literal_search_fingerprints` | イベント数 | pre-filter が fail open するのは、その event の行が 1 件も無い場合だけ。行がある状態でクエリの要求する fingerprint が揃っていないと復号前に除外され、遅くなるのではなく偽陰性になる |
 | `search_projection_source_sequence` / `_exclusions` | イベント数 | 再構築自体の台帳 |
 
 これらは導出時に**非 recent 予備枠**として予算から先に差し引かれます。ファミリ合計に
