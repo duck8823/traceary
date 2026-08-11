@@ -470,12 +470,19 @@ func (PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.Compact
 	if current.Device != run.Resources.FilesystemDevice || !atomicExchangeSupported() {
 		return errors.New("planned filesystem capability drift")
 	}
-	return rejectSQLiteSidecars(run.SourcePath)
+	// Apply and resume call Recheck while holding the exclusive store lease.
+	// Clean up the same stale zero-byte sidecars that Plan handles; a reader
+	// can create them after Plan returns but before apply/resume starts.
+	return cleanupStaleSQLiteSidecars(ctx, run.SourcePath)
 }
 
 // RecheckForPublish performs only constant-count identity/link/sidecar checks.
 // It deliberately does not hash, open SQLite, inspect free space, or copy data
 // while the adjacent exclusive lease is held.
+//
+// Unlike Recheck, this check remains strict: cleanup has already happened
+// under the lease, so a sidecar appearing here means a live opener appeared
+// mid-run and the run must abort.
 func (PreparedStoreUpgradeFiles) RecheckForPublish(ctx context.Context, run domain.PreparedStoreUpgradeRun) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -39,8 +39,10 @@ advisory lockを保持します。`apply`、`resume`、`rollback` はjournalや�
 排他を継続します。取得はcontext cancellationに従い、プロセス終了時はOSが
 lockを解放します。lock file自体は意図的に残します。既存databaseと親directoryの
 symlinkは同じlease namespaceへ解決し、安全にfenceできないhardlink databaseは
-拒否します。非対応platformまたは
-probe失敗時は `false` としてfail closedします。旧版や非協調processは引き続き
+拒否します。`plan`の実行前にはlease取得が必須なので、非対応platformでは
+planがlease取得時点で失敗します。したがって永続化されたrunの
+`lease_capability`は常に`true`です。このfieldは後続のcapability probeではなく、
+planがlease前提を満たしたことを記録します。旧版や非協調processは引き続き
 事前停止が必要です。
 filesystem安全性は協調モデルです。参加するlive openerはすべて隣接leaseを使い、
 破壊的境界ではsource、candidate、rollbackのhardlinkを拒否します。権限を持つ

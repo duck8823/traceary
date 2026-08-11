@@ -47,8 +47,11 @@ including across the database inode exchange. Acquisition honors cancellation
 and process termination releases the OS lock. The lock file remains on disk by
 design. Existing database and parent-directory symlinks resolve to the same
 lease namespace; hard-linked database files are rejected because aliases cannot
-be fenced safely. Unsupported platforms and failed capability probes report `false` and
-fail closed. Operators must still stop older or non-cooperating processes.
+be fenced safely. Lease acquisition is required before `plan` can run, so
+unsupported platforms fail at acquisition instead of producing a plan. A
+persisted run therefore always has `lease_capability: true`; this field records
+the completed plan's lease precondition rather than a later capability probe.
+Operators must still stop older or non-cooperating processes.
 The filesystem safety model is cooperative: every participating live opener
 uses the adjacent lease, and every destructive boundary rejects hard-linked
 source, candidate, or rollback files. Privileged or non-cooperating processes

@@ -227,6 +227,34 @@ func TestStoreReplacementFilesRejectsSymlinkAndSidecar(t *testing.T) {
 	}
 }
 
+func TestStoreReplacementFilesRecheckCleansSidecarCreatedAfterPlan(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "store.db")
+	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := (StoreReplacementFiles{}).Plan(context.Background(), domain.CompactionRun{
+		SourcePath:    source,
+		CandidatePath: filepath.Join(dir, "candidate"),
+		RollbackPath:  filepath.Join(dir, "rollback"),
+	})
+	if err != nil {
+		if errors.Is(err, ErrPreparedUpgradeUnsupported) {
+			t.Skipf("compaction replacement unsupported: %v", err)
+		}
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source+"-wal", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := (StoreReplacementFiles{}).Recheck(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(source + "-wal"); !os.IsNotExist(err) {
+		t.Fatalf("sidecar created after plan was not removed: %v", err)
+	}
+}
+
 func TestAtomicExchangePreservesBothInodes(t *testing.T) {
 	dir := t.TempDir()
 	left, right := filepath.Join(dir, "left"), filepath.Join(dir, "right")
