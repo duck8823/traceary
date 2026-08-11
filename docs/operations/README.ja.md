@@ -7,6 +7,8 @@
 
 v0.31 retention の release 判断と copied-store recovery の証拠は [v0.31 retention copied-store dogfooding](./retention-dogfood-v0.31.ja.md) に記録しています。
 
+保持される rollback copy を含む `store compact` のディスク容量全体は、[`store compact` のディスク容量](./store-compact-disk-cost.ja.md) に記載しています。
+
 ## SQLite の concurrency model
 
 Traceary は、process 間調停を SQLite 自身に委ねています。

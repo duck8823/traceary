@@ -11,6 +11,7 @@ import (
 
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain"
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestCompactionFileJournalRoundTripAndTransitionValidation(t *testing.T) {
@@ -310,6 +311,35 @@ func TestCompactionRequiredBytesIsOverflowSafe(t *testing.T) {
 	}
 	if required != uint64(100)+(64<<20) || margin != 64<<20 {
 		t.Fatalf("required=%d margin=%d", required, margin)
+	}
+}
+
+func TestInsufficientCompactionSpaceErrorStatesOperatorCosts(t *testing.T) {
+	tests := []struct {
+		name      string
+		required  uint64
+		available uint64
+		source    int64
+		want      string
+	}{
+		{
+			name:      "reports shortfall and retained rollback",
+			required:  1100,
+			available: 700,
+			source:    1000,
+			want: `insufficient free space: free 400 more bytes to proceed (need 1100, have 700)
+	most of that is a worst-case reservation: VACUUM INTO cannot report the compacted size until it has written it, so the requirement assumes the result could be as large as the 1000-byte source. It is usually far smaller, but reserving less risks a half-written candidate on a full disk
+	the space is not all returned when the run succeeds: a rollback copy of the source is kept as <db>.rollback-<run id>, and nothing removes it. Deleting it is your decision, and gives up "store compact rollback" for that run`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := insufficientCompactionSpaceError(tt.required, tt.available, tt.source).Error()
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("insufficient space error (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

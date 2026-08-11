@@ -12,6 +12,10 @@ INTO` し、fsync 後に双方へ同一の互換性・整合性検証を実行�
 同一ファイルシステム内でatomic exchangeします。元inodeはロールバック
 用に保持されます。SQLite sidecar、レガシー検索インデックスの残存、空き容量不足、
 ファイルidentity変更、atomic exchange非対応環境ではfail closedします。
+preflight は、`VACUUM INTO` が完了するまで candidate size が分からないため、
+source store size の 1.1 倍の空き容量を要求します。成功後も source size と同じ
+大きさの元 database rollback copy が残ります。運用者向けの詳細は
+[`store compact` のディスク容量](../operations/store-compact-disk-cost.ja.md) を参照してください。
 
 レガシー検索インデックスの検査はsource digestより前に走るため、数GiBのstore
 全体をハッシュした後ではなく数秒で失敗します。先にcompactすると死んだindexを
