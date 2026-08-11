@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **orphan GC の失敗を対処可能に (#1795)** — `traceary store gc` が、再実行しても再びスキップされる候補について、session と失敗理由を表示するようになりました。再実行の案内は、未発見の orphan range が実際に残る場合だけ表示し、失敗詳細が上限で切り詰められた場合も明示します。
 - **MCP から session-tier search 結果を公開 (#1727)** — MCP の `search` tool が、古い履歴に一致する session trail を専用の `sessions` field で返し、`session_matches` または `session_projection_not_ready` reason を報告するようになりました。この schema 変更は意図的に `search` だけに限定しており、`list_events` と `get_context` は変更しません。
 - **bounded search projection の既定予算を統一 (#1806)** — CLI と自動 catch-up path が共有する既定値を 1 つにし、generation configuration hash のずれを構造的に防ぎます。内部実装の変更であり、operator-visible な動作の変更はありません。
 - **未リリースのtiered literal previewを削除 (#1725)** — undocumentedなCLIの`--tiered-preview` / `--deep` / `--continuation` entry pointと、MCPの`tiered_preview` / `deep` fieldを削除しました。これらは2026-08-02に追加されましたが、release tag（最新はv0.33.1）には一度も含まれていないため、deprecation windowは適用せず、bounded projection searchだけを検索経路として残します。

@@ -18,6 +18,10 @@ import (
 
 var errOrphanConsolidationStub = errors.New("orphan consolidation failed")
 
+func orphanFailures(failures ...apptypes.OrphanConsolidationFailure) apptypes.OrphanConsolidationFailures {
+	return apptypes.OrphanConsolidationFailuresOf(failures)
+}
+
 type orphanConsolidationStub struct {
 	result  apptypes.OrphanConsolidationResult
 	err     error
@@ -46,7 +50,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(0, 0, 0, false, true),
+			result: apptypes.OrphanConsolidationResultOf(0, 0, apptypes.OrphanConsolidationFailuresOf(nil), false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -77,7 +81,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(0, 0, 0, false, false),
+			result: apptypes.OrphanConsolidationResultOf(0, 0, apptypes.OrphanConsolidationFailuresOf(nil), false, false),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -168,7 +172,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 					callLog:  &calls,
 				}
 				orphan := &orphanConsolidationStub{
-					result:  apptypes.OrphanConsolidationResultOf(1, 1, 0, false, dryRun),
+					result:  apptypes.OrphanConsolidationResultOf(1, 1, apptypes.OrphanConsolidationFailuresOf(nil), false, dryRun),
 					callLog: &calls,
 				}
 				rootCmd := cli.NewRootCLI(
@@ -263,18 +267,23 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}{
 			{
 				name:   "HasMore",
-				result: apptypes.OrphanConsolidationResultOf(5000, 5000, 0, true, false),
+				result: apptypes.OrphanConsolidationResultOf(5000, 5000, apptypes.OrphanConsolidationFailuresOf(nil), true, false),
 				want: "Collected: 99\n" +
 					"Orphan refinements: 5000\n" +
 					"More orphan ranges remain; re-run gc to continue consolidation\n",
 			},
 			{
-				name:   "Skipped",
-				result: apptypes.OrphanConsolidationResultOf(10, 8, 2, false, false),
+				name: "Skipped",
+				result: apptypes.OrphanConsolidationResultOf(10, 8, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf("sess-bad-1", "invalid created_at"),
+					apptypes.OrphanConsolidationFailureOf("sess-bad-2", "missing event timestamp"),
+				), false, false),
 				want: "Collected: 99\n" +
 					"Orphan refinements: 8\n" +
 					"Orphan ranges skipped: 2\n" +
-					"More orphan ranges remain; re-run gc to continue consolidation\n",
+					"Skipped orphan range failures (re-running gc will skip these again):\n" +
+					"  sess-bad-1: invalid created_at\n" +
+					"  sess-bad-2: missing event timestamp\n",
 			},
 		}
 		for _, tt := range tests {
@@ -302,6 +311,43 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("caps and declares skipped failure details", func(t *testing.T) {
+		failures := make([]apptypes.OrphanConsolidationFailure, 0, apptypes.MaxOrphanConsolidationFailures()+2)
+		for i := 0; i < apptypes.MaxOrphanConsolidationFailures()+2; i++ {
+			failures = append(failures, apptypes.OrphanConsolidationFailureOf(
+				fmt.Sprintf("sess-bad-%02d", i), "invalid created_at",
+			))
+		}
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(0, time.Time{}, false),
+		}
+		orphan := &orphanConsolidationStub{
+			result: apptypes.OrphanConsolidationResultOf(12, 0, orphanFailures(failures...), false, false),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(storeMaint),
+			cli.WithOrphanConsolidation(orphan),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		got := stdout.String()
+		if strings.Count(got, "  sess-bad-") != apptypes.MaxOrphanConsolidationFailures() {
+			t.Fatalf("listed failure count = %d, want %d; stdout = %q", strings.Count(got, "  sess-bad-"), apptypes.MaxOrphanConsolidationFailures(), got)
+		}
+		if !strings.Contains(got, "Only the first 10 skipped orphan range failures are listed.") {
+			t.Fatalf("stdout missing truncation notice: %q", got)
+		}
+		if strings.Contains(got, "sess-bad-10") {
+			t.Fatalf("stdout listed a failure beyond the cap: %q", got)
+		}
+	})
+
 	// The discard reads the coverage that exists when the run begins, so what
 	// this run folds is what the next run discards. Folding therefore never
 	// suppresses the discard, and the count does not depend on how much was
@@ -320,7 +366,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 					gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 				}
 				orphan := &orphanConsolidationStub{
-					result: apptypes.OrphanConsolidationResultOf(tt.produced, tt.produced, 0, false, false),
+					result: apptypes.OrphanConsolidationResultOf(tt.produced, tt.produced, apptypes.OrphanConsolidationFailuresOf(nil), false, false),
 				}
 				stdout := &bytes.Buffer{}
 				rootCmd := cli.NewRootCLI(
@@ -350,7 +396,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(2, 2, 0, false, true),
+			result: apptypes.OrphanConsolidationResultOf(2, 2, apptypes.OrphanConsolidationFailuresOf(nil), false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -376,7 +422,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(7, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(5, 4, 1, true, true),
+			result: apptypes.OrphanConsolidationResultOf(5, 4, orphanFailures(
+				apptypes.OrphanConsolidationFailureOf("sess-bad", "invalid created_at"),
+			), true, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -393,6 +441,8 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		want := "Candidates: 7\n" +
 			"Orphan refinement candidates: 4\n" +
 			"Orphan ranges skipped: 1\n" +
+			"Skipped orphan range failures (re-running gc will skip these again):\n" +
+			"  sess-bad: invalid created_at\n" +
 			"More orphan ranges remain; re-run gc to continue consolidation\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

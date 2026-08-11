@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Changed
+- **Make orphan GC failures actionable (#1795)** — `traceary store gc` now names skipped sessions and their failure reasons instead of asking operators to re-run for candidates that will be skipped again. The re-run guidance remains only when undiscovered orphan ranges genuinely remain, and failure details are bounded with truncation reported.
 - **Expose session-tier search results through MCP (#1727)** — the MCP `search` tool now returns matching older session trails in a scoped `sessions` field and reports `session_matches` or `session_projection_not_ready` reasons. This schema change is deliberately limited to `search`; `list_events` and `get_context` remain unchanged.
 - **Unify the bounded search projection default budget (#1806)** — the CLI and automatic catch-up path now read one shared default, so their generation configuration hashes cannot drift. This is an internal change with no operator-visible behavior difference.
 - **Remove the never-released tiered literal preview (#1725)** — the undocumented CLI `--tiered-preview` / `--deep` / `--continuation` entry points and MCP `tiered_preview` / `deep` fields are removed. They were introduced on 2026-08-02 but are not contained in any release tag (the latest is v0.33.1), so no deprecation window applies; bounded projection search remains the sole search path.

@@ -96,7 +96,7 @@ func (u *orphanConsolidationUsecase) Consolidate(
 	hasMore := candidates.HasMore
 	attempted := 0
 	produced := 0
-	skipped := 0
+	failures := apptypes.OrphanConsolidationFailuresOf(nil)
 	consecutive := 0
 
 	for _, orphan := range candidates.Ranges {
@@ -119,7 +119,9 @@ func (u *orphanConsolidationUsecase) Consolidate(
 			consecutive = 0
 			continue
 		}
-		skipped++
+		failures = failures.Add(apptypes.OrphanConsolidationFailureOf(
+			orphan.SessionID().String(), failure.Error(),
+		))
 		consecutive++
 		slog.Warn(
 			"skipped orphan range",
@@ -134,7 +136,7 @@ func (u *orphanConsolidationUsecase) Consolidate(
 			)
 		}
 	}
-	return apptypes.OrphanConsolidationResultOf(attempted, produced, skipped, hasMore, input.DryRun), nil
+	return apptypes.OrphanConsolidationResultOf(attempted, produced, failures, hasMore, input.DryRun), nil
 }
 
 // processCandidate performs the single operation one candidate needs: a dry run

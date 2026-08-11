@@ -155,10 +155,29 @@ func printOrphanResult(output io.Writer, dryRun bool, result apptypes.OrphanCons
 		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan ranges skipped", "orphan range のスキップ"), result.Skipped()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
+		if _, err := fmt.Fprintf(output, "%s\n", Localize(
+			"Skipped orphan range failures (re-running gc will skip these again):",
+			"スキップした orphan range の失敗（gc を再実行しても同じ範囲を再びスキップします）:",
+		)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+		}
+		for _, failure := range result.Failures().Items() {
+			if _, err := fmt.Fprintf(output, "  %s: %s\n", failure.SessionID(), failure.Reason()); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+			}
+		}
+		if result.Failures().Truncated() {
+			if _, err := fmt.Fprintf(output, "%s\n", Localize(
+				fmt.Sprintf("Only the first %d skipped orphan range failures are listed.", apptypes.MaxOrphanConsolidationFailures()),
+				fmt.Sprintf("スキップした orphan range の失敗は先頭 %d 件だけ表示しています。", apptypes.MaxOrphanConsolidationFailures()),
+			)); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+			}
+		}
 	}
 	// A target that does not consolidate leaves the zero result, which is
 	// complete, so this stays silent rather than claiming ranges remain.
-	if !result.Complete() {
+	if result.HasMore() {
 		if _, err := fmt.Fprintf(output, "%s\n", Localize(
 			"More orphan ranges remain; re-run gc to continue consolidation",
 			"orphan range が残っています。機械要約を続けるには gc を再実行してください",
