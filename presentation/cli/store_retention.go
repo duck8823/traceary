@@ -152,6 +152,11 @@ func (c *RootCLI) runStoreRetentionPlan(ctx context.Context, output io.Writer, i
 					} `json:"projected"`
 				} `json:"ceilings"`
 			} `json:"class_results"`
+			Candidates []struct {
+				LogicalExtent struct {
+					Bytes string `json:"bytes"`
+				} `json:"logical_extent"`
+			} `json:"candidates"`
 		} `json:"canonical_payload"`
 	}
 	if err := json.Unmarshal(plan, &figure); err != nil {
@@ -166,10 +171,50 @@ func (c *RootCLI) runStoreRetentionPlan(ctx context.Context, output io.Writer, i
 		}
 		netChange = current
 	}
-	if _, err := fmt.Fprintf(output, "Plan: %s\nPlan ID: %s\nNet body-column change after retention markers are written (encoded bytes): %s\n", input.outputPath, header.PlanID, netChange); err != nil {
+	if _, err := fmt.Fprintf(output, "Plan: %s\nPlan ID: %s\nNet body-column change after retention markers are written (encoded bytes): %s\nCandidates: %d\n", input.outputPath, header.PlanID, netChange, len(figure.CanonicalPayload.Candidates)); err != nil {
 		return xerrors.Errorf("print retention plan result: %w", err)
 	}
+	if zeroReclaim, ok := retentionZeroReclaimCount(figure.CanonicalPayload.Candidates, figure.CanonicalPayload.ClassResults); ok {
+		if _, err := fmt.Fprintf(output, "Bodies still discarded while reclaiming essentially nothing (encoded extent at or below marker): %d\n", zeroReclaim); err != nil {
+			return xerrors.Errorf("print retention plan disclosure: %w", err)
+		}
+	}
 	return nil
+}
+
+func retentionZeroReclaimCount(candidates []struct {
+	LogicalExtent struct {
+		Bytes string `json:"bytes"`
+	} `json:"logical_extent"`
+}, classResults []struct {
+	Ceilings []struct {
+		Current struct {
+			Bytes string `json:"bytes"`
+		} `json:"current"`
+		Projected struct {
+			Bytes string `json:"bytes"`
+		} `json:"projected"`
+	} `json:"ceilings"`
+}) (int, bool) {
+	if len(candidates) == 0 || len(classResults) != 1 || len(classResults[0].Ceilings) != 1 {
+		return 0, false
+	}
+	markerBytes, err := strconv.Atoi(classResults[0].Ceilings[0].Projected.Bytes)
+	if err != nil || markerBytes < 0 || markerBytes%len(candidates) != 0 {
+		return 0, false
+	}
+	markerBytes /= len(candidates)
+	zeroReclaim := 0
+	for _, candidate := range candidates {
+		encodedBytes, err := strconv.Atoi(candidate.LogicalExtent.Bytes)
+		if err != nil || encodedBytes < 0 {
+			return 0, false
+		}
+		if encodedBytes <= markerBytes {
+			zeroReclaim++
+		}
+	}
+	return zeroReclaim, true
 }
 
 func retentionNetChange(current, projected string) (string, error) {
