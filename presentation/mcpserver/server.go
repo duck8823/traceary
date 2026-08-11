@@ -32,20 +32,21 @@ const (
 
 // Server provides the Traceary MCP server.
 type Server struct {
-	serverName            string
-	serverVersion         string
-	extraRedactPatterns   []string
-	structuredRedactRules []redaction.RuleConfig
-	auditMaxInputBytes    int
-	auditMaxOutputBytes   int
-	event                 usecase.EventUsecase
-	eventMetadata         usecase.EventMetadataUsecase
-	eventBounded          usecase.EventBoundedUsecase
-	session               usecase.SessionUsecase
-	memory                usecase.MemoryUsecase
-	context               usecase.ContextUsecase
-	storeManagement       usecase.StoreManagementUsecase
-	report                usecase.ReportUsecase
+	serverName              string
+	serverVersion           string
+	extraRedactPatterns     []string
+	structuredRedactRules   []redaction.RuleConfig
+	auditMaxInputBytes      int
+	auditMaxOutputBytes     int
+	event                   usecase.EventUsecase
+	eventMetadata           usecase.EventMetadataUsecase
+	eventBounded            usecase.EventBoundedUsecase
+	projectionSessionSearch queryservice.ProjectionSessionSearchQuery
+	session                 usecase.SessionUsecase
+	memory                  usecase.MemoryUsecase
+	context                 usecase.ContextUsecase
+	storeManagement         usecase.StoreManagementUsecase
+	report                  usecase.ReportUsecase
 }
 
 // NewServer creates a new MCP server.
@@ -117,6 +118,12 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) ServerOption 
 // hydration for the default MCP projection.
 func WithEventBounded(eventBounded usecase.EventBoundedUsecase) ServerOption {
 	return func(server *Server) { server.eventBounded = eventBounded }
+}
+
+// WithProjectionSessionSearch configures the bounded-projection session-tier
+// search shared with the CLI.
+func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearchQuery) ServerOption {
+	return func(server *Server) { server.projectionSessionSearch = search }
 }
 
 // WithReport configures the shared body-free aggregate report.
@@ -846,16 +853,16 @@ func validateActiveSession(event *model.Event, input sessionLookupInput) error {
 	return xerrors.Errorf("active session %s is older than %s and considered stale", event.SessionID(), staleAfter)
 }
 
-func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, eventsOutput, error) {
+func (s *Server) search() mcp.ToolHandlerFor[searchInput, searchOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, searchOutput, error) {
 		projection, bodyLimit, err := resolveEventProjection(input.Projection, input.BodyLimit, input.FullBody)
 		if err != nil {
-			return nil, eventsOutput{}, err
+			return nil, searchOutput{}, err
 		}
 		snapshotAt := time.Now().UTC()
 		continuation, err := resolveEventContinuation("search", input.Continuation)
 		if err != nil {
-			return nil, eventsOutput{}, err
+			return nil, searchOutput{}, err
 		}
 		to := input.To
 		if !continuation.isZero() {
@@ -866,7 +873,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		}
 		interval, err := apptypes.RequestedIntervalFrom(input.From, to, input.Timezone, snapshotAt)
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to resolve time interval: %w", err)
+			return nil, searchOutput{}, xerrors.Errorf("failed to resolve time interval: %w", err)
 		}
 		fingerprint := eventRequestFingerprint(
 			strings.TrimSpace(input.Query),
@@ -879,7 +886,7 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 		)
 		page, err := resolveEventPageRequest("search", input.Limit, 0, continuation, fingerprint, bodyLimit)
 		if err != nil {
-			return nil, eventsOutput{}, err
+			return nil, searchOutput{}, err
 		}
 		page.snapshot = formatEventCursorTimestamp(interval.EffectiveToExclusive())
 		intervalMetadata := newIntervalOutput(interval)
@@ -920,9 +927,32 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, eventsOutput] {
 			},
 		}, &intervalMetadata, page.snapshot)
 		if err != nil {
-			return nil, eventsOutput{}, xerrors.Errorf("failed to load event page: %w", err)
+			return nil, searchOutput{}, xerrors.Errorf("failed to load event page: %w", err)
 		}
-		return nil, output, nil
+		result := searchOutput{eventsOutput: output, Reasons: output.Reasons}
+		if s.projectionSessionSearch != nil {
+			criteria := buildCriteria(page.budget.ItemLimit(), 0)
+			hits, searchErr := s.projectionSessionSearch.SearchSessionHits(ctx, criteria, sessionIDsFromEventOutputs(output.Events))
+			if searchErr != nil {
+				return nil, searchOutput{}, xerrors.Errorf("failed to search sessions: %w", searchErr)
+			}
+			result.Sessions = convertSearchSessions(hits)
+			if len(hits) > 0 {
+				result.Reasons = append(result.Reasons, "session_matches")
+			} else {
+				ready := true
+				if readiness, ok := s.projectionSessionSearch.(queryservice.ProjectionSessionSearchReadiness); ok {
+					ready, searchErr = readiness.SearchSessionProjectionReady(ctx)
+					if searchErr != nil {
+						return nil, searchOutput{}, xerrors.Errorf("failed to check session search projection readiness: %w", searchErr)
+					}
+				}
+				if !ready {
+					result.Reasons = append(result.Reasons, "session_projection_not_ready")
+				}
+			}
+		}
+		return nil, result, nil
 	}
 }
 
@@ -2329,6 +2359,41 @@ func convertEventMetadata(metadata []apptypes.EventMetadata) []eventOutput {
 		outputs = append(outputs, output)
 	}
 	return outputs
+}
+
+func sessionIDsFromEventOutputs(events []eventOutput) []types.SessionID {
+	if len(events) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(events))
+	result := make([]types.SessionID, 0, len(events))
+	for _, event := range events {
+		if event.SessionID == "" {
+			continue
+		}
+		if _, ok := seen[event.SessionID]; ok {
+			continue
+		}
+		seen[event.SessionID] = struct{}{}
+		result = append(result, types.SessionID(event.SessionID))
+	}
+	return result
+}
+
+func convertSearchSessions(hits []apptypes.SearchSessionHit) []searchSessionOutput {
+	if len(hits) == 0 {
+		return nil
+	}
+	result := make([]searchSessionOutput, 0, len(hits))
+	for _, hit := range hits {
+		result = append(result, searchSessionOutput{
+			SessionID:  hit.SessionID().String(),
+			Summary:    hit.Summary(),
+			EventCount: hit.EventCount(),
+			StartedAt:  hit.StartedAt().UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return result
 }
 
 func optionalPointer[T any](value types.Optional[T]) *T {

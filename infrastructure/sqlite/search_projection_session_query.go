@@ -76,6 +76,31 @@ func (d *EventDatasource) SearchSessionHits(
 	return hits, nil
 }
 
+// SearchSessionProjectionReady reports whether session-tier search may be
+// consulted. It is separate from SearchSessionHits because an empty result is
+// valid both for a ready projection with no match and for an incomplete one.
+func (d *EventDatasource) SearchSessionProjectionReady(ctx context.Context) (bool, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to open DB for projection session readiness: %w", err)
+	}
+	defer d.db.release(db)
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return false, xerrors.Errorf("failed to begin projection session readiness: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	ready, err := searchProjectionReadReady(ctx, tx)
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, xerrors.Errorf("failed to finish projection session readiness: %w", err)
+	}
+	return ready, nil
+}
+
 func queryProjectionSessionHits(
 	ctx context.Context,
 	queryer eventSearchQueryer,

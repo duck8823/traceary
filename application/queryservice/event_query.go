@@ -92,3 +92,9 @@ type EventBoundedQueryService interface {
 type ProjectionSessionSearchQuery interface {
 	SearchSessionHits(ctx context.Context, criteria apptypes.EventSearchCriteria, excludeSessionIDs []types.SessionID) ([]apptypes.SearchSessionHit, error)
 }
+
+// ProjectionSessionSearchReadiness reports whether the session-tier search
+// projection has a published complete generation.
+type ProjectionSessionSearchReadiness interface {
+	SearchSessionProjectionReady(ctx context.Context) (bool, error)
+}

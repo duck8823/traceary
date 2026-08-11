@@ -41,7 +41,7 @@ type sessionEventOutput struct {
 	CreatedAt  string `json:"created_at" jsonschema:"event timestamp (RFC3339Nano)"`
 }
 
-// eventsOutput is the MCP output for event listing tools (list_events, search, get_context).
+// eventsOutput is the MCP output for event listing tools (list_events, get_context).
 type eventsOutput struct {
 	Events       []eventOutput       `json:"events" jsonschema:"events matching the filters"`
 	Interval     *intervalOutput     `json:"interval,omitempty" jsonschema:"requested and effective half-open interval used by list_events or search"`
@@ -49,6 +49,22 @@ type eventsOutput struct {
 	Partial      bool                `json:"partial" jsonschema:"whether another page or body-budget reduction remains"`
 	Reasons      []string            `json:"reasons,omitempty" jsonschema:"machine-readable partial reasons: more_results, aggregate_body_budget"`
 	Continuation string              `json:"continuation,omitempty" jsonschema:"opaque cursor for the next page; use only with the same tool and filters"`
+}
+
+// searchOutput is deliberately scoped to the search tool. list_events and
+// get_context retain eventsOutput so their published schemas do not change.
+type searchOutput struct {
+	eventsOutput
+	// Reasons shadows eventsOutput.Reasons so only search publishes the session-tier reason vocabulary; removing it changes three published schemas, not one.
+	Reasons  []string              `json:"reasons,omitempty" jsonschema:"machine-readable search reasons: more_results, aggregate_body_budget, session_matches, session_projection_not_ready"`
+	Sessions []searchSessionOutput `json:"sessions,omitempty" jsonschema:"older session trails matching the search query"`
+}
+
+type searchSessionOutput struct {
+	SessionID  string `json:"session_id" jsonschema:"matching session identifier"`
+	Summary    string `json:"summary" jsonschema:"session summary excerpt"`
+	EventCount int    `json:"event_count" jsonschema:"number of events covered by the session projection"`
+	StartedAt  string `json:"started_at" jsonschema:"session start timestamp (RFC3339Nano)"`
 }
 
 type eventCoverageOutput struct {

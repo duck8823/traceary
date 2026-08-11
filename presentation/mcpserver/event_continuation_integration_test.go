@@ -168,7 +168,7 @@ func newEventContinuationToolCall(
 				Query: query, Workspace: workspace, Projection: projection, Limit: 2,
 				Continuation: continuation,
 			})
-			return output, err
+			return output.eventsOutput, err
 		}
 	case "get_context":
 		return func(ctx context.Context, continuation string, mismatch bool) (eventsOutput, error) {
