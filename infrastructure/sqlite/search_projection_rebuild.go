@@ -28,7 +28,13 @@ var selectSearchProjectionFamilyTotalSQL string
 //go:embed sql/select_search_projection_recent_cutoff.sql
 var selectSearchProjectionRecentCutoffSQL string
 
-const selectSearchProjectionRecentRangeSQL = `SELECT COALESCE(MIN(created_at_norm),''),COALESCE(MAX(created_at_norm),'') FROM search_projection_recent_documents WHERE generation_id=(SELECT generation_id FROM search_projection_state WHERE singleton=1)`
+// selectSearchProjectionRecentRangeSQL reads the full-text range search can
+// actually answer from, which is the *active* generation — the one
+// event_search_authority.go:136 resolves — not the one being built. During a
+// rebuild those differ, and scoping this to generation_id would advertise
+// coverage from a generation search does not read yet, in the same JSON object
+// whose recent_documents counts the active one.
+const selectSearchProjectionRecentRangeSQL = `SELECT COALESCE(MIN(created_at_norm),''),COALESCE(MAX(created_at_norm),'') FROM search_projection_recent_documents WHERE generation_id=(SELECT active_generation_id FROM search_projection_state WHERE singleton=1)`
 
 //go:embed sql/select_search_projection_logical_non_recent_bytes.sql
 var selectSearchProjectionLogicalNonRecentBytesSQL string

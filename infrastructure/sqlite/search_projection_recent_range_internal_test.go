@@ -17,26 +17,46 @@ func TestSearchProjectionStatusReportsRecentRangeForStatusGeneration(t *testing.
 	t.Parallel()
 
 	for _, test := range []struct {
-		name       string
+		name string
+		// building is the generation_id the status row carries. It differs
+		// from active whenever a rebuild is in flight, which is the case that
+		// distinguishes the generation search reads from the one being built.
+		building   string
 		rows       string
 		wantOldest string
 		wantNewest string
 		wantJSON   map[string]any
 	}{
 		{
-			name:       "scopes range to status generation",
+			name:       "scopes range to the active generation",
+			building:   "current",
 			rows:       `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES('other',1,'other-old','2000-01-01T00:00:00Z','other',1),('current',2,'current-old','2026-08-01T00:00:00Z','current',1),('current',3,'current-new','2026-08-03T00:00:00Z','current',1),('other',4,'other-new','2099-01-01T00:00:00Z','other',1);`,
 			wantOldest: "2026-08-01T00:00:00Z",
 			wantNewest: "2026-08-03T00:00:00Z",
 		},
 		{
+			// The rebuilding generation has admitted a wider range than the
+			// one search answers from. Reporting it would advertise coverage
+			// the read path does not have, in the same object whose
+			// recent_documents counts the active generation.
+			name:       "reports the active generation while a newer one is building",
+			building:   "next",
+			rows:       `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES('current',1,'active-old','2026-08-01T00:00:00Z','active',1),('current',2,'active-new','2026-08-03T00:00:00Z','active',1),('next',3,'building-old','2020-01-01T00:00:00Z','building',1),('next',4,'building-new','2099-01-01T00:00:00Z','building',1);`,
+			wantOldest: "2026-08-01T00:00:00Z",
+			wantNewest: "2026-08-03T00:00:00Z",
+		},
+		{
 			name:     "omits empty range",
+			building: "current",
 			wantJSON: map[string]any{},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, db := newRecentRangeStatusTestStore(t)
-			if _, err := db.Exec(`INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water) VALUES('current','complete','hash',0,0); UPDATE search_projection_state SET generation_id='current',active_generation_id='current',state='complete',config_hash='hash' WHERE singleton=1;`); err != nil {
+			if _, err := db.Exec(`INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water) VALUES('current','complete','hash',0,0),('next','rebuilding','hash',0,0);`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`UPDATE search_projection_state SET generation_id=?,active_generation_id='current',state='complete',config_hash='hash' WHERE singleton=1`, test.building); err != nil {
 				t.Fatal(err)
 			}
 			if test.rows != "" {
@@ -89,7 +109,7 @@ func TestSelectSearchProjectionRecentRangeUsesEvictionIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Exec(`CREATE TABLE search_projection_state(singleton INTEGER PRIMARY KEY,generation_id TEXT); INSERT INTO search_projection_state VALUES(1,'current'); CREATE TABLE search_projection_recent_documents(document_id INTEGER PRIMARY KEY,generation_id TEXT NOT NULL,event_rowid INTEGER NOT NULL,created_at_norm TEXT NOT NULL); CREATE INDEX idx_search_projection_recent_eviction ON search_projection_recent_documents(generation_id,created_at_norm,event_rowid);`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE search_projection_state(singleton INTEGER PRIMARY KEY,generation_id TEXT,active_generation_id TEXT); INSERT INTO search_projection_state VALUES(1,'next','current'); CREATE TABLE search_projection_recent_documents(document_id INTEGER PRIMARY KEY,generation_id TEXT NOT NULL,event_rowid INTEGER NOT NULL,created_at_norm TEXT NOT NULL); CREATE INDEX idx_search_projection_recent_eviction ON search_projection_recent_documents(generation_id,created_at_norm,event_rowid);`); err != nil {
 		t.Fatal(err)
 	}
 
