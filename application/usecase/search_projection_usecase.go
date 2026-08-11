@@ -217,9 +217,17 @@ func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.Se
 // unbounded retry cost from transient lock contention.
 func (u *SearchProjectionUsecase) resumeCatchUpBatch(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
 	result, err := u.ResumeUntil(ctx, b, apptypes.SearchProjectionRunOptions{
-		MaxBatches:    1,
-		TotalWallTime: time.Duration(bits.Len(uint(b.Rows))) * b.LockTime,
+		MaxBatches: 1,
+		// Resume bounds the whole attempt with WallTime, including status reads,
+		// planning, and transaction setup. The total bound must use that same
+		// unit so adaptive shrinking can reach its one-row floor.
+		TotalWallTime: time.Duration(bits.Len(uint(b.Rows))) * b.WallTime,
 	}, now)
+	if err == nil && result.Batches == 0 {
+		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{
+			Reason: "catch-up total wall time bound exhausted before a batch was committed",
+		}
+	}
 	return result.Progress, err
 }
 

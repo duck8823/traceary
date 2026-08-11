@@ -163,12 +163,15 @@ type multiBatchProjectionStore struct {
 }
 
 type adaptiveProjectionStore struct {
-	budget          apptypes.SearchProjectionBudget
-	maxRows         int
-	checkpoints     []int64
-	plannedRows     []int
-	alwaysTooBig    bool
-	catchUpDeadline time.Time
+	budget       apptypes.SearchProjectionBudget
+	maxRows      int
+	checkpoints  []int64
+	plannedRows  []int
+	alwaysTooBig bool
+	delayAll     bool
+	delayAttempt int
+	attempts     int
+	attemptDelay time.Duration
 }
 
 func (s *adaptiveProjectionStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
@@ -188,11 +191,12 @@ func (s *adaptiveProjectionStore) SelectSnapshot(_ context.Context, b apptypes.S
 	}
 	return apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", ConfigHash: s.budget.ConfigHash(), SourceRevision: 1, HighWater: 3, Checkpoint: s.checkpoint()}, Phase: "source", Documents: documents, SourceDone: len(documents) > 0 && documents[len(documents)-1].Sequence == 3, Now: time.Now().UTC()}, nil
 }
-func (s *adaptiveProjectionStore) ApplyBatch(ctx context.Context, p apptypes.ProjectionBatchPlan, _ time.Duration, _ time.Time) (apptypes.SearchProjectionProgress, error) {
-	if s.catchUpDeadline.IsZero() {
-		if deadline, ok := ctx.Deadline(); ok {
-			s.catchUpDeadline = deadline
-		}
+func (s *adaptiveProjectionStore) ApplyBatch(_ context.Context, p apptypes.ProjectionBatchPlan, _ time.Duration, _ time.Time) (apptypes.SearchProjectionProgress, error) {
+	s.attempts++
+	if s.delayAll || s.attempts == s.delayAttempt {
+		timer := time.NewTimer(s.attemptDelay)
+		defer timer.Stop()
+		<-timer.C
 	}
 	if len(p.Writes) > s.maxRows || s.alwaysTooBig {
 		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
@@ -315,9 +319,8 @@ func TestSearchProjectionCatchUpShrinksFailedBatch(t *testing.T) {
 
 func TestSearchProjectionCatchUpBoundsAdaptiveAttempts(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 256, WallTime: time.Second, LockTime: 50 * time.Millisecond, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
-	store := &adaptiveProjectionStore{budget: b, alwaysTooBig: true}
-	started := time.Now()
+	b := apptypes.SearchProjectionBudget{Rows: 256, WallTime: 50 * time.Millisecond, LockTime: time.Millisecond, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, alwaysTooBig: true, delayAll: true, attemptDelay: 10 * time.Millisecond}
 	_, err := usecase.NewSearchProjectionUsecase(store).CatchUp(context.Background(), b, time.Now())
 	var noProgress *apptypes.SearchProjectionNoProgressError
 	if !errors.As(err, &noProgress) {
@@ -329,8 +332,25 @@ func TestSearchProjectionCatchUpBoundsAdaptiveAttempts(t *testing.T) {
 	if diff := cmp.Diff([]int{256, 128, 64, 32, 16, 8, 4, 2, 1}, store.plannedRows); diff != "" {
 		t.Fatalf("planned rows (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(true, store.catchUpDeadline.Sub(started) > 425*time.Millisecond); diff != "" {
-		t.Fatalf("wall ceiling admits the full shrink sequence (-want +got):\n%s", diff)
+}
+
+func TestSearchProjectionCatchUpReportsWallBoundExhaustionWithoutBatch(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 256, WallTime: 50 * time.Millisecond, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, alwaysTooBig: true, delayAttempt: 4, attemptDelay: time.Second}
+	result, err := usecase.NewSearchProjectionUsecase(store).CatchUp(context.Background(), b, time.Now())
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if !errors.As(err, &noProgress) {
+		t.Fatalf("error=%v, want no-progress error", err)
+	}
+	if diff := cmp.Diff("catch-up total wall time bound exhausted before a batch was committed", noProgress.Reason); diff != "" {
+		t.Fatalf("error reason (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(0, result.Batches); diff != "" {
+		t.Fatalf("catch-up batches (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(4, len(store.plannedRows)); diff != "" {
+		t.Fatalf("attempts before wall bound (-want +got):\n%s", diff)
 	}
 }
 
