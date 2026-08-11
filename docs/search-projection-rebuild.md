@@ -155,6 +155,12 @@ row was walked, and admission ran to whatever the full age window happened to we
 Measured on a 408,893-event store: `recent_source_bytes` stayed pinned at 690,430,718
 against a 690,432,000 ceiling for the whole walk.
 
+Every figure on this page was measured on `modernc.org/sqlite v1.55.0`. v0.34.0 ships
+v1.56.0, taken for an upstream journal-rollback corruption fix that does not touch
+storage layout or throughput. The figures are reported as what they are — measurements
+of the engine they were taken on — rather than restated as exact properties of the
+shipped binary.
+
 ### The rebuild peak is not bounded
 
 Bounding admitted source text does **not** bound index bytes, and the difference is
