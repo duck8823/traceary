@@ -4,7 +4,7 @@
 
 検索プロジェクションは派生データです。正本のイベントとコマンド監査からいつでも再構築でき、プロジェクションのライフサイクル操作が正本を変更することはありません。v0.34 以降、complete な世代は `traceary search` に fingerprint pre-filter と session tier を提供します。本文一致は正本テーブルを新しい順に走査して復号する経路で判定し、再構築後に記録されたイベントも統合するため、再構築の合間に結果が古くなることはありません。
 
-世代を一度も作っていない store でも、オペレータのコマンドは不要です。store を開くたびに generation 作業を上限付きで 1 単位進めます。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。この間も検索は機能します。世代が `complete` でない状態は fingerprint による pre-filter が使えないことを意味するだけで、候補を直接復号して正しい結果を返します。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。
+世代を一度も作っていない store でも、オペレータのコマンドは不要です。store を開くたびに generation 作業を上限付きで 1 単位進めます。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。この間も本文一致の検索は機能します。世代が `complete` でない状態は fingerprint による pre-filter が使えないことを意味するだけで、候補を直接復号して本文一致は正しく返ります。session tier は別です。世代が complete になるまで参照を拒否するため、session の要約やキーワードにだけ存在する一致はそれまで返りません。`traceary search` はこれを伝えません。MCP の `search` tool だけが `session_projection_not_ready` として報告します（#1844）。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。
 
 オペレータは同じ機構を明示的に動かせます。`traceary store search-projection start`で世代を開始します。`resume`は上限付きバッチを1回実行します。複数のバッチを個別にコミットしながら実行する例を次に示します。
 
@@ -46,7 +46,7 @@ b-tree 割当であり、ソーステキストではありません。デフォ�
 | ティア | 比例する対象 | evict できない理由 |
 |---|---|---|
 | `search_projection_session_summaries` / `_session_keywords` / `_command_aggregates` | セッション数 | セッション一致を返す追加の面。落とすとその一致を失う |
-| `literal_search_fingerprints` | イベント数 | 欠けると pre-filter が fail open し、復号のコストが増えるだけで正しさは変わらない |
+| `literal_search_fingerprints` | イベント数 | pre-filter が fail open するのは、その event の行が 1 件も無い場合だけ。一部だけ落とすと復号前に除外され、遅くなるのではなく偽陰性になる |
 | `search_projection_source_sequence` / `_exclusions` | イベント数 | 再構築自体の台帳 |
 
 これらは導出時に**非 recent 予備枠**として予算から先に差し引かれます。ファミリ合計に

@@ -4,7 +4,7 @@
 
 The search projection is derived: it can always be rebuilt from canonical events and command audits, and projection lifecycle commands never change them. Since v0.34 a complete generation supplies the fingerprint pre-filter and the session tier to `traceary search`; literal matches still come from the newest-first decode walk over canonical tables, with events recorded after the rebuild merged in so results do not go stale between rebuilds.
 
-Stores that have never built a generation do not need an operator command. Every store open runs one bounded unit of generation work: start if idle and source events exist, otherwise resume a matching rebuild. Search works throughout — a generation that is not yet `complete` only means the fingerprint pre-filter is unavailable, so candidates are decoded directly and results stay correct. Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only.
+Stores that have never built a generation do not need an operator command. Every store open runs one bounded unit of generation work: start if idle and source events exist, otherwise resume a matching rebuild. Literal search works throughout: a generation that is not yet `complete` only means the fingerprint pre-filter is unavailable, so candidates are decoded directly and literal matches stay correct. The session tier is a different matter — it is refused until a generation is complete, so a match that exists only in a session summary or its keywords is absent until then. `traceary search` does not say so; the MCP `search` tool reports it as `session_projection_not_ready` (#1844). Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only.
 
 Operators can still drive the same machinery explicitly. Start a generation with `traceary store search-projection start`. Resume one durable bounded batch with `resume`, or run multiple independently committed batches:
 
@@ -76,7 +76,7 @@ it:
 | tier | grows with | why it cannot be evicted |
 |---|---|---|
 | `search_projection_session_summaries`, `_session_keywords`, `_command_aggregates` | number of sessions | it is an additional session-match surface; dropping it loses those matches |
-| `literal_search_fingerprints` | number of events | a missing fingerprint makes the pre-filter fail open and costs decoding, not correctness |
+| `literal_search_fingerprints` | number of events | the pre-filter fails open only for an event with *no* rows at all; drop some of an event's rows and it is excluded before decoding — a false negative, not a slower answer |
 | `search_projection_source_sequence`, `_exclusions` | number of events | they are the rebuild's own bookkeeping |
 
 These tiers enter the derivation as the **non-recent reserve**, subtracted from the
