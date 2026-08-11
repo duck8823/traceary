@@ -19,6 +19,10 @@ then performs an atomic same-filesystem exchange. The original inode is kept as
 a rollback artifact. A source with `-wal`, `-shm`, or `-journal` sidecars, a
 still-resident legacy search index family, insufficient free space, changed
 file identity, or an unsupported atomic-exchange platform fails closed.
+The preflight requires 1.1 times the source store size in free space because
+the candidate size is unknown until `VACUUM INTO` finishes, and the original
+source-size rollback copy remains after success. See [store compact disk
+cost](../operations/store-compact-disk-cost.md) for the operator guidance.
 
 The legacy search index check runs before the source digest, so it fails in
 seconds rather than after hashing a multi-GiB store. Compacting first would

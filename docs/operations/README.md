@@ -7,6 +7,9 @@ It is intentionally candid about what Traceary assumes today, what is merely bes
 
 The v0.31 retention release decision and copied-store recovery evidence are recorded in [v0.31 retention copied-store dogfood](./retention-dogfood-v0.31.md).
 
+The complete disk cost of `store compact`, including its retained rollback
+copy, is documented in [store compact disk cost](./store-compact-disk-cost.md).
+
 ## SQLite concurrency model
 
 Traceary relies on SQLite itself for cross-process coordination.
