@@ -418,8 +418,8 @@ func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 	if !got.DryRun() {
 		t.Fatal("DryRun() = false, want true")
 	}
-	if !got.Complete() {
-		t.Fatal("Complete() = false, want true")
+	if got.HasMore() {
+		t.Fatal("HasMore() = true, want false")
 	}
 	if len(refine.calls) != 0 {
 		t.Fatalf("Refine calls = %d, want 0 on dry-run", len(refine.calls))
@@ -584,9 +584,6 @@ func TestOrphanConsolidationUsecase_BoundedPassReturnsLimitAndHasMore(t *testing
 	if !got.HasMore() {
 		t.Fatal("HasMore() = false, want true")
 	}
-	if got.Complete() {
-		t.Fatal("Complete() = true, want false when HasMore")
-	}
 	if len(refine.calls) != 2 {
 		t.Fatalf("Refine calls = %d, want 2", len(refine.calls))
 	}
@@ -627,8 +624,8 @@ func TestOrphanConsolidationUsecase_SingleFailureIsSkippedAndCounted(t *testing.
 	if diff := cmp.Diff(1, got.Skipped()); diff != "" {
 		t.Fatalf("Skipped mismatch (-want +got):\n%s", diff)
 	}
-	if !got.Complete() {
-		t.Fatal("Complete() = false, want true when skipped candidates are the only remaining work")
+	if got.HasMore() {
+		t.Fatal("HasMore() = true, want false when skipped candidates are the only work the pass found")
 	}
 	failures := got.Failures().Items()
 	if diff := cmp.Diff([]string{"sess-bad"}, []string{failures[0].SessionID()}); diff != "" {

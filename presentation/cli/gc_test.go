@@ -285,6 +285,50 @@ func TestRootCLI_GCCommand(t *testing.T) {
 					"  sess-bad-1: invalid created_at\n" +
 					"  sess-bad-2: missing event timestamp\n",
 			},
+			{
+				// Both facts are true at once, and neither is allowed to
+				// swallow the other: two ranges will never consolidate, and
+				// there is still real work a re-run would do. The failure
+				// listing says the first, the trailing line says the second,
+				// and the operator can act on both.
+				name: "Skipped and HasMore",
+				result: apptypes.OrphanConsolidationResultOf(10, 7, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf("sess-bad-1", "invalid created_at"),
+				), true, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 7\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Skipped orphan range failures (re-running gc will skip these again):\n" +
+					"  sess-bad-1: invalid created_at\n" +
+					"More orphan ranges remain; re-run gc to continue consolidation\n",
+			},
+			{
+				// A wrapped error chain carries newlines. Printed verbatim the
+				// continuation lines would read as further sessions, so the
+				// reason is collapsed to one line.
+				name: "multi-line reason stays on one line",
+				result: apptypes.OrphanConsolidationResultOf(1, 0, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf("sess-bad-1", "load orphan range:\n    parse created_at:\n        empty value"),
+				), false, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 0\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Skipped orphan range failures (re-running gc will skip these again):\n" +
+					"  sess-bad-1: load orphan range: parse created_at: empty value\n",
+			},
+			{
+				// An error that embeds a row value or a query is unbounded.
+				// The listing stays readable; the full text is in the log.
+				name: "over-long reason is elided",
+				result: apptypes.OrphanConsolidationResultOf(1, 0, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf("sess-bad-1", strings.Repeat("x", 260)),
+				), false, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 0\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Skipped orphan range failures (re-running gc will skip these again):\n" +
+					"  sess-bad-1: " + strings.Repeat("x", 200) + "\u2026\n",
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -312,8 +356,13 @@ func TestRootCLI_GCCommand(t *testing.T) {
 	})
 
 	t.Run("caps and declares skipped failure details", func(t *testing.T) {
-		failures := make([]apptypes.OrphanConsolidationFailure, 0, apptypes.MaxOrphanConsolidationFailures()+2)
-		for i := 0; i < apptypes.MaxOrphanConsolidationFailures()+2; i++ {
+		// The cap is written here as a literal rather than read from the type.
+		// It is a promise to the operator about how much output one run can
+		// produce, so the test has to fail when the promise changes; sharing a
+		// constant with the implementation would make it agree with itself.
+		const listed = 10
+		failures := make([]apptypes.OrphanConsolidationFailure, 0, listed+2)
+		for i := 0; i < listed+2; i++ {
 			failures = append(failures, apptypes.OrphanConsolidationFailureOf(
 				fmt.Sprintf("sess-bad-%02d", i), "invalid created_at",
 			))
@@ -337,8 +386,8 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 		got := stdout.String()
-		if strings.Count(got, "  sess-bad-") != apptypes.MaxOrphanConsolidationFailures() {
-			t.Fatalf("listed failure count = %d, want %d; stdout = %q", strings.Count(got, "  sess-bad-"), apptypes.MaxOrphanConsolidationFailures(), got)
+		if strings.Count(got, "  sess-bad-") != listed {
+			t.Fatalf("listed failure count = %d, want %d; stdout = %q", strings.Count(got, "  sess-bad-"), listed, got)
 		}
 		if !strings.Contains(got, "Only the first 10 skipped orphan range failures are listed.") {
 			t.Fatalf("stdout missing truncation notice: %q", got)
