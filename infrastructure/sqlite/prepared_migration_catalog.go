@@ -74,8 +74,12 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	57: {57, "000057_add_search_projection_exclusions.sql", "8d7c63f873ef1d0358078a03a3704e8ae95615035d6521f466f23aba94283435", MigrationConstantInPlace},
 	// 58 adds a constant-default column and updates only singleton/lifecycle rows; it does not scan store-sized data.
 	58: {58, "000058_bound_recent_projection_source_bytes.sql", "9372a60c1c89910bae7d9ebd57c80e92837cb1ea55699a02122a987e53f5d155", MigrationConstantInPlace},
-	// 59 drops an unused index; no row data or query semantics change.
-	59: {59, "000059_drop_literal_search_fingerprint_candidate_index.sql", "c1403cd23a504a490dd896f9a0b37db0a24fba3ba4885ed96a0f38286132b468", MigrationConstantInPlace},
+	// 59 drops an unused index; no row data or query semantics change. In place
+	// despite the object's size: dropping an index moves its pages to the
+	// freelist rather than rewriting them, measured at 0.096s for 118,489,088
+	// bytes on a 7.1 GB store. Migration 52 forbids DROPs that would block
+	// store open; this one is two orders of magnitude away from that.
+	59: {59, "000059_drop_literal_search_fingerprint_candidate_index.sql", "70874ea5b244fc361b82f1e3fa9f1fbff30437dc77ebd7f9fedf7ab53ef6e62b", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

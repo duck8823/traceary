@@ -283,31 +283,86 @@ func TestTieredAuthorityFingerprintReadersUsePrimaryKeyAfterCandidateIndexDrop(t
 		t.Fatalf("EXPLAIN QUERY PLAN error = %v", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var plan strings.Builder
+	var details []string
 	for rows.Next() {
 		var id, parent, unused int
 		var detail string
 		if err = rows.Scan(&id, &parent, &unused, &detail); err != nil {
 			t.Fatal(err)
 		}
-		plan.WriteString(detail)
-		plan.WriteByte('\n')
+		details = append(details, strings.ToLower(detail))
 	}
 	if err = rows.Err(); err != nil {
 		t.Fatal(err)
 	}
+	plan := strings.Join(details, "\n")
 
-	normalized := strings.ToLower(plan.String())
+	// Matched per row rather than against the joined plan, and without the
+	// word between "using" and the index name: SQLite writes "USING INDEX" or
+	// "USING COVERING INDEX" depending on whether the row is satisfied from
+	// the index alone, and which one it picks is not the property under test.
+	// Pinning the exact phrase would turn an irrelevant planner detail into a
+	// red build.
 	for _, reader := range []string{"known", "matched"} {
 		t.Run(reader, func(t *testing.T) {
-			want := "search " + reader + " using index sqlite_autoindex_literal_search_fingerprints_1"
-			if !strings.Contains(normalized, want) {
-				t.Fatalf("fingerprint reader does not use the primary key; want %q in:\n%s", want, plan.String())
+			for _, detail := range details {
+				if strings.HasPrefix(detail, "search "+reader+" using") &&
+					strings.Contains(detail, "sqlite_autoindex_literal_search_fingerprints_1") {
+					return
+				}
 			}
+			t.Fatalf("fingerprint reader %q does not resolve through the primary key:\n%s", reader, plan)
 		})
 	}
-	if strings.Contains(normalized, "idx_literal_search_fingerprint_candidate") {
-		t.Fatalf("fingerprint query plan still names the dropped candidate index:\n%s", plan.String())
+	if strings.Contains(plan, "idx_literal_search_fingerprint_candidate") {
+		t.Fatalf("fingerprint query plan still names the dropped candidate index:\n%s", plan)
+	}
+}
+
+// TestLiteralFingerprintCascadeSurvivesCandidateIndexDrop covers the one plan
+// that did name the dropped index: the ON DELETE CASCADE child lookup from
+// search_projection_source_sequence. It only ever used it as a full covering
+// scan -- source_sequence is the third column, so a seek needs ANALYZE, which
+// this store never runs -- but the cascade must still delete the right rows
+// once the index is gone, and a foreign key that silently stops cascading
+// leaves orphaned fingerprints that no reader can tell from real ones.
+func TestLiteralFingerprintCascadeSurvivesCandidateIndexDrop(t *testing.T) {
+	ctx := context.Background()
+	database, _ := newTieredAuthorityFixture(t)
+	insertTieredSearchEvent(t, database, "cascade-parent", "cascade needle", time.Now().UTC())
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	if _, err = raw.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
+		t.Fatal(err)
+	}
+
+	var sequence int64
+	if err = raw.QueryRowContext(ctx,
+		`SELECT sequence FROM search_projection_source_sequence WHERE event_id='cascade-parent'`).Scan(&sequence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `
+		INSERT INTO literal_search_fingerprints(generation_id,source_sequence,event_id,fingerprint,fingerprint_version)
+		VALUES('cascade-generation',?,'cascade-parent',randomblob(16),1)`, sequence); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = raw.ExecContext(ctx,
+		`DELETE FROM search_projection_source_sequence WHERE sequence=?`, sequence); err != nil {
+		t.Fatal(err)
+	}
+
+	var orphaned int
+	if err = raw.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM literal_search_fingerprints WHERE source_sequence=?`, sequence).Scan(&orphaned); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(0, orphaned); diff != "" {
+		t.Fatalf("cascade left fingerprints behind (-want +got):\n%s", diff)
 	}
 }
 
