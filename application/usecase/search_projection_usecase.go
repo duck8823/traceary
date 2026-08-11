@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math/bits"
 	"strings"
 	"time"
 
@@ -209,6 +210,27 @@ func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.Se
 	return result, nil
 }
 
+// resumeCatchUpBatch uses the same adaptive loop as the operator's
+// ResumeUntil path. The number of attempts is the halving floor expressed in
+// wall time: each failed attempt halves the row budget until one row, followed
+// by the final one-row attempt. This keeps a store open from inheriting an
+// unbounded retry cost from transient lock contention.
+func (u *SearchProjectionUsecase) resumeCatchUpBatch(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	result, err := u.ResumeUntil(ctx, b, apptypes.SearchProjectionRunOptions{
+		MaxBatches: 1,
+		// Resume bounds the whole attempt with WallTime, including status reads,
+		// planning, and transaction setup. The total bound must use that same
+		// unit so adaptive shrinking can reach its one-row floor.
+		TotalWallTime: time.Duration(bits.Len(uint(b.Rows))) * b.WallTime,
+	}, now)
+	if err == nil && result.Batches == 0 {
+		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{
+			Reason: "catch-up total wall time bound exhausted before a batch was committed",
+		}
+	}
+	return result.Progress, err
+}
+
 func (u *SearchProjectionUsecase) Abandon(ctx context.Context, now time.Time) (apptypes.SearchProjectionAbandonResult, error) {
 	store, ok := u.store.(SearchProjectionAbandonStore)
 	if !ok {
@@ -309,7 +331,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		}
 		out.Action = "start"
 		out.GenerationID = generation.GenerationID
-		progress, resumeErr := u.Resume(ctx, b, now.UTC())
+		progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 		if resumeErr != nil {
 			return out, resumeErr
 		}
@@ -371,7 +393,10 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		out.SkippedReason = "projection state " + status.State + " is not auto-catchable"
 		return out, nil
 	}
-	progress, resumeErr := u.Resume(ctx, b, now.UTC())
+	// A lock-duration cap may be transient contention, so this path retries on
+	// the next open instead of parking the generation as a deterministic row
+	// failure. Oversized rows retain the existing explicit failure transition.
+	progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 	if resumeErr != nil {
 		return out, resumeErr
 	}
