@@ -18,6 +18,10 @@ import (
 
 var errOrphanConsolidationStub = errors.New("orphan consolidation failed")
 
+func orphanFailures(failures ...apptypes.OrphanConsolidationFailure) apptypes.OrphanConsolidationFailures {
+	return apptypes.OrphanConsolidationFailuresOf(failures)
+}
+
 type orphanConsolidationStub struct {
 	result  apptypes.OrphanConsolidationResult
 	err     error
@@ -46,7 +50,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(0, 0, 0, false, true),
+			result: apptypes.OrphanConsolidationResultOf(0, 0, apptypes.OrphanConsolidationFailuresOf(nil), false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -77,7 +81,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(0, 0, 0, false, false),
+			result: apptypes.OrphanConsolidationResultOf(0, 0, apptypes.OrphanConsolidationFailuresOf(nil), false, false),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -168,7 +172,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 					callLog:  &calls,
 				}
 				orphan := &orphanConsolidationStub{
-					result:  apptypes.OrphanConsolidationResultOf(1, 1, 0, false, dryRun),
+					result:  apptypes.OrphanConsolidationResultOf(1, 1, apptypes.OrphanConsolidationFailuresOf(nil), false, dryRun),
 					callLog: &calls,
 				}
 				rootCmd := cli.NewRootCLI(
@@ -263,18 +267,109 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}{
 			{
 				name:   "HasMore",
-				result: apptypes.OrphanConsolidationResultOf(5000, 5000, 0, true, false),
+				result: apptypes.OrphanConsolidationResultOf(5000, 5000, apptypes.OrphanConsolidationFailuresOf(nil), true, false),
 				want: "Collected: 99\n" +
 					"Orphan refinements: 5000\n" +
 					"More orphan ranges remain; re-run gc to continue consolidation\n",
 			},
 			{
-				name:   "Skipped",
-				result: apptypes.OrphanConsolidationResultOf(10, 8, 2, false, false),
+				name: "Skipped",
+				result: apptypes.OrphanConsolidationResultOf(10, 8, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf("sess-bad-1", "invalid created_at"),
+					apptypes.OrphanConsolidationFailureOf("sess-bad-2", "missing event timestamp"),
+				), false, false),
 				want: "Collected: 99\n" +
 					"Orphan refinements: 8\n" +
 					"Orphan ranges skipped: 2\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-bad-1: invalid created_at\n" +
+					"  sess-bad-2: missing event timestamp\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
+			},
+			{
+				// Both facts are true at once, and neither is allowed to
+				// swallow the other: two ranges will never consolidate, and
+				// there is still real work a re-run would do. The failure
+				// listing says the first, the trailing line says the second,
+				// and the operator can act on both.
+				name: "Skipped and HasMore",
+				result: apptypes.OrphanConsolidationResultOf(10, 7, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf("sess-bad-1", "invalid created_at"),
+				), true, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 7\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-bad-1: invalid created_at\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n" +
 					"More orphan ranges remain; re-run gc to continue consolidation\n",
+			},
+			{
+				// A wrapped error chain carries newlines. Printed verbatim the
+				// continuation lines would read as further sessions, so the
+				// reason is collapsed to one line.
+				name: "multi-line reason stays on one line",
+				result: apptypes.OrphanConsolidationResultOf(1, 0, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf("sess-bad-1", "load orphan range:\n    parse created_at:\n        empty value"),
+				), false, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 0\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-bad-1: load orphan range: parse created_at: empty value\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
+			},
+			{
+				// An error that embeds a row value or a query is unbounded.
+				// The listing stays readable; the full text is in the log.
+				name: "over-long reason is elided",
+				result: apptypes.OrphanConsolidationResultOf(1, 0, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf("sess-bad-1", strings.Repeat("x", 260)),
+				), false, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 0\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-bad-1: " + strings.Repeat("x", 200) + "\u2026\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
+			},
+			{
+				// Both fields are read back out of the store, so both carry
+				// whatever a hook wrote \u2014 the reason quotes row values, and a
+				// session id is only trimmed on the way in. An ESC sequence
+				// reaching the terminal could erase the lines around it,
+				// including the ones this listing exists to show, so it is
+				// removed before either is printed.
+				name: "terminal control sequences are removed from both fields",
+				result: apptypes.OrphanConsolidationResultOf(1, 0, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf(
+						"sess-\x1b[2Jbad",
+						"invalid created_at \x1b[1;31m\"\"\x1b[0m",
+					),
+				), false, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 0\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-[2Jbad: invalid created_at [1;31m\"\"[0m\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
+			},
+			{
+				// Elision cuts at a rune count, which can fall between an
+				// escape and its reset. Stripping first means there is no
+				// sequence left to cut in half.
+				name: "an escape cannot survive elision",
+				result: apptypes.OrphanConsolidationResultOf(1, 0, orphanFailures(
+					apptypes.OrphanConsolidationFailureOf(
+						"sess-bad-1", strings.Repeat("y", 195)+"\x1b[8m"+strings.Repeat("z", 60)+"\x1b[0m",
+					),
+				), false, false),
+				want: "Collected: 99\n" +
+					"Orphan refinements: 0\n" +
+					"Orphan ranges skipped: 1\n" +
+					"Each skipped orphan range, with the reason it failed:\n" +
+					"  sess-bad-1: " + strings.Repeat("y", 195) + "[8m" + strings.Repeat("z", 2) + "\u2026\n" +
+					"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n",
 			},
 		}
 		for _, tt := range tests {
@@ -302,6 +397,48 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("caps and declares skipped failure details", func(t *testing.T) {
+		// The cap is written here as a literal rather than read from the type.
+		// It is a promise to the operator about how much output one run can
+		// produce, so the test has to fail when the promise changes; sharing a
+		// constant with the implementation would make it agree with itself.
+		const listed = 10
+		failures := make([]apptypes.OrphanConsolidationFailure, 0, listed+2)
+		for i := 0; i < listed+2; i++ {
+			failures = append(failures, apptypes.OrphanConsolidationFailureOf(
+				fmt.Sprintf("sess-bad-%02d", i), "invalid created_at",
+			))
+		}
+		storeMaint := &storeManagementUsecaseStub{
+			gcResult: apptypes.CollectGarbageResultOf(0, time.Time{}, false),
+		}
+		orphan := &orphanConsolidationStub{
+			result: apptypes.OrphanConsolidationResultOf(12, 0, orphanFailures(failures...), false, false),
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(storeMaint),
+			cli.WithOrphanConsolidation(orphan),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"store", "gc", "--db-path", "/tmp/traceary.db", "--keep-days", "30"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		got := stdout.String()
+		if strings.Count(got, "  sess-bad-") != listed {
+			t.Fatalf("listed failure count = %d, want %d; stdout = %q", strings.Count(got, "  sess-bad-"), listed, got)
+		}
+		if !strings.Contains(got, "Only the first 10 skipped orphan ranges are listed.") {
+			t.Fatalf("stdout missing truncation notice: %q", got)
+		}
+		if strings.Contains(got, "sess-bad-10") {
+			t.Fatalf("stdout listed a failure beyond the cap: %q", got)
+		}
+	})
+
 	// The discard reads the coverage that exists when the run begins, so what
 	// this run folds is what the next run discards. Folding therefore never
 	// suppresses the discard, and the count does not depend on how much was
@@ -320,7 +457,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 					gcResult: apptypes.CollectGarbageResultOf(2, time.Time{}, false),
 				}
 				orphan := &orphanConsolidationStub{
-					result: apptypes.OrphanConsolidationResultOf(tt.produced, tt.produced, 0, false, false),
+					result: apptypes.OrphanConsolidationResultOf(tt.produced, tt.produced, apptypes.OrphanConsolidationFailuresOf(nil), false, false),
 				}
 				stdout := &bytes.Buffer{}
 				rootCmd := cli.NewRootCLI(
@@ -350,7 +487,7 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(3, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(2, 2, 0, false, true),
+			result: apptypes.OrphanConsolidationResultOf(2, 2, apptypes.OrphanConsolidationFailuresOf(nil), false, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -376,7 +513,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 			gcResult: apptypes.CollectGarbageResultOf(7, time.Time{}, true),
 		}
 		orphan := &orphanConsolidationStub{
-			result: apptypes.OrphanConsolidationResultOf(5, 4, 1, true, true),
+			result: apptypes.OrphanConsolidationResultOf(5, 4, orphanFailures(
+				apptypes.OrphanConsolidationFailureOf("sess-bad", "invalid created_at"),
+			), true, true),
 		}
 		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
@@ -393,6 +532,9 @@ func TestRootCLI_GCCommand(t *testing.T) {
 		want := "Candidates: 7\n" +
 			"Orphan refinement candidates: 4\n" +
 			"Orphan ranges skipped: 1\n" +
+			"Each skipped orphan range, with the reason it failed:\n" +
+			"  sess-bad: invalid created_at\n" +
+			"Re-running gc retries these; a range whose data cannot be read fails the same way each time.\n" +
 			"More orphan ranges remain; re-run gc to continue consolidation\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

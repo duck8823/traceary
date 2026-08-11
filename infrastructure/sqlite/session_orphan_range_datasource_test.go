@@ -893,8 +893,8 @@ func TestSessionOrphanRangeDatasource_DiscoveryPlanUsesNormalizedTimestampIndex(
 // with ts_norm(created_at). If an inserted row could leave created_at_norm NULL
 // or disagreeing, SQLite would sort it last, discovery would read an older
 // event as the latest, and the session would be dropped from the candidate set
-// — after which Complete() reports a clean pass and deletion removes events
-// that were never folded.
+// — after which the pass reports no remaining candidates and deletion removes
+// events that were never folded.
 //
 // migrate_test covers the migration-031 backfill. This covers the trigger path
 // that every later insert takes.

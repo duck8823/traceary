@@ -411,15 +411,15 @@ func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Consolidate() error = %v", err)
 	}
-	want := apptypes.OrphanConsolidationResultOf(1, 1, 0, false, true)
+	want := apptypes.OrphanConsolidationResultOf(1, 1, apptypes.OrphanConsolidationFailuresOf(nil), false, true)
 	if diff := cmp.Diff(want.ProducedCount(), got.ProducedCount()); diff != "" {
 		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
 	}
 	if !got.DryRun() {
 		t.Fatal("DryRun() = false, want true")
 	}
-	if !got.Complete() {
-		t.Fatal("Complete() = false, want true")
+	if got.HasMore() {
+		t.Fatal("HasMore() = true, want false")
 	}
 	if len(refine.calls) != 0 {
 		t.Fatalf("Refine calls = %d, want 0 on dry-run", len(refine.calls))
@@ -584,9 +584,6 @@ func TestOrphanConsolidationUsecase_BoundedPassReturnsLimitAndHasMore(t *testing
 	if !got.HasMore() {
 		t.Fatal("HasMore() = false, want true")
 	}
-	if got.Complete() {
-		t.Fatal("Complete() = true, want false when HasMore")
-	}
 	if len(refine.calls) != 2 {
 		t.Fatalf("Refine calls = %d, want 2", len(refine.calls))
 	}
@@ -627,8 +624,15 @@ func TestOrphanConsolidationUsecase_SingleFailureIsSkippedAndCounted(t *testing.
 	if diff := cmp.Diff(1, got.Skipped()); diff != "" {
 		t.Fatalf("Skipped mismatch (-want +got):\n%s", diff)
 	}
-	if got.Complete() {
-		t.Fatal("Complete() = true, want false when skipped > 0")
+	if got.HasMore() {
+		t.Fatal("HasMore() = true, want false when skipped candidates are the only work the pass found")
+	}
+	failures := got.Failures().Items()
+	if diff := cmp.Diff([]string{"sess-bad"}, []string{failures[0].SessionID()}); diff != "" {
+		t.Fatalf("failure session mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("failed to load orphan material for session sess-bad: orphan material load failed", failures[0].Reason()); diff != "" {
+		t.Fatalf("failure reason mismatch (-want +got):\n%s", diff)
 	}
 	if len(refine.calls) != 2 {
 		t.Fatalf("Refine calls = %d, want 2", len(refine.calls))

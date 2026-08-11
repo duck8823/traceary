@@ -140,6 +140,36 @@ func (c *RootCLI) runGC(ctx context.Context, output io.Writer, input gcCommandIn
 	return printOrphanResult(output, input.dryRun, orphanResult)
 }
 
+// maxOrphanFailureReasonRunes bounds one reported reason. The reasons are
+// wrapped error chains, which are unbounded in principle and can carry a
+// query or a row value; a listing whose lines can be arbitrarily long stops
+// being readable exactly when there is most to read. The full text is still
+// written to the log by the usecase, so nothing is lost, only shortened here.
+const maxOrphanFailureReasonRunes = 200
+
+// singleLineFailureReason renders one failure reason as exactly one line. A
+// wrapped error may contain newlines, and a multi-line reason would break the
+// "session: reason" shape the listing depends on — the second line would read
+// as if it were another session.
+//
+// Control characters go first, through the same helper the event listing uses.
+// A reason is a wrapped error chain that quotes values read out of the store,
+// so it can carry whatever a hook wrote; an ESC sequence reaching the terminal
+// could erase the lines around it, and elision at a fixed rune count can cut a
+// sequence off from its reset. Either turns this listing into the silent
+// nothing it exists to replace.
+func singleLineFailureReason(reason string) string {
+	collapsed := normalizeTabularColumn(reason)
+	if collapsed == "" {
+		return Localize("(no reason reported)", "(理由の報告なし)")
+	}
+	runes := []rune(collapsed)
+	if len(runes) <= maxOrphanFailureReasonRunes {
+		return collapsed
+	}
+	return string(runes[:maxOrphanFailureReasonRunes]) + "…"
+}
+
 // printOrphanResult reports the consolidation half of a run. Only the produced
 // count reads differently between a preview and an apply; the rest is one
 // message set, so it is written once.
@@ -155,10 +185,46 @@ func printOrphanResult(output io.Writer, dryRun bool, result apptypes.OrphanCons
 		if _, err := fmt.Fprintf(output, "%s: %d\n", Localize("Orphan ranges skipped", "orphan range のスキップ"), result.Skipped()); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
 		}
+		if _, err := fmt.Fprintf(output, "%s\n", Localize(
+			"Each skipped orphan range, with the reason it failed:",
+			"スキップした orphan range と失敗した理由:",
+		)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+		}
+		failures := result.Failures().Items()
+		for _, failure := range failures {
+			if _, err := fmt.Fprintf(output, "  %s: %s\n", normalizeTabularColumn(failure.SessionID()), singleLineFailureReason(failure.Reason())); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+			}
+		}
+		if result.Failures().Truncated() {
+			if _, err := fmt.Fprintf(output, Localize(
+				"Only the first %d skipped orphan ranges are listed.\n",
+				"スキップした orphan range は先頭 %d 件だけ表示しています。\n",
+			), len(failures)); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+			}
+		}
+		// Deliberately not "re-running will skip these again". A skip can come
+		// from data that cannot be read, which recurs, or from a lock or a
+		// contended write, which does not — and the command cannot tell the two
+		// apart, because both arrive as one wrapped error. Promising recurrence
+		// would replace the #1795 loop with its mirror image: an operator who
+		// stops re-running a range that would have consolidated next pass. The
+		// reason is printed because it is what distinguishes them.
+		if _, err := fmt.Fprintf(output, "%s\n", Localize(
+			"Re-running gc retries these; a range whose data cannot be read fails the same way each time.",
+			"gc を再実行するとこれらも再試行します。データを読めない range は毎回同じ理由で失敗します",
+		)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print gc result", "gc 結果の出力に失敗しました"), err)
+		}
 	}
-	// A target that does not consolidate leaves the zero result, which is
-	// complete, so this stays silent rather than claiming ranges remain.
-	if !result.Complete() {
+	// A target that does not consolidate leaves the zero result, which has no
+	// more candidates, so this stays silent rather than claiming ranges remain.
+	// It asks about remaining candidates and nothing else: a pass that skipped
+	// everything it found has no more work for a re-run to do, and telling the
+	// operator otherwise is what #1795 was.
+	if result.HasMore() {
 		if _, err := fmt.Fprintf(output, "%s\n", Localize(
 			"More orphan ranges remain; re-run gc to continue consolidation",
 			"orphan range が残っています。機械要約を続けるには gc を再実行してください",
