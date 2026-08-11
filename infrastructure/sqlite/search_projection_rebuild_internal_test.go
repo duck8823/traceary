@@ -484,6 +484,9 @@ func TestSearchProjectionAbandonIsIdempotentAndRestartKeepsCanonicalHistory(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = db.Exec(`INSERT INTO search_projection_exclusions(generation_id,source_sequence,event_id,class,measured_bytes,byte_limit) VALUES(?,?,?,?,?,?)`, first.GenerationID, 1, "canonical", "stored_bytes", 2, 1); err != nil {
+		t.Fatal(err)
+	}
 	abandoned, err := store.AbandonSearchProjection(ctx, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -502,6 +505,10 @@ func TestSearchProjectionAbandonIsIdempotentAndRestartKeepsCanonicalHistory(t *t
 	}
 	if active.Valid || count != 1 {
 		t.Fatalf("active=%v canonical=%d", active, count)
+	}
+	var exclusions int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM search_projection_exclusions WHERE generation_id=?`, first.GenerationID).Scan(&exclusions); err != nil || exclusions != 0 {
+		t.Fatalf("abandoned exclusions=%d err=%v, want 0", exclusions, err)
 	}
 	b.Rows = 2
 	second, err := store.Start(ctx, b, time.Now())
@@ -695,8 +702,14 @@ func TestSearchProjectionUnavailableBodyAndOversizeArePublicBehavior(t *testing.
 	if _, err = store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = resumeProjection(ctx, store, b, now); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 8; i++ {
+		progress, resumeErr := resumeProjection(ctx, store, b, now)
+		if resumeErr != nil {
+			t.Fatal(resumeErr)
+		}
+		if progress.Completed {
+			break
+		}
 	}
 	for i := 0; i < 4; i++ {
 		status, statusErr := store.SearchProjectionStatus(ctx)
@@ -719,10 +732,63 @@ func TestSearchProjectionUnavailableBodyAndOversizeArePublicBehavior(t *testing.
 	if _, err = store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	_, err = resumeProjection(ctx, store, b, now)
-	var oversized *apptypes.SearchProjectionOversizeError
-	if !errors.As(err, &oversized) {
-		t.Fatalf("error=%T %v", err, err)
+	for i := 0; i < 8; i++ {
+		progress, resumeErr := resumeProjection(ctx, store, b, now)
+		if resumeErr != nil {
+			t.Fatal(resumeErr)
+		}
+		if progress.Completed {
+			break
+		}
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil || status.ExclusionCount != 1 || len(status.Exclusions) != 1 || status.Exclusions[0].EventID != "hidden" {
+		t.Fatalf("status=%+v err=%v, want one hidden exclusion", status, err)
+	}
+	var fingerprints int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM literal_search_fingerprints WHERE event_id='hidden'`).Scan(&fingerprints); err != nil || fingerprints != 0 {
+		t.Fatalf("excluded fingerprints=%d err=%v, want none", fingerprints, err)
+	}
+}
+
+func TestSearchProjectionStatusReportsRebuildingGenerationExclusions(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewDatabase(path, migrations)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = db.Exec(`
+		INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water)
+		VALUES('generation-a','complete','hash-a',0,0),('generation-b','rebuilding','hash-b',0,1);
+		UPDATE search_projection_state
+		SET generation_id='generation-b',active_generation_id='generation-a',state='rebuilding',phase='source',config_hash='hash-b'
+		WHERE singleton=1;
+		INSERT INTO search_projection_exclusions(generation_id,source_sequence,event_id,class,measured_bytes,byte_limit)
+		VALUES('generation-a',1,'old-event','stored_bytes',10,1),('generation-b',2,'new-event','write_bytes',200,100);`); err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff("generation-b", status.ExclusionGenerationID); diff != "" {
+		t.Fatalf("exclusion generation (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(int64(1), status.ExclusionCount); diff != "" {
+		t.Fatalf("exclusion count (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("new-event", status.Exclusions[0].EventID); diff != "" {
+		t.Fatalf("exclusion event (-want +got):\n%s", diff)
 	}
 }
 
@@ -895,7 +961,7 @@ func TestConcurrentApplyBatchFencesSameCheckpoint(t *testing.T) {
 	}
 }
 
-func TestSearchProjectionOversizeFailureAllowsLargerGeneration(t *testing.T) {
+func TestSearchProjectionOversizeRowIsExcludedAndGenerationCompletes(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
 	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
@@ -914,22 +980,27 @@ func TestSearchProjectionOversizeFailureAllowsLargerGeneration(t *testing.T) {
 	if _, err := store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	_, err := resumeProjection(ctx, store, b, now)
-	var oversized *apptypes.SearchProjectionOversizeError
-	if !errors.As(err, &oversized) {
-		t.Fatalf("error=%T %v", err, err)
+	for i := 0; i < 4; i++ {
+		progress, resumeErr := resumeProjection(ctx, store, b, now)
+		if resumeErr != nil {
+			t.Fatal(resumeErr)
+		}
+		if progress.Completed {
+			break
+		}
 	}
+	var err error
 	var state string
-	if err = db.QueryRow(`SELECT state FROM search_projection_state`).Scan(&state); err != nil || state != "failed" {
+	if err = db.QueryRow(`SELECT state FROM search_projection_state`).Scan(&state); err != nil || state != "complete" {
 		t.Fatalf("state=%q err=%v", state, err)
 	}
-	b.StoredBytes = 1 << 20
-	if _, err = store.Start(ctx, b, now); err != nil {
-		t.Fatalf("larger start: %v", err)
+	var exclusions int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM search_projection_exclusions WHERE event_id='large'`).Scan(&exclusions); err != nil || exclusions != 1 {
+		t.Fatalf("exclusions=%d err=%v", exclusions, err)
 	}
 }
 
-func TestSearchProjectionWritePlusCheckpointOversizeIsRecoverable(t *testing.T) {
+func TestSearchProjectionWritePlusCheckpointOversizeIsExcluded(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
 	migrations, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
@@ -944,26 +1015,21 @@ func TestSearchProjectionWritePlusCheckpointOversizeIsRecoverable(t *testing.T) 
 		t.Fatal(err)
 	}
 	b := projectionBudget()
-	b.WriteBytes = 250
+	b.WriteBytes = 180
 	if _, err := store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	_, err := resumeProjection(ctx, store, b, now)
-	var oversized *apptypes.SearchProjectionOversizeError
-	if !errors.As(err, &oversized) || oversized.Bytes <= b.WriteBytes {
-		t.Fatalf("error=%T %+v", err, oversized)
+	progress, err := resumeProjection(ctx, store, b, now)
+	if err != nil || progress.Selected != 1 || progress.Written != 0 {
+		t.Fatalf("progress=%+v err=%v, want one exclusion", progress, err)
 	}
 	var state string
-	if err = db.QueryRow(`SELECT state FROM search_projection_state`).Scan(&state); err != nil || state != "failed" {
+	if err = db.QueryRow(`SELECT state FROM search_projection_state`).Scan(&state); err != nil || state == "failed" {
 		t.Fatalf("state=%q err=%v", state, err)
 	}
-	b.WriteBytes = 1000
-	if _, err = store.Start(ctx, b, now); err != nil {
-		t.Fatalf("larger start: %v", err)
-	}
-	p, err := resumeProjection(ctx, store, b, now)
-	if err != nil || p.Written != 1 {
-		t.Fatalf("larger resume=%+v err=%v", p, err)
+	var exclusions int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM search_projection_exclusions WHERE event_id='e' AND class='write_bytes'`).Scan(&exclusions); err != nil || exclusions != 1 {
+		t.Fatalf("exclusions=%d err=%v", exclusions, err)
 	}
 }
 

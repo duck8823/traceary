@@ -603,12 +603,17 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 		if e = rows.Scan(&x.Sequence, &x.EventID, &x.SessionID, &x.CreatedAt, &avail, &x.Deleted, &x.StoredBytes, &x.DecodedBytes); e != nil {
 			return out, e
 		}
-		admitted, admissionErr := selection.AdmitSource(b, x.StoredBytes, x.DecodedBytes)
+		disposition, admissionErr := selection.AdmitSource(b, x.StoredBytes, x.DecodedBytes)
 		if admissionErr != nil {
 			return out, admissionErr
 		}
-		if !admitted {
+		if disposition == apptypes.ProjectionDispositionBatchFull {
 			break
+		}
+		x.Disposition = disposition
+		if disposition == apptypes.ProjectionDispositionExcluded {
+			out.Documents = append(out.Documents, x)
+			continue
 		}
 		if !x.Deleted {
 			var body string
@@ -644,6 +649,9 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 			_ = db.QueryRowContext(ctx, `SELECT COALESCE(failed,0) FROM command_audits WHERE event_id=?`, x.EventID).Scan(&x.FailureCount)
 			_ = db.QueryRowContext(ctx, `SELECT summary_text FROM search_projection_session_summaries WHERE generation_id=? AND session_id=?`, out.Generation.GenerationID, x.SessionID).Scan(&x.PreviousSummary)
 		}
+		if x.Deleted {
+			x.Disposition = apptypes.ProjectionDispositionDeleted
+		}
 		out.Documents = append(out.Documents, x)
 	}
 	if e = rows.Err(); e != nil {
@@ -672,11 +680,11 @@ func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.Proje
  ORDER BY created_at_norm,event_id,document_id LIMIT ?`
 		args = []any{out.Generation.GenerationID, projectionCutoff(now.Add(-b.RecentAge)), ceiling, b.Rows + 1}
 	} else if out.CleanupAll {
-		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords UNION ALL SELECT 'fingerprint',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16 FROM literal_search_fingerprints LIMIT ?`
+		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords UNION ALL SELECT 'fingerprint',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16 FROM literal_search_fingerprints UNION ALL SELECT 'exclusion',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(class AS BLOB))+32 FROM search_projection_exclusions LIMIT ?`
 		args = []any{b.Rows + 1}
 	} else {
-		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords WHERE generation_id<>? UNION ALL SELECT 'fingerprint',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16 FROM literal_search_fingerprints WHERE generation_id<>? LIMIT ?`
-		args = []any{out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, b.Rows + 1}
+		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords WHERE generation_id<>? UNION ALL SELECT 'fingerprint',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16 FROM literal_search_fingerprints WHERE generation_id<>? UNION ALL SELECT 'exclusion',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(class AS BLOB))+32 FROM search_projection_exclusions WHERE generation_id<>? LIMIT ?`
+		args = []any{out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, b.Rows + 1}
 	}
 	rows, e := db.QueryContext(ctx, q, args...)
 	if e != nil {
@@ -843,6 +851,12 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		}
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
+	for _, exclusion := range p.Exclusions {
+		if e = insertSearchProjectionExclusion(lockCtx, tx, p.GenerationID, exclusion); e != nil {
+			return out, e
+		}
+		out.Selected++
+	}
 	for _, w := range p.Writes {
 		d := w.Document
 		if !d.Deleted {
@@ -891,6 +905,8 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 			table = "search_projection_session_keywords"
 		case "fingerprint":
 			table = "literal_search_fingerprints"
+		case "exclusion":
+			table = "search_projection_exclusions"
 		default:
 			continue
 		}
@@ -1043,6 +1059,9 @@ func (d *Database) AbandonSearchProjection(ctx context.Context, now time.Time) (
 	if _, e = tx.ExecContext(ctx, `UPDATE literal_search_projection_state SET state='stale',updated_at=? WHERE singleton=1 AND generation_id=?`, formatTimestamp(now), generation); e != nil {
 		return out, e
 	}
+	if _, e = tx.ExecContext(ctx, `DELETE FROM search_projection_exclusions WHERE generation_id=?`, generation); e != nil {
+		return out, e
+	}
 	return out, tx.Commit()
 }
 
@@ -1086,6 +1105,9 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 		return s, e
 	}
 	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16),0) FROM literal_search_fingerprints WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.FingerprintRows, &s.FingerprintLogicalBytes); e != nil {
+		return s, e
+	}
+	if e = measureSearchProjectionExclusions(ctx, db, &s); e != nil {
 		return s, e
 	}
 	if e = db.QueryRowContext(ctx, selectSearchProjectionFTSLogicalBytesSQL).Scan(&s.FTSLogicalBytes); e != nil {

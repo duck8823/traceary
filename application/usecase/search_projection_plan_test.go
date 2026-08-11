@@ -78,15 +78,17 @@ func (*wallBudgetStore) MarkFailed(context.Context, string, int64, string, time.
 
 func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1000, DecodedBytes: 1000, WriteBytes: 100, RecentAge: time.Hour, IndexFamilyBytes: 1000}
+	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1000, DecodedBytes: 1000, WriteBytes: 110, RecentAge: time.Hour, IndexFamilyBytes: 1000}
 	s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{{Sequence: 1, Text: "small", StoredBytes: 5, DecodedBytes: 5}}}
-	_, err := usecase.PlanProjectionBatch(s, b)
-	var oversized *apptypes.SearchProjectionOversizeError
-	if !errors.As(err, &oversized) || oversized.Bytes <= b.WriteBytes {
-		t.Fatalf("error = %T %v, want required-total oversize", err, err)
+	p, err := usecase.PlanProjectionBatch(s, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Exclusions) != 1 || p.Exclusions[0].Class != "write_bytes" || p.NextCheckpoint != 1 {
+		t.Fatalf("exclusions = %+v checkpoint=%d, want one write_bytes exclusion at checkpoint 1", p.Exclusions, p.NextCheckpoint)
 	}
 	b.WriteBytes = 1000
-	p, err := usecase.PlanProjectionBatch(s, b)
+	p, err = usecase.PlanProjectionBatch(s, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +97,65 @@ func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 	}
 	if len(p.Writes) != 1 || p.Writes[0].LogicalBytes != 146 {
 		t.Fatalf("logical formula = %+v, want one 146-byte mutation including fingerprints", p.Writes)
+	}
+}
+
+func TestProjectionBatchPlanClassifiesAndSkipsRowsAtSourceBoundaries(t *testing.T) {
+	t.Parallel()
+	base := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 10, DecodedBytes: 10, WriteBytes: 10_000, RecentAge: time.Hour, IndexFamilyBytes: 1000}
+	tests := []struct {
+		name                    string
+		stored, decoded         int64
+		wantClass               string
+		wantMeasured, wantLimit int64
+	}{
+		{name: "stored boundary admitted", stored: 10, decoded: 5},
+		{name: "stored one over excluded", stored: 11, decoded: 10, wantClass: "stored_bytes", wantMeasured: 11, wantLimit: 10},
+		{name: "decoded boundary admitted", stored: 5, decoded: 10},
+		{name: "decoded one over excluded", stored: 5, decoded: 11, wantClass: "decoded_bytes", wantMeasured: 11, wantLimit: 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{{Sequence: 1, EventID: "e", SessionID: "s", Text: "body", StoredBytes: tt.stored, DecodedBytes: tt.decoded, Disposition: apptypes.ProjectionDispositionAdmitted}}}
+			p, err := usecase.PlanProjectionBatch(s, base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tt.wantClass, func() string {
+				if len(p.Exclusions) == 0 {
+					return ""
+				}
+				return p.Exclusions[0].Class
+			}()); diff != "" {
+				t.Fatalf("class (-want +got):\n%s", diff)
+			}
+			if tt.wantClass != "" {
+				got := p.Exclusions[0]
+				if diff := cmp.Diff([]int64{tt.wantMeasured, tt.wantLimit}, []int64{got.MeasuredBytes, got.ByteLimit}); diff != "" {
+					t.Fatalf("measurements (-want +got):\n%s", diff)
+				}
+			} else if len(p.Writes) != 1 {
+				t.Fatalf("writes=%d, want 1", len(p.Writes))
+			}
+		})
+	}
+}
+
+func TestProjectionBatchPlanExcludedRowDoesNotChainSummary(t *testing.T) {
+	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 10, WriteBytes: 10_000, RecentAge: time.Hour, IndexFamilyBytes: 1000}
+	s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{
+		{Sequence: 1, EventID: "excluded", SessionID: "s", Text: strings.Repeat("x", 148), StoredBytes: 5, DecodedBytes: 11, Disposition: apptypes.ProjectionDispositionExcluded},
+		{Sequence: 2, EventID: "small", SessionID: "s", Text: "tiny", StoredBytes: 5, DecodedBytes: 5, Disposition: apptypes.ProjectionDispositionAdmitted},
+	}}
+	p, err := usecase.PlanProjectionBatch(s, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Exclusions) != 1 || len(p.Writes) != 1 {
+		t.Fatalf("plan=%+v", p)
+	}
+	if strings.Contains(p.Writes[0].Summary, "xxx") {
+		t.Fatalf("excluded text leaked into summary: %q", p.Writes[0].Summary)
 	}
 }
 
@@ -262,8 +323,8 @@ func TestSearchProjectionConfigHashSeparatesSemanticAndThroughputBudgets(t *test
 		{name: "rows", mutate: func(b *apptypes.SearchProjectionBudget) { b.Rows = 1 }, match: true},
 		{name: "lock time", mutate: func(b *apptypes.SearchProjectionBudget) { b.LockTime = 2 * time.Second }, match: true},
 		{name: "wall time", mutate: func(b *apptypes.SearchProjectionBudget) { b.WallTime = 2 * time.Second }, match: true},
-		{name: "stored bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.StoredBytes = 101 }, match: true},
-		{name: "write bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.WriteBytes = 301 }, match: true},
+		{name: "stored bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.StoredBytes = 101 }, match: false},
+		{name: "write bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.WriteBytes = 301 }, match: false},
 		{name: "recent age", mutate: func(b *apptypes.SearchProjectionBudget) { b.RecentAge = 2 * time.Hour }, match: false},
 		{name: "index family bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.IndexFamilyBytes = 401 }, match: false},
 		{name: "decoded bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.DecodedBytes = 201 }, match: false},
@@ -276,6 +337,39 @@ func TestSearchProjectionConfigHashSeparatesSemanticAndThroughputBudgets(t *test
 				t.Fatalf("hash match (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestSearchProjectionResumeRejectsChangedStoredBytes(t *testing.T) {
+	t.Parallel()
+	base := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 100, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	changed := base
+	changed.StoredBytes++
+	store := &wallBudgetStore{budget: base}
+	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), changed, time.Now())
+	if diff := cmp.Diff("search projection made no progress: budget does not match generation configuration", err.Error()); diff != "" {
+		t.Fatalf("error (-want +got):\n%s", diff)
+	}
+}
+
+func TestPlanProjectionBatchFailsWhenOnlyTheExclusionCannotFit(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 100, WriteBytes: 120, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	s := apptypes.ProjectionSnapshot{
+		Generation: apptypes.SearchProjectionGeneration{GenerationID: "generation"},
+		Phase:      "source",
+		Documents:  []apptypes.ProjectionDocument{{Sequence: 1, EventID: "event", StoredBytes: 2, DecodedBytes: 2}},
+	}
+	_, err := usecase.PlanProjectionBatch(s, b)
+	var oversized *apptypes.SearchProjectionOversizeError
+	if !errors.As(err, &oversized) {
+		t.Fatalf("error=%T %v, want SearchProjectionOversizeError", err, err)
+	}
+	if diff := cmp.Diff("write_bytes", oversized.Class); diff != "" {
+		t.Fatalf("class (-want +got):\n%s", diff)
+	}
+	if oversized.Bytes <= oversized.Limit {
+		t.Fatalf("error bytes=%d limit=%d, want required total above limit", oversized.Bytes, oversized.Limit)
 	}
 }
 
