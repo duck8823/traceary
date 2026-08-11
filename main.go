@@ -251,6 +251,7 @@ func run() error {
 		storeManagementUsecase,
 		mcpserver.WithEventMetadata(eventMetadataUsecase),
 		mcpserver.WithEventBounded(eventBoundedUsecase),
+		mcpserver.WithProjectionSessionSearch(eventDatasource),
 		mcpserver.WithReport(reportUsecase),
 	)
 	if err != nil {

@@ -1891,6 +1891,7 @@ func newTestServerWithDBPath(t *testing.T) (*mcpserver.Server, string, *mcpRepor
 		storeManagementUsecase,
 		mcpserver.WithEventMetadata(eventMetadataUsecase),
 		mcpserver.WithEventBounded(eventBoundedUsecase),
+		mcpserver.WithProjectionSessionSearch(eventDatasource),
 		mcpserver.WithReport(reportUsecase),
 	)
 	if err != nil {

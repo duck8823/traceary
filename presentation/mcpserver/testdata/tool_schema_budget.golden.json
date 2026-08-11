@@ -1,5 +1,5 @@
 {
-  "listToolsBytes": 46044,
+  "listToolsBytes": 46651,
   "inputSchemaBytes": 14999,
   "tools": [
     {
@@ -46,9 +46,9 @@
     },
     {
       "name": "search",
-      "toolBytes": 6418,
+      "toolBytes": 7025,
       "inputSchemaBytes": 1381,
-      "outputSchemaBytes": 4822
+      "outputSchemaBytes": 5429
     },
     {
       "name": "session_status",

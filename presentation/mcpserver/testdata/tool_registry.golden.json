@@ -2396,9 +2396,44 @@
           "type": "boolean"
         },
         "reasons": {
-          "description": "machine-readable partial reasons: more_results, aggregate_body_budget",
+          "description": "machine-readable search reasons: more_results, aggregate_body_budget, session_matches, session_projection_not_ready",
           "items": {
             "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "sessions": {
+          "description": "older session trails matching the search query",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "event_count": {
+                "description": "number of events covered by the session projection",
+                "type": "integer"
+              },
+              "session_id": {
+                "description": "matching session identifier",
+                "type": "string"
+              },
+              "started_at": {
+                "description": "session start timestamp (RFC3339Nano)",
+                "type": "string"
+              },
+              "summary": {
+                "description": "session summary excerpt",
+                "type": "string"
+              }
+            },
+            "required": [
+              "session_id",
+              "summary",
+              "event_count",
+              "started_at"
+            ],
+            "type": "object"
           },
           "type": [
             "null",
