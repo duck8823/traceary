@@ -98,3 +98,14 @@ type ProjectionSessionSearchQuery interface {
 type ProjectionSessionSearchReadiness interface {
 	SearchSessionProjectionReady(ctx context.Context) (bool, error)
 }
+
+// ProjectionSessionSearch is the port for surfaces that must tell "no session
+// matched" apart from "the projection could not be consulted at all". Both
+// answers arrive as an empty page without error, so readiness is required
+// rather than probed for: a surface that loses the distinction reports
+// "nothing found" for history that exists, and nothing about that failure is
+// visible to the caller.
+type ProjectionSessionSearch interface {
+	ProjectionSessionSearchQuery
+	ProjectionSessionSearchReadiness
+}

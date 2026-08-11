@@ -41,7 +41,7 @@ type Server struct {
 	event                   usecase.EventUsecase
 	eventMetadata           usecase.EventMetadataUsecase
 	eventBounded            usecase.EventBoundedUsecase
-	projectionSessionSearch queryservice.ProjectionSessionSearchQuery
+	projectionSessionSearch queryservice.ProjectionSessionSearch
 	session                 usecase.SessionUsecase
 	memory                  usecase.MemoryUsecase
 	context                 usecase.ContextUsecase
@@ -121,8 +121,11 @@ func WithEventBounded(eventBounded usecase.EventBoundedUsecase) ServerOption {
 }
 
 // WithProjectionSessionSearch configures the bounded-projection session-tier
-// search shared with the CLI.
-func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearchQuery) ServerOption {
+// search shared with the CLI. The parameter demands readiness as well as
+// search: MCP is the surface that reports why a session group is empty, and a
+// dependency that could not answer that must fail to compile rather than
+// silently answer "ready".
+func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearch) ServerOption {
 	return func(server *Server) { server.projectionSessionSearch = search }
 }
 
@@ -940,12 +943,13 @@ func (s *Server) search() mcp.ToolHandlerFor[searchInput, searchOutput] {
 			if len(hits) > 0 {
 				result.Reasons = append(result.Reasons, "session_matches")
 			} else {
-				ready := true
-				if readiness, ok := s.projectionSessionSearch.(queryservice.ProjectionSessionSearchReadiness); ok {
-					ready, searchErr = readiness.SearchSessionProjectionReady(ctx)
-					if searchErr != nil {
-						return nil, searchOutput{}, xerrors.Errorf("failed to check session search projection readiness: %w", searchErr)
-					}
+				// An empty page means "nothing matched" or "the projection was
+				// never consulted", and the query service reports both the same
+				// way. Only this branch can use the answer, so readiness is
+				// asked for only here.
+				ready, readyErr := s.projectionSessionSearch.SearchSessionProjectionReady(ctx)
+				if readyErr != nil {
+					return nil, searchOutput{}, xerrors.Errorf("failed to check session search projection readiness: %w", readyErr)
 				}
 				if !ready {
 					result.Reasons = append(result.Reasons, "session_projection_not_ready")

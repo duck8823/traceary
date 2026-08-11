@@ -13,6 +13,11 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+// Search and readiness are asserted together: MCP reports why a session group
+// is empty, and losing readiness here would make that report silently claim
+// "ready" instead of failing to build.
+var _ queryservice.ProjectionSessionSearch = (*EventDatasource)(nil)
+
 // SearchSessionHits returns session-tier matches from the bounded search
 // projection. When the projection is not complete, the method returns an empty
 // page without error so callers fall through to event-only results.
