@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,11 +35,29 @@ type stubMemoryQueryService struct {
 	scanPageCriteria      []apptypes.MemoryHygieneScanPageCriteria
 	scanRevision          int64
 	advanceScanRevision   bool
-	scanDelay             time.Duration
+	scanAdvance           time.Duration
+	scanClock             *memoryHygieneTestClock
 	revalidationCalls     []apptypes.MemoryHygieneRevalidationCriteria
 	revalidationResults   map[string]apptypes.MemoryHygieneRevalidationSourceResult
 	revalidationErrors    map[string]error
 	revalidationRevisions []int64
+}
+
+type memoryHygieneTestClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *memoryHygieneTestClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *memoryHygieneTestClock) Advance(delta time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(delta)
 }
 
 func (s *stubMemoryQueryService) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
@@ -96,8 +115,8 @@ func (s *stubMemoryQueryService) ScanMemoryHygienePage(
 ) (apptypes.MemoryHygieneScanSourcePage, error) {
 	s.scanPageCalls++
 	s.scanPageCriteria = append(s.scanPageCriteria, criteria)
-	if s.scanDelay > 0 {
-		time.Sleep(s.scanDelay)
+	if s.scanAdvance > 0 && s.scanClock != nil {
+		s.scanClock.Advance(s.scanAdvance)
 	}
 	if s.advanceScanRevision {
 		s.scanRevision++
