@@ -163,6 +163,8 @@ Search events by text and structured filters.
 
 `search` reads the bounded search projection: recent full-text hits come from `search_projection_recent_fts`, and older history that only matches session summaries/keywords appears as a separate **SESSIONS** group. A SESSIONS row means "the trail is here, open it" — it is not a matching event line.
 
+Session rows mean the trail contains a match. A session is selected by its start instant for `--from` / `--to` — the same rule `traceary session list` uses — and `--failures` is satisfied by any failed command in the session. Filters on session rows apply to the session, not to a single event: a session can appear when the query, the time range and `--failures` are each satisfied by different activity within it. The event tier is the one where every filter narrows to a single row.
+
 A completed generation is a snapshot, so events recorded after it are read directly from `events` and merged into the same result — search never goes stale between rebuilds. Before a generation completes, or when the tail has grown past the bounded candidate limit, `search` still answers correctly by decoding candidates directly; it is slower, and rebuilding the projection (`traceary store search-projection start`, then `resume`) restores the fast path.
 
 The full-corpus migration-032 index that used to back this command is retired in v0.34. It is no longer read or maintained, and `traceary store search-retire` removes it — see [search retirement](../operations/search-retirement.md).

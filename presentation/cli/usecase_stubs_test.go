@@ -51,8 +51,8 @@ type eventUsecaseStub struct {
 
 	// hydrateCalls / lastHydrateFields record HydrateCommandAudits usage so
 	// body-rendering paths can assert command-only vs full vs none.
-	hydrateCalls       int
-	lastHydrateFields  queryservice.CommandAuditPayloadFields
+	hydrateCalls      int
+	lastHydrateFields queryservice.CommandAuditPayloadFields
 	// hydrateCommandByEventID, when set, simulates command-only decode by
 	// replacing metadata-only audits with the mapped command line.
 	hydrateCommandByEventID map[string]string
@@ -82,20 +82,29 @@ type eventUsecaseStub struct {
 
 // projectionSessionSearchStub implements queryservice.ProjectionSessionSearchQuery.
 type projectionSessionSearchStub struct {
-	hits []apptypes.SearchSessionHit
-	err  error
+	hits     []apptypes.SearchSessionHit
+	err      error
+	calls    int
+	criteria []apptypes.EventSearchCriteria
+	excludes [][]types.SessionID
 }
 
 func (s *projectionSessionSearchStub) SearchSessionHits(
 	_ context.Context,
-	_ apptypes.EventSearchCriteria,
-	_ []types.SessionID,
+	criteria apptypes.EventSearchCriteria,
+	exclude []types.SessionID,
 ) ([]apptypes.SearchSessionHit, error) {
 	if s == nil {
 		return nil, nil
 	}
+	s.calls++
+	s.criteria = append(s.criteria, criteria)
+	s.excludes = append(s.excludes, exclude)
 	if s.err != nil {
 		return nil, s.err
+	}
+	if criteria.Kind().String() != "" {
+		return nil, nil
 	}
 	return s.hits, nil
 }
