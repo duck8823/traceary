@@ -173,11 +173,15 @@ type ProjectionSnapshot struct {
 	// when the ceiling is 0. Age-only retention is an empty RecentCutoffNorm
 	// with a positive ceiling (or no ceiling column at all on pre-v2 stores).
 	RecentSourceCeilingBytes int64
+	RecentSourceBytes        int64
 }
 
 type ProjectionCleanupCandidate struct {
 	Class               string
 	RowID, LogicalBytes int64
+	ReleasedSourceBytes int64
+	CreatedAtNorm       string
+	Expired             bool
 }
 
 type ProjectionWrite struct {
@@ -199,6 +203,7 @@ type ProjectionExclusion struct {
 type ProjectionBatchPlan struct {
 	GenerationID, Phase                                  string
 	ExpectedRevision, ExpectedCheckpoint, NextCheckpoint int64
+	ExpectedRecentSourceBytes                            int64
 	Writes                                               []ProjectionWrite
 	Exclusions                                           []ProjectionExclusion
 	Cleanup                                              []ProjectionCleanupCandidate

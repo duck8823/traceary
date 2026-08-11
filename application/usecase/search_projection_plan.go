@@ -14,8 +14,45 @@ const projectionIntegerBytes int64 = 8
 // PlanProjectionBatch is pure: the same snapshot and budget produce the same plan.
 func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProjectionBudget) (apptypes.ProjectionBatchPlan, error) {
 	p := apptypes.ProjectionBatchPlan{GenerationID: s.Generation.GenerationID, Phase: s.Phase, ExpectedRevision: s.Generation.SourceRevision, ExpectedCheckpoint: s.Generation.Checkpoint, NextCheckpoint: s.Generation.Checkpoint, AllowRevisionDrift: s.CleanupAll, ContinueState: "rebuilding"}
+	p.ExpectedRecentSourceBytes = s.RecentSourceBytes
 	if s.CleanupAll {
 		p.ContinueState = "drifted"
+	}
+	if (s.Phase == "source" || s.Phase == "eviction") && len(s.Cleanup) > 0 {
+		var running = s.RecentSourceBytes
+		for _, c := range s.Cleanup {
+			if running <= s.RecentSourceCeilingBytes && !c.Expired {
+				break
+			}
+			if c.LogicalBytes > b.WriteBytes {
+				return p, &apptypes.SearchProjectionOversizeError{Class: "cleanup_bytes", Bytes: c.LogicalBytes, Limit: b.WriteBytes}
+			}
+			p.Cleanup = append(p.Cleanup, c)
+			p.Ledger.Rows++
+			p.Ledger.LogicalWriteBytes += c.LogicalBytes
+			running -= c.ReleasedSourceBytes
+			if p.Ledger.Rows >= b.Rows || p.Ledger.LogicalWriteBytes >= b.WriteBytes {
+				break
+			}
+		}
+		if s.Phase == "eviction" {
+			if len(p.Cleanup) == 0 || (s.CleanupDone && len(p.Cleanup) == len(s.Cleanup)) {
+				p.NextPhase = "cleanup"
+			}
+			return p, nil
+		}
+		if len(p.Cleanup) > 0 {
+			return p, nil
+		}
+	}
+	if s.Phase == "source" && s.RecentSourceCeilingBytes == 0 && s.RecentCutoffNorm != "" {
+		if len(s.Documents) > 0 {
+			p.NextCheckpoint = s.Documents[len(s.Documents)-1].Sequence
+		}
+		if s.SourceDone {
+			p.NextPhase = "eviction"
+		}
+		return p, nil
 	}
 	p.Ledger.LogicalWriteBytes = projectionCheckpointLogicalBytes(p)
 	checkpointBytes := p.Ledger.LogicalWriteBytes

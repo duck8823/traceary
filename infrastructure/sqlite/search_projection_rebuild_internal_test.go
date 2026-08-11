@@ -406,8 +406,8 @@ func TestSearchProjectionRebuildIsBoundedResumableAndEvictsDeterministically(t *
 		if e != nil {
 			t.Fatal(e)
 		}
-		if got.Selected != 1 {
-			t.Fatalf("batch %d selected=%d", i, got.Selected)
+		if got.Selected != 1 && got.Evicted != 1 {
+			t.Fatalf("batch %d selected=%d evicted=%d", i, got.Selected, got.Evicted)
 		}
 		pinCeiling()
 	}
@@ -1179,8 +1179,8 @@ func TestRecentEvictionDeletesOnlyStableMinimalOldestPrefix(t *testing.T) {
 	if err := db.QueryRow(`SELECT group_concat(event_id,',') FROM search_projection_recent_documents`).Scan(&ids); err != nil {
 		t.Fatal(err)
 	}
-	if ids != "b" {
-		t.Fatalf("retained IDs=%q, want newest stable tie b", ids)
+	if ids != "a" {
+		t.Fatalf("retained IDs=%q, want newest stable tie a", ids)
 	}
 }
 

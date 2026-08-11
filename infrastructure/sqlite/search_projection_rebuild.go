@@ -224,7 +224,7 @@ func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget,
 	// Write recent_byte_limit alongside index_family_byte_limit so a binary
 	// rolled back past migration 055 still sees the column it knows
 	// (recent_byte_limit is retired; kept only for that contract).
-	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_age_seconds=?,index_family_byte_limit=?,recent_byte_limit=?,capacity_semantics_version=?,recent_source_ceiling_bytes=?,recent_amplification_ppm=?,non_recent_family_bytes=?,recent_cutoff_norm=?,capacity_evidence_status=?,capacity_evidence_reason=?,index_family_within_budget=-1,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_before_evidence_status=?,cutover_before_evidence_reason=?,cutover_after_evidence_status='',cutover_after_evidence_reason='',updated_at=? WHERE singleton=1 AND state<>'rebuilding'`,
+	result, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_source_bytes=0,recent_age_seconds=?,index_family_byte_limit=?,recent_byte_limit=?,capacity_semantics_version=?,recent_source_ceiling_bytes=?,recent_amplification_ppm=?,non_recent_family_bytes=?,recent_cutoff_norm=?,capacity_evidence_status=?,capacity_evidence_reason=?,index_family_within_budget=-1,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_before_evidence_status=?,cutover_before_evidence_reason=?,cutover_after_evidence_status='',cutover_after_evidence_reason='',updated_at=? WHERE singleton=1 AND state<>'rebuilding'`,
 		g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater,
 		int64(b.RecentAge/time.Second), b.IndexFamilyBytes, b.IndexFamilyBytes,
 		apptypes.SearchProjectionCapacitySemanticsVersion,
@@ -567,7 +567,7 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 	}
 	defer db.Close()
 	var state, cleanupScope string
-	if e = db.QueryRowContext(ctx, `SELECT generation_id,config_hash,source_revision,high_water,checkpoint,state,phase,cleanup_scope,COALESCE(recent_cutoff_norm,''),recent_source_ceiling_bytes FROM search_projection_state WHERE singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Generation.HighWater, &out.Generation.Checkpoint, &state, &out.Phase, &cleanupScope, &out.RecentCutoffNorm, &out.RecentSourceCeilingBytes); e != nil {
+	if e = db.QueryRowContext(ctx, `SELECT generation_id,config_hash,source_revision,high_water,checkpoint,state,phase,cleanup_scope,COALESCE(recent_cutoff_norm,''),recent_source_ceiling_bytes,recent_source_bytes FROM search_projection_state WHERE singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Generation.HighWater, &out.Generation.Checkpoint, &state, &out.Phase, &cleanupScope, &out.RecentCutoffNorm, &out.RecentSourceCeilingBytes, &out.RecentSourceBytes); e != nil {
 		return out, e
 	}
 	out.Now = now.UTC()
@@ -590,6 +590,15 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 	}
 	if out.Phase != "source" {
 		return selectProjectionCleanup(ctx, db, out, b, now)
+	}
+	if out.RecentSourceCeilingBytes > 0 {
+		expired, err := recentProjectionHasExpired(ctx, db, out.Generation.GenerationID, projectionCutoff(now.Add(-b.RecentAge)))
+		if err != nil {
+			return out, err
+		}
+		if out.RecentSourceBytes > out.RecentSourceCeilingBytes || expired {
+			return selectProjectionEviction(ctx, db, out, b, now)
+		}
 	}
 	rows, e := db.QueryContext(ctx, `SELECT q.sequence,COALESCE(e.id,q.event_id),COALESCE(e.session_id,''),COALESCE(e.created_at_norm,''),COALESCE(e.body_availability,''),e.id IS NULL,COALESCE(length(CAST(e.body AS BLOB)),0)+COALESCE(length(CAST(a.command_text AS BLOB)),0)+COALESCE(length(CAST(a.input_text AS BLOB)),0)+COALESCE(length(CAST(a.output_text AS BLOB)),0),CASE WHEN e.body_availability='available' THEN COALESCE(e.body_plaintext_bytes,e.body_stored_bytes,length(CAST(e.body AS BLOB)),0) ELSE 0 END+COALESCE(a.command_plaintext_bytes,length(CAST(a.command_text AS BLOB)),0)+COALESCE(a.input_plaintext_bytes,length(CAST(a.input_text AS BLOB)),0)+COALESCE(a.output_plaintext_bytes,length(CAST(a.output_text AS BLOB)),0) FROM search_projection_source_sequence q LEFT JOIN events e ON e.id=q.event_id LEFT JOIN command_audits a ON a.event_id=e.id WHERE q.sequence>? AND q.sequence<=? ORDER BY q.sequence LIMIT ?`, out.Generation.Checkpoint, out.Generation.HighWater, b.Rows)
 	if e != nil {
@@ -666,19 +675,7 @@ func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.Proje
 	var q string
 	var args []any
 	if out.Phase == "eviction" {
-		// Eviction honours the persisted source ceiling, never the caller's
-		// IndexFamilyBytes budget directly (#1679 D3).
-		ceiling := out.RecentSourceCeilingBytes
-		q = `WITH ordered AS (
- SELECT document_id,created_at_norm,event_id,
- length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 logical_bytes,
- COALESCE(SUM(decoded_bytes) OVER (ORDER BY created_at_norm,event_id,document_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) removed_before,
- SUM(decoded_bytes) OVER () total_bytes
- FROM search_projection_recent_documents WHERE generation_id=?
-) SELECT document_id,logical_bytes FROM ordered
- WHERE created_at_norm<? OR total_bytes-removed_before>?
- ORDER BY created_at_norm,event_id,document_id LIMIT ?`
-		args = []any{out.Generation.GenerationID, projectionCutoff(now.Add(-b.RecentAge)), ceiling, b.Rows + 1}
+		return selectProjectionEviction(ctx, db, out, b, now)
 	} else if out.CleanupAll {
 		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords UNION ALL SELECT 'fingerprint',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16 FROM literal_search_fingerprints UNION ALL SELECT 'exclusion',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(class AS BLOB))+32 FROM search_projection_exclusions LIMIT ?`
 		args = []any{b.Rows + 1}
@@ -821,12 +818,15 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		return out, e
 	}
 	defer tx.Rollback()
-	var rev, checkpoint, globalRevision int64
+	var rev, checkpoint, globalRevision, recentSourceBytes int64
 	var phase string
-	if e = tx.QueryRowContext(lockCtx, `SELECT source_revision,checkpoint,phase FROM search_projection_state WHERE generation_id=?`, p.GenerationID).Scan(&rev, &checkpoint, &phase); e != nil {
+	if e = tx.QueryRowContext(lockCtx, `SELECT source_revision,checkpoint,phase,recent_source_bytes FROM search_projection_state WHERE generation_id=?`, p.GenerationID).Scan(&rev, &checkpoint, &phase, &recentSourceBytes); e != nil {
 		return out, e
 	}
 	if rev != p.ExpectedRevision || checkpoint != p.ExpectedCheckpoint || phase != p.Phase {
+		return out, &apptypes.SearchProjectionDriftError{}
+	}
+	if p.Phase == "source" && len(p.Cleanup) > 0 && recentSourceBytes != p.ExpectedRecentSourceBytes {
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	if e = tx.QueryRowContext(lockCtx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&globalRevision); e != nil {
@@ -857,6 +857,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		}
 		out.Selected++
 	}
+	var recentDelta int64
 	for _, w := range p.Writes {
 		d := w.Document
 		if !d.Deleted {
@@ -871,6 +872,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 				if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, p.GenerationID, d.Sequence, d.EventID, d.CreatedAt, bodyText, len(bodyText)); e != nil {
 					return out, e
 				}
+				recentDelta += int64(len([]byte(bodyText)))
 			}
 			if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_summaries VALUES(?,?,1,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET event_count=event_count+1,summary_text=excluded.summary_text`, p.GenerationID, d.SessionID, w.Summary, searchProjectionVersion, searchProjectionSummaryVersion); e != nil {
 				return out, e
@@ -915,6 +917,12 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 			return out, x
 		}
 		n, _ := r.RowsAffected()
+		if n != 1 {
+			return out, &apptypes.SearchProjectionDriftError{}
+		}
+		if c.Class == "eviction" {
+			recentDelta -= c.ReleasedSourceBytes
+		}
 		out.Evicted += int(n)
 		out.Cleaned += int(n)
 		out.CleanupBytes += c.LogicalBytes
@@ -961,7 +969,12 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 			return out, &apptypes.SearchProjectionDriftError{}
 		}
 	}
-	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?))`, p.NextCheckpoint, next, state, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision)
+	fenceRecent := p.Phase == "source" && len(p.Cleanup) > 0
+	fenceRecentInt := 0
+	if fenceRecent {
+		fenceRecentInt = 1
+	}
+	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,recent_source_bytes=recent_source_bytes+?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?)) AND (?=0 OR recent_source_bytes=?)`, p.NextCheckpoint, next, state, recentDelta, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision, fenceRecentInt, p.ExpectedRecentSourceBytes)
 	if e != nil {
 		return out, e
 	}

@@ -103,12 +103,12 @@ func searchProjectionSchemaComplete(ctx context.Context, db *sql.DB) (bool, stri
 	// cutover_index_family but not index_family_byte_limit (#1679).
 	var columns int
 	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM pragma_table_info('search_projection_state') WHERE name = 'index_family_byte_limit'`,
+		`SELECT COUNT(*) FROM pragma_table_info('search_projection_state') WHERE name IN ('index_family_byte_limit','recent_source_bytes')`,
 	).Scan(&columns); err != nil {
 		return false, "", xerrors.Errorf("inspect search_projection_state columns: %w", err)
 	}
-	if columns == 0 {
-		return false, "search_projection_state.index_family_byte_limit", nil
+	if columns != 2 {
+		return false, "search_projection_state.recent_source_bytes", nil
 	}
 	return true, "", nil
 }

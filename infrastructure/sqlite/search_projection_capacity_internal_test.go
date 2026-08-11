@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -97,7 +98,7 @@ var searchProjectionScopedTblNames = map[string]struct{}{
 	"search_projection_session_summaries":  {},
 	"search_projection_session_keywords":   {},
 	"search_projection_command_aggregates": {},
-	"literal_search_fingerprints":         {},
+	"literal_search_fingerprints":          {},
 }
 
 // TestSearchProjectionFamilySplitIsExhaustiveAndClassifiesRecentSide asserts
@@ -300,6 +301,77 @@ func TestSearchProjectionEvictionHonoursPersistedCeiling(t *testing.T) {
 	if ceiling != 50 {
 		t.Fatalf("ceiling=%d, want pinned 50", ceiling)
 	}
+}
+
+func TestSearchProjectionEvictionUnderCeilingRetainsRows(t *testing.T) {
+	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
+		{"retained", "body that is not expired", "2026-06-01T12:00:00Z"},
+	})
+	now := time.Date(2026, 6, 1, 13, 0, 0, 0, time.UTC)
+	b := capacityBudget(64 << 20)
+	b.RecentAge = 24 * time.Hour
+	ctx := context.Background()
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE search_projection_state SET recent_source_ceiling_bytes=1048576 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE search_projection_state SET recent_source_bytes=0 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resumeProjection(ctx, store, b, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resumeProjection(ctx, store, b, now); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM search_projection_recent_documents`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("recent document count=%d, want 1", count)
+	}
+}
+
+func TestSearchProjectionRecentResidencyAndCounterStayBoundedEachBatch(t *testing.T) {
+	body := strings.Repeat("x", 40)
+	var events []struct{ id, body, created string }
+	for i := 0; i < 8; i++ {
+		events = append(events, struct{ id, body, created string }{fmt.Sprintf("e%d", i), body, fmt.Sprintf("2026-06-01T12:%02d:00Z", i)})
+	}
+	store, db := newCapacityTestStore(t, events)
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	b := capacityBudget(64 << 20)
+	b.Rows = 1
+	ctx := context.Background()
+	if _, err := store.Start(ctx, b, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE search_projection_state SET recent_source_ceiling_bytes=100 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		p, err := resumeProjection(ctx, store, b, now)
+		if err != nil {
+			t.Fatalf("batch %d: %v", i, err)
+		}
+		var sum, counter int64
+		if err = db.QueryRow(`SELECT COALESCE(SUM(length(CAST(body_text AS BLOB))),0) FROM search_projection_recent_documents`).Scan(&sum); err != nil {
+			t.Fatal(err)
+		}
+		if err = db.QueryRow(`SELECT recent_source_bytes FROM search_projection_state`).Scan(&counter); err != nil {
+			t.Fatal(err)
+		}
+		if sum > 140 || counter != sum {
+			t.Fatalf("batch %d residency=%d counter=%d, want residency <= 140 and exact counter", i, sum, counter)
+		}
+		if p.Completed {
+			return
+		}
+	}
+	t.Fatal("projection did not complete")
 }
 
 // TestSearchProjectionCeilingRederivedAtSourceEvictionTransition asserts the
