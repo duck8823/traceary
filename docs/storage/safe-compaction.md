@@ -24,6 +24,15 @@ the candidate size is unknown until `VACUUM INTO` finishes, and the original
 source-size rollback copy remains after success. See [store compact disk
 cost](../operations/store-compact-disk-cost.md) for the operator guidance.
 
+`plan` holds the exclusive store lease for its entire preflight. If it finds a
+regular, zero-byte `-wal` or `-shm`, it removes the stale artifact, syncs the
+directory, and checks again before opening the store. It never removes a
+non-zero WAL/SHM, any `-journal`, symlink, FIFO, or other non-regular path. If
+one remains, stop all other Traceary processes (including projection/status
+readers and older or non-cooperating versions) and retry the same command; do
+not remove the sidecar manually. A non-zero or non-regular sidecar may contain
+live SQLite state.
+
 The legacy search index check runs before the source digest, so it fails in
 seconds rather than after hashing a multi-GiB store. Compacting first would
 copy the dead index into the new file and bake it in, so run

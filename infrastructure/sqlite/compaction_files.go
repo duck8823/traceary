@@ -372,10 +372,10 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 			return run, fmt.Errorf("compaction output already exists: %s", path)
 		}
 	}
-	if err := rejectSQLiteSidecars(run.SourcePath); err != nil {
+	if err := validateStoreLinkIdentity(run.SourcePath); err != nil {
 		return run, err
 	}
-	if err := validateStoreLinkIdentity(run.SourcePath); err != nil {
+	if err := cleanupStaleSQLiteSidecars(ctx, run.SourcePath); err != nil {
 		return run, err
 	}
 	// After the sidecar rejection the store has no live WAL/SHM, so it is safe
@@ -415,8 +415,8 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 	}
 	run.SourceDigest = digest
 	exchangeCapability := probeReplacementCapabilities(filepath.Dir(run.SourcePath)) == nil
-	leaseCapability := probeStoreLeaseCapability(ctx, run.SourcePath) == nil
-	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: temporary, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
+	// Plan is invoked by the use case while its exclusive store lease is held.
+	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: temporary, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: true, ExchangeCapability: exchangeCapability}
 	if !run.Resources.ExchangeCapability {
 		return run, errors.New("atomic exchange capability unavailable")
 	}
@@ -939,8 +939,9 @@ func inspectRegularFile(path string) (domain.StoreFileIdentity, error) {
 
 func rejectSQLiteSidecars(path string) error {
 	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
-		if _, err := os.Lstat(path + suffix); err == nil {
-			return fmt.Errorf("SQLite sidecar exists: %s", path+suffix)
+		sidecarPath := path + suffix
+		if info, err := os.Lstat(sidecarPath); err == nil {
+			return sqliteSidecarRefusal(sidecarPath, info)
 		} else if !os.IsNotExist(err) {
 			return err
 		}

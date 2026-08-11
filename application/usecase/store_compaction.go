@@ -31,6 +31,11 @@ func (u *storeCompactionUsecase) Plan(ctx context.Context, source string) (domai
 	if filepath.Clean(source) != u.expectedStore {
 		return domain.CompactionRun{}, fmt.Errorf("compaction store binding mismatch")
 	}
+	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
+	if err != nil {
+		return domain.CompactionRun{}, err
+	}
+	defer release()
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
 		return domain.CompactionRun{}, fmt.Errorf("create compaction run id: %w", err)

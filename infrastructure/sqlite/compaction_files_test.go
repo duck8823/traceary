@@ -219,8 +219,11 @@ func TestStoreReplacementFilesRejectsSymlinkAndSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	run.SourcePath = source
-	if _, err := (StoreReplacementFiles{}).Plan(context.Background(), run); err == nil {
-		t.Fatal("Plan accepted WAL sidecar")
+	if _, err := (StoreReplacementFiles{}).Plan(context.Background(), run); err != nil && strings.Contains(err.Error(), "sidecar") {
+		t.Fatalf("Plan rejected stale zero-byte WAL: %v", err)
+	}
+	if _, err := os.Lstat(source + "-wal"); !os.IsNotExist(err) {
+		t.Fatalf("stale WAL was not removed: %v", err)
 	}
 }
 
