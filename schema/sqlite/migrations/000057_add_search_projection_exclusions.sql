@@ -3,7 +3,7 @@ CREATE TABLE search_projection_exclusions(
  source_sequence INTEGER NOT NULL,
  event_id TEXT NOT NULL,
  class TEXT NOT NULL CHECK(class IN('stored_bytes','decoded_bytes','write_bytes')),
- source_bytes INTEGER NOT NULL,
+ measured_bytes INTEGER NOT NULL,
  byte_limit INTEGER NOT NULL,
  PRIMARY KEY(generation_id,source_sequence)
 );

@@ -71,7 +71,7 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	55: {55, "000055_add_search_projection_index_family_budget.sql", "501846cc12b93c78a90791b5460adccbbcad48fa1ac18e138077dc64d27eb1b5", MigrationConstantInPlace},
 	// 56 only drops and recreates two body-derivation insert triggers (no data scan).
 	56: {56, "000056_codec_aware_body_derivations_on_insert.sql", "266a02e9be0509b3067050319f4d5654c0623034f0ed4c18920e6b0ff8ae7f32", MigrationConstantInPlace},
-	57: {57, "000057_add_search_projection_exclusions.sql", "39b49676db4b2e101e21eb0b37795bd7ce9418ea113333a68bae67bc19583045", MigrationConstantInPlace},
+	57: {57, "000057_add_search_projection_exclusions.sql", "8d7c63f873ef1d0358078a03a3704e8ae95615035d6521f466f23aba94283435", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

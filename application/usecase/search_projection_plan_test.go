@@ -78,7 +78,7 @@ func (*wallBudgetStore) MarkFailed(context.Context, string, int64, string, time.
 
 func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1000, DecodedBytes: 1000, WriteBytes: 100, RecentAge: time.Hour, IndexFamilyBytes: 1000}
+	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1000, DecodedBytes: 1000, WriteBytes: 110, RecentAge: time.Hour, IndexFamilyBytes: 1000}
 	s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{{Sequence: 1, Text: "small", StoredBytes: 5, DecodedBytes: 5}}}
 	p, err := usecase.PlanProjectionBatch(s, b)
 	if err != nil {
@@ -97,6 +97,65 @@ func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 	}
 	if len(p.Writes) != 1 || p.Writes[0].LogicalBytes != 146 {
 		t.Fatalf("logical formula = %+v, want one 146-byte mutation including fingerprints", p.Writes)
+	}
+}
+
+func TestProjectionBatchPlanClassifiesAndSkipsRowsAtSourceBoundaries(t *testing.T) {
+	t.Parallel()
+	base := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 10, DecodedBytes: 10, WriteBytes: 10_000, RecentAge: time.Hour, IndexFamilyBytes: 1000}
+	tests := []struct {
+		name                    string
+		stored, decoded         int64
+		wantClass               string
+		wantMeasured, wantLimit int64
+	}{
+		{name: "stored boundary admitted", stored: 10, decoded: 10},
+		{name: "stored one over excluded", stored: 11, decoded: 10, wantClass: "stored_bytes", wantMeasured: 11, wantLimit: 10},
+		{name: "decoded boundary admitted", stored: 10, decoded: 10},
+		{name: "decoded one over excluded", stored: 5, decoded: 11, wantClass: "decoded_bytes", wantMeasured: 11, wantLimit: 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{{Sequence: 1, EventID: "e", SessionID: "s", Text: "body", StoredBytes: tt.stored, DecodedBytes: tt.decoded, Disposition: apptypes.ProjectionDispositionAdmitted}}}
+			p, err := usecase.PlanProjectionBatch(s, base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tt.wantClass, func() string {
+				if len(p.Exclusions) == 0 {
+					return ""
+				}
+				return p.Exclusions[0].Class
+			}()); diff != "" {
+				t.Fatalf("class (-want +got):\n%s", diff)
+			}
+			if tt.wantClass != "" {
+				got := p.Exclusions[0]
+				if diff := cmp.Diff([]int64{tt.wantMeasured, tt.wantLimit}, []int64{got.MeasuredBytes, got.ByteLimit}); diff != "" {
+					t.Fatalf("measurements (-want +got):\n%s", diff)
+				}
+			} else if len(p.Writes) != 1 {
+				t.Fatalf("writes=%d, want 1", len(p.Writes))
+			}
+		})
+	}
+}
+
+func TestProjectionBatchPlanExcludedRowDoesNotChainSummary(t *testing.T) {
+	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 10, WriteBytes: 10_000, RecentAge: time.Hour, IndexFamilyBytes: 1000}
+	s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{
+		{Sequence: 1, EventID: "excluded", SessionID: "s", Text: strings.Repeat("x", 148), StoredBytes: 5, DecodedBytes: 11, Disposition: apptypes.ProjectionDispositionExcluded},
+		{Sequence: 2, EventID: "small", SessionID: "s", Text: "tiny", StoredBytes: 5, DecodedBytes: 5, Disposition: apptypes.ProjectionDispositionAdmitted},
+	}}
+	p, err := usecase.PlanProjectionBatch(s, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Exclusions) != 1 || len(p.Writes) != 1 {
+		t.Fatalf("plan=%+v", p)
+	}
+	if strings.Contains(p.Writes[0].Summary, "xxx") {
+		t.Fatalf("excluded text leaked into summary: %q", p.Writes[0].Summary)
 	}
 }
 

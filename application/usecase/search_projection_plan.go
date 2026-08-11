@@ -2,6 +2,7 @@ package usecase
 
 import (
 	apptypes "github.com/duck8823/traceary/application/types"
+	"golang.org/x/xerrors"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		p.ContinueState = "drifted"
 	}
 	p.Ledger.LogicalWriteBytes = projectionCheckpointLogicalBytes(p)
+	checkpointBytes := p.Ledger.LogicalWriteBytes
 	if p.Ledger.LogicalWriteBytes > b.WriteBytes {
 		return p, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: p.Ledger.LogicalWriteBytes, Limit: b.WriteBytes}
 	}
@@ -50,14 +52,17 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 	}
 	summaries := map[string]string{}
 	for _, d := range s.Documents {
-		class, bytes, limit := "", int64(0), int64(0)
-		if d.Disposition == apptypes.ProjectionDispositionExcluded || d.StoredBytes > b.StoredBytes {
-			class, bytes, limit = "stored_bytes", d.StoredBytes, b.StoredBytes
-		} else if d.DecodedBytes > b.DecodedBytes {
-			class, bytes, limit = "decoded_bytes", d.DecodedBytes, b.DecodedBytes
+		class, bytes, limit, err := classifyProjectionExclusion(d, b)
+		if err != nil {
+			return p, err
 		}
 		if class != "" {
-			p.Exclusions = append(p.Exclusions, apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: class, SourceBytes: bytes, ByteLimit: limit})
+			exclusion := apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: class, MeasuredBytes: bytes, ByteLimit: limit}
+			if p.Ledger.LogicalWriteBytes+projectionExclusionLogicalBytes(p.GenerationID, exclusion) > b.WriteBytes {
+				break
+			}
+			p.Exclusions = append(p.Exclusions, exclusion)
+			p.Ledger.LogicalWriteBytes += projectionExclusionLogicalBytes(p.GenerationID, exclusion)
 			p.NextCheckpoint = d.Sequence
 			continue
 		}
@@ -82,23 +87,25 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 			base = d.PreviousSummary
 		}
 		w.Summary = truncateProjection(strings.TrimSpace(base+"\n"+d.Text), 4096)
-		summaries[d.SessionID] = w.Summary
 		for _, k := range projectionTokens(strings.ToLower(d.Text)) {
 			w.Keywords[k]++
 		}
 		w.LogicalBytes = projectionWriteLogicalBytes(p.GenerationID, w)
-		if w.LogicalBytes > b.WriteBytes {
-			p.Exclusions = append(p.Exclusions, apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: "write_bytes", SourceBytes: w.LogicalBytes, ByteLimit: b.WriteBytes})
+		if checkpointBytes+w.LogicalBytes > b.WriteBytes {
+			exclusion := apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: "write_bytes", MeasuredBytes: w.LogicalBytes, ByteLimit: b.WriteBytes}
+			if p.Ledger.LogicalWriteBytes+projectionExclusionLogicalBytes(p.GenerationID, exclusion) > b.WriteBytes {
+				break
+			}
+			p.Exclusions = append(p.Exclusions, exclusion)
+			p.Ledger.LogicalWriteBytes += projectionExclusionLogicalBytes(p.GenerationID, exclusion)
 			p.NextCheckpoint = d.Sequence
 			continue
 		}
 		if p.Ledger.LogicalWriteBytes+w.LogicalBytes > b.WriteBytes {
-			if len(p.Writes) == 0 {
-				return p, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: p.Ledger.LogicalWriteBytes + w.LogicalBytes, Limit: b.WriteBytes}
-			}
 			break
 		}
 		p.Writes = append(p.Writes, w)
+		summaries[d.SessionID] = w.Summary
 		p.NextCheckpoint = d.Sequence
 		p.Ledger.Rows++
 		p.Ledger.StoredBytes += d.StoredBytes
@@ -112,6 +119,25 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		p.NextPhase = "eviction"
 	}
 	return p, nil
+}
+
+// classifyProjectionExclusion derives the durable reason from measured values.
+// Disposition only prevents hydration; it does not identify the exceeded limit.
+func classifyProjectionExclusion(d apptypes.ProjectionDocument, b apptypes.SearchProjectionBudget) (string, int64, int64, error) {
+	if d.StoredBytes > b.StoredBytes {
+		return "stored_bytes", d.StoredBytes, b.StoredBytes, nil
+	}
+	if d.DecodedBytes > b.DecodedBytes {
+		return "decoded_bytes", d.DecodedBytes, b.DecodedBytes, nil
+	}
+	if d.Disposition == apptypes.ProjectionDispositionExcluded {
+		return "", 0, 0, xerrors.Errorf("excluded projection row %q exceeds no source budget", d.EventID)
+	}
+	return "", 0, 0, nil
+}
+
+func projectionExclusionLogicalBytes(generation string, e apptypes.ProjectionExclusion) int64 {
+	return int64(len(generation) + len(e.EventID) + len(e.Class) + 32)
 }
 
 // PlanProjectionRetention creates a bounded, deterministic cleanup decision.

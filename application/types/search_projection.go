@@ -152,6 +152,7 @@ const (
 	ProjectionDispositionAdmitted ProjectionDisposition = "admitted"
 	ProjectionDispositionDeleted  ProjectionDisposition = "deleted"
 	ProjectionDispositionExcluded ProjectionDisposition = "excluded"
+	ProjectionDispositionBatchFull ProjectionDisposition = ""
 )
 
 type ProjectionSnapshot struct {
@@ -195,7 +196,7 @@ type ProjectionWrite struct {
 }
 
 type ProjectionExclusion struct {
-	Sequence, SourceBytes, ByteLimit int64
+	Sequence, MeasuredBytes, ByteLimit int64
 	EventID, Class                   string
 }
 
@@ -241,7 +242,7 @@ func (l *BudgetLedger) AdmitSource(b SearchProjectionBudget, stored, decoded int
 		return ProjectionDispositionExcluded, nil
 	}
 	if !l.ReserveSource(b, stored, decoded) {
-		return "", nil
+		return ProjectionDispositionBatchFull, nil
 	}
 	return ProjectionDispositionAdmitted, nil
 }
@@ -354,7 +355,7 @@ type SearchProjectionExclusion struct {
 	Sequence int64 `json:"sequence"`
 	EventID string `json:"event_id"`
 	Class string `json:"class"`
-	SourceBytes int64 `json:"source_bytes"`
+	MeasuredBytes int64 `json:"measured_bytes"`
 	ByteLimit int64 `json:"byte_limit"`
 }
 

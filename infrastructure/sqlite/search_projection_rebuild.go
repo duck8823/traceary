@@ -607,7 +607,7 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 		if admissionErr != nil {
 			return out, admissionErr
 		}
-		if disposition == "" {
+		if disposition == apptypes.ProjectionDispositionBatchFull {
 			break
 		}
 		x.Disposition = disposition
