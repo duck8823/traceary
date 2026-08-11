@@ -2406,7 +2406,7 @@
           ]
         },
         "sessions": {
-          "description": "older session trails matching the search query",
+          "description": "session trails whose summary or keyword text matches the query",
           "items": {
             "additionalProperties": false,
             "properties": {

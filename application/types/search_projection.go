@@ -17,16 +17,18 @@ import (
 // family total is re-measured when a generation completes and recorded through
 // index_family_within_budget — reported, not guaranteed in advance.
 //
-// What it buys is a *variable* window, not a fixed one. Trigram measures 2.16x
-// the source text, so this is roughly 0.66 GiB of indexable text. Measured
-// weekly volume on the reference corpus varies eightfold (0.06 to 0.47 GiB per
-// week), which is 1.5 to 2 weeks at the median rate, under a week during a
-// heavy sprint and four to five weeks during a quiet one.
+// It buys retention in the recent tier, not searchable reach: nothing currently
+// reads that tier. Trigram measures 2.16x the source text, so this is roughly
+// 0.66 GiB of retained indexable text. Measured weekly volume on the reference
+// corpus varies eightfold (0.06 to 0.47 GiB per week), which is 1.5 to 2 weeks
+// at the median rate, under a week during a heavy sprint and four to five weeks
+// during a quiet one.
 //
 // Compression (#1685, #1742) buys losslessness, not reach: the index is built
 // over plaintext, so a compressed body occupies exactly as much index as an
-// uncompressed one. Everything older than the window stays reachable through
-// the session tier, which is the design's answer to a short recent window.
+// uncompressed one. The session tier is an additional, lossy surface for
+// summary and keyword matches; literal search reach comes from decoding
+// candidates in the canonical event walk.
 const DefaultSearchProjectionIndexFamilyBytes int64 = 1464 << 20
 
 // DefaultSearchProjectionLockTime is the maximum write-lock duration used by

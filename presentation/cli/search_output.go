@@ -109,7 +109,7 @@ func writeSearchText(
 	}
 
 	if len(events) > 0 {
-		if _, err := fmt.Fprintln(output, Localize("EVENTS (recent, full text)", "EVENTS（直近・全文）")); err != nil {
+		if _, err := fmt.Fprintln(output, Localize("EVENTS (literal matches)", "EVENTS（本文一致）")); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 		}
 		for _, event := range events {
@@ -130,7 +130,7 @@ func writeSearchText(
 		}
 	}
 
-	if _, err := fmt.Fprintln(output, Localize("SESSIONS (older, from summaries)", "SESSIONS（過去・要約）")); err != nil {
+	if _, err := fmt.Fprintln(output, Localize("SESSIONS (summary or keyword matches)", "SESSIONS（要約・キーワード一致）")); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
 	for _, session := range sessions {
