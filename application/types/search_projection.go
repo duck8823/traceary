@@ -141,7 +141,18 @@ type ProjectionDocument struct {
 	StoredBytes, DecodedBytes                            int64
 	Deleted                                              bool
 	CommandCount, FailureCount                           int
+	Disposition                                           ProjectionDisposition
 }
+
+// ProjectionDisposition distinguishes a deliberately unindexed source row
+// from a deleted row that merely advances the checkpoint.
+type ProjectionDisposition string
+
+const (
+	ProjectionDispositionAdmitted ProjectionDisposition = "admitted"
+	ProjectionDispositionDeleted  ProjectionDisposition = "deleted"
+	ProjectionDispositionExcluded ProjectionDisposition = "excluded"
+)
 
 type ProjectionSnapshot struct {
 	Generation    SearchProjectionGeneration
@@ -183,12 +194,18 @@ type ProjectionWrite struct {
 	LiteralFingerprints []string
 }
 
+type ProjectionExclusion struct {
+	Sequence, SourceBytes, ByteLimit int64
+	EventID, Class                   string
+}
+
 // ProjectionBatchPlan is a pure application-owned decision. Adapters may only
 // persist this decision; they must not extend it with additional rows.
 type ProjectionBatchPlan struct {
 	GenerationID, Phase                                  string
 	ExpectedRevision, ExpectedCheckpoint, NextCheckpoint int64
 	Writes                                               []ProjectionWrite
+	Exclusions                                           []ProjectionExclusion
 	Cleanup                                              []ProjectionCleanupCandidate
 	NextPhase                                            string
 	Completed                                            bool
@@ -215,15 +232,18 @@ func (l *BudgetLedger) ReserveSource(b SearchProjectionBudget, stored, decoded i
 	return true
 }
 
-// AdmitSource distinguishes an impossible first row from a resumable prefix.
-func (l *BudgetLedger) AdmitSource(b SearchProjectionBudget, stored, decoded int64) (bool, error) {
+// AdmitSource returns a disposition without hydrating an over-limit source row.
+func (l *BudgetLedger) AdmitSource(b SearchProjectionBudget, stored, decoded int64) (ProjectionDisposition, error) {
 	if stored > b.StoredBytes {
-		return false, &SearchProjectionOversizeError{Class: "stored_bytes", Bytes: stored, Limit: b.StoredBytes}
+		return ProjectionDispositionExcluded, nil
 	}
 	if decoded > b.DecodedBytes {
-		return false, &SearchProjectionOversizeError{Class: "decoded_bytes", Bytes: decoded, Limit: b.DecodedBytes}
+		return ProjectionDispositionExcluded, nil
 	}
-	return l.ReserveSource(b, stored, decoded), nil
+	if !l.ReserveSource(b, stored, decoded) {
+		return "", nil
+	}
+	return ProjectionDispositionAdmitted, nil
 }
 
 // RetentionPlan is the pure eviction/old-generation cleanup decision.
@@ -311,6 +331,8 @@ type SearchProjectionStatus struct {
 	// whether automatic catch-up may start a replacement: a deterministic class
 	// would fail the same way on every open.
 	FailureClass string `json:"failure_class,omitempty"`
+	ExclusionCount int64 `json:"exclusion_count"`
+	Exclusions []SearchProjectionExclusion `json:"exclusions,omitempty"`
 	// CutoverIndexFamily names which physical family CutoverFamilyBytes*
 	// measure. Always "bounded_search_projection" when set — never the
 	// legacy migration-032 event_search_* family (that is #1718).
@@ -326,6 +348,14 @@ type SearchProjectionStatus struct {
 	// yet.
 	CutoverBeforeEvidence CapacityEvidence `json:"cutover_before_evidence"`
 	CutoverAfterEvidence  CapacityEvidence `json:"cutover_after_evidence"`
+}
+
+type SearchProjectionExclusion struct {
+	Sequence int64 `json:"sequence"`
+	EventID string `json:"event_id"`
+	Class string `json:"class"`
+	SourceBytes int64 `json:"source_bytes"`
+	ByteLimit int64 `json:"byte_limit"`
 }
 
 // SearchProjectionControlStatus contains only persisted state-machine data.

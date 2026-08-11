@@ -695,8 +695,14 @@ func TestSearchProjectionUnavailableBodyAndOversizeArePublicBehavior(t *testing.
 	if _, err = store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = resumeProjection(ctx, store, b, now); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 8; i++ {
+		progress, resumeErr := resumeProjection(ctx, store, b, now)
+		if resumeErr != nil {
+			t.Fatal(resumeErr)
+		}
+		if progress.Completed {
+			break
+		}
 	}
 	for i := 0; i < 4; i++ {
 		status, statusErr := store.SearchProjectionStatus(ctx)
@@ -719,10 +725,18 @@ func TestSearchProjectionUnavailableBodyAndOversizeArePublicBehavior(t *testing.
 	if _, err = store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	_, err = resumeProjection(ctx, store, b, now)
-	var oversized *apptypes.SearchProjectionOversizeError
-	if !errors.As(err, &oversized) {
-		t.Fatalf("error=%T %v", err, err)
+	for i := 0; i < 8; i++ {
+		progress, resumeErr := resumeProjection(ctx, store, b, now)
+		if resumeErr != nil {
+			t.Fatal(resumeErr)
+		}
+		if progress.Completed {
+			break
+		}
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil || status.ExclusionCount != 1 || len(status.Exclusions) != 1 || status.Exclusions[0].EventID != "hidden" {
+		t.Fatalf("status=%+v err=%v, want one hidden exclusion", status, err)
 	}
 }
 
@@ -914,18 +928,23 @@ func TestSearchProjectionOversizeFailureAllowsLargerGeneration(t *testing.T) {
 	if _, err := store.Start(ctx, b, now); err != nil {
 		t.Fatal(err)
 	}
-	_, err := resumeProjection(ctx, store, b, now)
-	var oversized *apptypes.SearchProjectionOversizeError
-	if !errors.As(err, &oversized) {
-		t.Fatalf("error=%T %v", err, err)
+	for i := 0; i < 4; i++ {
+		progress, resumeErr := resumeProjection(ctx, store, b, now)
+		if resumeErr != nil {
+			t.Fatal(resumeErr)
+		}
+		if progress.Completed {
+			break
+		}
 	}
+	var err error
 	var state string
-	if err = db.QueryRow(`SELECT state FROM search_projection_state`).Scan(&state); err != nil || state != "failed" {
+	if err = db.QueryRow(`SELECT state FROM search_projection_state`).Scan(&state); err != nil || state != "complete" {
 		t.Fatalf("state=%q err=%v", state, err)
 	}
-	b.StoredBytes = 1 << 20
-	if _, err = store.Start(ctx, b, now); err != nil {
-		t.Fatalf("larger start: %v", err)
+	var exclusions int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM search_projection_exclusions WHERE event_id='large'`).Scan(&exclusions); err != nil || exclusions != 1 {
+		t.Fatalf("exclusions=%d err=%v", exclusions, err)
 	}
 }
 

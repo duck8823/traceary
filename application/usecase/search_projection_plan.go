@@ -50,14 +50,19 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 	}
 	summaries := map[string]string{}
 	for _, d := range s.Documents {
+		class, bytes, limit := "", int64(0), int64(0)
+		if d.Disposition == apptypes.ProjectionDispositionExcluded || d.StoredBytes > b.StoredBytes {
+			class, bytes, limit = "stored_bytes", d.StoredBytes, b.StoredBytes
+		} else if d.DecodedBytes > b.DecodedBytes {
+			class, bytes, limit = "decoded_bytes", d.DecodedBytes, b.DecodedBytes
+		}
+		if class != "" {
+			p.Exclusions = append(p.Exclusions, apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: class, SourceBytes: bytes, ByteLimit: limit})
+			p.NextCheckpoint = d.Sequence
+			continue
+		}
 		if p.Ledger.Rows >= b.Rows || p.Ledger.StoredBytes+d.StoredBytes > b.StoredBytes || p.Ledger.DecodedBytes+d.DecodedBytes > b.DecodedBytes {
 			break
-		}
-		if d.StoredBytes > b.StoredBytes {
-			return p, &apptypes.SearchProjectionOversizeError{Class: "stored_bytes", Bytes: d.StoredBytes, Limit: b.StoredBytes}
-		}
-		if d.DecodedBytes > b.DecodedBytes {
-			return p, &apptypes.SearchProjectionOversizeError{Class: "decoded_bytes", Bytes: d.DecodedBytes, Limit: b.DecodedBytes}
 		}
 		w := apptypes.ProjectionWrite{Document: d, Keywords: map[string]int{}}
 		w.LiteralFingerprints = apptypes.CharacterizeLiteralQuery(d.Text).Fingerprints()
@@ -83,7 +88,9 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		}
 		w.LogicalBytes = projectionWriteLogicalBytes(p.GenerationID, w)
 		if w.LogicalBytes > b.WriteBytes {
-			return p, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: w.LogicalBytes, Limit: b.WriteBytes}
+			p.Exclusions = append(p.Exclusions, apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: "write_bytes", SourceBytes: w.LogicalBytes, ByteLimit: b.WriteBytes})
+			p.NextCheckpoint = d.Sequence
+			continue
 		}
 		if p.Ledger.LogicalWriteBytes+w.LogicalBytes > b.WriteBytes {
 			if len(p.Writes) == 0 {
@@ -98,10 +105,10 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		p.Ledger.DecodedBytes += d.DecodedBytes
 		p.Ledger.LogicalWriteBytes += w.LogicalBytes
 	}
-	if len(s.Documents) > 0 && len(p.Writes) == 0 {
+	if len(s.Documents) > 0 && len(p.Writes) == 0 && len(p.Exclusions) == 0 {
 		return p, &apptypes.SearchProjectionNoProgressError{Reason: "resource budget prevented the first row"}
 	}
-	if s.SourceDone && len(p.Writes) == len(s.Documents) {
+	if s.SourceDone && len(p.Writes)+len(p.Exclusions) == len(s.Documents) {
 		p.NextPhase = "eviction"
 	}
 	return p, nil

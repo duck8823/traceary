@@ -80,13 +80,15 @@ func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {
 	t.Parallel()
 	b := apptypes.SearchProjectionBudget{Rows: 10, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1000, DecodedBytes: 1000, WriteBytes: 100, RecentAge: time.Hour, IndexFamilyBytes: 1000}
 	s := apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "g", SourceRevision: 1}, Phase: "source", Now: time.Now(), Documents: []apptypes.ProjectionDocument{{Sequence: 1, Text: "small", StoredBytes: 5, DecodedBytes: 5}}}
-	_, err := usecase.PlanProjectionBatch(s, b)
-	var oversized *apptypes.SearchProjectionOversizeError
-	if !errors.As(err, &oversized) || oversized.Bytes <= b.WriteBytes {
-		t.Fatalf("error = %T %v, want required-total oversize", err, err)
+	p, err := usecase.PlanProjectionBatch(s, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Exclusions) != 1 || p.Exclusions[0].Class != "write_bytes" || p.NextCheckpoint != 1 {
+		t.Fatalf("exclusions = %+v checkpoint=%d, want one write_bytes exclusion at checkpoint 1", p.Exclusions, p.NextCheckpoint)
 	}
 	b.WriteBytes = 1000
-	p, err := usecase.PlanProjectionBatch(s, b)
+	p, err = usecase.PlanProjectionBatch(s, b)
 	if err != nil {
 		t.Fatal(err)
 	}
