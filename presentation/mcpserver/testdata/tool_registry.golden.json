@@ -268,10 +268,6 @@
             "null",
             "array"
           ]
-        },
-        "tier": {
-          "description": "candidate provenance for tiered literal preview",
-          "type": "string"
         }
       },
       "required": [
@@ -1477,10 +1473,6 @@
             "null",
             "array"
           ]
-        },
-        "tier": {
-          "description": "candidate provenance for tiered literal preview",
-          "type": "string"
         }
       },
       "required": [
@@ -2412,10 +2404,6 @@
             "null",
             "array"
           ]
-        },
-        "tier": {
-          "description": "candidate provenance for tiered literal preview",
-          "type": "string"
         }
       },
       "required": [
