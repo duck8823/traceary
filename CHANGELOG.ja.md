@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **未使用の literal fingerprint candidate index を削除 (#1808)** — migration `000059` が、どの reader も依存していない 118,489,088 バイトの index を `literal_search_fingerprints` テーブルから削除します。2 つの fingerprint subquery は index の有無にかかわらず primary key で解決するため、query plan も generation も変わりません。migration 自体も有界で、7.1 GB の store で 0.096 秒でした（index の削除はページを書き換えずに解放するため）。SQLite は解放されたページを store 内で再利用しますが、`traceary store compact` / `VACUUM` を実行するまで filesystem には返却されません。
 - **MCP から session-tier search 結果を公開 (#1727)** — MCP の `search` tool が、古い履歴に一致する session trail を専用の `sessions` field で返し、`session_matches` または `session_projection_not_ready` reason を報告するようになりました。この schema 変更は意図的に `search` だけに限定しており、`list_events` と `get_context` は変更しません。
 - **bounded search projection の既定予算を統一 (#1806)** — CLI と自動 catch-up path が共有する既定値を 1 つにし、generation configuration hash のずれを構造的に防ぎます。内部実装の変更であり、operator-visible な動作の変更はありません。
 - **未リリースのtiered literal previewを削除 (#1725)** — undocumentedなCLIの`--tiered-preview` / `--deep` / `--continuation` entry pointと、MCPの`tiered_preview` / `deep` fieldを削除しました。これらは2026-08-02に追加されましたが、release tag（最新はv0.33.1）には一度も含まれていないため、deprecation windowは適用せず、bounded projection searchだけを検索経路として残します。

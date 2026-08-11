@@ -28,7 +28,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Current != 34 || plan.Latest != 58 || len(plan.Pending) != 24 || !plan.Offline || len(plan.Digest) != 64 {
+	if plan.Current != 34 || plan.Latest != 59 || len(plan.Pending) != 25 || !plan.Offline || len(plan.Digest) != 64 {
 		t.Fatalf("plan = %+v", plan)
 	}
 	want := map[int64]MigrationExecutionClass{
@@ -56,6 +56,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 		56: MigrationConstantInPlace,
 		57: MigrationConstantInPlace,
 		58: MigrationConstantInPlace,
+		59: MigrationConstantInPlace,
 	}
 	for _, migration := range plan.Pending {
 		if migration.Class != want[migration.Version] {
