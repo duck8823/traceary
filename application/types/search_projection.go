@@ -33,6 +33,30 @@ const DefaultSearchProjectionIndexFamilyBytes int64 = 1464 << 20
 // the CLI and automatic catch-up path for one projection batch.
 const DefaultSearchProjectionLockTime = 250 * time.Millisecond
 
+// DefaultSearchProjectionBudget is the bounded search projection budget used
+// by both the CLI flag defaults and the automatic catch-up path, which must
+// agree: five of these fields feed ConfigHash, so an operator running
+// `store search-projection resume` with default flags is refused the
+// generation automatic catch-up started as soon as one of them drifts. The
+// refusal reports only "budget does not match generation configuration" — the
+// operator cannot see that two defaults disagree, because both look like the
+// default. One owner makes that impossible rather than detectable.
+//
+// Rows is deliberately part of this value but not of ConfigHash: the adaptive
+// shrink varies it within a generation, so it cannot identify one.
+func DefaultSearchProjectionBudget() SearchProjectionBudget {
+	return SearchProjectionBudget{
+		Rows:             128,
+		WallTime:         time.Second,
+		LockTime:         DefaultSearchProjectionLockTime,
+		StoredBytes:      8 << 20,
+		DecodedBytes:     8 << 20,
+		WriteBytes:       8 << 20,
+		RecentAge:        30 * 24 * time.Hour,
+		IndexFamilyBytes: DefaultSearchProjectionIndexFamilyBytes,
+	}
+}
+
 // SearchProjectionCapacitySemanticsVersion is the capacity model this binary
 // builds under. A persisted generation below this value is obsolete and must
 // be replaced even when complete (#1679 / D5).
