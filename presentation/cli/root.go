@@ -97,7 +97,7 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption
 }
 
 // WithProjectionSessionSearch injects the bounded-projection session-tier
-// search used by `traceary search` when older history is summarized.
+// search used by `traceary search` for sessions whose summary or keyword text matches.
 func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearchQuery) RootCLIOption {
 	return func(c *RootCLI) { c.projectionSessionSearch = search }
 }

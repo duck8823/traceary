@@ -57,7 +57,7 @@ type searchOutput struct {
 	eventsOutput
 	// Reasons shadows eventsOutput.Reasons so only search publishes the session-tier reason vocabulary; removing it changes three published schemas, not one.
 	Reasons  []string              `json:"reasons,omitempty" jsonschema:"machine-readable search reasons: more_results, aggregate_body_budget, session_matches, session_projection_not_ready"`
-	Sessions []searchSessionOutput `json:"sessions,omitempty" jsonschema:"older session trails matching the search query"`
+	Sessions []searchSessionOutput `json:"sessions,omitempty" jsonschema:"session trails whose summary or keyword text matches the query"`
 }
 
 type searchSessionOutput struct {

@@ -161,15 +161,15 @@ Traceary operator cockpit TUI を開きます。
 
 全文検索と構造フィルタで event を検索します。
 
-`search` は bounded search projection を読みます。直近の全文ヒットは `search_projection_recent_fts` から、セッション要約・キーワードにだけヒットする過去履歴は別グループの **SESSIONS** として返ります。SESSIONS 行は「この trail を開け」という意味であり、一致した event 行ではありません。
+`search` は `events` を新しい順に走査し、上限付きの候補を復号して本文一致を判定します。世代が complete になると、その literal fingerprint による pre-filter で一致しない候補の復号を省略でき、session tier によって別グループ **SESSIONS** も利用できます。SESSIONS 行は要約またはキーワードの本文が query に一致した session です。古い event のグループでも、一致した event 行でもありません。
 
 セッション行は、その trail のどこかに検索条件に一致する活動があることを示します。`--from` / `--to` では `traceary session list` と同じくセッションの開始時刻で選び、`--failures` はそのセッション内に失敗したコマンドが1つでもあれば満たします。セッション行に対する filter は単一の event ではなくセッション全体に適用されるため、query、期間、`--failures` がそれぞれセッション内の別の活動によって満たされても、そのセッションは表示されます。すべての filter が1行の event だけを絞り込むのは event 階層です。
 
-complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。世代が complete になる前や、この tail が bounded candidate limit を超えた場合も、候補を直接復号して正しい結果を返します。速度は落ちるので、projection を再構築（`traceary store search-projection start` → `resume`）すると高速経路に戻ります。
+complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。世代が complete になる前も、候補を直接復号して本文一致は正しく返します。速度は落ち、また session tier はそれまで参照を拒否されるため SESSIONS グループは空になります（#1844）。候補予算を使い切った場合は部分的な結果を返さず `index_incomplete` を報告します。projection を再構築（`traceary store search-projection start` → `resume`）すると fingerprint pre-filter と session tier が利用可能になります。
 
 この command をかつて支えていた全文コーパス版 migration-032 索引は v0.34 で退役しました。読み書きはされず、`traceary store search-retire` で削除できます。詳細は [検索インデックスの退役](../operations/search-retirement.ja.md) を参照してください。
 
-直近 event だけの結果では、テキスト出力は `list` / `tail` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。セッションヒットがあるときだけ `EVENTS（直近・全文）` と `SESSIONS（過去・要約）` のラベル付きグループになります。`--wide` で従来のタブ区切り表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の event 行形状を再現します。`--json` は v0.34 では従来通り event オブジェクトのトップレベル配列のままです。セッション階層ヒットはこの形状で表現できないため、セッションに一致した場合は件数を **stderr** に通知し、stdout はバイト単位で変わりません。確認するには `--json` を外してください。v0.35 以降 `search --json` は配列ではなく `events` と `sessions` を持つオブジェクトを出力します。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます。filter を持つ preset なら free-text query なしでも検索条件が揃うので、preset-only な検索も成立します。
+本文一致だけの結果では、テキスト出力は `list` / `tail` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。両方のグループがあるときは `EVENTS (literal matches)` と `SESSIONS (summary or keyword matches)` のラベル付きグループになります。日本語表示では `EVENTS（本文一致）` と `SESSIONS（要約・キーワード一致）` です。`--wide` で従来のタブ区切り表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の event 行形状を再現します。`--json` は v0.34 では従来通り event オブジェクトのトップレベル配列のままです。セッション階層ヒットはこの形状で表現できないため、セッションに一致した場合は件数を **stderr** に通知し、stdout はバイト単位で変わりません。確認するには `--json` を外してください。v0.35 以降 `search --json` は配列ではなく `events` と `sessions` を持つオブジェクトを出力します。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます。filter を持つ preset なら free-text query なしでも検索条件が揃うので、preset-only な検索も成立します。
 
 期間 filter は `traceary list` と同じ要求値・実効値の規則を使います。日付だけの終了日は指定した暦日を含み、`--timezone` は明示的（既定は UTC）、RFC3339 の終了は正確な排他時刻のままです。
 

@@ -76,10 +76,10 @@ func TestRootCLI_SearchText_MixedShowsLabelledGroups(t *testing.T) {
 		&projectionSessionSearchStub{hits: []apptypes.SearchSessionHit{session}},
 	)
 	text := string(stdout)
-	if !strings.Contains(text, "EVENTS (recent, full text)") {
+	if !strings.Contains(text, "EVENTS (literal matches)") {
 		t.Fatalf("missing EVENTS header:\n%s", text)
 	}
-	if !strings.Contains(text, "SESSIONS (older, from summaries)") {
+	if !strings.Contains(text, "SESSIONS (summary or keyword matches)") {
 		t.Fatalf("missing SESSIONS header:\n%s", text)
 	}
 	if !strings.Contains(text, "sess-4471") {

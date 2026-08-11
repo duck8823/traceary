@@ -2,9 +2,9 @@
 
 [English](search-projection-rebuild.md)
 
-検索プロジェクションは派生データです。正本のイベントとコマンド監査からいつでも再構築でき、プロジェクションのライフサイクル操作が正本を変更することはありません。v0.34 以降、世代が complete のときは `traceary search` がこのプロジェクションを読みます。再構築後に記録されたイベントは正本テーブルから統合するため、再構築の合間に結果が古くなることはありません。
+検索プロジェクションは派生データです。正本のイベントとコマンド監査からいつでも再構築でき、プロジェクションのライフサイクル操作が正本を変更することはありません。v0.34 以降、complete な世代は `traceary search` に fingerprint pre-filter と session tier を提供します。本文一致は正本テーブルを新しい順に走査して復号する経路で判定し、再構築後に記録されたイベントも統合するため、再構築の合間に結果が古くなることはありません。
 
-世代を一度も作っていない store でも、オペレータのコマンドは不要です。store を開くたびに generation 作業を上限付きで 1 単位進めます。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。この間も検索は機能します。世代が `complete` でない状態は fingerprint による pre-filter が使えないことを意味するだけで、候補を直接復号して正しい結果を返します。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。
+世代を一度も作っていない store でも、オペレータのコマンドは不要です。store を開くたびに generation 作業を上限付きで 1 単位進めます。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。この間も本文一致の検索は機能します。世代が `complete` でない状態は fingerprint による pre-filter が使えないことを意味するだけで、候補を直接復号して本文一致は正しく返ります。session tier は別です。世代が complete になるまで参照を拒否するため、session の要約やキーワードにだけ存在する一致はそれまで返りません。`traceary search` はこれを伝えません。MCP の `search` tool だけが `session_projection_not_ready` として報告します（#1844）。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。
 
 オペレータは同じ機構を明示的に動かせます。`traceary store search-projection start`で世代を開始します。`resume`は上限付きバッチを1回実行します。複数のバッチを個別にコミットしながら実行する例を次に示します。
 
@@ -24,7 +24,7 @@ traceary store search-projection resume --until-complete --max-batches 4000 --to
 
 未完了の世代を破棄して異なる設定で再開する場合は、`traceary store search-projection abort`を使います。この操作は冪等であり、完了済みのactive世代を破棄しません。世代の状態、チェックポイント、high-water、容量証跡は`status`で確認します。
 
-v0.34 以降、この projection が唯一の検索インデックスです。並走していた全文コーパス版 migration-032 ファミリは退役したため、認可すべき cutover も比較対象の第2インデックスも存在しません。詳細は [検索インデックスの退役](operations/search-retirement.ja.md) を参照してください。
+v0.34 以降、この projection が唯一の検索派生ファミリです。並走していた全文コーパス版 migration-032 ファミリは退役したため、認可すべき cutover も比較対象の第2インデックスも存在しません。詳細は [検索インデックスの退役](operations/search-retirement.ja.md) を参照してください。
 
 ## インデックスファミリ予算
 
@@ -37,16 +37,16 @@ b-tree 割当であり、ソーステキストではありません。デフォ�
 
 ファミリのうち**退避可能（evictable）**なのは 1 つのティアだけで、上限が効くのも
 そこだけです。具体的には `search_projection_recent_documents`、その索引、
-`search_projection_recent_fts_*` の各シャドウテーブルです。ここで eviction が
-成立するのは、recent ティアがウィンドウだからです。最古のドキュメントを落としても
-検索結果は正しいままです。落としたものはセッションティアから引き続き到達できます。
+`search_projection_recent_fts_*` の各シャドウテーブルです。ここで eviction が成立するのは、recent ティアが保持上限だからです。最古のドキュメントを落とす
+ことが現在安全なのは、このティアを読む処理がないためです。本文検索は正本の復号走査で
+正しさを保ち、session tier は要約・キーワード一致を返す追加の lossy な面です。
 
 残りのティアは**設計上コーパス比例**で、これを上限する仕組みはありません。
 
 | ティア | 比例する対象 | evict できない理由 |
 |---|---|---|
-| `search_projection_session_summaries` / `_session_keywords` / `_command_aggregates` | セッション数 | recent ティアが evict した先の退避先そのもの。落とすと履歴自体を失う |
-| `literal_search_fingerprints` | イベント数 | 欠けると事前フィルタが偽陰性になる。遅くなるのではなく当たらなくなる |
+| `search_projection_session_summaries` / `_session_keywords` / `_command_aggregates` | セッション数 | セッション一致を返す追加の面。落とすとその一致を失う |
+| `literal_search_fingerprints` | イベント数 | pre-filter が fail open するのは、その event の行が 1 件も無い場合だけ。行がある状態でクエリの要求する fingerprint が揃っていないと復号前に除外され、遅くなるのではなく偽陰性になる |
 | `search_projection_source_sequence` / `_exclusions` | イベント数 | 再構築自体の台帳 |
 
 これらは導出時に**非 recent 予備枠**として予算から先に差し引かれます。ファミリ合計に
@@ -54,24 +54,25 @@ b-tree 割当であり、ソーステキストではありません。デフォ�
 増え、上限は縮み、同じ予算でも recent ウィンドウは短くなります。リファレンスコーパス
 では、1 回の走査の 36% 時点で、セッションティアとフィンガープリントだけで 1464 MiB
 予算の 80.5% を占めていました。予備枠が予算に達すると導出上限は 0 になり、recent
-ティアは空のまま構築され、検索はセッションティアだけに落ちます。これは黙って劣化する
-のではなく報告されます（`capacity_evidence` に
+ティアは空のまま構築されます。検索は正本の復号走査を使うため影響を受けません。これは
+黙って隠されるのではなく報告されます（`capacity_evidence` に
 `non-recent reserve at or above index-family budget`）。
 
-`--index-family-bytes` を増やして買えるのは recent ウィンドウの長さです。コーパス比例
-ティアが縮むわけではありません。この projection にそれを縮める仕組みはありません。
+`--index-family-bytes` を増やして買えるのは、現在はどこからも読まれない recent ティアの
+保持量です。検索到達範囲を増やすわけでも、コーパス比例ティアを縮めるわけでもありません。
 
 `status.recent_bytes` は意図的に**別単位**です。recent ティアに実際に保持された
 ソーステキストです。予算はインデックスバイトで設定し、保持ソースは増幅率が
 見えるように報告するもので、ノブをテキスト上限として読み替えるためのものではありません。
 
-この予算が買うのは固定ウィンドウではなく、**可変ウィンドウ**です。トライグラムは
+この予算が買うのは検索到達範囲ではなく、**可変の保持ウィンドウ**です。トライグラムは
 ソーステキストの約 2.16 倍になるため、1464 MiB のファミリはインデックス可能な
 テキスト約 0.66 GiB に相当します。参照コーパスの週次ボリュームは**8 倍**
 （0.06〜0.47 GiB/週）振れます。中央値では約 1.5〜2 週、重いスプリントでは 1 週未満、
 静かな週では 4〜5 週です。圧縮が買うのは**到達距離ではなく可逆性**です。
 インデックスは平文の上に構築されるため、圧縮ボディも非圧縮と同じインデックス量を
-占めます。ウィンドウより古いものは session ティア経由で到達できます。
+占めます。session tier は追加の lossy な面であり、本文検索の到達範囲は正本の復号走査から
+得られるため、この保持ウィンドウには bounded されません。
 
 ### 保証（Guarantee）
 

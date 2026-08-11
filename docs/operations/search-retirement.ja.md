@@ -81,8 +81,9 @@ roll-forward only です。`store search-restore` は存在せず、Traceary の
 
 ## 退役後の検索
 
-検索は完全に bounded tiered projection が担います。これは本変更の前から実際に
-全クエリへ回答していた経路であり、結果は変わりません。
+本文検索の正本は canonical events と command audits を新しい順に走査して候補を
+復号する経路です。projection は fingerprint pre-filter と session tier を提供します。
+migration-032 系列はもともと読まれていなかったため、退役しても結果は変わりません。
 
 projection が incomplete / rebuilding / drifted でも検索は利用不能になりません。
 fingerprint index は pre-filter にすぎないため、候補を復号して判定する経路へ
