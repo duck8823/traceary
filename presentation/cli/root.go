@@ -18,7 +18,6 @@ import (
 type RootCLI struct {
 	event                      usecase.EventUsecase
 	eventMetadata              usecase.EventMetadataUsecase
-	tieredSearch               queryservice.TieredEventSearchQuery
 	projectionSessionSearch    queryservice.ProjectionSessionSearchQuery
 	reportCommand              usecase.ReportCommandUsecase
 	report                     usecase.ReportUsecase
@@ -47,7 +46,7 @@ type RootCLI struct {
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
 	capacityInspector          application.CapacityInspector
-	payloadCodecInspector application.PayloadCodecInspector
+	payloadCodecInspector      application.PayloadCodecInspector
 	searchProjection           *usecase.SearchProjectionUsecase
 	legacySearchRetire         *usecase.LegacySearchRetireUsecase
 	storeCompactionFactory     func(string) application.StoreCompactionUsecase
@@ -95,11 +94,6 @@ func WithEvent(event usecase.EventUsecase) RootCLIOption {
 // WithEventMetadata injects body-free event reads used by metadata projections.
 func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.eventMetadata = eventMetadata }
-}
-
-// WithTieredEventSearch injects the explicit historical literal preview.
-func WithTieredEventSearch(search queryservice.TieredEventSearchQuery) RootCLIOption {
-	return func(c *RootCLI) { c.tieredSearch = search }
 }
 
 // WithProjectionSessionSearch injects the bounded-projection session-tier

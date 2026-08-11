@@ -84,13 +84,6 @@ type EventBoundedQueryService interface {
 	LoadCanonicalBodies(ctx context.Context, eventIDs []types.EventID) (map[types.EventID]string, error)
 }
 
-// TieredEventSearchQuery returns honest bounded coverage rather than
-// overloading a slice API with flags whose empty result could be mistaken for
-// completeness.
-type TieredEventSearchQuery interface {
-	SearchLiteralPage(ctx context.Context, request apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error)
-}
-
 // ProjectionSessionSearchQuery returns session-tier hits from the bounded
 // search projection. Callers that only need event rows do not depend on this
 // port. Hits are never events: a session row means "the trail is here, open it".

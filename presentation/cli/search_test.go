@@ -3,100 +3,14 @@ package cli_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/duck8823/traceary/application/queryservice"
-	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
-	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
 )
-
-func TestRootCLI_SearchTieredPreviewExposesZeroMatchContinuation(t *testing.T) {
-	t.Setenv("TRACEARY_WORKSPACE", "")
-	stub := &cliTieredSearchStub{page: apptypes.LiteralSearchPage{Tier: apptypes.LiteralSearchTierBoundedVerification, Coverage: apptypes.LiteralSearchCoverage{ProcessedSources: 4, HighWater: 9}, PartialReason: "source_rows", Continuation: "next"}}
-	stdout := &bytes.Buffer{}
-	root := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(&eventUsecaseStub{}), cli.WithTieredEventSearch(stub)).Command()
-	root.SetOut(stdout)
-	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"search", "needle", "--tiered-preview", "--deep", "--continuation", "previous", "--json", "--workspace", "repo"})
-	if err := root.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if got := stdout.String(); !strings.Contains(got, `"tier":"bounded_verification"`) || !strings.Contains(got, `"continuation":"next"`) || !strings.Contains(got, `"partial_reason":"source_rows"`) {
-		t.Fatalf("stdout = %s", got)
-	}
-	if stub.request.Continuation != "previous" || stub.request.Budget != apptypes.DeepLiteralSearchBudget {
-		t.Fatalf("request = %+v", stub.request)
-	}
-}
-
-func TestRootCLI_SearchTieredPreviewResumesWithoutImplicitTo(t *testing.T) {
-	t.Setenv("TRACEARY_WORKSPACE", "")
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
-	eventDS := sqliteinfra.NewEventDatasource(db)
-	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
-	eventUC := usecase.NewEventUsecase(eventDS, eventDS)
-	if err := storeUC.Initialize(ctx); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"cli-tiered-a", "cli-tiered-b"} {
-		eventID, _ := types.EventIDFrom(id)
-		agent, _ := types.AgentFrom("codex")
-		sessionID, _ := types.SessionIDFrom("cli-tiered-session")
-		if err := eventDS.Save(ctx, model.EventOf(eventID, types.EventKindNote, types.Client("cli"), agent, sessionID, types.Workspace("repo"), "needle", time.Now().UTC())); err != nil {
-			t.Fatal(err)
-		}
-	}
-	search := queryservice.NewLiteralSearchService(eventDS)
-	run := func(continuation string) string {
-		t.Helper()
-		stdout := &bytes.Buffer{}
-		root := cli.NewRootCLI(cli.WithStoreManagement(storeUC), cli.WithEvent(eventUC), cli.WithTieredEventSearch(search), cli.WithDatabasePathSetter(db.SetPath)).Command()
-		root.SetOut(stdout)
-		root.SetErr(&bytes.Buffer{})
-		args := []string{"search", "needle", "--tiered-preview", "--json", "--workspace", "repo", "--limit", "1", "--db-path", dbPath}
-		if continuation != "" {
-			args = append(args, "--continuation", continuation)
-		}
-		root.SetArgs(args)
-		if err := root.Execute(); err != nil {
-			t.Fatal(err)
-		}
-		var output struct {
-			Continuation string `json:"continuation"`
-		}
-		if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
-			t.Fatal(err)
-		}
-		return output.Continuation
-	}
-	continuation := run("")
-	if continuation == "" {
-		t.Fatal("missing continuation")
-	}
-	time.Sleep(time.Millisecond)
-	_ = run(continuation)
-}
-
-type cliTieredSearchStub struct {
-	page    apptypes.LiteralSearchPage
-	request apptypes.LiteralSearchRequest
-}
-
-func (s *cliTieredSearchStub) SearchLiteralPage(_ context.Context, r apptypes.LiteralSearchRequest) (apptypes.LiteralSearchPage, error) {
-	s.request = r
-	return s.page, nil
-}
 
 func TestRootCLI_SearchCommand(t *testing.T) {
 	t.Setenv("TRACEARY_WORKSPACE", "")
@@ -301,5 +215,20 @@ func TestRootCLI_SearchCommand_FailuresOnlyAsConstraint(t *testing.T) {
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v; --failures alone should count as a valid search constraint", err)
+	}
+}
+
+func TestRootCLI_SearchRejectsRemovedTieredPreviewFlags(t *testing.T) {
+	for _, flag := range []string{"--tiered-preview", "--deep", "--continuation"} {
+		t.Run(flag, func(t *testing.T) {
+			root := cli.NewRootCLI().Command()
+			root.SetOut(&bytes.Buffer{})
+			root.SetErr(&bytes.Buffer{})
+			root.SetArgs([]string{"search", "needle", flag})
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+				t.Fatalf("Execute() error = %v, want Cobra unknown-flag error", err)
+			}
+		})
 	}
 }

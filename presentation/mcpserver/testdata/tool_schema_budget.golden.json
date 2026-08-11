@@ -1,6 +1,6 @@
 {
-  "listToolsBytes": 46557,
-  "inputSchemaBytes": 15245,
+  "listToolsBytes": 46311,
+  "inputSchemaBytes": 14999,
   "tools": [
     {
       "name": "get_context",
@@ -46,8 +46,8 @@
     },
     {
       "name": "search",
-      "toolBytes": 6753,
-      "inputSchemaBytes": 1627,
+      "toolBytes": 6507,
+      "inputSchemaBytes": 1381,
       "outputSchemaBytes": 4911
     },
     {
