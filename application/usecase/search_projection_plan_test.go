@@ -323,8 +323,8 @@ func TestSearchProjectionConfigHashSeparatesSemanticAndThroughputBudgets(t *test
 		{name: "rows", mutate: func(b *apptypes.SearchProjectionBudget) { b.Rows = 1 }, match: true},
 		{name: "lock time", mutate: func(b *apptypes.SearchProjectionBudget) { b.LockTime = 2 * time.Second }, match: true},
 		{name: "wall time", mutate: func(b *apptypes.SearchProjectionBudget) { b.WallTime = 2 * time.Second }, match: true},
-		{name: "stored bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.StoredBytes = 101 }, match: true},
-		{name: "write bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.WriteBytes = 301 }, match: true},
+		{name: "stored bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.StoredBytes = 101 }, match: false},
+		{name: "write bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.WriteBytes = 301 }, match: false},
 		{name: "recent age", mutate: func(b *apptypes.SearchProjectionBudget) { b.RecentAge = 2 * time.Hour }, match: false},
 		{name: "index family bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.IndexFamilyBytes = 401 }, match: false},
 		{name: "decoded bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.DecodedBytes = 201 }, match: false},
@@ -337,6 +337,39 @@ func TestSearchProjectionConfigHashSeparatesSemanticAndThroughputBudgets(t *test
 				t.Fatalf("hash match (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestSearchProjectionResumeRejectsChangedStoredBytes(t *testing.T) {
+	t.Parallel()
+	base := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 100, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	changed := base
+	changed.StoredBytes++
+	store := &wallBudgetStore{budget: base}
+	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), changed, time.Now())
+	if diff := cmp.Diff("search projection made no progress: budget does not match generation configuration", err.Error()); diff != "" {
+		t.Fatalf("error (-want +got):\n%s", diff)
+	}
+}
+
+func TestPlanProjectionBatchFailsWhenOnlyTheExclusionCannotFit(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 100, WriteBytes: 120, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	s := apptypes.ProjectionSnapshot{
+		Generation: apptypes.SearchProjectionGeneration{GenerationID: "generation"},
+		Phase:      "source",
+		Documents:  []apptypes.ProjectionDocument{{Sequence: 1, EventID: "event", StoredBytes: 2, DecodedBytes: 2}},
+	}
+	_, err := usecase.PlanProjectionBatch(s, b)
+	var oversized *apptypes.SearchProjectionOversizeError
+	if !errors.As(err, &oversized) {
+		t.Fatalf("error=%T %v, want SearchProjectionOversizeError", err, err)
+	}
+	if diff := cmp.Diff("write_bytes", oversized.Class); diff != "" {
+		t.Fatalf("class (-want +got):\n%s", diff)
+	}
+	if oversized.Bytes <= oversized.Limit {
+		t.Fatalf("error bytes=%d limit=%d, want required total above limit", oversized.Bytes, oversized.Limit)
 	}
 }
 

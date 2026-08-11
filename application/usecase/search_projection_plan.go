@@ -51,6 +51,7 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		return p, nil
 	}
 	summaries := map[string]string{}
+	var blockedExclusionBytes int64
 	for _, d := range s.Documents {
 		class, bytes, limit, err := classifyProjectionExclusion(d, b)
 		if err != nil {
@@ -59,6 +60,7 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		if class != "" {
 			exclusion := apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: class, MeasuredBytes: bytes, ByteLimit: limit}
 			if p.Ledger.LogicalWriteBytes+projectionExclusionLogicalBytes(p.GenerationID, exclusion) > b.WriteBytes {
+				blockedExclusionBytes = projectionExclusionLogicalBytes(p.GenerationID, exclusion)
 				break
 			}
 			p.Exclusions = append(p.Exclusions, exclusion)
@@ -94,6 +96,7 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		if checkpointBytes+w.LogicalBytes > b.WriteBytes {
 			exclusion := apptypes.ProjectionExclusion{Sequence: d.Sequence, EventID: d.EventID, Class: "write_bytes", MeasuredBytes: w.LogicalBytes, ByteLimit: b.WriteBytes}
 			if p.Ledger.LogicalWriteBytes+projectionExclusionLogicalBytes(p.GenerationID, exclusion) > b.WriteBytes {
+				blockedExclusionBytes = projectionExclusionLogicalBytes(p.GenerationID, exclusion)
 				break
 			}
 			p.Exclusions = append(p.Exclusions, exclusion)
@@ -113,6 +116,9 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		p.Ledger.LogicalWriteBytes += w.LogicalBytes
 	}
 	if len(s.Documents) > 0 && len(p.Writes) == 0 && len(p.Exclusions) == 0 {
+		if blockedExclusionBytes > 0 {
+			return p, &apptypes.SearchProjectionOversizeError{Class: "write_bytes", Bytes: p.Ledger.LogicalWriteBytes + blockedExclusionBytes, Limit: b.WriteBytes}
+		}
 		return p, &apptypes.SearchProjectionNoProgressError{Reason: "resource budget prevented the first row"}
 	}
 	if s.SourceDone && len(p.Writes)+len(p.Exclusions) == len(s.Documents) {

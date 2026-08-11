@@ -751,6 +751,47 @@ func TestSearchProjectionUnavailableBodyAndOversizeArePublicBehavior(t *testing.
 	}
 }
 
+func TestSearchProjectionStatusReportsRebuildingGenerationExclusions(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewDatabase(path, migrations)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = db.Exec(`
+		INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water)
+		VALUES('generation-a','complete','hash-a',0,0),('generation-b','rebuilding','hash-b',0,1);
+		UPDATE search_projection_state
+		SET generation_id='generation-b',active_generation_id='generation-a',state='rebuilding',phase='source',config_hash='hash-b'
+		WHERE singleton=1;
+		INSERT INTO search_projection_exclusions(generation_id,source_sequence,event_id,class,measured_bytes,byte_limit)
+		VALUES('generation-a',1,'old-event','stored_bytes',10,1),('generation-b',2,'new-event','write_bytes',200,100);`); err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff("generation-b", status.ExclusionGenerationID); diff != "" {
+		t.Fatalf("exclusion generation (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(int64(1), status.ExclusionCount); diff != "" {
+		t.Fatalf("exclusion count (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("new-event", status.Exclusions[0].EventID); diff != "" {
+		t.Fatalf("exclusion event (-want +got):\n%s", diff)
+	}
+}
+
 func TestSearchProjectionResumeSurvivesVacuumAndExcludesThinking(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
