@@ -28,7 +28,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - `kind`: `note`、`command_executed`、`session_started`、`session_ended`、`prompt`、`compact_summary` などの event kind
 - `agent`: `codex`、`claude`、`gemini`、`manual` などの論理的な actor
 - `session_id`: session grouping identifier
-- `body`: audit 以外の kind 向けの人が読む event メッセージ。`command_executed` では空です。実行記録の正本は `command_audits` のみ（migration `000048` が履歴の二重保存を消去します）
+- `body`: audit 以外の kind 向けの人が読む event メッセージ。新規の `command_executed` では空です。新規書き込みの実行記録の正本は `command_audits` ですが、アップグレード前に書かれた行には履歴の body が残ります。履歴の reclaim は #1853 に延期されています。
 - `created_at`: RFC3339 timestamp
 - `client`: `cli`、`claude`、`codex`、`gemini`、`mcp` などの ingestion path
 - `workspace`: 利用可能な場合の補助的な work-context identifier
@@ -42,7 +42,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 
 ### `command_audits`
 
-`command_executed` event に紐づく構造化 audit detail です。これが保持される実行記録であり、command/input/output の合成コピーを `events.body` には保存しません。
+`command_executed` event に紐づく構造化 audit detail です。新規書き込みではこれが保持される実行記録ですが、アップグレード前に書かれた行には reclaim（#1853）が実施されるまで command/input/output の合成コピーが `events.body` に残る場合があります。
 
 主な column:
 

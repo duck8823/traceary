@@ -83,10 +83,11 @@ metadata-only queryで本文をGoへ読み込まずサイズを返せるよう�
 既存の`domain/model.Event`は本文を持つaggregateのまま維持します。metadata rowを
 不完全に初期化したdomain eventとして扱いません。
 
-`command_executed`では、event envelope の body は設計上空です。保持される実行記録は
-`command_audits` のみです。既存の`command_audits.input_*` / `output_*` extentは
+新規の `command_executed` では、event envelope の body は設計上空です。保持される実行記録は
+`command_audits` にあります。アップグレード前に書かれた行には履歴の body が残り、reclaim は #1853 に延期されています。既存の`command_audits.input_*` / `output_*` extentは
 構造化command input/output列を表し、それぞれの列に対する正本のまま維持します。
-この kind の event-body extent は migration `000048` 以降および新規書き込みでは 0 です。
+この kind の event-body extent は新規書き込みでは 0 であり、reclaim が入るまでは
+残存する履歴 body を表します。
 両者を加算しません。metadata consumerはcommand input、command output、event本文を
 SELECTせずに`exit_code`/`failed`をjoinできます。
 

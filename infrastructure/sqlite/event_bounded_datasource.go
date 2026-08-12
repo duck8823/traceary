@@ -343,7 +343,7 @@ func hydrateBoundedEvents(
 		}
 		body := bodyRow.body
 		visibleRunes := bodyRow.visibleBodyRunes
-		// command_executed envelope bodies are empty after #1675; the default
+		// New command_executed envelope bodies are empty after #1675; historical
 		// MCP bounded projection would otherwise return blank command text.
 		// Decode the retained audit command through the codec boundary (same
 		// guards as full hydrate) and apply the same rune limit as the SQL path.

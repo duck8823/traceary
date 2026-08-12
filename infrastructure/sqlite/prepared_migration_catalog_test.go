@@ -28,7 +28,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Current != 34 || plan.Latest != 59 || len(plan.Pending) != 25 || !plan.Offline || len(plan.Digest) != 64 {
+	if plan.Current != 34 || plan.Latest != 59 || len(plan.Pending) != 24 || !plan.Offline || len(plan.Digest) != 64 {
 		t.Fatalf("plan = %+v", plan)
 	}
 	want := map[int64]MigrationExecutionClass{
@@ -45,7 +45,6 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 		45: MigrationDataDependentOffline,
 		46: MigrationConstantInPlace,
 		47: MigrationConstantInPlace,
-		48: MigrationDataDependentOffline,
 		49: MigrationConstantInPlace,
 		50: MigrationConstantInPlace,
 		51: MigrationConstantInPlace,
@@ -83,16 +82,59 @@ func TestBuildPreparedMigrationPlanRejectsChangedManifestBody(t *testing.T) {
 	}
 }
 
-func TestBuildPreparedMigrationPlanRejectsCatalogGap(t *testing.T) {
+func TestBuildPreparedMigrationPlanRejectsMissingAppliedPrefixMigration(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/store.db"
+	if err := NewStoreManagementDatasource(NewDatabase(path, preparedMigrationsBefore(t, 35))).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
 	migrations := cloneMigrationFS(t, preparedMigrations(t))
 	delete(migrations, "000020_add_session_model.sql")
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := sql.Open("sqlite", sqliteImmutableDSN(path))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err = BuildPreparedMigrationPlan(context.Background(), db, migrations); err == nil || !strings.Contains(err.Error(), "catalog gap") {
-		t.Fatalf("BuildPreparedMigrationPlan() error = %v", err)
+	if _, err = BuildPreparedMigrationPlan(ctx, db, migrations); err == nil || !strings.Contains(err.Error(), "exact catalog prefix") {
+		t.Fatalf("BuildPreparedMigrationPlan() error = %v, want exact-prefix rejection", err)
+	}
+}
+
+func TestBuildPreparedMigrationPlanRejectsCatalogAndLedgerMissingVersion20(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/store.db"
+	defectiveBefore := cloneMigrationFS(t, preparedMigrationsBefore(t, 35))
+	delete(defectiveBefore, "000020_add_session_model.sql")
+	if err := NewStoreManagementDatasource(NewDatabase(path, defectiveBefore)).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	migrations := cloneMigrationFS(t, preparedMigrations(t))
+	delete(migrations, "000020_add_session_model.sql")
+	db, err := sql.Open("sqlite", sqliteImmutableDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = BuildPreparedMigrationPlan(ctx, db, migrations); err == nil || !strings.Contains(err.Error(), "discontinuity at version 20") {
+		t.Fatalf("BuildPreparedMigrationPlan() error = %v, want catalog discontinuity at version 20", err)
+	}
+}
+
+func TestBuildPreparedMigrationPlanRejectsMissingManifestMigration(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/store.db"
+	if err := NewStoreManagementDatasource(NewDatabase(path, preparedMigrationsBefore(t, 35))).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	migrations := cloneMigrationFS(t, preparedMigrations(t))
+	delete(migrations, "000050_fix_search_projection_insert_inventory_drift.sql")
+	db, err := sql.Open("sqlite", sqliteImmutableDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = BuildPreparedMigrationPlan(ctx, db, migrations); err == nil || !strings.Contains(err.Error(), "migration 50") {
+		t.Fatalf("BuildPreparedMigrationPlan() error = %v, want manifest rejection naming version 50", err)
 	}
 }
 
