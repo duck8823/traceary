@@ -7,8 +7,7 @@ WITH RECURSIVE
     SELECT parent.session_id, parent.parent_session_id, ancestors.depth + 1, ancestors.path || parent.session_id || ','
     FROM sessions parent
     JOIN ancestors ON ancestors.parent_session_id = parent.session_id
-    WHERE ancestors.depth < 100
-      AND instr(ancestors.path, ',' || parent.session_id || ',') = 0
+    WHERE instr(ancestors.path, ',' || parent.session_id || ',') = 0
   ),
   lineage_root(session_id) AS (
     SELECT session_id

@@ -755,6 +755,62 @@ func TestDatasource_LineageOf(t *testing.T) {
 	}
 }
 
+func TestDatasource_LineageOfDeepChainUsesTrueRootForEveryMember(t *testing.T) {
+	t.Parallel()
+
+	const chainLength = 150
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	fixture := newListSessionsFixture(t, dbPath, listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < chainLength; i++ {
+		sessionID := fmt.Sprintf("deep-%03d", i)
+		if i == 0 {
+			saveTestSession(ctx, t, fixture.sessionDS, sessionID, started, types.None[time.Time](), "claude", "duck8823/traceary")
+			continue
+		}
+		saveTestSessionWithParent(ctx, t, fixture.sessionDS, sessionID, fmt.Sprintf("deep-%03d", i-1), started.Add(time.Duration(i)*time.Minute), i)
+	}
+
+	queries := []struct {
+		name string
+		id   string
+	}{
+		{name: "deepest", id: "deep-149"},
+		{name: "deepest parent", id: "deep-148"},
+	}
+	lineageSets := make(map[string][]string, len(queries))
+	for _, tt := range queries {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fixture.sessionDS.LineageOf(ctx, types.SessionID(tt.id))
+			if err != nil {
+				t.Fatalf("LineageOf() error = %v", err)
+			}
+			ids := make([]string, 0, len(got))
+			for _, summary := range got {
+				ids = append(ids, summary.SessionID().String())
+			}
+			sort.Strings(ids)
+			lineageSets[tt.name] = ids
+			want := make([]string, 0, 101)
+			for i := 0; i <= 100; i++ {
+				want = append(want, fmt.Sprintf("deep-%03d", i))
+			}
+			if diff := cmp.Diff(want, ids); diff != "" {
+				t.Fatalf("LineageOf() IDs mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	if diff := cmp.Diff(lineageSets["deepest"], lineageSets["deepest parent"]); diff != "" {
+		t.Fatalf("lineage sets differ (-deepest +parent):\n%s", diff)
+	}
+}
+
 func TestDatasource_ListSummariesLatestEvent(t *testing.T) {
 	t.Parallel()
 
