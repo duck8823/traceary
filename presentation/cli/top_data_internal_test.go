@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
@@ -338,6 +340,67 @@ func TestTopDataLoader_LoadSessions_BuildsActiveTreeAndForwardsCriteria(t *testi
 	}
 	if got, want := roots[0].children[0].summary.SessionID().String(), "child"; got != want {
 		t.Fatalf("root[0].children[0].SessionID = %q, want %q", got, want)
+	}
+}
+
+func TestTopDataLoader_ExpandSessionLineages_LoadsEachDistinctFamilyOnce(t *testing.T) {
+	t.Parallel()
+
+	rootA := sessionSummaryFixture("root-a", "", fixedStartedAt, "ended", domtypes.EventKindSessionEnded, "root a ended")
+	childA1 := sessionSummaryFixture("child-a1", "root-a", fixedStartedAt.Add(time.Minute), "active", domtypes.EventKindTranscript, "child a1")
+	childA2 := sessionSummaryFixture("child-a2", "root-a", fixedStartedAt.Add(2*time.Minute), "active", domtypes.EventKindTranscript, "child a2")
+	rootB := sessionSummaryFixture("root-b", "", fixedStartedAt.Add(10*time.Minute), "ended", domtypes.EventKindSessionEnded, "root b ended")
+	childB := sessionSummaryFixture("child-b", "root-b", fixedStartedAt.Add(11*time.Minute), "active", domtypes.EventKindTranscript, "child b")
+
+	tests := []struct {
+		name        string
+		summaries   []apptypes.SessionSummary
+		lineageByID map[domtypes.SessionID][]apptypes.SessionSummary
+		want        []apptypes.SessionSummary
+		wantCalls   []domtypes.SessionID
+	}{
+		{
+			name:      "shared lineage is loaded once",
+			summaries: []apptypes.SessionSummary{childA1, childA2, childB},
+			lineageByID: map[domtypes.SessionID][]apptypes.SessionSummary{
+				domtypes.SessionID("child-a1"): {rootA, childA1, childA2},
+				domtypes.SessionID("child-b"):  {rootB, childB},
+			},
+			want:      []apptypes.SessionSummary{rootA, childA1, childA2, rootB, childB},
+			wantCalls: []domtypes.SessionID{"child-a1", "child-b"},
+		},
+		{
+			name:      "empty lineage falls back to input summary",
+			summaries: []apptypes.SessionSummary{childA1},
+			want:      []apptypes.SessionSummary{childA1},
+			wantCalls: []domtypes.SessionID{"child-a1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cmpOptions := cmp.AllowUnexported(
+				apptypes.SessionSummary{},
+				domtypes.Optional[time.Time]{},
+				domtypes.Optional[int]{},
+			)
+
+			session := &topDataSessionStub{lineageByID: tt.lineageByID}
+			loader := newTopDataLoader(session, nil, nil)
+
+			got, err := loader.expandSessionLineages(context.Background(), tt.summaries)
+			if err != nil {
+				t.Fatalf("expandSessionLineages() error = %v", err)
+			}
+
+			if diff := cmp.Diff(tt.want, got, cmpOptions); diff != "" {
+				t.Errorf("expanded summaries mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantCalls, session.lineageCalls); diff != "" {
+				t.Errorf("Lineage calls mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

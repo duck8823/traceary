@@ -405,6 +405,9 @@ func (l *topDataLoader) expandSessionLineages(ctx context.Context, summaries []a
 	merged := make([]apptypes.SessionSummary, 0, len(summaries))
 	seen := make(map[string]struct{}, len(summaries))
 	for _, summary := range summaries {
+		if _, ok := seen[summary.SessionID().String()]; ok {
+			continue
+		}
 		lineage, err := l.session.Lineage(ctx, summary.SessionID())
 		if err != nil {
 			return nil, xerrors.Errorf("%s: %w", Localize("failed to load session lineage", "セッション lineage の取得に失敗しました"), err)
