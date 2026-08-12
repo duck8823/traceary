@@ -17,13 +17,16 @@ source store size の 1.1 倍の空き容量を要求します。成功後も so
 大きさの元 database rollback copy が残ります。運用者向けの詳細は
 [`store compact` のディスク容量](../operations/store-compact-disk-cost.ja.md) を参照してください。
 
-`plan`はpreflight全体でstoreのexclusive leaseを保持します。regularかつ0 byteの
-`-wal`または`-shm`だけをstale artifactとして削除し、directoryをsyncしてから、
-storeをopenする前に再検査します。non-zeroのWAL/SHM、サイズにかかわらずすべての
-`-journal`、symlink、FIFO、その他のnon-regular pathは削除しません。sidecarが残って
-いる場合は、すべてのTraceary process（projection/status reader、旧版、非協調版を
-含む）を停止して同じcommandをretryしてください。sidecarを手動削除してはいけません。
-non-zeroまたはnon-regularのsidecarにはliveなSQLite stateが含まれる可能性があります。
+`plan`はpreflight全体でstoreのexclusive leaseを保持します。`-journal`がなく、
+non-zeroの`-wal`もない場合は、存在するregularな`-wal`と`-shm`を、`-shm`が
+non-zeroでも両方stale artifactとして削除します。directoryをsyncしてから、storeを
+openする前に再検査します。shm fileはdatabase contentを含まず、fsyncもされません。
+empty WALではすべてのcontentをmain database fileから取得します。non-zeroのWAL、
+サイズにかかわらずすべての`-journal`、symlink、FIFO、その他のnon-regular pathは
+削除しません。sidecarが残っている場合は、すべてのTraceary process（projection/status
+reader、旧版、非協調版を含む）を停止して同じcommandをretryしてください。sidecarを
+手動削除してはいけません。non-zero WALまたはnon-regular sidecarにはliveなSQLite
+stateが含まれる可能性があります。
 
 レガシー検索インデックスの検査はsource digestより前に走るため、数GiBのstore
 全体をハッシュした後ではなく数秒で失敗します。先にcompactすると死んだindexを

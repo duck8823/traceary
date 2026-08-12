@@ -30,10 +30,18 @@ func cleanupStaleSQLiteSidecars(ctx context.Context, storePath string) error {
 		if err != nil {
 			return fmt.Errorf("stat SQLite sidecar %s: %w", path, err)
 		}
-		if suffix == "-journal" || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != 0 {
+		if suffix == "-journal" || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			return sqliteSidecarRefusal(path, info)
 		}
-		stale = append(stale, sqliteSidecar{path: path})
+		if suffix == "-wal" && info.Size() != 0 {
+			return sqliteSidecarRefusal(path, info)
+		}
+		// The shm file contains no database content and is never fsynced. When
+		// the WAL's mxFrame is zero, the WAL is empty and all content comes from
+		// the main database file, so a regular shm is stale regardless of size.
+		if suffix == "-wal" || suffix == "-shm" {
+			stale = append(stale, sqliteSidecar{path: path})
+		}
 	}
 	for _, sidecar := range stale {
 		if err := ctx.Err(); err != nil {
