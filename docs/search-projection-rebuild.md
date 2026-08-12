@@ -4,7 +4,7 @@
 
 The search projection is derived: it can always be rebuilt from canonical events and command audits, and projection lifecycle commands never change them. Since v0.34 a complete generation supplies the fingerprint pre-filter and the session tier to `traceary search`; literal matches still come from the newest-first decode walk over canonical tables, with events recorded after the rebuild merged in so results do not go stale between rebuilds.
 
-Stores that have never built a generation do not need an operator command. Every store open runs one bounded unit of generation work: start if idle and source events exist, otherwise resume a matching rebuild. Literal search works throughout: a generation that is not yet `complete` only means the fingerprint pre-filter is unavailable, so candidates are decoded directly and literal matches stay correct. The session tier is a different matter — it is refused until a generation is complete, so a match that exists only in a session summary or its keywords is absent until then. `traceary search` does not say so; the MCP `search` tool reports it as `session_projection_not_ready` (#1844). Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only.
+Stores that have never built a generation do not need an operator command. A store open runs one bounded unit of generation work — start if idle and source events exist, otherwise resume a matching rebuild — except in the states it skips instead, which the table below names. Literal search works throughout: a generation that is not yet `complete` only means the fingerprint pre-filter is unavailable, so candidates are decoded directly and literal matches stay correct. The session tier is a different matter — it is refused until a generation is complete, so a match that exists only in a session summary or its keywords is absent until then. `traceary search` reports on stderr that the session tier was not consulted and points to `traceary store search-projection status`; what that state needs differs from one state to the next, and the table below gives it for each. The MCP `search` tool reports it as `session_projection_not_ready` (#1844). Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only.
 
 Operators can still drive the same machinery explicitly. Start a generation with `traceary store search-projection start`. Resume one durable bounded batch with `resume`, or run multiple independently committed batches:
 
@@ -21,10 +21,14 @@ write on every store open can still reach `complete`. Stores populated by the
 former migration-38 behavior and new empty stores skip this phase without
 scanning the canonical table.
 
-If an operator starts a generation with a non-default budget and leaves it
-incomplete, automatic catch-up on store open skips rather than hijacking that
-budget. Skips are logged at warning level with the reason; resume or abort with
-the matching budget to unblock progress.
+If a generation is left incomplete under a budget whose configuration hash does
+not match the current default, automatic catch-up on store open skips it rather
+than hijacking that budget. Skips are logged at warning level with the reason.
+`resume` accepts the generation only when the same budget is supplied again,
+because it compares the hash before doing any work. If that budget cannot be
+reproduced, `abort` retires the generation — it takes no budget, and parks the
+row as `failed` with class `abandoned` — and an explicit `start` then replaces
+it. `start` on its own is refused while the state is `rebuilding`.
 
 A generation that **failed** is parked, not retried. Every failure class the
 store records is deterministic — an oversize row exceeds the same budget on
@@ -34,6 +38,33 @@ append a lifecycle row per open. Automatic catch-up skips with a warning naming
 the class. Neither `resume` nor `abort` clears it — `resume` rejects a failed
 generation and `abort` leaves the row failed as `abandoned` — so recovery is an
 explicit `traceary store search-projection start`.
+
+### What each `status` state needs
+
+`traceary search` refuses the session tier for every state except `complete`
+(`infrastructure/sqlite/event_search_query.go:66-73`), and its stderr notice
+points here rather than naming a command, because the command depends on the
+state and one of them — `start` — is refused outright while a generation is
+rebuilding.
+
+One condition overrides the budget-hash rows below: a `complete`, `rebuilding` or
+`drifted` generation recorded under an obsolete capacity semantics version is
+abandoned and replaced on the next store open regardless of its budget hash
+(`application/usecase/search_projection_usecase.go:315-340`), so a store upgraded
+across a semantics change recovers from a mismatching budget on its own. `failed`
+is deliberately excluded and stays parked, because un-parking it would restart a
+deterministic failure on every open.
+
+| `status` state | On the next ordinary store open | If it is not advancing |
+|---|---|---|
+| `complete` | the session tier is available | — |
+| `idle`, store has events | a generation starts and one bounded batch runs | `start`, then `resume` |
+| `idle`, store has no events | nothing happens, and nothing is missing: a store with no events has no sessions to match | — |
+| `rebuilding`, or `drifted` in `cleanup`, whose budget hash matches the default | one bounded batch resumes | `resume --until-complete` |
+| `rebuilding`, or `drifted` in `cleanup`, whose budget hash does not match | **skipped** — the generation never finishes on its own | `resume` with the budget it was started under; if that cannot be reproduced, `abort` then `start`. `start` alone is refused while the state is `rebuilding`, but is accepted for `drifted` |
+| `drifted`, outside `cleanup` | a replacement generation starts | `start` |
+| `failed` | **skipped** — parked deliberately | `start`. Neither `resume` nor `abort` clears it |
+
 
 The before/after family byte figures are diagnostic and are measured outside the
 transactions that start and complete a generation, under their own short

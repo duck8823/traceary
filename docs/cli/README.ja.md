@@ -165,7 +165,7 @@ Traceary operator cockpit TUI を開きます。
 
 セッション行は、その trail のどこかに検索条件に一致する活動があることを示します。`--from` / `--to` では `traceary session list` と同じくセッションの開始時刻で選び、`--failures` はそのセッション内に失敗したコマンドが1つでもあれば満たします。セッション行に対する filter は単一の event ではなくセッション全体に適用されるため、query、期間、`--failures` がそれぞれセッション内の別の活動によって満たされても、そのセッションは表示されます。すべての filter が1行の event だけを絞り込むのは event 階層です。
 
-complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。世代が complete になる前も、候補を直接復号して本文一致は正しく返します。速度は落ち、また session tier はそれまで参照を拒否されるため SESSIONS グループは空になります（#1844）。候補予算を使い切った場合は部分的な結果を返さず `index_incomplete` を報告します。projection を再構築（`traceary store search-projection start` → `resume`）すると fingerprint pre-filter と session tier が利用可能になります。
+complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。世代が complete になる前も、候補を直接復号して本文一致は正しく返します。速度は落ち、また session tier はそれまで参照を拒否されるため SESSIONS グループは空になります（#1844）。stderr の通知は `traceary store search-projection status` を案内します。state ごとに必要な操作は `docs/search-projection-rebuild.ja.md` にまとめています。準備状態を確認できない場合も、同じ status command で空のグループの意味を確認できます。候補予算を使い切った場合は部分的な結果を返さず `index_incomplete` を報告します。projection が complete になると fingerprint pre-filter と session tier が利用可能になります。どの state にどのコマンドが必要かは `docs/search-projection-rebuild.ja.md` を参照してください。世代が rebuilding の間、`start` は拒否されます。
 
 この command をかつて支えていた全文コーパス版 migration-032 索引は v0.34 で退役しました。読み書きはされず、`traceary store search-retire` で削除できます。詳細は [検索インデックスの退役](../operations/search-retirement.ja.md) を参照してください。
 
