@@ -18,7 +18,7 @@ import (
 type RootCLI struct {
 	event                      usecase.EventUsecase
 	eventMetadata              usecase.EventMetadataUsecase
-	projectionSessionSearch    queryservice.ProjectionSessionSearchQuery
+	projectionSessionSearch    queryservice.ProjectionSessionSearch
 	reportCommand              usecase.ReportCommandUsecase
 	report                     usecase.ReportUsecase
 	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
@@ -98,7 +98,11 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption
 
 // WithProjectionSessionSearch injects the bounded-projection session-tier
 // search used by `traceary search` for sessions whose summary or keyword text matches.
-func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearchQuery) RootCLIOption {
+// It takes the composed port rather than the query half alone: an empty page
+// means both "no session matched" and "the projection was never consulted", and
+// only readiness separates them. Requiring it here makes the compiler reject an
+// implementation that would silently lose that distinction.
+func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearch) RootCLIOption {
 	return func(c *RootCLI) { c.projectionSessionSearch = search }
 }
 

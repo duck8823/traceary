@@ -4,15 +4,40 @@
 
 検索プロジェクションは派生データです。正本のイベントとコマンド監査からいつでも再構築でき、プロジェクションのライフサイクル操作が正本を変更することはありません。v0.34 以降、complete な世代は `traceary search` に fingerprint pre-filter と session tier を提供します。本文一致は正本テーブルを新しい順に走査して復号する経路で判定し、再構築後に記録されたイベントも統合するため、再構築の合間に結果が古くなることはありません。
 
-世代を一度も作っていない store でも、オペレータのコマンドは不要です。store を開くたびに generation 作業を上限付きで 1 単位進めます。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。この間も本文一致の検索は機能します。世代が `complete` でない状態は fingerprint による pre-filter が使えないことを意味するだけで、候補を直接復号して本文一致は正しく返ります。session tier は別です。世代が complete になるまで参照を拒否するため、session の要約やキーワードにだけ存在する一致はそれまで返りません。`traceary search` はこれを伝えません。MCP の `search` tool だけが `session_projection_not_ready` として報告します（#1844）。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。
+世代を一度も作っていない store でも、オペレータのコマンドは不要です。store を開くと generation 作業を上限付きで 1 単位進めます。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。ただし代わりに skip される state があり、それらは後述の表に挙げています。この間も本文一致の検索は機能します。世代が `complete` でない状態は fingerprint による pre-filter が使えないことを意味するだけで、候補を直接復号して本文一致は正しく返ります。session tier は別です。世代が complete になるまで参照を拒否するため、session の要約やキーワードにだけ存在する一致はそれまで返りません。`traceary search` は stderr で session tier を参照しなかったことを通知し、`traceary store search-projection status` を案内します。報告された state ごとに必要な操作は異なり、通常の store open では進まない state が 2 つあります。`failed` な generation には明示的な `start` が必要で、非既定の budget で開始された rebuild には同じ budget を指定した `resume` または `abort` が必要です。generation が rebuilding の間、`start` は拒否されるためです。MCP の `search` tool も `session_projection_not_ready` として報告します（#1844）。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。
 
 オペレータは同じ機構を明示的に動かせます。`traceary store search-projection start`で世代を開始します。`resume`は上限付きバッチを1回実行します。複数のバッチを個別にコミットしながら実行する例を次に示します。
 
 プロジェクションschemaより前のstoreをupgradeした場合、最初の`resume`バッチ群はpayloadをdecodeする前に、過去のevent identityをinventoryします。このphaseは`status`に明示され、安定したevent ID cursorを使用し、行数、保存バイト数、論理書き込みバイト数、wall time、lock timeの上限に従います。processを再起動すると最後にatomic commitされたcursorから再開します。過去行への並行の**update / delete**は、不完全なinventoryを受け入れずgenerationを無効化します。ライブの**insert**は無効化しません。events の insert trigger が新しい identity を `search_projection_source_sequence` へ無条件登録するため、inventory に追加作業はなく、store を開くたびに書く hook でも `complete` に到達できます。旧migration 38ですでに投入済みのstoreと新規の空storeは、正本tableをscanせずこのphaseを省略します。
 
-オペレータが非デフォルトの budget で世代を開始したまま中断した場合、store open 時の自動 catch-up はその budget を乗っ取らず skip します。skip は理由付きで warning レベルに記録されます。進捗を再開するには、一致する budget で resume するか abort してください。
+世代が incomplete のまま残り、その budget の configuration hash が現在の既定と一致しない場合、store open 時の自動 catch-up はその budget を乗っ取らず skip します。skip は理由付きで warning レベルに記録されます。`resume` は同じ budget を再度指定したときだけ受け付けます。作業前に hash を比較するためです。その budget を再現できない場合は `abort` で世代を退役させ（`abort` は budget を取らず、行を `failed` / class `abandoned` にします）、そのうえで明示的な `start` で置き換えます。state が `rebuilding` の間、`start` 単独は拒否されます。
 
 **failed** になった世代は自動で再起動せず、park します。この store が記録する failure class はいずれも決定的です。oversize な行はどの open でも同じ budget を超え、`session_tier_unverified` は同じクエリで失敗し、`abandoned` はオペレータの判断です。自動で作り直しても同じ失敗を繰り返し、open ごとに lifecycle 行が増えるだけです。自動 catch-up は class を明記した warning を出して skip します。`resume` は failed な世代を拒否し、`abort` は `abandoned` として failed のままにするため、どちらでも解除できません。復旧は明示的な `traceary store search-projection start` です。
+
+### state ごとに必要な操作
+
+`traceary search` は `complete` 以外のすべての state で session tier を拒否します
+（`infrastructure/sqlite/event_search_query.go:66-73`）。stderr の通知がコマンド名を挙げず
+ここを案内するのは、必要なコマンドが state に依存し、そのうち `start` は世代が rebuilding の間
+拒否されるためです。
+
+budget hash に関する以下の行には、優先する条件が 1 つあります。`complete`、`rebuilding`、
+`drifted` の世代が古い capacity semantics version で記録されている場合、budget hash に関係なく
+次の store open で abandon され、置き換えられます
+（`application/usecase/search_projection_usecase.go:315-340`）。そのため semantics の変更を
+またいで upgrade した store は、budget hash の不一致からは自力で回復します。`failed` は意図的に
+対象外で、park されたままです。解除すると決定的な失敗を open ごとに繰り返すためです。
+
+| `status` の state | 次の通常の store open で起きること | 進んでいない場合 |
+|---|---|---|
+| `complete` | session tier が利用できます | — |
+| `idle`（event あり） | 世代が start し、bounded batch が 1 回走ります | `start` のあと `resume` |
+| `idle`（event なし） | 何も起きませんが、失われるものもありません。event のない store には一致する session がありません | — |
+| `rebuilding` または `cleanup` 中の `drifted` で、budget hash が既定と一致 | bounded batch が 1 回 resume します | `resume --until-complete` |
+| `rebuilding` または `cleanup` 中の `drifted` で、budget hash が不一致 | **skip** されます。世代は自力では完了しません | 開始時の budget を指定した `resume`。再現できない場合は `abort` のあと `start`。state が `rebuilding` の間 `start` 単独は拒否されますが、`drifted` では受け付けられます |
+| `cleanup` 以外の `drifted` | 置き換えの世代が start します | `start` |
+| `failed` | **skip** されます。意図的に park されています | `start`。`resume` も `abort` も解除しません |
+
 
 cutover 前後の family バイト数は診断用の値であり、世代を start / complete する transaction の外側で、batch から切り離した context と専用の短い deadline のもとに測定します。測定できなかった場合でも世代が失敗することはありません。`status` は `cutover_before_evidence.status` / `cutover_after_evidence.status` を `unavailable` と理由付きで報告するため、0 バイトという値を「実際に空の family」と取り違えることはありません。before と after は測定時刻も対象 family の大きさも異なるため別々に持ちます。status が空文字の場合はまだ測定していないことを表します。
 

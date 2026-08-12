@@ -80,13 +80,25 @@ type eventUsecaseStub struct {
 	}
 }
 
-// projectionSessionSearchStub implements queryservice.ProjectionSessionSearchQuery.
+// projectionSessionSearchStub implements queryservice.ProjectionSessionSearch.
 type projectionSessionSearchStub struct {
 	hits     []apptypes.SearchSessionHit
 	err      error
+	ready    *bool
+	readyErr error
 	calls    int
 	criteria []apptypes.EventSearchCriteria
 	excludes [][]types.SessionID
+}
+
+func (s *projectionSessionSearchStub) SearchSessionProjectionReady(context.Context) (bool, error) {
+	if s.readyErr != nil {
+		return false, s.readyErr
+	}
+	if s.ready == nil {
+		return true, nil
+	}
+	return *s.ready, nil
 }
 
 func (s *projectionSessionSearchStub) SearchSessionHits(

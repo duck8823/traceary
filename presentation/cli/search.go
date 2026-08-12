@@ -195,7 +195,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to search event metadata", "イベントメタデータの検索に失敗しました"), err)
 		}
-		sessions, kindSuppressed, sessionErr := c.searchProjectionSessions(ctx, criteria, sessionIDsFromMetadata(metadata))
+		sessions, notices, sessionErr := c.searchProjectionSessions(ctx, criteria, sessionIDsFromMetadata(metadata))
 		if sessionErr != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), sessionErr)
 		}
@@ -203,9 +203,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 		}
 		warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
-		if kindSuppressed {
-			warnSearchSessionsSuppressedByKind(warnWriter)
-		}
+		notices.write(warnWriter)
 		return nil
 	}
 	events, err := c.event.Search(ctx, criteria)
@@ -215,7 +213,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
 		return err
 	}
-	sessions, kindSuppressed, err := c.searchProjectionSessions(ctx, criteria, sessionIDsFromEvents(events))
+	sessions, notices, err := c.searchProjectionSessions(ctx, criteria, sessionIDsFromEvents(events))
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), err)
 	}
@@ -243,16 +241,13 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	if err := writeSearchByFormat(output, events, sessions, input.asJSON, input.fieldsSet, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
-	// The two notices answer different questions — "sessions matched but --json
-	// cannot carry them" and "sessions matched but --kind hid them" — so neither
-	// is allowed to swallow the other. Each is a no-op when its own condition
-	// does not hold, so no ordering rule between them is needed here.
+	// The JSON notice answers a question the others do not — "sessions matched
+	// but --json cannot carry them" — and it is the only one conditioned on the
+	// output format, so it stays here rather than moving into the set.
 	if input.asJSON {
 		warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
 	}
-	if kindSuppressed {
-		warnSearchSessionsSuppressedByKind(warnWriter)
-	}
+	notices.write(warnWriter)
 
 	return nil
 }
@@ -261,16 +256,32 @@ func (c *RootCLI) searchProjectionSessions(
 	ctx context.Context,
 	criteria apptypes.EventSearchCriteria,
 	exclude []types.SessionID,
-) ([]apptypes.SearchSessionHit, bool, error) {
+) ([]apptypes.SearchSessionHit, searchSessionNotices, error) {
+	notices := searchSessionNotices{}
 	if c.projectionSessionSearch == nil {
-		return []apptypes.SearchSessionHit{}, false, nil
+		return []apptypes.SearchSessionHit{}, notices, nil
 	}
 	hits, err := c.projectionSessionSearch.SearchSessionHits(ctx, criteria, exclude)
 	if err != nil {
-		return nil, false, xerrors.Errorf("search projection session hits: %w", err)
+		return nil, notices, xerrors.Errorf("search projection session hits: %w", err)
+	}
+	// An empty page means "nothing matched" or "the projection was never
+	// consulted", and the query service reports both the same way. Only this
+	// branch can use the answer, so readiness is asked for only here.
+	if len(hits) == 0 {
+		ready, readinessErr := c.projectionSessionSearch.SearchSessionProjectionReady(ctx)
+		// Readiness is advisory. The events were already found and printed, so a
+		// readiness failure must not turn a successful search into an error — but
+		// it must not silently pass for a ready projection either, because that is
+		// the ambiguity this whole path exists to remove.
+		if readinessErr == nil {
+			notices.projectionNotReady = !ready
+		} else {
+			notices.readinessUnknown = true
+		}
 	}
 	if strings.TrimSpace(criteria.Kind().String()) == "" {
-		return hits, false, nil
+		return hits, notices, nil
 	}
 
 	// The probe answers exactly one question — "does the session tier match this
@@ -284,9 +295,10 @@ func (c *RootCLI) searchProjectionSessions(
 	// the number is not what tells the user what to do.
 	probeHits, err := c.projectionSessionSearch.SearchSessionHits(ctx, criteria.WithoutKind(), nil)
 	if err != nil {
-		return nil, false, xerrors.Errorf("probe projection session hits: %w", err)
+		return nil, notices, xerrors.Errorf("probe projection session hits: %w", err)
 	}
-	return hits, len(probeHits) > 0, nil
+	notices.kindSuppressed = len(probeHits) > 0
+	return hits, notices, nil
 }
 
 func sessionIDsFromEvents(events []*model.Event) []types.SessionID {
