@@ -11,6 +11,9 @@ import (
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"golang.org/x/xerrors"
 )
 
 type rehearsalBackendFake struct {
@@ -24,6 +27,9 @@ type rehearsalBackendFake struct {
 	advancesRemaining    int
 	cancelAfterAdvance   func()
 	pauseContextErr      error
+	pauseBlocks          bool
+	releaseBlocks        bool
+	cleanupStarted       chan struct{}
 }
 type fakeRunHandle struct{}
 type fakeScrubHandle struct{}
@@ -77,6 +83,11 @@ func TestPayloadRehearsalStopsAfterCommittedBatchBoundary(t *testing.T) {
 	}
 }
 func (f *rehearsalBackendFake) Pause(ctx context.Context, _ application.PayloadRehearsalRunHandle) (apptypes.PayloadRehearsalMetrics, error) {
+	if f.pauseBlocks {
+		close(f.cleanupStarted)
+		<-ctx.Done()
+		return f.run, xerrors.Errorf("pause cleanup context: %w", ctx.Err())
+	}
 	f.pauseContextErr = ctx.Err()
 	f.run.State = "paused"
 	return f.run, nil
@@ -123,7 +134,12 @@ func (f *rehearsalBackendFake) CompleteScrub(context.Context, application.Payloa
 	f.scrub.ActivationReadiness.ScrubPassed = true
 	return f.scrub, nil
 }
-func (*rehearsalBackendFake) ReleaseScrub(context.Context, application.PayloadRehearsalScrubHandle) error {
+func (f *rehearsalBackendFake) ReleaseScrub(ctx context.Context, _ application.PayloadRehearsalScrubHandle) error {
+	if f.releaseBlocks {
+		close(f.cleanupStarted)
+		<-ctx.Done()
+		return xerrors.Errorf("release cleanup context: %w", ctx.Err())
+	}
 	return nil
 }
 func (*rehearsalBackendFake) CloseScrub(application.PayloadRehearsalScrubHandle) error { return nil }
@@ -170,6 +186,84 @@ func TestPayloadRehearsalUsecaseRejectsUnboundedBatchBeforeBackend(t *testing.T)
 	}
 	if len(f.calls) != 0 {
 		t.Fatalf("backend calls = %v", f.calls)
+	}
+}
+
+func TestPayloadRehearsalBoundsFailureCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		setup      func(*rehearsalBackendFake)
+		act        func(*rehearsalBackendFake) (apptypes.PayloadRehearsalMetrics, error)
+		wantResult apptypes.PayloadRehearsalMetrics
+	}{
+		{
+			name: "run prepare live result failure",
+			setup: func(f *rehearsalBackendFake) {
+				f.run.LiveIdentityOnly = false
+				f.pauseBlocks = true
+			},
+			act: func(f *rehearsalBackendFake) (apptypes.PayloadRehearsalMetrics, error) {
+				return usecase.NewPayloadRehearsalUsecase(f, f, f, f).Run(context.Background(), validRehearsalConfig())
+			},
+			wantResult: apptypes.PayloadRehearsalMetrics{State: "running", LiveIdentityOnly: false},
+		},
+		{
+			name: "run advance live result failure",
+			setup: func(f *rehearsalBackendFake) {
+				f.driftRunAdvance = true
+				f.pauseBlocks = true
+			},
+			act: func(f *rehearsalBackendFake) (apptypes.PayloadRehearsalMetrics, error) {
+				return usecase.NewPayloadRehearsalUsecase(f, f, f, f).Resume(context.Background(), validRehearsalConfig())
+			},
+			wantResult: apptypes.PayloadRehearsalMetrics{State: "running", LiveIdentityOnly: false},
+		},
+		{
+			name: "scrub prepare live result failure",
+			setup: func(f *rehearsalBackendFake) {
+				f.scrub.LiveIdentityOnly = false
+				f.releaseBlocks = true
+			},
+			act: func(f *rehearsalBackendFake) (apptypes.PayloadRehearsalMetrics, error) {
+				return usecase.NewPayloadRehearsalUsecase(f, f, f, f).Scrub(context.Background(), validRehearsalConfig())
+			},
+			wantResult: apptypes.PayloadRehearsalMetrics{State: "scrubbing", LiveIdentityOnly: false},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &rehearsalBackendFake{
+				preview:        apptypes.PayloadRehearsalMetrics{State: "planned", DryRunZeroWrite: true, LiveIdentityOnly: true, FreeBytes: 100, EstimatedHeadroom: 50},
+				run:            apptypes.PayloadRehearsalMetrics{State: "running", LiveIdentityOnly: true},
+				scrub:          apptypes.PayloadRehearsalMetrics{State: "scrubbing", LiveIdentityOnly: true},
+				cleanupStarted: make(chan struct{}),
+			}
+			tc.setup(f)
+			done := make(chan struct{})
+			var got apptypes.PayloadRehearsalMetrics
+			var err error
+			go func() {
+				got, err = tc.act(f)
+				close(done)
+			}()
+			select {
+			case <-f.cleanupStarted:
+			case <-time.After(100 * time.Millisecond):
+				t.Fatal("cleanup call was not reached")
+			}
+			select {
+			case <-done:
+			case <-time.After(1500 * time.Millisecond):
+				t.Fatal("cleanup call did not return within the one-second bound")
+			}
+			want := tc.wantResult
+			want.ActivationReadiness = application.EvaluatePayloadActivationReadiness(want)
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("result mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(usecase.ErrUnsafePayloadRehearsalTransition, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("error mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

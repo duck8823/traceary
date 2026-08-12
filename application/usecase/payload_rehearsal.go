@@ -96,7 +96,9 @@ func (u *payloadRehearsalUsecase) run(ctx context.Context, c types.PayloadRehear
 		return result, xerrors.Errorf("prepare payload rehearsal: %w", err)
 	}
 	if result, err = liveResult(result); err != nil {
-		_, _ = u.workflow.Pause(context.WithoutCancel(ctx), handle)
+		pauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		_, _ = u.workflow.Pause(pauseCtx, handle)
+		cancel()
 		_ = u.workflow.Close(handle)
 		return result, err
 	}
@@ -119,7 +121,9 @@ func (u *payloadRehearsalUsecase) run(ctx context.Context, c types.PayloadRehear
 				return result, xerrors.Errorf("advance payload rehearsal: %w", err)
 			}
 			if result, err = liveResult(result); err != nil {
-				_, _ = u.workflow.Pause(context.WithoutCancel(ctx), handle)
+				pauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+				_, _ = u.workflow.Pause(pauseCtx, handle)
+				cancel()
 				return result, err
 			}
 			if c.StopAfterBatches > 0 && result.BatchCount-initialBatches >= c.StopAfterBatches && (!done || fieldIndex != len(fields)-1) {
@@ -165,7 +169,9 @@ func (u *payloadRehearsalUsecase) Scrub(ctx context.Context, c types.PayloadRehe
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("prepare payload rehearsal scrub: %w", err)
 	}
 	if result, err = liveResult(result); err != nil {
-		_ = u.scrubber.ReleaseScrub(context.WithoutCancel(ctx), handle)
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		_ = u.scrubber.ReleaseScrub(releaseCtx, handle)
+		cancel()
 		_ = u.scrubber.CloseScrub(handle)
 		return result, err
 	}
