@@ -65,21 +65,58 @@ func newDocsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			problems, skipped, err := verifyDocsCommands(root)
+			report, err := verifyDocsCommands(root)
 			if err != nil {
 				return err
 			}
 			if verifyCommandsJSON {
-				if err := writeDocsCommandsJSON(cmd.OutOrStdout(), problems, skipped); err != nil {
+				if err := writeDocsCommandsJSON(cmd.OutOrStdout(), report); err != nil {
 					return err
 				}
-			} else if len(problems) == 0 {
-				if _, err := fmt.Fprintln(cmd.OutOrStdout(), "documentation command check passed"); err != nil {
+			} else {
+				if len(report.InlineGroupMentions) > 0 {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Inline group-command mentions (unclassified; human review only):"); err != nil {
+						return xerrors.Errorf("failed to write verify result: %w", err)
+					}
+					for _, finding := range report.InlineGroupMentions {
+						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", finding); err != nil {
+							return xerrors.Errorf("failed to write verify result: %w", err)
+						}
+					}
+				}
+				if len(report.Problems) > 0 {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Unresolvable command paths:"); err != nil {
+						return xerrors.Errorf("failed to write verify result: %w", err)
+					}
+					for _, finding := range report.Problems {
+						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", finding); err != nil {
+							return xerrors.Errorf("failed to write verify result: %w", err)
+						}
+					}
+				}
+				if len(report.FencedGroupCommands) > 0 {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Group commands in fenced code blocks:"); err != nil {
+						return xerrors.Errorf("failed to write verify result: %w", err)
+					}
+					for _, finding := range report.FencedGroupCommands {
+						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", finding); err != nil {
+							return xerrors.Errorf("failed to write verify result: %w", err)
+						}
+					}
+				}
+				status := "passed"
+				if len(report.Problems) > 0 || len(report.FencedGroupCommands) > 0 {
+					status = "failed"
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "documentation command check %s\n", status); err != nil {
 					return xerrors.Errorf("failed to write verify result: %w", err)
 				}
+				if err := writeDocsCommandsSummary(cmd.OutOrStdout(), report); err != nil {
+					return err
+				}
 			}
-			if len(problems) > 0 {
-				return xerrors.Errorf("documentation command check failed:\n- %s", strings.Join(problems, "\n- "))
+			if len(report.Problems) > 0 || len(report.FencedGroupCommands) > 0 {
+				return xerrors.Errorf("documentation command check failed")
 			}
 			return nil
 		},

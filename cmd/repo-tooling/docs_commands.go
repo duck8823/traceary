@@ -27,32 +27,35 @@ type docsCommandSkipped struct {
 }
 
 type docsCommandReport struct {
-	Problems []string             `json:"problems"`
-	Skipped  []docsCommandSkipped `json:"skipped"`
+	Problems            []string             `json:"problems"`
+	FencedGroupCommands []string             `json:"fenced_group_commands"`
+	InlineGroupMentions []string             `json:"inline_group_mentions"`
+	Skipped             []docsCommandSkipped `json:"skipped"`
+	FilesScanned        int                  `json:"files_scanned"`
 }
 
 // verifyDocsCommands checks only command-shaped examples: fenced code blocks
 // and inline code spans. Changelog history is deliberately excluded because it
 // records commands from released versions, not instructions for this version.
-func verifyDocsCommands(root string) ([]string, []docsCommandSkipped, error) {
+func verifyDocsCommands(root string) (docsCommandReport, error) {
 	paths, err := docsCommandPaths(root)
 	if err != nil {
-		return nil, nil, err
+		return docsCommandReport{}, err
 	}
 	commandRoot := cli.NewRootCLI().Command()
-	var problems []string
+	report := docsCommandReport{FilesScanned: len(paths)}
 	var skipped []docsCommandSkipped
 	for _, path := range paths {
 		data, err := os.ReadFile(filepath.Join(root, path))
 		if err != nil {
-			return nil, nil, xerrors.Errorf("failed to read %s: %w", path, err)
+			return docsCommandReport{}, xerrors.Errorf("failed to read %s: %w", path, err)
 		}
 		text := string(data)
 		if isChangelogPath(path) {
 			var current bool
 			text, current, err = currentChangelogSection(text)
 			if err != nil {
-				return nil, nil, xerrors.Errorf("%s: %w", path, err)
+				return docsCommandReport{}, xerrors.Errorf("%s: %w", path, err)
 			}
 			if !current {
 				skipped = append(skipped, docsCommandSkipped{Path: path, Reason: "no current release section"})
@@ -61,26 +64,36 @@ func verifyDocsCommands(root string) ([]string, []docsCommandSkipped, error) {
 			skipped = append(skipped, docsCommandSkipped{Path: path, Reason: "historical release sections excluded"})
 		}
 		for _, invocation := range documentedTracearyCommands(text) {
-			verifyDocumentedCommand(commandRoot, path, invocation, &problems)
+			verifyDocumentedCommand(commandRoot, path, invocation, &report)
 		}
 	}
-	sort.Strings(problems)
+	sort.Strings(report.Problems)
+	sort.Strings(report.FencedGroupCommands)
+	sort.Strings(report.InlineGroupMentions)
 	sort.Slice(skipped, func(i, j int) bool { return skipped[i].Path < skipped[j].Path })
-	if problems == nil {
-		problems = []string{}
+	if report.Problems == nil {
+		report.Problems = []string{}
+	}
+	if report.FencedGroupCommands == nil {
+		report.FencedGroupCommands = []string{}
+	}
+	if report.InlineGroupMentions == nil {
+		report.InlineGroupMentions = []string{}
 	}
 	if skipped == nil {
 		skipped = []docsCommandSkipped{}
 	}
-	return problems, skipped, nil
+	report.Skipped = skipped
+	return report, nil
 }
 
 type documentedCommand struct {
-	Line int
-	Path []string
+	Line    int
+	Path    []string
+	InFence bool
 }
 
-func verifyDocumentedCommand(root *cobra.Command, file string, invocation documentedCommand, problems *[]string) {
+func verifyDocumentedCommand(root *cobra.Command, file string, invocation documentedCommand, report *docsCommandReport) {
 	// The bare root is an executable compatibility entrypoint, not a group;
 	// its RunE opens the cockpit or prints deterministic help.
 	if len(invocation.Path) == 0 {
@@ -102,7 +115,7 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 			break
 		}
 		if next == nil {
-			*problems = append(*problems, xerrors.Errorf("%s:%d: traceary %s does not resolve to a command", file, invocation.Line, strings.Join(invocation.Path, " ")).Error())
+			report.Problems = append(report.Problems, xerrors.Errorf("%s:%d: traceary %s does not resolve to a command", file, invocation.Line, strings.Join(invocation.Path, " ")).Error())
 			return
 		}
 		current = next
@@ -113,7 +126,12 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 			children = append(children, child.Name())
 		}
 		sort.Strings(children)
-		*problems = append(*problems, xerrors.Errorf("%s:%d: traceary %s is a group command and does not execute an action; use one of its subcommands: %s", file, invocation.Line, strings.Join(invocation.Path, " "), strings.Join(children, ", ")).Error())
+		finding := xerrors.Errorf("%s:%d: traceary %s is a group command and does not execute an action; use one of its subcommands: %s", file, invocation.Line, strings.Join(invocation.Path, " "), strings.Join(children, ", ")).Error()
+		if invocation.InFence {
+			report.FencedGroupCommands = append(report.FencedGroupCommands, finding)
+		} else {
+			report.InlineGroupMentions = append(report.InlineGroupMentions, finding)
+		}
 	}
 }
 
@@ -210,7 +228,10 @@ func documentedTracearyCommands(text string) []documentedCommand {
 				inFence = false
 				continue
 			}
-			commands = append(commands, commandsFromLine(line, lineNumber+1)...)
+			for _, command := range commandsFromLine(line, lineNumber+1) {
+				command.InFence = true
+				commands = append(commands, command)
+			}
 			continue
 		}
 		commands = append(commands, commandsFromInline(line, lineNumber+1)...)
@@ -271,9 +292,19 @@ func commandsFromLine(line string, lineNumber int) []documentedCommand {
 	return commands
 }
 
-func writeDocsCommandsJSON(out io.Writer, problems []string, skipped []docsCommandSkipped) error {
-	if err := json.NewEncoder(out).Encode(docsCommandReport{Problems: problems, Skipped: skipped}); err != nil {
+func writeDocsCommandsJSON(out io.Writer, report docsCommandReport) error {
+	if err := json.NewEncoder(out).Encode(report); err != nil {
 		return xerrors.Errorf("failed to write verify result: %w", err)
+	}
+	return nil
+}
+
+func writeDocsCommandsSummary(out io.Writer, report docsCommandReport) error {
+	if _, err := io.WriteString(out, "Summary: class 1 unresolved="); err != nil {
+		return xerrors.Errorf("failed to write verify summary: %w", err)
+	}
+	if _, err := io.WriteString(out, xerrors.Errorf("%d, class 2 fenced groups=%d, class 3 inline group mentions=%d, files scanned=%d\n", len(report.Problems), len(report.FencedGroupCommands), len(report.InlineGroupMentions), report.FilesScanned).Error()); err != nil {
+		return xerrors.Errorf("failed to write verify summary: %w", err)
 	}
 	return nil
 }

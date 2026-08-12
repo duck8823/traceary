@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,25 +17,39 @@ func TestVerifyDocsCommands(t *testing.T) {
 		path         string
 		content      string
 		wantProblems []string
+		wantFenced   []string
+		wantInline   []string
 		wantSkipped  []docsCommandSkipped
 	}{
 		{
 			name:         "real leaf command in fenced block passes",
 			path:         "docs/example.md",
-			content:      "```sh\ntraceary doctor\n```\n",
+			content:      "`traceary doctor`\n\n```sh\ntraceary doctor\n```\n",
 			wantProblems: []string{},
 		},
 		{
-			name:         "nonexistent subcommand reports file line and command",
+			name:         "unresolvable inline path fails",
 			path:         "docs/example.md",
 			content:      "Use `traceary store search-projection rebuild` here.\n",
 			wantProblems: []string{"docs/example.md:1: traceary store search-projection rebuild does not resolve to a command"},
 		},
 		{
-			name:         "parent-only command names its subcommands",
+			name:         "unresolvable fenced path fails",
 			path:         "docs/example.md",
-			content:      "Run `traceary store backup` before upgrading.\n",
-			wantProblems: []string{"docs/example.md:1: traceary store backup is a group command and does not execute an action; use one of its subcommands: create, restore"},
+			content:      "```sh\ntraceary store search-projection rebuild\n```\n",
+			wantProblems: []string{"docs/example.md:2: traceary store search-projection rebuild does not resolve to a command"},
+		},
+		{
+			name:       "group command in a fence fails",
+			path:       "docs/example.md",
+			content:    "```sh\ntraceary store backup\n```\n",
+			wantFenced: []string{"docs/example.md:2: traceary store backup is a group command and does not execute an action; use one of its subcommands: create, restore"},
+		},
+		{
+			name:       "group command inline is reported without failing",
+			path:       "docs/example.md",
+			content:    "Run `traceary store backup` before upgrading.\n",
+			wantInline: []string{"docs/example.md:1: traceary store backup is a group command and does not execute an action; use one of its subcommands: create, restore"},
 		},
 		{
 			name:         "leaf command followed by flags and arguments passes",
@@ -68,7 +83,7 @@ func TestVerifyDocsCommands(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
 				t.Fatalf("WriteFile() error = %v", err)
 			}
-			gotProblems, gotSkipped, err := verifyDocsCommands(root)
+			report, err := verifyDocsCommands(root)
 			if tt.name == "changelog without current release fails loudly" {
 				if err == nil {
 					t.Fatal("verifyDocsCommands() error = nil, want missing current release error")
@@ -86,13 +101,39 @@ func TestVerifyDocsCommands(t *testing.T) {
 			if wantSkipped == nil {
 				wantSkipped = []docsCommandSkipped{}
 			}
-			if diff := cmp.Diff(wantProblems, gotProblems); diff != "" {
+			wantFenced := tt.wantFenced
+			if wantFenced == nil {
+				wantFenced = []string{}
+			}
+			wantInline := tt.wantInline
+			if wantInline == nil {
+				wantInline = []string{}
+			}
+			if diff := cmp.Diff(wantProblems, report.Problems); diff != "" {
 				t.Errorf("problems mismatch (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantSkipped, gotSkipped); diff != "" {
+			if diff := cmp.Diff(wantFenced, report.FencedGroupCommands); diff != "" {
+				t.Errorf("fenced groups mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(wantInline, report.InlineGroupMentions); diff != "" {
+				t.Errorf("inline mentions mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(wantSkipped, report.Skipped); diff != "" {
 				t.Errorf("skipped mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestWriteDocsCommandsSummaryOnSuccess(t *testing.T) {
+	var out bytes.Buffer
+	err := writeDocsCommandsSummary(&out, docsCommandReport{FilesScanned: 3})
+	if err != nil {
+		t.Fatalf("writeDocsCommandsSummary() error = %v", err)
+	}
+	want := "Summary: class 1 unresolved=0, class 2 fenced groups=0, class 3 inline group mentions=0, files scanned=3\n"
+	if out.String() != want {
+		t.Errorf("summary = %q, want %q", out.String(), want)
 	}
 }
 
