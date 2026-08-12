@@ -19,6 +19,7 @@ func TestVerifyDocsCommands(t *testing.T) {
 		wantProblems []string
 		wantFenced   []string
 		wantSkipped  []docsCommandSkipped
+		wantErr      bool
 	}{
 		{
 			name:         "real leaf command in fenced block passes",
@@ -82,11 +83,10 @@ func TestVerifyDocsCommands(t *testing.T) {
 			wantSkipped:  []docsCommandSkipped{{Path: "CHANGELOG.md", Reason: "historical release sections excluded"}},
 		},
 		{
-			name:         "changelog without current release fails loudly",
-			path:         "CHANGELOG.md",
-			content:      "# Changelog\n\n`traceary removed-command`\n",
-			wantProblems: nil,
-			wantSkipped:  nil,
+			name:    "changelog without current release fails loudly",
+			path:    "CHANGELOG.md",
+			content: "# Changelog\n\n`traceary removed-command`\n",
+			wantErr: true,
 		},
 	}
 
@@ -101,9 +101,9 @@ func TestVerifyDocsCommands(t *testing.T) {
 				t.Fatalf("WriteFile() error = %v", err)
 			}
 			report, err := verifyDocsCommands(root)
-			if tt.name == "changelog without current release fails loudly" {
+			if tt.wantErr {
 				if err == nil {
-					t.Fatal("verifyDocsCommands() error = nil, want missing current release error")
+					t.Fatal("verifyDocsCommands() error = nil, want error")
 				}
 				return
 			}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -113,7 +114,7 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 			break
 		}
 		if next == nil {
-			report.Problems = append(report.Problems, xerrors.Errorf("%s:%d: traceary %s does not resolve to a command", file, invocation.Line, strings.Join(invocation.Path, " ")).Error())
+			report.Problems = append(report.Problems, fmt.Sprintf("%s:%d: traceary %s does not resolve to a command", file, invocation.Line, strings.Join(invocation.Path, " ")))
 			return
 		}
 		current = next
@@ -124,7 +125,7 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 			children = append(children, child.Name())
 		}
 		sort.Strings(children)
-		finding := xerrors.Errorf("%s:%d: traceary %s is a group command and does not execute an action; use one of its subcommands: %s", file, invocation.Line, strings.Join(invocation.Path, " "), strings.Join(children, ", ")).Error()
+		finding := fmt.Sprintf("%s:%d: traceary %s is a group command and does not execute an action; use one of its subcommands: %s", file, invocation.Line, strings.Join(invocation.Path, " "), strings.Join(children, ", "))
 		report.FencedGroupCommands = append(report.FencedGroupCommands, finding)
 	}
 }
@@ -318,10 +319,7 @@ func writeDocsCommandsJSON(out io.Writer, report docsCommandReport) error {
 }
 
 func writeDocsCommandsSummary(out io.Writer, report docsCommandReport) error {
-	if _, err := io.WriteString(out, "Summary: class 1 unresolved="); err != nil {
-		return xerrors.Errorf("failed to write verify summary: %w", err)
-	}
-	if _, err := io.WriteString(out, xerrors.Errorf("%d, class 2 fenced groups=%d, files scanned=%d, shell-fence invocations checked=%d\n", len(report.Problems), len(report.FencedGroupCommands), report.FilesScanned, report.ShellInvocations).Error()); err != nil {
+	if _, err := fmt.Fprintf(out, "Summary: class 1 unresolved=%d, class 2 fenced groups=%d, files scanned=%d, shell-fence invocations checked=%d\n", len(report.Problems), len(report.FencedGroupCommands), report.FilesScanned, report.ShellInvocations); err != nil {
 		return xerrors.Errorf("failed to write verify summary: %w", err)
 	}
 	return nil
