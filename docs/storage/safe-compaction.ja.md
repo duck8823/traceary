@@ -17,6 +17,28 @@ source store size の 1.1 倍の空き容量を要求します。成功後も so
 大きさの元 database rollback copy が残ります。運用者向けの詳細は
 [`store compact` のディスク容量](../operations/store-compact-disk-cost.ja.md) を参照してください。
 
+`store compact`の`plan`はpreflight全体でstoreのexclusive leaseを保持します。`-journal`がなく、
+non-zeroの`-wal`もない場合は、存在するregularな`-wal`と`-shm`を、`-shm`が
+non-zeroでも両方stale artifactとして削除します。directoryをsyncしてから、storeを
+openする前に再検査します。shm fileはdatabase contentを含まず、fsyncもされません。
+empty WALではすべてのcontentをmain database fileから取得します。non-zeroのWAL、
+サイズにかかわらずすべての`-journal`、symlink、FIFO、その他のnon-regular pathは
+削除しません。sidecarが残っている場合は、すべてのTraceary process（projection/status
+reader、旧版、非協調版を含む）を停止して同じcommandをretryしてください。sidecarを
+手動削除してはいけません。non-zero WALまたはnon-regular sidecarにはliveなSQLite
+stateが含まれる可能性があります。
+
+`store compact apply`と`store compact resume`も同じcleanupを実行します。`plan`が返ったあとにreaderがsidecarを
+作りうるためです。cleanupはexclusive leaseを取得できたときだけ走り、liveな協調接続は
+すべて同じleaseのshared formを保持しているため、いずれかがstoreを開いている間に
+sidecarが削除されることはありません（lease取得側が待ちます）。exchange直前の最終検査は
+strictのままです。その時点ではcleanupが済んでいるため、そこでsidecarが現れることは
+run中にopenerが現れたことを意味し、runは中止されます。
+
+このsidecar recoveryは`store compact`に限られます。`store payload-rehearsal`が使う
+prepared-upgrade pathはpreflight全体でexclusive leaseを保持しないため、sidecarを
+recoveryせずに拒否します。
+
 レガシー検索インデックスの検査はsource digestより前に走るため、数GiBのstore
 全体をハッシュした後ではなく数秒で失敗します。先にcompactすると死んだindexを
 新しいファイルへコピーして固定化してしまうので、`traceary store search-retire`
@@ -31,8 +53,10 @@ advisory lockを保持します。`apply`、`resume`、`rollback` はjournalや�
 排他を継続します。取得はcontext cancellationに従い、プロセス終了時はOSが
 lockを解放します。lock file自体は意図的に残します。既存databaseと親directoryの
 symlinkは同じlease namespaceへ解決し、安全にfenceできないhardlink databaseは
-拒否します。非対応platformまたは
-probe失敗時は `false` としてfail closedします。旧版や非協調processは引き続き
+拒否します。`plan`の実行前にはlease取得が必須なので、非対応platformでは
+planがlease取得時点で失敗します。したがって永続化されたrunの
+`lease_capability`は常に`true`です。このfieldは後続のcapability probeではなく、
+planがlease前提を満たしたことを記録します。旧版や非協調processは引き続き
 事前停止が必要です。
 filesystem安全性は協調モデルです。参加するlive openerはすべて隣接leaseを使い、
 破壊的境界ではsource、candidate、rollbackのhardlinkを拒否します。権限を持つ

@@ -26,7 +26,7 @@ func TestCompactionRefusesAStoreThatStillCarriesTheLegacySearchFamily(t *testing
 		source,
 		&CompactionFileJournal{Dir: filepath.Join(dir, "planning-journal")},
 		SQLiteCompactionBuilder{},
-		StoreReplacementFiles{},
+		StoreReplacementFiles{CallerHoldsExclusiveLease: true},
 		StoreLeaseCoordinator{},
 	)
 	_, err := planner.Plan(ctx, source)
