@@ -49,10 +49,6 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// backfill, no rewrite of existing rows. Same class as 46
 	// (session_refinements): constant_in_place.
 	47: {47, "000047_create_session_orphan_ranges.sql", "8ff51b5100c663cc7cdcd7a2dc3bd66066635bccedeecadb86cccdb3eac00978", MigrationConstantInPlace},
-	// 48 clears command_executed events.body only when a command_audits row
-	// duplicates the payload; cost scales with historical audit volume →
-	// data_dependent_offline (like 000045).
-	48: {48, "000048_clear_command_executed_event_bodies.sql", "2d8844ed2726713fbb553cbfdb16602e4e2fefa4aab52afff701d87309a8934e", MigrationDataDependentOffline},
 	// 49 only adds three cutover evidence columns to search_projection_state.
 	49: {49, "000049_add_search_projection_cutover_evidence.sql", "5ca7ad45bed4a49d0262fc66ae36ffbe434ade920787a1c1551e7eb62e750648", MigrationConstantInPlace},
 	// 50 only drops and recreates two insert triggers (no data scan/rewrite).
@@ -165,15 +161,32 @@ func inventoryEmbeddedMigrations(migrations fs.FS) ([]embeddedMigration, error) 
 }
 
 // BuildPreparedMigrationPlan verifies the ledger is an exact catalog prefix
-// and every pending migration has an exact reviewed manifest entry.
+// and validates the catalog using the strongest invariant available for each
+// range. Below the first manifest version, the manifest declares nothing, so
+// catalog versions must be contiguous from 1. At and above that boundary, the
+// catalog must instead equal the manifest exactly; this permits deliberate
+// omissions such as version 48 while still checking every declared migration's
+// name and digest.
 func BuildPreparedMigrationPlan(ctx context.Context, db *sql.DB, migrations fs.FS) (PreparedMigrationPlan, error) {
 	catalog, err := inventoryEmbeddedMigrations(migrations)
 	if err != nil {
 		return PreparedMigrationPlan{}, err
 	}
-	for index, migration := range catalog {
-		if migration.version != int64(index+1) {
-			return PreparedMigrationPlan{}, fmt.Errorf("prepared migration catalog gap before version %d", migration.version)
+	manifestVersions := make([]int64, 0, len(preparedMigrationManifest))
+	for version := range preparedMigrationManifest {
+		manifestVersions = append(manifestVersions, version)
+	}
+	sort.Slice(manifestVersions, func(i, j int) bool { return manifestVersions[i] < manifestVersions[j] })
+	manifestMinimum := manifestVersions[0]
+	byVersion := make(map[int64]embeddedMigration, len(catalog))
+	for _, migration := range catalog {
+		byVersion[migration.version] = migration
+	}
+	for _, version := range manifestVersions {
+		manifest := preparedMigrationManifest[version]
+		migration, exists := byVersion[version]
+		if !exists || migration.name != manifest.Name || migration.digest != manifest.SHA256 {
+			return PreparedMigrationPlan{}, fmt.Errorf("migration %d does not match the prepared migration manifest", version)
 		}
 	}
 	var tableExists int
@@ -202,6 +215,11 @@ func BuildPreparedMigrationPlan(ctx context.Context, db *sql.DB, migrations fs.F
 	}
 	if err = rows.Err(); err != nil {
 		return PreparedMigrationPlan{}, fmt.Errorf("iterate schema migration ledger: %w", err)
+	}
+	for index, expected := 0, int64(1); expected < manifestMinimum; index, expected = index+1, expected+1 {
+		if index >= len(catalog) || catalog[index].version != expected {
+			return PreparedMigrationPlan{}, fmt.Errorf("migration catalog has discontinuity at version %d", expected)
+		}
 	}
 	current := int64(0)
 	if applied > 0 {

@@ -1,5 +1,6 @@
 -- Handoff recent-command summaries read command_audits.command_text.
--- events.body for command_executed is empty after #1675.
+-- New command_executed events have an empty events.body after #1675; historical
+-- rows may still have their body.
 --
 -- The command line itself is not selected here: ListRecentCommandPreviews
 -- hydrates through the payload codec and rebuilds the preview in Go. A SQL

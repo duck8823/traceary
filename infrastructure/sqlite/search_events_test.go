@@ -306,8 +306,8 @@ func newSearchAuditFixture(
 ) (*model.Event, *model.CommandAudit) {
 	t.Helper()
 
-	// command_executed stores an empty events.body; audit columns hold the
-	// retained command/input/output text (#1675).
+	// This new command_executed fixture has an empty events.body; audit columns
+	// hold the retained command/input/output text (#1675).
 	event := newSearchEventFixture(
 		t,
 		eventIDValue,

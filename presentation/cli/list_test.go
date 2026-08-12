@@ -230,7 +230,8 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("EventIDFrom(%s) error = %v", id, err)
 			}
-			// command_executed body is empty; classification uses the attached audit.
+			// This new command_executed fixture has an empty body; classification
+			// uses the attached audit.
 			event := model.EventOf(
 				eventID,
 				types.EventKindCommandExecuted,
