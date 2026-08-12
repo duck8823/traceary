@@ -28,6 +28,13 @@ reader、旧版、非協調版を含む）を停止して同じcommandをretry�
 手動削除してはいけません。non-zero WALまたはnon-regular sidecarにはliveなSQLite
 stateが含まれる可能性があります。
 
+`apply`と`resume`も同じcleanupを実行します。`plan`が返ったあとにreaderがsidecarを
+作りうるためです。cleanupはexclusive leaseを取得できたときだけ走り、liveな協調接続は
+すべて同じleaseのshared formを保持しているため、いずれかがstoreを開いている間に
+sidecarが削除されることはありません（lease取得側が待ちます）。exchange直前の最終検査は
+strictのままです。その時点ではcleanupが済んでいるため、そこでsidecarが現れることは
+run中にopenerが現れたことを意味し、runは中止されます。
+
 レガシー検索インデックスの検査はsource digestより前に走るため、数GiBのstore
 全体をハッシュした後ではなく数秒で失敗します。先にcompactすると死んだindexを
 新しいファイルへコピーして固定化してしまうので、`traceary store search-retire`

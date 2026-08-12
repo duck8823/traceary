@@ -35,6 +35,14 @@ processes (including projection/status readers and older or non-cooperating
 versions) and retry the same command; do not remove the sidecar manually. A
 non-zero WAL or non-regular sidecar may contain live SQLite state.
 
+`apply` and `resume` repeat that cleanup, because a reader can create a sidecar
+after `plan` returns. Cleanup can only run once the exclusive lease is held, and
+every live cooperating connection holds the shared form of the same lease, so a
+sidecar is never removed while any of them has the store open — the lease
+acquisition waits instead. The final pre-exchange check stays strict: by then
+cleanup has already happened, so a sidecar appearing there means an opener
+arrived mid-run and the run aborts.
+
 The legacy search index check runs before the source digest, so it fails in
 seconds rather than after hashing a multi-GiB store. Compacting first would
 copy the dead index into the new file and bake it in, so run

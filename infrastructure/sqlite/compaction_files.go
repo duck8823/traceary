@@ -378,8 +378,9 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 	if err := cleanupStaleSQLiteSidecars(ctx, run.SourcePath); err != nil {
 		return run, err
 	}
-	// After the sidecar rejection the store has no live WAL/SHM, so it is safe
-	// to open. This runs before the digest deliberately: hashing a 24 GiB
+	// Once the cleanup returns, the store has no WAL/SHM at all -- stale ones
+	// were removed and a live one would have been refused -- so it is safe to
+	// open. This runs before the digest deliberately: hashing a 24 GiB
 	// source only to copy 16 GiB of dead index into the candidate is the exact
 	// waste the check exists to prevent.
 	//
