@@ -145,7 +145,8 @@ func formatConsolidationReason(sessionID types.SessionID, result usecase.Consoli
 	var b strings.Builder
 	fmt.Fprintf(&b,
 		"Session %s has unrefined material at or above the consolidation threshold (%d bytes). "+
-			"Write a session refinement with `traceary session refine` covering this session's events so far.",
+			"Write a session refinement with `traceary session refine` covering this session's events so far. "+
+			"State why the work was undertaken and what changed; if useful, include how it went, including approaches tried and rejected.",
 		sessionID.String(),
 		result.PressureBytes,
 	)
