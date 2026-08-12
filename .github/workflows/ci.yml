@@ -27,6 +27,9 @@ jobs:
       - name: Verify bilingual docs
         run: go run ./cmd/repo-tooling docs verify-i18n
 
+      - name: Verify documented Traceary commands
+        run: go run ./cmd/repo-tooling docs verify-commands
+
       - name: Verify Antigravity current-state wording
         run: go run ./cmd/repo-tooling docs verify-antigravity-status
 

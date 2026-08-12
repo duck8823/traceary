@@ -30,7 +30,7 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 
 ## Procedure
 
-1. **Backup** the live store (for example `traceary store backup create`).
+1. **Backup** the live store (for example `traceary store backup create ~/traceary-pre-v0.34.db`).
 2. **Preview** eligible work without writing:
 
    ```sh
@@ -61,17 +61,32 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
    projection invalidation triggers fire and leave the projection `drifted` /
    `stale`. Audit-text rewrites do not drive projection invalidation (no
    search writer reads them after migration 052), but a rebuild is still
-   required whenever body rows changed. Rebuild with the existing command:
+   required whenever body rows changed. There is no single `rebuild` verb —
+   start a new generation, then repeat `resume --until-complete` until
+   `status` reports the generation as `complete`. A run that reports
+   `stop_reason=max_batches` or `stop_reason=total_wall_time` is not complete;
+   run `resume --until-complete` again before continuing:
 
    ```sh
-   traceary store search-projection rebuild
+   traceary store search-projection start
+   traceary store search-projection resume --until-complete
+   traceary store search-projection status
    ```
 
 7. **Compact** if you need the file to shrink on disk. Encoding returns overflow
    pages to the free list; only `store compact` returns physical bytes:
 
+   `store compact` on its own prints help and compacts nothing, and `plan`
+   refuses while the legacy migration-032 index is still resident — including
+   on a store created by this version, see
+   [#1847](https://github.com/duck8823/traceary/issues/1847). The full
+   sequence is:
+
    ```sh
-   traceary store compact
+   traceary store search-retire
+   traceary store compact plan          # prints the run id
+   traceary store compact apply RUN_ID
+   traceary store compact status RUN_ID
    ```
 
 ## Semantics operators should know

@@ -55,6 +55,64 @@ func newDocsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	var verifyCommandsJSON bool
+	verifyCommandsCmd := &cobra.Command{
+		Use:   "verify-commands",
+		Short: "Verify shell-fenced documented traceary commands resolve to executable commands",
+		Long:  "Verify commands the documentation tells users to run in sh, bash, shell, or console fences. Command names in prose, inline code, archived release documents, and non-shell fences are out of scope because removal logs and instructions are written identically.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			root, err := findRepoRoot()
+			if err != nil {
+				return err
+			}
+			report, err := verifyDocsCommands(root)
+			if err != nil {
+				return err
+			}
+			if verifyCommandsJSON {
+				if err := writeDocsCommandsJSON(cmd.OutOrStdout(), report); err != nil {
+					return err
+				}
+			} else {
+				if len(report.Problems) > 0 {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Unresolvable command paths:"); err != nil {
+						return xerrors.Errorf("failed to write verify result: %w", err)
+					}
+					for _, finding := range report.Problems {
+						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", finding); err != nil {
+							return xerrors.Errorf("failed to write verify result: %w", err)
+						}
+					}
+				}
+				if len(report.FencedGroupCommands) > 0 {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Group commands in fenced code blocks:"); err != nil {
+						return xerrors.Errorf("failed to write verify result: %w", err)
+					}
+					for _, finding := range report.FencedGroupCommands {
+						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", finding); err != nil {
+							return xerrors.Errorf("failed to write verify result: %w", err)
+						}
+					}
+				}
+				status := "passed"
+				if len(report.Problems) > 0 || len(report.FencedGroupCommands) > 0 {
+					status = "failed"
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "documentation command check %s\n", status); err != nil {
+					return xerrors.Errorf("failed to write verify result: %w", err)
+				}
+				if err := writeDocsCommandsSummary(cmd.OutOrStdout(), report); err != nil {
+					return err
+				}
+			}
+			if len(report.Problems) > 0 || len(report.FencedGroupCommands) > 0 {
+				return xerrors.Errorf("documentation command check failed")
+			}
+			return nil
+		},
+	}
+	verifyCommandsCmd.Flags().BoolVar(&verifyCommandsJSON, "json", false, "emit findings and skipped scans as JSON")
 	verifyLandingCmd := &cobra.Command{
 		Use:   "verify-landing",
 		Short: "Verify docs/landing/ version markers stay in sync with VERSION",
@@ -133,6 +191,7 @@ func newDocsCommand() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(verifyI18n)
+	cmd.AddCommand(verifyCommandsCmd)
 	cmd.AddCommand(verifyLandingCmd)
 	cmd.AddCommand(verifyAntigravityCmd)
 	cmd.AddCommand(generateHostCoverageCmd)
