@@ -29,14 +29,15 @@ type docsCommandSkipped struct {
 type docsCommandReport struct {
 	Problems            []string             `json:"problems"`
 	FencedGroupCommands []string             `json:"fenced_group_commands"`
-	InlineGroupMentions []string             `json:"inline_group_mentions"`
 	Skipped             []docsCommandSkipped `json:"skipped"`
 	FilesScanned        int                  `json:"files_scanned"`
+	ShellInvocations    int                  `json:"shell_fence_invocations"`
 }
 
-// verifyDocsCommands checks only command-shaped examples: fenced code blocks
-// and inline code spans. Changelog history is deliberately excluded because it
-// records commands from released versions, not instructions for this version.
+// verifyDocsCommands checks commands that documentation tells users to run:
+// invocations in shell fences. Inline code and non-shell fences are records or
+// prose, not executable instructions. Changelog history is deliberately
+// excluded because it records commands from released versions.
 func verifyDocsCommands(root string) (docsCommandReport, error) {
 	paths, err := docsCommandPaths(root)
 	if err != nil {
@@ -63,22 +64,20 @@ func verifyDocsCommands(root string) (docsCommandReport, error) {
 			}
 			skipped = append(skipped, docsCommandSkipped{Path: path, Reason: "historical release sections excluded"})
 		}
-		for _, invocation := range documentedTracearyCommands(text) {
+		invocations := documentedTracearyCommands(text)
+		report.ShellInvocations += len(invocations)
+		for _, invocation := range invocations {
 			verifyDocumentedCommand(commandRoot, path, invocation, &report)
 		}
 	}
 	sort.Strings(report.Problems)
 	sort.Strings(report.FencedGroupCommands)
-	sort.Strings(report.InlineGroupMentions)
 	sort.Slice(skipped, func(i, j int) bool { return skipped[i].Path < skipped[j].Path })
 	if report.Problems == nil {
 		report.Problems = []string{}
 	}
 	if report.FencedGroupCommands == nil {
 		report.FencedGroupCommands = []string{}
-	}
-	if report.InlineGroupMentions == nil {
-		report.InlineGroupMentions = []string{}
 	}
 	if skipped == nil {
 		skipped = []docsCommandSkipped{}
@@ -88,9 +87,8 @@ func verifyDocsCommands(root string) (docsCommandReport, error) {
 }
 
 type documentedCommand struct {
-	Line    int
-	Path    []string
-	InFence bool
+	Line int
+	Path []string
 }
 
 func verifyDocumentedCommand(root *cobra.Command, file string, invocation documentedCommand, report *docsCommandReport) {
@@ -127,11 +125,7 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 		}
 		sort.Strings(children)
 		finding := xerrors.Errorf("%s:%d: traceary %s is a group command and does not execute an action; use one of its subcommands: %s", file, invocation.Line, strings.Join(invocation.Path, " "), strings.Join(children, ", ")).Error()
-		if invocation.InFence {
-			report.FencedGroupCommands = append(report.FencedGroupCommands, finding)
-		} else {
-			report.InlineGroupMentions = append(report.InlineGroupMentions, finding)
-		}
+		report.FencedGroupCommands = append(report.FencedGroupCommands, finding)
 	}
 }
 
@@ -169,7 +163,9 @@ func docsCommandPaths(root string) ([]string, error) {
 			if err != nil {
 				return xerrors.Errorf("failed to resolve docs path %s: %w", path, err)
 			}
-			paths = append(paths, rel)
+			if !isReleaseDocPath(rel) {
+				paths = append(paths, rel)
+			}
 		}
 		return nil
 	})
@@ -178,6 +174,10 @@ func docsCommandPaths(root string) ([]string, error) {
 	}
 	sort.Strings(paths)
 	return paths, nil
+}
+
+func isReleaseDocPath(path string) bool {
+	return strings.HasPrefix(filepath.ToSlash(path), "docs/release/")
 }
 
 func isChangelogPath(path string) bool {
@@ -212,6 +212,9 @@ func documentedTracearyCommands(text string) []documentedCommand {
 	inFence := false
 	fenceChar := byte(0)
 	fenceLength := 0
+	shellFence := false
+	var continued string
+	continuedLine := 0
 	for lineNumber, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !inFence && (strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")) {
@@ -221,22 +224,47 @@ func documentedTracearyCommands(text string) []documentedCommand {
 			for fenceLength < len(trimmed) && trimmed[fenceLength] == fenceChar {
 				fenceLength++
 			}
+			info := strings.TrimSpace(trimmed[fenceLength:])
+			shellFence = isShellFenceInfo(info)
 			continue
 		}
 		if inFence {
 			if isFenceClose(trimmed, fenceChar, fenceLength) {
 				inFence = false
+				shellFence = false
+				continued = ""
 				continue
 			}
-			for _, command := range commandsFromLine(line, lineNumber+1) {
-				command.InFence = true
-				commands = append(commands, command)
+			if !shellFence {
+				continue
 			}
+			if continued == "" {
+				continuedLine = lineNumber + 1
+			}
+			logical, hasContinuation := shellLine(line)
+			continued += logical
+			if hasContinuation {
+				continued += " "
+				continue
+			}
+			commands = append(commands, commandsFromLine(continued, continuedLine)...)
+			continued = ""
 			continue
 		}
-		commands = append(commands, commandsFromInline(line, lineNumber+1)...)
 	}
 	return commands
+}
+
+func isShellFenceInfo(info string) bool {
+	return info == "sh" || info == "bash" || info == "shell" || info == "console"
+}
+
+func shellLine(line string) (string, bool) {
+	trimmed := strings.TrimRight(line, " \t")
+	if strings.HasSuffix(trimmed, `\`) {
+		return strings.TrimSuffix(trimmed, `\`), true
+	}
+	return line, false
 }
 
 func isFenceClose(line string, char byte, length int) bool {
@@ -251,45 +279,35 @@ func isFenceClose(line string, char byte, length int) bool {
 	return strings.TrimSpace(line[length:]) == ""
 }
 
-func commandsFromInline(line string, lineNumber int) []documentedCommand {
-	var segments []string
-	for rest := line; ; {
-		start := strings.IndexByte(rest, '`')
-		if start < 0 {
-			break
-		}
-		run := 1
-		for start+run < len(rest) && rest[start+run] == '`' {
-			run++
-		}
-		end := strings.Index(rest[start+run:], strings.Repeat("`", run))
-		if end < 0 {
-			break
-		}
-		segments = append(segments, rest[start+run:start+run+end])
-		rest = rest[start+run+end+run:]
-	}
+func commandsFromLine(line string, lineNumber int) []documentedCommand {
 	var commands []documentedCommand
-	for _, segment := range segments {
-		commands = append(commands, commandsFromLine(segment, lineNumber)...)
+	for _, match := range docsTracearyRe.FindAllStringIndex(line, -1) {
+		path := commandPathTokens(line[match[1]:])
+		commands = append(commands, documentedCommand{Line: lineNumber, Path: path})
 	}
 	return commands
 }
 
-func commandsFromLine(line string, lineNumber int) []documentedCommand {
-	var commands []documentedCommand
-	for _, match := range docsTracearyRe.FindAllStringIndex(line, -1) {
-		words := strings.Fields(line[match[1]:])
-		var path []string
-		for _, word := range words {
-			if !docsPlainWordRe.MatchString(word) {
-				break
-			}
-			path = append(path, word)
+func commandPathTokens(rest string) []string {
+	var path []string
+	for i := 0; i < len(rest); {
+		for i < len(rest) && (rest[i] == ' ' || rest[i] == '\t') {
+			i++
 		}
-		commands = append(commands, documentedCommand{Line: lineNumber, Path: path})
+		if i == len(rest) || strings.ContainsRune(`)"'|>&;`, rune(rest[i])) {
+			break
+		}
+		start := i
+		for i < len(rest) && rest[i] != ' ' && rest[i] != '\t' && !strings.ContainsRune(`)"'|>&;`, rune(rest[i])) {
+			i++
+		}
+		word := rest[start:i]
+		if !docsPlainWordRe.MatchString(word) {
+			break
+		}
+		path = append(path, word)
 	}
-	return commands
+	return path
 }
 
 func writeDocsCommandsJSON(out io.Writer, report docsCommandReport) error {
@@ -303,7 +321,7 @@ func writeDocsCommandsSummary(out io.Writer, report docsCommandReport) error {
 	if _, err := io.WriteString(out, "Summary: class 1 unresolved="); err != nil {
 		return xerrors.Errorf("failed to write verify summary: %w", err)
 	}
-	if _, err := io.WriteString(out, xerrors.Errorf("%d, class 2 fenced groups=%d, class 3 inline group mentions=%d, files scanned=%d\n", len(report.Problems), len(report.FencedGroupCommands), len(report.InlineGroupMentions), report.FilesScanned).Error()); err != nil {
+	if _, err := io.WriteString(out, xerrors.Errorf("%d, class 2 fenced groups=%d, files scanned=%d, shell-fence invocations checked=%d\n", len(report.Problems), len(report.FencedGroupCommands), report.FilesScanned, report.ShellInvocations).Error()); err != nil {
 		return xerrors.Errorf("failed to write verify summary: %w", err)
 	}
 	return nil

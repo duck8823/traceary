@@ -58,7 +58,8 @@ func newDocsCommand() *cobra.Command {
 	var verifyCommandsJSON bool
 	verifyCommandsCmd := &cobra.Command{
 		Use:   "verify-commands",
-		Short: "Verify documented traceary commands resolve to executable commands",
+		Short: "Verify shell-fenced documented traceary commands resolve to executable commands",
+		Long:  "Verify commands the documentation tells users to run in sh, bash, shell, or console fences. Command names in prose, inline code, archived release documents, and non-shell fences are out of scope because removal logs and instructions are written identically.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := findRepoRoot()
@@ -74,16 +75,6 @@ func newDocsCommand() *cobra.Command {
 					return err
 				}
 			} else {
-				if len(report.InlineGroupMentions) > 0 {
-					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Inline group-command mentions (unclassified; human review only):"); err != nil {
-						return xerrors.Errorf("failed to write verify result: %w", err)
-					}
-					for _, finding := range report.InlineGroupMentions {
-						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", finding); err != nil {
-							return xerrors.Errorf("failed to write verify result: %w", err)
-						}
-					}
-				}
 				if len(report.Problems) > 0 {
 					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Unresolvable command paths:"); err != nil {
 						return xerrors.Errorf("failed to write verify result: %w", err)
