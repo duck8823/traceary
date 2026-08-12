@@ -55,6 +55,36 @@ func newDocsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	var verifyCommandsJSON bool
+	verifyCommandsCmd := &cobra.Command{
+		Use:   "verify-commands",
+		Short: "Verify documented traceary commands resolve to executable commands",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			root, err := findRepoRoot()
+			if err != nil {
+				return err
+			}
+			problems, skipped, err := verifyDocsCommands(root)
+			if err != nil {
+				return err
+			}
+			if verifyCommandsJSON {
+				if err := writeDocsCommandsJSON(cmd.OutOrStdout(), problems, skipped); err != nil {
+					return err
+				}
+			} else if len(problems) == 0 {
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(), "documentation command check passed"); err != nil {
+					return xerrors.Errorf("failed to write verify result: %w", err)
+				}
+			}
+			if len(problems) > 0 {
+				return xerrors.Errorf("documentation command check failed:\n- %s", strings.Join(problems, "\n- "))
+			}
+			return nil
+		},
+	}
+	verifyCommandsCmd.Flags().BoolVar(&verifyCommandsJSON, "json", false, "emit findings and skipped scans as JSON")
 	verifyLandingCmd := &cobra.Command{
 		Use:   "verify-landing",
 		Short: "Verify docs/landing/ version markers stay in sync with VERSION",
@@ -133,6 +163,7 @@ func newDocsCommand() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(verifyI18n)
+	cmd.AddCommand(verifyCommandsCmd)
 	cmd.AddCommand(verifyLandingCmd)
 	cmd.AddCommand(verifyAntigravityCmd)
 	cmd.AddCommand(generateHostCoverageCmd)
