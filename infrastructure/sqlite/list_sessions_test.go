@@ -811,6 +811,89 @@ func TestDatasource_LineageOfDeepChainUsesTrueRootForEveryMember(t *testing.T) {
 	}
 }
 
+func TestDatasource_LineageOfCommaIDsUsesTrueRootForEveryMember(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		members []struct {
+			id     string
+			parent string
+			order  int
+		}
+		want []string
+	}{
+		{
+			name: "comma in leaf ID",
+			members: []struct {
+				id     string
+				parent string
+				order  int
+			}{
+				{id: "root", parent: "", order: 0},
+				{id: "leaf,root", parent: "root", order: 1},
+			},
+			want: []string{"leaf,root", "root"},
+		},
+		{
+			name: "comma in middle ID with descendant",
+			members: []struct {
+				id     string
+				parent string
+				order  int
+			}{
+				{id: "root", parent: "", order: 0},
+				{id: "a,root,b", parent: "root", order: 1},
+				{id: "deep-child", parent: "a,root,b", order: 1},
+			},
+			want: []string{"a,root,b", "deep-child", "root"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+			ctx := context.Background()
+			if err := fixture.storeManager.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+			started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+			for i, member := range tt.members {
+				if member.parent == "" {
+					saveTestSession(ctx, t, fixture.sessionDS, member.id, started.Add(time.Duration(i)*time.Minute), types.None[time.Time](), "claude", "duck8823/traceary")
+					continue
+				}
+				saveTestSessionWithParent(ctx, t, fixture.sessionDS, member.id, member.parent, started.Add(time.Duration(i)*time.Minute), member.order)
+			}
+
+			lineageSets := make(map[string][]string, len(tt.members))
+			for _, member := range tt.members {
+				got, err := fixture.sessionDS.LineageOf(ctx, types.SessionID(member.id))
+				if err != nil {
+					t.Fatalf("LineageOf(%q) error = %v", member.id, err)
+				}
+				ids := make([]string, 0, len(got))
+				for _, summary := range got {
+					ids = append(ids, summary.SessionID().String())
+				}
+				sort.Strings(ids)
+				lineageSets[member.id] = ids
+				if diff := cmp.Diff(tt.want, ids); diff != "" {
+					t.Fatalf("LineageOf(%q) IDs mismatch (-want +got):\n%s", member.id, diff)
+				}
+			}
+
+			first := lineageSets[tt.members[0].id]
+			for _, member := range tt.members[1:] {
+				if diff := cmp.Diff(first, lineageSets[member.id]); diff != "" {
+					t.Fatalf("lineage sets differ for %q (-root +member):\n%s", member.id, diff)
+				}
+			}
+		})
+	}
+}
+
 func TestDatasource_ListSummariesLatestEvent(t *testing.T) {
 	t.Parallel()
 

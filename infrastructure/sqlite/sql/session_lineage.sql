@@ -1,13 +1,13 @@
 WITH RECURSIVE
   ancestors(session_id, parent_session_id, depth, path) AS (
-    SELECT session_id, parent_session_id, 0, ',' || session_id || ','
+    SELECT session_id, parent_session_id, 0, ',' || hex(session_id) || ','
     FROM sessions
     WHERE session_id = ?
     UNION ALL
-    SELECT parent.session_id, parent.parent_session_id, ancestors.depth + 1, ancestors.path || parent.session_id || ','
+    SELECT parent.session_id, parent.parent_session_id, ancestors.depth + 1, ancestors.path || hex(parent.session_id) || ','
     FROM sessions parent
     JOIN ancestors ON ancestors.parent_session_id = parent.session_id
-    WHERE instr(ancestors.path, ',' || parent.session_id || ',') = 0
+    WHERE instr(ancestors.path, ',' || hex(parent.session_id) || ',') = 0
   ),
   lineage_root(session_id) AS (
     SELECT session_id
@@ -16,14 +16,14 @@ WITH RECURSIVE
     LIMIT 1
   ),
   lineage(session_id, depth, path) AS (
-    SELECT session_id, 0, ',' || session_id || ','
+    SELECT session_id, 0, ',' || hex(session_id) || ','
     FROM lineage_root
     UNION ALL
-    SELECT child.session_id, lineage.depth + 1, lineage.path || child.session_id || ','
+    SELECT child.session_id, lineage.depth + 1, lineage.path || hex(child.session_id) || ','
     FROM sessions child
     JOIN lineage ON child.parent_session_id = lineage.session_id
     WHERE lineage.depth < 100
-      AND instr(lineage.path, ',' || child.session_id || ',') = 0
+      AND instr(lineage.path, ',' || hex(child.session_id) || ',') = 0
   ),
   event_agg AS (
     SELECT
