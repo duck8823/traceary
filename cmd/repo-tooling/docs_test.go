@@ -56,6 +56,35 @@ func TestVerifyDocsCommands(t *testing.T) {
 			wantProblems: []string{},
 		},
 		{
+			name:         "root README shell command is scanned",
+			path:         "README.md",
+			content:      "```sh\ntraceary removed-command\n```\n",
+			wantProblems: []string{"README.md:2: traceary removed-command does not resolve to a command"},
+		},
+		{
+			name:    "leaf command accepts its documented argument",
+			path:    "README.md",
+			content: "```sh\ntraceary hook compact claude\n```\n",
+		},
+		{
+			name:         "leaf command rejects an invalid argument",
+			path:         "README.md",
+			content:      "```sh\ntraceary doctor nonexistent-subcommand\n```\n",
+			wantProblems: []string{"README.md:2: traceary doctor does not accept those arguments: nonexistent-subcommand"},
+		},
+		{
+			name:         "quoted command token is resolved",
+			path:         "README.md",
+			content:      "```sh\ntraceary \"nonexistent-command\"\n```\n",
+			wantProblems: []string{"README.md:2: traceary nonexistent-command does not resolve to a command"},
+		},
+		{
+			name:       "unterminated continuation is flushed at fence close",
+			path:       "README.md",
+			content:    "```sh\ntraceary store backup \\\n```\n",
+			wantFenced: []string{"README.md:2: traceary store backup is a group command and does not execute an action; use one of its subcommands: create, restore"},
+		},
+		{
 			name:    "unresolvable path in json fence passes",
 			path:    "docs/example.md",
 			content: "```json\n{\"command\": \"traceary store search-projection rebuild\"}\n```\n",

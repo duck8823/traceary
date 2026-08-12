@@ -29,7 +29,7 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 
 ## 手順
 
-1. ライブストアを **バックアップ** する（例: `traceary store backup create`）。
+1. ライブストアを **バックアップ** する（例: `traceary store backup create ~/traceary-pre-v0.34.db`）。
 2. 書き込みなしで対象量を **preview** する:
 
    ```sh
@@ -59,9 +59,11 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 6. **検索 projection を rebuild する。** backfill は `events.body` を更新するため、
    無効化トリガが発火し projection は `drifted` / `stale` になります。audit テキスト
    の書き換えは projection 無効化を起こしません（migration 052 以降、検索 writer は
-   それらを読まない）が、body が変わった場合は rebuild が必要です。既存コマンドで
-   rebuild が必要です。`rebuild` という単一の verb はありません。新しい generation を
-   start し、完了まで進めてください:
+   それらを読まない）が、body が変わった場合は rebuild が必要です。`rebuild` という
+   単一の verb はありません。新しい generation を start したあと、`status` が generation
+   の `complete` を報告するまで `resume --until-complete` を繰り返してください。
+   `stop_reason=max_batches` または `stop_reason=total_wall_time` ならまだ完了していないため、
+   続けて `resume --until-complete` を実行します:
 
    ```sh
    traceary store search-projection start

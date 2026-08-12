@@ -30,7 +30,7 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 
 ## Procedure
 
-1. **Backup** the live store (for example `traceary store backup create`).
+1. **Backup** the live store (for example `traceary store backup create ~/traceary-pre-v0.34.db`).
 2. **Preview** eligible work without writing:
 
    ```sh
@@ -62,7 +62,10 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
    `stale`. Audit-text rewrites do not drive projection invalidation (no
    search writer reads them after migration 052), but a rebuild is still
    required whenever body rows changed. There is no single `rebuild` verb —
-   start a new generation and drive it to completion:
+   start a new generation, then repeat `resume --until-complete` until
+   `status` reports the generation as `complete`. A run that reports
+   `stop_reason=max_batches` or `stop_reason=total_wall_time` is not complete;
+   run `resume --until-complete` again before continuing:
 
    ```sh
    traceary store search-projection start

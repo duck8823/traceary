@@ -12,7 +12,7 @@ identity の TEXT のままです。この書込み経路の変更は既存行�
 既存行の書き換えは別の処理です。
 
 `traceary doctor` で codec 状態を確認できます。downgrade 用の fallback が必要なら、
-v0.34 を初めて実行する前に `traceary store backup create` を実行してください。v0.34 が圧縮行を
+v0.34 を初めて実行する前に `traceary store backup create ~/traceary-pre-v0.34.db` を実行してください。v0.34 が圧縮行を
 書いた後は v0.33.1 以前の binary が body を garbage として読み、v0.34 の機能でそれを
 防ぐことはできません。その後に取得した backup は圧縮前 representation の fallback には
 なりません。

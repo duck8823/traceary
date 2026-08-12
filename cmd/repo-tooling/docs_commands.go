@@ -99,7 +99,8 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 		return
 	}
 	current := root
-	for _, word := range invocation.Path {
+	var leafArgs []string
+	for i, word := range invocation.Path {
 		var next *cobra.Command
 		for _, child := range current.Commands() {
 			if child.Name() == word || docsContainsString(child.Aliases, word) {
@@ -111,6 +112,7 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 		// important for commands such as `traceary hook compact claude`:
 		// `claude` is an argument, not a subcommand.
 		if next == nil && len(current.Commands()) == 0 {
+			leafArgs = invocation.Path[i:]
 			break
 		}
 		if next == nil {
@@ -118,6 +120,12 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 			return
 		}
 		current = next
+	}
+	if len(current.Commands()) == 0 && len(leafArgs) > 0 {
+		if err := validateDocumentedLeafArgs(current, leafArgs); err != nil {
+			report.Problems = append(report.Problems, fmt.Sprintf("%s:%d: traceary %s does not accept those arguments: %s", file, invocation.Line, strings.Join(invocation.Path[:len(invocation.Path)-len(leafArgs)], " "), strings.Join(leafArgs, " ")))
+			return
+		}
 	}
 	if len(current.Commands()) > 0 {
 		children := make([]string, 0, len(current.Commands()))
@@ -128,6 +136,23 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 		finding := fmt.Sprintf("%s:%d: traceary %s is a group command and does not execute an action; use one of its subcommands: %s", file, invocation.Line, strings.Join(invocation.Path, " "), strings.Join(children, ", "))
 		report.FencedGroupCommands = append(report.FencedGroupCommands, finding)
 	}
+}
+
+func validateDocumentedLeafArgs(command *cobra.Command, args []string) error {
+	// The tokenizer intentionally supplies only a lower bound: flags,
+	// placeholders, and uppercase words stop positional parsing. Probe with
+	// opaque extra arguments so an exact/minimum-arity command such as
+	// `hook compact claude` remains valid when its second positional argument
+	// is outside that lower bound. A no-args command still rejects every probe.
+	probed := append([]string(nil), args...)
+	var err error
+	for range 16 {
+		if err = command.ValidateArgs(probed); err == nil {
+			return nil
+		}
+		probed = append(probed, "__undocumented_argument__")
+	}
+	return xerrors.Errorf("documented arguments rejected: %w", err)
 }
 
 func docsContainsString(values []string, want string) bool {
@@ -141,7 +166,7 @@ func docsContainsString(values []string, want string) bool {
 
 func docsCommandPaths(root string) ([]string, error) {
 	var paths []string
-	for _, path := range []string{"CHANGELOG.md", "CHANGELOG.ja.md"} {
+	for _, path := range []string{"README.md", "README.ja.md", "CHANGELOG.md", "CHANGELOG.ja.md"} {
 		if _, err := os.Stat(filepath.Join(root, path)); err == nil {
 			paths = append(paths, path)
 		} else if !os.IsNotExist(err) {
@@ -231,6 +256,9 @@ func documentedTracearyCommands(text string) []documentedCommand {
 		}
 		if inFence {
 			if isFenceClose(trimmed, fenceChar, fenceLength) {
+				if shellFence && continued != "" {
+					commands = append(commands, commandsFromLine(continued, continuedLine)...)
+				}
 				inFence = false
 				shellFence = false
 				continued = ""
@@ -295,7 +323,29 @@ func commandPathTokens(rest string) []string {
 		for i < len(rest) && (rest[i] == ' ' || rest[i] == '\t') {
 			i++
 		}
-		if i == len(rest) || strings.ContainsRune(`)"'|>&;`, rune(rest[i])) {
+		if i == len(rest) {
+			break
+		}
+		if rest[i] == '\'' || rest[i] == '"' {
+			quote := rest[i]
+			start := i + 1
+			end := strings.IndexByte(rest[start:], quote)
+			if end < 0 {
+				break
+			}
+			end += start
+			if end+1 < len(rest) && !strings.ContainsRune(" \t)\"'|>&;", rune(rest[end+1])) {
+				break
+			}
+			word := rest[start:end]
+			i = end + 1
+			if !docsPlainWordRe.MatchString(word) {
+				break
+			}
+			path = append(path, word)
+			continue
+		}
+		if strings.ContainsRune(`)"'|>&;`, rune(rest[i])) {
 			break
 		}
 		start := i
