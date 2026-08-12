@@ -17,7 +17,7 @@ source store size の 1.1 倍の空き容量を要求します。成功後も so
 大きさの元 database rollback copy が残ります。運用者向けの詳細は
 [`store compact` のディスク容量](../operations/store-compact-disk-cost.ja.md) を参照してください。
 
-`plan`はpreflight全体でstoreのexclusive leaseを保持します。`-journal`がなく、
+`store compact`の`plan`はpreflight全体でstoreのexclusive leaseを保持します。`-journal`がなく、
 non-zeroの`-wal`もない場合は、存在するregularな`-wal`と`-shm`を、`-shm`が
 non-zeroでも両方stale artifactとして削除します。directoryをsyncしてから、storeを
 openする前に再検査します。shm fileはdatabase contentを含まず、fsyncもされません。
@@ -28,12 +28,16 @@ reader、旧版、非協調版を含む）を停止して同じcommandをretry�
 手動削除してはいけません。non-zero WALまたはnon-regular sidecarにはliveなSQLite
 stateが含まれる可能性があります。
 
-`apply`と`resume`も同じcleanupを実行します。`plan`が返ったあとにreaderがsidecarを
+`store compact apply`と`store compact resume`も同じcleanupを実行します。`plan`が返ったあとにreaderがsidecarを
 作りうるためです。cleanupはexclusive leaseを取得できたときだけ走り、liveな協調接続は
 すべて同じleaseのshared formを保持しているため、いずれかがstoreを開いている間に
 sidecarが削除されることはありません（lease取得側が待ちます）。exchange直前の最終検査は
 strictのままです。その時点ではcleanupが済んでいるため、そこでsidecarが現れることは
 run中にopenerが現れたことを意味し、runは中止されます。
+
+このsidecar recoveryは`store compact`に限られます。`store payload-rehearsal`が使う
+prepared-upgrade pathはpreflight全体でexclusive leaseを保持しないため、sidecarを
+recoveryせずに拒否します。
 
 レガシー検索インデックスの検査はsource digestより前に走るため、数GiBのstore
 全体をハッシュした後ではなく数秒で失敗します。先にcompactすると死んだindexを

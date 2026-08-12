@@ -44,7 +44,7 @@ func TestCompactionE2E_21Point4GiBShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	planningJournal := &CompactionFileJournal{Dir: filepath.Join(dir, "planning-journal")}
-	planner := usecase.NewStoreCompactionUsecase(source, planningJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	planner := usecase.NewStoreCompactionUsecase(source, planningJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err := planner.Plan(context.Background(), source)
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestCompactionE2E_21Point4GiBShape(t *testing.T) {
 	if err := journal.Create(context.Background(), run); err != nil {
 		t.Fatal(err)
 	}
-	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err = service.Apply(context.Background(), run.ID)
 	if err != nil {
 		t.Fatal(err)

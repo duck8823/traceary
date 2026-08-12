@@ -56,6 +56,18 @@ func (StoreLeaseCoordinator) AcquireExclusive(ctx context.Context, path string) 
 	return func() { once.Do(func() { _ = lease.Close() }) }, nil
 }
 
+func probeStoreLeaseCapability(ctx context.Context, path string) error {
+	lockPath, err := canonicalLeasePath(path)
+	if err != nil {
+		return err
+	}
+	lease, err := acquireAdvisoryLease(ctx, lockPath, true)
+	if err != nil {
+		return err
+	}
+	return lease.Close()
+}
+
 // openCoordinatedDB makes the shared OS lease lifetime identical to each
 // physical driver.Conn lifetime. The stable adjacent lock file survives the
 // database inode exchange performed by compaction.

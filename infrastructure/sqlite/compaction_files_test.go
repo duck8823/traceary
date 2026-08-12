@@ -212,18 +212,24 @@ func TestStoreReplacementFilesRejectsSymlinkAndSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := domain.CompactionRun{SourcePath: link, CandidatePath: filepath.Join(dir, "candidate"), RollbackPath: filepath.Join(dir, "rollback")}
-	if _, err := (StoreReplacementFiles{}).Plan(context.Background(), run); err == nil {
+	if _, err := (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).Plan(context.Background(), run); err == nil {
 		t.Fatal("Plan accepted symlink")
 	}
 	if err := os.WriteFile(source+"-wal", nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(source+"-shm", make([]byte, 32*1024), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	run.SourcePath = source
-	if _, err := (StoreReplacementFiles{}).Plan(context.Background(), run); err != nil && strings.Contains(err.Error(), "sidecar") {
+	if _, err := (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).Plan(context.Background(), run); err != nil && strings.Contains(err.Error(), "sidecar") {
 		t.Fatalf("Plan rejected stale zero-byte WAL: %v", err)
 	}
 	if _, err := os.Lstat(source + "-wal"); !os.IsNotExist(err) {
 		t.Fatalf("stale WAL was not removed: %v", err)
+	}
+	if _, err := os.Lstat(source + "-shm"); !os.IsNotExist(err) {
+		t.Fatalf("stale SHM was not removed: %v", err)
 	}
 }
 
@@ -233,7 +239,7 @@ func TestStoreReplacementFilesRecheckCleansSidecarCreatedAfterPlan(t *testing.T)
 	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run, err := (StoreReplacementFiles{}).Plan(context.Background(), domain.CompactionRun{
+	run, err := (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).Plan(context.Background(), domain.CompactionRun{
 		SourcePath:    source,
 		CandidatePath: filepath.Join(dir, "candidate"),
 		RollbackPath:  filepath.Join(dir, "rollback"),
@@ -247,11 +253,82 @@ func TestStoreReplacementFilesRecheckCleansSidecarCreatedAfterPlan(t *testing.T)
 	if err := os.WriteFile(source+"-wal", nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := (StoreReplacementFiles{}).Recheck(context.Background(), run); err != nil {
+	if err := os.WriteFile(source+"-shm", make([]byte, 32*1024), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).Recheck(context.Background(), run); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(source + "-wal"); !os.IsNotExist(err) {
 		t.Fatalf("sidecar created after plan was not removed: %v", err)
+	}
+	if _, err := os.Lstat(source + "-shm"); !os.IsNotExist(err) {
+		t.Fatalf("SHM created after plan was not removed: %v", err)
+	}
+}
+
+func TestPreparedStoreUpgradeFilesZeroValueRefusesSidecars(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "store.db")
+	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wal := source + "-wal"
+	shm := source + "-shm"
+	if err := os.WriteFile(wal, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shm, make([]byte, 32*1024), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := (PreparedStoreUpgradeFiles{}).Plan(context.Background(), domain.CompactionRun{
+		SourcePath: source, CandidatePath: filepath.Join(dir, "candidate"), RollbackPath: filepath.Join(dir, "rollback"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "sidecar") {
+		t.Fatalf("zero-value Plan error = %v, want sidecar refusal", err)
+	}
+	for _, path := range []string{wal, shm} {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatalf("refused sidecar %s was changed: %v", path, statErr)
+		}
+		if path == shm && info.Size() != 32*1024 {
+			t.Fatalf("refused SHM size = %d, want %d", info.Size(), 32*1024)
+		}
+	}
+}
+
+func TestPreparedStoreUpgradeFilesZeroValueRecheckRefusesSidecars(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "store.db")
+	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files := PreparedStoreUpgradeFiles{}
+	run, err := files.Plan(context.Background(), domain.CompactionRun{
+		SourcePath: source, CandidatePath: filepath.Join(dir, "candidate"), RollbackPath: filepath.Join(dir, "rollback"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !run.Resources.LeaseCapability {
+		t.Fatal("zero-value Plan did not report the available lease capability")
+	}
+	wal := source + "-wal"
+	shm := source + "-shm"
+	if err := os.WriteFile(wal, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shm, make([]byte, 32*1024), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Recheck(context.Background(), run); err == nil || !strings.Contains(err.Error(), "sidecar") {
+		t.Fatalf("zero-value Recheck error = %v, want sidecar refusal", err)
+	}
+	for _, path := range []string{wal, shm} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("refused sidecar %s was changed: %v", path, statErr)
+		}
 	}
 }
 
@@ -282,7 +359,7 @@ func TestStoreReplacementFilesRejectsCandidateReplacementAfterVerification(t *te
 	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run, err := (StoreReplacementFiles{}).Plan(context.Background(), domain.CompactionRun{SourcePath: source, CandidatePath: candidate, RollbackPath: rollback})
+	run, err := (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).Plan(context.Background(), domain.CompactionRun{SourcePath: source, CandidatePath: candidate, RollbackPath: rollback})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +370,7 @@ func TestStoreReplacementFilesRejectsCandidateReplacementAfterVerification(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err = (StoreReplacementFiles{}).FenceCandidate(context.Background(), run)
+	run, err = (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).FenceCandidate(context.Background(), run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +381,7 @@ func TestStoreReplacementFilesRejectsCandidateReplacementAfterVerification(t *te
 		t.Fatal(err)
 	}
 	run.Phase = domain.CompactionSwapIntent
-	if err := (StoreReplacementFiles{}).Exchange(context.Background(), run); err == nil {
+	if err := (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).Exchange(context.Background(), run); err == nil {
 		t.Fatal("Exchange accepted replaced candidate")
 	}
 	got, _ := os.ReadFile(source)
@@ -327,7 +404,7 @@ func TestStoreReplacementFilesObserveRejectsFencedCandidateReadyConflict(t *test
 	candidateID, _ := inspectRegularFile(candidate)
 	run := domain.CompactionRun{SourcePath: source, CandidatePath: candidate, RollbackPath: filepath.Join(dir, "rollback"), SourceIdentity: sourceID, Candidate: candidateID}
 	run.Candidate.Inode++
-	if _, err := (StoreReplacementFiles{}).Observe(context.Background(), run); err == nil {
+	if _, err := (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).Observe(context.Background(), run); err == nil {
 		t.Fatal("Observe accepted candidate identity conflict")
 	}
 }
@@ -486,7 +563,7 @@ func TestCompactionDestructiveBoundariesRejectHardLinkedArtifacts(t *testing.T) 
 			if err := os.Link(linked, linked+".alias"); err != nil {
 				t.Fatal(err)
 			}
-			files := StoreReplacementFiles{}
+			files := StoreReplacementFiles{CallerHoldsExclusiveLease: true}
 			var err error
 			switch actionPath {
 			case "fence":

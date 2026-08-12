@@ -355,12 +355,18 @@ func writeJournalRecord(w io.Writer, run domain.CompactionRun) error {
 }
 
 // PreparedStoreUpgradeFiles implements fenced, same-directory replacement.
-type PreparedStoreUpgradeFiles struct{ recoveryHook func(string) error }
+type PreparedStoreUpgradeFiles struct {
+	// CallerHoldsExclusiveLease declares that the caller holds the exclusive
+	// store lease for the entire call. This is the precondition that licenses
+	// recovery of stale SQLite sidecars.
+	CallerHoldsExclusiveLease bool
+	recoveryHook              func(string) error
+}
 
 // StoreReplacementFiles preserves the legacy compaction composition surface.
 type StoreReplacementFiles = PreparedStoreUpgradeFiles
 
-func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
 	if err := ctx.Err(); err != nil {
 		return run, err
 	}
@@ -375,7 +381,7 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 	if err := validateStoreLinkIdentity(run.SourcePath); err != nil {
 		return run, err
 	}
-	if err := cleanupStaleSQLiteSidecars(ctx, run.SourcePath); err != nil {
+	if err := f.checkSQLiteSidecars(ctx, run.SourcePath); err != nil {
 		return run, err
 	}
 	// Once the cleanup returns, the store has no WAL/SHM at all -- stale ones
@@ -416,8 +422,16 @@ func (PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compaction
 	}
 	run.SourceDigest = digest
 	exchangeCapability := probeReplacementCapabilities(filepath.Dir(run.SourcePath)) == nil
-	// Plan is invoked by the use case while its exclusive store lease is held.
-	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: temporary, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: true, ExchangeCapability: exchangeCapability}
+	var leaseCapability bool
+	if f.CallerHoldsExclusiveLease {
+		// Do not probe here: flock locks attach to the open file description, so
+		// a fresh descriptor conflicts with the caller's held exclusive lease
+		// and retries until ctx is done.
+		leaseCapability = true
+	} else {
+		leaseCapability = probeStoreLeaseCapability(ctx, run.SourcePath) == nil
+	}
+	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: temporary, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
 	if !run.Resources.ExchangeCapability {
 		return run, errors.New("atomic exchange capability unavailable")
 	}
@@ -440,7 +454,7 @@ func insufficientCompactionSpaceError(required, available uint64, sourceSize int
 		required-available, required, available, sourceSize)
 }
 
-func (PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.CompactionRun) error {
+func (f PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -474,7 +488,14 @@ func (PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.Compact
 	// Apply and resume call Recheck while holding the exclusive store lease.
 	// Clean up the same stale zero-byte sidecars that Plan handles; a reader
 	// can create them after Plan returns but before apply/resume starts.
-	return cleanupStaleSQLiteSidecars(ctx, run.SourcePath)
+	return f.checkSQLiteSidecars(ctx, run.SourcePath)
+}
+
+func (f PreparedStoreUpgradeFiles) checkSQLiteSidecars(ctx context.Context, storePath string) error {
+	if f.CallerHoldsExclusiveLease {
+		return cleanupStaleSQLiteSidecars(ctx, storePath)
+	}
+	return rejectSQLiteSidecars(storePath)
 }
 
 // RecheckForPublish performs only constant-count identity/link/sidecar checks.

@@ -11,11 +11,13 @@ type sqliteSidecar struct {
 	path string
 }
 
-// cleanupStaleSQLiteSidecars runs only behind the compaction lease. Every
-// cooperating physical SQLite connection holds the shared form of that lease,
-// so a reader or writer cannot keep a sidecar live while this cleanup runs.
-// Non-cooperating SQLite clients remain outside this advisory-lock boundary,
-// just as they are for the existing replacement protocol.
+// cleanupStaleSQLiteSidecars requires the caller to declare that it holds the
+// exclusive store lease for the entire call. That declaration licenses
+// recovery because every cooperating physical SQLite connection holds the
+// shared form of that lease, so a reader or writer cannot keep a sidecar live
+// while this cleanup runs. Non-cooperating SQLite clients remain outside that
+// advisory-lock boundary, just as they are for the existing replacement
+// protocol.
 func cleanupStaleSQLiteSidecars(ctx context.Context, storePath string) error {
 	var stale []sqliteSidecar
 	for _, suffix := range []string{"-wal", "-shm", "-journal"} {

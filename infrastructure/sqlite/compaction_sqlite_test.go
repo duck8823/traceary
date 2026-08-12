@@ -119,7 +119,7 @@ func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	planningJournal := &CompactionFileJournal{Dir: filepath.Join(dir, "planning-journal")}
-	planner := usecase.NewStoreCompactionUsecase(source, planningJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	planner := usecase.NewStoreCompactionUsecase(source, planningJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err := planner.Plan(ctx, source)
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 	if err := journal.Create(ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err = service.Apply(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestStoreCompactionResumeReplacesRunOwnedNearCapacityPartialCandidate(t *te
 		t.Fatal(err)
 	}
 	plannerJournal := &CompactionFileJournal{Dir: filepath.Join(dir, "planner")}
-	planner := usecase.NewStoreCompactionUsecase(source, plannerJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	planner := usecase.NewStoreCompactionUsecase(source, plannerJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err := planner.Plan(ctx, source)
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestStoreCompactionResumeReplacesRunOwnedNearCapacityPartialCandidate(t *te
 	if err := journal.Append(ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	files := StoreReplacementFiles{}
+	files := StoreReplacementFiles{CallerHoldsExclusiveLease: true}
 	prepared, err := files.PrepareCandidate(ctx, run)
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestStoreCompactionResumeReplacesRunOwnedNearCapacityPartialCandidate(t *te
 		t.Fatal(err)
 	}
 	t.Logf("source=%d partial=%d", len(data), partialSize)
-	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	got, err := fresh.Resume(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +270,7 @@ func TestStoreCompactionResumePreservesUnknownValidCandidate(t *testing.T) {
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT); INSERT INTO expected VALUES('source')`)
 	_ = db.Close()
 	plannerJournal := &CompactionFileJournal{Dir: filepath.Join(dir, "planner")}
-	planner := usecase.NewStoreCompactionUsecase(source, plannerJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	planner := usecase.NewStoreCompactionUsecase(source, plannerJournal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err := planner.Plan(ctx, source)
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +291,7 @@ func TestStoreCompactionResumePreservesUnknownValidCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	if _, err := fresh.Resume(ctx, run.ID); err == nil {
 		t.Fatal("Resume accepted unknown valid candidate")
 	}
@@ -319,7 +319,7 @@ func TestStoreCompactionResumeDoesNotAdoptCrashGapEmptyCandidate(t *testing.T) {
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT)`)
 	_ = db.Close()
 	planning := &CompactionFileJournal{Dir: filepath.Join(dir, "planning")}
-	planner := usecase.NewStoreCompactionUsecase(source, planning, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	planner := usecase.NewStoreCompactionUsecase(source, planning, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err := planner.Plan(ctx, source)
 	if err != nil {
 		t.Fatal(err)
@@ -333,7 +333,7 @@ func TestStoreCompactionResumeDoesNotAdoptCrashGapEmptyCandidate(t *testing.T) {
 	if err := journal.Append(ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	files := StoreReplacementFiles{}
+	files := StoreReplacementFiles{CallerHoldsExclusiveLease: true}
 	identity, err := files.PrepareCandidate(ctx, run)
 	if err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func TestStoreCompactionResumeRejectsReplacedPreparedCandidateInode(t *testing.T
 	if err := os.Rename(replacementPath, run.CandidatePath); err != nil {
 		t.Fatal(err)
 	}
-	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	if _, err := fresh.Resume(ctx, run.ID); err == nil {
 		t.Fatal("Resume accepted a replacement inode")
 	}
@@ -420,7 +420,7 @@ func TestStoreCompactionResumeRebuildsValidIncompletePreparedCandidate(t *testin
 	if !observed.SameInode(run.PreparedCandidateIdentity) {
 		t.Fatal("SQLite replaced the prepared inode")
 	}
-	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	fresh := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	got, err := fresh.Resume(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -438,7 +438,7 @@ func TestStoreCompactionApplyRejectsSameContentReplacementAfterVerification(t *t
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT); INSERT INTO expected VALUES('source')`)
 	_ = db.Close()
 	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "journal")}
-	planner := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	planner := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err := planner.Plan(ctx, source)
 	if err != nil {
 		t.Fatal(err)
@@ -450,7 +450,7 @@ func TestStoreCompactionApplyRejectsSameContentReplacementAfterVerification(t *t
 		t.Fatal(err)
 	}
 	builder := replacingAfterVerifyBuilder{SQLiteCompactionBuilder: SQLiteCompactionBuilder{}}
-	service := usecase.NewStoreCompactionUsecase(source, journal, builder, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	service := usecase.NewStoreCompactionUsecase(source, journal, builder, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	if _, err := service.Apply(ctx, run.ID); err == nil {
 		t.Fatal("Apply accepted a same-content replacement inode")
 	}
@@ -504,7 +504,7 @@ func TestStoreCompactionExclusiveBoundaryRejectsLateHardLinkBeforeObservation(t 
 			}
 			run := domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", SourcePath: source, CandidatePath: candidate, RollbackPath: rollback, Phase: tc.phase}
 			journal := &observationTrackingJournal{run: run}
-			service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+			service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 			hardlink := filepath.Join(realDir, "late-hardlink.db")
 			if err := os.Link(filepath.Join(realDir, "store.db"), hardlink); err != nil {
 				t.Fatal(err)
@@ -584,7 +584,7 @@ func (b replacingAfterVerifyBuilder) VerifyPair(ctx context.Context, source, can
 func prepareCompactionCandidateForResumeTest(ctx context.Context, t *testing.T, source, dir string) (domain.CompactionRun, *CompactionFileJournal) {
 	t.Helper()
 	planning := &CompactionFileJournal{Dir: filepath.Join(dir, "planning")}
-	planner := usecase.NewStoreCompactionUsecase(source, planning, SQLiteCompactionBuilder{}, StoreReplacementFiles{}, StoreLeaseCoordinator{})
+	planner := usecase.NewStoreCompactionUsecase(source, planning, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
 	run, err := planner.Plan(ctx, source)
 	if err != nil {
 		t.Fatal(err)
@@ -598,7 +598,7 @@ func prepareCompactionCandidateForResumeTest(ctx context.Context, t *testing.T, 
 	if err := journal.Append(ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	identity, err := (StoreReplacementFiles{}).PrepareCandidate(ctx, run)
+	identity, err := (StoreReplacementFiles{CallerHoldsExclusiveLease: true}).PrepareCandidate(ctx, run)
 	if err != nil {
 		t.Fatal(err)
 	}

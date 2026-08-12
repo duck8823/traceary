@@ -24,7 +24,8 @@ the candidate size is unknown until `VACUUM INTO` finishes, and the original
 source-size rollback copy remains after success. See [store compact disk
 cost](../operations/store-compact-disk-cost.md) for the operator guidance.
 
-`plan` holds the exclusive store lease for its entire preflight. If it finds no
+For `store compact`, `plan` holds the exclusive store lease for its entire
+preflight. If it finds no
 `-journal` and no non-zero `-wal`, it removes both regular `-wal` and `-shm`
 sidecars when present, even when the `-shm` is non-zero, syncs the directory,
 and checks again before opening the store. The shm file contains no database
@@ -35,13 +36,17 @@ processes (including projection/status readers and older or non-cooperating
 versions) and retry the same command; do not remove the sidecar manually. A
 non-zero WAL or non-regular sidecar may contain live SQLite state.
 
-`apply` and `resume` repeat that cleanup, because a reader can create a sidecar
+`store compact apply` and `store compact resume` repeat that cleanup, because a reader can create a sidecar
 after `plan` returns. Cleanup can only run once the exclusive lease is held, and
 every live cooperating connection holds the shared form of the same lease, so a
 sidecar is never removed while any of them has the store open — the lease
 acquisition waits instead. The final pre-exchange check stays strict: by then
 cleanup has already happened, so a sidecar appearing there means an opener
 arrived mid-run and the run aborts.
+
+This sidecar recovery is specific to `store compact`. The prepared-upgrade
+path used by `store payload-rehearsal` does not hold the exclusive lease across
+its preflight, so it refuses any SQLite sidecar rather than recovering it.
 
 The legacy search index check runs before the source digest, so it fails in
 seconds rather than after hashing a multi-GiB store. Compacting first would
