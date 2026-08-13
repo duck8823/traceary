@@ -214,7 +214,7 @@ See [`docs/cli/README.md`](./docs/cli/README.md) for the full flag reference and
 
 ## Host capture matrix
 
-The query surface is shared: once Traceary is installed, every host can use the same CLI and MCP memory/context commands. What differs is how much context each host can capture automatically via hooks.
+The query surface is shared: once Traceary is installed, every host can use the same CLI memory/context commands. What differs is how much context each host can capture automatically via hooks.
 
 | Host | Session lifecycle | Tool audit | Prompt capture | Compact-summary capture | Automatic capture tier |
 |---|---|---|---|---|---|

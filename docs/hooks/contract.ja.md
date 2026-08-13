@@ -36,7 +36,7 @@ Grok Build の versioned かつ機械可読な live contract（fixture は 0.2.9
 | Stop | (全て) | `last_assistant_message` から最終 assistant メッセージを `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用）。セッション終了ではなく turn 境界として扱う |
 | PostToolUse | (全て) | ツール監査を記録 |
 
-**制限**: SessionEnd なし・host レベルのセッション終了信号なし — Codex は会話終了時ではなく assistant 応答ごとに `Stop` を fire するため、Traceary は `Stop` を turn 境界として扱い session を開いたままにする (#1170)。Codex session は明示的な終了信号 (MCP `manage_session`) または stale GC (`traceary session gc`、既定 24h) でのみ終了する。`PreCompact` / `PostCompact` は `manual` / `auto` の trigger のみを公開し、圧縮後サマリー本文は含まないため、どちらも境界 marker として記録する。failure 専用イベントも構造化された失敗信号もない。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
+**制限**: SessionEnd なし・host レベルのセッション終了信号なし — Codex は会話終了時ではなく assistant 応答ごとに `Stop` を fire するため、Traceary は `Stop` を turn 境界として扱い session を開いたままにする (#1170)。Codex session は明示的な終了信号 (`traceary session end`) または stale GC (`traceary session gc`、既定 24h) でのみ終了する。`PreCompact` / `PostCompact` は `manual` / `auto` の trigger のみを公開し、圧縮後サマリー本文は含まないため、どちらも境界 marker として記録する。failure 専用イベントも構造化された失敗信号もない。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
 
 ### Tier 2: 部分対応 (Grok Build 0.2.99)
 

@@ -13,7 +13,7 @@ The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expe
 - `AfterAgent` transcript and usage-availability hooks — records the agent response as a `transcript` event and records that provider usage is unavailable from this body-free hook surface
 - `AfterTool` shell-audit hook for `run_shell_command`
 - `PreCompress` compact marker hook — records the pre-compress boundary (Gemini exposes no post-compress summary hook)
-- slash commands: `/traceary-help` and `/traceary-doctor` (`/traceary-help` orients on the CLI, hooks, and doctor — not MCP-only workflows)
+- slash commands: `/traceary-help` and `/traceary-doctor` (`/traceary-help` orients on the CLI, hooks, and doctor)
 - contextual skills (one per job; see [skills](./skills.md)): `traceary-session-history`, `traceary-session-refine`, `traceary-memory-review`, and `traceary-memory-remember`. All four route through the Traceary CLI.
 
 ## Usage metadata
@@ -27,8 +27,8 @@ The adapter reads only the versioned, body-free metadata fields needed for sourc
 
 ## Memory activation strategy
 
-Gemini integration uses Traceary's accepted memory store through MCP tools,
-instruction-file export, and host-native activation. To make reviewed memories
+Gemini integration uses Traceary's accepted memory store through
+instruction-file export and host-native activation. To make reviewed memories
 visible in Gemini instructions, you have two options.
 
 **Option 1 — instruction-file export (still supported).** Export accepted

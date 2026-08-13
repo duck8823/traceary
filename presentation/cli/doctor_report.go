@@ -122,7 +122,6 @@ func buildDoctorSections(checks []doctorCheck) []doctorSection {
 		{Name: "Environment", Checks: []doctorCheck{}},
 		{Name: "Database", Checks: []doctorCheck{}},
 		{Name: "Plugins", Checks: []doctorCheck{}},
-		{Name: "MCP", Checks: []doctorCheck{}},
 		{Name: "Hooks", Checks: []doctorCheck{}},
 	}
 	index := map[string]int{}
@@ -144,8 +143,6 @@ func doctorSectionNameForCheck(name string) string {
 		return "Environment"
 	case strings.Contains(name, "plugin"):
 		return "Plugins"
-	case strings.HasSuffix(name, "-host-capabilities") || strings.HasSuffix(name, "-mcp") || strings.HasPrefix(name, "mcp"):
-		return "MCP"
 	default:
 		return "Hooks"
 	}

@@ -47,11 +47,11 @@ host ごとのネイティブ連携パッケージを使いたい場合は、ま
 | Client | Settings file | Session start | Session end | Audit hook | 起床注入 (#1684) | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | Claude Code | `.claude/settings.json` or `~/.claude/settings.json` | `SessionStart` | `SessionEnd` | `PostToolUse` + `PostToolUseFailure` with `matcher: "Bash"` / `matcher: "mcp__.*"` / 組み込み tool matcher (`Read\|NotebookRead\|Edit\|MultiEdit\|Write\|NotebookEdit\|Grep\|Glob\|Agent\|Task\|TodoWrite\|WebFetch\|WebSearch\|ExitPlanMode`) | `SessionStart` stdout（完成済み要約のみ） | 現行 Anthropic docs では `Stop` は session-end hook ではなく per-response hook と定義されています |
-| Codex CLI (`codex-cli 0.144.1`) | `~/.codex/hooks.json` | `SessionStart` | なし (MCP `manage_session` / stale GC) | `PostToolUse` | `SessionStart` stdout（完成済み要約のみ） | Codex CLI 0.144.1 では `SubagentStart` / `SubagentStop` と `PreCompact` / `PostCompact` も利用できる。`SessionEnd` はなく、`Stop` は assistant 応答ごとに発火するため、Traceary は turn 境界の transcript として扱い session 終了とはしません (#1170) |
+| Codex CLI (`codex-cli 0.144.1`) | `~/.codex/hooks.json` | `SessionStart` | なし (`traceary session end` / stale GC) | `PostToolUse` | `SessionStart` stdout（完成済み要約のみ） | Codex CLI 0.144.1 では `SubagentStart` / `SubagentStop` と `PreCompact` / `PostCompact` も利用できる。`SessionEnd` はなく、`Stop` は assistant 応答ごとに発火するため、Traceary は turn 境界の transcript として扱い session 終了とはしません (#1170) |
 | Gemini CLI (`gemini-cli 0.36.0`) *（レガシー互換）* | `.gemini/settings.json` or `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` | `AfterTool` with `matcher: "run_shell_command"` | `SessionStart` stdout（完成済み要約のみ） | hook payload は JSON-over-stdin / JSON-over-stdout。`SessionEnd` は best-effort です。Gemini CLI はレガシーパスで、Antigravity が現役の後継です（v0.21.1 からサポート） |
 | Grok Build | packaged plugin hooks | `SessionStart` | なし (stale GC) | `PostToolUse` | `SessionStart` stdout（完成済み要約のみ） | ネイティブ `traceary hook grok session-start` が stdout を注入チャネルとして使う |
 | Kimi Code | packaged plugin hooks | `SessionStart`（ホストは無視） | `SessionEnd` | `PostToolUse` | 初回 `UserPromptSubmit` stdout | Kimi の `SessionStart` は fire-and-forget のため、初回 prompt で 1 度だけ注入する |
-| Antigravity (v0.21.1 からサポート) | `.agents/hooks.json` or `~/.gemini/config/hooks.json` | `PreInvocation`（`SessionStart` なし） | なし (MCP `manage_session` / stale GC) | `PreToolUse` + `PostToolUse` を `stepIdx` で突き合わせ（`run_command` のみ） | 対象外 (#1714) | `hooks.json` は top-level の hook-group マップ（共有の `{"hooks": {...}}` 形式ではない）。`Stop` は execution 単位の turn 境界でセッション終了ではない (#1170)。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) |
+| Antigravity (v0.21.1 からサポート) | `.agents/hooks.json` or `~/.gemini/config/hooks.json` | `PreInvocation`（`SessionStart` なし） | なし (`traceary session end` / stale GC) | `PreToolUse` + `PostToolUse` を `stepIdx` で突き合わせ（`run_command` のみ） | 対象外 (#1714) | `hooks.json` は top-level の hook-group マップ（共有の `{"hooks": {...}}` 形式ではない）。`Stop` は execution 単位の turn 境界でセッション終了ではない (#1170)。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) |
 
 ## 何が記録されるか
 
@@ -255,7 +255,7 @@ SQLite concurrency の前提、PPID ベース hook state の注意点、その�
 2. `traceary` が `PATH` に無いなら、`--traceary-bin` 付きで config を再生成して絶対パスへ固定する
 3. Codex session を開始し、`traceary list --limit 10` を確認する
 
-Codex の `Stop` は assistant 応答ごとに発火するため、Traceary は turn 境界の transcript として記録し session は開いたままにします (#1170)。Codex session は明示的な終了 (MCP `manage_session`) または activity-aware stale GC で終了します。GC は通常の hook start 後にデータベースごと最大 6 時間に 1 回自動実行され、`traceary session gc` は手動・定期実行のフォールバックとして利用できます。
+Codex の `Stop` は assistant 応答ごとに発火するため、Traceary は turn 境界の transcript として記録し session は開いたままにします (#1170)。Codex session は明示的な終了 (`traceary session end`) または activity-aware stale GC で終了します。GC は通常の hook start 後にデータベースごと最大 6 時間に 1 回自動実行され、`traceary session gc` は手動・定期実行のフォールバックとして利用できます。
 
 終了まで監督できる単発実行には `traceary session run -- codex exec ...` を使います。Traceary がプロセスを監督して終了理由を 1 回だけ確定し、`Stop` をセッション終了とは解釈しません。詳細は [ライフサイクルイベント](./lifecycle-events.ja.md#traceary-が終了を確定できる完結型セッション) を参照してください。
 
@@ -275,7 +275,7 @@ Codex の `Stop` は assistant 応答ごとに発火するため、Traceary は 
 3. `traceary list --limit 10` で記録結果を確認する
 4. `traceary doctor --client antigravity --json` で install を確認する。doctor は `antigravity-capability` に加えて install 経路ごとの check（`antigravity-hooks-workspace`・`antigravity-hooks-user`・`antigravity-cli-plugin`）と集約サマリー `antigravity-hooks` を報告します。各経路は任意で、user-level または CLI plugin の経路が健全なら、存在しない workspace `.agents/hooks.json` は `warn` ではなく `skip` 扱いです。doctor が warn するのは、どの経路も `traceary` グループを登録していないときだけです
 
-Antigravity に `SessionStart` はなく、Traceary は `PreInvocation` から session を冪等に開始します。Codex 同様 `Stop` は execution 単位の turn 境界なので session は開いたままで、MCP `manage_session` または stale GC で終了します。audit 対象は `run_command` tool のみです（`PreToolUse` の command args と `PostToolUse` の結果を突き合わせます）。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
+Antigravity に `SessionStart` はなく、Traceary は `PreInvocation` から session を冪等に開始します。Codex 同様 `Stop` は execution 単位の turn 境界なので session は開いたままで、`traceary session end` または stale GC で終了します。audit 対象は `run_command` tool のみです（`PreToolUse` の command args と `PostToolUse` の結果を突き合わせます）。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 
 Traceary CLI が失敗したときの stderr は plain `Error: ...` です。wrapper 経由の hook 実行でも、exit code と stderr text をそのまま扱えます。
 

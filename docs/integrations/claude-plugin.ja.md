@@ -28,7 +28,7 @@ wrapper は Claude の起動前に完結型モードを選び、JSON 出力を�
 
 ## Memory activation strategy
 
-Claude integration は、Traceary の accepted memory store を MCP tools / instruction-file export / host-native activation 経由で使います。review 済み memory を Claude project instructions に見せる方法は二つあります。
+Claude integration は、Traceary の accepted memory store を instruction-file export / host-native activation 経由で使います。review 済み memory を Claude project instructions に見せる方法は二つあります。
 
 **Option 1 — instruction-file export（従来通り利用可）。** Traceary 管理ブロックを `CLAUDE.md` に直接 export します。
 

@@ -27,7 +27,7 @@ adapter が読むのは、version 付きの本文を含まない metadata のう
 
 ## Memory activation strategy
 
-Gemini integration は、Traceary の accepted memory store を MCP tools・instruction-file export・host-native activation 経由で利用できます。review 済み memory を Gemini instructions に見せる方法は次の 2 通りです。
+Gemini integration は、Traceary の accepted memory store を instruction-file export・host-native activation 経由で利用できます。review 済み memory を Gemini instructions に見せる方法は次の 2 通りです。
 
 **Option 1 — instruction-file export (引き続き利用可能)**: review 済み memory を `GEMINI.md` の Traceary 管理ブロックへ export します。
 

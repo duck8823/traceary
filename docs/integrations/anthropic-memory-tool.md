@@ -6,7 +6,7 @@ Traceary can back Anthropic's native beta memory tool (`memory_20250818`) from G
 
 This integration is **experimental** for v0.10. The public Go API may change while Anthropic's memory tool remains beta.
 
-## Native memory tool vs Traceary MCP memory tools
+## Native memory tool vs Traceary CLI memory commands
 
 Use the native Anthropic memory tool when:
 
@@ -16,7 +16,7 @@ Use the native Anthropic memory tool when:
 
 Use Traceary CLI memory commands (`traceary memory store …`, `memory inbox …`, `memory search`) when:
 
-- the agent host already supports MCP (Claude Code, Codex, Gemini CLI, OpenAI Agents SDK, Google ADK, etc.);
+- the agent host already has a Traceary CLI / skill path (Claude Code, Codex, Gemini CLI, OpenAI Agents SDK, Google ADK, etc.);
 - you want operator-curated durable memories with status, confidence, evidence, validity windows, and review/acceptance workflows;
 - you need the same interface across multiple model providers.
 

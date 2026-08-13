@@ -127,7 +127,7 @@ remote identity は、review 済みの明示的な record がある場合だけ 
 | canonical と effective の value object、relationship rule | domain/application types | hook handler、SQLite scan |
 | 正規化済み証拠から値を選ぶ orchestration | session/event usecase | host 固有 JSON adapter |
 | host payload field の抽出 | `presentation/cli` の host adapter | domain model |
-| immutable persistence と observation transaction | repository boundary | CLI/MCP serializer |
+| immutable persistence と observation transaction | repository boundary | CLI serializer |
 | 互換 filter の mapping | query criteria と query service | 個別の Cobra handler |
 | 診断表示 | doctor/report presentation | persistence layer |
 
@@ -325,7 +325,7 @@ v0.30 は surface ごとに現在の selector の意味を維持します。
 
 | Surface | 既存 `workspace` selector の対象 | 互換規則 |
 |---|---|---|
-| `list`、`search`、`tail`、MCP event read | event effective workspace | exact filter を維持する |
+| `list`、`search`、`tail` | event effective workspace | exact filter を維持する |
 | `sessions` snapshot | session canonical workspace | exact filter を維持する |
 | `session handoff`、memory/context pack | canonical session を優先し、既存の local descendant evidence fallback を使う | remote alias を推定しない |
 | event JSON の `workspace` | effective workspace | field 名を維持し、意味を文書化する |

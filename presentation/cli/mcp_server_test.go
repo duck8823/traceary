@@ -34,9 +34,8 @@ func TestRootCLI_MCPServerIsUnknownCommand(t *testing.T) {
 				t.Fatal("ExecuteContext() error = nil, want unknown command")
 			}
 			combined := strings.ToLower(err.Error() + "\n" + stderr.String() + stdout.String())
-			if !strings.Contains(combined, `unknown command "mcp-server"`) &&
-				!strings.Contains(combined, "unknown command") {
-				t.Fatalf("output = %q, want unknown command for mcp-server", combined)
+			if !strings.Contains(combined, `unknown command "mcp-server"`) {
+				t.Fatalf("output = %q, want unknown command \"mcp-server\"", combined)
 			}
 			if strings.Contains(combined, "deprecated") {
 				t.Fatalf("output = %q, must not emit DEPRECATED notice", combined)

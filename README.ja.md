@@ -211,7 +211,7 @@ $ traceary timeline --limit 2
 
 ## ホスト別の自動記録マトリクス
 
-問い合わせ面は共通です。Traceary を入れれば、どのホストからでも同じ CLI / MCP の memory・context 機能を使えます。差が出るのは、hook でどこまで自動記録できるかです。
+問い合わせ面は共通です。Traceary を入れれば、どのホストからでも同じ CLI の memory・context 機能を使えます。差が出るのは、hook でどこまで自動記録できるかです。
 
 | ホスト | セッション境界 | ツール監査 | prompt 記録 | compact summary 記録 | 自動記録の対応レベル |
 |---|---|---|---|---|---|

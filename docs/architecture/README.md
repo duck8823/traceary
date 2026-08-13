@@ -115,7 +115,7 @@ When adding or refactoring functionality, check these questions:
 1. Is the primary runtime behavior implemented in Go packages rather than helper scripts?
 2. Does transport/host-specific parsing stay in `presentation/`?
 3. Does orchestration stay in `application/`?
-4. Do domain rules remain free from SQLite/CLI/MCP details?
+4. Do domain rules remain free from SQLite/CLI details?
 5. Is `infrastructure/` implementing contracts instead of inventing business behavior?
 6. If a script still exists, is it clearly a helper or a temporary compatibility layer?
 7. If `internal/` is proposed, is there a concrete visibility reason beyond taste?

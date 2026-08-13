@@ -120,7 +120,7 @@ Traceary では、`internal/` を既定では要求しません。
 1. runtime の本体ロジックは helper script ではなく Go package にあるか
 2. transport / host 固有の解釈は `presentation/` に留まっているか
 3. オーケストレーションは `application/` にあるか
-4. domain から SQLite / CLI / MCP の都合が見えていないか
+4. domain から SQLite / CLI の都合が見えていないか
 5. `infrastructure/` は契約を実装しているだけで、業務判断を作っていないか
 6. script が残る場合、それは helper か一時的な互換レイヤーだと明示されているか
 7. `internal/` を提案するなら、好みではなく具体的な可視性上の理由があるか

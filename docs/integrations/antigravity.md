@@ -65,7 +65,7 @@ Traceary accepts only `idle` payloads and stores `total_input_tokens` and `total
 ## Limitations
 
 - **No `SessionStart`.** The earliest per-conversation signal is `PreInvocation`, which fires before every model call, so Traceary uses it as an idempotent session start/refresh keyed by `conversationId`.
-- **`Stop` is a per-execution boundary, not a session end** (the same model as Codex — #1170). The session row stays open (memory auto-extract still fires) and ends only via MCP `manage_session` or stale GC (`traceary session gc`).
+- **`Stop` is a per-execution boundary, not a session end** (the same model as Codex — #1170). The session row stays open (memory auto-extract still fires) and ends only via `traceary session end` or stale GC (`traceary session gc`).
 - **Only `run_command` tool calls are audited.** `PostToolUse` carries only `stepIdx`/`error`, not the command args; the args arrive on `PreToolUse`, so Traceary pairs the two across the step. Non-`run_command` tools record nothing.
 - **Prompt text is not a direct hook field.** The public hook payload exposes `transcriptPath`; Traceary recovers the latest `USER_INPUT` / `USER_EXPLICIT` row from that file at Stop.
 - **Transcript extraction is best effort.** The documented `transcriptPath` file is `transcript.jsonl`. Traceary supports the current CLI `MODEL` / `*_RESPONSE` rows plus legacy nested/flat shapes, preserving separate thinking/text blocks, and silently skips unknown shapes.

@@ -7,7 +7,7 @@ This guide records where that dependency still exists, which audience it affects
 
 ## Current policy
 
-- the `traceary` CLI and MCP server should keep working without Python
+- the `traceary` CLI should keep working without Python
 - no new user-facing install or runtime workflow should introduce a Python prerequisite without an explicit design decision
 - maintainer-only Python helpers are still allowed for now, but they should have a documented owner and migration target
 

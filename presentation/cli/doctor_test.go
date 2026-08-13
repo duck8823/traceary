@@ -1711,7 +1711,7 @@ func assertDoctorSectionShape(t *testing.T, report doctorReport) {
 			}
 		}
 	}
-	wantNames := []string{"Environment", "Database", "Plugins", "MCP", "Hooks"}
+	wantNames := []string{"Environment", "Database", "Plugins", "Hooks"}
 	if diff := cmp.Diff(wantNames, gotNames); diff != "" {
 		t.Fatalf("section names mismatch (-want +got):\n%s", diff)
 	}

@@ -2,7 +2,7 @@
 
 [日本語](./repo-tooling.ja.md)
 
-Traceary's user-facing runtime should stay inside the shipped Go CLI and MCP server.
+Traceary's user-facing runtime should stay inside the shipped Go CLI.
 Maintainer-only repository helpers are a different class of tooling: they are not part of the runtime product surface, but they still need a coherent home.
 
 This guide defines that home, the migration order away from Python helpers, and the rules for adding new repository automation.
@@ -22,7 +22,6 @@ It should contain:
 
 - user-facing CLI commands
 - supported hook runtime entrypoints
-- the MCP server
 
 Maintainer-only repository automation has different constraints:
 
@@ -46,7 +45,6 @@ Examples that do **not** belong there:
 
 - `traceary hook ...` runtime subcommands
 - end-user installation and uninstall flows
-- MCP server behavior
 - one-off personal scripts that are not part of the supported maintainer workflow
 
 ## Planned command shape

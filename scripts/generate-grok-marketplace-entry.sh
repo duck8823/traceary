@@ -22,7 +22,7 @@ entry = {
   "name": "traceary-grok",
   "description": (
     "Local-first Traceary integration for Grok Build: native session/audit/"
-    "transcript/compact hooks, local MCP tools, and shared memory/session skills. "
+    "transcript/compact hooks and shared memory/session skills. "
     "Records work logs and command audits to a private SQLite store without sending "
     "data to Traceary servers."
   ),

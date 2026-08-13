@@ -985,8 +985,8 @@ Useful flags:
 
 Diagnose DB access, generated hook configuration presence, plugin version alignment, and client config integration.
 
-Text output is grouped into stable sections: `Environment`, `Database`, `Plugins`, `MCP`, and `Hooks`.
-Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed, more than one `traceary` executable on `PATH`, an installed plugin version that does not match the running `traceary` binary. `FAIL` means Traceary found a broken runtime state, such as DB access problems, unreadable / invalid config, or `traceary` not being available on `PATH`.
+Text output is grouped into stable sections: `Environment`, `Database`, `Plugins`, and `Hooks`.
+Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed, more than one `traceary` executable on `PATH`, or an installed plugin version that does not match the running `traceary` binary. `FAIL` means Traceary found a broken runtime state, such as DB access problems, unreadable / invalid config, or `traceary` not being available on `PATH`.
 
 Additional doctor checks:
 

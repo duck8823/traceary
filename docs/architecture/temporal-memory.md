@@ -98,7 +98,7 @@ Migration `000013_create_memory_edges.sql` creates the table plus two indexes:
 
 ### MCP
 
-MCP tools for graph operations are **not shipped in this release**. The overlay is currently CLI-only so the MCP contract can be designed after operator feedback reveals which traversal patterns are actually used. Tracked as a follow-up.
+Graph operations are CLI-only. The former MCP server was removed in v0.35.0 (#1871); do not reintroduce an MCP graph contract.
 
 ## What's explicitly out of scope
 

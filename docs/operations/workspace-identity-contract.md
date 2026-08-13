@@ -125,7 +125,7 @@ Body equality and temporal proximity are never workspace-alias evidence.
 | canonical/effective value objects and relationship rules | domain/application types | hook handlers, SQLite scans |
 | selection orchestration from normalized evidence | session/event use cases | host-specific JSON adapters |
 | host payload field extraction | host adapter in `presentation/cli` | domain model |
-| immutable persistence and observation transaction | repository boundary | CLI/MCP serializer |
+| immutable persistence and observation transaction | repository boundary | CLI serializer |
 | compatibility filter mapping | query criteria and query service | individual Cobra handlers |
 | diagnostic rendering | doctor/report presentation | persistence layer |
 
@@ -313,7 +313,7 @@ v0.30 keeps the current selector meaning per surface:
 
 | Surface | Existing `workspace` selector matches | Compatibility rule |
 |---|---|---|
-| `list`, `search`, `tail`, MCP event reads | event effective workspace | exact filter remains exact |
+| `list`, `search`, `tail` | event effective workspace | exact filter remains exact |
 | `sessions` snapshot | session canonical workspace | exact filter remains exact |
 | `session handoff`, memory/context pack | canonical session first, then existing local descendant evidence fallback | no remote alias inference |
 | event JSON `workspace` | effective workspace | field meaning is documented, field name retained |

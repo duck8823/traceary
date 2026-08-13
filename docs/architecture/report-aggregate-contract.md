@@ -2,13 +2,15 @@
 
 [日本語](./report-aggregate-contract.ja.md)
 
+> **v0.35.0 (#1871):** MCP `get_report` was removed. This contract now applies only to `traceary report`.
+
 ## Structure-Behavior Design Note
 
 ### Requirement summary
 
 - `report` must never present a capped prefix as a complete period aggregate.
 - Internal database page size and caller-requested result cap are different concepts.
-- CLI and MCP must return the same aggregate schema for the same interval, filters, page size, and cap.
+- CLI must return a stable aggregate schema for the same interval, filters, page size, and cap.
 - Report scans must use body-free rows and expose the observed range and truncation provenance.
 - Finalized usage must select only the current snapshot head, keep excluded evidence visible without summing it, and separate estimated from provider-reported cost.
 - Full aggregation remains the default. A positive result cap is an explicit sampling request.

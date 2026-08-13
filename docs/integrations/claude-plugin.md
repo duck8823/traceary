@@ -44,8 +44,8 @@ content are not copied into the usage ledger or durable hook retry spool.
 
 ## Memory activation strategy
 
-Claude integration uses Traceary's accepted memory store through MCP tools,
-instruction-file export, and host-native activation. To make reviewed memories
+Claude integration uses Traceary's accepted memory store through
+instruction-file export and host-native activation. To make reviewed memories
 visible in Claude project instructions, you have two options.
 
 **Option 1 — instruction-file export (still supported).** Export accepted

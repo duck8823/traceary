@@ -2,7 +2,7 @@
 
 [日本語](./README.ja.md)
 
-This guide explains how Traceary's durable-memory layer fits into the broader product model and how the memory-related CLI / MCP surfaces relate to each other.
+This guide explains how Traceary's durable-memory layer fits into the broader product model and how the memory-related CLI surfaces relate to each other.
 
 ## Where durable memory fits
 
@@ -39,14 +39,13 @@ Every durable memory carries a content validity window `(valid_from, valid_to)` 
 - `valid_from` — when the fact starts being asserted (defaults to `created_at`)
 - `valid_to` — when the fact stops being asserted (`NULL` means open-ended)
 
-Default retrieval (CLI `memory list` / `memory search`, MCP `query_memory(action="retrieve")`, `query_memory(action="pack")`, and `session_status(action="handoff")`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
+Default retrieval (`memory list` / `memory search`, plus `session handoff` / `context`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
 
 To time-travel, pass `--as-of <timestamp>` to CLI list / search, which evaluates `valid_from <= asOf < valid_to` against the supplied point in time. Pass `--include-expired` to bypass the validity filter entirely (e.g. when auditing historical decisions). Neither flag replaces lifecycle `status` filtering — a superseded or rejected memory still needs `--status` to surface.
 
 Set or update the window with:
 
-- CLI: `traceary memory admin set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
-- MCP: `manage_memory({"action":"set_validity","ids":"<id>","valid_from":"...","valid_to":"..."})`
+- `traceary memory admin set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
 
 `--clear-to` / `clear_valid_to` explicitly returns a memory to open-ended validity and is mutually exclusive with supplying a new `valid_to`.
 
@@ -61,7 +60,7 @@ Accepted memories require evidence refs. Artifact refs are optional.
 
 ### Evidence ref `kind` enum
 
-The MCP / CLI accept exactly these `kind` values for `evidence_refs[].kind` (defined in [`domain/types/evidence_ref.go`](../../domain/types/evidence_ref.go)). Unknown values fail with `unknown evidence ref kind: <value>`.
+The CLI accepts exactly these `kind` values for `evidence_refs[].kind` (defined in [`domain/types/evidence_ref.go`](../../domain/types/evidence_ref.go)). Unknown values fail with `unknown evidence ref kind: <value>`.
 
 | `kind` | Meaning | Typical `value` |
 | --- | --- | --- |
@@ -105,7 +104,7 @@ Use these when Traceary should infer memory candidates from existing session sig
 
 Extraction creates memory candidates only. It does not auto-accept memories.
 
-Since v0.11.0, the hook-driven session-end path (`traceary hook session <client> end`), the CLI session-end path (`traceary session --end`), and the MCP `manage_session(action="end")` tool all fire extraction automatically as a best-effort step after the session-end record commits, so the inbox grows without the agent having to ask. The Codex `stop` turn boundary also fires extraction best-effort (Codex has no host session-end signal, so end-only extraction would never run for it — #1170); it runs per turn and the extractor dedupes against existing candidates, so re-firing is safe. Errors there are swallowed so the boundary record is never blocked.
+Since v0.11.0, the hook-driven session-end path (`traceary hook session <client> end`) and the CLI session-end path (`traceary session --end`) fire extraction automatically as a best-effort step after the session-end record commits, so the inbox grows without the agent having to ask. The Codex `stop` turn boundary also fires extraction best-effort (Codex has no host session-end signal, so end-only extraction would never run for it — #1170); it runs per turn and the extractor dedupes against existing candidates, so re-firing is safe. Errors there are swallowed so the boundary record is never blocked.
 
 A length-based quality filter routes short memory candidates (under 20 runes; artifact refs are exempt) to `source=extracted-hidden` instead of `source=extracted`. The hidden rows stay in the store for audit but are skipped by the default `traceary memory inbox list` view; `--include-hidden` surfaces them.
 
@@ -131,7 +130,7 @@ walk the memory review queue before anything is promoted to `accepted`:
 - `traceary memory inbox reject <id>` (single id; pass `--ids id1,id2,...` for batch scripts; add `--id-only` for scripted callers that want only the memory id on stdout)
 - `traceary memory inbox attach <id> --evidence kind:value` (repeat `--evidence`; optional `--artifact kind:value`) to add supporting refs to a useful candidate before accepting or distilling it. Artifact-only attachment is allowed only when the candidate already has evidence.
 - `traceary memory inbox review` — interactive walk-through with the same filters as `inbox list` (`--workspace`, `--agent`, `--session-family`, `--type`, `--source`, `--include-hidden`, `--limit`). Accept / reject reuse the same application use cases as the batch commands; `r` attaches comma-separated evidence refs plus optional `artifact:kind:value` refs to the focused candidate, and `e` opens an edit prompt that requires an operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output). Refuses to start without a TTY and exits with code `2`, pointing at the batch commands above so non-interactive shells branch deterministically.
-- MCP `memory_inbox_batch` for agent-driven review
+- `traceary memory inbox accept --ids …` / `reject --ids …` for agent-driven batch review
 
 The review path is deliberately scoped to memory candidates so extraction and
 import feed the same memory review queue and a single reviewer pass can clear them.
@@ -169,7 +168,6 @@ Use this periodically to keep the accepted layer tidy:
 
 - `traceary memory admin hygiene scan`
 - `traceary memory admin hygiene apply --ids id1,id2,...`
-- MCP `query_memory(action="scan_hygiene")`
 
 Scan flags five conditions on `accepted` memories: content the current
 redaction rules would mask (`redaction_hit`), stale rows that have not
@@ -185,9 +183,8 @@ lifecycle transition implied by each suggestion for the listed memory
 ids — `redaction_hit` becomes a supersede with the sanitized fact,
 `expiry_candidate` becomes an expire, `duplicate` becomes a reject,
 and both `supersede_candidate` and `validity_overlap_supersede` become
-a supersede using the newer memory's fact as the replacement. MCP
-exposes the scanner (read-only) via `query_memory(action="scan_hygiene")` so agents
-can surface hygiene suggestions alongside the inbox review workflow.
+a supersede using the newer memory's fact as the replacement. Agents
+surface the same suggestions with `traceary memory admin hygiene scan`.
 
 ### Bridge / export path
 
@@ -197,7 +194,6 @@ instruction file:
 
 - `traceary memory admin export --target <claude|codex|gemini> --out <path>`
 - `traceary memory admin import instructions --source <...> --in <path>`
-- MCP `query_memory(action="export")` / `manage_memory(action="import_instructions")` (agent-driven)
 
 Export always wraps its output in `<!-- traceary-memories:begin:v1 -->` /
 `<!-- traceary-memories:end -->` markers so a subsequent `memory admin import
@@ -209,9 +205,8 @@ Workspace exports include `global` memories by default so user-level
 operating rules (for example PR title or review policy) are available
 next to repository-specific memories in the generated host file. The
 markdown separates `Global memories`, `Workspace memories`, and other
-scope groups under distinct headings. Use `--no-global` (or
-`include_global=false` over MCP) to preserve the old workspace-only
-filter; use `--include-global` to make the default explicit.
+scope groups under distinct headings. Use `--no-global` to preserve the old
+workspace-only filter; use `--include-global` to make the default explicit.
 
 Activation can be planned before any host-native file is mutated, then
 applied explicitly. The same `--target <codex|claude|gemini>` command set
@@ -341,7 +336,7 @@ Use these to inspect existing durable memories:
 
 #### Retrieval presets
 
-`memory list` and `memory search` (and MCP `query_memory(action="retrieve")`) accept `--preset <name>` to apply a built-in retrieval shape for a common operator scenario. Explicit `--status` / `--type` flags still win — the preset only pre-populates the defaults.
+`memory list` and `memory search` accept `--preset <name>` to apply a built-in retrieval shape for a common operator scenario. Explicit `--status` / `--type` flags still win — the preset only pre-populates the defaults.
 
 | Preset | Intent | Defaults applied |
 | --- | --- | --- |
@@ -353,17 +348,16 @@ Examples:
 
 - `traceary memory list --preset review --workspace github.com/org/repo`
 - `traceary memory list --preset review --type lesson` — explicit `--type` overrides the preset's default
-- MCP: `query_memory({"action":"retrieve","preset":"incident","workspace":"..."})`
+- `traceary memory search --preset incident --workspace github.com/org/repo`
 
 ### Context / handoff path
 
 Use these when you want the memory layer folded into a resume-friendly context pack:
 
 - `traceary session handoff`
-- MCP `session_status(action="handoff")`
-- MCP `query_memory(action="pack")`
+- `traceary context`
 
-`session handoff` returns a working-memory summary for the next session (the v0.13.x top-level `traceary handoff` alias was removed in v0.14.0). `query_memory(action="pack")` is the MCP-oriented equivalent when a client wants a structured bundle that already includes durable memories.
+`session handoff` returns a working-memory summary for the next session (the v0.13.x top-level `traceary handoff` alias was removed in v0.14.0). `context` is the structured pack when a client wants durable memories folded into the same resume bundle.
 
 ## Sanitization and redaction
 
@@ -387,7 +381,7 @@ That means:
 
 - [Repository README](../../README.md)
 - [CLI reference](../cli/README.md)
-- [MCP guide](../mcp/README.md)
+- [MCP guide (retired)](../mcp/README.md)
 - [Hook contract](../hooks/contract.md)
 - [Lifecycle events](../hooks/lifecycle-events.md)
 - [Event lifecycle](../lifecycle.md)

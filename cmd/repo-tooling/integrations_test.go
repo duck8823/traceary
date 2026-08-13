@@ -52,8 +52,8 @@ func TestShippedBinaryRejectsMCPServerCommand(t *testing.T) {
 		t.Fatal("traceary mcp-server must exit non-zero after #1871")
 	}
 	lower := strings.ToLower(result.output)
-	if !strings.Contains(lower, `unknown command "mcp-server"`) && !strings.Contains(lower, "unknown command") {
-		t.Fatalf("output = %q, want unknown command for mcp-server", result.output)
+	if !strings.Contains(lower, `unknown command "mcp-server"`) {
+		t.Fatalf("output = %q, want unknown command \"mcp-server\"", result.output)
 	}
 	if strings.Contains(lower, "deprecated") {
 		t.Fatalf("output = %q, must not emit DEPRECATED notice", result.output)

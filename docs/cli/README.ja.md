@@ -978,8 +978,8 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 
 DB アクセス、生成済み hook 設定の有無、plugin version の整合性、クライアント設定のつながりを診断します。
 
-text 出力は `Environment`、`Database`、`Plugins`、`MCP`、`Hooks` の安定した section に分かれます。
-各 check は `PASS` / `WARN` / `FAIL` の severity を持ちます。`WARN` は hooks 未導入などの初回状態や未設定状態、`PATH` 上に複数の `traceary` がある状態、MCP 登録が古い binary を指す状態、plugin version が実行中の `traceary` と一致しない状態を表します。`FAIL` は DB アクセス不良、unreadable / invalid config、`PATH` 上に `traceary` がない状態のような壊れた状態を表します。
+text 出力は `Environment`、`Database`、`Plugins`、`Hooks` の安定した section に分かれます。
+各 check は `PASS` / `WARN` / `FAIL` の severity を持ちます。`WARN` は hooks 未導入などの初回状態や未設定状態、`PATH` 上に複数の `traceary` がある状態、plugin version が実行中の `traceary` と一致しない状態を表します。`FAIL` は DB アクセス不良、unreadable / invalid config、`PATH` 上に `traceary` がない状態のような壊れた状態を表します。
 
 追加の doctor check:
 

@@ -152,8 +152,8 @@
         "session_ended": {
           "status": "unsupported",
           "summary": {
-            "en": "✕ no host session-end signal — Codex `Stop` is a per-response turn boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC",
-            "ja": "✕ host のセッション終了信号なし — Codex `Stop` は応答ごとの turn 境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由"
+            "en": "✕ no host session-end signal — Codex `Stop` is a per-response turn boundary, not a session end (#1170); ends via `traceary session end` or stale GC",
+            "ja": "✕ host のセッション終了信号なし — Codex `Stop` は応答ごとの turn 境界でありセッション終了ではない (#1170)。終了は `traceary session end` または stale GC 経由"
           }
         }
       }
@@ -260,8 +260,8 @@
         "session_ended": {
           "status": "unsupported",
           "summary": {
-            "en": "✕ no host session-end signal — Antigravity `Stop` is a per-execution boundary, not a session end (#1170); ends via MCP `manage_session` or stale GC",
-            "ja": "✕ host のセッション終了信号なし — Antigravity `Stop` は execution 単位の境界でありセッション終了ではない (#1170)。終了は MCP `manage_session` または stale GC 経由"
+            "en": "✕ no host session-end signal — Antigravity `Stop` is a per-execution boundary, not a session end (#1170); ends via `traceary session end` or stale GC",
+            "ja": "✕ host のセッション終了信号なし — Antigravity `Stop` は execution 単位の境界でありセッション終了ではない (#1170)。終了は `traceary session end` または stale GC 経由"
           }
         }
       }
