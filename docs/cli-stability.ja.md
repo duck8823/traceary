@@ -34,7 +34,7 @@ Traceary の各サブコマンドは必ず以下のいずれか 1 ティアに�
 v0.15 以降に追加された互換 alias も含む現在の公開コマンド（用途別）：
 
 - **イベント記録** — `traceary log`、`traceary audit`
-- **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`、`traceary sessions`（および `traceary sessions --snapshot` / `--snapshot --json`）、v0.34.0 で非推奨、v0.35.0 で削除される互換 alias の `traceary top`（`traceary top --snapshot` / `--snapshot --json` を含む）
+- **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`、`traceary sessions`（および `traceary sessions --snapshot` / `--snapshot --json`）
 - **セッション** — `traceary session start`、`traceary session end`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session tree`、`traceary session lineage`、`traceary session refine`、`traceary session latest`、`traceary session active`
 - **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox review`（TTY のみ）
@@ -45,11 +45,11 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **replay / archive** — `traceary replay`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
-`traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary sessions --snapshot --json` / `traceary top --snapshot --json` の envelope（`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`）、`traceary timeline --json`（`workspace_breakdown`）、`traceary session tree --json` の lineage フィールド、`traceary session handoff` の構造化テキストのフィールドラベルはいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
+`traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary sessions --snapshot --json` の envelope（`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`）、`traceary timeline --json`（`workspace_breakdown`）、`traceary session tree --json` の lineage フィールド、`traceary session handoff` の構造化テキストのフィールドラベルはいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
 
 `traceary doctor` は既定で、全 check が pass なら exit code `0`、1 件でも fail があれば `1`、warning-only report なら `2` で終了します。warning を operator-visible な drift として見たいが、壊れた install だけを失敗扱いにしたい automation では `--warnings-ok` を指定してください。この場合 warning-only report は `0`、failure は引き続き `1` で終了し、JSON の `summary` と各 check の severity は変わりません。
 
-`traceary top` は `traceary sessions` と完全に重複するため、v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。v0.34 では Traceary を 記録 / 記憶 の柱に絞り、1 つの command に 2 つ目の名前を持たせても、どちらの柱にも役立ちません。v0.19.0 の text snapshot は読みやすさのため raw な `workspace=` / `agent=` metadata の前に `name="..."` を意図的に挿入します。機械的に安定した契約が必要な script は、変更のない `--json` envelope を優先するか、テキストを位置ではなく key で parse してください。
+`traceary sessions --snapshot` の v0.19.0 text snapshot は読みやすさのため raw な `workspace=` / `agent=` metadata の前に `name="..."` を意図的に挿入します。機械的に安定した契約が必要な script は、変更のない `--json` envelope を優先するか、テキストを位置ではなく key で parse してください。
 
 > TTY 必須の公開コマンド（現状は `traceary memory inbox review`）は TTY 要件を明示し、stdin/stdout が TTY でないときは非ゼロ終了コードでスクリプト用フォールバックを案内します。新しい TTY-only 公開コマンドを追加するときも、必ず batch / scripted フォールバック経路を文書化してください。
 
@@ -84,11 +84,12 @@ v0.15 の admin コマンド：
 
 現在非推奨：
 
-- `traceary top` → `traceary sessions`（v0.34.0 で非推奨、v0.35.0 で削除）
+- _（なし）_
 
 過去の削除履歴：
 
-- v0.35.0 で削除（v0.34 で予告、#1765 / #1766）: 対話的な `traceary sessions` live dashboard。bare の `traceary sessions` は plain text command になり、どの caller でも `traceary sessions --snapshot` とバイト単位で同一です。`sessions --snapshot` / `--snapshot --json` と `top --snapshot` / `--snapshot --json` は変更していません。
+- v0.35.0 で削除（v0.34 の非推奨 #1688 / #1690）: `traceary top`（`traceary top --snapshot` / `--snapshot --json` を含む）。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。`traceary sessions`（または `traceary sessions --snapshot` / `--snapshot --json`）を使ってください。snapshot 契約は変更していません。
+- v0.35.0 で削除（v0.34 で予告、#1765 / #1766）: 対話的な `traceary sessions` live dashboard。bare の `traceary sessions` は plain text command になり、どの caller でも `traceary sessions --snapshot` とバイト単位で同一です。`sessions --snapshot` / `--snapshot --json` は変更していません。
 - v0.35.0 で削除（v0.34 で予告、#1687 / #1764）: `traceary tui`、`traceary dashboard`、および operator cockpit を開いていた bare 対話 TTY 既定動作。bare `traceary` は TTY / 非 TTY とも常に help を表示します。関連する session データの存続する script 向け view には `traceary sessions --snapshot` を使ってください。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。Traceary はもう読み書きしません。
 - v0.35.0 で削除（v0.34 の非推奨 #1689 / #1691）: `traceary memory admin graph add` と `traceary memory admin graph list`（置き換え先なし。reference store の `memory_edges` は 0 行でした）。`memory_edges` テーブル自体は gc と bundle export/import のため残しています。
 - v0.35.0 で削除（v0.34 の非推奨 #1689 / #1691）: `traceary session label`、`traceary session list --label`、`session list` テキスト出力の `LABEL` 列、`session list` JSON の `label` フィールド（置き換え先なし。reference store の label 付き session は 0 件でした）。ストア schema の `sessions.label` 列は残しています。
@@ -174,7 +175,7 @@ help / usage テキストはこの保証の対象外です。上記の通知ル�
 - 新しい公開サブコマンドの追加
 - 新しい optional フラグの追加
 - JSON オブジェクトの末尾に新しい optional フィールドを追加（consumer は未知フィールドを許容すること）
-- `traceary doctor` の新セクション、canonical な `traceary sessions --snapshot` surface の新ペインの追加（`traceary top --snapshot` 互換 alias にも反映）
+- `traceary doctor` の新セクション、canonical な `traceary sessions --snapshot` surface の新ペインの追加
 
 これらを **削除・改名** すると破壊的変更になり、deprecation フローを通します。
 

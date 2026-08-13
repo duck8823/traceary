@@ -786,7 +786,7 @@ deadline の経過がキャンセルより優先され、続いて signal によ
 
 ### `traceary sessions`
 
-active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / メモリ候補の確認キュー / cleanup が必要かもしれない stale durable memory をまとめた Sessions snapshot を一回出力します。bare の `traceary sessions` はどの caller でも `traceary sessions --snapshot` とバイト単位で同一です。旧ライブ対話 dashboard は v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1765 / #1766）。`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。代わりに `traceary sessions` を使い、`traceary session tree` は静的な retrospective view のままです。
+active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / メモリ候補の確認キュー / cleanup が必要かもしれない stale durable memory をまとめた Sessions snapshot を一回出力します。bare の `traceary sessions` はどの caller でも `traceary sessions --snapshot` とバイト単位で同一です。旧ライブ対話 dashboard は v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1765 / #1766）。旧互換 alias の `traceary top` も v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1688 / #1690）。代わりに `traceary sessions` を使い、`traceary session tree` は静的な retrospective view のままです。
 
 テキスト snapshot は先頭の `RELIABILITY` セクションに続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)` の各セクションに分かれ、空のセクションも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。最新 activity が `--idle` より古い session は `idle` 接尾辞で示しますが、非表示にはしません。JSON snapshot（`--snapshot --json`）は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope オブジェクトでラップされています。`reliability.memory` には scan した candidate window の hygiene 構成をまとめた `candidate_hygiene` オブジェクト (`stale_count` / `duplicate_count` / `fragment_like_count` / `extracted_hidden_count` / `likely_actionable_count`) も含まれます。4 つの flag count は独立した診断軸で重複し得ます。`likely_actionable_count` はそのいずれにも該当しない候補の補集合です。`accepted_count` / `candidate_count` と同様に `scan_limit_reached` が true のときは scan したサンプルを反映します。`duplicate_count` は完全一致 (同一 scope・memory type・fact。extraction の dedupe key に一致) のみで、類似 duplicate は `traceary memory admin hygiene scan` が担当します。各セクションの行上限は snapshot 既定どおり (failures 50 / recent commands 50 / candidates 25 / stale memories 25) で、session セクションは引き続き `--limit` を使用します。
 
@@ -943,7 +943,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 
 ### Session status の値
 
-`session list` / `session tree` と `sessions --snapshot` / `top --snapshot` の JSON `status` フィールドは以下のいずれかを表示します。
+`session list` / `session tree` と `sessions --snapshot` の JSON `status` フィールドは以下のいずれかを表示します。
 
 | Status | 意味 |
 |--------|------|

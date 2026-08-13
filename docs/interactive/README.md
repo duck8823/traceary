@@ -62,7 +62,7 @@ traceary sessions --workspace github.com/duck8823/traceary
 traceary sessions --snapshot --json
 ```
 
-Bare `sessions` and `sessions --snapshot` print the same text: the snapshot starts with `RELIABILITY`, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections. The JSON snapshot (`--snapshot --json`) is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys. `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions` instead.
+Bare `sessions` and `sessions --snapshot` print the same text: the snapshot starts with `RELIABILITY`, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections. The JSON snapshot (`--snapshot --json`) is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys. The former `traceary top` compatibility alias was removed in v0.35.0; use `traceary sessions` instead.
 
 ### 4. "Is the system writing events right now?" → `traceary tail`
 
@@ -134,7 +134,7 @@ The compatibility contract is:
 
 - Bare `traceary` and `traceary --help` print help only.
 - Completion generation and help examples must remain stable.
-- Script-facing commands (`sessions --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path; `top --snapshot` remains a deprecated compatibility alias until v0.35.0 removes it.
+- Script-facing commands (`sessions --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path.
 
 ## Still future-facing
 

@@ -3628,25 +3628,25 @@ func TestRootCLI_HookSubagentStopCommand_LazySynthesisKeepsParentAgent(t *testin
 	}
 
 	stdout := &bytes.Buffer{}
-	topCmd := newTestRootCLI(
+	sessionsCmd := newTestRootCLI(
 		cli.WithStoreManagement(storeUC),
 		cli.WithSession(sessionUC),
 		cli.WithDatabasePathSetter(db.SetPath),
 	).Command()
-	topCmd.SetOut(stdout)
-	topCmd.SetErr(&bytes.Buffer{})
-	topCmd.SetArgs([]string{"top", "--snapshot", "--json", "--db-path", dbPath})
-	if err := topCmd.Execute(); err != nil {
-		t.Fatalf("Execute(top --snapshot --json) error = %v", err)
+	sessionsCmd.SetOut(stdout)
+	sessionsCmd.SetErr(&bytes.Buffer{})
+	sessionsCmd.SetArgs([]string{"sessions", "--snapshot", "--json", "--db-path", dbPath})
+	if err := sessionsCmd.Execute(); err != nil {
+		t.Fatalf("Execute(sessions --snapshot --json) error = %v", err)
 	}
 	output := stdout.String()
 	if !strings.Contains(output, `"agents": [
         "claude"
       ]`) {
-		t.Fatalf("top JSON parent agents should stay claude only, got: %s", output)
+		t.Fatalf("sessions JSON parent agents should stay claude only, got: %s", output)
 	}
 	if strings.Contains(output, `"session_id": "parent-session:sub:toolu_plan"`) {
-		t.Fatalf("top JSON should prune ended synthesized Plan child, got: %s", output)
+		t.Fatalf("sessions JSON should prune ended synthesized Plan child, got: %s", output)
 	}
 }
 

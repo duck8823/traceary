@@ -93,14 +93,13 @@ type sessionTreeNode struct {
 }
 
 // topSnapshotPayload is the top-level JSON shape of
-// `traceary sessions --snapshot --json` / `traceary top --snapshot --json`. The envelope was introduced in
+// `traceary sessions --snapshot --json`. The envelope was introduced in
 // v0.14.0 alongside the multi-pane redesign so the snapshot can carry
-// the dashboard's secondary surfaces (recent failures, recent
-// commands, memory review queue candidates) next to the active
-// session tree. Earlier releases emitted a bare top-level array of
-// session nodes; the inner session shape is unchanged so consumers
-// that already destructure `sessions[*]` keep working — only the
-// outer wrapping is new.
+// secondary surfaces (recent failures, recent commands, memory review
+// queue candidates) next to the active session tree. Earlier releases
+// emitted a bare top-level array of session nodes; the inner session
+// shape is unchanged so consumers that already destructure
+// `sessions[*]` keep working — only the outer wrapping is new.
 type topSnapshotPayload struct {
 	// Profile names the JSON projection. Omitted for the default operator
 	// envelope so existing consumers keep an unchanged shape; set to "ai"
@@ -198,9 +197,9 @@ type topSnapshotLargePayloadSample struct {
 }
 
 // topSnapshotNode is the JSON shape of a single node in the
-// `traceary sessions --snapshot --json` / `traceary top --snapshot --json` output. It is intentionally
-// independent from sessionTreeNode so the top contract can carry
-// latest_event_* fields without reshaping the session tree contract
+// `traceary sessions --snapshot --json` output. It is intentionally
+// independent from sessionTreeNode so the sessions snapshot contract can
+// carry latest_event_* fields without reshaping the session tree contract
 // that other consumers depend on.
 //
 // IsStale / StaleAfterSec / StaleAgeSec were added in v0.16.0 so script

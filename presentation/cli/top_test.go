@@ -185,7 +185,7 @@ func TestRootCLI_TopCommand_SnapshotJSONGolden(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"top",
+		"sessions",
 		"--db-path", "/tmp/test-traceary.db",
 		"--workspace", "duck8823/traceary",
 		"--client", "claude",
@@ -390,7 +390,7 @@ func TestRootCLI_TopCommand_SnapshotTextGolden(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"top",
+		"sessions",
 		"--db-path", "/tmp/test-traceary.db",
 		"--snapshot",
 		"--stale-after", "100000h",
@@ -429,7 +429,7 @@ func TestRootCLI_TopCommand_SnapshotEmptyTextGolden(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"top",
+		"sessions",
 		"--db-path", "/tmp/test-traceary.db",
 		"--snapshot",
 	})
@@ -456,7 +456,7 @@ func TestRootCLI_TopCommand_SnapshotEmptyJSONGolden(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"top",
+		"sessions",
 		"--db-path", "/tmp/test-traceary.db",
 		"--snapshot",
 		"--json",
@@ -528,7 +528,7 @@ func TestRootCLI_TopCommand_JSONRequiresSnapshot(t *testing.T) {
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"top", "--db-path", "/tmp/test-traceary.db", "--json"})
+	rootCmd.SetArgs([]string{"sessions", "--db-path", "/tmp/test-traceary.db", "--json"})
 
 	if err := rootCmd.Execute(); err == nil {
 		t.Fatal("Execute() error = nil, want --json without --snapshot error")
@@ -570,7 +570,7 @@ func TestRootCLI_TopCommand_AppliesActiveFiltersBeforeLimit(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
-		"top",
+		"sessions",
 		"--db-path", dbPath,
 		"--workspace", "workspace-a",
 		"--client", "hook",
@@ -584,10 +584,10 @@ func TestRootCLI_TopCommand_AppliesActiveFiltersBeforeLimit(t *testing.T) {
 	}
 	output := stdout.String()
 	if !strings.Contains(output, "active-matching-session") {
-		t.Fatalf("top output should contain active matching session after filtering before limit, got:\n%s", output)
+		t.Fatalf("sessions output should contain active matching session after filtering before limit, got:\n%s", output)
 	}
 	if strings.Contains(output, "ended-") {
-		t.Fatalf("top output should not contain ended sessions, got:\n%s", output)
+		t.Fatalf("sessions output should not contain ended sessions, got:\n%s", output)
 	}
 }
 
