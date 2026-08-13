@@ -577,6 +577,71 @@ func TestSessionOrphanRangeDatasource_MechanicalOnlyStaysWakeIneligible(t *testi
 	}
 }
 
+func TestSessionOrphanRangeDatasource_AgentFoldAfterMechanicalBecomesWakeEligible(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-upgrade", []eventSeed{
+		{id: "evt-mech", at: base},
+		{id: "evt-agent", at: base.Add(time.Hour)},
+	}, true)
+
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	if _, err := refineUC.Refine(ctx, usecase.SessionRefineInput{
+		SessionID:  sessionID,
+		Summary:    "Mechanical summary (degraded=1).",
+		ProducedBy: "gc:orphan-consolidation",
+		CoversTo:   "evt-mech",
+		Degraded:   true,
+	}); err != nil {
+		t.Fatalf("Refine(mechanical) error = %v", err)
+	}
+	const agentSummary = "Remember the failing shard and the flake owner."
+	if _, err := refineUC.Refine(ctx, usecase.SessionRefineInput{
+		SessionID:  sessionID,
+		Summary:    agentSummary,
+		ProducedBy: "hook:post-compact:claude",
+		CoversTo:   "evt-agent",
+		Degraded:   false,
+	}); err != nil {
+		t.Fatalf("Refine(agent after mechanical) error = %v", err)
+	}
+
+	stored, err := fx.refine.FindBySessionID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindBySessionID() error = %v", err)
+	}
+	row, ok := stored.Value()
+	if !ok {
+		t.Fatal("expected upgraded refinement")
+	}
+	if row.Degraded() {
+		t.Fatal("Degraded() = true after agent fold, want false")
+	}
+	if !row.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false after agent fold over mechanical-only, want true")
+	}
+
+	wake := sqlite.NewSessionWakeSummaryDatasource(sqlite.NewDatabase(fx.dbPath, onDiskSQLiteMigrations(t)))
+	eligible, err := wake.ListEligible(ctx, "ws", "sess-waking", 64)
+	if err != nil {
+		t.Fatalf("ListEligible() error = %v", err)
+	}
+	found := false
+	for _, item := range eligible {
+		if item.SessionID == sessionID {
+			found = true
+			if item.Summary != agentSummary {
+				t.Fatalf("wake summary = %q, want agent fold", item.Summary)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("agent fold after mechanical-only must appear in ListEligible")
+	}
+}
+
 func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

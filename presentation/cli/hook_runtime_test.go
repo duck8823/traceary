@@ -2664,11 +2664,12 @@ func TestRootCLI_HookCompactCommand_PostCompactRefinesWithHostDigest(t *testing.
 		t.Fatalf("Refine calls = %d, want 1", refineStub.calls)
 	}
 	want := usecase.SessionRefineInput{
-		SessionID:  types.SessionID("refine-session"),
-		Summary:    digest,
-		ProducedBy: "hook:post-compact:claude",
-		CoversTo:   logged.EventID(),
-		Degraded:   false,
+		SessionID:         types.SessionID("refine-session"),
+		Summary:           digest,
+		ProducedBy:        "hook:post-compact:claude",
+		CoversTo:          logged.EventID(),
+		Degraded:          false,
+		HasAgentReasoning: true,
 	}
 	if diff := cmp.Diff(want, refineStub.input); diff != "" {
 		t.Fatalf("Refine input mismatch (-want +got):\n%s", diff)

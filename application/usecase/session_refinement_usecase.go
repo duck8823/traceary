@@ -24,8 +24,8 @@ type SessionRefineInput struct {
 	Degraded   bool
 	// HasAgentReasoning is the first-write value only when Degraded is true
 	// (unused by current callers). A non-degraded first write always stores 1.
-	// On supersede, a stored 1 is preserved so orphan compose does not drop
-	// wake eligibility (#1877).
+	// On supersede, a stored 1 is kept, and a non-degraded write upgrades a
+	// mechanical-only row so a later agent fold becomes wake-eligible (#1877).
 	HasAgentReasoning bool
 	// CoverageOnly advances covers_to while keeping stored summary text,
 	// degraded, has_agent_reasoning, and produced_by. Lifecycle-only orphan

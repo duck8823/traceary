@@ -267,10 +267,14 @@ func (u *sessionRefinementUsecase) advanceCoverageOnly(
 	return result, true, nil
 }
 
-// refineHasAgentReasoning keeps a stored 1 across orphan compose. First writes
-// do not call this; they keep NewSessionRefinement's !Degraded default.
+// refineHasAgentReasoning keeps a stored 1 across orphan compose, and lets a
+// later non-degraded fold upgrade a mechanical-only row. First writes do not
+// call this; they keep NewSessionRefinement's !Degraded default.
 func refineHasAgentReasoning(input SessionRefineInput, current types.Optional[*model.SessionRefinement]) bool {
 	if existing, present := current.Value(); present && existing.HasAgentReasoning() {
+		return true
+	}
+	if !input.Degraded {
 		return true
 	}
 	return input.HasAgentReasoning
