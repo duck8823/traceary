@@ -40,7 +40,6 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store remember`、`traceary memory store propose`、`traceary memory store distill`
 - **hooks** — `traceary hooks print`、`traceary hooks install`、`traceary hooks guide`、`traceary completion`
-- **MCP server** — `traceary mcp-server`
 - **診断** — `traceary doctor`（alias `traceary status`）
 - **replay / archive** — `traceary replay`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
@@ -88,7 +87,8 @@ v0.15 の admin コマンド：
 
 過去の削除履歴：
 
-- v0.35.0 で削除（#1869）: `traceary session tree` と `traceary session lineage`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。script 向けの active-session view には `traceary sessions --snapshot` / `--snapshot --json` を使ってください。MCP `session_status` の `lineage` / `tree` action はこの変更では触れていません（#1871 参照）。
+- v0.35.0 で削除（#1871）: `traceary mcp-server`、`presentation/mcpserver` パッケージ、9 個の MCP tool、および出荷しているすべての host package の MCP server 宣言（Claude / Codex / Gemini / Grok / Kimi / Antigravity）。呼び出しは unknown command（`unknown command "mcp-server"`）として非ゼロ終了し、`DEPRECATED` 通知は出しません。これは one-minor deprecation window の明示的なポリシー例外です。MCP は公開コマンドで、v0.34 の「現在非推奨」registry にも載っていませんでした。削除は #1693 の owner 決定であり、「何も失われない」証拠に基づきます — 歴史的な MCP write は 659,304 イベント中 16 件（0.0024%、最終 write 2026-07-19）、hook capture は shell（`traceary hook …`）のまま、出荷ホストはすべて shell を持ち、skill は CLI 経由です（#1875）。同じ作業には CLI を使ってください（例: `session active` / `session latest` / `session handoff` / `context`、`search`、`list`、`report`、memory inbox/store/admin）。Claude の `hooks.json` は `matcher: mcp__.*` を残し、*他サーバ*の tool call audit を継続します。
+- v0.35.0 で削除（#1869）: `traceary session tree` と `traceary session lineage`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。script 向けの active-session view には `traceary sessions --snapshot` / `--snapshot --json` を使ってください。
 - v0.35.0 で削除（v0.34 の非推奨 #1688 / #1690）: `traceary top`（`traceary top --snapshot` / `--snapshot --json` を含む）。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。`traceary sessions`（または `traceary sessions --snapshot` / `--snapshot --json`）を使ってください。snapshot 契約は変更していません。
 - v0.35.0 で削除（v0.34 で予告、#1765 / #1766）: 対話的な `traceary sessions` live dashboard。bare の `traceary sessions` は plain text command になり、どの caller でも `traceary sessions --snapshot` とバイト単位で同一です。`sessions --snapshot` / `--snapshot --json` は変更していません。
 - v0.35.0 で削除（v0.34 で予告、#1687 / #1764）: `traceary tui`、`traceary dashboard`、および operator cockpit を開いていた bare 対話 TTY 既定動作。bare `traceary` は TTY / 非 TTY とも常に help を表示します。関連する session データの存続する script 向け view には `traceary sessions --snapshot` を使ってください。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。Traceary はもう読み書きしません。
@@ -207,7 +207,6 @@ v1.0 リリース以降：
 
 このポリシーは CLI サーフェスを対象とします。以下は別ドキュメントで扱います。
 
-- MCP tool registry の安定性 — [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) と `presentation/mcpserver/testdata/` の registry snapshot を参照。
 - hook capture の安定性 — [hook contract](./hooks/contract.ja.md) と [host coverage matrix](./hooks/host-coverage.ja.md)。
 - ストレージ / SQLite スキーママイグレーション — [ストレージモデル](./storage/README.ja.md)。
 - host-native memory activation marker の互換性 — [host-native memory activation contract](./architecture/host-native-memory-activation.ja.md)。

@@ -71,7 +71,7 @@ metadata-only queryで本文をGoへ読み込まずサイズを返せるよう�
 
 | 責務 | owner | 変更理由 | ownerにしない層 |
 |---|---|---|---|
-| projectionの語彙と検証 | `application/types` | consumerから見た読取意味の変更 | CLI/MCPが個別のmodeを作らない |
+| projectionの語彙と検証 | `application/types` | consumerから見た読取意味の変更 | CLIが個別のmodeを作らない |
 | metadata読取interface | `application/queryservice` | consumer-orientedなread model | domain repositoryを巨大なoptional interfaceにしない |
 | 任意のcommand-audit metadata | metadata query serviceとSQLite left join | `exit_code`等のcompact fieldで詳細本文を読まない | CLI extras resolverでN+1の完全event読取を行わない |
 | 列選択とrow scan | `infrastructure/sqlite` | DB/schema詳細の変更 | applicationへSQL/table名を漏らさない |
@@ -112,9 +112,9 @@ v0.30.0では`message_length`や`body_length`の単位を暗黙に変えませ�
 
 | 境界 | consumer | 隠す詳細 | error契約 |
 |---|---|---|---|
-| `EventMetadataQueryService` | CLI/MCP一覧、context、report | SQL projectionとschema | 不正なlimit/filterはtyped validation errorとし、scan失敗にはoperation contextを残す |
+| `EventMetadataQueryService` | CLI一覧、context、report | SQL projectionとschema | 不正なlimit/filterはtyped validation errorとし、scan失敗にはoperation contextを残す |
 | 完全event query/repository | 詳細・本文consumer | 保存済み本文/body blocks | not-foundとstorage失敗を区別する |
-| projection resolver | CLI/MCP adapter | legacy flag優先順位 | 明示的に矛盾するoptionは大きなpayloadを返さず失敗する |
+| projection resolver | CLI adapter | legacy flag優先順位 | 明示的に矛盾するoptionは大きなpayloadを返さず失敗する |
 | metadata serializer | JSON/MCP consumer | nullable表現 | unknownを既知の0として出さない |
 
 既存repository methodすべてへ`includeBody bool`を追加しません。metadata consumerに
@@ -192,7 +192,7 @@ private helperやcall orderではなく、出力とquery形状を検証します
 - 新しいサイズ・provenance列は新規行で埋め、既存行は保守的にbackfillする
 - 本releaseでは本文を削除・書換しない
 - v0.29.xへ戻しても加算列を無視して既存eventを読める
-- CLI/MCP互換問題があれば、schemaを残したまま新presentation modeだけを無効化できる
+- CLI互換問題があれば、schemaを残したまま新presentation modeだけを無効化できる
 
 ## リスクと実装前checkpoint
 
@@ -203,7 +203,7 @@ private helperやcall orderではなく、出力とquery形状を検証します
 - **unknown破壊:** 既存行の元サイズを0にしない
 - **searchの誤解:** metadata-only searchがSQLiteのWHEREで本文を使うことは許容するが、
   Goへ本文を返さない
-- **CLI/MCP drift:** DTOは別でもprojectionの意味と切り詰め語彙はapplicationで一元化し、上の対応表を互換性の正本にする
+- **CLI drift:** DTOは別でもprojectionの意味と切り詰め語彙はapplicationで一元化し、上の対応表を互換性の正本にする
 - **version名の混同:** `body_metadata_version`は内部ingest抽出versionであり公開projection selectorではない。将来のschema契約が必要としない限りserializerへ出さない
 
 本noteのreviewとmerge後に#1428の実装を開始します。

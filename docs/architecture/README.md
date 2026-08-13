@@ -44,7 +44,6 @@ First-class runtime entrypoints belong in `presentation/`.
 
 Examples:
 - `traceary` CLI commands
-- `traceary mcp-server`
 - future `traceary hook ...` subcommands
 
 These entrypoints may parse host-specific payloads or user input, then hand normalized data to application use cases.

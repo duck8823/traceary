@@ -6,7 +6,6 @@ Claude 向け package は `integrations/claude-plugin/` にあり、repository r
 
 ## 自動で組み込むもの
 
-- `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
 - transcript event の記録前に、ローカル transcript から Claude が報告した token 数を記録する `Stop` usage hook
 - `Bash` / `mcp__.*` / 組み込み tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`) 向けの `PostToolUse` / `PostToolUseFailure` audit hook

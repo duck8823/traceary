@@ -185,16 +185,6 @@
       "auto_fix_available": true
     },
     {
-      "name": "codex-mcp",
-      "status": "warn",
-      "severity": "WARN",
-      "section": "MCP",
-      "message": "codex MCP config file is absent; traceary MCP server is not registered: /tmp/traceary-json-golden-home/.codex/config.toml",
-      "hint": "register traceary MCP server",
-      "fix_command": "traceary mcp-server",
-      "auto_fix_available": true
-    },
-    {
       "name": "codex-host-capabilities",
       "status": "pass",
       "severity": "PASS",
@@ -354,16 +344,6 @@
       "name": "MCP",
       "checks": [
         {
-          "name": "codex-mcp",
-          "status": "warn",
-          "severity": "WARN",
-          "section": "MCP",
-          "message": "codex MCP config file is absent; traceary MCP server is not registered: /tmp/traceary-json-golden-home/.codex/config.toml",
-          "hint": "register traceary MCP server",
-          "fix_command": "traceary mcp-server",
-          "auto_fix_available": true
-        },
-        {
           "name": "codex-host-capabilities",
           "status": "pass",
           "severity": "PASS",
@@ -453,7 +433,7 @@
   ],
   "summary": {
     "pass": 19,
-    "warn": 2,
+    "warn": 1,
     "fail": 0
   },
   "exit_code": 2

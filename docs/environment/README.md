@@ -87,7 +87,7 @@ If the file exists but is unreadable or invalid JSON, Traceary falls back to the
 ## Runtime assumptions
 
 - Traceary is local-first and stores data in SQLite on the current machine
-- the core CLI and `traceary mcp-server` are actively tested on macOS and Linux
+- the core CLI is actively tested on macOS and Linux
 - release archives are currently published for macOS and Linux
 - hooks currently assume `bash` and Unix-like shell semantics
 - `git` is optional; when available, Traceary prefers a normalized `remote.origin.url`, then falls back to the local git worktree root before giving up on automatic work-context detection

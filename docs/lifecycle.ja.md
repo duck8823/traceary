@@ -119,7 +119,7 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
   └─ MCP server (stdio トランスポート)
        │
        ▼
-     traceary mcp-server → SQLite
+     traceary CLI / hooks → SQLite
 ```
 
 ## Hook スクリプトと役割

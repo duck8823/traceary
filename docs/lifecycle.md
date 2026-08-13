@@ -120,7 +120,7 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
   └─ MCP server (stdio transport)
        │
        ▼
-     traceary mcp-server → SQLite
+     traceary CLI / hooks → SQLite
 ```
 
 ## Hook Script Mapping

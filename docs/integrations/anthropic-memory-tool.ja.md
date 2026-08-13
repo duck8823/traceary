@@ -14,7 +14,7 @@ native Anthropic memory tool を使う場面:
 - Claude 自身に `view` / `create` / `str_replace` / `insert` / `delete` / `rename` の実行タイミングを判断させたい;
 - `/memories/...` 配下の filesystem 形状・model-managed memory でよい。
 
-Traceary の MCP memory tools (`traceary mcp-server`, `manage_memory`, `query_memory`) を使う場面:
+Traceary CLI の memory コマンド（`traceary memory store …`、`memory inbox …`、`memory search`） を使う場面:
 
 - agent host が MCP に対応している (Claude Code, Codex, Gemini CLI, OpenAI Agents SDK, Google ADK など);
 - status / confidence / evidence / validity window / review-accept workflow を持つ operator-curated durable memory が必要;

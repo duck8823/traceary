@@ -9,25 +9,54 @@ import (
 	"testing"
 )
 
-func TestIsTracearyMCPCommand(t *testing.T) {
+func TestShippedPackagesOmitMCPServers(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		name    string
-		command string
-		args    []string
-		want    bool
-	}{
-		{name: "shared default", command: "traceary", args: []string{"mcp-server"}, want: true},
-		{name: "missing argument", command: "traceary", want: false},
-		{name: "profile argument is rejected", command: "traceary", args: []string{"mcp-server", "--profile=read"}, want: false},
-		{name: "different executable", command: "traceary-mcp", args: []string{"mcp-server"}, want: false},
+	root, err := findRepoRoot()
+	if err != nil {
+		t.Fatalf("findRepoRoot() error = %v", err)
+	}
+	for _, rel := range []string{
+		"integrations/gemini-extension/gemini-extension.json",
+		"integrations/kimi-plugin/kimi.plugin.json",
+		"plugins/traceary/.codex-plugin/plugin.json",
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isTracearyMCPCommand(tc.command, tc.args); got != tc.want {
-				t.Fatalf("isTracearyMCPCommand(%q, %q) = %t, want %t", tc.command, tc.args, got, tc.want)
-			}
-		})
+		if err := requireJSONObjectOmitsMCPServers(root, rel); err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+	}
+	for _, rel := range []string{
+		"integrations/claude-plugin/.mcp.json",
+		"integrations/grok-plugin/.mcp.json",
+		"plugins/traceary/.mcp.json",
+		"integrations/antigravity-plugin/mcp_config.json",
+	} {
+		if err := requireNoShippedMCPConfig(root, rel); err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+	}
+}
+
+func TestShippedBinaryRejectsMCPServerCommand(t *testing.T) {
+	t.Parallel()
+
+	root, err := findRepoRoot()
+	if err != nil {
+		t.Fatalf("findRepoRoot() error = %v", err)
+	}
+	result, err := runTraceary(root, "mcp-server")
+	if err != nil {
+		t.Fatalf("runTraceary() error = %v", err)
+	}
+	if result.exitCode == 0 {
+		t.Fatal("traceary mcp-server must exit non-zero after #1871")
+	}
+	lower := strings.ToLower(result.output)
+	if !strings.Contains(lower, `unknown command "mcp-server"`) && !strings.Contains(lower, "unknown command") {
+		t.Fatalf("output = %q, want unknown command for mcp-server", result.output)
+	}
+	if strings.Contains(lower, "deprecated") {
+		t.Fatalf("output = %q, must not emit DEPRECATED notice", result.output)
 	}
 }
 

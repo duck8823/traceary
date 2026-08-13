@@ -1,14 +1,13 @@
 {
   "name": "traceary",
   "version": "0.34.0",
-  "description": "Local-first Traceary integration for Kimi Code with MCP tools and native session, audit, transcript, compact, and subagent hooks.",
+  "description": "Local-first Traceary integration for Kimi Code with native session, audit, transcript, compact, and subagent hooks.",
   "homepage": "https://github.com/duck8823/traceary",
   "keywords": [
     "traceary",
     "session",
     "audit",
     "memory",
-    "mcp",
     "local-first"
   ],
   "interface": {
@@ -18,14 +17,6 @@
   "skills": [
     "./skills/"
   ],
-  "mcpServers": {
-    "traceary": {
-      "command": "traceary",
-      "args": [
-        "mcp-server"
-      ]
-    }
-  },
   "hooks": [
     {
       "event": "SessionStart",

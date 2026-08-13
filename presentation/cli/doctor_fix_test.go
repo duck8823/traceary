@@ -12,7 +12,7 @@ import (
 )
 
 func TestRootCLI_DoctorFix(t *testing.T) {
-	t.Run("fresh claude config installs hooks and mcp then second run is idempotent", func(t *testing.T) {
+	t.Run("fresh claude config installs hooks then second run is idempotent", func(t *testing.T) {
 		homeDir := t.TempDir()
 		projectDir := t.TempDir()
 		setDoctorFixHome(t, homeDir)
@@ -31,16 +31,22 @@ func TestRootCLI_DoctorFix(t *testing.T) {
 			t.Fatalf("first --fix produced no fix logs")
 		}
 		statuses := doctorStatuses(report)
-		if statuses["claude-config"] != "pass" || statuses["claude-mcp"] != "pass" {
-			t.Fatalf("after fix statuses = %#v, want claude-config and claude-mcp pass", statuses)
+		if statuses["claude-config"] != "pass" {
+			t.Fatalf("after fix statuses = %#v, want claude-config pass", statuses)
+		}
+		if _, ok := statuses["claude-mcp"]; ok {
+			t.Fatalf("retired claude-mcp check still present: %#v", statuses)
 		}
 		settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
 		content, err := os.ReadFile(settingsPath)
 		if err != nil {
 			t.Fatalf("ReadFile(settings) error = %v", err)
 		}
-		if !strings.Contains(string(content), `"hooks"`) || !strings.Contains(string(content), `"mcpServers"`) {
-			t.Fatalf("settings should contain hooks and mcpServers, got:\n%s", content)
+		if !strings.Contains(string(content), `"hooks"`) {
+			t.Fatalf("settings should contain hooks, got:\n%s", content)
+		}
+		if strings.Contains(string(content), `"mcpServers"`) {
+			t.Fatalf("settings must not register mcpServers after MCP retirement, got:\n%s", content)
 		}
 
 		stdout.Reset()

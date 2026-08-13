@@ -125,9 +125,9 @@ contract may retire legacy aliases, but this release does not rename them.
 
 | Boundary | Consumer | Hidden detail | Error contract |
 |---|---|---|---|
-| `EventMetadataQueryService` | CLI/MCP lists, context packs, reports | SQL projection and schema | invalid limits/filters are typed validation errors; scan failures retain operation context |
+| `EventMetadataQueryService` | CLI lists, context packs, reports | SQL projection and schema | invalid limits/filters are typed validation errors; scan failures retain operation context |
 | Full event query/repository | detail and content consumers | stored body/body blocks | not-found remains distinguishable from storage failure |
-| Projection resolver | CLI/MCP adapter | legacy flag precedence | contradictory explicit options fail instead of silently returning a larger payload |
+| Projection resolver | CLI adapter | legacy flag precedence | contradictory explicit options fail instead of silently returning a larger payload |
 | Metadata serializer | JSON/MCP consumer | internal row/nullable representation | unknown facts are omitted/null, never encoded as known zero |
 
 Interfaces must be consumer-oriented. The metadata interface exposes only the
@@ -218,7 +218,7 @@ call order.
 - Rollback to v0.29.x ignores additive columns and continues reading stored
   events.
 - The new presentation mode can be disabled independently while retaining the
-  additive schema if a CLI/MCP compatibility regression appears.
+  additive schema if a CLI compatibility regression appears.
 
 ## Risks and review checkpoint
 

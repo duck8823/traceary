@@ -14,7 +14,7 @@ Use the native Anthropic memory tool when:
 - you want Claude to decide when to `view`, `create`, `str_replace`, `insert`, `delete`, or `rename` memory files;
 - filesystem-shaped, model-managed memory under `/memories/...` is acceptable.
 
-Use Traceary's MCP memory tools (`traceary mcp-server`, `manage_memory`, `query_memory`) when:
+Use Traceary CLI memory commands (`traceary memory store …`, `memory inbox …`, `memory search`) when:
 
 - the agent host already supports MCP (Claude Code, Codex, Gemini CLI, OpenAI Agents SDK, Google ADK, etc.);
 - you want operator-curated durable memories with status, confidence, evidence, validity windows, and review/acceptance workflows;

@@ -4,7 +4,7 @@
 
 Traceary v0.29.0 adds a native Kimi Code integration. The package under
 [`integrations/kimi-plugin/`](../../integrations/kimi-plugin/) installs ten
-live-verified lifecycle hooks, one local Traceary MCP server, and the three
+live-verified lifecycle hooks, one local Traceary CLI, and the three
 four shared skills (see [skills](./skills.md)) through a single `kimi.plugin.json` manifest.
 Recorded hook events use `client=hook` and `agent=kimi`.
 
@@ -81,7 +81,7 @@ without error. Gaps are never filled with zeros or guesses.
 ## Install
 
 1. Install the Traceary CLI and confirm that `traceary` is on `PATH` (the
-   plugin hooks and the MCP server invoke it).
+   plugin hooks and the CLI invoke it).
 
 ```sh
 brew tap duck8823/traceary https://github.com/duck8823/traceary

@@ -18,7 +18,6 @@ Local-first CLI and MCP server for recording AI agent work logs, session boundar
 | `application/queryservice/` | Read-side query services |
 | `infrastructure/sqlite/` | SQLite persistence |
 | `presentation/cli/` | Cobra CLI commands |
-| `presentation/mcpserver/` | MCP server (stdio) |
 | `integrations/claude-plugin/` | Claude Code plugin package |
 | `integrations/gemini-extension/` | Gemini CLI extension package |
 | `integrations/antigravity-plugin/` | Antigravity plugin package |

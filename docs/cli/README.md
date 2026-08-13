@@ -984,15 +984,14 @@ Useful flags:
 
 ### `traceary doctor`
 
-Diagnose DB access, generated hook configuration presence, MCP registration, plugin version alignment, and client config integration.
+Diagnose DB access, generated hook configuration presence, plugin version alignment, and client config integration.
 
 Text output is grouped into stable sections: `Environment`, `Database`, `Plugins`, `MCP`, and `Hooks`.
-Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed, more than one `traceary` executable on `PATH`, an MCP registration that points at a stale binary, or an installed plugin version that does not match the running `traceary` binary. `FAIL` means Traceary found a broken runtime state, such as DB access problems, unreadable / invalid config, or `traceary` not being available on `PATH`.
+Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed, more than one `traceary` executable on `PATH`, an installed plugin version that does not match the running `traceary` binary. `FAIL` means Traceary found a broken runtime state, such as DB access problems, unreadable / invalid config, or `traceary` not being available on `PATH`.
 
 Additional doctor checks:
 
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
-- `<client>-mcp` checks Claude Code, Codex, and Gemini config/plugin registration for the `traceary mcp-server` MCP server.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
 - `claude-hook-cancellations` separates actionable SessionEnd cancellation markers from markers whose referenced session has subsequently ended. `doctor --fix --dry-run` previews removal of resolved markers; `doctor --fix` removes only those proven resolved and leaves active, missing-session, or unreadable evidence untouched.
 - `codex-memory-activation` / `claude-memory-activation` / `gemini-memory-activation` check whether accepted durable memories are missing, stale, in sync, or invalid in the host's native activation target. `missing` and `stale` are reported as `WARN` with exact `memory admin activate --dry-run --diff` (preview) and `memory admin activate --apply` (refresh) remediation commands; `invalid` is reported as `FAIL` with a hint to inspect the host file before applying. Run with `--client <claude|codex|gemini>` to scope the report and with `--project-dir <dir>` to pin the Claude/Gemini activation root to a specific repository instead of the doctor process's working directory.
@@ -1112,9 +1111,6 @@ Retired in v0.14.0 and **not a supported install surface**. The command is hidde
 
 Removed in v0.15.0 and **not a supported uninstall surface**. The name is kept here only as a historical migration note: use Codex's official `/plugins` flow to uninstall the Traceary plugin, and use the [manual cleanup steps in the Codex plugin guide](../integrations/codex-plugin.md) only for state left behind by the retired pre-v0.14 install path.
 
-### `traceary mcp-server`
-
-Run the MCP server over stdio for AI client integration.
 
 ### `traceary report`
 

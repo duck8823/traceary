@@ -977,7 +977,7 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 
 ### `traceary doctor`
 
-DB アクセス、生成済み hook 設定の有無、MCP 登録、plugin version の整合性、クライアント設定のつながりを診断します。
+DB アクセス、生成済み hook 設定の有無、plugin version の整合性、クライアント設定のつながりを診断します。
 
 text 出力は `Environment`、`Database`、`Plugins`、`MCP`、`Hooks` の安定した section に分かれます。
 各 check は `PASS` / `WARN` / `FAIL` の severity を持ちます。`WARN` は hooks 未導入などの初回状態や未設定状態、`PATH` 上に複数の `traceary` がある状態、MCP 登録が古い binary を指す状態、plugin version が実行中の `traceary` と一致しない状態を表します。`FAIL` は DB アクセス不良、unreadable / invalid config、`PATH` 上に `traceary` がない状態のような壊れた状態を表します。
@@ -985,7 +985,6 @@ text 出力は `Environment`、`Database`、`Plugins`、`MCP`、`Hooks` の安�
 追加の doctor check:
 
 - `path`: `PATH` 上の `traceary` 解決先と directory を確認します。見つからない場合は `FAIL`、複数見つかる場合は `WARN` です。
-- `<client>-mcp`: Claude Code / Codex / Gemini の config または plugin が `traceary mcp-server` MCP server を登録しているか確認します。
 - `<client>-plugin-version`: 検出した plugin manifest / cache の version と実行中 binary version を比較し、不一致なら plugin の reinstall / update を促します。
 - `claude-hook-cancellations`: 対応が必要な SessionEnd cancellation marker と、参照先 session が後から終了した marker を分けて表示します。`doctor --fix --dry-run` は解決済み marker の削除を preview し、`doctor --fix` は終了済みと確認できた marker だけを削除します。active、session 不明、unreadable な証跡は削除しません。
 - `codex-memory-activation` / `claude-memory-activation` / `gemini-memory-activation`: accepted durable memory が host の native activation target で `missing` / `stale` / `in_sync` / `invalid` のどれかを確認します。`missing` / `stale` は `WARN` で、正確な `memory admin activate --dry-run --diff`（preview）と `memory admin activate --apply`（refresh）の remediation command を表示します。`invalid` は `FAIL` で、host file を確認してから apply するよう hint を出します。`--client <claude|codex|gemini>` で対象を絞り、`--project-dir <dir>` で Claude/Gemini の activation root を doctor process の cwd ではなく特定 repository に固定できます。
@@ -1103,9 +1102,6 @@ v0.14.0 で廃止されており、**サポート対象の install 面ではあ�
 
 v0.15.0 で削除されており、**サポート対象の uninstall 面ではありません**。この名前は歴史的な移行メモとしてのみ掲載しています。今後の uninstall は Codex 公式の `/plugins` flow を使い、v0.14 以前の旧 install 経路が残した state だけ [Codex plugin ガイドの手動 cleanup 手順](../integrations/codex-plugin.ja.md) で片付けてください。
 
-### `traceary mcp-server`
-
-AI クライアント連携向けに MCP サーバーを stdio で起動します。
 
 ### `traceary report`
 

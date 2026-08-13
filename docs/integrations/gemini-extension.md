@@ -8,7 +8,6 @@ The Gemini package lives under `integrations/gemini-extension/`. Gemini CLI expe
 
 ## What it wires automatically
 
-- `traceary` MCP server via `traceary mcp-server`
 - `SessionStart` / `SessionEnd` hooks
 - `BeforeAgent` prompt hook — records the submitted user prompt as a `prompt` event
 - `AfterAgent` transcript and usage-availability hooks — records the agent response as a `transcript` event and records that provider usage is unavailable from this body-free hook surface

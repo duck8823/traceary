@@ -18,7 +18,7 @@ This document answers "how do I use Traceary's memory store from my agent SDK?" 
 
 **Status**: connect via MCP for agent hosts; use the experimental Go native memory-tool backend for direct Anthropic API integrations.
 
-`traceary mcp-server` exposes `query_memory(action="retrieve")`, `manage_memory(action="remember")`, `manage_memory(action="accept")`, and related memory tools via the standard MCP protocol. (The v0.9 graph overlay is CLI-only via `traceary memory admin graph`; MCP graph tools are a follow-up.) The Claude Agent SDK consumes MCP servers through `ClaudeAgentOptions.mcp_servers`:
+As of v0.35.0 (#1871) Traceary no longer ships an MCP server. Use the CLI (`traceary memory …`, `traceary session …`, `traceary context`, `traceary search`) from host tools/skills. Historical Claude Agent SDK wiring that spawned `traceary mcp-server` is retired:
 
 ```python
 from claude_agent_sdk import query, ClaudeAgentOptions

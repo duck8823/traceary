@@ -44,7 +44,6 @@ runtime の本体ロジックは、明示的な例外がない限り、通常の
 
 例:
 - `traceary` CLI コマンド
-- `traceary mcp-server`
 - 今後追加する `traceary hook ...` サブコマンド
 
 これらの entrypoint では、ホスト固有の payload やユーザー入力を受け取り、正規化したうえで application の use case へ渡します。

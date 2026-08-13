@@ -87,7 +87,7 @@ Rule の適用順は、組み込み safety redactor、audit/transcript payload �
 ## Runtime 前提
 
 - Traceary は local-first で、データは現在の machine の SQLite に保存します
-- core CLI と `traceary mcp-server` は macOS / Linux を主対象として検証しています
+- core CLI は macOS / Linux を主対象として検証しています
 - release archive も現状は macOS / Linux 向けです
 - hooks は現在 `bash` と Unix-like shell semantics を前提にしています
 - `git` は任意です。使える場合、Traceary はまず `remote.origin.url` を正規化して使い、無い場合はローカル Git worktree のルートへ fallback して work-context を解決します

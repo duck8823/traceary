@@ -29,7 +29,7 @@ Antigravity は hook の stdout を JSON として解釈します。Traceary が
 
 `PreInvocation` contract は、Antigravity CLI に同梱された vendor 文書 `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md` で確認しました（公開版は [Antigravity hooks](https://antigravity.google/docs/hooks) にもあります）。contract の例は `injectSteps` と `ephemeralMessage` を使っています。matcher は無視され、handler は flat list で、既定の handler timeout は 30 秒です。
 
-packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-server` も公開し、共有 skill 4 件（`traceary-session-history` / `traceary-session-refine` / `traceary-memory-review` / `traceary-memory-remember`。詳細は [skills](./skills.ja.md)）を同梱します。skill は Traceary CLI 経由で案内します。`traceary hooks install` の直接設定は hook のみを導入します。Antigravity に MCP tool と skill を自動検出させる場合は packaged plugin を使用してください。
+packaged plugin は共有 skill 4 件（`traceary-session-history` / `traceary-session-refine` / `traceary-memory-review` / `traceary-memory-remember`。詳細は [skills](./skills.ja.md)）を同梱します。skill は Traceary CLI 経由で案内します。`traceary hooks install` の直接設定は hook のみを導入します。Antigravity に skill を自動検出させる場合は packaged plugin を使用してください。Traceary MCP server 宣言は v0.35.0 (#1871) で削除されました。
 
 ## status line からの usage metadata
 
@@ -173,7 +173,7 @@ traceary hooks install --client antigravity --global
 
 alias `agy` と `antigravity-cli` は canonical な `antigravity` client に解決されます。インストールは非破壊で、置換されるのは `traceary` hook グループのみ、その他の top-level hook グループはそのまま保持されます。`--upgrade` で再実行すると、ユーザー追加グループを保持したまま managed グループを更新します。
 
-代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を導入できます。同じ `traceary` hook グループに加え、公式 Antigravity スキーマに従う version 付き `plugin.json`、Traceary MCP server 用の `mcp_config.json`、共有 skill 4 件（[skills](./skills.ja.md)）、任意適用の `permissions.example.json` fragment を同梱しています。workspace または user-level の Traceary hook 経路を同時に残さないでください。
+代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を導入できます。同じ `traceary` hook グループに加え、公式 Antigravity スキーマに従う version 付き `plugin.json`、共有 skill 4 件（[skills](./skills.ja.md)）、任意適用の `permissions.example.json` fragment を同梱しています。workspace または user-level の Traceary hook 経路を同時に残さないでください。
 
 ## セットアップガイド
 
@@ -195,7 +195,6 @@ traceary doctor --client antigravity --json
 - `antigravity-hooks-workspace` — workspace 経路（`<project>/.agents/hooks.json`）。
 - `antigravity-hooks-user` — user-level 経路（`~/.gemini/config/hooks.json`）。
 - `antigravity-cli-plugin` — 現行の共有 plugin directory `~/.gemini/config/plugins/traceary` と、従来の CLI 専用 directory `~/.gemini/antigravity-cli/plugins/traceary` を検査します。サポートされた Antigravity の top-level hook-group 形式なら `pass`、**古い Gemini 形式のパッケージ**（legacy な top-level `{"hooks": ...}` 形式、または `traceary hook ... gemini` を呼び出す command）を見つけると `warn` を報告します。この check は `plugin.json`・`hooks.json`・`hooks/hooks.json` のみを読み取り、transcript や認証情報は読みません。
-- `antigravity-mcp` — 導入済み CLI plugin の `mcp_config.json` に `traceary mcp-server` 登録があれば `pass` します。plugin はあるが登録がなければ `warn`、plugin 経路自体がなければ `skip` します。hook の直接設定は MCP tool を提供しないためです。
 - `antigravity-hooks` — 集約サマリー。**いずれか**の経路の config が不正（経路別 check が `fail`）な場合は、別の経路が健全でも Antigravity が読み込めないため `fail` を報告します。健全な経路が **1 つだけ**なら `pass`、複数なら handler の重複登録を避けるため `warn`、どの経路も健全でない場合も導入手順付きの `warn` を報告します。
 - `antigravity-headless-hooks` — hook file の導入と非対話での実行可能 coverage を分けて診断します。健全な経路が**ちょうど 1 つ**で、global `~/.gemini/antigravity-cli/settings.json` が 4 個の exact command resource を matching deny/ask rule、広すぎる grant、unsandboxed grant なしで許可する場合だけ `pass` します。複数経路で hook が重複する場合、導入済み hook が確認待ちになるか shadow される場合、permission が Gemini/project settings にしかない場合は `warn`、健全な経路自体がなければ `skip` します。
 - `antigravity-capture-levels` — 常に `pass`。公開 hook の設定上の capability として、interactive と現行 headless CLI の `start_supported`、`tool_audit_supported`、`final_turn_supported` を報告します。

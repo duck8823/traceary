@@ -8,7 +8,6 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 
 ## 自動で組み込むもの
 
-- `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
 - `BeforeAgent` prompt hook（送信された user prompt を `prompt` event として記録）
 - `AfterAgent` transcript / usage availability hook（agent の応答を `transcript` event として記録し、本文を含まない hook から provider usage を取得できないことも明示的に記録）

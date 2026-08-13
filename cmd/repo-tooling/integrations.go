@@ -22,12 +22,27 @@ type integrationHookCopy struct {
 	packages []string
 }
 
-// isTracearyMCPCommand is the one shared default MCP registration across every
-// packaged host. Host manifests may carry native envelope fields (for example,
-// Gemini's working directory), but they must not select a tool profile or a
-// different command surface.
-func isTracearyMCPCommand(command string, args []string) bool {
-	return command == "traceary" && equalStrings(args, []string{"mcp-server"})
+// requireNoShippedMCPConfig fails when a packaged host still ships a Traceary
+// MCP server declaration. The server was retired in v0.35.0 (#1871).
+func requireNoShippedMCPConfig(root, rel string) error {
+	return requireAbsent(root, rel, rel+" must not ship a Traceary MCP server declaration after #1871")
+}
+
+// requireJSONObjectOmitsMCPServers loads a JSON object and fails when it still
+// declares mcpServers (null/empty object counts as present if the key exists).
+func requireJSONObjectOmitsMCPServers(root, rel string) error {
+	data, err := os.ReadFile(filepath.Join(root, rel))
+	if err != nil {
+		return xerrors.Errorf("missing file: %s", rel)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return xerrors.Errorf("invalid json in %s: %w", rel, err)
+	}
+	if _, ok := raw["mcpServers"]; ok {
+		return xerrors.Errorf("%s must not declare mcpServers after #1871", rel)
+	}
+	return nil
 }
 
 // sharedCompatibilityPackages are the host packages that still ship the common
@@ -522,16 +537,8 @@ func checkGrok(root, version string) error {
 		return xerrors.Errorf("grok plugin version must track v%s", version)
 	}
 
-	var mcp map[string]struct {
-		Command string   `json:"command"`
-		Args    []string `json:"args"`
-	}
-	if err := readJSON(root, "integrations/grok-plugin/.mcp.json", &mcp); err != nil {
+	if err := requireNoShippedMCPConfig(root, "integrations/grok-plugin/.mcp.json"); err != nil {
 		return err
-	}
-	server, ok := mcp["traceary"]
-	if len(mcp) != 1 || !ok || !isTracearyMCPCommand(server.Command, server.Args) {
-		return xerrors.Errorf("grok plugin must expose traceary mcp-server")
 	}
 
 	hooksPath := "integrations/grok-plugin/hooks/hooks.json"
@@ -579,12 +586,8 @@ func checkKimi(root, version string) error {
 		Interface   struct {
 			DisplayName string `json:"displayName"`
 		} `json:"interface"`
-		Skills     []string `json:"skills"`
-		MCPServers map[string]struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
-		} `json:"mcpServers"`
-		Hooks []struct {
+		Skills []string `json:"skills"`
+		Hooks  []struct {
 			Event   string `json:"event"`
 			Matcher string `json:"matcher"`
 			Command string `json:"command"`
@@ -592,6 +595,9 @@ func checkKimi(root, version string) error {
 		} `json:"hooks"`
 	}
 	if err := readJSON(root, "integrations/kimi-plugin/kimi.plugin.json", &manifest); err != nil {
+		return err
+	}
+	if err := requireJSONObjectOmitsMCPServers(root, "integrations/kimi-plugin/kimi.plugin.json"); err != nil {
 		return err
 	}
 	if manifest.Name != "traceary" {
@@ -605,10 +611,6 @@ func checkKimi(root, version string) error {
 	}
 	if !equalStrings(manifest.Skills, []string{"./skills/"}) {
 		return xerrors.Errorf("kimi plugin skills field must be exactly [\"./skills/\"], got %v", manifest.Skills)
-	}
-	server, ok := manifest.MCPServers["traceary"]
-	if len(manifest.MCPServers) != 1 || !ok || !isTracearyMCPCommand(server.Command, server.Args) {
-		return xerrors.Errorf("kimi plugin must expose the traceary mcp-server")
 	}
 
 	// The manifest hook rules must stay in lockstep with the verified
@@ -785,17 +787,8 @@ func checkClaude(root, version string) error {
 		return xerrors.Errorf("claude plugin version must track v%s", version)
 	}
 
-	var mcp struct {
-		Traceary struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
-		} `json:"traceary"`
-	}
-	if err := readJSON(root, "integrations/claude-plugin/.mcp.json", &mcp); err != nil {
+	if err := requireNoShippedMCPConfig(root, "integrations/claude-plugin/.mcp.json"); err != nil {
 		return err
-	}
-	if !isTracearyMCPCommand(mcp.Traceary.Command, mcp.Traceary.Args) {
-		return xerrors.Errorf("claude MCP must expose the shared traceary mcp-server command")
 	}
 
 	hooksPath := "integrations/claude-plugin/hooks/hooks.json"
@@ -888,19 +881,11 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 		return xerrors.Errorf("codex plugin manifest must declare hooks: ./hooks.json so the official /plugins flow picks up Traceary hooks")
 	}
 
-	var mcp struct {
-		McpServers struct {
-			Traceary struct {
-				Command string   `json:"command"`
-				Args    []string `json:"args"`
-			} `json:"traceary"`
-		} `json:"mcpServers"`
-	}
-	if err := readJSON(root, "plugins/traceary/.mcp.json", &mcp); err != nil {
+	if err := requireNoShippedMCPConfig(root, "plugins/traceary/.mcp.json"); err != nil {
 		return err
 	}
-	if !isTracearyMCPCommand(mcp.McpServers.Traceary.Command, mcp.McpServers.Traceary.Args) {
-		return xerrors.Errorf("codex MCP must expose the shared traceary mcp-server command")
+	if err := requireJSONObjectOmitsMCPServers(root, "plugins/traceary/.codex-plugin/plugin.json"); err != nil {
+		return err
 	}
 
 	hooks, hooksRaw, err := readHookFile(root, "plugins/traceary/hooks.json")
@@ -981,14 +966,11 @@ func checkGemini(root, version string) error {
 		Name            string `json:"name"`
 		Version         string `json:"version"`
 		ContextFileName string `json:"contextFileName"`
-		McpServers      struct {
-			Traceary struct {
-				Command string   `json:"command"`
-				Args    []string `json:"args"`
-			} `json:"traceary"`
-		} `json:"mcpServers"`
 	}
 	if err := readJSON(root, "integrations/gemini-extension/gemini-extension.json", &manifest); err != nil {
+		return err
+	}
+	if err := requireJSONObjectOmitsMCPServers(root, "integrations/gemini-extension/gemini-extension.json"); err != nil {
 		return err
 	}
 	if manifest.Name != "traceary" {
@@ -996,9 +978,6 @@ func checkGemini(root, version string) error {
 	}
 	if manifest.Version != version {
 		return xerrors.Errorf("gemini extension version must track v%s", version)
-	}
-	if !isTracearyMCPCommand(manifest.McpServers.Traceary.Command, manifest.McpServers.Traceary.Args) {
-		return xerrors.Errorf("gemini MCP must expose the shared traceary mcp-server command")
 	}
 	if manifest.ContextFileName != "GEMINI.md" {
 		return xerrors.Errorf("gemini extension must expose GEMINI.md as context file")
@@ -1054,9 +1033,8 @@ func checkGemini(root, version string) error {
 // checkAntigravity validates the packaged Antigravity plugin. Antigravity's
 // hooks.json uses a top-level hook-group map (Traceary owns the "traceary"
 // group) rather than the shared {"hooks": {...}} shape, so it is validated with
-// a dedicated parser. The package also carries validator-native skills and
-// mcp_config.json files so the host discovers the same memory/context surface
-// as Traceary's other supported plugins.
+// a dedicated parser. The package ships validator-native skills; MCP server
+// declarations were retired in v0.35.0 (#1871).
 func checkAntigravity(root string) error {
 	var manifest struct {
 		Schema      string `json:"$schema"`
@@ -1077,18 +1055,8 @@ func checkAntigravity(root string) error {
 		return xerrors.Errorf("antigravity plugin manifest must declare a version")
 	}
 
-	var mcpConfig struct {
-		MCPServers map[string]struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
-		} `json:"mcpServers"`
-	}
-	if err := readJSON(root, "integrations/antigravity-plugin/mcp_config.json", &mcpConfig); err != nil {
+	if err := requireNoShippedMCPConfig(root, "integrations/antigravity-plugin/mcp_config.json"); err != nil {
 		return err
-	}
-	server, ok := mcpConfig.MCPServers["traceary"]
-	if !ok || !isTracearyMCPCommand(server.Command, server.Args) {
-		return xerrors.Errorf("antigravity plugin must expose the traceary mcp-server")
 	}
 	for _, skill := range []string{"traceary-session-history", "traceary-session-refine", "traceary-memory-review", "traceary-memory-remember"} {
 		path := filepath.Join("integrations/antigravity-plugin/skills", skill, "SKILL.md")

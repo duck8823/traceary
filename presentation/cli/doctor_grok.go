@@ -347,13 +347,6 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 	}
 	checks = append(checks, doctorCheck{Name: "grok-hooks", Status: hookStatus, Message: hookMessage, Hint: Localize("update or reinstall the native Traceary Grok plugin", "native Traceary Grok plugin を更新または再インストールしてください")})
 	checks = append(checks, buildGrokUserHooksCheck(state), buildGrokHookRoutesSummary(state))
-	mcpStatus := doctorStatusPass
-	mcpMessage := Localize("native Grok plugin exposes one Traceary MCP server", "native Grok plugin は Traceary MCP server を1件公開しています")
-	if state.MCPServers != 1 {
-		mcpStatus = doctorStatusWarn
-		mcpMessage = localizef("native Grok plugin exposes %d Traceary MCP server entries; expected 1", "native Grok plugin の Traceary MCP server は %d 件です。1件必要です", state.MCPServers)
-	}
-	checks = append(checks, doctorCheck{Name: "grok-mcp", Status: mcpStatus, Message: mcpMessage, Hint: Localize("update or reinstall the native Traceary Grok plugin", "native Traceary Grok plugin を更新または再インストールしてください")})
 	skillStatus := doctorStatusPass
 	skillMessage := Localize("native Grok plugin exposes all four Traceary skills", "native Grok plugin は Traceary skill を4件すべて公開しています")
 	if state.Skills != 4 {

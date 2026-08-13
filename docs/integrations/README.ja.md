@@ -9,7 +9,6 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 これらのパッケージは、次の共通ランタイム契約でそろえています。
 
 - `traceary` CLI が `PATH` 上にあることを前提にする
-- MCP は共通で `traceary mcp-server` を起動する
 - セッション境界と shell command audit は同梱 hook で記録する
 - SQLite ストア、CLI フラグ、`traceary doctor` の流れは host ごとに分けない
 
@@ -17,7 +16,6 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 
 | 機能 | 共通の振る舞い |
 | --- | --- |
-| MCP server | `traceary mcp-server` で Traceary の read/write tools を公開する |
 | session hook | session start/end を Traceary event として記録する（Codex の `Stop` は応答ごとの turn 境界でありセッション終了ではない — #1170）|
 | shell audit hook | `traceary audit` を通して shell command 実行を記録する |
 | doctor flow | `traceary doctor --client <host>` を共通のトラブルシュート入口にする |

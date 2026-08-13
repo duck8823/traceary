@@ -100,7 +100,7 @@ run_grok() {
   [[ "${details_output}" == *traceary* ]]
   [[ "${details_output}" == *traceary-session-history* ]]
   [[ "${inspect_output}" == *'"plugin_name": "traceary-grok"'* ]]
-  [[ "${inspect_output}" == *'"mcpServers": 1'* ]]
+  [[ "${inspect_output}" != *'"mcpServers": 1'* ]]
   HOME="${tmp_home}" grok plugin uninstall traceary-grok
   rm -rf "${tmp_home}" "${tmp_cwd}"
   echo 'ok: grok plugin validation, install, inventory, and uninstall passed'

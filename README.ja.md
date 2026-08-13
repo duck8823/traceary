@@ -9,7 +9,7 @@
 [![CI](https://github.com/duck8823/traceary/actions/workflows/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/ci.yml)
 [![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg?event=push)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
 
-Traceary は、AI エージェントの作業記録をローカルの SQLite に残し、あとから検索・再利用できる CLI / MCP サーバーです。セッションの開始と終了、実行したコマンド、補助メモ、引き継ぎ用の要約をひとつのストアにまとめて扱えます。
+Traceary は、AI エージェントの作業記録をローカルの SQLite に残し、あとから検索・再利用できる CLI です。セッションの開始と終了、実行したコマンド、補助メモ、引き継ぎ用の要約をひとつのストアにまとめて扱えます。
 
 普段から自動で記録を残したいなら、CLI を手で打ち始めるよりも、まず Claude / Codex / Antigravity（既存の Gemini CLI インストールの場合は Gemini）向けのプラグインを入れるところから始めるのがおすすめです。
 
@@ -23,7 +23,7 @@ AI を使った開発では、次のような困りごとが起こりがちで�
 - Claude、Codex、Antigravity（または既存の Gemini CLI インストール）、手元のターミナル操作の記録が別々に散らばる
 - 並列セッションや worktree の切り替えで、履歴の流れが追いにくくなる
 
-Traceary は、こうした記録をローカルの 1 つのストアに集約し、CLI・hooks・MCP のどこからでも同じ履歴を扱えるようにします。
+Traceary は、こうした記録をローカルの 1 つのストアに集約し、CLI と hooks のどこからでも同じ履歴を扱えるようにします。
 
 ## 3 層モデル
 
@@ -32,7 +32,7 @@ Traceary は、単なるイベントログではありません。`v0.5.0` 以�
 | 層 | 何を置くか | どう供給するか |
 |---|---|---|
 | Audit / Archive | 生の event (prompt / transcript / command audit)、session 境界 | host hook 経由（`SessionStart`、`UserPromptSubmit` / `BeforeAgent`、`PostToolUse` / `AfterTool`、`Stop` / `AfterAgent`、`PreCompact` / `PreCompress`、`SessionEnd` 等）— [host coverage matrix](./docs/hooks/host-coverage.ja.md) 参照 |
-| Working memory | 直近の session から組み立てる handoff / context pack | handoff pack は `traceary session handoff` / MCP `get_context` で都度組み立てる。v0.34 以降、session summary 自体は consolidation で実体として保存される: stop hook が agent に、素材がまだ agent の context にあるうちに session を畳ませ、結果を session refinement として保存する |
+| Working memory | 直近の session から組み立てる handoff / context pack | handoff pack は `traceary session handoff` / `traceary context` で都度組み立てる。v0.34 以降、session summary 自体は consolidation で実体として保存される: stop hook が agent に、素材がまだ agent の context にあるうちに session を畳ませ、結果を session refinement として保存する |
 | Durable memory | decision / constraint / preference / artifact ref など | `traceary-memory-review` SKILL（review 意図 trigger）と `traceary-memory-remember` SKILL（明示 write trigger）で curate |
 
 つまり Traceary は、ログをためるだけの CLI ではなく AI エージェント向けの local-first な記憶基盤です。L1 は hook で機械的に供給され、L2 は通常 stop 時に素材がまだ context にあるうちに consolidation され（畳まれなかった分は後から機械的な要約に落とされる）、L3 は hook 駆動の auto-extraction が `status=candidate` の review inbox に載せ、人間のレビューでだけ promote することで小さく保たれます。完成した summary だけを以降使い、起動時の再構成は意図的に避けます。
@@ -249,7 +249,6 @@ $ traceary timeline --limit 2
 - [Hooks ガイド](./docs/hooks/README.ja.md)
 - [Hook contract と対応レベル](./docs/hooks/contract.ja.md)
 - [イベントライフサイクル](./docs/lifecycle.ja.md)
-- [MCP ガイド](./docs/mcp/README.ja.md)
 - [環境変数と保存モデル](./docs/environment/README.ja.md)
 
 ## コントリビュートとサポート
