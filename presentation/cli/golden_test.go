@@ -156,7 +156,7 @@ func TestCoreReadJSONGoldens(t *testing.T) {
 		assertJSONGolden(t, stdout, filepath.Join("testdata", "search", "single_event.golden.json"))
 	})
 
-	t.Run("search with session hits keeps the top-level event array", func(t *testing.T) {
+	t.Run("search with session hits emits the events/sessions object", func(t *testing.T) {
 		sessionHit := apptypes.SearchSessionHitOf(
 			types.SessionID("sess-4471"),
 			"discussed older planning notes",
@@ -169,10 +169,7 @@ func TestCoreReadJSONGoldens(t *testing.T) {
 			cli.WithEvent(&eventUsecaseStub{searchEvents: events[:1]}),
 			cli.WithProjectionSessionSearch(&projectionSessionSearchStub{hits: []apptypes.SearchSessionHit{sessionHit}}),
 		)
-		// Session hits must not change the v0.34 JSON contract: stdout is
-		// byte-identical to the same search without session hits, and the
-		// operator learns about them from stderr instead.
-		assertJSONGolden(t, stdout, filepath.Join("testdata", "search", "single_event.golden.json"))
+		assertJSONGolden(t, stdout, filepath.Join("testdata", "search", "event_and_session.golden.json"))
 	})
 
 	t.Run("log single event", func(t *testing.T) {

@@ -5,6 +5,11 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [Unreleased]
+
+### Changed
+- **`traceary search --json` は events/sessions オブジェクトになりました (#1775)** — v0.34.0 の #1717 予告を完了します。stdout は常に `{"events": [...], "sessions": [...]}` で、どちらのキーも存在します（ヒットがない tier は空配列）。明示的な `--fields` はこれまでどおり `.events` 内の event フィールドを選び、session オブジェクトは `session_id` / `summary` / `event_count` / `started_at` のままです。v0.34 の「sessions が `--json` から省略された」stderr 通知は削除しました。テキスト検索出力は変更していません。
+
 ## [v0.34.0] - 2026-08-12
 
 ### Added

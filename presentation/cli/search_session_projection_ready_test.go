@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -72,23 +73,44 @@ func TestRootCLI_SearchJSONFieldsReportsSessionProjectionNotReadyOnlyForEmptyHit
 	notReady := false
 	session := mustSessionHit(t, "session-old")
 	cases := []struct {
-		name       string
-		stub       *projectionSessionSearchStub
-		wantNotice bool
+		name         string
+		stub         *projectionSessionSearchStub
+		wantNotice   bool
+		wantSessions int
 	}{
 		{name: "not ready and empty", stub: &projectionSessionSearchStub{ready: &notReady}, wantNotice: true},
 		{name: "ready and empty", stub: &projectionSessionSearchStub{ready: &ready}},
-		{name: "ready and has hits", stub: &projectionSessionSearchStub{ready: &ready, hits: []apptypes.SearchSessionHit{session}}},
+		{name: "ready and has hits", stub: &projectionSessionSearchStub{ready: &ready, hits: []apptypes.SearchSessionHit{session}}, wantSessions: 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout, stderr := executeSearchJSONFieldsWithSessionStub(t, tc.stub)
-			readyStdout, _ := executeSearchJSONFieldsWithSessionStub(t, &projectionSessionSearchStub{ready: &ready})
-			if diff := cmp.Diff(readyStdout, stdout); diff != "" {
-				t.Fatalf("stdout must stay byte-identical (-ready-empty +got):\n%s", diff)
+			if tc.wantSessions == 0 {
+				readyStdout, _ := executeSearchJSONFieldsWithSessionStub(t, &projectionSessionSearchStub{ready: &ready})
+				if diff := cmp.Diff(readyStdout, stdout); diff != "" {
+					t.Fatalf("empty-session stdout must match ready-empty (-ready +got):\n%s", diff)
+				}
 			}
 			if got := strings.Contains(string(stderr), "session tier was not consulted"); got != tc.wantNotice {
 				t.Fatalf("not-ready notice = %v, want %v; stderr = %q", got, tc.wantNotice, stderr)
+			}
+			var payload struct {
+				Events   []map[string]any `json:"events"`
+				Sessions []map[string]any `json:"sessions"`
+			}
+			if err := json.Unmarshal(stdout, &payload); err != nil {
+				t.Fatalf("Unmarshal() error = %v\nstdout=%s", err, stdout)
+			}
+			if payload.Events == nil || payload.Sessions == nil {
+				t.Fatalf("envelope must keep both keys: %#v", payload)
+			}
+			if got, want := len(payload.Sessions), tc.wantSessions; got != want {
+				t.Fatalf("sessions len = %d, want %d; stdout=%s", got, want, stdout)
+			}
+			if tc.wantSessions > 0 {
+				if got, _ := payload.Sessions[0]["session_id"].(string); got != "session-old" {
+					t.Fatalf("session_id = %q, want session-old", got)
+				}
 			}
 		})
 	}

@@ -5,6 +5,11 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
+## [Unreleased]
+
+### Changed
+- **`traceary search --json` is now the events/sessions object (#1775)** — completes the v0.34.0 announcement from #1717. stdout is always `{"events": [...], "sessions": [...]}` with both keys present (empty arrays when a tier has no hits). Explicit `--fields` still selects event fields inside `.events`; session objects keep `session_id`, `summary`, `event_count`, and `started_at`. The v0.34 stderr notice that sessions were omitted from `--json` is removed. Text search output is unchanged.
+
 ## [v0.34.0] - 2026-08-12
 
 ### Added

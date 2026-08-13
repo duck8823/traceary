@@ -11,5 +11,12 @@
       "created_at": "2026-04-08T13:00:00Z"
     }
   ],
-  "sessions": []
+  "sessions": [
+    {
+      "session_id": "sess-4471",
+      "summary": "discussed older planning notes",
+      "event_count": 8,
+      "started_at": "2026-06-19T10:00:00Z"
+    }
+  ]
 }

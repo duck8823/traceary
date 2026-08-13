@@ -88,12 +88,12 @@ v0.15 の admin コマンド：
 - `traceary top` → `traceary sessions`（v0.34.0 で非推奨、v0.35.0 で削除）
 - `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot`（v0.34.0 で非推奨、v0.35.0 で削除）
 - bare `traceary` の TTY 既定動作 → `traceary --help`（v0.34.0 で非推奨、v0.35.0 で削除）
-- `traceary search --json` のトップレベル配列 → `{"events": [...], "sessions": [...]}` オブジェクト（v0.34.0 で予告、v0.35.0 で置換）
 - `traceary memory admin graph add` と `traceary memory admin graph list`（v0.34.0 で非推奨、v0.35.0 で削除。reference store の `memory_edges` が 0 行のため置き換え先なし）
 - `traceary session label`、`traceary session list --label`、`LABEL` 列、`label` JSON フィールド（v0.34.0 で非推奨、v0.35.0 で削除。reference store の label 付き session が 0 件のため置き換え先なし）
 
 過去の削除履歴：
 
+- v0.35.0 で置換（v0.34 で予告、#1717 / #1775）: `traceary search --json` のトップレベル配列 → `{"events": [...], "sessions": [...]}` オブジェクト。どちらのキーも常に存在し、ヒットがない tier は空配列です。
 - v0.14.0 で削除: `traceary init` → `traceary store init`、`traceary backup` → `traceary store backup ...`、`traceary gc` → `traceary store gc`、`traceary handoff` → `traceary session handoff`、`traceary compact-summary` → `traceary session handoff --compact-only`、廃止済み `traceary integration codex install` helper → Codex 公式 `/plugins` flow。
 - v0.15.0 で削除: `traceary memory accept`、`traceary memory reject`、`traceary memory remember`、`traceary memory propose`、`traceary memory distill`、`traceary memory extract`、`traceary memory supersede`、`traceary memory expire`、`traceary memory set-validity`、`traceary memory import codex`、`traceary memory import instructions`、`traceary memory export`、`traceary memory activate`、`traceary memory hygiene scan`、`traceary memory hygiene apply`、`traceary memory graph add`、`traceary memory graph list`。canonical な `memory inbox` / `memory store` / `memory admin` path を CLI リファレンスに従って使ってください。
 - v0.15.0 で削除: `traceary integration codex uninstall` → Codex 公式 `/plugins` flow と `docs/integrations/codex-plugin.md` の手動 cleanup 手順。
@@ -166,7 +166,7 @@ help / usage テキストはこの保証の対象外です。上記の通知ル�
 
 この規定で予告済みのもの:
 
-- **`traceary search --json` は v0.35.0 でオブジェクトになります。** v0.34.0 で、本文一致の event ヒットに加えて、要約またはキーワードが query に一致する session tier ヒットが加わります。この種別は既存のトップレベル配列に、セッション行とイベント行を混在させずに収めることができないため、v0.35.0 で `{"events": [...], "sessions": [...]}` に変更します。v0.34.x では配列を変更せず、省略されたセッションヒットの件数と新しい形状を stderr に通知します。したがって v0.34 の consumer が、不完全な結果を知らされないまま受け取ることはありません。v0.34 でもテキスト出力にはセッションヒットが完全に表示されます。#1717 に記録。
+- **`traceary search --json` は v0.35.0 でオブジェクトになりました（#1717 / #1775）。** v0.34.0 は、session tier ヒットをイベント行と混在させずに載せられるようにトップレベル配列を `{"events": [...], "sessions": [...]}` に替えることを予告しました。v0.34.x では配列を維持し、省略したセッションヒットを stderr に通知し、v0.35.0 で置換を完了しました。どちらのキーも常に存在し、ヒットがない tier は空配列です。
 
 ### 非推奨ウィンドウが不要なケース
 
