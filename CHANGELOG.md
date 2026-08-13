@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Removed
+- **Sessions live dashboard removed (#1766)** — after the v0.34 deprecation window (#1765), the interactive multi-pane `traceary sessions` dashboard is gone. Bare `traceary sessions` is a plain text command and is byte-identical to `traceary sessions --snapshot` for every caller. `sessions --snapshot` / `--snapshot --json`, `top --snapshot` / `--snapshot --json`, the `--json` without `--snapshot` error, and `--profile ai` requiring `--snapshot --json` are unchanged. Shared `presentation/cli/tui/` remains for `memory inbox review`.
 - **Operator cockpit removed (#1764)** — `traceary tui` / `traceary dashboard` and the bare interactive TTY default that opened the Tail-first cockpit are removed after the v0.34 deprecation window (#1687). Bare `traceary` always prints help (TTY and non-TTY). Root `--reset-state` is gone with the cockpit; root `--db-path` remains so `traceary --db-path … <subcommand>` stays valid. The orphan local state file `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually. Shared `presentation/cli/tui/` and the `sessions` / `top` surfaces are unchanged by this removal.
 
 ### Changed

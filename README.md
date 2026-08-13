@@ -172,7 +172,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 | When | Command | Use it to |
 |---|---|---|
 | Discovering the command surface | `traceary` / `traceary --help` | print help (TTY and non-TTY) |
-| Watching the workspace dashboard | `traceary sessions` (`traceary top` deprecated in v0.34.0, removed in v0.35.0) | browse active sessions, recent failures / commands, memory candidates, and stale memories in one TUI |
+| Watching the workspace sessions snapshot | `traceary sessions` (`traceary top` deprecated in v0.34.0, removed in v0.35.0) | print active sessions, recent failures / commands, memory candidates, and stale memories |
 | Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
@@ -184,7 +184,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 traceary sessions
 ```
 
-`sessions` opens a five-pane Bubble Tea dashboard for active sessions, recent failures, recent commands, memory candidates, and stale memories. The live interactive default is deprecated in v0.34.0 and removed in v0.35.0; prefer `traceary sessions --snapshot [--json]`. Use `tab` / `shift+tab` to move between panes, `/` to filter the focused pane incrementally, and Enter to drill into the highlighted session, event, or memory detail. In non-TTY shells, `traceary sessions --snapshot` and `traceary sessions --snapshot --json` expose the same data for scripts, including the `stale_memories` envelope key. `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0 for existing scripts.
+`sessions` prints a one-shot snapshot for active sessions, recent failures, recent commands, memory candidates, and stale memories. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot`. Use `traceary sessions --snapshot --json` for the JSON envelope (including the `stale_memories` key). The former live interactive dashboard was removed in v0.35.0. `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0 for existing scripts.
 
 ### `traceary tail`
 
