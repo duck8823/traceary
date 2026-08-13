@@ -543,6 +543,59 @@ func TestDrainHookSpoolRecords_DoesNotFollowExternalSymlink(t *testing.T) {
 	if string(data) != sentinelRecord {
 		t.Fatal("sentinel content changed")
 	}
+
+	// Requeue of an unreadable symlink must not materialize a regular retry
+	// JSON that would replay the external target on the next drain.
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("symlink must leave the pending spool, Lstat err=%v", err)
+	}
+	pendingJSON := listTopLevelSpoolJSON(t, spoolDir)
+	if len(pendingJSON) != 0 {
+		t.Fatalf("pending spool JSON after symlink requeue = %v, want none", pendingJSON)
+	}
+	for _, name := range pendingJSON {
+		info, err := os.Lstat(filepath.Join(spoolDir, name))
+		if err != nil {
+			t.Fatalf("Lstat(%s): %v", name, err)
+		}
+		if info.Mode().IsRegular() {
+			body, _ := os.ReadFile(filepath.Join(spoolDir, name))
+			if strings.Contains(string(body), privateMarker) {
+				t.Fatalf("requeue created replayable copy of external sentinel: %s", name)
+			}
+		}
+	}
+
+	replayed, failed = root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 0 || failed != 0 || eventStub.logCalls != 0 {
+		t.Fatalf("second drain=%d/%d logCalls=%d, want 0/0/0 (no symlink target replay)", replayed, failed, eventStub.logCalls)
+	}
+	if eventStub.lastMessage == privateMarker || strings.Contains(eventStub.lastMessage, privateMarker) {
+		t.Fatalf("second drain replayed sentinel payload: %q", eventStub.lastMessage)
+	}
+	data, err = os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatalf("sentinel must remain after second drain: %v", err)
+	}
+	if string(data) != sentinelRecord {
+		t.Fatal("sentinel content changed after second drain")
+	}
+}
+
+func listTopLevelSpoolJSON(t *testing.T, spoolDir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(spoolDir)
+	if err != nil {
+		t.Fatalf("ReadDir(%s): %v", spoolDir, err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	return names
 }
 
 func TestInspectHookSpoolDiagnostics_DoesNotFollowExternalSymlink(t *testing.T) {
@@ -1379,6 +1432,90 @@ func TestInspectHookSpoolDiagnostics_ReportsPendingAndTerminalCounts(t *testing.
 	}
 	if !strings.Contains(check.Message, "1 pending") || !strings.Contains(check.Message, "1 terminal") {
 		t.Fatalf("message=%q, want pending and terminal counts", check.Message)
+	}
+}
+
+func TestRequeueHookSpoolRecord_SingleFileTransition(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+
+	path, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{"marker":"single-transition"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	if err := requeueHookSpoolRecord(path, "first failure"); err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	// After a successful requeue there must be exactly one replayable file
+	// (the retry-tail rename of the original), not original+copy.
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("original path must be gone after requeue, stat err=%v", err)
+	}
+	pending := listTopLevelSpoolJSON(t, spoolDir)
+	if len(pending) != 1 {
+		t.Fatalf("pending JSON after requeue = %v, want exactly one retry file", pending)
+	}
+	if !strings.HasPrefix(pending[0], "zz-retry-") {
+		t.Fatalf("retry name = %q, want zz-retry- prefix", pending[0])
+	}
+	// No leftover tmp from the in-place publish step.
+	entries, err := os.ReadDir(spoolDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Fatalf("leftover tmp after requeue: %s", entry.Name())
+		}
+	}
+	retryPath := filepath.Join(spoolDir, pending[0])
+	data, err := os.ReadFile(retryPath)
+	if err != nil {
+		t.Fatalf("ReadFile retry: %v", err)
+	}
+	var record hookSpoolRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if record.AttemptCount != 1 || record.LastError != "first failure" {
+		t.Fatalf("record=%#v, want attempt=1 last_error=first failure", record)
+	}
+
+	// Drive remaining attempts to dead-letter; each step must keep exactly one file.
+	for attempt := 1; attempt < hookSpoolRetryLimit; attempt++ {
+		pending = listTopLevelSpoolJSON(t, spoolDir)
+		if len(pending) != 1 {
+			t.Fatalf("pending before attempt %d = %v, want exactly one", attempt+1, pending)
+		}
+		retryPath = filepath.Join(spoolDir, pending[0])
+		if err := requeueHookSpoolRecord(retryPath, "again"); err != nil {
+			t.Fatalf("requeue attempt %d: %v", attempt+1, err)
+		}
+	}
+	if got := listTopLevelSpoolJSON(t, spoolDir); len(got) != 0 {
+		t.Fatalf("pending after dead-letter = %v, want empty", got)
+	}
+	deadDir := filepath.Join(spoolDir, hookSpoolDeadDirName)
+	deadEntries, err := os.ReadDir(deadDir)
+	if err != nil {
+		t.Fatalf("ReadDir(dead): %v", err)
+	}
+	jsonDead := 0
+	for _, entry := range deadEntries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			jsonDead++
+		}
+	}
+	if jsonDead != 1 {
+		t.Fatalf("dead JSON count=%d, want exactly 1", jsonDead)
 	}
 }
 

@@ -533,6 +533,9 @@ func loadHookSpoolReplayBatch(
 	return records, unreadable, nil
 }
 
+// writeHookSpoolRecordAtomic replaces path with the encoded record via
+// same-directory tmp + rename so a crash leaves either the previous or the
+// new content at path, never two distinct replayable files for one update.
 func writeHookSpoolRecordAtomic(path string, record hookSpoolRecord) error {
 	encoded, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
@@ -554,22 +557,28 @@ func writeHookSpoolRecordAtomic(path string, record hookSpoolRecord) error {
 // unreadable load, then either renames the record to the retry tail or moves
 // it to spool/dead/ when shouldDeadLetter reports true. lastError is stored
 // for operator inspection and must never be treated as a payload body by doctor.
+//
+// Transition safety: update the JSON in place (tmp + rename over the original),
+// then rename that single file to zz-retry-* or spool/dead/*. Never write a
+// second replayable path and delete the original — a crash between those steps
+// would leave two copies of the same event.
+//
+// Unreadable paths (including external symlinks) must not be opened with a
+// link-following API. They are renamed into spool/dead/ without copying content
+// so the next drain cannot replay an external target payload.
 func requeueHookSpoolRecord(path string, lastError string) error {
 	if strings.TrimSpace(path) == "" {
 		return xerrors.New("hook spool path is required")
 	}
 	data, err := readHookSpoolFile(path)
 	if err != nil {
-		// Fall back to a plain read so rename-only recovery still works when
-		// the nofollow open fails for an unreadable path.
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return xerrors.Errorf("failed to read hook spool record for requeue: %w", err)
-		}
+		// Do not fall back to os.ReadFile: that would follow symlinks and could
+		// copy an external target into a new regular retry JSON.
+		return renameHookSpoolRecordToDead(path)
 	}
 	record, ok := parseHookSpoolRecordForRequeue(data)
 	if !ok {
-		// Preserve raw bytes so operators can inspect the poison file later.
+		// Preserve raw bytes from the nofollow regular-file read only.
 		record = hookSpoolRecord{
 			SchemaVersion: hookSpoolSchemaVersion,
 			Payload:       string(data),
@@ -582,27 +591,15 @@ func requeueHookSpoolRecord(path string, lastError string) error {
 	}
 	record.Path = ""
 
-	if shouldDeadLetter(record.AttemptCount) {
-		return deadLetterHookSpoolRecord(path, record)
-	}
-
-	random := make([]byte, 8)
-	if _, err := rand.Read(random); err != nil {
-		return xerrors.Errorf("failed to generate hook spool retry ID: %w", err)
-	}
-	name := fmt.Sprintf(
-		"zz-retry-%s-%s.json",
-		time.Now().UTC().Format("20060102T150405.000000000Z"),
-		hex.EncodeToString(random),
-	)
-	newPath := filepath.Join(filepath.Dir(path), name)
-	if err := writeHookSpoolRecordAtomic(newPath, record); err != nil {
+	// 1) Atomically update the single original path in place.
+	if err := writeHookSpoolRecordAtomic(path, record); err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return xerrors.Errorf("failed to remove original hook spool record after requeue: %w", err)
+	// 2) Rename that one file to the retry tail or dead-letter directory.
+	if shouldDeadLetter(record.AttemptCount) {
+		return renameHookSpoolRecordToDead(path)
 	}
-	return nil
+	return renameHookSpoolRecordToRetryTail(path)
 }
 
 func parseHookSpoolRecordForRequeue(data []byte) (hookSpoolRecord, bool) {
@@ -613,7 +610,24 @@ func parseHookSpoolRecordForRequeue(data []byte) (hookSpoolRecord, bool) {
 	return record, true
 }
 
-func deadLetterHookSpoolRecord(path string, record hookSpoolRecord) error {
+func renameHookSpoolRecordToRetryTail(path string) error {
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		return xerrors.Errorf("failed to generate hook spool retry ID: %w", err)
+	}
+	name := fmt.Sprintf(
+		"zz-retry-%s-%s.json",
+		time.Now().UTC().Format("20060102T150405.000000000Z"),
+		hex.EncodeToString(random),
+	)
+	newPath := filepath.Join(filepath.Dir(path), name)
+	if err := os.Rename(path, newPath); err != nil {
+		return xerrors.Errorf("failed to move hook spool record to retry tail: %w", err)
+	}
+	return nil
+}
+
+func renameHookSpoolRecordToDead(path string) error {
 	deadDir, err := hookSpoolDeadDir()
 	if err != nil {
 		return err
@@ -631,11 +645,8 @@ func deadLetterHookSpoolRecord(path string, record hookSpoolRecord) error {
 		hex.EncodeToString(random),
 	)
 	newPath := filepath.Join(deadDir, name)
-	if err := writeHookSpoolRecordAtomic(newPath, record); err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return xerrors.Errorf("failed to remove original hook spool record after dead-letter: %w", err)
+	if err := os.Rename(path, newPath); err != nil {
+		return xerrors.Errorf("failed to move hook spool record to dead-letter: %w", err)
 	}
 	return nil
 }
