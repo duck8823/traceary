@@ -84,11 +84,11 @@ Stability and deprecation expectations for these runtime entrypoints:
 
 Currently deprecated:
 
-- `traceary sessions` interactive dashboard → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
 
 Historical removal log:
 
+- Removed in v0.35.0 after the v0.34 announcement (#1765 / #1766): the interactive `traceary sessions` live dashboard. Bare `traceary sessions` is now a plain text command and is byte-identical to `traceary sessions --snapshot` for every caller. `sessions --snapshot` / `--snapshot --json` and `top --snapshot` / `--snapshot --json` remain unchanged.
 - Removed in v0.35.0 after the v0.34 announcement (#1687 / #1764): `traceary tui`, `traceary dashboard`, and the bare interactive TTY default that opened the operator cockpit. Bare `traceary` always prints help (TTY and non-TTY). Use `traceary sessions --snapshot` for the surviving script-friendly view of related session data. The orphan local state file `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually; Traceary no longer reads or writes it.
 - Removed in v0.35.0 after the v0.34 deprecation (#1689 / #1691): `traceary memory admin graph add` and `traceary memory admin graph list` (no replacement; the reference store had zero `memory_edges` rows). The `memory_edges` table remains for gc and bundle export/import.
 - Removed in v0.35.0 after the v0.34 deprecation (#1689 / #1691): `traceary session label`, `traceary session list --label`, the `LABEL` column in `session list` text output, and the `label` field in `session list` JSON output (no replacement; the reference store had zero labelled sessions). The `sessions.label` column remains in the store schema.

@@ -17,6 +17,46 @@ import (
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
+// topPaneFailureLimit / topPaneRecentCommandLimit / topPaneCandidateLimit /
+// topPaneStaleMemoryLimit cap the per-section rows the snapshot loader
+// fetches. The session section re-uses the operator-controlled --limit flag
+// (default 500); the secondary sections are summary surfaces that only need a
+// short window.
+const (
+	topPaneFailureLimit       = 50
+	topPaneRecentCommandLimit = 50
+	topPaneCandidateLimit     = 25
+	topPaneStaleMemoryLimit   = topPaneCandidateLimit
+)
+
+const topDetailRecentEventLimit = 10
+
+type topDetailKind int
+
+const (
+	topDetailNone topDetailKind = iota
+	topDetailSession
+	topDetailEvent
+	topDetailMemory
+)
+
+type topDetailTarget struct {
+	kind      topDetailKind
+	title     string
+	sessionID domtypes.SessionID
+	eventID   domtypes.EventID
+	memoryID  domtypes.MemoryID
+}
+
+type topDetailRequest struct {
+	target topDetailTarget
+}
+
+type topDetailContent struct {
+	title string
+	lines []string
+}
+
 // topDataCriteria carries the filter / paging parameters used by
 // topDataLoader. Fields are flat strings to keep the boundary easy to
 // satisfy from a cobra command and from unit tests; the loader trims
@@ -24,8 +64,8 @@ import (
 // underlying usecases.
 //
 // Limit fields use the convention that a non-positive value disables the
-// corresponding load. The live dashboard and snapshot paths opt in pane by
-// pane by setting the relevant limits.
+// corresponding load. Snapshot paths opt in section by section by setting the
+// relevant limits.
 type topDataCriteria struct {
 	Workspace string
 	Client    string
@@ -53,9 +93,9 @@ type topDataCriteria struct {
 	// not have state leave it empty and get total-count metrics only.
 	MemoryLastSeenAt domtypes.Optional[time.Time]
 	// SkipMemoryReliability keeps session/failure/command reliability metrics
-	// while bypassing accepted/candidate memory scans. Interactive cockpit
-	// Sessions uses this because Memory review has its own tab and hidden
-	// memory query failures must not break the session dashboard.
+	// while bypassing accepted/candidate memory scans. Callers that surface
+	// memory review elsewhere can use this so hidden memory query failures do
+	// not break the sessions snapshot.
 	SkipMemoryReliability bool
 }
 
@@ -190,9 +230,8 @@ func timeUTC() *time.Location {
 	return time.UTC
 }
 
-// topDataSnapshot bundles every data slice the redesigned top dashboard
-// needs into a single value so the cobra command and tests can assert
-// against one shape.
+// topDataSnapshot bundles every data slice the sessions snapshot needs into a
+// single value so the cobra command and tests can assert against one shape.
 type topDataSnapshot struct {
 	Sessions                     []*sessionNode
 	Failures                     []*model.Event

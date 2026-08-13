@@ -101,24 +101,4 @@ func TestWriteDeprecationNoticeWithoutReplacement(t *testing.T) {
 	}
 }
 
-// The live dashboard runs for both `top` and `sessions`, but `top` already
-// carries a command-level notice. Only the decision is unit-testable: the TTY
-// branch itself reads the real stdin/stdout and has no injection seam.
-func TestInteractiveDashboardNoticeApplies(t *testing.T) {
-	tests := []struct {
-		name        string
-		commandName string
-		want        bool
-	}{
-		{name: "sessions owns the mode notice", commandName: "sessions", want: true},
-		{name: "top is covered by its command notice", commandName: "top", want: false},
-	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if diff := cmp.Diff(tt.want, interactiveDashboardNoticeApplies(tt.commandName)); diff != "" {
-				t.Errorf("interactiveDashboardNoticeApplies(%q) mismatch (-want +got):\n%s", tt.commandName, diff)
-			}
-		})
-	}
-}

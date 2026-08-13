@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/presentation/cli/tui"
 )
 
 // init pins go-runewidth's East-Asian-ambiguous handling to "narrow"
@@ -43,7 +41,7 @@ const (
 )
 
 // AI-safe pane caps keep the agent-resume envelope small. The operator
-// snapshot keeps the larger dashboard pane limits.
+// snapshot keeps the larger section limits.
 const (
 	topAIPaneFailureLimit       = 5
 	topAIPaneRecentCommandLimit = 5
@@ -71,14 +69,14 @@ func (c *RootCLI) newTopCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "top",
-		Short: Localize("Deprecated compatibility alias for the Sessions dashboard; removed in v0.35.", "Sessions ダッシュボードの非推奨互換 alias（v0.35 で削除）"),
+		Short: Localize("Deprecated compatibility alias for `traceary sessions`; removed in v0.35.", "`traceary sessions` の非推奨互換 alias（v0.35 で削除）"),
 		Long: Localize(
-			"`traceary top` is a deprecated compatibility alias for the Sessions dashboard and will be removed in v0.35. Prefer `traceary sessions --snapshot [--json]`; the live interactive rendering of `traceary sessions` is deprecated in v0.34 and removed in v0.35 as well, so it is not a destination for new usage.",
-			"`traceary top` は Sessions ダッシュボードの非推奨互換 alias で、v0.35 で削除されます。`traceary sessions --snapshot [--json]` を優先してください。`traceary sessions` のライブ対話表示も v0.34 で非推奨、v0.35 で削除されるため、新しい用途の移行先にはなりません。",
+			"`traceary top` is a deprecated compatibility alias for `traceary sessions` and will be removed in v0.35. Prefer `traceary sessions` or `traceary sessions --snapshot [--json]`. Bare `top` prints the same text snapshot as `sessions --snapshot`.",
+			"`traceary top` は `traceary sessions` の非推奨互換 alias で、v0.35 で削除されます。`traceary sessions` または `traceary sessions --snapshot [--json]` を優先してください。bare の `top` は `sessions --snapshot` と同じ text snapshot を出力します。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runTop(cmd.Context(), cmd, cmd.OutOrStdout(), opts)
+			return c.runTop(cmd.Context(), cmd.OutOrStdout(), opts)
 		},
 	}
 	applyCommandDeprecation(cmd, "traceary sessions", "v0.35")
@@ -93,14 +91,14 @@ func (c *RootCLI) newSessionsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "sessions",
-		Short: Localize("Sessions dashboard; the live interactive default is deprecated, use --snapshot (removed in v0.35).", "Sessions ダッシュボード。ライブ表示の既定動作は非推奨（v0.35 で削除）。--snapshot を使用"),
+		Short: Localize("Print a one-shot sessions snapshot (active sessions, failures, commands, memory health)", "sessions snapshot を一回出力（active sessions、失敗、コマンド、メモリ状態）"),
 		Long: Localize(
-			"Show a live, auto-refreshing Sessions dashboard for active sessions, failures, commands, memory review, and health. This interactive rendering is deprecated in v0.34 and will be removed in v0.35; use `traceary sessions --snapshot` instead. Press q or Ctrl-C to quit. Use --snapshot --json for a one-shot Sessions JSON snapshot with latest-event metadata.",
-			"active session、失敗、コマンド、メモリ確認、状態をまとめた Sessions ダッシュボードをライブ自動更新で表示します。この対話表示は v0.34 で非推奨となり v0.35 で削除されます。代わりに `traceary sessions --snapshot` を使用してください。q または Ctrl-C で終了します。--snapshot --json で latest event metadata を含む Sessions JSON snapshot を一回出力します。",
+			"Print a one-shot Sessions snapshot for active sessions, failures, commands, memory review, and health. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot`. Use `--snapshot --json` for a JSON envelope with latest-event metadata; `--json` without `--snapshot` is an error.",
+			"active session、失敗、コマンド、メモリ確認、状態をまとめた Sessions snapshot を一回出力します。bare の `traceary sessions` は `traceary sessions --snapshot` とバイト単位で同一です。`--snapshot --json` で latest event metadata を含む JSON envelope を出力します。`--json` を `--snapshot` なしで指定するとエラーになります。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runSessions(cmd.Context(), cmd, cmd.OutOrStdout(), opts)
+			return c.runSessions(cmd.Context(), cmd.OutOrStdout(), opts)
 		},
 	}
 
@@ -122,8 +120,8 @@ func bindTopFlags(cmd *cobra.Command, opts *topCommandOptions) {
 		"profile",
 		topSnapshotProfileOperator,
 		Localize(
-			"snapshot JSON profile: operator (default full dashboard envelope) or ai (bounded agent-resume envelope)",
-			"snapshot JSON の profile: operator（既定のフル dashboard envelope）または ai（AI resume 向けに bound した envelope）",
+			"snapshot JSON profile: operator (default full snapshot envelope) or ai (bounded agent-resume envelope)",
+			"snapshot JSON の profile: operator（既定のフル snapshot envelope）または ai（AI resume 向けに bound した envelope）",
 		),
 	)
 	cmd.Flags().IntVar(&opts.limit, "limit", defaultTopLimit, Localize("maximum number of sessions to load", "読み込む最大セッション数"))
@@ -166,15 +164,15 @@ func normalizeTopSnapshotProfile(raw string) (string, error) {
 	}
 }
 
-func (c *RootCLI) runTop(ctx context.Context, cmd *cobra.Command, output io.Writer, opts topCommandOptions) error {
-	return c.runTopNamed(ctx, cmd, output, opts, "top")
+func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandOptions) error {
+	return c.runTopNamed(ctx, output, opts)
 }
 
-func (c *RootCLI) runSessions(ctx context.Context, cmd *cobra.Command, output io.Writer, opts topCommandOptions) error {
-	return c.runTopNamed(ctx, cmd, output, opts, "sessions")
+func (c *RootCLI) runSessions(ctx context.Context, output io.Writer, opts topCommandOptions) error {
+	return c.runTopNamed(ctx, output, opts)
 }
 
-func (c *RootCLI) runTopNamed(ctx context.Context, cmd *cobra.Command, output io.Writer, opts topCommandOptions, commandName string) error {
+func (c *RootCLI) runTopNamed(ctx context.Context, output io.Writer, opts topCommandOptions) error {
 	resolvedDBPath, err := resolveDBPath(opts.dbPath)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
@@ -196,13 +194,12 @@ func (c *RootCLI) runTopNamed(ctx context.Context, cmd *cobra.Command, output io
 	}
 	opts.profile = profile
 
-	if opts.snapshot {
-		snap, err := c.loadTopSnapshot(ctx, opts)
-		if err != nil {
-			return err
-		}
+	// Bare `sessions` / `top` is a plain text command and is byte-identical to
+	// `--snapshot`. JSON and the ai profile still require the explicit flag
+	// combination so callers cannot accidentally change envelope shape.
+	if !opts.snapshot {
 		if opts.asJSON {
-			return writeTopSnapshotJSON(output, snap, opts.profile)
+			return xerrors.Errorf("%s", Localize("--json requires --snapshot", "--json には --snapshot が必要です"))
 		}
 		if opts.profile == topSnapshotProfileAI {
 			return xerrors.Errorf(
@@ -213,10 +210,14 @@ func (c *RootCLI) runTopNamed(ctx context.Context, cmd *cobra.Command, output io
 				),
 			)
 		}
-		return writeTopSnapshotText(output, snap, opts.idle, snap.Now)
+	}
+
+	snap, err := c.loadTopSnapshot(ctx, opts)
+	if err != nil {
+		return err
 	}
 	if opts.asJSON {
-		return xerrors.Errorf("%s", Localize("--json requires --snapshot", "--json には --snapshot が必要です"))
+		return writeTopSnapshotJSON(output, snap, opts.profile)
 	}
 	if opts.profile == topSnapshotProfileAI {
 		return xerrors.Errorf(
@@ -227,15 +228,14 @@ func (c *RootCLI) runTopNamed(ctx context.Context, cmd *cobra.Command, output io
 			),
 		)
 	}
-	return c.runTopTUI(ctx, cmd, output, opts, commandName)
+	return writeTopSnapshotText(output, snap, opts.idle, snap.Now)
 }
 
-// loadTopSnapshot fetches the data slices the redesigned snapshot surfaces
-// using the same per-pane caps the live dashboard applies. The session pane
-// reuses the operator-controlled --limit flag; the secondary panes
-// intentionally use the small dashboard caps so the script-friendly snapshot
-// does not balloon under a noisy workspace. The ai profile uses tighter
-// pane caps so agent-resume payloads stay bounded.
+// loadTopSnapshot fetches the data slices the sessions snapshot surfaces.
+// The session section reuses the operator-controlled --limit flag; the
+// secondary sections intentionally use the small section caps so the
+// script-friendly snapshot does not balloon under a noisy workspace. The ai
+// profile uses tighter caps so agent-resume payloads stay bounded.
 func (c *RootCLI) loadTopSnapshot(ctx context.Context, opts topCommandOptions) (topDataSnapshot, error) {
 	sessionLimit := opts.limit
 	failureLimit := topPaneFailureLimit
@@ -481,9 +481,8 @@ func writeTopSnapshotTextEvents(output io.Writer, header string, events []*model
 }
 
 func writeTopSnapshotTextCandidates(output io.Writer, candidates []apptypes.MemorySummary, rememberIntentCount int) error {
-	// This script-facing text header is intentionally stable even though the
-	// live cockpit labels the pane "MEMORY CANDIDATES". Do not rename it
-	// without a top --snapshot contract migration.
+	// This script-facing text header is intentionally stable. Do not rename it
+	// without a sessions --snapshot contract migration.
 	if _, err := fmt.Fprintf(output, "\nCANDIDATE MEMORIES (count=%d remember_intent=%d):\n", len(candidates), rememberIntentCount); err != nil {
 		return xerrors.Errorf("failed to print candidates header: %w", err)
 	}
@@ -646,13 +645,13 @@ func shortTopSessionID(id string) string {
 // readable even when truncated.
 const topWorkspaceMaxWidth = 36
 
-// compactTopWorkspace renders a workspace path for the top dashboard.
-// Unlike compactWorkspace (basename only), top needs to keep the
-// owner/repo qualifier so users can tell parallel sessions apart, so
-// this preserves the tail and prepends an ellipsis when the value is
-// wider than topWorkspaceMaxWidth columns. The budget is measured in
-// visual columns (East Asian Wide characters count as 2) so a
-// CJK-heavy workspace does not overflow the cell.
+// compactTopWorkspace renders a workspace path for the sessions snapshot.
+// Unlike compactWorkspace (basename only), the snapshot needs to keep the
+// owner/repo qualifier so users can tell parallel sessions apart, so this
+// preserves the tail and prepends an ellipsis when the value is wider than
+// topWorkspaceMaxWidth columns. The budget is measured in visual columns
+// (East Asian Wide characters count as 2) so a CJK-heavy workspace does not
+// overflow the cell.
 func compactTopWorkspace(workspace string) string {
 	normalized := normalizeTabularColumn(workspace)
 	if normalized == "" {
@@ -694,83 +693,6 @@ func formatTopLatestEvent(s apptypes.SessionSummary) string {
 	return fmt.Sprintf("%s: %s", s.LatestEventKind(), truncateMessage(s.LatestEventMessage()))
 }
 
-// interactiveDashboardNoticeApplies reports whether the live-dashboard
-// deprecation notice belongs to this invocation. `top` is excluded because the
-// whole command is already deprecated and its command notice names the
-// replacement for the mode as well; emitting both would put two notices on one
-// invocation, which docs/cli-stability.md forbids. Do not drop this condition
-// before `top` itself is removed in v0.35.
-func interactiveDashboardNoticeApplies(commandName string) bool {
-	return commandName != "top"
-}
-
-// runTopTUI launches the multi-pane Bubble Tea dashboard. The runner
-// inherits the shared TUI safety net (TTY guard, terminal restore, signal
-// handling); a non-TTY caller falls back to the snapshot text writer so
-// `traceary top` keeps working when piped into a file or CI log.
-func (c *RootCLI) runTopTUI(ctx context.Context, cmd *cobra.Command, output io.Writer, opts topCommandOptions, commandName string) error {
-	loader := c.newTopDataLoader()
-	criteria := topDataCriteria{
-		Workspace:          opts.workspace,
-		Client:             opts.client,
-		Agent:              opts.agent,
-		SessionLimit:       opts.limit,
-		FailureLimit:       topPaneFailureLimit,
-		RecentCommandLimit: topPaneRecentCommandLimit,
-		CandidateLimit:     topPaneCandidateLimit,
-		StaleMemoryLimit:   topPaneStaleMemoryLimit,
-		StaleAfter:         opts.staleAfter,
-		AllowStale:         opts.allowStale,
-	}
-	model := newTopModel(topModelConfig{
-		Keys:            tui.DefaultKeyMap(),
-		Actions:         defaultTopPaneActionKeys(),
-		Styles:          tui.DefaultStyles(),
-		Loader:          loader,
-		Detail:          loader,
-		Criteria:        criteria,
-		Idle:            opts.idle,
-		CommandName:     commandName,
-		Now:             topNowFunc,
-		RefreshInterval: topDashboardRefreshInterval,
-		LoaderCtx:       ctx,
-	})
-	stdin, stdout := topDashboardIO(output)
-	if !tui.Interactive(stdin, stdout) {
-		// Non-TTY callers (pipes, CI) get the same one-shot text snapshot
-		// `--snapshot` would have produced. The contract matches the rest
-		// of the interactive surface: refuse to start an alt-screen when
-		// it would leave the operator's terminal unrestorable.
-		snap, loadErr := c.loadTopSnapshot(ctx, opts)
-		if loadErr != nil {
-			return loadErr
-		}
-		return writeTopSnapshotText(output, snap, opts.idle, snap.Now)
-	}
-	if interactiveDashboardNoticeApplies(commandName) {
-		writeDeprecationNotice(
-			cmd,
-			"the interactive `traceary sessions` dashboard",
-			"対話的な `traceary sessions` ダッシュボード",
-			"traceary sessions --snapshot",
-			"v0.35",
-		)
-	}
-	if err := tui.Run(model, tui.RunOptions{Input: stdin, Output: stdout, AltScreen: true}); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to run top dashboard", "top ダッシュボードの実行に失敗しました"), err)
-	}
-	return nil
-}
-
-// topDashboardIO resolves the stdin/stdout pair the Bubble Tea program
-// should drive. Tests pass a non-file writer (e.g. *bytes.Buffer) into
-// cobra, which makes the type assertion fail and tui.Interactive then
-// refuses the run — exactly the behavior the non-TTY contract requires.
-func topDashboardIO(output io.Writer) (*os.File, *os.File) {
-	stdout, _ := output.(*os.File)
-	return os.Stdin, stdout
-}
-
 // runeWidth returns the visual column width of s, accounting for
 // East Asian Wide characters (CJK ideographs / kana / hangul) that
 // occupy two terminal cells. This replaces the prior rune-count
@@ -778,11 +700,4 @@ func topDashboardIO(output io.Writer) (*os.File, *os.File) {
 // or message contained wide characters.
 func runeWidth(s string) int {
 	return runewidth.StringWidth(s)
-}
-
-func formatFilterValue(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "*"
-	}
-	return value
 }

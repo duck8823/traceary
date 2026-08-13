@@ -84,11 +84,11 @@ v0.15 の admin コマンド：
 
 現在非推奨：
 
-- `traceary sessions` の対話 dashboard → `traceary sessions --snapshot`（v0.34.0 で非推奨、v0.35.0 で削除）
 - `traceary top` → `traceary sessions`（v0.34.0 で非推奨、v0.35.0 で削除）
 
 過去の削除履歴：
 
+- v0.35.0 で削除（v0.34 で予告、#1765 / #1766）: 対話的な `traceary sessions` live dashboard。bare の `traceary sessions` は plain text command になり、どの caller でも `traceary sessions --snapshot` とバイト単位で同一です。`sessions --snapshot` / `--snapshot --json` と `top --snapshot` / `--snapshot --json` は変更していません。
 - v0.35.0 で削除（v0.34 で予告、#1687 / #1764）: `traceary tui`、`traceary dashboard`、および operator cockpit を開いていた bare 対話 TTY 既定動作。bare `traceary` は TTY / 非 TTY とも常に help を表示します。関連する session データの存続する script 向け view には `traceary sessions --snapshot` を使ってください。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。Traceary はもう読み書きしません。
 - v0.35.0 で削除（v0.34 の非推奨 #1689 / #1691）: `traceary memory admin graph add` と `traceary memory admin graph list`（置き換え先なし。reference store の `memory_edges` は 0 行でした）。`memory_edges` テーブル自体は gc と bundle export/import のため残しています。
 - v0.35.0 で削除（v0.34 の非推奨 #1689 / #1691）: `traceary session label`、`traceary session list --label`、`session list` テキスト出力の `LABEL` 列、`session list` JSON の `label` フィールド（置き換え先なし。reference store の label 付き session は 0 件でした）。ストア schema の `sessions.label` 列は残しています。

@@ -200,7 +200,7 @@ func TestRootCLI_TopSnapshotOutputMatchesSessions(t *testing.T) {
 	}
 }
 
-func TestRootCLI_SessionsNonTTYMatchesSnapshot(t *testing.T) {
+func TestRootCLI_SessionsBareMatchesSnapshot(t *testing.T) {
 	run := func(args ...string) (string, string, error) {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
@@ -217,19 +217,19 @@ func TestRootCLI_SessionsNonTTYMatchesSnapshot(t *testing.T) {
 		return stdout.String(), stderr.String(), err
 	}
 
-	bareStdout, bareStderr, err := run("sessions", "--db-path", "/tmp/traceary-sessions-nontty.db")
+	bareStdout, bareStderr, err := run("sessions", "--db-path", "/tmp/traceary-sessions-bare.db")
 	if err != nil {
 		t.Fatalf("bare sessions error = %v", err)
 	}
-	snapshotStdout, snapshotStderr, err := run("sessions", "--db-path", "/tmp/traceary-sessions-nontty.db", "--snapshot")
+	snapshotStdout, snapshotStderr, err := run("sessions", "--db-path", "/tmp/traceary-sessions-bare.db", "--snapshot")
 	if err != nil {
 		t.Fatalf("sessions --snapshot error = %v", err)
 	}
 	if diff := cmp.Diff(snapshotStdout, bareStdout); diff != "" {
-		t.Errorf("non-TTY bare sessions stdout differs from snapshot (-snapshot +bare):\n%s", diff)
+		t.Errorf("bare sessions stdout differs from snapshot (-snapshot +bare):\n%s", diff)
 	}
 	if diff := cmp.Diff("", bareStderr+snapshotStderr); diff != "" {
-		t.Errorf("non-TTY sessions emitted stderr (-want +got):\n%s", diff)
+		t.Errorf("sessions emitted stderr (-want +got):\n%s", diff)
 	}
 }
 

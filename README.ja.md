@@ -169,7 +169,7 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 | 目的 | コマンド | 使いどころ |
 |---|---|---|
 | command surface を確認する | `traceary` / `traceary --help` | help を表示（TTY / 非 TTY とも） |
-| workspace dashboard を見る | `traceary sessions`（`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除） | active session、直近の失敗 / command、メモリ候補、stale memory を 1 つの TUI で確認 |
+| workspace sessions snapshot を見る | `traceary sessions`（`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除） | active session、直近の失敗 / command、メモリ候補、stale memory を一回出力 |
 | いま動いているものを追う | `traceary tail` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
 | ある期間の流れを俯瞰する | `traceary timeline` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
 | 生 event を直接掘る | `traceary list` / `traceary search` | kind / session / query をピンポイントで指定 |
@@ -181,7 +181,7 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 traceary sessions
 ```
 
-`sessions` は Bubble Tea ベースの 5 ペイン dashboard で、active sessions、直近の failures、recent commands、メモリ候補、stale memories をまとめて表示します。ライブ対話の既定動作は v0.34.0 で非推奨、v0.35.0 で削除されます。`traceary sessions --snapshot [--json]` を優先してください。`tab` / `shift+tab` でペインを移動し、`/` でフォーカス中ペインを incremental filter し、Enter で highlight 中の session / event / memory detail を開けます。非 TTY では `traceary sessions --snapshot` と `traceary sessions --snapshot --json` が同じデータを script 向けに出力し、JSON envelope には `stale_memories` キーも含まれます。既存 script 向けの `traceary top` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。
+`sessions` は active sessions、直近の failures、recent commands、メモリ候補、stale memories をまとめた one-shot snapshot を出力します。bare の `traceary sessions` は `traceary sessions --snapshot` とバイト単位で同一です。JSON envelope（`stale_memories` キーを含む）は `traceary sessions --snapshot --json` で取得します。旧ライブ対話 dashboard は v0.35.0 で削除されました。既存 script 向けの `traceary top` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。
 
 ### `traceary tail`
 

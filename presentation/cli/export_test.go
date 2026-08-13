@@ -71,8 +71,8 @@ func ResetGCNowFunc() {
 	gcNowFunc = time.Now
 }
 
-// SetTopNowFunc replaces the current-time function used by top snapshot and
-// dashboard loading for tests.
+// SetTopNowFunc replaces the current-time function used by sessions / top
+// snapshot loading for tests.
 func SetTopNowFunc(f func() time.Time) {
 	topNowFunc = f
 }

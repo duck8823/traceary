@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Removed
+- **Sessions live dashboard を削除 (#1766)** — v0.34 の非推奨期間 (#1765) を経て、対話 multi-pane の `traceary sessions` dashboard を削除しました。bare の `traceary sessions` は plain text command になり、どの caller でも `traceary sessions --snapshot` とバイト単位で同一です。`sessions --snapshot` / `--snapshot --json`、`top --snapshot` / `--snapshot --json`、`--snapshot` なしの `--json` エラー、`--profile ai` が `--snapshot --json` を要求する制約は変更していません。共有の `presentation/cli/tui/` は `memory inbox review` 用に残しています。
 - **operator cockpit を削除 (#1764)** — v0.34 の非推奨期間 (#1687) を経て、`traceary tui` / `traceary dashboard` と Tail-first cockpit を開いていた bare 対話 TTY 既定動作を削除しました。bare `traceary` は TTY / 非 TTY とも常に help を表示します。root の `--reset-state` は cockpit と共に消え、root の `--db-path` は `traceary --db-path … <subcommand>` が引き続き有効になるよう残しています。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。共有の `presentation/cli/tui/` と `sessions` / `top` surface はこの削除では変更していません。
 
 ### Changed

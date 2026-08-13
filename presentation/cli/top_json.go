@@ -9,15 +9,15 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
-// writeTopSnapshotJSON renders the top dashboard snapshot as the
-// envelope-wrapped JSON contract added in v0.14.0. The active session
-// tree continues to live under `sessions` with its existing field
-// shape; `failures`, `recent_commands`, `candidates`, and `stale_memories`
-// mirror the new dashboard panes so a script that consumes the snapshot has
-// the same data the live dashboard renders.
+// writeTopSnapshotJSON renders the sessions snapshot as the envelope-wrapped
+// JSON contract added in v0.14.0. The active session tree continues to live
+// under `sessions` with its existing field shape; `failures`,
+// `recent_commands`, `candidates`, and `stale_memories` mirror the text
+// snapshot sections so a script that consumes the snapshot sees the same
+// surface.
 //
 // profile selects the projection:
-//   - operator (default): full dashboard envelope (unchanged shape)
+//   - operator (default): full snapshot envelope (unchanged shape)
 //   - ai: bounded agent-resume envelope — counts/health + event IDs and
 //     retrieval hints instead of large bodies and memory candidate facts
 func writeTopSnapshotJSON(output io.Writer, snap topDataSnapshot, profile string) error {
