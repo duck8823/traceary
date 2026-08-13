@@ -8,17 +8,21 @@
 
 ## 要求要約
 
-現在のTracearyは、CLIまたはMCPが本文を切り詰める前に、完全な
-`model.Event`を復元します。CLIのJSON出力も、`--fields`が本文以外だけを
-指定していても完全なイベント形状を直列化します。そのためmetadataの
+歴史的にTracearyは、CLI（および v0.35.0 以前の MCP）が本文を切り詰める前に、
+完全な `model.Event` を復元していました。CLIのJSON出力も、`--fields`が本文以外
+だけを指定していても完全なイベント形状を直列化します。そのためmetadataの
 調査だけを意図した要求でも、巨大なprompt、transcript、tool、command本文を
 読み込み、再出力する可能性があります。
+
+> **v0.35.0 (#1871):** Traceary MCP server と `presentation/mcpserver` は削除済みです。
+> 以下の projection 規則は **CLI** 読取経路を記述します。MCP mapping owner の行は
+> 現行製品面には適用されません。
 
 v0.30.0では、既存の全文取得操作の意味を変えずに、本文を読まない契約を
 追加します。
 
-- MCPでprojectionを省略した場合は、既存の本文上限付き動作を維持する
-- `body_limit=0`と`full_body=true`は、引き続き保存済み本文の全文を返す
+- 退役した MCP 経路では projection 省略時に本文上限付き既定を維持していた。現行の操作は CLI flag
+- `body_limit=0` と全文詳細経路は、引き続き保存済み本文の全文を返す
 - metadata-only読取は本文列をSELECTせず、完全なイベントaggregateを作らない
 - `traceary show <event-id>`などの詳細取得は全文取得経路を維持する
 - ingest、保存方針、responseでの切り詰めを区別する
@@ -42,7 +46,7 @@ retentionと削除は本契約の対象外であり、#1421で扱います。
 | projection | SQLiteの返却列 | applicationの値 | response本文 | 互換性 |
 |---|---|---|---|---|
 | `metadata` | metadataと保存済みサイズ・切り詰め列のみ | `EventMetadata` | なし | v0.30.0で追加 |
-| `bounded` | 保存済み本文とmetadata | 完全event/read row | 正の上限まで返す | MCP既定500 runeを維持 |
+| `bounded` | 保存済み本文とmetadata | 完全event/read row | 正の上限まで返す | 歴史的なMCP既定は500 rune。CLIは独自の上限を使う |
 | `full` | 保存済み本文とmetadata | 完全event/read row | 保存済み本文の全文 | `body_limit=0`、`full_body=true`、詳細取得を維持 |
 
 `full`は保存済み内容の全文を意味します。ingestまたは将来のretentionで失われた
@@ -76,7 +80,7 @@ metadata-only queryで本文をGoへ読み込まずサイズを返せるよう�
 | 任意のcommand-audit metadata | metadata query serviceとSQLite left join | `exit_code`等のcompact fieldで詳細本文を読まない | CLI extras resolverでN+1の完全event読取を行わない |
 | 列選択とrow scan | `infrastructure/sqlite` | DB/schema詳細の変更 | applicationへSQL/table名を漏らさない |
 | CLI flagとJSON field | `presentation/cli` | CLI互換性と直列化の変更 | query serviceへCobraを漏らさない |
-| MCP input/output | `presentation/mcpserver` | MCP契約の変更 | query serviceへMCP DTOを漏らさない |
+| MCP input/output（退役） | ~~`presentation/mcpserver`~~（v0.35.0 / #1871 で削除） | 履歴のみ。現行の MCP 製品面はない | query serviceへMCP DTOを再導入しない |
 | 保存前の切り詰め情報 | ingest/storage境界 | 実際に保存した内容を知る層 | response rendererで推測しない |
 | response切り詰め情報 | presentation serializer | 要求ごとの上限変更 | persistenceへ要求固有状態を保存しない |
 
@@ -95,14 +99,14 @@ SELECTせずに`exit_code`/`failed`をjoinできます。
 
 applicationの語彙を正本とし、既存の公開surfaceでは加算的な互換keyを維持します。
 
-| 正規情報 | CLI JSON互換 | MCP互換 | v0.30.0の規則 |
+| 正規情報 | CLI JSON互換 | 歴史的な MCP key（v0.35 で退役） | v0.30.0の規則 |
 |---|---|---|---|
-| 返却本文/message | `message` | `body` | metadata projectionではkey自体を出さない。空文字列を入れるのではなく専用metadata DTOを使う |
-| responseで切り詰めたか | `truncated` | `body_truncated` | 既存keyを同じ正規情報の別名として維持する |
-| response切り詰め前の元rune数 | `message_length` | `body_length` | 既存互換で必要な場合だけ出すrune数として維持する |
-| 元・保存済み・返却済みbyte数 | `body_original_bytes`、`body_stored_bytes`、`body_returned_bytes` | 同じ名前 | 単位を明示した新しい加算key |
-| response前のplain-text projection byte数 | 既存`message_bytes` | 現在は相当keyなし | v0.30.0でresponse要約・切り詰め前の`ExtractPlainBody`のbyte数へ統一する。raw保存本文のextentではない |
-| ingest・保存時の切り詰め | `body_ingest_truncated`、`body_storage_truncated` | 同じ名前 | 新しい加算的provenance。unknownはnullまたは省略 |
+| 返却本文/message | `message` | 旧 `body` | metadata projectionではkey自体を出さない。空文字列を入れるのではなく専用metadata DTOを使う |
+| responseで切り詰めたか | `truncated` | 旧 `body_truncated` | 既存 CLI key を同じ正規情報の別名として維持する |
+| response切り詰め前の元rune数 | `message_length` | 旧 `body_length` | 既存互換で必要な場合だけ出すrune数として維持する |
+| 元・保存済み・返却済みbyte数 | `body_original_bytes`、`body_stored_bytes`、`body_returned_bytes` | MCP 存続中は同じ名前 | 単位を明示した新しい加算key |
+| response前のplain-text projection byte数 | 既存`message_bytes` | MCP 相当なし | v0.30.0でresponse要約・切り詰め前の`ExtractPlainBody`のbyte数へ統一する。raw保存本文のextentではない |
+| ingest・保存時の切り詰め | `body_ingest_truncated`、`body_storage_truncated` | MCP 存続中は同じ名前 | 新しい加算的provenance。unknownはnullまたは省略 |
 
 v0.30.0では`message_length`や`body_length`の単位を暗黙に変えません。responseの
 上限はrune基準、永続化するextentと新しい`*_bytes` keyはbyte基準です。
@@ -115,23 +119,17 @@ v0.30.0では`message_length`や`body_length`の単位を暗黙に変えませ�
 | `EventMetadataQueryService` | CLI一覧、context、report | SQL projectionとschema | 不正なlimit/filterはtyped validation errorとし、scan失敗にはoperation contextを残す |
 | 完全event query/repository | 詳細・本文consumer | 保存済み本文/body blocks | not-foundとstorage失敗を区別する |
 | projection resolver | CLI adapter | legacy flag優先順位 | 明示的に矛盾するoptionは大きなpayloadを返さず失敗する |
-| metadata serializer | JSON/MCP consumer | nullable表現 | unknownを既知の0として出さない |
+| metadata serializer | JSON consumer（CLI） | nullable表現 | unknownを既知の0として出さない |
 
 既存repository methodすべてへ`includeBody bool`を追加しません。metadata consumerに
 必要な操作だけを持つ小さなinterfaceを追加します。
 
-### MCP互換性
+### MCP互換性（履歴。v0.35.0 / #1871 で削除）
 
-MCP inputへ加算的な`projection` enumを追加します。
-
-- 省略: 従来の`body_limit`/`full_body`解決
-- `metadata`: 本文とbody-block fieldを返さない
-- `bounded`: 正の`body_limit`。省略時は500
-- `full`: 保存済み本文の全文
-
-`projection=metadata`と`full_body=true`または正の`body_limit`はエラーにします。
-従来のint inputでは`body_limit`省略と明示0を区別できないため、metadata指定時の
-0は無視します。projection未指定時の0は従来どおり全文取得です。
+MCP server 退役前は、MCP input に加算的な `projection` enum
+（`metadata` / `bounded` / `full`）と 500 rune の bounded 既定がありました。
+`presentation/mcpserver` とそれらの tool はもう存在しません。以下は現行製品面ではなく、
+CLI の projection / flag が唯一の現行 consumer 契約です。
 
 ### CLI互換性
 
@@ -153,11 +151,8 @@ MCP inputへ加算的な`projection` enumを追加します。
 詳細取得は明示的な保存済み本文全文の経路を維持します。v0.30.0で共有provenanceを
 出せないsurfaceは既知の互換gapとして列挙し、別の意味を追加しません。
 
-既存MCP handoffの`recent_commands`は`[]string`であり、itemごとのprovenanceを
-保持できません。これはv0.29からの既知の互換gapです。v0.30.0では同fieldを
-legacy mirrorとして維持し、event identity、response切り詰め、rune数、byte extentを
-持つ構造化sibling itemを追加します。新consumerは構造化siblingを使います。
-一般event listのprojectionからhandoff形状を暗黙変更しないよう、別sub-issueで扱います。
+旧 MCP handoff の `recent_commands` は `[]string` であり、item ごとの provenance を
+保持できませんでした（MCP 存続中の v0.29 互換 gap）。#1871 以降の現行面は CLI handoff / context です。
 
 ## 振る舞いテスト
 
@@ -166,9 +161,6 @@ legacy mirrorとして維持し、event identity、response切り詰め、rune�
 | metadataで本文を復元しない | metadataが同じで本文サイズだけ異なる2行 | metadata list | 値とresponse割当量が本文サイズに依存しない | SQLite integration |
 | SQLから本文列を除く | metadata projection | query実行 | scannerに本文/body-blockの読取先がない | SQLite integration |
 | 対象eventがprojectionに依存しない | 同一snapshot/filter | metadata/full list | event IDと順序が一致 | query-service integration |
-| MCP既定は上限付き | projection省略 | `list_events` | 従来どおり500 runeで切り詰める | MCP regression |
-| MCP全文互換 | `body_limit=0`または`full_body=true` | list実行 | response切り詰めなしで保存済み本文を返す | MCP regression |
-| 矛盾optionを拒否 | `projection=metadata`かつ`full_body=true` | validation | queryせずエラー | MCP behavior |
 | JSON fieldsを直列化へ適用 | CLI JSONでmetadata fieldのみ選択 | list実行 | message/body keyが存在しない | CLI behavior |
 | audit metadataでも本文を読まない | CLI metadata fieldに`exit_code`を含む、または失敗色を有効化 | list実行 | 1回のmetadata queryでexit code/failedを返し、event本文とcommand input/outputをSELECTしない | CLI/SQLite integration |
 | 詳細取得は全文 | 大きな保存済み本文 | `traceary show` | 保存済み本文を全文返す | CLI regression |
@@ -203,7 +195,7 @@ private helperやcall orderではなく、出力とquery形状を検証します
 - **unknown破壊:** 既存行の元サイズを0にしない
 - **searchの誤解:** metadata-only searchがSQLiteのWHEREで本文を使うことは許容するが、
   Goへ本文を返さない
-- **CLI drift:** DTOは別でもprojectionの意味と切り詰め語彙はapplicationで一元化し、上の対応表を互換性の正本にする
+- **CLI drift:** projectionの意味と切り詰め語彙はapplicationで一元化し、#1871 以降の現行互換性の正本は CLI 対応表とする
 - **version名の混同:** `body_metadata_version`は内部ingest抽出versionであり公開projection selectorではない。将来のschema契約が必要としない限りserializerへ出さない
 
 本noteのreviewとmerge後に#1428の実装を開始します。

@@ -1,6 +1,6 @@
 # Traceary
 
-Local-first CLI and MCP server for recording AI agent work logs, session boundaries, and shell command audits.
+Local-first CLI for recording AI agent work logs, session boundaries, and shell command audits.
 
 ## Tech stack
 
