@@ -61,11 +61,18 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			wantExitCode: 0,
 		},
 		{
-			name:          "65 KiB unrefined exits 2 and names the session",
-			client:        "claude",
-			seedBytes:     65 * 1024,
-			wantExitCode:  2,
-			wantStderrSub: []string{sessionID, "unrefined material"},
+			name:         "65 KiB unrefined exits 2 and names the session",
+			client:       "claude",
+			seedBytes:    65 * 1024,
+			wantExitCode: 2,
+			wantStderrSub: []string{
+				sessionID,
+				"unrefined material",
+				"why the work was undertaken",
+				"what changed",
+				"how it went",
+				"approaches tried and rejected",
+			},
 		},
 		{
 			name:           "previous refinement summary and covers_to appear in reason",
@@ -73,7 +80,7 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			seedBytes:      65 * 1024,
 			withRefinement: true,
 			wantExitCode:   2,
-			wantStderrSub:  []string{sessionID, "previous fold summary", "covers_to=evt-cover"},
+			wantStderrSub:  []string{sessionID, "previous fold summary", "covers_to=evt-cover", "why the work was undertaken", "what changed"},
 		},
 		{
 			name:          "threshold 0 never fires",
