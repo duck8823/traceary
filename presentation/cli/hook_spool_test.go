@@ -13,6 +13,8 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -543,6 +545,59 @@ func TestDrainHookSpoolRecords_DoesNotFollowExternalSymlink(t *testing.T) {
 	if string(data) != sentinelRecord {
 		t.Fatal("sentinel content changed")
 	}
+
+	// Requeue of an unreadable symlink must not materialize a regular retry
+	// JSON that would replay the external target on the next drain.
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("symlink must leave the pending spool, Lstat err=%v", err)
+	}
+	pendingJSON := listTopLevelSpoolJSON(t, spoolDir)
+	if len(pendingJSON) != 0 {
+		t.Fatalf("pending spool JSON after symlink requeue = %v, want none", pendingJSON)
+	}
+	for _, name := range pendingJSON {
+		info, err := os.Lstat(filepath.Join(spoolDir, name))
+		if err != nil {
+			t.Fatalf("Lstat(%s): %v", name, err)
+		}
+		if info.Mode().IsRegular() {
+			body, _ := os.ReadFile(filepath.Join(spoolDir, name))
+			if strings.Contains(string(body), privateMarker) {
+				t.Fatalf("requeue created replayable copy of external sentinel: %s", name)
+			}
+		}
+	}
+
+	replayed, failed = root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 0 || failed != 0 || eventStub.logCalls != 0 {
+		t.Fatalf("second drain=%d/%d logCalls=%d, want 0/0/0 (no symlink target replay)", replayed, failed, eventStub.logCalls)
+	}
+	if eventStub.lastMessage == privateMarker || strings.Contains(eventStub.lastMessage, privateMarker) {
+		t.Fatalf("second drain replayed sentinel payload: %q", eventStub.lastMessage)
+	}
+	data, err = os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatalf("sentinel must remain after second drain: %v", err)
+	}
+	if string(data) != sentinelRecord {
+		t.Fatal("sentinel content changed after second drain")
+	}
+}
+
+func listTopLevelSpoolJSON(t *testing.T, spoolDir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(spoolDir)
+	if err != nil {
+		t.Fatalf("ReadDir(%s): %v", spoolDir, err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	return names
 }
 
 func TestInspectHookSpoolDiagnostics_DoesNotFollowExternalSymlink(t *testing.T) {
@@ -1071,4 +1126,667 @@ func (s *spoolStoreManagementStub) PurgeContentEventDedupeRun(context.Context, s
 
 func (s *spoolStoreManagementStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
 	return nil, nil
+}
+
+func TestShouldDeadLetter(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		attempt int
+		want    bool
+	}{
+		{0, false},
+		{1, false},
+		{2, false},
+		{3, true},
+		{4, true},
+	}
+	for _, tc := range cases {
+		if got := shouldDeadLetter(tc.attempt); got != tc.want {
+			t.Fatalf("shouldDeadLetter(%d) = %v, want %v", tc.attempt, got, tc.want)
+		}
+	}
+}
+
+func TestRequeueHookSpoolRecord_IncrementsAttemptUntilDeadLetter(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(&spoolEventUsecaseStub{}),
+	)
+	path, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	// First two failures keep the record pending with incremented attempt_count.
+	for wantAttempt := 1; wantAttempt < hookSpoolRetryLimit; wantAttempt++ {
+		replayed, failed := root.drainHookSpoolRecords(context.Background(), 1)
+		if replayed != 0 || failed != 1 {
+			t.Fatalf("attempt %d: drain=%d/%d, want 0/1", wantAttempt, replayed, failed)
+		}
+		records, unreadable, err := scanHookSpoolRecords(nil)
+		if err != nil {
+			t.Fatalf("scan after attempt %d: %v", wantAttempt, err)
+		}
+		if len(unreadable) != 0 || len(records) != 1 {
+			t.Fatalf("attempt %d: records=%#v unreadable=%#v", wantAttempt, records, unreadable)
+		}
+		if records[0].AttemptCount != wantAttempt {
+			t.Fatalf("attempt %d: AttemptCount=%d, want %d", wantAttempt, records[0].AttemptCount, wantAttempt)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("attempt %d: original path should have been renamed, stat err=%v", wantAttempt, err)
+		}
+		path = records[0].Path
+	}
+
+	// Final failure moves the record to spool/dead/ and excludes it from drain.
+	replayed, failed := root.drainHookSpoolRecords(context.Background(), 1)
+	if replayed != 0 || failed != 1 {
+		t.Fatalf("cap drain=%d/%d, want 0/1", replayed, failed)
+	}
+	records, unreadable, err := scanHookSpoolRecords(nil)
+	if err != nil {
+		t.Fatalf("scan after cap: %v", err)
+	}
+	if len(records) != 0 || len(unreadable) != 0 {
+		t.Fatalf("after cap pending records=%#v unreadable=%#v, want empty", records, unreadable)
+	}
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	deadEntries, err := os.ReadDir(deadDir)
+	if err != nil {
+		t.Fatalf("ReadDir(dead): %v", err)
+	}
+	if len(deadEntries) != 1 {
+		t.Fatalf("dead entries=%d, want 1", len(deadEntries))
+	}
+	deadPath := filepath.Join(deadDir, deadEntries[0].Name())
+	data, err := os.ReadFile(deadPath)
+	if err != nil {
+		t.Fatalf("ReadFile(dead): %v", err)
+	}
+	var dead hookSpoolRecord
+	if err := json.Unmarshal(data, &dead); err != nil {
+		t.Fatalf("Unmarshal dead: %v", err)
+	}
+	if dead.AttemptCount != hookSpoolRetryLimit {
+		t.Fatalf("dead AttemptCount=%d, want %d", dead.AttemptCount, hookSpoolRetryLimit)
+	}
+	if dead.LastError == "" {
+		t.Fatal("dead last_error must be set")
+	}
+
+	// Drain batch must not pick dead-letter files.
+	batch, batchUnreadable, err := loadHookSpoolReplayBatch(5, os.ReadFile)
+	if err != nil {
+		t.Fatalf("loadHookSpoolReplayBatch: %v", err)
+	}
+	if len(batch) != 0 || len(batchUnreadable) != 0 {
+		t.Fatalf("batch after dead-letter records=%#v unreadable=%#v, want empty", batch, batchUnreadable)
+	}
+	replayed, failed = root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 0 || failed != 0 {
+		t.Fatalf("post-dead drain=%d/%d, want 0/0", replayed, failed)
+	}
+	// Terminal records are retained, not deleted.
+	if _, err := os.Stat(deadPath); err != nil {
+		t.Fatalf("dead-letter must be retained: %v", err)
+	}
+}
+
+func TestRequeueHookSpoolRecord_MissingAttemptCountTreatedAsZero(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	if err := os.MkdirAll(spoolDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// Old schema_version:1 records omit attempt_count; treat as 0 then 1.
+	path := filepath.Join(spoolDir, "20260101T000000.000000000Z-claude-legacy.json")
+	legacy := `{"schema_version":1,"command":"not-a-real-hook","client":"claude","payload":"{}","created_at":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(path, []byte(legacy+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := requeueHookSpoolRecord(path, "legacy fail"); err != nil {
+		t.Fatalf("requeueHookSpoolRecord: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("legacy path must move, stat err=%v", err)
+	}
+	records, unreadable, err := scanHookSpoolRecords(nil)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 {
+		t.Fatalf("records=%#v unreadable=%#v", records, unreadable)
+	}
+	if records[0].AttemptCount != 1 {
+		t.Fatalf("AttemptCount=%d, want 1 (missing field treated as 0 then incremented)", records[0].AttemptCount)
+	}
+	if records[0].LastError != "legacy fail" {
+		t.Fatalf("LastError=%q, want legacy fail", records[0].LastError)
+	}
+}
+
+func TestLoadHookSpoolReplayBatch_SkipsDeadLetterDirectory(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	deadDir := filepath.Join(spoolDir, hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// A live pending record should still load.
+	if _, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{"prompt":"live","session_id":"s-live","cwd":"/tmp"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("persist live: %v", err)
+	}
+	// A dead-letter file must never appear in the replay batch.
+	deadRecord := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC().Add(-2 * time.Minute),
+		AttemptCount:  hookSpoolRetryLimit,
+		LastError:     "poison",
+	}
+	deadPath := filepath.Join(deadDir, "dead-poison.json")
+	if err := writeHookSpoolRecordAtomic(deadPath, deadRecord); err != nil {
+		t.Fatalf("write dead: %v", err)
+	}
+
+	records, unreadable, err := loadHookSpoolReplayBatch(5, os.ReadFile)
+	if err != nil {
+		t.Fatalf("loadHookSpoolReplayBatch: %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 {
+		t.Fatalf("records=%#v unreadable=%#v, want only live pending", records, unreadable)
+	}
+	if !strings.Contains(records[0].Payload, "live") {
+		t.Fatalf("expected live payload, got %#v", records[0])
+	}
+	paths, err := listHookSpoolRecordPaths()
+	if err != nil {
+		t.Fatalf("listHookSpoolRecordPaths: %v", err)
+	}
+	for _, p := range paths {
+		if strings.Contains(p, string(filepath.Separator)+hookSpoolDeadDirName+string(filepath.Separator)) {
+			t.Fatalf("list included dead path %q", p)
+		}
+	}
+}
+
+func TestLoadHookSpoolReplayBatch_SkipsRecordsAtRetryCap(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	if _, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+		AttemptCount:  hookSpoolRetryLimit,
+	}); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	records, unreadable, err := loadHookSpoolReplayBatch(5, os.ReadFile)
+	if err != nil {
+		t.Fatalf("loadHookSpoolReplayBatch: %v", err)
+	}
+	if len(records) != 0 || len(unreadable) != 0 {
+		t.Fatalf("records=%#v unreadable=%#v, want skip at cap", records, unreadable)
+	}
+}
+
+func TestInspectHookSpoolFilesystemMetadata_CountsWithoutReadingPayloads(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	deadDir := filepath.Join(spoolDir, hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	const secretPayload = "SECRET_PAYLOAD_MUST_NOT_APPEAR_IN_DOCTOR"
+	pendingPath := filepath.Join(spoolDir, "20260101T000000.000000000Z-claude-pending.json")
+	if err := os.WriteFile(pendingPath, []byte(`{"schema_version":1,"command":"prompt","client":"claude","payload":"`+secretPayload+`","created_at":"2026-01-01T00:00:00Z"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile pending: %v", err)
+	}
+	deadPath := filepath.Join(deadDir, "dead-one.json")
+	if err := os.WriteFile(deadPath, []byte(`{"schema_version":1,"attempt_count":3,"payload":"`+secretPayload+`"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile dead: %v", err)
+	}
+	inflightPath := filepath.Join(spoolDir, "20260101T000001.000000000Z-claude.inflight")
+	if err := os.WriteFile(inflightPath, []byte(`{"schema_version":1,"payload":"`+secretPayload+`"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile inflight: %v", err)
+	}
+	staleAt := time.Now().Add(-2 * hookSpoolInflightStaleAge)
+	if err := os.Chtimes(inflightPath, staleAt, staleAt); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	stats, err := inspectHookSpoolFilesystemStats(time.Now().UTC())
+	if err != nil {
+		t.Fatalf("inspectHookSpoolFilesystemStats: %v", err)
+	}
+	if stats.PendingCount != 1 || stats.DeadCount != 1 || stats.StaleInflightCount != 1 {
+		t.Fatalf("stats=%+v, want pending=1 dead=1 stale_inflight=1", stats)
+	}
+	if stats.PendingBytes <= 0 || stats.DeadBytes <= 0 || stats.StaleInflightBytes <= 0 {
+		t.Fatalf("byte sizes must be positive: %+v", stats)
+	}
+
+	check := inspectHookSpoolFilesystemMetadata()
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("status=%q, want warn", check.Status)
+	}
+	if !strings.Contains(check.Message, "pending=1") || !strings.Contains(check.Message, "dead=1") {
+		t.Fatalf("message=%q, want pending and dead counts", check.Message)
+	}
+	if strings.Contains(check.Message, secretPayload) || strings.Contains(check.Hint, secretPayload) {
+		t.Fatalf("doctor leaked payload body: %#v", check)
+	}
+}
+
+func TestInspectHookSpoolDiagnostics_ReportsPendingAndTerminalCounts(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	if _, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{"prompt":"pending","session_id":"s-p","cwd":"/tmp"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := writeHookSpoolRecordAtomic(filepath.Join(deadDir, "dead.json"), hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC(),
+		AttemptCount:  hookSpoolRetryLimit,
+	}); err != nil {
+		t.Fatalf("write dead: %v", err)
+	}
+
+	check := (&RootCLI{}).inspectHookSpoolDiagnostics(nil)
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("status=%q, want warn", check.Status)
+	}
+	if !strings.Contains(check.Message, "1 pending") || !strings.Contains(check.Message, "1 terminal") {
+		t.Fatalf("message=%q, want pending and terminal counts", check.Message)
+	}
+}
+
+func TestClaimHookSpoolRecord_FreshMtimeSurvivesStaleRecovery(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	path, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC().Add(-2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	// Simulate a long-pending record whose original mtime is already stale.
+	old := time.Now().Add(-2 * hookSpoolInflightStaleAge)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatalf("Chtimes original: %v", err)
+	}
+
+	claimedPath, ok, err := claimHookSpoolRecord(path)
+	if err != nil {
+		t.Fatalf("claimHookSpoolRecord: %v", err)
+	}
+	if !ok {
+		t.Fatal("claimHookSpoolRecord ok=false, want true")
+	}
+
+	// Immediate recovery with wall clock must not restore a live claim whose
+	// mtime was refreshed at claim time (rename alone would keep the old mtime).
+	if err := recoverStaleClaimedHookSpoolRecords(time.Now().UTC()); err != nil {
+		t.Fatalf("recover now: %v", err)
+	}
+	if _, err := os.Lstat(claimedPath); err != nil {
+		t.Fatalf("claimed path must remain after recover(now): %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("original .json must not be restored while claim is live, stat err=%v", err)
+	}
+
+	// Far-future recovery may release the claim once it is truly stale.
+	future := time.Now().UTC().Add(2 * hookSpoolInflightStaleAge)
+	if err := recoverStaleClaimedHookSpoolRecords(future); err != nil {
+		t.Fatalf("recover future: %v", err)
+	}
+	if _, err := os.Lstat(claimedPath); !os.IsNotExist(err) {
+		t.Fatalf("stale claim must be released, Lstat err=%v", err)
+	}
+	// Restored either under the original basename or a unique retry name.
+	pending, err := listHookSpoolRecordPaths()
+	if err != nil {
+		t.Fatalf("listHookSpoolRecordPaths: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending after stale release = %v, want exactly 1", pending)
+	}
+}
+
+func TestClaimHookSpoolRecord_ConcurrentExclusive(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	path, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	const workers = 8
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var wins atomic.Int32
+	var claimedPath atomic.Value
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got, ok, claimErr := claimHookSpoolRecord(path)
+			if claimErr != nil {
+				t.Errorf("claimHookSpoolRecord: %v", claimErr)
+				return
+			}
+			if ok {
+				wins.Add(1)
+				claimedPath.Store(got)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := wins.Load(); got != 1 {
+		t.Fatalf("claim winners=%d, want exactly 1", got)
+	}
+	gotPath, _ := claimedPath.Load().(string)
+	if gotPath == "" || !isHookSpoolClaimFile(filepath.Base(gotPath)) {
+		t.Fatalf("claimed path = %q, want *.json.claim-*", gotPath)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("original path must be gone after exclusive claim, stat err=%v", err)
+	}
+	// Exactly one claim file remains; no second copy of the original.
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	claimFiles := 0
+	jsonFiles := 0
+	for _, entry := range entries {
+		switch {
+		case isHookSpoolClaimFile(entry.Name()):
+			claimFiles++
+		case strings.HasSuffix(entry.Name(), ".json"):
+			jsonFiles++
+		}
+	}
+	if claimFiles != 1 || jsonFiles != 0 {
+		t.Fatalf("claimFiles=%d jsonFiles=%d, want 1/0", claimFiles, jsonFiles)
+	}
+}
+
+func TestDrainHookSpoolRecords_ConcurrentClaimSingleRecord(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+
+	originalPath, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{"marker":"concurrent-claim"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	// Two concurrent drains share one poison record. Regardless of scheduling
+	// (second worker may or may not see the first worker's zz-retry), the
+	// exclusive claim must keep a single retained file and never resurrect the
+	// original basename as a duplicate replayable copy.
+	const workers = 2
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make([]struct{ replayed, failed int }, workers)
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			root := NewRootCLI(
+				WithStoreManagement(&spoolStoreManagementStub{}),
+				WithEvent(&spoolEventUsecaseStub{}),
+			)
+			<-start
+			results[i].replayed, results[i].failed = root.drainHookSpoolRecords(context.Background(), 5)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	totalReplayed := results[0].replayed + results[1].replayed
+	if totalReplayed != 0 {
+		t.Fatalf("replayed=%d, want 0 for poison record (results=%v)", totalReplayed, results)
+	}
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Fatalf("original path must be gone after claim, stat err=%v", err)
+	}
+
+	pending := listTopLevelSpoolJSON(t, spoolDir)
+	deadDir := filepath.Join(spoolDir, hookSpoolDeadDirName)
+	deadCount := 0
+	if entries, err := os.ReadDir(deadDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+				deadCount++
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("ReadDir(dead): %v", err)
+	}
+	if len(pending)+deadCount != 1 {
+		t.Fatalf("pending=%v dead=%d, want exactly one retained record (results=%v)", pending, deadCount, results)
+	}
+	if len(pending) == 1 {
+		data, err := os.ReadFile(filepath.Join(spoolDir, pending[0]))
+		if err != nil {
+			t.Fatalf("ReadFile retry: %v", err)
+		}
+		var record hookSpoolRecord
+		if err := json.Unmarshal(data, &record); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if record.AttemptCount < 1 || record.AttemptCount > workers {
+			t.Fatalf("AttemptCount=%d, want 1..%d", record.AttemptCount, workers)
+		}
+	}
+	entries, err := os.ReadDir(spoolDir)
+	if err != nil {
+		t.Fatalf("ReadDir(spool): %v", err)
+	}
+	for _, entry := range entries {
+		if isHookSpoolClaimFile(entry.Name()) {
+			t.Fatalf("leftover claim file %q", entry.Name())
+		}
+	}
+}
+
+func TestRequeueHookSpoolRecord_SingleFileTransition(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+
+	path, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{"marker":"single-transition"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	if err := requeueHookSpoolRecord(path, "first failure"); err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	// After a successful requeue there must be exactly one replayable file
+	// (the retry-tail rename of the original), not original+copy.
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("original path must be gone after requeue, stat err=%v", err)
+	}
+	pending := listTopLevelSpoolJSON(t, spoolDir)
+	if len(pending) != 1 {
+		t.Fatalf("pending JSON after requeue = %v, want exactly one retry file", pending)
+	}
+	if !strings.HasPrefix(pending[0], "zz-retry-") {
+		t.Fatalf("retry name = %q, want zz-retry- prefix", pending[0])
+	}
+	// No leftover tmp from the in-place publish step.
+	entries, err := os.ReadDir(spoolDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Fatalf("leftover tmp after requeue: %s", entry.Name())
+		}
+	}
+	retryPath := filepath.Join(spoolDir, pending[0])
+	data, err := os.ReadFile(retryPath)
+	if err != nil {
+		t.Fatalf("ReadFile retry: %v", err)
+	}
+	var record hookSpoolRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if record.AttemptCount != 1 || record.LastError != "first failure" {
+		t.Fatalf("record=%#v, want attempt=1 last_error=first failure", record)
+	}
+
+	// Drive remaining attempts to dead-letter; each step must keep exactly one file.
+	for attempt := 1; attempt < hookSpoolRetryLimit; attempt++ {
+		pending = listTopLevelSpoolJSON(t, spoolDir)
+		if len(pending) != 1 {
+			t.Fatalf("pending before attempt %d = %v, want exactly one", attempt+1, pending)
+		}
+		retryPath = filepath.Join(spoolDir, pending[0])
+		if err := requeueHookSpoolRecord(retryPath, "again"); err != nil {
+			t.Fatalf("requeue attempt %d: %v", attempt+1, err)
+		}
+	}
+	if got := listTopLevelSpoolJSON(t, spoolDir); len(got) != 0 {
+		t.Fatalf("pending after dead-letter = %v, want empty", got)
+	}
+	deadDir := filepath.Join(spoolDir, hookSpoolDeadDirName)
+	deadEntries, err := os.ReadDir(deadDir)
+	if err != nil {
+		t.Fatalf("ReadDir(dead): %v", err)
+	}
+	jsonDead := 0
+	for _, entry := range deadEntries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			jsonDead++
+		}
+	}
+	if jsonDead != 1 {
+		t.Fatalf("dead JSON count=%d, want exactly 1", jsonDead)
+	}
+}
+
+func TestRequeueHookSpoolRecord_ClassifiedUnreplayableErrorsIncrementTowardDeadLetter(t *testing.T) {
+	// The two observed poison classes must progress attempt_count via the real
+	// requeue/dead-letter path. Validators stay strict; this only asserts
+	// terminal retention after the cap.
+	cases := []string{
+		"invalid Kimi usage record metadata",
+		"conflicting duplicate Claude assistant usage",
+	}
+	for _, lastError := range cases {
+		t.Run(lastError, func(t *testing.T) {
+			stateDir := t.TempDir()
+			t.Setenv(hookStateDirEnvKey, stateDir)
+			path, err := persistHookSpoolRecord(hookSpoolRecord{
+				SchemaVersion: hookSpoolSchemaVersion,
+				Command:       "usage",
+				Client:        "claude",
+				Payload:       `{}`,
+				CreatedAt:     time.Now().UTC().Add(-time.Minute),
+				AttemptCount:  hookSpoolRetryLimit - 1,
+			})
+			if err != nil {
+				t.Fatalf("persist: %v", err)
+			}
+			if err := requeueHookSpoolRecord(path, lastError); err != nil {
+				t.Fatalf("requeueHookSpoolRecord: %v", err)
+			}
+			deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+			entries, err := os.ReadDir(deadDir)
+			if err != nil {
+				t.Fatalf("ReadDir(dead): %v", err)
+			}
+			if len(entries) != 1 {
+				t.Fatalf("dead entries=%d, want 1", len(entries))
+			}
+			data, err := os.ReadFile(filepath.Join(deadDir, entries[0].Name()))
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			var dead hookSpoolRecord
+			if err := json.Unmarshal(data, &dead); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			if dead.AttemptCount != hookSpoolRetryLimit {
+				t.Fatalf("AttemptCount=%d, want %d", dead.AttemptCount, hookSpoolRetryLimit)
+			}
+			if dead.LastError != lastError {
+				t.Fatalf("LastError=%q, want %q", dead.LastError, lastError)
+			}
+			batch, _, err := loadHookSpoolReplayBatch(5, os.ReadFile)
+			if err != nil {
+				t.Fatalf("loadHookSpoolReplayBatch: %v", err)
+			}
+			if len(batch) != 0 {
+				t.Fatalf("dead-lettered poison still in batch: %#v", batch)
+			}
+		})
+	}
 }

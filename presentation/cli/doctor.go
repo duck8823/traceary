@@ -296,10 +296,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Mode = doctorModeMetadataOnlyLargeStore
 		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath))
 		// This is an intentional, successful bounded outcome. Do not initialize
-		// SQLite, list events, scan hook spools, or inspect client state here:
+		// SQLite, list events, open spool payloads, or inspect client state here:
 		// those operations can block behind a live writer and some inspect event
-		// bodies/payloads. The result is useful precisely because it is based on
-		// filesystem metadata only and cannot mutate or expose store content.
+		// bodies/payloads. Hook spool is still reported via directory entry
+		// counts and byte sizes only (pending / stale inflight / dead-letter).
+		report.Checks = append(report.Checks, inspectHookSpoolFilesystemMetadata())
 		return report, nil
 	}
 

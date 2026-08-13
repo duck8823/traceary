@@ -571,6 +571,80 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	}
 }
 
+func TestRootCLI_DoctorLargeStoreReportsHookSpoolMetadataWithoutPayloadReads(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutable(t)
+
+	// Isolate the hook spool so doctor metadata counts come only from this fixture.
+	stateDir := t.TempDir()
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	deadDir := filepath.Join(spoolDir, "dead")
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	const secretPayload = "SECRET_LARGE_STORE_SPOOL_PAYLOAD"
+	pendingPath := filepath.Join(spoolDir, "20260101T000000.000000000Z-claude-pending.json")
+	if err := os.WriteFile(pendingPath, []byte(`{"schema_version":1,"command":"prompt","client":"claude","payload":"`+secretPayload+`","created_at":"2026-01-01T00:00:00Z"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile pending: %v", err)
+	}
+	deadPath := filepath.Join(deadDir, "dead-one.json")
+	if err := os.WriteFile(deadPath, []byte(`{"schema_version":1,"attempt_count":3,"payload":"`+secretPayload+`"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile dead: %v", err)
+	}
+
+	largeStore := filepath.Join(t.TempDir(), "large-metadata-only.db")
+	file, err := os.OpenFile(largeStore, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("OpenFile() error = %v", err)
+	}
+	if err := file.Truncate(2 << 30); err != nil {
+		_ = file.Close()
+		t.Fatalf("Truncate() error = %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	store := &storeManagementUsecaseStub{}
+	events := &eventUsecaseStub{}
+	capacity := &panicCapacityInspector{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(store),
+		cli.WithEvent(events),
+		cli.WithCapacityInspector(capacity),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--db-path", largeStore, "--json", "--warnings-ok"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	report := decodeDoctorReport(t, stdout.Bytes())
+	if report.Mode != "metadata_only_large_store" {
+		t.Fatalf("report.Mode = %q, want metadata_only_large_store", report.Mode)
+	}
+	if store.initCalled {
+		t.Fatal("large-store doctor initialized SQLite, want metadata-only outcome")
+	}
+	if events.listCalls != 0 {
+		t.Fatalf("large-store doctor listed %d events, want no event/payload reads", events.listCalls)
+	}
+
+	spool := statusByName(report, "hook-spool")
+	if spool.Status != "warn" {
+		t.Fatalf("hook-spool status = %q, want warn (message=%q)", spool.Status, spool.Message)
+	}
+	if !strings.Contains(spool.Message, "pending=1") || !strings.Contains(spool.Message, "dead=1") {
+		t.Fatalf("hook-spool message = %q, want pending and dead metadata counts", spool.Message)
+	}
+	if strings.Contains(spool.Message, secretPayload) || strings.Contains(spool.Hint, secretPayload) {
+		t.Fatalf("large-store doctor leaked spool payload body: %#v", spool)
+	}
+}
+
 func TestRootCLI_DoctorCommand_ClaudeHookCancellationDiagnostics(t *testing.T) {
 	t.Run("passes when no pending marker exists", func(t *testing.T) {
 		homeDir := t.TempDir()
