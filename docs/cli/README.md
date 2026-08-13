@@ -69,7 +69,7 @@ Useful flags:
 - `--max-input-bytes`
 - `--max-output-bytes`
 
-Command-audit input/output payloads are truncated before persistence when they exceed the resolved limit. The resolved limit is `--max-*-bytes` flag, then `TRACEARY_MAX_AUDIT_*_BYTES`, then `audit.max_*_bytes` in `~/.config/traceary/config.json`, then the built-in default. Truncated payloads preserve head and tail context and include structured `input_truncated` / `output_truncated` metadata plus an `original_bytes` marker; omitted bytes are not recoverable through `traceary show` or MCP `full_body=true`.
+Command-audit input/output payloads are truncated before persistence when they exceed the resolved limit. The resolved limit is `--max-*-bytes` flag, then `TRACEARY_MAX_AUDIT_*_BYTES`, then `audit.max_*_bytes` in `~/.config/traceary/config.json`, then the built-in default. Truncated payloads preserve head and tail context and include structured `input_truncated` / `output_truncated` metadata plus an `original_bytes` marker; omitted bytes are not recoverable through `traceary show`.
 
 On **read surfaces** (`sessions --snapshot --json`, list-style recent-command panes), large host-tool payloads (`Edit` / `Write` / `Read` / shell) are projected into a tool-aware compact summary (tool name, path when present, rune counts, content hash, head/tail, and a `traceary show <event_id>` retrieval hint). This is a presentation-time projection only: raw persistence and `traceary show` remain full-fidelity.
 
@@ -330,7 +330,7 @@ Useful flags:
 
 ### `traceary memory inbox` — candidate review surface
 
-Review the memory review queue. `list` surfaces `candidate` memories together with their confidence and review-readiness state plus evidence / artifact ref counts so a reviewer can judge provenance before accepting. `show` renders the evidence-first decision card for a single candidate. `accept` and `reject` take either a single positional id (the common interactive case) or `--ids id1,id2,...` for batch scripts and MCP callers; partial batches return a per-id success / failure breakdown so a failure never hides which entries transitioned. `--id-only` prints just the resulting memory id on stdout (mutually exclusive with `--json`); the canonical inbox surface is a strict superset of the v0.13.x positional-id form.
+Review the memory review queue. `list` surfaces `candidate` memories together with their confidence and review-readiness state plus evidence / artifact ref counts so a reviewer can judge provenance before accepting. `show` renders the evidence-first decision card for a single candidate. `accept` and `reject` take either a single positional id (the common interactive case) or `--ids id1,id2,...` for batch scripts and other callers; partial batches return a per-id success / failure breakdown so a failure never hides which entries transitioned. `--id-only` prints just the resulting memory id on stdout (mutually exclusive with `--json`); the canonical inbox surface is a strict superset of the v0.13.x positional-id form.
 
 #### `traceary memory inbox list`
 
@@ -610,8 +610,7 @@ Useful flags:
 
 Every result reports `complete`, `partial`, `stop_reason`, `consistency`, and
 actual `usage`. A partial CLI result also reports `rerun_guidance`: narrow
-`--workspace`, raise only the finite bounds that are appropriate, or use the
-MCP surface for resumable paging. An unchanged store reports
+`--workspace`, or raise only the finite bounds that are appropriate. An unchanged store reports
 `consistency=consistent`. If a memory write changes the global revision while
 the invocation is scanning, the scanner keeps the retained phase/keyset,
 rebinds to the current revision, permanently marks the scan `best_effort` with
@@ -938,7 +937,7 @@ Useful flags:
 | `ended` | Has an end marker and no events after it. |
 | `ended_with_late_events` | Has an end marker but later events arrived under the same session. The end marker can come from a `session_ended` event or from `session gc` writing `ended_at` directly. |
 
-The active-only snapshot keeps `active`, `ended_with_late_events`, and (with `--allow-stale`) `stale` sessions. `ended_with_late_events` is what stops `sessions --snapshot` from returning zero sessions when recent workspace events exist even though the session was already closed — for example when a host such as Codex closed the session early but the conversation kept going. CLI snapshot and MCP `session_status(action="active")` apply the same rule, so a session with events after its end marker is surfaced by both.
+The active-only snapshot keeps `active`, `ended_with_late_events`, and (with `--allow-stale`) `stale` sessions. `ended_with_late_events` is what stops `sessions --snapshot` from returning zero sessions when recent workspace events exist even though the session was already closed — for example when a host such as Codex closed the session early but the conversation kept going. `session list` and `sessions --snapshot` apply the same rule, so a session with events after its end marker is surfaced on both CLI reads.
 
 ## Hooks and diagnostics
 

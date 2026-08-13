@@ -111,7 +111,7 @@ graph 操作は CLI のみです。旧 MCP server は v0.35.0 (#1871) で削除�
 
 ## Follow-up チケット (出荷時に作成)
 
-- MCP `memory_graph_add` / `memory_graph_query` ツール (CLI 先行、MCP 契約は運用が固まってから設計)
+- MCP graph ツールは作らない（#1871 で退役。再導入しない）
 - `memory graph walk` for 多段トラバース
 - `hygiene scan edge_overlap` 検出器
 - replay HTML の edge 可視化

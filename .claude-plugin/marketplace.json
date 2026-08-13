@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "traceary",
-      "description": "Local-first Traceary integration for Claude Code with a shared MCP server and automatic session/audit hooks.",
+      "description": "Local-first Traceary integration for Claude Code with automatic session/audit hooks and shared CLI-backed skills.",
       "category": "development",
       "source": "./integrations/claude-plugin",
       "homepage": "https://github.com/duck8823/traceary/tree/main/integrations/claude-plugin"

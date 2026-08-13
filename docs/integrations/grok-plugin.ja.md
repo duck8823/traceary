@@ -87,8 +87,7 @@ traceary doctor --client grok --project-dir . --json
 ネイティブパッケージ名は `traceary-grok` です。Claude 側の `traceary` と意図的に
 異なる名前にして、同名 package の解決衝突を避けます。installer は
 `traceary-grok` だけを置き換えます。legacy の `traceary` は別 host の package の
-可能性があるため削除しません。収束した native 導入では 7 hook boundary、1 MCP
-server、3 skill が報告されます。
+可能性があるため削除しません。収束した native 導入では 7 hook boundary と 3 skill が報告されます。
 
 カタログ投稿用メタデータ:
 
@@ -268,7 +267,7 @@ go run ./cmd/repo-tooling integrations verify
 ```
 
 smoke test は一時 home を使ってパッケージを検証・導入し、`grok inspect` で
-plugin / MCP / skill の内容を確認してから削除します。
+plugin / hook / skill の内容を確認してから削除します。
 
 ## v0.23.0 dogfood 結果
 

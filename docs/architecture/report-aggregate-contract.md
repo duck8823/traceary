@@ -22,26 +22,25 @@
 | Report criteria | interval, workspace, client, page size, result cap | validates and resolves one shared request | page size is positive; cap is zero (unlimited) or positive |
 | Source window | body-free session, event, command, and usage rows | loads all rows or at most cap plus one sentinel row | every source uses the same effective interval and filters |
 | Result extent | coverage, observed count/range, page size, cap, truncation reason | distinguishes complete from partial | `partial` requires `result_cap` truncation evidence |
-| Report snapshot | aggregates plus source extents | omits percentages whose denominator is partial | CLI and MCP serialize the same read model |
+| Report snapshot | aggregates plus source extents | omits percentages whose denominator is partial | CLI serializes the shared read model |
 | Usage aggregate | current finalized observation and immutable run facts | groups tokens/cost and deduplicates bytes per run | excluded evidence is not summed; missing values are not zero |
 
 ### Responsibility assignment
 
 | Responsibility | Owner | Not owner |
 |---|---|---|
-| Request validation and default seven-day interval | application report criteria | CLI/MCP adapters |
+| Request validation and default seven-day interval | application report criteria | CLI adapters |
 | One-read-snapshot, body-free, capped scans and current usage snapshot selection | SQLite report query adapter | use case and presentation |
 | Aggregation, usage accounting, run deduplication, and complete-denominator rules | report use case | SQL and output writers |
-| Flags/tool input, localization, text rendering | CLI/MCP presentation | application core |
+| Flags/tool input, localization, text rendering | CLI presentation | application core |
 
 ### Boundaries and interfaces
 
 | Boundary | Consumer | Hidden detail | Error contract |
 |---|---|---|---|
 | `ReportQueryService.LoadReportWindow` | report use case | SQL, paging, sentinel row, transaction | rejects invalid criteria and wraps read failures |
-| `ReportUsecase.Generate` | CLI and MCP | source aggregation and percentage eligibility | returns one shared report snapshot |
+| `ReportUsecase.Generate` | CLI | source aggregation and percentage eligibility | returns one shared report snapshot |
 | CLI `report` | operators/scripts | legacy `--limit` compatibility alias | conflicts between `--limit` and `--page-size` are rejected |
-| MCP `get_report` | agent hosts | application/infrastructure types | uses `page_size` and `result_cap` only |
 
 ### Behavior tests
 
@@ -49,7 +48,7 @@
 |---|---|---|---|
 | more rows than `result_cap` | generate report | coverage is `partial`, observed range is present, percentages are absent | use case/integration |
 | no result cap | generate report | coverage is `complete` and percentages are present | use case/integration |
-| identical CLI and MCP inputs | serialize report | decoded JSON values are equal | presentation integration |
+| identical CLI inputs | serialize report | decoded JSON values are equal | presentation integration |
 | large stored bodies | aggregate report | SQL projection does not select body columns | datasource/integration |
 | superseded snapshot and excluded alternative | aggregate usage | only the current head is read and excluded evidence contributes no tokens | datasource/use case |
 | repeated observations for one run | aggregate run facts | packet/tool bytes contribute once | use case |

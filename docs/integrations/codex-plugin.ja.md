@@ -134,9 +134,9 @@ command / action と allowlist 済み session / cwd metadata だけへ射影し�
 spool working directory の canonical 化は1回につき distinct 64件を上限とし、
 超過時は absence を成功扱いせず `spool_projection_partial` を返します。
 
-local path alias で MCP の session / event が見つからない場合は、
-`codex-capture` が表示した `workspace=` の値で read を再実行してください。
-`session_status`、`list_events`、usage aggregate、この diagnostic は同じ
+local path alias で session / event が見つからない場合は、
+`codex-capture` が表示した `workspace=` の値で CLI の read を再実行してください。
+`session list`、`list`、usage aggregate、この diagnostic は同じ
 canonical workspace identity を使います。
 
 ## 検証済み usage の取得

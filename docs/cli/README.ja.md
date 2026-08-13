@@ -69,7 +69,7 @@ session 解決ルール:
 - `--max-input-bytes`
 - `--max-output-bytes`
 
-command audit の input/output payload は、解決後の上限を超えると保存前に切り詰められます。上限の優先順位は `--max-*-bytes` flag、`TRACEARY_MAX_AUDIT_*_BYTES`、`~/.config/traceary/config.json` の `audit.max_*_bytes`、組み込み既定値です。切り詰め後も head / tail の文脈、構造化された `input_truncated` / `output_truncated` metadata、`original_bytes` marker は残ります。省略された byte は `traceary show` や MCP `full_body=true` でも復元できません。
+command audit の input/output payload は、解決後の上限を超えると保存前に切り詰められます。上限の優先順位は `--max-*-bytes` flag、`TRACEARY_MAX_AUDIT_*_BYTES`、`~/.config/traceary/config.json` の `audit.max_*_bytes`、組み込み既定値です。切り詰め後も head / tail の文脈、構造化された `input_truncated` / `output_truncated` metadata、`original_bytes` marker は残ります。省略された byte は `traceary show` でも復元できません。
 
 **read 面**（`sessions --snapshot --json`、list 系の recent-command ペイン）では、大きい host-tool payload（`Edit` / `Write` / `Read` / shell）を tool-aware な compact summary（tool 名、path、rune 数、content hash、head/tail、`traceary show <event_id>` の retrieval hint）に投影します。これは presentation 時の投影のみで、永続化された raw 本体と `traceary show` はフル fidelity のままです。
 
@@ -330,7 +330,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 ### `traceary memory inbox` — candidate review surface
 
-メモリ候補の確認キューをレビューします。`list` はメモリ候補を confidence / review-readiness state と evidence / artifact ref 件数付きで一覧し、レビュアが provenance を確認してから accept できるようにします。`show` は単一候補の evidence-first decision card を表示します。`accept` / `reject` は positional id（対話的に打ち込む典型ケース）か、batch script / MCP caller 向けの `--ids id1,id2,...` のどちらでも受け付けます。partial batch でも id 単位の成功/失敗を返すので、どの id が transition したかが必ず分かります。`--id-only` を指定すると memory id だけが stdout に出力されます (`--json` と排他)。canonical な memory inbox surface は v0.13.x の positional-id 形式の strict superset です。
+メモリ候補の確認キューをレビューします。`list` はメモリ候補を confidence / review-readiness state と evidence / artifact ref 件数付きで一覧し、レビュアが provenance を確認してから accept できるようにします。`show` は単一候補の evidence-first decision card を表示します。`accept` / `reject` は positional id（対話的に打ち込む典型ケース）か、batch script / その他の caller 向けの `--ids id1,id2,...` のどちらでも受け付けます。partial batch でも id 単位の成功/失敗を返すので、どの id が transition したかが必ず分かります。`--id-only` を指定すると memory id だけが stdout に出力されます (`--json` と排他)。canonical な memory inbox surface は v0.13.x の positional-id 形式の strict superset です。
 
 #### `traceary memory inbox list`
 
@@ -602,8 +602,7 @@ traceary memory admin activate --target gemini --path /path/to/GEMINI.md --apply
 
 すべての結果は `complete` / `partial` / `stop_reason` / `consistency` と実際の
 `usage` を返します。CLI の partial result は `rerun_guidance` も返します。
-`--workspace` を狭める、必要な有限上限だけを引き上げる、または再開可能な MCP
-surface を使ってください。store が変化しなければ `consistency=consistent` です。
+`--workspace` を狭めるか、必要な有限上限だけを引き上げてください。store が変化しなければ `consistency=consistent` です。
 実行中の memory write により global revision が変わっても、scan は保持済みの
 phase / keyset を破棄しません。現在の revision に束縛し直し、
 `consistency=best_effort` / `consistency_reason=revision_changed` へ恒久的に
@@ -931,7 +930,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 | `ended` | end marker があり、その後にイベントがない。 |
 | `ended_with_late_events` | end marker があるが、同じ session で後続イベントが到着した。end marker は `session_ended` イベント由来、または `session gc` が `ended_at` を直接書き込んだものの場合がある。 |
 
-active-only snapshot は `active` / `ended_with_late_events` と（`--allow-stale` 指定時の）`stale` を残します。`ended_with_late_events` は、session が既に close されているのに workspace の直近イベントが存在するとき `sessions --snapshot` が 0 件を返さないようにするための値です（例: Codex のような host が session を早期に close したが会話は継続していた場合）。CLI snapshot と MCP `session_status(action="active")` は同じルールを適用するため、end marker 後にイベントがある session は両方で surface されます。
+active-only snapshot は `active` / `ended_with_late_events` と（`--allow-stale` 指定時の）`stale` を残します。`ended_with_late_events` は、session が既に close されているのに workspace の直近イベントが存在するとき `sessions --snapshot` が 0 件を返さないようにするための値です（例: Codex のような host が session を早期に close したが会話は継続していた場合）。`session list` と `sessions --snapshot` は同じルールを適用するため、end marker 後にイベントがある session はどちらの CLI 読み取りでも surface されます。
 
 ## Hooks と診断
 

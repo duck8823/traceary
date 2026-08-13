@@ -111,7 +111,7 @@ Graph operations are CLI-only. The former MCP server was removed in v0.35.0 (#18
 
 ## Follow-up tickets (created when this ships)
 
-- MCP `memory_graph_add` / `memory_graph_query` tools (CLI-first; add the MCP contract after operator usage stabilizes)
+- No MCP graph tools (retired in #1871; do not reintroduce)
 - `memory graph walk` for multi-hop traversal
 - `hygiene scan edge_overlap` detector
 - Replay HTML edge visualization

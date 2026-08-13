@@ -30,7 +30,7 @@ Serialize GC rewrites with memory-decay GC work (#1368/#1369): archive ownership
 
 | Concept | State | Behavior | Constraint / invariant |
 |---|---|---|---|
-| **Live store** | hot SQLite under normal path | Accepts hooks/CLI/MCP writes | Never partially deleted mid-archive; all deletes after verified archive only |
+| **Live store** | hot SQLite under normal path | Accepts hooks/CLI writes | Never partially deleted mid-archive; all deletes after verified archive only |
 | **Archive plan** | computed, not yet written | Lists exact primary keys per table in stable order | Same plan on dry-run and apply for same cutoff/target/clock |
 | **Archive package** | file at caller path | Contains envelope + payload + manifest | Magic + version; payload digest matches manifest; row IDs exact |
 | **Archive manifest** | JSON v1 inside package | Records schema version, cutoff, table counts, per-row digests, package digest | Immutable after seal; verification reads this first |

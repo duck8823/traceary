@@ -22,26 +22,25 @@
 | レポート条件 | 期間、workspace、client、ページサイズ、結果上限 | 1 つの要求を検証して解決する | ページサイズは正、上限は 0（無制限）または正 |
 | 取得範囲 | 本文を含まない session/event/command/usage 行 | 全件または上限に確認用 1 件を加えた数まで読む | 全データ源で同じ実効期間とフィルターを使う |
 | 結果の範囲情報 | 完全性、観測件数・期間、ページサイズ、上限、切り詰め理由 | 完全と部分を区別する | `partial` には `result_cap` の切り詰め証拠が必要 |
-| レポートスナップショット | 集計値とデータ源別の範囲情報 | 分母が部分的な割合を出さない | CLI と MCP が同じ read model を直列化する |
+| レポートスナップショット | 集計値とデータ源別の範囲情報 | 分母が部分的な割合を出さない | CLI が共有 read model を直列化する |
 | Usage 集計 | 現在有効な確定済み観測と不変の run fact | token/cost を集計し、run ごとに byte 数を重複排除する | 加算対象外の証拠は合計せず、取得不能を 0 と扱わない |
 
 ### 責務の割り当て
 
 | 責務 | 所有者 | 所有しない層 |
 |---|---|---|
-| 要求検証と既定 7 日間の解決 | application のレポート条件 | CLI/MCP adapter |
+| 要求検証と既定 7 日間の解決 | application のレポート条件 | CLI adapter |
 | 1 つの read snapshot、本文なし、上限付き走査、現在の usage snapshot 選択 | SQLite レポート query adapter | usecase と presentation |
 | 集計、usage accounting、run 重複排除、完全な分母だけで割合を出す規則 | report usecase | SQL と output writer |
-| flag/tool input、文言、テキスト表示 | CLI/MCP presentation | application core |
+| flag/tool input、文言、テキスト表示 | CLI presentation | application core |
 
 ### 境界とインターフェース
 
 | 境界 | 利用者 | 隠す詳細 | エラー契約 |
 |---|---|---|---|
 | `ReportQueryService.LoadReportWindow` | report usecase | SQL、ページング、確認用 1 件、transaction | 不正条件を拒否し、読み取り失敗を文脈付きで返す |
-| `ReportUsecase.Generate` | CLI と MCP | データ源別集計と割合の出力可否 | 共通の report snapshot を返す |
+| `ReportUsecase.Generate` | CLI | データ源別集計と割合の出力可否 | 共通の report snapshot を返す |
 | CLI `report` | operator/script | 互換用 `--limit` alias | `--limit` と `--page-size` の併用を拒否する |
-| MCP `get_report` | agent host | application/infrastructure 型 | `page_size` と `result_cap` だけを使う |
 
 ### 振る舞いテスト
 
@@ -49,7 +48,7 @@
 |---|---|---|---|
 | `result_cap` より多い行がある | レポート生成 | `partial`、観測範囲あり、割合なし | usecase/integration |
 | 結果上限なし | レポート生成 | `complete`、割合あり | usecase/integration |
-| CLI と MCP に同じ入力 | レポート直列化 | JSON を復号した値が一致 | presentation integration |
+| CLI に同じ入力 | レポート直列化 | JSON を復号した値が一致 | presentation integration |
 | 大きな保存本文がある | レポート集計 | SQL projection が本文列を選ばない | datasource/integration |
 | superseded snapshot と加算対象外の代替証拠 | usage 集計 | 現在の head だけを読み、加算対象外の証拠は token に寄与しない | datasource/usecase |
 | 1 run に複数の観測 | run fact 集計 | packet/tool byte 数は 1 回だけ加算される | usecase |

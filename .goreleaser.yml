@@ -47,7 +47,7 @@ brews:
       name: traceary
       branch: main
     homepage: https://github.com/duck8823/traceary
-    description: Local-first CLI and MCP server for AI agent work history
+    description: Local-first CLI for AI agent work history
     license: MIT
     commit_author:
       name: github-actions[bot]

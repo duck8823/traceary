@@ -98,10 +98,10 @@ Rule の適用順は、組み込み safety redactor、audit/transcript payload �
 - Traceary はホスト型サービスを前提にしていません
 - Traceary 自身の backend へ telemetry を送信しません
 - `traceary audit` の payload は、redaction / truncation がかからない限り、ローカル SQLite store に保存されます
-- command audit の input/output payload は、設定された上限を超えると保存前に切り詰められます。切り詰め後も head / tail の文脈、`original_bytes` marker、構造化された `input_truncated` / `output_truncated` metadata は残ります。省略された byte は `traceary show` や MCP `full_body=true` でも復元できません
+- command audit の input/output payload は、設定された上限を超えると保存前に切り詰められます。切り詰め後も head / tail の文脈、`original_bytes` marker、構造化された `input_truncated` / `output_truncated` metadata は残ります。省略された byte は `traceary show` でも復元できません
 - command string も、保存前に組み込みの best-effort secret redactor を通ります。`input_redacted` / `output_redacted` は input/output payload の redaction だけを表し、command redaction 専用 flag はまだ出しません
 - `prompt` イベント（`UserPromptSubmit` hook 経由）と `compact_summary` イベント（`PostCompact` hook 経由）は、redaction / truncation なしでそのまま保存されます — ユーザーの意図を記録することが Traceary の目的であるため、これは設計上の選択です
-- `transcript` イベント（Claude `Stop` hook、`traceary log --kind transcript`、MCP `record_event(type="log")` の `kind=transcript` 経由）は、`audit` と同じ方式で redaction されます（組み込み redactor + `redact.rules` + `redact.extra_patterns`）。assistant の transcript は shell 出力やファイル内容を再掲することが多く、secret を含む可能性が高いためです
+- `transcript` イベント（Claude `Stop` hook、`traceary log --kind transcript` 経由）は、`audit` と同じ方式で redaction されます（組み込み redactor + `redact.rules` + `redact.extra_patterns`）。assistant の transcript は shell 出力やファイル内容を再掲することが多く、secret を含む可能性が高いためです
 - secret redaction はベストエフォートであり、完全な DLP ではありません
 
 ## 関連ドキュメント

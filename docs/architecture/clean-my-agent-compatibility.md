@@ -62,7 +62,7 @@ Two accuracy notes from primary-source verification (2026-06-10):
 Rationale:
 
 1. **Schema maturity.** The schema exists only inline in a `v0.1.x` application's TypeScript types. There is no standalone versioned spec, no JSON Schema, and no documented compatibility policy. Targeting it now means chasing churn.
-2. **Surface discipline.** Traceary's MCP tool count is frozen and the CLI surface is deliberately strict. A third export surface (next to bundle and replay) needs a stronger justification than "a schema exists".
+2. **Surface discipline.** The CLI surface is deliberately strict. A third export surface (next to bundle and replay) needs a stronger justification than "a schema exists".
 3. **Information shape mismatch.** Half of the relay document would be empty (`branch`, `tokens`, `sizeBytes`, `files`, `attachments` have no Traceary source), and the half Traceary is richest in (command audits with exit codes, failure flags, truncation metadata) would be flattened to `{command, cwd, createdAt}`.
 4. **No consumer demand.** No tool currently consumes `universal-session.v1` documents from third parties.
 
@@ -73,14 +73,14 @@ Revisit triggers (any of):
 - Traceary starts persisting branch metadata, closing the largest mapping gap
 - a concrete operator workflow needs to hand a Traceary session to another tool in a neutral format
 
-If a compatible export is implemented later, it must not add an MCP tool (the tool surface is frozen) and should be designed as an explicit additive CLI surface at that time — this note deliberately does not pre-commit a command shape.
+If a compatible export is implemented later, it must not reintroduce an MCP tool and should be designed as an explicit additive CLI surface at that time — this note deliberately does not pre-commit a command shape.
 
 ## What v0.21.0 adopts from the reference
 
 - **Host storage ground truth for fixtures and diagnosis.** Codex roots (`~/.codex/sessions/YYYY/MM/DD/*.jsonl`, `~/.codex/archived_sessions/*.jsonl`, `~/.codex/session_index.jsonl`; record union of `session_meta` / `response_item` / `event_msg` / `turn_context`) ground the #1170 regression fixtures. Claude Code roots (`~/.claude/projects/<encoded-project-path>/*.jsonl`, `~/.claude/transcripts/*.jsonl`) support the #1174 coverage-gap diagnosis. Gemini scanner roots support the #1171 root-cause comparison.
 - **Fixture policy.** Fixtures stay schema-shaped only: no real prompt text, tool output, credentials, or user file contents. This matches both Clean My Agent's documentation approach and the acceptance criteria on #1170/#1171.
 - **Safety semantics as a reference for memory hygiene (#1169).** Clean My Agent's model — read-before-write, explicit cleanup suggestions, backup before risky cleanup, app-managed Trash/restore — maps to Traceary's dry-run-first cleanup and evidence-first review. Traceary keeps its existing stance: no bulk accept, no destructive cleanup added by this comparison.
-- **Truncation visibility precedent (#1173).** Relay surfaces conversion caveats in `warnings`; Traceary's ingest-time truncation metadata should likewise be visible in CLI/MCP output rather than silent.
+- **Truncation visibility precedent (#1173).** Relay surfaces conversion caveats in `warnings`; Traceary's ingest-time truncation metadata should likewise be visible in CLI output rather than silent.
 - **Session liveness vocabulary check (#1172).** Relay's `session.storageState` shows that downstream consumers want an explicit liveness/state field. The #1170/#1172 status vocabulary (e.g. late events after an end) should stay explicit for the same reason.
 
 ## Non-goals (unchanged from #1177)

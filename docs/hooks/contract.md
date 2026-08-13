@@ -50,7 +50,7 @@ The versioned, machine-readable live contract for Grok Build (fixtures from 0.2.
 | PreCompact | (all) | Record a `compact_summary` boundary marker from `source` with `source_hook=pre_compact`; use `unavailable` when source is absent or invalid |
 | PostCompact | (all) | Record a `compact_summary` boundary marker from `source` with `source_hook=post_compact`; use `unavailable` when source is absent or invalid |
 
-**Limitations**: Grok Build 0.2.99 and the 0.2.101 re-probe did not emit `SessionEnd`, `PostToolUseFailure`, or standalone `PermissionDenied`. Traceary does not generate those hooks or infer their payloads. `Stop` is therefore a turn boundary; explicit MCP session management or stale GC ends the session. The hook payload carries no assistant body or model, so transcript capture depends on the host-provided `transcriptPath`. Grok appends the final message after Stop hooks complete; Traceary therefore queues a 0600 detached job and retries for up to two seconds. A still-unavailable transcript leaves the job as a diagnostic artifact reported by `traceary doctor` instead of blocking the host. `PreCompact` and `PostCompact` are stored as phase-specific markers from `source`; no summary body is exposed, and a missing source is recorded explicitly as `unavailable`. Subagent hooks remain unavailable: 0.2.101 still did not emit `SubagentStart`/`SubagentStop` (spawn used the `spawn_subagent` tool only), so no parent/child identity contract is claimed and Traceary does not synthesize that relationship (#1299).
+**Limitations**: Grok Build 0.2.99 and the 0.2.101 re-probe did not emit `SessionEnd`, `PostToolUseFailure`, or standalone `PermissionDenied`. Traceary does not generate those hooks or infer their payloads. `Stop` is therefore a turn boundary; explicit `traceary session end` or stale GC ends the session. The hook payload carries no assistant body or model, so transcript capture depends on the host-provided `transcriptPath`. Grok appends the final message after Stop hooks complete; Traceary therefore queues a 0600 detached job and retries for up to two seconds. A still-unavailable transcript leaves the job as a diagnostic artifact reported by `traceary doctor` instead of blocking the host. `PreCompact` and `PostCompact` are stored as phase-specific markers from `source`; no summary body is exposed, and a missing source is recorded explicitly as `unavailable`. Subagent hooks remain unavailable: 0.2.101 still did not emit `SubagentStart`/`SubagentStop` (spawn used the `spawn_subagent` tool only), so no parent/child identity contract is claimed and Traceary does not synthesize that relationship (#1299).
 
 ### Tier 3: Basic (Gemini CLI) — *legacy compatibility*
 
@@ -86,7 +86,7 @@ Claude Task subagent capture:
 
 | Missing Capability | Fallback |
 |---|---|
-| Compact hooks | MCP `get_context` / `session_handoff` on demand |
+| Compact hooks | `traceary context` / `traceary session handoff` on demand |
 | Failure event | Derive `failure_reason` from failure-shaped structured fields (Claude top-level `error` and Gemini `tool_response.error` become `host_error`; Grok `PermissionDenied` becomes `hook_denied`; interruption/timeout markers become `signal`/`timeout`). Hosts that expose no structured failure signal remain `unknown`; formatted output text is never parsed |
 | Agent type | Use client name only (e.g., `codex`, `gemini`) |
 

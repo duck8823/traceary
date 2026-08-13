@@ -136,9 +136,9 @@ Canonicalization is capped at 64 distinct spool working directories per run;
 exceeding that budget produces `spool_projection_partial`, never a successful
 absence claim.
 
-If a local path alias returns no MCP session or events, rerun the read with the
-`workspace=` value printed by `codex-capture`. `session_status`,
-`list_events`, the usage aggregate, and this diagnostic all use that canonical
+If a local path alias returns no session or events, rerun the CLI read with the
+`workspace=` value printed by `codex-capture`. `session list`,
+`list`, the usage aggregate, and this diagnostic all use that canonical
 workspace identity.
 
 ## Verified usage capture

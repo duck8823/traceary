@@ -284,7 +284,7 @@ go run ./cmd/repo-tooling integrations verify
 ```
 
 The smoke test uses a temporary home, validates and installs the package,
-checks the plugin/MCP/skill inventory with `grok inspect`, then uninstalls it.
+checks the plugin/hook/skill inventory with `grok inspect`, then uninstalls it.
 
 ## v0.23.0 dogfood result
 

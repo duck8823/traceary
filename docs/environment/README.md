@@ -98,10 +98,10 @@ If the file exists but is unreadable or invalid JSON, Traceary falls back to the
 - Traceary has no hosted service requirement
 - Traceary does not send telemetry to a Traceary-owned backend
 - when you run `traceary audit`, payloads are written to your local SQLite store unless redaction or truncation changes them first
-- command-audit input/output payloads are truncated before persistence when they exceed the configured limit. Truncated payloads keep head and tail context, include an `original_bytes` marker, and set structured `input_truncated` / `output_truncated` metadata; omitted bytes are not recoverable through `traceary show` or MCP `full_body=true`
+- command-audit input/output payloads are truncated before persistence when they exceed the configured limit. Truncated payloads keep head and tail context, include an `original_bytes` marker, and set structured `input_truncated` / `output_truncated` metadata; omitted bytes are not recoverable through `traceary show`
 - command strings also pass through the built-in best-effort secret redactors before storage. `input_redacted` / `output_redacted` only report input/output payload redaction; they do not expose a separate command-redaction flag
 - `prompt` events (from `UserPromptSubmit` hooks) and `compact_summary` events (from `PostCompact` hooks) are stored as-is without redaction or truncation — this is by design, as recording the user's intent is a core purpose of Traceary
-- `transcript` events (from Claude `Stop` hook, `traceary log --kind transcript`, or MCP `record_event(type="log")` with `kind=transcript`) are redacted in the same way as `audit` events (built-in redactors plus `redact.rules` and `redact.extra_patterns`) because assistant transcripts routinely re-state shell output and file contents that include secrets
+- `transcript` events (from Claude `Stop` hook or `traceary log --kind transcript`) are redacted in the same way as `audit` events (built-in redactors plus `redact.rules` and `redact.extra_patterns`) because assistant transcripts routinely re-state shell output and file contents that include secrets
 - secret redaction is best effort, not a complete data-loss-prevention system
 
 ## Related docs
