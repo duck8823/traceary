@@ -70,28 +70,6 @@ type contextOutput struct {
 	Events            []event `json:"events"`
 }
 
-// sessionTreeNode is the JSON shape of a single session in the tree output.
-type sessionTreeNode struct {
-	SessionID       string             `json:"session_id"`
-	ParentSessionID string             `json:"parent_session_id,omitempty"`
-	SpawnEventID    string             `json:"spawn_event_id,omitempty"`
-	SubagentKind    string             `json:"subagent_kind,omitempty"`
-	SpawnOrder      *int               `json:"spawn_order,omitempty"`
-	Depth           int                `json:"depth"`
-	Workspace       string             `json:"workspace,omitempty"`
-	Label           string             `json:"label,omitempty"`
-	Summary         string             `json:"summary,omitempty"`
-	StartedAt       string             `json:"started_at"`
-	EndedAt         *string            `json:"ended_at,omitempty"`
-	Status          string             `json:"status"`
-	DurationSec     *float64           `json:"duration_sec,omitempty"`
-	TotalEvents     int                `json:"total_events"`
-	CommandCount    int                `json:"command_count"`
-	Agents          []string           `json:"agents"`
-	SubagentType    string             `json:"subagent_type,omitempty"`
-	Children        []*sessionTreeNode `json:"children"`
-}
-
 // topSnapshotPayload is the top-level JSON shape of
 // `traceary sessions --snapshot --json`. The envelope was introduced in
 // v0.14.0 alongside the multi-pane redesign so the snapshot can carry
@@ -197,10 +175,8 @@ type topSnapshotLargePayloadSample struct {
 }
 
 // topSnapshotNode is the JSON shape of a single node in the
-// `traceary sessions --snapshot --json` output. It is intentionally
-// independent from sessionTreeNode so the sessions snapshot contract can
-// carry latest_event_* fields without reshaping the session tree contract
-// that other consumers depend on.
+// `traceary sessions --snapshot --json` output. It carries the snapshot's
+// latest_event_* fields on top of the shared session identity fields.
 //
 // IsStale / StaleAfterSec / StaleAgeSec were added in v0.16.0 so script
 // consumers can distinguish a fresh active session from one that has

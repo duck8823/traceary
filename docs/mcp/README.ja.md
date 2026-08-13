@@ -38,7 +38,7 @@ sessions、events、commands、usage は、ファミリーごとに独立した�
 グループ化した observation 数が含まれます。一方、`unavailable_observations` は、
 すべての usage カウンターが利用できない observation の件数です。
 
-`session_status(action="tree", session_id="...", depth=N)` は `session_id` を root とする session subtree を `traceary session tree --json` と同じ node array shape で返します。`depth` は任意で、`0` は root のみを返します。
+`session_status(action="tree", session_id="...", depth=N)` は `session_id` を root とする session subtree を node array（`session_id`、parent/spawn フィールド、`depth`、`children` など）で返します。`depth` は任意で、`0` は root のみを返します。スタンドアロン CLI の `session tree` は v0.35.0 で削除されました（#1869）。この MCP action は #1871 まで残ります。
 
 `session_status(action="active", ...)` は end marker 後にイベントを受け取った session を引き続き active として扱い、CLI `sessions --snapshot` の `ended_with_late_events` ルールと一致します。単独の `session_ended` の後に prompt や audit が続く場合、その session は active 結果から除外されません。
 
@@ -121,7 +121,7 @@ partial response が `stop_reason=revision_changed` と最新の確認済み rev
 | `active_session` | `session_status(action="active", ...)` |
 | `latest_session` | `session_status(action="latest", ...)` |
 | `session_handoff` | `session_status(action="handoff", ...)` |
-| `session tree --json --root <session-id>` | `session_status(action="tree", session_id="<session-id>", ...)` |
+| （削除済み CLI）`session tree --json --root <session-id>` | `session_status(action="tree", session_id="<session-id>", ...)` |
 | `add_log` | `record_event(type="log", ...)` |
 | `add_audit` | `record_event(type="audit", ...)` |
 | `list_events` | `list_events(...)` |

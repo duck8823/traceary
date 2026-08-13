@@ -793,7 +793,7 @@ applying a repair requires a backup and a validated evidence manifest.
 
 ### `traceary sessions`
 
-Print a one-shot Sessions snapshot for active sessions (root → child), recent failures, recent `command_executed` events, memory review queue candidates, and stale durable memories that may need cleanup. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot` for every caller. The former live interactive dashboard was removed in v0.35.0 after the v0.34 deprecation window (#1765 / #1766). The former `traceary top` compatibility alias was removed in v0.35.0 after the v0.34 deprecation window (#1688 / #1690); use `traceary sessions` instead. `traceary session tree` remains the static retrospective view.
+Print a one-shot Sessions snapshot for active sessions (root → child), recent failures, recent `command_executed` events, memory review queue candidates, and stale durable memories that may need cleanup. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot` for every caller. The former live interactive dashboard was removed in v0.35.0 after the v0.34 deprecation window (#1765 / #1766). The former `traceary top` compatibility alias was removed in v0.35.0 after the v0.34 deprecation window (#1688 / #1690); use `traceary sessions` instead. The standalone `traceary session tree` / `session lineage` commands were removed in v0.35.0 (#1869).
 
 The text snapshot starts with a `RELIABILITY` section, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; empty sections print a stable empty-state line so headers always render. Idle sessions are marked with an `idle` suffix when their latest activity is older than `--idle`; they are not hidden. The JSON snapshot (`--snapshot --json`) is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys; each session node keeps the same fields earlier releases emitted. `reliability.memory` additionally carries a `candidate_hygiene` object (`stale_count`, `duplicate_count`, `fragment_like_count`, `extracted_hidden_count`, `likely_actionable_count`) summarising the hygiene composition of the scanned candidate window: the four flag counts are independent diagnostic dimensions and may overlap, `likely_actionable_count` is the complement (candidates flagged by none), and — like `accepted_count` / `candidate_count` — they reflect the scanned sample when `scan_limit_reached` is true. `duplicate_count` counts exact duplicates only (same scope, memory type, and fact, matching the extraction dedupe key); similarity duplicates stay in `traceary memory admin hygiene scan`. Per-section row caps follow the snapshot defaults (50 failures, 50 recent commands, 25 candidates, 25 stale memories); the session section keeps using `--limit`.
 
@@ -863,14 +863,14 @@ Useful flags:
 - `--client`
 - `--agent`
 - `--idle <duration>` — dim rows older than the threshold without hiding them
-- `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability`. Each session node carries `latest_event_kind`, `latest_event_message`, `latest_event_id`, and `latest_event_at` in addition to the standard session fields; `latest_event_message` is truncated to the shared 500-rune body cap so a noisy command/tool payload is not re-amplified into the next agent's context, and when it is cut the node adds `latest_event_message_truncated`, `latest_event_message_length`, and `latest_event_message_bytes` — fetch the full body explicitly with `traceary show <latest_event_id>`. `reliability.large_payloads` additionally carries a bounded `samples` array; each sample is body-safe metadata (`event_id`, `kind`, `source`, `message_length`, `message_bytes`, `first_line`, `retrieval_hint`) and never the full body. Failures and recent commands reuse the standard event JSON shape (also body-capped); memory candidates reuse the durable-memory summary JSON shape; stale memories reuse durable-memory summary fields plus a `reason`. `traceary session tree --json` keeps its independent contract and does not expose any of these surfaces
+- `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability`. Each session node carries `latest_event_kind`, `latest_event_message`, `latest_event_id`, and `latest_event_at` in addition to the standard session fields; `latest_event_message` is truncated to the shared 500-rune body cap so a noisy command/tool payload is not re-amplified into the next agent's context, and when it is cut the node adds `latest_event_message_truncated`, `latest_event_message_length`, and `latest_event_message_bytes` — fetch the full body explicitly with `traceary show <latest_event_id>`. `reliability.large_payloads` additionally carries a bounded `samples` array; each sample is body-safe metadata (`event_id`, `kind`, `source`, `message_length`, `message_bytes`, `first_line`, `retrieval_hint`) and never the full body. Failures and recent commands reuse the standard event JSON shape (also body-capped); memory candidates reuse the durable-memory summary JSON shape; stale memories reuse durable-memory summary fields plus a `reason`
 - `--limit`
 
 ### `traceary session list`
 
 List session summaries.
 
-The session list view surfaces session metadata such as `summary` and `parent_session_id` together with status, duration, and aggregate counts. The session-label surface (`session label`, `--label`, the `LABEL` column, and the `label` JSON field) was removed in v0.35.0 after the v0.34 deprecation (#1691).
+The session list view surfaces session metadata such as `summary` and `parent_session_id` together with status, duration, and aggregate counts. The session-label surface (`session label`, `--label`, the `LABEL` column, and the `label` JSON field) was removed in v0.35.0 after the v0.34 deprecation (#1691). The standalone `session tree` / `session lineage` commands were removed in v0.35.0 (#1869); use `traceary sessions --snapshot` for the active parent/child view.
 
 Useful flags:
 
@@ -880,26 +880,6 @@ Useful flags:
 - `--to`
 - `--limit`
 - `--offset`
-- `--json`
-
-### `traceary session tree`
-
-Render the parent → child → grandchild lineage for every loaded session. Each row shows the session id, status, most specific subagent role (for example `claude/Explore` for Claude Code subagents), workspace, duration, and an `N cmds/M events` breakdown. Children of the same parent are ordered by `spawn_order` ascending; top-level sessions with no `spawn_order` are ordered by `started_at`. The JSON surface adds `parent_session_id`, `spawn_event_id`, `subagent_kind`, `spawn_order`, `depth`, numeric `duration_sec`, and `subagent_type` to every node so external tooling can reason about lineage without replaying the text format.
-
-Useful flags:
-
-- `--workspace`
-- `--limit`
-- `--root <session-id>` — focus on the subtree rooted at the given session
-- `--ongoing-only` — keep only lineages that still contain an active session
-- `--json`
-
-### `traceary session lineage <session-id>`
-
-Render the full lineage that contains a session: Traceary walks up from `<session-id>` to the topmost ancestor, then returns that root and all descendants using the same text and JSON node shape as `session tree`.
-
-Useful flags:
-
 - `--json`
 
 ### `traceary session refine <session-id>`
@@ -950,7 +930,7 @@ Useful flags:
 
 ### Session status values
 
-`session list`, `session tree`, and the `sessions --snapshot` JSON `status` field report one of:
+`session list` and the `sessions --snapshot` JSON `status` field report one of:
 
 | Status | Meaning |
 |--------|---------|
