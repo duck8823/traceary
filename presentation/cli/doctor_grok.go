@@ -46,9 +46,25 @@ type grokDoctorState struct {
 	LocalRepoConflict    bool
 	ProjectTrusted       bool
 	ProjectHooks         bool
-	NativeHooks          bool
-	MCPServers           int
-	Skills               int
+	// UserHooks is true when the user-level Traceary Grok hook file exists as a
+	// regular file (primary), or inspect reports source.type=user for a Traceary
+	// Grok hook target. Grok merges all hook sources, so this route can fire
+	// alongside the native plugin.
+	UserHooks     bool
+	UserHooksPath string
+	// UserHooksInvalid is true when the user-level file exists but is unreadable
+	// or not valid JSON. Diagnosis only; doctor does not rewrite the file.
+	UserHooksInvalid bool
+	// NativeHooksPresent is true when inspect reports a traceary-grok hook with
+	// a native path class. Grok still merges that route even when coverage is
+	// incomplete/stale, so duplicate-route detection must use presence rather
+	// than verified coverage.
+	NativeHooksPresent bool
+	// NativeHooks is true only when the native route also passes the exact
+	// seven-event verified coverage contract. Used by grok-hooks only.
+	NativeHooks bool
+	MCPServers  int
+	Skills      int
 }
 
 type grokPluginListEntry struct {
@@ -122,6 +138,10 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 	if info, statErr := os.Stat(filepath.Join(projectDir, ".grok", "hooks", "traceary.json")); statErr == nil && info.Mode().IsRegular() {
 		state.ProjectHooks = true
 	}
+	if userPath, resolved, pathErr := resolveHooksGlobalPath("grok"); pathErr == nil && resolved {
+		state.UserHooksPath = userPath
+		probeGrokUserHooksFile(&state, userPath)
+	}
 	for _, plugin := range document.Plugins {
 		if plugin.Name != grokTracearyPluginName {
 			continue
@@ -131,8 +151,16 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		state.Skills = plugin.Provides.Skills
 	}
 	for _, hook := range document.Hooks {
-		if hook.Source.Type == "project" {
+		switch hook.Source.Type {
+		case "project":
 			state.ProjectHooks = true
+		case "user":
+			if grokIsTracearyUserHookTarget(hook.Target, state.UserHooksPath) {
+				state.UserHooks = true
+				if state.UserHooksPath == "" && strings.TrimSpace(hook.Target) != "" {
+					state.UserHooksPath = hook.Target
+				}
+			}
 		}
 		pathClass := grokPluginPathClass(hook.Target)
 		if hook.Source.PluginName == grokTracearyPluginName || (hook.Source.PluginName == legacyTracearyPluginName && state.ResolvedPathClass == "") {
@@ -141,11 +169,42 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		if hook.Source.PluginName == legacyTracearyPluginName {
 			state.LegacyPluginDetected = true
 		}
-		if hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative && grokHookFileHasVerifiedCoverage(hook.Target) {
-			state.NativeHooks = true
+		if hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative {
+			state.NativeHooksPresent = true
+			if grokHookFileHasVerifiedCoverage(hook.Target) {
+				state.NativeHooks = true
+			}
 		}
 	}
 	return state, nil
+}
+
+// probeGrokUserHooksFile records whether the resolved user-level Traceary Grok
+// hook file exists and whether it is readable JSON. Diagnosis only.
+func probeGrokUserHooksFile(state *grokDoctorState, userPath string) {
+	info, err := os.Stat(userPath)
+	if err != nil || !info.Mode().IsRegular() {
+		return
+	}
+	state.UserHooks = true
+	data, readErr := os.ReadFile(userPath) // #nosec G304 -- resolved user hook path
+	if readErr != nil || !json.Valid(data) {
+		state.UserHooksInvalid = true
+	}
+}
+
+// grokIsTracearyUserHookTarget reports whether an inspect hook target looks like
+// the user-level Traceary Grok hook file (not an unrelated user hook).
+func grokIsTracearyUserHookTarget(target, knownUserPath string) bool {
+	normalized := filepath.ToSlash(strings.TrimSpace(target))
+	if normalized == "" {
+		return false
+	}
+	if knownUserPath != "" && filepath.Clean(target) == filepath.Clean(knownUserPath) {
+		return true
+	}
+	return strings.HasSuffix(normalized, "/.grok/hooks/traceary.json") ||
+		strings.HasSuffix(normalized, "/.grok/hooks/traceary.json/")
 }
 
 // grokIsLocalRepositoryIdentity distinguishes Grok's repository-level local
@@ -287,6 +346,7 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 		hookStatus, hookMessage = doctorStatusWarn, Localize("native Grok hook coverage is missing or incomplete", "native Grok hook coverage が不足しています")
 	}
 	checks = append(checks, doctorCheck{Name: "grok-hooks", Status: hookStatus, Message: hookMessage, Hint: Localize("update or reinstall the native Traceary Grok plugin", "native Traceary Grok plugin を更新または再インストールしてください")})
+	checks = append(checks, buildGrokUserHooksCheck(state), buildGrokHookRoutesSummary(state))
 	mcpStatus := doctorStatusPass
 	mcpMessage := Localize("native Grok plugin exposes one Traceary MCP server", "native Grok plugin は Traceary MCP server を1件公開しています")
 	if state.MCPServers != 1 {
@@ -302,4 +362,122 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 	}
 	checks = append(checks, doctorCheck{Name: "grok-skills", Status: skillStatus, Message: skillMessage, Hint: Localize("update or reinstall the native Traceary Grok plugin", "native Traceary Grok plugin を更新または再インストールしてください")})
 	return checks
+}
+
+// grokUserHooksDisplayPath prefers a home-relative tilde form so doctor output
+// does not leak host-private temporary path prefixes while still naming the
+// canonical user route (~/.grok/hooks/traceary.json).
+func grokUserHooksDisplayPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return "~/.grok/hooks/traceary.json"
+	}
+	home, err := userHomeDirFunc()
+	if err == nil && strings.TrimSpace(home) != "" {
+		home = filepath.Clean(home)
+		cleaned := filepath.Clean(path)
+		if cleaned == home || strings.HasPrefix(cleaned, home+string(os.PathSeparator)) {
+			rel, relErr := filepath.Rel(home, cleaned)
+			if relErr == nil {
+				return "~/" + filepath.ToSlash(rel)
+			}
+		}
+	}
+	return path
+}
+
+// buildGrokUserHooksCheck reports the optional user-level hook route. Absent is
+// SKIP (optional when the native plugin is used); present is PASS; invalid is
+// FAIL because Grok cannot load a malformed hooks document from that path.
+func buildGrokUserHooksCheck(state grokDoctorState) doctorCheck {
+	displayPath := grokUserHooksDisplayPath(state.UserHooksPath)
+	if !state.UserHooks {
+		return doctorCheck{
+			Name:   "grok-hooks-user",
+			Status: doctorStatusSkip,
+			Message: localizef(
+				"no user-level Grok Traceary hooks at %s (optional when the native plugin or project route is active)",
+				"user-level の Grok Traceary hooks (%s) はありません（native plugin または project route が有効なら任意です）",
+				displayPath,
+			),
+		}
+	}
+	if state.UserHooksInvalid {
+		return doctorCheck{
+			Name:   "grok-hooks-user",
+			Status: doctorStatusFail,
+			Message: localizef(
+				"invalid user-level Grok Traceary hooks at %s (unreadable or not valid JSON). Fix or remove the file; doctor does not rewrite it",
+				"user-level の Grok Traceary hooks (%s) が不正です（読み取れないか有効な JSON ではありません）。修正または削除してください。doctor はファイルを書き換えません",
+				displayPath,
+			),
+			Hint: Localize(
+				"remove or fix ~/.grok/hooks/traceary.json; prefer the native plugin traceary-grok",
+				"~/.grok/hooks/traceary.json を削除または修正してください。native plugin traceary-grok を優先してください",
+			),
+		}
+	}
+	return doctorCheck{
+		Name:   "grok-hooks-user",
+		Status: doctorStatusPass,
+		Message: localizef(
+			"user-level Grok Traceary hooks are present at %s",
+			"user-level の Grok Traceary hooks が存在します: %s",
+			displayPath,
+		),
+	}
+}
+
+// buildGrokHookRoutesSummary warns when more than one Grok hook route is active.
+// Grok merges every source, so user-level leftovers next to the native plugin
+// (or project route) can fire duplicate handlers — the same class of problem as
+// Antigravity multi-route setups. Native route presence (not verified coverage)
+// counts, because a stale/partial plugin file is still executed by Grok.
+// Diagnosis only; no files are removed.
+func buildGrokHookRoutesSummary(state grokDoctorState) doctorCheck {
+	active := make([]string, 0, 3)
+	if state.NativeHooksPresent {
+		active = append(active, "native plugin")
+	}
+	if state.ProjectHooks {
+		active = append(active, "project")
+	}
+	if state.UserHooks {
+		active = append(active, "user-level")
+	}
+	displayPath := grokUserHooksDisplayPath(state.UserHooksPath)
+	if len(active) > 1 {
+		return doctorCheck{
+			Name:   "grok-hooks-routes",
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"multiple Grok hook routes are active and can register duplicate lifecycle handlers: %s. Retain exactly one route",
+				"複数の Grok hook 経路が有効で lifecycle handler が重複登録される可能性があります: %s。経路を 1 つだけ残してください",
+				strings.Join(active, ", "),
+			),
+			Hint: localizef(
+				"Retain exactly one Grok hook route. Prefer the native plugin traceary-grok; remove %s if the plugin is installed. Do not copy plugin hooks into the user or project route",
+				"Grok hook 経路は 1 つだけ残してください。native plugin traceary-grok を優先し、plugin を導入済みなら %s を削除してください。plugin hooks を user または project route にコピーしないでください",
+				displayPath,
+			),
+		}
+	}
+	if len(active) == 1 {
+		return doctorCheck{
+			Name:   "grok-hooks-routes",
+			Status: doctorStatusPass,
+			Message: localizef(
+				"Grok hooks are active via a single route: %s",
+				"Grok hooks は単一の経路で有効です: %s",
+				active[0],
+			),
+		}
+	}
+	return doctorCheck{
+		Name:   "grok-hooks-routes",
+		Status: doctorStatusSkip,
+		Message: Localize(
+			"no Grok hook route is active yet (see grok-hooks / grok-hooks-user)",
+			"有効な Grok hook 経路はまだありません（grok-hooks / grok-hooks-user を参照）",
+		),
+	}
 }

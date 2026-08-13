@@ -136,7 +136,7 @@ A healthy installation reports `pass` for `grok-cli`, `grok-plugin`,
 than three recent sessions it reports that coverage is not judged yet rather
 than claiming a false pass.
 
-## Project hook route and trust
+## Project and user hook routes
 
 The native plugin is the recommended route because it wires hooks, MCP, and
 skills together. Traceary can also install hooks only:
@@ -149,11 +149,29 @@ traceary hooks install --client grok --project-dir .
 traceary hooks install --client grok --global
 ```
 
+Grok merges hooks from every source. Keep **exactly one** route active:
+
+- Prefer the native plugin `traceary-grok` when you also want MCP and skills.
+- Use the project or user hook-only route only when you intentionally skip the
+  plugin.
+- Do not leave a leftover user file after installing the plugin, and do not
+  copy plugin hooks into the project or user route as a fallback. Duplicate
+  routes can record the same event twice (including an older user file with a
+  stale timeout).
+
+`traceary doctor --client grok` reports:
+
+- `grok-hooks` — native plugin hook coverage
+- `grok-hooks-user` — optional user-level file at `~/.grok/hooks/traceary.json`
+  (`pass` when present, `skip` when absent)
+- `grok-hooks-routes` — warns when more than one of native / project / user is
+  active, and names `~/.grok/hooks/traceary.json` in the hint when the user
+  route is involved
+
 Grok treats project hooks as a separate trust boundary. When the project route
 is intentional, inspect the file and use Grok's `/hooks-trust` flow in that
 project. `grok-hook-trust` warns when a project hook file exists but the host
-reports the project as untrusted. Do not copy plugin hooks into the project
-route as a fallback; duplicate routes can record the same event twice.
+reports the project as untrusted.
 
 ## Update or remove
 
@@ -214,6 +232,8 @@ removed separately if they were installed.
 | `grok-plugin-resolution` warns | Grok resolved a non-native path class, a same-name legacy package, or a local-repository identity. For a local-repository identity, review `grok plugin list --json` and run `scripts/install-grok-plugin.sh --migrate-local-repo-identity` from that checkout; otherwise run the normal installer and confirm `traceary-grok` is the enabled route. Doctor reads only inventory metadata. |
 | `grok-hook-trust` warns | Review the project hook file and use `/hooks-trust`, or remove the unused project route |
 | `grok-hooks` warns | The installed hook file is missing or has drifted from the exact seven-event contract; reinstall the plugin |
+| `grok-hooks-user` fails | `~/.grok/hooks/traceary.json` exists but is unreadable or not valid JSON; fix or remove it |
+| `grok-hooks-routes` warns | More than one of native plugin, project, and user-level routes is active. Retain exactly one; prefer `traceary-grok` and remove `~/.grok/hooks/traceary.json` if the plugin is installed |
 | `grok-mcp` / `grok-skills` warns | The installed package inventory is incomplete; reinstall it |
 | `grok-event-coverage` warns | Inspect recent `agent=grok` events and pending hook/transcript queues; a healthy install alone does not prove runtime delivery |
 
