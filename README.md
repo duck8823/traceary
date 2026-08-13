@@ -57,7 +57,7 @@ go install github.com/duck8823/traceary@latest
 Tagged releases also publish macOS and Linux archives on [GitHub Releases](https://github.com/duck8823/traceary/releases).
 See the [release guide](./docs/release/README.md) for packaging details.
 
-After installing, run `traceary --help` (or bare `traceary`) to see the command surface. Call script-friendly subcommands directly (`traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, etc.); `traceary top --snapshot [--json]` remains available as a compatibility alias deprecated in v0.34.0 and removed in v0.35.0. The former `traceary tui` / `traceary dashboard` cockpit entrypoints were removed in v0.35.0; use `traceary sessions --snapshot` instead.
+After installing, run `traceary --help` (or bare `traceary`) to see the command surface. Call script-friendly subcommands directly (`traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, etc.). The former `traceary tui` / `traceary dashboard` cockpit entrypoints and the `traceary top` compatibility alias were removed in v0.35.0; use `traceary sessions --snapshot` instead.
 
 ### Step 2: Install the plugin for your agent host
 
@@ -172,7 +172,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 | When | Command | Use it to |
 |---|---|---|
 | Discovering the command surface | `traceary` / `traceary --help` | print help (TTY and non-TTY) |
-| Watching the workspace sessions snapshot | `traceary sessions` (`traceary top` deprecated in v0.34.0, removed in v0.35.0) | print active sessions, recent failures / commands, memory candidates, and stale memories |
+| Watching the workspace sessions snapshot | `traceary sessions` | print active sessions, recent failures / commands, memory candidates, and stale memories |
 | Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
@@ -184,7 +184,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 traceary sessions
 ```
 
-`sessions` prints a one-shot snapshot for active sessions, recent failures, recent commands, memory candidates, and stale memories. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot`. Use `traceary sessions --snapshot --json` for the JSON envelope (including the `stale_memories` key). The former live interactive dashboard was removed in v0.35.0. `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0 for existing scripts.
+`sessions` prints a one-shot snapshot for active sessions, recent failures, recent commands, memory candidates, and stale memories. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot`. Use `traceary sessions --snapshot --json` for the JSON envelope (including the `stale_memories` key). The former live interactive dashboard and the `traceary top` compatibility alias were removed in v0.35.0.
 
 ### `traceary tail`
 

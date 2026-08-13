@@ -62,7 +62,7 @@ traceary sessions --workspace github.com/duck8823/traceary
 traceary sessions --snapshot --json
 ```
 
-bare の `sessions` と `sessions --snapshot` は同じテキストを出力します。テキスト snapshot は先頭の `RELIABILITY` に続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)`、JSON snapshot（`--snapshot --json`）は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope です。`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。代わりに `traceary sessions` を使ってください。
+bare の `sessions` と `sessions --snapshot` は同じテキストを出力します。テキスト snapshot は先頭の `RELIABILITY` に続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)`、JSON snapshot（`--snapshot --json`）は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope です。旧互換 alias の `traceary top` は v0.35.0 で削除されました。代わりに `traceary sessions` を使ってください。
 
 ### 4. 「いま event が書かれているか？」→ `traceary tail`
 
@@ -134,7 +134,7 @@ bare `traceary` は TTY / 非 TTY とも常に help を表示します。旧 Tai
 
 - bare `traceary` と `traceary --help` は help のみを表示する
 - completion generation と help の例は安定したままにする
-- automation の推奨 path は script-facing command（`sessions --snapshot`、`tail`、`doctor --json`、`session handoff`、`memory inbox list`）。`top --snapshot` は v0.35.0 削除までの非推奨互換 alias
+- automation の推奨 path は script-facing command（`sessions --snapshot`、`tail`、`doctor --json`、`session handoff`、`memory inbox list`）
 
 ## まだ future-facing なもの
 

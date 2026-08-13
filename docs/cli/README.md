@@ -793,7 +793,7 @@ applying a repair requires a backup and a validated evidence manifest.
 
 ### `traceary sessions`
 
-Print a one-shot Sessions snapshot for active sessions (root → child), recent failures, recent `command_executed` events, memory review queue candidates, and stale durable memories that may need cleanup. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot` for every caller. The former live interactive dashboard was removed in v0.35.0 after the v0.34 deprecation window (#1765 / #1766). `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions` instead. `traceary session tree` remains the static retrospective view.
+Print a one-shot Sessions snapshot for active sessions (root → child), recent failures, recent `command_executed` events, memory review queue candidates, and stale durable memories that may need cleanup. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot` for every caller. The former live interactive dashboard was removed in v0.35.0 after the v0.34 deprecation window (#1765 / #1766). The former `traceary top` compatibility alias was removed in v0.35.0 after the v0.34 deprecation window (#1688 / #1690); use `traceary sessions` instead. `traceary session tree` remains the static retrospective view.
 
 The text snapshot starts with a `RELIABILITY` section, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; empty sections print a stable empty-state line so headers always render. Idle sessions are marked with an `idle` suffix when their latest activity is older than `--idle`; they are not hidden. The JSON snapshot (`--snapshot --json`) is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys; each session node keeps the same fields earlier releases emitted. `reliability.memory` additionally carries a `candidate_hygiene` object (`stale_count`, `duplicate_count`, `fragment_like_count`, `extracted_hidden_count`, `likely_actionable_count`) summarising the hygiene composition of the scanned candidate window: the four flag counts are independent diagnostic dimensions and may overlap, `likely_actionable_count` is the complement (candidates flagged by none), and — like `accepted_count` / `candidate_count` — they reflect the scanned sample when `scan_limit_reached` is true. `duplicate_count` counts exact duplicates only (same scope, memory type, and fact, matching the extraction dedupe key); similarity duplicates stay in `traceary memory admin hygiene scan`. Per-section row caps follow the snapshot defaults (50 failures, 50 recent commands, 25 candidates, 25 stale memories); the session section keeps using `--limit`.
 
@@ -950,7 +950,7 @@ Useful flags:
 
 ### Session status values
 
-`session list`, `session tree`, and the `sessions --snapshot` / `top --snapshot` JSON `status` field report one of:
+`session list`, `session tree`, and the `sessions --snapshot` JSON `status` field report one of:
 
 | Status | Meaning |
 |--------|---------|

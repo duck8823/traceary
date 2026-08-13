@@ -34,7 +34,7 @@ const shortTopSessionIDLength = 12
 var topNowFunc = time.Now
 
 // topSnapshotProfile values control the JSON projection for
-// `sessions --snapshot --json` / `top --snapshot --json`.
+// `sessions --snapshot --json`.
 const (
 	topSnapshotProfileOperator = "operator"
 	topSnapshotProfileAI       = "ai"
@@ -62,28 +62,6 @@ type topCommandOptions struct {
 	limit      int
 	staleAfter time.Duration
 	allowStale bool
-}
-
-func (c *RootCLI) newTopCommand() *cobra.Command {
-	var opts topCommandOptions
-
-	cmd := &cobra.Command{
-		Use:   "top",
-		Short: Localize("Deprecated compatibility alias for `traceary sessions`; removed in v0.35.", "`traceary sessions` の非推奨互換 alias（v0.35 で削除）"),
-		Long: Localize(
-			"`traceary top` is a deprecated compatibility alias for `traceary sessions` and will be removed in v0.35. Prefer `traceary sessions` or `traceary sessions --snapshot [--json]`. Bare `top` prints the same text snapshot as `sessions --snapshot`.",
-			"`traceary top` は `traceary sessions` の非推奨互換 alias で、v0.35 で削除されます。`traceary sessions` または `traceary sessions --snapshot [--json]` を優先してください。bare の `top` は `sessions --snapshot` と同じ text snapshot を出力します。",
-		),
-		Args: noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runTop(cmd.Context(), cmd.OutOrStdout(), opts)
-		},
-	}
-	applyCommandDeprecation(cmd, "traceary sessions", "v0.35")
-
-	bindTopFlags(cmd, &opts)
-
-	return cmd
 }
 
 func (c *RootCLI) newSessionsCommand() *cobra.Command {
@@ -164,10 +142,6 @@ func normalizeTopSnapshotProfile(raw string) (string, error) {
 	}
 }
 
-func (c *RootCLI) runTop(ctx context.Context, output io.Writer, opts topCommandOptions) error {
-	return c.runTopNamed(ctx, output, opts)
-}
-
 func (c *RootCLI) runSessions(ctx context.Context, output io.Writer, opts topCommandOptions) error {
 	return c.runTopNamed(ctx, output, opts)
 }
@@ -194,7 +168,7 @@ func (c *RootCLI) runTopNamed(ctx context.Context, output io.Writer, opts topCom
 	}
 	opts.profile = profile
 
-	// Bare `sessions` / `top` is a plain text command and is byte-identical to
+	// Bare `sessions` is a plain text command and is byte-identical to
 	// `--snapshot`. JSON and the ai profile still require the explicit flag
 	// combination so callers cannot accidentally change envelope shape.
 	if !opts.snapshot {
