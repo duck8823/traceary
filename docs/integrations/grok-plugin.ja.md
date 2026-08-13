@@ -131,7 +131,7 @@ traceary doctor --client grok --project-dir . --json
 `grok-mcp`、`grok-skills` が `pass` になります。`grok-event-coverage` は直近 DB
 証拠を評価し、セッションが3件未満なら誤 pass せず「まだ判定しない」と報告します。
 
-## プロジェクト hook と trust
+## プロジェクト / user hook 経路
 
 hook、MCP、skill をまとめて配線できるため、ネイティブ plugin を推奨します。
 hook だけを導入することもできます。
@@ -144,11 +144,26 @@ traceary hooks install --client grok --project-dir .
 traceary hooks install --client grok --global
 ```
 
+Grok はすべての source の hook をマージします。**有効な経路は 1 つだけ**にしてください。
+
+- MCP と skill も使う場合は native plugin `traceary-grok` を優先する
+- plugin を使わないときだけ project または user の hook-only 経路を使う
+- plugin 導入後に user ファイルを残さない。plugin hooks を project / user route に
+  コピーして代替しない。経路が重複すると同じイベントを二重に記録する可能性があり、
+  古い user ファイルの stale timeout が優先されることもある
+
+`traceary doctor --client grok` は次を報告します。
+
+- `grok-hooks` — native plugin の hook coverage
+- `grok-hooks-user` — 任意の user-level ファイル `~/.grok/hooks/traceary.json`
+  （存在すれば `pass`、なければ `skip`）
+- `grok-hooks-routes` — native / project / user のうち 2 つ以上が有効なとき警告し、
+  user route が関与する場合はヒントに `~/.grok/hooks/traceary.json` を示す
+
 Grok は project hook を独立した trust 境界として扱います。project route を使う場合は
 ファイル内容を確認し、そのプロジェクトで Grok の `/hooks-trust` を実行してください。
 project hook が存在する一方で host が project を未信頼と報告した場合、
-`grok-hook-trust` が警告します。plugin hook を project route にコピーして代替しないで
-ください。経路が重複すると同じイベントを二重に記録する可能性があります。
+`grok-hook-trust` が警告します。
 
 ## 更新と削除
 
@@ -203,6 +218,8 @@ pass であることを確認してください。
 | `grok-plugin-resolution` が警告 | Grok が native 以外の path class、同名の legacy package、または local-repository identity を解決しています。local-repository identity の場合は `grok plugin list --json` を確認し、その checkout で `scripts/install-grok-plugin.sh --migrate-local-repo-identity` を実行してください。それ以外は通常の installer を実行し、`traceary-grok` が有効 route になったことを確認してください。doctor が読むのは inventory metadata だけです。 |
 | `grok-hook-trust` が警告 | project hook を確認して `/hooks-trust` を実行するか、未使用の project route を削除する |
 | `grok-hooks` が警告 | 導入済み hook file が不足しているか、7 event の厳密な契約からずれている。plugin を再導入する |
+| `grok-hooks-user` が失敗 | `~/.grok/hooks/traceary.json` が存在するが読み取れない、または有効な JSON ではない。修正または削除する |
+| `grok-hooks-routes` が警告 | native plugin / project / user-level の経路が 2 つ以上有効。1 つだけ残し、plugin 導入済みなら `traceary-grok` を優先して `~/.grok/hooks/traceary.json` を削除する |
 | `grok-mcp` / `grok-skills` が警告 | 導入済みパッケージの内容が不足している。plugin を再導入する |
 | `grok-event-coverage` が警告 | 直近の `agent=grok` event と待機中の hook/transcript queue を確認する。導入状態が正常でも実行時配送まで保証しない |
 

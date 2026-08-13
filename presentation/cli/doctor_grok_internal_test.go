@@ -399,3 +399,232 @@ func TestGrokIsLocalRepositoryIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestProbeGrokDoctorStateUserHookRoutes(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+
+	tests := []struct {
+		name              string
+		writeUserHooks    bool
+		invalidUserHooks  bool
+		nativePlugin      bool
+		inspectUserHooks  bool
+		wantUserHooks     bool
+		wantRoutesStatus  string
+		wantRoutesSubstr  []string
+		wantUserStatus    string
+		wantUserSubstr    []string
+	}{
+		{
+			name:             "user file absent with native plugin has no duplicate warning",
+			nativePlugin:     true,
+			wantUserHooks:    false,
+			wantRoutesStatus: doctorStatusPass,
+			wantRoutesSubstr: []string{"single route", "native plugin"},
+			wantUserStatus:   doctorStatusSkip,
+			wantUserSubstr:   []string{"no user-level", "~/.grok/hooks/traceary.json"},
+		},
+		{
+			name:             "user file and native plugin warn for duplicate routes",
+			writeUserHooks:   true,
+			nativePlugin:     true,
+			inspectUserHooks: true,
+			wantUserHooks:    true,
+			wantRoutesStatus: doctorStatusWarn,
+			wantRoutesSubstr: []string{"exactly one", "user-level", "native plugin", "~/.grok/hooks/traceary.json"},
+			wantUserStatus:   doctorStatusPass,
+			wantUserSubstr:   []string{"user-level", "~/.grok/hooks/traceary.json"},
+		},
+		{
+			name:             "user file present without plugin reports user route",
+			writeUserHooks:   true,
+			wantUserHooks:    true,
+			wantRoutesStatus: doctorStatusPass,
+			wantRoutesSubstr: []string{"single route", "user-level"},
+			wantUserStatus:   doctorStatusPass,
+			wantUserSubstr:   []string{"user-level", "~/.grok/hooks/traceary.json"},
+		},
+		{
+			name:             "invalid user file fails the user route check",
+			writeUserHooks:   true,
+			invalidUserHooks: true,
+			wantUserHooks:    true,
+			wantRoutesStatus: doctorStatusPass,
+			wantRoutesSubstr: []string{"single route", "user-level"},
+			wantUserStatus:   doctorStatusFail,
+			wantUserSubstr:   []string{"invalid", "~/.grok/hooks/traceary.json"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, userHomeDirFunc
+			t.Cleanup(func() {
+				grokDoctorLookPath, grokDoctorOutput, userHomeDirFunc = originalLookPath, originalOutput, originalHome
+			})
+
+			home := t.TempDir()
+			userHomeDirFunc = func() (string, error) { return home, nil }
+			grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+
+			projectDir := t.TempDir()
+			userHookPath := filepath.Join(home, ".grok", "hooks", "traceary.json")
+			if tc.writeUserHooks {
+				if tc.invalidUserHooks {
+					if err := os.MkdirAll(filepath.Dir(userHookPath), 0o700); err != nil {
+						t.Fatalf("MkdirAll() error = %v", err)
+					}
+					if err := os.WriteFile(userHookPath, []byte(`not-json`), 0o600); err != nil {
+						t.Fatalf("WriteFile() error = %v", err)
+					}
+				} else {
+					writeGrokDoctorHookFixture(t, userHookPath, true)
+				}
+			}
+
+			var pluginHook string
+			if tc.nativePlugin {
+				pluginHook = filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-traceary-grok", "hooks", "hooks.json")
+				writeGrokDoctorHookFixture(t, pluginHook, true)
+			}
+
+			grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+				switch strings.Join(args, " ") {
+				case "--version":
+					return []byte("grok 0.2.111\n"), nil
+				case "plugin list --json":
+					if tc.nativePlugin {
+						return []byte(`[{"name":"traceary-grok","version":"0.34.0","path":` + strconv.Quote(filepath.Dir(filepath.Dir(pluginHook))) + `}]`), nil
+					}
+					return []byte(`[]`), nil
+				case "--cwd " + projectDir + " inspect --json":
+					hooks := []string{}
+					if tc.nativePlugin {
+						hooks = append(hooks, `{"target":`+strconv.Quote(pluginHook)+`,"source":{"type":"plugin","plugin_name":"traceary-grok"}}`)
+					}
+					if tc.inspectUserHooks || tc.writeUserHooks {
+						// Corroborate the user file route when present; doctor also stats the file.
+						hooks = append(hooks, `{"target":`+strconv.Quote(userHookPath)+`,"source":{"type":"user"}}`)
+					}
+					plugins := `[]`
+					if tc.nativePlugin {
+						plugins = `[{"name":"traceary-grok","enabled":true,"provides":{"skills":3,"mcpServers":1}}]`
+					}
+					return []byte(`{"projectTrusted":true,"plugins":` + plugins + `,"hooks":[` + strings.Join(hooks, ",") + `]}`), nil
+				default:
+					t.Fatalf("unexpected Grok arguments: %v", args)
+					return nil, nil
+				}
+			}
+
+			state, err := probeGrokDoctorState(context.Background(), projectDir)
+			if err != nil {
+				t.Fatalf("probeGrokDoctorState() error = %v", err)
+			}
+			if state.UserHooks != tc.wantUserHooks {
+				t.Fatalf("UserHooks = %v, want %v (state=%+v)", state.UserHooks, tc.wantUserHooks, state)
+			}
+			if tc.wantUserHooks {
+				if state.UserHooksPath != userHookPath {
+					t.Fatalf("UserHooksPath = %q, want %q", state.UserHooksPath, userHookPath)
+				}
+				if state.UserHooksInvalid != tc.invalidUserHooks {
+					t.Fatalf("UserHooksInvalid = %v, want %v", state.UserHooksInvalid, tc.invalidUserHooks)
+				}
+			}
+			if state.NativeHooks != tc.nativePlugin {
+				t.Fatalf("NativeHooks = %v, want %v", state.NativeHooks, tc.nativePlugin)
+			}
+
+			checks := buildGrokDoctorChecks(state, "0.34.0")
+			byName := map[string]doctorCheck{}
+			for _, check := range checks {
+				byName[check.Name] = check
+				if strings.Contains(check.Message+check.Hint, "/private/") {
+					t.Fatalf("check exposed private path: %+v", check)
+				}
+			}
+
+			userCheck, ok := byName["grok-hooks-user"]
+			if !ok {
+				t.Fatalf("checks = %+v, want grok-hooks-user", checks)
+			}
+			if userCheck.Status != tc.wantUserStatus {
+				t.Fatalf("grok-hooks-user = %+v, want status %s", userCheck, tc.wantUserStatus)
+			}
+			for _, sub := range tc.wantUserSubstr {
+				if !strings.Contains(userCheck.Message+userCheck.Hint, sub) {
+					t.Fatalf("grok-hooks-user = %+v, want substring %q", userCheck, sub)
+				}
+			}
+
+			routesCheck, ok := byName["grok-hooks-routes"]
+			if !ok {
+				t.Fatalf("checks = %+v, want grok-hooks-routes", checks)
+			}
+			if routesCheck.Status != tc.wantRoutesStatus {
+				t.Fatalf("grok-hooks-routes = %+v, want status %s", routesCheck, tc.wantRoutesStatus)
+			}
+			for _, sub := range tc.wantRoutesSubstr {
+				if !strings.Contains(routesCheck.Message+routesCheck.Hint, sub) {
+					t.Fatalf("grok-hooks-routes = %+v, want substring %q", routesCheck, sub)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildGrokHookRoutesSummary(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		state      grokDoctorState
+		status     string
+		messageSub string
+		hintSub    string
+	}{
+		{
+			name:       "native only passes",
+			state:      grokDoctorState{NativeHooks: true},
+			status:     doctorStatusPass,
+			messageSub: "native plugin",
+		},
+		{
+			name:       "user plus native warns with path",
+			state:      grokDoctorState{NativeHooks: true, UserHooks: true, UserHooksPath: "/tmp/home/.grok/hooks/traceary.json"},
+			status:     doctorStatusWarn,
+			messageSub: "exactly one",
+			hintSub:    "traceary.json",
+		},
+		{
+			name:       "user plus project warns",
+			state:      grokDoctorState{ProjectHooks: true, UserHooks: true, UserHooksPath: "/tmp/home/.grok/hooks/traceary.json"},
+			status:     doctorStatusWarn,
+			messageSub: "user-level",
+			hintSub:    "exactly one",
+		},
+		{
+			name:       "no routes skips",
+			state:      grokDoctorState{},
+			status:     doctorStatusSkip,
+			messageSub: "no Grok hook route",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			check := buildGrokHookRoutesSummary(tc.state)
+			if check.Name != "grok-hooks-routes" || check.Status != tc.status {
+				t.Fatalf("check = %+v, want status %s", check, tc.status)
+			}
+			if !strings.Contains(check.Message+check.Hint, tc.messageSub) {
+				t.Fatalf("check = %+v, want message substring %q", check, tc.messageSub)
+			}
+			if tc.hintSub != "" && !strings.Contains(check.Message+check.Hint, tc.hintSub) {
+				t.Fatalf("check = %+v, want hint substring %q", check, tc.hintSub)
+			}
+			if strings.Contains(check.Message+check.Hint, "/private/") {
+				t.Fatalf("check exposed private path: %+v", check)
+			}
+		})
+	}
+}
