@@ -21,8 +21,8 @@ func (c *RootCLI) newMemoryStoreCommand() *cobra.Command {
 }
 
 // newMemoryAdminCommand groups host-side and maintenance commands —
-// extraction, import/export, activation, hygiene, graph, and the
-// lifecycle verbs (`supersede`, `expire`, `set-validity`) — under
+// extraction, import/export, activation, hygiene, and the lifecycle
+// verbs (`supersede`, `expire`, `set-validity`) — under
 // `traceary memory admin` so operator-facing concerns sit together.
 func (c *RootCLI) newMemoryAdminCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -34,7 +34,6 @@ func (c *RootCLI) newMemoryAdminCommand() *cobra.Command {
 	cmd.AddCommand(c.newMemoryExportCommand())
 	cmd.AddCommand(c.newMemoryActivateCommand())
 	cmd.AddCommand(c.newMemoryHygieneCommand())
-	cmd.AddCommand(c.newMemoryGraphCommand())
 	cmd.AddCommand(c.newMemorySupersedeCommand())
 	cmd.AddCommand(c.newMemoryExpireCommand())
 	cmd.AddCommand(c.newMemorySetValidityCommand())

@@ -635,30 +635,6 @@ process 認証済み page が必要な場合は
 - `--expiry-days` — 内部 scan の staleness 閾値 (既定 90 日)
 - `--json` — JSON 形式で id 別 transition メタデータを出力
 
-#### `traceary memory admin graph add <from-memory-id> --to <to-memory-id> --relation <type>`
-
-**v0.34.0 で非推奨、v0.35.0 で削除。置き換え先なし** — reference store の `memory_edges` は 0 行です。2 つの memory 間に型付き関係を記録します（v0.9.0 で導入された graph overlay）。語彙と overlay の設計は [temporal memory architecture](../architecture/temporal-memory.ja.md) を参照してください。
-
-主な flag:
-
-- `--to`: 関係の対象 memory ID (必須)
-- `--relation`: `supersedes` / `contradicts` / `supports` / `related-to` / `causes` (必須。未知値も forward compat のため受理)
-- `--from`: validity 窓の下限 (YYYY-MM-DD または RFC3339); 既定は現在時刻
-- `--to-date`: validity 窓の上限 (排他); 省略時は open-ended
-- `--json`
-
-#### `traceary memory admin graph list`
-
-**v0.34.0 で非推奨、v0.35.0 で削除。置き換え先なし** — reference store の `memory_edges` は 0 行です。指定 filter に一致する edge を表示します。`memory list --as-of` と同じ半開区間 `[valid_from, valid_to)` の semantics。
-
-主な flag:
-
-- `--memory-id`: この memory に接続する edge (source / target どちらでも) に絞る
-- `--relation`: 関係種別でフィルタ
-- `--as-of`: 指定時刻で validity を評価する
-- `--limit`
-- `--json`
-
 #### `traceary memory admin supersede <memory-id>`
 
 accepted durable memory を新しい accepted memory で置き換えます。`--type` と scope flag を省略すると現在の memory を継承します。
@@ -716,8 +692,8 @@ durable memory の content validity 窓 (`valid_from` / `valid_to`) を設定ま
 | `memory activate` | `memory admin activate` |
 | `memory hygiene scan` | `memory admin hygiene scan` |
 | `memory hygiene apply` | `memory admin hygiene apply` |
-| `memory graph add` | `memory admin graph add` |
-| `memory graph list` | `memory admin graph list` |
+| `memory graph add` | `memory admin graph add`（v0.35.0 で削除。置き換え先なし） |
+| `memory graph list` | `memory admin graph list`（v0.35.0 で削除。置き換え先なし） |
 | `memory supersede` | `memory admin supersede` |
 | `memory expire` | `memory admin expire` |
 | `memory set-validity` | `memory admin set-validity` |
@@ -887,13 +863,12 @@ active session の列:
 
 session の一覧サマリーを表示します。
 
-`session list` では、status / duration / 集計件数に加えて、`label`、`summary`、`parent_session_id` も確認できます。
+`session list` では、status / duration / 集計件数に加えて、`summary`、`parent_session_id` も確認できます。session label サーフェス（`session label`、`--label`、`LABEL` 列、`label` JSON フィールド）は v0.34 の非推奨を経て v0.35.0 で削除されました（#1691）。
 
 主な flag:
 
 - `--workspace`
 - `--agent`
-- `--label` — **v0.34.0 で非推奨、v0.35.0 で削除。置き換え先なし**
 - `--from`
 - `--to`
 - `--limit`
@@ -919,19 +894,6 @@ session の一覧サマリーを表示します。
 主な flag:
 
 - `--json`
-
-### `traceary session label <label-text>` — **v0.34.0 で非推奨、v0.35.0 で削除。置き換え先なし**
-
-session の label を設定または更新します。`LABEL` の表列と `label` JSON フィールドも v0.34.0 で非推奨、v0.35.0 で削除します。reference store の label 付き session は 0 件です。
-
-既定値:
-
-- `--session-id`: flag → `TRACEARY_SESSION_ID`
-
-主な flag:
-
-- `--session-id`
-- `--db-path`
 
 ### `traceary session refine <session-id>`
 

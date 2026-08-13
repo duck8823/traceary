@@ -208,8 +208,6 @@ func run() error {
 		EventQuery:   eventDatasource,
 		CodexSource:  codexMemorySource,
 	})
-	memoryEdgeDatasource := sqlite.NewMemoryEdgeDatasource(db)
-	memoryEdgeUsecase := usecase.NewMemoryEdgeUsecase(memoryEdgeDatasource, memoryEdgeDatasource, nil)
 	bundleDatasource := sqlite.NewBundleDatasource(db, eventDatasource)
 	bundleUsecase := usecase.NewBundleUsecase(eventDatasource, bundleDatasource, nil)
 	usageObservationDatasource := sqlite.NewUsageObservationDatasource(db)
@@ -283,7 +281,6 @@ func run() error {
 		cli.WithConsolidationPressure(consolidationPressureUsecase),
 		cli.WithSessionWakeSummary(sessionWakeSummaryDatasource),
 		cli.WithMemory(memoryUsecase),
-		cli.WithMemoryEdge(memoryEdgeUsecase),
 		cli.WithBundle(bundleUsecase),
 		cli.WithCodexUsage(codexUsageUsecase),
 		cli.WithCodexHeadlessUsage(filesystem.NewCodexHeadlessUsageStreamFactory()),

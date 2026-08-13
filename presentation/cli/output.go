@@ -300,7 +300,6 @@ type memoryDistillOutput struct {
 type sessionSummaryOutput struct {
 	SessionID       string   `json:"session_id"`
 	Workspace       string   `json:"workspace,omitempty"`
-	Label           string   `json:"label,omitempty"`
 	Summary         string   `json:"summary,omitempty"`
 	Model           string   `json:"model,omitempty"`
 	ParentSessionID string   `json:"parent_session_id,omitempty"`

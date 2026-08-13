@@ -27,7 +27,6 @@ type RootCLI struct {
 	sessionWakeSummary         queryservice.SessionWakeSummaryQueryService
 	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
-	memoryEdge                 usecase.MemoryEdgeUsecase
 	bundle                     usecase.BundleUsecase
 	codexUsage                 usecase.CodexUsageCaptureUsecase
 	codexHeadlessUsage         application.CodexHeadlessUsageStreamFactory
@@ -209,12 +208,6 @@ func WithGrokHeadlessUsage(factory application.GrokHeadlessUsageStreamFactory) R
 // WithKimiUsage injects partial wire usage and unavailable lifecycle capture.
 func WithKimiUsage(usage usecase.KimiUsageCaptureUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.kimiUsage = usage }
-}
-
-// WithMemoryEdge injects the MemoryEdgeUsecase used by
-// `traceary memory graph` subcommands.
-func WithMemoryEdge(edge usecase.MemoryEdgeUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.memoryEdge = edge }
 }
 
 // WithContext injects the ContextUsecase used by structured handoff commands.

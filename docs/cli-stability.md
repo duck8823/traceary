@@ -35,7 +35,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 
 - **Event recording** — `traceary log`, `traceary audit`
 - **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary sessions` (and `traceary sessions --snapshot` / `--snapshot --json`), plus the compatibility alias `traceary top` (deprecated in v0.34.0 and removed in v0.35.0; including `traceary top --snapshot` / `--snapshot --json`)
-- **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session tree`, `traceary session lineage`, `traceary session label`, `traceary session refine`, `traceary session latest`, `traceary session active`
+- **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session tree`, `traceary session lineage`, `traceary session refine`, `traceary session latest`, `traceary session active`
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store remember`, `traceary memory store propose`, `traceary memory store distill`
@@ -61,7 +61,7 @@ Admin commands in v0.15:
 
 - **Store administration** — `traceary store init`, `traceary store backup create`, `traceary store backup restore`, `traceary store gc`
 - **Session administration** — `traceary session gc` (closes stale sessions; visible under the `session` namespace and registered alongside the public session subcommands, but treated as an admin-tier maintenance entrypoint)
-- **Durable memory admin** — `traceary memory admin extract`, `traceary memory admin import codex`, `traceary memory admin import instructions`, `traceary memory admin export`, `traceary memory admin activate`, `traceary memory admin hygiene scan`, `traceary memory admin hygiene apply`, `traceary memory admin graph add`, `traceary memory admin graph list`, `traceary memory admin supersede`, `traceary memory admin expire`, `traceary memory admin set-validity`
+- **Durable memory admin** — `traceary memory admin extract`, `traceary memory admin import codex`, `traceary memory admin import instructions`, `traceary memory admin export`, `traceary memory admin activate`, `traceary memory admin hygiene scan`, `traceary memory admin hygiene apply`, `traceary memory admin supersede`, `traceary memory admin expire`, `traceary memory admin set-validity`
 
 ### Plumbing / hidden / deprecated commands (v0.15)
 
@@ -86,12 +86,12 @@ Currently deprecated:
 
 - `traceary sessions` interactive dashboard → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
-- `traceary memory admin graph add` and `traceary memory admin graph list` (removed in v0.35.0; deprecated in v0.34.0; no replacement because the reference store has zero `memory_edges` rows)
-- `traceary session label`, `traceary session list --label`, the `LABEL` column, and the `label` JSON field (removed in v0.35.0; deprecated in v0.34.0; no replacement because the reference store has zero labelled sessions)
 
 Historical removal log:
 
 - Removed in v0.35.0 after the v0.34 announcement (#1687 / #1764): `traceary tui`, `traceary dashboard`, and the bare interactive TTY default that opened the operator cockpit. Bare `traceary` always prints help (TTY and non-TTY). Use `traceary sessions --snapshot` for the surviving script-friendly view of related session data. The orphan local state file `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually; Traceary no longer reads or writes it.
+- Removed in v0.35.0 after the v0.34 deprecation (#1689 / #1691): `traceary memory admin graph add` and `traceary memory admin graph list` (no replacement; the reference store had zero `memory_edges` rows). The `memory_edges` table remains for gc and bundle export/import.
+- Removed in v0.35.0 after the v0.34 deprecation (#1689 / #1691): `traceary session label`, `traceary session list --label`, the `LABEL` column in `session list` text output, and the `label` field in `session list` JSON output (no replacement; the reference store had zero labelled sessions). The `sessions.label` column remains in the store schema.
 - Replaced in v0.35.0 after the v0.34 announcement (#1717 / #1775): `traceary search --json` top-level array → `{"events": [...], "sessions": [...]}` object. Both keys are always present; empty arrays mean the tier returned no hits.
 - Removed in v0.14.0 after earlier deprecation: `traceary init` → `traceary store init`, `traceary backup` → `traceary store backup ...`, `traceary gc` → `traceary store gc`, `traceary handoff` → `traceary session handoff`, `traceary compact-summary` → `traceary session handoff --compact-only`, and the retired `traceary integration codex install` helper → Codex official `/plugins` flow.
 - Removed in v0.15.0 after the v0.14 compatibility window: `traceary memory accept`, `traceary memory reject`, `traceary memory remember`, `traceary memory propose`, `traceary memory distill`, `traceary memory extract`, `traceary memory supersede`, `traceary memory expire`, `traceary memory set-validity`, `traceary memory import codex`, `traceary memory import instructions`, `traceary memory export`, `traceary memory activate`, `traceary memory hygiene scan`, `traceary memory hygiene apply`, `traceary memory graph add`, and `traceary memory graph list`. Use the canonical `memory inbox` / `memory store` / `memory admin` paths documented in the CLI reference.

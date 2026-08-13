@@ -384,7 +384,6 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 	memoryStub.exportResult = exportResult
 	memoryStub.scanResult = hygieneResult
 	memoryStub.applyResult = hygieneApplyResult
-	edge := mustMemoryEdgeForGolden(t, "edge-golden-1")
 
 	cases := []struct {
 		name    string
@@ -408,8 +407,6 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 		{"inbox-reject", []string{"memory", "inbox", "reject", "--db-path", "/tmp/test-traceary.db", "--ids", "memory-golden-candidate", "--json"}, "inbox-reject.golden.json"},
 		{"hygiene-scan", []string{"memory", "admin", "hygiene", "scan", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json"}, "hygiene-scan.golden.json"},
 		{"hygiene-apply", []string{"memory", "admin", "hygiene", "apply", "--db-path", "/tmp/test-traceary.db", "--ids", "memory-golden-accepted,memory-missing", "--json"}, "hygiene-apply.golden.json"},
-		{"graph-add", []string{"memory", "admin", "graph", "add", "memory-golden-accepted", "--db-path", "/tmp/test-traceary.db", "--to", "memory-golden-candidate", "--relation", "supports", "--from", "2026-04-14T15:00:00Z", "--json"}, "graph-add.golden.json"},
-		{"graph-list", []string{"memory", "admin", "graph", "list", "--db-path", "/tmp/test-traceary.db", "--memory-id", "memory-golden-accepted", "--json"}, "graph-list.golden.json"},
 	}
 
 	for _, tc := range cases {
@@ -418,7 +415,6 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 			rootCmd := newTestRootCLI(
 				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 				cli.WithMemory(memoryStub),
-				cli.WithMemoryEdge(&memoryEdgeUsecaseStub{addEdge: edge, listEdges: []*model.MemoryEdge{edge}}),
 			).Command()
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
@@ -530,25 +526,4 @@ func TestTimeline_JSON_Golden(t *testing.T) {
 	}
 
 	assertJSONGolden(t, stdout.Bytes(), filepath.Join("testdata", "timeline", "default.golden.json"))
-}
-
-func mustMemoryEdgeForGolden(t *testing.T, id string) *model.MemoryEdge {
-	t.Helper()
-	edgeID, err := types.MemoryEdgeIDFrom(id)
-	if err != nil {
-		t.Fatalf("MemoryEdgeIDFrom() error = %v", err)
-	}
-	edge, err := model.NewMemoryEdge(
-		edgeID,
-		mustMemoryIDForCLI(t, "memory-golden-accepted"),
-		mustMemoryIDForCLI(t, "memory-golden-candidate"),
-		types.MemoryEdgeRelationSupports,
-		time.Date(2026, 4, 14, 15, 0, 0, 0, time.UTC),
-		types.Some(time.Date(2026, 5, 14, 15, 0, 0, 0, time.UTC)),
-		time.Date(2026, 4, 14, 15, 1, 0, 0, time.UTC),
-	)
-	if err != nil {
-		t.Fatalf("NewMemoryEdge() error = %v", err)
-	}
-	return edge
 }
