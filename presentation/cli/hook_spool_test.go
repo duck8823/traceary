@@ -203,6 +203,154 @@ func TestRunHookDurably_RetainsSpoolAfterFailure(t *testing.T) {
 	}
 }
 
+func TestHookSpoolDrainAllowance(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		remaining time.Duration
+		want      int
+	}{
+		{name: "1.5s in reserve", remaining: 1500 * time.Millisecond, want: 0},
+		{name: "exactly drainReserve", remaining: hookSpoolDrainReserve, want: 0},
+		{name: "3s low headroom", remaining: 3 * time.Second, want: 1},
+		{name: "just under 4s", remaining: 4*time.Second - time.Nanosecond, want: 1},
+		{name: "exactly 4s full batch", remaining: 4 * time.Second, want: hookSpoolReplayBatchLimit},
+		{name: "8s full batch", remaining: 8 * time.Second, want: hookSpoolReplayBatchLimit},
+		{name: "zero remaining", remaining: 0, want: 0},
+		{name: "negative remaining", remaining: -time.Second, want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := hookSpoolDrainAllowance(tc.remaining); got != tc.want {
+				t.Fatalf("hookSpoolDrainAllowance(%v) = %d, want %d", tc.remaining, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHookSpoolDrainRemaining_NoDeadlineUsesPackagedBudget(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	// startedAt 9s ago → remaining 1s → allowance 0
+	startedAt := now.Add(-9 * time.Second)
+	remaining := hookSpoolDrainRemaining(context.Background(), startedAt, now)
+	if remaining != time.Second {
+		t.Fatalf("remaining = %v, want 1s", remaining)
+	}
+	if got := hookSpoolDrainAllowance(remaining); got != 0 {
+		t.Fatalf("allowance for startedAt 9s ago = %d, want 0", got)
+	}
+}
+
+func TestHookSpoolDrainRemaining_PrefersContextDeadline(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	deadline := now.Add(1500 * time.Millisecond)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	// startedAt is fresh, but ctx only has 1.5s left → reserve window.
+	remaining := hookSpoolDrainRemaining(ctx, now, now)
+	if remaining != 1500*time.Millisecond {
+		t.Fatalf("remaining = %v, want 1.5s", remaining)
+	}
+	if got := hookSpoolDrainAllowance(remaining); got != 0 {
+		t.Fatalf("allowance = %d, want 0", got)
+	}
+}
+
+func TestRunHookDurably_SkipsDrainWhenDeadlineInReserve(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	backlog := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{"prompt":"backlog","session_id":"s-backlog","cwd":"/tmp"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}
+	backlogPath, err := persistHookSpoolRecord(backlog)
+	if err != nil {
+		t.Fatalf("persist backlog: %v", err)
+	}
+
+	// Leave only reserve-window headroom so opportunistic drain must skip.
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(1500*time.Millisecond))
+	defer cancel()
+
+	if err := root.runHookDurably(
+		ctx,
+		"prompt",
+		hookInvocationSpec{Command: "prompt", Client: "claude"},
+		strings.NewReader(`{"prompt":"current"}`),
+		func(io.Reader) error { return nil },
+	); err != nil {
+		t.Fatalf("runHookDurably() error = %v (current delivery must still succeed)", err)
+	}
+	if eventStub.logCalls != 0 {
+		t.Fatalf("drain ran under reserve budget, logCalls=%d", eventStub.logCalls)
+	}
+	if _, err := os.Stat(backlogPath); err != nil {
+		t.Fatalf("backlog must remain untouched when drain skipped: %v", err)
+	}
+	records, unreadable, err := scanHookSpoolRecords(nil)
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 1 || records[0].Payload != backlog.Payload {
+		t.Fatalf("records=%#v unreadable=%#v, want only untouched backlog", records, unreadable)
+	}
+}
+
+func TestRunHookDurably_DrainsWhenBudgetAllows(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	backlog := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{"prompt":"backlog","session_id":"s-backlog","cwd":"/tmp"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}
+	if _, err := persistHookSpoolRecord(backlog); err != nil {
+		t.Fatalf("persist backlog: %v", err)
+	}
+
+	// Explicit deadline well above low-headroom so a full batch is allowed.
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	if err := root.runHookDurably(
+		ctx,
+		"prompt",
+		hookInvocationSpec{Command: "prompt", Client: "claude"},
+		strings.NewReader(`{"prompt":"current"}`),
+		func(io.Reader) error { return nil },
+	); err != nil {
+		t.Fatalf("runHookDurably() error = %v", err)
+	}
+	if eventStub.logCalls != 1 {
+		t.Fatalf("logCalls=%d, want 1 (backlog replayed)", eventStub.logCalls)
+	}
+	records, unreadable, err := scanHookSpoolRecords(nil)
+	if err != nil {
+		t.Fatalf("scanHookSpoolRecords() error = %v", err)
+	}
+	if len(unreadable) != 0 || len(records) != 0 {
+		t.Fatalf("records=%#v unreadable=%#v, want empty after drain", records, unreadable)
+	}
+}
+
 func TestDrainHookSpoolRecords_ReplaysAndRemoves(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)

@@ -28,6 +28,16 @@ const (
 	// failed attempts the record is retained under spool/dead/ and excluded
 	// from opportunistic drain so poison records cannot consume the batch.
 	hookSpoolRetryLimit = 3
+	// packagedHostBudget is the documented packaged host hook timeout. When
+	// ctx has no deadline, remaining drain headroom is measured against this.
+	packagedHostBudget = 10 * time.Second
+	// hookSpoolDrainReserve is headroom kept for process exit after current
+	// delivery. Opportunistic drain is skipped once remaining time is at or
+	// below this reserve.
+	hookSpoolDrainReserve = 2 * time.Second
+	// hookSpoolDrainLowHeadroom is the remaining-time band where drain may
+	// replay a single backlog record only (not a full batch).
+	hookSpoolDrainLowHeadroom = 4 * time.Second
 	// Packaged host hook budgets are 10 seconds. An in-flight record older than
 	// one minute belongs to a process that did not finish its normal
 	// success/failure transition and is safe to make replayable.
@@ -37,6 +47,32 @@ const (
 	// (suffix .json only) cannot pick them up while another process owns them.
 	hookSpoolClaimMarker = ".claim-"
 )
+
+// hookSpoolDrainAllowance returns how many backlog records opportunistic drain
+// may attempt given remaining host budget. Pure policy: no I/O.
+//
+//	remaining <= 2s → 0 (keep drainReserve for exit)
+//	remaining <  4s → 1 (low headroom)
+//	otherwise       → hookSpoolReplayBatchLimit
+func hookSpoolDrainAllowance(remaining time.Duration) int {
+	if remaining <= hookSpoolDrainReserve {
+		return 0
+	}
+	if remaining < hookSpoolDrainLowHeadroom {
+		return 1
+	}
+	return hookSpoolReplayBatchLimit
+}
+
+// hookSpoolDrainRemaining is the wall-clock budget left for opportunistic
+// drain. Prefer an explicit ctx deadline when the host provided one; otherwise
+// assume the packaged 10s budget from startedAt.
+func hookSpoolDrainRemaining(ctx context.Context, startedAt, now time.Time) time.Duration {
+	if deadline, ok := ctx.Deadline(); ok {
+		return deadline.Sub(now)
+	}
+	return packagedHostBudget - now.Sub(startedAt)
+}
 
 type hookInvocationSpec struct {
 	Command string
@@ -84,6 +120,7 @@ func (c *RootCLI) runHookDurably(
 	run func(io.Reader) error,
 ) error {
 	return runHookBestEffort(name, func() error {
+		startedAt := time.Now()
 		payload, err := readHookPayload(input)
 		if err != nil {
 			return err
@@ -122,11 +159,16 @@ func (c *RootCLI) runHookDurably(
 		}
 		// The current delivery is committed and its spool record is cleared
 		// before backlog work can consume the remaining host timeout. Replay is
-		// opportunistic: failures remain durable and never change current
-		// delivery success.
+		// opportunistic and budget-capped: failures remain durable and never
+		// change current delivery success. Drain is skipped entirely when the
+		// remaining budget is inside the reserve window so host watchdogs do
+		// not kill an already-successful hook.
 		if ctx.Err() == nil {
-			if replayed, failed := c.drainHookSpoolRecords(ctx, hookSpoolReplayBatchLimit); replayed > 0 || failed > 0 {
-				slog.Debug("hook spool drain", "replayed", replayed, "failed", failed)
+			limit := hookSpoolDrainAllowance(hookSpoolDrainRemaining(ctx, startedAt, time.Now()))
+			if limit > 0 {
+				if replayed, failed := c.drainHookSpoolRecords(ctx, limit); replayed > 0 || failed > 0 {
+					slog.Debug("hook spool drain", "replayed", replayed, "failed", failed, "limit", limit)
+				}
 			}
 		}
 		return nil
