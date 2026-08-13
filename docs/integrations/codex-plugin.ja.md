@@ -3,7 +3,7 @@
 [English](./codex-plugin.md)
 
 Traceary の Codex 向け plugin は `plugins/traceary/` にあり、Codex CLI 公式の `/plugins` flow に乗せて使えます。
-MCP server / slash command / session-history skill は、公式 flow で plugin を install した時点で自動配線されます。plugin hook には追加の安全確認があります。Codex は non-managed hook の現在の定義をユーザーが確認して trust するまで実行しません。install 後と、hook 定義が変わる plugin update 後に `/hooks` を開き、Traceary の entry を確認して trust してください。`traceary doctor --client codex` は Codex が判定した有効な trust 状態を検査し、untrusted・変更済み・無効な hook を警告します。
+slash command / session-history skill は、公式 flow で plugin を install した時点で自動配線されます。plugin hook には追加の安全確認があります。Codex は non-managed hook の現在の定義をユーザーが確認して trust するまで実行しません。install 後と、hook 定義が変わる plugin update 後に `/hooks` を開き、Traceary の entry を確認して trust してください。`traceary doctor --client codex` は Codex が判定した有効な trust 状態を検査し、untrusted・変更済み・無効な hook を警告します。
 
 ## Codex 公式 /plugins flow で入れる (primary)
 
@@ -41,7 +41,6 @@ traceary doctor --client codex --json
 
 ## 公式 flow が自動で組み込むもの
 
-- `traceary mcp-server` を呼ぶ `traceary` MCP server
 - `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop`（本文を含まない usage と turn 境界の transcript。session 終了ではない — #1170）, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照） — **Codex 側の `plugin_hooks` feature が有効で、現在の定義が `/hooks` で trust されている場合に限る**。それ以外は下記 **Hook fallback (plugin_hooks が利用できない環境向け)** セクションを参照
 - slash command: `/traceary:help`, `/traceary:doctor`
 - 文脈 skill（1 job につき 1 skill。詳細は [skills](./skills.ja.md)）: `traceary-session-history` / `traceary-session-refine` / `traceary-memory-review` / `traceary-memory-remember`。いずれも Traceary CLI 経由。
@@ -135,9 +134,9 @@ command / action と allowlist 済み session / cwd metadata だけへ射影し�
 spool working directory の canonical 化は1回につき distinct 64件を上限とし、
 超過時は absence を成功扱いせず `spool_projection_partial` を返します。
 
-local path alias で MCP の session / event が見つからない場合は、
-`codex-capture` が表示した `workspace=` の値で read を再実行してください。
-`session_status`、`list_events`、usage aggregate、この diagnostic は同じ
+local path alias で session / event が見つからない場合は、
+`codex-capture` が表示した `workspace=` の値で CLI の read を再実行してください。
+`session list`、`list`、usage aggregate、この diagnostic は同じ
 canonical workspace identity を使います。
 
 ## 検証済み usage の取得

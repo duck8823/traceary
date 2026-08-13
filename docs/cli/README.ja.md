@@ -69,7 +69,7 @@ session 解決ルール:
 - `--max-input-bytes`
 - `--max-output-bytes`
 
-command audit の input/output payload は、解決後の上限を超えると保存前に切り詰められます。上限の優先順位は `--max-*-bytes` flag、`TRACEARY_MAX_AUDIT_*_BYTES`、`~/.config/traceary/config.json` の `audit.max_*_bytes`、組み込み既定値です。切り詰め後も head / tail の文脈、構造化された `input_truncated` / `output_truncated` metadata、`original_bytes` marker は残ります。省略された byte は `traceary show` や MCP `full_body=true` でも復元できません。
+command audit の input/output payload は、解決後の上限を超えると保存前に切り詰められます。上限の優先順位は `--max-*-bytes` flag、`TRACEARY_MAX_AUDIT_*_BYTES`、`~/.config/traceary/config.json` の `audit.max_*_bytes`、組み込み既定値です。切り詰め後も head / tail の文脈、構造化された `input_truncated` / `output_truncated` metadata、`original_bytes` marker は残ります。省略された byte は `traceary show` でも復元できません。
 
 **read 面**（`sessions --snapshot --json`、list 系の recent-command ペイン）では、大きい host-tool payload（`Edit` / `Write` / `Read` / shell）を tool-aware な compact summary（tool 名、path、rune 数、content hash、head/tail、`traceary show <event_id>` の retrieval hint）に投影します。これは presentation 時の投影のみで、永続化された raw 本体と `traceary show` はフル fidelity のままです。
 
@@ -330,7 +330,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 ### `traceary memory inbox` — candidate review surface
 
-メモリ候補の確認キューをレビューします。`list` はメモリ候補を confidence / review-readiness state と evidence / artifact ref 件数付きで一覧し、レビュアが provenance を確認してから accept できるようにします。`show` は単一候補の evidence-first decision card を表示します。`accept` / `reject` は positional id（対話的に打ち込む典型ケース）か、batch script / MCP caller 向けの `--ids id1,id2,...` のどちらでも受け付けます。partial batch でも id 単位の成功/失敗を返すので、どの id が transition したかが必ず分かります。`--id-only` を指定すると memory id だけが stdout に出力されます (`--json` と排他)。canonical な memory inbox surface は v0.13.x の positional-id 形式の strict superset です。
+メモリ候補の確認キューをレビューします。`list` はメモリ候補を confidence / review-readiness state と evidence / artifact ref 件数付きで一覧し、レビュアが provenance を確認してから accept できるようにします。`show` は単一候補の evidence-first decision card を表示します。`accept` / `reject` は positional id（対話的に打ち込む典型ケース）か、batch script / その他の caller 向けの `--ids id1,id2,...` のどちらでも受け付けます。partial batch でも id 単位の成功/失敗を返すので、どの id が transition したかが必ず分かります。`--id-only` を指定すると memory id だけが stdout に出力されます (`--json` と排他)。canonical な memory inbox surface は v0.13.x の positional-id 形式の strict superset です。
 
 #### `traceary memory inbox list`
 
@@ -358,7 +358,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 主な flag:
 
 - 単一 id 用の positional `<memory-id>`
-- batch / MCP 向けの `--ids id1,id2,...`（複数指定可）
+- batch / その他の caller 向けの `--ids id1,id2,...`（複数指定可）
 - `--confidence`
 - `--id-only`（`--json` と排他）
 - `--json`
@@ -370,7 +370,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 主な flag:
 
 - 単一 id 用の positional `<memory-id>`
-- batch / MCP 向けの `--ids id1,id2,...`（複数指定可）
+- batch / その他の caller 向けの `--ids id1,id2,...`（複数指定可）
 - `--id-only`（`--json` と排他）
 - `--json`
 
@@ -602,8 +602,7 @@ traceary memory admin activate --target gemini --path /path/to/GEMINI.md --apply
 
 すべての結果は `complete` / `partial` / `stop_reason` / `consistency` と実際の
 `usage` を返します。CLI の partial result は `rerun_guidance` も返します。
-`--workspace` を狭める、必要な有限上限だけを引き上げる、または再開可能な MCP
-surface を使ってください。store が変化しなければ `consistency=consistent` です。
+`--workspace` を狭めるか、必要な有限上限だけを引き上げてください。store が変化しなければ `consistency=consistent` です。
 実行中の memory write により global revision が変わっても、scan は保持済みの
 phase / keyset を破棄しません。現在の revision に束縛し直し、
 `consistency=best_effort` / `consistency_reason=revision_changed` へ恒久的に
@@ -614,11 +613,10 @@ downgrade して、同じ source page を残りの実行予算内で再試行し
 
 hygiene cursor は、発行プロセスだけが保持する AES-GCM key で暗号化・認証されます。
 改変済み cursor、旧 checksum cursor、以前のプロセスが発行した cursor は、新しい
-scan が必要であることを明示する error になります。長時間動作する MCP server は
-再起動までページを継続できます。standalone CLI は `--cursor` を受け付けず、
-`next_cursor` も出力しません。各 command は 1 回の上限付き scan です。複数の
-process 認証済み page が必要な場合は
-`query_memory(action="scan_hygiene")` を使います。
+scan が必要であることを明示する error になります。standalone CLI は `--cursor` を
+受け付けず、`next_cursor` も出力しません。各 command は 1 回の上限付き scan です。
+かつての MCP `query_memory(action="scan_hygiene")` による複数 page cursor 経路は
+v0.35.0 (#1871) で MCP server と一緒に削除されました。
 
 #### `traceary memory admin hygiene apply`
 
@@ -932,7 +930,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 | `ended` | end marker があり、その後にイベントがない。 |
 | `ended_with_late_events` | end marker があるが、同じ session で後続イベントが到着した。end marker は `session_ended` イベント由来、または `session gc` が `ended_at` を直接書き込んだものの場合がある。 |
 
-active-only snapshot は `active` / `ended_with_late_events` と（`--allow-stale` 指定時の）`stale` を残します。`ended_with_late_events` は、session が既に close されているのに workspace の直近イベントが存在するとき `sessions --snapshot` が 0 件を返さないようにするための値です（例: Codex のような host が session を早期に close したが会話は継続していた場合）。CLI snapshot と MCP `session_status(action="active")` は同じルールを適用するため、end marker 後にイベントがある session は両方で surface されます。
+active-only snapshot は `active` / `ended_with_late_events` と（`--allow-stale` 指定時の）`stale` を残します。`ended_with_late_events` は、session が既に close されているのに workspace の直近イベントが存在するとき `sessions --snapshot` が 0 件を返さないようにするための値です（例: Codex のような host が session を早期に close したが会話は継続していた場合）。`session list` と `sessions --snapshot` は同じルールを適用するため、end marker 後にイベントがある session はどちらの CLI 読み取りでも surface されます。
 
 ## Hooks と診断
 
@@ -977,15 +975,14 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 
 ### `traceary doctor`
 
-DB アクセス、生成済み hook 設定の有無、MCP 登録、plugin version の整合性、クライアント設定のつながりを診断します。
+DB アクセス、生成済み hook 設定の有無、plugin version の整合性、クライアント設定のつながりを診断します。
 
-text 出力は `Environment`、`Database`、`Plugins`、`MCP`、`Hooks` の安定した section に分かれます。
-各 check は `PASS` / `WARN` / `FAIL` の severity を持ちます。`WARN` は hooks 未導入などの初回状態や未設定状態、`PATH` 上に複数の `traceary` がある状態、MCP 登録が古い binary を指す状態、plugin version が実行中の `traceary` と一致しない状態を表します。`FAIL` は DB アクセス不良、unreadable / invalid config、`PATH` 上に `traceary` がない状態のような壊れた状態を表します。
+text 出力は `Environment`、`Database`、`Plugins`、`Hooks` の安定した section に分かれます。
+各 check は `PASS` / `WARN` / `FAIL` の severity を持ちます。`WARN` は hooks 未導入などの初回状態や未設定状態、`PATH` 上に複数の `traceary` がある状態、plugin version が実行中の `traceary` と一致しない状態を表します。`FAIL` は DB アクセス不良、unreadable / invalid config、`PATH` 上に `traceary` がない状態のような壊れた状態を表します。
 
 追加の doctor check:
 
 - `path`: `PATH` 上の `traceary` 解決先と directory を確認します。見つからない場合は `FAIL`、複数見つかる場合は `WARN` です。
-- `<client>-mcp`: Claude Code / Codex / Gemini の config または plugin が `traceary mcp-server` MCP server を登録しているか確認します。
 - `<client>-plugin-version`: 検出した plugin manifest / cache の version と実行中 binary version を比較し、不一致なら plugin の reinstall / update を促します。
 - `claude-hook-cancellations`: 対応が必要な SessionEnd cancellation marker と、参照先 session が後から終了した marker を分けて表示します。`doctor --fix --dry-run` は解決済み marker の削除を preview し、`doctor --fix` は終了済みと確認できた marker だけを削除します。active、session 不明、unreadable な証跡は削除しません。
 - `codex-memory-activation` / `claude-memory-activation` / `gemini-memory-activation`: accepted durable memory が host の native activation target で `missing` / `stale` / `in_sync` / `invalid` のどれかを確認します。`missing` / `stale` は `WARN` で、正確な `memory admin activate --dry-run --diff`（preview）と `memory admin activate --apply`（refresh）の remediation command を表示します。`invalid` は `FAIL` で、host file を確認してから apply するよう hint を出します。`--client <claude|codex|gemini>` で対象を絞り、`--project-dir <dir>` で Claude/Gemini の activation root を doctor process の cwd ではなく特定 repository に固定できます。
@@ -1103,9 +1100,6 @@ v0.14.0 で廃止されており、**サポート対象の install 面ではあ�
 
 v0.15.0 で削除されており、**サポート対象の uninstall 面ではありません**。この名前は歴史的な移行メモとしてのみ掲載しています。今後の uninstall は Codex 公式の `/plugins` flow を使い、v0.14 以前の旧 install 経路が残した state だけ [Codex plugin ガイドの手動 cleanup 手順](../integrations/codex-plugin.ja.md) で片付けてください。
 
-### `traceary mcp-server`
-
-AI クライアント連携向けに MCP サーバーを stdio で起動します。
 
 ### `traceary report`
 

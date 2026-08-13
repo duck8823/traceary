@@ -147,5 +147,4 @@ Interactive work is better than it was in early `v0.1.x`, but some improvements 
 ## Related docs
 
 - CLI reference: [`../cli/README.md`](../cli/README.md)
-- MCP guide: [`../mcp/README.md`](../mcp/README.md)
 - Event lifecycle: [`../lifecycle.md`](../lifecycle.md)

@@ -1,7 +1,7 @@
 {
   "name": "traceary-grok",
   "version": "0.34.0",
-  "description": "Local-first Traceary integration for Grok Build with MCP tools and native session, audit, transcript, and compact hooks.",
+  "description": "Local-first Traceary integration for Grok Build with native session, audit, transcript, and compact hooks.",
   "author": {
     "name": "Shunsuke Maeda",
     "email": "duck8823@gmail.com"
@@ -12,7 +12,6 @@
     "session",
     "audit",
     "memory",
-    "mcp",
     "local-first"
   ]
 }

@@ -3,60 +3,63 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-type mcpServerRunnerStub struct {
-	called bool
-	err    error
-}
-
-func (s *mcpServerRunnerStub) Run(_ context.Context) error {
-	s.called = true
-	return s.err
-}
-
-func TestRootCLI_MCPServer(t *testing.T) {
+func TestRootCLI_MCPServerIsUnknownCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("starts MCP server", func(t *testing.T) {
-		t.Parallel()
+	for _, args := range [][]string{
+		{"mcp-server"},
+		{"mcp-server", "--help"},
+		{"mcp-server", "--db-path", "./traceary.db"},
+	} {
+		args := args
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
 
-		runner := &mcpServerRunnerStub{}
-		var observedDBPath string
-		sut := cli.NewRootCLI(
-			cli.WithMCPServerRunner(runner),
-			cli.WithDatabasePathSetter(func(resolved string) { observedDBPath = resolved }),
-		)
-		command := sut.Command()
-		stdout := &bytes.Buffer{}
-		stderr := &bytes.Buffer{}
-		command.SetOut(stdout)
-		command.SetErr(stderr)
-		command.SetArgs([]string{"mcp-server", "--db-path", "./traceary.db"})
+			sut := cli.NewRootCLI()
+			command := sut.Command()
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			command.SetOut(stdout)
+			command.SetErr(stderr)
+			command.SetArgs(args)
 
-		if err := command.ExecuteContext(context.Background()); err != nil {
-			t.Fatalf("ExecuteContext() error = %v", err)
-		}
-		if !runner.called {
-			t.Fatalf("runner.Run was not called")
-		}
-		if observedDBPath == "" {
-			t.Fatalf("DatabasePathSetter did not receive the resolved path")
-		}
-	})
+			err := command.ExecuteContext(context.Background())
+			if err == nil {
+				t.Fatal("ExecuteContext() error = nil, want unknown command")
+			}
+			combined := strings.ToLower(err.Error() + "\n" + stderr.String() + stdout.String())
+			if !strings.Contains(combined, `unknown command "mcp-server"`) {
+				t.Fatalf("output = %q, want unknown command \"mcp-server\"", combined)
+			}
+			if strings.Contains(combined, "deprecated") {
+				t.Fatalf("output = %q, must not emit DEPRECATED notice", combined)
+			}
+		})
+	}
+}
 
-	t.Run("returns error when runner is not configured", func(t *testing.T) {
-		t.Parallel()
+func TestRootCLI_HelpDoesNotListMCPServer(t *testing.T) {
+	t.Parallel()
 
-		sut := cli.NewRootCLI()
-		command := sut.Command()
-		command.SetArgs([]string{"mcp-server"})
+	sut := cli.NewRootCLI()
+	command := sut.Command()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	command.SetOut(stdout)
+	command.SetErr(stderr)
+	command.SetArgs([]string{"--help"})
 
-		if err := command.ExecuteContext(context.Background()); err == nil {
-			t.Fatalf("ExecuteContext() error = nil, want error")
-		}
-	})
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+	out := stdout.String() + stderr.String()
+	if strings.Contains(out, "mcp-server") {
+		t.Fatalf("--help listed mcp-server:\n%s", out)
+	}
 }

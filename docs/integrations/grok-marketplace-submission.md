@@ -47,8 +47,8 @@ intentionally distinct from the Claude marketplace package named `traceary`:
 Grok 0.2.111 installs native packages below `~/.grok/installed-plugins/`, and
 the unique identity prevents a same-name package from being resolved instead.
 
-Never commit secrets. The package only invokes Traceary hook entrypoints and a
-local MCP stdio server.
+Never commit secrets. The package only invokes Traceary hook entrypoints and
+CLI-backed skills.
 
 ## Local verification before submission
 

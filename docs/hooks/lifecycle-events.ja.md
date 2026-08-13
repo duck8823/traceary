@@ -30,7 +30,7 @@
 
 ### `prompt`
 
-- ユーザの指示を redact 後そのまま記録。`traceary timeline` / `traceary search` / L2 `get_context` の本体に出る。
+- ユーザの指示を redact 後そのまま記録。`traceary timeline` / `traceary search` / `traceary context` の本体に出る。
 - Claude Code (`UserPromptSubmit`), Codex CLI (`UserPromptSubmit`), Gemini CLI (`BeforeAgent`) すべてが発行（[host-coverage.ja.md](./host-coverage.ja.md) 参照）。
 - Body marker なし（生テキスト）。アシスタント側は `transcript` と区別する。
 
@@ -59,7 +59,7 @@
 ### `session_ended`
 
 - `sessions` 行の終了境界として記録される。
-- Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開しておらず、`Stop` は assistant 応答ごとに発火する turn 境界（セッション終了ではない）であるため、Codex session は明示的な信号 (MCP `manage_session`) または stale GC (`traceary session gc`) でのみ終了する（[host-coverage.ja.md](./host-coverage.ja.md) と #1170 参照）。
+- Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開しておらず、`Stop` は assistant 応答ごとに発火する turn 境界（セッション終了ではない）であるため、Codex session は明示的な信号 (`traceary session end`) または stale GC (`traceary session gc`) でのみ終了する（[host-coverage.ja.md](./host-coverage.ja.md) と #1170 参照）。
 - best-effort: ホストが hook を発火させずに終了するケース（kill -9、シェルクラッシュ）もあり、dangling session は L2 reconciliation で吸収し、長時間アイドルな open session は stale GC で閉じる。
 
 #### Traceary が終了を確定できる完結型セッション

@@ -20,7 +20,7 @@ presentation -> application -> domain <- infrastructure
 
 | Layer | What belongs here | What does not belong here |
 | --- | --- | --- |
-| `presentation/` | CLI command wiring, MCP server handlers, hook-host payload parsing, operator-facing formatting, transport-specific validation | domain rules, persistence logic, long-lived business state |
+| `presentation/` | CLI command wiring, hook-host payload parsing, operator-facing formatting, transport-specific validation | domain rules, persistence logic, long-lived business state |
 | `application/` | write-side use cases, read-side query-service contracts, orchestration across domain objects, shared read models/DTOs | SQL, filesystem mutation details, transport-specific payload parsing |
 | `domain/` | entities, value objects, repository contracts, invariants, business errors | Cobra, SQLite, JSON transport handling, shell integration details |
 | `infrastructure/` | SQLite implementations, filesystem adapters, platform-specific file handling, external dependency adapters | business decisions that should live in domain/application, ad-hoc CLI flow control |
@@ -44,7 +44,6 @@ First-class runtime entrypoints belong in `presentation/`.
 
 Examples:
 - `traceary` CLI commands
-- `traceary mcp-server`
 - future `traceary hook ...` subcommands
 
 These entrypoints may parse host-specific payloads or user input, then hand normalized data to application use cases.
@@ -116,7 +115,7 @@ When adding or refactoring functionality, check these questions:
 1. Is the primary runtime behavior implemented in Go packages rather than helper scripts?
 2. Does transport/host-specific parsing stay in `presentation/`?
 3. Does orchestration stay in `application/`?
-4. Do domain rules remain free from SQLite/CLI/MCP details?
+4. Do domain rules remain free from SQLite/CLI details?
 5. Is `infrastructure/` implementing contracts instead of inventing business behavior?
 6. If a script still exists, is it clearly a helper or a temporary compatibility layer?
 7. If `internal/` is proposed, is there a concrete visibility reason beyond taste?

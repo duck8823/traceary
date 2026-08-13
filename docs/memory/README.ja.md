@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-この文書では、Traceary の durable memory 層が全体のどこに位置づくのかと、memory 関連の CLI / MCP 操作がどうつながるのかを整理します。
+この文書では、Traceary の durable memory 層が全体のどこに位置づくのかと、memory 関連の CLI 操作がどうつながるのかを整理します。
 
 ## durable memory の位置づけ
 
@@ -39,14 +39,13 @@ durable memory を `type` + `scope` で分類する方針にし、別軸 `block`
 - `valid_from` — fact が真として主張され始める時刻（既定値は `created_at`）
 - `valid_to` — fact が真でなくなる時刻（`NULL` は open-ended）
 
-既定の取得経路（CLI の `memory list` / `memory search`、MCP の `query_memory(action="retrieve")` / `query_memory(action="pack")` / `session_status(action="handoff")`）は `valid_to` が過去の memory を自動で隠します。つまり、いま真と主張されている memory だけが返ります。
+既定の取得経路（`memory list` / `memory search`、および `session handoff` / `context`）は `valid_to` が過去の memory を自動で隠します。つまり、いま真と主張されている memory だけが返ります。
 
 時間移動したい場合は CLI list / search に `--as-of <timestamp>` を渡すと、その時点での `valid_from <= asOf < valid_to` で評価します。validity filter を外す `--include-expired` は、過去の決定を監査する場合などに使えます。これらは lifecycle な `status` filter と独立で、superseded / rejected の memory を見たい場合は引き続き `--status` を使ってください。
 
 window の設定・更新は次で行います。
 
-- CLI: `traceary memory admin set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
-- MCP: `manage_memory({"action":"set_validity","ids":"<id>","valid_from":"...","valid_to":"..."})`
+- `traceary memory admin set-validity <memory-id> [--from <time>] [--to <time>] [--clear-to]`
 
 `--clear-to` / `clear_valid_to` は既存の `valid_to` を外して open-ended に戻します。新しい `valid_to` との併用はできません。
 
@@ -61,7 +60,7 @@ accepted memory には evidence ref が必須です。artifact ref は任意で�
 
 ### evidence ref の `kind` enum
 
-MCP / CLI が受け入れる `evidence_refs[].kind` は次の値だけです（実装は [`domain/types/evidence_ref.go`](../../domain/types/evidence_ref.go)）。未知の値は `unknown evidence ref kind: <value>` で reject されます。
+CLI が受け入れる `evidence_refs[].kind` は次の値だけです（実装は [`domain/types/evidence_ref.go`](../../domain/types/evidence_ref.go)）。未知の値は `unknown evidence ref kind: <value>` で reject されます。
 
 | `kind` | 意味 | 典型的な `value` |
 | --- | --- | --- |
@@ -105,7 +104,7 @@ MCP / CLI が受け入れる `evidence_refs[].kind` は次の値だけです（�
 
 extract はメモリ候補だけを作ります。自動で accepted にはしません。
 
-v0.11.0 以降、hook 経由の session 終了 (`traceary hook session <client> end`)、CLI 経由 (`traceary session --end`)、MCP `manage_session(action="end")` のいずれも、session 終了 record の commit 後に extract を best-effort で auto-fire します。Codex の `stop` turn 境界も extract を best-effort で fire します（Codex には host のセッション終了信号がなく、end のみだと Codex では extract が走らないため — #1170）。turn ごとに走りますが extractor は既存候補と重複排除するため再発火は安全です。エージェント側の明示要請なしにメモリ候補の確認キューが増え、extract のエラーは swallow されるため境界 record は決してブロックされません。
+v0.11.0 以降、hook 経由の session 終了 (`traceary hook session <client> end`) と CLI 経由 (`traceary session --end`) は、session 終了 record の commit 後に extract を best-effort で auto-fire します。Codex の `stop` turn 境界も extract を best-effort で fire します（Codex には host のセッション終了信号がなく、end のみだと Codex では extract が走らないため — #1170）。turn ごとに走りますが extractor は既存候補と重複排除するため再発火は安全です。エージェント側の明示要請なしにメモリ候補の確認キューが増え、extract のエラーは swallow されるため境界 record は決してブロックされません。
 
 長さベースの quality filter により、短い候補 (20 rune 未満。artifact ref は除外) は `source=extracted` ではなく `source=extracted-hidden` で保存されます。hidden 行は audit 用に store に残りますが、`traceary memory inbox list` の既定 view には出ません。`--include-hidden` で surface できます。
 
@@ -130,7 +129,7 @@ v0.21.0 以降、完全な構造を持つ unified-diff / git metadata のみ aut
 - `traceary memory inbox reject <id>` (単一 id。バッチ用途は `--ids id1,id2,...`。scripted caller 向けには `--id-only` で memory id だけを stdout に出力)
 - `traceary memory inbox attach <id> --evidence kind:value` (複数の `--evidence` と任意の `--artifact kind:value`) で、有用なメモリ候補に accept / distill 前の support refs を追加。artifact のみの追加は、その候補がすでに evidence を持っている場合だけ可能です。
 - `traceary memory inbox review` — `inbox list` と同じフィルター (`--workspace` / `--agent` / `--session-family` / `--type` / `--source` / `--include-hidden` / `--limit`) で対話的にレビューします。accept / reject は batch コマンドと同じ application usecase を呼び出し、`r` でフォーカス中のメモリ候補にカンマ区切りの evidence ref と任意の `artifact:kind:value` ref を追加できます。`e` で開く edit プロンプトでは operator が手書きした fact のみを受け付け、`traceary memory store distill` 経由で記録します (LLM 出力を自動採用しません)。TTY が無いシェルでは exit code `2` で起動を拒否し、上記のバッチコマンドを案内するため、非対話シェルから条件分岐できます。
-- MCP `memory_inbox_batch` (agent からの一括 review 用)
+- `traceary memory inbox accept --ids …` / `reject --ids …`（agent からの一括 review 用）
 
 review 経路はメモリ候補のみを対象にしているため、extraction と import は同じメモリ候補の確認キューに合流し、1回の review pass でまとめて捌けます。
 
@@ -160,9 +159,8 @@ accepted memory layer を定期的に手入れしたいときに使います。
 
 - `traceary memory admin hygiene scan`
 - `traceary memory admin hygiene apply --ids id1,id2,...`
-- MCP `query_memory(action="scan_hygiene")`
 
-scan は accepted memory に対して 5 種類の条件をチェックします: 現在の redaction ルールで mask されるべき内容 (`redaction_hit`)、`--expiry-days` 以上更新が無い stale row (`expiry_candidate`)、同一 scope + 同一 fact の衝突 (`duplicate`)、scope を共有し単語 Jaccard 類似度が閾値を超える書き換えペア (`supersede_candidate`)、`(scope, type)` を共有し明示的な temporal validity window が重なるペア (`validity_overlap_supersede`)。validity_overlap_supersede はより具体的なシグナルで、両方の検出に該当するペアは重複表示せず `validity_overlap_supersede` 側だけ報告します。apply は `--ids` に渡した memory について該当 suggestion の lifecycle transition を commit します (`redaction_hit` は sanitized fact に supersede、`expiry_candidate` は expire、`duplicate` は reject、`supersede_candidate` / `validity_overlap_supersede` は新しい memory の fact で supersede)。MCP 側の `query_memory(action="scan_hygiene")` は read-only で、agent からも同じ hygiene 候補を確認できます。
+scan は accepted memory に対して 5 種類の条件をチェックします: 現在の redaction ルールで mask されるべき内容 (`redaction_hit`)、`--expiry-days` 以上更新が無い stale row (`expiry_candidate`)、同一 scope + 同一 fact の衝突 (`duplicate`)、scope を共有し単語 Jaccard 類似度が閾値を超える書き換えペア (`supersede_candidate`)、`(scope, type)` を共有し明示的な temporal validity window が重なるペア (`validity_overlap_supersede`)。validity_overlap_supersede はより具体的なシグナルで、両方の検出に該当するペアは重複表示せず `validity_overlap_supersede` 側だけ報告します。apply は `--ids` に渡した memory について該当 suggestion の lifecycle transition を commit します (`redaction_hit` は sanitized fact に supersede、`expiry_candidate` は expire、`duplicate` は reject、`supersede_candidate` / `validity_overlap_supersede` は新しい memory の fact で supersede)。agent は `traceary memory admin hygiene scan` で同じ候補を確認できます。
 
 ### ブリッジ / 書き出し経路
 
@@ -170,11 +168,10 @@ Traceary をローカルの source of truth として保ちつつ、accepted な
 
 - `traceary memory admin export --target <claude|codex|gemini> --out <path>`
 - `traceary memory admin import instructions --source <...> --in <path>`
-- MCP `query_memory(action="export")` / `manage_memory(action="import_instructions")` (agent からの呼び出し)
 
 export 出力は常に `<!-- traceary-memories:begin:v1 -->` / `<!-- traceary-memories:end -->` マーカーで囲まれており、続けて `memory admin import instructions` を走らせても重複したメモリ候補は作られません。operator やホストの auto-memory 機能が管理ブロック外に書き足した bullet はメモリ候補の確認キューに入り、レビュー対象になります。
 
-workspace export は user-level の運用ルール (PR title や review policy など) も host file に載るよう、既定で `global` memory を含めます。Markdown は `Global memories` / `Workspace memories` など scope ごとに見出しを分けます。従来の workspace-only filter を維持したい場合は `--no-global` (MCP では `include_global=false`) を使い、既定挙動を明示したい場合は `--include-global` を指定します。
+workspace export は user-level の運用ルール (PR title や review policy など) も host file に載るよう、既定で `global` memory を含めます。Markdown は `Global memories` / `Workspace memories` など scope ごとに見出しを分けます。従来の workspace-only filter を維持したい場合は `--no-global` を使い、既定挙動を明示したい場合は `--include-global` を指定します。
 
 host-native file を変更する前段として activation planning を dry-run で使い、その後明示的に apply できます。`--target <codex|claude|gemini>` のコマンド集合は全 host で共通です。
 
@@ -250,7 +247,7 @@ import は Codex の Markdown memory（既定値は `~/.codex/memories/*.md`）�
 
 #### 取り出し preset
 
-`memory list` / `memory search` / MCP `query_memory(action="retrieve")` は `--preset <name>` で用途別の取り出し shape をプリセットできます。`--status` / `--type` を明示した場合は preset のデフォルトを上書きします。
+`memory list` / `memory search` は `--preset <name>` で用途別の取り出し shape をプリセットできます。`--status` / `--type` を明示した場合は preset のデフォルトを上書きします。
 
 | Preset | 用途 | 既定フィルタ |
 | --- | --- | --- |
@@ -262,17 +259,16 @@ import は Codex の Markdown memory（既定値は `~/.codex/memories/*.md`）�
 
 - `traceary memory list --preset review --workspace github.com/org/repo`
 - `traceary memory list --preset review --type lesson` — 明示 `--type` は preset の既定を上書き
-- MCP: `query_memory({"action":"retrieve","preset":"incident","workspace":"..."})`
+- `traceary memory search --preset incident --workspace github.com/org/repo`
 
 ### 文脈に載せる経路
 
 Durable memory を再開向けの pack に組み込んで使いたいときは次を使います。
 
 - `traceary session handoff`
-- MCP `session_status(action="handoff")`
-- MCP `query_memory(action="pack")`
+- `traceary context`
 
-`session handoff` は次の session 向けの working-memory 要約です（v0.13.x までの top-level alias `traceary handoff` は v0.14.0 で削除されました）。`query_memory(action="pack")` は、durable memory を含む構造化 bundle がほしい MCP client 向けの相当物です。
+`session handoff` は次の session 向けの working-memory 要約です（v0.13.x までの top-level alias `traceary handoff` は v0.14.0 で削除されました）。`context` は durable memory を同じ再開 bundle に折り込みたいときの構造化 pack です。
 
 ## sanitization / redaction
 
@@ -296,7 +292,7 @@ Durable memory は長く残る文脈なので、抽出または保存する前�
 
 - [README](../../README.ja.md)
 - [CLI リファレンス](../cli/README.ja.md)
-- [MCP ガイド](../mcp/README.ja.md)
+- [MCP ガイド（退役）](../mcp/README.ja.md)
 - [Hook contract](../hooks/contract.ja.md)
 - [ライフサイクルイベント](../hooks/lifecycle-events.ja.md)
 - [イベントライフサイクル](../lifecycle.ja.md)

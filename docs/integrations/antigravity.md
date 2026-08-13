@@ -29,7 +29,7 @@ Antigravity parses hook stdout as JSON. The output vocabulary used by Traceary i
 
 The `PreInvocation` contract was confirmed in the vendor documentation shipped with the Antigravity CLI at `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md` (the public contract is also documented at [Antigravity hooks](https://antigravity.google/docs/hooks)). Its contract example uses `injectSteps` with `ephemeralMessage`; the matcher is ignored, handlers are a flat list, and the default handler timeout is 30 seconds.
 
-The packaged plugin also exposes the local `traceary mcp-server` through `mcp_config.json` and includes the four shared skills (`traceary-session-history`, `traceary-session-refine`, `traceary-memory-review`, `traceary-memory-remember`; see [skills](./skills.md)). Skills route agents through the Traceary CLI. Direct `traceary hooks install` routes install hooks only; use the packaged plugin when Antigravity should discover MCP tools and skills automatically.
+The packaged plugin includes the four shared skills (`traceary-session-history`, `traceary-session-refine`, `traceary-memory-review`, `traceary-memory-remember`; see [skills](./skills.md)). Skills route agents through the Traceary CLI. Direct `traceary hooks install` routes install hooks only; use the packaged plugin when Antigravity should discover skills automatically. The Traceary MCP server declaration was removed in v0.35.0 (#1871).
 
 ## Usage metadata from the status line
 
@@ -65,7 +65,7 @@ Traceary accepts only `idle` payloads and stores `total_input_tokens` and `total
 ## Limitations
 
 - **No `SessionStart`.** The earliest per-conversation signal is `PreInvocation`, which fires before every model call, so Traceary uses it as an idempotent session start/refresh keyed by `conversationId`.
-- **`Stop` is a per-execution boundary, not a session end** (the same model as Codex — #1170). The session row stays open (memory auto-extract still fires) and ends only via MCP `manage_session` or stale GC (`traceary session gc`).
+- **`Stop` is a per-execution boundary, not a session end** (the same model as Codex — #1170). The session row stays open (memory auto-extract still fires) and ends only via `traceary session end` or stale GC (`traceary session gc`).
 - **Only `run_command` tool calls are audited.** `PostToolUse` carries only `stepIdx`/`error`, not the command args; the args arrive on `PreToolUse`, so Traceary pairs the two across the step. Non-`run_command` tools record nothing.
 - **Prompt text is not a direct hook field.** The public hook payload exposes `transcriptPath`; Traceary recovers the latest `USER_INPUT` / `USER_EXPLICIT` row from that file at Stop.
 - **Transcript extraction is best effort.** The documented `transcriptPath` file is `transcript.jsonl`. Traceary supports the current CLI `MODEL` / `*_RESPONSE` rows plus legacy nested/flat shapes, preserving separate thinking/text blocks, and silently skips unknown shapes.
@@ -176,7 +176,7 @@ traceary hooks install --client antigravity --global
 
 Aliases `agy` and `antigravity-cli` resolve to the same canonical `antigravity` client. The install is non-destructive: only the `traceary` hook group is replaced, and every other top-level hook group is preserved verbatim. Re-run with `--upgrade` to refresh the managed group while preserving user-added groups.
 
-Alternatively, install the packaged plugin under [`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/). It ships the same `traceary` hook group, a versioned `plugin.json` manifest following the official Antigravity schema, `mcp_config.json` for the Traceary MCP server, the four shared skills (see [skills](./skills.md)), and the opt-in `permissions.example.json` fragment. Do not also retain a direct workspace or user-level Traceary hook route.
+Alternatively, install the packaged plugin under [`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/). It ships the same `traceary` hook group, a versioned `plugin.json` manifest following the official Antigravity schema, the four shared skills (see [skills](./skills.md)), and the opt-in `permissions.example.json` fragment. Do not also retain a direct workspace or user-level Traceary hook route.
 
 ## Setup guide
 
@@ -198,7 +198,6 @@ traceary doctor --client antigravity --json
 - `antigravity-hooks-workspace` — the workspace route (`<project>/.agents/hooks.json`).
 - `antigravity-hooks-user` — the user-level route (`~/.gemini/config/hooks.json`).
 - `antigravity-cli-plugin` — the current shared plugin directory `~/.gemini/config/plugins/traceary` plus the legacy CLI-specific directory `~/.gemini/antigravity-cli/plugins/traceary`. It `pass`es when the package uses the supported Antigravity top-level hook-group format and `warn`s when it finds a **stale Gemini-shaped package** — a legacy top-level `{"hooks": ...}` envelope or commands that call `traceary hook ... gemini`. The check reads only `plugin.json`, `hooks.json`, and `hooks/hooks.json`; it never reads transcripts or credentials.
-- `antigravity-mcp` — `pass`es when an installed CLI plugin contains `mcp_config.json` with the `traceary mcp-server` registration. It `warn`s when the plugin exists without that configuration and `skip`s when the plugin route is not installed, because direct hook installations intentionally provide no MCP tools.
 - `antigravity-hooks` — the aggregate summary. It `fail`s when **any** route's config is malformed (a per-route `fail`), even if another route is healthy, because Antigravity rejects the bad config regardless. It `pass`es when **exactly one** route is healthy, `warn`s when multiple routes are healthy because they can register duplicate handlers, and also `warn`s with an actionable install message when no route is healthy.
 - `antigravity-headless-hooks` — distinguishes installed hook files from executable non-interactive coverage. It `pass`es only when **exactly one** route is healthy and the global `~/.gemini/antigravity-cli/settings.json` allows all four exact command resources without a matching deny/ask rule or a broader/unsandboxed grant. It `warn`s when multiple routes could duplicate hooks, when installed hooks would still prompt or are shadowed, or when permissions exist only in Gemini/project settings. It `skip`s when no healthy route exists.
 - `antigravity-capture-levels` — always `pass`. Reports the configured public hook capabilities: `start_supported`, `tool_audit_supported`, and `final_turn_supported` for interactive and current headless CLI runs.
@@ -244,7 +243,7 @@ agy plugin validate integrations/antigravity-plugin
 go run ./cmd/repo-tooling integrations verify
 ```
 
-The Antigravity validator should report `3 processed` skills, `1 processed` MCP server, and `1 processed` hook group.
+The Antigravity validator should report `3 processed` skills and `1 processed` hook group. The packaged plugin no longer declares a Traceary MCP server (#1871).
 
 ## Official references
 

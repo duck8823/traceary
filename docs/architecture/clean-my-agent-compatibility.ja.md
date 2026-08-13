@@ -62,7 +62,7 @@ Traceary に関係する成果物は 2 つです。
 理由:
 
 1. **スキーマの成熟度。** スキーマは `v0.1.x` のアプリケーションの TypeScript 型の中にインラインでのみ存在します。独立した versioned spec も JSON Schema も互換性ポリシーの文書もありません。今これをターゲットにすると churn を追いかけることになります。
-2. **サーフェス規律。** Traceary の MCP tool 数は凍結されており、CLI サーフェスも意図的に厳格です。（bundle と replay に続く）3 つ目のエクスポートサーフェスには「スキーマが存在する」以上の正当化が必要です。
+2. **サーフェス規律。** CLI サーフェスは意図的に厳格です。（bundle と replay に続く）3 つ目のエクスポートサーフェスには「スキーマが存在する」以上の正当化が必要です。
 3. **情報形状のミスマッチ。** relay ドキュメントの半分は空になり（`branch`, `tokens`, `sizeBytes`, `files`, `attachments` には Traceary 側の情報源がない）、Traceary が最も豊かな半分（exit code・失敗フラグ・truncation メタデータ付きの command audit）は `{command, cwd, createdAt}` に平坦化されます。
 4. **消費者需要の不在。** サードパーティの `universal-session.v1` ドキュメントを消費するツールは現在存在しません。
 
@@ -73,14 +73,14 @@ Traceary に関係する成果物は 2 つです。
 - Traceary が branch メタデータを永続化し始め、最大のマッピングギャップが解消される
 - Traceary の session を中立形式で別ツールに渡す具体的なオペレーターワークフローが生まれる
 
-互換エクスポートを後日実装する場合でも、MCP tool は追加してはなりません（tool サーフェスは凍結）。その時点で明示的な additive CLI サーフェスとして設計します — この note は意図的にコマンド形状を事前確約しません。
+互換エクスポートを後日実装する場合でも、MCP tool を再導入してはなりません。その時点で明示的な additive CLI サーフェスとして設計します — この note は意図的にコマンド形状を事前確約しません。
 
 ## v0.21.0 がこのリファレンスから採用するもの
 
 - **フィクスチャと診断のための host ストレージ ground truth。** Codex ルート（`~/.codex/sessions/YYYY/MM/DD/*.jsonl`, `~/.codex/archived_sessions/*.jsonl`, `~/.codex/session_index.jsonl`。レコードは `session_meta` / `response_item` / `event_msg` / `turn_context` の union）は #1170 の回帰フィクスチャの根拠になります。Claude Code ルート（`~/.claude/projects/<encoded-project-path>/*.jsonl`, `~/.claude/transcripts/*.jsonl`）は #1174 の coverage gap 診断を支えます。Gemini scanner ルートは #1171 の root-cause 比較を支えます。
 - **フィクスチャポリシー。** フィクスチャは schema-shaped のみ: 実際のプロンプト本文・ツール出力・認証情報・ユーザーファイル内容を含めません。これは Clean My Agent のドキュメント方針とも #1170/#1171 の受け入れ基準とも一致します。
 - **memory hygiene (#1169) のための安全セマンティクスの参照。** Clean My Agent のモデル — read-before-write、明示的なクリーンアップ提案、リスクあるクリーンアップ前のバックアップ、アプリ管理の Trash/リストア — は Traceary の dry-run-first クリーンアップと evidence-first レビューに対応します。Traceary は既存の姿勢を維持します: bulk accept はせず、この比較を理由に破壊的クリーンアップを追加しません。
-- **truncation 可視性の先例 (#1173)。** relay は変換上の注意を `warnings` で表面化します。Traceary の ingest 時 truncation メタデータも同様に、無言ではなく CLI/MCP 出力で見えるべきです。
+- **truncation 可視性の先例 (#1173)。** relay は変換上の注意を `warnings` で表面化します。Traceary の ingest 時 truncation メタデータも同様に、無言ではなく CLI 出力で見えるべきです。
 - **session liveness 語彙の確認 (#1172)。** relay の `session.storageState` は、下流の消費者が明示的な liveness/state フィールドを求めることを示しています。#1170/#1172 の status 語彙（例: 終了後の late events）も同じ理由で明示的であるべきです。
 
 ## 非ゴール（#1177 から変更なし）

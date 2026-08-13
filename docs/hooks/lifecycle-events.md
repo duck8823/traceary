@@ -30,7 +30,7 @@ All event bodies pass through built-in secret redaction plus operator-configured
 
 ### `prompt`
 
-- Captures the user's instruction text verbatim (after redaction). Visible in `traceary timeline`, `traceary search`, and the L2 `get_context` body.
+- Captures the user's instruction text verbatim (after redaction). Visible in `traceary timeline`, `traceary search`, and `traceary context`.
 - Claude Code (`UserPromptSubmit`), Codex CLI (`UserPromptSubmit`), and Gemini CLI (`BeforeAgent`) all emit this — see [host-coverage.md](./host-coverage.md).
 - Body marker: none (raw text). Distinct from `transcript`, which is the assistant side.
 
@@ -59,7 +59,7 @@ All event bodies pass through built-in secret redaction plus operator-configured
 ### `session_ended`
 
 - Marks the close boundary of a session row.
-- Claude / Gemini use a dedicated `SessionEnd` hook. Codex exposes no `SessionEnd` and its `Stop` fires after every assistant response (a turn boundary, not a session end), so a Codex session ends only via an explicit signal (MCP `manage_session`) or stale GC (`traceary session gc`) — see [host-coverage.md](./host-coverage.md) and #1170.
+- Claude / Gemini use a dedicated `SessionEnd` hook. Codex exposes no `SessionEnd` and its `Stop` fires after every assistant response (a turn boundary, not a session end), so a Codex session ends only via an explicit signal (`traceary session end`) or stale GC (`traceary session gc`) — see [host-coverage.md](./host-coverage.md) and #1170.
 - Best-effort: hosts may exit without firing the hook (kill -9, crashed shell). L2 reconciliation tolerates dangling sessions, and stale GC closes long-idle open sessions.
 
 #### Authoritative one-shot sessions

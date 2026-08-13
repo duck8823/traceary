@@ -69,7 +69,7 @@ Useful flags:
 - `--max-input-bytes`
 - `--max-output-bytes`
 
-Command-audit input/output payloads are truncated before persistence when they exceed the resolved limit. The resolved limit is `--max-*-bytes` flag, then `TRACEARY_MAX_AUDIT_*_BYTES`, then `audit.max_*_bytes` in `~/.config/traceary/config.json`, then the built-in default. Truncated payloads preserve head and tail context and include structured `input_truncated` / `output_truncated` metadata plus an `original_bytes` marker; omitted bytes are not recoverable through `traceary show` or MCP `full_body=true`.
+Command-audit input/output payloads are truncated before persistence when they exceed the resolved limit. The resolved limit is `--max-*-bytes` flag, then `TRACEARY_MAX_AUDIT_*_BYTES`, then `audit.max_*_bytes` in `~/.config/traceary/config.json`, then the built-in default. Truncated payloads preserve head and tail context and include structured `input_truncated` / `output_truncated` metadata plus an `original_bytes` marker; omitted bytes are not recoverable through `traceary show`.
 
 On **read surfaces** (`sessions --snapshot --json`, list-style recent-command panes), large host-tool payloads (`Edit` / `Write` / `Read` / shell) are projected into a tool-aware compact summary (tool name, path when present, rune counts, content hash, head/tail, and a `traceary show <event_id>` retrieval hint). This is a presentation-time projection only: raw persistence and `traceary show` remain full-fidelity.
 
@@ -330,7 +330,7 @@ Useful flags:
 
 ### `traceary memory inbox` — candidate review surface
 
-Review the memory review queue. `list` surfaces `candidate` memories together with their confidence and review-readiness state plus evidence / artifact ref counts so a reviewer can judge provenance before accepting. `show` renders the evidence-first decision card for a single candidate. `accept` and `reject` take either a single positional id (the common interactive case) or `--ids id1,id2,...` for batch scripts and MCP callers; partial batches return a per-id success / failure breakdown so a failure never hides which entries transitioned. `--id-only` prints just the resulting memory id on stdout (mutually exclusive with `--json`); the canonical inbox surface is a strict superset of the v0.13.x positional-id form.
+Review the memory review queue. `list` surfaces `candidate` memories together with their confidence and review-readiness state plus evidence / artifact ref counts so a reviewer can judge provenance before accepting. `show` renders the evidence-first decision card for a single candidate. `accept` and `reject` take either a single positional id (the common interactive case) or `--ids id1,id2,...` for batch scripts and other callers; partial batches return a per-id success / failure breakdown so a failure never hides which entries transitioned. `--id-only` prints just the resulting memory id on stdout (mutually exclusive with `--json`); the canonical inbox surface is a strict superset of the v0.13.x positional-id form.
 
 #### `traceary memory inbox list`
 
@@ -358,7 +358,7 @@ Accept one or more memory candidates.
 Useful flags:
 
 - positional `<memory-id>` for the common single-id case
-- `--ids id1,id2,...` (repeatable) for batch scripts and MCP callers
+- `--ids id1,id2,...` (repeatable) for batch scripts and other callers
 - `--confidence`
 - `--id-only` (mutually exclusive with `--json`)
 - `--json`
@@ -370,7 +370,7 @@ Reject one or more memory candidates.
 Useful flags:
 
 - positional `<memory-id>` for the common single-id case
-- `--ids id1,id2,...` (repeatable) for batch scripts and MCP callers
+- `--ids id1,id2,...` (repeatable) for batch scripts and other callers
 - `--id-only` (mutually exclusive with `--json`)
 - `--json`
 
@@ -610,8 +610,7 @@ Useful flags:
 
 Every result reports `complete`, `partial`, `stop_reason`, `consistency`, and
 actual `usage`. A partial CLI result also reports `rerun_guidance`: narrow
-`--workspace`, raise only the finite bounds that are appropriate, or use the
-MCP surface for resumable paging. An unchanged store reports
+`--workspace`, or raise only the finite bounds that are appropriate. An unchanged store reports
 `consistency=consistent`. If a memory write changes the global revision while
 the invocation is scanning, the scanner keeps the retained phase/keyset,
 rebinds to the current revision, permanently marks the scan `best_effort` with
@@ -622,11 +621,10 @@ before page progress reports `stop_reason=revision_changed`.
 
 Hygiene cursors are encrypted and authenticated with an AES-GCM key that exists
 only in the issuing process. Modified cursors, legacy checksum cursors, and
-cursors from an earlier process fail with explicit new-scan guidance. A
-long-running MCP server can therefore resume pages until it restarts. The
+cursors from an earlier process fail with explicit new-scan guidance. The
 standalone CLI neither accepts `--cursor` nor emits `next_cursor`; each command
-is one bounded scan. Use `query_memory(action="scan_hygiene")` when a scan
-requires multiple process-authenticated pages.
+is one bounded scan. The former MCP `query_memory(action="scan_hygiene")`
+multi-page cursor path was removed with the MCP server in v0.35.0 (#1871).
 
 #### `traceary memory admin hygiene apply`
 
@@ -939,7 +937,7 @@ Useful flags:
 | `ended` | Has an end marker and no events after it. |
 | `ended_with_late_events` | Has an end marker but later events arrived under the same session. The end marker can come from a `session_ended` event or from `session gc` writing `ended_at` directly. |
 
-The active-only snapshot keeps `active`, `ended_with_late_events`, and (with `--allow-stale`) `stale` sessions. `ended_with_late_events` is what stops `sessions --snapshot` from returning zero sessions when recent workspace events exist even though the session was already closed — for example when a host such as Codex closed the session early but the conversation kept going. CLI snapshot and MCP `session_status(action="active")` apply the same rule, so a session with events after its end marker is surfaced by both.
+The active-only snapshot keeps `active`, `ended_with_late_events`, and (with `--allow-stale`) `stale` sessions. `ended_with_late_events` is what stops `sessions --snapshot` from returning zero sessions when recent workspace events exist even though the session was already closed — for example when a host such as Codex closed the session early but the conversation kept going. `session list` and `sessions --snapshot` apply the same rule, so a session with events after its end marker is surfaced on both CLI reads.
 
 ## Hooks and diagnostics
 
@@ -984,15 +982,14 @@ Useful flags:
 
 ### `traceary doctor`
 
-Diagnose DB access, generated hook configuration presence, MCP registration, plugin version alignment, and client config integration.
+Diagnose DB access, generated hook configuration presence, plugin version alignment, and client config integration.
 
-Text output is grouped into stable sections: `Environment`, `Database`, `Plugins`, `MCP`, and `Hooks`.
-Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed, more than one `traceary` executable on `PATH`, an MCP registration that points at a stale binary, or an installed plugin version that does not match the running `traceary` binary. `FAIL` means Traceary found a broken runtime state, such as DB access problems, unreadable / invalid config, or `traceary` not being available on `PATH`.
+Text output is grouped into stable sections: `Environment`, `Database`, `Plugins`, and `Hooks`.
+Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary found a first-run / not-configured-yet state, such as a missing host config file before hooks are installed, more than one `traceary` executable on `PATH`, or an installed plugin version that does not match the running `traceary` binary. `FAIL` means Traceary found a broken runtime state, such as DB access problems, unreadable / invalid config, or `traceary` not being available on `PATH`.
 
 Additional doctor checks:
 
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
-- `<client>-mcp` checks Claude Code, Codex, and Gemini config/plugin registration for the `traceary mcp-server` MCP server.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
 - `claude-hook-cancellations` separates actionable SessionEnd cancellation markers from markers whose referenced session has subsequently ended. `doctor --fix --dry-run` previews removal of resolved markers; `doctor --fix` removes only those proven resolved and leaves active, missing-session, or unreadable evidence untouched.
 - `codex-memory-activation` / `claude-memory-activation` / `gemini-memory-activation` check whether accepted durable memories are missing, stale, in sync, or invalid in the host's native activation target. `missing` and `stale` are reported as `WARN` with exact `memory admin activate --dry-run --diff` (preview) and `memory admin activate --apply` (refresh) remediation commands; `invalid` is reported as `FAIL` with a hint to inspect the host file before applying. Run with `--client <claude|codex|gemini>` to scope the report and with `--project-dir <dir>` to pin the Claude/Gemini activation root to a specific repository instead of the doctor process's working directory.
@@ -1112,9 +1109,6 @@ Retired in v0.14.0 and **not a supported install surface**. The command is hidde
 
 Removed in v0.15.0 and **not a supported uninstall surface**. The name is kept here only as a historical migration note: use Codex's official `/plugins` flow to uninstall the Traceary plugin, and use the [manual cleanup steps in the Codex plugin guide](../integrations/codex-plugin.md) only for state left behind by the retired pre-v0.14 install path.
 
-### `traceary mcp-server`
-
-Run the MCP server over stdio for AI client integration.
 
 ### `traceary report`
 

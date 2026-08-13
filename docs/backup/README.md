@@ -46,7 +46,7 @@ One practical flow is:
 1. run `traceary store backup create --output /path/to/traceary-backup.db` on the source machine
 2. copy that SQLite file to the new machine with your normal file transfer method
 3. run `traceary store backup restore --input /path/to/traceary-backup.db --force` on the destination machine
-4. point hooks / MCP clients at the restored DB path if you do not use the default location
+4. point hooks and the CLI at the restored DB path if you do not use the default location
 
 ## Operational notes
 

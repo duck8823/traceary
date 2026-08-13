@@ -208,7 +208,7 @@ candidate/byte drift、integrity failure、metadata projection 変化、aggregat
 |---|---|---|---|
 | unknown / zero extent | plan serialize | state を区別する | domain/application |
 | hold 対象と適格 row | raw-body plan | hold row を reason 付き除外 | application/integration |
-| metadata 同一の large body | review 済み body prune | metadata-only 出力は byte-equivalent、full-body は retention unavailable | CLI/MCP integration |
+| metadata 同一の large body | review 済み body prune | metadata-only 出力は byte-equivalent、full-body は retention unavailable | CLI integration |
 | plan 後に candidate 変更 | apply | batch 全体を stale として追加 prune なし | SQLite integration |
 | commit 前後の process 中断 | retry | effective apply は zero または one | SQLite integration |
 | corrupt recovery package | destructive phase | 削除拒否 | usecase/integration |

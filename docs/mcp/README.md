@@ -1,144 +1,19 @@
-# MCP integration
+# MCP server (retired)
 
 [日本語](./README.ja.md)
 
-Traceary exposes its local SQLite history as a stdio MCP server via `traceary mcp-server`.
-Use MCP when an AI client should read/write Traceary data through tools instead of shelling out to the CLI.
+The Traceary MCP server (`traceary mcp-server`) and its tools were **removed in v0.35.0** (#1871).
 
-## Exposed tools
+Invoking `traceary mcp-server` fails as an unknown command with a non-zero exit and no `DEPRECATED` notice. Shipped host packages no longer declare an MCP server.
 
-Traceary exposes 9 MCP tools, enforced by a golden snapshot (`presentation/mcpserver/testdata/tool_registry.golden.json`). The original eight-tool surface was frozen from v0.10.0 through v0.29.x; v0.30.0 adds the read-only `get_report` aggregate:
+Use the CLI for the same work:
 
-| Tool | Actions / shape | Mode |
-|---|---|---|
-| `manage_memory` | `propose`, `remember`, `accept`, `reject`, `expire`, `supersede`, `set_validity`, `import_instructions` | write; destructive subset: `reject`, `expire` |
-| `query_memory` | `retrieve`, `export`, `pack`, `scan_hygiene` | read |
-| `manage_session` | `start`, `end` | write |
-| `session_status` | `active`, `latest`, `handoff`, `tree` | read |
-| `record_event` | `type="log"` or `type="audit"` | write |
-| `list_events` | event listing; bodies are truncated by default to 500 runes; use `projection=metadata` to omit body fields, `body_limit=0` / `full_body=true` for the full stored body | read |
-| `search` | literal-text event search with the same `metadata` / bounded / full projection controls as `list_events` | read |
-| `get_context` | recent-context read with the same `metadata` / bounded / full projection controls as `list_events` | read |
-| `get_report` | body-free session/event/command/usage aggregate with complete/partial source provenance | read |
-
-`manage_memory.ids` accepts either a single string or an array of strings for accept/reject flows. `record_event` returns one uniform shape for both `type="log"` and `type="audit"`.
-
-`list_events` and `search` accept an explicit `timezone` for date-only `from` / `to` values (default: UTC). Date-only `to` includes the requested calendar day; RFC3339 `to` is an exact exclusive instant. Both tools return an additive `interval` object with requested bounds, effective half-open UTC bounds, timezone, and the single request snapshot used when `to` is omitted.
-
-`get_report` shares the CLI `traceary report --json` response schema, including usage and deduplicated run-fact aggregates. Its `page_size` accepts 1 through 100,000 and changes only internal body-free SQLite paging; full aggregation remains the default. A positive `result_cap` explicitly requests a per-source partial aggregate. Partial output includes observed counts/ranges and `truncation_reason=result_cap`, and omits percentages whose denominator is incomplete. Usage values preserve known/unavailable counts, excluded accounting evidence, and separate provider-reported versus estimated cost origins.
-
-`get_report` uses the same report-generation path and schema as
-`traceary report`. Sessions, events, commands, and usage are loaded in one
-read-only transaction with an independent coverage extent for each family.
-Usage observations are limited to finalized, latest non-superseded snapshots
-and join run attribution from `usage_observation_runs` and `run_lineages`,
-including repository, ticket, pull request, and batch provenance. Immutable
-packet and tool-output byte facts are counted once per run identity.
-`terminal_classifications` contains observation counts grouped by recorded
-usage terminal classification, while `unavailable_observations` counts
-observations for which every usage counter is unavailable.
-
-`session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` as a node array (`session_id`, parent/spawn fields, `depth`, `children`, …); `depth` is optional and `0` returns only the root. The standalone CLI `session tree` command was removed in v0.35.0 (#1869); this MCP action remains until #1871.
-
-`session_status(action="active", ...)` treats a session that received events after its end marker as still active, matching the CLI `sessions --snapshot` `ended_with_late_events` rule. A lone `session_ended` followed by later prompts or audits does not exclude the session from the active result.
-
-`session_status(action="handoff", ...)` and `query_memory(action="pack", ...)` preserve the legacy `recent_commands` string array and also return `recent_command_items`. The structured sibling includes `event_id`, a body-safe `summary`, returned/stored/original byte extent, ingestion/storage/response truncation facts, and a `retrieval_hint`. Unknown historical facts are omitted. Full stored content requires explicit `traceary show <event-id>` or event-detail retrieval; handoff itself reads only a bounded body prefix.
-
-### Staged event retrieval
-
-Use a staged read when investigating prior sessions, events, or command audits:
-
-1. **Discovery:** start with the current `workspace`. For `list_events`, add
-   known `from` / `to` or `session_id` filters, then use
-   `projection="metadata"` and a small `limit` such as `5`. A narrow literal
-   `search` can use workspace and time filters, but it has no `session_id`
-   input; session filtering is available only through `list_events` and
-   `get_context`. This returns candidate IDs and metadata without reading event
-   bodies.
-2. **Inspection:** repeat `list_events` or `search` with only its supported
-   Discovery filters and a positive `body_limit` of roughly `300`–`500`.
-   Use `get_context` only for bounded surrounding context: it has no `event_id`,
-   kind, or time-range filter, so it can narrow the matched events only by
-   `workspace`, `session_id`, and `limit`. It cannot retrieve a selected event
-   ID directly and is not a broad first read.
-3. **Detail:** retrieve a full stored body only for one selected event and a
-   stated investigation reason. Prefer `traceary show <event-id>` for this
-   explicit CLI detail path because no MCP history-read tool accepts
-   `event_id`. Do not begin with `full_body=true` or `body_limit=0` across a
-   broad history query.
-
-The same order applies when composing a session recap: discover metadata first,
-inspect selected context second, and retrieve detail only when the recap cannot
-be supported by the bounded evidence.
-
-### Durable-memory hygiene continuations
-
-`query_memory(action="scan_hygiene")` applies finite row, source-byte,
-result-byte, comparison, and duration ceilings. A partial response includes an
-encrypted `next_cursor`. The cursor is authenticated by an AES-GCM key owned by
-the running MCP process, contains no plaintext memory fact, and becomes
-unusable after that server restarts. Authentication failure explicitly
-requires a new scan; legacy checksum cursors are not accepted.
-
-`consistency=consistent` means the continuation chain stayed at one memory
-revision. If a hook or another client writes memory between pages, the next
-call retains the keyset, binds the current revision, permanently marks the
-chain `consistency=best_effort` with
-`consistency_reason=revision_changed`, and retries that same source page inside
-the remaining invocation budget. A successful retry reports the actual bound
-that later stops it. If revision churn consumes the duration before page
-progress, the partial response uses `stop_reason=revision_changed` and returns
-a cursor bound to the latest observed revision. Later pages keep the
-best-effort marker. This behavior is read-only; mutation paths still require
-complete targeted revalidation at one revision before applying anything.
-
-### Search query semantics
-
-`search.query` is a literal text query, not a boolean query language. A string such as `failure OR timeout` is not interpreted as an any-match expression for `failure` or `timeout`; treat it as one search string. For multi-term inspection, issue multiple narrower `search` calls or save CLI JSON output to a local file and aggregate it with local tools such as `jq`.
-
-Future any-match support should be added as an explicit minor-version contract, for example an additive `any_terms` field, rather than overloading `query`.
-
-## v0.10.0 migration map (24 → 8 tools)
-
-| Old tool | New call |
+| Former MCP surface | CLI replacement |
 |---|---|
-| `propose_memory` | `manage_memory(action="propose", ...)` |
-| `remember_memory` | `manage_memory(action="remember", ...)` |
-| `accept_memory` | `manage_memory(action="accept", ids="<id>", ...)` |
-| `reject_memory` | `manage_memory(action="reject", ids="<id>")` |
-| `expire_memory` | `manage_memory(action="expire", ids="<id>", ...)` |
-| `supersede_memory` | `manage_memory(action="supersede", target_id="<id>", fact="...", ...)` |
-| `set_memory_validity` | `manage_memory(action="set_validity", ids="<id>", valid_from="...", valid_to="...", ...)` |
-| `import_memory_instructions` | `manage_memory(action="import_instructions", ...)` |
-| `accept_memories_batch` | `manage_memory(action="accept", ids=[...], ...)` |
-| `reject_memories_batch` | `manage_memory(action="reject", ids=[...])` |
-| `retrieve_memories` | `query_memory(action="retrieve", ...)` |
-| `export_memories` | `query_memory(action="export", ...)` |
-| `memory_pack` | `query_memory(action="pack", ...)` |
-| `scan_memory_hygiene` | `query_memory(action="scan_hygiene", ...)` |
-| `start_session` | `manage_session(action="start", ...)` |
-| `end_session` | `manage_session(action="end", ...)` |
-| `active_session` | `session_status(action="active", ...)` |
-| `latest_session` | `session_status(action="latest", ...)` |
-| `session_handoff` | `session_status(action="handoff", ...)` |
-| _(removed CLI)_ `session tree --json --root <session-id>` | `session_status(action="tree", session_id="<session-id>", ...)` |
-| `add_log` | `record_event(type="log", ...)` |
-| `add_audit` | `record_event(type="audit", ...)` |
-| `list_events` | `list_events(...)` |
-| `search` | `search(...)` |
-| `get_context` | `get_context(...)` |
-| — | `get_report(...)` (added in v0.30.0) |
+| session active / latest / handoff context | `traceary session active`, `session latest`, `session handoff`, `context` |
+| search / list events / report | `traceary search`, `list`, `report` |
+| memory manage / query | `traceary memory store …`, `memory inbox …`, `memory admin …`, `memory search` |
 
-## Examples
+Hook capture was always shell-based (`traceary hook …`) and is unchanged. Claude `hooks.json` keeps `matcher: mcp__.*` so audits of *other* servers continue.
 
-```json
-{"tool":"manage_memory","arguments":{"action":"propose","type":"constraint","workspace":"github.com/org/repo","fact":"Never push directly to main"}}
-```
-
-```json
-{"tool":"query_memory","arguments":{"action":"retrieve","query":"main","limit":5}}
-```
-
-```json
-{"tool":"record_event","arguments":{"type":"log","message":"handoff note","kind":"note","session_id":"s1"}}
-```
+Policy note: removal is an explicit exception to the one-minor deprecation window — see the historical removal log in [CLI stability](../cli-stability.md).

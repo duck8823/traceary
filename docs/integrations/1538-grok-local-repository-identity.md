@@ -34,5 +34,5 @@ A legacy package with another source is never selected or removed.
 - canonical package refresh replaces only `traceary-grok`;
 - an old local-repository identity stops without an uninstall;
 - an explicit migration removes only the exact local source and converges to
-  canonical hooks, MCP, and skills;
+  canonical hooks and skills;
 - a legacy `traceary` package with another source remains untouched.

@@ -40,7 +40,6 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store remember`, `traceary memory store propose`, `traceary memory store distill`
 - **Hooks** — `traceary hooks print`, `traceary hooks install`, `traceary hooks guide`, `traceary completion`
-- **MCP server** — `traceary mcp-server`
 - **Diagnostics** — `traceary doctor` (alias `traceary status`)
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
@@ -88,7 +87,8 @@ Currently deprecated:
 
 Historical removal log:
 
-- Removed in v0.35.0 (#1869): `traceary session tree` and `traceary session lineage`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. `traceary sessions --snapshot` / `--snapshot --json` remain the script-friendly active-session view. MCP `session_status` actions `lineage` / `tree` are unchanged here (see #1871).
+- Removed in v0.35.0 (#1871): `traceary mcp-server`, the `presentation/mcpserver` package, its nine tools, and every shipped host package's MCP server declaration (Claude/Codex/Gemini/Grok/Kimi/Antigravity). Invocations fail as an unknown command (`unknown command "mcp-server"`) with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window: MCP was public and was not listed in the v0.34 "Currently deprecated" registry. Removal is an owner decision on #1693 justified by "nothing is lost" evidence — 16 historical MCP writes out of 659,304 events (0.0024%, last write 2026-07-19); hook capture remains shell (`traceary hook …`); every shipped host has a shell; skills route through the CLI (#1875). Use the CLI for the same work (for example `session active` / `session latest` / `session handoff` / `context`, `search`, `list`, `report`, and the memory inbox/store/admin commands). Claude `hooks.json` keeps `matcher: mcp__.*` so audits of *other* servers' tool calls continue.
+- Removed in v0.35.0 (#1869): `traceary session tree` and `traceary session lineage`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. `traceary sessions --snapshot` / `--snapshot --json` remain the script-friendly active-session view.
 - Removed in v0.35.0 after the v0.34 deprecation (#1688 / #1690): `traceary top` (including `traceary top --snapshot` / `--snapshot --json`). Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. Use `traceary sessions` (or `traceary sessions --snapshot` / `--snapshot --json`); the snapshot contracts are unchanged.
 - Removed in v0.35.0 after the v0.34 announcement (#1765 / #1766): the interactive `traceary sessions` live dashboard. Bare `traceary sessions` is now a plain text command and is byte-identical to `traceary sessions --snapshot` for every caller. `sessions --snapshot` / `--snapshot --json` remain unchanged.
 - Removed in v0.35.0 after the v0.34 announcement (#1687 / #1764): `traceary tui`, `traceary dashboard`, and the bare interactive TTY default that opened the operator cockpit. Bare `traceary` always prints help (TTY and non-TTY). Use `traceary sessions --snapshot` for the surviving script-friendly view of related session data. The orphan local state file `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually; Traceary no longer reads or writes it.
@@ -207,7 +207,6 @@ In short: v0.x lets the surface evolve at minor boundaries with one-minor overla
 
 This policy describes the CLI surface. The following are documented separately:
 
-- MCP tool registry stability — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) and the registry snapshot under `presentation/mcpserver/testdata/`.
 - Hook capture stability — see the [hook contract](./hooks/contract.md) and [host coverage matrix](./hooks/host-coverage.md).
 - Storage / SQLite schema migrations — see the [storage model](./storage/README.md).
 - Host-native memory activation marker compatibility — see the [host-native memory activation contract](./architecture/host-native-memory-activation.md).

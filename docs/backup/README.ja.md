@@ -46,7 +46,7 @@ traceary store backup restore --input /tmp/traceary-backup.db --force
 1. source machine で `traceary store backup create --output /path/to/traceary-backup.db` を実行する
 2. その SQLite file を普段使っている file transfer 手段で新しい machine にコピーする
 3. destination machine で `traceary store backup restore --input /path/to/traceary-backup.db --force` を実行する
-4. 既定 path を使わない場合は、hooks / MCP client の DB path 設定も復元先に合わせる
+4. 既定 path を使わない場合は、hooks / CLI の DB path 設定も復元先に合わせる
 
 ## 運用上の注意
 

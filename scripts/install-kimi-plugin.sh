@@ -22,7 +22,7 @@ command -v kimi >/dev/null 2>&1 || {
   exit 69
 }
 command -v traceary >/dev/null 2>&1 || {
-  echo 'error: traceary is not on PATH (plugin hooks and the MCP server invoke it)' >&2
+  echo 'error: traceary is not on PATH (plugin hooks invoke it)' >&2
   exit 69
 }
 command -v python3 >/dev/null 2>&1 || {
@@ -153,4 +153,4 @@ tmp_path.replace(installed_path)
 PY
 
 echo "installed Traceary Kimi plugin to ${MANAGED_DIR}"
-echo "next: run '/plugins reload' (or start a new session) to activate hooks, skills, and the traceary MCP server"
+echo "next: run '/plugins reload' (or start a new session) to activate hooks and skills"

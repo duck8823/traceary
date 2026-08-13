@@ -6,7 +6,6 @@ The Claude package lives under `integrations/claude-plugin/` and is published th
 
 ## What it wires automatically
 
-- `traceary` MCP server via `traceary mcp-server`
 - `SessionStart` / `SessionEnd` hooks
 - a `Stop` usage hook that records provider-reported Claude token counters from the local transcript before transcript-event capture
 - `PostToolUse` / `PostToolUseFailure` audit hooks for `Bash`, `mcp__.*`, and the built-in tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`)
@@ -45,8 +44,8 @@ content are not copied into the usage ledger or durable hook retry spool.
 
 ## Memory activation strategy
 
-Claude integration uses Traceary's accepted memory store through MCP tools,
-instruction-file export, and host-native activation. To make reviewed memories
+Claude integration uses Traceary's accepted memory store through
+instruction-file export and host-native activation. To make reviewed memories
 visible in Claude project instructions, you have two options.
 
 **Option 1 — instruction-file export (still supported).** Export accepted
@@ -160,7 +159,7 @@ traceary doctor --client claude --fix
 traceary doctor --client claude --fix --dry-run
 ```
 
-`--fix` is intentionally conservative: it can install or upgrade Traceary-managed hooks when the plugin is not active and can register the `traceary mcp-server` entry in Claude settings, backing up an existing settings file before changing the MCP block. It does not auto-update plugin versions or remove double registrations; those remain guided warnings with the upgrade/removal command in the doctor output.
+`--fix` is intentionally conservative: it can install or upgrade Traceary-managed hooks when the plugin is not active It does not auto-update plugin versions or remove double registrations; those remain guided warnings with the upgrade/removal command in the doctor output.
 
 Local package validation:
 

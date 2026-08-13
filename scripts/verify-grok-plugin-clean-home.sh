@@ -62,7 +62,6 @@ expected = {
     "grok-plugin": "pass",
     "grok-plugin-resolution": "pass",
     "grok-hooks": "pass",
-    "grok-mcp": "pass",
     "grok-skills": "pass",
 }
 actual = {check.get("name"): check.get("status") for check in report.get("checks", [])}

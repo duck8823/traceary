@@ -8,17 +8,22 @@
 
 ## Requirement summary
 
-Traceary read surfaces currently restore full `model.Event` aggregates before
-CLI or MCP response code applies a body limit. CLI JSON also serializes the
-full event shape even when `--fields` selected only metadata for compact text.
-Consequently, a request intended to inspect metadata can materialize and
-re-emit large prompt, transcript, tool, or command bodies.
+Traceary read surfaces historically restored full `model.Event` aggregates before
+CLI (and, until v0.35.0, MCP) response code applied a body limit. CLI JSON also
+serializes the full event shape even when `--fields` selected only metadata for
+compact text. Consequently, a request intended to inspect metadata can
+materialize and re-emit large prompt, transcript, tool, or command bodies.
+
+> **v0.35.0 (#1871):** the Traceary MCP server and `presentation/mcpserver` are
+> gone. Projection rules below still describe the **CLI** read path. Rows that
+> named an MCP mapping owner no longer apply to a live product surface.
 
 v0.30.0 adds an explicit metadata-only read contract without changing the
 meaning of existing full-body controls:
 
-- omitted MCP projection keeps the existing bounded-body default;
-- `body_limit=0` and `full_body=true` continue to return the full **stored**
+- the retired MCP path used to keep a bounded-body default when projection was
+  omitted; CLI flags remain the active controls;
+- `body_limit=0` and full-body detail paths continue to return the full **stored**
   body;
 - metadata-only reads neither select body columns nor construct a full event
   aggregate;
@@ -45,7 +50,7 @@ Retention and deletion are outside this contract and remain in #1421.
 | Projection | SQLite result columns | Application value | Response body | Existing compatibility |
 |---|---|---|---|---|
 | `metadata` | metadata and persisted size/truncation columns only | `EventMetadata` | absent | new in v0.30.0 |
-| `bounded` | stored event body plus metadata | full event/read row | present up to a positive response limit | current MCP default remains 500 runes |
+| `bounded` | stored event body plus metadata | full event/read row | present up to a positive response limit | historical MCP default was 500 runes; CLI uses its own limits |
 | `full` | stored event body plus metadata | full event/read row | full stored body | current `body_limit=0`, `full_body=true`, and detail behavior |
 
 `full` means full **stored** content. It cannot recover payload bytes removed at
@@ -79,12 +84,12 @@ request.
 
 | Responsibility | Owner | Reason to change | Not owner |
 |---|---|---|---|
-| Projection vocabulary and validation | `application/types` | consumer-visible read semantics | Cobra/MCP handlers must not each invent modes |
+| Projection vocabulary and validation | `application/types` | consumer-visible read semantics | Cobra handlers must not invent modes outside this vocabulary |
 | Metadata read interface | `application/queryservice` | consumer-oriented read model | domain repository must not grow a large optional-field interface |
 | Optional command-audit metadata | metadata query service + SQLite left join | compact fields such as `exit_code` must not trigger detail hydration | CLI extras resolver must not perform N+1 full-event reads |
 | Column selection and row scanning | `infrastructure/sqlite` | database/schema detail | application must not contain SQL or table names |
 | CLI flag and JSON field mapping | `presentation/cli` | CLI compatibility and serialization | query service must not know Cobra flags |
-| MCP input and output mapping | `presentation/mcpserver` | MCP compatibility and schema | query service must not know MCP DTOs |
+| MCP input and output mapping (retired) | ~~`presentation/mcpserver`~~ (removed in v0.35.0 / #1871) | historical only; no live MCP product surface | do not reintroduce MCP DTOs in query service |
 | Stored-body truncation facts | ingest/storage boundary | only that boundary knows what was persisted | response renderer cannot infer lost input |
 | Response truncation facts | presentation serializer | request-specific limit | persistence must not store per-response state |
 
@@ -107,14 +112,14 @@ body columns.
 The application vocabulary is canonical even though existing public surfaces
 keep additive compatibility keys:
 
-| Canonical fact | CLI JSON compatibility | MCP compatibility | v0.30.0 rule |
+| Canonical fact | CLI JSON compatibility | Historical MCP key (retired v0.35) | v0.30.0 rule |
 |---|---|---|---|
-| returned body/message | `message` | `body` | absent under metadata projection; a dedicated metadata DTO is used rather than serializing an empty string |
-| response truncated | `truncated` | `body_truncated` | existing keys remain aliases of one canonical fact |
-| original rune count before response truncation | `message_length` | `body_length` | both remain rune counts and are emitted only when currently required for compatibility |
-| original/stored/returned byte extent | `body_original_bytes`, `body_stored_bytes`, `body_returned_bytes` | same names | new additive keys use explicit byte units |
-| pre-response plain-text projection bytes | legacy `message_bytes` | no current equivalent | v0.30.0 makes this consistently mean the byte length of `ExtractPlainBody` before response summarization/truncation; it is not raw stored-body extent |
-| ingestion/storage truncation | `body_ingest_truncated`, `body_storage_truncated` | same names | new additive provenance facts; unknown remains null/absent |
+| returned body/message | `message` | was `body` | absent under metadata projection; a dedicated metadata DTO is used rather than serializing an empty string |
+| response truncated | `truncated` | was `body_truncated` | existing CLI keys remain aliases of one canonical fact |
+| original rune count before response truncation | `message_length` | was `body_length` | CLI remains rune counts and is emitted only when currently required for compatibility |
+| original/stored/returned byte extent | `body_original_bytes`, `body_stored_bytes`, `body_returned_bytes` | same names while MCP lived | new additive keys use explicit byte units |
+| pre-response plain-text projection bytes | legacy `message_bytes` | no MCP equivalent | v0.30.0 makes this consistently mean the byte length of `ExtractPlainBody` before response summarization/truncation; it is not raw stored-body extent |
+| ingestion/storage truncation | `body_ingest_truncated`, `body_storage_truncated` | same names while MCP lived | new additive provenance facts; unknown remains null/absent |
 
 The v0.30.0 implementation does not silently reinterpret the units of
 `message_length` or `body_length`. Response limits remain rune-based; persisted
@@ -125,28 +130,22 @@ contract may retire legacy aliases, but this release does not rename them.
 
 | Boundary | Consumer | Hidden detail | Error contract |
 |---|---|---|---|
-| `EventMetadataQueryService` | CLI/MCP lists, context packs, reports | SQL projection and schema | invalid limits/filters are typed validation errors; scan failures retain operation context |
+| `EventMetadataQueryService` | CLI lists, context packs, reports | SQL projection and schema | invalid limits/filters are typed validation errors; scan failures retain operation context |
 | Full event query/repository | detail and content consumers | stored body/body blocks | not-found remains distinguishable from storage failure |
-| Projection resolver | CLI/MCP adapter | legacy flag precedence | contradictory explicit options fail instead of silently returning a larger payload |
-| Metadata serializer | JSON/MCP consumer | internal row/nullable representation | unknown facts are omitted/null, never encoded as known zero |
+| Projection resolver | CLI adapter | legacy flag precedence | contradictory explicit options fail instead of silently returning a larger payload |
+| Metadata serializer | JSON consumer (CLI) | internal row/nullable representation | unknown facts are omitted/null, never encoded as known zero |
 
 Interfaces must be consumer-oriented. The metadata interface exposes only the
 operations needed by metadata consumers rather than a boolean `includeBody`
 flag on every existing repository method.
 
-### MCP compatibility
+### MCP compatibility (historical; removed in v0.35.0 / #1871)
 
-MCP inputs gain an additive `projection` enum:
-
-- omitted: legacy behavior (`body_limit`/`full_body` resolver);
-- `metadata`: no body or body-block fields;
-- `bounded`: positive `body_limit`, defaulting to 500 when omitted;
-- `full`: full stored body.
-
-`projection=metadata` rejects `full_body=true` and positive `body_limit`.
-Because the legacy integer input cannot distinguish omitted `body_limit` from
-an explicit zero, zero is ignored when `projection=metadata`; outside explicit
-projection mode it retains its full-body meaning.
+Until the MCP server was retired, MCP inputs gained an additive `projection`
+enum (`metadata` / `bounded` / `full`) with a 500-rune bounded default. That
+package (`presentation/mcpserver`) and those tools no longer exist. The mapping
+below is not a live product surface; CLI projection/flags are the only current
+consumer contract.
 
 ### CLI compatibility
 
@@ -174,12 +173,9 @@ surfaces remain explicit full-stored-body reads. A surface that cannot expose
 the shared provenance in v0.30.0 must be listed as a known compatibility gap,
 not given a third meaning for truncation.
 
-The existing MCP handoff `recent_commands` field is a `[]string` and cannot
-carry per-item provenance. It is therefore a known v0.29 compatibility gap.
-v0.30.0 keeps that field as a legacy mirror and adds structured sibling items
-with event identity, response truncation, rune length, and byte extent; new
-consumers use the structured sibling. This work is tracked as a separate
-sub-issue so the general list projection does not silently change handoff.
+The former MCP handoff `recent_commands` field was a `[]string` and could not
+carry per-item provenance (a known v0.29 gap while MCP existed). CLI handoff
+and context remain the live surfaces after #1871.
 
 ## Behavior tests
 
@@ -188,9 +184,6 @@ sub-issue so the general list projection does not silently change handoff.
 | Metadata does not hydrate body | two rows with identical metadata and radically different bodies | metadata list runs | returned values and allocated response size are body-size independent | SQLite integration |
 | SQL omits body columns | a metadata projection | query is prepared/executed | result scanner has no body/body-block destination | SQLite integration |
 | Membership is projection-independent | one fixed snapshot/filter | metadata and full lists run | event IDs and order match | query-service integration |
-| Legacy MCP default is bounded | projection omitted | `list_events` runs | body is capped at 500 runes as before | MCP regression |
-| Legacy full body remains full stored body | `body_limit=0` or `full_body=true` | MCP list runs | stored body is returned without response truncation | MCP regression |
-| Contradictory MCP options fail closed | `projection=metadata` and `full_body=true` | validation runs | request fails without querying | MCP behavior |
 | JSON fields control serialization | CLI JSON selects metadata fields | list runs | message/body keys are absent | CLI behavior |
 | Audit metadata stays body-free | CLI metadata fields include `exit_code` or failure coloring is enabled | list runs | one metadata query returns exit code/failed without selecting event body or command input/output | CLI/SQLite integration |
 | Full detail remains explicit | an event has a large stored body | `traceary show` runs | full stored body is returned | CLI regression |
@@ -206,8 +199,9 @@ call order.
 |---|---|---|---|
 | #1428 metadata query | failing SQLite tests prove body columns are not scanned and membership matches full reads | add metadata read model, schema facts, migration, and dedicated SELECT lists | share filter/snapshot construction without sharing scanners |
 | #1433 CLI JSON | failing test shows `--fields` still emits `message`; `exit_code` and failure coloring trigger detail hydration; `message_bytes` changes meaning across paths | map resolved fields to a metadata query, optional audit-metadata join, dedicated body-free serializer, and consistent pre-response plain-text byte count | one projection resolver for list/tail-compatible paths; remove both N+1 extras hydration paths |
-| #1433 MCP | failing compatibility and contradiction tests | add explicit projection mapping and metadata output | share application projection types, not presentation DTOs |
 | #1433 scale regression | 10,000-row fixture grows with body size | route to metadata SQL and body-free serializer | keep benchmark/fixture deterministic and private-data free |
+
+(The former #1433 MCP slice is historical only after #1871 removed the MCP server.)
 
 ## Migration, compatibility, and rollback
 
@@ -218,7 +212,7 @@ call order.
 - Rollback to v0.29.x ignores additive columns and continues reading stored
   events.
 - The new presentation mode can be disabled independently while retaining the
-  additive schema if a CLI/MCP compatibility regression appears.
+  additive schema if a CLI compatibility regression appears.
 
 ## Risks and review checkpoint
 
@@ -229,9 +223,9 @@ call order.
 - **Unknown-value corruption:** historical original sizes must not become zero.
 - **Search misunderstanding:** metadata-only search may use body text in a
   SQLite predicate, but it must not return/materialize that body in Go.
-- **Contract drift:** CLI and MCP may have different DTOs, but projection
-  semantics and truncation vocabulary have one application owner. The mapping
-  table above is the compatibility source of truth.
+- **Contract drift:** projection semantics and truncation vocabulary have one
+  application owner. The CLI mapping above is the live compatibility source of
+  truth after the MCP surface was retired in #1871.
 - **Version-name ambiguity:** `body_metadata_version` is an internal ingest
   extraction version, not a public projection selector; serializers do not
   expose it unless a later schema contract explicitly requires that fact.

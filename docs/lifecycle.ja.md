@@ -38,7 +38,7 @@ SessionStart → [UserPromptSubmit → PostToolUse → Stop]*
 | PostToolUse | `command_executed` | ツール実行 |
 | Stop | `transcript` | 各 turn の最終 assistant メッセージ。セッション終了ではなく turn 境界 (#1170) |
 
-**制限**: host レベルのセッション終了信号なし — Codex は assistant 応答ごとに `Stop` を fire するため、Codex session は明示的な終了 (MCP `manage_session`) または stale GC (`traceary session gc`) まで開いたままになります。`compact` hook はなく、failure 専用イベントもありません。
+**制限**: host レベルのセッション終了信号なし — Codex は assistant 応答ごとに `Stop` を fire するため、Codex session は明示的な終了 (`traceary session end`) または stale GC (`traceary session gc`) まで開いたままになります。`compact` hook はなく、failure 専用イベントもありません。
 
 ### Gemini CLI (Tier 3: 基本対応) — *レガシー互換*
 
@@ -70,7 +70,7 @@ SessionStart → [AfterTool]* → SessionEnd
 | PostToolUse (`run_command`) | `command_executed` | 同一 step の `PreToolUse` のコマンドと突き合わせて監査を記録（step の `error` 付き） |
 | Stop | `transcript` | ホストが `Stop` を発行した場合の `transcriptPath` の turn transcript と turn 境界。セッションは閉じない (#1170) |
 
-**制限**: `SessionStart` がなく（最初の信号は `PreInvocation`）、host のセッション終了信号もありません — Codex 同様 `Stop` は execution 単位の turn 境界なので、Antigravity session は明示的な終了 (MCP `manage_session`) または stale GC (`traceary session gc`) まで開いたままです。audit 対象は `run_command` tool のみで、`transcriptPath` からの prompt/transcript 抽出は best-effort です。現在の interactive と headless `agy --print` は Stop を発行し、`antigravity-event-coverage` が recent DB 証拠から実行時の欠落を検出します。詳細は [capture matrix](./integrations/antigravity.ja.md) を参照してください。
+**制限**: `SessionStart` がなく（最初の信号は `PreInvocation`）、host のセッション終了信号もありません — Codex 同様 `Stop` は execution 単位の turn 境界なので、Antigravity session は明示的な終了 (`traceary session end`) または stale GC (`traceary session gc`) まで開いたままです。audit 対象は `run_command` tool のみで、`transcriptPath` からの prompt/transcript 抽出は best-effort です。現在の interactive と headless `agy --print` は Stop を発行し、`antigravity-event-coverage` が recent DB 証拠から実行時の欠落を検出します。詳細は [capture matrix](./integrations/antigravity.ja.md) を参照してください。
 
 > **v0.21 注**: Gemini CLI はレガシー互換パスです。後継ホストの Antigravity は v0.21.1 で Traceary のサポート対象 hook クライアントになりました（v0.21.0 は capability 診断のみ）。詳細は [Antigravity 統合状況](./integrations/antigravity.ja.md) を参照してください。
 
@@ -93,9 +93,9 @@ reason を記録してセッションを終了します。古いセッション�
 
 | 種別 | 説明 | ソース |
 |------|------|--------|
-| `note` | 自由テキストログ | CLI `traceary log` / MCP `record_event(type="log")` |
+| `note` | 自由テキストログ | CLI `traceary log` |
 | `command_executed` | コマンド・ツール実行の記録 | PostToolUse hooks |
-| `reviewed` | レビュー結果 | CLI / MCP |
+| `reviewed` | レビュー結果 | CLI |
 | `session_started` | セッション開始境界 | SessionStart hooks (Claude / Codex / Gemini)。PreInvocation (Antigravity) |
 | `session_ended` | セッション終了境界 | SessionEnd hooks (Claude / Gemini)。Codex と Antigravity には host のセッション終了信号がない (#1170) |
 | `compact_summary` | コンテキスト圧縮時の構造化サマリー | PostCompact hook |
@@ -115,11 +115,6 @@ AI クライアント (Claude Code / Codex CLI / Gemini CLI)
   │    ├─ packaged shell wrapper（必要な配布物だけの互換レイヤー）
   │    ▼
   │  SQLite (~/.config/traceary/traceary.db)
-  │
-  └─ MCP server (stdio トランスポート)
-       │
-       ▼
-     traceary mcp-server → SQLite
 ```
 
 ## Hook スクリプトと役割

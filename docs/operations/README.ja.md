@@ -15,7 +15,7 @@ Traceary は、process 間調停を SQLite 自身に委ねています。
 
 現在の前提:
 
-- 通常利用は、同じ DB file を複数の短命な CLI / hook / MCP process が共有する形
+- 通常利用は、同じ DB file を複数の短命な CLI / hook process が共有する形
 - write は小さな append 系操作（`events`、`command_audits`、session 境界）が中心
 - file level の write 直列化は SQLite が安全に扱う
 
@@ -68,7 +68,7 @@ client 側の process model が変わった場合や、wrapper script により 
 ### client によっては session end が best-effort
 
 - Claude Code: documented integration では dedicated `SessionEnd` を使える
-- Codex CLI: host のセッション終了信号がない — `Stop` は応答ごとの turn 境界 (#1170) であり、Codex session は MCP `manage_session` または activity-aware stale GC（通常の hook start 後に自動実行、`traceary session gc` で手動実行も可能）で終了する
+- Codex CLI: host のセッション終了信号がない — `Stop` は応答ごとの turn 境界 (#1170) であり、Codex session は `traceary session end` または activity-aware stale GC（通常の hook start 後に自動実行、`traceary session gc` で手動実行も可能）で終了する
 - Gemini CLI: `SessionEnd` も best-effort 扱い
 
 session end の精度が重要なら、明示的な end hook を持つ client integration を優先してください。
@@ -145,6 +145,6 @@ traceary store workspace-alias remove --session <id> --workspace <path>
 - Python 依存の縮小計画: [`./python-dependencies.ja.md`](./python-dependencies.ja.md)
 - repository tooling の方針: [`./repo-tooling.ja.md`](./repo-tooling.ja.md)
 - Memory コマンド体系の整理計画: [`./memory-command-surface.ja.md`](./memory-command-surface.ja.md)
-- MCP ツールスキーマ予算: [`./mcp-tool-schema-budget.ja.md`](./mcp-tool-schema-budget.ja.md)
+- MCP ツールスキーマ予算（退役）: [`./mcp-tool-schema-budget.ja.md`](./mcp-tool-schema-budget.ja.md)
 - ワークスペース識別契約: [`./workspace-identity-contract.ja.md`](./workspace-identity-contract.ja.md)
 - 証拠に基づく完結型セッション修復: [`./one-shot-repair.ja.md`](./one-shot-repair.ja.md)

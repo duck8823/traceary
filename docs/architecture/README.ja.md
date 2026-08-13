@@ -20,7 +20,7 @@ presentation -> application -> domain <- infrastructure
 
 | 層 | 置くもの | 置かないもの |
 | --- | --- | --- |
-| `presentation/` | CLI コマンドの配線、MCP server の handler、hook ホスト固有の payload 解釈、利用者向けの表示整形、transport ごとの入力検証 | domain ルール、永続化の実装、長期的な業務状態 |
+| `presentation/` | CLI コマンドの配線、hook ホスト固有の payload 解釈、利用者向けの表示整形、transport ごとの入力検証 | domain ルール、永続化の実装、長期的な業務状態 |
 | `application/` | write-side use case、read-side query service の契約、domain object をまたぐオーケストレーション、共有の read model / DTO | SQL、filesystem の細かな操作、transport 固有の payload 解釈 |
 | `domain/` | entity、value object、repository 契約、不変条件、業務エラー | Cobra、SQLite、JSON transport の扱い、shell 連携の都合 |
 | `infrastructure/` | SQLite 実装、filesystem adapter、プラットフォーム固有の file handling、外部依存の adapter | domain/application に置くべき業務判断、その場しのぎの CLI 制御 |
@@ -44,7 +44,6 @@ runtime の本体ロジックは、明示的な例外がない限り、通常の
 
 例:
 - `traceary` CLI コマンド
-- `traceary mcp-server`
 - 今後追加する `traceary hook ...` サブコマンド
 
 これらの entrypoint では、ホスト固有の payload やユーザー入力を受け取り、正規化したうえで application の use case へ渡します。
@@ -121,7 +120,7 @@ Traceary では、`internal/` を既定では要求しません。
 1. runtime の本体ロジックは helper script ではなく Go package にあるか
 2. transport / host 固有の解釈は `presentation/` に留まっているか
 3. オーケストレーションは `application/` にあるか
-4. domain から SQLite / CLI / MCP の都合が見えていないか
+4. domain から SQLite / CLI の都合が見えていないか
 5. `infrastructure/` は契約を実装しているだけで、業務判断を作っていないか
 6. script が残る場合、それは helper か一時的な互換レイヤーだと明示されているか
 7. `internal/` を提案するなら、好みではなく具体的な可視性上の理由があるか

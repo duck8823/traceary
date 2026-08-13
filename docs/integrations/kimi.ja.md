@@ -2,7 +2,7 @@
 
 [English](./kimi.md)
 
-Traceary v0.29.0 で native な Kimi Code 連携を追加しました。[`integrations/kimi-plugin/`](../../integrations/kimi-plugin/) のパッケージは、1 つの `kimi.plugin.json` manifest を通じて、live 検証済みの 10 の lifecycle hook、1 つのローカル Traceary MCP server、共有 skill 4 件（[skills](./skills.ja.md)）をインストールします。記録される hook event は `client=hook` / `agent=kimi` になります。
+Traceary v0.29.0 で native な Kimi Code 連携を追加しました。[`integrations/kimi-plugin/`](../../integrations/kimi-plugin/) のパッケージは、1 つの `kimi.plugin.json` manifest を通じて、live 検証済みの 10 の lifecycle hook、1 つのローカル Traceary CLI、共有 skill 4 件（[skills](./skills.ja.md)）をインストールします。記録される hook event は `client=hook` / `agent=kimi` になります。
 
 ## サポートするカバレッジ
 
@@ -73,7 +73,7 @@ Windows を含むその他すべてのプラットフォームでは、このソ
 
 ## インストール
 
-1. Traceary CLI をインストールし、`traceary` が `PATH` 上にあることを確認します（plugin の hook と MCP server がこれを呼び出します）。
+1. Traceary CLI をインストールし、`traceary` が `PATH` 上にあることを確認します（plugin の hook と CLI がこれを呼び出します）。
 
 ```sh
 brew tap duck8823/traceary https://github.com/duck8823/traceary
@@ -98,7 +98,7 @@ cd traceary
 traceary doctor --client kimi
 ```
 
-正常なインストールであれば、`kimi-cli` / `kimi-plugin` / `kimi-hooks` / `kimi-mcp` / `kimi-skills` がすべて PASS します。Kimi は opt-in の doctor client なので、通常の `traceary doctor`（claude/codex/gemini）は変わりません。
+正常なインストールであれば、`kimi-cli` / `kimi-plugin` / `kimi-hooks` / `kimi-skills` がすべて PASS します。Kimi は opt-in の doctor client なので、通常の `traceary doctor`（claude/codex/gemini）は変わりません。
 
 ## 手動での hook 設定（代替）
 

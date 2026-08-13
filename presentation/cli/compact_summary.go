@@ -79,7 +79,7 @@ func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (strin
 	sb.WriteString("[Traceary] ")
 	if _, ok := result.Value(); !ok {
 		sb.WriteString("No active session\n")
-		sb.WriteString("  Run list_events for full history.\n")
+		sb.WriteString("  Run traceary list for full history.\n")
 		return sb.String(), nil
 	}
 
@@ -134,7 +134,7 @@ func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (strin
 	} else if pack.CandidateMemoryCount() > 0 {
 		fmt.Fprintf(&sb, "  needs_review: %d memory candidates omitted (run session handoff --include-candidates)\n", pack.CandidateMemoryCount())
 	}
-	sb.WriteString("  Run list_events for full history.\n")
+	sb.WriteString("  Run traceary list for full history.\n")
 	text := sb.String()
 	if runes := []rune(text); len(runes) > maxCompactSummaryOutputLen {
 		text = string(runes[:maxCompactSummaryOutputLen]) + "…\n"

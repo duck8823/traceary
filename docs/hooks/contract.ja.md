@@ -36,7 +36,7 @@ Grok Build の versioned かつ機械可読な live contract（fixture は 0.2.9
 | Stop | (全て) | `last_assistant_message` から最終 assistant メッセージを `transcript` event として記録（既知 secret の redaction + オペレーター設定の `redact.rules` / `redact.extra_patterns` を適用）。セッション終了ではなく turn 境界として扱う |
 | PostToolUse | (全て) | ツール監査を記録 |
 
-**制限**: SessionEnd なし・host レベルのセッション終了信号なし — Codex は会話終了時ではなく assistant 応答ごとに `Stop` を fire するため、Traceary は `Stop` を turn 境界として扱い session を開いたままにする (#1170)。Codex session は明示的な終了信号 (MCP `manage_session`) または stale GC (`traceary session gc`、既定 24h) でのみ終了する。`PreCompact` / `PostCompact` は `manual` / `auto` の trigger のみを公開し、圧縮後サマリー本文は含まないため、どちらも境界 marker として記録する。failure 専用イベントも構造化された失敗信号もない。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
+**制限**: SessionEnd なし・host レベルのセッション終了信号なし — Codex は会話終了時ではなく assistant 応答ごとに `Stop` を fire するため、Traceary は `Stop` を turn 境界として扱い session を開いたままにする (#1170)。Codex session は明示的な終了信号 (`traceary session end`) または stale GC (`traceary session gc`、既定 24h) でのみ終了する。`PreCompact` / `PostCompact` は `manual` / `auto` の trigger のみを公開し、圧縮後サマリー本文は含まないため、どちらも境界 marker として記録する。failure 専用イベントも構造化された失敗信号もない。Codex は非ゼロ終了でも `PostToolUse` を fire するが、`tool_response` は exit code も error フィールドも持たない素の整形済み文字列のため、失敗した実行は通常の（フラグなし）監査として記録される。
 
 ### Tier 2: 部分対応 (Grok Build 0.2.99)
 
@@ -50,7 +50,7 @@ Grok Build の versioned かつ機械可読な live contract（fixture は 0.2.9
 | PreCompact | (全て) | `source` から `source_hook=pre_compact` の `compact_summary` 境界 marker を記録。source が欠落または不正な場合は `unavailable` を使用 |
 | PostCompact | (全て) | `source` から `source_hook=post_compact` の `compact_summary` 境界 marker を記録。source が欠落または不正な場合は `unavailable` を使用 |
 
-**制限**: Grok Build 0.2.99 および 0.2.101 再 probe では `SessionEnd`、`PostToolUseFailure`、単独の `PermissionDenied` が発火しませんでした。Traceary はこれらの hook を生成せず、payload も推測しません。そのため `Stop` は turn 境界として扱い、明示的な MCP session 管理または stale GC が session を終了します。hook payload に assistant 本文や model はないため、transcript 取得は host が渡す `transcriptPath` に依存します。Grok は Stop hook 完了後に最終メッセージを追記するため、Traceary は 0600 の detached job を queue に置き、最長2秒再試行します。それでも取得できない場合は host を停止させず、`traceary doctor` が報告する診断用 artifact として job を残します。`PreCompact` と `PostCompact` は `source` から phase 別 marker として保存します。summary 本文は公開されず、source が欠けた場合は `unavailable` と明示して記録します。subagent hook は引き続き利用不可です。0.2.101 でも `SubagentStart` / `SubagentStop` は未発火で、spawn は `spawn_subagent` tool のみだったため parent/child identity 契約は主張せず、Traceary はその関係を合成しません（#1299）。
+**制限**: Grok Build 0.2.99 および 0.2.101 再 probe では `SessionEnd`、`PostToolUseFailure`、単独の `PermissionDenied` が発火しませんでした。Traceary はこれらの hook を生成せず、payload も推測しません。そのため `Stop` は turn 境界として扱い、明示的な `traceary session end` または stale GC が session を終了します。hook payload に assistant 本文や model はないため、transcript 取得は host が渡す `transcriptPath` に依存します。Grok は Stop hook 完了後に最終メッセージを追記するため、Traceary は 0600 の detached job を queue に置き、最長2秒再試行します。それでも取得できない場合は host を停止させず、`traceary doctor` が報告する診断用 artifact として job を残します。`PreCompact` と `PostCompact` は `source` から phase 別 marker として保存します。summary 本文は公開されず、source が欠けた場合は `unavailable` と明示して記録します。subagent hook は引き続き利用不可です。0.2.101 でも `SubagentStart` / `SubagentStop` は未発火で、spawn は `spawn_subagent` tool のみだったため parent/child identity 契約は主張せず、Traceary はその関係を合成しません（#1299）。
 
 ### Tier 3: 基本対応 (Gemini CLI) — *レガシー互換*
 
@@ -86,7 +86,7 @@ Claude Task subagent capture:
 
 | 欠落機能 | フォールバック |
 |---|---|
-| Compact hooks | MCP `get_context` / `session_handoff` でオンデマンド取得 |
+| Compact hooks | `traceary context` / `traceary session handoff` でオンデマンド取得 |
 | Failure イベント | 失敗形状の構造化フィールドから `failure_reason` を導出（Claude のトップレベル `error` と Gemini の `tool_response.error` は `host_error`、Grok の `PermissionDenied` は `hook_denied`、中断/timeout marker は `signal` / `timeout`）。構造化された失敗信号を出さない host は `unknown` のまま記録し、整形済み output 本文は解析しない |
 | エージェントタイプ | クライアント名のみ使用（例: `codex`, `gemini`） |
 

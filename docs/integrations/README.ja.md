@@ -9,7 +9,6 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 これらのパッケージは、次の共通ランタイム契約でそろえています。
 
 - `traceary` CLI が `PATH` 上にあることを前提にする
-- MCP は共通で `traceary mcp-server` を起動する
 - セッション境界と shell command audit は同梱 hook で記録する
 - SQLite ストア、CLI フラグ、`traceary doctor` の流れは host ごとに分けない
 
@@ -17,7 +16,6 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 
 | 機能 | 共通の振る舞い |
 | --- | --- |
-| MCP server | `traceary mcp-server` で Traceary の read/write tools を公開する |
 | session hook | session start/end を Traceary event として記録する（Codex の `Stop` は応答ごとの turn 境界でありセッション終了ではない — #1170）|
 | shell audit hook | `traceary audit` を通して shell command 実行を記録する |
 | doctor flow | `traceary doctor --client <host>` を共通のトラブルシュート入口にする |
@@ -30,9 +28,9 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 | Claude Code | `integrations/claude-plugin/` | `.claude-plugin/marketplace.json` を基点にした Claude marketplace |
 | Codex | `plugins/traceary/` | Codex CLI 公式の `/plugins` flow を使い、リポジトリ内の marketplace `.agents/plugins/marketplace.json` から install。plugin manifest で同梱 `hooks.json` を参照するため session / prompt / audit hook が自動配線される。旧 `traceary integration` コマンドツリー（codex install/uninstall stub 含む）は v0.25.0 で完全削除 (#1266)。Codex 公式の `/plugins` flow と [docs/integrations/codex-plugin.ja.md](./codex-plugin.ja.md) の手動 cleanup 手順を使う。 |
 | Gemini CLI | `integrations/gemini-extension/` | `gemini-extension.json` を root にした Gemini extension archive — v0.21.0 以降は**レガシー互換のみ**。アクティブな委譲パスではない |
-| Antigravity | `integrations/antigravity-plugin/` | v0.21.1 でサポート。hook の直接設定は `<project>/.agents/hooks.json` または `~/.gemini/config/hooks.json` を対象とします。同梱 plugin は version 付き manifest、Traceary MCP server、共有 skill 4 件（[skills](./skills.ja.md)）を追加します。`traceary doctor --client antigravity --json` で hook 経路、MCP 登録、plugin version の一致を確認できます。 |
-| Grok Build | `integrations/grok-plugin/` | v0.23.0 でサポート。ネイティブ plugin は実環境で検証した lifecycle hook 7件、Traceary MCP server 1件、共有 skill 4 件（[skills](./skills.ja.md)）を同梱します。`scripts/install-grok-plugin.sh` で導入し、`traceary doctor --client grok --json` で hook 契約、trust、パッケージ内容、バージョン一致を確認します。 |
-| Kimi Code | `integrations/kimi-plugin/` | v0.29.0 でサポート。ネイティブ plugin は 1 つの `kimi.plugin.json` manifest に、実環境で検証した lifecycle hook 10 件（session / prompt / tool audit（失敗含む）/ transcript / compact marker / subagent）、Traceary MCP server 1 件、共有 skill 4 件（[skills](./skills.ja.md)）を宣言します。`scripts/install-kimi-plugin.sh` で導入し、`traceary doctor --client kimi --json` で確認します。 |
+| Antigravity | `integrations/antigravity-plugin/` | v0.21.1 でサポート。hook の直接設定は `<project>/.agents/hooks.json` または `~/.gemini/config/hooks.json` を対象とします。同梱 plugin は version 付き manifest と共有 skill 4 件（[skills](./skills.ja.md)）を追加します。`traceary doctor --client antigravity --json` で hook 経路と plugin version の一致を確認できます。 |
+| Grok Build | `integrations/grok-plugin/` | v0.23.0 でサポート。ネイティブ plugin は実環境で検証した lifecycle hook 7件と共有 skill 4 件（[skills](./skills.ja.md)）を同梱します。`scripts/install-grok-plugin.sh` で導入し、`traceary doctor --client grok --json` で hook 契約、trust、パッケージ内容、バージョン一致を確認します。 |
+| Kimi Code | `integrations/kimi-plugin/` | v0.29.0 でサポート。ネイティブ plugin は 1 つの `kimi.plugin.json` manifest に、実環境で検証した lifecycle hook 10 件（session / prompt / tool audit（失敗含む）/ transcript / compact marker / subagent）と共有 skill 4 件（[skills](./skills.ja.md)）を宣言します。`scripts/install-kimi-plugin.sh` で導入し、`traceary doctor --client kimi --json` で確認します。 |
 
 ## host 別ガイド
 

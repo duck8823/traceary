@@ -146,6 +146,5 @@ bare `traceary` は TTY / 非 TTY とも常に help を表示します。旧 Tai
 
 ## 関連 docs
 
-- CLI reference: [`../cli/README.ja.md`](../cli/README.ja.md)
-- MCP guide: [`../mcp/README.ja.md`](../mcp/README.ja.md)
+- CLI リファレンス: [`../cli/README.ja.md`](../cli/README.ja.md)
 - Event lifecycle: [`../lifecycle.ja.md`](../lifecycle.ja.md)

@@ -7,7 +7,7 @@ Traceary の core runtime は Go ですが、いくつかの repository workflow
 
 ## 現在の方針
 
-- `traceary` CLI と MCP server は、Python なしで動く状態を維持する
+- `traceary` CLI は、Python なしで動く状態を維持する
 - user-facing な install / runtime workflow に Python 前提を増やす場合は、明示的な設計判断を必須にする
 - maintainer-only の Python helper は当面許容するが、所有者と移行先を文書で明示する
 

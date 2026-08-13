@@ -254,8 +254,8 @@ func antigravityHookRouteSummary(routes []antigravityHookRoute) doctorCheck {
 				Name:   antigravityRouteSummaryCheck,
 				Status: doctorStatusWarn,
 				Hint: Localize(
-					"Retain exactly one Antigravity hook route. Prefer the CLI plugin when you also use Traceary MCP tools and skills; otherwise retain either the workspace or user-level direct hook route.",
-					"Antigravity hook 経路は 1 つだけ残してください。Traceary MCP tool と skill も使う場合は CLI plugin を優先し、それ以外は workspace または user-level の直接 hook 経路のいずれかを残してください。",
+					"Retain exactly one Antigravity hook route. Prefer the CLI plugin when you also use skills; otherwise retain either the workspace or user-level direct hook route.",
+					"Antigravity hook 経路は 1 つだけ残してください。skill も使う場合は CLI plugin を優先し、それ以外は workspace または user-level の直接 hook 経路のいずれかを残してください。",
 				),
 				Message: localizef(
 					"multiple Antigravity hook routes are active and can register duplicate lifecycle handlers: %s. Retain exactly one route.",

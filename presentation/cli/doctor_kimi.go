@@ -52,18 +52,12 @@ type kimiDoctorState struct {
 	PluginRecordKnown bool
 	PluginVersion     string
 	NativeHooks       bool
-	PluginMCP         bool
-	UserMCP           bool
 	Skills            int
 }
 
 type kimiPluginManifest struct {
-	Version    string `json:"version"`
-	MCPServers map[string]struct {
-		Command string   `json:"command"`
-		Args    []string `json:"args"`
-	} `json:"mcpServers"`
-	Hooks []struct {
+	Version string `json:"version"`
+	Hooks   []struct {
 		Event   string `json:"event"`
 		Matcher string `json:"matcher"`
 		Command string `json:"command"`
@@ -86,7 +80,7 @@ func kimiProbeError(operation string, err error) error {
 // has no CLI inspect command, so state is probed from the filesystem: the
 // managed plugin copy under $KIMI_CODE_HOME/plugins/managed/traceary (a
 // symlink into a generation dir) and the install record.
-func probeKimiDoctorState(ctx context.Context, projectDir string) (kimiDoctorState, error) {
+func probeKimiDoctorState(ctx context.Context, _ string) (kimiDoctorState, error) {
 	state := kimiDoctorState{}
 	if _, err := kimiDoctorLookPath("kimi"); err != nil {
 		return state, nil
@@ -113,11 +107,9 @@ func probeKimiDoctorState(ctx context.Context, projectDir string) (kimiDoctorSta
 		}
 		state.PluginVersion = manifest.Version
 		state.NativeHooks = kimiManifestHasVerifiedHooks(manifest)
-		state.PluginMCP = kimiServerDeclaresTraceary(manifest.MCPServers)
 		state.Skills = countKimiPluginSkills(kimiHome)
 		state.PluginEnabled, state.PluginRecordKnown = kimiPluginRecordEnabled(kimiHome)
 	}
-	state.UserMCP = kimiMCPJSONRegisters(kimiHome, projectDir)
 	return state, nil
 }
 
@@ -193,48 +185,6 @@ func kimiPluginRecordEnabled(kimiHome string) (enabled, known bool) {
 	return false, true
 }
 
-// kimiServerDeclaresTraceary validates a traceary MCP server declaration:
-// the command must be traceary launching mcp-server.
-func kimiServerDeclaresTraceary(servers map[string]struct {
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-}) bool {
-	server, ok := servers["traceary"]
-	if !ok {
-		return false
-	}
-	return server.Command == "traceary" && len(server.Args) == 1 && server.Args[0] == "mcp-server"
-}
-
-// kimiMCPJSONRegisters checks the user-level and project-level mcp.json
-// files for a valid traceary server declaration (the plugin-declared server
-// is checked separately from the manifest).
-func kimiMCPJSONRegisters(kimiHome, projectDir string) bool {
-	candidates := []string{filepath.Join(kimiHome, "mcp.json")}
-	if projectDir != "" {
-		candidates = append(candidates, filepath.Join(projectDir, ".kimi-code", "mcp.json"))
-	}
-	for _, path := range candidates {
-		data, err := os.ReadFile(path) // #nosec G304 -- fixed name under the Kimi home / project dir
-		if err != nil {
-			continue
-		}
-		var doc struct {
-			MCPServers map[string]struct {
-				Command string   `json:"command"`
-				Args    []string `json:"args"`
-			} `json:"mcpServers"`
-		}
-		if json.Unmarshal(data, &doc) != nil {
-			continue
-		}
-		if kimiServerDeclaresTraceary(doc.MCPServers) {
-			return true
-		}
-	}
-	return false
-}
-
 func buildKimiDoctorChecks(state kimiDoctorState, tracearyVersion string) []doctorCheck {
 	if !state.CLIAvailable {
 		return []doctorCheck{{Name: "kimi-cli", Status: doctorStatusFail, Message: Localize("Kimi Code CLI is not installed", "Kimi Code CLI がインストールされていません"), Hint: Localize("install Kimi Code, then rerun doctor", "Kimi Code をインストールして doctor を再実行してください")}}
@@ -269,20 +219,6 @@ func buildKimiDoctorChecks(state kimiDoctorState, tracearyVersion string) []doct
 		hookStatus, hookMessage = doctorStatusWarn, Localize("native Kimi plugin hook coverage is missing or incomplete", "native Kimi plugin hook coverage が不足しています")
 	}
 	checks = append(checks, doctorCheck{Name: "kimi-hooks", Status: hookStatus, Message: hookMessage, Hint: Localize("reinstall the native Traceary Kimi plugin", "native Traceary Kimi plugin を再インストールしてください")})
-
-	mcpStatus := doctorStatusPass
-	mcpMessage := Localize("native Kimi plugin declares the traceary MCP server", "native Kimi plugin は traceary MCP server を宣言しています")
-	mcpHint := ""
-	if !state.PluginMCP {
-		if state.UserMCP {
-			mcpMessage = Localize("traceary MCP server is registered in mcp.json (plugin does not declare one)", "traceary MCP server は mcp.json に登録されています (plugin 側の宣言はありません)")
-		} else {
-			mcpStatus = doctorStatusWarn
-			mcpMessage = Localize("no traceary MCP server registration found in the Kimi plugin or mcp.json", "Kimi plugin と mcp.json のどちらにも traceary MCP server の登録がありません")
-			mcpHint = Localize("reinstall the native Traceary Kimi plugin", "native Traceary Kimi plugin を再インストールしてください")
-		}
-	}
-	checks = append(checks, doctorCheck{Name: "kimi-mcp", Status: mcpStatus, Message: mcpMessage, Hint: mcpHint})
 
 	skillStatus := doctorStatusPass
 	skillMessage := Localize("native Kimi plugin exposes all four Traceary skills", "native Kimi plugin は Traceary skill を4件すべて公開しています")

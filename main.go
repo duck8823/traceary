@@ -29,7 +29,6 @@ import (
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation"
 	"github.com/duck8823/traceary/presentation/cli"
-	"github.com/duck8823/traceary/presentation/mcpserver"
 	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
 )
 
@@ -132,8 +131,6 @@ func run() error {
 		return err
 	}
 
-	resolvedVersion, _, _ := resolveBuildMetadata(version, commit, date, readBuildInfo)
-
 	migrationsSubFS, err := sqliteschema.Migrations()
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to read migration files", "マイグレーションファイルの読み込みに失敗しました"), err)
@@ -194,7 +191,6 @@ func run() error {
 
 	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
 	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
-	eventBoundedUsecase := usecase.NewEventBoundedUsecase(eventDatasource)
 	reportUsecase := usecase.NewReportUsecase(reportDatasource)
 	codexCaptureDiagnosticUsecase := usecase.NewCodexCaptureDiagnosticUsecase(codexCaptureDiagnosticDatasource)
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
@@ -236,25 +232,6 @@ func run() error {
 	oneShotRepairUsecase := usecase.NewOneShotRepairUsecase(storeManagementDatasource, storeManagementDatasource)
 	workspaceIdentityUsecase := usecase.NewWorkspaceIdentityUsecase(workspaceIdentityDatasource, workspaceIdentityDatasource, types.SystemClock{})
 
-	mcpServer, err := mcpserver.NewServer(
-		resolvedVersion,
-		extraRedactPatterns,
-		structuredRedactRules,
-		auditMaxInputBytes,
-		auditMaxOutputBytes,
-		eventUsecase,
-		sessionUsecase,
-		memoryUsecase,
-		contextUsecase,
-		storeManagementUsecase,
-		mcpserver.WithEventMetadata(eventMetadataUsecase),
-		mcpserver.WithEventBounded(eventBoundedUsecase),
-		mcpserver.WithProjectionSessionSearch(eventDatasource),
-		mcpserver.WithReport(reportUsecase),
-	)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", cli.Localize("failed to initialize MCP server", "MCP server の初期化に失敗しました"), err)
-	}
 
 	hooksOrchestrator := filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
 		"claude":      filesystem.NewClaudeHooksHandler(),
@@ -309,7 +286,6 @@ func run() error {
 		cli.WithFileRetention(fileRetentionUsecase),
 		cli.WithOneShotRepair(oneShotRepairUsecase),
 		cli.WithWorkspaceIdentity(workspaceIdentityUsecase),
-		cli.WithMCPServerRunner(mcpServer),
 		cli.WithHooksOrchestrator(hooksOrchestrator),
 		cli.WithHooksInspector(hooksInspector),
 		cli.WithPluginCacheInspector(pluginCacheInspector),

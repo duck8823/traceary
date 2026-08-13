@@ -6,7 +6,7 @@ Traceary は Anthropic の native beta memory tool (`memory_20250818`) の backe
 
 この連携は v0.10 では **experimental** です。Anthropic の memory tool が beta の間、公開 Go API は変わる可能性があります。
 
-## Native memory tool と Traceary MCP memory tools の使い分け
+## Native memory tool と Traceary CLI memory コマンドの使い分け
 
 native Anthropic memory tool を使う場面:
 
@@ -14,9 +14,9 @@ native Anthropic memory tool を使う場面:
 - Claude 自身に `view` / `create` / `str_replace` / `insert` / `delete` / `rename` の実行タイミングを判断させたい;
 - `/memories/...` 配下の filesystem 形状・model-managed memory でよい。
 
-Traceary の MCP memory tools (`traceary mcp-server`, `manage_memory`, `query_memory`) を使う場面:
+Traceary CLI の memory コマンド（`traceary memory store …`、`memory inbox …`、`memory search`） を使う場面:
 
-- agent host が MCP に対応している (Claude Code, Codex, Gemini CLI, OpenAI Agents SDK, Google ADK など);
+- agent host が Traceary CLI / skill 経路を持つ (Claude Code, Codex, Gemini CLI, OpenAI Agents SDK, Google ADK など);
 - status / confidence / evidence / validity window / review-accept workflow を持つ operator-curated durable memory が必要;
 - 複数 model provider で同じ interface を使いたい。
 

@@ -90,5 +90,5 @@ if printf '%s' "${plugin_list}" | grep -q '"name"[[:space:]]*:[[:space:]]*"trace
 fi
 grok plugin install --trust "${PLUGIN_SOURCE}"
 grok plugin details "${PLUGIN_NAME}"
-echo 'installed traceary-grok: 7 native hook boundaries, 1 MCP server, and 3 skills'
+echo 'installed traceary-grok: 7 native hook boundaries and 4 skills'
 echo 'note: the installer intentionally does not uninstall a legacy plugin named traceary because it may belong to another host'

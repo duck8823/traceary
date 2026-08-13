@@ -98,7 +98,7 @@ validity 窓の上限は `--to-date` (`--to` は対象 memory ID 指定に使う
 
 ### MCP
 
-今リリースでは **MCP ツールは出荷しません**。CLI に先行導入し、運用フィードバックで実際によく使われるトラバース形状が見えてから MCP 契約を設計します。follow-up に計上済みです。
+graph 操作は CLI のみです。旧 MCP server は v0.35.0 (#1871) で削除済みです。MCP graph 契約を再導入しないでください。
 
 ## 明示的な scope 外
 
@@ -111,7 +111,7 @@ validity 窓の上限は `--to-date` (`--to` は対象 memory ID 指定に使う
 
 ## Follow-up チケット (出荷時に作成)
 
-- MCP `memory_graph_add` / `memory_graph_query` ツール (CLI 先行、MCP 契約は運用が固まってから設計)
+- MCP graph ツールは作らない（#1871 で退役。再導入しない）
 - `memory graph walk` for 多段トラバース
 - `hygiene scan edge_overlap` 検出器
 - replay HTML の edge 可視化

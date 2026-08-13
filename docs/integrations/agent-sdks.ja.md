@@ -2,88 +2,71 @@
 
 [English](./agent-sdks.md)
 
-#567 の一部 · #571 の評価フェーズを閉じる。
+#567 の一部 · #571 evaluation を close。v0.35.0 (#1871) 向けに更新。
 
-このドキュメントは「自分の agent SDK から Traceary の memory ストアをどう使うか」を、2026 年時点の主要 SDK について整理し、Traceary-native adapter を出荷するか判断と、その根拠を記録するものです。
+このドキュメントは、主要な 2026 SDK について「agent SDK から Traceary の memory store をどう使うか」を答え、Traceary が各 SDK 向けに native adapter を出すかを決め、その理由を残します。
 
-## サマリーマトリクス
+## 現在の製品面
 
-| SDK | MCP 対応 | native memory 抽象 | Traceary 独自 adapter 必要？ | 現在の判定 |
-|---|---|---|---|---|
-| Claude / Anthropic APIs | ✅ agent host では安定 (`mcp_servers`) | Anthropic SDK の native `memory_20250818` client tool | **両方** — MCP は portable path、Go native backend は experimental | MCP docs + [native memory tool](./anthropic-memory-tool.ja.md) |
-| OpenAI Agents SDK | ✅ 安定 (`MCPServerStdio` / `MCPServerSse`) | `Session` は backend 差し替え可能、memory-tool 抽象はなし | 不要 | defer (MCP で十分) |
-| Google ADK | ✅ 安定 (`McpToolset` + `StdioConnectionParams`) | `MemoryService` pluggable backend | 不要 (今は) — ADK memory API が安定したら再評価 | defer (MCP で十分) |
+**v0.35.0 (#1871)** 以降、Traceary は **MCP server を出荷しません**。`traceary mcp-server` は unknown command です。出荷 host package も `mcpServers` を宣言しません。
+
+**今日使う経路:**
+
+| 用途 | 経路 |
+|---|---|
+| host の自動記録 | 同梱 hooks（`traceary hook …`） |
+| agent の read / write 案内 | 同梱 skills（CLI コマンド） |
+| 運用者 / スクリプト | Traceary CLI（`memory …`、`session …`、`context`、`search`、`list`、`report` など） |
+| Anthropic Go SDK を直接回す場合 | experimental な `pkg/anthropicmemory`（[native memory tool](./anthropic-memory-tool.ja.md)） |
+
+新しいコードや host config から **`traceary mcp-server` を起動しないでください**。
+
+## サマリ matrix
+
+| SDK | 今日の統合 | Traceary 独自 adapter が必要か | 現在の判定 |
+|---|---|---|---|
+| Claude / Anthropic APIs | 同梱 Claude plugin（hooks + skills）および/または CLI。任意で experimental な Go native `memory_20250818` backend | **MCP なし。** Anthropic loop を自前で持つときだけ native Go backend | [Claude plugin](./claude-plugin.ja.md) + CLI/skills。該当時は [native memory tool](./anthropic-memory-tool.ja.md) |
+| OpenAI Agents SDK | tools / skills から Traceary CLI を呼ぶ。Traceary MCP server なし | 独自 adapter なし | custom adapter は defer。CLI を使う |
+| Google ADK | tools から Traceary CLI を呼ぶ。Traceary MCP server なし | 独自 adapter なし（後で ADK `MemoryService` を再評価） | custom adapter は defer。CLI を使う |
 
 ## Claude / Anthropic APIs
 
-**現状**: agent host は MCP 経由で使う。Anthropic API を直接組み込む場合は experimental な Go native memory-tool backend を使える。
+**現状**: 同梱 Claude 統合（hooks + skills）と CLI を使う。Go で Anthropic API loop を自前で持つ場合のみ、experimental な native memory-tool backend を使える。
 
-`traceary mcp-server` は `query_memory(action="retrieve")` / `manage_memory(action="remember")` / `manage_memory(action="accept")` 等の memory tool を標準 MCP で公開しています (v0.9 の graph overlay は `traceary memory admin graph` の CLI 側のみ。MCP tool は follow-up)。Claude Agent SDK は `ClaudeAgentOptions.mcp_servers` 経由で取り込みます:
+以前 Traceary を MCP server として登録していた agent host は、その登録を外し skills / CLI に切り替えてください。skill が案内する CLI の例:
 
-```python
-from claude_agent_sdk import query, ClaudeAgentOptions
+- Discovery / history: `traceary list`、`traceary search`、`traceary show`
+- Resume pack: `traceary session handoff`、`traceary context`
+- Durable memory: `traceary memory store …`、`memory inbox …`、`memory search`
 
-options = ClaudeAgentOptions(
-    mcp_servers={
-        "traceary": {
-            "command": "traceary",
-            "args": ["mcp-server"],
-        },
-    },
-)
-
-async for message in query(prompt="...", options=options):
-    ...
-```
-
-streaming の場合は `ClaudeSDKClient` に同じ `options` を渡す形になります。
-
-ここまでが **外部 tool 呼び出し**の経路。agent が `traceary.query_memory(action="retrieve")(...)` を明示的に叩き、Traceary がストアを持つ形です。
-
-Anthropic の native `memory_20250818` tool は別の面です。model が memory command を出し、client application がそれを実行します。Traceary はこの flow 用の experimental Go backend を `pkg/anthropicmemory` として提供します。詳細は [Anthropic native memory tool](./anthropic-memory-tool.ja.md) を参照してください。Anthropic Go SDK の loop を直接持つ場合に有用です。hosted agent SDK や multi-provider workflow では MCP が引き続き default path です。
+Anthropic の native `memory_20250818` tool は別の面です。model が memory command を出し、client application がそれを実行します。Traceary はこの flow 用の experimental Go backend を `pkg/anthropicmemory` として提供します。詳細は [Anthropic native memory tool](./anthropic-memory-tool.ja.md) を参照してください。Anthropic Go SDK の loop を直接持つ場合に有用で、MCP server の代替ではありません。
 
 ## OpenAI Agents SDK
 
-**現状**: MCP が sanctioned path。Traceary 独自 adapter は defer。
+**現状**: host tools や scripts から Traceary CLI を呼ぶ。Traceary MCP server なし。custom adapter は defer。
 
-SDK は `MCPServerStdio` / `MCPServerSse` を標準提供しており、複数 transport を docs 化しています。Traceary の `mcp-server` stdio をそのまま接続できます:
+Agents SDK は引き続き *他の* MCP server を `MCPServerStdio` / `MCPServerSse` で載せられます。それは Traceary とは無関係です。Traceary のデータには shell 上の `traceary`（同梱 skill と同じコマンド）を使います。
 
-```python
-from agents import Agent
-from agents.mcp import MCPServerStdio
-
-async with MCPServerStdio(params={"command": "traceary", "args": ["mcp-server"]}) as traceary:
-    agent = Agent(name="session", mcp_servers=[traceary])
-```
-
-OpenAI SDK には `BetaAbstractMemoryTool` に対応する memory 抽象はありません。`Session` は会話状態の永続化用で、長期 memory の pluggable backend ではない。MCP で出来ることを超える Traceary 独自 adapter の価値はないので defer。
+OpenAI SDK には Anthropic の `memory_20250818` client tool に相当する長期 memory 抽象はありません。`Session` は会話状態の永続化用で、pluggable な durable memory backend ではありません。CLI が同じ仕事をカバーする間、Traceary 独自 adapter の根拠はありません。
 
 ## Google ADK
 
-**現状**: MCP 統合が今日から動く。Traceary-native `MemoryService` adapter は defer。
+**現状**: tools から Traceary CLI を呼ぶ。Traceary MCP server なし。Traceary-native `MemoryService` adapter は defer。
 
-ADK は `McpToolset` + `StdioConnectionParams` で MCP を取り込みます。使い方は他の SDK と同形です:
+ADK は第三者の MCP toolset を付けられますが、Traceary はもうそれを提供しません。list / search / memory / session 作業は shell / CLI 呼び出しを優先してください。
 
-```python
-from google.adk.agents import Agent
-from google.adk.tools.mcp_tool import McpToolset, StdioConnectionParams
-from mcp import StdioServerParameters
+ADK には Traceary データを載せられる可能性のある pluggable `MemoryService` もあります。この面は Anthropic の memory-tool 抽象より新しく、まだ動いています。今 `MemoryService` を出すと API 追従コストが高いので defer し、ADK memory API が安定したら再評価します。
 
-traceary = McpToolset(
-    connection_params=StdioConnectionParams(
-        server_params=StdioServerParameters(command="traceary", args=["mcp-server"]),
-    ),
-)
-agent = Agent(tools=[traceary])
-```
+## 履歴メモ（退役した MCP 経路）
 
-ADK には `MemoryService` という pluggable backend もあり、理論上は Traceary 用に実装できます。ただこの面は Anthropic の memory-tool 抽象より若く、公開 docs の範囲で API が動いている印象です。今作ると動く target を追いかけ続けるので、v0.9 では defer。ADK memory API が安定したら再評価します。
+v0.35.0 より前は、一部 SDK を `command: "traceary", args: ["mcp-server"]` で配線していました。そのコマンドと出荷していた MCP 宣言は #1871 で削除されました。`traceary mcp-server` を起動する旧 snippet をコピーしないでください。unknown command として失敗します。
 
-## 引き続き scope 外のもの
+## スコープ外
 
-- Anthropic memory-tool backend の Python / TypeScript convenience wrapper は出さない。experimental native surface は Go API。
-- Google ADK の `MemoryService` adapter は書かない。
+- Anthropic memory-tool backend 向けの Python / TypeScript convenience wrapper は出さない（experimental native surface は Go API）。
+- Google ADK 向け `MemoryService` adapter は出さない。
+- Traceary MCP server の再導入はしない。
 
 ## 再評価タイミング
 
-v1.0 プランニングゲートでこの doc を再評価します。SDK API (特に Anthropic の memory tool、まだ beta) は動き続けるので、今の判断「default は MCP、Anthropic loop を直接持つ場合は native memory tool」は明示的に時限付きです。
+v1.0 プランニングゲートでこの doc を再評価します。SDK API（特に Anthropic の memory tool）は動き続けます。#1871 以降の正しい既定は **CLI + skills**、Anthropic loop を自前で持つときだけ experimental native memory tool です。

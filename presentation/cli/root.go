@@ -52,7 +52,6 @@ type RootCLI struct {
 	fileRetention              usecase.FileRetentionUsecase
 	fileRetentionCapacity      usecase.FileRetentionCapacityInspector
 	workspaceIdentity          usecase.WorkspaceIdentityUsecase
-	mcpServerRunner            MCPServerRunner
 	hooksOrchestrator          application.HooksOrchestrator
 	hooksInspector             application.HooksInspector
 	pluginCacheInspector       application.PluginCacheInspector
@@ -104,7 +103,7 @@ func WithReportCommand(reportCommand usecase.ReportCommandUsecase) RootCLIOption
 	return func(c *RootCLI) { c.reportCommand = reportCommand }
 }
 
-// WithReport injects the shared CLI/MCP report generator.
+// WithReport injects the shared report generator.
 func WithReport(report usecase.ReportUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.report = report }
 }
@@ -286,11 +285,6 @@ func WithWorkspaceIdentity(workspaceIdentity usecase.WorkspaceIdentityUsecase) R
 	return func(c *RootCLI) { c.workspaceIdentity = workspaceIdentity }
 }
 
-// WithMCPServerRunner injects the MCPServerRunner used by the mcp-server
-// command.
-func WithMCPServerRunner(runner MCPServerRunner) RootCLIOption {
-	return func(c *RootCLI) { c.mcpServerRunner = runner }
-}
 
 // WithHooksOrchestrator injects the HooksOrchestrator used by hooks and
 // doctor commands. The orchestrator is required before the corresponding
@@ -460,7 +454,6 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newCompletionCommand(rootCmd))
 	rootCmd.AddCommand(c.newHooksCommand())
 	rootCmd.AddCommand(c.newDoctorCommand())
-	rootCmd.AddCommand(c.newMCPServerCommand())
 	rootCmd.AddCommand(c.newReplayCommand())
 	rootCmd.AddCommand(c.newReportCommand())
 	rootCmd.AddCommand(c.newBundleCommand())

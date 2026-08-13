@@ -2,7 +2,7 @@
 
 [English](./repo-tooling.md)
 
-Traceary の user-facing runtime は、配布している Go CLI と MCP server に閉じているべきです。
+Traceary の user-facing runtime は、配布している Go CLI に閉じているべきです。
 一方で、maintainer-only の repository helper は別種の tooling です。runtime の product surface ではありませんが、置き場所と入口は統一する必要があります。
 
 この文書では、その入口、Python helper からの移行順、そして新しい repository automation を増やすときの原則を定義します。
@@ -22,7 +22,6 @@ main の `traceary` binary は public runtime entrypoint です。
 
 - user-facing CLI command
 - support 対象の hook runtime entrypoint
-- MCP server
 
 maintainer-only の repository automation は性質が異なります。
 
@@ -46,7 +45,6 @@ maintainer-only の repository automation は性質が異なります。
 
 - `traceary hook ...` runtime subcommand
 - end-user 向け install / uninstall flow
-- MCP server の runtime behavior
 - support 対象外の one-off personal script
 
 ## 想定する command 形

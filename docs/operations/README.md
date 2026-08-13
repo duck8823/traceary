@@ -16,7 +16,7 @@ Traceary relies on SQLite itself for cross-process coordination.
 
 Current assumptions:
 
-- normal usage is many short-lived CLI, hook, or MCP processes sharing one DB file
+- normal usage is many short-lived CLI or hook processes sharing one DB file
 - writes are small append-style operations (`events`, `command_audits`, session boundaries)
 - SQLite serializes those writes safely at the file level
 
@@ -69,7 +69,7 @@ It does **not** launch the third-party client or prove that every hook event fir
 ### Session end is best-effort for some clients
 
 - Claude Code: dedicated `SessionEnd` is supported in the documented integration
-- Codex CLI: no host session-end signal — `Stop` is a per-response turn boundary (#1170), so a Codex session ends via MCP `manage_session` or activity-aware stale GC (automatic after normal hook starts, with `traceary session gc` available manually)
+- Codex CLI: no host session-end signal — `Stop` is a per-response turn boundary (#1170), so a Codex session ends via `traceary session end` or activity-aware stale GC (automatic after normal hook starts, with `traceary session gc` available manually)
 - Gemini CLI: `SessionEnd` is also treated as best-effort
 
 If session-end fidelity matters, prefer the client integrations that expose an explicit end hook.
@@ -146,6 +146,6 @@ Aliases affect the current diagnostic projection only. Removing one restores the
 - Python dependency plan: [`./python-dependencies.md`](./python-dependencies.md)
 - Repository tooling plan: [`./repo-tooling.md`](./repo-tooling.md)
 - Memory command surface plan: [`./memory-command-surface.md`](./memory-command-surface.md)
-- MCP tool schema budget: [`./mcp-tool-schema-budget.md`](./mcp-tool-schema-budget.md)
+- MCP tool schema budget (retired): [`./mcp-tool-schema-budget.md`](./mcp-tool-schema-budget.md)
 - Workspace identity contract: [`./workspace-identity-contract.md`](./workspace-identity-contract.md)
 - Evidence-backed one-shot repair: [`./one-shot-repair.md`](./one-shot-repair.md)

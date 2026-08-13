@@ -208,7 +208,7 @@ Rollback triggers include candidate/byte drift, integrity failure, metadata proj
 |---|---|---|---|
 | unknown and zero extents | serialize a plan | states remain distinct | domain/application |
 | held and eligible rows | plan raw bodies | held rows are excluded with reasons | application/integration |
-| large bodies with unchanged metadata | prune reviewed bodies | metadata-only output is byte-equivalent and full-body output says retained body unavailable | CLI/MCP integration |
+| large bodies with unchanged metadata | prune reviewed bodies | metadata-only output is byte-equivalent and full-body output says retained body unavailable | CLI integration |
 | modified candidate after planning | apply | whole batch fails as stale with no extra pruning | SQLite integration |
 | process interruption before/after commit | retry | zero or one effective application | SQLite integration |
 | corrupt recovery package | apply destructive phase | deletion is refused | use case/integration |

@@ -10,7 +10,7 @@ This guide explains what gets written there, how the schema is organized today, 
 - default DB path: `~/.config/traceary/traceary.db`
 - override: `--db-path` or `TRACEARY_DB_PATH`
 - file permissions: Traceary creates the parent directory with `0700` and the DB file with `0600`
-- no hidden remote service: the CLI, hooks, and MCP server all read and write the same local SQLite file
+- no hidden remote service: the CLI and hooks read and write the same local SQLite file
 
 `traceary store init` is optional. Any command that needs the store will create the DB and apply migrations on demand.
 
@@ -218,7 +218,7 @@ Practical implications:
 - Rows the retention pruner has emptied are **not eligible**. Pruning replaces the body with one fixed marker string for every row it touches, regardless of client or kind, so two prompts that were never duplicates of each other would hash to the same identity once emptied.
 - Rows carrying a retention **ledger** entry are **never archived**, but they still take part in grouping. `raw_body_retention_entries.event_id` is `ON DELETE RESTRICT`, so deleting one aborts the batch. Dropping such a row from the scan instead would remove it from its identity group, and proximity clustering measures the gaps between the rows it can see: a ledger row in the middle of a cluster would widen the gap across it and split the cluster, stranding ordinary duplicates that have nothing to do with retention. The row is therefore kept as a cluster member and excluded only from the duplicates.
 - Restore is **all-or-nothing** and refuses to overwrite: if any original event id already exists in `events`, the whole restore fails and nothing changes.
-- Because duplicates are moved *out* of `events`, normal `list`, `sessions --snapshot`, `doctor`, `context`, and MCP read surfaces stop showing them automatically.
+- Because duplicates are moved *out* of `events`, normal `list`, `sessions --snapshot`, `doctor`, and `context` read surfaces stop showing them automatically.
 
 **Rollback.** To undo an apply, run `traceary store dedupe content-events --restore <run-id>` (the run id is printed by `--apply` and stored on every archived row). If an apply was interrupted before it printed a run id, `--list-runs` finds it — batches commit before the id is reported, so those rows would otherwise be unreachable by both restore and purge. If you need a belt-and-braces copy, take a `traceary store backup create` before `--apply`.
 

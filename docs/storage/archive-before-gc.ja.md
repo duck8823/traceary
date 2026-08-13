@@ -30,7 +30,7 @@ memory decay 系 GC (#1368/#1369) と削除経路の所有権を分離する: ve
 
 | 概念 | 状態 | 振る舞い | 不変条件 |
 |---|---|---|---|
-| **Live store** | 通常 path の hot SQLite | hooks/CLI/MCP 書き込み | archive 途中の部分削除禁止。検証後のみ削除 |
+| **Live store** | 通常 path の hot SQLite | hooks/CLI 書き込み | archive 途中の部分削除禁止。検証後のみ削除 |
 | **Archive plan** | 計算済み・未書き込み | テーブルごとの主キー集合 | 同一 cutoff/target/clock で dry-run と apply が一致 |
 | **Archive package** | 呼び出し側 path のファイル | envelope + payload + manifest | magic/version、digest 一致、ID 厳密 |
 | **Manifest** | package 内 JSON v1 | schema・cutoff・件数・digest | seal 後不変 |

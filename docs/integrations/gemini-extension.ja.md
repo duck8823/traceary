@@ -8,7 +8,6 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 
 ## 自動で組み込むもの
 
-- `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
 - `BeforeAgent` prompt hook（送信された user prompt を `prompt` event として記録）
 - `AfterAgent` transcript / usage availability hook（agent の応答を `transcript` event として記録し、本文を含まない hook から provider usage を取得できないことも明示的に記録）
@@ -28,7 +27,7 @@ adapter が読むのは、version 付きの本文を含まない metadata のう
 
 ## Memory activation strategy
 
-Gemini integration は、Traceary の accepted memory store を MCP tools・instruction-file export・host-native activation 経由で利用できます。review 済み memory を Gemini instructions に見せる方法は次の 2 通りです。
+Gemini integration は、Traceary の accepted memory store を instruction-file export・host-native activation 経由で利用できます。review 済み memory を Gemini instructions に見せる方法は次の 2 通りです。
 
 **Option 1 — instruction-file export (引き続き利用可能)**: review 済み memory を `GEMINI.md` の Traceary 管理ブロックへ export します。
 

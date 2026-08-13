@@ -1,7 +1,7 @@
 {
   "name": "traceary",
   "version": "0.34.0",
-  "description": "Local-first Traceary integration for Codex with MCP tools and automatic session/audit hooks.",
+  "description": "Local-first Traceary integration for Codex with automatic session/audit hooks.",
   "author": {
     "name": "Shunsuke Maeda",
     "email": "duck8823@gmail.com",
@@ -13,17 +13,15 @@
   "keywords": [
     "traceary",
     "codex",
-    "mcp",
     "audit-trail",
     "session-history"
   ],
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
   "hooks": "./hooks.json",
   "interface": {
     "displayName": "Traceary",
     "shortDescription": "Session history and audit trail for Codex",
-    "longDescription": "Use Traceary in Codex through a shared local CLI/MCP runtime with automatic session-boundary and shell-audit hooks.",
+    "longDescription": "Use Traceary in Codex through a shared local CLI runtime with automatic session-boundary and shell-audit hooks.",
     "developerName": "duck8823",
     "category": "Coding",
     "capabilities": [

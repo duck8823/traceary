@@ -38,7 +38,7 @@ SessionStart → [UserPromptSubmit → PostToolUse → Stop]*
 | PostToolUse | `command_executed` | Tool execution |
 | Stop | `transcript` | Final assistant message of each turn; a turn boundary, not a session end (#1170) |
 
-**Limitations**: No host-level session-end signal — Codex fires `Stop` after every assistant response, so a Codex session stays open until an explicit end (MCP `manage_session`) or stale GC (`traceary session gc`). No `compact` hooks, no failure-specific events.
+**Limitations**: No host-level session-end signal — Codex fires `Stop` after every assistant response, so a Codex session stays open until an explicit end (`traceary session end`) or stale GC (`traceary session gc`). No `compact` hooks, no failure-specific events.
 
 ### Gemini CLI (Tier 3: Basic) — *legacy compatibility*
 
@@ -70,7 +70,7 @@ SessionStart → [AfterTool]* → SessionEnd
 | PostToolUse (`run_command`) | `command_executed` | Pairs the command from `PreToolUse` for the same step and records the audit (with step `error`) |
 | Stop | `transcript` | Turn transcript from `transcriptPath` plus a turn boundary when the host emits `Stop`; does not close the session (#1170) |
 
-**Limitations**: No `SessionStart` (first signal is `PreInvocation`) and no host session-end signal — like Codex, `Stop` is a per-execution turn boundary, so an Antigravity session stays open until an explicit end (MCP `manage_session`) or stale GC (`traceary session gc`). Only `run_command` tool calls are audited; prompt/transcript extraction from `transcriptPath` is best effort. Current interactive and headless `agy --print` runs emit Stop; `antigravity-event-coverage` checks recent database evidence for runtime gaps. See the [capture matrix](./integrations/antigravity.md).
+**Limitations**: No `SessionStart` (first signal is `PreInvocation`) and no host session-end signal — like Codex, `Stop` is a per-execution turn boundary, so an Antigravity session stays open until an explicit end (`traceary session end`) or stale GC (`traceary session gc`). Only `run_command` tool calls are audited; prompt/transcript extraction from `transcriptPath` is best effort. Current interactive and headless `agy --print` runs emit Stop; `antigravity-event-coverage` checks recent database evidence for runtime gaps. See the [capture matrix](./integrations/antigravity.md).
 
 > **v0.21 note**: Gemini CLI is the legacy compatibility path. The successor host, Antigravity, became a supported Traceary hook client in v0.21.1 (capability diagnostics only in v0.21.0). See [Antigravity integration status](./integrations/antigravity.md).
 
@@ -94,9 +94,9 @@ correction can be handled by
 
 | Kind | Description | Source |
 |------|-------------|--------|
-| `note` | Free-text log entry | CLI `traceary log` / MCP `record_event(type="log")` |
+| `note` | Free-text log entry | CLI `traceary log` |
 | `command_executed` | Command or tool execution record | PostToolUse hooks |
-| `reviewed` | Review result | CLI / MCP |
+| `reviewed` | Review result | CLI |
 | `session_started` | Session start boundary | SessionStart hooks (Claude / Codex / Gemini); PreInvocation (Antigravity) |
 | `session_ended` | Session end boundary | SessionEnd hooks (Claude / Gemini); Codex and Antigravity have no host session-end signal (#1170) |
 | `compact_summary` | Structured summary from context compression | PostCompact hook |
@@ -116,11 +116,6 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
   │    ├─ packaged shell wrappers (compatibility only, when present)
   │    ▼
   │  SQLite (~/.config/traceary/traceary.db)
-  │
-  └─ MCP server (stdio transport)
-       │
-       ▼
-     traceary mcp-server → SQLite
 ```
 
 ## Hook Script Mapping

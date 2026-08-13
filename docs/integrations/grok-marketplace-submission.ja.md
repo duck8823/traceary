@@ -47,7 +47,7 @@ Claude marketplace の `traceary` とは意図的に異なる名前です。Grok
 native package を `~/.grok/installed-plugins/` 配下へ導入するため、固有 identity
 により同名 package を誤って解決することを防ぎます。
 
-秘密は commit しない。パッケージは Traceary hook と local MCP stdio のみ。
+秘密は commit しない。パッケージは Traceary hook と CLI 経由の skill のみ。
 
 ## 投稿前のローカル検証
 

@@ -327,16 +327,7 @@ func collectV0330BodyFreeEvidence(
 			setBlockReason("phase_bc_evidence_missing")
 		}
 	}
-	if phasesAllowed {
-		output, phaseErr := deps.runPhase(phaseCtx, root, scratch, releaseEvidencePhaseD)
-		parseErr := extractEvidenceMarker(output, bodyFreeEvidencePhaseDMarker, &evidence.PhaseD)
-		if phaseErr != nil {
-			setBlockReason("phase_d_failed")
-		} else if parseErr != nil {
-			evidence.PhaseD = nil
-			setBlockReason("phase_d_evidence_missing")
-		}
-	}
+	// Phase D previously exercised the retired MCP list path (removed in #1871).
 
 	removeErr := deps.removeAll(scratch)
 	_, statErr := deps.stat(scratch)
@@ -390,10 +381,7 @@ func runReleaseEvidencePhase(
 		}
 		extraEnv = append(extraEnv, "TRACEARY_RUN_V0330_RELEASE_EVIDENCE=1")
 	case releaseEvidencePhaseD:
-		args = []string{
-			"test", "-v", "./presentation/mcpserver",
-			"-run", "^TestV0330AggregateReleaseEvidence$", "-count=1", "-timeout=5m",
-		}
+		return nil, xerrors.Errorf("phase D (MCP aggregate evidence) was retired with the MCP server (#1871)")
 	default:
 		return nil, xerrors.Errorf("unsupported release evidence phase")
 	}
@@ -613,7 +601,7 @@ func validateBodyFreeEvidence(evidence BodyFreeEvidence) error {
 		!evidence.Privacy.ScratchCleaned {
 		return xerrors.Errorf("body-free release evidence pass preconditions are incomplete")
 	}
-	if evidence.PhaseA == nil || evidence.PhaseB == nil || evidence.PhaseD == nil {
+	if evidence.PhaseA == nil || evidence.PhaseB == nil {
 		return xerrors.Errorf("body-free release evidence is missing a phase")
 	}
 	if !evidence.PhaseA.Passed {

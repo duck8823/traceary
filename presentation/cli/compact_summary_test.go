@@ -68,8 +68,8 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		if !strings.Contains(output, "go test ./...") {
 			t.Errorf("output missing recent command")
 		}
-		if !strings.Contains(output, "list_events") {
-			t.Errorf("output missing MCP tool reference")
+		if !strings.Contains(output, "traceary list") {
+			t.Errorf("output missing CLI list path")
 		}
 	})
 

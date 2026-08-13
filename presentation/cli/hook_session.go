@@ -263,8 +263,8 @@ func (c *RootCLI) runHookSession(
 		// emptied active-session reads (#1170). Stop is a turn boundary:
 		// keep the session row open and the hook state intact so later
 		// prompts and tool audits resolve to the same session. A session
-		// now ends via an explicit end signal (hook end action, MCP
-		// manage_session) or stale GC (`traceary session gc`).
+		// now ends via an explicit end signal (hook end action,
+		// `traceary session end`) or stale GC (`traceary session gc`).
 		sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
 		if sessionID == "" {
 			var err error

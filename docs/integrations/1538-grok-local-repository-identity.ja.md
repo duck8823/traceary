@@ -32,5 +32,5 @@ non-canonical な local identity として登録されている場合、exit 78 
 - clean home は subdirectory selector 経由で canonical package を導入する。
 - canonical package の refresh は `traceary-grok` だけを置き換える。
 - 旧 local-repository identity は uninstall せずに停止する。
-- 明示的な移行は source が完全一致する local identity だけを削除し、canonical hook、MCP、skill へ収束する。
+- 明示的な移行は source が完全一致する local identity だけを削除し、canonical hook と skill へ収束する。
 - 別 source の legacy `traceary` package はそのまま残る。

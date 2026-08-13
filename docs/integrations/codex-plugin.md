@@ -3,7 +3,7 @@
 [日本語](./codex-plugin.ja.md)
 
 Traceary ships a Codex plugin under `plugins/traceary/` that plugs into Codex CLI's official `/plugins` flow.
-Codex picks up the MCP server, slash commands, and session-history skill as soon as the plugin is installed through the official flow. Plugin hooks require one additional security step: Codex skips non-managed hooks until the user reviews and trusts their current definition. Open `/hooks` after installation (and after any plugin update that changes a hook), review the Traceary entries, and trust them. `traceary doctor --client codex` checks the effective trust state through Codex and warns when a hook is untrusted, modified, or disabled.
+Codex picks up the slash commands and session-history skill as soon as the plugin is installed through the official flow. Plugin hooks require one additional security step: Codex skips non-managed hooks until the user reviews and trusts their current definition. Open `/hooks` after installation (and after any plugin update that changes a hook), review the Traceary entries, and trust them. `traceary doctor --client codex` checks the effective trust state through Codex and warns when a hook is untrusted, modified, or disabled.
 
 ## Install via Codex's official /plugins flow (primary)
 
@@ -41,7 +41,6 @@ traceary doctor --client codex --json
 
 ## What the official flow wires automatically
 
-- `traceary` MCP server via `traceary mcp-server`
 - `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop` (body-free usage plus turn-boundary transcript; not a session end — #1170), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest) — **only when `plugin_hooks` is enabled on your Codex build and the current definitions are trusted in `/hooks`**; otherwise see the fallback below
 - slash commands: `/traceary:help` and `/traceary:doctor`
 - contextual skills (one per job; see [skills](./skills.md)): `traceary-session-history`, `traceary-session-refine`, `traceary-memory-review`, and `traceary-memory-remember`. All four route through the Traceary CLI.
@@ -137,9 +136,9 @@ Canonicalization is capped at 64 distinct spool working directories per run;
 exceeding that budget produces `spool_projection_partial`, never a successful
 absence claim.
 
-If a local path alias returns no MCP session or events, rerun the read with the
-`workspace=` value printed by `codex-capture`. `session_status`,
-`list_events`, the usage aggregate, and this diagnostic all use that canonical
+If a local path alias returns no session or events, rerun the CLI read with the
+`workspace=` value printed by `codex-capture`. `session list`,
+`list`, the usage aggregate, and this diagnostic all use that canonical
 workspace identity.
 
 ## Verified usage capture

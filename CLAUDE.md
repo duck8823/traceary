@@ -1,6 +1,6 @@
 # Traceary
 
-Local-first CLI and MCP server for recording AI agent work logs, session boundaries, and shell command audits.
+Local-first CLI for recording AI agent work logs, session boundaries, and shell command audits.
 
 ## Tech stack
 
@@ -18,7 +18,6 @@ Local-first CLI and MCP server for recording AI agent work logs, session boundar
 | `application/queryservice/` | Read-side query services |
 | `infrastructure/sqlite/` | SQLite persistence |
 | `presentation/cli/` | Cobra CLI commands |
-| `presentation/mcpserver/` | MCP server (stdio) |
 | `integrations/claude-plugin/` | Claude Code plugin package |
 | `integrations/gemini-extension/` | Gemini CLI extension package |
 | `plugins/traceary/` | Codex plugin package |

@@ -9,7 +9,7 @@
 [![CI](https://github.com/duck8823/traceary/actions/workflows/ci.yml/badge.svg)](https://github.com/duck8823/traceary/actions/workflows/ci.yml)
 [![Release](https://github.com/duck8823/traceary/actions/workflows/release.yml/badge.svg?event=push)](https://github.com/duck8823/traceary/actions/workflows/release.yml)
 
-Traceary is a local-first CLI and MCP server for recording and searching AI agent work logs, session boundaries, and shell command audits.
+Traceary is a local-first CLI for recording and searching AI agent work logs, session boundaries, and shell command audits.
 
 Install the CLI first, then add the plugin for your AI agent host to enable automatic recording.
 
@@ -23,7 +23,7 @@ AI-assisted development gets messy quickly when:
 - work is split across Claude, Codex, Antigravity (Gemini CLI for legacy installs), and manual terminal steps
 - multiple sessions and worktree moves make the timeline harder to follow
 
-Traceary keeps those records in one local SQLite store so the same history can be reused from the CLI, hooks, and MCP clients.
+Traceary keeps those records in one local SQLite store so the same history can be reused from the CLI and hooks.
 
 ## Three-layer model
 
@@ -32,7 +32,7 @@ Traceary is no longer just a local event log. `v0.5.0` organizes the product aro
 | Layer | What lives there | How it is fed |
 |---|---|---|
 | Audit / Archive | raw events (prompts, transcripts, command audits), session boundaries | host hooks (`SessionStart`, `UserPromptSubmit` / `BeforeAgent`, `PostToolUse` / `AfterTool`, `Stop` / `AfterAgent`, `PreCompact` / `PreCompress`, `SessionEnd`) — see [host coverage matrix](./docs/hooks/host-coverage.md) |
-| Working memory | handoff / context packs assembled from recent sessions | handoff packs are assembled on demand by `traceary session handoff` / MCP `get_context`. From v0.34 the session summary itself is materialised by consolidation: the stop hook asks the agent to fold the session while the material is still in the agent's context, and the result is stored as a session refinement |
+| Working memory | handoff / context packs assembled from recent sessions | handoff packs are assembled on demand by `traceary session handoff` / `traceary context`. From v0.34 the session summary itself is materialised by consolidation: the stop hook asks the agent to fold the session while the material is still in the agent's context, and the result is stored as a session refinement |
 | Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | curated through the `traceary-memory-review` skill (review-intent triggers) and the `traceary-memory-remember` skill (explicit-write triggers) |
 
 In practice, Traceary acts as a local-first memory substrate for AI agents: hooks feed L1 mechanically, L2 is normally consolidated at stop while the material is already in context (anything left unfolded is later reduced to a mechanical summary), and L3 stays small because hook-driven auto-extraction lands memories in a review inbox as `status=candidate` and only human review promotes them. Only the finished summary is used afterwards — wake-time recomputation is deliberately avoided.
@@ -214,7 +214,7 @@ See [`docs/cli/README.md`](./docs/cli/README.md) for the full flag reference and
 
 ## Host capture matrix
 
-The query surface is shared: once Traceary is installed, every host can use the same CLI and MCP memory/context commands. What differs is how much context each host can capture automatically via hooks.
+The query surface is shared: once Traceary is installed, every host can use the same CLI memory/context commands. What differs is how much context each host can capture automatically via hooks.
 
 | Host | Session lifecycle | Tool audit | Prompt capture | Compact-summary capture | Automatic capture tier |
 |---|---|---|---|---|---|
@@ -253,7 +253,6 @@ The most common next pages are:
 - [Hooks guide](./docs/hooks/README.md)
 - [Hook contract and capability tiers](./docs/hooks/contract.md)
 - [Event lifecycle](./docs/lifecycle.md)
-- [MCP guide](./docs/mcp/README.md)
 - [Environment and storage notes](./docs/environment/README.md)
 
 ## Contributing and support

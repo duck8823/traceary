@@ -4,7 +4,7 @@
 
 Traceary v0.23.0 adds a native Grok Build integration. The package under
 [`integrations/grok-plugin/`](../../integrations/grok-plugin/) installs seven
-verified lifecycle hooks, one local Traceary MCP server, and the four shared
+verified lifecycle hooks, one local Traceary CLI, and the four shared
 skills (see [skills](./skills.md)). Recorded hook events use `client=hook` and `agent=grok`.
 
 ## Supported coverage
@@ -131,14 +131,14 @@ traceary doctor --client grok --project-dir . --json
 ```
 
 A healthy installation reports `pass` for `grok-cli`, `grok-plugin`,
-`grok-hook-trust`, `grok-hooks`, `grok-mcp`, and `grok-skills`. The separate
+`grok-hook-trust`, `grok-hooks`, and `grok-skills`. The separate
 `grok-event-coverage` check evaluates recent database evidence. With fewer
 than three recent sessions it reports that coverage is not judged yet rather
 than claiming a false pass.
 
 ## Project and user hook routes
 
-The native plugin is the recommended route because it wires hooks, MCP, and
+The native plugin is the recommended route because it wires hooks and
 skills together. Traceary can also install hooks only:
 
 ```sh
@@ -151,7 +151,7 @@ traceary hooks install --client grok --global
 
 Grok merges hooks from every source. Keep **exactly one** route active:
 
-- Prefer the native plugin `traceary-grok` when you also want MCP and skills.
+- Prefer the native plugin `traceary-grok` when you also want skills.
 - Use the project or user hook-only route only when you intentionally skip the
   plugin.
 - Do not leave a leftover user file after installing the plugin, and do not
@@ -190,7 +190,7 @@ The native package is named `traceary-grok`, deliberately distinct from the
 Claude package named `traceary`. The installer replaces only `traceary-grok`;
 it never removes a legacy `traceary` package because Grok can resolve that
 same-name package from another host. A converged native installation reports
-seven hook boundaries, one MCP server, and three skills.
+seven hook boundaries, one CLI surface, and three skills.
 
 #### Local-repository identity migration
 
@@ -212,7 +212,7 @@ It removes only an identity whose source is exactly that checkout's
 `integrations/grok-plugin` directory, then installs the canonical package from
 the repository subdirectory selector. It never selects or removes a `traceary`
 package from another source. Re-run doctor and confirm that `grok-plugin`,
-`grok-plugin-resolution`, `grok-hooks`, `grok-mcp`, and `grok-skills` pass.
+`grok-plugin-resolution`, `grok-hooks`, and `grok-skills` pass.
 
 To remove only the native Grok package:
 
@@ -234,7 +234,7 @@ removed separately if they were installed.
 | `grok-hooks` warns | The installed hook file is missing or has drifted from the exact seven-event contract; reinstall the plugin |
 | `grok-hooks-user` fails | `~/.grok/hooks/traceary.json` exists but is unreadable or not valid JSON; fix or remove it |
 | `grok-hooks-routes` warns | More than one of native plugin, project, and user-level routes is active. Retain exactly one; prefer `traceary-grok` and remove `~/.grok/hooks/traceary.json` if the plugin is installed |
-| `grok-mcp` / `grok-skills` warns | The installed package inventory is incomplete; reinstall it |
+| `grok-skills` warns | The installed package inventory is incomplete; reinstall it |
 | `grok-event-coverage` warns | Inspect recent `agent=grok` events and pending hook/transcript queues; a healthy install alone does not prove runtime delivery |
 
 ### Stop final-turn transcript disposition
@@ -284,7 +284,7 @@ go run ./cmd/repo-tooling integrations verify
 ```
 
 The smoke test uses a temporary home, validates and installs the package,
-checks the plugin/MCP/skill inventory with `grok inspect`, then uninstalls it.
+checks the plugin/hook/skill inventory with `grok inspect`, then uninstalls it.
 
 ## v0.23.0 dogfood result
 

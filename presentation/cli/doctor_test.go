@@ -1711,7 +1711,7 @@ func assertDoctorSectionShape(t *testing.T, report doctorReport) {
 			}
 		}
 	}
-	wantNames := []string{"Environment", "Database", "Plugins", "MCP", "Hooks"}
+	wantNames := []string{"Environment", "Database", "Plugins", "Hooks"}
 	if diff := cmp.Diff(wantNames, gotNames); diff != "" {
 		t.Fatalf("section names mismatch (-want +got):\n%s", diff)
 	}
@@ -1735,12 +1735,6 @@ func writeClaudeHookSettings(t *testing.T, projectDir string) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	if err := os.WriteFile(settingsPath, []byte(`{
-  "mcpServers": {
-    "traceary": {
-      "command": "traceary",
-      "args": ["mcp-server"]
-    }
-  },
   "hooks": {
     "SessionStart": [
       {
@@ -1937,12 +1931,6 @@ func writeCompleteGeminiProjectHookSettings(t *testing.T, projectDir string) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	content := `{
-  "mcpServers": {
-    "traceary": {
-      "command": "traceary",
-      "args": ["mcp-server"]
-    }
-  },
   "hooks": {
     "SessionStart": [
       {"matcher": "*", "hooks": [{"name": "traceary-session-start", "type": "command", "command": "'traceary' 'hook' 'session' 'gemini' 'start'"}]}

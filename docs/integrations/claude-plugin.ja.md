@@ -6,7 +6,6 @@ Claude 向け package は `integrations/claude-plugin/` にあり、repository r
 
 ## 自動で組み込むもの
 
-- `traceary mcp-server` を使う `traceary` MCP server
 - `SessionStart` / `SessionEnd` hook
 - transcript event の記録前に、ローカル transcript から Claude が報告した token 数を記録する `Stop` usage hook
 - `Bash` / `mcp__.*` / 組み込み tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`) 向けの `PostToolUse` / `PostToolUseFailure` audit hook
@@ -29,7 +28,7 @@ wrapper は Claude の起動前に完結型モードを選び、JSON 出力を�
 
 ## Memory activation strategy
 
-Claude integration は、Traceary の accepted memory store を MCP tools / instruction-file export / host-native activation 経由で使います。review 済み memory を Claude project instructions に見せる方法は二つあります。
+Claude integration は、Traceary の accepted memory store を instruction-file export / host-native activation 経由で使います。review 済み memory を Claude project instructions に見せる方法は二つあります。
 
 **Option 1 — instruction-file export（従来通り利用可）。** Traceary 管理ブロックを `CLAUDE.md` に直接 export します。
 
