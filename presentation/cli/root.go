@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"context"
-	"io"
-
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
@@ -61,9 +58,6 @@ type RootCLI struct {
 	hooksInspector             application.HooksInspector
 	pluginCacheInspector       application.PluginCacheInspector
 	pluginDetector             application.ClaudePluginDetector
-	cockpitState               CockpitStateReader
-	cockpitInteractive         cockpitInteractiveFunc
-	cockpitRunner              cockpitRunnerFunc
 	extraRedactPatterns        []string
 	structuredRedactRules      []redaction.RuleConfig
 	defaultAuditMaxInputBytes  int
@@ -332,12 +326,6 @@ func WithClaudePluginDetector(detector application.ClaudePluginDetector) RootCLI
 	return func(c *RootCLI) { c.pluginDetector = detector }
 }
 
-// WithCockpitStateReader injects optional local cockpit state used for
-// non-critical notification checkpoints such as memory/event last-seen time.
-func WithCockpitStateReader(reader CockpitStateReader) RootCLIOption {
-	return func(c *RootCLI) { c.cockpitState = reader }
-}
-
 // WithExtraRedactPatterns injects additional redaction regex patterns used
 // by the audit command.
 func WithExtraRedactPatterns(patterns []string) RootCLIOption {
@@ -440,13 +428,13 @@ func NewRootCLI(opts ...RootCLIOption) *RootCLI {
 
 // Command returns the Traceary root command.
 func (c *RootCLI) Command() *cobra.Command {
-	rootCockpitOpts := cockpitCommandOptions{}
+	var dbPath string
 	rootCmd := &cobra.Command{
 		Use:   "traceary",
 		Short: Localize("Local-first CLI for AI agent work history", "AI エージェントの作業履歴をローカルに記録する CLI"),
 		Long: Localize(
-			"Traceary records and inspects local AI-agent work history. In an interactive terminal, running `traceary` with no subcommand opens the Tail-first operator cockpit; that default is deprecated in v0.34.0 and prints this help instead from v0.35.0. The bare cockpit also accepts the compatibility flags `--db-path` and `--reset-state`. In scripts, pipes, or CI, use explicit read commands such as `traceary list`, `traceary sessions --snapshot [--json]`, or `traceary doctor --json`; `traceary top --snapshot [--json]` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0.",
-			"Traceary はローカルの AI agent 作業履歴を記録・確認します。対話 terminal では、subcommand なしの `traceary` が Tail-first operator cockpit を開きます。この既定動作は v0.34.0 で非推奨となり、v0.35.0 からは代わりにこの help を表示します。bare cockpit は互換 flag の `--db-path` と `--reset-state` も受け付けます。script、pipe、CI では `traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` などの明示的な read command を使ってください。`traceary top --snapshot [--json]` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。",
+			"Traceary records and inspects local AI-agent work history. Running `traceary` with no subcommand prints this help (TTY and non-TTY). Use explicit read commands such as `traceary list`, `traceary sessions --snapshot [--json]`, or `traceary doctor --json`; `traceary top --snapshot [--json]` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0.",
+			"Traceary はローカルの AI agent 作業履歴を記録・確認します。subcommand なしの `traceary` は TTY / 非 TTY ともこの help を表示します。`traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` などの明示的な read command を使ってください。`traceary top --snapshot [--json]` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。",
 		),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -457,10 +445,12 @@ func (c *RootCLI) Command() *cobra.Command {
 				// no-positional-arguments guard.
 				return noArgsLocalized()(cmd, args)
 			}
-			return c.runRootDefault(cmd, rootCockpitOpts)
+			return c.runRootDefault(cmd)
 		},
 	}
-	bindCockpitFlags(rootCmd, &rootCockpitOpts)
+	// Keep root --db-path so `traceary --db-path … <subcommand>` stays valid;
+	// bare root ignores the value and only prints help.
+	rootCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
 	// Top-level daily-use commands (kept flat for ergonomics).
 	rootCmd.AddCommand(c.newLogCommand())
 	rootCmd.AddCommand(c.newAuditCommand())
@@ -468,7 +458,6 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newTailCommand())
 	rootCmd.AddCommand(c.newSessionsCommand())
 	rootCmd.AddCommand(c.newTopCommand())
-	rootCmd.AddCommand(c.newCockpitCommand())
 	rootCmd.AddCommand(c.newContextCommand())
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newShowCommand())
@@ -491,7 +480,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	// Make every pure group command (e.g. `memory`, `store`, `session`, and
 	// their sub-namespaces) reject unknown subcommands with a usage error
 	// instead of silently printing help and exiting 0. The root keeps its own
-	// RunE (the cockpit + stray-arg guard) and is left untouched.
+	// RunE (help + stray-arg guard) and is left untouched.
 	applyStrictGroups(rootCmd)
 
 	return rootCmd
@@ -527,28 +516,12 @@ func applyStrictGroups(cmd *cobra.Command) {
 	}
 }
 
-// runRootDefault opens the Tail-first cockpit only when the bare root command
-// has an interactive stdin/stdout pair; plain non-TTY callers receive only
-// deterministic help output to keep scripts and pipes stable.
-func (c *RootCLI) runRootDefault(cmd *cobra.Command, opts cockpitCommandOptions) error {
-	stdin, stdout, ok := cockpitIO(cmd.InOrStdin(), cmd.OutOrStdout())
-	if ok && c.isCockpitInteractive(stdin, stdout) {
-		writeDeprecationNotice(cmd, "opening the cockpit from a bare `traceary`", "bare `traceary` から cockpit を開く動作", "traceary --help", "v0.35")
-		return c.cockpitRunnerFunc()(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
-	}
-
-	if cmd.Flags().Changed("db-path") || cmd.Flags().Changed("reset-state") {
-		guidance := Localize(
-			"Cockpit flags require an interactive TTY; run `traceary` or `traceary tui` from a terminal to use --db-path or --reset-state.",
-			"cockpit flag には対話 TTY が必要です。--db-path や --reset-state を使うには terminal から `traceary` または `traceary tui` を実行してください。",
-		)
-		return cockpitExitError{message: guidance, exitCode: cockpitExitCodeNotInteractive}
-	}
+// runRootDefault always prints help for a bare `traceary` invocation.
+// The former TTY cockpit default was removed in v0.35.0 (#1764).
+func (c *RootCLI) runRootDefault(cmd *cobra.Command) error {
 	helpErr := cmd.Help()
 	if helpErr != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to render help", "help の表示に失敗しました"), helpErr)
 	}
 	return nil
 }
-
-type cockpitRunnerFunc func(context.Context, io.Reader, io.Writer, cockpitCommandOptions) error

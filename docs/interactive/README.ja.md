@@ -1,74 +1,73 @@
-# インタラクティブ運用メモ
+# 対話的な使い方
 
 [English](./README.md)
 
-この文書では、現在の Traceary CLI を使って対話的に履歴を確認する方法を整理します。
-書き込みの自動化よりも、人が参照系コマンドをどう使い分けるかに焦点を当てています。
+このメモは、いま同梱されている CLI で Traceary を対話的に確認する方法を説明します。
+write-side の hook 自動化ではなく、人間向けの read-side workflow に焦点を当てます。
 
 ## 最近変わったこと
 
-現在の Traceary には、インタラクティブ利用を支える基本機能として次の 3 つがあります。
+Traceary は次の対話向け convenience を同梱しています。
 
-- Tail-first operator cockpit entrypoint としての bare `traceary`（TTY の既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除）
+- bare `traceary` は help を表示（TTY / 非 TTY とも）。旧 Tail-first cockpit entrypoint は v0.35.0 で削除
 - shell completion
-- `traceary tail` による live follow
+- live-follow 向けの `traceary tail`
+- 存続する Sessions view としての `traceary sessions --snapshot`（ライブ対話 dashboard は v0.34.0 で非推奨、v0.35.0 で削除）
+- TTY 専用 inbox walk-through の `traceary memory inbox review`
 
-そのため、参照系は `list` や `search` のような単発の snapshot だけではありません。
-次に使うべきものが `sessions` / `tail` / `doctor` / `session handoff` / `memory inbox review` のどれかを覚えておきたくない場合は、まず cockpit を開くのが推奨です。`top` は Sessions dashboard の互換 alias として残ります。
+つまり interactive read path は `list` / `search` のような one-shot snapshot に限定されません。
 
-## いまの推奨フロー
+## 推奨する対話 workflow
 
-確認したい内容に応じて、次のように使い分けるのがおすすめです。
+答えたい質問に応じて次の command を使い分けてください。
 
-### 1. 「まず1か所から始めたい」 → `traceary`
+### 1. 「使える command を見たい」→ `traceary`
 
-対話 terminal で Traceary の Tail-first operator cockpit を開きたいときは bare `traceary` を使います。bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除されます。代わりに `traceary sessions --snapshot` を使用してください。cockpit は active work、doctor の warning/failure、直近の失敗、前回 live tail 以降の新着 event をまとめて表示します。Sessions タブは session 中心 (session、失敗、コマンド、状態) に保ち、メモリ候補や stale memory cleanup は専用の Memory タブに置きます。そこから次の画面へ移動できます。
-
-- live event tail
-- doctor details
-- memory inbox review
+bare `traceary`（および `traceary --help`）は常に help を表示します。実作業では明示的な read command を優先してください。
 
 ```sh
 traceary
-traceary tui
-traceary tui --reset-state
+traceary --help
+traceary list
+traceary sessions --snapshot
+traceary doctor --json
 ```
 
-cockpit は意図的に TTY 専用です。非対話シェルでは `traceary sessions --snapshot [--json]`、`traceary tail [--json]`、`traceary doctor --json`、`traceary session handoff`、`traceary memory inbox list` を使ってください。`traceary top --snapshot [--json]` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias として引き続き使えます。非 TTY の bare `traceary` は cockpit を起動せず、help と fallback guidance を表示します。
+旧 operator cockpit（`traceary tui` / `traceary dashboard` と、それを開いていた bare TTY 既定動作）は v0.35.0 で削除されました。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。
 
-### 2. 「今なにが起きたか」をざっと見たい → `traceary list`
+### 2. 「いま何が起きた？」→ `traceary list`
 
-最近の履歴を素早く見たいときや、workspace / client などの構造 filter がすでに決まっているときは `list` を使います。
+structured filter がすでに分かっているときの直近 feed に `list` を使います。
 
 ```sh
 traceary list --limit 20
 traceary list --workspace github.com/duck8823/traceary --client codex
 ```
 
-<a id="3-今どの-session-が動いているかを見たい--traceary-top"></a>
+<a id="3-which-sessions-are-running-right-now--traceary-top"></a>
 
-### 3. 「今どの session が動いているか」を見たい → `traceary sessions`
+### 3. 「いま動いている session は？」→ `traceary sessions`
 
-ワークスペースの状況をライブの multi-pane dashboard で眺めたいときは `sessions` を使います。この対話表示は v0.34.0 で非推奨となり v0.35.0 で削除されます。存続する形式として `traceary sessions --snapshot` を使用してください。画面は次の 5 ペイン構成です。
+存続する script 向け Sessions view には `sessions --snapshot` を使います。ライブ multi-pane dashboard は v0.34.0 で非推奨、v0.35.0 で削除されます。画面（残存期間中）は次の 5 ペイン構成です。
 
-- **sessions** — active session tree (workspace、agent role、latest event 時刻、latest event を `<kind>: <message>`)
-- **failures** — 直近の失敗 `command_executed`
+- **sessions** — active session tree（workspace、agent role、最新 event 時刻、最新 event を `<kind>: <message>`）
+- **failures** — 直近の失敗した `command_executed`
 - **commands** — 直近の `command_executed`
-- **candidates** — メモリ候補の確認キュー内のメモリ候補 (remember-intent priority 順)
+- **candidates** — remember-intent 優先の memory review queue 候補
 - **stale memories** — cleanup が必要かもしれない accepted memory
 
 ```sh
-traceary sessions
-traceary sessions --workspace github.com/duck8823/traceary
 traceary sessions --snapshot
+traceary sessions --workspace github.com/duck8823/traceary --snapshot
 traceary sessions --snapshot --json
 ```
 
-dashboard 内では `tab` / `shift+tab` でフォーカスペインを切り替え、`↑/↓` (`k/j`) で 1 行ずつスクロール、`pgup/pgdn` でページング、`g/G` で先頭 / 末尾、`r` で snapshot 再取得、`?` でヘルプ切替、`q` / Ctrl-C / Esc は共通の安全網を経由して終了します。この standalone dashboard と非 TTY snapshot は、cockpit の Sessions タブを session-only にした後も互換性のため memory pane を維持します。非 TTY (パイプ / CI ログ) では自動的に snapshot text 出力にフォールバックします。`--snapshot` / `--snapshot --json` も dashboard に合わせて拡張されており、テキスト出力は先頭の `RELIABILITY` に続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)` のセクション、JSON 出力は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope オブジェクトを返します。`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。代わりに `traceary sessions` を使ってください。
+`--snapshot` / `--snapshot --json` は script 向けに dashboard と同じデータを mirror します。テキスト snapshot は先頭の `RELIABILITY` に続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)`、JSON snapshot は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope です。`traceary top` は v0.34.0 で非推奨、v0.35.0 で削除される互換 alias です。代わりに `traceary sessions` を使ってください。
 
-### 4. 「今まさに書き込まれているか」を追いたい → `traceary tail`
+### 4. 「いま event が書かれているか？」→ `traceary tail`
 
-新しい event が入る様子をリアルタイムで追いたいときは `tail` を使います。hook が発火しているか、想定した workspace に書き込まれているか、失敗 event が流れてきているかを確認するのに向いています。
+新しい event をリアルタイムで追うときは `tail` を使います。
+hook が発火しているか、想定 workspace に書き込まれているか、失敗が起きているかを確認するのに向いています。
 
 ```sh
 traceary tail
@@ -76,37 +75,38 @@ traceary tail --workspace github.com/duck8823/traceary --failures
 traceary tail --json
 ```
 
-### 5. 「特定のエラーやコマンドを探したい」 → `traceary search`
+### 5. 「特定の error / command / note を探す」→ `traceary search`
 
-テキスト検索と期間・workspace 条件を組み合わせたいときは `search` を使います。
+テキスト検索と時間 / workspace filter を組み合わせるときは `search` を使います。
 
 ```sh
 traceary search panic --workspace github.com/duck8823/traceary
 traceary search --since 2026-04-01 --kind command_executed lint
 ```
 
-### 6. 「構造化された詳細を見たい」 → `traceary show`
+### 6. 「構造化レコード全体を見る」→ `traceary show`
 
-event ID が分かっていて、対応する event や audit payload を構造化して見たいときは `show` を使います。
+event ID がすでに分かっているとき、structured event または audit payload を見るには `show` を使います。
 
 ```sh
 traceary show evt_123 --json
 ```
 
-### 7. 「メモリ候補を1件ずつ捌きたい」 → `traceary memory inbox review`
+### 7. 「メモリ候補を順に確認する」→ `traceary memory inbox review`
 
-メモリ候補の確認キューを対話的に walk するときは `memory inbox review` を使います。TTY 必須なので、非対話シェルでは exit code `2` で起動を拒否し、`traceary memory inbox list / accept / reject / attach` の利用を案内します。フィルタ flag は snapshot 版と同じく `--workspace` / `--agent` / `--session-family` / `--type` / `--source` / `--include-hidden` / `--limit` を受け付けます。
+memory review queue を対話的に walk するときは `memory inbox review` を使います。TTY 専用で、非対話 shell は exit code `2` で拒否し、`traceary memory inbox list / accept / reject / attach` を案内します。snapshot view と同じ filter（`--workspace`、`--agent`、`--session-family`、`--type`、`--source`、`--include-hidden`、`--limit`）を受け付けます。
 
 ```sh
 traceary memory inbox review
 traceary memory inbox review --workspace github.com/duck8823/traceary --type preference --limit 10
 ```
 
-画面内のキーは `a` accept、`x` reject、`s` skip、`r` evidence 追加、`e` edit/distill、`v` evidence 表示、`?` help、`q` quit です。Accept / reject / evidence 追加は `memory inbox accept|reject|attach` と同じ application usecase を呼びます。`r` ではカンマ区切りの `kind:value` evidence ref と任意の `artifact:kind:value` ref を入力でき、evidence がない candidate を採用前に裏付けできます。`e` で開くエディトプロンプトは operator が手書きした fact のみ受け付け、`traceary memory store distill` 経由で記録します (LLM 出力は自動採用しません)。
+画面内の action key は `a` accept、`x` reject、`s` skip、`r` attach evidence、`e` edit/distill、`v` view evidence、`?` help、`q` quit です。Accept / reject / evidence attach は `memory inbox accept|reject|attach` と同じ application use case を再利用します。`r` は comma-separated な `kind:value` evidence ref と任意の `artifact:kind:value` ref を受け付け、evidence の無い候補を accept 前に補強できます。`e` は operator-authored fact の入力を要求する editor prompt を開き、`traceary memory store distill` 経由で処理します（LLM 出力の auto-accept はありません）。
 
-### 8. 「次に持ち越す文脈だけをまとめたい」 → `traceary session handoff`
+### 8. 「次の session に何を持ち込む？」→ `traceary session handoff`
 
-生の event stream ではなく、再開や引き継ぎに使う working-memory pack を見たいときは `session handoff` を使います。別エージェントへ渡す前提の要約を見るなら、まずここです（v0.13.x までの top-level alias `traceary handoff` は v0.14.0 で削除されました）。
+生 event stream ではなく concise な working-memory pack が欲しいときは `session handoff` を使います。
+作業再開や他 agent への handoff 向けの operator-facing summary view です（v0.13.x の top-level `traceary handoff` alias は v0.14.0 で削除済み）。
 
 ```sh
 traceary session handoff --workspace github.com/duck8823/traceary
@@ -115,7 +115,7 @@ traceary session handoff --session-id sess_123
 
 ## Shell completion
 
-Traceary には built-in の completion generator があります。
+Traceary は built-in completion generator を提供します。
 
 ```sh
 traceary completion bash
@@ -124,30 +124,28 @@ traceary completion fish
 traceary completion powershell
 ```
 
-`tail` が入った後でも、CLI 全体の発見しやすさを上げる意味で completion を有効にする価値はあります。
+`tail` が入ったあとも、より広い CLI surface の discovery 摩擦を下げるため completion は有効にしておく価値があります。
 
 ## bare `traceary` entrypoint の方針
 
-v0.19.0 では、stdin/stdout が対話 terminal に接続されている場合、bare `traceary` は Tail-first cockpit を開きます。非 TTY で subcommand なしの `traceary` を実行した場合は、Bubble Tea を起動せず deterministic な help / fallback output を維持します。
+bare `traceary` は TTY / 非 TTY とも常に help を表示します。旧 Tail-first cockpit 既定と `traceary tui` / `traceary dashboard` は v0.35.0 で削除されました (#1764)。
 
-互換性の contract は次の通りです。
+互換 contract は次のとおりです。
 
-- bare `traceary` の TTY 既定動作と `traceary tui` は v0.34.0 で非推奨、v0.35.0 で削除する。既定の入口には `traceary --help`、同じデータを見るには、script から使える `traceary sessions --snapshot` を使用する。
-- 非 TTY の `traceary` は deterministic な help / script behavior を維持する。
-- completion generation と help example を壊さない。
-- script 向けには `list`、`sessions --snapshot [--json]`、`doctor --json`、`session handoff`、`memory inbox list` を推奨 path として維持する。`top --snapshot [--json]` は互換 path として残す。
-- release notes には非推奨となる default entrypoint の動作と `traceary tui`、v0.35.0 の削除予定を書く。
+- bare `traceary` と `traceary --help` は help のみを表示する
+- completion generation と help の例は安定したままにする
+- automation の推奨 path は script-facing command（`sessions --snapshot`、`tail`、`doctor --json`、`session handoff`、`memory inbox list`）。`top --snapshot` は v0.35.0 削除までの非推奨互換 alias
 
-## 今後の改善候補
+## まだ future-facing なもの
 
-初期の `v0.1.x` より interactive 利用はだいぶ良くなりましたが、次の改善余地はまだあります。
+対話的な作業は early `v0.1.x` より良くなりましたが、次はまだ将来の UX pass の対象です。
 
-- `show` / `context` の人間向け整形強化
-- pager-aware な output flow
-- `list` / `search` の上に乗る、より opinionated な interactive filter
+- `show` / `context` のより読みやすい human-readable formatting
+- pager を意識した出力 flow
+- `list` / `search` 上のより opinionated な interactive filter
 
-## 関連文書
+## 関連 docs
 
 - CLI reference: [`../cli/README.ja.md`](../cli/README.ja.md)
 - MCP guide: [`../mcp/README.ja.md`](../mcp/README.ja.md)
-- イベントライフサイクル: [`../lifecycle.ja.md`](../lifecycle.ja.md)
+- Event lifecycle: [`../lifecycle.ja.md`](../lifecycle.ja.md)

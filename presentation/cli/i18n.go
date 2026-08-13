@@ -71,13 +71,6 @@ func configuredCLILanguage() string {
 	return value
 }
 
-func setConfiguredCLILanguageForProcess(value string) {
-	cliLanguageCache.Lock()
-	cliLanguageCache.loaded = true
-	cliLanguageCache.value = normalizeCLILanguage(value)
-	cliLanguageCache.Unlock()
-}
-
 func resetConfiguredCLILanguageCacheForTest() {
 	cliLanguageCache.Lock()
 	cliLanguageCache.loaded = false

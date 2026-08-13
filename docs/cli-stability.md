@@ -86,13 +86,12 @@ Currently deprecated:
 
 - `traceary sessions` interactive dashboard → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
-- `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
-- bare `traceary` TTY default → `traceary --help` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary memory admin graph add` and `traceary memory admin graph list` (removed in v0.35.0; deprecated in v0.34.0; no replacement because the reference store has zero `memory_edges` rows)
 - `traceary session label`, `traceary session list --label`, the `LABEL` column, and the `label` JSON field (removed in v0.35.0; deprecated in v0.34.0; no replacement because the reference store has zero labelled sessions)
 
 Historical removal log:
 
+- Removed in v0.35.0 after the v0.34 announcement (#1687 / #1764): `traceary tui`, `traceary dashboard`, and the bare interactive TTY default that opened the operator cockpit. Bare `traceary` always prints help (TTY and non-TTY). Use `traceary sessions --snapshot` for the surviving script-friendly view of related session data. The orphan local state file `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually; Traceary no longer reads or writes it.
 - Replaced in v0.35.0 after the v0.34 announcement (#1717 / #1775): `traceary search --json` top-level array → `{"events": [...], "sessions": [...]}` object. Both keys are always present; empty arrays mean the tier returned no hits.
 - Removed in v0.14.0 after earlier deprecation: `traceary init` → `traceary store init`, `traceary backup` → `traceary store backup ...`, `traceary gc` → `traceary store gc`, `traceary handoff` → `traceary session handoff`, `traceary compact-summary` → `traceary session handoff --compact-only`, and the retired `traceary integration codex install` helper → Codex official `/plugins` flow.
 - Removed in v0.15.0 after the v0.14 compatibility window: `traceary memory accept`, `traceary memory reject`, `traceary memory remember`, `traceary memory propose`, `traceary memory distill`, `traceary memory extract`, `traceary memory supersede`, `traceary memory expire`, `traceary memory set-validity`, `traceary memory import codex`, `traceary memory import instructions`, `traceary memory export`, `traceary memory activate`, `traceary memory hygiene scan`, `traceary memory hygiene apply`, `traceary memory graph add`, and `traceary memory graph list`. Use the canonical `memory inbox` / `memory store` / `memory admin` paths documented in the CLI reference.

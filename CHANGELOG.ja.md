@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Removed
+- **operator cockpit を削除 (#1764)** — v0.34 の非推奨期間 (#1687) を経て、`traceary tui` / `traceary dashboard` と Tail-first cockpit を開いていた bare 対話 TTY 既定動作を削除しました。bare `traceary` は TTY / 非 TTY とも常に help を表示します。root の `--reset-state` は cockpit と共に消え、root の `--db-path` は `traceary --db-path … <subcommand>` が引き続き有効になるよう残しています。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。共有の `presentation/cli/tui/` と `sessions` / `top` surface はこの削除では変更していません。
+
 ### Changed
 - **`traceary search --json` は events/sessions オブジェクトになりました (#1775)** — v0.34.0 の #1717 予告を完了します。stdout は常に `{"events": [...], "sessions": [...]}` で、どちらのキーも存在します（ヒットがない tier は空配列）。明示的な `--fields` はこれまでどおり `.events` 内の event フィールドを選び、session オブジェクトは `session_id` / `summary` / `event_count` / `started_at` のままです。v0.34 の「sessions が `--json` から省略された」stderr 通知は削除しました。テキスト検索出力は変更していません。
 

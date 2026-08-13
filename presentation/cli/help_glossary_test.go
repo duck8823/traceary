@@ -63,11 +63,6 @@ func TestDocumentationAndGoldensDoNotExposeLegacyMemoryCandidateGlossary(t *test
 		"testdata/top/snapshot_text.golden",
 		"testdata/top/snapshot_text_empty.golden",
 	}
-	cockpitGoldens, err := filepath.Glob("testdata/cockpit/*.golden.txt")
-	if err != nil {
-		t.Fatalf("glob cockpit goldens: %v", err)
-	}
-	paths = append(paths, cockpitGoldens...)
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
