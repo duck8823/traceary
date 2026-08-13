@@ -38,8 +38,10 @@ func TestSessionWakeSummaryDatasource_ListEligible(t *testing.T) {
 	seedWakeSession(ctx, t, sessions, events, refinements, "sess-mid", ws, base.Add(2*time.Hour), "middle summary", false, "")
 	seedWakeSession(ctx, t, sessions, events, refinements, "sess-old", ws, base.Add(1*time.Hour), "oldest summary", false, "")
 
-	// Exclusions: degraded, other workspace, subagent, waking session itself.
+	// Exclusions: mechanical-only (degraded, no agent reasoning), other workspace,
+	// subagent, waking session itself. Mixed rows stay eligible (#1877).
 	seedWakeSession(ctx, t, sessions, events, refinements, "sess-degraded", ws, base.Add(4*time.Hour), "degraded summary", true, "")
+	seedWakeSessionWithReasoning(ctx, t, sessions, events, refinements, "sess-mixed", ws, base.Add(210*time.Minute), "mixed composed summary", true, true, "")
 	seedWakeSession(ctx, t, sessions, events, refinements, "sess-other-ws", otherWS, base.Add(5*time.Hour), "other workspace", false, "")
 	seedWakeSession(ctx, t, sessions, events, refinements, "sess-parent", ws, base, "parent of subagent", false, "")
 	seedWakeSession(ctx, t, sessions, events, refinements, "sess-child", ws, base.Add(30*time.Minute), "subagent summary", false, "sess-parent")
@@ -53,18 +55,18 @@ func TestSessionWakeSummaryDatasource_ListEligible(t *testing.T) {
 		wantIDs   []string
 	}{
 		{
-			name:      "returns non-degraded top-level same workspace excluding waking session newest first",
+			name:      "returns rows with agent reasoning in the same workspace excluding waking session newest first",
 			workspace: ws,
 			exclude:   "sess-waking",
 			limit:     64,
-			wantIDs:   []string{"sess-new", "sess-mid", "sess-old", "sess-parent"},
+			wantIDs:   []string{"sess-mixed", "sess-new", "sess-mid", "sess-old", "sess-parent"},
 		},
 		{
 			name:      "limit truncates rows before budget arithmetic",
 			workspace: ws,
 			exclude:   "sess-waking",
 			limit:     2,
-			wantIDs:   []string{"sess-new", "sess-mid"},
+			wantIDs:   []string{"sess-mixed", "sess-new"},
 		},
 		{
 			name:      "unknown workspace yields empty",
@@ -132,6 +134,24 @@ func seedWakeSession(
 	startedAt time.Time,
 	summary string,
 	degraded bool,
+	parentSessionID string,
+) {
+	t.Helper()
+	seedWakeSessionWithReasoning(ctx, t, sessions, events, refinements, sessionID, workspace, startedAt, summary, degraded, !degraded, parentSessionID)
+}
+
+func seedWakeSessionWithReasoning(
+	ctx context.Context,
+	t *testing.T,
+	sessions *sqlite.SessionDatasource,
+	events *sqlite.EventDatasource,
+	refinements *sqlite.SessionRefinementDatasource,
+	sessionID string,
+	workspace types.Workspace,
+	startedAt time.Time,
+	summary string,
+	degraded bool,
+	hasAgentReasoning bool,
 	parentSessionID string,
 ) {
 	t.Helper()
@@ -208,6 +228,7 @@ func seedWakeSession(
 	if err != nil {
 		t.Fatalf("NewSessionRefinement(%s) error = %v", sessionID, err)
 	}
+	refinement = refinement.WithHasAgentReasoning(hasAgentReasoning)
 	ok, err := refinements.SaveIfAdvances(ctx, refinement, 0)
 	if err != nil {
 		t.Fatalf("SaveIfAdvances(%s) error = %v", sessionID, err)

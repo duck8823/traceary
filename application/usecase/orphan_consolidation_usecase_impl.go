@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -113,9 +114,11 @@ func (u *orphanConsolidationUsecase) Consolidate(
 		}
 
 		attempted++
-		failure := u.processCandidate(ctx, orphan, input.DryRun)
+		wrote, failure := u.processCandidate(ctx, orphan, input.DryRun)
 		if failure == nil {
-			produced++
+			if wrote {
+				produced++
+			}
 			consecutive = 0
 			continue
 		}
@@ -147,25 +150,53 @@ func (u *orphanConsolidationUsecase) processCandidate(
 	ctx context.Context,
 	orphan *model.SessionOrphanRange,
 	dryRun bool,
-) error {
-	if !dryRun {
-		return u.produceDegraded(ctx, orphan)
-	}
-	// Dry-run must not write refinements. Reading the material is what proves
-	// the range still has something to fold. A counted, logged skip on failure
-	// satisfies the original "operators do not get a silent zero" intent
-	// without making one bad session fatal for the whole pass.
-	if _, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID()); err != nil {
-		return xerrors.Errorf("failed to load orphan material for dry-run session %s: %w", orphan.SessionID(), err)
-	}
-	return nil
-}
-
-func (u *orphanConsolidationUsecase) produceDegraded(ctx context.Context, orphan *model.SessionOrphanRange) error {
+) (bool, error) {
 	material, err := u.orphans.LoadMaterial(ctx, orphan.SessionID(), orphan.FromEventID(), orphan.ToEventID())
 	if err != nil {
-		return xerrors.Errorf("failed to load orphan material for session %s: %w", orphan.SessionID(), err)
+		if dryRun {
+			return false, xerrors.Errorf("failed to load orphan material for dry-run session %s: %w", orphan.SessionID(), err)
+		}
+		return false, xerrors.Errorf("failed to load orphan material for session %s: %w", orphan.SessionID(), err)
 	}
+	if orphanRangeIsLifecycleOnly(material.KindCounts) {
+		if dryRun {
+			return true, nil
+		}
+		return u.advanceLifecycleCoverage(ctx, orphan)
+	}
+	if dryRun {
+		return true, nil
+	}
+	return true, u.produceDegraded(ctx, orphan, material)
+}
+
+// advanceLifecycleCoverage extends covers_to over a start/end-only tail
+// without synthesising a mechanical footnote. No existing fold means there
+// is nothing to keep eligible, so the candidate is skipped.
+func (u *orphanConsolidationUsecase) advanceLifecycleCoverage(
+	ctx context.Context,
+	orphan *model.SessionOrphanRange,
+) (bool, error) {
+	_, err := u.refinement.Refine(ctx, SessionRefineInput{
+		SessionID:    orphan.SessionID(),
+		ProducedBy:   orphanConsolidationProducedBy,
+		CoversTo:     orphan.ToEventID(),
+		CoverageOnly: true,
+	})
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, errCoverageOnlyNoRow) {
+		return false, nil
+	}
+	return false, xerrors.Errorf("failed to advance lifecycle coverage for session %s: %w", orphan.SessionID(), err)
+}
+
+func (u *orphanConsolidationUsecase) produceDegraded(
+	ctx context.Context,
+	orphan *model.SessionOrphanRange,
+	material model.SessionOrphanMaterial,
+) error {
 	mechanical := buildMechanicalOrphanSummary(material)
 
 	// Composition runs inside Refine's CAS loop (ComposeSummary), not here.
@@ -176,7 +207,7 @@ func (u *orphanConsolidationUsecase) produceDegraded(ctx context.Context, orphan
 	// The flag means the stored summary is not purely agent-written: a mixed
 	// row includes gc-synthesised prose, so consumers must not treat the whole
 	// row as agent reasoning. Seam markers in the text separate authorships.
-	_, err = u.refinement.Refine(ctx, SessionRefineInput{
+	_, err := u.refinement.Refine(ctx, SessionRefineInput{
 		SessionID:  orphan.SessionID(),
 		ProducedBy: orphanConsolidationProducedBy,
 		CoversTo:   orphan.ToEventID(),
@@ -284,4 +315,21 @@ func buildMechanicalOrphanSummary(material model.SessionOrphanMaterial) string {
 		truncated = truncated[:len(truncated)-1]
 	}
 	return truncated + marker
+}
+
+// orphanRangeIsLifecycleOnly is true when every kind in the range is a session
+// boundary. Those tails carry no agent reasoning, so synthesising a "why is
+// gone" footnote is both untrue and destructive (#1877).
+func orphanRangeIsLifecycleOnly(kindCounts map[string]int) bool {
+	saw := false
+	for kind, count := range kindCounts {
+		if count <= 0 {
+			continue
+		}
+		saw = true
+		if kind != string(types.EventKindSessionStarted) && kind != string(types.EventKindSessionEnded) {
+			return false
+		}
+	}
+	return saw
 }

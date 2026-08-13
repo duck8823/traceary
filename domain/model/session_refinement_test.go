@@ -31,6 +31,12 @@ func TestNewSessionRefinement_EnforcesInvariants(t *testing.T) {
 	if diff := cmp.Diff(1, valid.Generation()); diff != "" {
 		t.Fatalf("Generation mismatch (-want +got):\n%s", diff)
 	}
+	if !valid.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false on non-degraded NewSessionRefinement, want true")
+	}
+	if valid.Degraded() {
+		t.Fatal("Degraded() = true, want false")
+	}
 
 	tests := []struct {
 		name       string
@@ -64,5 +70,65 @@ func TestNewSessionRefinement_EnforcesInvariants(t *testing.T) {
 				t.Fatal("NewSessionRefinement() error = nil, want error")
 			}
 		})
+	}
+}
+
+func TestNewSessionRefinement_DegradedDefaultsHasAgentReasoningFalse(t *testing.T) {
+	t.Parallel()
+
+	row, err := model.NewSessionRefinement(
+		types.SessionID("sess-1"),
+		1,
+		types.EventID("evt-from"),
+		types.EventID("evt-to"),
+		"mechanical",
+		"",
+		"gc:orphan-consolidation",
+		time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC),
+		true,
+	)
+	if err != nil {
+		t.Fatalf("NewSessionRefinement() error = %v", err)
+	}
+	if !row.Degraded() {
+		t.Fatal("Degraded() = false, want true")
+	}
+	if row.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = true on degraded first write, want false")
+	}
+}
+
+func TestSessionRefinementOf_RestoresHasAgentReasoningIndependently(t *testing.T) {
+	t.Parallel()
+
+	producedAt := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	mixed, err := model.SessionRefinementOf(
+		types.SessionID("sess-1"),
+		2,
+		types.EventID("evt-from"),
+		types.EventID("evt-to"),
+		"agent prose\n\n---\n[degraded section]",
+		"kw",
+		"gc:orphan-consolidation",
+		producedAt,
+		true,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("SessionRefinementOf() error = %v", err)
+	}
+	if !mixed.Degraded() {
+		t.Fatal("Degraded() = false, want true")
+	}
+	if !mixed.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false on mixed restored row, want true")
+	}
+
+	clone := mixed.WithHasAgentReasoning(false)
+	if clone.HasAgentReasoning() {
+		t.Fatal("WithHasAgentReasoning(false) did not clear the flag")
+	}
+	if !mixed.HasAgentReasoning() {
+		t.Fatal("WithHasAgentReasoning must not mutate the original")
 	}
 }

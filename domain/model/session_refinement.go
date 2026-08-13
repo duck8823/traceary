@@ -22,6 +22,7 @@ type SessionRefinement struct {
 	producedBy        string
 	producedAt        time.Time
 	degraded          bool
+	hasAgentReasoning bool
 }
 
 // NewSessionRefinement constructs a refinement that satisfies the stored
@@ -48,6 +49,7 @@ func NewSessionRefinement(
 		producedBy:        strings.TrimSpace(producedBy),
 		producedAt:        producedAt.UTC(),
 		degraded:          degraded,
+		hasAgentReasoning: !degraded,
 	}
 	if err := refinement.validate(); err != nil {
 		return nil, err
@@ -57,6 +59,7 @@ func NewSessionRefinement(
 
 // SessionRefinementOf restores a refinement from persisted values. It applies
 // the same invariants as NewSessionRefinement so corrupt rows fail closed.
+// hasAgentReasoning is restored from storage rather than inferred from degraded.
 func SessionRefinementOf(
 	sessionID types.SessionID,
 	generation int,
@@ -67,8 +70,9 @@ func SessionRefinementOf(
 	producedBy string,
 	producedAt time.Time,
 	degraded bool,
+	hasAgentReasoning bool,
 ) (*SessionRefinement, error) {
-	return NewSessionRefinement(
+	refinement, err := NewSessionRefinement(
 		sessionID,
 		generation,
 		coversFromEventID,
@@ -79,6 +83,10 @@ func SessionRefinementOf(
 		producedAt,
 		degraded,
 	)
+	if err != nil {
+		return nil, err
+	}
+	return refinement.WithHasAgentReasoning(hasAgentReasoning), nil
 }
 
 func (r *SessionRefinement) validate() error {
@@ -133,8 +141,21 @@ func (r *SessionRefinement) ProducedBy() string { return r.producedBy }
 // ProducedAt returns when the stored row was written.
 func (r *SessionRefinement) ProducedAt() time.Time { return r.producedAt }
 
-// Degraded reports whether the summary was machine-authored by gc.
+// Degraded reports whether the stored summary contains synthesised text.
 func (r *SessionRefinement) Degraded() bool { return r.degraded }
+
+// HasAgentReasoning reports whether an agent-authored fold contributed to this row.
+func (r *SessionRefinement) HasAgentReasoning() bool { return r.hasAgentReasoning }
+
+// WithHasAgentReasoning returns a copy with the wake-eligibility flag set.
+func (r *SessionRefinement) WithHasAgentReasoning(hasAgentReasoning bool) *SessionRefinement {
+	if r == nil {
+		return nil
+	}
+	clone := *r
+	clone.hasAgentReasoning = hasAgentReasoning
+	return &clone
+}
 
 // SessionRefineOutcome classifies the write-port result for callers.
 type SessionRefineOutcome string

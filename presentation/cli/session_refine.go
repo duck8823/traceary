@@ -98,12 +98,13 @@ func (c *RootCLI) runSessionRefine(cmd *cobra.Command, output io.Writer, input s
 	}
 
 	result, err := c.sessionRefinement.Refine(cmd.Context(), usecase.SessionRefineInput{
-		SessionID:  sessionID,
-		Summary:    input.summary,
-		Keywords:   input.keywords,
-		ProducedBy: producedBy,
-		CoversTo:   coversTo,
-		Degraded:   false,
+		SessionID:         sessionID,
+		Summary:           input.summary,
+		Keywords:          input.keywords,
+		ProducedBy:        producedBy,
+		CoversTo:          coversTo,
+		Degraded:          false,
+		HasAgentReasoning: true,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to refine session", "session の refine に失敗しました"), err)

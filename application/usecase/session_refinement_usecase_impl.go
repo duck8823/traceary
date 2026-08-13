@@ -12,6 +12,11 @@ import (
 
 const sessionRefineMaxAttempts = 3
 
+// errCoverageOnlyNoRow is returned when CoverageOnly is set and the session
+// has no refinement to extend. Orphan consolidation treats it as a skip,
+// not a candidate failure.
+var errCoverageOnlyNoRow = xerrors.New("coverage-only refine requires an existing session refinement")
+
 type sessionRefinementUsecase struct {
 	sessionRepo    model.SessionRepository
 	refinementRepo model.SessionRefinementRepository
@@ -121,6 +126,9 @@ func (u *sessionRefinementUsecase) decideAndWrite(
 	if err != nil {
 		return model.SessionRefineResult{}, false, xerrors.Errorf("failed to load session refinement: %w", err)
 	}
+	if input.CoverageOnly {
+		return u.advanceCoverageOnly(ctx, current, sessionID, coversTo)
+	}
 	summary, keywords := resolveRefineText(input, current)
 	if existing, present := current.Value(); present {
 		// Idempotency: only advance when covers_to is strictly after the stored
@@ -152,6 +160,7 @@ func (u *sessionRefinementUsecase) decideAndWrite(
 		if err != nil {
 			return model.SessionRefineResult{}, false, xerrors.Errorf("failed to build superseding refinement: %w", err)
 		}
+		next = next.WithHasAgentReasoning(refineHasAgentReasoning(input, current))
 		advanced, err := u.refinementRepo.SaveIfAdvances(ctx, next, existing.Generation())
 		if err != nil {
 			return model.SessionRefineResult{}, false, xerrors.Errorf("failed to save session refinement: %w", err)
@@ -188,6 +197,9 @@ func (u *sessionRefinementUsecase) decideAndWrite(
 	if err != nil {
 		return model.SessionRefineResult{}, false, xerrors.Errorf("failed to build session refinement: %w", err)
 	}
+	// First write keeps NewSessionRefinement's !Degraded default. Applying the
+	// zero-value input flag here would mark every agent fold that omitted the
+	// field as ineligible for wake.
 	// expectedGeneration 0: expect no row yet (CHECK generation > 0 makes the
 	// update branch unsatisfiable if a concurrent insert already landed).
 	advanced, err := u.refinementRepo.SaveIfAdvances(ctx, created, 0)
@@ -202,6 +214,66 @@ func (u *sessionRefinementUsecase) decideAndWrite(
 		return model.SessionRefineResult{}, false, xerrors.Errorf("failed to build created refine result: %w", err)
 	}
 	return result, true, nil
+}
+
+// advanceCoverageOnly widens covers_to without rewriting stored text or flags.
+func (u *sessionRefinementUsecase) advanceCoverageOnly(
+	ctx context.Context,
+	current types.Optional[*model.SessionRefinement],
+	sessionID types.SessionID,
+	coversTo types.EventID,
+) (model.SessionRefineResult, bool, error) {
+	existing, present := current.Value()
+	if !present {
+		return model.SessionRefineResult{}, false, errCoverageOnlyNoRow
+	}
+	after, err := u.eventOrder.EventIsStrictlyAfter(ctx, coversTo, existing.CoversToEventID())
+	if err != nil {
+		return model.SessionRefineResult{}, false, xerrors.Errorf("failed to compare coverage: %w", err)
+	}
+	if !after {
+		result, err := model.SessionRefineResultOf(model.SessionRefineOutcomeUnchanged, existing)
+		if err != nil {
+			return model.SessionRefineResult{}, false, xerrors.Errorf("failed to build unchanged refine result: %w", err)
+		}
+		return result, true, nil
+	}
+	next, err := model.NewSessionRefinement(
+		sessionID,
+		existing.Generation()+1,
+		existing.CoversFromEventID(),
+		coversTo,
+		existing.Summary(),
+		existing.Keywords(),
+		existing.ProducedBy(),
+		u.clock.Now(),
+		existing.Degraded(),
+	)
+	if err != nil {
+		return model.SessionRefineResult{}, false, xerrors.Errorf("failed to build coverage-only refinement: %w", err)
+	}
+	next = next.WithHasAgentReasoning(existing.HasAgentReasoning())
+	advanced, err := u.refinementRepo.SaveIfAdvances(ctx, next, existing.Generation())
+	if err != nil {
+		return model.SessionRefineResult{}, false, xerrors.Errorf("failed to save session refinement: %w", err)
+	}
+	if !advanced {
+		return model.SessionRefineResult{}, false, nil
+	}
+	result, err := model.SessionRefineResultOf(model.SessionRefineOutcomeSuperseded, next)
+	if err != nil {
+		return model.SessionRefineResult{}, false, xerrors.Errorf("failed to build superseded refine result: %w", err)
+	}
+	return result, true, nil
+}
+
+// refineHasAgentReasoning keeps a stored 1 across orphan compose. First writes
+// do not call this; they keep NewSessionRefinement's !Degraded default.
+func refineHasAgentReasoning(input SessionRefineInput, current types.Optional[*model.SessionRefinement]) bool {
+	if existing, present := current.Value(); present && existing.HasAgentReasoning() {
+		return true
+	}
+	return input.HasAgentReasoning
 }
 
 // resolveRefineText returns the summary/keywords for this CAS attempt.

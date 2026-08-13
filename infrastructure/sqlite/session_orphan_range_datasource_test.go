@@ -451,6 +451,130 @@ func TestSessionOrphanRangeDatasource_ComposesOntoAgentAuthoredRefinement(t *tes
 	if row.Generation() != 2 {
 		t.Fatalf("Generation = %d, want 2 (supersede)", row.Generation())
 	}
+	if !row.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false after compose, want true")
+	}
+}
+
+func TestSessionOrphanRangeDatasource_FoldThenEndThenReduceStaysWakeEligible(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-fold-end", []eventSeed{
+		{id: "evt-folded", at: base},
+	}, true)
+
+	const agentSummary = "Motivation: verify the record pillar. Change: folded twelve events."
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	if _, err := refineUC.Refine(ctx, usecase.SessionRefineInput{
+		SessionID:         sessionID,
+		Summary:           agentSummary,
+		ProducedBy:        "agent",
+		CoversTo:          "evt-folded",
+		Degraded:          false,
+		HasAgentReasoning: true,
+	}); err != nil {
+		t.Fatalf("Refine(agent) error = %v", err)
+	}
+
+	now := base.Add(48 * time.Hour)
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fixedEventClock{at: now})
+	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1 (coverage-only advance over session_ended)", got.ProducedCount())
+	}
+
+	stored, err := fx.refine.FindBySessionID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindBySessionID() error = %v", err)
+	}
+	row, ok := stored.Value()
+	if !ok {
+		t.Fatal("expected refinement after reduce")
+	}
+	if row.Summary() != agentSummary {
+		t.Fatalf("Summary() = %q, want unchanged agent text", row.Summary())
+	}
+	if strings.Contains(row.Summary(), "Mechanical summary") {
+		t.Fatalf("lifecycle-only reduce must not attach a mechanical footnote: %q", row.Summary())
+	}
+	if row.Degraded() {
+		t.Fatal("Degraded() = true after fold→end→reduce, want false")
+	}
+	if !row.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false after fold→end→reduce, want true")
+	}
+	if row.CoversToEventID() != "sess-fold-end-end" {
+		t.Fatalf("CoversTo = %s, want session_ended", row.CoversToEventID())
+	}
+
+	wake := sqlite.NewSessionWakeSummaryDatasource(sqlite.NewDatabase(fx.dbPath, onDiskSQLiteMigrations(t)))
+	eligible, err := wake.ListEligible(ctx, "ws", "sess-waking", 64)
+	if err != nil {
+		t.Fatalf("ListEligible() error = %v", err)
+	}
+	found := false
+	for _, item := range eligible {
+		if item.SessionID == sessionID {
+			found = true
+			if item.Summary != agentSummary {
+				t.Fatalf("wake summary = %q, want agent text", item.Summary)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("folded session missing from ListEligible after fold→end→reduce")
+	}
+}
+
+func TestSessionOrphanRangeDatasource_MechanicalOnlyStaysWakeIneligible(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-mech-only", []eventSeed{
+		{id: "evt-note", at: base},
+	}, true)
+
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fixedEventClock{at: base.Add(48 * time.Hour)})
+	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1", got.ProducedCount())
+	}
+
+	stored, err := fx.refine.FindBySessionID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindBySessionID() error = %v", err)
+	}
+	row, ok := stored.Value()
+	if !ok {
+		t.Fatal("expected mechanical refinement")
+	}
+	if !row.Degraded() {
+		t.Fatal("Degraded() = false on mechanical-only row, want true")
+	}
+	if row.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = true on mechanical-only row, want false")
+	}
+
+	wake := sqlite.NewSessionWakeSummaryDatasource(sqlite.NewDatabase(fx.dbPath, onDiskSQLiteMigrations(t)))
+	eligible, err := wake.ListEligible(ctx, "ws", "sess-waking", 64)
+	if err != nil {
+		t.Fatalf("ListEligible() error = %v", err)
+	}
+	for _, item := range eligible {
+		if item.SessionID == sessionID {
+			t.Fatal("mechanical-only session must not appear in ListEligible")
+		}
+	}
 }
 
 func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t *testing.T) {
@@ -483,12 +607,27 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t 
 		{id: "evt-2", at: base.Add(time.Hour)},
 	}, true)
 
-	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
-	if _, err := refineUC.Refine(ctx, usecase.SessionRefineInput{
-		SessionID: sessionID, Summary: "to evt-1", ProducedBy: "agent", CoversTo: "evt-1",
-	}); err != nil {
-		t.Fatalf("Refine() error = %v", err)
+	// Schema 46 has session_refinements without has_agent_reasoning (#1877
+	// adds that in 60). Seed with the 46 column list; Refine() would fail
+	// because the current write path selects the new column.
+	raw, err := sql.Open("sqlite", fx.dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
 	}
+	if _, err := raw.Exec(`
+		INSERT INTO session_refinements(
+			session_id, generation, covers_from_event_id, covers_to_event_id,
+			summary, keywords, produced_by, produced_at, degraded
+		) VALUES (?, 1, ?, ?, 'to evt-1', '', 'agent', ?, 0)`,
+		sessionID.String(), sessionID.String()+"-start", "evt-1",
+		base.UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		t.Fatalf("INSERT pre-47 refinement error = %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close pre-47 seed db error = %v", err)
+	}
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
 
 	now := base.Add(48 * time.Hour)
 	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)

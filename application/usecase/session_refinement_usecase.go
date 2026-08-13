@@ -22,6 +22,17 @@ type SessionRefineInput struct {
 	ProducedBy string
 	CoversTo   types.EventID
 	Degraded   bool
+	// HasAgentReasoning is the first-write value only when Degraded is true
+	// (unused by current callers). A non-degraded first write always stores 1.
+	// On supersede, a stored 1 is preserved so orphan compose does not drop
+	// wake eligibility (#1877).
+	HasAgentReasoning bool
+	// CoverageOnly advances covers_to while keeping stored summary text,
+	// degraded, has_agent_reasoning, and produced_by. Lifecycle-only orphan
+	// tails use this so a session_ended event does not attach a mechanical
+	// footnote (#1877). With no existing row, Refine returns
+	// errCoverageOnlyNoRow and inserts nothing.
+	CoverageOnly bool
 	// ComposeSummary derives summary and keywords from the current refinement
 	// row on each CAS attempt. See type comment above.
 	ComposeSummary func(current types.Optional[*model.SessionRefinement]) (summary, keywords string)
