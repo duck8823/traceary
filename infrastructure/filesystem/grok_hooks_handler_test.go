@@ -27,6 +27,10 @@ func TestGrokHooksHandler_BuildsVerifiedCoreHooks(t *testing.T) {
 		if len(entries) != 1 || len(entries[0].Commands()) != 1 {
 			t.Fatalf("Build().Entries(%q) = %v, want one command", event, entries)
 		}
+		timeout, ok := entries[0].Commands()[0].Timeout().Value()
+		if !ok || timeout != 10 {
+			t.Fatalf("Build().Entries(%q) timeout = %d, present=%v, want 10", event, timeout, ok)
+		}
 	}
 
 	projectDir := t.TempDir()

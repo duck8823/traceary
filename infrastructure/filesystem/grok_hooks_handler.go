@@ -16,10 +16,15 @@ func NewGrokHooksHandler() *GrokHooksHandler { return &GrokHooksHandler{} }
 // Name returns the canonical client identifier.
 func (h *GrokHooksHandler) Name() string { return "grok" }
 
+// grokHookTimeoutSeconds is the per-hook timeout written into
+// `.grok/hooks/traceary.json`. Grok's default is 5s; 10s matches the packaged
+// plugin, Gemini, Antigravity, and Kimi host budgets.
+const grokHookTimeoutSeconds = 10
+
 // Build returns the native Grok hook plan for the core events verified against
 // Grok Build 0.2.99. Contract events without live payload evidence are omitted.
 func (h *GrokHooksHandler) Build(tracearyBin string) model.Hooks {
-	const timeoutSeconds = 5
+	timeoutSeconds := grokHookTimeoutSeconds
 	actionByEvent := []struct {
 		event  string
 		action string
