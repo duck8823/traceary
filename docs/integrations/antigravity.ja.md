@@ -29,7 +29,7 @@ Antigravity は hook の stdout を JSON として解釈します。Traceary が
 
 `PreInvocation` contract は、Antigravity CLI に同梱された vendor 文書 `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md` で確認しました（公開版は [Antigravity hooks](https://antigravity.google/docs/hooks) にもあります）。contract の例は `injectSteps` と `ephemeralMessage` を使っています。matcher は無視され、handler は flat list で、既定の handler timeout は 30 秒です。
 
-packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-server` も公開し、`traceary-session-history`、`traceary-memory-review`、`traceary-memory-remember` の文脈 skill を同梱します。`traceary hooks install` の直接設定は hook のみを導入します。Antigravity に MCP tool と skill を自動検出させる場合は packaged plugin を使用してください。
+packaged plugin は `mcp_config.json` を通じてローカルの `traceary mcp-server` も公開し、共有 skill 4 件（`traceary-session-history` / `traceary-session-refine` / `traceary-memory-review` / `traceary-memory-remember`。詳細は [skills](./skills.ja.md)）を同梱します。skill は Traceary CLI 経由で案内します。`traceary hooks install` の直接設定は hook のみを導入します。Antigravity に MCP tool と skill を自動検出させる場合は packaged plugin を使用してください。
 
 ## status line からの usage metadata
 
@@ -173,7 +173,7 @@ traceary hooks install --client antigravity --global
 
 alias `agy` と `antigravity-cli` は canonical な `antigravity` client に解決されます。インストールは非破壊で、置換されるのは `traceary` hook グループのみ、その他の top-level hook グループはそのまま保持されます。`--upgrade` で再実行すると、ユーザー追加グループを保持したまま managed グループを更新します。
 
-代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を導入できます。同じ `traceary` hook グループに加え、公式 Antigravity スキーマに従う version 付き `plugin.json`、Traceary MCP server 用の `mcp_config.json`、共有の memory/session skill 3 件、任意適用の `permissions.example.json` fragment を同梱しています。workspace または user-level の Traceary hook 経路を同時に残さないでください。
+代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を導入できます。同じ `traceary` hook グループに加え、公式 Antigravity スキーマに従う version 付き `plugin.json`、Traceary MCP server 用の `mcp_config.json`、共有 skill 4 件（[skills](./skills.ja.md)）、任意適用の `permissions.example.json` fragment を同梱しています。workspace または user-level の Traceary hook 経路を同時に残さないでください。
 
 ## セットアップガイド
 

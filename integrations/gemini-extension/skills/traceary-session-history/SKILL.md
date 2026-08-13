@@ -1,12 +1,12 @@
 ---
 name: traceary-session-history
 description: Use when the user asks about prior Traceary sessions, event history, command audits, or what happened earlier in the workspace. Trigger on phrases like "Traceary", "session history", "audit trail", "recent events", or "what happened earlier".
-version: 1.1.0
+version: 2.0.0
 ---
 
 # Traceary session history
 
-Use the packaged `traceary` MCP server as the default read path when the user asks about local agent history.
+Use the **Traceary CLI** as the default read path when the user asks about local agent history. Prefer shell invocations of `traceary` over direct SQLite inspection.
 
 ## Staged retrieval
 
@@ -17,55 +17,50 @@ audits, and "what happened earlier" questions.
 
 ### 1. Discovery — metadata only
 
-Start with the current workspace whenever it is known, then use
-`projection="metadata"` and a small limit (normally `5`). With `list_events`,
-add a time range or `session_id` when the question provides one. Metadata lets
-you select event IDs, kinds, timestamps, and stored-size/truncation facts
-without reading bodies.
+Start with the current workspace whenever it is known, then run a small
+workspace-scoped `traceary list` with a small limit (normally `5`). Add a time
+range or `--session-id` when the question provides one. List output is enough
+to select event IDs, kinds, timestamps, and short messages without opening full
+bodies.
 
-```json
-{
-  "workspace": "<current workspace>",
-  "from": "<known start, if any>",
-  "to": "<known end, if any>",
-  "projection": "metadata",
-  "limit": 5
-}
+```sh
+traceary list \
+  --workspace "<current workspace>" \
+  --from "<known start, if any>" \
+  --to "<known end, if any>" \
+  --limit 5
 ```
 
-Use this shape with `list_events`. For `search`, add a narrow literal `query`
-and omit `session_id`: `search` does not accept a session filter. Only
-`list_events` and `get_context` accept `session_id`. Omit unknown filters rather
-than guessing them. Use `session_status(action="latest")` first when the task is
-specifically about the most recent session; use
-`session_status(action="active")` only when it asks about an open session.
+For a literal query, use `traceary search "<query>"` with the same workspace and
+time filters. Both `list` and `search` accept `--session-id` when a session is
+already known. Omit unknown filters rather than guessing them.
 
-### 2. Inspection — bounded bodies for selected candidates
+Use `traceary session latest` first when the task is specifically about the most
+recent session; use `traceary session active` only when it asks about an open
+session.
 
-After Discovery identifies a narrow session/time slice, make one bounded read
-with a **positive** `body_limit` of `300`–`500` runes. Keep only filters
-supported by the chosen tool and reduce the limit further when one candidate is
-enough. Do not turn a broad result set into a full-body read.
+### 2. Inspection — bounded context for selected candidates
 
-Example (`get_context`, for bounded surrounding context):
+After Discovery identifies a narrow session/time slice, make one bounded
+context read with a small `--limit` (normally `1`). Keep only filters supported
+by `traceary context` and reduce the limit further when one candidate is
+enough. Do not turn a broad result set into a full-body dump.
 
-```json
-{
-  "workspace": "<current workspace>",
-  "session_id": "<selected session, if known>",
-  "body_limit": 400,
-  "limit": 1
-}
+Example (`traceary context`, for bounded surrounding context):
+
+```sh
+traceary context \
+  --workspace "<current workspace>" \
+  --session-id "<selected session, if known>" \
+  --limit 1
 ```
 
-`get_context` has no `event_id`, kind, or time-range filter. It can narrow
-context only with `workspace`, `session_id`, and `limit`; `projection` and
-`body_limit` control the returned representation, not which events match. Use
-it only for bounded surrounding context in a selected workspace/session. If
-Discovery selected one event ID, use the Detail path below rather than implying
-that `get_context` can target that event. If its output still leaves several
-plausible candidates, refine the metadata query instead of requesting full
-bodies for all of them.
+`traceary context` has no event-id filter. It can narrow context only with
+`--workspace`, `--session-id`, and `--limit`. Use it only for bounded
+surrounding context in a selected workspace/session. If Discovery selected one
+event ID, use the Detail path below rather than implying that `context` can
+target that event. If its output still leaves several plausible candidates,
+refine the metadata query instead of requesting full bodies for all of them.
 
 ### 3. Detail — one selected event, with a reason
 
@@ -77,25 +72,25 @@ path:
 traceary show <event-id>
 ```
 
-No MCP history-read tool accepts `event_id`. A full-body MCP read is an
-exception only when other supported filters produce an equivalently
-single-candidate scope; do not use `full_body=true` or `body_limit=0` as the
-first history query.
+A full-body bulk read is an exception only when other supported filters produce
+an equivalently single-candidate scope; do not use an unbounded history dump as
+the first history query.
 
 ## Preferred tools
 
-- `session_status(action="latest")`: most recent session metadata for the current workspace
-- `session_status(action="active")`: only when the question is specifically about an open session
-- `list_events`: Discovery for recent metadata; supports workspace, time, and session filters; bounded Inspection after candidates are known
-- `search`: Discovery for a narrow literal query; supports workspace and time filters, but not `session_id`
-- `get_context`: bounded surrounding context narrowed only by `workspace`, `session_id`, and `limit`; it cannot target an `event_id`
+- `traceary session latest`: most recent session metadata for the current workspace
+- `traceary session active`: only when the question is specifically about an open session
+- `traceary list`: Discovery for recent metadata; supports workspace, time, and session filters
+- `traceary search "<query>"`: Discovery for a narrow literal query; supports workspace, time, and session filters
+- `traceary context`: bounded surrounding context narrowed only by workspace, session-id, and limit; it cannot target an event id
+- `traceary show <event-id>`: full detail for one selected event
+- `traceary report`: aggregate usage / activity report when the operator wants a rollup rather than event bodies
 
 ## Guardrails
 
-- Prefer MCP reads before direct SQLite inspection.
-- Follow Discovery → Inspection → Detail; scope by workspace first and add only filters supported by the chosen tool.
-- Apply a session filter only through `list_events` or `get_context`; `search` has no `session_id` input.
-- Keep `projection="metadata"` and a small limit for first reads. A positive `body_limit` is for candidate inspection, not bulk history retrieval.
+- Prefer CLI reads before direct SQLite inspection.
+- Follow Discovery → Inspection → Detail; scope by workspace first and add only filters supported by the chosen command.
+- Keep the first list/search limit small. A bounded `traceary context` is for candidate inspection, not bulk history retrieval.
 - Use `traceary show <event-id>` for full detail after a single candidate and a reason have been identified.
-- Use `record_event(type="log")` / `record_event(type="audit")` only when the user explicitly wants to record something.
+- Use `traceary log` / `traceary audit` only when the user explicitly wants to record something.
 - Automatic hooks already cover session boundaries and shell command audits.

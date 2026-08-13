@@ -192,17 +192,18 @@ func checkRememberSkillContract(root string) error {
 		if !strings.Contains(body, "status=candidate") && !strings.Contains(body, "`status=candidate`") {
 			return xerrors.Errorf("%s must state that explicit remember lands as status=candidate", rel)
 		}
-		if !strings.Contains(body, `action="propose"`) && !strings.Contains(body, `"action": "propose"`) {
-			return xerrors.Errorf("%s must instruct manage_memory action=propose for the agent skill path", rel)
+		if !strings.Contains(body, "memory store propose") {
+			return xerrors.Errorf("%s must instruct traceary memory store propose for the agent skill path", rel)
 		}
-		// Reject the old contradiction: procedure claimed action=remember →
+		// Reject the old contradiction: procedure claimed remember →
 		// accepted while the frontmatter promised candidate / never auto-accepted.
 		if strings.Contains(body, "status=accepted") {
 			return xerrors.Errorf("%s must not claim status=accepted for the agent remember skill path", rel)
 		}
-		// JSON example must not invoke action=remember (immediate accept).
+		// JSON/MCP action=remember is an immediate accept; skill prose may still
+		// name "memory store remember" as a forbidden path.
 		if strings.Contains(body, `"action": "remember"`) {
-			return xerrors.Errorf("%s must not call manage_memory action=remember from the agent skill path", rel)
+			return xerrors.Errorf("%s must not call action=remember from the agent skill path", rel)
 		}
 		if i == 0 {
 			reference = data
@@ -234,6 +235,14 @@ var sharedSkillPaths = map[string][]string{
 		"integrations/antigravity-plugin/skills/traceary-session-history/SKILL.md",
 		"integrations/grok-plugin/skills/traceary-session-history/SKILL.md",
 		"integrations/kimi-plugin/skills/traceary-session-history/SKILL.md",
+	},
+	"traceary-session-refine": {
+		"integrations/claude-plugin/skills/traceary-session-refine/SKILL.md",
+		"plugins/traceary/skills/traceary-session-refine/SKILL.md",
+		"integrations/gemini-extension/skills/traceary-session-refine/SKILL.md",
+		"integrations/antigravity-plugin/skills/traceary-session-refine/SKILL.md",
+		"integrations/grok-plugin/skills/traceary-session-refine/SKILL.md",
+		"integrations/kimi-plugin/skills/traceary-session-refine/SKILL.md",
 	},
 }
 
@@ -282,6 +291,15 @@ func checkSharedSkillSemanticContracts(root string) error {
 			return err
 		}
 	}
+	for _, rel := range sharedSkillPaths["traceary-session-refine"] {
+		data, err := os.ReadFile(filepath.Join(root, rel)) // #nosec G304 -- fixed package path under repo root
+		if err != nil {
+			return xerrors.Errorf("missing session-refine skill: %s: %w", rel, err)
+		}
+		if err := validateSessionRefineSkillContract(rel, string(data)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -308,45 +326,38 @@ func validateSessionHistorySkillContract(rel, body string) error {
 		{
 			section: "Discovery",
 			body:    discovery,
-			concept: "a workspace-scoped metadata-only list_events query with a small limit",
+			concept: "a workspace-scoped traceary list with a small limit",
 			variants: [][]string{
-				{"list_events", "workspace", `projection="metadata"`, "limit", "5"},
+				{"traceary list", "workspace", "limit", "5"},
+				{"list", "--workspace", "--limit", "5"},
 			},
 		},
 		{
 			section: "Discovery",
 			body:    discovery,
-			concept: "search rejecting session_id while list_events and get_context support it",
+			concept: "session latest and session active entry points",
 			variants: [][]string{
-				{"search", "does not accept", "session_id", "only", "list_events", "get_context"},
-				{"search", "has no", "session_id", "only", "list_events", "get_context"},
-				{"search", "cannot", "session_id", "only", "list_events", "get_context"},
+				{"session latest", "session active"},
+				{"traceary session latest", "traceary session active"},
 			},
 		},
 		{
 			section: "Inspection",
 			body:    inspection,
-			concept: "an explicitly named get_context example",
+			concept: "an explicitly named traceary context example",
 			variants: [][]string{
-				{"example", "get_context"},
+				{"example", "traceary context"},
+				{"example", "context"},
 			},
 		},
 		{
 			section: "Inspection",
 			body:    inspection,
-			concept: "a positive bounded body_limit of approximately 300 to 500 runes",
+			concept: "context lacking event_id and narrowing only by workspace, session_id, and limit",
 			variants: [][]string{
-				{"positive", "body_limit", "300", "500"},
-			},
-		},
-		{
-			section: "Inspection",
-			body:    inspection,
-			concept: "get_context lacking event_id and narrowing only by workspace, session_id, and limit",
-			variants: [][]string{
-				{"get_context", "has no", "event_id", "only", "workspace", "session_id", "limit"},
-				{"get_context", "does not accept", "event_id", "only", "workspace", "session_id", "limit"},
-				{"get_context", "cannot target", "event_id", "only", "workspace", "session_id", "limit"},
+				{"context", "has no", "event", "only", "workspace", "session", "limit"},
+				{"context", "no event-id", "only", "workspace", "session", "limit"},
+				{"context", "cannot", "event", "workspace", "session", "limit"},
 			},
 		},
 		{
@@ -362,6 +373,9 @@ func validateSessionHistorySkillContract(rel, body string) error {
 		if err := requireSemanticConcept(rel, requirement.section, requirement.body, requirement.concept, requirement.variants...); err != nil {
 			return err
 		}
+	}
+	if strings.Contains(strings.ToLower(body), "mcp server") || strings.Contains(body, "list_events") || strings.Contains(body, "manage_memory") {
+		return xerrors.Errorf("%s must use the CLI read path, not MCP tool names", rel)
 	}
 	return nil
 }
@@ -380,14 +394,27 @@ func validateMemoryReviewRecapContract(rel, body string) error {
 		rel,
 		"session recap",
 		body,
-		"an explicit prohibition on a bare get_context starting read",
-		[]string{"bare", "get_context", "not"},
-		[]string{"bare", "get_context", "do not"},
+		"an explicit prohibition on a bare traceary context starting read",
+		[]string{"bare", "traceary context", "not"},
+		[]string{"bare", "context", "not"},
+		[]string{"bare", "traceary context", "do not"},
 	); err != nil {
 		return err
 	}
-	if strings.Contains(body, "events visible via `get_context` / `query_memory(pack)`") {
-		return xerrors.Errorf("%s must not recommend a bare get_context recap read", rel)
+	if strings.Contains(body, "query_memory") || strings.Contains(body, "manage_memory") || strings.Contains(body, "get_context") {
+		return xerrors.Errorf("%s must not recommend MCP memory/history tools", rel)
+	}
+	return nil
+}
+
+func validateSessionRefineSkillContract(rel, body string) error {
+	for _, token := range []string{"Motivation", "The change", "session refine", "covers-to", "Merge"} {
+		if !strings.Contains(body, token) {
+			return xerrors.Errorf("%s must mention %q", rel, token)
+		}
+	}
+	if !strings.Contains(body, "How it went") {
+		return xerrors.Errorf("%s must mention optional How it went", rel)
 	}
 	return nil
 }
@@ -467,7 +494,7 @@ func checkGrok(root, version string) error {
 	if err := requireExists(root, "integrations/grok-plugin/scripts/traceary-grok.sh", "missing Grok hook wrapper"); err != nil {
 		return err
 	}
-	expectedSkills := []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history"}
+	expectedSkills := []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history", "traceary-session-refine"}
 	entries, err := os.ReadDir(filepath.Join(root, "integrations/grok-plugin/skills"))
 	if err != nil {
 		return xerrors.Errorf("failed to read Grok skills: %w", err)
@@ -557,7 +584,7 @@ func checkKimi(root, version string) error {
 		}
 	}
 
-	expectedSkills := []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history"}
+	expectedSkills := []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history", "traceary-session-refine"}
 	entries, err := os.ReadDir(filepath.Join(root, "integrations/kimi-plugin/skills"))
 	if err != nil {
 		return xerrors.Errorf("failed to read Kimi skills: %w", err)
@@ -751,13 +778,17 @@ func checkClaude(root, version string) error {
 	if err := requireExists(root, "integrations/claude-plugin/scripts/traceary-compact.sh", "missing Claude compact hook script"); err != nil {
 		return err
 	}
-	for _, skill := range []string{"traceary-help", "traceary-session-history", "traceary-memory-review", "traceary-memory-remember"} {
+	for _, skill := range []string{"traceary-session-history", "traceary-session-refine", "traceary-memory-review", "traceary-memory-remember"} {
 		if err := requireExists(root, "integrations/claude-plugin/skills/"+skill+"/SKILL.md", "missing Claude "+skill+" skill"); err != nil {
 			return err
 		}
 	}
 	if err := requireAbsent(root, "integrations/claude-plugin/skills/traceary-memory-capture",
 		"Claude traceary-memory-capture skill stub must be removed (replaced by traceary-memory-review and traceary-memory-remember)"); err != nil {
+		return err
+	}
+	if err := requireAbsent(root, "integrations/claude-plugin/skills/traceary-help",
+		"Claude traceary-help skill must be removed (CLI --help / doctor / hooks guide cover orientation)"); err != nil {
 		return err
 	}
 	return nil
@@ -847,6 +878,7 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 		{"plugins/traceary/commands/help.md", "missing Codex help command"},
 		{"plugins/traceary/commands/doctor.md", "missing Codex doctor command"},
 		{"plugins/traceary/skills/traceary-session-history/SKILL.md", "missing Codex traceary-session-history skill"},
+		{"plugins/traceary/skills/traceary-session-refine/SKILL.md", "missing Codex traceary-session-refine skill"},
 		{"plugins/traceary/skills/traceary-memory-review/SKILL.md", "missing Codex traceary-memory-review skill"},
 		{"plugins/traceary/skills/traceary-memory-remember/SKILL.md", "missing Codex traceary-memory-remember skill"},
 	} {
@@ -952,6 +984,7 @@ func checkGemini(root, version string) error {
 		{"integrations/gemini-extension/commands/traceary-help.toml", "missing Gemini help command"},
 		{"integrations/gemini-extension/commands/traceary-doctor.toml", "missing Gemini doctor command"},
 		{"integrations/gemini-extension/skills/traceary-session-history/SKILL.md", "missing Gemini traceary-session-history skill"},
+		{"integrations/gemini-extension/skills/traceary-session-refine/SKILL.md", "missing Gemini traceary-session-refine skill"},
 		{"integrations/gemini-extension/skills/traceary-memory-review/SKILL.md", "missing Gemini traceary-memory-review skill"},
 		{"integrations/gemini-extension/skills/traceary-memory-remember/SKILL.md", "missing Gemini traceary-memory-remember skill"},
 		{"integrations/gemini-extension/GEMINI.md", "missing Gemini context file"},
@@ -1003,7 +1036,7 @@ func checkAntigravity(root string) error {
 	if !ok || !isTracearyMCPCommand(server.Command, server.Args) {
 		return xerrors.Errorf("antigravity plugin must expose the traceary mcp-server")
 	}
-	for _, skill := range []string{"traceary-session-history", "traceary-memory-review", "traceary-memory-remember"} {
+	for _, skill := range []string{"traceary-session-history", "traceary-session-refine", "traceary-memory-review", "traceary-memory-remember"} {
 		path := filepath.Join("integrations/antigravity-plugin/skills", skill, "SKILL.md")
 		if err := requireExists(root, path, "missing Antigravity "+skill+" skill"); err != nil {
 			return err
@@ -1049,6 +1082,7 @@ func checkDocs(root string) error {
 		"docs/integrations/codex-plugin.md",
 		"docs/integrations/gemini-extension.md",
 		"docs/integrations/antigravity.md",
+		"docs/integrations/skills.md",
 	}
 	for _, english := range pairs {
 		japanese := strings.TrimSuffix(english, ".md") + ".ja.md"

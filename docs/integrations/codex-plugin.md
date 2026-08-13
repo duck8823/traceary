@@ -44,7 +44,7 @@ traceary doctor --client codex --json
 - `traceary` MCP server via `traceary mcp-server`
 - `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop` (body-free usage plus turn-boundary transcript; not a session end — #1170), and `PostToolUse` hooks (declared in `plugins/traceary/hooks.json` and referenced from the plugin manifest) — **only when `plugin_hooks` is enabled on your Codex build and the current definitions are trusted in `/hooks`**; otherwise see the fallback below
 - slash commands: `/traceary:help` and `/traceary:doctor`
-- contextual skills: `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember`. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて").
+- contextual skills (one per job; see [skills](./skills.md)): `traceary-session-history`, `traceary-session-refine`, `traceary-memory-review`, and `traceary-memory-remember`. All four route through the Traceary CLI.
 
 ## Hook trust diagnostics and legacy fallback
 

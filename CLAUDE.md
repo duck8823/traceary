@@ -93,14 +93,16 @@ go tool golangci-lint run
 - Test names use English descriptions (table-driven with subtests)
 - No `panic()` in runtime paths — reserved only for programming errors in init-time assertions
 
-### Durable memory capture (agent guidance)
+### Durable memory and session skills (agent guidance)
 
-Memory capture in v0.11.0+ is split into two narrow skills plus hook-driven auto-extraction:
+Four skills ship across host packages (CLI-backed; see `docs/integrations/skills.md`):
 
+- `traceary-session-history` — read prior sessions, events, and audits via the CLI.
+- `traceary-session-refine` — write a session refinement (Motivation + The change; optional How it went) with `traceary session refine`.
 - `traceary-memory-review` — list and curate inbox candidates, write a short session recap. Trigger phrases are review-intent only ("Traceary inbox", "review memory candidates", "session recap").
-- `traceary-memory-remember` — write durable memory **only** when the user explicitly asks ("remember that", "覚えておいて"). Lands in `status=candidate` for review, never auto-accepted.
+- `traceary-memory-remember` — write durable memory **only** when the user explicitly asks ("remember that", "覚えておいて"). Lands in `status=candidate` via `traceary memory store propose`, never auto-accepted.
 
-Hook-driven auto-extraction (planned in v0.11.0 #810 / #811) populates the inbox so the LLM does not have to.
+Hook-driven auto-extraction populates the memory inbox so the LLM does not have to.
 
 <!-- traceary-memory-import:begin:v1 -->
 <!-- DO NOT EDIT: this import is managed by Traceary. Run `traceary memory activate --target claude --dry-run --diff` before applying updates. -->

@@ -36,9 +36,9 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 | Claude Code | `integrations/claude-plugin/` | Claude marketplace rooted at `.claude-plugin/marketplace.json` |
 | Codex | `plugins/traceary/` | Installed via Codex CLI's official `/plugins` flow against the repo-local marketplace at `.agents/plugins/marketplace.json`; the plugin manifest declares the bundled `hooks.json` so Codex wires session / prompt / audit hooks automatically. The legacy `traceary integration` command tree (including codex install/uninstall stubs) was fully removed in v0.25.0 (#1266); use Codex's official `/plugins` flow plus the manual cleanup steps in [docs/integrations/codex-plugin.md](./codex-plugin.md). |
 | Gemini CLI | `integrations/gemini-extension/` | Gemini extension archive rooted at `gemini-extension.json` — **legacy compatibility only** as of v0.21.0; not the active delegation path |
-| Antigravity | `integrations/antigravity-plugin/` | Supported in v0.21.1. Direct hook installs target `<project>/.agents/hooks.json` or `~/.gemini/config/hooks.json`; the packaged plugin adds a versioned manifest, Traceary MCP server, and three shared memory/session skills. `traceary doctor --client antigravity --json` reports hook routes, MCP registration, and plugin version parity. |
-| Grok Build | `integrations/grok-plugin/` | Supported in v0.23.0. The native plugin contains seven live-verified lifecycle hooks, one Traceary MCP server, and three shared memory/session skills. Install it with `scripts/install-grok-plugin.sh`, then verify the installed hook contract, trust, inventory, and version parity with `traceary doctor --client grok --json`. |
-| Kimi Code | `integrations/kimi-plugin/` | Supported in v0.29.0. The native plugin declares ten live-verified lifecycle hooks (session / prompt / tool audit incl. failure / transcript / compact markers / subagent), one Traceary MCP server, and three shared memory/session skills in a single `kimi.plugin.json` manifest. Install it with `scripts/install-kimi-plugin.sh`, then verify with `traceary doctor --client kimi --json`. |
+| Antigravity | `integrations/antigravity-plugin/` | Supported in v0.21.1. Direct hook installs target `<project>/.agents/hooks.json` or `~/.gemini/config/hooks.json`; the packaged plugin adds a versioned manifest, Traceary MCP server, and the four shared skills (see [skills](./skills.md)). `traceary doctor --client antigravity --json` reports hook routes, MCP registration, and plugin version parity. |
+| Grok Build | `integrations/grok-plugin/` | Supported in v0.23.0. The native plugin contains seven live-verified lifecycle hooks, one Traceary MCP server, and the four shared skills (see [skills](./skills.md)). Install it with `scripts/install-grok-plugin.sh`, then verify the installed hook contract, trust, inventory, and version parity with `traceary doctor --client grok --json`. |
+| Kimi Code | `integrations/kimi-plugin/` | Supported in v0.29.0. The native plugin declares ten live-verified lifecycle hooks (session / prompt / tool audit incl. failure / transcript / compact markers / subagent), one Traceary MCP server, and the four shared skills (see [skills](./skills.md)) in a single `kimi.plugin.json` manifest. Install it with `scripts/install-kimi-plugin.sh`, then verify with `traceary doctor --client kimi --json`. |
 
 ## Per-host guides
 
@@ -48,6 +48,7 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 - [Antigravity hooks and plugin](./antigravity.md)
 - [Grok Build plugin](./grok-plugin.md)
 - [Kimi Code plugin](./kimi.md)
+- [Shared skills](./skills.md)
 - [Anthropic native memory tool (experimental)](./anthropic-memory-tool.md)
 
 ## Validation and smoke tests

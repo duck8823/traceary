@@ -10,7 +10,7 @@ The Claude package lives under `integrations/claude-plugin/` and is published th
 - `SessionStart` / `SessionEnd` hooks
 - a `Stop` usage hook that records provider-reported Claude token counters from the local transcript before transcript-event capture
 - `PostToolUse` / `PostToolUseFailure` audit hooks for `Bash`, `mcp__.*`, and the built-in tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`)
-- slash-style skills: `/traceary-help` plus the contextual `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember` skills. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap") and curates the inbox; `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて") and writes durable memory directly.
+- contextual skills (one per job; see [skills](./skills.md)): `traceary-session-history`, `traceary-session-refine`, `traceary-memory-review`, and `traceary-memory-remember`. All four route through the Traceary CLI. `traceary-memory-review` triggers on review-intent phrases ("Traceary inbox", "review memory candidates", "session recap"); `traceary-memory-remember` triggers only on explicit-write phrases ("remember that", "覚えておいて") and proposes candidates via `traceary memory store propose`; `traceary-session-refine` writes Motivation + The change refinements via `traceary session refine`.
 
 ## Usage accounting
 

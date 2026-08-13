@@ -1,5 +1,5 @@
 ---
-description: Explain the Traceary Codex plugin, its MCP tools, and the built-in hook workflow.
+description: Explain the Traceary Codex plugin, its CLI entry points, and the built-in hook workflow.
 ---
 
 # Traceary Plugin Help
@@ -21,9 +21,19 @@ Use these commands when the user needs setup or verification:
 traceary version
 traceary hooks guide --client codex
 traceary doctor --client codex --json
+traceary --help
 ```
 
-If the question is about history or recall, prefer the packaged `traceary` MCP tools instead of direct SQLite access.
+If the question is about history or recall, prefer the Traceary CLI read path
+(`traceary list` / `search` / `context` / `show` / `session latest|active`) or
+the `traceary-session-history` skill instead of direct SQLite access.
+
+## Skills
+
+- `traceary-session-history` — prior sessions, events, audits
+- `traceary-session-refine` — write a session refinement (Motivation + The change)
+- `traceary-memory-review` — inbox curate / session recap
+- `traceary-memory-remember` — explicit durable-memory proposes (`memory store propose`)
 
 ## Verification
 
@@ -40,4 +50,4 @@ Return a short answer that covers:
 ## Next Steps
 
 - `/traceary:doctor` for troubleshooting
-- use the `traceary` MCP tools for session history and event search
+- use the Traceary CLI for session history and event search
