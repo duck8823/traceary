@@ -23,10 +23,16 @@ const (
 	// hookSpoolReplayBatchLimit caps opportunistic drain work per hook
 	// invocation so replay cannot exhaust the host timeout budget.
 	hookSpoolReplayBatchLimit = 5
+	// hookSpoolRetryLimit is the maximum number of delivery attempts for a
+	// replayable spool record (first delivery + 2 retries). After this many
+	// failed attempts the record is retained under spool/dead/ and excluded
+	// from opportunistic drain so poison records cannot consume the batch.
+	hookSpoolRetryLimit = 3
 	// Packaged host hook budgets are 10 seconds. An in-flight record older than
 	// one minute belongs to a process that did not finish its normal
 	// success/failure transition and is safe to make replayable.
 	hookSpoolInflightStaleAge = time.Minute
+	hookSpoolDeadDirName      = "dead"
 )
 
 type hookInvocationSpec struct {
@@ -44,7 +50,19 @@ type hookSpoolRecord struct {
 	DBPath        string    `json:"db_path,omitempty"`
 	Payload       string    `json:"payload"`
 	CreatedAt     time.Time `json:"created_at"`
-	Path          string    `json:"-"`
+	// AttemptCount tracks failed replay/requeue attempts. Missing field = 0
+	// (never classified as a failed replay). schema_version stays 1.
+	AttemptCount int `json:"attempt_count,omitempty"`
+	// LastError is the most recent replay/requeue failure message. Doctor must
+	// never print payload bodies; this field is for operator inspection only.
+	LastError string    `json:"last_error,omitempty"`
+	Path      string    `json:"-"`
+}
+
+// shouldDeadLetter reports whether a spool record with the given attempt count
+// has exhausted hookSpoolRetryLimit and must leave the replayable queue.
+func shouldDeadLetter(attempt int) bool {
+	return attempt >= hookSpoolRetryLimit
 }
 
 // explicitHookPayloadReader tells readHookPayload that the bytes came from a
@@ -122,8 +140,9 @@ type hookSpoolDrainResult struct {
 
 // drainHookSpoolRecords replays up to limit pending spool records in filename
 // queue order. A record is removed only after replay returns nil. A failed
-// record is atomically moved to the retry tail so it cannot starve unattempted
-// records. Returns counts of successful replays and retained failures.
+// record increments attempt_count and is either moved to the retry tail or,
+// after hookSpoolRetryLimit attempts, retained under spool/dead/. Returns
+// counts of successful replays and retained failures.
 func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replayed, failed int) {
 	result := c.drainHookSpoolRecordsDetailed(ctx, limit)
 	// Preserve the legacy aggregate used by opportunistic debug logging while
@@ -149,7 +168,7 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) 
 		if ctx.Err() != nil {
 			break
 		}
-		if err := requeueHookSpoolRecord(path); err != nil {
+		if err := requeueHookSpoolRecord(path, "unreadable hook spool record"); err != nil {
 			slog.Debug("unreadable hook spool requeue failed", "path", path, "error", err)
 		}
 	}
@@ -164,7 +183,13 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) 
 		if err := c.replayHookSpoolRecord(ctx, record); err != nil {
 			result.Failed++
 			slog.Debug("hook spool replay failed", "path", record.Path, "command", record.Command, "client", record.Client, "error", err)
-			if requeueErr := requeueHookSpoolRecord(record.Path); requeueErr != nil {
+			// Observed unreplayable classes that still hit this path and
+			// eventually dead-letter after the retry cap (validators stay
+			// strict; do not relax them):
+			//  1. "invalid Kimi usage record metadata" — unreplayable input
+			//  2. "conflicting duplicate Claude assistant usage" — unreplayable
+			//     against current identity rules (not last-write-wins)
+			if requeueErr := requeueHookSpoolRecord(record.Path, err.Error()); requeueErr != nil {
 				slog.Debug("failed hook spool requeue failed", "path", record.Path, "error", requeueErr)
 			}
 			continue
@@ -172,7 +197,7 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) 
 		if err := os.Remove(record.Path); err != nil && !os.IsNotExist(err) {
 			result.Failed++
 			slog.Debug("hook spool clear failed after replay", "path", record.Path, "error", err)
-			if requeueErr := requeueHookSpoolRecord(record.Path); requeueErr != nil {
+			if requeueErr := requeueHookSpoolRecord(record.Path, err.Error()); requeueErr != nil {
 				slog.Debug("committed hook spool requeue failed", "path", record.Path, "error", requeueErr)
 			}
 			continue
@@ -400,6 +425,14 @@ func hookSpoolDir() (string, error) {
 	return filepath.Join(stateDir, "spool"), nil
 }
 
+func hookSpoolDeadDir() (string, error) {
+	dir, err := hookSpoolDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, hookSpoolDeadDirName), nil
+}
+
 func listHookSpoolRecordPaths() ([]string, error) {
 	dir, err := hookSpoolDir()
 	if err != nil {
@@ -414,11 +447,14 @@ func listHookSpoolRecordPaths() ([]string, error) {
 	}
 	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
+		// Skip spool/dead/** and any other subdirectory; only top-level
+		// replayable *.json files are candidates for drain.
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
 		paths = append(paths, filepath.Join(dir, entry.Name()))
 	}
+	sort.Strings(paths)
 	return paths, nil
 }
 
@@ -486,16 +522,70 @@ func loadHookSpoolReplayBatch(
 			unreadable = append(unreadable, path)
 			continue
 		}
+		// Records already at the retry cap must not consume drain budget.
+		// They should already live under spool/dead/; this is a crash-safety filter.
+		if shouldDeadLetter(record.AttemptCount) {
+			continue
+		}
 		record.Path = path
 		records = append(records, record)
 	}
 	return records, unreadable, nil
 }
 
-func requeueHookSpoolRecord(path string) error {
+func writeHookSpoolRecordAtomic(path string, record hookSpoolRecord) error {
+	encoded, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return xerrors.Errorf("failed to encode hook spool record: %w", err)
+	}
+	encoded = append(encoded, '\n')
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, encoded, 0o600); err != nil {
+		return xerrors.Errorf("failed to write hook spool record: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return xerrors.Errorf("failed to publish hook spool record: %w", err)
+	}
+	return nil
+}
+
+// requeueHookSpoolRecord increments attempt_count after a failed replay or
+// unreadable load, then either renames the record to the retry tail or moves
+// it to spool/dead/ when shouldDeadLetter reports true. lastError is stored
+// for operator inspection and must never be treated as a payload body by doctor.
+func requeueHookSpoolRecord(path string, lastError string) error {
 	if strings.TrimSpace(path) == "" {
 		return xerrors.New("hook spool path is required")
 	}
+	data, err := readHookSpoolFile(path)
+	if err != nil {
+		// Fall back to a plain read so rename-only recovery still works when
+		// the nofollow open fails for an unreadable path.
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return xerrors.Errorf("failed to read hook spool record for requeue: %w", err)
+		}
+	}
+	record, ok := parseHookSpoolRecordForRequeue(data)
+	if !ok {
+		// Preserve raw bytes so operators can inspect the poison file later.
+		record = hookSpoolRecord{
+			SchemaVersion: hookSpoolSchemaVersion,
+			Payload:       string(data),
+			CreatedAt:     time.Now().UTC(),
+		}
+	}
+	record.AttemptCount++
+	if trimmed := strings.TrimSpace(lastError); trimmed != "" {
+		record.LastError = trimmed
+	}
+	record.Path = ""
+
+	if shouldDeadLetter(record.AttemptCount) {
+		return deadLetterHookSpoolRecord(path, record)
+	}
+
 	random := make([]byte, 8)
 	if _, err := rand.Read(random); err != nil {
 		return xerrors.Errorf("failed to generate hook spool retry ID: %w", err)
@@ -505,10 +595,176 @@ func requeueHookSpoolRecord(path string) error {
 		time.Now().UTC().Format("20060102T150405.000000000Z"),
 		hex.EncodeToString(random),
 	)
-	if err := os.Rename(path, filepath.Join(filepath.Dir(path), name)); err != nil {
-		return xerrors.Errorf("failed to move hook spool record to retry tail: %w", err)
+	newPath := filepath.Join(filepath.Dir(path), name)
+	if err := writeHookSpoolRecordAtomic(newPath, record); err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to remove original hook spool record after requeue: %w", err)
 	}
 	return nil
+}
+
+func parseHookSpoolRecordForRequeue(data []byte) (hookSpoolRecord, bool) {
+	var record hookSpoolRecord
+	if err := json.Unmarshal(data, &record); err != nil || record.SchemaVersion != hookSpoolSchemaVersion {
+		return hookSpoolRecord{}, false
+	}
+	return record, true
+}
+
+func deadLetterHookSpoolRecord(path string, record hookSpoolRecord) error {
+	deadDir, err := hookSpoolDeadDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		return xerrors.Errorf("failed to create hook spool dead-letter directory: %w", err)
+	}
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		return xerrors.Errorf("failed to generate hook spool dead-letter ID: %w", err)
+	}
+	name := fmt.Sprintf(
+		"dead-%s-%s.json",
+		time.Now().UTC().Format("20060102T150405.000000000Z"),
+		hex.EncodeToString(random),
+	)
+	newPath := filepath.Join(deadDir, name)
+	if err := writeHookSpoolRecordAtomic(newPath, record); err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to remove original hook spool record after dead-letter: %w", err)
+	}
+	return nil
+}
+
+// hookSpoolFilesystemStats is a metadata-only view of the spool directory.
+// It uses directory entry counts and byte sizes only; it never opens record
+// payloads. Required for the ≥2 GiB doctor large-store early path.
+type hookSpoolFilesystemStats struct {
+	PendingCount       int
+	PendingBytes       int64
+	StaleInflightCount int
+	StaleInflightBytes int64
+	DeadCount          int
+	DeadBytes          int64
+}
+
+func inspectHookSpoolFilesystemStats(now time.Time) (hookSpoolFilesystemStats, error) {
+	var stats hookSpoolFilesystemStats
+	dir, err := hookSpoolDir()
+	if err != nil {
+		return stats, err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return stats, nil
+	}
+	if err != nil {
+		return stats, xerrors.Errorf("failed to read hook spool directory: %w", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		path := filepath.Join(dir, name)
+		if entry.IsDir() {
+			if name != hookSpoolDeadDirName {
+				continue
+			}
+			deadCount, deadBytes, deadErr := countDirJSONEntries(path)
+			if deadErr != nil {
+				return stats, deadErr
+			}
+			stats.DeadCount = deadCount
+			stats.DeadBytes = deadBytes
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return stats, xerrors.Errorf("failed to inspect hook spool entry: %w", infoErr)
+		}
+		switch {
+		case strings.HasSuffix(name, ".json"):
+			stats.PendingCount++
+			stats.PendingBytes += info.Size()
+		case strings.HasSuffix(name, ".inflight"):
+			if now.Sub(info.ModTime()) >= hookSpoolInflightStaleAge {
+				stats.StaleInflightCount++
+				stats.StaleInflightBytes += info.Size()
+			}
+		}
+	}
+	return stats, nil
+}
+
+func countDirJSONEntries(dir string) (int, int64, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, xerrors.Errorf("failed to read directory: %w", err)
+	}
+	count := 0
+	var total int64
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return 0, 0, xerrors.Errorf("failed to inspect directory entry: %w", infoErr)
+		}
+		count++
+		total += info.Size()
+	}
+	return count, total, nil
+}
+
+// inspectHookSpoolFilesystemMetadata builds a doctor check from directory
+// metadata only (entry counts + byte sizes). Safe on the large-store early
+// path: no SQLite open and no payload reads.
+func inspectHookSpoolFilesystemMetadata() doctorCheck {
+	const name = "hook-spool"
+	stats, err := inspectHookSpoolFilesystemStats(time.Now().UTC())
+	if err != nil {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusFail,
+			Message: localizef("failed to inspect hook spool metadata: %v", "hook spool メタデータの検査に失敗しました: %v", err),
+		}
+	}
+	pendingTotal := stats.PendingCount + stats.StaleInflightCount
+	if pendingTotal == 0 && stats.DeadCount == 0 {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusPass,
+			Message: Localize("no pending or terminal hook spool records found", "未処理および terminal の hook spool record はありません"),
+		}
+	}
+	status := doctorStatusPass
+	if pendingTotal > 0 {
+		status = doctorStatusWarn
+	}
+	return doctorCheck{
+		Name:   name,
+		Status: status,
+		Message: localizef(
+			"hook spool filesystem metadata: pending=%d (%s), stale_inflight=%d (%s), dead=%d (%s)",
+			"hook spool ファイルシステムメタデータ: pending=%d (%s), stale_inflight=%d (%s), dead=%d (%s)",
+			stats.PendingCount,
+			formatByteSize(stats.PendingBytes),
+			stats.StaleInflightCount,
+			formatByteSize(stats.StaleInflightBytes),
+			stats.DeadCount,
+			formatByteSize(stats.DeadBytes),
+		),
+		Hint: Localize(
+			"metadata-only counts from the hook spool directory (no payload bodies). Pending records drain on later hook invocations or `traceary doctor --fix`; dead-letter records are retained under spool/dead/ after the retry cap.",
+			"hook spool ディレクトリのメタデータのみの件数です（payload body は読みません）。未処理 record は後続 hook または `traceary doctor --fix` で drain され、retry cap 到達後の dead-letter は spool/dead/ に保持されます。",
+		),
+	}
 }
 
 func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error) {
@@ -530,6 +786,8 @@ func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error)
 	records := []hookSpoolRecord{}
 	unreadable := []string{}
 	for _, entry := range entries {
+		// spool/dead/** is terminal retention and is reported via metadata, not
+		// as pending replay candidates.
 		if entry.IsDir() {
 			continue
 		}
@@ -554,6 +812,11 @@ func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error)
 		var record hookSpoolRecord
 		if err := json.Unmarshal(data, &record); err != nil || record.SchemaVersion != hookSpoolSchemaVersion {
 			unreadable = append(unreadable, path)
+			continue
+		}
+		if shouldDeadLetter(record.AttemptCount) {
+			// Terminal records left in the pending directory must not appear as
+			// drain candidates; dead/ is the retained location after requeue.
 			continue
 		}
 		if len(allowed) > 0 {
@@ -583,7 +846,11 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 	if err != nil {
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect hook spool: %v", "hook spool の検査に失敗しました: %v", err)}
 	}
-	if len(records) == 0 && len(unreadable) == 0 {
+	stats, statsErr := inspectHookSpoolFilesystemStats(time.Now().UTC())
+	if statsErr != nil {
+		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect hook spool metadata: %v", "hook spool メタデータの検査に失敗しました: %v", statsErr)}
+	}
+	if len(records) == 0 && len(unreadable) == 0 && stats.DeadCount == 0 {
 		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending hook spool records found", "未処理の hook spool record はありません")}
 	}
 	structuredFix := func(ctx context.Context, dryRun bool) (doctorFixResult, error) {
@@ -620,24 +887,32 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 	if len(records) > 0 {
 		latest = fmt.Sprintf("client=%s command=%s action=%s created_at=%s path=%s", emptyAsDash(records[0].Client), emptyAsDash(records[0].Command), emptyAsDash(records[0].Action), records[0].CreatedAt.Format(time.RFC3339Nano), records[0].Path)
 	}
-	return doctorCheck{
-		Name:   name,
-		Status: doctorStatusWarn,
-		Message: localizef(
-			"found %d pending hook spool record(s) and %d unreadable record(s); latest %s",
-			"未処理の hook spool record が %d 件、読めない record が %d 件あります。latest %s",
-			len(records), len(unreadable), latest,
-		),
+	status := doctorStatusPass
+	if len(records) > 0 || len(unreadable) > 0 {
+		status = doctorStatusWarn
+	}
+	message := localizef(
+		"found %d pending hook spool record(s), %d terminal dead-letter record(s), and %d unreadable record(s); latest %s",
+		"未処理の hook spool record が %d 件、terminal dead-letter が %d 件、読めない record が %d 件あります。latest %s",
+		len(records), stats.DeadCount, len(unreadable), latest,
+	)
+	check := doctorCheck{
+		Name:    name,
+		Status:  status,
+		Message: message,
 		Hint: Localize(
-			"records are drained automatically on later hook invocations (bounded batch). Run `traceary doctor --fix` to force a larger drain, or inspect payloads under the hook spool directory before manual removal.",
-			"record は後続 hook 呼び出し時に bounded batch で自動 drain されます。`traceary doctor --fix` で大きめに drain するか、手動削除前に spool ディレクトリの payload を確認してください。",
+			"records are drained automatically on later hook invocations (bounded batch). After 3 failed attempts a record is retained under spool/dead/ and excluded from drain. Run `traceary doctor --fix` to force a larger drain, or inspect payloads under the hook spool directory before manual removal.",
+			"record は後続 hook 呼び出し時に bounded batch で自動 drain されます。3 回失敗すると spool/dead/ に保持され drain 対象外になります。`traceary doctor --fix` で大きめに drain するか、手動削除前に spool ディレクトリの payload を確認してください。",
 		),
-		FixCommand:       "traceary doctor --fix",
-		AutoFixAvailable: true,
-		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
+	}
+	if status == doctorStatusWarn {
+		check.FixCommand = "traceary doctor --fix"
+		check.AutoFixAvailable = true
+		check.FixFunc = func(ctx context.Context, dryRun bool) (string, error) {
 			result, err := structuredFix(ctx, dryRun)
 			return result.Action, err
-		},
-		StructuredFixFunc: structuredFix,
+		}
+		check.StructuredFixFunc = structuredFix
 	}
+	return check
 }
