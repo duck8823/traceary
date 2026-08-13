@@ -10,7 +10,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - 既定の DB path: `~/.config/traceary/traceary.db`
 - 上書き方法: `--db-path` または `TRACEARY_DB_PATH`
 - file permission: parent directory は `0700`、DB file は `0600` で作成
-- 外部のホスト型サービスは使わない: CLI / hooks / MCP server は同じローカル SQLite ファイルを読み書きする
+- 外部のホスト型サービスは使わない: CLI / hooks は同じローカル SQLite ファイルを読み書きする
 
 `traceary store init` は任意です。ストアが必要なコマンドは、必要に応じて DB を作成し、migration を自動適用します。
 

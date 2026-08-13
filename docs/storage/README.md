@@ -10,7 +10,7 @@ This guide explains what gets written there, how the schema is organized today, 
 - default DB path: `~/.config/traceary/traceary.db`
 - override: `--db-path` or `TRACEARY_DB_PATH`
 - file permissions: Traceary creates the parent directory with `0700` and the DB file with `0600`
-- no hidden remote service: the CLI, hooks, and MCP server all read and write the same local SQLite file
+- no hidden remote service: the CLI and hooks read and write the same local SQLite file
 
 `traceary store init` is optional. Any command that needs the store will create the DB and apply migrations on demand.
 

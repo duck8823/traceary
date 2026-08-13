@@ -622,11 +622,10 @@ before page progress reports `stop_reason=revision_changed`.
 
 Hygiene cursors are encrypted and authenticated with an AES-GCM key that exists
 only in the issuing process. Modified cursors, legacy checksum cursors, and
-cursors from an earlier process fail with explicit new-scan guidance. A
-long-running MCP server can therefore resume pages until it restarts. The
+cursors from an earlier process fail with explicit new-scan guidance. The
 standalone CLI neither accepts `--cursor` nor emits `next_cursor`; each command
-is one bounded scan. Use `query_memory(action="scan_hygiene")` when a scan
-requires multiple process-authenticated pages.
+is one bounded scan. The former MCP `query_memory(action="scan_hygiene")`
+multi-page cursor path was removed with the MCP server in v0.35.0 (#1871).
 
 #### `traceary memory admin hygiene apply`
 

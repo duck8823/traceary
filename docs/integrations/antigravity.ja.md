@@ -240,7 +240,7 @@ agy plugin validate integrations/antigravity-plugin
 go run ./cmd/repo-tooling integrations verify
 ```
 
-Antigravity validator では skill が `3 processed`、MCP server と hook group がそれぞれ `1 processed` と表示されます。
+Antigravity validator では skill が `3 processed`、hook group が `1 processed` と表示されます。packaged plugin は Traceary MCP server を宣言しません（#1871）。
 
 ## 公式リファレンス
 

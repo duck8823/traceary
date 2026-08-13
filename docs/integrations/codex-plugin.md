@@ -3,7 +3,7 @@
 [日本語](./codex-plugin.ja.md)
 
 Traceary ships a Codex plugin under `plugins/traceary/` that plugs into Codex CLI's official `/plugins` flow.
-Codex picks up the MCP server, slash commands, and session-history skill as soon as the plugin is installed through the official flow. Plugin hooks require one additional security step: Codex skips non-managed hooks until the user reviews and trusts their current definition. Open `/hooks` after installation (and after any plugin update that changes a hook), review the Traceary entries, and trust them. `traceary doctor --client codex` checks the effective trust state through Codex and warns when a hook is untrusted, modified, or disabled.
+Codex picks up the slash commands and session-history skill as soon as the plugin is installed through the official flow. Plugin hooks require one additional security step: Codex skips non-managed hooks until the user reviews and trusts their current definition. Open `/hooks` after installation (and after any plugin update that changes a hook), review the Traceary entries, and trust them. `traceary doctor --client codex` checks the effective trust state through Codex and warns when a hook is untrusted, modified, or disabled.
 
 ## Install via Codex's official /plugins flow (primary)
 

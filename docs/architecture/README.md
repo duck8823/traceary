@@ -20,7 +20,7 @@ presentation -> application -> domain <- infrastructure
 
 | Layer | What belongs here | What does not belong here |
 | --- | --- | --- |
-| `presentation/` | CLI command wiring, MCP server handlers, hook-host payload parsing, operator-facing formatting, transport-specific validation | domain rules, persistence logic, long-lived business state |
+| `presentation/` | CLI command wiring, hook-host payload parsing, operator-facing formatting, transport-specific validation | domain rules, persistence logic, long-lived business state |
 | `application/` | write-side use cases, read-side query-service contracts, orchestration across domain objects, shared read models/DTOs | SQL, filesystem mutation details, transport-specific payload parsing |
 | `domain/` | entities, value objects, repository contracts, invariants, business errors | Cobra, SQLite, JSON transport handling, shell integration details |
 | `infrastructure/` | SQLite implementations, filesystem adapters, platform-specific file handling, external dependency adapters | business decisions that should live in domain/application, ad-hoc CLI flow control |

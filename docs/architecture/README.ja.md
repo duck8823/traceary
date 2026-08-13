@@ -20,7 +20,7 @@ presentation -> application -> domain <- infrastructure
 
 | 層 | 置くもの | 置かないもの |
 | --- | --- | --- |
-| `presentation/` | CLI コマンドの配線、MCP server の handler、hook ホスト固有の payload 解釈、利用者向けの表示整形、transport ごとの入力検証 | domain ルール、永続化の実装、長期的な業務状態 |
+| `presentation/` | CLI コマンドの配線、hook ホスト固有の payload 解釈、利用者向けの表示整形、transport ごとの入力検証 | domain ルール、永続化の実装、長期的な業務状態 |
 | `application/` | write-side use case、read-side query service の契約、domain object をまたぐオーケストレーション、共有の read model / DTO | SQL、filesystem の細かな操作、transport 固有の payload 解釈 |
 | `domain/` | entity、value object、repository 契約、不変条件、業務エラー | Cobra、SQLite、JSON transport の扱い、shell 連携の都合 |
 | `infrastructure/` | SQLite 実装、filesystem adapter、プラットフォーム固有の file handling、外部依存の adapter | domain/application に置くべき業務判断、その場しのぎの CLI 制御 |

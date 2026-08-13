@@ -98,7 +98,7 @@ cd traceary
 traceary doctor --client kimi
 ```
 
-正常なインストールであれば、`kimi-cli` / `kimi-plugin` / `kimi-hooks` / `kimi-mcp` / `kimi-skills` がすべて PASS します。Kimi は opt-in の doctor client なので、通常の `traceary doctor`（claude/codex/gemini）は変わりません。
+正常なインストールであれば、`kimi-cli` / `kimi-plugin` / `kimi-hooks` / `kimi-skills` がすべて PASS します。Kimi は opt-in の doctor client なので、通常の `traceary doctor`（claude/codex/gemini）は変わりません。
 
 ## 手動での hook 設定（代替）
 

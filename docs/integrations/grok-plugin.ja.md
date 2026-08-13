@@ -128,12 +128,12 @@ traceary doctor --client grok --project-dir . --json
 ```
 
 正常な導入では `grok-cli`、`grok-plugin`、`grok-hook-trust`、`grok-hooks`、
-`grok-mcp`、`grok-skills` が `pass` になります。`grok-event-coverage` は直近 DB
+`grok-skills` が `pass` になります。`grok-event-coverage` は直近 DB
 証拠を評価し、セッションが3件未満なら誤 pass せず「まだ判定しない」と報告します。
 
 ## プロジェクト / user hook 経路
 
-hook、MCP、skill をまとめて配線できるため、ネイティブ plugin を推奨します。
+hook と skill をまとめて配線できるため、ネイティブ plugin を推奨します。
 hook だけを導入することもできます。
 
 ```sh
@@ -146,7 +146,7 @@ traceary hooks install --client grok --global
 
 Grok はすべての source の hook をマージします。**有効な経路は 1 つだけ**にしてください。
 
-- MCP と skill も使う場合は native plugin `traceary-grok` を優先する
+- skill も使う場合は native plugin `traceary-grok` を優先する
 - plugin を使わないときだけ project または user の hook-only 経路を使う
 - plugin 導入後に user ファイルを残さない。plugin hooks を project / user route に
   コピーして代替しない。経路が重複すると同じイベントを二重に記録する可能性があり、
@@ -206,7 +206,7 @@ credential は読みません。
 この操作が削除するのは、その checkout の `integrations/grok-plugin` directory を source と
 する identity だけです。その後 repository subdirectory selector から canonical package を
 導入します。別 source の `traceary` package は選択も削除もされません。doctor を再実行し、
-`grok-plugin`、`grok-plugin-resolution`、`grok-hooks`、`grok-mcp`、`grok-skills` がすべて
+`grok-plugin`、`grok-plugin-resolution`、`grok-hooks`、`grok-skills` がすべて
 pass であることを確認してください。
 
 ## トラブルシュート
@@ -220,7 +220,7 @@ pass であることを確認してください。
 | `grok-hooks` が警告 | 導入済み hook file が不足しているか、7 event の厳密な契約からずれている。plugin を再導入する |
 | `grok-hooks-user` が失敗 | `~/.grok/hooks/traceary.json` が存在するが読み取れない、または有効な JSON ではない。修正または削除する |
 | `grok-hooks-routes` が警告 | native plugin / project / user-level の経路が 2 つ以上有効。1 つだけ残し、plugin 導入済みなら `traceary-grok` を優先して `~/.grok/hooks/traceary.json` を削除する |
-| `grok-mcp` / `grok-skills` が警告 | 導入済みパッケージの内容が不足している。plugin を再導入する |
+| `grok-skills` が警告 | 導入済みパッケージの内容が不足している。plugin を再導入する |
 | `grok-event-coverage` が警告 | 直近の `agent=grok` event と待機中の hook/transcript queue を確認する。導入状態が正常でも実行時配送まで保証しない |
 
 ### Stop の最終ターン transcript disposition

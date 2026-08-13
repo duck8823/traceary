@@ -3,7 +3,7 @@
 [English](./codex-plugin.md)
 
 Traceary の Codex 向け plugin は `plugins/traceary/` にあり、Codex CLI 公式の `/plugins` flow に乗せて使えます。
-MCP server / slash command / session-history skill は、公式 flow で plugin を install した時点で自動配線されます。plugin hook には追加の安全確認があります。Codex は non-managed hook の現在の定義をユーザーが確認して trust するまで実行しません。install 後と、hook 定義が変わる plugin update 後に `/hooks` を開き、Traceary の entry を確認して trust してください。`traceary doctor --client codex` は Codex が判定した有効な trust 状態を検査し、untrusted・変更済み・無効な hook を警告します。
+slash command / session-history skill は、公式 flow で plugin を install した時点で自動配線されます。plugin hook には追加の安全確認があります。Codex は non-managed hook の現在の定義をユーザーが確認して trust するまで実行しません。install 後と、hook 定義が変わる plugin update 後に `/hooks` を開き、Traceary の entry を確認して trust してください。`traceary doctor --client codex` は Codex が判定した有効な trust 状態を検査し、untrusted・変更済み・無効な hook を警告します。
 
 ## Codex 公式 /plugins flow で入れる (primary)
 

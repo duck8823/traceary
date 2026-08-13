@@ -113,7 +113,7 @@ repository root).
 traceary doctor --client kimi
 ```
 
-A healthy install reports `kimi-cli`, `kimi-plugin`, `kimi-hooks`, `kimi-mcp`,
+A healthy install reports `kimi-cli`, `kimi-plugin`, `kimi-hooks`,
 and `kimi-skills` all passing. Kimi is an opt-in doctor client, so plain
 `traceary doctor` (claude/codex/gemini) is unchanged.
 

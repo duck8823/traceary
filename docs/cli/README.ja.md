@@ -614,11 +614,10 @@ downgrade して、同じ source page を残りの実行予算内で再試行し
 
 hygiene cursor は、発行プロセスだけが保持する AES-GCM key で暗号化・認証されます。
 改変済み cursor、旧 checksum cursor、以前のプロセスが発行した cursor は、新しい
-scan が必要であることを明示する error になります。長時間動作する MCP server は
-再起動までページを継続できます。standalone CLI は `--cursor` を受け付けず、
-`next_cursor` も出力しません。各 command は 1 回の上限付き scan です。複数の
-process 認証済み page が必要な場合は
-`query_memory(action="scan_hygiene")` を使います。
+scan が必要であることを明示する error になります。standalone CLI は `--cursor` を
+受け付けず、`next_cursor` も出力しません。各 command は 1 回の上限付き scan です。
+かつての MCP `query_memory(action="scan_hygiene")` による複数 page cursor 経路は
+v0.35.0 (#1871) で MCP server と一緒に削除されました。
 
 #### `traceary memory admin hygiene apply`
 

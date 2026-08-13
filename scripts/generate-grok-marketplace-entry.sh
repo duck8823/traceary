@@ -40,7 +40,6 @@ entry = {
     "command audit",
     "durable memory",
     "local-first",
-    "mcp",
   ],
   "version": version,
   "author": {

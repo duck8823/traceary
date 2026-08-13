@@ -243,7 +243,7 @@ agy plugin validate integrations/antigravity-plugin
 go run ./cmd/repo-tooling integrations verify
 ```
 
-The Antigravity validator should report `3 processed` skills, `1 processed` MCP server, and `1 processed` hook group.
+The Antigravity validator should report `3 processed` skills and `1 processed` hook group. The packaged plugin no longer declares a Traceary MCP server (#1871).
 
 ## Official references
 

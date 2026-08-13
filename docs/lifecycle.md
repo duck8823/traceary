@@ -116,11 +116,6 @@ AI Client (Claude Code / Codex CLI / Gemini CLI)
   │    ├─ packaged shell wrappers (compatibility only, when present)
   │    ▼
   │  SQLite (~/.config/traceary/traceary.db)
-  │
-  └─ MCP server (stdio transport)
-       │
-       ▼
-     traceary CLI / hooks → SQLite
 ```
 
 ## Hook Script Mapping
