@@ -643,30 +643,6 @@ Useful flags:
 - `--expiry-days` — staleness threshold used by the internal scan (default 90)
 - `--json` — print JSON output with per-id transition metadata
 
-#### `traceary memory admin graph add <from-memory-id> --to <to-memory-id> --relation <type>`
-
-**Deprecated in v0.34.0; removed in v0.35.0; no replacement** — the reference store has zero `memory_edges` rows. Record a typed relationship between two memories (graph overlay introduced in v0.9.0). See [temporal memory architecture](../architecture/temporal-memory.md) for the relation vocabulary and overlay design.
-
-Useful flags:
-
-- `--to`: target memory ID (required)
-- `--relation`: `supersedes` / `contradicts` / `supports` / `related-to` / `causes` (required; unknown values are accepted for forward compatibility)
-- `--from`: validity window lower bound (YYYY-MM-DD or RFC3339); defaults to "now"
-- `--to-date`: validity window upper bound (exclusive); open-ended when omitted
-- `--json`
-
-#### `traceary memory admin graph list`
-
-**Deprecated in v0.34.0; removed in v0.35.0; no replacement** — the reference store has zero `memory_edges` rows. List edges matching the given filters. Uses the same half-open `[valid_from, valid_to)` semantics as `memory list --as-of`.
-
-Useful flags:
-
-- `--memory-id`: restrict to edges touching this memory (source or target)
-- `--relation`: filter by relation type
-- `--as-of`: evaluate validity at a given timestamp
-- `--limit`
-- `--json`
-
 #### `traceary memory admin supersede <memory-id>`
 
 Replace an accepted durable memory with a new accepted memory. Omitted `--type` and scope flags inherit from the current memory.
@@ -724,8 +700,8 @@ The flat memory verbs from earlier releases were hidden deprecated aliases durin
 | `memory activate` | `memory admin activate` |
 | `memory hygiene scan` | `memory admin hygiene scan` |
 | `memory hygiene apply` | `memory admin hygiene apply` |
-| `memory graph add` | `memory admin graph add` |
-| `memory graph list` | `memory admin graph list` |
+| `memory graph add` | `memory admin graph add` (removed in v0.35.0; no replacement) |
+| `memory graph list` | `memory admin graph list` (removed in v0.35.0; no replacement) |
 | `memory supersede` | `memory admin supersede` |
 | `memory expire` | `memory admin expire` |
 | `memory set-validity` | `memory admin set-validity` |
@@ -894,13 +870,12 @@ Useful flags:
 
 List session summaries.
 
-The session list view surfaces session metadata such as `label`, `summary`, and `parent_session_id` together with status, duration, and aggregate counts.
+The session list view surfaces session metadata such as `summary` and `parent_session_id` together with status, duration, and aggregate counts. The session-label surface (`session label`, `--label`, the `LABEL` column, and the `label` JSON field) was removed in v0.35.0 after the v0.34 deprecation (#1691).
 
 Useful flags:
 
 - `--workspace`
 - `--agent`
-- `--label` — **deprecated in v0.34.0; removed in v0.35.0; no replacement**
 - `--from`
 - `--to`
 - `--limit`
@@ -926,19 +901,6 @@ Render the full lineage that contains a session: Traceary walks up from `<sessio
 Useful flags:
 
 - `--json`
-
-### `traceary session label <label-text>` — **deprecated in v0.34.0; removed in v0.35.0; no replacement**
-
-Set or update a session label. The `LABEL` table column and `label` JSON field are also deprecated in v0.34.0 and removed in v0.35.0; the reference store has zero labelled sessions.
-
-Defaults:
-
-- `--session-id`: flag → `TRACEARY_SESSION_ID`
-
-Useful flags:
-
-- `--session-id`
-- `--db-path`
 
 ### `traceary session refine <session-id>`
 

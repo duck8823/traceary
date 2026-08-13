@@ -35,7 +35,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 
 - **イベント記録** — `traceary log`、`traceary audit`
 - **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`、`traceary sessions`（および `traceary sessions --snapshot` / `--snapshot --json`）、v0.34.0 で非推奨、v0.35.0 で削除される互換 alias の `traceary top`（`traceary top --snapshot` / `--snapshot --json` を含む）
-- **セッション** — `traceary session start`、`traceary session end`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session tree`、`traceary session lineage`、`traceary session label`、`traceary session refine`、`traceary session latest`、`traceary session active`
+- **セッション** — `traceary session start`、`traceary session end`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session tree`、`traceary session lineage`、`traceary session refine`、`traceary session latest`、`traceary session active`
 - **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store remember`、`traceary memory store propose`、`traceary memory store distill`
@@ -61,7 +61,7 @@ v0.15 の admin コマンド：
 
 - **ストア管理** — `traceary store init`、`traceary store backup create`、`traceary store backup restore`、`traceary store gc`
 - **セッション管理** — `traceary session gc`（stale なセッションを終了する。`session` 名前空間配下に公開セッションサブコマンドと同じ位置で登録されているが、扱いとしては admin ティアのメンテナンス入口）
-- **durable memory admin** — `traceary memory admin extract`、`traceary memory admin import codex`、`traceary memory admin import instructions`、`traceary memory admin export`、`traceary memory admin activate`、`traceary memory admin hygiene scan`、`traceary memory admin hygiene apply`、`traceary memory admin graph add`、`traceary memory admin graph list`、`traceary memory admin supersede`、`traceary memory admin expire`、`traceary memory admin set-validity`
+- **durable memory admin** — `traceary memory admin extract`、`traceary memory admin import codex`、`traceary memory admin import instructions`、`traceary memory admin export`、`traceary memory admin activate`、`traceary memory admin hygiene scan`、`traceary memory admin hygiene apply`、`traceary memory admin supersede`、`traceary memory admin expire`、`traceary memory admin set-validity`
 
 ### plumbing / hidden / deprecated コマンド (v0.15)
 
@@ -86,12 +86,12 @@ v0.15 の admin コマンド：
 
 - `traceary sessions` の対話 dashboard → `traceary sessions --snapshot`（v0.34.0 で非推奨、v0.35.0 で削除）
 - `traceary top` → `traceary sessions`（v0.34.0 で非推奨、v0.35.0 で削除）
-- `traceary memory admin graph add` と `traceary memory admin graph list`（v0.34.0 で非推奨、v0.35.0 で削除。reference store の `memory_edges` が 0 行のため置き換え先なし）
-- `traceary session label`、`traceary session list --label`、`LABEL` 列、`label` JSON フィールド（v0.34.0 で非推奨、v0.35.0 で削除。reference store の label 付き session が 0 件のため置き換え先なし）
 
 過去の削除履歴：
 
 - v0.35.0 で削除（v0.34 で予告、#1687 / #1764）: `traceary tui`、`traceary dashboard`、および operator cockpit を開いていた bare 対話 TTY 既定動作。bare `traceary` は TTY / 非 TTY とも常に help を表示します。関連する session データの存続する script 向け view には `traceary sessions --snapshot` を使ってください。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。Traceary はもう読み書きしません。
+- v0.35.0 で削除（v0.34 の非推奨 #1689 / #1691）: `traceary memory admin graph add` と `traceary memory admin graph list`（置き換え先なし。reference store の `memory_edges` は 0 行でした）。`memory_edges` テーブル自体は gc と bundle export/import のため残しています。
+- v0.35.0 で削除（v0.34 の非推奨 #1689 / #1691）: `traceary session label`、`traceary session list --label`、`session list` テキスト出力の `LABEL` 列、`session list` JSON の `label` フィールド（置き換え先なし。reference store の label 付き session は 0 件でした）。ストア schema の `sessions.label` 列は残しています。
 - v0.35.0 で置換（v0.34 で予告、#1717 / #1775）: `traceary search --json` のトップレベル配列 → `{"events": [...], "sessions": [...]}` オブジェクト。どちらのキーも常に存在し、ヒットがない tier は空配列です。
 - v0.14.0 で削除: `traceary init` → `traceary store init`、`traceary backup` → `traceary store backup ...`、`traceary gc` → `traceary store gc`、`traceary handoff` → `traceary session handoff`、`traceary compact-summary` → `traceary session handoff --compact-only`、廃止済み `traceary integration codex install` helper → Codex 公式 `/plugins` flow。
 - v0.15.0 で削除: `traceary memory accept`、`traceary memory reject`、`traceary memory remember`、`traceary memory propose`、`traceary memory distill`、`traceary memory extract`、`traceary memory supersede`、`traceary memory expire`、`traceary memory set-validity`、`traceary memory import codex`、`traceary memory import instructions`、`traceary memory export`、`traceary memory activate`、`traceary memory hygiene scan`、`traceary memory hygiene apply`、`traceary memory graph add`、`traceary memory graph list`。canonical な `memory inbox` / `memory store` / `memory admin` path を CLI リファレンスに従って使ってください。

@@ -67,8 +67,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		if !strings.Contains(output, "claude, codex") {
 			t.Fatalf("output should contain agents, got: %s", output)
 		}
-		if !strings.Contains(output, "docs") {
-			t.Fatalf("output should contain label, got: %s", output)
+		if strings.Contains(output, "\tLABEL\t") || strings.Contains(output, "LABEL\tSUMMARY") {
+			t.Fatalf("output should not include LABEL column, got: %s", output)
 		}
 		if !strings.Contains(output, "parent-1") {
 			t.Fatalf("output should contain parent session id, got: %s", output)
@@ -142,8 +142,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 		if !strings.Contains(output, `"duration_sec"`) {
 			t.Fatalf("JSON output should contain duration_sec, got: %s", output)
 		}
-		if !strings.Contains(output, `"label": "release"`) {
-			t.Fatalf("JSON output should contain label, got: %s", output)
+		if strings.Contains(output, `"label"`) {
+			t.Fatalf("JSON output should not contain label, got: %s", output)
 		}
 		if !strings.Contains(output, `"summary": "Prepare release notes"`) {
 			t.Fatalf("JSON output should contain summary, got: %s", output)
@@ -196,14 +196,8 @@ func TestRootCLI_SessionListCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 		output := stdout.String()
-		if strings.Contains(output, "release\tcandidate") {
-			t.Fatalf("text output should not contain raw tab characters in label, got: %q", output)
-		}
 		if strings.Contains(output, "root\nsession") {
 			t.Fatalf("text output should not contain raw newlines in parent session id, got: %q", output)
-		}
-		if !strings.Contains(output, "release candidate") {
-			t.Fatalf("text output should normalize label whitespace, got: %q", output)
 		}
 		if !strings.Contains(output, "root session") {
 			t.Fatalf("text output should normalize parent session id whitespace, got: %q", output)

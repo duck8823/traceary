@@ -480,21 +480,6 @@ func (s *contextUsecaseStub) Handoff(_ context.Context, criteria apptypes.Contex
 	return s.handoff, s.handoffErr
 }
 
-type memoryEdgeUsecaseStub struct {
-	addEdge   *model.MemoryEdge
-	addErr    error
-	listEdges []*model.MemoryEdge
-	listErr   error
-}
-
-func (s *memoryEdgeUsecaseStub) Add(_ context.Context, _ types.MemoryID, _ types.MemoryID, _ types.MemoryEdgeRelation, _ types.Optional[time.Time], _ types.Optional[time.Time]) (*model.MemoryEdge, error) {
-	return s.addEdge, s.addErr
-}
-
-func (s *memoryEdgeUsecaseStub) List(_ context.Context, _ model.MemoryEdgeListFilter) ([]*model.MemoryEdge, error) {
-	return s.listEdges, s.listErr
-}
-
 type bundleUsecaseStub struct {
 	importResult  usecase.BundleImportResult
 	importErr     error
