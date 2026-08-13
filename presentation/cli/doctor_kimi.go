@@ -144,7 +144,7 @@ func kimiManifestHasVerifiedHooks(manifest kimiPluginManifest) bool {
 	}
 	for _, hook := range manifest.Hooks {
 		key := rule{hook.Event, hook.Matcher, hook.Command}
-		if _, ok := counts[key]; !ok || hook.Timeout != 5 {
+		if _, ok := counts[key]; !ok || hook.Timeout != 10 {
 			return false
 		}
 		counts[key]--

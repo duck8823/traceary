@@ -30,53 +30,53 @@
     {
       "event": "SessionStart",
       "command": "traceary hook kimi session-start",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "SessionEnd",
       "command": "traceary hook kimi session-end",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "UserPromptSubmit",
       "command": "traceary hook kimi user-prompt-submit",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "PreToolUse",
       "matcher": "Agent",
       "command": "traceary hook kimi pre-tool-use",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "PostToolUse",
       "command": "traceary hook kimi post-tool-use",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "PostToolUseFailure",
       "command": "traceary hook kimi post-tool-use-failure",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "Stop",
       "command": "traceary hook kimi stop",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "SubagentStop",
       "command": "traceary hook kimi subagent-stop",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "PreCompact",
       "command": "traceary hook kimi pre-compact",
-      "timeout": 5
+      "timeout": 10
     },
     {
       "event": "PostCompact",
       "command": "traceary hook kimi post-compact",
-      "timeout": 5
+      "timeout": 10
     }
   ]
 }

@@ -220,7 +220,7 @@ func grokHookFileHasVerifiedCoverage(path string) bool {
 		}
 		got := routes[0].Hooks[0]
 		wantCommand := `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "` + contract.action + `"`
-		if got.Name != contract.name || got.Type != "command" || got.Command != wantCommand || got.Timeout != 5 {
+		if got.Name != contract.name || got.Type != "command" || got.Command != wantCommand || got.Timeout != 10 {
 			return false
 		}
 	}

@@ -210,7 +210,7 @@ func writeGrokDoctorHookFixture(t *testing.T, path string, complete bool) {
 			"name":    contract.name,
 			"type":    "command",
 			"command": `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "` + contract.action + `"`,
-			"timeout": 5,
+			"timeout": 10,
 		}}}}
 	}
 	data, err := json.Marshal(map[string]any{"hooks": hooks})

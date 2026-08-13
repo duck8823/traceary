@@ -215,7 +215,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 				if diff := cmp.Diff(want, entries[0].Hooks[0].Command); diff != "" {
 					t.Fatalf("Grok %s command mismatch (-want +got):\n%s", event, diff)
 				}
-				if diff := cmp.Diff(5, entries[0].Hooks[0].Timeout); diff != "" {
+				if diff := cmp.Diff(10, entries[0].Hooks[0].Timeout); diff != "" {
 					t.Fatalf("Grok %s timeout mismatch (-want +got):\n%s", event, diff)
 				}
 			}

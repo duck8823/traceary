@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,7 +69,7 @@ func TestKimiHooksHandler_RendersTOMLHookRules(t *testing.T) {
 			t.Errorf("rendered document missing runtime command for action %q", action)
 		}
 	}
-	if !strings.Contains(text, "timeout = 5") {
+	if !strings.Contains(text, fmt.Sprintf("timeout = %d", kimiHookTimeoutSeconds)) {
 		t.Error("rendered document missing per-hook timeout")
 	}
 }
@@ -140,8 +141,8 @@ func TestKimiHooksHandler_RenderedTOMLParses(t *testing.T) {
 		if !strings.Contains(hook.Command, "'/tmp/traceary bin/traceary' 'hook' 'kimi' '") {
 			t.Errorf("parsed command %q lost the quoted traceary bin path", hook.Command)
 		}
-		if hook.Timeout != 5 {
-			t.Errorf("parsed timeout = %d, want 5", hook.Timeout)
+		if hook.Timeout != kimiHookTimeoutSeconds {
+			t.Errorf("parsed timeout = %d, want %d", hook.Timeout, kimiHookTimeoutSeconds)
 		}
 		if hook.Matcher == "Agent" {
 			agentMatcherRules++
