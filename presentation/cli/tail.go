@@ -378,8 +378,8 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to poll tail events", "tail イベントのポーリングに失敗しました"), err)
 			}
-			// Hydrate after pollTailEvents (not inside it): cockpit reuses the
-			// metadata-only poll path and must not pay for command payloads.
+			// Hydrate after pollTailEvents (not inside it): other callers may
+			// reuse the metadata-only poll path and must not pay for payloads.
 			if err := c.hydrateCommandLinesForDisplay(ctx, newEvents); err != nil {
 				return err
 			}

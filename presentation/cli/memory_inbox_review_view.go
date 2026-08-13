@@ -410,7 +410,7 @@ func memoryReviewDuplicateSupersedeHint(summary apptypes.MemorySummary) string {
 	if supersedes, ok := summary.Supersedes().Value(); ok {
 		return Localizef("supersedes %s", "%s を supersede", supersedes)
 	}
-	return Localize("not checked in cockpit yet; use edit/distill or skip if duplicate risk is unclear", "cockpit では未チェック。重複リスクが不明なら edit/distill または skip")
+	return Localize("duplicate risk not checked yet; use edit/distill or skip if unclear", "重複リスクは未チェック。不明なら edit/distill または skip")
 }
 
 func memoryReviewEvidencePreview(details apptypes.MemoryDetails) []string {

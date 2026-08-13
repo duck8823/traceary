@@ -317,7 +317,6 @@ func run() error {
 		cli.WithHooksInspector(hooksInspector),
 		cli.WithPluginCacheInspector(pluginCacheInspector),
 		cli.WithClaudePluginDetector(pluginDetector),
-		cli.WithCockpitStateReader(cli.NewFileCockpitStateStore()),
 		cli.WithExtraRedactPatterns(extraRedactPatterns),
 		cli.WithStructuredRedactRules(structuredRedactRules),
 		cli.WithDefaultAuditPayloadLimits(auditMaxInputBytes, auditMaxOutputBytes),

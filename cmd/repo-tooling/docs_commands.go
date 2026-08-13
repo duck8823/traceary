@@ -94,7 +94,7 @@ type documentedCommand struct {
 
 func verifyDocumentedCommand(root *cobra.Command, file string, invocation documentedCommand, report *docsCommandReport) {
 	// The bare root is an executable compatibility entrypoint, not a group;
-	// its RunE opens the cockpit or prints deterministic help.
+	// its RunE always prints help for a bare invocation.
 	if len(invocation.Path) == 0 {
 		return
 	}

@@ -2,9 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
-	"errors"
-	"io"
 	"os"
 	"strings"
 	"testing"
@@ -58,7 +55,7 @@ func TestRootCLI_HelpCanUseJapanese(t *testing.T) {
 	}
 }
 
-func TestRootCLI_NoArgsNonInteractiveShowsHelpAndTuiGuidance(t *testing.T) {
+func TestRootCLI_NoArgsShowsHelp(t *testing.T) {
 	t.Parallel()
 
 	stdout := &bytes.Buffer{}
@@ -74,7 +71,6 @@ func TestRootCLI_NoArgsNonInteractiveShowsHelpAndTuiGuidance(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Traceary records and inspects local AI-agent work history",
-		"Tail-first operator cockpit",
 		"traceary list",
 		"traceary sessions --snapshot",
 		"traceary doctor --json",
@@ -84,12 +80,15 @@ func TestRootCLI_NoArgsNonInteractiveShowsHelpAndTuiGuidance(t *testing.T) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
 	}
+	if strings.Contains(stdout.String(), "operator cockpit") || strings.Contains(stdout.String(), "Tail-first") {
+		t.Fatalf("stdout still describes the removed cockpit:\n%s", stdout.String())
+	}
 	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty stderr for plain non-TTY help", stderr.String())
+		t.Fatalf("stderr = %q, want empty stderr for plain help", stderr.String())
 	}
 }
 
-func TestRootCLI_BareCockpitFlagsRequireInteractiveTTY(t *testing.T) {
+func TestRootCLI_BareWithDBPathStillShowsHelp(t *testing.T) {
 	t.Parallel()
 
 	stdout := &bytes.Buffer{}
@@ -98,96 +97,60 @@ func TestRootCLI_BareCockpitFlagsRequireInteractiveTTY(t *testing.T) {
 	rootCmd.SetIn(strings.NewReader(""))
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"--db-path", "./traceary.test.db", "--reset-state"})
+	rootCmd.SetArgs([]string{"--db-path", "./traceary.test.db"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(--db-path) error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Available Commands:") {
+		t.Fatalf("stdout = %q, want help", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRootCLI_ResetStateIsUnknownFlag(t *testing.T) {
+	t.Parallel()
+
+	rootCmd := NewRootCLI().Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"--reset-state"})
 
 	err := rootCmd.Execute()
 	if err == nil {
-		t.Fatal("Execute(--db-path --reset-state) error = nil, want TTY-required error")
+		t.Fatal("Execute(--reset-state) error = nil, want unknown-flag error")
 	}
-	var coder interface{ ExitCode() int }
-	if !errors.As(err, &coder) || coder.ExitCode() != cockpitExitCodeNotInteractive {
-		t.Fatalf("error = %T %v, want exit code %d", err, err, cockpitExitCodeNotInteractive)
-	}
-	if !strings.Contains(err.Error(), "Cockpit flags require an interactive TTY") {
-		t.Fatalf("error = %q, want TTY-required guidance", err.Error())
-	}
-	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want cobra-silenced error output", stderr.String())
-	}
-	if stdout.String() != "" {
-		t.Fatalf("stdout = %q, want empty stdout for cockpit flag error", stdout.String())
+	if !strings.Contains(err.Error(), "unknown flag: --reset-state") {
+		t.Fatalf("error = %q, want unknown --reset-state", err.Error())
 	}
 }
 
-func TestRootCLI_BareInteractiveDispatchesCockpit(t *testing.T) {
+func TestRootCLI_TuiAndDashboardAreUnknownCommands(t *testing.T) {
 	t.Parallel()
 
-	stdin := createTempFile(t)
-	stdout := createTempFile(t)
-	stderr := &bytes.Buffer{}
+	for _, command := range []string{"tui", "dashboard"} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
 
-	var called bool
-	var gotOpts cockpitCommandOptions
-	var gotInput io.Reader
-	var gotOutput io.Writer
-	root := NewRootCLI(withCockpitRuntimeForTest(
-		func(*os.File, *os.File) bool { return true },
-		func(_ context.Context, input io.Reader, output io.Writer, opts cockpitCommandOptions) error {
-			gotInput = input
-			gotOutput = output
-			called = true
-			gotOpts = opts
-			return nil
-		},
-	))
-	rootCmd := root.Command()
-	rootCmd.SetIn(stdin)
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"--db-path", "./traceary.test.db", "--reset-state"})
+			rootCmd := NewRootCLI().Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{command})
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if !called {
-		t.Fatal("cockpit runner was not called")
-	}
-	if gotOpts.dbPath != "./traceary.test.db" || !gotOpts.resetState {
-		t.Fatalf("cockpit options = %+v, want db path and reset state", gotOpts)
-	}
-	if gotInput != stdin || gotOutput != stdout {
-		t.Fatalf("runner I/O = (%T, %T), want temp stdin/stdout", gotInput, gotOutput)
-	}
-	if diff := cmp.Diff("DEPRECATED: opening the cockpit from a bare `traceary` is deprecated, use `traceary --help` instead. Removal target: v0.35.\n", stderr.String()); diff != "" {
-		t.Fatalf("stderr notice mismatch (-want +got):\n%s", diff)
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%s) error = nil, want unknown-command error", command)
+			}
+			if !strings.Contains(err.Error(), `unknown command "`+command+`" for "traceary"`) {
+				t.Fatalf("error = %q, want unknown-command error for %s", err.Error(), command)
+			}
+		})
 	}
 }
 
-func TestRootCLI_BareInteractiveDeprecationNoticeJapanese(t *testing.T) {
-	t.Setenv("TRACEARY_LANG", "ja")
-
-	stdin := createTempFile(t)
-	stdout := createTempFile(t)
-	stderr := &bytes.Buffer{}
-	root := NewRootCLI(withCockpitRuntimeForTest(
-		func(*os.File, *os.File) bool { return true },
-		func(context.Context, io.Reader, io.Writer, cockpitCommandOptions) error { return nil },
-	))
-	rootCmd := root.Command()
-	rootCmd.SetIn(stdin)
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	want := "DEPRECATED: bare `traceary` から cockpit を開く動作は非推奨です。代わりに `traceary --help` を使用してください。削除予定: v0.35。\n"
-	if diff := cmp.Diff(want, stderr.String()); diff != "" {
-		t.Fatalf("stderr notice mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestRootCLI_BareNonInteractiveOutputIsUnchangedAndUnnotified(t *testing.T) {
+func TestRootCLI_BareMatchesHelpAndIsUnnotified(t *testing.T) {
 	run := func(args ...string) (string, string) {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
@@ -202,16 +165,61 @@ func TestRootCLI_BareNonInteractiveOutputIsUnchangedAndUnnotified(t *testing.T) 
 		return stdout.String(), stderr.String()
 	}
 
+	// Bare help and explicit --help both render usage. Cobra's help path and
+	// RunE Help() can differ slightly in trailing newlines, so compare content
+	// presence rather than exact bytes for the TTY/non-TTY parity contract.
 	bareStdout, bareStderr := run()
 	helpStdout, helpStderr := run("--help")
-	if diff := cmp.Diff(helpStdout, bareStdout); diff != "" {
-		t.Errorf("bare stdout differs from help (-help +bare):\n%s", diff)
+	for _, want := range []string{
+		"Traceary records and inspects local AI-agent work history",
+		"Available Commands:",
+		"traceary list",
+	} {
+		if !strings.Contains(bareStdout, want) {
+			t.Errorf("bare stdout missing %q:\n%s", want, bareStdout)
+		}
+		if !strings.Contains(helpStdout, want) {
+			t.Errorf("help stdout missing %q:\n%s", want, helpStdout)
+		}
+	}
+	if strings.Contains(bareStdout, "DEPRECATED:") || strings.Contains(helpStdout, "DEPRECATED:") {
+		t.Errorf("help output leaked a deprecation notice")
 	}
 	if diff := cmp.Diff(helpStderr, bareStderr); diff != "" {
 		t.Errorf("bare stderr differs from help (-help +bare):\n%s", diff)
 	}
 	if strings.Contains(bareStderr, "DEPRECATED:") {
-		t.Errorf("bare non-TTY emitted a deprecation notice: %q", bareStderr)
+		t.Errorf("bare emitted a deprecation notice: %q", bareStderr)
+	}
+}
+
+func TestRootCLI_BareTTYAlsoShowsHelp(t *testing.T) {
+	t.Parallel()
+
+	stdin := createTempFile(t)
+	stdoutFile := createTempFile(t)
+	stderr := &bytes.Buffer{}
+	rootCmd := NewRootCLI().Command()
+	rootCmd.SetIn(stdin)
+	rootCmd.SetOut(stdoutFile)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if _, err := stdoutFile.Seek(0, 0); err != nil {
+		t.Fatalf("Seek() error = %v", err)
+	}
+	got, err := os.ReadFile(stdoutFile.Name())
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(got), "Available Commands:") {
+		t.Fatalf("TTY bare stdout = %q, want help", string(got))
+	}
+	if strings.Contains(stderr.String(), "DEPRECATED:") {
+		t.Fatalf("TTY bare emitted deprecation notice: %q", stderr.String())
 	}
 }
 
@@ -382,7 +390,7 @@ func TestRootCLI_UnknownCommandHelpStillFails(t *testing.T) {
 	}
 }
 
-func TestRootCLI_NoArgsNonInteractiveGuidanceCanUseJapanese(t *testing.T) {
+func TestRootCLI_NoArgsHelpCanUseJapanese(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "ja")
 
 	stdout := &bytes.Buffer{}
@@ -398,15 +406,17 @@ func TestRootCLI_NoArgsNonInteractiveGuidanceCanUseJapanese(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Traceary はローカルの AI agent 作業履歴を記録・確認します",
-		"Tail-first operator cockpit",
 		"traceary list",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 		}
 	}
+	if strings.Contains(stdout.String(), "operator cockpit") || strings.Contains(stdout.String(), "Tail-first") {
+		t.Fatalf("Japanese help still describes the removed cockpit:\n%s", stdout.String())
+	}
 	if stderr.String() != "" {
-		t.Fatalf("stderr = %q, want empty stderr for plain non-TTY help", stderr.String())
+		t.Fatalf("stderr = %q, want empty stderr for plain help", stderr.String())
 	}
 }
 

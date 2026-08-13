@@ -7,34 +7,33 @@ It focuses on read-side workflows for humans rather than on the write-side hook 
 
 ## What changed recently
 
-Traceary now ships three baseline interactive conveniences:
+Traceary now ships these baseline interactive conveniences:
 
-- bare `traceary` as the Tail-first operator cockpit entrypoint; its TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0
+- bare `traceary` prints help (TTY and non-TTY); the former Tail-first cockpit entrypoint was removed in v0.35.0
 - shell completion
 - `traceary tail` for live-follow inspection
+- `traceary sessions --snapshot` for the surviving Sessions view (the live interactive dashboard is deprecated in v0.34.0 and removed in v0.35.0)
+- `traceary memory inbox review` for TTY-only inbox walk-through
 
 That means the interactive read path is no longer limited to one-shot snapshots such as `list` and `search`.
-The cockpit is the recommended starting point when you do not want to remember whether the next action is `sessions`, `tail`, `doctor`, `session handoff`, or `memory inbox review`; `top` remains a compatibility alias for the Sessions dashboard.
 
 ## Recommended interactive workflow
 
 Use the commands below according to the question you are trying to answer.
 
-### 1. "I want one place to start" → `traceary`
+### 1. "I want to see what commands exist" → `traceary`
 
-Use bare `traceary` when you are at an interactive terminal and want Traceary to show the Tail-first operator cockpit first. The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions --snapshot` instead. The cockpit summarizes active work, doctor warnings/failures, recent failures, and new events since the last live-tail visit. The Sessions tab stays session-centric (sessions, failures, commands, and health); memory candidates and stale-memory cleanup belong in the dedicated Memory tab. From there you can jump into:
-
-- live event tail
-- doctor details
-- memory inbox review
+Bare `traceary` (and `traceary --help`) always prints help. Prefer explicit read commands for real work:
 
 ```sh
 traceary
-traceary tui
-traceary tui --reset-state
+traceary --help
+traceary list
+traceary sessions --snapshot
+traceary doctor --json
 ```
 
-The cockpit is intentionally TTY-only. Non-interactive callers should keep using `traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`; `traceary top --snapshot [--json]` remains a compatibility alias deprecated in v0.34.0 and removed in v0.35.0. Bare non-TTY `traceary` prints help plus fallback guidance instead of launching the cockpit.
+The former operator cockpit (`traceary tui` / `traceary dashboard` and the bare TTY default that opened it) was removed in v0.35.0. An orphan local state file at `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually.
 
 ### 2. "What just happened?" → `traceary list`
 
@@ -49,7 +48,7 @@ traceary list --workspace github.com/duck8823/traceary --client codex
 
 ### 3. "Which sessions are running right now?" → `traceary sessions`
 
-Use `sessions` to watch a live multi-pane dashboard of the workspace. This interactive rendering is deprecated in v0.34.0 and will be removed in v0.35.0; use `traceary sessions --snapshot` as the surviving form. The screen is split into five panes:
+Use `sessions --snapshot` for the surviving script-friendly Sessions view. The live multi-pane dashboard is deprecated in v0.34.0 and will be removed in v0.35.0. The screen (while still present) is split into five panes:
 
 - **sessions** — active session tree (workspace, agent role, latest event time, latest event as `<kind>: <message>`)
 - **failures** — recent failed `command_executed` events
@@ -58,13 +57,12 @@ Use `sessions` to watch a live multi-pane dashboard of the workspace. This inter
 - **stale memories** — accepted memories that may need cleanup
 
 ```sh
-traceary sessions
-traceary sessions --workspace github.com/duck8823/traceary
 traceary sessions --snapshot
+traceary sessions --workspace github.com/duck8823/traceary --snapshot
 traceary sessions --snapshot --json
 ```
 
-Inside the dashboard `tab` / `shift+tab` cycle the focused pane, `↑/↓` (or `k/j`) scroll it by one row, `pgup/pgdn` page through it, `g/G` jump to the top/bottom, `r` forces a refresh, `?` toggles help, and `q` / Ctrl-C / Esc quit cleanly. This standalone dashboard and its non-TTY snapshots intentionally keep the memory panes for compatibility even though the cockpit Sessions tab is session-only. Non-TTY callers (pipes, CI logs) fall back to the snapshot text writer automatically. `--snapshot` and `--snapshot --json` mirror the dashboard for scripts: the text snapshot starts with `RELIABILITY`, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys. `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions` instead.
+`--snapshot` and `--snapshot --json` mirror the dashboard for scripts: the text snapshot starts with `RELIABILITY`, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; the JSON snapshot is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys. `traceary top` is a compatibility alias deprecated in v0.34.0 and removed in v0.35.0; use `traceary sessions` instead.
 
 ### 4. "Is the system writing events right now?" → `traceary tail`
 
@@ -130,15 +128,13 @@ Completion is still worth enabling even after `tail` landed, because it reduces 
 
 ## Bare `traceary` entrypoint policy
 
-For v0.19.0, bare `traceary` opens the Tail-first cockpit when stdin/stdout are attached to an interactive terminal. Running `traceary` with no subcommand in a non-TTY context keeps deterministic help/fallback output instead of starting Bubble Tea.
+Bare `traceary` always prints help (TTY and non-TTY). The former Tail-first cockpit default and `traceary tui` / `traceary dashboard` were removed in v0.35.0 (#1764).
 
 The compatibility contract is:
 
-- The bare TTY default and `traceary tui` are deprecated in v0.34.0 and removed in v0.35.0; use `traceary --help` for the default entrypoint and `traceary sessions --snapshot` for the surviving script-friendly view of the same data.
-- Non-TTY `traceary` must keep deterministic help/script behavior.
+- Bare `traceary` and `traceary --help` print help only.
 - Completion generation and help examples must remain stable.
-- Script-facing commands (`sessions --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path; `top --snapshot` remains compatible.
-- Release notes must call out the deprecated default-entrypoint behavior and `traceary tui`, with their v0.35.0 removal target.
+- Script-facing commands (`sessions --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path; `top --snapshot` remains a deprecated compatibility alias until v0.35.0 removes it.
 
 ## Still future-facing
 
