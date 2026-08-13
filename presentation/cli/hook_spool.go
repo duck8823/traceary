@@ -474,6 +474,13 @@ func claimHookSpoolRecord(path string) (claimedPath string, ok bool, err error) 
 		}
 		return "", false, xerrors.Errorf("failed to claim hook spool record: %w", err)
 	}
+	// Rename preserves the original mtime. Bump claim times to now so a
+	// long-pending record is not immediately treated as a stale claim by
+	// recoverStaleClaimedHookSpoolRecords while this process still owns it.
+	now := time.Now()
+	if err := os.Chtimes(claimedPath, now, now); err != nil {
+		slog.Debug("hook spool claim chtimes failed", "path", claimedPath, "error", err)
+	}
 	return claimedPath, true, nil
 }
 

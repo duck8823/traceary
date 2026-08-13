@@ -1437,6 +1437,63 @@ func TestInspectHookSpoolDiagnostics_ReportsPendingAndTerminalCounts(t *testing.
 	}
 }
 
+func TestClaimHookSpoolRecord_FreshMtimeSurvivesStaleRecovery(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	path, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC().Add(-2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	// Simulate a long-pending record whose original mtime is already stale.
+	old := time.Now().Add(-2 * hookSpoolInflightStaleAge)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatalf("Chtimes original: %v", err)
+	}
+
+	claimedPath, ok, err := claimHookSpoolRecord(path)
+	if err != nil {
+		t.Fatalf("claimHookSpoolRecord: %v", err)
+	}
+	if !ok {
+		t.Fatal("claimHookSpoolRecord ok=false, want true")
+	}
+
+	// Immediate recovery with wall clock must not restore a live claim whose
+	// mtime was refreshed at claim time (rename alone would keep the old mtime).
+	if err := recoverStaleClaimedHookSpoolRecords(time.Now().UTC()); err != nil {
+		t.Fatalf("recover now: %v", err)
+	}
+	if _, err := os.Lstat(claimedPath); err != nil {
+		t.Fatalf("claimed path must remain after recover(now): %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("original .json must not be restored while claim is live, stat err=%v", err)
+	}
+
+	// Far-future recovery may release the claim once it is truly stale.
+	future := time.Now().UTC().Add(2 * hookSpoolInflightStaleAge)
+	if err := recoverStaleClaimedHookSpoolRecords(future); err != nil {
+		t.Fatalf("recover future: %v", err)
+	}
+	if _, err := os.Lstat(claimedPath); !os.IsNotExist(err) {
+		t.Fatalf("stale claim must be released, Lstat err=%v", err)
+	}
+	// Restored either under the original basename or a unique retry name.
+	pending, err := listHookSpoolRecordPaths()
+	if err != nil {
+		t.Fatalf("listHookSpoolRecordPaths: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending after stale release = %v, want exactly 1", pending)
+	}
+}
+
 func TestClaimHookSpoolRecord_ConcurrentExclusive(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
