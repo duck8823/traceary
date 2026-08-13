@@ -44,7 +44,7 @@ traceary doctor --client codex --json
 - `traceary mcp-server` を呼ぶ `traceary` MCP server
 - `SessionStart`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop`（本文を含まない usage と turn 境界の transcript。session 終了ではない — #1170）, `PostToolUse` hook（`plugins/traceary/hooks.json` で宣言、manifest から参照） — **Codex 側の `plugin_hooks` feature が有効で、現在の定義が `/hooks` で trust されている場合に限る**。それ以外は下記 **Hook fallback (plugin_hooks が利用できない環境向け)** セクションを参照
 - slash command: `/traceary:help`, `/traceary:doctor`
-- 文脈に効く skill: `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember`。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。
+- 文脈 skill（1 job につき 1 skill。詳細は [skills](./skills.ja.md)）: `traceary-session-history` / `traceary-session-refine` / `traceary-memory-review` / `traceary-memory-remember`。いずれも Traceary CLI 経由。
 
 ## Hook trust 診断と legacy fallback
 

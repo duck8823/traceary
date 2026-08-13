@@ -39,8 +39,8 @@ var kimiExpectedHooks = []struct {
 	{"PostCompact", "", "post-compact"},
 }
 
-// kimiExpectedSkills are the three shared skills every host package ships.
-var kimiExpectedSkills = []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history"}
+// kimiExpectedSkills are the four shared skills every host package ships.
+var kimiExpectedSkills = []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history", "traceary-session-refine"}
 
 type kimiDoctorState struct {
 	CLIAvailable    bool
@@ -285,7 +285,7 @@ func buildKimiDoctorChecks(state kimiDoctorState, tracearyVersion string) []doct
 	checks = append(checks, doctorCheck{Name: "kimi-mcp", Status: mcpStatus, Message: mcpMessage, Hint: mcpHint})
 
 	skillStatus := doctorStatusPass
-	skillMessage := Localize("native Kimi plugin exposes all three Traceary skills", "native Kimi plugin は Traceary skill を3件すべて公開しています")
+	skillMessage := Localize("native Kimi plugin exposes all four Traceary skills", "native Kimi plugin は Traceary skill を4件すべて公開しています")
 	if state.Skills != len(kimiExpectedSkills) {
 		skillStatus = doctorStatusWarn
 		skillMessage = localizef("native Kimi plugin exposes %d Traceary skills; expected %d", "native Kimi plugin の Traceary skill は %d 件です。%d 件必要です", state.Skills, len(kimiExpectedSkills))

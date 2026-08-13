@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildKimiDoctorChecks(t *testing.T) {
-	healthy := kimiDoctorState{CLIAvailable: true, HostVersion: "0.27.0", PluginInstalled: true, PluginEnabled: true, PluginRecordKnown: true, PluginVersion: "0.28.0", NativeHooks: true, PluginMCP: true, Skills: 3}
+	healthy := kimiDoctorState{CLIAvailable: true, HostVersion: "0.27.0", PluginInstalled: true, PluginEnabled: true, PluginRecordKnown: true, PluginVersion: "0.28.0", NativeHooks: true, PluginMCP: true, Skills: 4}
 	tests := []struct {
 		name       string
 		mutate     func(*kimiDoctorState)
@@ -54,7 +54,7 @@ func TestBuildKimiDoctorChecks(t *testing.T) {
 }
 
 func TestBuildKimiDoctorChecksHealthyStatePassesEveryCheck(t *testing.T) {
-	state := kimiDoctorState{CLIAvailable: true, HostVersion: "0.27.0", PluginInstalled: true, PluginEnabled: true, PluginRecordKnown: true, PluginVersion: "0.28.0", NativeHooks: true, PluginMCP: true, Skills: 3}
+	state := kimiDoctorState{CLIAvailable: true, HostVersion: "0.27.0", PluginInstalled: true, PluginEnabled: true, PluginRecordKnown: true, PluginVersion: "0.28.0", NativeHooks: true, PluginMCP: true, Skills: 4}
 	for _, check := range buildKimiDoctorChecks(state, "0.28.0") {
 		if check.Status != doctorStatusPass {
 			t.Fatalf("healthy state produced %s %s: %s", check.Name, check.Status, check.Message)
@@ -79,7 +79,7 @@ func TestProbeKimiDoctorStateReadsManagedPluginAndRecord(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(manifestDir, "skills", "traceary-memory-remember"), 0o755); err != nil {
 		t.Fatalf("mkdir skills: %v", err)
 	}
-	for _, skill := range []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history"} {
+	for _, skill := range []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history", "traceary-session-refine"} {
 		if err := os.MkdirAll(filepath.Join(manifestDir, "skills", skill), 0o755); err != nil {
 			t.Fatalf("mkdir skill %s: %v", skill, err)
 		}
@@ -128,8 +128,8 @@ func TestProbeKimiDoctorStateReadsManagedPluginAndRecord(t *testing.T) {
 	if !state.PluginMCP {
 		t.Fatal("managed manifest must declare the traceary MCP server")
 	}
-	if state.Skills != 3 {
-		t.Fatalf("skills = %d, want 3", state.Skills)
+	if state.Skills != 4 {
+		t.Fatalf("skills = %d, want 4", state.Skills)
 	}
 }
 

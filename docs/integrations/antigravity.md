@@ -29,7 +29,7 @@ Antigravity parses hook stdout as JSON. The output vocabulary used by Traceary i
 
 The `PreInvocation` contract was confirmed in the vendor documentation shipped with the Antigravity CLI at `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md` (the public contract is also documented at [Antigravity hooks](https://antigravity.google/docs/hooks)). Its contract example uses `injectSteps` with `ephemeralMessage`; the matcher is ignored, handlers are a flat list, and the default handler timeout is 30 seconds.
 
-The packaged plugin also exposes the local `traceary mcp-server` through `mcp_config.json` and includes the `traceary-session-history`, `traceary-memory-review`, and `traceary-memory-remember` contextual skills. Direct `traceary hooks install` routes install hooks only; use the packaged plugin when Antigravity should discover the MCP tools and skills automatically.
+The packaged plugin also exposes the local `traceary mcp-server` through `mcp_config.json` and includes the four shared skills (`traceary-session-history`, `traceary-session-refine`, `traceary-memory-review`, `traceary-memory-remember`; see [skills](./skills.md)). Skills route agents through the Traceary CLI. Direct `traceary hooks install` routes install hooks only; use the packaged plugin when Antigravity should discover MCP tools and skills automatically.
 
 ## Usage metadata from the status line
 
@@ -176,7 +176,7 @@ traceary hooks install --client antigravity --global
 
 Aliases `agy` and `antigravity-cli` resolve to the same canonical `antigravity` client. The install is non-destructive: only the `traceary` hook group is replaced, and every other top-level hook group is preserved verbatim. Re-run with `--upgrade` to refresh the managed group while preserving user-added groups.
 
-Alternatively, install the packaged plugin under [`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/). It ships the same `traceary` hook group, a versioned `plugin.json` manifest following the official Antigravity schema, `mcp_config.json` for the Traceary MCP server, the three shared memory/session skills, and the opt-in `permissions.example.json` fragment. Do not also retain a direct workspace or user-level Traceary hook route.
+Alternatively, install the packaged plugin under [`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/). It ships the same `traceary` hook group, a versioned `plugin.json` manifest following the official Antigravity schema, `mcp_config.json` for the Traceary MCP server, the four shared skills (see [skills](./skills.md)), and the opt-in `permissions.example.json` fragment. Do not also retain a direct workspace or user-level Traceary hook route.
 
 ## Setup guide
 

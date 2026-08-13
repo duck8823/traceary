@@ -10,7 +10,7 @@ Claude 向け package は `integrations/claude-plugin/` にあり、repository r
 - `SessionStart` / `SessionEnd` hook
 - transcript event の記録前に、ローカル transcript から Claude が報告した token 数を記録する `Stop` usage hook
 - `Bash` / `mcp__.*` / 組み込み tool matcher (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`) 向けの `PostToolUse` / `PostToolUseFailure` audit hook
-- slash command として使える `/traceary-help` と、文脈で自動適用される `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember` skill。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。
+- 文脈 skill（1 job につき 1 skill。詳細は [skills](./skills.ja.md)）: `traceary-session-history` / `traceary-session-refine` / `traceary-memory-review` / `traceary-memory-remember`。いずれも Traceary CLI 経由。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで `traceary memory store propose` により candidate を書き、`traceary-session-refine` は Motivation + The change を `traceary session refine` で保存します。
 
 ## 利用量の記録
 

@@ -14,8 +14,8 @@ Gemini 向け package は `integrations/gemini-extension/` にあります。Gem
 - `AfterAgent` transcript / usage availability hook（agent の応答を `transcript` event として記録し、本文を含まない hook から provider usage を取得できないことも明示的に記録）
 - `run_shell_command` 向け `AfterTool` audit hook
 - `PreCompress` compact marker hook（Gemini に post-compress summary hook がないため、圧縮前の境界だけを記録）
-- slash command の `/traceary-help` と `/traceary-doctor`
-- 文脈で効く `traceary-session-history` / `traceary-memory-review` / `traceary-memory-remember` skill。`traceary-memory-review` は review 意図の発話 (「Traceary inbox」「review memory candidates」「session recap」など) で発火し inbox の curate を案内、`traceary-memory-remember` は明示 write 発話 (「覚えておいて」「remember that」など) のみで発火します。
+- slash command の `/traceary-help` と `/traceary-doctor`（`/traceary-help` は CLI・hooks・doctor の案内であり MCP 専用ではない）
+- 文脈 skill（1 job につき 1 skill。詳細は [skills](./skills.ja.md)）: `traceary-session-history` / `traceary-session-refine` / `traceary-memory-review` / `traceary-memory-remember`。いずれも Traceary CLI 経由。
 
 ## Usage metadata
 

@@ -4,8 +4,8 @@
 
 Traceary v0.23.0 adds a native Grok Build integration. The package under
 [`integrations/grok-plugin/`](../../integrations/grok-plugin/) installs seven
-verified lifecycle hooks, one local Traceary MCP server, and the three shared
-memory/session skills. Recorded hook events use `client=hook` and `agent=grok`.
+verified lifecycle hooks, one local Traceary MCP server, and the four shared
+skills (see [skills](./skills.md)). Recorded hook events use `client=hook` and `agent=grok`.
 
 ## Supported coverage
 

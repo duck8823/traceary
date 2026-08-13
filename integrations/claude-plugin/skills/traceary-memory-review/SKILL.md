@@ -1,31 +1,37 @@
 ---
 name: traceary-memory-review
 description: Use when the user asks to review Traceary memory candidates, pending memory inbox items, or to generate a session summary/handoff from current Traceary context. Trigger phrases — "Traceary inbox", "memory inbox", "pending memories", "review memory candidates", "記憶候補", "メモリ候補", "保留中の記憶", "session recap", "セッションまとめ", "summarize this session for next time". Do not trigger for generic status / cleanup / progress requests unless Traceary memory/session review is explicit.
-version: 1.2.0
+version: 2.0.0
 ---
 
 # Traceary memory review
 
-Use this skill when the operator explicitly asks to look at Traceary's pending memory inbox, accept/reject candidates, or to recap the current session. This is a **read + curate** skill — it does not write durable memory on its own. For explicit "remember X" requests use `traceary-memory-remember`.
+Use this skill when the operator explicitly asks to look at Traceary's pending memory inbox, accept/reject candidates, or to recap the current session. This is a **read + curate** skill — it does not write durable memory on its own. For explicit "remember X" requests use `traceary-memory-remember`. For folding a session into a durable refinement use `traceary-session-refine`.
 
 ## Workflow
 
-1. **List candidates**. Call `query_memory` with `action="retrieve"` and `status=["candidate"]`. Default scope is the current workspace; broaden to agent / session_family only if the user says so.
+1. **List candidates**. Prefer the CLI inbox list for the current workspace; broaden to agent / session-family only if the user says so.
+
+   ```sh
+   traceary memory inbox list --workspace "<current workspace>" --limit 20 --json
    ```
-   query_memory({
-     "action": "retrieve",
-     "status": ["candidate"],
-     "workspace": "<current workspace>",
-     "limit": 20
-   })
-   ```
+
 2. **Present the inbox to the user**. For each candidate include the memory id, type, fact, and the conversation evidence the candidate carries. Do not narrate the JSON verbatim — summarize so a busy operator can decide quickly.
 3. **Wait for the operator's decision per memory**. The operator may accept, reject, or ask to re-scope a candidate. Do not assume silence implies accept.
-4. **Apply decisions** via `manage_memory`:
-   - Accept: `manage_memory({"action": "accept", "ids": ["<id>", ...]})`
-   - Reject: `manage_memory({"action": "reject", "ids": ["<id>", ...]})`
-   - Re-scope or amend: reject the original, then call `manage_memory({"action": "remember", ...})` (or ask the operator to invoke `traceary-memory-remember`) with the corrected scope / fact text.
-5. **(Optional) session recap** when the operator says "session recap" / "summarize for next time": follow `traceary-session-history`'s Discovery → Inspection → Detail retrieval rules before composing a 3–5 sentence inline summary. Start with a workspace-scoped metadata query and inspect only selected candidates with a positive bounded `body_limit`; do not make a bare `get_context` call. Persistent storage of session summaries is wired through compact-summary events (see hook contract); a dedicated MCP write path for `sessions.summary` is not exposed today.
+4. **Apply decisions** via the CLI:
+
+   ```sh
+   # Accept
+   traceary memory inbox accept <memory-id>
+   traceary memory inbox accept --ids id1,id2,id3
+
+   # Reject
+   traceary memory inbox reject <memory-id>
+   traceary memory inbox reject --ids id1,id2,id3
+   ```
+
+   - Re-scope or amend: reject the original, then ask the operator to invoke `traceary-memory-remember` (or run `traceary memory store propose` with the corrected scope / fact text). Do **not** use `memory store remember` from the agent skill path.
+5. **(Optional) session recap** when the operator says "session recap" / "summarize for next time": follow `traceary-session-history`'s Discovery → Inspection → Detail rules before composing a 3–5 sentence inline summary. Start with a workspace-scoped metadata query and inspect only selected candidates with a bounded `traceary context` read; do not make a bare `traceary context` call. Persistent storage of session summaries is **not** this skill's job — use `traceary-session-refine` when the operator wants a durable refinement that can cover event bodies for later discard.
 
 ## Human fallback: `traceary memory inbox review`
 
@@ -60,10 +66,10 @@ traceary memory inbox reject --ids id1,id2,id3
 
 ## Guardrails
 
-- **Read first, write last.** The skill leads with `query_memory(retrieve)` and never accepts memory before the operator has seen the list.
-- **Never auto-accept candidate memories unless the user explicitly instructs it.** No silent batch accept, no "looks fine, let me approve them all" without a per-id operator decision. `manage_memory(action="accept")` is one-tap-irreversible from a UX standpoint, and the same rule applies to the CLI fallbacks: do not run `memory inbox accept --ids ...` on the operator's behalf without a direct instruction.
+- **Read first, write last.** The skill leads with `memory inbox list` and never accepts memory before the operator has seen the list.
+- **Never auto-accept candidate memories unless the user explicitly instructs it.** No silent batch accept, no "looks fine, let me approve them all" without a per-id operator decision. `memory inbox accept` is one-tap-irreversible from a UX standpoint: do not run `memory inbox accept --ids ...` on the operator's behalf without a direct instruction.
 - **Distinguish the two CLI fallbacks.** `traceary memory inbox review` is the human-driven interactive walk; `memory inbox list` + `memory inbox accept|reject` is the script/batch path. Recommend the right one for the operator's environment instead of bundling both.
 - **Do not propose new memories here.** That is `traceary-memory-remember`'s job. If the operator says "save this", route to that skill instead of writing yourself.
 - **Stay scoped.** Default to the current workspace. Wider scopes need an explicit operator instruction.
-- **Recap in stages.** For a session recap, use `traceary-session-history`'s Discovery → Inspection → Detail rules; a bare `get_context` call is not a recap starting point.
-- **Skip empty inboxes.** If `query_memory(retrieve, status=["candidate"])` is empty, say so plainly — do not invent placeholder candidates.
+- **Recap in stages.** For a session recap, use `traceary-session-history`'s Discovery → Inspection → Detail rules; a bare `traceary context` call is not a recap starting point.
+- **Skip empty inboxes.** If `memory inbox list` is empty, say so plainly — do not invent placeholder candidates.

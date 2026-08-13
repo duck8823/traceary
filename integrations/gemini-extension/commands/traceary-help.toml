@@ -1,13 +1,19 @@
-description = "Explain the Traceary Gemini extension, its MCP tools, and the built-in hook workflow."
+description = "Explain the Traceary Gemini extension, its CLI entry points, and the built-in hook workflow."
 prompt = """
 Explain the Traceary Gemini extension for the current workspace.
 
 Workflow:
 1. Confirm whether `traceary` is available on PATH.
-2. Summarize the three packaged surfaces: MCP server, automatic hooks, and `traceary doctor --client gemini`.
-3. If the user asks for setup or verification steps, prefer these commands:
+2. Summarize the packaged surfaces: automatic hooks, the Traceary CLI (`traceary --help`), and `traceary doctor --client gemini`.
+3. Point skills at their jobs when relevant:
+   - `traceary-session-history` — prior sessions / events / audits
+   - `traceary-session-refine` — write a session refinement (Motivation + The change)
+   - `traceary-memory-review` — inbox curate / session recap
+   - `traceary-memory-remember` — explicit durable-memory proposes
+4. If the user asks for setup or verification steps, prefer these commands:
    - `traceary version`
    - `traceary hooks guide --client gemini`
    - `traceary doctor --client gemini --json`
-4. Keep the answer concise and actionable.
+   - `traceary --help`
+5. Keep the answer concise and actionable. Do not invent MCP-only skill workflows.
 """
