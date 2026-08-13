@@ -261,7 +261,7 @@ func grokHookFixture() hookFile {
 		{"PostCompact", "traceary-compact-post", "post-compact"},
 	} {
 		hooks[spec.event] = []hookEntry{{Hooks: []hookCommand{{
-			Name: spec.name, Type: "command", Timeout: 5,
+			Name: spec.name, Type: "command", Timeout: 10,
 			Command: `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "` + spec.action + `"`,
 		}}}}
 	}

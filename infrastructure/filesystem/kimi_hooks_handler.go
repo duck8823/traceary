@@ -11,9 +11,9 @@ import (
 
 // kimiHookTimeoutSeconds is the per-hook timeout written into the generated
 // Kimi Code [[hooks]] rules. Kimi's default is 30s; Traceary's runtime
-// entrypoints are fail-soft and quick, so 5s keeps a slow disk from stalling
-// the host loop while leaving ample headroom (matching the Grok contract).
-const kimiHookTimeoutSeconds = 5
+// entrypoints are fail-soft and quick, so 10s matches the packaged Grok,
+// Gemini, and Antigravity host budgets and the hook-spool drain assumption.
+const kimiHookTimeoutSeconds = 10
 
 // KimiHooksHandler is the client-specific boundary for Kimi Code hooks.
 //

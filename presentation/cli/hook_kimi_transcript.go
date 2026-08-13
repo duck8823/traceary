@@ -228,7 +228,7 @@ const kimiTranscriptTurnsStateDir = "kimi-transcript-turns"
 
 // kimiTranscriptTurnLockTimeout bounds how long a Stop firing waits to
 // acquire the per-session turn-marker lock. The Kimi Stop hook's host timeout
-// is 5s (integrations/kimi-plugin/kimi.plugin.json) and the critical section
+// is 10s (integrations/kimi-plugin/kimi.plugin.json) and the critical section
 // runs a DB migration check plus an event insert against a store that can be
 // tens of GB, so this budget leaves several seconds of headroom inside the
 // host deadline for that work to finish even after a fully contended wait.
@@ -329,7 +329,7 @@ func kimiTranscriptTurnStatePath(sessionID string) (string, error) {
 // flock (unlike the prior mkdir-based lock) is released by the kernel when
 // the holding process dies for any reason, including SIGKILL — so a host
 // kill mid-critical-section (a real risk here: the section runs a DB
-// migration check plus an insert against a multi-GB store, inside a 5s host
+// migration check plus an insert against a multi-GB store, inside a 10s host
 // hook timeout) cannot leave a stale lock behind. No PID check, TTL, or
 // cleanup is needed. Acquisition is bounded by kimiTranscriptTurnLockTimeout
 // so a firing never spins past its host budget; exhausting that budget

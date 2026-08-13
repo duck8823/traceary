@@ -552,7 +552,7 @@ func checkKimi(root, version string) error {
 	for i, want := range expectedHooks {
 		hook := manifest.Hooks[i]
 		expectedCommand := "traceary hook kimi " + want.action
-		if hook.Event != want.event || hook.Matcher != want.matcher || hook.Command != expectedCommand || hook.Timeout != 5 {
+		if hook.Event != want.event || hook.Matcher != want.matcher || hook.Command != expectedCommand || hook.Timeout != 10 {
 			return xerrors.Errorf("kimi plugin hook rule %d (%s) drifted from the verified Kimi contract", i, want.event)
 		}
 	}
@@ -599,7 +599,7 @@ func checkGrokHooks(path string, hooks hookFile) error {
 		}
 		command := entries[0].Hooks[0]
 		expectedCommand := `"${GROK_PLUGIN_ROOT}/scripts/traceary-grok.sh" "` + want.action + `"`
-		if command.Name != want.name || command.Type != "command" || command.Command != expectedCommand || command.Timeout != 5 {
+		if command.Name != want.name || command.Type != "command" || command.Command != expectedCommand || command.Timeout != 10 {
 			return xerrors.Errorf("%s %s command drifted from the verified Grok contract", path, want.event)
 		}
 	}

@@ -92,16 +92,16 @@ func TestProbeKimiDoctorStateReadsManagedPluginAndRecord(t *testing.T) {
   "version": "0.28.0",
   "mcpServers": {"traceary": {"command": "traceary", "args": ["mcp-server"]}},
   "hooks": [
-    {"event": "SessionStart", "command": "traceary hook kimi session-start", "timeout": 5},
-    {"event": "SessionEnd", "command": "traceary hook kimi session-end", "timeout": 5},
-    {"event": "UserPromptSubmit", "command": "traceary hook kimi user-prompt-submit", "timeout": 5},
-    {"event": "PreToolUse", "matcher": "Agent", "command": "traceary hook kimi pre-tool-use", "timeout": 5},
-    {"event": "PostToolUse", "command": "traceary hook kimi post-tool-use", "timeout": 5},
-    {"event": "PostToolUseFailure", "command": "traceary hook kimi post-tool-use-failure", "timeout": 5},
-    {"event": "Stop", "command": "traceary hook kimi stop", "timeout": 5},
-    {"event": "SubagentStop", "command": "traceary hook kimi subagent-stop", "timeout": 5},
-    {"event": "PreCompact", "command": "traceary hook kimi pre-compact", "timeout": 5},
-    {"event": "PostCompact", "command": "traceary hook kimi post-compact", "timeout": 5}
+    {"event": "SessionStart", "command": "traceary hook kimi session-start", "timeout": 10},
+    {"event": "SessionEnd", "command": "traceary hook kimi session-end", "timeout": 10},
+    {"event": "UserPromptSubmit", "command": "traceary hook kimi user-prompt-submit", "timeout": 10},
+    {"event": "PreToolUse", "matcher": "Agent", "command": "traceary hook kimi pre-tool-use", "timeout": 10},
+    {"event": "PostToolUse", "command": "traceary hook kimi post-tool-use", "timeout": 10},
+    {"event": "PostToolUseFailure", "command": "traceary hook kimi post-tool-use-failure", "timeout": 10},
+    {"event": "Stop", "command": "traceary hook kimi stop", "timeout": 10},
+    {"event": "SubagentStop", "command": "traceary hook kimi subagent-stop", "timeout": 10},
+    {"event": "PreCompact", "command": "traceary hook kimi pre-compact", "timeout": 10},
+    {"event": "PostCompact", "command": "traceary hook kimi post-compact", "timeout": 10}
   ]
 }`
 	if err := os.WriteFile(filepath.Join(manifestDir, "kimi.plugin.json"), []byte(manifest), 0o600); err != nil {
@@ -181,30 +181,30 @@ func TestKimiMCPJSONRegistersRejectsInvalidDeclarations(t *testing.T) {
 
 func TestKimiManifestHasVerifiedHooksIsOrderIndependent(t *testing.T) {
 	base := `[
-    {"event": "SessionStart", "command": "traceary hook kimi session-start", "timeout": 5},
-    {"event": "SessionEnd", "command": "traceary hook kimi session-end", "timeout": 5},
-    {"event": "UserPromptSubmit", "command": "traceary hook kimi user-prompt-submit", "timeout": 5},
-    {"event": "PreToolUse", "matcher": "Agent", "command": "traceary hook kimi pre-tool-use", "timeout": 5},
-    {"event": "PostToolUse", "command": "traceary hook kimi post-tool-use", "timeout": 5},
-    {"event": "PostToolUseFailure", "command": "traceary hook kimi post-tool-use-failure", "timeout": 5},
-    {"event": "Stop", "command": "traceary hook kimi stop", "timeout": 5},
-    {"event": "SubagentStop", "command": "traceary hook kimi subagent-stop", "timeout": 5},
-    {"event": "PreCompact", "command": "traceary hook kimi pre-compact", "timeout": 5},
-    {"event": "PostCompact", "command": "traceary hook kimi post-compact", "timeout": 5}
+    {"event": "SessionStart", "command": "traceary hook kimi session-start", "timeout": 10},
+    {"event": "SessionEnd", "command": "traceary hook kimi session-end", "timeout": 10},
+    {"event": "UserPromptSubmit", "command": "traceary hook kimi user-prompt-submit", "timeout": 10},
+    {"event": "PreToolUse", "matcher": "Agent", "command": "traceary hook kimi pre-tool-use", "timeout": 10},
+    {"event": "PostToolUse", "command": "traceary hook kimi post-tool-use", "timeout": 10},
+    {"event": "PostToolUseFailure", "command": "traceary hook kimi post-tool-use-failure", "timeout": 10},
+    {"event": "Stop", "command": "traceary hook kimi stop", "timeout": 10},
+    {"event": "SubagentStop", "command": "traceary hook kimi subagent-stop", "timeout": 10},
+    {"event": "PreCompact", "command": "traceary hook kimi pre-compact", "timeout": 10},
+    {"event": "PostCompact", "command": "traceary hook kimi post-compact", "timeout": 10}
   ]`
 
 	t.Run("shuffled order still satisfies the contract", func(t *testing.T) {
 		shuffled := `[
-    {"event": "PostCompact", "command": "traceary hook kimi post-compact", "timeout": 5},
-    {"event": "PreCompact", "command": "traceary hook kimi pre-compact", "timeout": 5},
-    {"event": "SubagentStop", "command": "traceary hook kimi subagent-stop", "timeout": 5},
-    {"event": "Stop", "command": "traceary hook kimi stop", "timeout": 5},
-    {"event": "PostToolUseFailure", "command": "traceary hook kimi post-tool-use-failure", "timeout": 5},
-    {"event": "PostToolUse", "command": "traceary hook kimi post-tool-use", "timeout": 5},
-    {"event": "PreToolUse", "matcher": "Agent", "command": "traceary hook kimi pre-tool-use", "timeout": 5},
-    {"event": "UserPromptSubmit", "command": "traceary hook kimi user-prompt-submit", "timeout": 5},
-    {"event": "SessionEnd", "command": "traceary hook kimi session-end", "timeout": 5},
-    {"event": "SessionStart", "command": "traceary hook kimi session-start", "timeout": 5}
+    {"event": "PostCompact", "command": "traceary hook kimi post-compact", "timeout": 10},
+    {"event": "PreCompact", "command": "traceary hook kimi pre-compact", "timeout": 10},
+    {"event": "SubagentStop", "command": "traceary hook kimi subagent-stop", "timeout": 10},
+    {"event": "Stop", "command": "traceary hook kimi stop", "timeout": 10},
+    {"event": "PostToolUseFailure", "command": "traceary hook kimi post-tool-use-failure", "timeout": 10},
+    {"event": "PostToolUse", "command": "traceary hook kimi post-tool-use", "timeout": 10},
+    {"event": "PreToolUse", "matcher": "Agent", "command": "traceary hook kimi pre-tool-use", "timeout": 10},
+    {"event": "UserPromptSubmit", "command": "traceary hook kimi user-prompt-submit", "timeout": 10},
+    {"event": "SessionEnd", "command": "traceary hook kimi session-end", "timeout": 10},
+    {"event": "SessionStart", "command": "traceary hook kimi session-start", "timeout": 10}
   ]`
 		var manifest kimiPluginManifest
 		if err := json.Unmarshal([]byte(`{"hooks":`+shuffled+`}`), &manifest); err != nil {
@@ -218,7 +218,7 @@ func TestKimiManifestHasVerifiedHooksIsOrderIndependent(t *testing.T) {
 	t.Run("extra hook rule is rejected", func(t *testing.T) {
 		var manifest kimiPluginManifest
 		extra := base[:len(base)-2] + `,
-    {"event": "Notification", "command": "traceary hook kimi notification", "timeout": 5}
+    {"event": "Notification", "command": "traceary hook kimi notification", "timeout": 10}
   ]`
 		if err := json.Unmarshal([]byte(`{"hooks":`+extra+`}`), &manifest); err != nil {
 			t.Fatalf("decode manifest with extra rule: %v", err)
