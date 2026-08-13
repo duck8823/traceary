@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -326,10 +327,20 @@ func validateSessionHistorySkillContract(rel, body string) error {
 		{
 			section: "Discovery",
 			body:    discovery,
-			concept: "a workspace-scoped traceary list with a small limit",
+			concept: "a workspace-scoped traceary list with a small limit and explicit --fields",
 			variants: [][]string{
-				{"traceary list", "workspace", "limit", "5"},
-				{"list", "--workspace", "--limit", "5"},
+				{"traceary list", "workspace", "limit", "5", "--fields"},
+				{"list", "--workspace", "--limit", "5", "--fields"},
+			},
+		},
+		{
+			section: "Discovery",
+			body:    discovery,
+			concept: "Discovery --fields that include id and exclude message",
+			variants: [][]string{
+				{"--fields id,ts,kind,session"},
+				{"--fields id,"},
+				{"--fields id"},
 			},
 		},
 		{
@@ -374,8 +385,51 @@ func validateSessionHistorySkillContract(rel, body string) error {
 			return err
 		}
 	}
+	if err := validateSessionHistoryDiscoveryFields(rel, discovery); err != nil {
+		return err
+	}
 	if strings.Contains(strings.ToLower(body), "mcp server") || strings.Contains(body, "list_events") || strings.Contains(body, "manage_memory") {
 		return xerrors.Errorf("%s must use the CLI read path, not MCP tool names", rel)
+	}
+	return nil
+}
+
+// sessionHistoryDiscoveryFieldsFlag matches shell-style --fields lists only
+// (e.g. --fields id,ts,kind,session). Prose that mentions bare `--fields` without
+// a value is ignored so documentation can warn about the flag without failing.
+var sessionHistoryDiscoveryFieldsFlag = regexp.MustCompile(`(?i)--fields(?:=|\s+)([a-z0-9_,]+)`)
+
+// validateSessionHistoryDiscoveryFields requires Discovery list/search examples
+// to pass --fields that include event id and do not include message (body).
+// Bare defaults omit id and pull message, which breaks staged retrieval and
+// later show / session refine --covers-to.
+func validateSessionHistoryDiscoveryFields(rel, discovery string) error {
+	lower := strings.ToLower(discovery)
+	hasListOrSearch := strings.Contains(lower, "traceary list") || strings.Contains(lower, "traceary search") ||
+		strings.Contains(lower, "\nlist ") || strings.Contains(lower, "\nsearch ")
+	if !hasListOrSearch {
+		return xerrors.Errorf("%s Discovery must include a list or search example", rel)
+	}
+
+	matches := sessionHistoryDiscoveryFieldsFlag.FindAllStringSubmatch(discovery, -1)
+	if len(matches) == 0 {
+		return xerrors.Errorf("%s Discovery list/search examples must pass --fields (bare defaults omit id and include message)", rel)
+	}
+
+	for _, match := range matches {
+		fields := strings.ToLower(match[1])
+		hasID := false
+		for _, part := range strings.Split(fields, ",") {
+			switch strings.TrimSpace(part) {
+			case "id":
+				hasID = true
+			case "message":
+				return xerrors.Errorf("%s Discovery --fields must not include message (body); leave bodies to Inspection/Detail", rel)
+			}
+		}
+		if !hasID {
+			return xerrors.Errorf("%s Discovery --fields must include id so show / covers-to can use the event id (got %q)", rel, match[1])
+		}
 	}
 	return nil
 }

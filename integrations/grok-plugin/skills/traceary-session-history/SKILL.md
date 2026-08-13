@@ -1,7 +1,7 @@
 ---
 name: traceary-session-history
 description: Use when the user asks about prior Traceary sessions, event history, command audits, or what happened earlier in the workspace. Trigger on phrases like "Traceary", "session history", "audit trail", "recent events", or "what happened earlier".
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Traceary session history
@@ -19,21 +19,38 @@ audits, and "what happened earlier" questions.
 
 Start with the current workspace whenever it is known, then run a small
 workspace-scoped `traceary list` with a small limit (normally `5`). Add a time
-range or `--session-id` when the question provides one. List output is enough
-to select event IDs, kinds, timestamps, and short messages without opening full
-bodies.
+range or `--session-id` when the question provides one.
+
+**Always pass `--fields` on Discovery** so the output includes event `id` and
+excludes bodies. Default compact fields are `ts,kind,agent,session,ws,message` —
+they omit `id` (so you cannot feed `traceary show` / `session refine --covers-to`)
+and include `message` (body). Do **not** use bare `list` / `search` without
+`--fields`, and do **not** put `message` in Discovery fields.
 
 ```sh
 traceary list \
   --workspace "<current workspace>" \
   --from "<known start, if any>" \
   --to "<known end, if any>" \
-  --limit 5
+  --limit 5 \
+  --json \
+  --fields id,ts,kind,session
 ```
 
-For a literal query, use `traceary search "<query>"` with the same workspace and
-time filters. Both `list` and `search` accept `--session-id` when a session is
-already known. Omit unknown filters rather than guessing them.
+For a literal query at Discovery, use the same metadata field set:
+
+```sh
+traceary search "<query>" \
+  --workspace "<current workspace>" \
+  --from "<known start, if any>" \
+  --to "<known end, if any>" \
+  --limit 5 \
+  --json \
+  --fields id,ts,kind,session
+```
+
+Both `list` and `search` accept `--session-id` when a session is already known.
+Omit unknown filters rather than guessing them.
 
 Use `traceary session latest` first when the task is specifically about the most
 recent session; use `traceary session active` only when it asks about an open
@@ -80,8 +97,8 @@ the first history query.
 
 - `traceary session latest`: most recent session metadata for the current workspace
 - `traceary session active`: only when the question is specifically about an open session
-- `traceary list`: Discovery for recent metadata; supports workspace, time, and session filters
-- `traceary search "<query>"`: Discovery for a narrow literal query; supports workspace, time, and session filters
+- `traceary list --json --fields id,ts,kind,session`: Discovery for recent metadata (always include `id`; never `message` at this stage)
+- `traceary search "<query>" --json --fields id,ts,kind,session`: Discovery for a narrow literal query (same field rule)
 - `traceary context`: bounded surrounding context narrowed only by workspace, session-id, and limit; it cannot target an event id
 - `traceary show <event-id>`: full detail for one selected event
 - `traceary report`: aggregate usage / activity report when the operator wants a rollup rather than event bodies
@@ -90,6 +107,7 @@ the first history query.
 
 - Prefer CLI reads before direct SQLite inspection.
 - Follow Discovery → Inspection → Detail; scope by workspace first and add only filters supported by the chosen command.
+- Discovery list/search must use `--fields` that include `id` and exclude `message`. Bare defaults break staged retrieval.
 - Keep the first list/search limit small. A bounded `traceary context` is for candidate inspection, not bulk history retrieval.
 - Use `traceary show <event-id>` for full detail after a single candidate and a reason have been identified.
 - Use `traceary log` / `traceary audit` only when the user explicitly wants to record something.

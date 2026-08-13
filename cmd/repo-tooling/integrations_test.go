@@ -84,6 +84,7 @@ func TestValidateSessionHistorySkillContract_AcceptsEquivalentContractWording(t 
 	body := `
 ### 1. Discovery
 Use traceary list with --workspace and a limit of 5.
+traceary list --workspace x --limit 5 --json --fields id,ts,kind,session
 Use session latest or session active when the question is about a session.
 
 ### 2. Inspection
@@ -106,6 +107,7 @@ func TestValidateSessionHistorySkillContract_RejectsMissingContextScope(t *testi
 	body := `
 ### 1. Discovery
 Use traceary list with --workspace and a limit of 5.
+traceary list --workspace x --limit 5 --json --fields id,ts,kind,session
 Use session latest or session active when the question is about a session.
 
 ### 2. Inspection
@@ -123,6 +125,84 @@ For one event, run traceary show <event-id>.
 	}
 	if !strings.Contains(err.Error(), "context lacking event_id") {
 		t.Fatalf("error = %v, want context scope concept", err)
+	}
+}
+
+func TestValidateSessionHistoryDiscoveryFields_RejectsBareListWithoutFields(t *testing.T) {
+	t.Parallel()
+
+	body := `
+### 1. Discovery
+traceary list --workspace x --limit 5
+Use session latest or session active.
+
+### 2. Inspection
+Example: traceary context.
+traceary context has no event-id filter and narrows only with workspace, session_id, and limit.
+
+### 3. Detail
+For one event, run traceary show <event-id>.
+
+## Preferred tools
+`
+	err := validateSessionHistorySkillContract("skill", body)
+	if err == nil {
+		t.Fatal("validateSessionHistorySkillContract() error = nil, want missing --fields error")
+	}
+	if !strings.Contains(err.Error(), "--fields") {
+		t.Fatalf("error = %v, want --fields requirement", err)
+	}
+}
+
+func TestValidateSessionHistoryDiscoveryFields_RejectsMessageWithoutMetadataOnly(t *testing.T) {
+	t.Parallel()
+
+	body := `
+### 1. Discovery
+traceary list --workspace x --limit 5 --json --fields id,ts,kind,message
+Use session latest or session active.
+
+### 2. Inspection
+Example: traceary context.
+traceary context has no event-id filter and narrows only with workspace, session_id, and limit.
+
+### 3. Detail
+For one event, run traceary show <event-id>.
+
+## Preferred tools
+`
+	err := validateSessionHistorySkillContract("skill", body)
+	if err == nil {
+		t.Fatal("validateSessionHistorySkillContract() error = nil, want message-in-fields error")
+	}
+	if !strings.Contains(err.Error(), "message") {
+		t.Fatalf("error = %v, want message prohibition", err)
+	}
+}
+
+func TestValidateSessionHistoryDiscoveryFields_RejectsFieldsWithoutID(t *testing.T) {
+	t.Parallel()
+
+	body := `
+### 1. Discovery
+traceary list --workspace x --limit 5 --json --fields ts,kind,session
+Use session latest or session active.
+
+### 2. Inspection
+Example: traceary context.
+traceary context has no event-id filter and narrows only with workspace, session_id, and limit.
+
+### 3. Detail
+For one event, run traceary show <event-id>.
+
+## Preferred tools
+`
+	err := validateSessionHistorySkillContract("skill", body)
+	if err == nil {
+		t.Fatal("validateSessionHistorySkillContract() error = nil, want missing id error")
+	}
+	if !strings.Contains(err.Error(), "id") {
+		t.Fatalf("error = %v, want id requirement", err)
 	}
 }
 
