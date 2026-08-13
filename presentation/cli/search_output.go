@@ -12,29 +12,21 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 )
 
-// searchSessionsJSONNotice is written to stderr — never stdout — whenever
-// session-tier hits exist but `--json` could not carry them. `traceary search`
-// is a Public command, so its top-level `--json` array stays an array for the
-// whole of v0.34; the envelope that carries sessions lands in v0.35. Without
-// this notice a scripted consumer searching old history would see an empty
-// array and could not tell it apart from "no results".
-var searchSessionsJSONNotice = Localize(
-	"traceary: %d matching session(s) are not included in --json output. "+
-		"Run the same search without --json to see them. "+
-		"From v0.35 `search --json` emits an object with `events` and `sessions` instead of an array.\n",
-	"traceary: 一致したセッション %d 件は --json 出力に含まれていません。"+
-		"--json を外して同じ検索を実行すると確認できます。"+
-		"v0.35 以降 `search --json` は配列ではなく `events` と `sessions` を持つオブジェクトを出力します。\n",
-)
+// searchJSONEnvelope is the v0.35+ contract for `traceary search --json`.
+// Both keys are always present so an empty tier is distinguishable from a
+// missing field; empty arrays mean the tier was consulted and returned no hits.
+type searchJSONEnvelope struct {
+	Events   []any                    `json:"events"`
+	Sessions []searchSessionJSONOutput `json:"sessions"`
+}
 
-// warnSearchSessionsOmittedFromJSON reports session hits that the v0.34 JSON
-// shape cannot represent. Silence here would be a false negative, so the notice
-// is unconditional whenever hits were dropped.
-func warnSearchSessionsOmittedFromJSON(warnWriter io.Writer, sessionCount int) {
-	if warnWriter == nil || sessionCount == 0 {
-		return
-	}
-	_, _ = fmt.Fprintf(warnWriter, searchSessionsJSONNotice, sessionCount)
+// searchSessionJSONOutput is the stable object shape for session-tier hits.
+// Field names match the MCP search session row so CLI and MCP stay aligned.
+type searchSessionJSONOutput struct {
+	SessionID  string `json:"session_id"`
+	Summary    string `json:"summary"`
+	EventCount int    `json:"event_count"`
+	StartedAt  string `json:"started_at"`
 }
 
 // warnSearchSessionsSuppressedByKind reports that the SESSIONS group is empty
@@ -123,11 +115,9 @@ func (n searchSessionNotices) write(warnWriter io.Writer) {
 	}
 }
 
-// writeSearchByFormat renders search results as either event-only output
-// (byte-compatible with historical `traceary search` when sessions is empty)
-// or labelled event/session groups when older session hits are present.
-// JSON output is always the historical top-level event array; sessions reach
-// the operator through warnSearchSessionsOmittedFromJSON until v0.35.
+// writeSearchByFormat renders search results as either the events/sessions
+// JSON object or labelled text groups. Text output stays event-only when the
+// session tier is empty so recent-only searches stay byte-identical.
 func writeSearchByFormat(
 	output io.Writer,
 	events []*model.Event,
@@ -138,7 +128,7 @@ func writeSearchByFormat(
 	extrasFor compactExtrasResolver,
 ) error {
 	if asJSON {
-		return writeSearchJSON(output, events, jsonFieldsExplicit, textOpts.fields, extrasFor)
+		return writeSearchJSON(output, events, sessions, jsonFieldsExplicit, textOpts.fields, extrasFor)
 	}
 	return writeSearchText(output, events, sessions, textOpts, extrasFor)
 }
@@ -146,6 +136,7 @@ func writeSearchByFormat(
 func writeSearchJSON(
 	output io.Writer,
 	events []*model.Event,
+	sessions []apptypes.SearchSessionHit,
 	jsonFieldsExplicit bool,
 	fields []readFieldID,
 	extrasFor compactExtrasResolver,
@@ -164,7 +155,46 @@ func writeSearchJSON(
 			eventPayload = append(eventPayload, newEventOutput(event))
 		}
 	}
-	return writeJSON(output, eventPayload)
+	return writeSearchJSONEnvelope(output, eventPayload, sessions)
+}
+
+// writeSearchMetadataJSON writes the search envelope when --json --fields
+// selects a body-free metadata projection for the event tier.
+func writeSearchMetadataJSON(
+	output io.Writer,
+	metadata []apptypes.EventMetadata,
+	sessions []apptypes.SearchSessionHit,
+	fields []readFieldID,
+) error {
+	eventPayload := make([]any, 0, len(metadata))
+	for _, event := range metadata {
+		eventPayload = append(eventPayload, newEventMetadataFieldsOutput(event, fields))
+	}
+	return writeSearchJSONEnvelope(output, eventPayload, sessions)
+}
+
+func writeSearchJSONEnvelope(
+	output io.Writer,
+	events []any,
+	sessions []apptypes.SearchSessionHit,
+) error {
+	sessionPayload := make([]searchSessionJSONOutput, 0, len(sessions))
+	for _, hit := range sessions {
+		sessionPayload = append(sessionPayload, newSearchSessionJSONOutput(hit))
+	}
+	return writeJSON(output, searchJSONEnvelope{
+		Events:   events,
+		Sessions: sessionPayload,
+	})
+}
+
+func newSearchSessionJSONOutput(hit apptypes.SearchSessionHit) searchSessionJSONOutput {
+	return searchSessionJSONOutput{
+		SessionID:  hit.SessionID().String(),
+		Summary:    hit.Summary(),
+		EventCount: hit.EventCount(),
+		StartedAt:  formatJSONTime(hit.StartedAt()),
+	}
 }
 
 func writeSearchText(

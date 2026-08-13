@@ -199,10 +199,9 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		if sessionErr != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), sessionErr)
 		}
-		if err := writeEventMetadataJSONFields(output, metadata, resolvedFields); err != nil {
+		if err := writeSearchMetadataJSON(output, metadata, sessions, resolvedFields); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 		}
-		warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
 		notices.write(warnWriter)
 		return nil
 	}
@@ -240,12 +239,6 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
 	if err := writeSearchByFormat(output, events, sessions, input.asJSON, input.fieldsSet, textOpts, extrasFor); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
-	}
-	// The JSON notice answers a question the others do not — "sessions matched
-	// but --json cannot carry them" — and it is the only one conditioned on the
-	// output format, so it stays here rather than moving into the set.
-	if input.asJSON {
-		warnSearchSessionsOmittedFromJSON(warnWriter, len(sessions))
 	}
 	notices.write(warnWriter)
 

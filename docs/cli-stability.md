@@ -88,12 +88,12 @@ Currently deprecated:
 - `traceary top` → `traceary sessions` (removed in v0.35.0; deprecated in v0.34.0)
 - `traceary tui` / `traceary dashboard` → `traceary sessions --snapshot` (removed in v0.35.0; deprecated in v0.34.0)
 - bare `traceary` TTY default → `traceary --help` (removed in v0.35.0; deprecated in v0.34.0)
-- `traceary search --json` top-level array → `{"events": [...], "sessions": [...]}` object (replaced in v0.35.0; announced in v0.34.0)
 - `traceary memory admin graph add` and `traceary memory admin graph list` (removed in v0.35.0; deprecated in v0.34.0; no replacement because the reference store has zero `memory_edges` rows)
 - `traceary session label`, `traceary session list --label`, the `LABEL` column, and the `label` JSON field (removed in v0.35.0; deprecated in v0.34.0; no replacement because the reference store has zero labelled sessions)
 
 Historical removal log:
 
+- Replaced in v0.35.0 after the v0.34 announcement (#1717 / #1775): `traceary search --json` top-level array → `{"events": [...], "sessions": [...]}` object. Both keys are always present; empty arrays mean the tier returned no hits.
 - Removed in v0.14.0 after earlier deprecation: `traceary init` → `traceary store init`, `traceary backup` → `traceary store backup ...`, `traceary gc` → `traceary store gc`, `traceary handoff` → `traceary session handoff`, `traceary compact-summary` → `traceary session handoff --compact-only`, and the retired `traceary integration codex install` helper → Codex official `/plugins` flow.
 - Removed in v0.15.0 after the v0.14 compatibility window: `traceary memory accept`, `traceary memory reject`, `traceary memory remember`, `traceary memory propose`, `traceary memory distill`, `traceary memory extract`, `traceary memory supersede`, `traceary memory expire`, `traceary memory set-validity`, `traceary memory import codex`, `traceary memory import instructions`, `traceary memory export`, `traceary memory activate`, `traceary memory hygiene scan`, `traceary memory hygiene apply`, `traceary memory graph add`, and `traceary memory graph list`. Use the canonical `memory inbox` / `memory store` / `memory admin` paths documented in the CLI reference.
 - Removed in v0.15.0 after the v0.14 cleanup-only window: `traceary integration codex uninstall` → Codex official `/plugins` flow plus manual cleanup steps in `docs/integrations/codex-plugin.md`.
@@ -166,7 +166,7 @@ When the change affects a heavily scripted output (a public `--json` envelope, a
 
 Announced under this rule:
 
-- **`traceary search --json` becomes an object in v0.35.0.** v0.34.0 adds a session-tier result class for sessions whose summaries or keywords match the query, alongside literal event matches. That class cannot be expressed inside the existing top-level array without interleaving session rows among event rows, so the array becomes `{"events": [...], "sessions": [...]}` in v0.35.0. v0.34.x keeps the array unchanged and emits a stderr notice naming the count of omitted session hits and the new shape; a v0.34 consumer therefore never receives a silently incomplete result without being told. Session hits are fully visible in v0.34 text output. Recorded in #1717.
+- **`traceary search --json` became an object in v0.35.0 (#1717 / #1775).** v0.34.0 announced that the top-level event array would become `{"events": [...], "sessions": [...]}` so session-tier hits could ship without interleaving session rows among event rows. v0.34.x kept the array and reported omitted session hits on stderr; v0.35.0 completes the replacement. Both keys are always present (empty arrays when a tier has no hits).
 
 ### When no window is required
 

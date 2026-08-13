@@ -128,18 +128,21 @@ func TestRootCLI_SearchCommand_JSON(t *testing.T) {
 	}
 
 	want := "" +
-		"[\n" +
-		"  {\n" +
-		"    \"event_id\": \"event-2\",\n" +
-		"    \"kind\": \"note\",\n" +
-		"    \"client\": \"cli\",\n" +
-		"    \"agent\": \"codex\",\n" +
-		"    \"session_id\": \"session-2\",\n" +
-		"    \"workspace\": \"github.com/duck8823/traceary\",\n" +
-		"    \"message\": \"hello json search\",\n" +
-		"    \"created_at\": \"2026-04-07T13:00:00Z\"\n" +
-		"  }\n" +
-		"]\n"
+		"{\n" +
+		"  \"events\": [\n" +
+		"    {\n" +
+		"      \"event_id\": \"event-2\",\n" +
+		"      \"kind\": \"note\",\n" +
+		"      \"client\": \"cli\",\n" +
+		"      \"agent\": \"codex\",\n" +
+		"      \"session_id\": \"session-2\",\n" +
+		"      \"workspace\": \"github.com/duck8823/traceary\",\n" +
+		"      \"message\": \"hello json search\",\n" +
+		"      \"created_at\": \"2026-04-07T13:00:00Z\"\n" +
+		"    }\n" +
+		"  ],\n" +
+		"  \"sessions\": []\n" +
+		"}\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
