@@ -358,7 +358,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 主な flag:
 
 - 単一 id 用の positional `<memory-id>`
-- batch / MCP 向けの `--ids id1,id2,...`（複数指定可）
+- batch / その他の caller 向けの `--ids id1,id2,...`（複数指定可）
 - `--confidence`
 - `--id-only`（`--json` と排他）
 - `--json`
@@ -370,7 +370,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 主な flag:
 
 - 単一 id 用の positional `<memory-id>`
-- batch / MCP 向けの `--ids id1,id2,...`（複数指定可）
+- batch / その他の caller 向けの `--ids id1,id2,...`（複数指定可）
 - `--id-only`（`--json` と排他）
 - `--json`
 

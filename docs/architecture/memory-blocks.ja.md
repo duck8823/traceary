@@ -45,11 +45,11 @@ read 契約 (`application/types/memory_list_criteria.go` の `MemoryListCriteria
 
 ## `block` 軸を足すと何が悪くなるか
 
-1. **`type` との責務重複**: `type` は既に分類軸です。さらに `block` を重ねると、生成側（prompt / hook / MCP）は似たような分類判断を二度する必要があり、一貫性が崩れます。
+1. **`type` との責務重複**: `type` は既に分類軸です。さらに `block` を重ねると、生成側（prompt / hook / CLI）は似たような分類判断を二度する必要があり、一貫性が崩れます。
 2. **`scope` との責務重複**: `project-context` ブロックは実質 `scope=workspace` の言い換えで、retrieval の意図が scope と block でぶつかります。
 3. **インデックス圧**: 現状のインデックスは `(scope_kind, scope_value, status, updated_at, id)` と `(type, status, updated_at, id)` です。高 cardinality なフィルタを 1 軸足すと、インデックスを増やすか特異度を犠牲にするかの二択になります。
 4. **利得のない migration**: `block` カラムを足すなら `ALTER TABLE` + 既存行への back-fill が要ります。back-fill のほぼ唯一の手段は `type`（必要なら `scope` も併用）を読むことで、既に accepted になっている memory はすべて既存カラムから `block` を導出できます。もっとも前述の写像は多対一（例: `guidance` は `type=decision` / `type=lesson` 両方から来うる）で部分的（`unfinished-work` は綺麗な元を持たない）なので、現実には `type` ごとに 1 つの規則を固定し恣意性を許容するしかありません。既存カラムだけで back-fill が成立すること自体が、新軸が古い軸にない情報を持っていないことを示しています。
-5. **Host bridge の負担**: MCP / CLI / CLAUDE.md / AGENTS.md / GEMINI.md への bridge すべてが新軸を学び直す必要があります。`type` と重複した分類を足すために回すコストではありません。
+5. **Host bridge の負担**: CLI / hook / CLAUDE.md / AGENTS.md / GEMINI.md への bridge すべてが新軸を学び直す必要があります。`type` と重複した分類を足すために回すコストではありません。
 
 ## Traceary として代わりに進めること
 

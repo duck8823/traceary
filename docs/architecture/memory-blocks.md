@@ -45,11 +45,11 @@ Four of the five proposed blocks reduce to existing `type` + `scope` combination
 
 ## Why adding a `block` axis would hurt
 
-1. **Responsibility duplication with `type`**. `type` is already a classification axis. Overlaying `block` means every candidate memory has two nearly-identical classification decisions to make, and producers (prompt / hook / MCP) would inevitably pick inconsistent values.
+1. **Responsibility duplication with `type`**. `type` is already a classification axis. Overlaying `block` means every candidate memory has two nearly-identical classification decisions to make, and producers (prompt / hook / CLI) would inevitably pick inconsistent values.
 2. **Responsibility duplication with `scope`**. `project-context` as a block is just `scope=workspace` renamed. If blocks claim that, `scope` and `block` collide on retrieval intent.
 3. **Index pressure**. Indexes today are `(scope_kind, scope_value, status, updated_at, id)` and `(type, status, updated_at, id)`. Introducing a fourth high-cardinality filter would either grow the index set or force a composite that loses specificity.
 4. **Migration without clear upside**. A `block` column requires an `ALTER TABLE` migration and back-filling existing rows. The only plausible back-fill reads off `type` (sometimes combined with `scope`) — so for every accepted memory already in the store, `block` is derivable from existing columns. The mapping is many-to-one (e.g. `guidance` could draw from either `type=decision` or `type=lesson`) and partial (`unfinished-work` has no clean source), so the best we can do is fix one rule per `type` and accept some arbitrariness. That the back-fill runs from existing columns alone is the signal: the new axis does not introduce information the old axes lacked.
-5. **Host-bridge burden**. Every integration surface (MCP, CLI, bridges to CLAUDE.md / AGENTS.md / GEMINI.md) would need to learn the new axis. For a classification that is redundant with `type`, the churn is not justified.
+5. **Host-bridge burden**. Every integration surface (CLI, hooks, bridges to CLAUDE.md / AGENTS.md / GEMINI.md) would need to learn the new axis. For a classification that is redundant with `type`, the churn is not justified.
 
 ## What Traceary will do instead
 

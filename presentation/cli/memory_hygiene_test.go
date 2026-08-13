@@ -13,9 +13,8 @@ import (
 
 // TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON pins the
 // low_quality_candidate JSON shape so consumers can rely on the new
-// fields (#864). The fixture mirrors the wire output an MCP host would
-// see, and the assertions check both the count and the per-suggestion
-// fields.
+// fields (#864). The fixture mirrors the CLI JSON wire output, and the
+// assertions check both the count and the per-suggestion fields.
 func TestWriteMemoryHygieneScanResult_LowQualityCandidateJSON(t *testing.T) {
 	t.Parallel()
 
@@ -197,7 +196,7 @@ func TestWriteMemoryHygieneScanResult_NeverRendersRawFacts(t *testing.T) {
 		if strings.Contains(output, "opaque_cursor") || strings.Contains(output, "next_cursor") {
 			t.Fatalf("output(json=%t) exposed a process-local continuation cursor: %s", asJSON, output)
 		}
-		if !strings.Contains(output, "rerun_guidance") || !strings.Contains(output, "resumable paging") {
+		if !strings.Contains(output, "rerun_guidance") || !strings.Contains(output, "narrower --workspace") {
 			t.Fatalf("output(json=%t) omitted bounded re-run guidance: %s", asJSON, output)
 		}
 		if !strings.Contains(output, "best_effort") || !strings.Contains(output, "revision_changed") {

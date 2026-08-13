@@ -60,13 +60,13 @@
 
 1. Add failing application tests for complete/partial extents and omitted rates.
 2. Add failing SQLite tests for cap detection, observed range, and body-free scanning.
-3. Add failing CLI/MCP schema parity and flag-contract tests.
+3. Add failing CLI schema and flag-contract tests.
 4. Implement criteria and extent value objects, then the report query adapter and use case.
-5. Replace CLI-local aggregation and add the MCP tool without changing complete-report compatibility fields.
+5. Replace CLI-local aggregation without changing complete-report compatibility fields.
 
 ### Risks and rollback
 
 - Procedural risk: duplicating interval, cap, or rate decisions in both adapters. Mitigation: one application criteria and snapshot type.
 - Premature abstraction risk: a generic reporting framework would exceed the issue. Only the report window and extent are shared.
 - Compatibility: `period.from` / `period.to` and complete-report numeric fields remain unchanged. Legacy `--limit` remains a deprecated hidden alias for page size.
-- Rollback trigger: CLI/MCP schema drift, percentages on partial data, integer wraparound, or body hydration during aggregation. The change is additive and has no migration.
+- Rollback trigger: CLI schema drift, percentages on partial data, integer wraparound, or body hydration during aggregation. The change is additive and has no migration.

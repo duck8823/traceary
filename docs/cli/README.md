@@ -358,7 +358,7 @@ Accept one or more memory candidates.
 Useful flags:
 
 - positional `<memory-id>` for the common single-id case
-- `--ids id1,id2,...` (repeatable) for batch scripts and MCP callers
+- `--ids id1,id2,...` (repeatable) for batch scripts and other callers
 - `--confidence`
 - `--id-only` (mutually exclusive with `--json`)
 - `--json`
@@ -370,7 +370,7 @@ Reject one or more memory candidates.
 Useful flags:
 
 - positional `<memory-id>` for the common single-id case
-- `--ids id1,id2,...` (repeatable) for batch scripts and MCP callers
+- `--ids id1,id2,...` (repeatable) for batch scripts and other callers
 - `--id-only` (mutually exclusive with `--json`)
 - `--json`
 

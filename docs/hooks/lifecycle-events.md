@@ -30,7 +30,7 @@ All event bodies pass through built-in secret redaction plus operator-configured
 
 ### `prompt`
 
-- Captures the user's instruction text verbatim (after redaction). Visible in `traceary timeline`, `traceary search`, and the L2 `get_context` body.
+- Captures the user's instruction text verbatim (after redaction). Visible in `traceary timeline`, `traceary search`, and `traceary context`.
 - Claude Code (`UserPromptSubmit`), Codex CLI (`UserPromptSubmit`), and Gemini CLI (`BeforeAgent`) all emit this — see [host-coverage.md](./host-coverage.md).
 - Body marker: none (raw text). Distinct from `transcript`, which is the assistant side.
 

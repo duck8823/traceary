@@ -16,7 +16,7 @@ import (
 
 const defaultHygieneExpiryDays = 90
 
-const memoryHygieneScanRerunGuidance = `rerun with a narrower --workspace or larger finite scan bounds; use MCP query_memory(action="scan_hygiene") for resumable paging`
+const memoryHygieneScanRerunGuidance = `rerun with a narrower --workspace or larger finite scan bounds`
 
 func (c *RootCLI) newMemoryHygieneCommand() *cobra.Command {
 	cmd := &cobra.Command{
