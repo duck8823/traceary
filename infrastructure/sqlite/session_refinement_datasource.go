@@ -85,7 +85,7 @@ func (d *SessionRefinementDatasource) SaveIfAdvances(
 	}()
 
 	// Placeholder order matches upsert_session_refinement.sql:
-	// SELECT row values (9), source predicate expectedGeneration + session_id,
+	// SELECT row values (10), source predicate expectedGeneration + session_id,
 	// then ON CONFLICT UPDATE WHERE expectedGeneration again.
 	sessionID := refinement.SessionID().String()
 	result, err := db.ExecContext(
@@ -100,6 +100,7 @@ func (d *SessionRefinementDatasource) SaveIfAdvances(
 		refinement.ProducedBy(),
 		formatTimestamp(refinement.ProducedAt()),
 		boolToInt(refinement.Degraded()),
+		boolToInt(refinement.HasAgentReasoning()),
 		expectedGeneration,
 		sessionID,
 		expectedGeneration,
@@ -116,15 +117,16 @@ func (d *SessionRefinementDatasource) SaveIfAdvances(
 
 func scanSessionRefinement(row *sql.Row) (*model.SessionRefinement, error) {
 	var (
-		sessionID     string
-		generation    int
-		coversFrom    string
-		coversTo      string
-		summary       string
-		keywords      string
-		producedBy    string
-		producedAtRaw string
-		degraded      int
+		sessionID         string
+		generation        int
+		coversFrom        string
+		coversTo          string
+		summary           string
+		keywords          string
+		producedBy        string
+		producedAtRaw     string
+		degraded          int
+		hasAgentReasoning int
 	)
 	if err := row.Scan(
 		&sessionID,
@@ -136,6 +138,7 @@ func scanSessionRefinement(row *sql.Row) (*model.SessionRefinement, error) {
 		&producedBy,
 		&producedAtRaw,
 		&degraded,
+		&hasAgentReasoning,
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan session refinement row: %w", err)
 	}
@@ -153,6 +156,7 @@ func scanSessionRefinement(row *sql.Row) (*model.SessionRefinement, error) {
 		producedBy,
 		producedAt,
 		degraded == 1,
+		hasAgentReasoning == 1,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore session refinement: %w", err)

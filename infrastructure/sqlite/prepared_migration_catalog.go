@@ -76,6 +76,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// bytes on a 7.1 GB store. Migration 52 forbids DROPs that would block
 	// store open; this one is two orders of magnitude away from that.
 	59: {59, "000059_drop_literal_search_fingerprint_candidate_index.sql", "70874ea5b244fc361b82f1e3fa9f1fbff30437dc77ebd7f9fedf7ab53ef6e62b", MigrationConstantInPlace},
+	// 60 adds has_agent_reasoning and updates only session_refinements
+	// (one row per session), not store-sized event tables.
+	60: {60, "000060_add_session_refinement_has_agent_reasoning.sql", "213d2338ac324488a00a64ecf60592f1289b0c71a75884ba4672f5fd1403abcd", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

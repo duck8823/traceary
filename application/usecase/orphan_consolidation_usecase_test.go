@@ -19,11 +19,11 @@ var errOrphanMaterialStub = errors.New("orphan material load failed")
 var errOrphanRefineStub = errors.New("orphan refine failed")
 
 type orphanRepoStub struct {
-	candidates   []*model.SessionOrphanRange
-	hasMore      bool
-	discoverErr  error
-	material     model.SessionOrphanMaterial
-	materialErr  error
+	candidates  []*model.SessionOrphanRange
+	hasMore     bool
+	discoverErr error
+	material    model.SessionOrphanMaterial
+	materialErr error
 	// materialErrBySession maps session id → LoadMaterial error for that session.
 	materialErrBySession map[types.SessionID]error
 	// produce via refine is controlled by refineStub; LoadMaterial path uses materialErr*.
@@ -278,6 +278,9 @@ func TestOrphanConsolidationUsecase_ComposesOntoExistingAgentSummary(t *testing.
 	if call.ProducedBy != "gc:orphan-consolidation" {
 		t.Fatalf("ProducedBy = %q", call.ProducedBy)
 	}
+	if call.HasAgentReasoning {
+		t.Fatal("orphan compose input HasAgentReasoning = true, want false (preserve happens in Refine)")
+	}
 }
 
 func TestOrphanConsolidationUsecase_CompositionObservesCASReRead(t *testing.T) {
@@ -381,6 +384,208 @@ func TestOrphanConsolidationUsecase_CompositionObservesCASReRead(t *testing.T) {
 	}
 	if diff := cmp.Diff([]int{1, 2}, refineRepo.expectedGens); diff != "" {
 		t.Fatalf("expectedGeneration sequence mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestOrphanConsolidationUsecase_AdvancesCoverageForLifecycleOnlyTail(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	sessionID := types.SessionID("sess-lifecycle")
+	evt1 := types.EventID("evt-1")
+	evtEnd := types.EventID("evt-end")
+	const agentSummary = "Agent folded the session: split the refactor because shared types blocked the UI."
+	existing := mustRefinement(t, sessionID, 1, evt1, evt1, agentSummary)
+
+	orphan, err := model.NewSessionOrphanRange(sessionID, types.Some(evt1), evtEnd, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanRepo := &orphanRepoStub{
+		candidates: []*model.SessionOrphanRange{orphan},
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now,
+			LastCreatedAt:  now,
+			KindCounts: map[string]int{
+				string(types.EventKindSessionEnded): 1,
+			},
+			EventCount: 1,
+		},
+	}
+	eventOrder := &sessionEventOrderRepositoryStub{
+		earliest:      map[types.SessionID]types.EventID{sessionID: evt1},
+		eventSessions: map[types.EventID]types.SessionID{evtEnd: sessionID},
+		after: map[types.EventID]map[types.EventID]bool{
+			evtEnd: {evt1: true},
+		},
+	}
+	refineRepo := &sessionRefinementRepositoryStub{
+		bySession: map[types.SessionID]*model.SessionRefinement{
+			sessionID: existing,
+		},
+		eventOrder: eventOrder,
+	}
+	session := model.NewSession(sessionID, now.Add(-2*time.Hour), "cli", "codex", "ws")
+	refine := usecase.NewSessionRefinementUsecase(
+		&sessionRepositoryStub{session: session},
+		refineRepo,
+		eventOrder,
+		fixedOrphanClock{at: now},
+	)
+	sut := usecase.NewOrphanConsolidationUsecase(orphanRepo, refine, fixedOrphanClock{at: now})
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1 (coverage-only advance)", got.ProducedCount())
+	}
+	if len(refineRepo.saved) != 1 {
+		t.Fatalf("saves = %d, want 1", len(refineRepo.saved))
+	}
+	row := refineRepo.saved[0]
+	if row.Summary() != agentSummary {
+		t.Fatalf("Summary() = %q, want unchanged agent text", row.Summary())
+	}
+	if strings.Contains(row.Summary(), "Mechanical summary") {
+		t.Fatalf("lifecycle-only tail must not attach a mechanical footnote: %q", row.Summary())
+	}
+	if row.Degraded() {
+		t.Fatal("Degraded() = true, want false (no synthesised text added)")
+	}
+	if !row.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false, want true")
+	}
+	if row.CoversToEventID() != evtEnd {
+		t.Fatalf("CoversTo = %s, want %s", row.CoversToEventID(), evtEnd)
+	}
+	if row.ProducedBy() != "agent" {
+		t.Fatalf("ProducedBy = %q, want agent (coverage-only keeps authorship)", row.ProducedBy())
+	}
+}
+
+func TestOrphanConsolidationUsecase_SkipsLifecycleOnlyWhenNoRefinement(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	sessionID := types.SessionID("sess-empty-lifecycle")
+	evtEnd := types.EventID("evt-end")
+	orphan, err := model.NewSessionOrphanRange(sessionID, types.None[types.EventID](), evtEnd, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanRepo := &orphanRepoStub{
+		candidates: []*model.SessionOrphanRange{orphan},
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now,
+			LastCreatedAt:  now,
+			KindCounts: map[string]int{
+				string(types.EventKindSessionStarted): 1,
+				string(types.EventKindSessionEnded):   1,
+			},
+			EventCount: 2,
+		},
+	}
+	eventOrder := &sessionEventOrderRepositoryStub{
+		eventSessions: map[types.EventID]types.SessionID{evtEnd: sessionID},
+	}
+	refineRepo := &sessionRefinementRepositoryStub{eventOrder: eventOrder}
+	session := model.NewSession(sessionID, now.Add(-time.Hour), "cli", "codex", "ws")
+	refine := usecase.NewSessionRefinementUsecase(
+		&sessionRepositoryStub{session: session},
+		refineRepo,
+		eventOrder,
+		fixedOrphanClock{at: now},
+	)
+	sut := usecase.NewOrphanConsolidationUsecase(orphanRepo, refine, fixedOrphanClock{at: now})
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != 0 {
+		t.Fatalf("ProducedCount = %d, want 0 (no fold to extend)", got.ProducedCount())
+	}
+	if got.Skipped() != 0 {
+		t.Fatalf("Skipped = %d, want 0 (lifecycle skip is not a failure)", got.Skipped())
+	}
+	if refineRepo.saveCalls != 0 {
+		t.Fatalf("SaveIfAdvances calls = %d, want 0", refineRepo.saveCalls)
+	}
+}
+
+func TestOrphanConsolidationUsecase_PreservesHasAgentReasoningOnCompose(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	sessionID := types.SessionID("sess-compose-flag")
+	evt1 := types.EventID("evt-1")
+	evt100 := types.EventID("evt-100")
+	evt150 := types.EventID("evt-150")
+	const agentSummary = "Agent decided to split the PR because of shared types."
+	existing := mustRefinement(t, sessionID, 1, evt1, evt100, agentSummary)
+
+	orphan, err := model.NewSessionOrphanRange(sessionID, types.Some(evt100), evt150, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanRepo := &orphanRepoStub{
+		candidates: []*model.SessionOrphanRange{orphan},
+		material: model.SessionOrphanMaterial{
+			FirstCreatedAt: now.Add(-time.Hour),
+			LastCreatedAt:  now,
+			KindCounts:     map[string]int{"note": 3},
+			EventCount:     3,
+		},
+	}
+	eventOrder := &sessionEventOrderRepositoryStub{
+		earliest:      map[types.SessionID]types.EventID{sessionID: evt1},
+		eventSessions: map[types.EventID]types.SessionID{evt150: sessionID},
+		after: map[types.EventID]map[types.EventID]bool{
+			evt150: {evt100: true},
+		},
+	}
+	refineRepo := &sessionRefinementRepositoryStub{
+		bySession: map[types.SessionID]*model.SessionRefinement{
+			sessionID: existing,
+		},
+		eventOrder: eventOrder,
+	}
+	session := model.NewSession(sessionID, now.Add(-2*time.Hour), "cli", "codex", "ws")
+	refine := usecase.NewSessionRefinementUsecase(
+		&sessionRepositoryStub{session: session},
+		refineRepo,
+		eventOrder,
+		fixedOrphanClock{at: now},
+	)
+	sut := usecase.NewOrphanConsolidationUsecase(orphanRepo, refine, fixedOrphanClock{at: now})
+
+	got, err := sut.Consolidate(context.Background(), usecase.OrphanConsolidationInput{
+		StaleAfter: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1", got.ProducedCount())
+	}
+	if len(refineRepo.saved) != 1 {
+		t.Fatalf("saves = %d, want 1", len(refineRepo.saved))
+	}
+	row := refineRepo.saved[0]
+	if !row.Degraded() {
+		t.Fatal("Degraded() = false on composed row, want true")
+	}
+	if !row.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false after compose, want true")
+	}
+	if !strings.Contains(row.Summary(), agentSummary) {
+		t.Fatalf("composed summary lost agent text: %q", row.Summary())
 	}
 }
 

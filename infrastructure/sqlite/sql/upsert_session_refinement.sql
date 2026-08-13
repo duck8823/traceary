@@ -17,9 +17,10 @@ INSERT INTO session_refinements (
     keywords,
     produced_by,
     produced_at,
-    degraded
+    degraded,
+    has_agent_reasoning
 )
-SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
  WHERE ? = 0
     OR EXISTS (
            SELECT 1
@@ -34,7 +35,8 @@ ON CONFLICT(session_id) DO UPDATE SET
     keywords = excluded.keywords,
     produced_by = excluded.produced_by,
     produced_at = excluded.produced_at,
-    degraded = excluded.degraded
+    degraded = excluded.degraded,
+    has_agent_reasoning = excluded.has_agent_reasoning
 WHERE session_refinements.generation = ?
   AND (
         SELECT CASE

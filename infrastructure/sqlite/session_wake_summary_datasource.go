@@ -26,7 +26,7 @@ func NewSessionWakeSummaryDatasource(db *Database) *SessionWakeSummaryDatasource
 
 var _ queryservice.SessionWakeSummaryQueryService = (*SessionWakeSummaryDatasource)(nil)
 
-// ListEligible returns non-degraded top-level refinements for workspace.
+// ListEligible returns top-level refinements that have agent reasoning.
 // When session_refinements is absent (pre-migration-46 store), returns empty.
 func (d *SessionWakeSummaryDatasource) ListEligible(
 	ctx context.Context,

@@ -749,11 +749,12 @@ func (c *RootCLI) applyPostCompactDigest(
 ) {
 	if c.sessionRefinement != nil {
 		if _, err := c.sessionRefinement.Refine(ctx, usecase.SessionRefineInput{
-			SessionID:  sessionID,
-			CoversTo:   coversTo,
-			Summary:    digest,
-			ProducedBy: "hook:post-compact:" + client,
-			Degraded:   false,
+			SessionID:         sessionID,
+			CoversTo:          coversTo,
+			Summary:           digest,
+			ProducedBy:        "hook:post-compact:" + client,
+			Degraded:          false,
+			HasAgentReasoning: true,
 		}); err != nil {
 			slog.Warn(
 				"post-compact session refinement failed",

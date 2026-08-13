@@ -367,6 +367,9 @@ func TestSessionRefinementUsecase_Refine(t *testing.T) {
 			if row.Summary() != tt.wantSummary {
 				t.Fatalf("Summary() = %q, want %q", row.Summary(), tt.wantSummary)
 			}
+			if tt.wantErr == nil && tt.wantOutcome == model.SessionRefineOutcomeCreated && !row.HasAgentReasoning() {
+				t.Fatal("HasAgentReasoning() = false on non-degraded first write, want true")
+			}
 			if len(tt.repo.saved) != tt.wantSaves {
 				t.Fatalf("saves = %d, want %d", len(tt.repo.saved), tt.wantSaves)
 			}
@@ -616,5 +619,152 @@ func TestSessionRefinementRepositoryStub_SaveIfAdvances_RejectsNonAdvancingCover
 	}
 	if len(repo.saved) != 0 {
 		t.Fatalf("successful saves after older = %d, want 0", len(repo.saved))
+	}
+}
+
+func TestSessionRefinementUsecase_Refine_DegradedFirstWriteHasNoAgentReasoning(t *testing.T) {
+	t.Parallel()
+
+	sessionID := types.SessionID("sess-mech")
+	evt1 := types.EventID("evt-1")
+	now := time.Date(2026, 8, 8, 15, 0, 0, 0, time.UTC)
+	session := model.NewSession(sessionID, now, "cli", "codex", "ws")
+	repo := &sessionRefinementRepositoryStub{}
+	eventOrder := &sessionEventOrderRepositoryStub{
+		earliest:      map[types.SessionID]types.EventID{sessionID: evt1},
+		eventSessions: map[types.EventID]types.SessionID{evt1: sessionID},
+	}
+	repo.eventOrder = eventOrder
+	sut := usecase.NewSessionRefinementUsecase(
+		&sessionRepositoryStub{session: session},
+		repo,
+		eventOrder,
+		fixedRefineClock{at: now},
+	)
+	got, err := sut.Refine(context.Background(), usecase.SessionRefineInput{
+		SessionID:  sessionID,
+		Summary:    "Mechanical summary (degraded=1).",
+		ProducedBy: "gc:orphan-consolidation",
+		CoversTo:   evt1,
+		Degraded:   true,
+	})
+	if err != nil {
+		t.Fatalf("Refine() error = %v", err)
+	}
+	if got.Refinement().HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = true on mechanical first write, want false")
+	}
+	if !got.Refinement().Degraded() {
+		t.Fatal("Degraded() = false, want true")
+	}
+}
+
+func TestSessionRefinementUsecase_Refine_CoverageOnlyKeepsTextAndFlags(t *testing.T) {
+	t.Parallel()
+
+	sessionID := types.SessionID("sess-cov-only")
+	evt1 := types.EventID("evt-1")
+	evtEnd := types.EventID("evt-end")
+	now := time.Date(2026, 8, 8, 15, 0, 0, 0, time.UTC)
+	existing := mustRefinement(t, sessionID, 1, evt1, evt1, "agent fold")
+	session := model.NewSession(sessionID, now, "cli", "codex", "ws")
+	eventOrder := &sessionEventOrderRepositoryStub{
+		eventSessions: map[types.EventID]types.SessionID{evtEnd: sessionID},
+		after: map[types.EventID]map[types.EventID]bool{
+			evtEnd: {evt1: true},
+		},
+	}
+	repo := &sessionRefinementRepositoryStub{
+		bySession:  map[types.SessionID]*model.SessionRefinement{sessionID: existing},
+		eventOrder: eventOrder,
+	}
+	sut := usecase.NewSessionRefinementUsecase(
+		&sessionRepositoryStub{session: session},
+		repo,
+		eventOrder,
+		fixedRefineClock{at: now},
+	)
+	got, err := sut.Refine(context.Background(), usecase.SessionRefineInput{
+		SessionID:    sessionID,
+		ProducedBy:   "gc:orphan-consolidation",
+		CoversTo:     evtEnd,
+		CoverageOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("Refine() error = %v", err)
+	}
+	if got.Outcome() != model.SessionRefineOutcomeSuperseded {
+		t.Fatalf("Outcome() = %q, want superseded", got.Outcome())
+	}
+	row := got.Refinement()
+	if row.Summary() != "agent fold" {
+		t.Fatalf("Summary() = %q, want unchanged", row.Summary())
+	}
+	if row.Degraded() {
+		t.Fatal("Degraded() = true, want false")
+	}
+	if !row.HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false, want true")
+	}
+	if row.ProducedBy() != "agent" {
+		t.Fatalf("ProducedBy = %q, want agent", row.ProducedBy())
+	}
+	if row.CoversToEventID() != evtEnd {
+		t.Fatalf("CoversTo = %s, want %s", row.CoversToEventID(), evtEnd)
+	}
+}
+
+func TestSessionRefinementUsecase_Refine_AgentSupersedeUpgradesMechanicalOnly(t *testing.T) {
+	t.Parallel()
+
+	sessionID := types.SessionID("sess-upgrade")
+	evt1 := types.EventID("evt-1")
+	evt2 := types.EventID("evt-2")
+	now := time.Date(2026, 8, 8, 15, 0, 0, 0, time.UTC)
+	mechanical, err := model.NewSessionRefinement(
+		sessionID, 1, evt1, evt1, "Mechanical summary (degraded=1).", "",
+		"gc:orphan-consolidation", now.Add(-time.Hour), true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mechanical.HasAgentReasoning() {
+		t.Fatal("fixture must start mechanical-only")
+	}
+	session := model.NewSession(sessionID, now, "cli", "codex", "ws")
+	eventOrder := &sessionEventOrderRepositoryStub{
+		eventSessions: map[types.EventID]types.SessionID{evt2: sessionID},
+		after: map[types.EventID]map[types.EventID]bool{
+			evt2: {evt1: true},
+		},
+	}
+	repo := &sessionRefinementRepositoryStub{
+		bySession:  map[types.SessionID]*model.SessionRefinement{sessionID: mechanical},
+		eventOrder: eventOrder,
+	}
+	sut := usecase.NewSessionRefinementUsecase(
+		&sessionRepositoryStub{session: session},
+		repo,
+		eventOrder,
+		fixedRefineClock{at: now},
+	)
+	got, err := sut.Refine(context.Background(), usecase.SessionRefineInput{
+		SessionID:  sessionID,
+		Summary:    "Agent folded after gc: split the PR because of shared types.",
+		ProducedBy: "hook:post-compact:claude",
+		CoversTo:   evt2,
+		Degraded:   false,
+	})
+	if err != nil {
+		t.Fatalf("Refine() error = %v", err)
+	}
+	if got.Outcome() != model.SessionRefineOutcomeSuperseded {
+		t.Fatalf("Outcome() = %q, want superseded", got.Outcome())
+	}
+	if got.Refinement().Degraded() {
+		t.Fatal("Degraded() = true after agent fold, want false")
+	}
+	if !got.Refinement().HasAgentReasoning() {
+		t.Fatal("HasAgentReasoning() = false after agent fold over mechanical-only, want true")
 	}
 }
