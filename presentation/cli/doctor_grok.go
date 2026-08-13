@@ -55,9 +55,16 @@ type grokDoctorState struct {
 	// UserHooksInvalid is true when the user-level file exists but is unreadable
 	// or not valid JSON. Diagnosis only; doctor does not rewrite the file.
 	UserHooksInvalid bool
-	NativeHooks      bool
-	MCPServers       int
-	Skills           int
+	// NativeHooksPresent is true when inspect reports a traceary-grok hook with
+	// a native path class. Grok still merges that route even when coverage is
+	// incomplete/stale, so duplicate-route detection must use presence rather
+	// than verified coverage.
+	NativeHooksPresent bool
+	// NativeHooks is true only when the native route also passes the exact
+	// seven-event verified coverage contract. Used by grok-hooks only.
+	NativeHooks bool
+	MCPServers  int
+	Skills      int
 }
 
 type grokPluginListEntry struct {
@@ -162,8 +169,11 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		if hook.Source.PluginName == legacyTracearyPluginName {
 			state.LegacyPluginDetected = true
 		}
-		if hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative && grokHookFileHasVerifiedCoverage(hook.Target) {
-			state.NativeHooks = true
+		if hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative {
+			state.NativeHooksPresent = true
+			if grokHookFileHasVerifiedCoverage(hook.Target) {
+				state.NativeHooks = true
+			}
 		}
 	}
 	return state, nil
@@ -420,10 +430,12 @@ func buildGrokUserHooksCheck(state grokDoctorState) doctorCheck {
 // buildGrokHookRoutesSummary warns when more than one Grok hook route is active.
 // Grok merges every source, so user-level leftovers next to the native plugin
 // (or project route) can fire duplicate handlers — the same class of problem as
-// Antigravity multi-route setups. Diagnosis only; no files are removed.
+// Antigravity multi-route setups. Native route presence (not verified coverage)
+// counts, because a stale/partial plugin file is still executed by Grok.
+// Diagnosis only; no files are removed.
 func buildGrokHookRoutesSummary(state grokDoctorState) doctorCheck {
 	active := make([]string, 0, 3)
-	if state.NativeHooks {
+	if state.NativeHooksPresent {
 		active = append(active, "native plugin")
 	}
 	if state.ProjectHooks {

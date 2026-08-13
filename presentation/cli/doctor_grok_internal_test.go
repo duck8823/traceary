@@ -532,8 +532,8 @@ func TestProbeGrokDoctorStateUserHookRoutes(t *testing.T) {
 					t.Fatalf("UserHooksInvalid = %v, want %v", state.UserHooksInvalid, tc.invalidUserHooks)
 				}
 			}
-			if state.NativeHooks != tc.nativePlugin {
-				t.Fatalf("NativeHooks = %v, want %v", state.NativeHooks, tc.nativePlugin)
+			if state.NativeHooks != tc.nativePlugin || state.NativeHooksPresent != tc.nativePlugin {
+				t.Fatalf("NativeHooks/Present = %v/%v, want both %v", state.NativeHooks, state.NativeHooksPresent, tc.nativePlugin)
 			}
 
 			checks := buildGrokDoctorChecks(state, "0.34.0")
@@ -574,6 +574,71 @@ func TestProbeGrokDoctorStateUserHookRoutes(t *testing.T) {
 	}
 }
 
+func TestProbeGrokDoctorStateWarnsDuplicateWhenNativeCoverageIncomplete(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, userHomeDirFunc
+	t.Cleanup(func() {
+		grokDoctorLookPath, grokDoctorOutput, userHomeDirFunc = originalLookPath, originalOutput, originalHome
+	})
+
+	home := t.TempDir()
+	userHomeDirFunc = func() (string, error) { return home, nil }
+	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+
+	projectDir := t.TempDir()
+	userHookPath := filepath.Join(home, ".grok", "hooks", "traceary.json")
+	writeGrokDoctorHookFixture(t, userHookPath, true)
+
+	// Incomplete native fixture: Grok still merges it, but coverage fails.
+	pluginHook := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-traceary-grok", "hooks", "hooks.json")
+	writeGrokDoctorHookFixture(t, pluginHook, false)
+
+	grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "--version":
+			return []byte("grok 0.2.111\n"), nil
+		case "plugin list --json":
+			return []byte(`[{"name":"traceary-grok","version":"0.34.0","path":` + strconv.Quote(filepath.Dir(filepath.Dir(pluginHook))) + `}]`), nil
+		case "--cwd " + projectDir + " inspect --json":
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":3,"mcpServers":1}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"source":{"type":"plugin","plugin_name":"traceary-grok"}},{"target":` + strconv.Quote(userHookPath) + `,"source":{"type":"user"}}]}`), nil
+		default:
+			t.Fatalf("unexpected Grok arguments: %v", args)
+			return nil, nil
+		}
+	}
+
+	state, err := probeGrokDoctorState(context.Background(), projectDir)
+	if err != nil {
+		t.Fatalf("probeGrokDoctorState() error = %v", err)
+	}
+	if !state.UserHooks || !state.NativeHooksPresent || state.NativeHooks {
+		t.Fatalf("state = %+v, want user + present incomplete native route", state)
+	}
+
+	checks := buildGrokDoctorChecks(state, "0.34.0")
+	byName := map[string]doctorCheck{}
+	for _, check := range checks {
+		byName[check.Name] = check
+		if strings.Contains(check.Message+check.Hint, "/private/") {
+			t.Fatalf("check exposed private path: %+v", check)
+		}
+	}
+
+	hooksCheck, ok := byName["grok-hooks"]
+	if !ok || hooksCheck.Status != doctorStatusWarn || !strings.Contains(hooksCheck.Message, "incomplete") {
+		t.Fatalf("grok-hooks = %+v, want incomplete coverage warning", hooksCheck)
+	}
+	routesCheck, ok := byName["grok-hooks-routes"]
+	if !ok || routesCheck.Status != doctorStatusWarn {
+		t.Fatalf("grok-hooks-routes = %+v, want duplicate-route warning", routesCheck)
+	}
+	for _, sub := range []string{"exactly one", "user-level", "native plugin", "~/.grok/hooks/traceary.json"} {
+		if !strings.Contains(routesCheck.Message+routesCheck.Hint, sub) {
+			t.Fatalf("grok-hooks-routes = %+v, want substring %q", routesCheck, sub)
+		}
+	}
+}
+
 func TestBuildGrokHookRoutesSummary(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {
@@ -585,13 +650,20 @@ func TestBuildGrokHookRoutesSummary(t *testing.T) {
 	}{
 		{
 			name:       "native only passes",
-			state:      grokDoctorState{NativeHooks: true},
+			state:      grokDoctorState{NativeHooksPresent: true, NativeHooks: true},
 			status:     doctorStatusPass,
 			messageSub: "native plugin",
 		},
 		{
 			name:       "user plus native warns with path",
-			state:      grokDoctorState{NativeHooks: true, UserHooks: true, UserHooksPath: "/tmp/home/.grok/hooks/traceary.json"},
+			state:      grokDoctorState{NativeHooksPresent: true, NativeHooks: true, UserHooks: true, UserHooksPath: "/tmp/home/.grok/hooks/traceary.json"},
+			status:     doctorStatusWarn,
+			messageSub: "exactly one",
+			hintSub:    "traceary.json",
+		},
+		{
+			name:       "user plus incomplete native still warns",
+			state:      grokDoctorState{NativeHooksPresent: true, NativeHooks: false, UserHooks: true, UserHooksPath: "/tmp/home/.grok/hooks/traceary.json"},
 			status:     doctorStatusWarn,
 			messageSub: "exactly one",
 			hintSub:    "traceary.json",
