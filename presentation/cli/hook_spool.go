@@ -33,6 +33,9 @@ const (
 	// success/failure transition and is safe to make replayable.
 	hookSpoolInflightStaleAge = time.Minute
 	hookSpoolDeadDirName      = "dead"
+	// Claimed paths are pending/*.json.claim-<rand> so listHookSpoolRecordPaths
+	// (suffix .json only) cannot pick them up while another process owns them.
+	hookSpoolClaimMarker = ".claim-"
 )
 
 type hookInvocationSpec struct {
@@ -152,53 +155,76 @@ func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replaye
 }
 
 func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) hookSpoolDrainResult {
-	if err := recoverStaleCurrentHookSpoolRecords(time.Now().UTC()); err != nil {
+	now := time.Now().UTC()
+	if err := recoverStaleCurrentHookSpoolRecords(now); err != nil {
+		return hookSpoolDrainResult{Err: err}
+	}
+	if err := recoverStaleClaimedHookSpoolRecords(now); err != nil {
 		return hookSpoolDrainResult{Err: err}
 	}
 	if limit <= 0 {
-		remaining, err := countHookSpoolPendingPaths(time.Now().UTC())
+		remaining, err := countHookSpoolPendingPaths(now)
 		return hookSpoolDrainResult{Remaining: remaining, Err: err}
 	}
-	records, unreadable, err := loadHookSpoolReplayBatch(limit, readHookSpoolFile)
+	paths, err := listHookSpoolRecordPaths()
 	if err != nil {
 		return hookSpoolDrainResult{Err: err}
 	}
-	result := hookSpoolDrainResult{Unreadable: len(unreadable)}
-	for _, path := range unreadable {
-		if ctx.Err() != nil {
+	result := hookSpoolDrainResult{}
+	claimed := 0
+	for _, path := range paths {
+		if claimed >= limit {
 			break
 		}
-		if err := requeueHookSpoolRecord(path, "unreadable hook spool record"); err != nil {
-			slog.Debug("unreadable hook spool requeue failed", "path", path, "error", err)
-		}
-	}
-	for _, record := range records {
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		if strings.TrimSpace(record.Path) == "" {
-			result.Failed++
+		// Exclusive claim via same-directory rename (CAS). Concurrent drainers
+		// that lose the race see IsNotExist and skip — no shared mutex.
+		claimedPath, ok, claimErr := claimHookSpoolRecord(path)
+		if claimErr != nil {
+			slog.Debug("hook spool claim failed", "path", path, "error", claimErr)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		claimed++
+		record, readable, loadErr := loadClaimedHookSpoolRecord(claimedPath, readHookSpoolFile)
+		if loadErr != nil || !readable {
+			result.Unreadable++
+			if requeueErr := requeueHookSpoolRecord(claimedPath, "unreadable hook spool record"); requeueErr != nil {
+				slog.Debug("unreadable hook spool requeue failed", "path", claimedPath, "error", requeueErr)
+			}
+			continue
+		}
+		// Crash-safety: claimed records already at the retry cap still must
+		// leave the replay queue without consuming a delivery attempt.
+		if shouldDeadLetter(record.AttemptCount) {
+			if moveErr := renameHookSpoolRecordToDead(claimedPath); moveErr != nil {
+				slog.Debug("terminal hook spool claim move failed", "path", claimedPath, "error", moveErr)
+			}
 			continue
 		}
 		if err := c.replayHookSpoolRecord(ctx, record); err != nil {
 			result.Failed++
-			slog.Debug("hook spool replay failed", "path", record.Path, "command", record.Command, "client", record.Client, "error", err)
+			slog.Debug("hook spool replay failed", "path", claimedPath, "command", record.Command, "client", record.Client, "error", err)
 			// Observed unreplayable classes that still hit this path and
 			// eventually dead-letter after the retry cap (validators stay
 			// strict; do not relax them):
 			//  1. "invalid Kimi usage record metadata" — unreplayable input
 			//  2. "conflicting duplicate Claude assistant usage" — unreplayable
 			//     against current identity rules (not last-write-wins)
-			if requeueErr := requeueHookSpoolRecord(record.Path, err.Error()); requeueErr != nil {
-				slog.Debug("failed hook spool requeue failed", "path", record.Path, "error", requeueErr)
+			if requeueErr := requeueHookSpoolRecord(claimedPath, err.Error()); requeueErr != nil {
+				slog.Debug("failed hook spool requeue failed", "path", claimedPath, "error", requeueErr)
 			}
 			continue
 		}
-		if err := os.Remove(record.Path); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(claimedPath); err != nil && !os.IsNotExist(err) {
 			result.Failed++
-			slog.Debug("hook spool clear failed after replay", "path", record.Path, "error", err)
-			if requeueErr := requeueHookSpoolRecord(record.Path, err.Error()); requeueErr != nil {
-				slog.Debug("committed hook spool requeue failed", "path", record.Path, "error", requeueErr)
+			slog.Debug("hook spool clear failed after replay", "path", claimedPath, "error", err)
+			if requeueErr := requeueHookSpoolRecord(claimedPath, err.Error()); requeueErr != nil {
+				slog.Debug("committed hook spool requeue failed", "path", claimedPath, "error", requeueErr)
 			}
 			continue
 		}
@@ -415,6 +441,115 @@ func recoverStaleCurrentHookSpoolRecords(now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// isHookSpoolClaimFile reports whether name is a drain claim
+// (basename.json.claim-<rand>) that listHookSpoolRecordPaths must ignore.
+func isHookSpoolClaimFile(name string) bool {
+	idx := strings.LastIndex(name, hookSpoolClaimMarker)
+	if idx < 0 {
+		return false
+	}
+	return strings.HasSuffix(name[:idx], ".json")
+}
+
+// claimHookSpoolRecord exclusively claims a pending *.json record by renaming
+// it to a non-replayable claim path in the same directory. ok=false means
+// another worker already claimed or removed the path (lost CAS).
+func claimHookSpoolRecord(path string) (claimedPath string, ok bool, err error) {
+	if strings.TrimSpace(path) == "" {
+		return "", false, xerrors.New("hook spool path is required")
+	}
+	if !strings.HasSuffix(path, ".json") {
+		return "", false, xerrors.New("hook spool claim source must end with .json")
+	}
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		return "", false, xerrors.Errorf("failed to generate hook spool claim ID: %w", err)
+	}
+	claimedPath = path + hookSpoolClaimMarker + hex.EncodeToString(random)
+	if err := os.Rename(path, claimedPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, xerrors.Errorf("failed to claim hook spool record: %w", err)
+	}
+	return claimedPath, true, nil
+}
+
+// recoverStaleClaimedHookSpoolRecords returns claim files left by a killed
+// process to the replayable *.json queue after hookSpoolInflightStaleAge.
+func recoverStaleClaimedHookSpoolRecords(now time.Time) error {
+	dir, err := hookSpoolDir()
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("failed to read hook spool directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !isHookSpoolClaimFile(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return xerrors.Errorf("failed to inspect claimed hook spool record: %w", err)
+		}
+		if now.Sub(info.ModTime()) < hookSpoolInflightStaleAge {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if err := releaseStaleClaimedHookSpoolRecord(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func releaseStaleClaimedHookSpoolRecord(claimedPath string) error {
+	base := filepath.Base(claimedPath)
+	idx := strings.LastIndex(base, hookSpoolClaimMarker)
+	if idx < 0 || !strings.HasSuffix(base[:idx], ".json") {
+		return xerrors.New("claimed hook spool path is malformed")
+	}
+	restored := filepath.Join(filepath.Dir(claimedPath), base[:idx])
+	if _, err := os.Lstat(restored); err == nil {
+		// Basename already occupied; never rename-over another record.
+		return renameHookSpoolRecordToRetryTail(claimedPath)
+	} else if !os.IsNotExist(err) {
+		return xerrors.Errorf("failed to inspect restored hook spool path: %w", err)
+	}
+	if err := os.Rename(claimedPath, restored); err != nil {
+		if os.IsNotExist(err) {
+			return xerrors.Errorf("claimed hook spool record disappeared during release: %w", err)
+		}
+		// Race: basename appeared between Lstat and Rename.
+		return renameHookSpoolRecordToRetryTail(claimedPath)
+	}
+	return nil
+}
+
+// loadClaimedHookSpoolRecord reads a path already owned via claimHookSpoolRecord.
+// readable=false means the bytes could not be parsed as a schema v1 record
+// (caller should dead-letter / requeue without following symlinks).
+func loadClaimedHookSpoolRecord(
+	claimedPath string,
+	readFile func(string) ([]byte, error),
+) (hookSpoolRecord, bool, error) {
+	data, err := readFile(claimedPath)
+	if err != nil {
+		return hookSpoolRecord{}, false, err
+	}
+	var record hookSpoolRecord
+	if err := json.Unmarshal(data, &record); err != nil || record.SchemaVersion != hookSpoolSchemaVersion {
+		return hookSpoolRecord{}, false, nil
+	}
+	record.Path = claimedPath
+	return record, true, nil
 }
 
 func hookSpoolDir() (string, error) {

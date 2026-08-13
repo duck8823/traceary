@@ -13,6 +13,8 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -1432,6 +1434,160 @@ func TestInspectHookSpoolDiagnostics_ReportsPendingAndTerminalCounts(t *testing.
 	}
 	if !strings.Contains(check.Message, "1 pending") || !strings.Contains(check.Message, "1 terminal") {
 		t.Fatalf("message=%q, want pending and terminal counts", check.Message)
+	}
+}
+
+func TestClaimHookSpoolRecord_ConcurrentExclusive(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	path, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	const workers = 8
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var wins atomic.Int32
+	var claimedPath atomic.Value
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got, ok, claimErr := claimHookSpoolRecord(path)
+			if claimErr != nil {
+				t.Errorf("claimHookSpoolRecord: %v", claimErr)
+				return
+			}
+			if ok {
+				wins.Add(1)
+				claimedPath.Store(got)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := wins.Load(); got != 1 {
+		t.Fatalf("claim winners=%d, want exactly 1", got)
+	}
+	gotPath, _ := claimedPath.Load().(string)
+	if gotPath == "" || !isHookSpoolClaimFile(filepath.Base(gotPath)) {
+		t.Fatalf("claimed path = %q, want *.json.claim-*", gotPath)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("original path must be gone after exclusive claim, stat err=%v", err)
+	}
+	// Exactly one claim file remains; no second copy of the original.
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	claimFiles := 0
+	jsonFiles := 0
+	for _, entry := range entries {
+		switch {
+		case isHookSpoolClaimFile(entry.Name()):
+			claimFiles++
+		case strings.HasSuffix(entry.Name(), ".json"):
+			jsonFiles++
+		}
+	}
+	if claimFiles != 1 || jsonFiles != 0 {
+		t.Fatalf("claimFiles=%d jsonFiles=%d, want 1/0", claimFiles, jsonFiles)
+	}
+}
+
+func TestDrainHookSpoolRecords_ConcurrentClaimSingleRecord(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+
+	originalPath, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "not-a-real-hook",
+		Client:        "claude",
+		Payload:       `{"marker":"concurrent-claim"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	// Two concurrent drains share one poison record. Regardless of scheduling
+	// (second worker may or may not see the first worker's zz-retry), the
+	// exclusive claim must keep a single retained file and never resurrect the
+	// original basename as a duplicate replayable copy.
+	const workers = 2
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make([]struct{ replayed, failed int }, workers)
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			root := NewRootCLI(
+				WithStoreManagement(&spoolStoreManagementStub{}),
+				WithEvent(&spoolEventUsecaseStub{}),
+			)
+			<-start
+			results[i].replayed, results[i].failed = root.drainHookSpoolRecords(context.Background(), 5)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	totalReplayed := results[0].replayed + results[1].replayed
+	if totalReplayed != 0 {
+		t.Fatalf("replayed=%d, want 0 for poison record (results=%v)", totalReplayed, results)
+	}
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Fatalf("original path must be gone after claim, stat err=%v", err)
+	}
+
+	pending := listTopLevelSpoolJSON(t, spoolDir)
+	deadDir := filepath.Join(spoolDir, hookSpoolDeadDirName)
+	deadCount := 0
+	if entries, err := os.ReadDir(deadDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+				deadCount++
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("ReadDir(dead): %v", err)
+	}
+	if len(pending)+deadCount != 1 {
+		t.Fatalf("pending=%v dead=%d, want exactly one retained record (results=%v)", pending, deadCount, results)
+	}
+	if len(pending) == 1 {
+		data, err := os.ReadFile(filepath.Join(spoolDir, pending[0]))
+		if err != nil {
+			t.Fatalf("ReadFile retry: %v", err)
+		}
+		var record hookSpoolRecord
+		if err := json.Unmarshal(data, &record); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if record.AttemptCount < 1 || record.AttemptCount > workers {
+			t.Fatalf("AttemptCount=%d, want 1..%d", record.AttemptCount, workers)
+		}
+	}
+	entries, err := os.ReadDir(spoolDir)
+	if err != nil {
+		t.Fatalf("ReadDir(spool): %v", err)
+	}
+	for _, entry := range entries {
+		if isHookSpoolClaimFile(entry.Name()) {
+			t.Fatalf("leftover claim file %q", entry.Name())
+		}
 	}
 }
 
