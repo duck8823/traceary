@@ -38,7 +38,7 @@ packet and tool-output byte facts are counted once per run identity.
 usage terminal classification, while `unavailable_observations` counts
 observations for which every usage counter is unavailable.
 
-`session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` using the same node array shape as `traceary session tree --json`; `depth` is optional and `0` returns only the root.
+`session_status(action="tree", session_id="...", depth=N)` returns the JSON session subtree rooted at `session_id` as a node array (`session_id`, parent/spawn fields, `depth`, `children`, …); `depth` is optional and `0` returns only the root. The standalone CLI `session tree` command was removed in v0.35.0 (#1869); this MCP action remains until #1871.
 
 `session_status(action="active", ...)` treats a session that received events after its end marker as still active, matching the CLI `sessions --snapshot` `ended_with_late_events` rule. A lone `session_ended` followed by later prompts or audits does not exclude the session from the active result.
 
@@ -121,7 +121,7 @@ Future any-match support should be added as an explicit minor-version contract, 
 | `active_session` | `session_status(action="active", ...)` |
 | `latest_session` | `session_status(action="latest", ...)` |
 | `session_handoff` | `session_status(action="handoff", ...)` |
-| `session tree --json --root <session-id>` | `session_status(action="tree", session_id="<session-id>", ...)` |
+| _(removed CLI)_ `session tree --json --root <session-id>` | `session_status(action="tree", session_id="<session-id>", ...)` |
 | `add_log` | `record_event(type="log", ...)` |
 | `add_audit` | `record_event(type="audit", ...)` |
 | `list_events` | `list_events(...)` |

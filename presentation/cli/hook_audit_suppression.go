@@ -66,7 +66,7 @@ func isTracearySelfInspectionCommand(command string) bool {
 			return false
 		}
 		switch tokens[1] {
-		case "active", "latest", "tree", "handoff":
+		case "active", "latest", "handoff":
 			return true
 		}
 	case "memory":

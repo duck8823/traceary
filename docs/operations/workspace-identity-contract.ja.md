@@ -326,7 +326,7 @@ v0.30 は surface ごとに現在の selector の意味を維持します。
 | Surface | 既存 `workspace` selector の対象 | 互換規則 |
 |---|---|---|
 | `list`、`search`、`tail`、MCP event read | event effective workspace | exact filter を維持する |
-| `sessions`、session tree | session canonical workspace | exact filter を維持する |
+| `sessions` snapshot | session canonical workspace | exact filter を維持する |
 | `session handoff`、memory/context pack | canonical session を優先し、既存の local descendant evidence fallback を使う | remote alias を推定しない |
 | event JSON の `workspace` | effective workspace | field 名を維持し、意味を文書化する |
 | session JSON の `workspace` | canonical workspace | field 名を維持し、意味を文書化する |

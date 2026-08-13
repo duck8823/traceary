@@ -35,7 +35,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 
 - **Event recording** — `traceary log`, `traceary audit`
 - **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary sessions` (and `traceary sessions --snapshot` / `--snapshot --json`)
-- **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session tree`, `traceary session lineage`, `traceary session refine`, `traceary session latest`, `traceary session active`
+- **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session refine`, `traceary session latest`, `traceary session active`
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store remember`, `traceary memory store propose`, `traceary memory store distill`
@@ -45,7 +45,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
-The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary sessions --snapshot --json` envelope (`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`), `traceary timeline --json` (`workspace_breakdown`), `traceary session tree --json` lineage fields, and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
+The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary sessions --snapshot --json` envelope (`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`), `traceary timeline --json` (`workspace_breakdown`), and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
 
 `traceary doctor` defaults to exit code `0` for all-pass reports, `1` when any check fails, and `2` for warning-only reports. Automation that treats warnings as operator-visible drift but not a broken install should pass `--warnings-ok`; in that mode warning-only reports exit `0`, failures still exit `1`, and the JSON `summary` / per-check severities remain unchanged.
 
@@ -88,6 +88,7 @@ Currently deprecated:
 
 Historical removal log:
 
+- Removed in v0.35.0 (#1869): `traceary session tree` and `traceary session lineage`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. `traceary sessions --snapshot` / `--snapshot --json` remain the script-friendly active-session view. MCP `session_status` actions `lineage` / `tree` are unchanged here (see #1871).
 - Removed in v0.35.0 after the v0.34 deprecation (#1688 / #1690): `traceary top` (including `traceary top --snapshot` / `--snapshot --json`). Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. Use `traceary sessions` (or `traceary sessions --snapshot` / `--snapshot --json`); the snapshot contracts are unchanged.
 - Removed in v0.35.0 after the v0.34 announcement (#1765 / #1766): the interactive `traceary sessions` live dashboard. Bare `traceary sessions` is now a plain text command and is byte-identical to `traceary sessions --snapshot` for every caller. `sessions --snapshot` / `--snapshot --json` remain unchanged.
 - Removed in v0.35.0 after the v0.34 announcement (#1687 / #1764): `traceary tui`, `traceary dashboard`, and the bare interactive TTY default that opened the operator cockpit. Bare `traceary` always prints help (TTY and non-TTY). Use `traceary sessions --snapshot` for the surviving script-friendly view of related session data. The orphan local state file `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually; Traceary no longer reads or writes it.

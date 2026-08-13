@@ -786,7 +786,7 @@ deadline の経過がキャンセルより優先され、続いて signal によ
 
 ### `traceary sessions`
 
-active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / メモリ候補の確認キュー / cleanup が必要かもしれない stale durable memory をまとめた Sessions snapshot を一回出力します。bare の `traceary sessions` はどの caller でも `traceary sessions --snapshot` とバイト単位で同一です。旧ライブ対話 dashboard は v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1765 / #1766）。旧互換 alias の `traceary top` も v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1688 / #1690）。代わりに `traceary sessions` を使い、`traceary session tree` は静的な retrospective view のままです。
+active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / メモリ候補の確認キュー / cleanup が必要かもしれない stale durable memory をまとめた Sessions snapshot を一回出力します。bare の `traceary sessions` はどの caller でも `traceary sessions --snapshot` とバイト単位で同一です。旧ライブ対話 dashboard は v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1765 / #1766）。旧互換 alias の `traceary top` も v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1688 / #1690）。代わりに `traceary sessions` を使ってください。スタンドアロンの `traceary session tree` / `session lineage` も v0.35.0 で削除されました（#1869）。
 
 テキスト snapshot は先頭の `RELIABILITY` セクションに続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)` の各セクションに分かれ、空のセクションも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。最新 activity が `--idle` より古い session は `idle` 接尾辞で示しますが、非表示にはしません。JSON snapshot（`--snapshot --json`）は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope オブジェクトでラップされています。`reliability.memory` には scan した candidate window の hygiene 構成をまとめた `candidate_hygiene` オブジェクト (`stale_count` / `duplicate_count` / `fragment_like_count` / `extracted_hidden_count` / `likely_actionable_count`) も含まれます。4 つの flag count は独立した診断軸で重複し得ます。`likely_actionable_count` はそのいずれにも該当しない候補の補集合です。`accepted_count` / `candidate_count` と同様に `scan_limit_reached` が true のときは scan したサンプルを反映します。`duplicate_count` は完全一致 (同一 scope・memory type・fact。extraction の dedupe key に一致) のみで、類似 duplicate は `traceary memory admin hygiene scan` が担当します。各セクションの行上限は snapshot 既定どおり (failures 50 / recent commands 50 / candidates 25 / stale memories 25) で、session セクションは引き続き `--limit` を使用します。
 
@@ -856,14 +856,14 @@ active session の列:
 - `--client`
 - `--agent`
 - `--idle <duration>` — threshold より古い行を非表示にせず dim 表示
-- `--snapshot --json` — sessions 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_id` / `latest_event_at` が含まれます。`latest_event_message` は共有の 500 rune body cap で truncate され（noisy な command/tool payload を次の agent context に再増幅させないため）、cut された場合は `latest_event_message_truncated` / `latest_event_message_length` / `latest_event_message_bytes` が追加されます。full body は `traceary show <latest_event_id>` で明示的に取得します。`reliability.large_payloads` には bounded な `samples` 配列が加わり、各 sample は body-safe な metadata（`event_id` / `kind` / `source` / `message_length` / `message_bytes` / `first_line` / `retrieval_hint`）のみで full body は含みません。failures と recent_commands は標準 event JSON（同じく body cap 済み）、memory candidates は durable memory summary JSON と同じ shape を再利用します。stale memories は durable memory summary に `reason` を加えた shape です。`traceary session tree --json` は独立した contract を保ち、これらいずれも露出しません
+- `--snapshot --json` — sessions 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_id` / `latest_event_at` が含まれます。`latest_event_message` は共有の 500 rune body cap で truncate され（noisy な command/tool payload を次の agent context に再増幅させないため）、cut された場合は `latest_event_message_truncated` / `latest_event_message_length` / `latest_event_message_bytes` が追加されます。full body は `traceary show <latest_event_id>` で明示的に取得します。`reliability.large_payloads` には bounded な `samples` 配列が加わり、各 sample は body-safe な metadata（`event_id` / `kind` / `source` / `message_length` / `message_bytes` / `first_line` / `retrieval_hint`）のみで full body は含みません。failures と recent_commands は標準 event JSON（同じく body cap 済み）、memory candidates は durable memory summary JSON と同じ shape を再利用します。stale memories は durable memory summary に `reason` を加えた shape です
 - `--limit`
 
 ### `traceary session list`
 
 session の一覧サマリーを表示します。
 
-`session list` では、status / duration / 集計件数に加えて、`summary`、`parent_session_id` も確認できます。session label サーフェス（`session label`、`--label`、`LABEL` 列、`label` JSON フィールド）は v0.34 の非推奨を経て v0.35.0 で削除されました（#1691）。
+`session list` では、status / duration / 集計件数に加えて、`summary`、`parent_session_id` も確認できます。session label サーフェス（`session label`、`--label`、`LABEL` 列、`label` JSON フィールド）は v0.34 の非推奨を経て v0.35.0 で削除されました（#1691）。スタンドアロンの `session tree` / `session lineage` も v0.35.0 で削除されました（#1869）。active な parent/child view には `traceary sessions --snapshot` を使ってください。
 
 主な flag:
 
@@ -873,26 +873,6 @@ session の一覧サマリーを表示します。
 - `--to`
 - `--limit`
 - `--offset`
-- `--json`
-
-### `traceary session tree`
-
-読み込んだ session の parent → child → grandchild 階層を描画します。各行は session id / status / 最も具体的な subagent role (例: Claude Code の subagent なら `claude/Explore`) / workspace / duration / `N cmds/M events` breakdown を表示します。同じ親を持つ child は `spawn_order` 昇順で並び、`spawn_order` を持たない top-level session は `started_at` 順で並びます。JSON 出力では各ノードに `parent_session_id` / `spawn_event_id` / `subagent_kind` / `spawn_order` / `depth` / 数値の `duration_sec` / `subagent_type` を追加し、外部ツールが lineage を扱えるようにしています。
-
-主な flag:
-
-- `--workspace`
-- `--limit`
-- `--root <session-id>` — 指定 session を root とするサブツリーのみ表示
-- `--ongoing-only` — active session を含む lineage だけを残す
-- `--json`
-
-### `traceary session lineage <session-id>`
-
-指定 session を含む lineage 全体を表示します。Traceary は `<session-id>` から最上位の ancestor まで上にたどり、その root と全 descendant を `session tree` と同じ text / JSON node 形式で返します。
-
-主な flag:
-
 - `--json`
 
 ### `traceary session refine <session-id>`
@@ -943,7 +923,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 
 ### Session status の値
 
-`session list` / `session tree` と `sessions --snapshot` の JSON `status` フィールドは以下のいずれかを表示します。
+`session list` と `sessions --snapshot` の JSON `status` フィールドは以下のいずれかを表示します。
 
 | Status | 意味 |
 |--------|------|
