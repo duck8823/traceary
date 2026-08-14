@@ -56,25 +56,45 @@ type caseResult struct {
 
 func main() {
 	var dbPath, synthetic string
-	var validateBaseline string
-	var iterations, smallRows, largeRows int
+	var validateBaseline, calibrateDir string
+	var iterations, smallRows, largeRows, calibrateRows, calibrateEnormousRows, calibrateEnormousBytes int
 	var caseTimeout time.Duration
 	flag.StringVar(&dbPath, "db", "", "path to an operator-created store copy (opened immutable/read-only)")
 	flag.StringVar(&synthetic, "synthetic", "", "create and benchmark a synthetic store at this new path")
 	flag.StringVar(&validateBaseline, "validate-baseline", "", "validate a sanitized capacity baseline artifact and exit")
+	flag.StringVar(&calibrateDir, "calibrate-gates", "", "write per-corpus stores and a storage-gate range report under this new directory")
 	flag.IntVar(&iterations, "iterations", 15, "samples per cold and warm series")
 	flag.IntVar(&smallRows, "small-rows", 10000, "synthetic small event rows")
 	flag.IntVar(&largeRows, "large-rows", 8, "synthetic 1 MiB event rows")
+	flag.IntVar(&calibrateRows, "calibrate-rows", 256, "events per non-enormous calibrate corpus")
+	flag.IntVar(&calibrateEnormousRows, "calibrate-enormous-rows", 2, "1 MiB-class rows in the enormous corpus")
+	flag.IntVar(&calibrateEnormousBytes, "calibrate-enormous-bytes", 1<<20, "body size of each enormous row")
 	flag.DurationVar(&caseTimeout, "case-timeout", 2*time.Minute, "maximum duration for each benchmark case")
 	flag.Parse()
 	selectedModes := 0
-	for _, selected := range []bool{validateBaseline != "", dbPath != "", synthetic != ""} {
+	for _, selected := range []bool{validateBaseline != "", dbPath != "", synthetic != "", calibrateDir != ""} {
 		if selected {
 			selectedModes++
 		}
 	}
 	if selectedModes != 1 {
 		fatal("specify exactly one benchmark or validation mode")
+	}
+	if calibrateDir != "" {
+		report, err := runCalibrateGates(context.Background(), calibrateOpts{
+			Dir:           calibrateDir,
+			Rows:          calibrateRows,
+			EnormousRows:  calibrateEnormousRows,
+			EnormousBytes: calibrateEnormousBytes,
+			Seed:          calibrateSeed,
+		})
+		if err != nil {
+			fatal(err.Error())
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+			fatal(err.Error())
+		}
+		return
 	}
 	if validateBaseline != "" {
 		if err := validateBaselineFile(validateBaseline); err != nil {
