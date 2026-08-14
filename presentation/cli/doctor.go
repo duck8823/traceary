@@ -283,26 +283,28 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		Message: localizef("resolved DB path: %s", "解決した DB パス: %s", resolvedDBPath),
 	})
 	snapshot := inspectStoreFileSnapshot(resolvedDBPath, os.Stat)
-	if c.payloadCodecInspector != nil {
-		report.Checks = append(report.Checks, c.inspectPayloadCodec(ctx, snapshot))
-	}
-	if isLargeStoreForBoundedDoctor(snapshot) {
-		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
-	} else {
-		report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath, snapshot)...)
-	}
-	report.Checks = append(report.Checks, inspectTracearyOnPath())
 	if isLargeStoreForBoundedDoctor(snapshot) {
 		report.Mode = doctorModeMetadataOnlyLargeStore
+		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
+		report.Checks = append(report.Checks, inspectTracearyOnPath())
 		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath))
+		if c.attestationAnchorInspector != nil {
+			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, false))
+		}
 		// This is an intentional, successful bounded outcome. Do not initialize
-		// SQLite, list events, open spool payloads, or inspect client state here:
-		// those operations can block behind a live writer and some inspect event
-		// bodies/payloads. Hook spool is still reported via directory entry
-		// counts and byte sizes only (pending / stale inflight / dead-letter).
+		// SQLite, list events, open spool payloads, inspect payload codec, or
+		// inspect client state here: those operations can block behind a live
+		// writer and some inspect event bodies/payloads. Hook spool is still
+		// reported via directory entry counts and byte sizes only (pending /
+		// stale inflight / dead-letter).
 		report.Checks = append(report.Checks, inspectHookSpoolFilesystemMetadata())
 		return report, nil
 	}
+	if c.payloadCodecInspector != nil {
+		report.Checks = append(report.Checks, c.inspectPayloadCodec(ctx, snapshot))
+	}
+	report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath, snapshot)...)
+	report.Checks = append(report.Checks, inspectTracearyOnPath())
 
 	report.Checks = append(report.Checks, inspectDoctorConfig())
 
@@ -325,6 +327,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectContentEventReliability(ctx, input.strict))
 		report.Checks = append(report.Checks, c.inspectRetryLoops(ctx))
 		report.Checks = append(report.Checks, c.inspectSensitiveAccessAuditCoverage(ctx))
+		if c.attestationAnchorInspector != nil {
+			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, true))
+		}
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)

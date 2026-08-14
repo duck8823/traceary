@@ -43,6 +43,7 @@ type RootCLI struct {
 	storeManagement            usecase.StoreManagementUsecase
 	capacityInspector          application.CapacityInspector
 	payloadCodecInspector      application.PayloadCodecInspector
+	attestationAnchorInspector application.AttestationAnchorInspector
 	searchProjection           *usecase.SearchProjectionUsecase
 	storeCompactionFactory     func(string) application.StoreCompactionUsecase
 	fileRetention              usecase.FileRetentionUsecase
@@ -231,6 +232,11 @@ func WithCapacityInspector(inspector application.CapacityInspector) RootCLIOptio
 // WithPayloadCodecInspector injects read-only payload representation status.
 func WithPayloadCodecInspector(inspector application.PayloadCodecInspector) RootCLIOption {
 	return func(c *RootCLI) { c.payloadCodecInspector = inspector }
+}
+
+// WithAttestationAnchorInspector injects the store-side attestation sidecar check.
+func WithAttestationAnchorInspector(inspector application.AttestationAnchorInspector) RootCLIOption {
+	return func(c *RootCLI) { c.attestationAnchorInspector = inspector }
 }
 
 // WithSearchProjection injects the explicit derived-projection lifecycle workflow.

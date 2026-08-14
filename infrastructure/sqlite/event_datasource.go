@@ -66,7 +66,8 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 		return xerrors.Errorf("event must not be nil")
 	}
 
-	db, err := d.db.open(ctx)
+	storePath := d.db.Path()
+	db, err := d.db.openAt(ctx, storePath)
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for event save: %w", err)
 	}
@@ -80,7 +81,7 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 	if err != nil {
 		return err
 	}
-	return saveEventTransaction(ctx, db, event, nil, codecMetadata, nil)
+	return saveEventTransaction(ctx, db, event, nil, codecMetadata, nil, storePath)
 }
 
 // SaveWithAudit persists an event together with its command audit.
@@ -96,7 +97,8 @@ func (d *EventDatasource) SaveWithAudit(
 		return xerrors.Errorf("command audit must not be nil")
 	}
 
-	db, err := d.db.open(ctx)
+	storePath := d.db.Path()
+	db, err := d.db.openAt(ctx, storePath)
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for command audit save: %w", err)
 	}
@@ -110,7 +112,7 @@ func (d *EventDatasource) SaveWithAudit(
 	if err != nil {
 		return err
 	}
-	return saveEventTransaction(ctx, db, event, audit, codecMetadata, nil)
+	return saveEventTransaction(ctx, db, event, audit, codecMetadata, nil, storePath)
 }
 
 // ListRecent returns events in descending time order.

@@ -534,10 +534,12 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	store := &storeManagementUsecaseStub{}
 	events := &eventUsecaseStub{}
 	capacity := &panicCapacityInspector{}
+	codec := &panicPayloadCodecInspector{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(store),
 		cli.WithEvent(events),
 		cli.WithCapacityInspector(capacity),
+		cli.WithPayloadCodecInspector(codec),
 	).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -564,6 +566,9 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	}
 	if capacity.calls != 0 {
 		t.Fatalf("large-store capacity calls=%d, want zero", capacity.calls)
+	}
+	if codec.calls != 0 {
+		t.Fatalf("large-store payload codec calls=%d, want zero", codec.calls)
 	}
 	check := statusByName(report, "large-store-diagnostics")
 	if check.Status != "warn" || !strings.Contains(check.Message, "were not read") {
