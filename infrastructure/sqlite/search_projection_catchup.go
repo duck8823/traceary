@@ -139,15 +139,14 @@ func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, e
 	if err != nil {
 		var noProgress *apptypes.SearchProjectionNoProgressError
 		if errors.As(err, &noProgress) && noProgress.Code == apptypes.SearchProjectionNoProgressSingleRowLockDurationCap {
-			// Deliberately not "this will not recover on its own". Another
-			// writer holding the lock past the cap arrives here identically to
-			// a row whose own work exceeds it: the wait happens inside the
-			// driver and surfaces as the same deadline, so contention that
-			// clears leaves nothing to distinguish it (#1833). Claiming
-			// permanence would send an operator to rebuild a generation that
-			// was about to advance. What is known is that the shrink loop
-			// reached one row and that row did not commit — and that searches
-			// stay incomplete for as long as that holds.
+			// Acquire-at-floor only (#1833). A held-lock row-work overrun is
+			// now a row_work exclusion and does not reach this message.
+			// Another writer that occupies the write lock through the acquire
+			// budget still arrives here: claiming permanence would send an
+			// operator to rebuild a generation that was about to advance once
+			// that writer released. What is known is that the shrink loop
+			// reached one row and acquisition did not commit — and that
+			// searches stay incomplete for as long as that holds.
 			//
 			// The recovery is resume, not abort: LockTime is deliberately
 			// outside the generation's config hash (application/types/

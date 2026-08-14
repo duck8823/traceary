@@ -241,6 +241,7 @@ type adaptiveProjectionStore struct {
 	// checkpointOnFailure stands in for another opener committing a batch
 	// while this one was failing; zero leaves the checkpoint where it was.
 	checkpointOnFailure int64
+	rowWorkCap          bool
 }
 
 func (s *adaptiveProjectionStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
@@ -274,6 +275,27 @@ func (s *adaptiveProjectionStore) ApplyBatch(_ context.Context, p apptypes.Proje
 		timer := time.NewTimer(s.attemptDelay)
 		defer timer.Stop()
 		<-timer.C
+	}
+	if len(p.Exclusions) > 0 && len(p.Writes) == 0 {
+		s.checkpoints = append(s.checkpoints, p.NextCheckpoint)
+		return apptypes.SearchProjectionProgress{Selected: len(p.Exclusions), GenerationID: "g"}, nil
+	}
+	if s.rowWorkCap {
+		if len(p.Writes) == 1 {
+			w := p.Writes[0]
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{
+				Code:   apptypes.SearchProjectionNoProgressRowWorkCap,
+				Reason: "projection row work exceeded hold budget",
+				Exclusion: apptypes.ProjectionExclusion{
+					Sequence: w.Document.Sequence, EventID: w.Document.EventID, Class: "row_work",
+					MeasuredBytes: 1, ByteLimit: 1,
+				},
+			}
+		}
+		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{
+			Code:   apptypes.SearchProjectionNoProgressRowWorkCap,
+			Reason: "projection row work exceeded hold budget",
+		}
 	}
 	if len(p.Writes) > s.maxRows || s.alwaysTooBig {
 		if s.checkpointOnFailure != 0 {
@@ -542,6 +564,44 @@ func TestSearchProjectionResumeUntilShrinksInventoryBatch(t *testing.T) {
 	}
 	if diff := cmp.Diff([]int{4, 2, 4}, store.plannedInventoryRows); diff != "" {
 		t.Fatalf("planned inventory rows (-want +got):\n%s", diff)
+	}
+}
+
+func TestSearchProjectionResumeExcludesOneWriteWhenBudgetRowsRemain(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, rowWorkCap: true, checkpoints: []int64{2}}
+	progress, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]int{4}, store.plannedRows); diff != "" {
+		t.Fatalf("planned rows (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int64{2, 3}, store.checkpoints); diff != "" {
+		t.Fatalf("checkpoints (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, progress.Selected); diff != "" {
+		t.Fatalf("selected (-want +got):\n%s", diff)
+	}
+}
+
+func TestSearchProjectionResumeUntilExcludesSingleRowWorkCap(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, rowWorkCap: true}
+	result, err := usecase.NewSearchProjectionUsecase(store).ResumeUntil(context.Background(), b, apptypes.SearchProjectionRunOptions{MaxBatches: 1, TotalWallTime: time.Minute}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]int{4, 2, 1}, store.plannedRows); diff != "" {
+		t.Fatalf("planned rows (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int64{1}, store.checkpoints); diff != "" {
+		t.Fatalf("exclusion checkpoint (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, result.Progress.Selected); diff != "" {
+		t.Fatalf("selected (-want +got):\n%s", diff)
 	}
 }
 

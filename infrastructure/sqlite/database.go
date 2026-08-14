@@ -177,6 +177,10 @@ type Database struct {
 	// a projection family large enough to be genuinely slow. Production
 	// databases leave it zero and get searchProjectionMeasureTimeout.
 	searchProjectionMeasureTimeoutOverride time.Duration
+	// afterProjectionLockHeld runs after BEGIN IMMEDIATE succeeds and the
+	// hold clock has started. Tests use it to spend the hold budget; production
+	// leaves it nil.
+	afterProjectionLockHeld func(context.Context) error
 }
 
 // NewImmutableReadDatabase opens one shared immutable connection group for benchmark orchestration.

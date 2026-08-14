@@ -1255,3 +1255,193 @@ func TestSearchProjectionRecentDocumentsAreASCIIFoldedForCaseSensitiveFTS(t *tes
 		t.Fatalf("MATCH count = %d, want 1 (mixed-case text must be findable)", matched)
 	}
 }
+
+func TestSearchProjectionContentionDoesNotExclude(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewDatabase(path, migrations)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('slow','note','a','s','body',?,'c','w')`, formatTimestamp(now)); err != nil {
+		t.Fatal(err)
+	}
+	budget := projectionBudget()
+	budget.LockTime = 80 * time.Millisecond
+	if _, err = store.Start(ctx, budget, now); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.SelectSnapshot(ctx, budget, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := usecase.PlanProjectionBatch(snapshot, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Writes) != 1 {
+		t.Fatalf("plan writes=%d, want 1", len(plan.Writes))
+	}
+	holder, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Close() }()
+	conn, err := holder.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.ApplyBatch(ctx, plan, budget.LockTime, now)
+	if _, rollbackErr := conn.ExecContext(context.Background(), `ROLLBACK`); rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if !errors.As(err, &noProgress) {
+		t.Fatalf("error=%T %v, want SearchProjectionNoProgressError", err, err)
+	}
+	if diff := cmp.Diff(apptypes.SearchProjectionNoProgressLockDurationCap, noProgress.Code); diff != "" {
+		t.Fatalf("no-progress code (-want +got):\n%s", diff)
+	}
+	if noProgress.Exclusion.EventID != "" {
+		t.Fatalf("exclusion identity = %+v, want none under contention", noProgress.Exclusion)
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ExclusionCount != 0 || status.Checkpoint != 0 {
+		t.Fatalf("status=%+v, want no exclusion and unchanged checkpoint", status)
+	}
+}
+
+func TestSearchProjectionSlowRowIsExcludedAsRowWork(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewDatabase(path, migrations)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('slow','note','a','s','body',?,'c','w')`, formatTimestamp(now)); err != nil {
+		t.Fatal(err)
+	}
+	budget := projectionBudget()
+	budget.LockTime = 40 * time.Millisecond
+	if _, err = store.Start(ctx, budget, now); err != nil {
+		t.Fatal(err)
+	}
+	var spentHold sync.Once
+	store.afterProjectionLockHeld = func(holdCtx context.Context) error {
+		spent := false
+		spentHold.Do(func() {
+			<-holdCtx.Done()
+			spent = true
+		})
+		if spent {
+			return context.DeadlineExceeded
+		}
+		return nil
+	}
+	progress, err := usecase.NewSearchProjectionUsecase(store).ResumeUntil(ctx, budget, apptypes.SearchProjectionRunOptions{MaxBatches: 4, TotalWallTime: time.Minute}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progress.Progress.Selected < 1 {
+		t.Fatalf("progress=%+v, want the exclusion to count as progress", progress)
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ExclusionCount != 1 || len(status.Exclusions) != 1 {
+		t.Fatalf("status=%+v, want one row_work exclusion", status)
+	}
+	if diff := cmp.Diff("row_work", status.Exclusions[0].Class); diff != "" {
+		t.Fatalf("exclusion class (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("slow", status.Exclusions[0].EventID); diff != "" {
+		t.Fatalf("exclusion event (-want +got):\n%s", diff)
+	}
+	if status.Checkpoint == 0 {
+		t.Fatal("checkpoint did not advance past the slow row")
+	}
+}
+
+func TestSearchProjectionParentDeadlineDoesNotExclude(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewDatabase(path, migrations)
+	if err = store.initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	now := time.Now().UTC()
+	if _, err = db.Exec(`INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES('slow','note','a','s','body',?,'c','w')`, formatTimestamp(now)); err != nil {
+		t.Fatal(err)
+	}
+	budget := projectionBudget()
+	budget.LockTime = time.Second
+	if _, err = store.Start(ctx, budget, now); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.SelectSnapshot(ctx, budget, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := usecase.PlanProjectionBatch(snapshot, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.afterProjectionLockHeld = func(holdCtx context.Context) error {
+		<-holdCtx.Done()
+		return context.DeadlineExceeded
+	}
+	wallCtx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	_, err = store.ApplyBatch(wallCtx, plan, budget.LockTime, now)
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if !errors.As(err, &noProgress) {
+		t.Fatalf("error=%T %v, want SearchProjectionNoProgressError", err, err)
+	}
+	if noProgress.Code == apptypes.SearchProjectionNoProgressRowWorkCap {
+		t.Fatalf("parent wall deadline became %+v", noProgress)
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ExclusionCount != 0 || status.Checkpoint != 0 {
+		t.Fatalf("status=%+v, want no exclusion from a parent deadline", status)
+	}
+}
