@@ -80,7 +80,7 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 	if err != nil {
 		return err
 	}
-	return saveEventTransaction(ctx, db, event, nil, codecMetadata, nil)
+	return saveEventTransaction(ctx, db, event, nil, codecMetadata, nil, d.db.Path())
 }
 
 // SaveWithAudit persists an event together with its command audit.
@@ -110,7 +110,7 @@ func (d *EventDatasource) SaveWithAudit(
 	if err != nil {
 		return err
 	}
-	return saveEventTransaction(ctx, db, event, audit, codecMetadata, nil)
+	return saveEventTransaction(ctx, db, event, audit, codecMetadata, nil, d.db.Path())
 }
 
 // ListRecent returns events in descending time order.

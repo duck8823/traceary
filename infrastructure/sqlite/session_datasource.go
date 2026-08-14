@@ -118,7 +118,7 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 			return xerrors.Errorf("failed to save session: %w", err)
 		}
 		return nil
-	})
+	}, d.db.Path())
 }
 
 // sqlExecer abstracts *sql.DB and *sql.Tx so the helpers below can run in

@@ -9,6 +9,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ### Added
 - **新しい prompt とコマンド同一性の attestation 鎖 (#1677)** — 新しい `prompt` 保存と `SaveWithAudit` は同じ transaction でハッシュ鎖を 1 本足します。digest は prompt 本文、または `command_text` + `input_text` と保存時刻です。`output_text` は符号化に入りません。歴史行は backfill しません。compact と content-event dedupe は attested な event id を残し、`ON DELETE RESTRICT` で失敗させません。`traceary attest` コマンドは無く、検証はテストと後続の doctor/anchor 用の store 関数です。
+- **store 横の attestation anchor (#1678)** — attested な書き込みが commit したあと、`{store}.attest` に JSONL を 1 行足します（`v`, `seq`, `head`, `at`、mode `0600`）。2 GiB 未満の `traceary doctor` は store 内の鎖を Verify し、ファイル末尾と head を照合します。ファイルが無い・遅れているだけなら追記して pass、不一致やファイル先行は fail です。2 GiB 以上は metadata-only のまま、sidecar だけを読み、SQLite を開かず追記もしません。compact の `VerifyPair` は source と candidate の鎖を歩きます。`traceary attest` コマンドは作りません。commit 後の sidecar I/O 失敗で Save は失敗せず、doctor が無い・遅れているファイルを直します。
 
 ### Removed
 - **ストアサイズ削減コマンドを `store compact` に畳み込み (#1872)** — `traceary store gc`、`store dedupe` / `content-events`、`store retention plan|apply|restore`（本文。`store retention files` は残す）、`store payload-rehearsal`、`store payload-backfill`、`store search-retire`、`store compact plan|apply|resume|status` を削除しました。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。`traceary store compact [--force] [--keep-days]` がファイルを書き換えます。退役済み検索インデックスと非 canonical な重複を落とし、被覆済みの破棄対象 transcript 本文を捨て、残本文を符号化してから新しい inode へ vacuum します。未 refine の破棄対象だけがあるときは失敗します。部分 fold 済みならその分は回収され、`--force` は機械要約を書いて判断理由が失われることを明示します。`store compact rollback RUN_ID` と `store search-projection` は残します。

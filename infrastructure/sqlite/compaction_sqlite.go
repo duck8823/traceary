@@ -149,18 +149,27 @@ func (SQLiteCompactionBuilder) VerifyPair(ctx context.Context, source, candidate
 		return err
 	}
 	if sourceEvents || candidateEvents {
-		return verifyFilteredCandidate(ctx, sourceDB, candidateDB)
+		if err := verifyFilteredCandidate(ctx, sourceDB, candidateDB); err != nil {
+			return err
+		}
+	} else {
+		left, err := scrubStore(ctx, sourceDB)
+		if err != nil {
+			return fmt.Errorf("scrub source: %w", err)
+		}
+		right, err := scrubStore(ctx, candidateDB)
+		if err != nil {
+			return fmt.Errorf("scrub candidate: %w", err)
+		}
+		if left != right {
+			return fmt.Errorf("candidate logical digest mismatch: source=%+v candidate=%+v", left, right)
+		}
 	}
-	left, err := scrubStore(ctx, sourceDB)
-	if err != nil {
-		return fmt.Errorf("scrub source: %w", err)
+	if err := VerifyAttestationChain(ctx, sourceDB); err != nil {
+		return fmt.Errorf("source attestation chain: %w", err)
 	}
-	right, err := scrubStore(ctx, candidateDB)
-	if err != nil {
-		return fmt.Errorf("scrub candidate: %w", err)
-	}
-	if left != right {
-		return fmt.Errorf("candidate logical digest mismatch: source=%+v candidate=%+v", left, right)
+	if err := VerifyAttestationChain(ctx, candidateDB); err != nil {
+		return fmt.Errorf("candidate attestation chain: %w", err)
 	}
 	return nil
 }

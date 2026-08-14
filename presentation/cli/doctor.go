@@ -295,6 +295,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	if isLargeStoreForBoundedDoctor(snapshot) {
 		report.Mode = doctorModeMetadataOnlyLargeStore
 		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath))
+		if c.attestationAnchorInspector != nil {
+			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, false))
+		}
 		// This is an intentional, successful bounded outcome. Do not initialize
 		// SQLite, list events, open spool payloads, or inspect client state here:
 		// those operations can block behind a live writer and some inspect event
@@ -325,6 +328,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectContentEventReliability(ctx, input.strict))
 		report.Checks = append(report.Checks, c.inspectRetryLoops(ctx))
 		report.Checks = append(report.Checks, c.inspectSensitiveAccessAuditCoverage(ctx))
+		if c.attestationAnchorInspector != nil {
+			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, true))
+		}
 	}
 
 	resolvedProjectDir, err := resolveHooksProjectDir(input.projectDir)

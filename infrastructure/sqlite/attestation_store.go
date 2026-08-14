@@ -126,16 +126,16 @@ func VerifyAttestationChain(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, audit *model.CommandAudit) error {
+func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, audit *model.CommandAudit) (*attestation.AnchorRecord, error) {
 	if event == nil {
-		return xerrors.Errorf("event must not be nil")
+		return nil, xerrors.Errorf("event must not be nil")
 	}
 	enabled, err := tableExistsInTransaction(ctx, tx, "attestation_links")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !enabled {
-		return nil
+		return nil, nil
 	}
 
 	createdAt := formatTimestamp(event.CreatedAt())
@@ -158,10 +158,10 @@ func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, 
 			Body:      []byte(event.Body()),
 		})
 	default:
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return xerrors.Errorf("hash attestation content: %w", err)
+		return nil, xerrors.Errorf("hash attestation content: %w", err)
 	}
 
 	var prevHex string
@@ -171,13 +171,13 @@ func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, 
 		`SELECT head_sha256, seq FROM attestation_head WHERE singleton = 1`,
 	).Scan(&prevHex, &seq); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return xerrors.Errorf("attestation head is missing")
+			return nil, xerrors.Errorf("attestation head is missing")
 		}
-		return xerrors.Errorf("read attestation head: %w", err)
+		return nil, xerrors.Errorf("read attestation head: %w", err)
 	}
 	prev, err := attestation.ParseHex(prevHex)
 	if err != nil {
-		return xerrors.Errorf("parse attestation head: %w", err)
+		return nil, xerrors.Errorf("parse attestation head: %w", err)
 	}
 	linkHex := attestation.EncodeHex(attestation.LinkSHA256(prev, content))
 	contentHex := attestation.EncodeHex(content)
@@ -194,7 +194,7 @@ func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, 
 		linkHex,
 		createdAt,
 	); err != nil {
-		return xerrors.Errorf("insert attestation link: %w", err)
+		return nil, xerrors.Errorf("insert attestation link: %w", err)
 	}
 	if _, err := tx.ExecContext(
 		ctx,
@@ -202,9 +202,14 @@ func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, 
 		linkHex,
 		nextSeq,
 	); err != nil {
-		return xerrors.Errorf("advance attestation head: %w", err)
+		return nil, xerrors.Errorf("advance attestation head: %w", err)
 	}
-	return nil
+	return &attestation.AnchorRecord{
+		Version:     attestation.AnchorFormatVersion,
+		Seq:         nextSeq,
+		Head:        linkHex,
+		PublishedAt: createdAt,
+	}, nil
 }
 
 func recomputeAttestationContent(ctx context.Context, q queryRowContexter, eventID, kind string) (string, error) {
