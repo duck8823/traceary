@@ -2,9 +2,11 @@ package sqlite_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -220,6 +222,130 @@ func TestPublishAttestationAnchor_DoesNotAppendConflictingHead(t *testing.T) {
 	}
 	if strings.Count(string(after), "\n") != 1 {
 		t.Fatalf("conflict publish changed line count: %q", after)
+	}
+}
+
+func TestPublishAttestationAnchor_SerializesOutOfOrderSeqs(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "traceary.db.attest")
+	head1 := attestation.GenesisHex()
+	head2 := strings.Repeat("ab", 32)
+	start := make(chan struct{})
+	errCh := make(chan error, 2)
+	go func() {
+		<-start
+		errCh <- sqlite.PublishAttestationAnchorForTest(path, attestation.AnchorRecord{
+			Version: 1, Seq: 2, Head: head2, PublishedAt: "t2",
+		})
+	}()
+	go func() {
+		<-start
+		errCh <- sqlite.PublishAttestationAnchorForTest(path, attestation.AnchorRecord{
+			Version: 1, Seq: 1, Head: head1, PublishedAt: "t1",
+		})
+	}()
+	close(start)
+	var publishErrs int
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			publishErrs++
+		}
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile after concurrent publish: %v", err)
+	}
+	records, err := attestation.ParseAnchorFile(body)
+	if err != nil {
+		t.Fatalf("ParseAnchorFile after concurrent out-of-order publish: %v\n%s", err, body)
+	}
+	if len(records) == 0 {
+		t.Fatal("anchor file is empty after concurrent publish")
+	}
+	if records[len(records)-1].Seq == 2 && publishErrs == 0 && len(records) != 2 {
+		t.Fatalf("records=%d publishErrs=%d, want either 2 lines or a refused earlier seq", len(records), publishErrs)
+	}
+}
+
+func TestInspectAttestationAnchor_UsesStorePathNotInspectorDefault(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pathA, eventsA := newAttestationTestStore(t)
+	prompt := model.EventOf(
+		types.EventID("prompt-a"), types.EventKindPrompt,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-a"), types.Workspace("ws"),
+		"store A",
+		time.Date(2026, 8, 14, 21, 0, 0, 0, time.UTC),
+	)
+	if err := eventsA.Save(ctx, prompt); err != nil {
+		t.Fatalf("Save(A) error = %v", err)
+	}
+	pathB, _ := newAttestationTestStore(t)
+	if err := os.Remove(sqlite.AttestationAnchorPath(pathB)); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("Remove B sidecar: %v", err)
+	}
+
+	inspector := sqlite.NewAttestationAnchorInspector(sqlite.NewDatabase(pathA, onDiskSQLiteMigrations(t)))
+	state, err := inspector.InspectAttestationAnchor(ctx, application.AttestationAnchorInspectOptions{
+		StorePath: pathB,
+		OpenStore: true,
+	})
+	if err != nil {
+		t.Fatalf("Inspect(B via A inspector) error = %v", err)
+	}
+	if state.StoreSeq != 0 {
+		t.Fatalf("StoreSeq = %d, want B genesis 0 (not A's head)", state.StoreSeq)
+	}
+	if state.StoreHead != attestation.GenesisHex() {
+		t.Fatalf("StoreHead = %q, want genesis", state.StoreHead)
+	}
+	bBody, err := os.ReadFile(sqlite.AttestationAnchorPath(pathB))
+	if err != nil {
+		t.Fatalf("ReadFile B sidecar: %v", err)
+	}
+	bRecords, err := attestation.ParseAnchorFile(bBody)
+	if err != nil {
+		t.Fatalf("ParseAnchorFile B: %v", err)
+	}
+	if len(bRecords) != 1 || bRecords[0].Seq != 0 || !strings.EqualFold(bRecords[0].Head, attestation.GenesisHex()) {
+		t.Fatalf("B sidecar = %#v, want genesis only", bRecords)
+	}
+}
+
+func TestConcurrentSavesKeepValidAnchorHistory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path, events := newAttestationTestStore(t)
+	errCh := make(chan error, 8)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			event := model.EventOf(
+				types.EventID(fmt.Sprintf("prompt-anchor-%d", i)), types.EventKindPrompt,
+				types.Client("cli"), types.Agent("codex"),
+				types.SessionID("session-1"), types.Workspace("ws"),
+				fmt.Sprintf("body %d", i),
+				time.Date(2026, 8, 14, 21, 0, i+1, 0, time.UTC),
+			)
+			errCh <- events.Save(ctx, event)
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("Save() error = %v", err)
+		}
+	}
+	body, err := os.ReadFile(sqlite.AttestationAnchorPath(path))
+	if err != nil {
+		t.Fatalf("ReadFile sidecar: %v", err)
+	}
+	if _, err := attestation.ParseAnchorFile(body); err != nil {
+		t.Fatalf("ParseAnchorFile after concurrent Save: %v\n%s", err, body)
 	}
 }
 

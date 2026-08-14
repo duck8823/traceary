@@ -99,7 +99,8 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 		return xerrors.Errorf("event must not be nil")
 	}
 
-	db, err := d.db.open(ctx)
+	storePath := d.db.Path()
+	db, err := d.db.openAt(ctx, storePath)
 	if err != nil {
 		return xerrors.Errorf("failed to open DB for session boundary save: %w", err)
 	}
@@ -118,7 +119,7 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 			return xerrors.Errorf("failed to save session: %w", err)
 		}
 		return nil
-	}, d.db.Path())
+	}, storePath)
 }
 
 // sqlExecer abstracts *sql.DB and *sql.Tx so the helpers below can run in

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/duck8823/traceary/domain/attestation"
 	"github.com/duck8823/traceary/domain/model"
 )
 
@@ -38,6 +39,11 @@ func (d *SessionDatasource) SaveSessionBoundaryForTest(ctx context.Context, sess
 // LoadEventPlaintextForTest exposes codec decoding for persistence assertions.
 func LoadEventPlaintextForTest(ctx context.Context, db *sql.DB, eventID string) ([]byte, error) {
 	return loadEventPlaintext(ctx, db, eventID)
+}
+
+// PublishAttestationAnchorForTest exposes the locked sidecar append.
+func PublishAttestationAnchorForTest(path string, record attestation.AnchorRecord) error {
+	return publishAttestationAnchor(path, record)
 }
 
 // SetGarbageCollectionNowForTest fixes the timestamp persisted by gc discards.

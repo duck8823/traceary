@@ -6,13 +6,17 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
+	"github.com/gofrs/flock"
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain/attestation"
 )
+
+var attestationAnchorProcessLocks sync.Map
 
 // AttestationAnchorPath is the append-only sidecar beside the store.
 func AttestationAnchorPath(storePath string) string {
@@ -85,7 +89,7 @@ func (i *AttestationAnchorInspector) InspectAttestationAnchor(
 	if i == nil || i.db == nil {
 		return state, xerrors.Errorf("attestation anchor inspector has no store")
 	}
-	conn, err := i.db.open(ctx)
+	conn, err := i.db.openAt(ctx, storePath)
 	if err != nil {
 		return state, xerrors.Errorf("open store for attestation anchor: %w", err)
 	}
@@ -177,6 +181,12 @@ func readAttestationAnchorFile(path string) ([]attestation.AnchorRecord, bool, e
 }
 
 func publishAttestationAnchor(path string, record attestation.AnchorRecord) error {
+	unlock, err := lockAttestationAnchor(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	records, present, err := readAttestationAnchorFile(path)
 	if err != nil {
 		return err
@@ -208,6 +218,26 @@ func publishAttestationAnchor(path string, record attestation.AnchorRecord) erro
 		return xerrors.Errorf("sync attestation anchor: %w", err)
 	}
 	return nil
+}
+
+func lockAttestationAnchor(path string) (func(), error) {
+	muAny, _ := attestationAnchorProcessLocks.LoadOrStore(path, &sync.Mutex{})
+	mu, ok := muAny.(*sync.Mutex)
+	if !ok {
+		return nil, xerrors.Errorf("attestation anchor process lock has unexpected type")
+	}
+	mu.Lock()
+	fileLock := flock.New(path + ".lock")
+	if err := fileLock.Lock(); err != nil {
+		mu.Unlock()
+		return nil, xerrors.Errorf("lock attestation anchor: %w", err)
+	}
+	return func() {
+		if unlockErr := fileLock.Unlock(); unlockErr != nil {
+			slog.Debug("failed to unlock attestation anchor", "error", unlockErr)
+		}
+		mu.Unlock()
+	}, nil
 }
 
 func publishAttestationAnchorAfterCommit(storePath string, record attestation.AnchorRecord) {
