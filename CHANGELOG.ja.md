@@ -7,6 +7,8 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.35.0] - 2026-08-14
+
 ### Added
 - **新しい prompt とコマンド同一性の attestation 鎖 (#1677)** — 新しい `prompt` 保存と `SaveWithAudit` は同じ transaction でハッシュ鎖を 1 本足します。digest は prompt 本文、または `command_text` + `input_text` と保存時刻です。`output_text` は符号化に入りません。歴史行は backfill しません。compact と content-event dedupe は attested な event id を残し、`ON DELETE RESTRICT` で失敗させません。`traceary attest` コマンドは無く、検証はテストと後続の doctor/anchor 用の store 関数です。
 - **store 横の attestation anchor (#1678)** — attested な書き込みが commit したあと、`{store}.attest` に JSONL を 1 行足します（`v`, `seq`, `head`, `at`、mode `0600`）。2 GiB 未満の `traceary doctor` は store 内の鎖を Verify し、ファイル末尾と head を照合します。ファイルが無い・遅れているだけなら追記して pass、不一致やファイル先行は fail です。2 GiB 以上は metadata-only のまま、sidecar だけを読み、SQLite を開かず追記もしません。compact の `VerifyPair` は source と candidate の鎖を歩きます。`traceary attest` コマンドは作りません。commit 後の sidecar I/O 失敗で Save は失敗せず、doctor が無い・遅れているファイルを直します。
@@ -20,6 +22,11 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **operator cockpit を削除 (#1764)** — v0.34 の非推奨期間 (#1687) を経て、`traceary tui` / `traceary dashboard` と Tail-first cockpit を開いていた bare 対話 TTY 既定動作を削除しました。bare `traceary` は TTY / 非 TTY とも常に help を表示します。root の `--reset-state` は cockpit と共に消え、root の `--db-path` は `traceary --db-path … <subcommand>` が引き続き有効になるよう残しています。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。共有の `presentation/cli/tui/` と `sessions` surface はこの削除では変更していません。
 
 ### Changed
+- **Grok と Kimi の packaged hook timeout は 10s です (#1882)** — packaged の予算は 5s で、Gemini / Antigravity と `hook_spool.go` は既に 10s 前提でした。`5` を直書きしていた doctor と repo-tooling の pin も 10 を期待します。
+- **hook spool の retry に上限を付け、poison record は dead-letter にします (#1876)** — replay 可能な spool record は `attempt_count` を持ちます（無いときは 0）。最初の配達と 2 回の retry（`hookSpoolRetryLimit = 3`）のあと、永続的に失敗する record は drain batch を食い続けず dead-letter へ移します。
+- **opportunistic な spool drain は host hook 予算の内側に留まります (#1881)** — 残り 2s 以下なら allowance 0、4s 未満なら 1、それ以外は通常の batch 上限です。0 のときは drain しません。
+- **`doctor --client grok` は native plugin の横の user-level hook を報告します (#1884)** — `~/.grok/hooks/traceary.json` を `grok-hooks-user` として見ます。native plugin や project hook と共存するときは `grok-hooks-routes` が 1 経路だけ残すよう警告します。診断のみで、ファイルの書き換えや削除はしません。
+- **残る仕事に skill を 1 つずつ当てます (#1875)** — 6 つの host package に 4 つの skill 名。memory と session-history の skill は MCP ではなく CLI 経由です。Claude 専用の `traceary-help` は削除し、`traceary-session-refine` を足します。Gemini の `/traceary-help` と Codex の `/traceary:help` は CLI / hooks / doctor を指します。
 - **wake 適格性はもう `degraded=0` ではありません (#1877)** — `degraded` は引き続き「合成テキストを含む」意味です。wake injection は `session_refinements.has_agent_reasoning` を読みます。orphan consolidation がエージェント fold に機械的な tail を合成してもこのフラグは残し、lifecycle だけの tail（`session_started` / `session_ended` のみ）は `covers_to` だけ進めて「なぜが失われた」脚注は付けません。機械要約だけの行は不適格のままです。既存行は `has_agent_reasoning = NOT degraded` で backfill します。
 - **`traceary search --json` は events/sessions オブジェクトになりました (#1775)** — v0.34.0 の #1717 予告を完了します。stdout は常に `{"events": [...], "sessions": [...]}` で、どちらのキーも存在します（ヒットがない tier は空配列）。明示的な `--fields` はこれまでどおり `.events` 内の event フィールドを選び、session オブジェクトは `session_id` / `summary` / `event_count` / `started_at` のままです。v0.34 の「sessions が `--json` から省略された」stderr 通知は削除しました。テキスト検索出力は変更していません。
 - **v0.34 の置き換え先なし非推奨を削除 (#1691)** — `traceary memory admin graph add` / `graph list`、`traceary session label`、`traceary session list --label`、`session list` テキストの `LABEL` 列、`session list` JSON の `label` フィールドを削除しました。呼び出しは unknown command/flag として非ゼロ終了し、`DEPRECATED` 通知は出しません。`memory_edges` テーブルと `sessions.label` 列は gc / bundle / schema 互換のためストアに残しています。
