@@ -38,9 +38,7 @@ stderr_path="$work_dir/agy.stderr"
 # agy can exit 0 with empty stdout when a hook is auto-denied (no TTY to
 # prompt). Diagnose permission wording on stderr regardless of exit status.
 agy_exit=0
-if ! agy --print --mode plan --sandbox --print-timeout 120s "$prompt" >"$stdout_path" 2>"$stderr_path"; then
-  agy_exit=$?
-fi
+agy --print --mode plan --sandbox --print-timeout 120s "$prompt" >"$stdout_path" 2>"$stderr_path" || agy_exit=$?
 if grep -qi "permission" "$stderr_path"; then
   echo "antigravity headless marker probe: scoped hook permission is absent or shadowed" >&2
   exit 1
