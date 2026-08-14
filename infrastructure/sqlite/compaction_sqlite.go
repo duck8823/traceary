@@ -2,6 +2,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -186,7 +187,6 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB)
 	if err != nil {
 		return fmt.Errorf("read candidate events: %w", err)
 	}
-	remainingFingerprints := map[string]struct{}{}
 	for id, got := range candidateEvents {
 		want, ok := sourceEvents[id]
 		if !ok {
@@ -199,39 +199,53 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB)
 			if want.availability != "available" {
 				return fmt.Errorf("candidate revived event %s", id)
 			}
-			if got.fingerprint != want.fingerprint {
+			wantPlain, decodeErr := want.row.decode(maxDecodedPayloadBytes)
+			if decodeErr != nil {
+				return fmt.Errorf("source available event %s is not decodable: %w", id, decodeErr)
+			}
+			gotPlain, decodeErr := got.row.decode(maxDecodedPayloadBytes)
+			if decodeErr != nil {
+				return fmt.Errorf("candidate available event %s is not decodable: %w", id, decodeErr)
+			}
+			if !bytes.Equal(wantPlain, gotPlain) {
 				return fmt.Errorf("candidate rewrote body of event %s", id)
 			}
 		}
-		remainingFingerprints[got.fingerprint] = struct{}{}
 	}
-	for id, want := range sourceEvents {
+	permittedDrops, err := permittedDedupeDrops(ctx, sourceDB)
+	if err != nil {
+		return err
+	}
+	for id := range sourceEvents {
 		if _, kept := candidateEvents[id]; kept {
 			continue
 		}
-		if want.fingerprint == "" {
+		survivor, ok := permittedDrops[id]
+		if !ok {
 			return fmt.Errorf("candidate dropped unique event %s", id)
 		}
-		if _, ok := remainingFingerprints[want.fingerprint]; !ok {
-			return fmt.Errorf("candidate dropped unique event %s", id)
+		if _, stillThere := candidateEvents[survivor]; !stillThere {
+			return fmt.Errorf("candidate dropped event %s and its canonical survivor %s", id, survivor)
 		}
 	}
 	return nil
 }
 
 type eventIdentity struct {
-	Kind      string
-	SessionID string
-	CreatedAt string
-	Agent     string
-	Client    string
-	Workspace string
+	Kind          string
+	SessionID     string
+	CreatedAt     string
+	CreatedAtNorm string
+	Agent         string
+	Client        string
+	Workspace     string
+	SourceHook    string
 }
 
 type eventVerifyRecord struct {
 	ident        eventIdentity
 	availability string
-	fingerprint  string
+	row          payloadRow
 }
 
 func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyRecord, error) {
@@ -247,7 +261,25 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 	if err != nil {
 		return nil, err
 	}
+	hasHook, err := databaseColumnExists(ctx, db, "events", "source_hook")
+	if err != nil {
+		return nil, err
+	}
+	hasNorm, err := databaseColumnExists(ctx, db, "events", "created_at_norm")
+	if err != nil {
+		return nil, err
+	}
 	query := `SELECT id, kind, COALESCE(session_id,''), created_at, COALESCE(agent,''), COALESCE(client,''), COALESCE(workspace,''), `
+	if hasHook {
+		query += `COALESCE(source_hook,''), `
+	} else {
+		query += `'', `
+	}
+	if hasNorm {
+		query += `COALESCE(created_at_norm,''), `
+	} else {
+		query += `'', `
+	}
 	if hasAvail {
 		query += `COALESCE(body_availability,'available'), `
 	} else {
@@ -274,7 +306,6 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 	for rows.Next() {
 		var id string
 		var rec eventVerifyRecord
-		var row payloadRow
 		if err := rows.Scan(
 			&id,
 			&rec.ident.Kind,
@@ -283,30 +314,36 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 			&rec.ident.Agent,
 			&rec.ident.Client,
 			&rec.ident.Workspace,
+			&rec.ident.SourceHook,
+			&rec.ident.CreatedAtNorm,
 			&rec.availability,
-			&row.Stored,
-			&row.Codec,
-			&row.FormatVersion,
-			&row.PlaintextBytes,
-			&row.StoredBytes,
-			&row.SHA256,
+			&rec.row.Stored,
+			&rec.row.Codec,
+			&rec.row.FormatVersion,
+			&rec.row.PlaintextBytes,
+			&rec.row.StoredBytes,
+			&rec.row.SHA256,
 		); err != nil {
 			return nil, err
 		}
-		rec.fingerprint = contentFingerprint(row)
 		out[id] = rec
 	}
 	return out, rows.Err()
 }
 
-func contentFingerprint(row payloadRow) string {
-	plain, err := row.decode(maxDecodedPayloadBytes)
-	if err == nil {
-		sum := sha256.Sum256(plain)
-		return hex.EncodeToString(sum[:])
+func permittedDedupeDrops(ctx context.Context, sourceDB *sql.DB) (map[string]string, error) {
+	survey, err := (&StoreManagementDatasource{}).identifyDedupeGroups(ctx, sourceDB, "", 0)
+	if err != nil {
+		return nil, fmt.Errorf("identify source dedupe groups: %w", err)
 	}
-	sum := sha256.Sum256(row.Stored)
-	return hex.EncodeToString(sum[:])
+	plan := planContentEventDedupe(survey, false)
+	out := make(map[string]string, len(plan.groups))
+	for _, group := range plan.groups {
+		for _, dup := range group.duplicates {
+			out[dup.id] = group.keptID
+		}
+	}
+	return out, nil
 }
 
 type storeScrub struct {

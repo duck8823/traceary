@@ -180,6 +180,118 @@ func TestVerifyPairRejectsRewrittenAvailableBody(t *testing.T) {
 	}
 }
 
+func TestVerifyPairRejectsCrossIdentitySameBodyDeletion(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	first := newGCEventFixture(t, "event-a", types.EventKindTranscript, "shared-body", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	second := newGCEventFixture(t, "event-b", types.EventKindTranscript, "shared-body", time.Date(2026, 6, 1, 0, 0, 1, 0, time.UTC))
+	if err := events.Save(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.Save(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	db := openRetentionDB(t, dbPath)
+	if _, err := db.Exec(`UPDATE events SET session_id = 'session-other' WHERE id = 'event-b'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	candidate := filepath.Join(filepath.Dir(dbPath), "candidate.db")
+	data, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidate, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db = openRetentionDB(t, candidate)
+	if _, err := db.Exec(`DELETE FROM events WHERE id = 'event-b'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (sqlite.SQLiteCompactionBuilder{}).VerifyPair(context.Background(), dbPath, candidate); err == nil {
+		t.Fatal("VerifyPair() error = nil, want rejection of a same-body drop from another session")
+	}
+}
+
+func TestVerifyPairRejectsSourceHookAndCreatedAtNormDrift(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	body := newGCEventFixture(t, "event-ident", types.EventKindTranscript, "identity-why", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), body); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "source_hook", sql: `UPDATE events SET source_hook = 'tampered-hook' WHERE id = 'event-ident'`},
+		{name: "created_at_norm", sql: `UPDATE events SET created_at_norm = '2099-01-01T00:00:00.000000000Z' WHERE id = 'event-ident'`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := filepath.Join(filepath.Dir(dbPath), "candidate-"+tc.name+".db")
+			if err := os.WriteFile(candidate, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			db := openRetentionDB(t, candidate)
+			if _, err := db.Exec(tc.sql); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := (sqlite.SQLiteCompactionBuilder{}).VerifyPair(context.Background(), dbPath, candidate); err == nil {
+				t.Fatalf("VerifyPair() error = nil, want rejection of %s drift", tc.name)
+			}
+		})
+	}
+}
+
+func TestVerifyPairRejectsUndecodableAvailableCandidate(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	body := newGCEventFixture(t, "event-codec", types.EventKindTranscript, "readable-why", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), body); err != nil {
+		t.Fatal(err)
+	}
+	candidate := filepath.Join(filepath.Dir(dbPath), "candidate.db")
+	data, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidate, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := openRetentionDB(t, candidate)
+	if _, err := db.Exec(`
+		UPDATE events
+		   SET body_codec = 'zstd',
+		       body_format_version = 1,
+		       body_plaintext_bytes = 12,
+		       body_encoded_bytes = length(CAST(body AS BLOB)),
+		       body_sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+		 WHERE id = 'event-codec'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (sqlite.SQLiteCompactionBuilder{}).VerifyPair(context.Background(), dbPath, candidate); err == nil {
+		t.Fatal("VerifyPair() error = nil, want rejection of an undecodable available body")
+	}
+}
+
 func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
