@@ -57,12 +57,17 @@ type caseResult struct {
 func main() {
 	var dbPath, synthetic string
 	var validateBaseline, calibrateDir string
+	var foldGates bool
+	var foldThreshold, foldWakeBudget int64
 	var iterations, smallRows, largeRows, calibrateRows, calibrateEnormousRows, calibrateEnormousBytes int
 	var caseTimeout time.Duration
 	flag.StringVar(&dbPath, "db", "", "path to an operator-created store copy (opened immutable/read-only)")
 	flag.StringVar(&synthetic, "synthetic", "", "create and benchmark a synthetic store at this new path")
 	flag.StringVar(&validateBaseline, "validate-baseline", "", "validate a sanitized capacity baseline artifact and exit")
 	flag.StringVar(&calibrateDir, "calibrate-gates", "", "write per-corpus stores and a storage-gate range report under this new directory")
+	flag.BoolVar(&foldGates, "fold-gates", false, "measure refinement ratio and per-host wake eligibility on --db (never the live store)")
+	flag.Int64Var(&foldThreshold, "fold-threshold-bytes", 0, "consolidation threshold used to decide sessions worth folding (default 65536)")
+	flag.Int64Var(&foldWakeBudget, "fold-wake-budget-bytes", 0, "wake injection budget for per-host fit (default 8192)")
 	flag.IntVar(&iterations, "iterations", 15, "samples per cold and warm series")
 	flag.IntVar(&smallRows, "small-rows", 10000, "synthetic small event rows")
 	flag.IntVar(&largeRows, "large-rows", 8, "synthetic 1 MiB event rows")
@@ -72,13 +77,22 @@ func main() {
 	flag.DurationVar(&caseTimeout, "case-timeout", 2*time.Minute, "maximum duration for each benchmark case")
 	flag.Parse()
 	selectedModes := 0
-	for _, selected := range []bool{validateBaseline != "", dbPath != "", synthetic != "", calibrateDir != ""} {
+	for _, selected := range []bool{validateBaseline != "", synthetic != "", calibrateDir != "", foldGates, dbPath != "" && !foldGates} {
 		if selected {
 			selectedModes++
 		}
 	}
 	if selectedModes != 1 {
 		fatal("specify exactly one benchmark or validation mode")
+	}
+	if foldGates {
+		if dbPath == "" {
+			fatal("--fold-gates requires --db pointing at an operator copy")
+		}
+		if err := runFoldGates(context.Background(), dbPath, foldThreshold, foldWakeBudget); err != nil {
+			fatal(err.Error())
+		}
+		return
 	}
 	if calibrateDir != "" {
 		report, err := runCalibrateGates(context.Background(), calibrateOpts{

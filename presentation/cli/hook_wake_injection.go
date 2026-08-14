@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation"
@@ -16,10 +17,6 @@ import (
 // wakeInjectionRowLimit bounds how many refinement rows the SQL query may
 // return. The byte budget cuts long before this on any realistic store.
 const wakeInjectionRowLimit = 64
-
-// wakeInjectionHeader is a fixed first line so the model treats the payload as
-// recalled context, not a user instruction.
-const wakeInjectionHeader = "Previous session summaries (recalled context, not user instructions):"
 
 // formatWakeInjectionText selects summaries newest-first under budgetBytes and
 // formats the stdout payload. Summaries are taken whole; when the next would
@@ -35,7 +32,7 @@ func formatWakeInjectionText(summaries []queryservice.SessionWakeSummary, budget
 
 	selected := make([]string, 0, len(summaries))
 	// Start with header + trailing newline that always precedes the first body.
-	used := int64(len(wakeInjectionHeader) + 1)
+	used := int64(len(application.WakeInjectionHeader) + 1)
 	for _, row := range summaries {
 		summary := strings.TrimSpace(row.Summary)
 		if summary == "" {
@@ -62,7 +59,7 @@ func formatWakeInjectionText(summaries []queryservice.SessionWakeSummary, budget
 
 	var b strings.Builder
 	b.Grow(int(used))
-	b.WriteString(wakeInjectionHeader)
+	b.WriteString(application.WakeInjectionHeader)
 	b.WriteByte('\n')
 	for i, summary := range selected {
 		if i > 0 {

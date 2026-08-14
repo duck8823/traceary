@@ -34,6 +34,12 @@ go run ./cmd/store-benchmark --synthetic /private/tmp/traceary-synthetic.db \
 go run ./cmd/store-benchmark --calibrate-gates /private/tmp/traceary-calibrate
 ```
 
+タグ時点で測れなかった v0.34 の 2 行（refinement 比と host ごとの wake injection）を operator copy で測ります。既定 live store は拒否します。[`../research/fold-gate-measurement.ja.md`](../research/fold-gate-measurement.ja.md) を参照。
+
+```sh
+go run ./cmd/store-benchmark --fold-gates --db /private/tmp/traceary-copy.db
+```
+
 fixture は canonical production migration と query source を使います。`--small-rows` 件の汎用小 row と `--large-rows` 件の 1 MiB row を保持し、別に disposable row 1,000 件を作成・削除します。さらに active lifecycle 1 件、command/audit 10 件、accepted workspace memory 10 件を含み、post-delete workload cardinality を JSON に記録します。active/latest が一致せず、または production handoff が command 10 件・memory 10 件を返さない場合、preflight は失敗します。
 
 ## Sanitized 21.4 GiB shape baseline

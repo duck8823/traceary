@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -72,7 +73,7 @@ func TestFormatWakeInjectionText(t *testing.T) {
 			summaries: []queryservice.SessionWakeSummary{
 				{SessionID: "big", Summary: strings.Repeat("x", 100)},
 			},
-			budget: int64(len(wakeInjectionHeader)), // too small for header+summary
+			budget: int64(len(application.WakeInjectionHeader)), // too small for header+summary
 			want:   "",
 		},
 		{
