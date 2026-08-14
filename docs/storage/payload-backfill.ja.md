@@ -98,10 +98,10 @@ traceary store search-projection status
   fail の終端遷移は、いずれも worker が既に確定させた作業の記録なので、
   キャンセルの届かない context で実行する。ただしその context には期限があり、
   store lease を取れないチェックポイントはハングせずに諦める。
-- プロセスを落とした場合（CLI の `Ctrl-C`。現状 CLI は signal を command context に
-  配線していない。#1747 を参照）はチェックポイントを書かない。実行中のバッチは
-  ロールバックし、run は `running` のまま残る。`resume` は最後にコミットされた
-  バッチから継続できるが、`status` が実行中と報告するため `run` はそれまで拒否される。
+- hook 以外の CLI で `Ctrl-C` すると command context が cancel される（#1747）。
+  実行中の処理は `paused` チェックポイントを書ける。2 回目の `Ctrl-C` は
+  既定ハンドラに戻し、プロセスを即終了する。SIGKILL はチェックポイントを書かない。
+  `resume` は最後にコミットされたバッチから継続できる。
 - キャンセルはエラーの名前を書き換えない。I/O・制約・デコードの失敗が `Ctrl-C` と
   競合した場合も、チェックポイントは残しつつ、報告するのは「cancelled」ではなく
   その失敗そのものである。

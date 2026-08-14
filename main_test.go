@@ -96,6 +96,62 @@ func TestCommandContext_DetachedWorkerHasNoSoftDeadline(t *testing.T) {
 	}
 }
 
+func TestCommandContext_NonHookHasNoSoftDeadline(t *testing.T) {
+	t.Setenv(hookSoftDeadlineEnvKey, "50ms")
+	ctx, cancel := commandContext([]string{"traceary", "store", "compact"})
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("non-hook command must not inherit the hook soft deadline")
+	}
+}
+
+func TestCommandContext_NonHookCancelsOnSIGTERM(t *testing.T) {
+	ctx, cancel := commandContext([]string{"traceary", "store", "compact"})
+	defer cancel()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("Kill(SIGTERM) error = %v", err)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("non-hook context was not canceled by SIGTERM")
+	}
+}
+
+func TestCommandContext_TUICommandDoesNotInstallNotifyContext(t *testing.T) {
+	ctx, cancel := commandContext([]string{"traceary", "memory", "inbox", "review"})
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("TUI command must not have a deadline")
+	}
+	// Do not send SIGTERM here: this path uses WithCancel so the default
+	// handler would kill the test process. Bubble Tea owns SIGINT (#1747).
+}
+
+func TestIsTUICommandArgs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "bare review", args: []string{"traceary", "memory", "inbox", "review"}, want: true},
+		{name: "equals form of db-path", args: []string{"traceary", "--db-path=/tmp/x", "memory", "inbox", "review"}, want: true},
+		{name: "split form of db-path", args: []string{"traceary", "--db-path", "/tmp/x", "memory", "inbox", "review"}, want: true},
+		{name: "flag after command", args: []string{"traceary", "memory", "inbox", "review", "--db-path", "/tmp/x"}, want: true},
+		{name: "non-tui compact", args: []string{"traceary", "store", "compact"}, want: false},
+		{name: "non-tui list", args: []string{"traceary", "memory", "inbox", "list"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isTUICommandArgs(tt.args); got != tt.want {
+				t.Fatalf("isTUICommandArgs(%q) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWriteCLIError(t *testing.T) {
 	t.Parallel()
 

@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Changed
+- **Ctrl-C cancels non-hook command contexts (#1747)** — `store compact` and other long-running non-hook commands receive a signal-derived context (no hook soft deadline). A second Ctrl-C hard-kills. `memory inbox review` still lets Bubble Tea own SIGINT.
+
 ### Removed
 - **`traceary session active` folded into `session latest --active` (#1704)** — `session active` is an unknown subcommand (non-zero, no `DEPRECATED` notice). `session latest --active` keeps the previous stale defaults (24h, `--stale-after`, `--allow-stale`). Those two flags without `--active` are rejected.
 
