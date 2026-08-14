@@ -3,7 +3,9 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -264,6 +266,83 @@ func TestCompactKeepsAttestedHookDuplicatePrompts(t *testing.T) {
 		t.Fatalf("VerifyAttestationChain after compact error = %v", err)
 	}
 	assertAttestationCount(t, db, 2)
+}
+
+func TestVerifyAttestationChain_SingleConnectionAfterSave(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	path, events := newAttestationTestStore(t)
+	prompt := model.EventOf(
+		types.EventID("prompt-single-conn"), types.EventKindPrompt,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-1"), types.Workspace("ws"),
+		"single connection",
+		time.Date(2026, 8, 14, 15, 0, 0, 0, time.UTC),
+	)
+	if err := events.Save(ctx, prompt); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	db := openAttestationDB(t, path)
+	defer func() { _ = db.Close() }()
+	db.SetMaxOpenConns(1)
+	if err := sqlite.VerifyAttestationChain(ctx, db); err != nil {
+		t.Fatalf("VerifyAttestationChain() error = %v", err)
+	}
+}
+
+func TestVerifyAttestationChain_ConcurrentAppendDoesNotFalseFail(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	path, events := newAttestationTestStore(t)
+	seed := model.EventOf(
+		types.EventID("prompt-seed"), types.EventKindPrompt,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-1"), types.Workspace("ws"),
+		"seed",
+		time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC),
+	)
+	if err := events.Save(ctx, seed); err != nil {
+		t.Fatalf("Save(seed) error = %v", err)
+	}
+
+	db := openAttestationDB(t, path)
+	defer func() { _ = db.Close() }()
+
+	errCh := make(chan error, 16)
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			event := model.EventOf(
+				types.EventID(fmt.Sprintf("prompt-conc-%d", i)), types.EventKindPrompt,
+				types.Client("cli"), types.Agent("codex"),
+				types.SessionID("session-1"), types.Workspace("ws"),
+				fmt.Sprintf("body %d", i),
+				time.Date(2026, 8, 14, 16, 0, i+1, 0, time.UTC),
+			)
+			if err := events.Save(ctx, event); err != nil {
+				errCh <- err
+			}
+		}(i)
+	}
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := sqlite.VerifyAttestationChain(ctx, db); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Errorf("concurrent verify/append error = %v", err)
+	}
 }
 
 func newAttestationTestStore(t *testing.T) (string, *sqlite.EventDatasource) {

@@ -37,9 +37,15 @@ func VerifyAttestationChain(ctx context.Context, db *sql.DB) error {
 		return nil
 	}
 
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return xerrors.Errorf("begin attestation verify: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	var headHex string
 	var headSeq int64
-	if err := db.QueryRowContext(
+	if err := tx.QueryRowContext(
 		ctx,
 		`SELECT head_sha256, seq FROM attestation_head WHERE singleton = 1`,
 	).Scan(&headHex, &headSeq); err != nil {
@@ -49,61 +55,73 @@ func VerifyAttestationChain(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("read attestation head: %w", err)
 	}
 
-	rows, err := db.QueryContext(ctx, `
+	rows, err := tx.QueryContext(ctx, `
 		SELECT seq, event_id, kind, content_sha256, prev_sha256, link_sha256
 		  FROM attestation_links
 		 ORDER BY seq`)
 	if err != nil {
 		return xerrors.Errorf("list attestation links: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	prevHex := attestation.GenesisHex()
-	var count int64
+	type storedLink struct {
+		seq                       int64
+		eventID, kind, contentHex string
+		prevHex, linkHex          string
+	}
+	var links []storedLink
 	for rows.Next() {
-		var (
-			seq                                               int64
-			eventID, kind, contentHex, storedPrev, storedLink string
-		)
-		if err := rows.Scan(&seq, &eventID, &kind, &contentHex, &storedPrev, &storedLink); err != nil {
+		var item storedLink
+		if err := rows.Scan(&item.seq, &item.eventID, &item.kind, &item.contentHex, &item.prevHex, &item.linkHex); err != nil {
+			_ = rows.Close()
 			return xerrors.Errorf("scan attestation link: %w", err)
 		}
-		count++
-		if seq != count {
-			return xerrors.Errorf("attestation link seq = %d, want %d", seq, count)
+		links = append(links, item)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return xerrors.Errorf("iterate attestation links: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return xerrors.Errorf("close attestation links: %w", err)
+	}
+
+	prevHex := attestation.GenesisHex()
+	for i, item := range links {
+		count := int64(i + 1)
+		if item.seq != count {
+			return xerrors.Errorf("attestation link seq = %d, want %d", item.seq, count)
 		}
-		if storedPrev != prevHex {
-			return xerrors.Errorf("attestation link %d predecessor mismatch", seq)
+		if item.prevHex != prevHex {
+			return xerrors.Errorf("attestation link %d predecessor mismatch", item.seq)
 		}
-		recomputedContent, err := recomputeAttestationContent(ctx, db, eventID, kind)
+		recomputedContent, err := recomputeAttestationContent(ctx, tx, item.eventID, item.kind)
 		if err != nil {
 			return err
 		}
-		if contentHex != recomputedContent {
-			return xerrors.Errorf("attestation link %d content digest does not match store", seq)
+		if item.contentHex != recomputedContent {
+			return xerrors.Errorf("attestation link %d content digest does not match store", item.seq)
 		}
 		prev, err := attestation.ParseHex(prevHex)
 		if err != nil {
 			return xerrors.Errorf("parse attestation predecessor: %w", err)
 		}
-		content, err := attestation.ParseHex(contentHex)
+		content, err := attestation.ParseHex(item.contentHex)
 		if err != nil {
 			return xerrors.Errorf("parse attestation content digest: %w", err)
 		}
 		wantLink := attestation.EncodeHex(attestation.LinkSHA256(prev, content))
-		if storedLink != wantLink {
-			return xerrors.Errorf("attestation link %d digest does not match predecessor and content", seq)
+		if item.linkHex != wantLink {
+			return xerrors.Errorf("attestation link %d digest does not match predecessor and content", item.seq)
 		}
-		prevHex = storedLink
+		prevHex = item.linkHex
 	}
-	if err := rows.Err(); err != nil {
-		return xerrors.Errorf("iterate attestation links: %w", err)
-	}
-	if count != headSeq {
-		return xerrors.Errorf("attestation head seq = %d, want %d", headSeq, count)
+	if int64(len(links)) != headSeq {
+		return xerrors.Errorf("attestation head seq = %d, want %d", headSeq, len(links))
 	}
 	if headHex != prevHex {
 		return xerrors.Errorf("attestation head digest does not match the last link")
+	}
+	if err := tx.Commit(); err != nil {
+		return xerrors.Errorf("commit attestation verify: %w", err)
 	}
 	return nil
 }
@@ -189,10 +207,10 @@ func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, 
 	return nil
 }
 
-func recomputeAttestationContent(ctx context.Context, db *sql.DB, eventID, kind string) (string, error) {
+func recomputeAttestationContent(ctx context.Context, q queryRowContexter, eventID, kind string) (string, error) {
 	switch kind {
 	case attestation.KindPrompt:
-		createdAt, body, err := loadAttestedPromptPlaintext(ctx, db, eventID)
+		createdAt, body, err := loadAttestedPromptPlaintext(ctx, q, eventID)
 		if err != nil {
 			return "", err
 		}
@@ -206,7 +224,7 @@ func recomputeAttestationContent(ctx context.Context, db *sql.DB, eventID, kind 
 		}
 		return attestation.EncodeHex(sum), nil
 	case attestation.KindCommand:
-		createdAt, commandText, inputText, err := loadAttestedCommandPlaintext(ctx, db, eventID)
+		createdAt, commandText, inputText, err := loadAttestedCommandPlaintext(ctx, q, eventID)
 		if err != nil {
 			return "", err
 		}
@@ -225,10 +243,10 @@ func recomputeAttestationContent(ctx context.Context, db *sql.DB, eventID, kind 
 	}
 }
 
-func loadAttestedPromptPlaintext(ctx context.Context, db *sql.DB, eventID string) (string, []byte, error) {
+func loadAttestedPromptPlaintext(ctx context.Context, q queryRowContexter, eventID string) (string, []byte, error) {
 	var createdAt string
 	var payload payloadRow
-	if err := db.QueryRowContext(ctx, `
+	if err := q.QueryRowContext(ctx, `
 		SELECT created_at, body, body_codec, body_format_version,
 		       body_plaintext_bytes, body_encoded_bytes, body_sha256
 		  FROM events
@@ -246,11 +264,11 @@ func loadAttestedPromptPlaintext(ctx context.Context, db *sql.DB, eventID string
 	return createdAt, plain, nil
 }
 
-func loadAttestedCommandPlaintext(ctx context.Context, db *sql.DB, eventID string) (string, []byte, []byte, error) {
+func loadAttestedCommandPlaintext(ctx context.Context, q queryRowContexter, eventID string) (string, []byte, []byte, error) {
 	var createdAt string
 	var command payloadRow
 	var input payloadRow
-	if err := db.QueryRowContext(ctx, `
+	if err := q.QueryRowContext(ctx, `
 		SELECT e.created_at,
 		       a.command_text, a.command_codec, a.command_format_version,
 		       a.command_plaintext_bytes, a.command_encoded_bytes, a.command_sha256,
