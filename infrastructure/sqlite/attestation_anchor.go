@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,42 +96,56 @@ func (i *AttestationAnchorInspector) InspectAttestationAnchor(
 	}
 	defer func() { _ = conn.Close() }()
 
-	if err := VerifyAttestationChain(ctx, conn); err != nil {
+	snapshot, err := verifyAttestationChainSnapshot(ctx, conn)
+	if err != nil {
 		state.ChainOK = false
 		state.Relation = "chain_broken"
 		return state, err
 	}
 	state.ChainOK = true
-	seq, head, ok, err := readAttestationHead(ctx, conn)
-	if err != nil {
-		return state, err
+	if afterVerifiedAttestationSnapshot != nil {
+		afterVerifiedAttestationSnapshot(ctx, conn)
 	}
-	if !ok {
+	if !snapshot.Present {
 		state.Relation = string(attestation.AnchorMissing)
 		return state, nil
 	}
-	state.StoreSeq = seq
-	state.StoreHead = head
+	state.StoreSeq = snapshot.Seq
+	state.StoreHead = snapshot.Head
 	last := lastOrZero(records)
-	relation := attestation.RelateAnchor(seq, head, last, present)
+	if present && last.Seq <= snapshot.Seq && !historicalAnchorMatches(snapshot, last) {
+		state.Relation = string(attestation.AnchorMismatch)
+		return state, nil
+	}
+	relation := attestation.RelateAnchor(snapshot.Seq, snapshot.Head, last, present)
 	state.Relation = string(relation)
 	switch relation {
 	case attestation.AnchorMissing, attestation.AnchorBehind:
 		if err := publishAttestationAnchor(state.Path, attestation.AnchorRecord{
 			Version:     attestation.AnchorFormatVersion,
-			Seq:         seq,
-			Head:        head,
+			Seq:         snapshot.Seq,
+			Head:        snapshot.Head,
 			PublishedAt: formatTimestamp(time.Now().UTC()),
 		}); err != nil {
 			return state, err
 		}
 		state.Published = true
 		state.FilePresent = true
-		state.FileSeq = seq
-		state.FileHead = head
+		state.FileSeq = snapshot.Seq
+		state.FileHead = snapshot.Head
 		state.Relation = string(attestation.AnchorMatches)
 	}
 	return state, nil
+}
+
+var afterVerifiedAttestationSnapshot func(context.Context, *sql.DB)
+
+func historicalAnchorMatches(snapshot attestationChainSnapshot, last attestation.AnchorRecord) bool {
+	want, ok := snapshot.LinkHeads[last.Seq]
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(want, last.Head)
 }
 
 func lastOrZero(records []attestation.AnchorRecord) attestation.AnchorRecord {

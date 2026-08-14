@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -264,6 +265,167 @@ func TestPublishAttestationAnchor_SerializesOutOfOrderSeqs(t *testing.T) {
 	}
 	if records[len(records)-1].Seq == 2 && publishErrs == 0 && len(records) != 2 {
 		t.Fatalf("records=%d publishErrs=%d, want either 2 lines or a refused earlier seq", len(records), publishErrs)
+	}
+}
+
+func TestInspectAttestationAnchor_ForgedBehindFileDoesNotHeal(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path, events := newAttestationTestStore(t)
+	for i, id := range []string{"prompt-hist-1", "prompt-hist-2"} {
+		event := model.EventOf(
+			types.EventID(id), types.EventKindPrompt,
+			types.Client("cli"), types.Agent("codex"),
+			types.SessionID("session-1"), types.Workspace("ws"),
+			id,
+			time.Date(2026, 8, 14, 22, 0, i, 0, time.UTC),
+		)
+		if err := events.Save(ctx, event); err != nil {
+			t.Fatalf("Save(%s) error = %v", id, err)
+		}
+	}
+	anchorPath := sqlite.AttestationAnchorPath(path)
+	before, err := os.ReadFile(anchorPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	records, err := attestation.ParseAnchorFile(before)
+	if err != nil {
+		t.Fatalf("ParseAnchorFile: %v", err)
+	}
+	if len(records) < 2 {
+		t.Fatalf("records = %d, want >= 2", len(records))
+	}
+	forged := records[0]
+	forged.Head = strings.Repeat("ab", 32)
+	line, err := attestation.FormatAnchorLine(forged)
+	if err != nil {
+		t.Fatalf("FormatAnchorLine: %v", err)
+	}
+	if err := os.WriteFile(anchorPath, append(line, '\n'), 0o600); err != nil {
+		t.Fatalf("WriteFile forged: %v", err)
+	}
+
+	inspector := sqlite.NewAttestationAnchorInspector(sqlite.NewDatabase(path, onDiskSQLiteMigrations(t)))
+	state, err := inspector.InspectAttestationAnchor(ctx, application.AttestationAnchorInspectOptions{
+		StorePath: path,
+		OpenStore: true,
+	})
+	if err != nil {
+		t.Fatalf("Inspect error = %v", err)
+	}
+	if state.Relation != string(attestation.AnchorMismatch) || state.Published {
+		t.Fatalf("forged-behind state = %+v, want mismatch without publish", state)
+	}
+	after, err := os.ReadFile(anchorPath)
+	if err != nil {
+		t.Fatalf("ReadFile after inspect: %v", err)
+	}
+	if strings.Count(string(after), "\n") != 1 {
+		t.Fatalf("inspect appended onto a forged-behind file: %q", after)
+	}
+}
+
+func TestInspectAttestationAnchor_GenuineBehindStillHeals(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path, events := newAttestationTestStore(t)
+	for i, id := range []string{"prompt-behind-1", "prompt-behind-2"} {
+		event := model.EventOf(
+			types.EventID(id), types.EventKindPrompt,
+			types.Client("cli"), types.Agent("codex"),
+			types.SessionID("session-1"), types.Workspace("ws"),
+			id,
+			time.Date(2026, 8, 14, 22, 10, i, 0, time.UTC),
+		)
+		if err := events.Save(ctx, event); err != nil {
+			t.Fatalf("Save(%s) error = %v", id, err)
+		}
+	}
+	anchorPath := sqlite.AttestationAnchorPath(path)
+	body, err := os.ReadFile(anchorPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	records, err := attestation.ParseAnchorFile(body)
+	if err != nil {
+		t.Fatalf("ParseAnchorFile: %v", err)
+	}
+	line, err := attestation.FormatAnchorLine(records[0])
+	if err != nil {
+		t.Fatalf("FormatAnchorLine: %v", err)
+	}
+	if err := os.WriteFile(anchorPath, append(line, '\n'), 0o600); err != nil {
+		t.Fatalf("WriteFile prefix: %v", err)
+	}
+
+	inspector := sqlite.NewAttestationAnchorInspector(sqlite.NewDatabase(path, onDiskSQLiteMigrations(t)))
+	state, err := inspector.InspectAttestationAnchor(ctx, application.AttestationAnchorInspectOptions{
+		StorePath: path,
+		OpenStore: true,
+	})
+	if err != nil {
+		t.Fatalf("Inspect error = %v", err)
+	}
+	if !state.Published || state.Relation != string(attestation.AnchorMatches) || state.StoreSeq != 2 {
+		t.Fatalf("genuine-behind state = %+v, want published matches seq=2", state)
+	}
+}
+
+func TestInspectAttestationAnchor_UsesVerifiedHeadNotALaterUpdate(t *testing.T) {
+	ctx := context.Background()
+	path, events := newAttestationTestStore(t)
+	prompt := model.EventOf(
+		types.EventID("prompt-snapshot"), types.EventKindPrompt,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-1"), types.Workspace("ws"),
+		"snapshot",
+		time.Date(2026, 8, 14, 22, 20, 0, 0, time.UTC),
+	)
+	if err := events.Save(ctx, prompt); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	anchorPath := sqlite.AttestationAnchorPath(path)
+	before, err := os.ReadFile(anchorPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	verified, err := attestation.ParseAnchorFile(before)
+	if err != nil {
+		t.Fatalf("ParseAnchorFile: %v", err)
+	}
+	if err := os.Remove(anchorPath); err != nil {
+		t.Fatalf("Remove sidecar: %v", err)
+	}
+	garbage := strings.Repeat("cd", 32)
+	sqlite.SetAfterVerifiedAttestationSnapshotForTest(func(_ context.Context, db *sql.DB) {
+		if _, err := db.Exec(`UPDATE attestation_head SET head_sha256 = ? WHERE singleton = 1`, garbage); err != nil {
+			t.Errorf("tamper head after snapshot: %v", err)
+		}
+	})
+	t.Cleanup(func() { sqlite.SetAfterVerifiedAttestationSnapshotForTest(nil) })
+
+	inspector := sqlite.NewAttestationAnchorInspector(sqlite.NewDatabase(path, onDiskSQLiteMigrations(t)))
+	state, err := inspector.InspectAttestationAnchor(ctx, application.AttestationAnchorInspectOptions{
+		StorePath: path,
+		OpenStore: true,
+	})
+	if err != nil {
+		t.Fatalf("Inspect error = %v", err)
+	}
+	if state.StoreHead != verified[0].Head || state.Relation != string(attestation.AnchorMatches) {
+		t.Fatalf("state = %+v, want verified head %q", state, verified[0].Head)
+	}
+	after, err := os.ReadFile(anchorPath)
+	if err != nil {
+		t.Fatalf("ReadFile published: %v", err)
+	}
+	published, err := attestation.ParseAnchorFile(after)
+	if err != nil {
+		t.Fatalf("ParseAnchorFile published: %v", err)
+	}
+	if published[len(published)-1].Head != verified[0].Head {
+		t.Fatalf("published head = %q, want verified %q", published[len(published)-1].Head, verified[0].Head)
 	}
 }
 

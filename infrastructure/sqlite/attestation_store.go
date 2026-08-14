@@ -12,6 +12,15 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+// attestationChainSnapshot is the verified head and per-seq link digests
+// from one read-only transaction.
+type attestationChainSnapshot struct {
+	Seq       int64
+	Head      string
+	LinkHeads map[int64]string
+	Present   bool
+}
+
 // VerifyAttestationChain walks the stored hash chain and recomputes each
 // content digest from canonical rows. It is the shipped verifier for tests
 // and for #1678; store open does not call it.
@@ -19,27 +28,32 @@ import (
 // A store that predates migration 61 (no tables) is treated as an empty
 // chain. Historical events without a link do not fail verification.
 func VerifyAttestationChain(ctx context.Context, db *sql.DB) error {
+	_, err := verifyAttestationChainSnapshot(ctx, db)
+	return err
+}
+
+func verifyAttestationChainSnapshot(ctx context.Context, db *sql.DB) (attestationChainSnapshot, error) {
 	if db == nil {
-		return xerrors.Errorf("attestation verify requires a database")
+		return attestationChainSnapshot{}, xerrors.Errorf("attestation verify requires a database")
 	}
 	enabled, err := databaseTableExists(ctx, db, "attestation_links")
 	if err != nil {
-		return err
+		return attestationChainSnapshot{}, err
 	}
 	if !enabled {
-		return nil
+		return attestationChainSnapshot{}, nil
 	}
 	hasHead, err := databaseTableExists(ctx, db, "attestation_head")
 	if err != nil {
-		return err
+		return attestationChainSnapshot{}, err
 	}
 	if !hasHead {
-		return nil
+		return attestationChainSnapshot{}, nil
 	}
 
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return xerrors.Errorf("begin attestation verify: %w", err)
+		return attestationChainSnapshot{}, xerrors.Errorf("begin attestation verify: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -50,9 +64,9 @@ func VerifyAttestationChain(ctx context.Context, db *sql.DB) error {
 		`SELECT head_sha256, seq FROM attestation_head WHERE singleton = 1`,
 	).Scan(&headHex, &headSeq); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return xerrors.Errorf("attestation head is missing")
+			return attestationChainSnapshot{}, xerrors.Errorf("attestation head is missing")
 		}
-		return xerrors.Errorf("read attestation head: %w", err)
+		return attestationChainSnapshot{}, xerrors.Errorf("read attestation head: %w", err)
 	}
 
 	rows, err := tx.QueryContext(ctx, `
@@ -60,7 +74,7 @@ func VerifyAttestationChain(ctx context.Context, db *sql.DB) error {
 		  FROM attestation_links
 		 ORDER BY seq`)
 	if err != nil {
-		return xerrors.Errorf("list attestation links: %w", err)
+		return attestationChainSnapshot{}, xerrors.Errorf("list attestation links: %w", err)
 	}
 	type storedLink struct {
 		seq                       int64
@@ -72,58 +86,65 @@ func VerifyAttestationChain(ctx context.Context, db *sql.DB) error {
 		var item storedLink
 		if err := rows.Scan(&item.seq, &item.eventID, &item.kind, &item.contentHex, &item.prevHex, &item.linkHex); err != nil {
 			_ = rows.Close()
-			return xerrors.Errorf("scan attestation link: %w", err)
+			return attestationChainSnapshot{}, xerrors.Errorf("scan attestation link: %w", err)
 		}
 		links = append(links, item)
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return xerrors.Errorf("iterate attestation links: %w", err)
+		return attestationChainSnapshot{}, xerrors.Errorf("iterate attestation links: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return xerrors.Errorf("close attestation links: %w", err)
+		return attestationChainSnapshot{}, xerrors.Errorf("close attestation links: %w", err)
 	}
 
+	linkHeads := map[int64]string{0: attestation.GenesisHex()}
 	prevHex := attestation.GenesisHex()
 	for i, item := range links {
 		count := int64(i + 1)
 		if item.seq != count {
-			return xerrors.Errorf("attestation link seq = %d, want %d", item.seq, count)
+			return attestationChainSnapshot{}, xerrors.Errorf("attestation link seq = %d, want %d", item.seq, count)
 		}
 		if item.prevHex != prevHex {
-			return xerrors.Errorf("attestation link %d predecessor mismatch", item.seq)
+			return attestationChainSnapshot{}, xerrors.Errorf("attestation link %d predecessor mismatch", item.seq)
 		}
 		recomputedContent, err := recomputeAttestationContent(ctx, tx, item.eventID, item.kind)
 		if err != nil {
-			return err
+			return attestationChainSnapshot{}, err
 		}
 		if item.contentHex != recomputedContent {
-			return xerrors.Errorf("attestation link %d content digest does not match store", item.seq)
+			return attestationChainSnapshot{}, xerrors.Errorf("attestation link %d content digest does not match store", item.seq)
 		}
 		prev, err := attestation.ParseHex(prevHex)
 		if err != nil {
-			return xerrors.Errorf("parse attestation predecessor: %w", err)
+			return attestationChainSnapshot{}, xerrors.Errorf("parse attestation predecessor: %w", err)
 		}
 		content, err := attestation.ParseHex(item.contentHex)
 		if err != nil {
-			return xerrors.Errorf("parse attestation content digest: %w", err)
+			return attestationChainSnapshot{}, xerrors.Errorf("parse attestation content digest: %w", err)
 		}
 		wantLink := attestation.EncodeHex(attestation.LinkSHA256(prev, content))
 		if item.linkHex != wantLink {
-			return xerrors.Errorf("attestation link %d digest does not match predecessor and content", item.seq)
+			return attestationChainSnapshot{}, xerrors.Errorf("attestation link %d digest does not match predecessor and content", item.seq)
 		}
 		prevHex = item.linkHex
+		linkHeads[item.seq] = item.linkHex
 	}
 	if int64(len(links)) != headSeq {
-		return xerrors.Errorf("attestation head seq = %d, want %d", headSeq, len(links))
+		return attestationChainSnapshot{}, xerrors.Errorf("attestation head seq = %d, want %d", headSeq, len(links))
 	}
 	if headHex != prevHex {
-		return xerrors.Errorf("attestation head digest does not match the last link")
+		return attestationChainSnapshot{}, xerrors.Errorf("attestation head digest does not match the last link")
 	}
 	if err := tx.Commit(); err != nil {
-		return xerrors.Errorf("commit attestation verify: %w", err)
+		return attestationChainSnapshot{}, xerrors.Errorf("commit attestation verify: %w", err)
 	}
-	return nil
+	return attestationChainSnapshot{
+		Seq:       headSeq,
+		Head:      headHex,
+		LinkHeads: linkHeads,
+		Present:   true,
+	}, nil
 }
 
 func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, audit *model.CommandAudit) (*attestation.AnchorRecord, error) {

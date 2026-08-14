@@ -46,6 +46,12 @@ func PublishAttestationAnchorForTest(path string, record attestation.AnchorRecor
 	return publishAttestationAnchor(path, record)
 }
 
+// SetAfterVerifiedAttestationSnapshotForTest runs after the verified
+// snapshot is captured and before inspect publishes.
+func SetAfterVerifiedAttestationSnapshotForTest(fn func(context.Context, *sql.DB)) {
+	afterVerifiedAttestationSnapshot = fn
+}
+
 // SetGarbageCollectionNowForTest fixes the timestamp persisted by gc discards.
 func (d *StoreManagementDatasource) SetGarbageCollectionNowForTest(now func() time.Time) {
 	d.now = now
