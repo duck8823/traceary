@@ -241,6 +241,7 @@ func run() error {
 		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithCapacityInspector(sqlite.NewCapacityInspector(db)),
+		cli.WithOperatorCostInspector(sqlite.NewOperatorCostInspector(db)),
 		cli.WithPayloadCodecInspector(sqlite.NewPayloadCodecInspector(db)),
 		cli.WithAttestationAnchorInspector(sqlite.NewAttestationAnchorInspector(db)),
 		cli.WithSearchProjection(usecase.NewSearchProjectionUsecase(db)),

@@ -42,6 +42,7 @@ type RootCLI struct {
 	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
 	capacityInspector          application.CapacityInspector
+	operatorCostInspector      application.OperatorCostInspector
 	payloadCodecInspector      application.PayloadCodecInspector
 	attestationAnchorInspector application.AttestationAnchorInspector
 	searchProjection           *usecase.SearchProjectionUsecase
@@ -227,6 +228,11 @@ func WithStoreManagement(storeManagement usecase.StoreManagementUsecase) RootCLI
 // WithCapacityInspector injects metadata-only SQLite capacity diagnostics.
 func WithCapacityInspector(inspector application.CapacityInspector) RootCLIOption {
 	return func(c *RootCLI) { c.capacityInspector = inspector }
+}
+
+// WithOperatorCostInspector injects this-store measured cost for doctor.
+func WithOperatorCostInspector(inspector application.OperatorCostInspector) RootCLIOption {
+	return func(c *RootCLI) { c.operatorCostInspector = inspector }
 }
 
 // WithPayloadCodecInspector injects read-only payload representation status.

@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Added
+- **Doctor reports this store's measured cost (#1809)** — `traceary doctor --json` includes `operator_cost` (`traceary.operator_cost/v1`) and check `store-operator-cost`: resident bytes per event/session, undiscardable vs foldable source-text, amplification, and a monthly projection from the last 30 days of this store's own rate. Stores ≥ 2 GiB stay metadata-only (resident size only). Not a global monthly claim.
+
 ### Changed
 - **Compaction rollback copy stays until the operator deletes it (#1827)** — apply-time `VerifyPair` is not in-use proof. Success JSON includes `rollback_retained: true` and the named `rollback_path`. `doctor` reports leftover `<db>.rollback-*` siblings. No release subcommand.
 - **Ctrl-C cancels non-hook command contexts (#1747)** — `store compact` and other long-running non-hook commands receive a signal-derived context (no hook soft deadline). A second Ctrl-C hard-kills. `memory inbox review` still lets Bubble Tea own SIGINT.

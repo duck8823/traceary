@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -76,12 +77,13 @@ type doctorReport struct {
 	// large live store is deliberately not opened by the default doctor path:
 	// opening it can run migrations and content diagnostics that are neither
 	// necessary nor safe for a quick operator health check.
-	Mode     string          `json:"mode,omitempty"`
-	Checks   []doctorCheck   `json:"checks"`
-	Sections []doctorSection `json:"sections"`
-	Summary  doctorSummary   `json:"summary"`
-	ExitCode int             `json:"exit_code"`
-	Fixes    []doctorFixLog  `json:"fixes,omitempty"`
+	Mode         string                       `json:"mode,omitempty"`
+	OperatorCost *apptypes.OperatorCostReport `json:"operator_cost,omitempty"`
+	Checks       []doctorCheck                `json:"checks"`
+	Sections     []doctorSection              `json:"sections"`
+	Summary      doctorSummary                `json:"summary"`
+	ExitCode     int                          `json:"exit_code"`
+	Fixes        []doctorFixLog               `json:"fixes,omitempty"`
 }
 
 type doctorExitError struct {
@@ -285,11 +287,14 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	snapshot := inspectStoreFileSnapshot(resolvedDBPath, os.Stat)
 	if isLargeStoreForBoundedDoctor(snapshot) {
 		report.Mode = doctorModeMetadataOnlyLargeStore
+		residentCost := residentOnlyOperatorCost(snapshot.Size)
+		report.OperatorCost = &residentCost
 		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
 		// Sibling rollback copies are a directory listing only; they do not
 		// open SQLite. Large stores are the ones most likely to still hold
 		// a source-sized rollback inode (#1827).
 		report.Checks = append(report.Checks, inspectCompactRollbackCopies(resolvedDBPath))
+		report.Checks = append(report.Checks, buildOperatorCostCheck(residentCost))
 		report.Checks = append(report.Checks, inspectTracearyOnPath())
 		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath))
 		if c.attestationAnchorInspector != nil {
@@ -333,6 +338,13 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectSensitiveAccessAuditCoverage(ctx))
 		if c.attestationAnchorInspector != nil {
 			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, true))
+		}
+		if c.operatorCostInspector != nil {
+			cost, costCheck := c.inspectOperatorCost(ctx, snapshot.Size)
+			if cost.SchemaVersion != "" {
+				report.OperatorCost = &cost
+			}
+			report.Checks = append(report.Checks, costCheck)
 		}
 	}
 

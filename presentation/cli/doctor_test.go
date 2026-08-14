@@ -21,14 +21,23 @@ import (
 )
 
 type doctorReport struct {
-	DBPath   string          `json:"db_path"`
-	Clients  []string        `json:"clients"`
-	Mode     string          `json:"mode"`
-	Checks   []doctorCheck   `json:"checks"`
-	Sections []doctorSection `json:"sections"`
-	Summary  doctorSummary   `json:"summary"`
-	ExitCode int             `json:"exit_code"`
-	Fixes    []doctorFixLog  `json:"fixes"`
+	DBPath       string                       `json:"db_path"`
+	Clients      []string                     `json:"clients"`
+	Mode         string                       `json:"mode"`
+	OperatorCost *apptypes.OperatorCostReport `json:"operator_cost"`
+	Checks       []doctorCheck                `json:"checks"`
+	Sections     []doctorSection              `json:"sections"`
+	Summary      doctorSummary                `json:"summary"`
+	ExitCode     int                          `json:"exit_code"`
+	Fixes        []doctorFixLog               `json:"fixes"`
+}
+
+type operatorCostInspectorStub struct {
+	report apptypes.OperatorCostReport
+}
+
+func (s operatorCostInspectorStub) InspectOperatorCost(context.Context, time.Time, int64) (apptypes.OperatorCostReport, error) {
+	return s.report, nil
 }
 
 type panicCapacityInspector struct{ calls int }
@@ -581,6 +590,50 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	rollback := statusByName(report, "compact-rollback-copy")
 	if rollback.Status != "warn" || !strings.Contains(rollback.Message, rollbackPath) {
 		t.Fatalf("compact-rollback-copy = %#v, want warn naming %s", rollback, rollbackPath)
+	}
+	cost := statusByName(report, "store-operator-cost")
+	if cost.Status != "skip" || report.OperatorCost == nil || report.OperatorCost.ResidentBytes != 2<<30 {
+		t.Fatalf("operator cost = %#v report=%+v", cost, report.OperatorCost)
+	}
+}
+
+func TestRootCLI_DoctorJSONIncludesOperatorCost(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	stub := operatorCostInspectorStub{report: apptypes.OperatorCostReport{
+		SchemaVersion:                       "traceary.operator_cost/v1",
+		WindowDays:                          30,
+		ResidentBytes:                       1000,
+		EventCount:                          10,
+		SessionCount:                        2,
+		UndiscardableSourceBytes:            400,
+		FoldableSourceBytes:                 100,
+		Amplification:                       2,
+		EventsPerDay:                        1,
+		ProjectedUndiscardableBytesPerMonth: 1200,
+		Evidence:                            apptypes.OperatorCostEvidence{Status: "complete", Method: "event_metadata_projection"},
+	}}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithOperatorCostInspector(stub),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--db-path", dbPath, "--json", "--warnings-ok"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	report := decodeDoctorReport(t, stdout.Bytes())
+	if report.OperatorCost == nil || report.OperatorCost.SchemaVersion != "traceary.operator_cost/v1" {
+		t.Fatalf("operator_cost = %+v", report.OperatorCost)
+	}
+	if report.OperatorCost.EventCount != 10 || report.OperatorCost.Amplification != 2 {
+		t.Fatalf("operator_cost = %+v", report.OperatorCost)
+	}
+	check := statusByName(report, "store-operator-cost")
+	if check.Status != "pass" || !strings.Contains(check.Message, "this store") {
+		t.Fatalf("check = %#v", check)
 	}
 }
 
