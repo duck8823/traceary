@@ -1111,6 +1111,9 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if e = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0),COUNT(*) FROM search_projection_recent_documents WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.RecentBytes, &s.RecentDocuments); e != nil {
 		return s, e
 	}
+	if e = measureRecentSourceBytesCache(ctx, db, &s); e != nil {
+		return s, e
+	}
 	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(summary_text AS BLOB))),0) FROM search_projection_session_summaries WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.SummarySessions, &s.SummaryLogicalBytes); e != nil {
 		return s, e
 	}
@@ -1143,6 +1146,22 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	}
 	s.InspectionMilliseconds = time.Since(started).Milliseconds()
 	return s, e
+}
+
+// measureRecentSourceBytesCache compares the eviction cache to SUM(decoded_bytes)
+// for the generation the cache is written against (state.generation_id). That
+// is not active_generation_id during a rebuild. Status never rewrites the cache.
+func measureRecentSourceBytesCache(ctx context.Context, db *sql.DB, s *apptypes.SearchProjectionStatus) error {
+	var generationID string
+	if err := db.QueryRowContext(ctx, `SELECT recent_source_bytes, COALESCE(generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&s.RecentSourceBytes, &generationID); err != nil {
+		return xerrors.Errorf("read recent_source_bytes cache: %w", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?`, generationID).Scan(&s.RecentSourceBytesMeasured); err != nil {
+		return xerrors.Errorf("sum recent_source_bytes measured: %w", err)
+	}
+	s.RecentSourceBytesDelta = s.RecentSourceBytes - s.RecentSourceBytesMeasured
+	s.RecentSourceBytesEvidence = apptypes.CapacityEvidence{Status: "complete", Method: "sum"}
+	return nil
 }
 
 // searchProjectionMeasureTimeout bounds the cutover evidence measurement. The
