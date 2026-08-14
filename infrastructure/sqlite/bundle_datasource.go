@@ -538,11 +538,11 @@ func (t *bundleImportTx) ImportEvent(ctx context.Context, event *model.Event, po
 	if event == nil {
 		return false, xerrors.Errorf("event must not be nil")
 	}
-	payload, err := encodePayload([]byte(event.Body()), payloadCodecIdentity)
+	hasCodec, err := transactionColumnExists(ctx, t.tx, "events", "body_codec")
 	if err != nil {
 		return false, err
 	}
-	hasCodec, err := transactionColumnExists(ctx, t.tx, "events", "body_codec")
+	payload, err := encodeCanonicalPayload([]byte(event.Body()), hasCodec)
 	if err != nil {
 		return false, err
 	}
@@ -576,7 +576,7 @@ body_plaintext_bytes=excluded.body_plaintext_bytes, body_encoded_bytes=excluded.
 		event.Agent().String(),
 		event.SessionID().String(),
 		event.Workspace().String(),
-		string(payload.Bytes),
+		storedBodyArg(payload),
 		formatTimestamp(event.CreatedAt()),
 		nullableString(event.SourceHook())}
 	if hasCodec {
@@ -611,19 +611,19 @@ func (t *bundleImportTx) ImportCommandAudit(ctx context.Context, audit *model.Co
 			return false, xerrors.Errorf("command audit conflict")
 		}
 	}
-	commandPayload, err := encodePayload([]byte(audit.Command()), payloadCodecIdentity)
-	if err != nil {
-		return false, err
-	}
-	inputPayload, err := encodePayload([]byte(audit.Input()), payloadCodecIdentity)
-	if err != nil {
-		return false, err
-	}
-	outputPayload, err := encodePayload([]byte(audit.Output()), payloadCodecIdentity)
-	if err != nil {
-		return false, err
-	}
 	hasCodec, err := transactionColumnExists(ctx, t.tx, "command_audits", "command_codec")
+	if err != nil {
+		return false, err
+	}
+	commandPayload, err := encodeCanonicalPayload([]byte(audit.Command()), hasCodec)
+	if err != nil {
+		return false, err
+	}
+	inputPayload, err := encodeCanonicalPayload([]byte(audit.Input()), hasCodec)
+	if err != nil {
+		return false, err
+	}
+	outputPayload, err := encodeCanonicalPayload([]byte(audit.Output()), hasCodec)
 	if err != nil {
 		return false, err
 	}
@@ -675,11 +675,11 @@ output_plaintext_bytes=excluded.output_plaintext_bytes, output_encoded_bytes=exc
 	}
 	args := []any{
 		audit.EventID().String(),
-		string(commandPayload.Bytes),
+		storedBodyArg(commandPayload),
 		wrapper,
 		audit.CommandIdentity().Command().String(),
-		string(inputPayload.Bytes),
-		string(outputPayload.Bytes),
+		storedBodyArg(inputPayload),
+		storedBodyArg(outputPayload),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
 		audit.InputOriginalBytes(),

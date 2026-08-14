@@ -247,6 +247,12 @@ codec without freezing writers. See [`payload-backfill.md`](payload-backfill.md)
 Physical file size only drops after `store compact`; the search projection ends
 `drifted`/`stale` and must be rebuilt.
 
+Live writers, including bundle import, archive restore, dedupe restore, and
+raw-body recovery, use the same canonical encoder as native hook inserts
+(zstd when it shrinks). Bundle and archive files stay plaintext. Retention
+markers stay identity so apply/verify can compare stored TEXT to the sentinel.
+See [`../research/payload-codec-call-sites.md`](../research/payload-codec-call-sites.md).
+
 ## Backup defaults
 
 The supported backup story is intentionally simple:

@@ -548,6 +548,10 @@ func discardEligibleEventBodies(
 	},
 	beforeValue, discardedAt string,
 ) (int, error) {
+	// Identity on purpose (#1779): this is the same short retention sentinel
+	// as raw-body prune. Readers and SQL compare stored TEXT to the marker
+	// literal; encodeCanonicalPayload would not shrink it and must not change
+	// the stored bytes independently of those checks.
 	marker, err := encodePayload([]byte(types.EventBodyUnavailableRetentionMarker), payloadCodecIdentity)
 	if err != nil {
 		return 0, err

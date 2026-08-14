@@ -840,8 +840,8 @@ func (d *StoreManagementDatasource) archiveDedupeBatch(
 
 // dedupeArchiveSource is an events row as the quarantine archive stores it. body
 // is the *decoded* plaintext, matching what RestoreContentEventDedupeRun expects
-// to re-encode; copying the raw stored column instead would corrupt a
-// codec-encoded payload on restore.
+// to re-encode with encodeCanonicalPayload; copying the raw stored column
+// instead would corrupt a codec-encoded payload on restore.
 type dedupeArchiveSource struct {
 	id         string
 	kind       string
@@ -1132,16 +1132,16 @@ func (d *StoreManagementDatasource) RestoreContentEventDedupeRun(
 			return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to check existing event %s: %w", r.id, err)
 		}
 
-		payload, err := encodePayload([]byte(r.body), payloadCodecIdentity)
-		if err != nil {
-			return apptypes.ContentEventDedupeRestoreResult{}, err
-		}
 		hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
 		if err != nil {
 			return apptypes.ContentEventDedupeRestoreResult{}, err
 		}
+		payload, err := encodeCanonicalPayload([]byte(r.body), hasCodec)
+		if err != nil {
+			return apptypes.ContentEventDedupeRestoreResult{}, err
+		}
 		query := insertEventQuery
-		args := []any{r.id, r.kind, r.client, r.agent, r.sessionID, r.workspace, string(payload.Bytes), r.createdAt, r.sourceHook}
+		args := []any{r.id, r.kind, r.client, r.agent, r.sessionID, r.workspace, storedBodyArg(payload), r.createdAt, r.sourceHook}
 		if hasCodec {
 			query = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook,
 body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`

@@ -493,18 +493,18 @@ func insertArchiveRow(ctx context.Context, tx *sql.Tx, table string, row map[str
 	switch table {
 	case "events":
 		body := fmt.Sprint(nullStr(row["body"]))
-		payload, err := encodePayload([]byte(body), payloadCodecIdentity)
+		hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
 		if err != nil {
 			return err
 		}
-		hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
+		payload, err := encodeCanonicalPayload([]byte(body), hasCodec)
 		if err != nil {
 			return err
 		}
 		query := insertEventQuery
 		args := []any{
 			row["id"], row["kind"], nullStr(row["client"]), row["agent"], row["session_id"],
-			nullStr(row["workspace"]), string(payload.Bytes), row["created_at"], nullStr(row["source_hook"])}
+			nullStr(row["workspace"]), storedBodyArg(payload), row["created_at"], nullStr(row["source_hook"])}
 		if hasCodec {
 			query = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook,
 body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -516,24 +516,24 @@ body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_
 		}
 		return nil
 	case "command_audits":
-		command, err := encodePayload([]byte(fmt.Sprint(nullStr(row["command_text"]))), payloadCodecIdentity)
-		if err != nil {
-			return err
-		}
-		input, err := encodePayload([]byte(fmt.Sprint(nullStr(row["input_text"]))), payloadCodecIdentity)
-		if err != nil {
-			return err
-		}
-		output, err := encodePayload([]byte(fmt.Sprint(nullStr(row["output_text"]))), payloadCodecIdentity)
-		if err != nil {
-			return err
-		}
 		hasCodec, err := transactionColumnExists(ctx, tx, "command_audits", "command_codec")
 		if err != nil {
 			return err
 		}
+		command, err := encodeCanonicalPayload([]byte(fmt.Sprint(nullStr(row["command_text"]))), hasCodec)
+		if err != nil {
+			return err
+		}
+		input, err := encodeCanonicalPayload([]byte(fmt.Sprint(nullStr(row["input_text"]))), hasCodec)
+		if err != nil {
+			return err
+		}
+		output, err := encodeCanonicalPayload([]byte(fmt.Sprint(nullStr(row["output_text"]))), hasCodec)
+		if err != nil {
+			return err
+		}
 		query := insertCommandAuditQuery
-		args := []any{row["event_id"], string(command.Bytes), nullStr(row["command_wrapper"]), archiveStringOr(row, "command_name", "unknown"), string(input.Bytes), string(output.Bytes),
+		args := []any{row["event_id"], storedBodyArg(command), nullStr(row["command_wrapper"]), archiveStringOr(row, "command_name", "unknown"), storedBodyArg(input), storedBodyArg(output),
 			asInt(row["input_truncated"]), asInt(row["output_truncated"]),
 			row["input_original_bytes"], row["output_original_bytes"],
 			row["exit_code"], asInt(row["failed"]), archiveStringOr(row, "failure_reason", "unknown")}
