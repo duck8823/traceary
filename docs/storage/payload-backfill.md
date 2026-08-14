@@ -104,11 +104,10 @@ Output is JSON on stdout with aggregate counters only (no body contents).
   context the cancellation cannot reach, because it records what the worker
   already did durably. That context is bounded, so a checkpoint that cannot
   take the store lease gives up instead of hanging.
-- Killing the process instead (`Ctrl-C` on the CLI, which does not currently
-  wire signals into the command context — see #1747) writes no checkpoint. The
-  in-flight batch rolls back and the run stays at `running`; `resume` still
-  continues it from the last committed batch, but `run` refuses until then
-  because `status` reports it active.
+- `Ctrl-C` on a non-hook CLI command cancels the command context (#1747) so
+  in-flight work can persist a `paused` checkpoint. A second `Ctrl-C` restores
+  the default handler and hard-kills. A SIGKILL still writes no checkpoint;
+  `resume` continues from the last committed batch.
 - A cancellation does not rename the error. If an I/O, constraint or decode
   failure happens to race the `Ctrl-C`, the checkpoint still lands but the
   reported error is the failure, not "cancelled".

@@ -304,7 +304,32 @@ func commandContext(args []string) (context.Context, context.CancelFunc) {
 		}
 		return ctx, stopSignals
 	}
-	return context.WithCancel(context.Background())
+	if isTUICommandArgs(args) {
+		// Bubble Tea owns SIGINT so it can restore the terminal (#1747).
+		return context.WithCancel(context.Background())
+	}
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// After the first signal, restore the default handler so a second Ctrl-C
+	// hard-kills a wedged cleanup.
+	go func() {
+		<-ctx.Done()
+		stopSignals()
+	}()
+	return ctx, stopSignals
+}
+
+func isTUICommandArgs(args []string) bool {
+	argv := args
+	if len(argv) > 0 {
+		argv = argv[1:]
+	}
+	for len(argv) > 0 && strings.HasPrefix(argv[0], "-") {
+		argv = argv[1:]
+	}
+	if len(argv) < 3 {
+		return false
+	}
+	return argv[0] == "memory" && argv[1] == "inbox" && argv[2] == "review"
 }
 
 func resolveHookSoftDeadline() time.Duration {

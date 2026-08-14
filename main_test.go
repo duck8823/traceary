@@ -96,6 +96,38 @@ func TestCommandContext_DetachedWorkerHasNoSoftDeadline(t *testing.T) {
 	}
 }
 
+func TestCommandContext_NonHookHasNoSoftDeadline(t *testing.T) {
+	t.Setenv(hookSoftDeadlineEnvKey, "50ms")
+	ctx, cancel := commandContext([]string{"traceary", "store", "compact"})
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("non-hook command must not inherit the hook soft deadline")
+	}
+}
+
+func TestCommandContext_NonHookCancelsOnSIGTERM(t *testing.T) {
+	ctx, cancel := commandContext([]string{"traceary", "store", "compact"})
+	defer cancel()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("Kill(SIGTERM) error = %v", err)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("non-hook context was not canceled by SIGTERM")
+	}
+}
+
+func TestCommandContext_TUICommandDoesNotInstallNotifyContext(t *testing.T) {
+	ctx, cancel := commandContext([]string{"traceary", "memory", "inbox", "review"})
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("TUI command must not have a deadline")
+	}
+	// Do not send SIGTERM here: this path uses WithCancel so the default
+	// handler would kill the test process. Bubble Tea owns SIGINT (#1747).
+}
+
 func TestWriteCLIError(t *testing.T) {
 	t.Parallel()
 
