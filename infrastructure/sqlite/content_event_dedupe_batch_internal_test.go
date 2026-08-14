@@ -383,3 +383,25 @@ func TestPlanContentEventDedupe_AllDuplicatesRetentionHeldYieldsNoGroup(t *testi
 		t.Errorf("groups = %d, want 0 (nothing is archivable)", len(plan.groups))
 	}
 }
+
+func TestPlanContentEventDedupe_AttestedDuplicateIsNotArchived(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	key := newDedupeGroupKey("prompt", "hook", "codex", "s1", "w1", "user_prompt_submit", "same body")
+	members := []dedupeMemberRef{
+		{id: "evt-a", createdAt: base.Format(time.RFC3339Nano), parsedAt: base, parseOK: true, attested: true},
+		{
+			id: "evt-b", createdAt: base.Add(time.Second).Format(time.RFC3339Nano),
+			parsedAt: base.Add(time.Second), parseOK: true, attested: true,
+		},
+	}
+	plan := planContentEventDedupe(dedupeSurvey{
+		groups: map[dedupeGroupKey][]dedupeMemberRef{key: members},
+		order:  []dedupeGroupKey{key},
+	}, false)
+
+	if len(plan.groups) != 0 {
+		t.Errorf("groups = %d, want 0 (attested hook duplicates stay)", len(plan.groups))
+	}
+}

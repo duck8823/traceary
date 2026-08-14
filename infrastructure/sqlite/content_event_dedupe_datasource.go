@@ -51,6 +51,10 @@ type dedupeMemberRef struct {
 	// and could split an otherwise-collapsible cluster — but it is never chosen
 	// as a duplicate.
 	retentionHeld bool
+	// attested marks a row that carries an attestation_links row. That table
+	// also references events(id) ON DELETE RESTRICT. Same clustering rule as
+	// retentionHeld: stay visible, never archive.
+	attested bool
 }
 
 // dedupeGroupKey is the duplicate-identity tuple. It intentionally matches the
@@ -291,6 +295,7 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 	}
 	query := `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook,
 	       ` + dedupeRetentionHeldProjection(scope) + `,
+	       ` + dedupeAttestedProjection(scope) + `,
 	       ` + payloadColumns + `
 	            FROM events
 	           WHERE ` + dedupeEligibilityFilter(scope)
@@ -321,11 +326,11 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 		var (
 			id, kind, client, rowAgent, sessionID, workspace, createdAt string
 			sourceHook                                                  sql.NullString
-			retentionHeld                                               int
+			retentionHeld, attested                                     int
 			payload                                                     payloadRow
 			storedLength                                                sql.NullInt64
 		)
-		destinations := []any{&id, &kind, &client, &rowAgent, &sessionID, &workspace, &createdAt, &sourceHook, &retentionHeld}
+		destinations := []any{&id, &kind, &client, &rowAgent, &sessionID, &workspace, &createdAt, &sourceHook, &retentionHeld, &attested}
 		if hasCodec {
 			destinations = append(destinations, payload.scanDestinations()...)
 		} else {
@@ -359,6 +364,7 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 			createdAt:     createdAt,
 			parsedAt:      parsed,
 			retentionHeld: retentionHeld != 0,
+			attested:      attested != 0,
 			parseOK:       parseErr == nil,
 		})
 		survey.scannedBySource[dedupeSourceKey{agent: key.agent, hook: key.sourceHook}]++
@@ -408,6 +414,7 @@ func decodeDedupeCandidateBody(
 type dedupeEligibilityScope struct {
 	hasBodyAvailability bool
 	hasRetentionLedger  bool
+	hasAttestationLinks bool
 }
 
 func resolveDedupeEligibilityScope(ctx context.Context, db *sql.DB) (dedupeEligibilityScope, error) {
@@ -419,9 +426,14 @@ func resolveDedupeEligibilityScope(ctx context.Context, db *sql.DB) (dedupeEligi
 	if err != nil {
 		return dedupeEligibilityScope{}, err
 	}
+	hasAttestationLinks, err := databaseTableExists(ctx, db, "attestation_links")
+	if err != nil {
+		return dedupeEligibilityScope{}, err
+	}
 	return dedupeEligibilityScope{
 		hasBodyAvailability: hasBodyAvailability,
 		hasRetentionLedger:  hasRetentionLedger,
+		hasAttestationLinks: hasAttestationLinks,
 	}, nil
 }
 
@@ -467,6 +479,13 @@ func dedupeRetentionHeldProjection(scope dedupeEligibilityScope) string {
 		return "0"
 	}
 	return "EXISTS (SELECT 1 FROM raw_body_retention_entries r WHERE r.event_id = events.id)"
+}
+
+func dedupeAttestedProjection(scope dedupeEligibilityScope) string {
+	if !scope.hasAttestationLinks {
+		return "0"
+	}
+	return "EXISTS (SELECT 1 FROM attestation_links a WHERE a.event_id = events.id)"
 }
 
 func (d *StoreManagementDatasource) countDedupeCandidates(
@@ -607,7 +626,7 @@ func planContentEventDedupe(survey dedupeSurvey, strict bool) dedupePlan {
 func archivableDuplicates(candidates []dedupeMemberRef) []dedupeMemberRef {
 	archivable := make([]dedupeMemberRef, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.retentionHeld {
+		if candidate.retentionHeld || candidate.attested {
 			continue
 		}
 		archivable = append(archivable, candidate)
@@ -783,6 +802,15 @@ func (d *StoreManagementDatasource) archiveDedupeBatch(
 			return err
 		}
 		if !found {
+			continue
+		}
+		attested, attestedErr := eventIsAttested(ctx, tx, target.id)
+		if attestedErr != nil {
+			return attestedErr
+		}
+		if attested {
+			// RESTRICT would fail the whole batch. The planner already drops
+			// attested ids; this is the last-line guard if a plan is stale.
 			continue
 		}
 		if _, err := tx.ExecContext(

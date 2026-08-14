@@ -79,6 +79,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 60 adds has_agent_reasoning and updates only session_refinements
 	// (one row per session), not store-sized event tables.
 	60: {60, "000060_add_session_refinement_has_agent_reasoning.sql", "213d2338ac324488a00a64ecf60592f1289b0c71a75884ba4672f5fd1403abcd", MigrationConstantInPlace},
+	// 61 creates empty attestation tables and inserts the genesis head.
+	// It does not scan events or command_audits.
+	61: {61, "000061_create_attestation_chain.sql", "a7c7823b40615ff12d46e32b888d46f2fe2fa55a1b7e9deae899fd8404dad5e8", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

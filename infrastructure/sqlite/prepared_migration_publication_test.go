@@ -110,7 +110,7 @@ func TestPreparedMigrationPublishesAndRollsBackOwnedCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	var maxVersion int
-	if err = currentDB.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 60 {
+	if err = currentDB.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 61 {
 		t.Fatalf("published version=%d err=%v", maxVersion, err)
 	}
 	// The rehearsal legitimately mutates the published candidate inode. Atomic

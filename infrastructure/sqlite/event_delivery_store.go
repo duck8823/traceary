@@ -133,6 +133,9 @@ func persistEventDelivery(
 	if err := insertEventAndAudit(ctx, tx, event, audit, codecMetadata); err != nil {
 		return false, err
 	}
+	if err := appendAttestationLink(ctx, tx, event, audit); err != nil {
+		return false, err
+	}
 
 	deliveryRecordID := ""
 	attributionFingerprint := model.WorkspaceAttributionFingerprint(event.Workspace(), event.RawWorkspace())
