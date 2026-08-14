@@ -41,6 +41,14 @@ sample). See [`../research/storage-gate-calibration.md`](../research/storage-gat
 go run ./cmd/store-benchmark --calibrate-gates /private/tmp/traceary-calibrate
 ```
 
+Measure the two v0.34 rows that could not be evaluated at tag time (refinement
+ratio and per-host wake injection) against an operator copy. The default live
+store is refused. See [`../research/fold-gate-measurement.md`](../research/fold-gate-measurement.md).
+
+```sh
+go run ./cmd/store-benchmark --fold-gates --db /private/tmp/traceary-copy.db
+```
+
 The fixture uses the canonical production migrations and query sources. It retains exactly `--small-rows` generic small rows and `--large-rows` 1 MiB rows, separately creates then deletes 1,000 disposable rows, and adds one active lifecycle, ten command/audit rows, and ten accepted workspace memories. Fixture JSON records these post-delete workload cardinalities. Preflight fails unless active/latest return a matching row and production handoff returns exactly ten recent commands and ten memories.
 
 ## Sanitized 21.4 GiB-shape baseline
