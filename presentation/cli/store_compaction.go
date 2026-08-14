@@ -47,6 +47,9 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 				"unrefined_bytes":      result.UnrefinedBytes,
 				"mechanical_summaries": result.MechanicalSummaries,
 				"rollback_path":        result.Run.RollbackPath,
+				// Apply-time VerifyPair is not in-use proof. The operator
+				// deletes this file when they accept the rewrite (#1827).
+				"rollback_retained": true,
 			})
 		},
 	}

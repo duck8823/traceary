@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -44,7 +45,68 @@ func inspectStoreFileSnapshot(path string, stat func(string) (os.FileInfo, error
 }
 
 func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string, snapshot storeFileSnapshot) []doctorCheck {
-	return c.inspectStoreGrowthBudgetWithClock(ctx, dbPath, snapshot, time.Now)
+	checks := c.inspectStoreGrowthBudgetWithClock(ctx, dbPath, snapshot, time.Now)
+	return append(checks, inspectCompactRollbackCopies(dbPath))
+}
+
+// inspectCompactRollbackCopies reports leftover <db>.rollback-<run> files.
+// The copy is retained until the operator deletes it (#1827); doctor only names it.
+func inspectCompactRollbackCopies(dbPath string) doctorCheck {
+	const name = "compact-rollback-copy"
+	if strings.TrimSpace(dbPath) == "" {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusSkip,
+			Message: Localize("store path is empty, so compact rollback copies were not inspected", "store path が空のため compact rollback copy は検査しません"),
+		}
+	}
+	matches, err := filepath.Glob(dbPath + ".rollback-*")
+	if err != nil {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusWarn,
+			Message: localizef("failed to inspect compact rollback copies: %v", "compact rollback copy を検査できません: %v", err),
+		}
+	}
+	type retained struct {
+		path string
+		size int64
+	}
+	var copies []retained
+	for _, match := range matches {
+		info, statErr := os.Lstat(match)
+		if statErr != nil || info == nil || !info.Mode().IsRegular() {
+			continue
+		}
+		copies = append(copies, retained{path: match, size: info.Size()})
+	}
+	if len(copies) == 0 {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusPass,
+			Message: Localize("no compact rollback copy is retained beside the store", "store の隣に compact rollback copy は残っていません"),
+		}
+	}
+	parts := make([]string, 0, len(copies))
+	var total int64
+	for _, copy := range copies {
+		total += copy.size
+		parts = append(parts, fmt.Sprintf("%s (%s)", copy.path, formatByteSize(copy.size)))
+	}
+	return doctorCheck{
+		Name: name,
+		Status: doctorStatusWarn,
+		Message: localizef(
+			"compact rollback copy still retained (%s total): %s",
+			"compact rollback copy が残っています（合計 %s）: %s",
+			formatByteSize(total),
+			strings.Join(parts, ", "),
+		),
+		Hint: Localize(
+			"Apply-time verification is not in-use proof. Keep the file until you accept the rewrite, then delete it. Deleting it gives up `traceary store compact rollback RUN_ID` for that run.",
+			"apply 時の検証は実使用の正しさの証明ではありません。書き換えを受け入れるまで残し、その後削除してください。削除するとその run の `traceary store compact rollback RUN_ID` は使えなくなります。",
+		),
+	}
 }
 
 // inspectStoreGrowthBudgetWithClock returns the store-size check and, when the

@@ -18,7 +18,11 @@ type compactionCLIStub struct {
 func (s *compactionCLIStub) Compact(_ context.Context, in application.CompactInput) (application.CompactResult, error) {
 	s.compacted = in.Source
 	s.forced = in.Force
-	return application.CompactResult{Run: domain.CompactionRun{ID: "run", Phase: domain.CompactionCommitted}}, nil
+	return application.CompactResult{Run: domain.CompactionRun{
+		ID:           "run",
+		Phase:        domain.CompactionCommitted,
+		RollbackPath: in.Source + ".rollback-run",
+	}}, nil
 }
 func (*compactionCLIStub) Plan(context.Context, string) (domain.CompactionRun, error) {
 	return domain.CompactionRun{}, nil
@@ -55,6 +59,12 @@ func TestStoreCompactUsesDedicatedPathBoundComposition(t *testing.T) {
 	}
 	if payload["run_id"] != "run" {
 		t.Fatalf("run_id = %v", payload["run_id"])
+	}
+	if payload["rollback_retained"] != true {
+		t.Fatalf("rollback_retained = %v, want true", payload["rollback_retained"])
+	}
+	if payload["rollback_path"] != path+".rollback-run" {
+		t.Fatalf("rollback_path = %v", payload["rollback_path"])
 	}
 }
 

@@ -73,6 +73,19 @@ journal when one exists. Use `rollback RUN_ID` to atomically restore the
 retained original. Never delete the external `.traceary-compaction` journal or
 rollback artifact until the run has been inspected and accepted.
 
+## When the rollback copy is released
+
+`VerifyPair` at the end of apply is a real check (compatibility, filtered or
+logical digest, attestation). It is not proof that the compacted store is
+correct in use. Traceary therefore **does not** delete `<db>.rollback-<run>`
+on commit or on the next successful open, and it does not add a release
+subcommand.
+
+The operator releases the copy by deleting the path named in the compact
+success JSON (`rollback_path`, with `rollback_retained: true`). Deleting it
+gives up `traceary store compact rollback RUN_ID` for that run.
+`traceary doctor` reports a leftover sibling as `compact-rollback-copy`.
+
 ## Maintenance sequence
 
 1. Copy or back up the live store and stop older/non-cooperating processes.

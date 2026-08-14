@@ -62,6 +62,18 @@ filesystem安全性は協調モデルです。参加するlive openerはすべ�
 元へ戻す場合は `rollback RUN_ID` を使います。確認完了前に
 `.traceary-compaction` journalやrollback artifactを削除しないでください。
 
+## rollback copy をいつ解放するか
+
+apply 末尾の `VerifyPair` は実在する検査です（互換性、filtered / logical digest、
+attestation）。しかし compacted store が実使用で正しいことの証明ではありません。
+そのため Traceary は commit 時にも次回の成功 open 時にも
+`<db>.rollback-<run>` を削除せず、release 用の新コマンドも追加しません。
+
+operator が解放する手段は、compact 成功 JSON の `rollback_path`
+（`rollback_retained: true`）を削除することです。削除するとその run の
+`traceary store compact rollback RUN_ID` は使えなくなります。
+`traceary doctor` は隣に残った copy を `compact-rollback-copy` として報告します。
+
 ## maintenance手順
 
 1. live storeをcopyまたはbackupし、旧版・非協調processを停止します。
