@@ -530,6 +530,10 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	if err := file.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
+	rollbackPath := largeStore + ".rollback-deadbeef"
+	if err := os.WriteFile(rollbackPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	store := &storeManagementUsecaseStub{}
 	events := &eventUsecaseStub{}
@@ -573,6 +577,10 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	check := statusByName(report, "large-store-diagnostics")
 	if check.Status != "warn" || !strings.Contains(check.Message, "were not read") {
 		t.Fatalf("large-store-diagnostics = %#v, want explicit metadata-only warning", check)
+	}
+	rollback := statusByName(report, "compact-rollback-copy")
+	if rollback.Status != "warn" || !strings.Contains(rollback.Message, rollbackPath) {
+		t.Fatalf("compact-rollback-copy = %#v, want warn naming %s", rollback, rollbackPath)
 	}
 }
 
