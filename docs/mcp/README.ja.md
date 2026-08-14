@@ -10,7 +10,7 @@ Traceary の MCP server（`traceary mcp-server`）とその tool は **v0.35.0 �
 
 | 旧 MCP 面 | CLI 置き換え |
 |---|---|
-| session active / latest / handoff context | `traceary session active`、`session latest`、`session handoff`、`context` |
+| session latest --active / latest / handoff context | `traceary session latest --active`、`session latest`、`session handoff`、`context` |
 | search / list events / report | `traceary search`、`list`、`report` |
 | memory manage / query | `traceary memory store …`、`memory inbox …`、`memory admin …`、`memory search` |
 

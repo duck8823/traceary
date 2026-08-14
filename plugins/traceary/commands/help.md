@@ -25,7 +25,7 @@ traceary --help
 ```
 
 If the question is about history or recall, prefer the Traceary CLI read path
-(`traceary list` / `search` / `context` / `show` / `session latest|active`) or
+(`traceary list` / `search` / `context` / `show` / `session latest` / `session latest --active`) or
 the `traceary-session-history` skill instead of direct SQLite access.
 
 ## Skills

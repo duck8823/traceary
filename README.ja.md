@@ -126,7 +126,7 @@ traceary audit \
   --output '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}'
 
 traceary search boom --json
-traceary session active
+traceary session latest --active
 ```
 
 ### 3. スクリプトからは `--id-only` を使う
@@ -231,7 +231,7 @@ $ traceary timeline --limit 2
 ## 先に知っておくと楽なこと
 
 - `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた workspace に対応する最新の non-stale アクティブセッションを優先して使います。`remote.origin.url` が無い Git worktree では、worktree ルートパスを代わりに使います
-- `traceary session active` は既定で 24 時間を超えたセッションを stale とみなします。必要なら `--allow-stale` を付けてください
+- `traceary session latest --active` は既定で 24 時間を超えたセッションを stale とみなします。必要なら `--allow-stale` を付けてください
 - `traceary session start` はセッション ID を出力し、`traceary session end` は記録したイベント ID を出力します
 - `traceary session list --json` では、値がある場合に `label` / `summary` / `parent_session_id` も確認できます
 - CLI の通常メッセージは英語が既定です。日本語表示にしたい場合は `TRACEARY_LANG=ja` を指定してください

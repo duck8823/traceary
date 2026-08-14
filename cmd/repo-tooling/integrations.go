@@ -361,10 +361,10 @@ func validateSessionHistorySkillContract(rel, body string) error {
 		{
 			section: "Discovery",
 			body:    discovery,
-			concept: "session latest and session active entry points",
+			concept: "session latest and session latest --active entry points",
 			variants: [][]string{
-				{"session latest", "session active"},
-				{"traceary session latest", "traceary session active"},
+				{"session latest", "session latest --active"},
+				{"traceary session latest", "traceary session latest --active"},
 			},
 		},
 		{

@@ -31,7 +31,7 @@ saying why is not — that is what the mechanical fallback already produces for 
    Otherwise:
 
    ```sh
-   traceary session active
+   traceary session latest --active
    # or
    traceary session latest
    ```

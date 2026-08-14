@@ -28,7 +28,6 @@ func (c *RootCLI) newSessionCommand() *cobra.Command {
 	sessionCmd.AddCommand(c.newSessionRunCommand())
 	sessionCmd.AddCommand(c.newSessionRepairOneShotCommand())
 	sessionCmd.AddCommand(c.newSessionLatestCommand())
-	sessionCmd.AddCommand(c.newSessionActiveCommand())
 	sessionCmd.AddCommand(c.newSessionListCommand())
 	sessionCmd.AddCommand(c.newSessionRefineCommand())
 	sessionCmd.AddCommand(c.newSessionHandoffCommand())
@@ -39,28 +38,37 @@ func (c *RootCLI) newSessionCommand() *cobra.Command {
 
 func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 	var (
-		dbPath string
-		client string
-		agent  string
-		repo   string
-		asJSON bool
+		dbPath     string
+		client     string
+		agent      string
+		repo       string
+		activeOnly bool
+		staleAfter time.Duration
+		allowStale bool
+		asJSON     bool
 	)
 
 	latestCmd := &cobra.Command{
 		Use:   "latest",
 		Short: Localize("Print the latest session ID", "直近のセッション ID を表示する"),
 		Long: Localize(
-			"Print the latest matching session ID.\n\n\"latest\" means the session whose most recent lifecycle boundary (start or end) is newest among the matches.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE, and --workspace falls back to the detected workspace when omitted.",
-			"条件に一致する直近の session ID を表示します。\n\nここでの「直近」は、一致した session のうち最新の lifecycle boundary (start または end) が最も新しいものを意味します。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE の順に解決し、--workspace 省略時は検出した workspace を使います。",
+			"Print the latest matching session ID.\n\n\"latest\" means the session whose most recent lifecycle boundary (start or end) is newest among the matches.\nWith --active, only a non-ended session is returned. By default, active sessions older than 24h are treated as stale unless --allow-stale is set.\n--stale-after and --allow-stale require --active.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE, and --workspace falls back to the detected workspace when omitted.",
+			"条件に一致する直近の session ID を表示します。\n\nここでの「直近」は、一致した session のうち最新の lifecycle boundary (start または end) が最も新しいものを意味します。\n--active を付けると未終了の session だけを返します。既定では 24h を超える active session は --allow-stale を指定しない限り stale とみなします。\n--stale-after と --allow-stale は --active と一緒にだけ使えます。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE の順に解決し、--workspace 省略時は検出した workspace を使います。",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := rejectStaleFlagsWithoutActive(cmd, activeOnly); err != nil {
+				return err
+			}
 			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
-				dbPath: dbPath,
-				client: client,
-				agent:  agent,
-				repo:   repo,
-				asJSON: asJSON,
+				dbPath:     dbPath,
+				client:     client,
+				agent:      agent,
+				repo:       repo,
+				activeOnly: activeOnly,
+				staleAfter: staleAfter,
+				allowStale: allowStale,
+				asJSON:     asJSON,
 			})
 		},
 	}
@@ -68,9 +76,30 @@ func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
 	latestCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
 	latestCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
 	latestCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary workspace identifier", "補助的な workspace 識別子で絞り込む"))
+	latestCmd.Flags().BoolVar(&activeOnly, "active", false, Localize("return only a non-ended session", "未終了の session だけを返す"))
+	latestCmd.Flags().DurationVar(
+		&staleAfter,
+		"stale-after",
+		defaultActiveSessionStaleAfter,
+		Localize("with --active, mark sessions older than this duration as stale", "--active 時、この duration を超える session を stale とみなす"),
+	)
+	latestCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("with --active, allow stale sessions to be returned", "--active 時、stale な session も返す"))
 	latestCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 
 	return latestCmd
+}
+
+func rejectStaleFlagsWithoutActive(cmd *cobra.Command, activeOnly bool) error {
+	if activeOnly {
+		return nil
+	}
+	if cmd.Flags().Changed("stale-after") || cmd.Flags().Changed("allow-stale") {
+		return xerrors.New(Localize(
+			"--stale-after and --allow-stale require --active",
+			"--stale-after と --allow-stale は --active が必要です",
+		))
+	}
+	return nil
 }
 
 func (c *RootCLI) newSessionStartCommand() *cobra.Command {
@@ -165,54 +194,6 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 	endCmd.MarkFlagsMutuallyExclusive("id-only", "json")
 
 	return endCmd
-}
-
-func (c *RootCLI) newSessionActiveCommand() *cobra.Command {
-	var (
-		dbPath     string
-		client     string
-		agent      string
-		repo       string
-		staleAfter time.Duration
-		allowStale bool
-		asJSON     bool
-	)
-
-	activeCmd := &cobra.Command{
-		Use:   "active",
-		Short: Localize("Print the active session ID (stale sessions older than 24h are excluded by default)", "現在アクティブな session ID を表示する (既定では 24h 超の stale を除外)"),
-		Long: Localize(
-			"Print the active matching session ID.\n\nUnlike session latest, this only returns non-ended sessions. By default, sessions older than 24h are treated as stale unless --allow-stale is set.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE, and --workspace falls back to the detected workspace when omitted.",
-			"条件に一致する active session ID を表示します。\n\nsession latest と違って、未終了の session だけを返します。既定では 24h を超える session は --allow-stale を指定しない限り stale とみなします。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE の順に解決し、--workspace 省略時は検出した workspace を使います。",
-		),
-		Args: noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
-				dbPath:     dbPath,
-				client:     client,
-				agent:      agent,
-				repo:       repo,
-				activeOnly: true,
-				staleAfter: staleAfter,
-				allowStale: allowStale,
-				asJSON:     asJSON,
-			})
-		},
-	}
-	activeCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	activeCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
-	activeCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
-	activeCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary workspace identifier", "補助的な workspace 識別子で絞り込む"))
-	activeCmd.Flags().DurationVar(
-		&staleAfter,
-		"stale-after",
-		defaultActiveSessionStaleAfter,
-		Localize("mark active sessions older than this duration as stale", "この duration を超える active session は stale とみなす"),
-	)
-	activeCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("allow stale sessions to be returned", "stale な session も返す"))
-	activeCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
-
-	return activeCmd
 }
 
 func (c *RootCLI) runSessionBoundary(

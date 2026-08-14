@@ -119,7 +119,7 @@ func TestSessionBoundaryAndLookupJSON_Goldens(t *testing.T) {
 			name:        "single_result",
 			fixtureDir:  "session_active",
 			sessionStub: &sessionUsecaseStub{activeEvent: sessionGoldenEvent(t, "event-session-active-golden", types.EventKindSessionStarted, "session-active-golden", time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC))},
-			args:        []string{"session", "active", "--json", "--allow-stale", "--client", "cli", "--agent", "codex", "--workspace", "duck8823/traceary"},
+			args:        []string{"session", "latest", "--active", "--json", "--allow-stale", "--client", "cli", "--agent", "codex", "--workspace", "duck8823/traceary"},
 		},
 		{
 			name:        "single_result",

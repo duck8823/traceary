@@ -8,7 +8,7 @@ skill は **Traceary CLI** 経由（MCP ではない）で案内し、shell 呼�
 
 | Skill | Job | 主な CLI |
 | --- | --- | --- |
-| `traceary-session-history` | 過去 session / event / audit の参照 | `list`, `search`, `context`, `show`, `report`, `session latest`, `session active` |
+| `traceary-session-history` | 過去 session / event / audit の参照 | `list`, `search`, `context`, `show`, `report`, `session latest`, `session latest --active` |
 | `traceary-session-refine` | session refinement を書き、後から body を discard できるようにする | `session refine` |
 | `traceary-memory-review` | memory inbox の curate。任意で inline の session recap | `memory inbox list` / `accept` / `reject`（+ 対話 `review`） |
 | `traceary-memory-remember` | 明示的な user ask のときだけ durable memory を propose | `memory store propose`（`memory store remember` は使わない） |
