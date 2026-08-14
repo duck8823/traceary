@@ -244,6 +244,13 @@ migration `000023` は `hook_delivery_attempts` を追加します。各行が�
 物理的なファイル縮小は `store compact` の後にだけ現れ、検索 projection は
 `drifted`/`stale` で終わるため rebuild が必要です。
 
+live writer（bundle import、archive restore、dedupe restore、raw-body recovery）
+は native hook insert と同じ canonical encoder（縮むとき zstd）を使います。
+bundle / archive ファイルは plaintext のままです。retention marker は identity
+のまま（apply/verify が stored TEXT を sentinel と比較するため）。
+[`../research/payload-codec-call-sites.ja.md`](../research/payload-codec-call-sites.ja.md)
+を参照。
+
 ## backup の既定動作
 
 サポートする backup 導線は意図的にシンプルです。

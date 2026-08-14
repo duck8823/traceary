@@ -129,6 +129,8 @@ SELECT e.id
 }
 
 // RetentionMarkerEncodedBytes measures the exact marker written by body pruning.
+// Markers stay identity (#1779): the sentinel is a short synthetic string that
+// does not shrink, and apply/verify compare stored TEXT to the marker literal.
 func (d *StoreManagementDatasource) RetentionMarkerEncodedBytes() (int, error) {
 	marker, err := encodePayload([]byte(domtypes.EventBodyUnavailableRetentionMarker), payloadCodecIdentity)
 	if err != nil {
@@ -249,6 +251,9 @@ func applyRawBodyCandidate(ctx context.Context, db *sql.DB, sourcePath, database
 	if executionStatus != "running" {
 		return false, xerrors.Errorf("completed raw-body execution contains an unpruned candidate %s", candidate.EventID)
 	}
+	// Identity on purpose (#1779): verifyRawBodyCandidateState compares the
+	// stored body bytes to EventBodyUnavailableRetentionMarker. Canonical
+	// encoding would either no-op or break that exact-byte check.
 	marker, err := encodePayload([]byte(domtypes.EventBodyUnavailableRetentionMarker), payloadCodecIdentity)
 	if err != nil {
 		return false, err
@@ -480,20 +485,20 @@ func (d *StoreManagementDatasource) RestoreRawBodyPlan(ctx context.Context, data
 		if availability != domtypes.BodyAvailabilityUnavailableRetention.String() || prunedPlan.String != planID {
 			return result, xerrors.Errorf("event %s was not pruned by plan %s", recovery.Candidate.EventID, planID)
 		}
-		payload, err := encodePayload([]byte(recovery.Body), payloadCodecIdentity)
-		if err != nil {
-			return result, err
-		}
 		hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
 		if err != nil {
 			return result, err
 		}
+		payload, err := encodeCanonicalPayload([]byte(recovery.Body), hasCodec)
+		if err != nil {
+			return result, err
+		}
 		query := `UPDATE events SET body=?, body_availability='available', body_pruned_at=NULL, body_pruned_plan_id=NULL WHERE id=?`
-		args := []any{string(payload.Bytes), recovery.Candidate.EventID}
+		args := []any{storedBodyArg(payload), recovery.Candidate.EventID}
 		if hasCodec {
 			query = `UPDATE events SET body=?, body_codec=?, body_format_version=?, body_plaintext_bytes=?, body_encoded_bytes=?, body_sha256=?,
 body_availability='available', body_pruned_at=NULL, body_pruned_plan_id=NULL WHERE id=?`
-			args = []any{string(payload.Bytes), payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256, recovery.Candidate.EventID}
+			args = []any{storedBodyArg(payload), payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256, recovery.Candidate.EventID}
 		}
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return result, xerrors.Errorf("failed to restore raw body %s: %w", recovery.Candidate.EventID, err)
