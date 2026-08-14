@@ -128,6 +128,30 @@ func TestCommandContext_TUICommandDoesNotInstallNotifyContext(t *testing.T) {
 	// handler would kill the test process. Bubble Tea owns SIGINT (#1747).
 }
 
+func TestIsTUICommandArgs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "bare review", args: []string{"traceary", "memory", "inbox", "review"}, want: true},
+		{name: "equals form of db-path", args: []string{"traceary", "--db-path=/tmp/x", "memory", "inbox", "review"}, want: true},
+		{name: "split form of db-path", args: []string{"traceary", "--db-path", "/tmp/x", "memory", "inbox", "review"}, want: true},
+		{name: "flag after command", args: []string{"traceary", "memory", "inbox", "review", "--db-path", "/tmp/x"}, want: true},
+		{name: "non-tui compact", args: []string{"traceary", "store", "compact"}, want: false},
+		{name: "non-tui list", args: []string{"traceary", "memory", "inbox", "list"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isTUICommandArgs(tt.args); got != tt.want {
+				t.Fatalf("isTUICommandArgs(%q) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWriteCLIError(t *testing.T) {
 	t.Parallel()
 

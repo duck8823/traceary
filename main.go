@@ -319,17 +319,36 @@ func commandContext(args []string) (context.Context, context.CancelFunc) {
 }
 
 func isTUICommandArgs(args []string) bool {
-	argv := args
-	if len(argv) > 0 {
-		argv = argv[1:]
-	}
-	for len(argv) > 0 && strings.HasPrefix(argv[0], "-") {
-		argv = argv[1:]
-	}
+	argv := commandArgvWithoutFlags(args)
 	if len(argv) < 3 {
 		return false
 	}
 	return argv[0] == "memory" && argv[1] == "inbox" && argv[2] == "review"
+}
+
+// commandArgvWithoutFlags drops the program name and every flag/value pair so
+// positional detection is independent of `--flag value` vs `--flag=value`.
+func commandArgvWithoutFlags(args []string) []string {
+	argv := args
+	if len(argv) > 0 {
+		argv = argv[1:]
+	}
+	out := make([]string, 0, len(argv))
+	for i := 0; i < len(argv); i++ {
+		arg := argv[i]
+		if arg == "--" {
+			out = append(out, argv[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(arg, "-") {
+			if !strings.Contains(arg, "=") && i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "-") {
+				i++
+			}
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
 }
 
 func resolveHookSoftDeadline() time.Duration {
