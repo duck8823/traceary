@@ -9,7 +9,7 @@ observable.
 
 | Skill | Job | Primary CLI |
 | --- | --- | --- |
-| `traceary-session-history` | Read prior sessions, events, and audits | `list`, `search`, `context`, `show`, `report`, `session latest`, `session active` |
+| `traceary-session-history` | Read prior sessions, events, and audits | `list`, `search`, `context`, `show`, `report`, `session latest`, `session latest --active` |
 | `traceary-session-refine` | Write a session refinement so bodies can later be discarded | `session refine` |
 | `traceary-memory-review` | Curate the memory inbox; optional inline session recap | `memory inbox list` / `accept` / `reject` (+ interactive `review`) |
 | `traceary-memory-remember` | Propose durable memory only on an explicit user ask | `memory store propose` (never `memory store remember`) |

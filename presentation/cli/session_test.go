@@ -1127,7 +1127,8 @@ func TestRootCLI_SessionActiveCommand(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
 		"session",
-		"active",
+		"latest",
+		"--active",
 		"--db-path",
 		"/tmp/test-traceary.db",
 		"--agent", "codex",
@@ -1176,7 +1177,8 @@ func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
 		"session",
-		"active",
+		"latest",
+		"--active",
 		"--db-path",
 		"/tmp/test-traceary.db",
 	})
@@ -1226,7 +1228,8 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
 		"session",
-		"active",
+		"latest",
+		"--active",
 		"--db-path",
 		"/tmp/test-traceary.db",
 		"--allow-stale",
@@ -1237,6 +1240,51 @@ func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
 	}
 	if diff := cmp.Diff("session-stale\n", stdout.String()); diff != "" {
 		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestRootCLI_SessionActiveCommand_IsUnknown(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+
+	errOut := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(errOut)
+	rootCmd.SetArgs([]string{"session", "active"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want unknown subcommand")
+	}
+	got := err.Error() + errOut.String()
+	if !strings.Contains(got, `unknown subcommand "active"`) {
+		t.Fatalf("error = %q, want unknown subcommand %q", got, `unknown subcommand "active"`)
+	}
+	if strings.Contains(got, "DEPRECATED") {
+		t.Fatalf("error = %q, must not mention DEPRECATED", got)
+	}
+}
+
+func TestRootCLI_SessionLatestCommand_RejectsStaleFlagsWithoutActive(t *testing.T) {
+	t.Parallel()
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithSession(&sessionUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"session", "latest", "--allow-stale", "--db-path", "/tmp/test-traceary.db"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want stale flags to require --active")
+	}
+	if !strings.Contains(err.Error(), "--active") {
+		t.Fatalf("error = %q, want --active requirement", err.Error())
 	}
 }
 

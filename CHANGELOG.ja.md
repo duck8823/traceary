@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Removed
+- **`traceary session active` を `session latest --active` に畳んだ (#1704)** — `session active` は unknown subcommand（非ゼロ、`DEPRECATED` なし）。`session latest --active` が以前の stale 既定（24h、`--stale-after`、`--allow-stale`）を引き継ぐ。`--active` なしの 2 flag は拒否する。
+
 ## [v0.35.0] - 2026-08-14
 
 ### Added

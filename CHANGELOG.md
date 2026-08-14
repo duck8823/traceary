@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Removed
+- **`traceary session active` folded into `session latest --active` (#1704)** — `session active` is an unknown subcommand (non-zero, no `DEPRECATED` notice). `session latest --active` keeps the previous stale defaults (24h, `--stale-after`, `--allow-stale`). Those two flags without `--active` are rejected.
+
 ## [v0.35.0] - 2026-08-14
 
 ### Added

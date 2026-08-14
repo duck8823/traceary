@@ -899,22 +899,14 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 
 ここでの「最新」は、一致した session のうち最新の lifecycle boundary (`session start` または `session end`) が最も新しいものです。
 
-主な flag:
-
-- `--client`
-- `--agent`
-- `--workspace`
-- `--json`
-
-### `traceary session active`
-
-条件に一致する active session ID を表示します。
+`--active` を付けると未終了の session だけを返します。24 時間を超える active session は `--allow-stale` がないと stale です。`--stale-after` と `--allow-stale` は `--active` が必要です。
 
 主な flag:
 
 - `--client`
 - `--agent`
 - `--workspace`
+- `--active`
 - `--stale-after`
 - `--allow-stale`
 - `--json`

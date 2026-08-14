@@ -212,7 +212,7 @@ type sessionBoundaryCommandInput struct {
 }
 
 // sessionLatestCommandInput is the resolved input to
-// `traceary session latest` and `traceary session active`.
+// `traceary session latest` and `traceary session latest --active`.
 type sessionLatestCommandInput struct {
 	dbPath     string
 	client     string

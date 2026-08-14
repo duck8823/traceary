@@ -906,22 +906,14 @@ Print the latest session ID matching the current filters.
 
 `latest` means the session whose most recent lifecycle boundary (`session start` or `session end`) is newest among the matches.
 
-Useful flags:
-
-- `--client`
-- `--agent`
-- `--workspace`
-- `--json`
-
-### `traceary session active`
-
-Print the active session ID matching the current filters.
+With `--active`, only a non-ended session is returned. Active sessions older than 24h are stale unless `--allow-stale` is set. `--stale-after` and `--allow-stale` require `--active`.
 
 Useful flags:
 
 - `--client`
 - `--agent`
 - `--workspace`
+- `--active`
 - `--stale-after`
 - `--allow-stale`
 - `--json`

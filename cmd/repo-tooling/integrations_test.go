@@ -114,7 +114,7 @@ func TestValidateSessionHistorySkillContract_AcceptsEquivalentContractWording(t 
 ### 1. Discovery
 Use traceary list with --workspace and a limit of 5.
 traceary list --workspace x --limit 5 --json --fields id,ts,kind,session
-Use session latest or session active when the question is about a session.
+Use session latest or session latest --active when the question is about a session.
 
 ### 2. Inspection
 Example: traceary context.
@@ -137,7 +137,7 @@ func TestValidateSessionHistorySkillContract_RejectsMissingContextScope(t *testi
 ### 1. Discovery
 Use traceary list with --workspace and a limit of 5.
 traceary list --workspace x --limit 5 --json --fields id,ts,kind,session
-Use session latest or session active when the question is about a session.
+Use session latest or session latest --active when the question is about a session.
 
 ### 2. Inspection
 Example: traceary context.
@@ -163,7 +163,7 @@ func TestValidateSessionHistoryDiscoveryFields_RejectsBareListWithoutFields(t *t
 	body := `
 ### 1. Discovery
 traceary list --workspace x --limit 5
-Use session latest or session active.
+Use session latest or session latest --active.
 
 ### 2. Inspection
 Example: traceary context.
@@ -189,7 +189,7 @@ func TestValidateSessionHistoryDiscoveryFields_RejectsMessageWithoutMetadataOnly
 	body := `
 ### 1. Discovery
 traceary list --workspace x --limit 5 --json --fields id,ts,kind,message
-Use session latest or session active.
+Use session latest or session latest --active.
 
 ### 2. Inspection
 Example: traceary context.
@@ -215,7 +215,7 @@ func TestValidateSessionHistoryDiscoveryFields_RejectsFieldsWithoutID(t *testing
 	body := `
 ### 1. Discovery
 traceary list --workspace x --limit 5 --json --fields ts,kind,session
-Use session latest or session active.
+Use session latest or session latest --active.
 
 ### 2. Inspection
 Example: traceary context.
