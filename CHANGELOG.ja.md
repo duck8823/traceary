@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Added
+- **新しい prompt とコマンド同一性の attestation 鎖 (#1677)** — 新しい `prompt` 保存と `SaveWithAudit` は同じ transaction でハッシュ鎖を 1 本足します。digest は prompt 本文、または `command_text` + `input_text` と保存時刻です。`output_text` は符号化に入りません。歴史行は backfill しません。compact と content-event dedupe は attested な event id を残し、`ON DELETE RESTRICT` で失敗させません。`traceary attest` コマンドは無く、検証はテストと後続の doctor/anchor 用の store 関数です。
+
 ### Removed
 - **ストアサイズ削減コマンドを `store compact` に畳み込み (#1872)** — `traceary store gc`、`store dedupe` / `content-events`、`store retention plan|apply|restore`（本文。`store retention files` は残す）、`store payload-rehearsal`、`store payload-backfill`、`store search-retire`、`store compact plan|apply|resume|status` を削除しました。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。`traceary store compact [--force] [--keep-days]` がファイルを書き換えます。退役済み検索インデックスと非 canonical な重複を落とし、被覆済みの破棄対象 transcript 本文を捨て、残本文を符号化してから新しい inode へ vacuum します。未 refine の破棄対象だけがあるときは失敗します。部分 fold 済みならその分は回収され、`--force` は機械要約を書いて判断理由が失われることを明示します。`store compact rollback RUN_ID` と `store search-projection` は残します。
 - **MCP server を退役 (#1871)** — `traceary mcp-server`、`presentation/mcpserver/`、9 個の MCP tool、および出荷しているすべての host package の MCP server 宣言を削除しました。呼び出しは unknown command（`unknown command "mcp-server"`）として非ゼロ終了し、`DEPRECATED` 通知は出しません。これは cli-stability の明示的な例外です（#1693 の owner 決定 + 「何も失われない」証拠: 歴史的 MCP write は 659,304 イベント中 16 件、hook は shell のまま、出荷ホストはすべて shell を持つ）。同じ作業には CLI を使ってください。Claude の `hooks.json` は他サーバ audit 用に `matcher: mcp__.*` を残します。doctor は Traceary MCP server の検査・自動登録を行いません。

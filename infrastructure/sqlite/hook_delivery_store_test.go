@@ -41,6 +41,9 @@ func TestEventDatasource_HookDeliveryIdentity(t *testing.T) {
 		assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "delivery_record_id IS NOT NULL", 1)
 
 		db := openHookDeliveryTestDB(t, dbPath)
+		if _, err := db.Exec(`DELETE FROM attestation_links WHERE event_id = 'event-1'`); err != nil {
+			t.Fatalf("delete attestation link: %v", err)
+		}
 		if _, err := db.Exec(`DELETE FROM events WHERE id = 'event-1'`); err != nil {
 			t.Fatalf("delete archived event: %v", err)
 		}
