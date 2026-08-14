@@ -82,6 +82,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 61 creates empty attestation tables and inserts the genesis head.
 	// It does not scan events or command_audits.
 	61: {61, "000061_create_attestation_chain.sql", "a7c7823b40615ff12d46e32b888d46f2fe2fa55a1b7e9deae899fd8404dad5e8", MigrationConstantInPlace},
+	// 62 rebuilds search_projection_exclusions to add class=row_work.
+	// Only existing exclusion rows are copied; events are not scanned.
+	62: {62, "000062_search_projection_exclusion_row_work.sql", "0c5999e55f7019cbe30235e30696a104b20e2261d8c7a0289fed11dfbc5e1d47", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

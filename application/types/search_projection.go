@@ -298,11 +298,18 @@ type SearchProjectionNoProgressCode string
 const (
 	SearchProjectionNoProgressLockDurationCap          SearchProjectionNoProgressCode = "lock_duration_cap_exceeded"
 	SearchProjectionNoProgressSingleRowLockDurationCap SearchProjectionNoProgressCode = "single_row_lock_duration_cap_exceeded"
+	// SearchProjectionNoProgressRowWorkCap means the write lock was already
+	// held and the row's own work exceeded the hold budget. Acquisition
+	// failures stay LockDurationCap so contention is not this code.
+	SearchProjectionNoProgressRowWorkCap SearchProjectionNoProgressCode = "row_work_cap_exceeded"
 )
 
 type SearchProjectionNoProgressError struct {
 	Code   SearchProjectionNoProgressCode
 	Reason string
+	// Exclusion is set when a single source write exceeded the hold budget so
+	// the caller can persist a row_work skip without re-reading the snapshot.
+	Exclusion ProjectionExclusion
 }
 
 func (e *SearchProjectionNoProgressError) Error() string {

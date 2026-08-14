@@ -709,8 +709,9 @@ func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.Proje
 	return out, rows.Err()
 }
 
-// ApplyBatch starts the lock deadline immediately before BeginTx and persists
-// writes, cleanup and phase/checkpoint advancement atomically.
+// ApplyBatch acquires the write lock with BEGIN IMMEDIATE under its own
+// budget, then times only the held lock against lock. Persists writes,
+// cleanup and phase/checkpoint advancement atomically.
 func (d *Database) ApplyBatch(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (apptypes.SearchProjectionProgress, error) {
 	if p.Phase != "source" {
 		return apptypes.SearchProjectionProgress{}, errors.New("apply batch requires source phase")
@@ -731,24 +732,24 @@ func (d *Database) CleanupBatch(ctx context.Context, p apptypes.ProjectionBatchP
 // caller's lock cap; the eventual loser observes the winner's checkpoint and
 // returns the domain drift error instead of leaking a driver error.
 func (d *Database) applyProjectionPlanWithRetry(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (apptypes.SearchProjectionProgress, error) {
-	lockCtx, cancel := context.WithTimeout(ctx, lock)
-	defer cancel()
+	acquireDeadline := time.Now().Add(lock)
 	for {
-		remaining := lock
-		if deadline, ok := lockCtx.Deadline(); ok {
-			remaining = time.Until(deadline)
-		}
+		remaining := time.Until(acquireDeadline)
 		if remaining <= 0 {
-			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock acquisition exceeded"}
 		}
-		out, err := d.applyProjectionPlan(lockCtx, p, remaining, now)
+		out, err := d.applyProjectionPlan(ctx, p, remaining, lock, now)
+		var noProgress *apptypes.SearchProjectionNoProgressError
+		if errors.As(err, &noProgress) && noProgress.Code == apptypes.SearchProjectionNoProgressRowWorkCap {
+			return out, err
+		}
 		classified, retry, classifiedErr := classifySearchProjectionApplyResult(out, err)
 		if classifiedErr != nil || !retry {
 			return classified, classifiedErr
 		}
 		select {
-		case <-lockCtx.Done():
-			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
+		case <-ctx.Done():
+			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock acquisition exceeded"}
 		case <-time.After(min(5*time.Millisecond, remaining)):
 		}
 	}
@@ -760,8 +761,12 @@ func isSearchProjectionSQLiteBusy(err error) bool {
 }
 
 func classifySearchProjectionApplyResult(out apptypes.SearchProjectionProgress, err error) (apptypes.SearchProjectionProgress, bool, error) {
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if errors.As(err, &noProgress) {
+		return out, false, err
+	}
 	if isSearchProjectionDeadline(err) {
-		return apptypes.SearchProjectionProgress{}, false, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock duration cap exceeded"}
+		return apptypes.SearchProjectionProgress{}, false, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock acquisition exceeded"}
 	}
 	if err == nil {
 		return out, false, nil
@@ -804,23 +809,36 @@ func (d *Database) MarkFailed(ctx context.Context, generation string, revision i
 }
 
 //nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
-func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.ProjectionBatchPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
+func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.ProjectionBatchPlan, acquire, hold time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
 	started := time.Now()
 	db, e := d.open(ctx)
 	if e != nil {
 		return out, e
 	}
 	defer db.Close()
-	lockCtx, cancel := context.WithTimeout(ctx, lock)
-	defer cancel()
-	tx, e := db.BeginTx(lockCtx, nil)
+	acquireCtx, acquireCancel := context.WithTimeout(ctx, acquire)
+	tx, e := beginImmediate(acquireCtx, db)
+	acquireCancel()
 	if e != nil {
+		if isSearchProjectionDeadline(e) || isSearchProjectionSQLiteBusy(e) {
+			return out, &apptypes.SearchProjectionNoProgressError{Code: apptypes.SearchProjectionNoProgressLockDurationCap, Reason: "projection lock acquisition exceeded"}
+		}
 		return out, e
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
+	holdCtx, holdCancel := context.WithTimeout(ctx, hold)
+	defer holdCancel()
+	defer func() {
+		err = rowWorkOrHoldError(p, hold, err)
+	}()
+	if d.afterProjectionLockHeld != nil {
+		if hookErr := d.afterProjectionLockHeld(holdCtx); hookErr != nil {
+			return out, hookErr
+		}
+	}
 	var rev, checkpoint, globalRevision, recentSourceBytes int64
 	var phase string
-	if e = tx.QueryRowContext(lockCtx, `SELECT source_revision,checkpoint,phase,recent_source_bytes FROM search_projection_state WHERE generation_id=?`, p.GenerationID).Scan(&rev, &checkpoint, &phase, &recentSourceBytes); e != nil {
+	if e = tx.QueryRowContext(holdCtx, `SELECT source_revision,checkpoint,phase,recent_source_bytes FROM search_projection_state WHERE generation_id=?`, p.GenerationID).Scan(&rev, &checkpoint, &phase, &recentSourceBytes); e != nil {
 		return out, e
 	}
 	if rev != p.ExpectedRevision || checkpoint != p.ExpectedCheckpoint || phase != p.Phase {
@@ -829,18 +847,18 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	if p.Phase == "source" && len(p.Cleanup) > 0 && recentSourceBytes != p.ExpectedRecentSourceBytes {
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
-	if e = tx.QueryRowContext(lockCtx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&globalRevision); e != nil {
+	if e = tx.QueryRowContext(holdCtx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&globalRevision); e != nil {
 		return out, e
 	}
 	if globalRevision != p.ExpectedRevision && !p.AllowRevisionDrift {
 		var r sql.Result
-		if r, e = tx.ExecContext(lockCtx, `UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE generation_id=? AND source_revision=?`, p.GenerationID, p.ExpectedRevision); e != nil {
+		if r, e = tx.ExecContext(holdCtx, `UPDATE search_projection_state SET state='drifted',phase='cleanup',cleanup_scope='all',active_generation_id=NULL WHERE generation_id=? AND source_revision=?`, p.GenerationID, p.ExpectedRevision); e != nil {
 			return out, e
 		}
 		if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
 			return out, &apptypes.SearchProjectionDriftError{}
 		}
-		if r, e = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='drifted' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); e != nil {
+		if r, e = tx.ExecContext(holdCtx, `UPDATE search_projection_generation_lifecycle SET state='drifted' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); e != nil {
 			return out, e
 		}
 		if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
@@ -852,7 +870,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
 	for _, exclusion := range p.Exclusions {
-		if e = insertSearchProjectionExclusion(lockCtx, tx, p.GenerationID, exclusion); e != nil {
+		if e = insertSearchProjectionExclusion(holdCtx, tx, p.GenerationID, exclusion); e != nil {
 			return out, e
 		}
 		out.Selected++
@@ -869,24 +887,24 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 				// makes every term containing an uppercase letter unfindable.
 				// Folding is length-preserving, so decoded_bytes is unaffected.
 				bodyText := lowerSearchASCII(d.Text)
-				if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, p.GenerationID, d.Sequence, d.EventID, d.CreatedAt, bodyText, len(bodyText)); e != nil {
+				if _, e = tx.ExecContext(holdCtx, `INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, p.GenerationID, d.Sequence, d.EventID, d.CreatedAt, bodyText, len(bodyText)); e != nil {
 					return out, e
 				}
 				recentDelta += int64(len([]byte(bodyText)))
 			}
-			if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_summaries VALUES(?,?,1,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET event_count=event_count+1,summary_text=excluded.summary_text`, p.GenerationID, d.SessionID, w.Summary, searchProjectionVersion, searchProjectionSummaryVersion); e != nil {
+			if _, e = tx.ExecContext(holdCtx, `INSERT INTO search_projection_session_summaries VALUES(?,?,1,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET event_count=event_count+1,summary_text=excluded.summary_text`, p.GenerationID, d.SessionID, w.Summary, searchProjectionVersion, searchProjectionSummaryVersion); e != nil {
 				return out, e
 			}
-			if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_command_aggregates VALUES(?,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET command_count=command_count+excluded.command_count,failure_count=failure_count+excluded.failure_count`, p.GenerationID, d.SessionID, d.CommandCount, d.FailureCount); e != nil {
+			if _, e = tx.ExecContext(holdCtx, `INSERT INTO search_projection_command_aggregates VALUES(?,?,?,?) ON CONFLICT(generation_id,session_id) DO UPDATE SET command_count=command_count+excluded.command_count,failure_count=failure_count+excluded.failure_count`, p.GenerationID, d.SessionID, d.CommandCount, d.FailureCount); e != nil {
 				return out, e
 			}
 			for k, n := range w.Keywords {
-				if _, e = tx.ExecContext(lockCtx, `INSERT INTO search_projection_session_keywords VALUES(?,?,?,?,?) ON CONFLICT(generation_id,session_id,keyword) DO UPDATE SET occurrences=occurrences+excluded.occurrences`, p.GenerationID, d.SessionID, k, n, searchProjectionKeywordVersion); e != nil {
+				if _, e = tx.ExecContext(holdCtx, `INSERT INTO search_projection_session_keywords VALUES(?,?,?,?,?) ON CONFLICT(generation_id,session_id,keyword) DO UPDATE SET occurrences=occurrences+excluded.occurrences`, p.GenerationID, d.SessionID, k, n, searchProjectionKeywordVersion); e != nil {
 					return out, e
 				}
 			}
 			for _, fingerprint := range w.LiteralFingerprints {
-				if _, e = tx.ExecContext(lockCtx, `INSERT OR IGNORE INTO literal_search_fingerprints(generation_id,source_sequence,event_id,fingerprint,fingerprint_version) VALUES(?,?,?,?,1)`, p.GenerationID, d.Sequence, d.EventID, []byte(fingerprint)); e != nil {
+				if _, e = tx.ExecContext(holdCtx, `INSERT OR IGNORE INTO literal_search_fingerprints(generation_id,source_sequence,event_id,fingerprint,fingerprint_version) VALUES(?,?,?,?,1)`, p.GenerationID, d.Sequence, d.EventID, []byte(fingerprint)); e != nil {
 					return out, e
 				}
 			}
@@ -912,7 +930,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		default:
 			continue
 		}
-		r, x := tx.ExecContext(lockCtx, `DELETE FROM `+table+` WHERE rowid=?`, c.RowID)
+		r, x := tx.ExecContext(holdCtx, `DELETE FROM `+table+` WHERE rowid=?`, c.RowID)
 		if x != nil {
 			return out, x
 		}
@@ -953,7 +971,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		// live stores. Zero rows means this generation is not the one the
 		// literal singleton is finishing — same drift fence as lifecycle.
 		var literalResult sql.Result
-		if literalResult, e = tx.ExecContext(lockCtx, `UPDATE literal_search_projection_state SET state='complete',updated_at=? WHERE singleton=1 AND generation_id=? AND state IN ('rebuilding','stale')`, formatTimestamp(now), p.GenerationID); e != nil {
+		if literalResult, e = tx.ExecContext(holdCtx, `UPDATE literal_search_projection_state SET state='complete',updated_at=? WHERE singleton=1 AND generation_id=? AND state IN ('rebuilding','stale')`, formatTimestamp(now), p.GenerationID); e != nil {
 			return out, e
 		}
 		if n, rowErr := literalResult.RowsAffected(); rowErr != nil || n != 1 {
@@ -962,7 +980,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	}
 	if p.Completed && state == "complete" {
 		var lifecycleResult sql.Result
-		if lifecycleResult, e = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='complete' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); e != nil {
+		if lifecycleResult, e = tx.ExecContext(holdCtx, `UPDATE search_projection_generation_lifecycle SET state='complete' WHERE generation_id=? AND state='rebuilding'`, p.GenerationID); e != nil {
 			return out, e
 		}
 		if n, rowErr := lifecycleResult.RowsAffected(); rowErr != nil || n != 1 {
@@ -974,7 +992,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	if fenceRecent {
 		fenceRecentInt = 1
 	}
-	r, e := tx.ExecContext(lockCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,recent_source_bytes=recent_source_bytes+?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?)) AND (?=0 OR recent_source_bytes=?)`, p.NextCheckpoint, next, state, recentDelta, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision, fenceRecentInt, p.ExpectedRecentSourceBytes)
+	r, e := tx.ExecContext(holdCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,recent_source_bytes=recent_source_bytes+?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?)) AND (?=0 OR recent_source_bytes=?)`, p.NextCheckpoint, next, state, recentDelta, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision, fenceRecentInt, p.ExpectedRecentSourceBytes)
 	if e != nil {
 		return out, e
 	}
@@ -988,7 +1006,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		// Reclaim is maintenance after the batch commit. Strip the lock
 		// deadline so an indivisible merge step cannot interrupt and roll back
 		// its own transaction; the reclaim budget is checked between steps.
-		if reclaimErr := reclaimSearchProjectionFTSFn(context.WithoutCancel(ctx), db, lock); reclaimErr != nil {
+		if reclaimErr := reclaimSearchProjectionFTSFn(context.WithoutCancel(ctx), db, hold); reclaimErr != nil {
 			slog.Debug("search projection FTS reclaim failed", "error", reclaimErr)
 		}
 	}
@@ -1023,6 +1041,37 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	out.DecodedBytes = p.Ledger.DecodedBytes
 	out.WrittenBytes = p.Ledger.LogicalWriteBytes
 	return out, nil
+}
+
+// rowWorkOrHoldError maps a hold-clock deadline to RowWorkCap. Acquisition
+// failures never reach here. A single source write also carries the exclusion
+// identity so the caller can persist a row_work skip without re-reading.
+func rowWorkOrHoldError(p apptypes.ProjectionBatchPlan, hold time.Duration, err error) error {
+	if err == nil {
+		return nil
+	}
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if errors.As(err, &noProgress) {
+		return err
+	}
+	if !isSearchProjectionDeadline(err) {
+		return err
+	}
+	out := &apptypes.SearchProjectionNoProgressError{
+		Code:   apptypes.SearchProjectionNoProgressRowWorkCap,
+		Reason: "projection row work exceeded hold budget",
+	}
+	if p.Phase == "source" && len(p.Writes) == 1 && len(p.Exclusions) == 0 && len(p.Cleanup) == 0 {
+		doc := p.Writes[0].Document
+		out.Exclusion = apptypes.ProjectionExclusion{
+			Sequence:      doc.Sequence,
+			EventID:       doc.EventID,
+			Class:         "row_work",
+			MeasuredBytes: int64(hold),
+			ByteLimit:     int64(hold),
+		}
+	}
+	return out
 }
 
 // AbandonSearchProjection idempotently retires the current incomplete generation.

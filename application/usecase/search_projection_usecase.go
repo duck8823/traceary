@@ -137,9 +137,34 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 		return apptypes.SearchProjectionProgress{}, err
 	}
 	if snapshot.Phase == "source" {
-		return u.store.ApplyBatch(wallCtx, plan, b.LockTime, now.UTC())
+		return u.applySourcePlan(wallCtx, plan, b, now.UTC())
 	}
 	return u.store.CleanupBatch(wallCtx, plan, b.LockTime, now.UTC())
+}
+
+// applySourcePlan persists a source batch. A single-row hold overrun is the
+// #1794 skip-and-record case: persist the exclusion carried on the error
+// without selecting a new snapshot (that race would skip the next row).
+//
+//nolint:wrapcheck // Typed store errors must reach ResumeUntil.
+func (u *SearchProjectionUsecase) applySourcePlan(ctx context.Context, plan apptypes.ProjectionBatchPlan, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
+	progress, err := u.store.ApplyBatch(ctx, plan, b.LockTime, now)
+	if err == nil || b.Rows > 1 {
+		return progress, err
+	}
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if !errors.As(err, &noProgress) || noProgress.Code != apptypes.SearchProjectionNoProgressRowWorkCap || noProgress.Exclusion.EventID == "" {
+		return progress, err
+	}
+	exclude := plan
+	exclude.Writes = nil
+	exclude.Cleanup = nil
+	exclude.Exclusions = []apptypes.ProjectionExclusion{noProgress.Exclusion}
+	exclude.NextCheckpoint = noProgress.Exclusion.Sequence
+	exclude.NextPhase = ""
+	exclude.Completed = false
+	exclude.Ledger = apptypes.BudgetLedger{}
+	return u.store.ApplyBatch(ctx, exclude, b.LockTime, now)
 }
 
 func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions, now time.Time) (apptypes.SearchProjectionRunResult, error) {
@@ -188,14 +213,23 @@ func (u *SearchProjectionUsecase) ResumeUntil(ctx context.Context, b apptypes.Se
 				return result, nil
 			}
 			var noProgress *apptypes.SearchProjectionNoProgressError
-			if !errors.As(err, &noProgress) || noProgress.Code != apptypes.SearchProjectionNoProgressLockDurationCap {
+			if !errors.As(err, &noProgress) {
 				return result, err
 			}
-			if batchBudget.Rows <= 1 {
-				return result, &apptypes.SearchProjectionNoProgressError{
-					Code:   apptypes.SearchProjectionNoProgressSingleRowLockDurationCap,
-					Reason: "a single row exceeded the projection lock duration cap at the minimum batch size",
+			switch noProgress.Code {
+			case apptypes.SearchProjectionNoProgressLockDurationCap:
+				if batchBudget.Rows <= 1 {
+					return result, &apptypes.SearchProjectionNoProgressError{
+						Code:   apptypes.SearchProjectionNoProgressSingleRowLockDurationCap,
+						Reason: "a single row exceeded the projection lock duration cap at the minimum batch size",
+					}
 				}
+			case apptypes.SearchProjectionNoProgressRowWorkCap:
+				if batchBudget.Rows <= 1 {
+					return result, err
+				}
+			default:
+				return result, err
 			}
 			batchBudget.Rows /= 2
 		}
