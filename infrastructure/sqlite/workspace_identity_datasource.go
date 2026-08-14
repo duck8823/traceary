@@ -109,10 +109,7 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 		       SUM(current_relationship = 'explicit_alias'),
 		       SUM(current_relationship = 'conflict'),
 		       SUM(current_relationship = 'unknown'),
-		       SUM(ingested_relationship = 'conflict'),
-		       COUNT(DISTINCT CASE
-		         WHEN current_relationship = 'conflict' THEN session_id || char(31) || workspace
-		       END)
+		       SUM(ingested_relationship = 'conflict')
 		  FROM (
 			SELECT o.source_client, o.source_hook, o.session_id, o.workspace,
 			       o.observed_relationship AS ingested_relationship,
@@ -137,7 +134,6 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 			&item.Relationships.Ancestor, &item.Relationships.ExplicitAlias,
 			&item.Relationships.Conflict, &item.Relationships.Unknown,
 			&item.IngestedConflictCount,
-			&item.ConflictPairCount,
 		); err != nil {
 			_ = rows.Close()
 			return nil, xerrors.Errorf("failed to scan workspace relationship source: %w", err)
@@ -154,6 +150,10 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 	}
 	if err := rows.Close(); err != nil {
 		return nil, xerrors.Errorf("failed to close workspace relationship sources: %w", err)
+	}
+
+	if err := readWorkspaceIdentitySourceConflictPairs(ctx, tx, bySource); err != nil {
+		return nil, err
 	}
 
 	rows, err = tx.QueryContext(ctx, `
@@ -205,6 +205,47 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 		return result[i].SourceHook < result[j].SourceHook
 	})
 	return result, nil
+}
+
+func readWorkspaceIdentitySourceConflictPairs(
+	ctx context.Context,
+	tx *sql.Tx,
+	bySource map[workspaceIdentitySourceKey]*apptypes.WorkspaceIdentitySourceReport,
+) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT source_client, source_hook, COUNT(*)
+		  FROM (
+			SELECT DISTINCT o.source_client, o.source_hook, o.session_id, o.workspace
+			  FROM session_workspace_observations o
+			 WHERE o.observed_relationship = 'conflict'
+			   AND NOT EXISTS (
+			       SELECT 1 FROM session_workspace_aliases a
+			        WHERE a.session_id = o.session_id AND a.alias_workspace = o.workspace
+			   )
+		  )
+		 GROUP BY source_client, source_hook`)
+	if err != nil {
+		return xerrors.Errorf("failed to query workspace conflict pairs by source: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var client, hook string
+		var pairs int
+		if err := rows.Scan(&client, &hook, &pairs); err != nil {
+			return xerrors.Errorf("failed to scan workspace conflict pairs by source: %w", err)
+		}
+		key := workspaceIdentitySourceKey{client: client, hook: hook}
+		item := bySource[key]
+		if item == nil {
+			item = &apptypes.WorkspaceIdentitySourceReport{Client: client, SourceHook: hook}
+			bySource[key] = item
+		}
+		item.ConflictPairCount = pairs
+	}
+	if err := rows.Err(); err != nil {
+		return xerrors.Errorf("failed to iterate workspace conflict pairs by source: %w", err)
+	}
+	return nil
 }
 
 func readWorkspaceConflictPairCount(ctx context.Context, tx *sql.Tx) (int, error) {
