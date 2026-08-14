@@ -56,15 +56,17 @@ type caseResult struct {
 
 func main() {
 	var dbPath, synthetic string
-	var validateBaseline, calibrateDir string
+	var validateBaseline, calibrateDir, localityDir string
 	var foldGates bool
 	var foldThreshold, foldWakeBudget int64
 	var iterations, smallRows, largeRows, calibrateRows, calibrateEnormousRows, calibrateEnormousBytes int
+	var localityRows, localityBodyBytes int
 	var caseTimeout time.Duration
 	flag.StringVar(&dbPath, "db", "", "path to an operator-created store copy (opened immutable/read-only)")
 	flag.StringVar(&synthetic, "synthetic", "", "create and benchmark a synthetic store at this new path")
 	flag.StringVar(&validateBaseline, "validate-baseline", "", "validate a sanitized capacity baseline artifact and exit")
 	flag.StringVar(&calibrateDir, "calibrate-gates", "", "write per-corpus stores and a storage-gate range report under this new directory")
+	flag.StringVar(&localityDir, "measure-body-locality", "", "write scratch inline/side-table stores and a body-locality report under this new directory")
 	flag.BoolVar(&foldGates, "fold-gates", false, "measure refinement ratio and per-host wake eligibility on --db (never the live store)")
 	flag.Int64Var(&foldThreshold, "fold-threshold-bytes", 0, "consolidation threshold used to decide sessions worth folding (default 65536)")
 	flag.Int64Var(&foldWakeBudget, "fold-wake-budget-bytes", 0, "wake injection budget for per-host fit (default 8192)")
@@ -74,16 +76,34 @@ func main() {
 	flag.IntVar(&calibrateRows, "calibrate-rows", 256, "events per non-enormous calibrate corpus")
 	flag.IntVar(&calibrateEnormousRows, "calibrate-enormous-rows", 2, "1 MiB-class rows in the enormous corpus")
 	flag.IntVar(&calibrateEnormousBytes, "calibrate-enormous-bytes", 1<<20, "body size of each enormous row")
+	flag.IntVar(&localityRows, "locality-rows", defaultLocalityRows, "events per body-locality corpus")
+	flag.IntVar(&localityBodyBytes, "locality-body-bytes", defaultLocalityBodyBytes, "plaintext body size before the canonical codec")
 	flag.DurationVar(&caseTimeout, "case-timeout", 2*time.Minute, "maximum duration for each benchmark case")
 	flag.Parse()
 	selectedModes := 0
-	for _, selected := range []bool{validateBaseline != "", synthetic != "", calibrateDir != "", foldGates, dbPath != "" && !foldGates} {
+	for _, selected := range []bool{validateBaseline != "", synthetic != "", calibrateDir != "", localityDir != "", foldGates, dbPath != "" && !foldGates} {
 		if selected {
 			selectedModes++
 		}
 	}
 	if selectedModes != 1 {
 		fatal("specify exactly one benchmark or validation mode")
+	}
+	if localityDir != "" {
+		report, err := runBodyLocality(context.Background(), bodyLocalityOpts{
+			Dir:       localityDir,
+			Rows:      localityRows,
+			BodyBytes: localityBodyBytes,
+			Seed:      bodyLocalitySeed,
+			Iters:     iterations,
+		})
+		if err != nil {
+			fatal(err.Error())
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+			fatal(err.Error())
+		}
+		return
 	}
 	if foldGates {
 		if dbPath == "" {

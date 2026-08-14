@@ -23,6 +23,7 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 		"infrastructure/sqlite/payload_rehearsal_migration.go":        1, // copied migration target.
 		"infrastructure/sqlite/payload_rehearsal_target.go":           1, // copied rehearsal target.
 		"infrastructure/sqlite/prepared_migration_recipe.go":          1, // owned offline candidate only.
+		"cmd/store-benchmark/body_locality.go":                        3, // scratch locality fixtures only; never the live store.
 	}
 	seen := map[string]int{}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
