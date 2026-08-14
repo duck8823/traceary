@@ -9,7 +9,7 @@ it. Nothing reads the first any more. On a long-lived store it is typically the
 single largest object in the file — on the maintainer's 24.7 GiB store it held
 16.15 GiB, about 65% of the database.
 
-v0.34 stops maintaining it and gives you one command to remove it.
+v0.34 stopped maintaining it. v0.35 drops it during `traceary store compact`.
 
 ## What the upgrade does on its own
 
@@ -36,39 +36,25 @@ reads from it.
 ## Reclaiming the space
 
 ```sh
-traceary store search-retire
-traceary store compact plan
-traceary store compact apply RUN_ID
+traceary store compact
 ```
 
-Both steps matter, and the order is fixed.
+`store compact` copies the store, `DROP`s the three tables on the work copy,
+then `VACUUM INTO` a candidate. The family is never copied into the new file.
+`store search-retire` and `store compact plan` / `apply` are gone.
 
-`store search-retire` drops the three tables in one transaction. It is
-idempotent — on a store that no longer carries the family it reports
-`already_removed` and exits 0. On a multi-GiB store it can take a couple of
-minutes; interrupting it rolls the transaction back cleanly, changing nothing.
-
-The command uses a straight `DROP`, not a row-by-row `DELETE`. Emptying an FTS5
+The drop uses a straight `DROP`, not a row-by-row `DELETE`. Emptying an FTS5
 content table appends delete markers into new index segments rather than
-reclaiming anything, so deleting first makes the file *larger* before it gets
-smaller — measured at +14% file size and +47% index size on the maintainer's
-store, and roughly eight times slower than the drop.
+reclaiming anything, so deleting first would make the file *larger* before it
+gets smaller — measured at +14% file size and +47% index size on the
+maintainer's store, and roughly eight times slower than the drop.
 
-`DROP` returns pages to SQLite's free list. It does not shrink the file:
-`auto_vacuum` is `NONE`, so the freed pages are reused by future writes but the
-file keeps its size on disk. `store compact` (which uses `VACUUM INTO` behind a
-preview-then-apply workflow) is what actually returns the space to the
-filesystem. See [`safe-compaction.md`](../storage/safe-compaction.md) for that
-sequence.
-
-Running them in the other order is refused. `store compact plan` errors out
-while the family is still present, because compacting first would copy 16 GiB
-of dead index into the new file and bake it in. The check runs before the
-source digest, so it fails in seconds rather than after hashing the whole
-store. `store compact apply` re-checks behind its exclusive lease.
+`DROP` alone returns pages to SQLite's free list. It does not shrink the file:
+`auto_vacuum` is `NONE`. Compact's `VACUUM INTO` is what returns the space to
+the filesystem. See [`safe-compaction.md`](../storage/safe-compaction.md).
 
 `traceary doctor` reports the family as a warning while it is resident, naming
-the bytes it holds and the command to remove it.
+the bytes it holds and `traceary store compact`.
 
 ## Rollback
 

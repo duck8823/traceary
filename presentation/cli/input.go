@@ -82,14 +82,6 @@ type doctorCommandInput struct {
 	coverageThreshold float64
 }
 
-// gcCommandInput is the resolved input to the `traceary gc` command.
-type gcCommandInput struct {
-	dbPath   string
-	keepDays int
-	target   string
-	dryRun   bool
-}
-
 // hooksPrintCommandInput is the resolved input to `traceary hooks print`.
 type hooksPrintCommandInput struct {
 	client      string

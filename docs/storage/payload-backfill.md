@@ -2,7 +2,10 @@
 
 [日本語](payload-backfill.ja.md)
 
-`traceary store payload-backfill` rewrites every existing compressible payload
+> Removed in v0.35.0 (#1872). Encoding now happens during
+> `traceary store compact`. `store payload-backfill` is an unknown command.
+
+`traceary store payload-backfill` rewrote every existing compressible payload
 text column through the versioned zstd codec already shipped in
 `payload_codec.go`:
 
@@ -30,64 +33,22 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 
 ## Procedure
 
-1. **Backup** the live store (for example `traceary store backup create ~/traceary-pre-v0.34.db`).
-2. **Preview** eligible work without writing:
+This dedicated command is gone. Encoding and the retired-index drop happen
+during `traceary store compact`. Take a backup first, fold sessions you want
+to reclaim, then:
 
-   ```sh
-   traceary store payload-backfill preview
-   ```
+```sh
+traceary store backup create ~/traceary-pre-compact.db
+traceary store compact
+```
 
-3. **Run** the rewrite (resumable; bounded batches):
+If the search projection is drifted afterwards:
 
-   ```sh
-   traceary store payload-backfill run
-   # optional pacing:
-   traceary store payload-backfill run --batch-rows 256 --stop-after-batches 100
-   ```
-
-4. If interrupted or paused, **resume** with the same binary recipe:
-
-   ```sh
-   traceary store payload-backfill resume
-   ```
-
-5. Check progress:
-
-   ```sh
-   traceary store payload-backfill status
-   ```
-
-6. **Rebuild the search projection.** The backfill updates `events.body`, so the
-   projection invalidation triggers fire and leave the projection `drifted` /
-   `stale`. Audit-text rewrites do not drive projection invalidation (no
-   search writer reads them after migration 052), but a rebuild is still
-   required whenever body rows changed. There is no single `rebuild` verb —
-   start a new generation, then repeat `resume --until-complete` until
-   `status` reports the generation as `complete`. A run that reports
-   `stop_reason=max_batches` or `stop_reason=total_wall_time` is not complete;
-   run `resume --until-complete` again before continuing:
-
-   ```sh
-   traceary store search-projection start
-   traceary store search-projection resume --until-complete
-   traceary store search-projection status
-   ```
-
-7. **Compact** if you need the file to shrink on disk. Encoding returns overflow
-   pages to the free list; only `store compact` returns physical bytes:
-
-   `store compact` on its own prints help and compacts nothing, and `plan`
-   refuses while the legacy migration-032 index is still resident — including
-   on a store created by this version, see
-   [#1847](https://github.com/duck8823/traceary/issues/1847). The full
-   sequence is:
-
-   ```sh
-   traceary store search-retire
-   traceary store compact plan          # prints the run id
-   traceary store compact apply RUN_ID
-   traceary store compact status RUN_ID
-   ```
+```sh
+traceary store search-projection start
+traceary store search-projection resume --until-complete
+traceary store search-projection status
+```
 
 ## Semantics operators should know
 

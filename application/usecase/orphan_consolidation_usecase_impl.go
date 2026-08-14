@@ -79,12 +79,17 @@ func (u *orphanConsolidationUsecase) Consolidate(
 	}
 
 	limit := input.Limit
-	if limit <= 0 {
-		limit = defaultOrphanConsolidationLimit
-	}
 	budget := input.Budget
-	if budget <= 0 {
-		budget = defaultOrphanConsolidationBudget
+	if input.Unlimited {
+		limit = 1 << 30
+		budget = 24 * time.Hour
+	} else {
+		if limit <= 0 {
+			limit = defaultOrphanConsolidationLimit
+		}
+		if budget <= 0 {
+			budget = defaultOrphanConsolidationBudget
+		}
 	}
 
 	started := u.clock.Now()

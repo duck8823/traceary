@@ -21,6 +21,11 @@ type configFile struct {
 	Retention     retentionSection     `json:"retention"`
 	Consolidation consolidationSection `json:"consolidation"`
 	WakeInjection wakeInjectionSection `json:"wake_injection"`
+	Compact       compactSection       `json:"compact"`
+}
+
+type compactSection struct {
+	ReclaimWarnBytes *int64 `json:"reclaim_warn_bytes"`
 }
 
 type auditSection struct {
@@ -141,6 +146,12 @@ type Config struct {
 	// is absent; explicit 0 disables; unreadable or malformed config also
 	// resolves to 0 so a broken file cannot re-enable injection.
 	WakeInjection WakeInjectionConfig
+	// Compact holds the reclaim warning threshold. Unlike consolidation and
+	// wake injection, a malformed / unreadable config falls back to the
+	// published default so the warning still fires. A warning has no side
+	// effect; hiding it because the file is broken would let the store grow
+	// with nobody told.
+	Compact CompactConfig
 }
 
 // RetentionModeDisabled is the fail-closed default for automatic archive-then-gc.
@@ -156,6 +167,15 @@ const DefaultConsolidationThresholdBytes int64 = 64 * 1024
 // DefaultWakeInjectionBudgetBytes is the wake-injection stdout budget when
 // wake_injection.budget_bytes is absent from config.json (8 KiB).
 const DefaultWakeInjectionBudgetBytes int64 = 8192
+
+// DefaultCompactReclaimWarnBytes is the reclaim warning threshold when
+// compact.reclaim_warn_bytes is absent from config.json (1 GiB).
+//
+// Deliberately inverted from consolidation / wake injection: those features
+// disable (0) when the file is unreadable so a broken config cannot re-enable
+// a trigger. This warning has no side effect, so a broken file still uses the
+// default and still warns.
+const DefaultCompactReclaimWarnBytes int64 = 1 << 30
 
 // RetentionConfig is the runtime view of config.json retention.
 type RetentionConfig struct {
@@ -193,6 +213,14 @@ type WakeInjectionConfig struct {
 	// sets 0 so injection stays off rather than re-applying the default.
 	// Negative values are treated as disabled by the injection path.
 	BudgetBytes int64
+}
+
+// CompactConfig is the runtime view of config.json compact.
+type CompactConfig struct {
+	// ReclaimWarnBytes is the estimated reclaimable size that triggers a
+	// doctor / non-hook stderr warning. Explicit 0 disables the warning.
+	// Absent key and unusable files resolve to DefaultCompactReclaimWarnBytes.
+	ReclaimWarnBytes int64
 }
 
 // ReadPreset is the runtime-facing view of a user-defined preset loaded from
@@ -250,11 +278,14 @@ func LoadConfig() Config {
 			// configuration can re-enable a feature set to 0.
 			cfg.Consolidation = ConsolidationConfig{ThresholdBytes: 0}
 			cfg.WakeInjection = WakeInjectionConfig{BudgetBytes: 0}
+			// Warning polarity is inverted: still use the published default.
+			cfg.Compact = CompactConfig{ReclaimWarnBytes: DefaultCompactReclaimWarnBytes}
 		default:
 			// Absent (and any unexpected nil-file status): operator never
 			// configured Traceary, so the published defaults apply.
 			cfg.Consolidation = toConsolidationConfig(consolidationSection{})
 			cfg.WakeInjection = toWakeInjectionConfig(wakeInjectionSection{})
+			cfg.Compact = toCompactConfig(compactSection{})
 		}
 		return cfg
 	}
@@ -270,7 +301,15 @@ func LoadConfig() Config {
 		Retention:             toRetentionConfig(file.Retention),
 		Consolidation:         toConsolidationConfig(file.Consolidation),
 		WakeInjection:         toWakeInjectionConfig(file.WakeInjection),
+		Compact:               toCompactConfig(file.Compact),
 	}
+}
+
+func toCompactConfig(raw compactSection) CompactConfig {
+	if raw.ReclaimWarnBytes == nil {
+		return CompactConfig{ReclaimWarnBytes: DefaultCompactReclaimWarnBytes}
+	}
+	return CompactConfig{ReclaimWarnBytes: *raw.ReclaimWarnBytes}
 }
 
 func toRetentionConfig(raw retentionSection) RetentionConfig {

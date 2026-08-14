@@ -14,6 +14,10 @@ import (
 	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
 
+type retentionStoreStub struct {
+	minimalStoreStub
+}
+
 type fileRetentionCapacityInspectorStub struct {
 	statuses []apptypes.FileRetentionCapacityStatus
 	err      error

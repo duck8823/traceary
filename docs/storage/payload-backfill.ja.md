@@ -2,6 +2,9 @@
 
 [English](payload-backfill.md)
 
+> v0.35.0 で削除（#1872）。符号化は `traceary store compact` の途中で行います。
+> `store payload-backfill` は unknown command です。
+
 `traceary store payload-backfill` は、既存の圧縮可能なペイロードテキスト列を、
 すでに `payload_codec.go` に実装されているバージョン付き zstd codec 経由で
 書き直します。対象は次のとおりです。
@@ -29,63 +32,22 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 
 ## 手順
 
-1. ライブストアを **バックアップ** する（例: `traceary store backup create ~/traceary-pre-v0.34.db`）。
-2. 書き込みなしで対象量を **preview** する:
+この専用コマンドは削除済みです。符号化と退役済み index の DROP は
+`traceary store compact` の途中で行います。先に backup を取り、回収したい
+session を fold してから:
 
-   ```sh
-   traceary store payload-backfill preview
-   ```
+```sh
+traceary store backup create ~/traceary-pre-compact.db
+traceary store compact
+```
 
-3. 書き換えを **run** する（再開可能・バッチ上限あり）:
+検索 projection が drifted なら:
 
-   ```sh
-   traceary store payload-backfill run
-   # 任意のペース制御:
-   traceary store payload-backfill run --batch-rows 256 --stop-after-batches 100
-   ```
-
-4. 中断または pause した場合は、同じバイナリの recipe で **resume** する:
-
-   ```sh
-   traceary store payload-backfill resume
-   ```
-
-5. 進捗確認:
-
-   ```sh
-   traceary store payload-backfill status
-   ```
-
-6. **検索 projection を rebuild する。** backfill は `events.body` を更新するため、
-   無効化トリガが発火し projection は `drifted` / `stale` になります。audit テキスト
-   の書き換えは projection 無効化を起こしません（migration 052 以降、検索 writer は
-   それらを読まない）が、body が変わった場合は rebuild が必要です。`rebuild` という
-   単一の verb はありません。新しい generation を start したあと、`status` が generation
-   の `complete` を報告するまで `resume --until-complete` を繰り返してください。
-   `stop_reason=max_batches` または `stop_reason=total_wall_time` ならまだ完了していないため、
-   続けて `resume --until-complete` を実行します:
-
-   ```sh
-   traceary store search-projection start
-   traceary store search-projection resume --until-complete
-   traceary store search-projection status
-   ```
-
-7. ディスク上のファイルを縮めたい場合は **compact** する。エンコードは
-   overflow ページを free list に返すだけで、物理バイトを返すのは
-   `store compact` だけです:
-
-   `store compact` 単体は help を表示するだけで何も圧縮しません。また `plan` は
-   レガシー migration-032 index が残っている間は拒否します。これはこのバージョンで
-   新規作成した store でも同じです（[#1847](https://github.com/duck8823/traceary/issues/1847)）。
-   完全な手順は次のとおりです:
-
-   ```sh
-   traceary store search-retire
-   traceary store compact plan          # run id が表示されます
-   traceary store compact apply RUN_ID
-   traceary store compact status RUN_ID
-   ```
+```sh
+traceary store search-projection start
+traceary store search-projection resume --until-complete
+traceary store search-projection status
+```
 
 ## オペレータが知るべき意味論
 

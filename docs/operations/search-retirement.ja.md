@@ -9,7 +9,7 @@ projection です。前者はすでにどこからも読まれていません。
 ではファイル内で最大のオブジェクトになりがちで、maintainer の 24.7 GiB store
 では 16.15 GiB、DB 全体の約 65% を占めていました。
 
-v0.34 はこの系統の維持を停止し、削除用のコマンドを1つ提供します。
+v0.34 はこの系統の維持を停止しました。v0.35 では `traceary store compact` の copy 中に落とします。
 
 ## upgrade が自動で行うこと
 
@@ -35,39 +35,26 @@ upgrade 後、この系統は不活性になります。バイト数は占有し
 ## 領域を回収する
 
 ```sh
-traceary store search-retire
-traceary store compact plan
-traceary store compact apply RUN_ID
+traceary store compact
 ```
 
-両方必要で、順序も固定です。
+`store compact` はストアを copy し、work copy 上で3つの table を `DROP` してから
+`VACUUM INTO` します。退役済み系統は新しいファイルへコピーされません。
+`store search-retire` と `store compact plan` / `apply` はありません。
 
-`store search-retire` は3つの table を1トランザクションで DROP します。冪等
-であり、すでに存在しない store では `already_removed` を報告して終了コード 0
-です。数 GiB 規模では数分かかることがあります。中断してもトランザクションは
-クリーンにロールバックされ、状態は変わりません。
-
-このコマンドは行単位 `DELETE` ではなく直接 `DROP` します。FTS5 の content
+DROP は行単位 `DELETE` ではなく直接 `DROP` します。FTS5 の content
 table を空にすると、削除マーカーが新しい index segment に追記されるだけで領域は
 回収されません。つまり先に削除するとファイルは一度**大きく**なります。
 maintainer の store での実測ではファイルサイズ +14%、index サイズ +47%、所要
 時間は DROP の約8倍でした。
 
-`DROP` はページを SQLite の free list に返すだけです。ファイルは縮みません。
-`auto_vacuum` は `NONE` なので、解放ページは以後の書き込みで再利用されますが
-ディスク上のサイズはそのままです。実際に領域をファイルシステムへ返すのは
-`store compact` (preview → apply の workflow の内部で `VACUUM INTO` を使用)
-です。手順は [`safe-compaction.ja.md`](../storage/safe-compaction.ja.md) を
-参照してください。
+`DROP` だけではページを SQLite の free list に返すだけです。ファイルは縮みません。
+`auto_vacuum` は `NONE` です。領域をファイルシステムへ返すのは compact の
+`VACUUM INTO` です。手順は [`safe-compaction.ja.md`](../storage/safe-compaction.ja.md)
+を参照してください。
 
-逆順は拒否されます。この系統が残っている間 `store compact plan` はエラーに
-なります。先に compact すると 16 GiB の死んだ index を新しいファイルへコピー
-して固定化してしまうためです。検査は source digest より前に走るので、store
-全体をハッシュした後ではなく数秒で失敗します。`store compact apply` は排他
-lease の内側で再検査します。
-
-`traceary doctor` は、この系統が残っている間、占有バイト数と削除コマンドを
-添えて warning として報告します。
+`traceary doctor` は、この系統が残っている間、占有バイト数と
+`traceary store compact` を warning として報告します。
 
 ## rollback
 

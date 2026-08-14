@@ -263,6 +263,59 @@ func (j *PreparedStoreUpgradeFileJournal) FindActive(ctx context.Context, operat
 	return match, nil
 }
 
+// FindInFlight returns the single non-terminal compaction journal bound to
+// source. Empty Operation (legacy compact journals) and operation=compaction
+// both match. Committed and rolled-back runs are ignored.
+func (j *PreparedStoreUpgradeFileJournal) FindInFlight(ctx context.Context, source string) (domain.CompactionRun, error) {
+	if source == "" {
+		return domain.CompactionRun{}, errors.New("invalid compaction in-flight lookup")
+	}
+	entries, err := os.ReadDir(j.Dir)
+	if os.IsNotExist(err) {
+		return domain.CompactionRun{}, os.ErrNotExist
+	}
+	if err != nil {
+		return domain.CompactionRun{}, err
+	}
+	if err := validateJournalDirectory(j.Dir); err != nil {
+		return domain.CompactionRun{}, err
+	}
+	canonical := filepath.Clean(source)
+	var match domain.CompactionRun
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return domain.CompactionRun{}, err
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".jsonl")
+		run, loadErr := j.Load(ctx, id)
+		if loadErr != nil {
+			return domain.CompactionRun{}, loadErr
+		}
+		if filepath.Clean(run.SourcePath) != canonical {
+			continue
+		}
+		if run.Operation != "" && run.Operation != domain.PreparedStoreUpgradeOperationCompaction {
+			continue
+		}
+		switch run.Phase {
+		case domain.CompactionCommitted, domain.CompactionRolledBack:
+			continue
+		}
+		if match.ID != "" {
+			return domain.CompactionRun{}, errors.New("ambiguous in-flight compaction")
+		}
+		match = run
+	}
+	if match.ID == "" {
+		return match, os.ErrNotExist
+	}
+	return match, nil
+}
+
 func validateJournalDirectory(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -386,13 +439,9 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 	}
 	// Once the cleanup returns, the store has no WAL/SHM at all -- stale ones
 	// were removed and a live one would have been refused -- so it is safe to
-	// open. This runs before the digest deliberately: hashing a 24 GiB
-	// source only to copy 16 GiB of dead index into the candidate is the exact
-	// waste the check exists to prevent.
-	//
-	if err := (PreparedStoreUpgradeFiles{}).RejectRetiredSearchIndex(ctx, run); err != nil {
-		return run, err
-	}
+	// open. A retired search family on the source is no longer a plan refusal:
+	// compact drops it on the work copy. The exchange still rejects a
+	// candidate that still carries the family.
 	id, err := inspectRegularFile(run.SourcePath)
 	if err != nil {
 		return run, err
@@ -407,6 +456,10 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 			return run, errors.New("prepared upgrade resource size overflow")
 		}
 		temporary = run.Budget.WALByteLimit + run.Budget.TemporaryByteLimit
+	} else if id.Size > 0 {
+		// Work copy lives beside the source for the copy-filter. Peak disk is
+		// source + work + candidate (~3×); free space must cover work + candidate.
+		temporary = uint64(id.Size)
 	}
 	required, margin, err := compactionRequiredBytes(id.Size, temporary)
 	if err != nil {

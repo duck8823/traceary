@@ -28,8 +28,8 @@ func (c *RootCLI) newSessionRefineCommand() *cobra.Command {
 		Use:   "refine <session-id>",
 		Short: Localize("Store a session refinement summary", "セッション要約（refinement）を保存する"),
 		Long: Localize(
-			"Store an agent-authored session refinement (L2 summary).\n\nTraceary never composes the summary text: it stores what you hand it and owns generation / coverage bookkeeping only. Replaying the same covers-to range is a no-op.\n\ncovers-from is always derived (session earliest event on first write; kept on supersede). degraded refinements are written only by store gc via the use case, not this CLI.",
-			"エージェントが書いたセッション要約（L2 refinement）を保存します。\n\nTraceary は要約テキストを合成しません。渡された内容を保存し、generation / coverage の管理だけを所有します。同じ covers-to 範囲の再実行は no-op です。\n\ncovers-from は常に導出されます（初回はセッション最古イベント、supersede 時は既存の earlier を保持）。degraded 要約は store gc が use case 経由で書くため、この CLI では指定しません。",
+			"Store an agent-authored session refinement (L2 summary).\n\nTraceary never composes the summary text: it stores what you hand it and owns generation / coverage bookkeeping only. Replaying the same covers-to range is a no-op.\n\ncovers-from is always derived (session earliest event on first write; kept on supersede). degraded refinements are written only by store compact --force via the use case, not this CLI.",
+			"エージェントが書いたセッション要約（L2 refinement）を保存します。\n\nTraceary は要約テキストを合成しません。渡された内容を保存し、generation / coverage の管理だけを所有します。同じ covers-to 範囲の再実行は no-op です。\n\ncovers-from は常に導出されます（初回はセッション最古イベント、supersede 時は既存の earlier を保持）。degraded 要約は store compact --force が use case 経由で書くため、この CLI では指定しません。",
 		),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

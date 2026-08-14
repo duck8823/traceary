@@ -2,6 +2,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -12,16 +13,28 @@ import (
 	"hash"
 	"math"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain"
 )
 
 // SQLiteCompactionBuilder deliberately bypasses Database initialization.
-type SQLiteCompactionBuilder struct{}
+type SQLiteCompactionBuilder struct {
+	Filter application.CompactFilter
+}
 
-func (SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate string) error {
+// SetCompactFilter installs the copy-filter for the next Build.
+func (b *SQLiteCompactionBuilder) SetCompactFilter(filter application.CompactFilter) {
+	if b == nil {
+		return
+	}
+	b.Filter = filter
+}
+
+func (b SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate string) error {
 	if filepathDir(source) != filepathDir(candidate) {
 		return errors.New("VACUUM INTO candidate must be beside source")
 	}
@@ -40,24 +53,49 @@ func (SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate stri
 		_ = sourceDB.Close()
 		return fmt.Errorf("source compatibility: %w", err)
 	}
-	if err := requireStaticSearchState(ctx, sourceDB); err != nil {
-		_ = sourceDB.Close()
-		return err
-	}
 	if err := sourceDB.Close(); err != nil {
 		return err
 	}
-	// Run VACUUM from a transient writable database with the source attached as
-	// immutable. This lets SQLite write the candidate without ever opening the
-	// WAL-mode source as a writer (and therefore without creating WAL/SHM).
+	work := candidate + ".work"
+	_ = os.Remove(work)
+	removeSQLiteSidecars(work)
+	if err := copyRegularFile(source, work); err != nil {
+		return err
+	}
+	defer func() {
+		_ = os.Remove(work)
+		removeSQLiteSidecars(work)
+	}()
+	if b.Filter.AfterClone != nil {
+		if err := b.Filter.AfterClone(ctx, work); err != nil {
+			return fmt.Errorf("compact force cover: %w", err)
+		}
+		removeSQLiteSidecars(work)
+		if !b.Filter.Cutoff.IsZero() {
+			gate, inspectErr := (SQLiteCompactionBuilder{}).InspectBodyGate(ctx, work, b.Filter.Cutoff)
+			if inspectErr != nil {
+				return fmt.Errorf("re-inspect work copy after force cover: %w", inspectErr)
+			}
+			if gate.UnrefinedSessions > 0 {
+				return fmt.Errorf("compact --force cover left %d unrefined session(s)", gate.UnrefinedSessions)
+			}
+		}
+	}
+	if err := applyCopyFilters(ctx, work, b.Filter); err != nil {
+		return err
+	}
+	removeSQLiteSidecars(work)
+	// Run VACUUM from a transient writable database with the filtered work
+	// copy attached as immutable. The original source is never opened as a
+	// writer.
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		return err
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	if _, err := db.ExecContext(ctx, `ATTACH DATABASE `+quoteSQLiteStringLiteral(sqliteImmutableDSN(source))+` AS compact_source`); err != nil {
-		return fmt.Errorf("attach immutable compaction source: %w", err)
+	if _, err := db.ExecContext(ctx, `ATTACH DATABASE `+quoteSQLiteStringLiteral(sqliteImmutableDSN(work))+` AS compact_source`); err != nil {
+		return fmt.Errorf("attach immutable compaction work copy: %w", err)
 	}
 	if _, err := db.ExecContext(ctx, `VACUUM compact_source INTO `+quoteSQLiteStringLiteral(candidate)); err != nil {
 		return fmt.Errorf("VACUUM INTO candidate: %w", err)
@@ -102,6 +140,17 @@ func (SQLiteCompactionBuilder) VerifyPair(ctx context.Context, source, candidate
 	if err := VerifyStoreCompatibility(ctx, candidateDB); err != nil {
 		return fmt.Errorf("candidate compatibility: %w", err)
 	}
+	sourceEvents, err := tableExists(ctx, sourceDB, "events")
+	if err != nil {
+		return err
+	}
+	candidateEvents, err := tableExists(ctx, candidateDB, "events")
+	if err != nil {
+		return err
+	}
+	if sourceEvents || candidateEvents {
+		return verifyFilteredCandidate(ctx, sourceDB, candidateDB)
+	}
 	left, err := scrubStore(ctx, sourceDB)
 	if err != nil {
 		return fmt.Errorf("scrub source: %w", err)
@@ -114,6 +163,187 @@ func (SQLiteCompactionBuilder) VerifyPair(ctx context.Context, source, candidate
 		return fmt.Errorf("candidate logical digest mismatch: source=%+v candidate=%+v", left, right)
 	}
 	return nil
+}
+
+func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB) error {
+	if _, err := scrubStore(ctx, sourceDB); err != nil {
+		return fmt.Errorf("scrub source: %w", err)
+	}
+	if _, err := scrubStore(ctx, candidateDB); err != nil {
+		return fmt.Errorf("scrub candidate: %w", err)
+	}
+	present, err := legacySearchFamilyPresent(ctx, candidateDB)
+	if err != nil {
+		return err
+	}
+	if present {
+		return errors.New("candidate still carries the retired search index family")
+	}
+	sourceEvents, err := eventVerifyMap(ctx, sourceDB)
+	if err != nil {
+		return fmt.Errorf("read source events: %w", err)
+	}
+	candidateEvents, err := eventVerifyMap(ctx, candidateDB)
+	if err != nil {
+		return fmt.Errorf("read candidate events: %w", err)
+	}
+	for id, got := range candidateEvents {
+		want, ok := sourceEvents[id]
+		if !ok {
+			return fmt.Errorf("candidate invented event %s", id)
+		}
+		if got.ident != want.ident {
+			return fmt.Errorf("candidate changed identity of event %s", id)
+		}
+		if got.availability == "available" {
+			if want.availability != "available" {
+				return fmt.Errorf("candidate revived event %s", id)
+			}
+			wantPlain, decodeErr := want.row.decode(maxDecodedPayloadBytes)
+			if decodeErr != nil {
+				return fmt.Errorf("source available event %s is not decodable: %w", id, decodeErr)
+			}
+			gotPlain, decodeErr := got.row.decode(maxDecodedPayloadBytes)
+			if decodeErr != nil {
+				return fmt.Errorf("candidate available event %s is not decodable: %w", id, decodeErr)
+			}
+			if !bytes.Equal(wantPlain, gotPlain) {
+				return fmt.Errorf("candidate rewrote body of event %s", id)
+			}
+		}
+	}
+	permittedDrops, err := permittedDedupeDrops(ctx, sourceDB)
+	if err != nil {
+		return err
+	}
+	for id := range sourceEvents {
+		if _, kept := candidateEvents[id]; kept {
+			continue
+		}
+		survivor, ok := permittedDrops[id]
+		if !ok {
+			return fmt.Errorf("candidate dropped unique event %s", id)
+		}
+		if _, stillThere := candidateEvents[survivor]; !stillThere {
+			return fmt.Errorf("candidate dropped event %s and its canonical survivor %s", id, survivor)
+		}
+	}
+	return nil
+}
+
+type eventIdentity struct {
+	Kind          string
+	SessionID     string
+	CreatedAt     string
+	CreatedAtNorm string
+	Agent         string
+	Client        string
+	Workspace     string
+	SourceHook    string
+}
+
+type eventVerifyRecord struct {
+	ident        eventIdentity
+	availability string
+	row          payloadRow
+}
+
+func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyRecord, error) {
+	hasAvail, err := databaseColumnExists(ctx, db, "events", "body_availability")
+	if err != nil {
+		return nil, err
+	}
+	hasSHA, err := databaseColumnExists(ctx, db, "events", "body_sha256")
+	if err != nil {
+		return nil, err
+	}
+	hasCodec, err := databaseColumnExists(ctx, db, "events", "body_codec")
+	if err != nil {
+		return nil, err
+	}
+	hasHook, err := databaseColumnExists(ctx, db, "events", "source_hook")
+	if err != nil {
+		return nil, err
+	}
+	hasNorm, err := databaseColumnExists(ctx, db, "events", "created_at_norm")
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id, kind, COALESCE(session_id,''), created_at, COALESCE(agent,''), COALESCE(client,''), COALESCE(workspace,''), `
+	if hasHook {
+		query += `COALESCE(source_hook,''), `
+	} else {
+		query += `'', `
+	}
+	if hasNorm {
+		query += `COALESCE(created_at_norm,''), `
+	} else {
+		query += `'', `
+	}
+	if hasAvail {
+		query += `COALESCE(body_availability,'available'), `
+	} else {
+		query += `'available', `
+	}
+	query += `body`
+	if hasCodec {
+		query += `, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes`
+	} else {
+		query += `, NULL, NULL, NULL, NULL`
+	}
+	if hasSHA {
+		query += `, body_sha256`
+	} else {
+		query += `, NULL`
+	}
+	query += ` FROM events`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]eventVerifyRecord{}
+	for rows.Next() {
+		var id string
+		var rec eventVerifyRecord
+		if err := rows.Scan(
+			&id,
+			&rec.ident.Kind,
+			&rec.ident.SessionID,
+			&rec.ident.CreatedAt,
+			&rec.ident.Agent,
+			&rec.ident.Client,
+			&rec.ident.Workspace,
+			&rec.ident.SourceHook,
+			&rec.ident.CreatedAtNorm,
+			&rec.availability,
+			&rec.row.Stored,
+			&rec.row.Codec,
+			&rec.row.FormatVersion,
+			&rec.row.PlaintextBytes,
+			&rec.row.StoredBytes,
+			&rec.row.SHA256,
+		); err != nil {
+			return nil, err
+		}
+		out[id] = rec
+	}
+	return out, rows.Err()
+}
+
+func permittedDedupeDrops(ctx context.Context, sourceDB *sql.DB) (map[string]string, error) {
+	survey, err := (&StoreManagementDatasource{}).identifyDedupeGroups(ctx, sourceDB, "", 0)
+	if err != nil {
+		return nil, fmt.Errorf("identify source dedupe groups: %w", err)
+	}
+	plan := planContentEventDedupe(survey, false)
+	out := make(map[string]string, len(plan.groups))
+	for _, group := range plan.groups {
+		for _, dup := range group.duplicates {
+			out[dup.id] = group.keptID
+		}
+	}
+	return out, nil
 }
 
 type storeScrub struct {
@@ -144,7 +374,7 @@ func scrubStore(ctx context.Context, db *sql.DB) (storeScrub, error) {
 	if err != nil {
 		return storeScrub{}, err
 	}
-	tables, err := logicalDigest(ctx, db)
+	tables, err := logicalDigest(ctx, db, compactLogicalSkipTables())
 	if err != nil {
 		return storeScrub{}, err
 	}
@@ -155,6 +385,7 @@ func scrubStore(ctx context.Context, db *sql.DB) (storeScrub, error) {
 }
 
 func schemaDigest(ctx context.Context, db *sql.DB) (string, error) {
+	skip := compactLogicalSkipTables()
 	rows, err := db.QueryContext(ctx, `SELECT type,name,tbl_name,coalesce(sql,'') FROM sqlite_schema ORDER BY type,name,tbl_name,sql`)
 	if err != nil {
 		return "", err
@@ -166,6 +397,9 @@ func schemaDigest(ctx context.Context, db *sql.DB) (string, error) {
 		if err := rows.Scan(&typ, &name, &table, &ddl); err != nil {
 			return "", err
 		}
+		if skip[name] || skip[table] {
+			continue
+		}
 		writeFramed(h, []byte(typ), []byte(name), []byte(table), []byte(ddl))
 	}
 	if err := rows.Err(); err != nil {
@@ -174,7 +408,15 @@ func schemaDigest(ctx context.Context, db *sql.DB) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func logicalDigest(ctx context.Context, db *sql.DB) (string, error) {
+func compactLogicalSkipTables() map[string]bool {
+	skip := map[string]bool{"event_content_dedupe_archive": true}
+	for _, name := range legacySearchFamilyTables {
+		skip[name] = true
+	}
+	return skip
+}
+
+func logicalDigest(ctx context.Context, db *sql.DB, skip map[string]bool) (string, error) {
 	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND (name NOT LIKE 'sqlite_%' OR name='sqlite_sequence') ORDER BY name`)
 	if err != nil {
 		return "", err
@@ -184,6 +426,9 @@ func logicalDigest(ctx context.Context, db *sql.DB) (string, error) {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			return "", err
+		}
+		if skip[name] {
+			continue
 		}
 		tables = append(tables, name)
 	}
@@ -342,7 +587,7 @@ func requireStaticSearchState(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if present {
-		return errors.New("legacy search index family is still present; run `traceary store search-retire` before compact plan/apply")
+		return errors.New("legacy search index family is still present; store compact drops it during the copy")
 	}
 	return nil
 }

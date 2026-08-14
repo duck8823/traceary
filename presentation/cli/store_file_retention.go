@@ -34,6 +34,15 @@ type storeFileRetentionApplyInput struct {
 	confirmedPlanID string
 }
 
+func (c *RootCLI) newStoreFileRetentionOnlyCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "retention",
+		Short: Localize("Manage on-disk archive and backup file retention", "ディスク上の archive / backup ファイル保持を管理する"),
+	}
+	command.AddCommand(c.newStoreFileRetentionCommand())
+	return command
+}
+
 func (c *RootCLI) newStoreFileRetentionCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "files",

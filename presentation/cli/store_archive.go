@@ -62,7 +62,7 @@ func (c *RootCLI) newStoreArchiveCreateCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().StringVar(&input.output, "output", "", Localize("archive output path (required unless --dry-run)", "archive 出力 path (--dry-run 以外は必須)"))
-	cmd.Flags().IntVar(&input.keepDays, "keep-days", defaultRetentionDays, Localize("retention window matching store gc", "store gc と同じ保持日数"))
+	cmd.Flags().IntVar(&input.keepDays, "keep-days", defaultRetentionDays, Localize("retention window matching store compact", "store compact と同じ保持日数"))
 	cmd.Flags().StringVar(&input.target, "target", "all", Localize("records to archive (events | sessions | memories | memory_edges | all)", "対象 (events | sessions | memories | memory_edges | all)"))
 	cmd.Flags().BoolVar(&input.dryRun, "dry-run", false, Localize("print plan counts only; do not write a package", "plan 件数のみ表示。package を書かない"))
 	cmd.Flags().BoolVar(&input.deleteAfterVerify, "delete-after-verify", false, Localize("after a successful verify, delete exact archived identities from the live store", "verify 成功後に archive 済み identity を live store から削除"))

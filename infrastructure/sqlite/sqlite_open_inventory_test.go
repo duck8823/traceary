@@ -17,6 +17,7 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 		"infrastructure/filesystem/file_retention_datasource_unix.go": 1, // copied backup FD verification.
 		"infrastructure/sqlite/archive_segment.go":                    2, // owned offline candidate plus O_NOFOLLOW-pinned immutable segment; never Hot.
 		"infrastructure/sqlite/compaction_sqlite.go":                  2, // EX-held source/candidate only.
+		"infrastructure/sqlite/compaction_copy_filter.go":             1, // EX-held work copy only; never the live source.
 		"infrastructure/sqlite/database.go":                           1, // in-memory driver probe only.
 		"infrastructure/sqlite/payload_rehearsal.go":                  7, // copied rehearsal targets only.
 		"infrastructure/sqlite/payload_rehearsal_migration.go":        1, // copied migration target.

@@ -44,11 +44,7 @@ type RootCLI struct {
 	capacityInspector          application.CapacityInspector
 	payloadCodecInspector      application.PayloadCodecInspector
 	searchProjection           *usecase.SearchProjectionUsecase
-	legacySearchRetire         *usecase.LegacySearchRetireUsecase
 	storeCompactionFactory     func(string) application.StoreCompactionUsecase
-	payloadRehearsal           usecase.PayloadRehearsalUsecase
-	payloadBackfill            usecase.PayloadBackfillUsecase
-	rawBodyRetention           usecase.RawBodyRetentionUsecase
 	fileRetention              usecase.FileRetentionUsecase
 	fileRetentionCapacity      usecase.FileRetentionCapacityInspector
 	workspaceIdentity          usecase.WorkspaceIdentityUsecase
@@ -242,29 +238,9 @@ func WithSearchProjection(projection *usecase.SearchProjectionUsecase) RootCLIOp
 	return func(c *RootCLI) { c.searchProjection = projection }
 }
 
-// WithLegacySearchRetire injects the opt-in removal of the migration-032 family.
-func WithLegacySearchRetire(retire *usecase.LegacySearchRetireUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.legacySearchRetire = retire }
-}
-
 // WithStoreCompactionFactory injects a path-bound, dedicated composition.
 func WithStoreCompactionFactory(factory func(string) application.StoreCompactionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.storeCompactionFactory = factory }
-}
-
-// WithPayloadRehearsal injects the copied-store rehearsal workflow.
-func WithPayloadRehearsal(rehearsal usecase.PayloadRehearsalUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.payloadRehearsal = rehearsal }
-}
-
-// WithPayloadBackfill injects the live-store in-place body rewrite workflow.
-func WithPayloadBackfill(backfill usecase.PayloadBackfillUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.payloadBackfill = backfill }
-}
-
-// WithRawBodyRetention injects the opt-in reviewed raw-body retention workflow.
-func WithRawBodyRetention(retention usecase.RawBodyRetentionUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.rawBodyRetention = retention }
 }
 
 // WithFileRetention injects reviewed archive/backup capacity management.
@@ -284,7 +260,6 @@ func WithFileRetentionCapacityInspector(inspector usecase.FileRetentionCapacityI
 func WithWorkspaceIdentity(workspaceIdentity usecase.WorkspaceIdentityUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.workspaceIdentity = workspaceIdentity }
 }
-
 
 // WithHooksOrchestrator injects the HooksOrchestrator used by hooks and
 // doctor commands. The orchestrator is required before the corresponding
@@ -467,6 +442,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	// instead of silently printing help and exiting 0. The root keeps its own
 	// RunE (help + stray-arg guard) and is left untouched.
 	applyStrictGroups(rootCmd)
+	attachCompactReclaimWarning(rootCmd)
 
 	return rootCmd
 }

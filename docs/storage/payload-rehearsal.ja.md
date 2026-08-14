@@ -2,7 +2,10 @@
 
 [English](payload-rehearsal.md)
 
-v0.34が提供するのは、コピーしたストア上のリハーサルだけです。
+> v0.35.0 で削除（#1872）。`store payload-rehearsal` は unknown command です。
+> 符号化は `traceary store compact` の途中で行います。
+
+v0.34が提供するのは、コピーしたストア上のリハーサルだけでした。
 canonical圧縮書き込みを有効化せず、設定済みのliveストアを変更しません。
 
 codec互換性preflightは、新たにupgradeしたstoreではevent body、command、input、outputの4 laneをconstant-sizeのtransactional counterで管理します。
