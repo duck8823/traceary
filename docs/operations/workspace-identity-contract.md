@@ -234,7 +234,7 @@ CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
 
 The tables store attribution metadata only.
 It must not copy command input, output, prompt text, transcript text, or other event body content.
-Reports calculate counts from observation rows; a count is not a deduplication decision.
+Reports calculate counts from observation rows; a count is not a deduplication decision. Distinct current-conflict `(session_id, workspace)` pairs are an additional diagnostic so row volume cannot hide the review unit.
 
 An alias is scoped to one session and requires a reviewed operation with reviewer and timestamp.
 Adding an alias does not rewrite historical `observed_relationship` values.

@@ -238,7 +238,7 @@ CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
 
 これらの table は attribution metadata だけを保存します。
 command input、output、prompt text、transcript text、その他の event 本文を複製しません。
-report は observation row から件数を計算しますが、件数は deduplication の判定ではありません。
+report は observation row から件数を計算しますが、件数は deduplication の判定ではありません。現行 conflict の distinct `(session_id, workspace)` pair は追加の診断であり、行の volume が review 単位を隠さないようにします。
 
 alias は一つの session に限定し、reviewer と timestamp を持つ review 操作でだけ追加します。
 alias を追加しても過去の `observed_relationship` は書き換えません。

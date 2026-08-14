@@ -63,10 +63,13 @@ func TestWorkspaceIdentityDatasource_ReportsCurrentReviewedRelationships(t *test
 		t.Fatalf("sources = %#v", report.Sources)
 	}
 	source := report.Sources[0]
-	if source.Relationships.Exact != 1 || source.Relationships.Conflict != 1 || source.DeliveryAttemptCount != 4 || source.RuntimeAttemptCount != 3 || source.BackfilledAttemptCount != 1 || source.ExactRedeliveryCount != 1 {
+	if source.Relationships.Exact != 1 || source.Relationships.Conflict != 1 || source.ConflictPairCount != 1 || source.DeliveryAttemptCount != 4 || source.RuntimeAttemptCount != 3 || source.BackfilledAttemptCount != 1 || source.ExactRedeliveryCount != 1 {
 		t.Fatalf("source = %#v", source)
 	}
-	if len(report.ConflictSamples) != 1 || report.ConflictSamples[0].EventID != "event-3" {
+	if report.ConflictPairCount != 1 {
+		t.Fatalf("conflict_pair_count = %d, want 1", report.ConflictPairCount)
+	}
+	if len(report.ConflictSamples) != 1 || report.ConflictSamples[0].EventID != "event-3" || report.ConflictSamples[0].Workspace != "/other" {
 		t.Fatalf("conflict samples = %#v", report.ConflictSamples)
 	}
 
@@ -86,5 +89,68 @@ func TestWorkspaceIdentityDatasource_ReportsCurrentReviewedRelationships(t *test
 	}
 	if err := sut.DeleteWorkspaceAlias(ctx, "session-1", "/other"); err != nil {
 		t.Fatalf("DeleteWorkspaceAlias() error = %v", err)
+	}
+}
+
+func TestWorkspaceIdentityDatasource_CountsDistinctConflictPairs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	database := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	store := sqlite.NewStoreManagementDatasource(database)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db := openHookDeliveryTestDB(t, dbPath)
+	if _, err := db.Exec(`INSERT INTO sessions (session_id, started_at, client, agent, workspace) VALUES ('session-1', '2026-07-22T00:00:00Z', 'hook', 'codex', '/repo')`); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close setup DB: %v", err)
+	}
+
+	events := sqlite.NewEventDatasource(database)
+	for i, event := range []*model.Event{
+		hookDeliveryTestEvent(t, "event-a1", "session-1", "/other", "/other", "a1", "event_id:delivery-a1"),
+		hookDeliveryTestEvent(t, "event-a2", "session-1", "/other", "/other", "a2", "event_id:delivery-a2"),
+		hookDeliveryTestEvent(t, "event-a3", "session-1", "/other", "/other", "a3", "event_id:delivery-a3"),
+		hookDeliveryTestEvent(t, "event-b1", "session-1", "/third", "/third", "b1", "event_id:delivery-b1"),
+	} {
+		if err := events.Save(ctx, event); err != nil {
+			t.Fatalf("Save(%d) error = %v", i, err)
+		}
+	}
+
+	sut := sqlite.NewWorkspaceIdentityDatasource(database)
+	report, err := sut.WorkspaceIdentityReport(ctx, 10)
+	if err != nil {
+		t.Fatalf("WorkspaceIdentityReport() error = %v", err)
+	}
+	if report.Sources[0].Relationships.Conflict != 4 {
+		t.Fatalf("conflict rows = %d, want 4 (volume)", report.Sources[0].Relationships.Conflict)
+	}
+	if report.Sources[0].ConflictPairCount != 2 || report.ConflictPairCount != 2 {
+		t.Fatalf("conflict pairs source=%d report=%d, want 2", report.Sources[0].ConflictPairCount, report.ConflictPairCount)
+	}
+	if len(report.ConflictSamples) != 2 {
+		t.Fatalf("samples = %#v, want one row per pair", report.ConflictSamples)
+	}
+	got := map[string]bool{}
+	for _, sample := range report.ConflictSamples {
+		got[sample.Workspace] = true
+		if sample.SessionID != "session-1" || sample.Workspace == "" {
+			t.Fatalf("sample missing session/workspace: %#v", sample)
+		}
+	}
+	if !got["/other"] || !got["/third"] {
+		t.Fatalf("sample workspaces = %v, want /other and /third", got)
+	}
+
+	limited, err := sut.WorkspaceIdentityReport(ctx, 1)
+	if err != nil {
+		t.Fatalf("WorkspaceIdentityReport(limit=1) error = %v", err)
+	}
+	if limited.ConflictPairCount != 2 || len(limited.ConflictSamples) != 1 {
+		t.Fatalf("limited report pairs=%d samples=%d, want pairs=2 samples=1", limited.ConflictPairCount, len(limited.ConflictSamples))
 	}
 }

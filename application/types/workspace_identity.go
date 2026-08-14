@@ -28,6 +28,7 @@ type WorkspaceIdentitySourceReport struct {
 	ObservationCount       int                         `json:"observation_count"`
 	Relationships          WorkspaceRelationshipCounts `json:"relationships"`
 	IngestedConflictCount  int                         `json:"ingested_conflict_count"`
+	ConflictPairCount      int                         `json:"conflict_pair_count"`
 	KnownRelationshipCount int                         `json:"known_relationship_count"`
 	ConflictRate           float64                     `json:"conflict_rate"`
 	DeliveryAttemptCount   int                         `json:"delivery_attempt_count"`
@@ -43,6 +44,7 @@ type WorkspaceIdentitySourceReport struct {
 type WorkspaceConflictSample struct {
 	EventID    string `json:"event_id"`
 	SessionID  string `json:"session_id"`
+	Workspace  string `json:"workspace"`
 	Client     string `json:"client"`
 	SourceHook string `json:"source_hook"`
 }
@@ -58,8 +60,9 @@ type WorkspaceAliasSummary struct {
 
 // WorkspaceIdentityReport contains body-free identity diagnostics.
 type WorkspaceIdentityReport struct {
-	Coverage        WorkspaceIdentityCoverage       `json:"coverage"`
-	Sources         []WorkspaceIdentitySourceReport `json:"sources"`
-	ConflictSamples []WorkspaceConflictSample       `json:"conflict_samples"`
-	Aliases         []WorkspaceAliasSummary         `json:"aliases"`
+	Coverage          WorkspaceIdentityCoverage       `json:"coverage"`
+	ConflictPairCount int                             `json:"conflict_pair_count"`
+	Sources           []WorkspaceIdentitySourceReport `json:"sources"`
+	ConflictSamples   []WorkspaceConflictSample       `json:"conflict_samples"`
+	Aliases           []WorkspaceAliasSummary         `json:"aliases"`
 }
