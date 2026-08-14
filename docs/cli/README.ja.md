@@ -415,7 +415,7 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 #### `traceary memory store remember`
 
-accepted な durable memory を直接記録します。
+**v0.35.0 で非推奨、削除予定は v0.36.0。** `traceary memory store propose` を使ってください。このコマンドは引き続き accepted な durable memory を直接記録します（stdout / `--json` / `--id-only` は変更なし）。inbox review を迂回します。skill が使う書き込みは `propose` です。
 
 主な flag:
 

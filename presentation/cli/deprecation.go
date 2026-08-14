@@ -16,6 +16,7 @@ const noReplacement = ""
 // required flags between the two, so a PreRunE notice would fire for
 // invocations that never run. See the notice rules in docs/cli-stability.md.
 func applyCommandDeprecation(cmd *cobra.Command, replacement string, removalVersion string) {
+	annotateDeprecationHelp(cmd, replacement, removalVersion)
 	previous := cmd.RunE
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		writeDeprecationNotice(cmd, "this command", "このコマンド", replacement, removalVersion)
@@ -48,4 +49,28 @@ func writeDeprecationNotice(cmd *cobra.Command, subject string, japaneseSubject 
 	}
 	// The notice is advisory; a broken stderr writer must not change the command contract.
 	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), message)
+}
+
+// annotateDeprecationHelp puts the replacement and removal target on Short
+// (and Long when present). --help never reaches RunE, so the run-step notice
+// alone would leave help silent.
+func annotateDeprecationHelp(cmd *cobra.Command, replacement string, removalVersion string) {
+	suffix := Localize(
+		fmt.Sprintf("Deprecated with no replacement. Removal target: %s.", removalVersion),
+		fmt.Sprintf("非推奨です。置き換え先はありません。削除予定: %s。", removalVersion),
+	)
+	if replacement != noReplacement {
+		suffix = Localize(
+			fmt.Sprintf("Deprecated; use `%s`. Removal target: %s.", replacement, removalVersion),
+			fmt.Sprintf("非推奨です。代わりに `%s` を使用してください。削除予定: %s。", replacement, removalVersion),
+		)
+	}
+	if cmd.Short == "" {
+		cmd.Short = suffix
+	} else {
+		cmd.Short = cmd.Short + " (" + suffix + ")"
+	}
+	if cmd.Long != "" {
+		cmd.Long = cmd.Long + "\n\n" + suffix
+	}
 }

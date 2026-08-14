@@ -157,7 +157,10 @@ func TestRootCLI_MemoryGroupedCanonicalPaths_ExecuteSameUseCase(t *testing.T) {
 			tc.assertCall(t, stub)
 
 			if strings.Contains(stderr.String(), "DEPRECATED") {
-				t.Errorf("canonical grouped path emitted deprecation notice: %q", stderr.String())
+				rememberPath := len(tc.args) >= 3 && tc.args[0] == "memory" && tc.args[1] == "store" && tc.args[2] == "remember"
+				if !rememberPath {
+					t.Errorf("canonical grouped path emitted deprecation notice: %q", stderr.String())
+				}
 			}
 			if strings.Contains(stderr.String(), "removed in v0.15.0") {
 				t.Errorf("canonical grouped path emitted removal notice: %q", stderr.String())

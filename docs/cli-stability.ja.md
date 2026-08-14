@@ -31,16 +31,17 @@ Traceary の各サブコマンドは必ず以下のいずれか 1 ティアに�
 
 公開サーフェスは運用者の日常用途サーフェスです。コマンドパス・フラグ名・stdout テキスト形状・`--json` / `--id-only` / NDJSON のバイト形状をマイナーリリースを跨いで安定に保ちます。
 
-v0.15 以降に追加された互換 alias も含む現在の公開コマンド（用途別）：
+v0.15 以降に追加された互換 alias も含む現在の公開コマンド（用途別）。可視の public / admin leaf の出荷分類は `presentation/cli/pillar_inventory.go`（#1692）です。
 
 - **イベント記録** — `traceary log`、`traceary audit`
 - **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`、`traceary sessions`（および `traceary sessions --snapshot` / `--snapshot --json`）
-- **セッション** — `traceary session start`、`traceary session end`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session refine`、`traceary session latest`、`traceary session active`
+- **セッション** — `traceary session start`、`traceary session end`、`traceary session run`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session refine`、`traceary session latest`、`traceary session active`
 - **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
-- **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox review`（TTY のみ）
-- **durable memory store** — `traceary memory store remember`、`traceary memory store propose`、`traceary memory store distill`
-- **hooks** — `traceary hooks print`、`traceary hooks install`、`traceary hooks guide`、`traceary completion`
-- **診断** — `traceary doctor`（alias `traceary status`）
+- **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
+- **durable memory store** — `traceary memory store remember`（非推奨、削除予定 v0.36.0）、`traceary memory store propose`、`traceary memory store distill`
+- **durable memory decay** — `traceary memory decay`
+- **hooks** — `traceary hooks print`、`traceary hooks install`、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
+- **診断** — `traceary doctor`（alias `traceary status`）、`traceary report`
 - **replay / archive** — `traceary replay`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
@@ -56,11 +57,12 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 
 admin コマンドは運用者向けのメンテサーフェスです。`--help` には引き続き掲載され CLI リファレンスでも文書化されますが、日常 read 経路ではありません。対象が運用者だけのときは公開コマンドより速いペースで進化してよいですが、後述の非推奨通知ルールには従います。
 
-v0.15 の admin コマンド：
+v0.35 時点の admin コマンド：
 
-- **ストア管理** — `traceary store init`、`traceary store backup create`、`traceary store backup restore`、`traceary store compact`
-- **セッション管理** — `traceary session gc`（stale なセッションを終了する。`session` 名前空間配下に公開セッションサブコマンドと同じ位置で登録されているが、扱いとしては admin ティアのメンテナンス入口）
+- **ストア管理** — `traceary store init`、`traceary store backup create`、`traceary store backup restore`、`traceary store compact`、`traceary store compact rollback`、`traceary store archive create`、`traceary store archive restore`、`traceary store archive verify`、`traceary store capacity`、`traceary store retention files plan`、`traceary store retention files apply`、`traceary store search-projection start`、`traceary store search-projection resume`、`traceary store search-projection status`、`traceary store search-projection abort`、`traceary store search-projection probe`、`traceary store workspace-alias add`、`traceary store workspace-alias list`、`traceary store workspace-alias remove`
+- **セッション管理** — `traceary session gc`（stale なセッションを終了する。`session` 名前空間配下に公開セッションサブコマンドと同じ位置で登録されているが、扱いとしては admin ティアのメンテナンス入口）、`traceary session repair-one-shot`
 - **durable memory admin** — `traceary memory admin extract`、`traceary memory admin import codex`、`traceary memory admin import instructions`、`traceary memory admin export`、`traceary memory admin activate`、`traceary memory admin hygiene scan`、`traceary memory admin hygiene apply`、`traceary memory admin supersede`、`traceary memory admin expire`、`traceary memory admin set-validity`
+- **レポート管理** — `traceary report workspace-identity`
 
 ### plumbing / hidden / deprecated コマンド (v0.15)
 
@@ -83,7 +85,13 @@ v0.15 の admin コマンド：
 
 現在非推奨：
 
-- _（なし）_
+- `traceary memory store remember` → `traceary memory store propose`（削除予定 v0.36.0。#1692 / #1870 の owner 決定）。`remember` は即座に `status=accepted` で書き、inbox review を迂回します。`traceary-memory-remember` は `status=candidate` で着地する必要があります。コマンド自体は動き、stdout / `--json` / `--id-only` はこの期間中変わりません。
+
+### 柱ごとの棚卸し（v0.35）
+
+#1692 は可視の public / admin leaf を 2 本の柱（記録 = 捕捉 / 要約 / 圧縮 / 破棄、記憶 = 統合して自動供給）に突き合わせました。hidden な hook 入口は plumbing のままです（後述）。出荷テーブルは `presentation/cli/pillar_inventory.go` で、可視 action を行なしで追加するとテストが失敗します。
+
+削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。予定している吸収（`list --follow`、`list --blocks`、`hooks install --dry-run`、`memory search --all`）は、その flag ができるまで通知しません。`sessions --snapshot` は v0.34 で既に予告済みなので残します。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
 
 過去の削除履歴：
 

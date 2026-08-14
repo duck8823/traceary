@@ -24,6 +24,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **`traceary search --json` is now the events/sessions object (#1775)** — completes the v0.34.0 announcement from #1717. stdout is always `{"events": [...], "sessions": [...]}` with both keys present (empty arrays when a tier has no hits). Explicit `--fields` still selects event fields inside `.events`; session objects keep `session_id`, `summary`, `event_count`, and `started_at`. The v0.34 stderr notice that sessions were omitted from `--json` is removed. Text search output is unchanged.
 - **Removed the v0.34 no-replacement deprecations (#1691)** — `traceary memory admin graph add` / `graph list`, `traceary session label`, `traceary session list --label`, the `LABEL` column in `session list` text output, and the `label` field in `session list` JSON output are gone. Invocations fail as unknown commands/flags with a non-zero exit and no `DEPRECATED` notice. The `memory_edges` table and `sessions.label` column remain in the store for gc, bundle, and schema compatibility.
 
+### Deprecated
+- **`traceary memory store remember` is deprecated in v0.35.0 and removed in v0.36.0 (#1692)** — use `traceary memory store propose`. `remember` writes `status=accepted` immediately and bypasses inbox review; the skill-facing write is `propose` (`status=candidate`). stdout / `--json` / `--id-only` stay unchanged during the window. The rest of the visible public/admin surface is classified in `presentation/cli/pillar_inventory.go` and stays; remaining #1870 groups were never in the v0.34 registry.
+
 ## [v0.34.0] - 2026-08-12
 
 ### Added

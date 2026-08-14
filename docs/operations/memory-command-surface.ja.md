@@ -6,6 +6,8 @@
 
 この文書は v0.14 で進めた「memory コマンド面のスリム化」のベースラインです。v0.15.0 時点で、以下に出てくる hidden deprecated alias は削除済みです。このページは旧 flat path から canonical grouped path への歴史的な対応表として残します。
 
+v0.35.0 (#1692): `memory store remember` は `memory store propose` に向けて非推奨です（削除予定 v0.36.0）。以下の v0.14 グルーピングはそれ以外は変更しません。
+
 ## 目的
 
 - `memory` コマンドを「日常 read」「inbox レビュー」「durable 書き込み」「admin / host 連携」の 4 グループに整理する。
