@@ -16,12 +16,8 @@ func TestStoreSurfaceReplacesSearchMaintenanceWithSearchRetire(t *testing.T) {
 	if findCommandOrNil(store, "search-maintenance") != nil {
 		t.Fatal("`store search-maintenance` still exists; #1718 removes the group")
 	}
-	retire := findCommandOrNil(store, "search-retire")
-	if retire == nil {
-		t.Fatal("`store search-retire` is not registered")
-	}
-	if retire.Flags().Lookup("db-path") == nil {
-		t.Fatal("`store search-retire` must accept --db-path like its sibling store commands")
+	if findCommandOrNil(store, "search-retire") != nil {
+		t.Fatal("`store search-retire` must be removed; compact drops the family during the copy")
 	}
 }
 

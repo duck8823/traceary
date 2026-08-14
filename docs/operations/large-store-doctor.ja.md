@@ -19,8 +19,8 @@ identifier sample の出力を行いません。
 ## 結果の解釈
 
 - **容量:** 警告は live store が大きいことを示します。1 GiB の上限ではなく、data
-  を削除することもありません。最初に `traceary store gc --dry-run` を実行し、
-  retention を適用する前に archive を作成してください。
+  を削除することもありません。回収は `traceary store compact` です。先に fold
+  してください。`--force` は機械要約を書き、判断理由が失われることを明示します。
 - **lock contention:** metadata-only の結果は、DB が unlocked であるとは主張しません。
   content-level の調査前に競合 writer を停止または分離してください。busy incident
   中に `doctor --fix` を繰り返し実行しないでください。

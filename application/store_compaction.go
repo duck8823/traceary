@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"time"
 
 	"github.com/duck8823/traceary/domain"
 )
@@ -19,6 +20,11 @@ type StoreCompactionBuilder interface {
 	ClassifyCandidate(context.Context, string, string) (domain.CandidateCondition, error)
 	Sync(context.Context, string) error
 	VerifyPair(context.Context, string, string) error
+}
+
+// CompactBodyGateInspector classifies discardable-age bodies on the source.
+type CompactBodyGateInspector interface {
+	InspectBodyGate(ctx context.Context, source string, cutoff time.Time) (BodyGate, error)
 }
 
 // CandidateWorkspace owns prepared candidate inode creation and removal.
@@ -58,9 +64,15 @@ type StoreCompactionLease interface {
 
 // StoreCompactionUsecase provides the explicit maintenance workflow.
 type StoreCompactionUsecase interface {
+	Compact(context.Context, CompactInput) (CompactResult, error)
 	Plan(context.Context, string) (domain.CompactionRun, error)
 	Apply(context.Context, string) (domain.CompactionRun, error)
 	Resume(context.Context, string) (domain.CompactionRun, error)
 	Status(context.Context, string) (domain.CompactionRun, error)
 	Rollback(context.Context, string) (domain.CompactionRun, error)
+}
+
+// CompactionInFlightFinder locates a non-terminal journal for a store.
+type CompactionInFlightFinder interface {
+	FindInFlight(context.Context, string) (domain.CompactionRun, error)
 }

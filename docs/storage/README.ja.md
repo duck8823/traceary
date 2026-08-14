@@ -155,18 +155,18 @@ Durable memory に紐づく artifact ref です。
 
 任意の手動 schema edit との後方互換は保証しません。持ち運べるコピーが必要な場合は、DB を直接編集する代わりに `traceary store backup create` を使ってください。
 
-## `gc` の既定動作
+## `compact` の既定動作
 
-`traceary store gc` は、local store data を retention ベースで掃除するコマンドです。
+`traceary store compact` はストアファイルを書き換えます。copy の途中で退役済み
+検索インデックス、非 canonical な重複本文、破棄可能な被覆済み transcript 本文を
+落とし、残本文を符号化してから vacuum します。
 
 - 既定 retention: `90` 日 (`--keep-days 90`)
-- 既定 target: `all` (`--target all`)
-- 利用可能な target: `events`, `sessions`, `memories`, `memory_edges`, `all`
-- `--dry-run`: 同じ整理計画を rollback される transaction 内で実行し、候補件数だけ表示
-- 物理容量回収は分離し、`traceary store compact plan --db-path PATH`でpreviewする。
-  GCはin-place `VACUUM`を実行しない
+- 物理容量回収は書き換えそのもの。in-place `VACUUM` ではない
+- 未 refine の破棄対象は、`--force` で機械要約を書くまで残る
+- `store search-projection` と `store retention files` は独立コマンドのまま
 
-本文破棄のあとに、`store gc` は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。session start/end 以外を含む、まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。lifecycle だけの tail（正しく fold したあとに着く `session_ended` が典型）は `covers_to` だけ進め、機械的な脚注は付けません。`degraded` は「合成テキストを含む」意味のまま、wake 適格性のビットにはしません。wake injection は `has_agent_reasoning` を読むため、正しく fold されたセッションは reduction のあとも注入対象に残ります。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
+`--force` のあと、compact は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。session start/end 以外を含む、まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。lifecycle だけの tail（正しく fold したあとに着く `session_ended` が典型）は `covers_to` だけ進め、機械的な脚注は付けません。`degraded` は「合成テキストを含む」意味のまま、wake 適格性のビットにはしません。wake injection は `has_agent_reasoning` を読むため、正しく fold されたセッションは reduction のあとも注入対象に残ります。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
 
 **その run で機械要約したものは、その run では破棄しません。** 破棄は機械要約より先に走るため、run 開始時点の被覆だけを見ます。dry-run は書き込まずに機械要約するので同じ被覆を見ています。もし apply が先に要約してから破棄すると、preview が数えられなかった本文を失うことになり、それはまさに `--dry-run` が可視化するために存在する損失です。この順序にすることで、preview は構造上そのまま正確になります。ある run が要約した分は次の run で破棄対象になり、その run の preview が先に件数を示します。被覆は増えるだけなので、取り残しは生じません。
 

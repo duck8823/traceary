@@ -21,6 +21,9 @@ type OrphanConsolidationInput struct {
 	// less uses defaultOrphanConsolidationBudget. Discovery is bounded by
 	// Limit; this bounds the loop that follows it.
 	Budget time.Duration
+	// Unlimited ignores Limit and Budget so compact --force can cover every
+	// discardable-age unrefined session in one rewrite.
+	Unlimited bool
 }
 
 // OrphanConsolidationUsecase folds unfolded orphan ranges into degraded

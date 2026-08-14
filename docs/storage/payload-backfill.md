@@ -2,7 +2,10 @@
 
 [日本語](payload-backfill.ja.md)
 
-`traceary store payload-backfill` rewrites every existing compressible payload
+> Removed in v0.35.0 (#1872). Encoding now happens during
+> `traceary store compact`. `store payload-backfill` is an unknown command.
+
+`traceary store payload-backfill` rewrote every existing compressible payload
 text column through the versioned zstd codec already shipped in
 `payload_codec.go`:
 

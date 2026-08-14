@@ -33,7 +33,7 @@ whole-store sort.
   read-only SQLite connection can recreate transient WAL shared-memory sidecars
   while observing a WAL store; that is not a Traceary data mutation. For
   capacity planning, preview the separate operation with
-  `traceary store gc --dry-run` and archive before applying retention.
+  `traceary store compact`.
 
 ## Rollback
 

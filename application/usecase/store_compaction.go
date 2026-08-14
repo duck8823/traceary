@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -20,11 +22,102 @@ type storeCompactionUsecase struct {
 	lease         application.StoreCompactionLease
 	now           func() time.Time
 	expectedStore string
+	cover         func(context.Context, string) error
+}
+
+type compactFilterSetter interface {
+	SetCompactFilter(application.CompactFilter)
+}
+
+// BindCompactionWorkCover attaches the --force mechanical cover used on the
+// work copy. Composition root only; tests omit it.
+func BindCompactionWorkCover(u application.StoreCompactionUsecase, cover func(context.Context, string) error) {
+	if concrete, ok := u.(*storeCompactionUsecase); ok {
+		concrete.cover = cover
+	}
 }
 
 // NewStoreCompactionUsecase composes the dedicated compaction protocol.
 func NewStoreCompactionUsecase(expectedStore string, j application.StoreCompactionJournal, b application.StoreCompactionBuilder, f application.StoreCompactionFiles, l application.StoreCompactionLease) application.StoreCompactionUsecase {
 	return &storeCompactionUsecase{journal: j, builder: b, files: f, lease: l, now: time.Now, expectedStore: filepath.Clean(expectedStore)}
+}
+
+func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.CompactInput) (application.CompactResult, error) {
+	source := in.Source
+	if source == "" {
+		source = u.expectedStore
+	}
+	if filepath.Clean(source) != u.expectedStore {
+		return application.CompactResult{}, fmt.Errorf("compaction store binding mismatch")
+	}
+	cutoff := application.CompactCutoff(in.Now, in.KeepDays)
+	if setter, ok := u.builder.(compactFilterSetter); ok {
+		filter := application.CompactFilter{Cutoff: cutoff}
+		if in.Force && u.cover != nil {
+			filter.AfterClone = u.cover
+		}
+		setter.SetCompactFilter(filter)
+	}
+	var gate application.BodyGate
+	if inspector, ok := u.builder.(application.CompactBodyGateInspector); ok {
+		var inspectErr error
+		gate, inspectErr = inspector.InspectBodyGate(ctx, source, cutoff)
+		if inspectErr != nil {
+			return application.CompactResult{}, inspectErr
+		}
+		if gate.MustRefuse(in.Force) {
+			return application.CompactResult{}, application.UnrefinedMaterialError{Sessions: gate.UnrefinedSessions, Bytes: gate.UnrefinedBytes}
+		}
+	}
+	before, beforeErr := os.Stat(source)
+	if beforeErr != nil {
+		return application.CompactResult{}, fmt.Errorf("stat compaction source: %w", beforeErr)
+	}
+	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
+	if err != nil {
+		return application.CompactResult{}, err
+	}
+	defer release()
+	run, err := u.compactLeased(ctx, source)
+	if err != nil {
+		return application.CompactResult{}, err
+	}
+	after, afterErr := os.Stat(source)
+	if afterErr != nil {
+		return application.CompactResult{}, fmt.Errorf("stat compacted store: %w", afterErr)
+	}
+	remaining, remainingBytes := gate.UnrefinedSessions, gate.UnrefinedBytes
+	if in.Force {
+		remaining, remainingBytes = 0, 0
+	}
+	return application.CompactResult{
+		Run:                 run,
+		BytesBefore:         before.Size(),
+		BytesAfter:          after.Size(),
+		UnrefinedRemaining:  remaining,
+		UnrefinedBytes:      remainingBytes,
+		MechanicalSummaries: in.Force && gate.UnrefinedSessions > 0,
+	}, nil
+}
+
+func (u *storeCompactionUsecase) compactLeased(ctx context.Context, source string) (domain.CompactionRun, error) {
+	if finder, ok := u.journal.(application.CompactionInFlightFinder); ok {
+		existing, findErr := finder.FindInFlight(ctx, source)
+		if findErr == nil && existing.ID != "" && existing.Phase != domain.CompactionCommitted && existing.Phase != domain.CompactionRolledBack {
+			if err := u.validateBinding(existing); err != nil {
+				return existing, err
+			}
+			return u.resumeLeased(ctx, existing)
+		}
+		if findErr != nil && !errors.Is(findErr, os.ErrNotExist) {
+			return domain.CompactionRun{}, findErr
+		}
+	}
+	planned, err := u.planLeased(ctx, source)
+	if err != nil {
+		return planned, err
+	}
+	return u.applyLeased(ctx, planned)
 }
 
 func (u *storeCompactionUsecase) Plan(ctx context.Context, source string) (domain.CompactionRun, error) {
@@ -36,6 +129,10 @@ func (u *storeCompactionUsecase) Plan(ctx context.Context, source string) (domai
 		return domain.CompactionRun{}, err
 	}
 	defer release()
+	return u.planLeased(ctx, source)
+}
+
+func (u *storeCompactionUsecase) planLeased(ctx context.Context, source string) (domain.CompactionRun, error) {
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
 		return domain.CompactionRun{}, fmt.Errorf("create compaction run id: %w", err)

@@ -99,7 +99,7 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 		evidence.FilesystemFreeAvailable = true
 	}
 	check := evaluateStoreGrowthBudget(evidence)
-	check.FixCommand = "traceary store compact plan --db-path " + shellQuote(dbPath)
+	check.FixCommand = "traceary store compact --db-path " + shellQuote(dbPath)
 	return []doctorCheck{check, legacySearchIndexCheck(legacyBytes, dbPath)}
 }
 
@@ -134,15 +134,15 @@ func legacySearchIndexCheck(bytes int64, dbPath string) doctorCheck {
 			formatByteSize(bytes),
 		),
 		Hint: Localize(
-			"run `traceary store search-retire` to drop it, then `traceary store compact plan` to return the bytes to the filesystem; dropping alone only moves pages to the free list",
-			"`traceary store search-retire` で削除し、その後 `traceary store compact plan` でファイルサイズを回収してください。DROP だけではページが free list に戻るだけです",
+			"run `traceary store compact` to drop the retired index during the rewrite and return the bytes to the filesystem",
+			"`traceary store compact` で退役済み index を書き換え時に落とし、ファイルサイズを回収してください",
 		),
-		FixCommand: "traceary store search-retire --db-path " + shellQuote(dbPath),
+		FixCommand: "traceary store compact --db-path " + shellQuote(dbPath),
 	}
 }
 
 func unknownStoreGrowthCheck(size int64, dbPath, reason string) doctorCheck {
-	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth signals are unknown (%s); database metadata size=%s alone is not enough to select remediation", "store growth signal は不明です (%s)。database metadata size=%s だけではremediationを選択できません", reason, formatByteSize(size)), Hint: Localize("retry bounded diagnostics without competing writers; preview the safe compaction plan before any mutation", "競合writerなしでbounded diagnosticsを再実行し、変更前にsafe compaction planをpreviewしてください"), FixCommand: "traceary store compact plan --db-path " + shellQuote(dbPath)}
+	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth signals are unknown (%s); database metadata size=%s alone is not enough to select remediation", "store growth signal は不明です (%s)。database metadata size=%s だけではremediationを選択できません", reason, formatByteSize(size)), Hint: Localize("retry bounded diagnostics without competing writers; run `traceary store compact` to rewrite the file", "競合writerなしでbounded diagnosticsを再実行し、`traceary store compact` でファイルを書き換えてください"), FixCommand: "traceary store compact --db-path " + shellQuote(dbPath)}
 }
 
 func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
@@ -167,7 +167,7 @@ func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
 	if len(reasons) == 0 {
 		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s event_payload=%s projection=%s free=%s latency=%s", "store growth signal は予算内です: database=%s event_payload=%s projection=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond))}
 	}
-	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("preview safe compaction first, then follow the reviewed copy/preflight/scrub/compact/swap workflow; retain rollback artifacts until verification succeeds", "まずsafe compactionをpreviewし、その後review済みのcopy/preflight/scrub/compact/swap手順を実行してください。検証成功までrollback artifactを保持してください"), FixCommand: "traceary store compact plan"}
+	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("preview safe compaction first, then follow the reviewed copy/preflight/scrub/compact/swap workflow; retain rollback artifacts until verification succeeds", "まずsafe compactionをpreviewし、その後review済みのcopy/preflight/scrub/compact/swap手順を実行してください。検証成功までrollback artifactを保持してください"), FixCommand: "traceary store compact"}
 }
 
 func formatDoctorFree(e storeGrowthEvidence) string {
@@ -236,15 +236,14 @@ func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot, dbPath string) doc
 			formatByteSize(snapshot.Size),
 		),
 		// Whether the retired legacy search index is present cannot be known
-		// without opening SQLite, which this mode exists to avoid. The advice
-		// is therefore unconditional, which is safe because search-retire is a
-		// no-op on a store that no longer carries the family.
+		// without opening SQLite, which this mode exists to avoid. compact
+		// drops the family if it is still there.
 		Hint: localizef(
-			"this is capacity-safe, not a lock diagnosis. Stop competing writers or use a reviewed bounded copy, then retry diagnostics. If this store predates v0.34 it may still carry the retired legacy search index: run `traceary store search-retire --db-path %s` (a no-op if already removed), then preview safe remediation with `traceary store compact plan --db-path %s`.",
-			"これは capacity-safe な結果であり lock 診断ではありません。競合 writer を停止するかreview済みbounded copyを使って診断を再実行してください。v0.34 より前から使っているストアには退役済みの legacy search index が残っている可能性があります。`traceary store search-retire --db-path %s`（削除済みなら no-op）を実行してから、`traceary store compact plan --db-path %s`で安全なremediationをpreviewしてください。",
-			quoted, quoted,
+			"this is capacity-safe, not a lock diagnosis. Stop competing writers or use a reviewed bounded copy, then retry diagnostics. If this store predates v0.34 it may still carry the retired legacy search index: run `traceary store compact --db-path %s`.",
+			"これは capacity-safe な結果であり lock 診断ではありません。競合 writer を停止するかreview済みbounded copyを使って診断を再実行してください。v0.34 より前から使っているストアには退役済みの legacy search index が残っている可能性があります。`traceary store compact --db-path %s` を実行してください。",
+			quoted,
 		),
-		FixCommand: "traceary store search-retire --db-path " + quoted,
+		FixCommand: "traceary store compact --db-path " + quoted,
 	}
 }
 
@@ -286,10 +285,10 @@ func inspectStoreSizeBudget(dbPath string) doctorCheck {
 			formatByteSize(size),
 		),
 		Hint: Localize(
-			"preview `traceary store compact plan --db-path PATH`; do not run in-place VACUUM or infer cleanup solely from file size.",
-			"`traceary store compact plan --db-path PATH`でpreviewしてください。in-place VACUUMやfile sizeだけに基づくcleanup判断は行わないでください。",
+			"preview `traceary store compact --db-path PATH`; do not run in-place VACUUM or infer cleanup solely from file size.",
+			"`traceary store compact --db-path PATH`でpreviewしてください。in-place VACUUMやfile sizeだけに基づくcleanup判断は行わないでください。",
 		),
-		FixCommand: "traceary store compact plan --db-path " + shellQuote(dbPath),
+		FixCommand: "traceary store compact --db-path " + shellQuote(dbPath),
 	}
 }
 

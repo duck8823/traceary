@@ -3,6 +3,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -11,56 +12,69 @@ import (
 )
 
 func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
-	group := &cobra.Command{Use: "compact", Short: "Safely compact and atomically replace the SQLite store"}
-	group.AddCommand(c.newStoreCompactionPlanCommand())
-	for _, action := range []string{"apply", "resume", "status", "rollback"} {
-		group.AddCommand(c.newStoreCompactionRunCommand(action))
+	var (
+		path     string
+		force    bool
+		keepDays int
+	)
+	cmd := &cobra.Command{
+		Use:   "compact",
+		Short: Localize("Rewrite the store, dropping reclaimable bodies and retired indexes", "ストアを書き換え、回収できる本文と退役済み index を落とす"),
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			resolved, service, err := c.compactionFor(path)
+			if err != nil {
+				return err
+			}
+			result, err := service.Compact(cmd.Context(), application.CompactInput{
+				Source:   resolved,
+				Force:    force,
+				KeepDays: keepDays,
+			})
+			if err != nil {
+				var unrefined application.UnrefinedMaterialError
+				if errors.As(err, &unrefined) {
+					return xerrors.Errorf("%s", unrefined.Error())
+				}
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+				"run_id":               result.Run.ID,
+				"phase":                result.Run.Phase,
+				"bytes_before":         result.BytesBefore,
+				"bytes_after":          result.BytesAfter,
+				"unrefined_remaining":  result.UnrefinedRemaining,
+				"unrefined_bytes":      result.UnrefinedBytes,
+				"mechanical_summaries": result.MechanicalSummaries,
+				"rollback_path":        result.Run.RollbackPath,
+			})
+		},
 	}
-	return group
-}
-
-func (c *RootCLI) newStoreCompactionPlanCommand() *cobra.Command {
-	var path string
-	cmd := &cobra.Command{Use: "plan", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		resolved, service, err := c.compactionFor(path)
-		if err != nil {
-			return err
-		}
-		run, err := service.Plan(cmd.Context(), resolved)
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(run)
-	}}
 	cmd.Flags().StringVar(&path, "db-path", "", dbPathFlagUsage())
+	cmd.Flags().BoolVar(&force, "force", false, Localize("write mechanical summaries for unrefined discardable sessions and discard those bodies", "未 refine の破棄対象へ機械要約を書いて本文を捨てる"))
+	cmd.Flags().IntVar(&keepDays, "keep-days", application.DefaultCompactKeepDays, Localize("retain bodies newer than this many days", "この日数より新しい本文は保持する"))
+	cmd.AddCommand(c.newStoreCompactionRollbackCommand())
 	return cmd
 }
 
-func (c *RootCLI) newStoreCompactionRunCommand(action string) *cobra.Command {
+func (c *RootCLI) newStoreCompactionRollbackCommand() *cobra.Command {
 	var path string
-	cmd := &cobra.Command{Use: action + " RUN_ID", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		_, service, err := c.compactionFor(path)
-		if err != nil {
-			return err
-		}
-		var value any
-		switch action {
-		case "apply":
-			value, err = service.Apply(cmd.Context(), args[0])
-		case "resume":
-			value, err = service.Resume(cmd.Context(), args[0])
-		case "status":
-			value, err = service.Status(cmd.Context(), args[0])
-		case "rollback":
-			value, err = service.Rollback(cmd.Context(), args[0])
-		default:
-			return xerrors.New("unsupported compaction action")
-		}
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(value)
-	}}
+	cmd := &cobra.Command{
+		Use:   "rollback RUN_ID",
+		Short: Localize("Restore the pre-compact store from the rollback inode", "rollback inode から compact 前のストアを戻す"),
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, service, err := c.compactionFor(path)
+			if err != nil {
+				return err
+			}
+			value, err := service.Rollback(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(value)
+		},
+	}
 	cmd.Flags().StringVar(&path, "db-path", "", dbPathFlagUsage())
 	return cmd
 }

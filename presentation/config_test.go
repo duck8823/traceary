@@ -218,3 +218,38 @@ func TestLoadExtraRedactPatterns_logsWarningForInvalidJSON(t *testing.T) {
 		t.Fatalf("expected warning log about invalid config, got: %s", logBuffer.String())
 	}
 }
+
+func TestLoadConfig_malformedFileStillSetsCompactWarnDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configDir := filepath.Join(home, ".config", "traceary")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte("{invalid}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := presentation.LoadConfig()
+	if cfg.Compact.ReclaimWarnBytes != presentation.DefaultCompactReclaimWarnBytes {
+		t.Fatalf("Compact.ReclaimWarnBytes = %d, want default %d so a broken file still warns", cfg.Compact.ReclaimWarnBytes, presentation.DefaultCompactReclaimWarnBytes)
+	}
+	if cfg.Consolidation.ThresholdBytes != 0 {
+		t.Fatalf("Consolidation.ThresholdBytes = %d, want 0 on malformed config", cfg.Consolidation.ThresholdBytes)
+	}
+}
+
+func TestLoadConfig_explicitZeroDisablesCompactWarn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configDir := filepath.Join(home, ".config", "traceary")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"compact":{"reclaim_warn_bytes":0}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := presentation.LoadConfig()
+	if cfg.Compact.ReclaimWarnBytes != 0 {
+		t.Fatalf("Compact.ReclaimWarnBytes = %d, want explicit 0", cfg.Compact.ReclaimWarnBytes)
+	}
+}

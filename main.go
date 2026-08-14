@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"log/slog"
 	"os"
@@ -23,7 +24,6 @@ import (
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
-	"github.com/duck8823/traceary/domain"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -148,34 +148,6 @@ func run() error {
 	sessionOrphanRangeDatasource := sqlite.NewSessionOrphanRangeDatasource(db)
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
-	payloadRehearsalAdapter, err := sqlite.NewPayloadRehearsalAdapter(migrationsSubFS, dbPath)
-	if err != nil {
-		return xerrors.Errorf("configure payload rehearsal: %w", err)
-	}
-	preparedJournal := func(path string) application.PreparedStoreUpgradeJournal {
-		return &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-prepared-upgrades")}
-	}
-	if err = payloadRehearsalAdapter.SetTargetPreparation(sqlite.PayloadRehearsalPreparation{
-		Migrations: migrationsSubFS,
-		Journal:    preparedJournal,
-		Service: func(path string) application.PreparedStoreUpgradeUsecase {
-			recipe := &sqlite.PreparedMigrationCandidateRecipe{
-				Migrations: migrationsSubFS,
-				Verifier:   sqlite.PreparedMigrationVerifier{Migrations: migrationsSubFS},
-			}
-			return usecase.NewPreparedStoreUpgradeUsecase(
-				path,
-				preparedJournal(path),
-				sqlite.PreparedStoreUpgradeFiles{},
-				sqlite.StoreLeaseCoordinator{},
-				map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{
-					domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration: recipe,
-				},
-			)
-		},
-	}); err != nil {
-		return xerrors.Errorf("configure prepared payload rehearsal: %w", err)
-	}
 	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
 	reportDatasource := sqlite.NewReportDatasource(db)
 	codexCaptureDiagnosticDatasource := sqlite.NewCodexCaptureDiagnosticDatasource(db)
@@ -224,14 +196,10 @@ func run() error {
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
-	payloadRehearsalUsecase := usecase.NewPayloadRehearsalUsecase(payloadRehearsalAdapter, payloadRehearsalAdapter, payloadRehearsalAdapter, payloadRehearsalAdapter)
-	payloadBackfillUsecase := usecase.NewPayloadBackfillUsecase(sqlite.NewPayloadBackfillDatasource(db))
-	rawBodyRetentionUsecase := usecase.NewRawBodyRetentionUsecase(storeManagementDatasource, storeManagementDatasource)
 	fileRetentionDatasource := filesystem.NewFileRetentionDatasource()
 	fileRetentionUsecase := usecase.NewFileRetentionUsecase(fileRetentionDatasource, fileRetentionDatasource)
 	oneShotRepairUsecase := usecase.NewOneShotRepairUsecase(storeManagementDatasource, storeManagementDatasource)
 	workspaceIdentityUsecase := usecase.NewWorkspaceIdentityUsecase(workspaceIdentityDatasource, workspaceIdentityDatasource, types.SystemClock{})
-
 
 	hooksOrchestrator := filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
 		"claude":      filesystem.NewClaudeHooksHandler(),
@@ -275,14 +243,13 @@ func run() error {
 		cli.WithCapacityInspector(sqlite.NewCapacityInspector(db)),
 		cli.WithPayloadCodecInspector(sqlite.NewPayloadCodecInspector(db)),
 		cli.WithSearchProjection(usecase.NewSearchProjectionUsecase(db)),
-		cli.WithLegacySearchRetire(usecase.NewLegacySearchRetireUsecase(db)),
 		cli.WithStoreCompactionFactory(func(path string) application.StoreCompactionUsecase {
 			journal := &sqlite.CompactionFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-compaction")}
-			return usecase.NewStoreCompactionUsecase(path, journal, sqlite.SQLiteCompactionBuilder{}, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{})
+			builder := &sqlite.SQLiteCompactionBuilder{}
+			svc := usecase.NewStoreCompactionUsecase(path, journal, builder, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{})
+			usecase.BindCompactionWorkCover(svc, compactWorkCover(migrationsSubFS))
+			return svc
 		}),
-		cli.WithPayloadRehearsal(payloadRehearsalUsecase),
-		cli.WithPayloadBackfill(payloadBackfillUsecase),
-		cli.WithRawBodyRetention(rawBodyRetentionUsecase),
 		cli.WithFileRetention(fileRetentionUsecase),
 		cli.WithOneShotRepair(oneShotRepairUsecase),
 		cli.WithWorkspaceIdentity(workspaceIdentityUsecase),
@@ -421,4 +388,23 @@ func writeCLIError(output io.Writer, err error) error {
 	}
 
 	return nil
+}
+
+func compactWorkCover(migrations fs.FS) func(context.Context, string) error {
+	return func(ctx context.Context, work string) error {
+		db := sqlite.NewDatabase(work, migrations)
+		sessionDatasource := sqlite.NewSessionDatasource(db)
+		refinementDatasource := sqlite.NewSessionRefinementDatasource(db)
+		eventDatasource := sqlite.NewEventDatasource(db)
+		orphanDatasource := sqlite.NewSessionOrphanRangeDatasource(db)
+		refine := usecase.NewSessionRefinementUsecase(sessionDatasource, refinementDatasource, eventDatasource, types.SystemClock{})
+		cover := usecase.NewOrphanConsolidationUsecase(orphanDatasource, refine, types.SystemClock{})
+		if _, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
+			StaleAfter: 24 * time.Hour,
+			Unlimited:  true,
+		}); err != nil {
+			return xerrors.Errorf("compact force cover: %w", err)
+		}
+		return nil
+	}
 }

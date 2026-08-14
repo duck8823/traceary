@@ -2,6 +2,9 @@
 
 [English](payload-backfill.md)
 
+> v0.35.0 で削除（#1872）。符号化は `traceary store compact` の途中で行います。
+> `store payload-backfill` は unknown command です。
+
 `traceary store payload-backfill` は、既存の圧縮可能なペイロードテキスト列を、
 すでに `payload_codec.go` に実装されているバージョン付き zstd codec 経由で
 書き直します。対象は次のとおりです。

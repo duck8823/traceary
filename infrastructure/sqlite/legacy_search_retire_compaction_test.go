@@ -6,16 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain"
 )
 
-// TestCompactionRefusesAStoreThatStillCarriesTheLegacySearchFamily asserts the
-// plan-time guard. Compacting first would copy the dead index into the
-// candidate and bake it into the new file, so the operator is told to retire
-// it first — by name, since that is the command that unblocks them.
-func TestCompactionRefusesAStoreThatStillCarriesTheLegacySearchFamily(t *testing.T) {
+func TestCompactionDropsTheLegacySearchFamilyDuringTheCopy(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -29,22 +27,39 @@ func TestCompactionRefusesAStoreThatStillCarriesTheLegacySearchFamily(t *testing
 		StoreReplacementFiles{CallerHoldsExclusiveLease: true},
 		StoreLeaseCoordinator{},
 	)
-	_, err := planner.Plan(ctx, source)
-	if err == nil {
-		t.Fatal("Plan() error = nil, want a refusal while the legacy search family is present")
+	run, err := planner.Plan(ctx, source)
+	if err != nil {
+		t.Fatalf("Plan() error = %v, want success so compact can drop the family", err)
 	}
-	if !strings.Contains(err.Error(), "search-retire") {
-		t.Fatalf("Plan() error = %v, want it to name `store search-retire`", err)
+	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "apply-journal")}
+	if err := journal.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	service := usecase.NewStoreCompactionUsecase(
+		source,
+		journal,
+		SQLiteCompactionBuilder{},
+		StoreReplacementFiles{CallerHoldsExclusiveLease: true},
+		StoreLeaseCoordinator{},
+	)
+	if _, err := service.Apply(ctx, run.ID); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", directSQLiteRWDSN(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	present, err := legacySearchFamilyPresent(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present {
+		t.Fatal("compacted store still carries the retired search family")
 	}
 }
 
-// TestRequireStaticSearchStateGuardsCandidateConstruction pins the second,
-// deeper check. Candidate construction runs behind the exclusive lease and
-// re-asks the question the plan already asked, because a run planned by an
-// older binary carries no plan-time verdict at all. It is asserted directly:
-// end to end the source-identity guard fires first, so this one is defence in
-// depth rather than a reachable operator path.
-func TestRequireStaticSearchStateGuardsCandidateConstruction(t *testing.T) {
+func TestRequireStaticSearchStateReportsFamilyWithoutSearchRetire(t *testing.T) {
 	ctx := context.Background()
 	source := filepath.Join(t.TempDir(), "source.db")
 	createCompactableStore(t, source)
@@ -70,15 +85,11 @@ func TestRequireStaticSearchStateGuardsCandidateConstruction(t *testing.T) {
 	if err == nil {
 		t.Fatal("requireStaticSearchState() error = nil, want a refusal while the family is present")
 	}
-	if !strings.Contains(err.Error(), "search-retire") {
-		t.Fatalf("requireStaticSearchState() error = %v, want it to name `store search-retire`", err)
+	if strings.Contains(err.Error(), "search-retire") {
+		t.Fatalf("requireStaticSearchState() error = %v, must not name the removed command", err)
 	}
 }
 
-// TestRejectRetiredSearchIndexInspectsWhateverWouldBePublished pins which file
-// the pre-exchange guard reads. A run resumed from CandidateVerified has a
-// built candidate and never revisits Plan or Build, so a clean source proves
-// nothing — only the candidate shows what the exchange would publish.
 func TestRejectRetiredSearchIndexInspectsWhateverWouldBePublished(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -93,13 +104,10 @@ func TestRejectRetiredSearchIndexInspectsWhateverWouldBePublished(t *testing.T) 
 	if err == nil {
 		t.Fatal("RejectRetiredSearchIndex() error = nil, want a refusal for a candidate carrying the family")
 	}
-	if !strings.Contains(err.Error(), "search-retire") {
-		t.Fatalf("RejectRetiredSearchIndex() error = %v, want it to name `store search-retire`", err)
+	if strings.Contains(err.Error(), "search-retire") {
+		t.Fatalf("RejectRetiredSearchIndex() error = %v, must not name the removed command", err)
 	}
 
-	// A prepared-migration publication is how a store reaches the schema where
-	// the family can be retired at all; refusing it would make the family
-	// unremovable on exactly the stores that carry it.
 	rehearsal := run
 	rehearsal.Operation = domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration
 	if err := (PreparedStoreUpgradeFiles{}).RejectRetiredSearchIndex(ctx, rehearsal); err != nil {
@@ -119,9 +127,6 @@ func createCompactableStore(t *testing.T, path string) {
 	}
 }
 
-// addLegacySearchFamilyObject reproduces what the guard actually looks for: a
-// named member of the migration-032 family in the schema. Its contents are
-// irrelevant to the check, so the fixture stays a plain table.
 func addLegacySearchFamilyObject(t *testing.T, path string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", directSQLiteRWDSNCreate(path))
@@ -131,5 +136,18 @@ func addLegacySearchFamilyObject(t *testing.T, path string) {
 	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`CREATE TABLE event_search_documents(event_id TEXT PRIMARY KEY, body_text TEXT NOT NULL DEFAULT '', command_text TEXT NOT NULL DEFAULT '', input_text TEXT NOT NULL DEFAULT '', output_text TEXT NOT NULL DEFAULT '')`); err != nil {
 		t.Fatalf("create legacy search family object: %v", err)
+	}
+}
+
+func TestInspectBodyGateZeroOnSampleStore(t *testing.T) {
+	ctx := context.Background()
+	source := filepath.Join(t.TempDir(), "source.db")
+	createCompactableStore(t, source)
+	gate, err := (SQLiteCompactionBuilder{}).InspectBodyGate(ctx, source, application.CompactCutoff(time.Now(), 90))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gate.MustRefuse(false) {
+		t.Fatalf("sample store gate = %+v, must not refuse", gate)
 	}
 }

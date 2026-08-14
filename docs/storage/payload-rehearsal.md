@@ -2,7 +2,10 @@
 
 [日本語](payload-rehearsal.ja.md)
 
-v0.34 provides a copied-store rehearsal only. It never activates compressed
+> Removed in v0.35.0 (#1872). `store payload-rehearsal` is an unknown command.
+> Encoding happens during `traceary store compact`.
+
+v0.34 provided a copied-store rehearsal only. It never activated compressed
 canonical writes and never modifies the configured live store.
 
 Codec compatibility preflight uses constant-size transactional counters for

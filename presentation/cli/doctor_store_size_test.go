@@ -74,7 +74,7 @@ func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.
 	if !strings.Contains(legacy.Message, "9.0 GiB") {
 		t.Fatalf("legacy message = %q, want the summed family bytes", legacy.Message)
 	}
-	if !strings.Contains(legacy.FixCommand, "search-retire") {
+	if !strings.Contains(legacy.FixCommand, "store compact") {
 		t.Fatalf("legacy fix = %q", legacy.FixCommand)
 	}
 	// The live projection's 96 MiB must not absorb the retired family's 9 GiB,
@@ -121,7 +121,7 @@ func TestInspectStoreSizeBudget_LargeFileWarns(t *testing.T) {
 	if !strings.Contains(check.Message, "large") {
 		t.Fatalf("message = %q", check.Message)
 	}
-	if !strings.Contains(check.Hint, "store compact plan") {
+	if !strings.Contains(check.Hint, "store compact") {
 		t.Fatalf("hint = %q", check.Hint)
 	}
 }
@@ -153,7 +153,7 @@ func TestEvaluateStoreGrowthBudgetUsesIndependentSignals(t *testing.T) {
 			if check.Status != doctorStatusWarn {
 				t.Fatalf("check=%#v", check)
 			}
-			if !strings.HasPrefix(check.FixCommand, "traceary store compact plan") {
+			if !strings.HasPrefix(check.FixCommand, "traceary store compact") {
 				t.Fatalf("fix=%q", check.FixCommand)
 			}
 		})
@@ -214,7 +214,7 @@ func TestStoreSnapshotSurvivesDeleteAfterSingleStat(t *testing.T) {
 	// The metadata-only mode cannot know whether the retired legacy index is
 	// present, so it advises unconditionally — and must advise on the store the
 	// operator actually named, not the default path.
-	if !strings.Contains(check.Hint, "search-retire") || !strings.Contains(check.FixCommand, shellQuote("/tmp/other store.db")) {
+	if !strings.Contains(check.Hint, "store compact") || !strings.Contains(check.FixCommand, shellQuote("/tmp/other store.db")) {
 		t.Fatalf("check=%#v", check)
 	}
 }

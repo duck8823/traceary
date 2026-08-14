@@ -208,7 +208,7 @@ func rejectLegacySearchFamilyAt(ctx context.Context, path string) error {
 		return nil //nolint:nilerr // same: an unreadable schema is not evidence of the family
 	}
 	if present {
-		return xerrors.New("legacy search index family is still present; run `traceary store search-retire` before compact plan/apply")
+		return xerrors.New("legacy search index family is still present; store compact drops it during the copy")
 	}
 	return nil
 }

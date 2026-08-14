@@ -93,9 +93,9 @@ Treat this as a dogfood review signal, not as automatic cleanup. The check inten
 
 ### Concurrent cleanup versus active ingestion
 
-`traceary store gc` reclaims logical rows only. Preview filesystem reclamation
-with `traceary store compact plan --db-path PATH`; the safe compaction engine,
-not an in-place `VACUUM`, owns physical replacement and rollback.
+`traceary store compact` rewrites the file and returns space to the filesystem.
+It is not an in-place `VACUUM`; the old inode stays until you accept or
+`store compact rollback RUN_ID`.
 Do not treat aggressive cleanup as a background maintenance task while many sessions are actively writing to the same DB.
 Take a backup first and prefer running cleanup during a quieter period.
 

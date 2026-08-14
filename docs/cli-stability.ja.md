@@ -58,7 +58,7 @@ admin コマンドは運用者向けのメンテサーフェスです。`--help`
 
 v0.15 の admin コマンド：
 
-- **ストア管理** — `traceary store init`、`traceary store backup create`、`traceary store backup restore`、`traceary store gc`
+- **ストア管理** — `traceary store init`、`traceary store backup create`、`traceary store backup restore`、`traceary store compact`
 - **セッション管理** — `traceary session gc`（stale なセッションを終了する。`session` 名前空間配下に公開セッションサブコマンドと同じ位置で登録されているが、扱いとしては admin ティアのメンテナンス入口）
 - **durable memory admin** — `traceary memory admin extract`、`traceary memory admin import codex`、`traceary memory admin import instructions`、`traceary memory admin export`、`traceary memory admin activate`、`traceary memory admin hygiene scan`、`traceary memory admin hygiene apply`、`traceary memory admin supersede`、`traceary memory admin expire`、`traceary memory admin set-validity`
 
@@ -87,6 +87,7 @@ v0.15 の admin コマンド：
 
 過去の削除履歴：
 
+- v0.35.0 で削除（#1872）: ストアサイズ削減コマンド一式を `traceary store compact` に畳みました。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。削除: `traceary store gc`、`traceary store dedupe` / `content-events`、`traceary store retention plan|apply|restore`（本文 retention。`store retention files` は残します）、`traceary store payload-rehearsal`（`preview|run|resume|scrub|rollback`）、`traceary store payload-backfill`（`preview|run|resume|status`）、`traceary store search-retire`、`traceary store compact plan|apply|resume|status`。代わりに `traceary store compact`（任意の `--force`、`--keep-days`）と `traceary store compact rollback RUN_ID` を使ってください。`traceary store search-projection` は変更しません。旧ファイルは rollback を捨てるまで archive です。
 - v0.35.0 で削除（#1871）: `traceary mcp-server`、`presentation/mcpserver` パッケージ、9 個の MCP tool、および出荷しているすべての host package の MCP server 宣言（Claude / Codex / Gemini / Grok / Kimi / Antigravity）。呼び出しは unknown command（`unknown command "mcp-server"`）として非ゼロ終了し、`DEPRECATED` 通知は出しません。これは one-minor deprecation window の明示的なポリシー例外です。MCP は公開コマンドで、v0.34 の「現在非推奨」registry にも載っていませんでした。削除は #1693 の owner 決定であり、「何も失われない」証拠に基づきます — 歴史的な MCP write は 659,304 イベント中 16 件（0.0024%、最終 write 2026-07-19）、hook capture は shell（`traceary hook …`）のまま、出荷ホストはすべて shell を持ち、skill は CLI 経由です（#1875）。同じ作業には CLI を使ってください（例: `session active` / `session latest` / `session handoff` / `context`、`search`、`list`、`report`、memory inbox/store/admin）。Claude の `hooks.json` は `matcher: mcp__.*` を残し、*他サーバ*の tool call audit を継続します。
 - v0.35.0 で削除（#1869）: `traceary session tree` と `traceary session lineage`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。script 向けの active-session view には `traceary sessions --snapshot` / `--snapshot --json` を使ってください。
 - v0.35.0 で削除（v0.34 の非推奨 #1688 / #1690）: `traceary top`（`traceary top --snapshot` / `--snapshot --json` を含む）。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。`traceary sessions`（または `traceary sessions --snapshot` / `--snapshot --json`）を使ってください。snapshot 契約は変更していません。
