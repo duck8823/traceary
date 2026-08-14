@@ -43,7 +43,7 @@ func TestBundleImport_UsesCanonicalPayloadCodec(t *testing.T) {
 		plain,
 		time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC),
 	)
-	audit, err := model.NewCommandAudit("bundle-zstd", "go test ./...", "", plain, false, false)
+	audit, err := model.NewCommandAudit("bundle-zstd", "go test "+plain, plain, plain, false, false)
 	if err != nil {
 		t.Fatalf("NewCommandAudit() error = %v", err)
 	}
@@ -64,7 +64,9 @@ func TestBundleImport_UsesCanonicalPayloadCodec(t *testing.T) {
 		t.Fatalf("Commit() error = %v", err)
 	}
 
-	assertCallSiteBodyCodec(t, openCallSiteDB(t, dbPath), "bundle-zstd", "zstd")
+	conn := openCallSiteDB(t, dbPath)
+	assertCallSiteBodyCodec(t, conn, "bundle-zstd", "zstd")
+	assertCallSiteAuditCodecs(t, conn, "bundle-zstd", "zstd")
 	details, err := events.GetDetails(ctx, event.EventID())
 	if err != nil {
 		t.Fatalf("GetDetails() error = %v", err)
@@ -72,9 +74,12 @@ func TestBundleImport_UsesCanonicalPayloadCodec(t *testing.T) {
 	if details.Event().Body() != plain {
 		t.Fatalf("imported event body mismatch: got %d bytes", len(details.Event().Body()))
 	}
-	audit, ok := details.CommandAudit().Value()
-	if !ok || audit.Output() != plain {
-		t.Fatalf("imported audit output mismatch")
+	gotAudit, ok := details.CommandAudit().Value()
+	if !ok {
+		t.Fatal("imported audit missing")
+	}
+	if gotAudit.Command() != audit.Command() || gotAudit.Input() != plain || gotAudit.Output() != plain {
+		t.Fatalf("imported audit payload mismatch")
 	}
 }
 
@@ -92,6 +97,10 @@ func TestArchiveRestore_UsesCanonicalPayloadCodec(t *testing.T) {
 	if _, err := conn.Exec(`INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
 VALUES ('archive-zstd', 'note', 'cli', 'manual', 's1', '', ?, '2020-01-01T00:00:00Z', '')`, plain); err != nil {
 		t.Fatalf("insert event: %v", err)
+	}
+	if _, err := conn.Exec(`INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, exit_code, failed)
+VALUES ('archive-zstd', ?, ?, ?, 0, 0, 0, 0)`, "go test "+plain, plain, plain); err != nil {
+		t.Fatalf("insert audit: %v", err)
 	}
 
 	uc := usecase.NewStoreManagementUsecase(store)
@@ -111,6 +120,7 @@ VALUES ('archive-zstd', 'note', 'cli', 'manual', 's1', '', ?, '2020-01-01T00:00:
 		t.Fatalf("RestoreStoreArchive() error = %v", err)
 	}
 	assertCallSiteBodyCodec(t, conn, "archive-zstd", "zstd")
+	assertCallSiteAuditCodecs(t, conn, "archive-zstd", "zstd")
 	events := sqlite.NewEventDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t)))
 	details, err := events.GetDetails(ctx, types.EventID("archive-zstd"))
 	if err != nil {
@@ -118,6 +128,13 @@ VALUES ('archive-zstd', 'note', 'cli', 'manual', 's1', '', ?, '2020-01-01T00:00:
 	}
 	if details.Event().Body() != plain {
 		t.Fatalf("restored body mismatch: got %d bytes", len(details.Event().Body()))
+	}
+	gotAudit, ok := details.CommandAudit().Value()
+	if !ok {
+		t.Fatal("restored audit missing")
+	}
+	if gotAudit.Input() != plain || gotAudit.Output() != plain || gotAudit.Command() != strings.TrimSpace("go test "+plain) {
+		t.Fatalf("restored audit payload mismatch")
 	}
 }
 
@@ -158,6 +175,75 @@ func TestDedupeRestore_UsesCanonicalPayloadCodec(t *testing.T) {
 	}
 	if details.Event().Body() != plain {
 		t.Fatalf("restored dedupe body mismatch: got %d bytes", len(details.Event().Body()))
+	}
+}
+
+func TestRawBodyRestore_UsesCanonicalPayloadCodec(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	events, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	plain := compressiblePayloadBody()
+	event := rawBodyRetentionEvent(t, "retention-zstd", plain, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(ctx, event); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	makeRawBodyRetentionEligible(t, dbPath, event.EventID().String())
+
+	snapshot, err := store.ListRawBodyCandidates(ctx, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ListRawBodyCandidates() error = %v", err)
+	}
+	if len(snapshot.Candidates) != 1 {
+		t.Fatalf("candidate count = %d, want 1", len(snapshot.Candidates))
+	}
+	planID := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	if _, err := store.ApplyRawBodyPlan(ctx, snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("ApplyRawBodyPlan() error = %v", err)
+	}
+
+	recovery := []apptypes.RawBodyRecoveryBody{{Candidate: snapshot.Candidates[0], Body: plain}}
+	restored, err := store.RestoreRawBodyPlan(ctx, snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, recovery, time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RestoreRawBodyPlan() error = %v", err)
+	}
+	if restored.RestoredCount != 1 {
+		t.Fatalf("restore result = %+v", restored)
+	}
+
+	assertCallSiteBodyCodec(t, openCallSiteDB(t, dbPath), "retention-zstd", "zstd")
+	details, err := events.GetDetails(ctx, event.EventID())
+	if err != nil {
+		t.Fatalf("GetDetails() error = %v", err)
+	}
+	if details.Event().Body() != plain {
+		t.Fatalf("restored raw-body mismatch: got %d bytes", len(details.Event().Body()))
+	}
+}
+
+func assertCallSiteAuditCodecs(t *testing.T, db *sql.DB, id, want string) {
+	t.Helper()
+	var commandCodec, inputCodec, outputCodec sql.NullString
+	if err := db.QueryRow(
+		`SELECT command_codec, input_codec, output_codec FROM command_audits WHERE event_id = ?`,
+		id,
+	).Scan(&commandCodec, &inputCodec, &outputCodec); err != nil {
+		t.Fatalf("read audit codecs %s: %v", id, err)
+	}
+	for field, got := range map[string]sql.NullString{
+		"command_codec": commandCodec,
+		"input_codec":   inputCodec,
+		"output_codec":  outputCodec,
+	} {
+		if !got.Valid {
+			t.Fatalf("%s for %s is NULL, want %q", field, id, want)
+		}
+		if got.String != want {
+			t.Fatalf("%s for %s = %q, want %q", field, id, got.String, want)
+		}
 	}
 }
 
