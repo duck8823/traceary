@@ -31,16 +31,17 @@ The tier sets the rules for what may change, when it may change, and what notice
 
 The public surface is the operator-facing daily-use surface. Public commands keep their command path, flag names, stdout text shape, and `--json` / `--id-only` / NDJSON byte shape stable across minor releases.
 
-Current public commands, including compatibility aliases introduced after v0.15, are grouped by intent:
+Current public commands, including compatibility aliases introduced after v0.15, are grouped by intent. The shipped classification of every visible public/admin leaf is `presentation/cli/pillar_inventory.go` (#1692).
 
 - **Event recording** — `traceary log`, `traceary audit`
 - **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary sessions` (and `traceary sessions --snapshot` / `--snapshot --json`)
-- **Sessions** — `traceary session start`, `traceary session end`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session refine`, `traceary session latest`, `traceary session active`
+- **Sessions** — `traceary session start`, `traceary session end`, `traceary session run`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session refine`, `traceary session latest`, `traceary session active`
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
-- **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox review` (TTY-only)
-- **Durable memory store** — `traceary memory store remember`, `traceary memory store propose`, `traceary memory store distill`
-- **Hooks** — `traceary hooks print`, `traceary hooks install`, `traceary hooks guide`, `traceary completion`
-- **Diagnostics** — `traceary doctor` (alias `traceary status`)
+- **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
+- **Durable memory store** — `traceary memory store remember` (deprecated; removal target v0.36.0), `traceary memory store propose`, `traceary memory store distill`
+- **Durable memory decay** — `traceary memory decay`
+- **Hooks** — `traceary hooks print`, `traceary hooks install`, `traceary hooks guide`, `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
+- **Diagnostics** — `traceary doctor` (alias `traceary status`), `traceary report`
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
@@ -56,11 +57,12 @@ The v0.19.0 text snapshot for `traceary sessions --snapshot` intentionally inser
 
 Admin commands are operator-facing maintenance surfaces. They are still listed in `--help` and documented in the CLI reference, but they are not part of the daily read path. Admin commands may evolve faster than public commands when the affected audience is operators only, but they still follow the deprecation notice expectations below.
 
-Admin commands in v0.15:
+Admin commands as of v0.35:
 
-- **Store administration** — `traceary store init`, `traceary store backup create`, `traceary store backup restore`, `traceary store compact`
-- **Session administration** — `traceary session gc` (closes stale sessions; visible under the `session` namespace and registered alongside the public session subcommands, but treated as an admin-tier maintenance entrypoint)
+- **Store administration** — `traceary store init`, `traceary store backup create`, `traceary store backup restore`, `traceary store compact`, `traceary store compact rollback`, `traceary store archive create`, `traceary store archive restore`, `traceary store archive verify`, `traceary store capacity`, `traceary store retention files plan`, `traceary store retention files apply`, `traceary store search-projection start`, `traceary store search-projection resume`, `traceary store search-projection status`, `traceary store search-projection abort`, `traceary store search-projection probe`, `traceary store workspace-alias add`, `traceary store workspace-alias list`, `traceary store workspace-alias remove`
+- **Session administration** — `traceary session gc` (closes stale sessions; visible under the `session` namespace and registered alongside the public session subcommands, but treated as an admin-tier maintenance entrypoint), `traceary session repair-one-shot`
 - **Durable memory admin** — `traceary memory admin extract`, `traceary memory admin import codex`, `traceary memory admin import instructions`, `traceary memory admin export`, `traceary memory admin activate`, `traceary memory admin hygiene scan`, `traceary memory admin hygiene apply`, `traceary memory admin supersede`, `traceary memory admin expire`, `traceary memory admin set-validity`
+- **Report administration** — `traceary report workspace-identity`
 
 ### Plumbing / hidden / deprecated commands (v0.15)
 
@@ -83,7 +85,13 @@ Stability and deprecation expectations for these runtime entrypoints:
 
 Currently deprecated:
 
-- _(none)_
+- `traceary memory store remember` → `traceary memory store propose` (removal target v0.36.0; #1692 / owner decision on #1870). `remember` writes `status=accepted` immediately and bypasses inbox review. `traceary-memory-remember` must land as `status=candidate`. The command still runs; stdout / `--json` / `--id-only` stay unchanged during the window.
+
+### Pillar inventory (v0.35)
+
+#1692 walked every visible public/admin leaf against the two pillars (記録 = capture / summarise / compress / evict; 記憶 = consolidate and supply automatically). Hidden hook entrypoints stay plumbing (see below). The shipped table is `presentation/cli/pillar_inventory.go`; a test fails if a visible action is added without a row.
+
+A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. Planned absorbs (`list --follow`, `list --blocks`, `hooks install --dry-run`, `memory search --all`) are not noticed until those flags exist. `sessions --snapshot` stays because the v0.34 announcement already published it. `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
 
 Historical removal log:
 

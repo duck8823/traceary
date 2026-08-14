@@ -448,6 +448,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	// instead of silently printing help and exiting 0. The root keeps its own
 	// RunE (help + stray-arg guard) and is left untouched.
 	applyStrictGroups(rootCmd)
+	applyInventoryDeprecations(rootCmd)
 	attachCompactReclaimWarning(rootCmd)
 
 	return rootCmd

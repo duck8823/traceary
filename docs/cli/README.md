@@ -415,7 +415,7 @@ Every command under `memory store` writes a durable-memory row, regardless of wh
 
 #### `traceary memory store remember`
 
-Record an accepted durable memory directly.
+**Deprecated in v0.35.0; removal target v0.36.0.** Use `traceary memory store propose`. This command still records an accepted durable memory directly (stdout / `--json` / `--id-only` unchanged). It bypasses inbox review; the skill-facing write is `propose`.
 
 Useful flags:
 

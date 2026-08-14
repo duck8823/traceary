@@ -62,6 +62,9 @@ func TestApplyCommandDeprecation(t *testing.T) {
 			if diff := cmp.Diff(1, strings.Count(stderr.String(), "\n")); diff != "" {
 				t.Errorf("notice line count mismatch (-want +got):\n%s", diff)
 			}
+			if !strings.Contains(cmd.Short, "Deprecated") && !strings.Contains(cmd.Short, "非推奨") {
+				t.Errorf("Short %q does not name the deprecation", cmd.Short)
+			}
 		})
 	}
 }
@@ -100,5 +103,3 @@ func TestWriteDeprecationNoticeWithoutReplacement(t *testing.T) {
 		})
 	}
 }
-
-

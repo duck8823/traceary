@@ -6,6 +6,8 @@
 
 This document is the v0.14 baseline that the memory namespace migration was built on. As of v0.15.0 the hidden deprecated aliases described below have been removed; keep this page as the historical mapping from the old flat paths to the canonical grouped paths.
 
+v0.35.0 (#1692): `memory store remember` is deprecated in favor of `memory store propose` (removal target v0.36.0). The v0.14 grouping below is otherwise unchanged.
+
 ## Goals
 
 - Group memory commands by intent: daily read, inbox curation, durable write, and admin/host-side operations.

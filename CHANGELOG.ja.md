@@ -24,6 +24,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **`traceary search --json` は events/sessions オブジェクトになりました (#1775)** — v0.34.0 の #1717 予告を完了します。stdout は常に `{"events": [...], "sessions": [...]}` で、どちらのキーも存在します（ヒットがない tier は空配列）。明示的な `--fields` はこれまでどおり `.events` 内の event フィールドを選び、session オブジェクトは `session_id` / `summary` / `event_count` / `started_at` のままです。v0.34 の「sessions が `--json` から省略された」stderr 通知は削除しました。テキスト検索出力は変更していません。
 - **v0.34 の置き換え先なし非推奨を削除 (#1691)** — `traceary memory admin graph add` / `graph list`、`traceary session label`、`traceary session list --label`、`session list` テキストの `LABEL` 列、`session list` JSON の `label` フィールドを削除しました。呼び出しは unknown command/flag として非ゼロ終了し、`DEPRECATED` 通知は出しません。`memory_edges` テーブルと `sessions.label` 列は gc / bundle / schema 互換のためストアに残しています。
 
+### Deprecated
+- **`traceary memory store remember` は v0.35.0 で非推奨、v0.36.0 で削除 (#1692)** — `traceary memory store propose` を使ってください。`remember` は即座に `status=accepted` で書き inbox review を迂回します。skill が使う書き込みは `propose`（`status=candidate`）です。stdout / `--json` / `--id-only` はこの期間中変わりません。残りの可視 public / admin 面は `presentation/cli/pillar_inventory.go` で分類して残します。#1870 の残グループは v0.34 registry に無いので削除しません。
+
 ## [v0.34.0] - 2026-08-12
 
 ### Added
