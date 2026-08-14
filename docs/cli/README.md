@@ -113,6 +113,7 @@ Useful flags:
 - `--from` / `--since`
 - `--to` / `--until`
 - `--timezone`
+- `--failures` — keep this 記録 filter. It matches `command_audits.failed = 1` or a captured non-zero `exit_code`. Current writes store structured host tool failures as `host_error` (not `unknown`). Pre-classifier `unknown`+`failed=1` rows still match the flag half. See [failed-flag meaning](../research/failed-flag-meaning.md).
 
 ### `traceary tail`
 

@@ -60,6 +60,8 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - `failed`: 構造化された実行結果から導出する互換用の失敗フラグ
 - `failure_reason`: `none`、`exit_code`、`signal`、`timeout`、`hook_denied`、`host_error`、`unknown` のいずれか
 
+新規書き込みの `failed` は `failure_reason.IsFailure()` から立てます。exit code のない構造化 hook 失敗は `unknown` ではなく `host_error` です。`failed=1` かつ `failure_reason=unknown` は分類器以前の履歴（2026-07-22 より前の schema default）で、restore は残し、新規書き込みは作れません。意味は [failed-flag の意味](../research/failed-flag-meaning.ja.md) を見てください。
+
 Traceary は確認済みのコマンド構造だけを正規化します。直接実行は先頭 token の basename を使い、wrapper として展開するのは観測済みの `rtk <command>` / `rtk proxy <command>` だけです。shell 文字列を実行したり完全評価したりはしません。取得済みの終了コード `0` は常に成功であり、input/output に `failed` のような文字列が含まれていても report の失敗には数えません。report 集計は payload 本文を解析しません。この schema より前の履歴行は、取得していない根拠を推測せず、`command_name=unknown` と `failure_reason=unknown` を明示します。
 
 `input_truncated` または `output_truncated` が true の場合、保存済み payload はすでに上限内の head/tail projection であり、新規 row では対応する `*_original_bytes` column に元の byte 数を記録します。検索 index は `command_text` / `input_text` / `output_text` を `events.body` と独立に持つため、合成 body を消しても audit テキストの検索性は失われません。切り詰められた byte は過去 row から復元できません。

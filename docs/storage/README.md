@@ -60,6 +60,8 @@ Key columns:
 - `failed`: compatibility failure flag derived from structured outcome evidence
 - `failure_reason`: `none`, `exit_code`, `signal`, `timeout`, `hook_denied`, `host_error`, or `unknown`
 
+New writes set `failed` from `failure_reason.IsFailure()`. A structural hook failure with no exit code is stored as `host_error`, not as `unknown`. Rows with `failed=1` and `failure_reason=unknown` are pre-classifier history (schema default before 2026-07-22); restore keeps them, and new writes cannot create them. See [failed-flag meaning](../research/failed-flag-meaning.md).
+
 Traceary normalizes only command structure it has verified. Direct executables use the first token basename, and only the observed `rtk <command>` / `rtk proxy <command>` grammar is unwrapped. It never executes or fully evaluates the shell text. A captured exit code of `0` is authoritative success even if input/output text contains words such as `failed`; report aggregation never parses payload text. Historical rows created before this schema use explicit `command_name=unknown` and `failure_reason=unknown` rather than reconstructing evidence that was not captured.
 
 When `input_truncated` or `output_truncated` is true, the stored payload is already a bounded head/tail projection and the corresponding `*_original_bytes` column records the original size for new rows. Search indexes `command_text` / `input_text` / `output_text` independently of `events.body`, so clearing the composed body does not drop searchable audit text. The omitted truncated bytes are not recoverable from historical rows.
