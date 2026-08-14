@@ -826,10 +826,21 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		return out, e
 	}
 	defer func() { _ = tx.Rollback() }()
-	holdCtx, holdCancel := context.WithTimeout(ctx, hold)
+	holdDeadline := time.Now().Add(hold)
+	holdOwnClock := true
+	var holdCtx context.Context
+	var holdCancel context.CancelFunc
+	if parentDeadline, ok := ctx.Deadline(); ok && !parentDeadline.After(holdDeadline) {
+		// Parent (usually the wall budget) expires first. Keep cancellation
+		// but do not treat that deadline as a held-lock row-work overrun.
+		holdOwnClock = false
+		holdCtx, holdCancel = context.WithCancel(ctx)
+	} else {
+		holdCtx, holdCancel = context.WithDeadline(ctx, holdDeadline)
+	}
 	defer holdCancel()
 	defer func() {
-		err = rowWorkOrHoldError(p, hold, err)
+		err = rowWorkOrHoldError(p, hold, holdOwnClock, err)
 	}()
 	if d.afterProjectionLockHeld != nil {
 		if hookErr := d.afterProjectionLockHeld(holdCtx); hookErr != nil {
@@ -1046,7 +1057,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 // rowWorkOrHoldError maps a hold-clock deadline to RowWorkCap. Acquisition
 // failures never reach here. A single source write also carries the exclusion
 // identity so the caller can persist a row_work skip without re-reading.
-func rowWorkOrHoldError(p apptypes.ProjectionBatchPlan, hold time.Duration, err error) error {
+func rowWorkOrHoldError(p apptypes.ProjectionBatchPlan, hold time.Duration, holdOwnClock bool, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -1054,7 +1065,7 @@ func rowWorkOrHoldError(p apptypes.ProjectionBatchPlan, hold time.Duration, err 
 	if errors.As(err, &noProgress) {
 		return err
 	}
-	if !isSearchProjectionDeadline(err) {
+	if !holdOwnClock || !isSearchProjectionDeadline(err) {
 		return err
 	}
 	out := &apptypes.SearchProjectionNoProgressError{

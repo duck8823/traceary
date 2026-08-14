@@ -149,9 +149,12 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 //nolint:wrapcheck // Typed store errors must reach ResumeUntil.
 func (u *SearchProjectionUsecase) applySourcePlan(ctx context.Context, plan apptypes.ProjectionBatchPlan, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
 	progress, err := u.store.ApplyBatch(ctx, plan, b.LockTime, now)
-	if err == nil || b.Rows > 1 {
+	if err == nil {
 		return progress, err
 	}
+	// The budget Rows value is not the plan size: a default 128-row resume can
+	// still be a one-write plan (last remaining source row). That identity is
+	// already on the error; shrinking first would leave single Resume stuck.
 	var noProgress *apptypes.SearchProjectionNoProgressError
 	if !errors.As(err, &noProgress) || noProgress.Code != apptypes.SearchProjectionNoProgressRowWorkCap || noProgress.Exclusion.EventID == "" {
 		return progress, err

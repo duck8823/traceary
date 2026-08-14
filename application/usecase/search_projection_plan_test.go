@@ -567,6 +567,25 @@ func TestSearchProjectionResumeUntilShrinksInventoryBatch(t *testing.T) {
 	}
 }
 
+func TestSearchProjectionResumeExcludesOneWriteWhenBudgetRowsRemain(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
+	store := &adaptiveProjectionStore{budget: b, rowWorkCap: true, checkpoints: []int64{2}}
+	progress, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]int{4}, store.plannedRows); diff != "" {
+		t.Fatalf("planned rows (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int64{2, 3}, store.checkpoints); diff != "" {
+		t.Fatalf("checkpoints (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, progress.Selected); diff != "" {
+		t.Fatalf("selected (-want +got):\n%s", diff)
+	}
+}
+
 func TestSearchProjectionResumeUntilExcludesSingleRowWorkCap(t *testing.T) {
 	t.Parallel()
 	b := apptypes.SearchProjectionBudget{Rows: 4, WallTime: time.Second, LockTime: time.Second, StoredBytes: 100, DecodedBytes: 100, WriteBytes: 1000, RecentAge: time.Hour, IndexFamilyBytes: 100}
