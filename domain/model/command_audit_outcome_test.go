@@ -24,6 +24,7 @@ func TestCommandAuditClassifyOutcome(t *testing.T) {
 		{name: "timeout", reported: types.CommandFailureReasonTimeout, wantReason: types.CommandFailureReasonTimeout, wantFailed: true},
 		{name: "hook denial", reported: types.CommandFailureReasonHookDenied, wantReason: types.CommandFailureReasonHookDenied, wantFailed: true},
 		{name: "generic structural failure", failed: true, wantReason: types.CommandFailureReasonHostError, wantFailed: true},
+		{name: "unclassified structural failure cannot stay unknown", reported: types.CommandFailureReasonUnknown, failed: true, wantReason: types.CommandFailureReasonHostError, wantFailed: true},
 		{name: "unreported outcome", wantReason: types.CommandFailureReasonUnknown},
 	}
 	for _, tc := range tests {

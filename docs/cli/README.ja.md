@@ -113,6 +113,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 - `--from` / `--since`
 - `--to` / `--until`
 - `--timezone`
+- `--failures` — この 記録 フィルタは残す。`command_audits.failed = 1` または取得済みの非ゼロ `exit_code` に一致する。現行の書き込みは構造化された host のツール失敗を `unknown` ではなく `host_error` として保存する。分類器以前の `unknown`+`failed=1` はフラグ側で一致する。意味は [failed-flag の意味](../research/failed-flag-meaning.ja.md) を見てください。
 
 ### `traceary tail`
 

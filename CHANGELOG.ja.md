@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **`failed=1` は構造化失敗であり `list --failures` は残す (#1767)** — 現行書き込みはフラグを `failure_reason.IsFailure()` から立て、hook の構造化失敗を `host_error` として保存する。分類器以前の `unknown`+`failed=1` は読める。新しい CHECK は足さない。`docs/research/failed-flag-meaning.ja.md` を参照。
 - **compact の rollback copy は operator が消すまで残る (#1827)** — apply 時の `VerifyPair` は実使用の証明ではない。成功 JSON は `rollback_retained: true` と `rollback_path` を出す。`doctor` は隣の `<db>.rollback-*` を報告する。release サブコマンドは追加しない。
 - **hook 以外の Ctrl-C が command context を cancel する (#1747)** — `store compact` など長い非 hook コマンドは signal 由来の context を使う（hook の soft deadline は付けない）。2 回目の Ctrl-C は即終了。`memory inbox review` の SIGINT はこれまでどおり Bubble Tea が持つ。
 
