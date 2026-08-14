@@ -599,6 +599,11 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 
 func TestRootCLI_DoctorJSONIncludesOperatorCost(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutable(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	stub := operatorCostInspectorStub{report: apptypes.OperatorCostReport{
 		SchemaVersion:                       "traceary.operator_cost/v1",
@@ -621,9 +626,7 @@ func TestRootCLI_DoctorJSONIncludesOperatorCost(t *testing.T) {
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"doctor", "--db-path", dbPath, "--json", "--warnings-ok"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	executeDoctorAllowWarnings(t, rootCmd)
 	report := decodeDoctorReport(t, stdout.Bytes())
 	if report.OperatorCost == nil || report.OperatorCost.SchemaVersion != "traceary.operator_cost/v1" {
 		t.Fatalf("operator_cost = %+v", report.OperatorCost)
