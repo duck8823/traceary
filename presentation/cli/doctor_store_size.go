@@ -167,7 +167,7 @@ func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
 	if len(reasons) == 0 {
 		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s event_payload=%s projection=%s free=%s latency=%s", "store growth signal は予算内です: database=%s event_payload=%s projection=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond))}
 	}
-	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("preview safe compaction first, then follow the reviewed copy/preflight/scrub/compact/swap workflow; retain rollback artifacts until verification succeeds", "まずsafe compactionをpreviewし、その後review済みのcopy/preflight/scrub/compact/swap手順を実行してください。検証成功までrollback artifactを保持してください"), FixCommand: "traceary store compact"}
+	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("rewrite with `traceary store compact` (copy-filter, body discard, VACUUM INTO, atomic exchange). This is not a preview. Keep the rollback file until you accept the result (`traceary store compact rollback RUN_ID`). Do not run in-place VACUUM", "書き換えは `traceary store compact` です（copy-filter、本文破棄、VACUUM INTO、atomic exchange）。preview ではありません。受け入れるまで rollback ファイルを残してください（`traceary store compact rollback RUN_ID`）。in-place VACUUM は使わないでください"), FixCommand: "traceary store compact"}
 }
 
 func formatDoctorFree(e storeGrowthEvidence) string {
@@ -285,8 +285,8 @@ func inspectStoreSizeBudget(dbPath string) doctorCheck {
 			formatByteSize(size),
 		),
 		Hint: Localize(
-			"preview `traceary store compact --db-path PATH`; do not run in-place VACUUM or infer cleanup solely from file size.",
-			"`traceary store compact --db-path PATH`でpreviewしてください。in-place VACUUMやfile sizeだけに基づくcleanup判断は行わないでください。",
+			"rewrite with `traceary store compact --db-path PATH` (copy-filter, body discard, VACUUM INTO, atomic exchange). This is not a preview. Rollback with `traceary store compact rollback RUN_ID`. Do not run in-place VACUUM or infer cleanup solely from file size.",
+			"書き換えは `traceary store compact --db-path PATH` です（copy-filter、本文破棄、VACUUM INTO、atomic exchange）。preview ではありません。取り消すには `traceary store compact rollback RUN_ID`。in-place VACUUM や file size だけの判断はしないでください。",
 		),
 		FixCommand: "traceary store compact --db-path " + shellQuote(dbPath),
 	}

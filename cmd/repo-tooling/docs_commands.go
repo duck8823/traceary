@@ -127,7 +127,7 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 			return
 		}
 	}
-	if len(current.Commands()) > 0 {
+	if len(current.Commands()) > 0 && !docsCommandHasOwnAction(current) {
 		children := make([]string, 0, len(current.Commands()))
 		for _, child := range current.Commands() {
 			children = append(children, child.Name())
@@ -136,6 +136,15 @@ func verifyDocumentedCommand(root *cobra.Command, file string, invocation docume
 		finding := fmt.Sprintf("%s:%d: traceary %s is a group command and does not execute an action; use one of its subcommands: %s", file, invocation.Line, strings.Join(invocation.Path, " "), strings.Join(children, ", "))
 		report.FencedGroupCommands = append(report.FencedGroupCommands, finding)
 	}
+}
+
+// docsCommandHasOwnAction is true when a parent command is itself an
+// operator action, not a help-only group. applyStrictGroups assigns RunE to
+// every unused parent so unknown subcommands fail closed; those parents have
+// no Args validator. `store compact` has both children (rollback) and a
+// NoArgs RunE that rewrites the file.
+func docsCommandHasOwnAction(command *cobra.Command) bool {
+	return command.Runnable() && command.Args != nil
 }
 
 func validateDocumentedLeafArgs(command *cobra.Command, args []string) error {

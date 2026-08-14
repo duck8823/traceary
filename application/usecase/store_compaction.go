@@ -68,6 +68,9 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		if gate.MustRefuse(in.Force) {
 			return application.CompactResult{}, application.UnrefinedMaterialError{Sessions: gate.UnrefinedSessions, Bytes: gate.UnrefinedBytes}
 		}
+		if in.Force && gate.UnrefinedSessions > 0 && u.cover == nil {
+			return application.CompactResult{}, fmt.Errorf("compact --force requested but no work-copy cover is bound")
+		}
 	}
 	before, beforeErr := os.Stat(source)
 	if beforeErr != nil {

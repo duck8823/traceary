@@ -153,7 +153,7 @@ Session rows mean the trail contains a match. A session is selected by its start
 
 A completed generation is a snapshot, so events recorded after it are read directly from `events` and merged into the same result — search never goes stale between rebuilds. Before a generation completes, `search` still answers literal matches correctly by decoding candidates directly; it is slower, and the SESSIONS group is empty because the session tier is refused until then (#1844). The stderr notice points to `traceary store search-projection status`: `docs/search-projection-rebuild.md` lists what each state needs; if readiness cannot be determined, the same status command explains the ambiguous empty group. When the walk exhausts its candidate budget it does not return a partial page — it reports `index_incomplete`. Completing the projection restores the fingerprint pre-filter and the session tier; which command gets a given state there is in `docs/search-projection-rebuild.md`, because `start` is refused while a generation is already rebuilding.
 
-The full-corpus migration-032 index that used to back this command is retired in v0.34. It is no longer read or maintained, and `traceary store search-retire` removes it — see [search retirement](../operations/search-retirement.md).
+The full-corpus migration-032 index that used to back this command is retired in v0.34. It is no longer read or maintained, and `traceary store compact` drops it during the rewrite — see [search retirement](../operations/search-retirement.md).
 
 Text results use the same compact single-line format as `list` / `tail` (local time by default) when only literal event matches are present. When both groups are present, output is labelled as `EVENTS (literal matches)` and `SESSIONS (summary or keyword matches)`. Pass `--wide` for the legacy tab-separated table, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 event-row shape. `--json` emits `{"events": [...], "sessions": [...]}`. Both keys are always present (empty arrays when a tier has no hits). Explicit `--fields` selects event fields inside `.events`; session objects keep their fixed shape (`session_id`, `summary`, `event_count`, `started_at`). Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default); `--fields` cannot be combined with `--wide`, and the supported field list is shown under `traceary list` above. Use `--preset <name>` for saved views; a preset with filters can make a search with no free-text query valid because its filters count as constraints.
 
@@ -886,7 +886,7 @@ Store an agent-authored session refinement (L2 summary).
 
 Traceary never composes the summary text: it stores what you hand it and owns only generation and coverage bookkeeping. Replaying the same `--covers-to` range is a no-op (same row, same generation, text unchanged). When coverage advances, the existing row is replaced with `generation + 1` while `covers-from` is kept as the earlier bound.
 
-`covers-from` is always derived (the session's earliest event on first write; kept on supersede). Degraded refinements are written only by store gc through the use case, not this CLI.
+`covers-from` is always derived (the session's earliest event on first write; kept on supersede). Degraded refinements are written only by `store compact --force` through the use case, not this CLI.
 
 Required flags:
 
@@ -1039,7 +1039,7 @@ Useful flags:
 
 ## Store administration (`traceary store ...`)
 
-Store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` aliases were removed in v0.14.0; running them now returns Cobra's unknown-command error (use `traceary store init`, `traceary store backup ...`, `traceary store gc`). The aliases shipped a deprecation notice from v0.9.0 through v0.13.x. See [CLI stability and deprecation policy](../cli-stability.md).
+Store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` aliases were removed in v0.14.0; running them now returns Cobra's unknown-command error (use `traceary store init`, `traceary store backup ...`, `traceary store compact`). The aliases shipped a deprecation notice from v0.9.0 through v0.13.x. See [CLI stability and deprecation policy](../cli-stability.md).
 
 ### `traceary store init`
 
@@ -1066,36 +1066,26 @@ Useful flags:
 - `--force`
 - `--yes`
 
-### `traceary store gc`
+### `traceary store compact`
 
-Delete retained store records and compact the SQLite store. By default, `--target all` applies retention to events, empty ended sessions, expired/superseded memories, and closed memory edges. Use `--target events` to keep the legacy event-only behavior.
+Rewrite the store file. Running the command is the consent: Traceary copies the store, filters the copy, vacuums into a new file, and atomically exchanges it. The old inode stays as the rollback file.
+
+While copying, compact drops non-canonical duplicate hook bodies, discards covered bodies past `--keep-days` (default 90), encodes remaining bodies, and does not copy the retired search-index family. `traceary store search-projection` stays as its own command.
+
+If every discardable-age session is still unrefined, compact refuses and names `traceary-session-refine`. Partial folds proceed and reclaim what those sessions authorize. `--force` writes mechanical summaries first; the agent's reasoning (why) is not recovered.
+
+This is not a preview and not an in-place `VACUUM`. After a successful rewrite, `traceary store compact rollback RUN_ID` restores the previous file.
 
 Useful flags:
 
+- `--force`
 - `--keep-days`
-- `--target events|sessions|memories|memory_edges|all`
-- `--dry-run`
+- `--db-path`
+- `--json`
 
-#### The discard runs first, and consolidation follows it
+### `traceary store compact rollback RUN_ID`
 
-For `--target events`, `sessions`, and `all`, `gc` folds unfolded event ranges into degraded mechanical summaries so that material has a summary before anything removes it. That pass is bounded: it discovers a capped number of ranges and stops after a wall-clock budget, because a store that has never been consolidated can present tens of thousands of ranges at once.
-
-Consolidation runs **after** the discard, not before it. The discard only touches bodies a refinement already covers, so it reads the coverage that existed when the run began — and a `--dry-run`, which consolidates without writing, reads exactly the same coverage. That is what makes the preview count equal to what an apply removes. What a run folds becomes discardable on the next run, whose preview shows it first.
-
-The count is therefore printed before the consolidation lines, and it is printed even if consolidation then fails: an irreversible step is never left unreported.
-
-```
-Discarded bodies: 128
-Orphan refinements: 5000
-Orphan ranges skipped: 2
-More orphan ranges remain; re-run gc to continue consolidation
-```
-
-This exits successfully — the pass made real progress and the refinements it wrote are durable. Re-run `gc` until the "more ranges remain" line stops appearing. A store with a large backlog may need several runs; each one picks up where the last stopped. An incomplete pass no longer blocks the discard, because an unfolded range has no coverage and is out of the discard's reach either way.
-
-An unreadable range is skipped and counted, not fatal. Three consecutive failures abort the pass with an error instead, on the assumption that the mechanism itself is broken rather than one range's data.
-
-`--dry-run` applies the same bounds and reports the same counts, and reports discard candidates as well, because a dry run removes nothing.
+Restore the pre-compact store from the rollback inode published by a successful rewrite.
 
 ## Integration commands
 

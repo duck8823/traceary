@@ -98,6 +98,20 @@ func formatCompactBytes(n int64) string {
 	}
 }
 
+// ForceCoverMustComplete refuses --force when mechanical cover did not finish.
+// HasMore is leftover discovery; Skipped is Failures.Count(). Either means
+// unrefined material may still be on the work copy, so Compact must not
+// report UnrefinedRemaining=0.
+func ForceCoverMustComplete(hasMore bool, skipped int) error {
+	if hasMore {
+		return fmt.Errorf("compact --force cover is incomplete: more orphan ranges remain")
+	}
+	if skipped > 0 {
+		return fmt.Errorf("compact --force cover is incomplete: %d orphan range(s) were skipped", skipped)
+	}
+	return nil
+}
+
 // CompactCutoff returns now minus keepDays, using DefaultCompactKeepDays when
 // keepDays is not positive.
 func CompactCutoff(now time.Time, keepDays int) time.Time {

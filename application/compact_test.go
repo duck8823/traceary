@@ -72,6 +72,33 @@ func TestUnrefinedMaterialErrorNamesSkillAndForceCost(t *testing.T) {
 	}
 }
 
+func TestForceCoverMustComplete(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		hasMore bool
+		skipped int
+		wantErr bool
+	}{
+		{name: "complete"},
+		{name: "has more leftover", hasMore: true, wantErr: true},
+		{name: "skipped ranges", skipped: 2, wantErr: true},
+		{name: "both incomplete signals", hasMore: true, skipped: 1, wantErr: true},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := application.ForceCoverMustComplete(tc.hasMore, tc.skipped)
+			if tc.wantErr && err == nil {
+				t.Fatal("ForceCoverMustComplete() error = nil, want incomplete cover")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("ForceCoverMustComplete() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestCompactCutoffUsesDefaultKeepDays(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)

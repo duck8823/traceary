@@ -45,6 +45,12 @@ func TestVerifyDocsCommands(t *testing.T) {
 			wantFenced: []string{"docs/example.md:2: traceary store backup is a group command and does not execute an action; use one of its subcommands: create, restore"},
 		},
 		{
+			name:         "runnable parent with a subcommand passes",
+			path:         "docs/example.md",
+			content:      "```sh\ntraceary store compact\n```\n",
+			wantProblems: []string{},
+		},
+		{
 			name:    "group command in unlabelled fence passes",
 			path:    "docs/example.md",
 			content: "```\ntraceary store backup\n```\n",

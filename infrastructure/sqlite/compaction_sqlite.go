@@ -70,6 +70,15 @@ func (b SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate st
 			return fmt.Errorf("compact force cover: %w", err)
 		}
 		removeSQLiteSidecars(work)
+		if !b.Filter.Cutoff.IsZero() {
+			gate, inspectErr := (SQLiteCompactionBuilder{}).InspectBodyGate(ctx, work, b.Filter.Cutoff)
+			if inspectErr != nil {
+				return fmt.Errorf("re-inspect work copy after force cover: %w", inspectErr)
+			}
+			if gate.UnrefinedSessions > 0 {
+				return fmt.Errorf("compact --force cover left %d unrefined session(s)", gate.UnrefinedSessions)
+			}
+		}
 	}
 	if err := applyCopyFilters(ctx, work, b.Filter); err != nil {
 		return err
@@ -169,21 +178,42 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB)
 	if present {
 		return errors.New("candidate still carries the retired search index family")
 	}
-	sourceIDs, err := eventIdentityMap(ctx, sourceDB)
+	sourceEvents, err := eventVerifyMap(ctx, sourceDB)
 	if err != nil {
-		return fmt.Errorf("read source event identities: %w", err)
+		return fmt.Errorf("read source events: %w", err)
 	}
-	candidateIDs, err := eventIdentityMap(ctx, candidateDB)
+	candidateEvents, err := eventVerifyMap(ctx, candidateDB)
 	if err != nil {
-		return fmt.Errorf("read candidate event identities: %w", err)
+		return fmt.Errorf("read candidate events: %w", err)
 	}
-	for id, got := range candidateIDs {
-		want, ok := sourceIDs[id]
+	remainingFingerprints := map[string]struct{}{}
+	for id, got := range candidateEvents {
+		want, ok := sourceEvents[id]
 		if !ok {
 			return fmt.Errorf("candidate invented event %s", id)
 		}
-		if got != want {
+		if got.ident != want.ident {
 			return fmt.Errorf("candidate changed identity of event %s", id)
+		}
+		if got.availability == "available" {
+			if want.availability != "available" {
+				return fmt.Errorf("candidate revived event %s", id)
+			}
+			if got.fingerprint != want.fingerprint {
+				return fmt.Errorf("candidate rewrote body of event %s", id)
+			}
+		}
+		remainingFingerprints[got.fingerprint] = struct{}{}
+	}
+	for id, want := range sourceEvents {
+		if _, kept := candidateEvents[id]; kept {
+			continue
+		}
+		if want.fingerprint == "" {
+			return fmt.Errorf("candidate dropped unique event %s", id)
+		}
+		if _, ok := remainingFingerprints[want.fingerprint]; !ok {
+			return fmt.Errorf("candidate dropped unique event %s", id)
 		}
 	}
 	return nil
@@ -198,22 +228,85 @@ type eventIdentity struct {
 	Workspace string
 }
 
-func eventIdentityMap(ctx context.Context, db *sql.DB) (map[string]eventIdentity, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, kind, COALESCE(session_id,''), created_at, COALESCE(agent,''), COALESCE(client,''), COALESCE(workspace,'') FROM events`)
+type eventVerifyRecord struct {
+	ident        eventIdentity
+	availability string
+	fingerprint  string
+}
+
+func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyRecord, error) {
+	hasAvail, err := databaseColumnExists(ctx, db, "events", "body_availability")
+	if err != nil {
+		return nil, err
+	}
+	hasSHA, err := databaseColumnExists(ctx, db, "events", "body_sha256")
+	if err != nil {
+		return nil, err
+	}
+	hasCodec, err := databaseColumnExists(ctx, db, "events", "body_codec")
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id, kind, COALESCE(session_id,''), created_at, COALESCE(agent,''), COALESCE(client,''), COALESCE(workspace,''), `
+	if hasAvail {
+		query += `COALESCE(body_availability,'available'), `
+	} else {
+		query += `'available', `
+	}
+	query += `body`
+	if hasCodec {
+		query += `, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes`
+	} else {
+		query += `, NULL, NULL, NULL, NULL`
+	}
+	if hasSHA {
+		query += `, body_sha256`
+	} else {
+		query += `, NULL`
+	}
+	query += ` FROM events`
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]eventIdentity{}
+	out := map[string]eventVerifyRecord{}
 	for rows.Next() {
 		var id string
-		var ident eventIdentity
-		if err := rows.Scan(&id, &ident.Kind, &ident.SessionID, &ident.CreatedAt, &ident.Agent, &ident.Client, &ident.Workspace); err != nil {
+		var rec eventVerifyRecord
+		var row payloadRow
+		if err := rows.Scan(
+			&id,
+			&rec.ident.Kind,
+			&rec.ident.SessionID,
+			&rec.ident.CreatedAt,
+			&rec.ident.Agent,
+			&rec.ident.Client,
+			&rec.ident.Workspace,
+			&rec.availability,
+			&row.Stored,
+			&row.Codec,
+			&row.FormatVersion,
+			&row.PlaintextBytes,
+			&row.StoredBytes,
+			&row.SHA256,
+		); err != nil {
 			return nil, err
 		}
-		out[id] = ident
+		rec.fingerprint = contentFingerprint(row)
+		out[id] = rec
 	}
 	return out, rows.Err()
+}
+
+func contentFingerprint(row payloadRow) string {
+	plain, err := row.decode(maxDecodedPayloadBytes)
+	if err == nil {
+		sum := sha256.Sum256(plain)
+		return hex.EncodeToString(sum[:])
+	}
+	sum := sha256.Sum256(row.Stored)
+	return hex.EncodeToString(sum[:])
 }
 
 type storeScrub struct {

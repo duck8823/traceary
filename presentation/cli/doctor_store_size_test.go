@@ -124,6 +124,12 @@ func TestInspectStoreSizeBudget_LargeFileWarns(t *testing.T) {
 	if !strings.Contains(check.Hint, "store compact") {
 		t.Fatalf("hint = %q", check.Hint)
 	}
+	if strings.Contains(strings.ToLower(check.Hint), "preview `") {
+		t.Fatalf("hint still calls the rewrite a preview: %q", check.Hint)
+	}
+	if !strings.Contains(check.Hint, "rollback") {
+		t.Fatalf("hint = %q, want rollback RUN_ID", check.Hint)
+	}
 }
 
 func TestFormatByteSize(t *testing.T) {
@@ -155,6 +161,9 @@ func TestEvaluateStoreGrowthBudgetUsesIndependentSignals(t *testing.T) {
 			}
 			if !strings.HasPrefix(check.FixCommand, "traceary store compact") {
 				t.Fatalf("fix=%q", check.FixCommand)
+			}
+			if strings.Contains(strings.ToLower(check.Hint), "preview `") {
+				t.Fatalf("hint still calls the rewrite a preview: %q", check.Hint)
 			}
 		})
 	}

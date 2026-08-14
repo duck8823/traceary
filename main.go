@@ -399,10 +399,14 @@ func compactWorkCover(migrations fs.FS) func(context.Context, string) error {
 		orphanDatasource := sqlite.NewSessionOrphanRangeDatasource(db)
 		refine := usecase.NewSessionRefinementUsecase(sessionDatasource, refinementDatasource, eventDatasource, types.SystemClock{})
 		cover := usecase.NewOrphanConsolidationUsecase(orphanDatasource, refine, types.SystemClock{})
-		if _, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
+		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
 			StaleAfter: 24 * time.Hour,
 			Unlimited:  true,
-		}); err != nil {
+		})
+		if err != nil {
+			return xerrors.Errorf("compact force cover: %w", err)
+		}
+		if err := application.ForceCoverMustComplete(result.HasMore(), result.Skipped()); err != nil {
 			return xerrors.Errorf("compact force cover: %w", err)
 		}
 		return nil

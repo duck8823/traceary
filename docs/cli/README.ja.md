@@ -153,7 +153,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 
 complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。世代が complete になる前も、候補を直接復号して本文一致は正しく返します。速度は落ち、また session tier はそれまで参照を拒否されるため SESSIONS グループは空になります（#1844）。stderr の通知は `traceary store search-projection status` を案内します。state ごとに必要な操作は `docs/search-projection-rebuild.ja.md` にまとめています。準備状態を確認できない場合も、同じ status command で空のグループの意味を確認できます。候補予算を使い切った場合は部分的な結果を返さず `index_incomplete` を報告します。projection が complete になると fingerprint pre-filter と session tier が利用可能になります。どの state にどのコマンドが必要かは `docs/search-projection-rebuild.ja.md` を参照してください。世代が rebuilding の間、`start` は拒否されます。
 
-この command をかつて支えていた全文コーパス版 migration-032 索引は v0.34 で退役しました。読み書きはされず、`traceary store search-retire` で削除できます。詳細は [検索インデックスの退役](../operations/search-retirement.ja.md) を参照してください。
+この command をかつて支えていた全文コーパス版 migration-032 索引は v0.34 で退役しました。読み書きはされず、`traceary store compact` が書き換え時に落とします。詳細は [検索インデックスの退役](../operations/search-retirement.ja.md) を参照してください。
 
 本文一致だけの結果では、テキスト出力は `list` / `tail` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。両方のグループがあるときは `EVENTS (literal matches)` と `SESSIONS (summary or keyword matches)` のラベル付きグループになります。日本語表示では `EVENTS（本文一致）` と `SESSIONS（要約・キーワード一致）` です。`--wide` で従来のタブ区切り表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の event 行形状を再現します。`--json` は `{"events": [...], "sessions": [...]}` を出力します。どちらのキーも常に存在し、ヒットがない tier は空配列です。明示的な `--fields` は `.events` 内の event フィールドだけを選び、session オブジェクトは固定形状（`session_id` / `summary` / `event_count` / `started_at`）のままです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます。filter を持つ preset なら free-text query なしでも検索条件が揃うので、preset-only な検索も成立します。
 
@@ -879,7 +879,7 @@ session の一覧サマリーを表示します。
 
 Traceary は要約テキストを合成しません。渡された内容を保存し、generation / coverage の管理だけを所有します。同じ `--covers-to` 範囲の再実行は no-op です（行は 1 つのまま、generation もテキストも変わりません）。被覆が進んだときだけ既存行を `generation + 1` で置き換え、`covers-from` は earlier 側を保持します。
 
-`covers-from` は常に導出されます（初回はセッション最古イベント、supersede 時は既存の earlier を保持）。degraded 要約は store gc が use case 経由で書くため、この CLI では指定しません。
+`covers-from` は常に導出されます（初回はセッション最古イベント、supersede 時は既存の earlier を保持）。degraded 要約は `store compact --force` が use case 経由で書くため、この CLI では指定しません。
 
 必須 flag:
 
@@ -1030,7 +1030,7 @@ alias:
 
 ## Store 管理 (`traceary store ...`)
 
-store 管理コマンドは `store` namespace に集約されています。旧 top-level の `traceary init` / `traceary backup` / `traceary gc` alias は v0.14.0 で削除されました。実行すると Cobra の unknown-command エラーになります（`traceary store init` / `traceary store backup ...` / `traceary store gc` を使ってください）。これらの alias は v0.9.0 から v0.13.x まで deprecation 通知付きで動作していました。詳細は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
+store 管理コマンドは `store` namespace に集約されています。旧 top-level の `traceary init` / `traceary backup` / `traceary gc` alias は v0.14.0 で削除されました。実行すると Cobra の unknown-command エラーになります（`traceary store init` / `traceary store backup ...` / `traceary store compact` を使ってください）。これらの alias は v0.9.0 から v0.13.x まで deprecation 通知付きで動作していました。詳細は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
 
 ### `traceary store init`
 
@@ -1057,36 +1057,26 @@ DB 作成と migration 適用を明示的に先行実行します。通常コマ
 - `--force`
 - `--yes`
 
-### `traceary store gc`
+### `traceary store compact`
 
-保持期間を過ぎたストアレコードを削除し、SQLite ストアを圧縮します。既定では `--target all` により、events、空になった終了済み sessions、expired/superseded memories、終了済み memory_edges に retention を適用します。従来の event のみの動作にしたい場合は `--target events` を指定します。
+ストアファイルを書き換えます。実行した瞬間が同意です。Traceary はストアをコピーし、そのコピーを filter し、新しいファイルへ VACUUM INTO したあと atomic exchange します。旧 inode は rollback ファイルとして残ります。
+
+コピー中に、非 canonical な hook 重複本文、`--keep-days`（既定 90）を過ぎた covered 本文、退役済み search index family を落とします。残った本文は encode します。`traceary store search-projection` は別コマンドのままです。
+
+破棄対象の session がすべて未 refine なら compact は拒否し、`traceary-session-refine` を案内します。部分 fold は進み、その session が許可した分だけ回収します。`--force` は先に機械要約を書きます。エージェントの判断理由（なぜ）は復元しません。
+
+preview ではなく、in-place `VACUUM` でもありません。成功後は `traceary store compact rollback RUN_ID` で直前のファイルに戻せます。
 
 主な flag:
 
+- `--force`
 - `--keep-days`
-- `--target events|sessions|memories|memory_edges|all`
-- `--dry-run`
+- `--db-path`
+- `--json`
 
-#### 破棄が先に走り、機械要約はそのあとに続きます
+### `traceary store compact rollback RUN_ID`
 
-`--target events` / `sessions` / `all` では、`gc` は未要約の event range を degraded な機械要約へ畳み込みます。何かがそれを取り除く前に要約を残すためです。この pass には上限があります。発見する range 数に上限を設け、実時間の予算を超えたら打ち切ります。一度も機械要約されていないストアでは数万件の range が一度に候補になるためです。
-
-機械要約は破棄の**あと**に走ります。破棄は refinement にすでに被覆されている本文しか触らないため、run 開始時点の被覆だけを読みます。`--dry-run` は書き込まずに機械要約するので、まったく同じ被覆を読んでいます。これにより preview の件数は apply が実際に取り除く件数と一致します。ある run が要約した分は次の run で破棄対象になり、その run の preview が先に件数を示します。
-
-そのため件数は機械要約の行より前に出力され、機械要約がそのあとで失敗しても出力されます。不可逆な処理を無報告のまま終わらせないためです。
-
-```
-破棄した本文: 128
-orphan 機械要約: 5000
-orphan range のスキップ: 2
-orphan range が残っています。機械要約を続けるには gc を再実行してください
-```
-
-これは正常終了です。pass は実際に前進しており、書き込まれた refinement は永続化されています。「range が残っています」の行が出なくなるまで `gc` を再実行してください。バックログが大きいストアでは複数回の実行が必要になりますが、各実行は前回の続きから進みます。未完了の pass が破棄を止めることはもうありません。未要約の range には被覆がなく、どのみち破棄の対象外だからです。
-
-読めなかった range は致命的エラーではなく、スキップして計上します。ただし 3 回連続で失敗した場合は、個々の range のデータではなく仕組み自体が壊れているとみなし、エラーで中断します。
-
-`--dry-run` にも同じ上限と同じ集計が適用され、破棄候補の件数も報告します。dry run は何も取り除かないためです。
+成功した書き換えが残した rollback inode から、compact 前のストアを戻します。
 
 ## Integration コマンド
 
