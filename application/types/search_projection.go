@@ -334,6 +334,17 @@ type SearchProjectionStatus struct {
 	// different unit from IndexFamilyByteLimit, which is the point of #1679.
 	RecentBytes                 int64            `json:"recent_bytes"`
 	RecentDocuments             int64            `json:"recent_documents"`
+	// RecentSourceBytes is the persisted cache used by interleaved eviction
+	// (search_projection_state.recent_source_bytes). It is scoped to
+	// generation_id, which during a rebuild is the incoming generation, not
+	// the active one RecentBytes sums.
+	RecentSourceBytes           int64            `json:"recent_source_bytes"`
+	// RecentSourceBytesMeasured is SUM(decoded_bytes) for that same
+	// generation_id. Delta is cache minus measured. Status does not rewrite
+	// the cache.
+	RecentSourceBytesMeasured   int64            `json:"recent_source_bytes_measured"`
+	RecentSourceBytesDelta      int64            `json:"recent_source_bytes_delta"`
+	RecentSourceBytesEvidence   CapacityEvidence `json:"recent_source_bytes_evidence"`
 	RecentSourceCeilingBytes    int64            `json:"recent_source_ceiling_bytes"`
 	RecentAmplificationPPM      int64            `json:"recent_amplification_ppm"`
 	NonRecentFamilyBytes        int64            `json:"non_recent_family_bytes"`

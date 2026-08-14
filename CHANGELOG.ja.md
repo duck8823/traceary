@@ -11,6 +11,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **doctor がこのストアの実測コストを出す (#1809)** — `traceary doctor --json` に `operator_cost`（`traceary.operator_cost/v1`）と check `store-operator-cost` を追加。resident の event/session あたり、undiscardable / foldable の source-text、amplification、直近 30 日のレートからの月次予測。2 GiB 以上は metadata-only（resident サイズのみ）。グローバルな月次主張ではない。
 
 ### Changed
+- **`recent_source_bytes` は報告する cache (#1819)** — `store search-projection status` が `recent_source_bytes`、`recent_source_bytes_measured`、`recent_source_bytes_delta` と evidence を出す。SUM は rebuild 中の `generation_id` であり `recent_bytes`（active generation）ではない。status は cache を書き換えず、trigger も足さない。`docs/research/recent-source-bytes-verifier.ja.md` を参照。
 - **`event_metadata_projection` は残す (#1686)** — メタデータ読みは projection のまま。#1743 が `events.body` を inline のままにしたので `events` は広く、2026-08-10 の 2.7× / 15× は今も有効。`docs/research/event-metadata-projection-retention.ja.md` を参照。
 - **body の側表抽出は見合わない (#1743)** — `go run ./cmd/store-benchmark --measure-body-locality DIR` が projection / inline `events` / scratch の `event_bodies` を比較する。overflow 行では移動後に projection 並みのメタデータ時間になるが、ファイルは小さくならず、現行の読みはすでに `event_metadata_projection` を使い、live store は拒否する。`events.body` は `events` に残す。`docs/research/body-side-table-locality.ja.md` を参照。
 - **v0.34 で測れなかった fold / wake 行に計算可能な計測を足す (#1879)** — `go run ./cmd/store-benchmark --fold-gates --db COPY` が refinement 比（worth folding = refinement 行または stored body が 64 KiB 以上）と client ごとの wake 適格を出す。live store path は拒否する。`docs/research/fold-gate-measurement.ja.md` を参照。
