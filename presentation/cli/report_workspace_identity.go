@@ -191,7 +191,7 @@ func buildWorkspaceHeuristicDuplicateSummary(result apptypes.ContentEventDedupeR
 
 func writeWorkspaceIdentityReportText(output io.Writer, report workspaceIdentityReportEnvelope) error {
 	c := report.Workspace.Coverage
-	if _, err := fmt.Fprintf(output, "Workspace identity: events=%d covered=%d missing=%d coverage=%.4f observations=%d\n", c.EventCount, c.CoveredEvents, c.MissingEvents, c.CoverageRate, c.ObservationCount); err != nil {
+	if _, err := fmt.Fprintf(output, "Workspace identity: events=%d covered=%d missing=%d coverage=%.4f observations=%d conflict_pairs=%d\n", c.EventCount, c.CoveredEvents, c.MissingEvents, c.CoverageRate, c.ObservationCount, report.Workspace.ConflictPairCount); err != nil {
 		return xerrors.Errorf("failed to print workspace identity coverage: %w", err)
 	}
 	if _, err := fmt.Fprintf(output, "Exact delivery: runtime_attempts=%d exact_redeliveries=%d rate=%.4f target<%.4f sample_available=%t target_met=%t\n", report.ExactDelivery.AttemptCount, report.ExactDelivery.ExactRedeliveryCount, report.ExactDelivery.ExactRedeliveryRate, report.ExactDelivery.TargetRate, report.ExactDelivery.SampleAvailable, report.ExactDelivery.TargetMet); err != nil {
@@ -201,16 +201,16 @@ func writeWorkspaceIdentityReportText(output io.Writer, report workspaceIdentity
 		return xerrors.Errorf("failed to print heuristic candidate summary: %w", err)
 	}
 	for _, source := range report.Workspace.Sources {
-		if _, err := fmt.Fprintf(output, "  source client=%s hook=%s observations=%d exact=%d descendant=%d ancestor=%d alias=%d conflict=%d unknown=%d conflict_rate=%.4f delivery_attempts=%d runtime_attempts=%d backfilled_attempts=%d exact_redeliveries=%d exact_rate=%.4f\n",
+		if _, err := fmt.Fprintf(output, "  source client=%s hook=%s observations=%d exact=%d descendant=%d ancestor=%d alias=%d conflict=%d conflict_pairs=%d unknown=%d conflict_rate=%.4f delivery_attempts=%d runtime_attempts=%d backfilled_attempts=%d exact_redeliveries=%d exact_rate=%.4f\n",
 			source.Client, emptyDash(source.SourceHook), source.ObservationCount,
 			source.Relationships.Exact, source.Relationships.Descendant, source.Relationships.Ancestor,
-			source.Relationships.ExplicitAlias, source.Relationships.Conflict, source.Relationships.Unknown,
+			source.Relationships.ExplicitAlias, source.Relationships.Conflict, source.ConflictPairCount, source.Relationships.Unknown,
 			source.ConflictRate, source.DeliveryAttemptCount, source.RuntimeAttemptCount, source.BackfilledAttemptCount, source.ExactRedeliveryCount, source.ExactRedeliveryRate); err != nil {
 			return xerrors.Errorf("failed to print workspace identity source: %w", err)
 		}
 	}
 	for _, sample := range report.Workspace.ConflictSamples {
-		if _, err := fmt.Fprintf(output, "  conflict event_id=%s session_id=%s client=%s source_hook=%s\n", sample.EventID, sample.SessionID, sample.Client, emptyDash(sample.SourceHook)); err != nil {
+		if _, err := fmt.Fprintf(output, "  conflict event_id=%s session_id=%s workspace=%s client=%s source_hook=%s\n", sample.EventID, sample.SessionID, sample.Workspace, sample.Client, emptyDash(sample.SourceHook)); err != nil {
 			return xerrors.Errorf("failed to print workspace conflict sample: %w", err)
 		}
 	}

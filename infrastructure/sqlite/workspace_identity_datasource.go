@@ -57,6 +57,10 @@ func (d *WorkspaceIdentityDatasource) WorkspaceIdentityReport(ctx context.Contex
 		return apptypes.WorkspaceIdentityReport{}, err
 	}
 	report.Sources = sources
+	report.ConflictPairCount, err = readWorkspaceConflictPairCount(ctx, tx)
+	if err != nil {
+		return apptypes.WorkspaceIdentityReport{}, err
+	}
 	report.ConflictSamples, err = readWorkspaceConflictSamples(ctx, tx, conflictSampleLimit)
 	if err != nil {
 		return apptypes.WorkspaceIdentityReport{}, err
@@ -105,9 +109,12 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 		       SUM(current_relationship = 'explicit_alias'),
 		       SUM(current_relationship = 'conflict'),
 		       SUM(current_relationship = 'unknown'),
-		       SUM(ingested_relationship = 'conflict')
+		       SUM(ingested_relationship = 'conflict'),
+		       COUNT(DISTINCT CASE
+		         WHEN current_relationship = 'conflict' THEN session_id || char(31) || workspace
+		       END)
 		  FROM (
-			SELECT o.source_client, o.source_hook,
+			SELECT o.source_client, o.source_hook, o.session_id, o.workspace,
 			       o.observed_relationship AS ingested_relationship,
 			       CASE
 			         WHEN o.observed_relationship = 'conflict' AND EXISTS (
@@ -130,6 +137,7 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 			&item.Relationships.Ancestor, &item.Relationships.ExplicitAlias,
 			&item.Relationships.Conflict, &item.Relationships.Unknown,
 			&item.IngestedConflictCount,
+			&item.ConflictPairCount,
 		); err != nil {
 			_ = rows.Close()
 			return nil, xerrors.Errorf("failed to scan workspace relationship source: %w", err)
@@ -199,21 +207,48 @@ func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.W
 	return result, nil
 }
 
+func readWorkspaceConflictPairCount(ctx context.Context, tx *sql.Tx) (int, error) {
+	var count int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		  FROM (
+			SELECT DISTINCT o.session_id, o.workspace
+			  FROM session_workspace_observations o
+			 WHERE o.observed_relationship = 'conflict'
+			   AND NOT EXISTS (
+			       SELECT 1 FROM session_workspace_aliases a
+			        WHERE a.session_id = o.session_id AND a.alias_workspace = o.workspace
+			   )
+		  )`).Scan(&count); err != nil {
+		return 0, xerrors.Errorf("failed to count workspace conflict pairs: %w", err)
+	}
+	return count, nil
+}
+
 func readWorkspaceConflictSamples(ctx context.Context, tx *sql.Tx, limit int) ([]apptypes.WorkspaceConflictSample, error) {
 	result := make([]apptypes.WorkspaceConflictSample, 0)
 	if limit == 0 {
 		return result, nil
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT o.observed_event_id, o.session_id, o.source_client, o.source_hook
-		  FROM session_workspace_observations o
-		 WHERE o.observed_relationship = 'conflict'
-		   AND o.observed_event_id IS NOT NULL AND o.observed_event_id <> ''
-		   AND NOT EXISTS (
-		       SELECT 1 FROM session_workspace_aliases a
-		        WHERE a.session_id = o.session_id AND a.alias_workspace = o.workspace
-		   )
-		 ORDER BY ts_norm(o.observed_at) DESC, o.observation_id DESC
+		SELECT observed_event_id, session_id, workspace, source_client, source_hook
+		  FROM (
+			SELECT o.observed_event_id, o.session_id, o.workspace, o.source_client, o.source_hook,
+			       o.observed_at, o.observation_id,
+			       ROW_NUMBER() OVER (
+			         PARTITION BY o.session_id, o.workspace
+			         ORDER BY ts_norm(o.observed_at) DESC, o.observation_id DESC
+			       ) AS rn
+			  FROM session_workspace_observations o
+			 WHERE o.observed_relationship = 'conflict'
+			   AND o.observed_event_id IS NOT NULL AND o.observed_event_id <> ''
+			   AND NOT EXISTS (
+			       SELECT 1 FROM session_workspace_aliases a
+			        WHERE a.session_id = o.session_id AND a.alias_workspace = o.workspace
+			   )
+		  )
+		 WHERE rn = 1
+		 ORDER BY ts_norm(observed_at) DESC, observation_id DESC
 		 LIMIT ?`, limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query workspace conflict samples: %w", err)
@@ -221,7 +256,7 @@ func readWorkspaceConflictSamples(ctx context.Context, tx *sql.Tx, limit int) ([
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var item apptypes.WorkspaceConflictSample
-		if err := rows.Scan(&item.EventID, &item.SessionID, &item.Client, &item.SourceHook); err != nil {
+		if err := rows.Scan(&item.EventID, &item.SessionID, &item.Workspace, &item.Client, &item.SourceHook); err != nil {
 			return nil, xerrors.Errorf("failed to scan workspace conflict sample: %w", err)
 		}
 		result = append(result, item)

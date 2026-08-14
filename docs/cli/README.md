@@ -1138,12 +1138,12 @@ are unavailable, including observations excluded from counter totals.
 
 ### `traceary report workspace-identity`
 
-Print body-free workspace attribution coverage, relationship/conflict rates, and stable-ID exact-redelivery rates. Historical body/time-window candidates are skipped by default; request a bounded dry-run with `--include-heuristic` and optionally `--heuristic-limit` (default 5,000) or `--strict`. JSON reports heuristic `measurement_state` as `not_requested`, `partial`, `complete`, or `failed` independently from exact delivery. Use `--json` and `--conflict-sample-limit` for automation and QA.
-Run `traceary doctor` first when the store needs initialization or migration; the report itself is read-only.
+Print body-free workspace attribution coverage, relationship/conflict rates, and stable-ID exact-redelivery rates. Observation-row totals stay as volume; `conflict_pair_count` is the actionable unit (distinct `(session_id, workspace)` under the current conflict projection). Samples are one latest row per pair and include `workspace` so `store workspace-alias add` can be run from the report. Historical body/time-window candidates are skipped by default; request a bounded dry-run with `--include-heuristic` and optionally `--heuristic-limit` (default 5,000) or `--strict`. JSON reports heuristic `measurement_state` as `not_requested`, `partial`, `complete`, or `failed` independently from exact delivery. Use `--json` and `--conflict-sample-limit` for automation and QA.
+Run `traceary doctor` first when the store needs initialization or migration; the report itself is read-only. See [workspace-conflict meaning](../research/workspace-conflict-meaning.md).
 
 ### `traceary store workspace-alias add|list|remove`
 
-Manage operator-reviewed session/workspace aliases used by the current diagnostic projection. Add requires `--session`, `--workspace`, and `--reviewed-by`; aliases never rewrite canonical provenance.
+Manage operator-reviewed session/workspace aliases used by the current diagnostic projection. This remains the only public way to add, withdraw, or list a reviewed alias; it is not deprecated. Add requires `--session`, `--workspace`, and `--reviewed-by`; aliases never rewrite canonical provenance.
 
 ## Related docs
 
