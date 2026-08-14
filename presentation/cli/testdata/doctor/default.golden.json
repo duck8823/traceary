@@ -25,6 +25,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "compact-rollback-copy",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Hooks",
+      "message": "no compact rollback copy is retained beside the store",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "path",
       "status": "pass",
       "severity": "PASS",
@@ -354,6 +364,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "compact-rollback-copy",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Hooks",
+          "message": "no compact rollback copy is retained beside the store",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "hook-spool",
           "status": "pass",
           "severity": "PASS",
@@ -427,7 +447,7 @@
     }
   ],
   "summary": {
-    "pass": 19,
+    "pass": 20,
     "warn": 1,
     "fail": 0
   },

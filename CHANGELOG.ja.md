@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **compact の rollback copy は operator が消すまで残る (#1827)** — apply 時の `VerifyPair` は実使用の証明ではない。成功 JSON は `rollback_retained: true` と `rollback_path` を出す。`doctor` は隣の `<db>.rollback-*` を報告する。release サブコマンドは追加しない。
 - **hook 以外の Ctrl-C が command context を cancel する (#1747)** — `store compact` など長い非 hook コマンドは signal 由来の context を使う（hook の soft deadline は付けない）。2 回目の Ctrl-C は即終了。`memory inbox review` の SIGINT はこれまでどおり Bubble Tea が持つ。
 
 ### Fixed

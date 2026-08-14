@@ -63,8 +63,11 @@ func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.
 		},
 	}}}
 	checks := root.inspectStoreGrowthBudget(context.Background(), path, inspectStoreFileSnapshot(path, os.Stat))
-	if len(checks) != 2 {
+	if len(checks) != 3 {
 		t.Fatalf("checks=%#v", checks)
+	}
+	if checks[2].Name != "compact-rollback-copy" || checks[2].Status != doctorStatusPass {
+		t.Fatalf("rollback check=%#v", checks[2])
 	}
 	legacy := checks[1]
 	if legacy.Name != "legacy-search-index" || legacy.Status != doctorStatusWarn {

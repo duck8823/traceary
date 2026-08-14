@@ -286,6 +286,10 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	if isLargeStoreForBoundedDoctor(snapshot) {
 		report.Mode = doctorModeMetadataOnlyLargeStore
 		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
+		// Sibling rollback copies are a directory listing only; they do not
+		// open SQLite. Large stores are the ones most likely to still hold
+		// a source-sized rollback inode (#1827).
+		report.Checks = append(report.Checks, inspectCompactRollbackCopies(resolvedDBPath))
 		report.Checks = append(report.Checks, inspectTracearyOnPath())
 		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath))
 		if c.attestationAnchorInspector != nil {
