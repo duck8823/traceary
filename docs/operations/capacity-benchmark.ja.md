@@ -28,6 +28,12 @@ go run ./cmd/store-benchmark --synthetic /private/tmp/traceary-synthetic.db \
   --small-rows 10000 --large-rows 8 --iterations 25 > synthetic-benchmark.json
 ```
 
+#1620 の whole-store amplification を、決定的な 5 コーパス（tiny の page slack、enormous、CJK、高エントロピー、反復）で校正します。これはベンチマークであり `go test ./...` には入りません。kind ごとに 1 ストアと `calibrate.json`（`traceary.store-gate-calibrate/v1`）を書き、live store と同じ `store capacity` / operator-cost inspector を使います。search-index amplification は completed な search-projection generation が無い限り `unmeasured` です（rebuild 経路は recent-tier の sample が 8 MiB 以上必要）。[`../research/storage-gate-calibration.ja.md`](../research/storage-gate-calibration.ja.md) を参照。
+
+```sh
+go run ./cmd/store-benchmark --calibrate-gates /private/tmp/traceary-calibrate
+```
+
 fixture は canonical production migration と query source を使います。`--small-rows` 件の汎用小 row と `--large-rows` 件の 1 MiB row を保持し、別に disposable row 1,000 件を作成・削除します。さらに active lifecycle 1 件、command/audit 10 件、accepted workspace memory 10 件を含み、post-delete workload cardinality を JSON に記録します。active/latest が一致せず、または production handoff が command 10 件・memory 10 件を返さない場合、preflight は失敗します。
 
 ## Sanitized 21.4 GiB shape baseline

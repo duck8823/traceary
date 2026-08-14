@@ -28,6 +28,19 @@ go run ./cmd/store-benchmark --synthetic /private/tmp/traceary-synthetic.db \
   --small-rows 10000 --large-rows 8 --iterations 25 > synthetic-benchmark.json
 ```
 
+Calibrate the #1620 whole-store amplification figure against five deterministic
+corpora (tiny page-slack, enormous rows, CJK, high-entropy, repetitive). This
+is a benchmark, not part of `go test ./...`. It writes one store per kind and
+`calibrate.json` (`traceary.store-gate-calibrate/v1`) using the same
+`store capacity` and operator-cost inspectors as a real store. Search-index
+amplification stays `unmeasured` unless a completed search-projection
+generation already exists (the rebuild path needs ≥ 8 MiB of recent-tier
+sample). See [`../research/storage-gate-calibration.md`](../research/storage-gate-calibration.md).
+
+```sh
+go run ./cmd/store-benchmark --calibrate-gates /private/tmp/traceary-calibrate
+```
+
 The fixture uses the canonical production migrations and query sources. It retains exactly `--small-rows` generic small rows and `--large-rows` 1 MiB rows, separately creates then deletes 1,000 disposable rows, and adds one active lifecycle, ten command/audit rows, and ten accepted workspace memories. Fixture JSON records these post-delete workload cardinalities. Preflight fails unless active/latest return a matching row and production handoff returns exactly ten recent commands and ten memories.
 
 ## Sanitized 21.4 GiB-shape baseline
