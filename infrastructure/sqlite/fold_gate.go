@@ -130,26 +130,40 @@ FROM (
 
 func readFoldGateWake(ctx context.Context, db *sql.DB, budget int64) ([]apptypes.FoldGateWakeHost, error) {
 	rows, err := db.QueryContext(ctx, `
-SELECT
-  COALESCE(NULLIF(s.client, ''), 'unknown') AS client,
-  COUNT(*),
-  COALESCE(SUM(CASE WHEN length(CAST(r.summary AS BLOB)) <= ? THEN 1 ELSE 0 END), 0)
+SELECT COALESCE(NULLIF(s.client, ''), 'unknown'), r.summary
 FROM sessions s
 INNER JOIN session_refinements r ON r.session_id = s.session_id
 WHERE (s.parent_session_id IS NULL OR s.parent_session_id = '')
   AND r.has_agent_reasoning = 1
-GROUP BY 1
-ORDER BY 1`, budget)
+ORDER BY 1`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to aggregate wake eligibility: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var hosts []apptypes.FoldGateWakeHost
+	byClient := map[string]*apptypes.FoldGateWakeHost{}
+	var order []string
 	for rows.Next() {
-		var host apptypes.FoldGateWakeHost
-		if err := rows.Scan(&host.Client, &host.EligibleCount, &host.FitsBudgetCount); err != nil {
+		var client, summary string
+		if err := rows.Scan(&client, &summary); err != nil {
 			return nil, xerrors.Errorf("failed to scan wake host: %w", err)
 		}
+		host, ok := byClient[client]
+		if !ok {
+			host = &apptypes.FoldGateWakeHost{Client: client}
+			byClient[client] = host
+			order = append(order, client)
+		}
+		host.EligibleCount++
+		if application.WakeSummaryFitsBudget(summary, budget) {
+			host.FitsBudgetCount++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate wake hosts: %w", err)
+	}
+	hosts := make([]apptypes.FoldGateWakeHost, 0, len(order))
+	for _, client := range order {
+		host := *byClient[client]
 		host.InjectionPossible = host.FitsBudgetCount > 0
 		host.Status = "no_eligible"
 		if host.EligibleCount > 0 && host.InjectionPossible {
@@ -159,9 +173,6 @@ ORDER BY 1`, budget)
 			host.Status = "over_budget"
 		}
 		hosts = append(hosts, host)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("failed to iterate wake hosts: %w", err)
 	}
 	return hosts, nil
 }

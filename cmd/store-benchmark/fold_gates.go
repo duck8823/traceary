@@ -21,7 +21,11 @@ func runFoldGates(ctx context.Context, dbPath string, thresholdBytes, wakeBudget
 	if err != nil {
 		return err
 	}
-	if resolved == live {
+	same, err := pathsReferToSameStore(resolved, live)
+	if err != nil {
+		return err
+	}
+	if same {
 		return fmt.Errorf("refusing the default live store %s; pass an operator copy via --db", live)
 	}
 	if _, err := os.Stat(resolved); err != nil {
@@ -58,4 +62,27 @@ func defaultLiveStorePath() (string, error) {
 		return "", fmt.Errorf("resolve live store path: %w", err)
 	}
 	return path, nil
+}
+
+func pathsReferToSameStore(candidate, live string) (bool, error) {
+	if filepath.Clean(candidate) == filepath.Clean(live) {
+		return true, nil
+	}
+	evalCandidate, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		evalCandidate = candidate
+	}
+	evalLive, err := filepath.EvalSymlinks(live)
+	if err != nil {
+		evalLive = live
+	}
+	if filepath.Clean(evalCandidate) == filepath.Clean(evalLive) {
+		return true, nil
+	}
+	candidateInfo, candidateErr := os.Stat(candidate)
+	liveInfo, liveErr := os.Stat(live)
+	if candidateErr != nil || liveErr != nil {
+		return false, nil
+	}
+	return os.SameFile(candidateInfo, liveInfo), nil
 }
