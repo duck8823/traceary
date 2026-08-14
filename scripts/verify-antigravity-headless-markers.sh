@@ -35,12 +35,16 @@ stdout_path="$work_dir/agy.stdout"
 stderr_path="$work_dir/agy.stderr"
 
 # Safety invariants: plan mode, terminal sandbox, and no permission bypass.
-if ! agy --print --mode plan --sandbox --print-timeout 120s "$prompt" >"$stdout_path" 2>"$stderr_path"; then
-  if grep -qi "permission" "$stderr_path"; then
-    echo "antigravity headless marker probe: scoped hook permission is absent or shadowed" >&2
-  else
-    echo "antigravity headless marker probe: agy exited before the marker response" >&2
-  fi
+# agy can exit 0 with empty stdout when a hook is auto-denied (no TTY to
+# prompt). Diagnose permission wording on stderr regardless of exit status.
+agy_exit=0
+agy --print --mode plan --sandbox --print-timeout 120s "$prompt" >"$stdout_path" 2>"$stderr_path" || agy_exit=$?
+if grep -qi "permission" "$stderr_path"; then
+  echo "antigravity headless marker probe: scoped hook permission is absent or shadowed" >&2
+  exit 1
+fi
+if [ "$agy_exit" -ne 0 ]; then
+  echo "antigravity headless marker probe: agy exited before the marker response" >&2
   exit 1
 fi
 if ! grep -Fxq "$marker" "$stdout_path"; then

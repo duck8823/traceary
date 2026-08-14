@@ -145,7 +145,11 @@ scripts/verify-antigravity-headless-markers.sh
 ```
 
 The probe builds the candidate binary, puts it first on `PATH`, keeps
-`--mode plan --sandbox`, and uses an isolated temporary Traceary database. It
+`--mode plan --sandbox`, and uses an isolated temporary Traceary database. If
+`agy` auto-denies a hook (often exit 0, empty stdout, permission wording on
+stderr), the probe reports a scoped-permission failure instead of a missing
+marker. `traceary doctor --client antigravity` reports the same condition as
+`antigravity-headless-hooks`. It
 verifies a fixed public response marker and reads back only
 `id,kind,session,source_hook`; it never prints or copies prompt, response, or
 transcript bodies. A healthy current host reports `session_start`, `prompt`,

@@ -143,6 +143,10 @@ scripts/verify-antigravity-headless-markers.sh
 
 probe は candidate binary を build して `PATH` の先頭へ置き、
 `--mode plan --sandbox` を維持し、隔離された一時 Traceary DB を使います。
+`agy` が hook を自動拒否した場合（exit 0・空 stdout・stderr に permission
+文言、という形が多い）は、marker 欠落ではなく scoped permission の失敗と
+報告します。同じ条件は `traceary doctor --client antigravity` の
+`antigravity-headless-hooks` でも見えます。
 固定の公開 response marker を検証した後、`id,kind,session,source_hook`
 だけを読み戻します。prompt、response、transcript の本文は表示もコピーも
 しません。現行 host が健全なら `session_start`、`prompt`、`final_turn`、
