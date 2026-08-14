@@ -78,7 +78,7 @@ func collectVisibleOperatorActions(cmd *cobra.Command, prefix string, out []stri
 		if prefix != "" {
 			path = prefix + " " + child.Name()
 		}
-		if child.Runnable() && child.Args != nil {
+		if isVisibleOperatorAction(child) {
 			out = append(out, path)
 		}
 		if len(child.Commands()) > 0 {
@@ -86,6 +86,46 @@ func collectVisibleOperatorActions(cmd *cobra.Command, prefix string, out []stri
 		}
 	}
 	return out
+}
+
+func isVisibleOperatorAction(cmd *cobra.Command) bool {
+	if cmd.Hidden || !cmd.Runnable() {
+		return false
+	}
+	if len(cmd.Commands()) == 0 {
+		// A childless runnable is an operator leaf even when Args is unset.
+		// Requiring Args would let a new RunE-only command skip the inventory.
+		return true
+	}
+	// Parents that are themselves actions (report, store compact, completion)
+	// set Args. applyStrictGroups gives other parents RunE with Args == nil.
+	return cmd.Args != nil
+}
+
+func TestCollectVisibleOperatorActionsIncludesChildlessRunnableWithoutArgs(t *testing.T) {
+	root := &cobra.Command{Use: "traceary"}
+	foo := &cobra.Command{
+		Use: "foo",
+		RunE: func(*cobra.Command, []string) error {
+			return nil
+		},
+	}
+	bar := &cobra.Command{Use: "bar"}
+	bar.AddCommand(&cobra.Command{
+		Use: "baz",
+		RunE: func(*cobra.Command, []string) error {
+			return nil
+		},
+		Args: cobra.NoArgs,
+	})
+	root.AddCommand(foo, bar)
+	applyStrictGroups(root)
+
+	got := collectVisibleOperatorActions(root, "", nil)
+	sort.Strings(got)
+	if diff := cmp.Diff([]string{"bar baz", "foo"}, got); diff != "" {
+		t.Errorf("visible actions mismatch (-want +got):\n%s", diff)
+	}
 }
 
 func TestLookupCommandPathRejectsMissing(t *testing.T) {
