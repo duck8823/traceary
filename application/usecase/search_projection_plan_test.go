@@ -364,6 +364,9 @@ func TestSearchProjectionConfigHashSeparatesSemanticAndThroughputBudgets(t *test
 		{name: "rows", mutate: func(b *apptypes.SearchProjectionBudget) { b.Rows = 1 }, match: true},
 		{name: "lock time", mutate: func(b *apptypes.SearchProjectionBudget) { b.LockTime = 2 * time.Second }, match: true},
 		{name: "wall time", mutate: func(b *apptypes.SearchProjectionBudget) { b.WallTime = 2 * time.Second }, match: true},
+		// Stored/decoded/write look like batch caps but exclude oversize rows,
+		// so they are capacity identity (#1754). Mutating the hash to drop
+		// them makes these cases match and this test red.
 		{name: "stored bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.StoredBytes = 101 }, match: false},
 		{name: "write bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.WriteBytes = 301 }, match: false},
 		{name: "recent age", mutate: func(b *apptypes.SearchProjectionBudget) { b.RecentAge = 2 * time.Hour }, match: false},
