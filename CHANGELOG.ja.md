@@ -7,6 +7,8 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.39.0] - 2026-08-16
+
 ### Added
 - **リリースゲートを fixture store で評価する (#1873)** — 比率 4 行、refinement coverage、wake boolean を自動評価する（`go test` と `go run ./cmd/repo-tooling release evaluate-gates --db COPY`）。#1620 の絶対バイト 5 行は corpus「maintainer store 2026-08-11 uncompressed #1620」付きの計測であり、リリースを落とさない。peak rebuild / recent-index の構造行は #1751 / #1753 のまま。既定 live store は拒否する。オペレータ向けの rebuild は search-index family。`docs/release/gates.ja.md` を参照。
 

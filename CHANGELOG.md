@@ -7,6 +7,8 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.39.0] - 2026-08-16
+
 ### Added
 - **Release gates are evaluated on a fixture store (#1873)** — the four ratios, refinement coverage, and wake boolean run automatically (`go test` and `go run ./cmd/repo-tooling release evaluate-gates --db COPY`). The five #1620 absolute byte counts are measurements on corpus “maintainer store 2026-08-11 uncompressed #1620” and never fail a release. Peak rebuild / recent-index structure stay with #1751 / #1753. The default live store is refused. Operator-facing “rebuild” means the search-index family. See `docs/release/gates.md`.
 
