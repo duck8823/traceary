@@ -382,7 +382,8 @@ type SearchProjectionStatus struct {
 	SummaryLogicalBytes         int64            `json:"summary_logical_bytes"`
 	KeywordLogicalBytes         int64            `json:"keyword_logical_bytes"`
 	// FTSLogicalBytes is the logical byte total of the FTS5 shadow tables,
-	// distinct from RecentBytes, which is source-text bytes.
+	// distinct from RecentBytes, which is source-text bytes. Integer
+	// columns count as 8 bytes each, not decimal digit length.
 	FTSLogicalBytes             int64            `json:"fts_logical_bytes"`
 	PhysicalBytes               int64            `json:"physical_bytes"`
 	PhysicalEvidence            CapacityEvidence `json:"physical_evidence"`
