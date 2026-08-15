@@ -14,6 +14,19 @@ type queryRowContexter interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
+// eventPayloadDecoderColumns is the events-column set hydrateEventPayload
+// reads when codec metadata exists. Search-projection invalidators must
+// watch every name here. body_availability is a visibility gate, not a
+// decode input, and is already watched separately.
+var eventPayloadDecoderColumns = []string{
+	"body",
+	"body_codec",
+	"body_format_version",
+	"body_plaintext_bytes",
+	"body_encoded_bytes",
+	"body_sha256",
+}
+
 // hydrateEventPayload is the central logical-body boundary. Metadata-free rows
 // are legacy identity. Physical bytes never escape this adapter.
 func hydrateEventPayload(ctx context.Context, q queryRowContexter, event *model.Event) (*model.Event, error) {
