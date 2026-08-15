@@ -10,11 +10,12 @@
 --   ws_rows        : one row per (block, workspace) with counts / kinds /
 --                    summary candidate ids
 --
--- Summary candidates are returned as ids, never as bodies: an encoded body is
--- a BLOB this query cannot read, so Go decodes each candidate in rank order and
--- keeps the first non-blank one (#1685 D6). TRIM(body) != '' still drops blank
--- plaintext candidates for free; it cannot judge an encoded body, which is why
--- more than one candidate per kind is returned.
+-- Summary candidates are returned as ranked id lists, never as bodies: an
+-- encoded body is a BLOB this query cannot read, so Go decodes in rank order
+-- and keeps the first non-blank one (#1685 D6, #1746). TRIM(body) != '' still
+-- drops identity whitespace for free. Encoded blanks and tab/newline
+-- plaintext survive TRIM, so the list is unbounded — a depth cap would fall
+-- through to the next kind instead of the kind's own later candidate.
 --
 -- The final SELECT returns one row per (block, workspace) for the top N
 -- blocks; Go assembles per-block breakdown by grouping on block_num.
@@ -77,11 +78,12 @@ first_prompt AS (
   SELECT
     block_num,
     workspace,
-    MAX(CASE WHEN rn = 1 THEN id END) AS first_prompt_id_1,
-    MAX(CASE WHEN rn = 2 THEN id END) AS first_prompt_id_2,
-    MAX(CASE WHEN rn = 3 THEN id END) AS first_prompt_id_3
-  FROM prompt_ranked
-  WHERE rn <= 3
+    json_group_array(id) AS first_prompt_ids
+  FROM (
+    SELECT block_num, workspace, id
+    FROM prompt_ranked
+    ORDER BY block_num, workspace, rn
+  )
   GROUP BY block_num, workspace
 ),
 compact_ranked AS (
@@ -98,11 +100,12 @@ last_compact AS (
   SELECT
     block_num,
     workspace,
-    MAX(CASE WHEN rn = 1 THEN id END) AS compact_summary_id_1,
-    MAX(CASE WHEN rn = 2 THEN id END) AS compact_summary_id_2,
-    MAX(CASE WHEN rn = 3 THEN id END) AS compact_summary_id_3
-  FROM compact_ranked
-  WHERE rn <= 3
+    json_group_array(id) AS compact_summary_ids
+  FROM (
+    SELECT block_num, workspace, id
+    FROM compact_ranked
+    ORDER BY block_num, workspace, rn
+  )
   GROUP BY block_num, workspace
 ),
 transcript_ranked AS (
@@ -119,11 +122,12 @@ first_transcript AS (
   SELECT
     block_num,
     workspace,
-    MAX(CASE WHEN rn = 1 THEN id END) AS first_transcript_id_1,
-    MAX(CASE WHEN rn = 2 THEN id END) AS first_transcript_id_2,
-    MAX(CASE WHEN rn = 3 THEN id END) AS first_transcript_id_3
-  FROM transcript_ranked
-  WHERE rn <= 3
+    json_group_array(id) AS first_transcript_ids
+  FROM (
+    SELECT block_num, workspace, id
+    FROM transcript_ranked
+    ORDER BY block_num, workspace, rn
+  )
   GROUP BY block_num, workspace
 ),
 ws_rows AS (
@@ -133,15 +137,9 @@ ws_rows AS (
     COUNT(*) AS ws_event_count,
     GROUP_CONCAT(b.kind, '|') AS kinds,
     GROUP_CONCAT(DISTINCT b.agent) AS ws_agents,
-    MAX(fp.first_prompt_id_1) AS first_prompt_id_1,
-    MAX(fp.first_prompt_id_2) AS first_prompt_id_2,
-    MAX(fp.first_prompt_id_3) AS first_prompt_id_3,
-    MAX(lc.compact_summary_id_1) AS compact_summary_id_1,
-    MAX(lc.compact_summary_id_2) AS compact_summary_id_2,
-    MAX(lc.compact_summary_id_3) AS compact_summary_id_3,
-    MAX(ft.first_transcript_id_1) AS first_transcript_id_1,
-    MAX(ft.first_transcript_id_2) AS first_transcript_id_2,
-    MAX(ft.first_transcript_id_3) AS first_transcript_id_3
+    MAX(fp.first_prompt_ids) AS first_prompt_ids,
+    MAX(lc.compact_summary_ids) AS compact_summary_ids,
+    MAX(ft.first_transcript_ids) AS first_transcript_ids
   FROM blocks b
   LEFT JOIN first_prompt fp
     ON fp.block_num = b.block_num AND fp.workspace = b.workspace
@@ -163,15 +161,9 @@ SELECT
   wr.ws_event_count,
   wr.kinds,
   COALESCE(wr.ws_agents, '') AS ws_agents,
-  COALESCE(wr.first_prompt_id_1, '') AS first_prompt_id_1,
-  COALESCE(wr.first_prompt_id_2, '') AS first_prompt_id_2,
-  COALESCE(wr.first_prompt_id_3, '') AS first_prompt_id_3,
-  COALESCE(wr.compact_summary_id_1, '') AS compact_summary_id_1,
-  COALESCE(wr.compact_summary_id_2, '') AS compact_summary_id_2,
-  COALESCE(wr.compact_summary_id_3, '') AS compact_summary_id_3,
-  COALESCE(wr.first_transcript_id_1, '') AS first_transcript_id_1,
-  COALESCE(wr.first_transcript_id_2, '') AS first_transcript_id_2,
-  COALESCE(wr.first_transcript_id_3, '') AS first_transcript_id_3
+  COALESCE(wr.first_prompt_ids, '[]') AS first_prompt_ids,
+  COALESCE(wr.compact_summary_ids, '[]') AS compact_summary_ids,
+  COALESCE(wr.first_transcript_ids, '[]') AS first_transcript_ids
 FROM top_blocks tb
 JOIN ws_rows wr ON wr.block_num = tb.block_num
 ORDER BY tb.block_start DESC, wr.ws_event_count DESC, wr.workspace

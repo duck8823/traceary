@@ -166,11 +166,23 @@ func hydrateCommandAudit(ctx context.Context, q queryRowContexter, audit *model.
 }
 
 func loadEventPlaintext(ctx context.Context, q queryRowContexter, eventID string) ([]byte, error) {
+	hasCodec, err := eventHasCodecColumns(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	return decodeEventPlaintext(ctx, q, eventID, hasCodec)
+}
+
+func eventHasCodecColumns(ctx context.Context, q queryRowContexter) (bool, error) {
 	var has int
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('events') WHERE name='body_codec')`).Scan(&has); err != nil {
-		return nil, xerrors.Errorf("inspect event payload metadata: %w", err)
+		return false, xerrors.Errorf("inspect event payload metadata: %w", err)
 	}
-	if has == 0 {
+	return has != 0, nil
+}
+
+func decodeEventPlaintext(ctx context.Context, q queryRowContexter, eventID string, hasCodec bool) ([]byte, error) {
+	if !hasCodec {
 		var body []byte
 		var storedLength sql.NullInt64
 		if err := q.QueryRowContext(ctx, `SELECT CASE WHEN length(CAST(body AS BLOB)) <= ? THEN body END, length(CAST(body AS BLOB)) FROM events WHERE id=?`, maxDecodedPayloadBytes, eventID).Scan(&body, &storedLength); err != nil {

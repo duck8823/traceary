@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Timeline summary walk is exact and cheap (#1746)** — ranked candidate ids per kind are unbounded (`json_group_array`). Go keeps the first non-blank after decode, so four compressed blanks no longer hide a later prompt of the same kind. The body_codec schema check is once per `ListTimelineBlocks`, not once per candidate.
 - **Search projection status snapshots generation-scoped fields (#1839)** — `recent_documents`, `summary_sessions`, `keyword_rows`, `fingerprint_rows`, rebuild-scoped `recent_source_bytes`, and exclusions resolve `active_generation_id` / `generation_id` once inside one read-only transaction. The dbstat `physical_bytes` walk stays outside that transaction.
 - **`traceary search --kind` uses one session-tier snapshot (#1859)** — after #1822 the leftover two-call path was `--kind` asking `SearchSessionPage` twice. The kind-set call is always `not_applicable` and does not open the store, so the CLI now makes only the kind-less probe. Kind-suppression and not-ready cannot disagree after a cutover.
 - **Session-tier hits and readiness share one snapshot (#1822)** — `SearchSessionPage` returns hits plus `ready` / `not_ready` / `not_applicable` from a single read transaction. Empty query, `--kind`, and later pages report `not_applicable` without opening the store. `SearchSessionProjectionReady` is gone so callers cannot pair an empty page with a later generation's readiness. `traceary search` uses that page for the session notice.
