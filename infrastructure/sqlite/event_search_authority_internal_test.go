@@ -79,6 +79,26 @@ func seedLiteralFingerprints(t *testing.T, database *Database, generation, event
 	}
 }
 
+// seedCompleteGenerationLifecycle records the previous generation as complete.
+// seedTieredCompleteProjection does not write lifecycle; Start inserts only
+// the incoming rebuilding row. Previous-gen fingerprints require this row.
+func seedCompleteGenerationLifecycle(t *testing.T, database *Database, generation string) {
+	t.Helper()
+	ctx := context.Background()
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	if _, err = raw.ExecContext(ctx, `
+		INSERT INTO search_projection_generation_lifecycle(generation_id,state,config_hash,source_revision,high_water)
+		SELECT ?, 'complete', config_hash, source_revision, high_water
+		  FROM search_projection_state WHERE singleton=1
+		ON CONFLICT(generation_id) DO UPDATE SET state='complete'`, generation); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func insertTieredSearchEvent(t *testing.T, database *Database, id, body string, at time.Time) {
 	t.Helper()
 	insertTieredSearchEventInWorkspace(t, database, id, "w", body, at)
@@ -750,25 +770,27 @@ func TestTieredAuthoritySearchWithoutProjectionGeneration(t *testing.T) {
 	}
 }
 
-// TestTieredAuthoritySearchDuringRebuildSkipsOldPreFilter proves that after
-// Start points literal at a new generation while bounded still names the
-// previous one, search fails open rather than applying the old generation's
-// fingerprints (which would silently false-negative).
-func TestTieredAuthoritySearchDuringRebuildSkipsOldPreFilter(t *testing.T) {
+// TestTieredAuthoritySearchDuringRebuildKeepsPreviousPreFilter proves that
+// after Start, the previous complete generation stays the pre-filter while
+// source/eviction and the copied source revision have not moved. Inconsistent
+// fingerprints that already excluded a live match while complete stay
+// excluded; that is not a new false negative. Mutation after Start is the
+// case that must drop the old generation.
+func TestTieredAuthoritySearchDuringRebuildKeepsPreviousPreFilter(t *testing.T) {
 	ctx := context.Background()
 	database, datasource := newTieredAuthorityFixture(t)
 	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 
 	// Body matches "needle", but old-generation fingerprints are from a
-	// non-overlapping string so a usable pre-filter would exclude the row.
+	// non-overlapping string so a usable pre-filter excludes the row.
 	insertTieredSearchEvent(t, database, "would-exclude", "shared needle decoy", base)
 	insertTieredSearchEvent(t, database, "pre-match", "shared needle alpha", base.Add(time.Second))
 	const oldGeneration = "gen-rebuild-old"
 	seedTieredCompleteProjection(t, database, oldGeneration)
+	seedCompleteGenerationLifecycle(t, database, oldGeneration)
 	seedLiteralFingerprints(t, database, oldGeneration, "would-exclude", "zzzz other text")
 	seedLiteralFingerprints(t, database, oldGeneration, "pre-match", "shared needle alpha")
 
-	// With a usable generation the decoy fingerprints exclude would-exclude.
 	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
 	before, err := datasource.SearchMetadata(ctx, criteria)
 	if err != nil {
@@ -783,21 +805,237 @@ func TestTieredAuthoritySearchDuringRebuildSkipsOldPreFilter(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	// After Start: literalGeneration != boundedGeneration → no pre-filter.
-	// would-exclude must now surface because its body really matches.
 	got, err := datasource.SearchMetadata(ctx, criteria)
 	if err != nil {
 		t.Fatalf("SearchMetadata() during rebuild error = %v", err)
 	}
-	if diff := cmp.Diff([]string{"pre-match", "would-exclude"}, metadataIDs(got)); diff != "" {
+	if diff := cmp.Diff([]string{"pre-match"}, metadataIDs(got)); diff != "" {
 		t.Fatalf("SearchMetadata() during rebuild IDs mismatch (-want +got):\n%s", diff)
 	}
 	full, err := datasource.SearchPage(ctx, criteria)
 	if err != nil {
 		t.Fatalf("SearchPage() during rebuild error = %v", err)
 	}
-	if diff := cmp.Diff([]string{"pre-match", "would-exclude"}, eventIDs(full)); diff != "" {
+	if diff := cmp.Diff([]string{"pre-match"}, eventIDs(full)); diff != "" {
 		t.Fatalf("SearchPage() during rebuild IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func insertInflatedNonMatch(t *testing.T, database *Database, id string, at time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	inflatedStored := apptypes.DeepLiteralSearchBudget.StoredBytes + 1
+	if _, err = raw.ExecContext(ctx, `
+		INSERT INTO events(
+			id, kind, client, agent, session_id, workspace, body, created_at,
+			body_encoded_bytes, body_plaintext_bytes
+		) VALUES (
+			?, 'note', 'codex', 'codex', 's', 'w', 'zzzz no overlap', ?,
+			?, ?
+		)`,
+		id,
+		at.UTC().Format(time.RFC3339Nano),
+		inflatedStored,
+		inflatedStored,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func startRebuildWithPreviousGeneration(t *testing.T, database *Database, oldGeneration string, now time.Time) {
+	t.Helper()
+	seedCompleteGenerationLifecycle(t, database, oldGeneration)
+	if _, err := database.Start(context.Background(), projectionBudget(), now); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+}
+
+// TestTieredAuthoritySearchUsesPreviousGenerationDuringRebuild is the #1739
+// gate: a wide query during source/eviction returns the older match instead
+// of index_incomplete when the previous generation can exclude the heavy
+// newest row. The paired subtest without those fingerprints measures the
+// decoded-row difference — the heavy row is examined first and trips
+// DeepLiteralSearchBudget.StoredBytes before the match is reached.
+func TestTieredAuthoritySearchUsesPreviousGenerationDuringRebuild(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	criteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Build()
+
+	t.Run("without previous fingerprints the heavy row exhausts the budget", func(t *testing.T) {
+		database, datasource := newTieredAuthorityFixture(t)
+		insertTieredSearchEvent(t, database, "pre-match", "budget needle", base)
+		insertInflatedNonMatch(t, database, "post-heavy", base.Add(time.Minute))
+		const oldGeneration = "gen-prev-none"
+		seedTieredCompleteProjection(t, database, oldGeneration)
+		seedLiteralFingerprints(t, database, oldGeneration, "pre-match", "budget needle")
+		startRebuildWithPreviousGeneration(t, database, oldGeneration, base.Add(time.Hour))
+
+		_, err := datasource.SearchMetadata(ctx, criteria)
+		var unavailable *queryservice.EventSearchUnavailableError
+		if !errors.As(err, &unavailable) || unavailable.Reason != queryservice.EventSearchUnavailableIndexIncomplete {
+			t.Fatalf("SearchMetadata() error = %v, want index_incomplete (heavy row decoded)", err)
+		}
+	})
+
+	t.Run("with previous fingerprints the heavy row is excluded and the match returns", func(t *testing.T) {
+		database, datasource := newTieredAuthorityFixture(t)
+		insertTieredSearchEvent(t, database, "pre-match", "budget needle", base)
+		insertInflatedNonMatch(t, database, "post-heavy", base.Add(time.Minute))
+		const oldGeneration = "gen-prev-fps"
+		seedTieredCompleteProjection(t, database, oldGeneration)
+		seedLiteralFingerprints(t, database, oldGeneration, "pre-match", "budget needle")
+		seedLiteralFingerprints(t, database, oldGeneration, "post-heavy", "zzzz no overlap")
+		startRebuildWithPreviousGeneration(t, database, oldGeneration, base.Add(time.Hour))
+
+		got, err := datasource.SearchMetadata(ctx, criteria)
+		if err != nil {
+			t.Fatalf("SearchMetadata() error = %v, want match without decoding the heavy row", err)
+		}
+		if diff := cmp.Diff([]string{"pre-match"}, metadataIDs(got)); diff != "" {
+			t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("eviction phase still uses the previous generation", func(t *testing.T) {
+		database, datasource := newTieredAuthorityFixture(t)
+		insertTieredSearchEvent(t, database, "pre-match", "budget needle", base)
+		insertInflatedNonMatch(t, database, "post-heavy", base.Add(time.Minute))
+		const oldGeneration = "gen-prev-evict"
+		seedTieredCompleteProjection(t, database, oldGeneration)
+		seedLiteralFingerprints(t, database, oldGeneration, "pre-match", "budget needle")
+		seedLiteralFingerprints(t, database, oldGeneration, "post-heavy", "zzzz no overlap")
+		startRebuildWithPreviousGeneration(t, database, oldGeneration, base.Add(time.Hour))
+		raw, err := database.open(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = raw.ExecContext(ctx, `UPDATE search_projection_state SET phase='eviction' WHERE singleton=1`); err != nil {
+			_ = raw.Close()
+			t.Fatal(err)
+		}
+		_ = raw.Close()
+
+		got, err := datasource.SearchMetadata(ctx, criteria)
+		if err != nil {
+			t.Fatalf("SearchMetadata() error = %v", err)
+		}
+		if diff := cmp.Diff([]string{"pre-match"}, metadataIDs(got)); diff != "" {
+			t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestTieredAuthoritySearchDropsPreviousGenerationOnCleanup(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	// Live content matches; leftover fingerprints would exclude it.
+	insertTieredSearchEvent(t, database, "mutated-match", "shared needle now", base)
+	const oldGeneration = "gen-cleanup"
+	seedTieredCompleteProjection(t, database, oldGeneration)
+	seedLiteralFingerprints(t, database, oldGeneration, "mutated-match", "zzzz other text")
+	startRebuildWithPreviousGeneration(t, database, oldGeneration, base.Add(time.Hour))
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `UPDATE search_projection_state SET phase='cleanup' WHERE singleton=1`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v, want decode-bound match during cleanup", err)
+	}
+	if diff := cmp.Diff([]string{"mutated-match"}, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestTieredAuthoritySearchDropsPreviousGenerationAfterCanonicalMutation(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	insertTieredSearchEvent(t, database, "will-match", "zzzz other text", base)
+	insertTieredSearchEvent(t, database, "pre-match", "shared needle alpha", base.Add(time.Second))
+	const oldGeneration = "gen-mutate"
+	seedTieredCompleteProjection(t, database, oldGeneration)
+	seedLiteralFingerprints(t, database, oldGeneration, "will-match", "zzzz other text")
+	seedLiteralFingerprints(t, database, oldGeneration, "pre-match", "shared needle alpha")
+	startRebuildWithPreviousGeneration(t, database, oldGeneration, base.Add(time.Hour))
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	before, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() before mutation error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"pre-match"}, metadataIDs(before)); diff != "" {
+		t.Fatalf("before mutation IDs mismatch (-want +got):\n%s", diff)
+	}
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `UPDATE events SET body='shared needle now' WHERE id='will-match'`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() after mutation error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"pre-match", "will-match"}, metadataIDs(got)); diff != "" {
+		t.Fatalf("after mutation IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestTieredAuthoritySearchIgnoresPartiallyDeletedPreviousGeneration(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	insertTieredSearchEvent(t, database, "kept-match", "shared needle alpha", base)
+	insertTieredSearchEvent(t, database, "stale-match", "shared needle leftover", base.Add(time.Second))
+	const oldGeneration = "gen-partial"
+	seedTieredCompleteProjection(t, database, oldGeneration)
+	seedLiteralFingerprints(t, database, oldGeneration, "kept-match", "shared needle alpha")
+	seedLiteralFingerprints(t, database, oldGeneration, "stale-match", "zzzz other text")
+	startRebuildWithPreviousGeneration(t, database, oldGeneration, base.Add(time.Hour))
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Cleanup has started and some old-generation rows are already gone.
+	if _, err = raw.ExecContext(ctx, `
+		UPDATE search_projection_state SET phase='cleanup' WHERE singleton=1;
+		DELETE FROM literal_search_fingerprints WHERE generation_id=? AND event_id='kept-match'`, oldGeneration); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	got, err := datasource.SearchMetadata(ctx, criteria)
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v, want leftover fingerprints unused", err)
+	}
+	if diff := cmp.Diff([]string{"stale-match", "kept-match"}, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
 	}
 }
 

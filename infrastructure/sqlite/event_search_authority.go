@@ -117,35 +117,50 @@ func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx
 // triggers set bounded state='drifted' and clear active_generation_id, so
 // such a generation stops being usable here and the walk decodes live content.
 //
-// A rebuild in progress is not answered from the previous generation's
-// fingerprints, and the cost of that is real: searches decode every candidate
-// until the rebuild completes, so a wide query on a large store exhausts the
-// budget and reports index_incomplete.
+// A rebuild in source or eviction may still use the previous complete
+// generation. Start only repoints the literal singleton
+// (search_projection_rebuild.go:227); fingerprint writes are additive inserts
+// keyed by generation; old-generation rows are removed only in the new
+// generation's cleanup phase. active_generation_id still names the previous
+// complete generation until the new one finishes.
 //
-// Those rows do survive. Start only repoints the literal singleton
-// (search_projection_rebuild.go:82), fingerprint writes are additive inserts
-// keyed by generation (:624), and old-generation rows are removed only in the
-// new generation's cleanup phase (:445, :633). So the previous generation is
-// still identifiable through active_generation_id and still readable.
-//
-// Using it safely needs more than identifying it: the rebuild must not have
-// entered cleanup, and no canonical mutation may have landed since the old
-// generation completed, or its fingerprints describe rows that have changed.
-// That is a distinct piece of work with its own failure modes, tracked
-// separately, so this deliberately takes the slow, always-correct path.
+// Those rows are safe only while cleanup has not started (phase is the
+// official leftover-delete gate) and no canonical mutation has landed since
+// Start copied search_projection_source_revision onto
+// search_projection_state.source_revision. Rebuild-time 038/050/063 triggers
+// increment the global revision for decoder-column updates and inventoried
+// membership inserts; a mismatch drops back to the decode-bound walk.
 func usableLiteralFingerprintGeneration(ctx context.Context, tx *sql.Tx) (string, error) {
-	var literalState, literalGeneration, boundedState, boundedGeneration string
+	var literalState, literalGeneration, boundedState, activeGeneration, boundedPhase string
+	var stateRevision int64
 	if err := tx.QueryRowContext(ctx, `SELECT generation_id,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalState); err != nil {
 		return "", xerrors.Errorf("read tiered authority projection state: %w", err)
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,''),state FROM search_projection_state WHERE singleton=1`).Scan(&boundedGeneration, &boundedState); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,''),state,phase,source_revision FROM search_projection_state WHERE singleton=1`).Scan(&activeGeneration, &boundedState, &boundedPhase, &stateRevision); err != nil {
 		return "", xerrors.Errorf("read tiered authority projection state: %w", err)
 	}
 	literalReady := literalState == "complete" || literalState == "stale"
-	if !literalReady || boundedState != "complete" || literalGeneration == "" || literalGeneration != boundedGeneration {
+	if literalReady && boundedState == "complete" && literalGeneration != "" && literalGeneration == activeGeneration {
+		return literalGeneration, nil
+	}
+	if boundedState != "rebuilding" || (boundedPhase != "source" && boundedPhase != "eviction") || activeGeneration == "" || activeGeneration == literalGeneration {
 		return "", nil
 	}
-	return literalGeneration, nil
+	var lifecycle string
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=?),'')`, activeGeneration).Scan(&lifecycle); err != nil {
+		return "", xerrors.Errorf("read tiered authority previous generation lifecycle: %w", err)
+	}
+	if lifecycle != "complete" {
+		return "", nil
+	}
+	var globalRevision int64
+	if err := tx.QueryRowContext(ctx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&globalRevision); err != nil {
+		return "", xerrors.Errorf("read tiered authority source revision: %w", err)
+	}
+	if globalRevision != stateRevision {
+		return "", nil
+	}
+	return activeGeneration, nil
 }
 
 // searchTieredTopKMetadataTx separates the source-work budget from the public
