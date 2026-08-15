@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Changed
+- **Session-tier search stays exact-keyword + LIKE (#1756)** — a unicode61+porter FTS was measured and not added. `LIKE '%deploy%'` already matches `deployed`. Scratch (2,009 summaries): LIKE recall 1.00 on the labeled set; compare FTS costs 290,816 bytes against a 352,256-byte family. No second, unbudgeted index. See `docs/research/search-projection-session-tier-index.md`.
 - **`--recent-age` is kept; the committed measurement names when it binds (#1755)** — retention is `max(age, byte)`. Dense scratch: byte (2026-06-20) wins over 30d. Quiet scratch: empty byte cutoff, age wins. Capacity-pressure stores do not need the flag; quiet stores still can. Removal needs the admin deprecation window. See `docs/research/search-projection-recent-age.md`.
 
 ### Fixed

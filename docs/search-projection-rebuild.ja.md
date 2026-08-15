@@ -219,6 +219,15 @@ operator が `--recent-age` を触るのは、index-family 予算以外の理由
 [search-projection-recent-age.ja.md](research/search-projection-recent-age.ja.md)
 を参照してください。
 
+session ティアは exact-keyword + `LIKE` のままです。unicode61+porter の FTS は
+測定したうえで足しません（`TestSessionTierKeepsLikePathAndMeasuresPorterFTS`）。
+`LIKE '%deploy%'` はすでに `deployed` に当たります。比較 index は短い要約
+2,009 件で 290,816 バイト、family は 352,256 バイトで、recent 窓を決めるのと
+同じ予算です。ラベル付き集合では LIKE の recall は悪くなく、FTS が勝つのは
+substring の精度とダイアクリティカルだけです。予算外の第 2 index は足しません。
+[search-projection-session-tier-index.ja.md](research/search-projection-session-tier-index.ja.md)
+を参照してください。
+
 source フェーズのカットオフは**構築コストの上限であり、強制機構ではありません**。
 最新 20,000 行を走査します（壁時計タイムアウトではありません）。その単位は保存エンベロープのバイト数であり、
 projection がインデックスする単位ではありません。`thinking` ブロックは走査には
