@@ -92,6 +92,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 63 only drops and recreates three invalidator triggers plus one
 	// events.id immutability guard. No data scan or rewrite.
 	63: {63, "000063_watch_decoder_columns_on_search_invalidators.sql", "3cd33611da576a9b544c214f0e9b49ae6067f422f4c21ffd28f546f3bad25ef2", MigrationConstantInPlace},
+	// 64 adds origin to the singleton search_projection_state row and updates
+	// that row only. No store-sized scan.
+	64: {64, "000064_search_projection_generation_origin.sql", "e1180e75dd2b4896a03123c1a914e162cacace7e76277e908885859e43608bf8", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

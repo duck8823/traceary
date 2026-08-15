@@ -47,6 +47,7 @@ func (d *Database) SearchProjectionControlStatus(ctx context.Context) (s apptype
 		&s.CutoverIndexFamily, &s.CutoverFamilyBytesBefore, &s.CutoverFamilyBytesAfter,
 		&s.CutoverBeforeEvidence.Status, &s.CutoverBeforeEvidence.Reason,
 		&s.CutoverAfterEvidence.Status, &s.CutoverAfterEvidence.Reason,
+		&s.Origin,
 	)
 	if err != nil {
 		return s, xerrors.Errorf("scan projection control status: %w", err)

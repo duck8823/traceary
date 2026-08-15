@@ -151,7 +151,7 @@ func generationID() string {
 	return hex.EncodeToString(b[:])
 }
 
-const searchProjectionStartStateSQL = `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_source_bytes=0,recent_age_seconds=?,index_family_byte_limit=?,recent_byte_limit=?,capacity_semantics_version=?,recent_source_ceiling_bytes=?,recent_amplification_ppm=?,non_recent_family_bytes=?,recent_cutoff_norm=?,capacity_evidence_status=?,capacity_evidence_reason=?,index_family_within_budget=-1,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_before_evidence_status=?,cutover_before_evidence_reason=?,cutover_after_evidence_status='',cutover_after_evidence_reason='',updated_at=? `
+const searchProjectionStartStateSQL = `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_source_bytes=0,recent_age_seconds=?,index_family_byte_limit=?,recent_byte_limit=?,capacity_semantics_version=?,recent_source_ceiling_bytes=?,recent_amplification_ppm=?,non_recent_family_bytes=?,recent_cutoff_norm=?,capacity_evidence_status=?,capacity_evidence_reason=?,index_family_within_budget=-1,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_before_evidence_status=?,cutover_before_evidence_reason=?,cutover_after_evidence_status='',cutover_after_evidence_reason='',origin=?,updated_at=? `
 
 func (d *Database) measureSearchProjectionStart(ctx context.Context, db *sql.DB, b apptypes.SearchProjectionBudget) (capacityDerivation, string, int64, apptypes.CapacityEvidence) {
 	var lastNonRecent int64
@@ -192,14 +192,15 @@ func (d *Database) measureSearchProjectionStart(ctx context.Context, db *sql.DB,
 	return derivation, cutoffNorm, familyBytesBefore, beforeEvidence
 }
 
-func searchProjectionStartStateArgs(g apptypes.SearchProjectionGeneration, b apptypes.SearchProjectionBudget, derivation capacityDerivation, cutoffNorm string, familyBytesBefore int64, beforeEvidence apptypes.CapacityEvidence, now time.Time) []any {
+func searchProjectionStartStateArgs(g apptypes.SearchProjectionGeneration, b apptypes.SearchProjectionBudget, derivation capacityDerivation, cutoffNorm string, familyBytesBefore int64, beforeEvidence apptypes.CapacityEvidence, now time.Time, origin string) []any {
 	return []any{
 		g.GenerationID, g.ConfigHash, g.SourceRevision, g.HighWater,
 		int64(b.RecentAge / time.Second), b.IndexFamilyBytes, b.IndexFamilyBytes,
 		apptypes.SearchProjectionCapacitySemanticsVersion,
 		derivation.SourceCeiling, derivation.AmplificationPPM, derivation.NonRecentBytes, cutoffNorm,
 		derivation.Evidence.Status, derivation.Evidence.Reason,
-		searchProjectionIndexFamilyName, familyBytesBefore, beforeEvidence.Status, beforeEvidence.Reason, formatTimestamp(now.UTC()),
+		searchProjectionIndexFamilyName, familyBytesBefore, beforeEvidence.Status, beforeEvidence.Reason,
+		origin, formatTimestamp(now.UTC()),
 	}
 }
 
@@ -240,44 +241,7 @@ func prepareStartedGeneration(ctx context.Context, tx *sql.Tx, b apptypes.Search
 //
 //nolint:wrapcheck,errcheck // SQL errors are returned without losing typed projection errors.
 func (d *Database) Start(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionGeneration, error) {
-	if !b.Valid() {
-		return apptypes.SearchProjectionGeneration{}, errors.New("search projection budgets must all be positive")
-	}
-	db, e := d.open(ctx)
-	if e != nil {
-		return apptypes.SearchProjectionGeneration{}, e
-	}
-	defer db.Close()
-	// Measure and derive before taking the write lock. The dbstat walk is
-	// unbounded in the family's own size and would otherwise consume the start
-	// budget; the cutoff walk is separately bounded.
-	derivation, cutoffNorm, familyBytesBefore, beforeEvidence := d.measureSearchProjectionStart(ctx, db, b)
-	lockCtx, cancel := context.WithTimeout(ctx, b.LockTime)
-	defer cancel()
-	tx, e := db.BeginTx(lockCtx, nil)
-	if e != nil {
-		return apptypes.SearchProjectionGeneration{}, e
-	}
-	defer tx.Rollback()
-	g, requiresInventory, e := prepareStartedGeneration(lockCtx, tx, b)
-	if e != nil {
-		return g, e
-	}
-	// Write recent_byte_limit alongside index_family_byte_limit so a binary
-	// rolled back past migration 055 still sees the column it knows
-	// (recent_byte_limit is retired; kept only for that contract).
-	args := searchProjectionStartStateArgs(g, b, derivation, cutoffNorm, familyBytesBefore, beforeEvidence, now)
-	result, e := tx.ExecContext(lockCtx, searchProjectionStartStateSQL+`WHERE singleton=1 AND state<>'rebuilding'`, args...)
-	if e == nil {
-		if n, x := result.RowsAffected(); x != nil || n != 1 {
-			return g, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
-		}
-		if e = applySearchProjectionStartSideEffects(lockCtx, tx, g, requiresInventory, now); e != nil {
-			return g, e
-		}
-		e = tx.Commit()
-	}
-	return g, e
+	return d.startWithOrigin(ctx, b, now, apptypes.SearchProjectionOriginOperator)
 }
 
 const replaceObsoleteGenerationSQL = searchProjectionStartStateSQL +
@@ -318,7 +282,7 @@ func (d *Database) ReplaceObsoleteCapacityGeneration(ctx context.Context, observ
 	if _, e = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='abandoned',abandoned_at=? WHERE generation_id=? AND state<>'complete'`, formatTimestamp(now.UTC()), observedGenerationID); e != nil {
 		return g, e
 	}
-	args := searchProjectionStartStateArgs(g, b, derivation, cutoffNorm, familyBytesBefore, beforeEvidence, now)
+	args := searchProjectionStartStateArgs(g, b, derivation, cutoffNorm, familyBytesBefore, beforeEvidence, now, apptypes.SearchProjectionOriginAutomatic)
 	args = append(args, observedGenerationID, apptypes.SearchProjectionCapacitySemanticsVersion)
 	result, e := tx.ExecContext(lockCtx, replaceObsoleteGenerationSQL, args...)
 	if e != nil {
@@ -350,6 +314,119 @@ func observeWinningObsoleteReplacement(ctx context.Context, tx *sql.Tx, observed
 		return live, nil
 	}
 	return live, &apptypes.SearchProjectionNoProgressError{Reason: "obsolete generation is no longer replaceable"}
+}
+
+// StartAutomatic is the store-open counterpart of Start. The generation is
+// marked automatic so CatchUp can replace it when the default budget hash
+// changes (#1861). Operator Start stays origin=operator.
+//
+//nolint:wrapcheck,errcheck // SQL errors are returned without losing typed projection errors.
+func (d *Database) StartAutomatic(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionGeneration, error) {
+	return d.startWithOrigin(ctx, b, now, apptypes.SearchProjectionOriginAutomatic)
+}
+
+//nolint:wrapcheck,errcheck // SQL errors are returned without losing typed projection errors.
+func (d *Database) startWithOrigin(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time, origin string) (apptypes.SearchProjectionGeneration, error) {
+	if !b.Valid() {
+		return apptypes.SearchProjectionGeneration{}, errors.New("search projection budgets must all be positive")
+	}
+	db, e := d.open(ctx)
+	if e != nil {
+		return apptypes.SearchProjectionGeneration{}, e
+	}
+	defer db.Close()
+	derivation, cutoffNorm, familyBytesBefore, beforeEvidence := d.measureSearchProjectionStart(ctx, db, b)
+	lockCtx, cancel := context.WithTimeout(ctx, b.LockTime)
+	defer cancel()
+	tx, e := db.BeginTx(lockCtx, nil)
+	if e != nil {
+		return apptypes.SearchProjectionGeneration{}, e
+	}
+	defer tx.Rollback()
+	g, requiresInventory, e := prepareStartedGeneration(lockCtx, tx, b)
+	if e != nil {
+		return g, e
+	}
+	args := searchProjectionStartStateArgs(g, b, derivation, cutoffNorm, familyBytesBefore, beforeEvidence, now, origin)
+	result, e := tx.ExecContext(lockCtx, searchProjectionStartStateSQL+`WHERE singleton=1 AND state<>'rebuilding'`, args...)
+	if e == nil {
+		if n, x := result.RowsAffected(); x != nil || n != 1 {
+			return g, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
+		}
+		if e = applySearchProjectionStartSideEffects(lockCtx, tx, g, requiresInventory, now); e != nil {
+			return g, e
+		}
+		e = tx.Commit()
+	}
+	return g, e
+}
+
+const replaceStaleAutomaticGenerationSQL = searchProjectionStartStateSQL +
+	`WHERE singleton=1 AND generation_id=? AND origin='automatic' AND config_hash<>? AND (state='rebuilding' OR (state='drifted' AND phase='cleanup'))`
+
+// ReplaceStaleAutomaticGeneration retires the observed automatic generation
+// whose ConfigHash no longer matches the catch-up budget and starts its
+// replacement in one write transaction (#1861).
+//
+//nolint:wrapcheck,errcheck // SQL errors are returned without losing typed projection errors.
+func (d *Database) ReplaceStaleAutomaticGeneration(ctx context.Context, observedGenerationID string, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionGeneration, error) {
+	if !b.Valid() {
+		return apptypes.SearchProjectionGeneration{}, errors.New("search projection budgets must all be positive")
+	}
+	if observedGenerationID == "" {
+		return apptypes.SearchProjectionGeneration{}, &apptypes.SearchProjectionNoProgressError{Reason: "no automatic generation to replace"}
+	}
+	db, e := d.open(ctx)
+	if e != nil {
+		return apptypes.SearchProjectionGeneration{}, e
+	}
+	defer db.Close()
+	derivation, cutoffNorm, familyBytesBefore, beforeEvidence := d.measureSearchProjectionStart(ctx, db, b)
+	lockCtx, cancel := context.WithTimeout(ctx, b.LockTime)
+	defer cancel()
+	tx, e := db.BeginTx(lockCtx, nil)
+	if e != nil {
+		return apptypes.SearchProjectionGeneration{}, e
+	}
+	defer tx.Rollback()
+	g, requiresInventory, e := prepareStartedGeneration(lockCtx, tx, b)
+	if e != nil {
+		return g, e
+	}
+	if _, e = tx.ExecContext(lockCtx, `UPDATE search_projection_generation_lifecycle SET state='abandoned',abandoned_at=? WHERE generation_id=? AND state<>'complete'`, formatTimestamp(now.UTC()), observedGenerationID); e != nil {
+		return g, e
+	}
+	args := searchProjectionStartStateArgs(g, b, derivation, cutoffNorm, familyBytesBefore, beforeEvidence, now, apptypes.SearchProjectionOriginAutomatic)
+	args = append(args, observedGenerationID, b.ConfigHash())
+	result, e := tx.ExecContext(lockCtx, replaceStaleAutomaticGenerationSQL, args...)
+	if e != nil {
+		return g, e
+	}
+	n, x := result.RowsAffected()
+	if x != nil {
+		return g, x
+	}
+	if n != 1 {
+		return observeWinningStaleAutomaticReplacement(lockCtx, tx, observedGenerationID, b.ConfigHash())
+	}
+	if e = applySearchProjectionStartSideEffects(lockCtx, tx, g, requiresInventory, now); e != nil {
+		return g, e
+	}
+	return g, tx.Commit()
+}
+
+func observeWinningStaleAutomaticReplacement(ctx context.Context, tx *sql.Tx, observedGenerationID, wantHash string) (apptypes.SearchProjectionGeneration, error) {
+	var live apptypes.SearchProjectionGeneration
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(generation_id,''),config_hash,source_revision,high_water,checkpoint FROM search_projection_state WHERE singleton=1`).Scan(&live.GenerationID, &live.ConfigHash, &live.SourceRevision, &live.HighWater, &live.Checkpoint); err != nil {
+		return live, xerrors.Errorf("observe winning stale automatic replacement: %w", err)
+	}
+	if live.GenerationID != "" && live.GenerationID != observedGenerationID && live.ConfigHash == wantHash {
+		if err := tx.Commit(); err != nil {
+			return live, xerrors.Errorf("commit observed stale automatic replacement: %w", err)
+		}
+		return live, nil
+	}
+	return live, &apptypes.SearchProjectionNoProgressError{Reason: "automatic generation is no longer replaceable"}
 }
 
 // SelectInventory reads a stable event-ID keyset without holding a write lock.
@@ -1272,13 +1349,13 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	}
 	defer func() { _ = tx.Rollback() }()
 	var activeGenerationID, rebuildGenerationID string
-	e = tx.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,index_family_byte_limit,recent_source_ceiling_bytes,recent_amplification_ppm,non_recent_family_bytes,COALESCE(recent_cutoff_norm,''),capacity_semantics_version,COALESCE(capacity_evidence_status,''),COALESCE(capacity_evidence_reason,''),index_family_within_budget,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),''),COALESCE(cutover_index_family,''),cutover_family_bytes_before,cutover_family_bytes_after,COALESCE(cutover_before_evidence_status,''),COALESCE(cutover_before_evidence_reason,''),COALESCE(cutover_after_evidence_status,''),COALESCE(cutover_after_evidence_reason,''),COALESCE(failure_class,''),COALESCE(active_generation_id,''),COALESCE(generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(
+	e = tx.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,index_family_byte_limit,recent_source_ceiling_bytes,recent_amplification_ppm,non_recent_family_bytes,COALESCE(recent_cutoff_norm,''),capacity_semantics_version,COALESCE(capacity_evidence_status,''),COALESCE(capacity_evidence_reason,''),index_family_within_budget,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),''),COALESCE(cutover_index_family,''),cutover_family_bytes_before,cutover_family_bytes_after,COALESCE(cutover_before_evidence_status,''),COALESCE(cutover_before_evidence_reason,''),COALESCE(cutover_after_evidence_status,''),COALESCE(cutover_after_evidence_reason,''),COALESCE(failure_class,''),COALESCE(active_generation_id,''),COALESCE(generation_id,''),COALESCE(origin,'automatic') FROM search_projection_state WHERE singleton=1`).Scan(
 		&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed,
 		&s.RecentAgeSeconds, &s.IndexFamilyByteLimit, &s.RecentSourceCeilingBytes, &s.RecentAmplificationPPM, &s.NonRecentFamilyBytes,
 		&s.RecentCutoffNorm, &s.CapacitySemanticsVersion, &s.CapacityEvidence.Status, &s.CapacityEvidence.Reason, &s.IndexFamilyWithinBudget,
 		&s.LastBatchMilliseconds, &s.LifecycleState, &s.AbandonedAt, &s.CutoverIndexFamily, &s.CutoverFamilyBytesBefore, &s.CutoverFamilyBytesAfter,
 		&s.CutoverBeforeEvidence.Status, &s.CutoverBeforeEvidence.Reason, &s.CutoverAfterEvidence.Status, &s.CutoverAfterEvidence.Reason, &s.FailureClass,
-		&activeGenerationID, &rebuildGenerationID)
+		&activeGenerationID, &rebuildGenerationID, &s.Origin)
 	if e != nil {
 		return s, xerrors.Errorf("read search projection state: %w", e)
 	}
@@ -1333,6 +1410,7 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 		}
 	}
 	s.InspectionMilliseconds = time.Since(started).Milliseconds()
+	s.ApplyParkedNotice(apptypes.DefaultSearchProjectionBudget().ConfigHash())
 	return s, e
 }
 
