@@ -841,8 +841,11 @@ func TestSearchProjectionResumeSurvivesVacuumAndExcludesThinking(t *testing.T) {
 		t.Fatalf("visible projection=%q %q", bodies, summaries)
 	}
 	var matches int
-	if err = db.QueryRow(`SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH ?`, eventSearchFTSPhrase("PUBLIC-TEXT")).Scan(&matches); err != nil || matches != 2 {
-		t.Fatalf("matches=%d err=%v", matches, err)
+	if err = db.QueryRow(`SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH ?`, eventSearchFTSPhrase("PUBLIC-TEXT")).Scan(&matches); err != nil {
+		t.Fatalf("unread FTS inspect: %v", err)
+	}
+	if matches != 0 {
+		t.Fatalf("unread recent FTS was written (%d hits); writers should be dropped", matches)
 	}
 }
 
@@ -1239,20 +1242,18 @@ func TestSearchProjectionRecentDocumentsAreASCIIFoldedForCaseSensitiveFTS(t *tes
 		t.Fatalf("stored body_text (-want +got):\n%s", diff)
 	}
 
-	// The query the search path actually issues for "Timeout".
+	// The recent FTS is unread (#1842). Writers are dropped; MATCH must stay 0.
 	var matched int
 	if err = db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		  FROM search_projection_recent_fts
-		  JOIN search_projection_recent_documents d
-		    ON d.document_id = search_projection_recent_fts.rowid
 		 WHERE search_projection_recent_fts MATCH ?`,
 		eventSearchFTSPhrase("Timeout"),
 	).Scan(&matched); err != nil {
 		t.Fatal(err)
 	}
-	if matched != 1 {
-		t.Fatalf("MATCH count = %d, want 1 (mixed-case text must be findable)", matched)
+	if matched != 0 {
+		t.Fatalf("unread recent FTS MATCH = %d, want 0", matched)
 	}
 }
 

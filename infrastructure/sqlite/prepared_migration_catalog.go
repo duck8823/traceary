@@ -98,6 +98,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 65 adds capacity_rederived to the singleton search_projection_state
 	// row. No store-sized scan.
 	65: {65, "000065_search_projection_capacity_rederived.sql", "0b02dc61ddfa243304a6d20a29f76ab3ccf780e37a5d5ae59c7ce7de152bb9b1", MigrationConstantInPlace},
+	// 66 only drops two writer triggers. The unread recent FTS virtual
+	// table stays until store compact (052: no multi-GiB DROP on open).
+	66: {66, "000066_drop_recent_fts_writers.sql", "3de6d4706f043d23d6212def8e23344684e5a95444587c361ad7f970062bb892", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

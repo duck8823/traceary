@@ -225,9 +225,13 @@ merge removes them, and the merge that runs after each batch is bounded and does
 run at all during the source phase. The store copy in that measurement carried four
 resident generations rather than the two a clean upgrade holds, so the magnitude is
 not a clean-upgrade figure — but the shape is not an artefact of that. Note what
-the dominant object is: `search_projection_recent_fts` is the tier nothing reads
-(#1842), so the disk this peak consumes currently buys retention rather than any
-search result.
+the dominant object is: `search_projection_recent_fts` was the unread tier
+(#1842). v0.37 deletes it: migration 066 drops the writer triggers; `store
+compact` drops the virtual table on the work copy. Search stays the decode
+walk. Scratch: walk p50 ~3.7–4.4 ms vs a comparison FTS ~26–33 µs — faster,
+not worth 9 GB unread. See
+[search-projection-recent-fts](research/search-projection-recent-fts.md).
+The disk that peak consumed bought retention, not search results.
 
 **Do not size free disk from the configured budget.** A rebuild can require several
 times it, and it can fail for lack of space. This is the v0.37 disk promise

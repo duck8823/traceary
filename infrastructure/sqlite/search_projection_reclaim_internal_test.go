@@ -58,6 +58,10 @@ func TestSearchProjectionFTSReclaimKeepsConstantLargeCorpusBounded(t *testing.T)
 						_ = tx.Rollback()
 						t.Fatal(txErr)
 					}
+					if _, txErr = tx.Exec(`INSERT INTO search_projection_recent_fts(rowid, body_text) VALUES(?, ?)`, id, body); txErr != nil {
+						_ = tx.Rollback()
+						t.Fatal(txErr)
+					}
 				}
 				if txErr = tx.Commit(); txErr != nil {
 					t.Fatal(txErr)
@@ -74,6 +78,13 @@ func TestSearchProjectionFTSReclaimKeepsConstantLargeCorpusBounded(t *testing.T)
 			insertCorpus(0)
 			sizes := []int64{shadowBytes()}
 			for generation := 1; generation <= tt.generations; generation++ {
+				if _, err = db.Exec(`
+					INSERT INTO search_projection_recent_fts(search_projection_recent_fts, rowid, body_text)
+					SELECT 'delete', document_id, body_text
+					  FROM search_projection_recent_documents
+					 WHERE generation_id='fixture'`); err != nil {
+					t.Fatal(err)
+				}
 				if _, err = db.Exec(`DELETE FROM search_projection_recent_documents WHERE generation_id='fixture'`); err != nil {
 					t.Fatal(err)
 				}
@@ -136,8 +147,10 @@ func TestSearchProjectionStatusReportsFTSShadowLogicalBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diff := cmp.Diff(true, status.FTSLogicalBytes > status.RecentBytes); diff != "" {
-		t.Fatalf("FTS logical bytes must describe shadow tables, not source text (-want +got):\n%s", diff)
+	// Writers are dropped (#1842). Documents no longer populate FTS shadow
+	// tables, so logical FTS bytes stay at the empty-index residual.
+	if status.FTSLogicalBytes >= status.RecentBytes && status.RecentBytes > 0 {
+		t.Fatalf("FTS logical bytes = %d must not track unread source text recent=%d", status.FTSLogicalBytes, status.RecentBytes)
 	}
 }
 
@@ -166,6 +179,9 @@ func TestSearchProjectionFTSLogicalBytesUsesIntegerColumnWidth(t *testing.T) {
 	body := strings.Repeat("representative indexed text ", 1800)
 	for i := 0; i < 220; i++ {
 		if _, err = db.Exec(`INSERT INTO search_projection_recent_documents(generation_id,event_rowid,event_id,created_at_norm,body_text,decoded_bytes) VALUES(?,?,?,?,?,?)`, generation.GenerationID, i+1, fmt.Sprintf("event-%d", i), "2026-08-10T00:00:00Z", body, len(body)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec(`INSERT INTO search_projection_recent_fts(rowid, body_text) VALUES(?, ?)`, i+1, body); err != nil {
 			t.Fatal(err)
 		}
 	}
