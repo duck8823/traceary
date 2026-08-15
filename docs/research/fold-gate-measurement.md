@@ -34,4 +34,5 @@ This measurement requires an explicit `--db` copy. The default live path is refu
 ## Non-goals
 
 - Changing consolidation or wake behavior.
-- Closing #1873 (v0.39: evaluate every gate threshold in CI).
+
+#1873 evaluates these measurements as release gates on a fixture store. See [release gates](../release/gates.md).

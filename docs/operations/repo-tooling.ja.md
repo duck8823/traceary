@@ -59,6 +59,7 @@ maintainer-only の repository automation は性質が異なります。
 - `go run ./cmd/repo-tooling docs verify-antigravity-status`
 - `go run ./cmd/repo-tooling release verify-changelog`
 - `go run ./cmd/repo-tooling release bump-version --version X.Y.Z`
+- `go run ./cmd/repo-tooling release evaluate-gates --db PATH`
 - `go run ./cmd/repo-tooling release run-v0.33.0-evidence --output FILE`
 - `go run ./cmd/repo-tooling release verify-body-free-evidence --input FILE`
 

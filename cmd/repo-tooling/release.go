@@ -84,6 +84,7 @@ func newReleaseCommand() *cobra.Command {
 	cmd.AddCommand(verifyChangelog)
 	cmd.AddCommand(bumpVersion)
 	addReleaseEvidenceCommands(cmd)
+	addReleaseGateCommands(cmd)
 	return cmd
 }
 

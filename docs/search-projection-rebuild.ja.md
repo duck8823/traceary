@@ -2,6 +2,8 @@
 
 [English](search-projection-rebuild.md)
 
+オペレータ向けの **rebuild** は **search-index family** の再構築です（`traceary store search-projection start|resume|status|abort`）。コンパイル手順でも、ストア全体の rebuild でもありません。
+
 検索プロジェクションは派生データです。正本のイベントとコマンド監査からいつでも再構築でき、プロジェクションのライフサイクル操作が正本を変更することはありません。v0.34 以降、complete な世代は `traceary search` に fingerprint pre-filter と session tier を提供します。本文一致は正本テーブルを新しい順に走査して復号する経路で判定し、再構築後に記録されたイベントも統合するため、再構築の合間に結果が古くなることはありません。
 
 世代を一度も作っていない store でも、オペレータのコマンドは不要です。store を開くと generation 作業を上限付きで 1 単位進めます。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。ただし代わりに skip される state があり、それらは後述の表に挙げています。この間も本文一致の検索は機能します。世代が `complete` でない状態は fingerprint による pre-filter が使えないことを意味するだけで、候補を直接復号して本文一致は正しく返ります。session tier は別です。世代が complete になるまで参照を拒否するため、session の要約やキーワードにだけ存在する一致はそれまで返りません。`traceary search` は stderr で session tier を参照しなかったことを通知し、`traceary store search-projection status` を案内します。報告された state ごとに必要な操作は異なり、通常の store open では進まない state が 2 つあります。`failed` な generation には明示的な `start` が必要で、非既定の budget で開始された rebuild には同じ budget を指定した `resume` または `abort` が必要です。generation が rebuilding の間、`start` は拒否されるためです。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。
