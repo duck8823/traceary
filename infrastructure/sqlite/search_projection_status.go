@@ -43,7 +43,7 @@ func (d *Database) SearchProjectionControlStatus(ctx context.Context) (s apptype
 	}()
 
 	err = tx.QueryRowContext(ctx, selectSearchProjectionControlStatusSQL).Scan(
-		&s.State, &s.Phase, &s.Checkpoint, &s.ConfigHash, &s.CapacitySemanticsVersion, &s.FailureClass,
+		&s.GenerationID, &s.State, &s.Phase, &s.Checkpoint, &s.ConfigHash, &s.CapacitySemanticsVersion, &s.FailureClass,
 		&s.CutoverIndexFamily, &s.CutoverFamilyBytesBefore, &s.CutoverFamilyBytesAfter,
 		&s.CutoverBeforeEvidence.Status, &s.CutoverBeforeEvidence.Reason,
 		&s.CutoverAfterEvidence.Status, &s.CutoverAfterEvidence.Reason,

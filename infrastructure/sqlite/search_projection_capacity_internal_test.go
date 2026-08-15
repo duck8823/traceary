@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1080,6 +1081,145 @@ func TestSearchProjectionObsoleteInFlightGenerationIsReplaced(t *testing.T) {
 	if newID == gen.GenerationID {
 		t.Fatalf("still on %q after obsolete in-flight replace", newID)
 	}
+}
+
+// TestSearchProjectionObsoleteReplaceRecoversAbandonedCorpse is the #1752
+// crash injection: Abandon without Start is the two-step failure between
+// those calls. The next CatchUp must replace the parked corpse without an
+// operator start. Mutating CatchUp back to Abandon+Start without the
+// failed+abandoned+obsolete gate makes this red.
+func TestSearchProjectionObsoleteReplaceRecoversAbandonedCorpse(t *testing.T) {
+	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
+		{"e1", "obsolete crash body", "2026-06-01T12:00:00Z"},
+	})
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	gen, err := store.Start(ctx, capacityBudget(64<<20), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE search_projection_state SET capacity_semantics_version=1 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AbandonSearchProjection(ctx, now); err != nil {
+		t.Fatalf("Abandon (injected crash after abandon): %v", err)
+	}
+	var parkedState, failureClass string
+	if err = db.QueryRow(`SELECT state,failure_class FROM search_projection_state WHERE singleton=1`).Scan(&parkedState, &failureClass); err != nil {
+		t.Fatal(err)
+	}
+	if parkedState != "failed" || failureClass != "abandoned" {
+		t.Fatalf("injected corpse state=%q class=%q, want failed/abandoned", parkedState, failureClass)
+	}
+
+	result, err := usecase.NewSearchProjectionUsecase(store).CatchUp(ctx, defaultSearchProjectionCatchUpBudget(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "start" {
+		t.Fatalf("action=%q reason=%q, want start (recovered corpse)", result.Action, result.SkippedReason)
+	}
+	var afterID string
+	var version int
+	if err = db.QueryRow(`SELECT generation_id,capacity_semantics_version FROM search_projection_state`).Scan(&afterID, &version); err != nil {
+		t.Fatal(err)
+	}
+	if afterID == "" || afterID == gen.GenerationID {
+		t.Fatalf("generation_id=%q, want a replacement of %q", afterID, gen.GenerationID)
+	}
+	if version != apptypes.SearchProjectionCapacitySemanticsVersion {
+		t.Fatalf("capacity_semantics_version=%d, want %d", version, apptypes.SearchProjectionCapacitySemanticsVersion)
+	}
+}
+
+// TestSearchProjectionObsoleteReplaceConcurrentCatchUpKeepsOneGeneration pins
+// that two CatchUp calls against the same obsolete generation produce one
+// replacement. The loser observes the winner instead of abandoning it.
+func TestSearchProjectionObsoleteReplaceConcurrentCatchUpKeepsOneGeneration(t *testing.T) {
+	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
+		{"e1", "obsolete race body", "2026-06-01T12:00:00Z"},
+	})
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	old, err := store.Start(ctx, capacityBudget(64<<20), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE search_projection_state SET capacity_semantics_version=1 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+
+	budget := defaultSearchProjectionCatchUpBudget()
+	budget.LockTime = 5 * time.Second
+	results := make([]apptypes.SearchProjectionCatchUpResult, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			results[i], errs[i] = catchUpRetryingBusy(ctx, store, budget, now)
+		}()
+	}
+	wg.Wait()
+	for i, catchErr := range errs {
+		if catchErr != nil {
+			t.Fatalf("CatchUp[%d]: %v", i, catchErr)
+		}
+	}
+
+	var liveID string
+	if err = db.QueryRow(`SELECT generation_id FROM search_projection_state`).Scan(&liveID); err != nil {
+		t.Fatal(err)
+	}
+	if liveID == "" || liveID == old.GenerationID {
+		t.Fatalf("live generation %q still the obsolete %q", liveID, old.GenerationID)
+	}
+	var newCount int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM search_projection_generation_lifecycle WHERE generation_id<>?`, old.GenerationID).Scan(&newCount); err != nil {
+		t.Fatal(err)
+	}
+	if newCount != 1 {
+		t.Fatalf("replacement lifecycle rows=%d, want 1 (loser must not start a second generation)", newCount)
+	}
+	var liveLifecycle string
+	if err = db.QueryRow(`SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=?`, liveID).Scan(&liveLifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if liveLifecycle == "abandoned" {
+		t.Fatalf("winner generation %q was abandoned by the loser", liveID)
+	}
+	seen := map[string]struct{}{}
+	for i, result := range results {
+		switch result.Action {
+		case "start":
+			if result.GenerationID != liveID {
+				t.Fatalf("CatchUp[%d] generation=%q, want live %q", i, result.GenerationID, liveID)
+			}
+			seen[result.GenerationID] = struct{}{}
+		case "resume", "already_complete":
+			// Loser retried after the winner committed the replacement.
+		default:
+			t.Fatalf("CatchUp[%d] action=%q, want start or observe-after-win", i, result.Action)
+		}
+	}
+}
+
+func catchUpRetryingBusy(ctx context.Context, store *Database, budget apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionCatchUpResult, error) {
+	var last apptypes.SearchProjectionCatchUpResult
+	var err error
+	for attempt := 0; attempt < 20; attempt++ {
+		last, err = usecase.NewSearchProjectionUsecase(store).CatchUp(ctx, budget, now)
+		if err == nil {
+			return last, nil
+		}
+		if !strings.Contains(err.Error(), "database is locked") {
+			return last, fmt.Errorf("catch-up: %w", err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return last, fmt.Errorf("catch-up still locked: %w", err)
 }
 
 // TestSearchProjectionOperatorTuningNotHijacked pins that a version-matched

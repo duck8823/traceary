@@ -413,6 +413,7 @@ type SearchProjectionExclusion struct {
 // It deliberately excludes derived measurements so lifecycle operations cannot
 // accidentally put whole-family scans on their control path.
 type SearchProjectionControlStatus struct {
+	GenerationID             string
 	State                    string
 	Phase                    string
 	Checkpoint               int64
