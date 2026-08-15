@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Session-tier hits and readiness share one snapshot (#1822)** — `SearchSessionPage` returns hits plus `ready` / `not_ready` / `not_applicable` from a single read transaction. Empty query, `--kind`, and later pages report `not_applicable` without opening the store. `SearchSessionProjectionReady` is gone so callers cannot pair an empty page with a later generation's readiness. `traceary search` uses that page for the session notice.
 - **Search-projection invalidators watch every decoder column (#1737)** — a codec-metadata-only update of a projected event now drifts a complete generation and bumps `search_projection_source_revision` during rebuild. `events.id` is immutable at the database instead of being watched. Body / retention / redaction paths that already mention `body` are unchanged.
 - **Structural (empty-query) search is not gated on the literal projection (#1736)** — workspace, session, kind, and time filters run against canonical tables even while the literal generation is rebuilding, failed, or drifted. Invalid offset, limit, and from/to still fail closed. Non-empty queries still fail open onto a decode walk when the generation is unusable.
 

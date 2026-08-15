@@ -254,24 +254,14 @@ func (c *RootCLI) searchProjectionSessions(
 	if c.projectionSessionSearch == nil {
 		return []apptypes.SearchSessionHit{}, notices, nil
 	}
-	hits, err := c.projectionSessionSearch.SearchSessionHits(ctx, criteria, exclude)
+	page, err := c.projectionSessionSearch.SearchSessionPage(ctx, criteria, exclude)
 	if err != nil {
 		return nil, notices, xerrors.Errorf("search projection session hits: %w", err)
 	}
-	// An empty page means "nothing matched" or "the projection was never
-	// consulted", and the query service reports both the same way. Only this
-	// branch can use the answer, so readiness is asked for only here.
-	if len(hits) == 0 {
-		ready, readinessErr := c.projectionSessionSearch.SearchSessionProjectionReady(ctx)
-		// Readiness is advisory. The events were already found and printed, so a
-		// readiness failure must not turn a successful search into an error — but
-		// it must not silently pass for a ready projection either, because that is
-		// the ambiguity this whole path exists to remove.
-		if readinessErr == nil {
-			notices.projectionNotReady = !ready
-		} else {
-			notices.readinessUnknown = true
-		}
+	hits := page.Hits()
+	// State is the snapshot that produced Hits. Do not re-ask readiness.
+	if page.State() == apptypes.SearchSessionTierNotReady {
+		notices.projectionNotReady = true
 	}
 	if strings.TrimSpace(criteria.Kind().String()) == "" {
 		return hits, notices, nil
@@ -286,11 +276,17 @@ func (c *RootCLI) searchProjectionSessions(
 	// asked. That is also why the notice reports presence rather than a count:
 	// an accurate count would require re-running the event search as well, and
 	// the number is not what tells the user what to do.
-	probeHits, err := c.projectionSessionSearch.SearchSessionHits(ctx, criteria.WithoutKind(), nil)
+	//
+	// --kind itself is not_applicable, so readiness comes from this probe's
+	// snapshot rather than a third transaction.
+	probe, err := c.projectionSessionSearch.SearchSessionPage(ctx, criteria.WithoutKind(), nil)
 	if err != nil {
 		return nil, notices, xerrors.Errorf("probe projection session hits: %w", err)
 	}
-	notices.kindSuppressed = len(probeHits) > 0
+	notices.kindSuppressed = probe.State() == apptypes.SearchSessionTierReady && len(probe.Hits()) > 0
+	if probe.State() == apptypes.SearchSessionTierNotReady {
+		notices.projectionNotReady = true
+	}
 	return hits, notices, nil
 }
 

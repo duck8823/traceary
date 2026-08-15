@@ -41,3 +41,36 @@ func (h SearchSessionHit) EventCount() int { return h.eventCount }
 
 // StartedAt returns the session start time used for ordering and display.
 func (h SearchSessionHit) StartedAt() time.Time { return h.startedAt }
+
+// SearchSessionTierState is the session-tier disposition for one snapshot.
+// ready: the published generation was consulted. not_ready: it was refused.
+// not_applicable: the tier was never opened (empty query, --kind, or a
+// page after the first).
+type SearchSessionTierState string
+
+const (
+	SearchSessionTierReady         SearchSessionTierState = "ready"
+	SearchSessionTierNotReady      SearchSessionTierState = "not_ready"
+	SearchSessionTierNotApplicable SearchSessionTierState = "not_applicable"
+)
+
+// SearchSessionPage is hits plus the readiness that explains an empty page,
+// taken from the same read snapshot.
+type SearchSessionPage struct {
+	hits  []SearchSessionHit
+	state SearchSessionTierState
+}
+
+// SearchSessionPageOf constructs a SearchSessionPage.
+func SearchSessionPageOf(hits []SearchSessionHit, state SearchSessionTierState) SearchSessionPage {
+	if hits == nil {
+		hits = []SearchSessionHit{}
+	}
+	return SearchSessionPage{hits: hits, state: state}
+}
+
+// Hits returns the session-tier matches from this snapshot.
+func (p SearchSessionPage) Hits() []SearchSessionHit { return p.hits }
+
+// State reports whether the session tier was consulted, refused, or skipped.
+func (p SearchSessionPage) State() SearchSessionTierState { return p.state }

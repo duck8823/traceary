@@ -91,34 +91,30 @@ type projectionSessionSearchStub struct {
 	excludes [][]types.SessionID
 }
 
-func (s *projectionSessionSearchStub) SearchSessionProjectionReady(context.Context) (bool, error) {
-	if s.readyErr != nil {
-		return false, s.readyErr
-	}
-	if s.ready == nil {
-		return true, nil
-	}
-	return *s.ready, nil
-}
-
-func (s *projectionSessionSearchStub) SearchSessionHits(
+func (s *projectionSessionSearchStub) SearchSessionPage(
 	_ context.Context,
 	criteria apptypes.EventSearchCriteria,
 	exclude []types.SessionID,
-) ([]apptypes.SearchSessionHit, error) {
+) (apptypes.SearchSessionPage, error) {
 	if s == nil {
-		return nil, nil
+		return apptypes.SearchSessionPageOf(nil, apptypes.SearchSessionTierNotApplicable), nil
 	}
 	s.calls++
 	s.criteria = append(s.criteria, criteria)
 	s.excludes = append(s.excludes, exclude)
 	if s.err != nil {
-		return nil, s.err
+		return apptypes.SearchSessionPage{}, s.err
 	}
-	if criteria.Kind().String() != "" {
-		return nil, nil
+	if criteria.Kind().String() != "" || strings.TrimSpace(criteria.Query()) == "" || criteria.Offset() > 0 || !criteria.PageAnchor().IsZero() {
+		return apptypes.SearchSessionPageOf(nil, apptypes.SearchSessionTierNotApplicable), nil
 	}
-	return s.hits, nil
+	if s.readyErr != nil {
+		return apptypes.SearchSessionPage{}, s.readyErr
+	}
+	if s.ready != nil && !*s.ready {
+		return apptypes.SearchSessionPageOf(nil, apptypes.SearchSessionTierNotReady), nil
+	}
+	return apptypes.SearchSessionPageOf(s.hits, apptypes.SearchSessionTierReady), nil
 }
 
 func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {

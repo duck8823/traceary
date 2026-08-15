@@ -132,10 +132,14 @@ func TestSearchProjectionReadPath_SessionTierSummaryOnly(t *testing.T) {
 	if len(events) != 0 {
 		t.Fatalf("len(events) = %d, want 0", len(events))
 	}
-	sessions, err := sut.SearchSessionHits(ctx, criteria, nil)
+	page, err := sut.SearchSessionPage(ctx, criteria, nil)
 	if err != nil {
-		t.Fatalf("SearchSessionHits() error = %v", err)
+		t.Fatalf("SearchSessionPage() error = %v", err)
 	}
+	if page.State() != apptypes.SearchSessionTierReady {
+		t.Fatalf("State() = %q, want ready", page.State())
+	}
+	sessions := page.Hits()
 	if len(sessions) != 1 {
 		t.Fatalf("len(sessions) = %d, want 1", len(sessions))
 	}
@@ -195,10 +199,11 @@ func TestSearchProjectionReadPath_SessionExcludedWhenEventHitExists(t *testing.T
 		t.Fatalf("event IDs mismatch (-want +got):\n%s", diff)
 	}
 	exclude := []types.SessionID{types.SessionID("sess-shared")}
-	sessions, err := sut.SearchSessionHits(ctx, criteria, exclude)
+	page, err := sut.SearchSessionPage(ctx, criteria, exclude)
 	if err != nil {
-		t.Fatalf("SearchSessionHits() error = %v", err)
+		t.Fatalf("SearchSessionPage() error = %v", err)
 	}
+	sessions := page.Hits()
 	gotIDs := make([]string, 0, len(sessions))
 	for _, hit := range sessions {
 		gotIDs = append(gotIDs, hit.SessionID().String())
@@ -262,10 +267,11 @@ func TestSearchProjectionReadPath_FiltersApplyToBothTiers(t *testing.T) {
 		if diff := cmp.Diff([]string{"evt-a"}, eventIDs(events)); diff != "" {
 			t.Fatalf("events (-want +got):\n%s", diff)
 		}
-		sessions, err := sut.SearchSessionHits(ctx, criteria, nil)
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
 		if err != nil {
-			t.Fatalf("SearchSessionHits() error = %v", err)
+			t.Fatalf("SearchSessionPage() error = %v", err)
 		}
+		sessions := page.Hits()
 		if diff := cmp.Diff([]string{"sess-old-a"}, sessionHitIDs(sessions)); diff != "" {
 			t.Fatalf("sessions (-want +got):\n%s", diff)
 		}
@@ -283,10 +289,11 @@ func TestSearchProjectionReadPath_FiltersApplyToBothTiers(t *testing.T) {
 		if diff := cmp.Diff([]string{"evt-a"}, eventIDs(events)); diff != "" {
 			t.Fatalf("events (-want +got):\n%s", diff)
 		}
-		sessions, err := sut.SearchSessionHits(ctx, criteria, nil)
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
 		if err != nil {
-			t.Fatalf("SearchSessionHits() error = %v", err)
+			t.Fatalf("SearchSessionPage() error = %v", err)
 		}
+		sessions := page.Hits()
 		if len(sessions) != 0 {
 			t.Fatalf("session-id filter matched event session should not invent extra sessions: %+v", sessions)
 		}
@@ -298,9 +305,13 @@ func TestSearchProjectionReadPath_FiltersApplyToBothTiers(t *testing.T) {
 			Workspace(wsA).
 			Kind(types.EventKindNote).
 			Build()
-		sessions, err := sut.SearchSessionHits(ctx, criteria, nil)
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
 		if err != nil {
-			t.Fatalf("SearchSessionHits() error = %v", err)
+			t.Fatalf("SearchSessionPage() error = %v", err)
+		}
+		sessions := page.Hits()
+		if page.State() != apptypes.SearchSessionTierNotApplicable {
+			t.Fatalf("kind State() = %q, want not_applicable", page.State())
 		}
 		if len(sessions) != 0 {
 			t.Fatalf("kind filter must fail closed for sessions, got %d", len(sessions))
@@ -313,9 +324,13 @@ func TestSearchProjectionReadPath_FiltersApplyToBothTiers(t *testing.T) {
 			Workspace(wsA).
 			Offset(10).
 			Build()
-		sessions, err := sut.SearchSessionHits(ctx, criteria, nil)
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
 		if err != nil {
-			t.Fatalf("SearchSessionHits() error = %v", err)
+			t.Fatalf("SearchSessionPage() error = %v", err)
+		}
+		sessions := page.Hits()
+		if page.State() != apptypes.SearchSessionTierNotApplicable {
+			t.Fatalf("offset State() = %q, want not_applicable", page.State())
 		}
 		if len(sessions) != 0 {
 			t.Fatalf("offset page repeated the session group: %+v", sessions)
@@ -338,10 +353,11 @@ func TestSearchProjectionReadPath_FiltersApplyToBothTiers(t *testing.T) {
 		if len(events) != 0 {
 			t.Fatalf("len(events) = %d, want 0", len(events))
 		}
-		sessions, err := sut.SearchSessionHits(ctx, criteria, nil)
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
 		if err != nil {
-			t.Fatalf("SearchSessionHits() error = %v", err)
+			t.Fatalf("SearchSessionPage() error = %v", err)
 		}
+		sessions := page.Hits()
 		// sess-old-a starts 2026-06-01 00:00 which is before from; only sess-old-b.
 		if diff := cmp.Diff([]string{"sess-old-b"}, sessionHitIDs(sessions)); diff != "" {
 			t.Fatalf("sessions (-want +got):\n%s", diff)
@@ -467,10 +483,11 @@ func TestSearchProjectionReadPath_SessionFromFilterHandlesSubSecondStartedAt(t *
 		Workspace(workspace).
 		From(from).
 		Build()
-	sessions, err := sut.SearchSessionHits(ctx, criteria, nil)
+	page, err := sut.SearchSessionPage(ctx, criteria, nil)
 	if err != nil {
-		t.Fatalf("SearchSessionHits() error = %v", err)
+		t.Fatalf("SearchSessionPage() error = %v", err)
 	}
+	sessions := page.Hits()
 	if diff := cmp.Diff([]string{"sess-subsecond"}, sessionHitIDs(sessions)); diff != "" {
 		t.Fatalf("sessions (-want +got):\n%s", diff)
 	}
@@ -634,6 +651,98 @@ func sessionHitIDs(hits []apptypes.SearchSessionHit) []string {
 		out = append(out, hit.SessionID().String())
 	}
 	return out
+}
+
+func TestSearchSessionPageReportsStateFromTheSameSnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	workspace := types.Workspace("github.com/duck8823/traceary")
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	seedCompleteProjection(t, dbPath, "gen-session-page", nil, []projectionSessionSeed{
+		{
+			sessionID:  "sess-old-summary",
+			summary:    "discussed unique-session-marker during planning",
+			eventCount: 12,
+			startedAt:  time.Date(2026, 6, 19, 10, 0, 0, 0, time.UTC),
+			workspace:  workspace.String(),
+			client:     "cli",
+			agent:      "codex",
+		},
+	}, nil)
+
+	t.Run("ready with hits", func(t *testing.T) {
+		criteria := apptypes.NewEventSearchCriteriaBuilder(20).
+			Query("unique-session-marker").
+			Workspace(workspace).
+			Build()
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
+		if err != nil {
+			t.Fatalf("SearchSessionPage() error = %v", err)
+		}
+		if page.State() != apptypes.SearchSessionTierReady {
+			t.Fatalf("State() = %q, want ready", page.State())
+		}
+		if diff := cmp.Diff([]string{"sess-old-summary"}, sessionHitIDs(page.Hits())); diff != "" {
+			t.Fatalf("hits (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("ready and empty", func(t *testing.T) {
+		criteria := apptypes.NewEventSearchCriteriaBuilder(20).
+			Query("does-not-match-any-session").
+			Workspace(workspace).
+			Build()
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
+		if err != nil {
+			t.Fatalf("SearchSessionPage() error = %v", err)
+		}
+		if page.State() != apptypes.SearchSessionTierReady {
+			t.Fatalf("State() = %q, want ready (consulted, no match)", page.State())
+		}
+		if len(page.Hits()) != 0 {
+			t.Fatalf("hits = %+v, want empty", page.Hits())
+		}
+	})
+
+	t.Run("empty query is not applicable", func(t *testing.T) {
+		criteria := apptypes.NewEventSearchCriteriaBuilder(20).Workspace(workspace).Build()
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
+		if err != nil {
+			t.Fatalf("SearchSessionPage() error = %v", err)
+		}
+		if page.State() != apptypes.SearchSessionTierNotApplicable {
+			t.Fatalf("State() = %q, want not_applicable", page.State())
+		}
+		if len(page.Hits()) != 0 {
+			t.Fatalf("hits = %+v, want empty", page.Hits())
+		}
+	})
+
+	t.Run("idle generation is not ready", func(t *testing.T) {
+		openRawDB(t, dbPath, func(db *sql.DB) {
+			if _, err := db.Exec(`UPDATE search_projection_state SET state='idle', active_generation_id=NULL WHERE singleton=1`); err != nil {
+				t.Fatalf("clear projection state: %v", err)
+			}
+		})
+		criteria := apptypes.NewEventSearchCriteriaBuilder(20).
+			Query("unique-session-marker").
+			Workspace(workspace).
+			Build()
+		page, err := sut.SearchSessionPage(ctx, criteria, nil)
+		if err != nil {
+			t.Fatalf("SearchSessionPage() error = %v", err)
+		}
+		if page.State() != apptypes.SearchSessionTierNotReady {
+			t.Fatalf("State() = %q, want not_ready", page.State())
+		}
+		if len(page.Hits()) != 0 {
+			t.Fatalf("hits = %+v, want empty", page.Hits())
+		}
+	})
 }
 
 func foldASCIIForTest(value string) string {

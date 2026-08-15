@@ -116,20 +116,24 @@ func TestRootCLI_SearchJSONFieldsReportsSessionProjectionNotReadyOnlyForEmptyHit
 	}
 }
 
-func TestRootCLI_SearchReadinessErrorReportsUnknownReadiness(t *testing.T) {
+func TestRootCLI_SearchSessionPageErrorFailsSearch(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	stub := &projectionSessionSearchStub{readyErr: errors.New("readiness unavailable")}
-	out, stderr := executeSearchWithSessionStub(t, []string{"search", "--db-path", "/tmp/test-traceary.db", "needle"}, &eventUsecaseStub{}, stub)
-	ready := true
-	want, _ := executeSearchWithSessionStub(t, []string{"search", "--db-path", "/tmp/test-traceary.db", "needle"}, &eventUsecaseStub{}, &projectionSessionSearchStub{ready: &ready})
-	if diff := cmp.Diff(want, out); diff != "" {
-		t.Fatalf("stdout changed on readiness error (-want +got):\n%s", diff)
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	root := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{}),
+		cli.WithProjectionSessionSearch(stub),
+	).Command()
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.SetArgs([]string{"search", "--db-path", "/tmp/test-traceary.db", "needle"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want session-page failure")
 	}
-	if !strings.Contains(string(stderr), "could not determine whether the search projection is ready") {
-		t.Fatalf("readiness error must report unknown readiness: %q", stderr)
-	}
-	if !strings.Contains(string(stderr), "traceary store search-projection status") {
-		t.Fatalf("readiness error notice must point to status: %q", stderr)
+	if !strings.Contains(err.Error(), "readiness unavailable") {
+		t.Fatalf("Execute() error = %v, want readiness unavailable", err)
 	}
 }
 

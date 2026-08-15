@@ -18,43 +18,32 @@ import (
 // "ready" instead of failing to build.
 var _ queryservice.ProjectionSessionSearch = (*EventDatasource)(nil)
 
-// SearchSessionHits returns session-tier matches from the bounded search
-// projection. When the projection is not complete, the method returns an empty
-// page without error so callers fall through to event-only results.
-func (d *EventDatasource) SearchSessionHits(
+// SearchSessionPage returns session-tier matches and the readiness that
+// explains an empty page from one read-only transaction. Early exits
+// (empty query, --kind, later pages) never open the store and report
+// not_applicable so callers do not invent a readiness they did not observe.
+func (d *EventDatasource) SearchSessionPage(
 	ctx context.Context,
 	criteria apptypes.EventSearchCriteria,
 	excludeSessionIDs []types.SessionID,
-) ([]apptypes.SearchSessionHit, error) {
+) (apptypes.SearchSessionPage, error) {
 	if criteria.Limit() <= 0 {
-		return nil, xerrors.New("limit must be greater than or equal to 1")
+		return apptypes.SearchSessionPage{}, xerrors.New("limit must be greater than or equal to 1")
 	}
 	queryValue := strings.TrimSpace(criteria.Query())
-	if queryValue == "" {
-		return []apptypes.SearchSessionHit{}, nil
-	}
-	// Kind cannot be applied to session summaries/keywords. Fail closed rather
-	// than return unfiltered session rows for a filter the user set.
-	if strings.TrimSpace(criteria.Kind().String()) != "" {
-		return []apptypes.SearchSessionHit{}, nil
-	}
-	// The session group points at trails the event tier could not reach; it is
-	// not a paginated list. Repeating it under every page anchor or offset would
-	// show the same sessions again on page two, so it belongs to the first page
-	// only.
-	if criteria.Offset() > 0 || !criteria.PageAnchor().IsZero() {
-		return []apptypes.SearchSessionHit{}, nil
+	if queryValue == "" || strings.TrimSpace(criteria.Kind().String()) != "" || criteria.Offset() > 0 || !criteria.PageAnchor().IsZero() {
+		return apptypes.SearchSessionPageOf(nil, apptypes.SearchSessionTierNotApplicable), nil
 	}
 
 	db, err := d.db.open(ctx)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for projection session search: %w", err)
+		return apptypes.SearchSessionPage{}, xerrors.Errorf("failed to open DB for projection session search: %w", err)
 	}
 	defer d.db.release(db)
 
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return nil, xerrors.Errorf("failed to begin projection session search: %w", err)
+		return apptypes.SearchSessionPage{}, xerrors.Errorf("failed to begin projection session search: %w", err)
 	}
 	defer func() {
 		_ = tx.Rollback()
@@ -62,48 +51,23 @@ func (d *EventDatasource) SearchSessionHits(
 
 	ready, err := searchProjectionReadReady(ctx, tx)
 	if err != nil {
-		return nil, err
+		return apptypes.SearchSessionPage{}, err
 	}
 	if !ready {
 		if commitErr := tx.Commit(); commitErr != nil {
-			return nil, xerrors.Errorf("failed to finish empty projection session search: %w", commitErr)
+			return apptypes.SearchSessionPage{}, xerrors.Errorf("failed to finish empty projection session search: %w", commitErr)
 		}
-		return []apptypes.SearchSessionHit{}, nil
+		return apptypes.SearchSessionPageOf(nil, apptypes.SearchSessionTierNotReady), nil
 	}
 
 	hits, err := queryProjectionSessionHits(ctx, tx, criteria, queryValue, excludeSessionIDs)
 	if err != nil {
-		return nil, err
+		return apptypes.SearchSessionPage{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("failed to finish projection session search: %w", err)
+		return apptypes.SearchSessionPage{}, xerrors.Errorf("failed to finish projection session search: %w", err)
 	}
-	return hits, nil
-}
-
-// SearchSessionProjectionReady reports whether session-tier search may be
-// consulted. It is separate from SearchSessionHits because an empty result is
-// valid both for a ready projection with no match and for an incomplete one.
-func (d *EventDatasource) SearchSessionProjectionReady(ctx context.Context) (bool, error) {
-	db, err := d.db.open(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to open DB for projection session readiness: %w", err)
-	}
-	defer d.db.release(db)
-
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return false, xerrors.Errorf("failed to begin projection session readiness: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	ready, err := searchProjectionReadReady(ctx, tx)
-	if err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, xerrors.Errorf("failed to finish projection session readiness: %w", err)
-	}
-	return ready, nil
+	return apptypes.SearchSessionPageOf(hits, apptypes.SearchSessionTierReady), nil
 }
 
 func queryProjectionSessionHits(
@@ -231,5 +195,3 @@ func appendSessionSearchFilters(
 	}
 	return args
 }
-
-var _ queryservice.ProjectionSessionSearchQuery = (*EventDatasource)(nil)
