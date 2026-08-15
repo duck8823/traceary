@@ -183,9 +183,14 @@ store の複製は、通常のアップグレードが保持する 2 世代で�
 このピークが消費するディスクは現在、検索結果ではなく保持量のために使われています。
 
 **空き容量を設定予算から見積もらないでください。** 再構築は予算の数倍を必要とすることが
-あり、容量不足で失敗することがあります。詳細は
-[#1620](https://github.com/duck8823/traceary/issues/1620)、ディスク容量の約束そのものは
-[#1753](https://github.com/duck8823/traceary/issues/1753) で継続作業中です。
+あり、容量不足で失敗することがあります。これが v0.37 のディスク約束です
+（[#1753](https://github.com/duck8823/traceary/issues/1753)）。ピークは上限せず
+**受け入れます**。再構築前回収は検索を止め、測定ピークを予算内に予約すると recent 窓が
+空になり、第 2 の再構築天井フラグは足しません。scratch 測定（event 12 件）: gen1
+family 258,048 → 再構築ピーク **405,504**（gen2 予算 225,280 の 1.80 倍）。`VACUUM`
+なしではファイルサイズは動きません。
+[search-projection-rebuild-peak.ja.md](research/search-projection-rebuild-peak.ja.md)
+を参照。上の大規模コーパス下限は変わりません（[#1620](https://github.com/duck8823/traceary/issues/1620)）。
 
 空き容量が厳しい場合、再構築には永続的な停止手段があります。`traceary store
 search-projection abort` は世代を park し（`state=failed`、`failure_class=abandoned`）、
