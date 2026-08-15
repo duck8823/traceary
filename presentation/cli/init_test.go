@@ -35,6 +35,27 @@ func TestRootCLI_InitCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_InitCommandPrintsPendingOfflineMigrations(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	stub := &storeManagementUsecaseStub{previewOffline: []int64{35, 45}}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"store", "init", "--db-path", dbPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "35, 45") {
+		t.Fatalf("stdout = %q, want pending versions", got)
+	}
+	if !strings.Contains(got, "Initialized: "+dbPath) {
+		t.Fatalf("stdout = %q, want initialized path", got)
+	}
+}
+
 func TestResolveDBPath(t *testing.T) {
 	tests := []struct {
 		name       string

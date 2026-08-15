@@ -11,9 +11,19 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 func (d *Database) migrate(ctx context.Context, db *sql.DB) error {
+	return d.migrateWithOptions(ctx, db, false)
+}
+
+func (d *Database) migrateAuthorized(ctx context.Context, db *sql.DB) error {
+	return d.migrateWithOptions(ctx, db, true)
+}
+
+func (d *Database) migrateWithOptions(ctx context.Context, db *sql.DB, allowOffline bool) error {
 	if err := ensureSchemaMigrationsTable(ctx, db); err != nil {
 		return xerrors.Errorf("failed to create schema_migrations table: %w", err)
 	}
@@ -36,12 +46,63 @@ func (d *Database) migrate(ctx context.Context, db *sql.DB) error {
 		if _, exists := applied[migration.version]; exists {
 			continue
 		}
+		if !allowOffline && isDataDependentOfflineMigration(migration.version) {
+			hasEvents, inspectErr := storeHasSourceEvents(ctx, db)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			if hasEvents {
+				return &apptypes.OfflineMigrationsRequiredError{Versions: pendingOfflineMigrations(migrations, applied)}
+			}
+		}
+		if allowOffline && isDataDependentOfflineMigration(migration.version) {
+			slog.Info("applying data-dependent migration", "version", migration.version, "name", migration.name)
+		}
 		if err := executeExactMigration(ctx, db, migration); err != nil {
 			return xerrors.Errorf("failed to apply migration: %w", err)
 		}
+		applied[migration.version] = migration.name
 	}
 
 	return nil
+}
+
+func isDataDependentOfflineMigration(version int64) bool {
+	entry, ok := preparedMigrationManifest[version]
+	return ok && entry.Class == MigrationDataDependentOffline
+}
+
+func pendingOfflineMigrations(migrations []embeddedMigration, applied map[int64]string) []int64 {
+	var versions []int64
+	for _, migration := range migrations {
+		if _, exists := applied[migration.version]; exists {
+			continue
+		}
+		if isDataDependentOfflineMigration(migration.version) {
+			versions = append(versions, migration.version)
+		}
+	}
+	return versions
+}
+
+func storeHasSourceEvents(ctx context.Context, db *sql.DB) (bool, error) {
+	var name string
+	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='events'`).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, xerrors.Errorf("inspect events table: %w", err)
+	}
+	var id string
+	err = db.QueryRowContext(ctx, `SELECT id FROM events LIMIT 1`).Scan(&id)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, xerrors.Errorf("inspect events rows: %w", err)
+	}
+	return true, nil
 }
 
 // rejectForeignAppliedMigrations fails initialization when the ledger records

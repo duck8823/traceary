@@ -49,7 +49,7 @@ func TestMigrations_EventMetadataProjectionBackfillsAndMaintainsRows(t *testing.
 		t.Fatalf("close pre-projection store: %v", err)
 	}
 
-	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).Initialize(ctx); err != nil {
+	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("Initialize(current) error = %v", err)
 	}
 	db = openProjectionMigrationDB(t, dbPath)
@@ -192,7 +192,7 @@ func TestMigrations_EventMetadataProjectionUpgradesOnlyCopiedStore(t *testing.T)
 	copyBeforeInfo := projectionFileInfo(t, copyPath)
 
 	started := time.Now()
-	if err := newStoreManagementDatasource(t, copyPath, onDiskSQLiteMigrations(t)).Initialize(ctx); err != nil {
+	if err := newStoreManagementDatasource(t, copyPath, onDiskSQLiteMigrations(t)).InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("Initialize(copy) error = %v", err)
 	}
 	migrationElapsed := time.Since(started)
@@ -303,7 +303,7 @@ func TestMigrations_EventMetadataProjectionSupportsPreProjectionWriterRollback(t
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).Initialize(ctx); err != nil {
+	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("Initialize(current) error = %v", err)
 	}
 	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 34)).Initialize(ctx); err != nil {

@@ -508,7 +508,7 @@ func TestSearchProjectionCatchUp_AlternatingWritesConvergeInventory(t *testing.T
 	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
 	store := infra.NewStoreManagementDatasource(database)
 	events := infra.NewEventDatasource(database)
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("upgrade Initialize: %v", err)
 	}
 	_, _, seqAfterUpgrade, requires, _, _, _ := projectionInventoryAndSequence(t, dbPath)
@@ -581,7 +581,7 @@ func TestSearchProjectionCatchUp_AlternatingCommandEventsConverge(t *testing.T) 
 	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
 	store := infra.NewStoreManagementDatasource(database)
 	events := infra.NewEventDatasource(database)
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("upgrade Initialize: %v", err)
 	}
 

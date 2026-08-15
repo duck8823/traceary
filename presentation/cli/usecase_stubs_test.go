@@ -755,6 +755,7 @@ type storeManagementUsecaseStub struct {
 	staleDelay        time.Duration
 	initCalled        bool
 	initErr           error
+	previewOffline    []int64
 	createBackupErr   error
 	createBackupPath  string
 	createBackupCalls int
@@ -791,6 +792,12 @@ func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
 	s.initCalled = true
 	s.operations = append(s.operations, "initialize")
 	return s.initErr
+}
+func (s *storeManagementUsecaseStub) InitializeAuthorized(ctx context.Context) error {
+	return s.Initialize(ctx)
+}
+func (s *storeManagementUsecaseStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
+	return s.previewOffline, nil
 }
 func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, path string, _ bool) error {
 	s.createBackupCalls++

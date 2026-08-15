@@ -3,10 +3,12 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -234,4 +236,32 @@ func TestRootCLI_SearchRejectsRemovedTieredPreviewFlags(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRootCLI_SearchReturnsOfflineMigrationMaintenanceError(t *testing.T) {
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
+		return "github.com/duck8823/traceary", nil
+	})
+	defer cli.ResetDetectRepoContextFunc()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{initErr: &apptypes.OfflineMigrationsRequiredError{Versions: []int64{35, 45}}}),
+		cli.WithEvent(&eventUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"search", "needle", "--db-path", filepathJoinSearchTemp(t)})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want maintenance error")
+	}
+	var required *apptypes.OfflineMigrationsRequiredError
+	if !errors.As(err, &required) {
+		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
+	}
+}
+
+func filepathJoinSearchTemp(t *testing.T) string {
+	t.Helper()
+	return t.TempDir() + "/store.db"
 }

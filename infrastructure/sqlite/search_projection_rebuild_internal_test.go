@@ -75,7 +75,7 @@ func TestSearchProjectionMigrationIsSchemaOnlyUnderOneSecond(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	if err = NewDatabase(path, all).initialize(ctx); err != nil {
+	if err = NewDatabase(path, all).initializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
 	// Schema install stays cheap; initialize also runs one bounded catch-up
@@ -117,7 +117,7 @@ func TestSearchProjectionHistoricalInventoryIsBoundedCancelableAndFreshResumable
 	_ = db.Close()
 	all, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
 	store := NewDatabase(path, all)
-	if err = store.initialize(ctx); err != nil {
+	if err = store.initializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
 	// Initialize may auto-start and even finish inventory for these three
@@ -236,7 +236,7 @@ func TestSearchProjectionInventoryAdvancesAcrossRegisteredAndEmptyIdentities(t *
 	_ = db.Close()
 	all, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
 	store := NewDatabase(path, all)
-	if err = store.initialize(ctx); err != nil {
+	if err = store.initializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
 	// Initialize may auto-start a catch-up generation and admit identities into
@@ -638,7 +638,7 @@ func TestSearchProjectionInventory_UpdateAndDeleteStillDrift(t *testing.T) {
 				t.Fatal(err)
 			}
 			store := NewDatabase(path, all)
-			if err = store.initialize(ctx); err != nil {
+			if err = store.initializeAuthorized(ctx); err != nil {
 				t.Fatal(err)
 			}
 			resetProjectionForInventoryTest(t, path)

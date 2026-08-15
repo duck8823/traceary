@@ -63,7 +63,7 @@ func TestCodecFoundationMigrationIsSchemaOnlyUnderOneSecond(t *testing.T) {
 	_ = db.Close()
 	all, _ := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
 	started := time.Now()
-	if err = NewDatabase(path, all).initialize(ctx); err != nil {
+	if err = NewDatabase(path, all).initializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if elapsed := time.Since(started); elapsed >= time.Second {

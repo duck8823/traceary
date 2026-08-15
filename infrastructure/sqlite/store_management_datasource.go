@@ -96,6 +96,25 @@ func (d *StoreManagementDatasource) Initialize(ctx context.Context) error {
 	return d.db.initialize(ctx)
 }
 
+// InitializeAuthorized applies data-dependent offline migrations. Only
+// `traceary store init` uses this path.
+func (d *StoreManagementDatasource) InitializeAuthorized(ctx context.Context) error {
+	if err := d.db.initializeAuthorized(ctx); err != nil {
+		return xerrors.Errorf("failed to apply authorized store migrations: %w", err)
+	}
+	return nil
+}
+
+// PreviewOfflineMigrations lists pending data_dependent_offline versions
+// without applying them.
+func (d *StoreManagementDatasource) PreviewOfflineMigrations(ctx context.Context) ([]int64, error) {
+	versions, err := d.db.previewOfflineMigrations(ctx, d.db.Path())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to preview offline migrations: %w", err)
+	}
+	return versions, nil
+}
+
 // CreateBackup creates a backup of the SQLite DB.
 func (d *StoreManagementDatasource) CreateBackup(ctx context.Context, outputPath string, overwrite bool) (err error) {
 	// Snapshot the current DB path up front so a concurrent SetPath
@@ -272,7 +291,7 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 	// Re-initialize using the snapshot captured at the top of this
 	// function so a racing SetPath cannot redirect the post-restore
 	// migration to a different database than the one we just placed.
-	if err := d.db.initializeAt(ctx, destinationSnapshot); err != nil {
+	if err := d.db.initializeAt(ctx, destinationSnapshot, false); err != nil {
 		return xerrors.Errorf("failed to initialize store after restore: %w", err)
 	}
 

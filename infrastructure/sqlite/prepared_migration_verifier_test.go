@@ -36,7 +36,7 @@ func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalCodecEquivalence(
 	if err = copyFileExactForVerifier(source, candidate); err != nil {
 		t.Fatal(err)
 	}
-	if err = NewStoreManagementDatasource(NewDatabase(candidate, preparedMigrations(t))).Initialize(ctx); err != nil {
+	if err = NewStoreManagementDatasource(NewDatabase(candidate, preparedMigrations(t))).InitializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
 	encoded, err := encodePayload([]byte("hello"), payloadCodecZstd)
