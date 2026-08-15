@@ -169,6 +169,23 @@ func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, e
 			slog.Error("search projection catch-up committed no row at the minimum batch size; search stays incomplete until it advances", attrs...)
 			return
 		}
+		if isSQLiteFull(err) {
+			// Do not park: space can appear without an operator. Leave the
+			// generation rebuilding so the next open retries. Name abort so
+			// the operator who is short of disk can stop the loop (#1836).
+			slog.Error("search projection catch-up stopped because the disk is full; free space or run abort to stop automatic retries",
+				"action", result.Action,
+				"state", result.State,
+				"phase", result.Phase,
+				"generation_id", result.GenerationID,
+				"batches", result.Batches,
+				"selected", result.Selected,
+				"written", result.Written,
+				"recovery", "traceary store search-projection abort",
+				"error", err,
+			)
+			return
+		}
 		slog.Error("search projection catch-up incomplete; retrying on next initialization",
 			"action", result.Action,
 			"state", result.State,

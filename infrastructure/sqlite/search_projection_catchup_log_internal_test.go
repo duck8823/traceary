@@ -3,12 +3,15 @@ package sqlite
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/xerrors"
+	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 )
@@ -93,6 +96,104 @@ func TestLogSearchProjectionCatchUp_SingleRowLockCapSeparatesFromTheTransientMes
 			}
 		})
 	}
+}
+
+const genericCatchUpIncompleteLine = "search projection catch-up incomplete; retrying on next initialization"
+
+func TestIsSQLiteFullRecognizesDriverCode(t *testing.T) {
+	err := forceSQLiteFull(t)
+	if !isSQLiteFull(err) {
+		t.Fatalf("isSQLiteFull(%v) = false, want true", err)
+	}
+	if isSQLiteFull(xerrors.New("database or disk is full (13)")) {
+		t.Fatal("isSQLiteFull matched driver text without a typed SQLITE_FULL code")
+	}
+}
+
+func TestLogSearchProjectionCatchUp_DiskFullSeparatesFromTheTransientMessage(t *testing.T) {
+	handler := &catchUpLogHandler{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	result := apptypes.SearchProjectionCatchUpResult{
+		Action:       "resume",
+		State:        "rebuilding",
+		Phase:        "source",
+		GenerationID: "gen-full",
+		Batches:      1,
+	}
+	err := xerrors.Errorf("search projection catch-up: %w", forceSQLiteFull(t))
+
+	logSearchProjectionCatchUp(result, err)
+
+	if diff := cmp.Diff(1, len(handler.records)); diff != "" {
+		t.Fatalf("unexpected record count (-want +got):\n%s", diff)
+	}
+	record := handler.records[0]
+	if record.Message == genericCatchUpIncompleteLine {
+		t.Fatal("disk-full catch-up used the generic incomplete line")
+	}
+	if !strings.Contains(record.Message, "disk is full") {
+		t.Fatalf("message %q, want disk as the cause", record.Message)
+	}
+	if strings.Contains(record.Message, genericCatchUpIncompleteLine) {
+		t.Fatalf("message still contains the generic line: %q", record.Message)
+	}
+	attrs := map[string]any{}
+	record.Attrs(func(attr slog.Attr) bool {
+		attrs[attr.Key] = attr.Value.Any()
+		return true
+	})
+	recovery, _ := attrs["recovery"].(string)
+	if !strings.Contains(recovery, "store search-projection abort") {
+		t.Fatalf("recovery = %q, want abort", recovery)
+	}
+}
+
+func TestLogSearchProjectionCatchUp_OtherErrorsKeepTheGenericLine(t *testing.T) {
+	handler := &catchUpLogHandler{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	logSearchProjectionCatchUp(apptypes.SearchProjectionCatchUpResult{Action: "resume", State: "rebuilding"}, xerrors.New("wall time exceeded"))
+
+	if diff := cmp.Diff(1, len(handler.records)); diff != "" {
+		t.Fatalf("unexpected record count (-want +got):\n%s", diff)
+	}
+	if handler.records[0].Message != genericCatchUpIncompleteLine {
+		t.Fatalf("message = %q, want the generic incomplete line", handler.records[0].Message)
+	}
+}
+
+func forceSQLiteFull(t *testing.T) error {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "full.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err = db.Exec(`PRAGMA page_size=512`); err != nil {
+		t.Fatalf("page_size: %v", err)
+	}
+	if _, err = db.Exec(`CREATE TABLE t(x BLOB)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err = db.Exec(`PRAGMA max_page_count=3`); err != nil {
+		t.Fatalf("max_page_count: %v", err)
+	}
+	payload := bytes.Repeat([]byte("x"), 400)
+	for i := 0; i < 64; i++ {
+		if _, err = db.Exec(`INSERT INTO t(x) VALUES(?)`, payload); err != nil {
+			if !isSQLiteFull(err) {
+				t.Fatalf("insert %d: %v (want SQLITE_FULL)", i, err)
+			}
+			return xerrors.Errorf("insert until full: %w", err)
+		}
+	}
+	t.Fatal("inserts never hit SQLITE_FULL")
+	return nil
 }
 
 func TestLogSearchProjectionCatchUp_LogsSkipsButNotQuietStates(t *testing.T) {
