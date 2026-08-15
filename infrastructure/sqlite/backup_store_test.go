@@ -248,6 +248,47 @@ func TestDatasource_RestoreBackup_preservesExistingDBOnFailure(t *testing.T) {
 	}
 }
 
+func TestDatasource_RestoreBackupKeepsLegacyStoreWhenOfflineMigrationsPending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	legacyPath := filepath.Join(t.TempDir(), "legacy", "traceary.db")
+	legacy := newStoreManagementDatasource(t, legacyPath, onDiskSQLiteMigrationsBefore(t, 35))
+	if err := legacy.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	insertSourceEvent(t, legacyPath, "legacy-event")
+	backupPath := filepath.Join(t.TempDir(), "backup", "legacy.db")
+	if err := legacy.CreateBackup(ctx, backupPath, false); err != nil {
+		t.Fatal(err)
+	}
+
+	destination := filepath.Join(t.TempDir(), "current", "traceary.db")
+	current := newStoreManagementDatasource(t, destination, onDiskSQLiteMigrations(t))
+	if err := current.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	insertSourceEvent(t, destination, "current-event")
+
+	if err := current.RestoreBackup(ctx, backupPath, true); err != nil {
+		t.Fatalf("RestoreBackup() error = %v", err)
+	}
+	if got := maxSchemaVersion(t, destination); got != 34 {
+		t.Fatalf("schema version=%d, want restored 34", got)
+	}
+	db, err := sql.Open("sqlite", destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var n int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM events WHERE id='legacy-event'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("legacy event count=%d err=%v, want 1", n, err)
+	}
+	if err = db.QueryRow(`SELECT COUNT(*) FROM events WHERE id='current-event'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("current event count=%d err=%v, want 0 after restore", n, err)
+	}
+}
+
 func backupTestMigrations() fstest.MapFS {
 	return fstest.MapFS{
 		"000001_init.sql": {

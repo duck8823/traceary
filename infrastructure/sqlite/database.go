@@ -340,7 +340,37 @@ func sqliteImmutableDSN(dbPath string) string {
 // delegates to initializeAt so a concurrent SetPath cannot split the
 // snapshot and the subsequent open.
 func (d *Database) initialize(ctx context.Context) error {
-	return d.initializeAt(ctx, d.Path())
+	return d.initializeAt(ctx, d.Path(), false)
+}
+
+func (d *Database) initializeAuthorized(ctx context.Context) error {
+	return d.initializeAt(ctx, d.Path(), true)
+}
+
+func (d *Database) previewOfflineMigrations(ctx context.Context, snapshot string) ([]int64, error) {
+	migrations, err := inventoryEmbeddedMigrations(d.migrations)
+	if err != nil {
+		return nil, xerrors.Errorf("inventory migrations for offline preview: %w", err)
+	}
+	if snapshot == "" {
+		return pendingOfflineMigrations(migrations, map[int64]string{}), nil
+	}
+	if _, statErr := os.Stat(snapshot); os.IsNotExist(statErr) {
+		return pendingOfflineMigrations(migrations, map[int64]string{}), nil
+	}
+	db, err := d.openAt(ctx, snapshot)
+	if err != nil {
+		return nil, xerrors.Errorf("open store for offline preview: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	if err = ensureSchemaMigrationsTable(ctx, db); err != nil {
+		return nil, xerrors.Errorf("ensure schema_migrations for offline preview: %w", err)
+	}
+	applied, err := loadAppliedMigrations(ctx, db)
+	if err != nil {
+		return nil, xerrors.Errorf("load applied migrations for offline preview: %w", err)
+	}
+	return pendingOfflineMigrations(migrations, applied), nil
 }
 
 // initializeAt creates the store directory for the supplied path,
@@ -349,7 +379,7 @@ func (d *Database) initialize(ctx context.Context) error {
 // backup/restore that validated the snapshot before this call) should
 // invoke this variant so every step of the operation targets the same
 // path, even when SetPath races midway.
-func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error) {
+func (d *Database) initializeAt(ctx context.Context, snapshot string, allowOffline bool) (err error) {
 	if snapshot == "" {
 		return xerrors.Errorf("DB path must not be empty")
 	}
@@ -373,7 +403,11 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string) (err error
 		slog.Debug("failed to set DB file permissions (best-effort)", "error", chmodErr)
 	}
 
-	if err := d.migrate(ctx, db); err != nil {
+	if allowOffline {
+		if err := d.migrateAuthorized(ctx, db); err != nil {
+			return xerrors.Errorf("failed to run SQLite migrations: %w", err)
+		}
+	} else if err := d.migrate(ctx, db); err != nil {
 		return xerrors.Errorf("failed to run SQLite migrations: %w", err)
 	}
 	// Bounded projection generation: one durable unit per store open, resumable,

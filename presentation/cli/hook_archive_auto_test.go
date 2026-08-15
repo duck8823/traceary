@@ -150,6 +150,10 @@ type minimalStoreStub struct {
 }
 
 func (s *minimalStoreStub) Initialize(context.Context) error { return nil }
+func (s *minimalStoreStub) InitializeAuthorized(context.Context) error { return nil }
+func (s *minimalStoreStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
+	return nil, nil
+}
 func (s *minimalStoreStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

@@ -72,6 +72,12 @@ type restoreStoreBackupUsecaseForTest struct {
 }
 
 func (s *restoreStoreBackupUsecaseForTest) Initialize(_ context.Context) error { return nil }
+func (s *restoreStoreBackupUsecaseForTest) InitializeAuthorized(_ context.Context) error {
+	return nil
+}
+func (s *restoreStoreBackupUsecaseForTest) PreviewOfflineMigrations(context.Context) ([]int64, error) {
+	return nil, nil
+}
 func (s *restoreStoreBackupUsecaseForTest) CreateBackup(_ context.Context, _ string, _ bool) error {
 	return nil
 }

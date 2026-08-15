@@ -317,7 +317,7 @@ VALUES (?, 'rtk git status', '', '{"failed": true}', 0, 0, 0, 0, 0, 1)`, eventID
 	_ = legacyDB.Close()
 
 	currentEvents, currentStore := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-	if err := currentStore.Initialize(ctx); err != nil {
+	if err := currentStore.InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("current Initialize() error = %v", err)
 	}
 	details, err := currentEvents.GetDetails(ctx, eventID)

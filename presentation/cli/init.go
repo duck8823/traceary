@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -34,6 +35,10 @@ func (c *RootCLI) newStoreInitCommand() *cobra.Command {
 				"traceary の他コマンドも必要に応じて DB を自動作成し、マイグレーションを適用します。",
 			),
 			Localize(
+				"Data-dependent migrations are not applied implicitly. Run `traceary store init` to apply them; on a large store this can take minutes.",
+				"データ依存マイグレーションは暗黙には適用しません。適用するには `traceary store init` を実行します。大きいストアでは数分かかることがあります。",
+			),
+			Localize(
 				"Use `traceary store init` when you want to verify the DB path or write permissions before a session starts.",
 				"`traceary store init` は DB パスや書き込み権限を事前に確認したいときに使います。",
 			),
@@ -58,7 +63,14 @@ func (c *RootCLI) runInit(ctx context.Context, output io.Writer, dbPath string) 
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	c.applyDatabasePath(resolvedPath)
-	if err := c.storeManagement.Initialize(ctx); err != nil {
+	if pending, previewErr := c.storeManagement.PreviewOfflineMigrations(ctx); previewErr != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to inspect pending migrations", "保留中のマイグレーションの確認に失敗しました"), previewErr)
+	} else if len(pending) > 0 {
+		if _, err = fmt.Fprintf(output, "%s: %s\n", Localize("Applying data-dependent migrations (this can take minutes on a large store)", "データ依存マイグレーションを適用します（大きいストアでは数分かかることがあります）"), formatMigrationVersions(pending)); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print init progress", "初期化経過の出力に失敗しました"), err)
+		}
+	}
+	if err := c.storeManagement.InitializeAuthorized(ctx); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 	if _, err := fmt.Fprintf(output, "%s: %s\n", Localize("Initialized", "初期化しました"), resolvedPath); err != nil {
@@ -91,4 +103,12 @@ func resolveDBPath(dbPath string) (string, error) {
 	}
 
 	return absolutePath, nil
+}
+
+func formatMigrationVersions(versions []int64) string {
+	parts := make([]string, 0, len(versions))
+	for _, version := range versions {
+		parts = append(parts, strconv.FormatInt(version, 10))
+	}
+	return strings.Join(parts, ", ")
 }

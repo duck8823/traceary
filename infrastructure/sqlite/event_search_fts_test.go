@@ -204,7 +204,7 @@ func TestEventSearchShortQuery_AnswersUpgradedHistoryWithoutInventory(t *testing
 	seedHistoricalSearchEvents(t, dbPath, 10_001, func(int) string { return "xy" })
 
 	current := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
-	if err := infra.NewStoreManagementDatasource(current).Initialize(ctx); err != nil {
+	if err := infra.NewStoreManagementDatasource(current).InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("current Initialize() error = %v", err)
 	}
 	sut := infra.NewEventDatasource(current)

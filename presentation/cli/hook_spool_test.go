@@ -1144,6 +1144,12 @@ func TestHookSpoolSurvivesSIGTERM(t *testing.T) {
 type spoolStoreManagementStub struct{}
 
 func (s *spoolStoreManagementStub) Initialize(context.Context) error { return nil }
+func (s *spoolStoreManagementStub) InitializeAuthorized(context.Context) error {
+	return nil
+}
+func (s *spoolStoreManagementStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
+	return nil, nil
+}
 func (s *spoolStoreManagementStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

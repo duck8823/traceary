@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/duck8823/traceary/application/queryservice"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -391,4 +393,27 @@ func TestRootCLI_ListCommand(t *testing.T) {
 			t.Fatalf("json lastHydrateFields mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+func TestRootCLI_ListReturnsOfflineMigrationMaintenanceError(t *testing.T) {
+	t.Parallel()
+	stderr := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{initErr: &apptypes.OfflineMigrationsRequiredError{Versions: []int64{35, 45}}}),
+		cli.WithEvent(&eventUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"list"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want maintenance error")
+	}
+	var required *apptypes.OfflineMigrationsRequiredError
+	if !errors.As(err, &required) {
+		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
+	}
+	if !strings.Contains(err.Error(), "traceary store init") {
+		t.Fatalf("error=%v, want store init guidance", err)
+	}
 }

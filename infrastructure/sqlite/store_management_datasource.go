@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -94,6 +95,25 @@ var _ application.StoreManager = (*StoreManagementDatasource)(nil)
 // file permissions.
 func (d *StoreManagementDatasource) Initialize(ctx context.Context) error {
 	return d.db.initialize(ctx)
+}
+
+// InitializeAuthorized applies data-dependent offline migrations. Only
+// `traceary store init` uses this path.
+func (d *StoreManagementDatasource) InitializeAuthorized(ctx context.Context) error {
+	if err := d.db.initializeAuthorized(ctx); err != nil {
+		return xerrors.Errorf("failed to apply authorized store migrations: %w", err)
+	}
+	return nil
+}
+
+// PreviewOfflineMigrations lists pending data_dependent_offline versions
+// without applying them.
+func (d *StoreManagementDatasource) PreviewOfflineMigrations(ctx context.Context) ([]int64, error) {
+	versions, err := d.db.previewOfflineMigrations(ctx, d.db.Path())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to preview offline migrations: %w", err)
+	}
+	return versions, nil
 }
 
 // CreateBackup creates a backup of the SQLite DB.
@@ -272,8 +292,15 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 	// Re-initialize using the snapshot captured at the top of this
 	// function so a racing SetPath cannot redirect the post-restore
 	// migration to a different database than the one we just placed.
-	if err := d.db.initializeAt(ctx, destinationSnapshot); err != nil {
-		return xerrors.Errorf("failed to initialize store after restore: %w", err)
+	if initErr := d.db.initializeAt(ctx, destinationSnapshot, false); initErr != nil {
+		var required *apptypes.OfflineMigrationsRequiredError
+		if errors.As(initErr, &required) {
+			// The backup is already in place. Rolling it back would discard
+			// the only copy of a legacy store that still needs `store init`.
+			slog.Info("restored store requires operator-authorized migrations", "versions", required.Versions)
+			return nil
+		}
+		return xerrors.Errorf("failed to initialize store after restore: %w", initErr)
 	}
 
 	return nil

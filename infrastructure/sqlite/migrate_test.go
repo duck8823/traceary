@@ -122,7 +122,7 @@ func TestMigrations_usageObservationsAreAdditiveAndPreserveExistingRows(t *testi
 	}
 
 	store = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("Initialize(v027) error = %v", err)
 	}
 	db, err = sql.Open("sqlite", "file:"+dbPath)
@@ -163,7 +163,7 @@ func TestMigrations_NormalizedTimestampColumnBackfillsAndMaintainsIndexes(t *tes
 		t.Fatal(err)
 	}
 
-	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).Initialize(ctx); err != nil {
+	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("Initialize(v031) error = %v", err)
 	}
 	db, err = sql.Open("sqlite", "file:"+dbPath)
@@ -255,7 +255,7 @@ func TestMigrations_NormalizedTimestampMatchesTSNormForLegacyEdgeValues(t *testi
 		t.Fatal(err)
 	}
 
-	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).Initialize(ctx); err != nil {
+	if err := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t)).InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("Initialize(v031) error = %v", err)
 	}
 	db, err = sql.Open("sqlite", "file:"+dbPath)
@@ -921,7 +921,7 @@ func TestMigrations_backfillPopulatesSessionsFromEvents(t *testing.T) {
 
 	// Apply remaining migrations via Initialize
 	ds := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-	if err := ds.Initialize(context.Background()); err != nil {
+	if err := ds.InitializeAuthorized(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
@@ -1006,7 +1006,7 @@ func TestDatasource_Initialize_BackfillsWorkspaceObservationsInBoundedBatches(t 
 	}
 
 	store := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("Initialize(first catch-up) error = %v", err)
 	}
 	assertWorkspaceObservationMigrationCounts(t, dbPath, 1005, 1000)

@@ -11,6 +11,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **doctor がこのストアの実測コストを出す (#1809)** — `traceary doctor --json` に `operator_cost`（`traceary.operator_cost/v1`）と check `store-operator-cost` を追加。resident の event/session あたり、undiscardable / foldable の source-text、amplification、直近 30 日のレートからの月次予測。2 GiB 以上は metadata-only（resident サイズのみ）。グローバルな月次主張ではない。
 
 ### Changed
+- **暗黙の store open は data-dependent migration を拒否する (#1852)** — `migrate()` が `MigrationExecutionClass` を読む。offline（035, 045）は events があるストアでは適用せず、エラーが version と `traceary store init` を出す。空ストアは暗黙のまま現行 schema に届く。041 / 042 は `constant_in_place`。`docs/research/offline-migration-gate.ja.md` を参照。
 - **search projection は lock 待ちと行作業を分ける (#1833)** — `BEGIN IMMEDIATE` に独自の取得予算がある。hold 中に超過した source 書き込み 1 件だけが `row_work` 除外になる（#1794 と同じ形）。競合では除外しない。`LockTime` は `ConfigHash` に入らない。`docs/research/search-projection-lock-vs-row-work.ja.md` を参照。
 - **`recent_source_bytes` は報告する cache (#1819)** — `store search-projection status` が `recent_source_bytes`、`recent_source_bytes_measured`、`recent_source_bytes_delta` と evidence を出す。SUM は rebuild 中の `generation_id` であり `recent_bytes`（active generation）ではない。status は cache を書き換えず、trigger も足さない。`docs/research/recent-source-bytes-verifier.ja.md` を参照。
 - **`event_metadata_projection` は残す (#1686)** — メタデータ読みは projection のまま。#1743 が `events.body` を inline のままにしたので `events` は広く、2026-08-10 の 2.7× / 15× は今も有効。`docs/research/event-metadata-projection-retention.ja.md` を参照。

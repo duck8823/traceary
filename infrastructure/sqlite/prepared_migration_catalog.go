@@ -39,8 +39,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	38: {38, "000038_add_bounded_search_projections.sql", "8f08275464c6b1d4e1e523664dddf28c8171b9984688bad34c35c2168cf85b58", MigrationConstantInPlace},
 	39: {39, "000039_add_literal_search_fingerprints.sql", "991cdb789ffd5d2f59eb47013c5ec8d87c2f3f41ca7d479c8c2f927fc3040993", MigrationConstantInPlace},
 	40: {40, "000040_add_search_maintenance_control.sql", "1a844f96ee3919203f42049d09162fa08301658a37c3b06b1d0cf916e895c25a", MigrationConstantInPlace},
-	41: {41, "000041_add_search_projection_generation_lifecycle.sql", "f5fefcb1389cff1889fdd05cf1654838ac2e57556565dd96df32695e48d4c964", MigrationDataDependentOffline},
-	42: {42, "000042_add_bounded_search_projection_inventory.sql", "8d272ed8157458c864ac3ed84e6cfb9969b91b2c3ac31464b084ff1b5f4f8a53", MigrationDataDependentOffline},
+	// 41/42 create projection bookkeeping tables and copy bounded projection
+	// state, not events. Reclassified constant_in_place in #1852.
+	41: {41, "000041_add_search_projection_generation_lifecycle.sql", "f5fefcb1389cff1889fdd05cf1654838ac2e57556565dd96df32695e48d4c964", MigrationConstantInPlace},
+	42: {42, "000042_add_bounded_search_projection_inventory.sql", "8d272ed8157458c864ac3ed84e6cfb9969b91b2c3ac31464b084ff1b5f4f8a53", MigrationConstantInPlace},
 	43: {43, "000043_add_payload_codec_compatibility_mode.sql", "020c6dbb5dbea86c3c9989ad29babe333dc7c423ded6152aeddb37a67aa907e0", MigrationConstantInPlace},
 	44: {44, "000044_add_archive_segment_catalog.sql", "f272f78c9bed784b8ed487a71f801e172e994109092de19a6f0582a15318f38f", MigrationConstantInPlace},
 	45: {45, "000045_index_retention_ledger_by_event.sql", "5d276bdeddc90b8db688460f4b18a87e5267ec568e0216a1cd701eba8c8a8a20", MigrationDataDependentOffline},
