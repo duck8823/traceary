@@ -846,6 +846,54 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 	return out, nil
 }
 
+const recentCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32`
+const summaryCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24`
+const aggregateCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16`
+const keywordCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16`
+const fingerprintCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16`
+const exclusionCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(class AS BLOB))+32`
+
+// selectProjectionCleanupSQL addresses each table by its primary key, not
+// rowid. WITHOUT ROWID tables have no rowid; a shared integer address would
+// fail to compile and stall eviction (#1825).
+const selectProjectionCleanupSQL = `SELECT 'recent',document_id,` + recentCleanupLogicalBytesSQL + `, '','','',X'' FROM search_projection_recent_documents UNION ALL SELECT 'summary',0,` + summaryCleanupLogicalBytesSQL + `, generation_id,session_id,'',X'' FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',0,` + aggregateCleanupLogicalBytesSQL + `, generation_id,session_id,'',X'' FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',0,` + keywordCleanupLogicalBytesSQL + `, generation_id,session_id,keyword,X'' FROM search_projection_session_keywords UNION ALL SELECT 'fingerprint',0,` + fingerprintCleanupLogicalBytesSQL + `, generation_id,event_id,'',fingerprint FROM literal_search_fingerprints UNION ALL SELECT 'exclusion',source_sequence,` + exclusionCleanupLogicalBytesSQL + `, generation_id,'','',X'' FROM search_projection_exclusions`
+
+const selectProjectionCleanupOldSQL = `SELECT 'recent',document_id,` + recentCleanupLogicalBytesSQL + `, '','','',X'' FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',0,` + summaryCleanupLogicalBytesSQL + `, generation_id,session_id,'',X'' FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',0,` + aggregateCleanupLogicalBytesSQL + `, generation_id,session_id,'',X'' FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',0,` + keywordCleanupLogicalBytesSQL + `, generation_id,session_id,keyword,X'' FROM search_projection_session_keywords WHERE generation_id<>? UNION ALL SELECT 'fingerprint',0,` + fingerprintCleanupLogicalBytesSQL + `, generation_id,event_id,'',fingerprint FROM literal_search_fingerprints WHERE generation_id<>? UNION ALL SELECT 'exclusion',source_sequence,` + exclusionCleanupLogicalBytesSQL + `, generation_id,'','',X'' FROM search_projection_exclusions WHERE generation_id<>?`
+
+type projectionExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+//nolint:wrapcheck // SQL errors and typed drift cross this adapter unchanged.
+func deleteProjectionCleanupRow(ctx context.Context, tx projectionExecer, c apptypes.ProjectionCleanupCandidate) error {
+	var result sql.Result
+	var err error
+	switch c.Class {
+	case "eviction", "recent":
+		result, err = tx.ExecContext(ctx, `DELETE FROM search_projection_recent_documents WHERE document_id=?`, c.RowID)
+	case "summary":
+		result, err = tx.ExecContext(ctx, `DELETE FROM search_projection_session_summaries WHERE generation_id=? AND session_id=?`, c.Address1, c.Address2)
+	case "aggregate":
+		result, err = tx.ExecContext(ctx, `DELETE FROM search_projection_command_aggregates WHERE generation_id=? AND session_id=?`, c.Address1, c.Address2)
+	case "keyword":
+		result, err = tx.ExecContext(ctx, `DELETE FROM search_projection_session_keywords WHERE generation_id=? AND session_id=? AND keyword=?`, c.Address1, c.Address2, c.Address3)
+	case "fingerprint":
+		result, err = tx.ExecContext(ctx, `DELETE FROM literal_search_fingerprints WHERE generation_id=? AND event_id=? AND fingerprint=?`, c.Address1, c.Address2, c.AddressBlob)
+	case "exclusion":
+		result, err = tx.ExecContext(ctx, `DELETE FROM search_projection_exclusions WHERE generation_id=? AND source_sequence=?`, c.Address1, c.RowID)
+	default:
+		return &apptypes.SearchProjectionDriftError{}
+	}
+	if err != nil {
+		return err
+	}
+	n, nerr := result.RowsAffected()
+	if nerr != nil || n != 1 {
+		return &apptypes.SearchProjectionDriftError{}
+	}
+	return nil
+}
+
 //nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
 func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.ProjectionSnapshot, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.ProjectionSnapshot, error) {
 	var q string
@@ -853,10 +901,10 @@ func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.Proje
 	if out.Phase == "eviction" {
 		return selectProjectionEviction(ctx, db, out, b, now)
 	} else if out.CleanupAll {
-		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords UNION ALL SELECT 'fingerprint',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16 FROM literal_search_fingerprints UNION ALL SELECT 'exclusion',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(class AS BLOB))+32 FROM search_projection_exclusions LIMIT ?`
+		q = selectProjectionCleanupSQL + ` LIMIT ?`
 		args = []any{b.Rows + 1}
 	} else {
-		q = `SELECT 'recent',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(created_at_norm AS BLOB))+2*length(CAST(body_text AS BLOB))+32 FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(summary_text AS BLOB))+24 FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+16 FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',rowid,length(CAST(generation_id AS BLOB))+length(CAST(session_id AS BLOB))+length(CAST(keyword AS BLOB))+16 FROM search_projection_session_keywords WHERE generation_id<>? UNION ALL SELECT 'fingerprint',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16 FROM literal_search_fingerprints WHERE generation_id<>? UNION ALL SELECT 'exclusion',rowid,length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(class AS BLOB))+32 FROM search_projection_exclusions WHERE generation_id<>? LIMIT ?`
+		q = selectProjectionCleanupOldSQL + ` LIMIT ?`
 		args = []any{out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, b.Rows + 1}
 	}
 	rows, e := db.QueryContext(ctx, q, args...)
@@ -867,7 +915,7 @@ func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.Proje
 	for rows.Next() {
 		var c apptypes.ProjectionCleanupCandidate
 		if out.Phase == "cleanup" {
-			e = rows.Scan(&c.Class, &c.RowID, &c.LogicalBytes)
+			e = rows.Scan(&c.Class, &c.RowID, &c.LogicalBytes, &c.Address1, &c.Address2, &c.Address3, &c.AddressBlob)
 		} else {
 			e = rows.Scan(&c.RowID, &c.LogicalBytes)
 			c.Class = out.Phase
@@ -1100,36 +1148,14 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		out.Selected++
 	}
 	for _, c := range p.Cleanup {
-		var table string
-		switch c.Class {
-		case "eviction", "recent":
-			table = "search_projection_recent_documents"
-		case "summary":
-			table = "search_projection_session_summaries"
-		case "aggregate":
-			table = "search_projection_command_aggregates"
-		case "keyword":
-			table = "search_projection_session_keywords"
-		case "fingerprint":
-			table = "literal_search_fingerprints"
-		case "exclusion":
-			table = "search_projection_exclusions"
-		default:
-			continue
-		}
-		r, x := tx.ExecContext(holdCtx, `DELETE FROM `+table+` WHERE rowid=?`, c.RowID)
-		if x != nil {
+		if x := deleteProjectionCleanupRow(holdCtx, tx, c); x != nil {
 			return out, x
-		}
-		n, _ := r.RowsAffected()
-		if n != 1 {
-			return out, &apptypes.SearchProjectionDriftError{}
 		}
 		if c.Class == "eviction" {
 			recentDelta -= c.ReleasedSourceBytes
 		}
-		out.Evicted += int(n)
-		out.Cleaned += int(n)
+		out.Evicted++
+		out.Cleaned++
 		out.CleanupBytes += c.LogicalBytes
 	}
 	next := p.Phase
