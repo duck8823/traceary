@@ -13,6 +13,12 @@ import (
 // ResolveDBPath exposes resolveDBPath for tests.
 var ResolveDBPath = resolveDBPath
 
+// HookSessionBoundStateFileName exposes the per-session hook-state file name
+// so tests can seed or inspect ended / wake / active-subagent markers.
+func HookSessionBoundStateFileName(client string, sessionID types.SessionID) string {
+	return hookSessionBoundStateFileName(client, sessionID)
+}
+
 // PersistTestHookSpoolRecord writes a replayable spool record for tests.
 func PersistTestHookSpoolRecord(command, client, payload string) (string, error) {
 	return persistHookSpoolRecord(hookSpoolRecord{

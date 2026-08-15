@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -112,6 +114,17 @@ func sanitizeHookStateKey(value string) string {
 	return builder.String()
 }
 
+// hookSessionBoundStateFileName is the on-disk name for per-session hook
+// state (session-end, wake-injection, active-subagent). sanitizeHookStateKey
+// is not injective — a/b and a:b both become a_b — so these files hash
+// client + raw session id instead (#1716). The client prefix is kept so
+// directory scans that already filter on client- still see this client's
+// files. Old scheme names (client- + sanitized id) never match this digest.
+func hookSessionBoundStateFileName(client string, sessionID types.SessionID) string {
+	sum := sha256.Sum256([]byte(client + "\x00" + sessionID.String()))
+	return client + "-" + hex.EncodeToString(sum[:])
+}
+
 func hookSessionStatePath(client string) (string, error) {
 	stateDir, err := resolveHookStateDir()
 	if err != nil {
@@ -135,9 +148,7 @@ func hookSessionEndMarkerPath(client string, sessionID types.SessionID) (string,
 	if err != nil {
 		return "", err
 	}
-	sanitizedSessionID := sanitizeHookStateKey(sessionID.String())
-
-	return filepath.Join(stateDir, "ended", client+"-"+sanitizedSessionID), nil
+	return filepath.Join(stateDir, "ended", hookSessionBoundStateFileName(client, sessionID)), nil
 }
 
 // hookWakeInjectionMarkerTTL bounds how long a marker file stays on disk. It is
@@ -152,9 +163,7 @@ func hookWakeInjectionMarkerPath(client string, sessionID types.SessionID) (stri
 	if err != nil {
 		return "", err
 	}
-	sanitizedSessionID := sanitizeHookStateKey(sessionID.String())
-
-	return filepath.Join(stateDir, "wake-injected", client+"-"+sanitizedSessionID), nil
+	return filepath.Join(stateDir, "wake-injected", hookSessionBoundStateFileName(client, sessionID)), nil
 }
 
 func hookActiveSubagentStatePath(client string, parentSessionID types.SessionID) (string, error) {
@@ -162,8 +171,7 @@ func hookActiveSubagentStatePath(client string, parentSessionID types.SessionID)
 	if err != nil {
 		return "", err
 	}
-	sanitizedParentSessionID := sanitizeHookStateKey(parentSessionID.String())
-	return filepath.Join(stateDir, "active-subagents", client+"-"+sanitizedParentSessionID), nil
+	return filepath.Join(stateDir, "active-subagents", hookSessionBoundStateFileName(client, parentSessionID)), nil
 }
 
 func writeHookSessionState(client string, sessionID types.SessionID) error {
