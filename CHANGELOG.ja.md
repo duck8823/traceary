@@ -7,6 +7,8 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.37.0] - 2026-08-15
+
 ### Changed
 - **compact plan のあとの WAL pair は status の sidecar であり plan の不具合ではない (#1848)** — scratch: `compact plan` は `-wal` / `-shm` を残さない。`search-projection status` はどちらの順序でも 0 バイト WAL + 32 KiB SHM を残す。`sqliteDSN` が `journal_mode=WAL` を付ける。#1845 がこの pair を回収する。新しい checkpoint は足さない。`docs/research/compact-plan-status-wal.ja.md` を参照。
 - **読まれていない recent FTS を退役する (#1842)** — `search_projection_recent_fts` は `8cae0ab0` 以降 write-only です。scratch（note 120 件）: decode-walk p50 は約 3.7–4.4 ms、比較 trigram FTS は約 26–33 µs。9 GB の未読 posting の元は取れません（#1620）。migration 066 は writer trigger だけ落とします（open 時の multi-GiB DROP はしません）。`store compact` が work copy で virtual table を落とします。`--index-family-bytes` の既定は 1464 MiB のまま、対象は残りです。fingerprint と session ティアはそのままです。`docs/research/search-projection-recent-fts.ja.md` を参照。

@@ -7,6 +7,8 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.37.0] - 2026-08-15
+
 ### Changed
 - **A compact-plan-then-status WAL pair is a status sidecar, not a plan bug (#1848)** — scratch: `compact plan` leaves no `-wal`/`-shm`; `search-projection status` then leaves 0-byte WAL + 32 KiB SHM on both sequences. `sqliteDSN` sets `journal_mode=WAL`. #1845 already recovers that pair. No new checkpoint. See `docs/research/compact-plan-status-wal.md`.
 - **The unread recent FTS is retired (#1842)** — `search_projection_recent_fts` is write-only after `8cae0ab0`. Scratch (120 notes): decode-walk p50 ~3.7–4.4 ms vs a comparison trigram FTS ~26–33 µs. The index does not earn 9 GB of unread postings (#1620). Migration 066 drops the writer triggers (no multi-GiB DROP on open). `store compact` drops the virtual table on the work copy. `--index-family-bytes` still defaults to 1464 MiB and now targets what remains. Fingerprints and the session tier stay. See `docs/research/search-projection-recent-fts.md`.
