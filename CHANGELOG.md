@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Added
+- **Release gates are evaluated on a fixture store (#1873)** — the four ratios, refinement coverage, and wake boolean run automatically (`go test` and `go run ./cmd/repo-tooling release evaluate-gates --db COPY`). The five #1620 absolute byte counts are measurements on corpus “maintainer store 2026-08-11 uncompressed #1620” and never fail a release. Peak rebuild / recent-index structure stay with #1751 / #1753. The default live store is refused. Operator-facing “rebuild” means the search-index family. See `docs/release/gates.md`.
+
 ### Fixed
 - **Remaining production age-delete SQL compares timestamps with `ts_norm` (#1720)** — empty-session delete, expired-memory delete, memory-edge `valid_to`, stale extracted decay, and their preview counts wrap both sides. `T00:00:00.5Z` vs cutoff `T00:00:00Z` is kept; `T00:00:00Z` vs cutoff `T00:00:00.5Z` is deleted. Driven through `CollectGarbage` (the compact work-copy path), not a hand-written `DELETE`.
 - **Memory-hygiene scan tests no longer depend on a 1ms wall-clock budget (#1771)** — the partial (revision-churn) and cannot-progress branches drive a fake clock and use a one-hour `MaxDuration` so `context.WithTimeout` cannot expire first. Scratch: both cases plus `go test ./application/usecase/ -count=50`.

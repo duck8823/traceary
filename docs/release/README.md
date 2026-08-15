@@ -6,6 +6,7 @@ Traceary supports three public CLI installation paths and release-coupled agent 
 
 Current release evidence:
 
+- [Release gates vs measurements](./gates.md)
 - [v0.33.0 multi-GiB release evidence](./v0.33.0-multigib-evidence.md)
 
 ## After upgrading the binary

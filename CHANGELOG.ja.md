@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Added
+- **リリースゲートを fixture store で評価する (#1873)** — 比率 4 行、refinement coverage、wake boolean を自動評価する（`go test` と `go run ./cmd/repo-tooling release evaluate-gates --db COPY`）。#1620 の絶対バイト 5 行は corpus「maintainer store 2026-08-11 uncompressed #1620」付きの計測であり、リリースを落とさない。peak rebuild / recent-index の構造行は #1751 / #1753 のまま。既定 live store は拒否する。オペレータ向けの rebuild は search-index family。`docs/release/gates.ja.md` を参照。
+
 ### Fixed
 - **残っている本番の age-delete SQL は timestamp を `ts_norm` で比較する (#1720)** — 空 session 削除、expired memory 削除、memory-edge の `valid_to`、stale extracted の decay と preview count は両辺を wrap する。`T00:00:00.5Z` 対 cutoff `T00:00:00Z` は残し、`T00:00:00Z` 対 cutoff `T00:00:00.5Z` は消す。`CollectGarbage`（compact の work-copy 経路）から駆動し、手書きの `DELETE` は使わない。
 - **memory hygiene scan テストが 1ms の wall-clock 予算に依存しない (#1771)** — partial（revision churn）と cannot-progress は fake clock を進め、`MaxDuration` は 1 時間なので `context.WithTimeout` が先に切れない。scratch: 両ケースと `go test ./application/usecase/ -count=50`。

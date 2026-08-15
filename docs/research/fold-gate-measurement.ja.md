@@ -34,4 +34,5 @@
 ## 対象外
 
 - consolidation / wake の振る舞い変更
-- #1873 を閉じること（v0.39: すべての gate 閾値を CI で評価する）
+
+#1873 はこれらの計測を fixture store 上のリリースゲートとして評価します。[リリースゲート](../release/gates.ja.md) を参照してください。

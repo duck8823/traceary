@@ -6,6 +6,7 @@ Traceary では、CLI 本体の公開導線を 3 つ用意し、あわせて rel
 
 現在のリリース証跡:
 
+- [リリースゲートと計測値](./gates.ja.md)
 - [v0.33.0 multi-GiB リリース証跡](./v0.33.0-multigib-evidence.ja.md)
 
 ## バイナリ upgrade のあと
