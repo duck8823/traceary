@@ -1247,3 +1247,129 @@ func TestSearchProjectionOperatorTuningNotHijacked(t *testing.T) {
 		t.Fatalf("reason=%q, want budget mismatch", result.SkippedReason)
 	}
 }
+
+func midRebuildBudget() apptypes.SearchProjectionBudget {
+	return apptypes.SearchProjectionBudget{
+		Rows: 1, WallTime: time.Minute, LockTime: 5 * time.Second,
+		StoredBytes: 8 << 20, DecodedBytes: 8 << 20, WriteBytes: 8 << 20,
+		RecentAge: 365 * 24 * time.Hour, IndexFamilyBytes: 64 << 20,
+	}
+}
+
+func seedMidRebuildEvents() []struct{ id, body, created string } {
+	return []struct{ id, body, created string }{
+		{"e1", "mid rebuild body one", "2026-06-01T12:00:00Z"},
+		{"e2", "mid rebuild body two", "2026-06-01T13:00:00Z"},
+		{"e3", "mid rebuild body three", "2026-06-01T14:00:00Z"},
+		{"e4", "mid rebuild body four", "2026-06-01T15:00:00Z"},
+		{"e5", "mid rebuild body five", "2026-06-01T16:00:00Z"},
+	}
+}
+
+func readProjectionIdentity(t *testing.T, db *sql.DB) (generation string, checkpoint int64) {
+	t.Helper()
+	if err := db.QueryRow(`SELECT generation_id,checkpoint FROM search_projection_state WHERE singleton=1`).Scan(&generation, &checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	return generation, checkpoint
+}
+
+// TestSearchProjectionCatchUpResumesAfterBatchSizeChange is the #1754 gate:
+// changing Rows mid-rebuild must continue the same generation from its
+// checkpoint. Putting Rows back into ConfigHash makes CatchUp skip.
+func TestSearchProjectionCatchUpResumesAfterBatchSizeChange(t *testing.T) {
+	store, db := newCapacityTestStore(t, seedMidRebuildEvents())
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	started := midRebuildBudget()
+	if _, err := store.Start(ctx, started, now); err != nil {
+		t.Fatal(err)
+	}
+	first, err := resumeProjection(ctx, store, started, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Completed {
+		t.Fatal("first Resume completed; need a mid-rebuild checkpoint")
+	}
+	generation, checkpoint := readProjectionIdentity(t, db)
+	if checkpoint == 0 {
+		t.Fatal("checkpoint still 0 after first Resume")
+	}
+
+	wider := started
+	wider.Rows = 8
+	result, err := usecase.NewSearchProjectionUsecase(store).CatchUp(ctx, wider, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "resume" {
+		t.Fatalf("action=%q reason=%q, want resume (batch-size change is not a new generation)", result.Action, result.SkippedReason)
+	}
+	afterID, afterCheckpoint := readProjectionIdentity(t, db)
+	if afterID != generation {
+		t.Fatalf("generation_id=%q, want %q (progress discarded)", afterID, generation)
+	}
+	if afterCheckpoint < checkpoint {
+		t.Fatalf("checkpoint went backwards %d -> %d", checkpoint, afterCheckpoint)
+	}
+}
+
+func TestSearchProjectionResumeContinuesAfterBatchSizeChange(t *testing.T) {
+	store, db := newCapacityTestStore(t, seedMidRebuildEvents())
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	started := midRebuildBudget()
+	if _, err := store.Start(ctx, started, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resumeProjection(ctx, store, started, now); err != nil {
+		t.Fatal(err)
+	}
+	generation, checkpoint := readProjectionIdentity(t, db)
+	wider := started
+	wider.Rows = 8
+	progress, err := resumeProjection(ctx, store, wider, now)
+	if err != nil {
+		t.Fatalf("Resume after Rows change: %v", err)
+	}
+	afterID, afterCheckpoint := readProjectionIdentity(t, db)
+	if afterID != generation {
+		t.Fatalf("generation_id=%q, want %q", afterID, generation)
+	}
+	if afterCheckpoint < checkpoint {
+		t.Fatalf("checkpoint went backwards %d -> %d", checkpoint, afterCheckpoint)
+	}
+	if progress.Completed && afterCheckpoint == 0 {
+		t.Fatal("completed by starting over at checkpoint 0")
+	}
+}
+
+func TestSearchProjectionResumeRejectsCapacityFlagChange(t *testing.T) {
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		mutate func(*apptypes.SearchProjectionBudget)
+	}{
+		{name: "index-family-bytes", mutate: func(b *apptypes.SearchProjectionBudget) { b.IndexFamilyBytes++ }},
+		{name: "recent-age", mutate: func(b *apptypes.SearchProjectionBudget) { b.RecentAge += time.Hour }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, _ := newCapacityTestStore(t, seedMidRebuildEvents())
+			started := midRebuildBudget()
+			if _, err := store.Start(ctx, started, now); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := resumeProjection(ctx, store, started, now); err != nil {
+				t.Fatal(err)
+			}
+			changed := started
+			tc.mutate(&changed)
+			_, err := resumeProjection(ctx, store, changed, now)
+			if err == nil || !strings.Contains(err.Error(), "budget does not match generation configuration") {
+				t.Fatalf("Resume() error = %v, want config mismatch", err)
+			}
+		})
+	}
+}

@@ -85,15 +85,16 @@ func (b SearchProjectionBudget) Valid() bool {
 	return b.Rows > 0 && b.WallTime > 0 && b.LockTime > 0 && b.StoredBytes > 0 && b.DecodedBytes > 0 && b.WriteBytes > 0 && b.RecentAge > 0 && b.IndexFamilyBytes > 0
 }
 
-// ConfigHash contains only budgets that define generation contents. StoredBytes,
-// DecodedBytes, WriteBytes, RecentAge and IndexFamilyBytes decide what the
-// generation contains, so resuming with a different value would leave an index
-// that no single budget describes.
+// ConfigHash is the capacity identity of a generation (#1754).
 //
-// Rows, WallTime and LockTime only bound the cost of one batch, so they stay out
-// of the generation identity: a batch that cannot fit its lock cap must be
-// allowed to resume with a smaller unit of work rather than discard durable
-// progress.
+// RecentAge and IndexFamilyBytes decide what the recent tier retains.
+// StoredBytes, DecodedBytes and WriteBytes also belong here: a source row
+// that exceeds any of them is recorded as a durable exclusion, so changing
+// them mid-rebuild would leave an index no single budget describes.
+//
+// Rows, WallTime and LockTime only bound the cost of one batch (and Rows
+// shrinks adaptively inside a generation), so they stay out. Changing those
+// flags must resume the same generation from its checkpoint.
 func (b SearchProjectionBudget) ConfigHash() string {
 	return fmt.Sprintf("v4:%d:%d:%d:%d:%d", b.StoredBytes, b.DecodedBytes, b.WriteBytes, b.RecentAge.Nanoseconds(), b.IndexFamilyBytes)
 }
