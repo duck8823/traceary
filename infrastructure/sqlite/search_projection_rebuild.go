@@ -1140,59 +1140,88 @@ func (d *Database) AbandonSearchProjection(ctx context.Context, now time.Time) (
 
 // SearchProjectionStatus returns payload-free operational evidence.
 //
+// statusQueryer is the read surface SearchProjectionStatus uses inside its
+// generation snapshot. *sql.Tx and *sql.DB both satisfy it.
+//
 //nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
+type statusQueryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// SearchProjectionStatus reports persisted projection state and
+// generation-scoped counters from one read snapshot. The dbstat
+// physical-byte walk runs after that snapshot is released (#1839).
 func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.SearchProjectionStatus, err error) {
 	started := time.Now()
 	db, e := d.openReadOnly(ctx)
 	if e != nil {
 		return s, e
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	s.SchemaVersion = "traceary.search-projection-status/v1"
 	s.KeywordVersion = searchProjectionKeywordVersion
 	s.FingerprintVersion = 1
-	e = db.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,index_family_byte_limit,recent_source_ceiling_bytes,recent_amplification_ppm,non_recent_family_bytes,COALESCE(recent_cutoff_norm,''),capacity_semantics_version,COALESCE(capacity_evidence_status,''),COALESCE(capacity_evidence_reason,''),index_family_within_budget,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),''),COALESCE(cutover_index_family,''),cutover_family_bytes_before,cutover_family_bytes_after,COALESCE(cutover_before_evidence_status,''),COALESCE(cutover_before_evidence_reason,''),COALESCE(cutover_after_evidence_status,''),COALESCE(cutover_after_evidence_reason,''),COALESCE(failure_class,'') FROM search_projection_state WHERE singleton=1`).Scan(
+	// Generation-scoped fields share one read snapshot. The dbstat walk
+	// below is outside this transaction: holding it here is not acceptable
+	// on a large store (#1839). There is no selectSearchProjectionRecentRangeSQL
+	// in tree; range-like fields on this object come from the state row
+	// in the same snapshot (recent_cutoff_norm).
+	tx, e := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if e != nil {
+		return s, xerrors.Errorf("begin search projection status snapshot: %w", e)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var activeGenerationID, rebuildGenerationID string
+	e = tx.QueryRowContext(ctx, `SELECT state,phase,projection_version,fts_design,config_hash,source_revision,high_water,checkpoint,state='complete',recent_age_seconds,index_family_byte_limit,recent_source_ceiling_bytes,recent_amplification_ppm,non_recent_family_bytes,COALESCE(recent_cutoff_norm,''),capacity_semantics_version,COALESCE(capacity_evidence_status,''),COALESCE(capacity_evidence_reason,''),index_family_within_budget,last_batch_milliseconds,CASE WHEN COALESCE(generation_id,'')='' THEN '' ELSE (SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id) END,COALESCE((SELECT abandoned_at FROM search_projection_generation_lifecycle WHERE generation_id=search_projection_state.generation_id),''),COALESCE(cutover_index_family,''),cutover_family_bytes_before,cutover_family_bytes_after,COALESCE(cutover_before_evidence_status,''),COALESCE(cutover_before_evidence_reason,''),COALESCE(cutover_after_evidence_status,''),COALESCE(cutover_after_evidence_reason,''),COALESCE(failure_class,''),COALESCE(active_generation_id,''),COALESCE(generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(
 		&s.State, &s.Phase, &s.ProjectionVersion, &s.FTSDesign, &s.ConfigHash, &s.SourceRevision, &s.HighWater, &s.Checkpoint, &s.Completed,
 		&s.RecentAgeSeconds, &s.IndexFamilyByteLimit, &s.RecentSourceCeilingBytes, &s.RecentAmplificationPPM, &s.NonRecentFamilyBytes,
 		&s.RecentCutoffNorm, &s.CapacitySemanticsVersion, &s.CapacityEvidence.Status, &s.CapacityEvidence.Reason, &s.IndexFamilyWithinBudget,
 		&s.LastBatchMilliseconds, &s.LifecycleState, &s.AbandonedAt, &s.CutoverIndexFamily, &s.CutoverFamilyBytesBefore, &s.CutoverFamilyBytesAfter,
-		&s.CutoverBeforeEvidence.Status, &s.CutoverBeforeEvidence.Reason, &s.CutoverAfterEvidence.Status, &s.CutoverAfterEvidence.Reason, &s.FailureClass)
+		&s.CutoverBeforeEvidence.Status, &s.CutoverBeforeEvidence.Reason, &s.CutoverAfterEvidence.Status, &s.CutoverAfterEvidence.Reason, &s.FailureClass,
+		&activeGenerationID, &rebuildGenerationID)
 	if e != nil {
-		return s, e
+		return s, xerrors.Errorf("read search projection state: %w", e)
 	}
 	enrichCapacityEvidenceMethod(&s.CutoverBeforeEvidence, &s.CutoverAfterEvidence, &s.CapacityEvidence)
 	var inventoryState string
-	if e = db.QueryRowContext(ctx, `SELECT state FROM search_projection_inventory_state WHERE singleton=1`).Scan(&inventoryState); e != nil {
-		return s, e
+	if e = tx.QueryRowContext(ctx, `SELECT state FROM search_projection_inventory_state WHERE singleton=1`).Scan(&inventoryState); e != nil {
+		return s, xerrors.Errorf("read search projection inventory state: %w", e)
 	}
 	if s.State == "rebuilding" && inventoryState == "rebuilding" {
 		s.Phase = "inventory"
 	}
-	if e = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0),COUNT(*) FROM search_projection_recent_documents WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.RecentBytes, &s.RecentDocuments); e != nil {
+	if hook := d.afterStatusGenerationScopeRead; hook != nil {
+		hook()
+	}
+	if e = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0),COUNT(*) FROM search_projection_recent_documents WHERE generation_id=?`, activeGenerationID).Scan(&s.RecentBytes, &s.RecentDocuments); e != nil {
+		return s, xerrors.Errorf("count recent documents: %w", e)
+	}
+	if e = measureRecentSourceBytesCache(ctx, tx, rebuildGenerationID, &s); e != nil {
 		return s, e
 	}
-	if e = measureRecentSourceBytesCache(ctx, db, &s); e != nil {
+	if e = tx.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(summary_text AS BLOB))),0) FROM search_projection_session_summaries WHERE generation_id=?`, activeGenerationID).Scan(&s.SummarySessions, &s.SummaryLogicalBytes); e != nil {
+		return s, xerrors.Errorf("count session summaries: %w", e)
+	}
+	if e = tx.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(keyword AS BLOB))),0) FROM search_projection_session_keywords WHERE generation_id=?`, activeGenerationID).Scan(&s.KeywordRows, &s.KeywordLogicalBytes); e != nil {
+		return s, xerrors.Errorf("count session keywords: %w", e)
+	}
+	if e = tx.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16),0) FROM literal_search_fingerprints WHERE generation_id=?`, activeGenerationID).Scan(&s.FingerprintRows, &s.FingerprintLogicalBytes); e != nil {
+		return s, xerrors.Errorf("count fingerprints: %w", e)
+	}
+	if e = measureSearchProjectionExclusions(ctx, tx, rebuildGenerationID, &s); e != nil {
 		return s, e
 	}
-	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(summary_text AS BLOB))),0) FROM search_projection_session_summaries WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.SummarySessions, &s.SummaryLogicalBytes); e != nil {
-		return s, e
-	}
-	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(keyword AS BLOB))),0) FROM search_projection_session_keywords WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.KeywordRows, &s.KeywordLogicalBytes); e != nil {
-		return s, e
-	}
-	if e = db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16),0) FROM literal_search_fingerprints WHERE generation_id=(SELECT active_generation_id FROM search_projection_state)`).Scan(&s.FingerprintRows, &s.FingerprintLogicalBytes); e != nil {
-		return s, e
-	}
-	if e = measureSearchProjectionExclusions(ctx, db, &s); e != nil {
-		return s, e
+	if e = tx.Commit(); e != nil {
+		return s, xerrors.Errorf("commit search projection status snapshot: %w", e)
 	}
 	if e = db.QueryRowContext(ctx, selectSearchProjectionFTSLogicalBytesSQL).Scan(&s.FTSLogicalBytes); e != nil {
-		return s, e
+		return s, xerrors.Errorf("measure fts logical bytes: %w", e)
 	}
 	probeStarted := time.Now()
 	var ignored int
 	if probeErr := db.QueryRowContext(ctx, `SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH 'traceary_projection_probe_no_payload_7f42'`).Scan(&ignored); probeErr != nil {
-		return s, probeErr
+		return s, xerrors.Errorf("probe search projection fts: %w", probeErr)
 	}
 	s.MatchProbeMilliseconds = time.Since(probeStarted).Milliseconds()
 	var page int64
@@ -1211,12 +1240,11 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 // measureRecentSourceBytesCache compares the eviction cache to SUM(decoded_bytes)
 // for the generation the cache is written against (state.generation_id). That
 // is not active_generation_id during a rebuild. Status never rewrites the cache.
-func measureRecentSourceBytesCache(ctx context.Context, db *sql.DB, s *apptypes.SearchProjectionStatus) error {
-	var generationID string
-	if err := db.QueryRowContext(ctx, `SELECT recent_source_bytes, COALESCE(generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&s.RecentSourceBytes, &generationID); err != nil {
+func measureRecentSourceBytesCache(ctx context.Context, queryer statusQueryer, generationID string, s *apptypes.SearchProjectionStatus) error {
+	if err := queryer.QueryRowContext(ctx, `SELECT recent_source_bytes FROM search_projection_state WHERE singleton=1`).Scan(&s.RecentSourceBytes); err != nil {
 		return xerrors.Errorf("read recent_source_bytes cache: %w", err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?`, generationID).Scan(&s.RecentSourceBytesMeasured); err != nil {
+	if err := queryer.QueryRowContext(ctx, `SELECT COALESCE(SUM(decoded_bytes),0) FROM search_projection_recent_documents WHERE generation_id=?`, generationID).Scan(&s.RecentSourceBytesMeasured); err != nil {
 		return xerrors.Errorf("sum recent_source_bytes measured: %w", err)
 	}
 	s.RecentSourceBytesDelta = s.RecentSourceBytes - s.RecentSourceBytesMeasured
