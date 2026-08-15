@@ -861,10 +861,13 @@ var resolveHookTranscriptSessionIDFunc = resolveHookSessionID
 // capture is a nice-to-have, not a requirement for sessions to close
 // cleanly.
 //
-// This is a thin wrapper around runHookTranscriptWithBlocks that always
-// uses the client's registered extractor; every caller except Kimi's
-// idempotency guard (hook_kimi.go) goes through here and is unaffected by
-// that guard's pre-extracted-blocks path.
+// runHookTranscript is the single transcript-recording entry used by
+// generic `hook transcript <client>` and by spool replay of
+// command=transcript. Clients with a turn guard (today: Kimi) are
+// dispatched to that guard so those paths inherit the same fail-open
+// idempotency as the native Stop command (#1696). Other clients still
+// extract through the registered extractor inside
+// runHookTranscriptWithBlocks.
 //
 // Like runHookTranscriptWithBlocks, recorded is true only when a row was
 // actually persisted. Callers that gate follow-up work on a successful write
@@ -876,7 +879,25 @@ func (c *RootCLI) runHookTranscript(
 	client string,
 	dbPath string,
 ) (bool, error) {
+	if recorder, ok := transcriptTurnRecorderFor(client); ok {
+		payload, err := readHookPayload(input)
+		if err != nil {
+			return false, err
+		}
+		return recorder(c, ctx, payload, dbPath)
+	}
 	return c.runHookTranscriptWithBlocks(ctx, input, client, dbPath, nil)
+}
+
+// transcriptTurnRecorderFor returns the per-client turn guard that must wrap
+// persist, if any. The Kimi recorder is the only registration: its turn
+// identity lives in the session wire log, not in the hook envelope. Adding
+// another client means adding a resolver here, not wrapping each caller.
+func transcriptTurnRecorderFor(client string) (func(*RootCLI, context.Context, []byte, string) (bool, error), bool) {
+	if client == kimiHookClient {
+		return (*RootCLI).runHookKimiTranscript, true
+	}
+	return nil, false
 }
 
 // runHookTranscriptWithBlocks is the shared implementation behind

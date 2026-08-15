@@ -244,7 +244,9 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 }
 
 // runHookKimiTranscript wraps the shared transcript recorder with a
-// per-(session, wire turn ID, content fingerprint) idempotency guard. Kimi's
+// per-(session, wire turn ID, content fingerprint) idempotency guard.
+// Native Stop calls it directly; generic `hook transcript kimi` and spool
+// replay of command=transcript reach it through runHookTranscript (#1696). Kimi's
 // Stop hook fires roughly two dozen times per completed turn, with
 // redeliveries observed as little as ~0.14s apart — including effectively
 // concurrent firings. Extraction itself is correct (it already resolves only
