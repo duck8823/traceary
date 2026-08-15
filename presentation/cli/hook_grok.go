@@ -387,15 +387,4 @@ func inspectGrokTranscript(payload []byte) ([]apptypes.EventBodyBlock, grokTrans
 	return blocks, grokTranscriptReady
 }
 
-// afterInspectGrokTranscriptHook, when set, runs after inspectGrokTranscript
-// has classified the wire log (and, when ready, assembled the blocks). Tests
-// use it to truncate or remove updates.jsonl between the readiness read and
-// persist so a second extract would fail-soft.
-var afterInspectGrokTranscriptHook func()
 
-func invokeAfterInspectGrokTranscriptHook() {
-	if afterInspectGrokTranscriptHook == nil {
-		return
-	}
-	afterInspectGrokTranscriptHook()
-}

@@ -42,7 +42,7 @@ var ExpectedCodexPluginHookCount = expectedCodexPluginHookCount
 
 // SetUserHomeDirFunc replaces the home-directory lookup function for tests.
 func SetUserHomeDirFunc(f func() (string, error)) {
-	userHomeDirFunc = f
+	storeUserHomeDirFunc(f)
 	stateDir, configured := os.LookupEnv(hookStateDirEnvKey)
 	if configured && strings.TrimSpace(stateDir) != "" && stateDir != testDefaultHookStateDir {
 		return
@@ -64,7 +64,7 @@ func CallUserHomeDirFunc() (string, error) {
 
 // ResetUserHomeDirFunc restores the default home-directory lookup function for tests.
 func ResetUserHomeDirFunc() {
-	userHomeDirFunc = testDefaultUserHomeDirFunc
+	storeUserHomeDirFunc(testDefaultUserHomeDirFunc)
 	_ = os.Setenv(hookStateDirEnvKey, testDefaultHookStateDir)
 }
 
@@ -72,71 +72,68 @@ func ResetUserHomeDirFunc() {
 // probe for tests so the not_installed / installed capability path can be
 // exercised deterministically regardless of the host machine.
 func SetAntigravityBundleExistsFunc(f func(string) bool) {
-	antigravityBundleExistsFunc = f
+	storeAntigravityBundleExistsFunc(f)
 }
 
 // ResetAntigravityBundleExistsFunc restores the default Antigravity bundle
 // existence probe.
 func ResetAntigravityBundleExistsFunc() {
-	antigravityBundleExistsFunc = func(path string) bool {
-		_, err := os.Stat(path)
-		return err == nil
-	}
+	storeAntigravityBundleExistsFunc(defaultAntigravityBundleExists)
 }
 
 // SetGCNowFunc replaces the current-time function for tests.
 func SetGCNowFunc(f func() time.Time) {
-	gcNowFunc = f
+	storeGCNowFunc(f)
 }
 
 // ResetGCNowFunc restores the default current-time function for tests.
 func ResetGCNowFunc() {
-	gcNowFunc = time.Now
+	storeGCNowFunc(time.Now)
 }
 
 // SetTopNowFunc replaces the current-time function used by sessions / top
 // snapshot loading for tests.
 func SetTopNowFunc(f func() time.Time) {
-	topNowFunc = f
+	storeTopNowFunc(f)
 }
 
 // ResetTopNowFunc restores the default top current-time function for tests.
 func ResetTopNowFunc() {
-	topNowFunc = time.Now
+	storeTopNowFunc(time.Now)
 }
 
 // SetAntigravityPendingNowFunc replaces the current-time function used for
 // Antigravity pending-state TTL pruning for tests.
 func SetAntigravityPendingNowFunc(f func() time.Time) {
-	antigravityPendingNowFunc = f
+	storeAntigravityPendingNowFunc(f)
 }
 
 // ResetAntigravityPendingNowFunc restores the default current-time function
 // used for Antigravity pending-state TTL pruning.
 func ResetAntigravityPendingNowFunc() {
-	antigravityPendingNowFunc = time.Now
+	storeAntigravityPendingNowFunc(time.Now)
 }
 
 // SetAntigravityProcessCwdFunc replaces the process-cwd lookup used when
 // Antigravity payloads omit workspacePaths.
 func SetAntigravityProcessCwdFunc(f func(int) (string, error)) {
-	antigravityProcessCwdFunc = f
+	storeAntigravityProcessCwdFunc(f)
 }
 
 // ResetAntigravityProcessCwdFunc restores the default process-cwd lookup.
 func ResetAntigravityProcessCwdFunc() {
-	antigravityProcessCwdFunc = defaultAntigravityProcessCwd
+	storeAntigravityProcessCwdFunc(defaultAntigravityProcessCwd)
 }
 
 // SetAntigravityParentPIDFunc replaces the parent-PID seed used for workspace
 // fallback discovery.
 func SetAntigravityParentPIDFunc(f func() int) {
-	antigravityParentPIDFunc = f
+	storeAntigravityParentPIDFunc(f)
 }
 
 // ResetAntigravityParentPIDFunc restores the default parent-PID seed.
 func ResetAntigravityParentPIDFunc() {
-	antigravityParentPIDFunc = os.Getppid
+	storeAntigravityParentPIDFunc(os.Getppid)
 }
 
 // AntigravityWorkspaceCwd exposes antigravityWorkspaceCwd for tests.
@@ -157,33 +154,33 @@ func AntigravityPendingCommandPath(conversationID, stepIdx string) (string, erro
 // Kimi's idempotency guard (#1681), whose own turn-resolution check would
 // otherwise make that skip unreachable through payload manipulation alone.
 func SetResolveHookTranscriptSessionIDFunc(f func([]byte, string) (types.SessionID, error)) {
-	resolveHookTranscriptSessionIDFunc = f
+	storeResolveHookTranscriptSessionIDFunc(f)
 }
 
 // ResetResolveHookTranscriptSessionIDFunc restores the default session-ID
 // resolver for runHookTranscriptWithBlocks.
 func ResetResolveHookTranscriptSessionIDFunc() {
-	resolveHookTranscriptSessionIDFunc = resolveHookSessionID
+	storeResolveHookTranscriptSessionIDFunc(resolveHookSessionID)
 }
 
 // SetAfterInspectGrokTranscriptHook runs fn after inspectGrokTranscript has
 // classified the wire log. Tests use it to remove or rewrite updates.jsonl
 // so a second extract would fail-soft (#1713).
 func SetAfterInspectGrokTranscriptHook(fn func()) {
-	afterInspectGrokTranscriptHook = fn
+	storeAfterInspectGrokTranscriptHook(fn)
 }
 
 // ResetAfterInspectGrokTranscriptHook clears the post-inspect test hook.
 func ResetAfterInspectGrokTranscriptHook() {
-	afterInspectGrokTranscriptHook = nil
+	storeAfterInspectGrokTranscriptHook(nil)
 }
 
 // SetDetectRepoContextFunc replaces the work-context resolver for tests.
 func SetDetectRepoContextFunc(f func(context.Context) (string, error)) {
-	detectRepoContextFunc = f
+	storeDetectRepoContextFunc(f)
 }
 
 // ResetDetectRepoContextFunc restores the default work-context resolver for tests.
 func ResetDetectRepoContextFunc() {
-	detectRepoContextFunc = detectRepoContext
+	storeDetectRepoContextFunc(detectRepoContext)
 }

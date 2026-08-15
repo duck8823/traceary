@@ -457,13 +457,14 @@ func TestProbeGrokDoctorStateUserHookRoutes(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, userHomeDirFunc
+			originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, currentUserHomeDirFunc()
 			t.Cleanup(func() {
-				grokDoctorLookPath, grokDoctorOutput, userHomeDirFunc = originalLookPath, originalOutput, originalHome
+				grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput
+				storeUserHomeDirFunc(originalHome)
 			})
 
 			home := t.TempDir()
-			userHomeDirFunc = func() (string, error) { return home, nil }
+			storeUserHomeDirFunc(func() (string, error) { return home, nil })
 			grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
 
 			projectDir := t.TempDir()
@@ -575,13 +576,14 @@ func TestProbeGrokDoctorStateUserHookRoutes(t *testing.T) {
 
 func TestProbeGrokDoctorStateWarnsDuplicateWhenNativeCoverageIncomplete(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
-	originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, userHomeDirFunc
+	originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, currentUserHomeDirFunc()
 	t.Cleanup(func() {
-		grokDoctorLookPath, grokDoctorOutput, userHomeDirFunc = originalLookPath, originalOutput, originalHome
+		grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput
+		storeUserHomeDirFunc(originalHome)
 	})
 
 	home := t.TempDir()
-	userHomeDirFunc = func() (string, error) { return home, nil }
+	storeUserHomeDirFunc(func() (string, error) { return home, nil })
 	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
 
 	projectDir := t.TempDir()

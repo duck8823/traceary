@@ -12,8 +12,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-var detectRepoContextFunc = detectRepoContext
-
 func resolveWorkspaceValue(ctx context.Context, flagValue string) string {
 	if repo := resolveExplicitWorkspaceValue(flagValue); repo != "" {
 		return repo

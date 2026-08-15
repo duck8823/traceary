@@ -11,9 +11,9 @@ import (
 
 func TestResolveHookStateDir_UsesHomeFallbackWhenEnvironmentIsEmpty(t *testing.T) {
 	homeDir := t.TempDir()
-	originalHomeDirFunc := userHomeDirFunc
-	userHomeDirFunc = func() (string, error) { return homeDir, nil }
-	t.Cleanup(func() { userHomeDirFunc = originalHomeDirFunc })
+	originalHomeDirFunc := currentUserHomeDirFunc()
+	storeUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(func() { storeUserHomeDirFunc(originalHomeDirFunc) })
 	t.Setenv(hookStateDirEnvKey, "")
 
 	got, err := resolveHookStateDir()

@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Fixed
+- **`go test ./presentation/cli/ -race` no longer reports a data race on export-test seams (#1698)** — `Set*Func` seams are `atomic.Pointer` slots, so a serial test can replace them while a parallel test still reads `resolveDBPath` / `userHomeDirFunc`. Production never writes the slots. Scratch: a concurrent replace-vs-`resolveDBPath` test plus two `-race -count=1` package runs report no `DATA RACE`.
+
 ## [v0.38.0] - 2026-08-16
 
 ### Fixed

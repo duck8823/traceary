@@ -124,9 +124,9 @@ func TestReviewModel_AcceptQueuesDecisionAndAdvances(t *testing.T) {
 }
 
 func TestReviewModel_DecisionCardShowsAcceptEvidenceContext(t *testing.T) {
-	previousTopNow := topNowFunc
-	topNowFunc = func() time.Time { return time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC) }
-	t.Cleanup(func() { topNowFunc = previousTopNow })
+	previousTopNow := currentTopNowFunc()
+	storeTopNowFunc(func() time.Time { return time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC) })
+	t.Cleanup(func() { storeTopNowFunc(previousTopNow) })
 
 	model := newReviewTestModel(buildReviewCandidateWithOptions(t, reviewCandidateOptions{
 		id:         "id-context",
