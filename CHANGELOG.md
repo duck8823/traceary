@@ -29,6 +29,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Antigravity headless probe reports permission denials on exit 0 (#1864)** — `scripts/verify-antigravity-headless-markers.sh` inspects stderr for permission wording even when `agy` exits 0 with empty stdout. `traceary doctor --client antigravity` already reports `antigravity-headless-hooks`.
 
 ### Removed
+- **`traceary memory store remember` removed (#1870)** — after the v0.35 deprecation (#1692). Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. Use `traceary memory store propose` (`status=candidate`). Remaining #1870 groups that were never in the v0.34/v0.35 deprecation registry stay.
 - **`traceary session active` folded into `session latest --active` (#1704)** — `session active` is an unknown subcommand (non-zero, no `DEPRECATED` notice). `session latest --active` keeps the previous stale defaults (24h, `--stale-after`, `--allow-stale`). Those two flags without `--active` are rejected.
 
 ## [v0.35.0] - 2026-08-14

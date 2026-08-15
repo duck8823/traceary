@@ -38,7 +38,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Sessions** — `traceary session start`, `traceary session end`, `traceary session run`, `traceary session handoff` (including `--compact-only`), `traceary session list`, `traceary session refine`, `traceary session latest` (including `--active`)
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
-- **Durable memory store** — `traceary memory store remember` (deprecated; removal target v0.36.0), `traceary memory store propose`, `traceary memory store distill`
+- **Durable memory store** — `traceary memory store propose`, `traceary memory store distill`
 - **Durable memory decay** — `traceary memory decay`
 - **Hooks** — `traceary hooks print`, `traceary hooks install`, `traceary hooks guide`, `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
 - **Diagnostics** — `traceary doctor` (alias `traceary status`), `traceary report`
@@ -85,7 +85,7 @@ Stability and deprecation expectations for these runtime entrypoints:
 
 Currently deprecated:
 
-- `traceary memory store remember` → `traceary memory store propose` (removal target v0.36.0; #1692 / owner decision on #1870). `remember` writes `status=accepted` immediately and bypasses inbox review. `traceary-memory-remember` must land as `status=candidate`. The command still runs; stdout / `--json` / `--id-only` stay unchanged during the window.
+- none.
 
 ### Pillar inventory (v0.35)
 
@@ -95,6 +95,7 @@ A command is removed only for empty backing data, duplication, or serving no pil
 
 Historical removal log:
 
+- Removed in v0.36.0 after the v0.35 deprecation (#1692 / #1870): `traceary memory store remember`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. Use `traceary memory store propose` (`status=candidate`). The skill `traceary-memory-remember` already lands on `propose`.
 - Removed in v0.36.0 (#1704): `traceary session active`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. Use `traceary session latest --active` (same stale defaults: 24h, `--stale-after`, `--allow-stale`). `--stale-after` and `--allow-stale` without `--active` are rejected. This is a same-minor fold onto an existing command: the behaviour is unchanged, only the spelling.
 - Removed in v0.35.0 (#1872): the store-size reduction command family is folded into `traceary store compact`. Invocations fail as unknown commands with a non-zero exit and no `DEPRECATED` notice. Removed: `traceary store gc`, `traceary store dedupe` / `content-events`, `traceary store retention plan|apply|restore` (raw-body retention; `store retention files` remains), `traceary store payload-rehearsal` (`preview|run|resume|scrub|rollback`), `traceary store payload-backfill` (`preview|run|resume|status`), `traceary store search-retire`, and `traceary store compact plan|apply|resume|status`. Use `traceary store compact` (optional `--force`, `--keep-days`) and `traceary store compact rollback RUN_ID`. `traceary store search-projection` is unchanged. The old file is the archive until rollback is discarded.
 - Removed in v0.35.0 (#1871): `traceary mcp-server`, the `presentation/mcpserver` package, its nine tools, and every shipped host package's MCP server declaration (Claude/Codex/Gemini/Grok/Kimi/Antigravity). Invocations fail as an unknown command (`unknown command "mcp-server"`) with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window: MCP was public and was not listed in the v0.34 "Currently deprecated" registry. Removal is an owner decision on #1693 justified by "nothing is lost" evidence — 16 historical MCP writes out of 659,304 events (0.0024%, last write 2026-07-19); hook capture remains shell (`traceary hook …`); every shipped host has a shell; skills route through the CLI (#1875). Use the CLI for the same work (for example `session latest --active` / `session latest` / `session handoff` / `context`, `search`, `list`, `report`, and the memory inbox/store/admin commands). Claude `hooks.json` keeps `matcher: mcp__.*` so audits of *other* servers' tool calls continue.

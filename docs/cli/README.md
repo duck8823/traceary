@@ -412,29 +412,22 @@ Bulk preview or reject stale / low-quality memory candidates. Dry-run by default
 
 ### `traceary memory store` — deliberate writes
 
-Every command under `memory store` writes a durable-memory row, regardless of whether the row lands as `accepted` or `candidate`.
+Every command under `memory store` writes a durable-memory row, regardless of whether the row lands as `accepted` or `candidate`. `memory store remember` was removed in v0.36.0; use `propose`.
 
-#### `traceary memory store remember`
+#### `traceary memory store propose`
 
-**Deprecated in v0.35.0; removal target v0.36.0.** Use `traceary memory store propose`. This command still records an accepted durable memory directly (stdout / `--json` / `--id-only` unchanged). It bypasses inbox review; the skill-facing write is `propose`.
+Record a memory candidate that still needs review.
 
 Useful flags:
 
 - `--type`
 - `--fact`
 - `--workspace` / `--agent` / `--session-family`
-- `--confidence`
 - `--source`
 - `--evidence`
 - `--artifact`
 - `--id-only`
 - `--json`
-
-#### `traceary memory store propose`
-
-Record a memory candidate that still needs review.
-
-Useful flags are the same as `memory store remember`, except `--confidence` is ignored.
 
 #### `traceary memory store distill`
 
@@ -689,7 +682,7 @@ The flat memory verbs from earlier releases were hidden deprecated aliases durin
 | --- | --- |
 | `memory accept <id>` | `memory inbox accept <id>` |
 | `memory reject <id>` | `memory inbox reject <id>` |
-| `memory remember` | `memory store remember` |
+| `memory remember` | `memory store propose` (`memory store remember` was removed in v0.36.0) |
 | `memory propose` | `memory store propose` |
 | `memory distill` | `memory store distill` |
 | `memory extract` | `memory admin extract` |

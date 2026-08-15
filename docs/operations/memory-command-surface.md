@@ -6,7 +6,7 @@
 
 This document is the v0.14 baseline that the memory namespace migration was built on. As of v0.15.0 the hidden deprecated aliases described below have been removed; keep this page as the historical mapping from the old flat paths to the canonical grouped paths.
 
-v0.35.0 (#1692): `memory store remember` is deprecated in favor of `memory store propose` (removal target v0.36.0). The v0.14 grouping below is otherwise unchanged.
+v0.36.0 (#1692 / #1870): `memory store remember` is removed. Use `memory store propose`. The v0.14 grouping below is otherwise unchanged.
 
 ## Goals
 
@@ -102,7 +102,7 @@ The acceptance criteria for this issue explicitly mention `search` and `show`. `
 | `memory inbox reject` | `memory inbox reject` | Unchanged path; v0.14 also accepts a positional id alongside `--ids` and adds `--id-only` so the canonical surface is a strict superset of `memory reject <memory-id>` (see signature note below) |
 | `memory accept <memory-id>` | `memory inbox accept <memory-id>` | Hidden deprecated alias (see signature note below) |
 | `memory reject <memory-id>` | `memory inbox reject <memory-id>` | Hidden deprecated alias (see signature note below) |
-| `memory remember` | `memory store remember` | Hidden deprecated alias |
+| `memory remember` | `memory store propose` | `memory store remember` was removed in v0.36.0 |
 | `memory propose` | `memory store propose` | Hidden deprecated alias |
 | `memory distill` | `memory store distill` | Hidden deprecated alias |
 | `memory extract` | `memory admin extract` | Hidden deprecated alias |

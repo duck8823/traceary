@@ -5,16 +5,13 @@ import (
 )
 
 // newMemoryStoreCommand groups the deliberate write/store surface
-// (`remember`, `propose`, `distill`) under `traceary memory store` so
-// every command that writes a durable-memory row sits in one
-// namespace, regardless of whether the row lands as accepted or
-// candidate.
+// (`propose`, `distill`) under `traceary memory store`. `remember` was
+// removed in v0.36.0 (#1870); skill writes land on `propose`.
 func (c *RootCLI) newMemoryStoreCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "store",
-		Short: Localize("Record, propose, and distill durable memories", "durable memory の記録・propose・distill を行う"),
+		Short: Localize("Propose and distill durable memories", "durable memory の propose・distill を行う"),
 	}
-	cmd.AddCommand(c.newMemoryRememberCommand())
 	cmd.AddCommand(c.newMemoryProposeCommand())
 	cmd.AddCommand(c.newMemoryDistillCommand())
 	return cmd

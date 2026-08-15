@@ -89,20 +89,6 @@ func TestRootCLI_MemoryGroupedCanonicalPaths_ExecuteSameUseCase(t *testing.T) {
 		assertCall func(t *testing.T, stub *memoryUsecaseStub)
 	}{
 		{
-			name: "memory store remember",
-			args: []string{
-				"memory", "store", "remember",
-				"--db-path", "/tmp/test-traceary.db",
-				"--type", "decision",
-				"--fact", "Grouped store remember",
-			},
-			assertCall: func(t *testing.T, stub *memoryUsecaseStub) {
-				if stub.rememberCall.fact != "Grouped store remember" {
-					t.Errorf("rememberCall.fact = %q", stub.rememberCall.fact)
-				}
-			},
-		},
-		{
 			name: "memory store propose",
 			args: []string{
 				"memory", "store", "propose",
@@ -136,9 +122,8 @@ func TestRootCLI_MemoryGroupedCanonicalPaths_ExecuteSameUseCase(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := &memoryUsecaseStub{
-				rememberDetails: mustMemoryDetails(t, "memory-remembered-grouped", "Grouped store remember", types.MemoryStatusAccepted),
-				proposeDetails:  mustMemoryDetails(t, "memory-proposed-grouped", "Grouped store propose", types.MemoryStatusCandidate),
-				expireDetails:   mustMemoryDetails(t, "memory-expired-grouped", "Grouped admin expire", types.MemoryStatusExpired),
+				proposeDetails: mustMemoryDetails(t, "memory-proposed-grouped", "Grouped store propose", types.MemoryStatusCandidate),
+				expireDetails:  mustMemoryDetails(t, "memory-expired-grouped", "Grouped admin expire", types.MemoryStatusExpired),
 			}
 
 			stdout := &bytes.Buffer{}
@@ -157,10 +142,7 @@ func TestRootCLI_MemoryGroupedCanonicalPaths_ExecuteSameUseCase(t *testing.T) {
 			tc.assertCall(t, stub)
 
 			if strings.Contains(stderr.String(), "DEPRECATED") {
-				rememberPath := len(tc.args) >= 3 && tc.args[0] == "memory" && tc.args[1] == "store" && tc.args[2] == "remember"
-				if !rememberPath {
-					t.Errorf("canonical grouped path emitted deprecation notice: %q", stderr.String())
-				}
+				t.Errorf("canonical grouped path emitted deprecation notice: %q", stderr.String())
 			}
 			if strings.Contains(stderr.String(), "removed in v0.15.0") {
 				t.Errorf("canonical grouped path emitted removal notice: %q", stderr.String())

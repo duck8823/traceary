@@ -29,6 +29,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **Antigravity headless probe が exit 0 の permission 拒否を報告する (#1864)** — `scripts/verify-antigravity-headless-markers.sh` は `agy` が空 stdout で exit 0 しても stderr の permission 文言を見る。`traceary doctor --client antigravity` の `antigravity-headless-hooks` は既存。
 
 ### Removed
+- **`traceary memory store remember` を削除 (#1870)** — v0.35 の非推奨（#1692）のあと。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。代わりに `traceary memory store propose`（`status=candidate`）。v0.34/v0.35 の非推奨 registry に無い #1870 の残グループは残します。
 - **`traceary session active` を `session latest --active` に畳んだ (#1704)** — `session active` は unknown subcommand（非ゼロ、`DEPRECATED` なし）。`session latest --active` が以前の stale 既定（24h、`--stale-after`、`--allow-stale`）を引き継ぐ。`--active` なしの 2 flag は拒否する。
 
 ## [v0.35.0] - 2026-08-14
