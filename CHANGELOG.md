@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Changed
+- **`--recent-age` is kept; the committed measurement names when it binds (#1755)** — retention is `max(age, byte)`. Dense scratch: byte (2026-06-20) wins over 30d. Quiet scratch: empty byte cutoff, age wins. Capacity-pressure stores do not need the flag; quiet stores still can. Removal needs the admin deprecation window. See `docs/research/search-projection-recent-age.md`.
+
 ### Fixed
 - **Index-family budget verdict falls back to the family total (#1835)** — `-1` stays unknown. When the 3s split times out but `physical_bytes` is available, `store search-projection status` reports a coarse 0/1 against that total. Cutover persists the same fallback so doctor still sees a complete-generation verdict. A silent `-1` without `physical_evidence.reason` is a test failure. See `docs/research/search-projection-budget-verdict.md`.
 - **Recent-cutoff derivation is row-capped, not 2s-timed (#1807)** — the newest-first prefilter walks at most 20,000 rows so a large store still gets a cutoff. A sample that never crosses the walk ceiling keeps the oldest sampled timestamp instead of falling back to age-only. Cancel and query errors still degrade. No new flag. See `docs/research/search-projection-recent-cutoff.md`.

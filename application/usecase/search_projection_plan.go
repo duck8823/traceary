@@ -11,6 +11,25 @@ import (
 
 const projectionIntegerBytes int64 = 8
 
+// RecentRetentionCutoff is max(now-age, byteCutoff). An empty or unparseable
+// RecentCutoffNorm leaves the age cutoff. Age binds on a quiet corpus whose
+// newest-first walk never crosses the byte ceiling; the byte cutoff binds on
+// any store that fills the recent window inside the age window (#1755).
+func RecentRetentionCutoff(now time.Time, age time.Duration, recentCutoffNorm string) time.Time {
+	cutoff := now.Add(-age)
+	if recentCutoffNorm == "" {
+		return cutoff
+	}
+	byteCutoff, err := time.Parse(time.RFC3339Nano, recentCutoffNorm)
+	if err != nil {
+		return cutoff
+	}
+	if byteCutoff.After(cutoff) {
+		return byteCutoff
+	}
+	return cutoff
+}
+
 // PlanProjectionBatch is pure: the same snapshot and budget produce the same plan.
 func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProjectionBudget) (apptypes.ProjectionBatchPlan, error) {
 	p := apptypes.ProjectionBatchPlan{GenerationID: s.Generation.GenerationID, Phase: s.Phase, ExpectedRevision: s.Generation.SourceRevision, ExpectedCheckpoint: s.Generation.Checkpoint, NextCheckpoint: s.Generation.Checkpoint, AllowRevisionDrift: s.CleanupAll, ContinueState: "rebuilding"}
@@ -124,13 +143,7 @@ func PlanProjectionBatch(s apptypes.ProjectionSnapshot, b apptypes.SearchProject
 		if created, err := time.Parse(time.RFC3339Nano, d.CreatedAt); err == nil {
 			// Keep created_at_norm > max(ageCutoff, byteCutoff). Strict greater
 			// errs under budget when timestamps tie (#1679 D4).
-			cutoff := s.Now.Add(-b.RecentAge)
-			if s.RecentCutoffNorm != "" {
-				if byteCutoff, parseErr := time.Parse(time.RFC3339Nano, s.RecentCutoffNorm); parseErr == nil && byteCutoff.After(cutoff) {
-					cutoff = byteCutoff
-				}
-			}
-			w.RetainRecent = created.After(cutoff)
+			w.RetainRecent = created.After(RecentRetentionCutoff(s.Now, b.RecentAge, s.RecentCutoffNorm))
 		}
 		base, ok := summaries[d.SessionID]
 		if !ok {

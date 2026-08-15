@@ -202,6 +202,23 @@ complete した世代（無ければ上限付きの復号スキャン）で動�
 **世代をまたいだ合計**もこの予算では上限されません。前世代は完全に常駐したままです。
 それが再構築中も検索に答えられる理由であり、回収されるのは終端の cleanup フェーズです。
 
+`--recent-age`（既定 30 日）は残します。retention は
+`created_at > max(ageCutoff, byteCutoff)` です。scratch 測定
+（`TestRecentAgeBindingOnScratchCorpora`）:
+
+| コーパス | byte cutoff | どちらが bind するか |
+|---|---|---|
+| 密な ingest（30 日以内に byte ceiling を超える） | 2026-06-20 | **byte** |
+| 静かなストア（walk が ceiling に届かない） | 空 | **age** |
+
+容量圧があるストアでは byte cutoff のほうが新しいので、`--recent-age` は窓を
+さらに縮めません。age が bind するのは recent ティアがもともと小さいときだけです。
+operator が `--recent-age` を触るのは、index-family 予算以外の理由で静かなストアの
+古い行を落とす場合です。フラグ削除は admin の deprecation window が要ります
+（N で notice、N+1 で削除）。
+[search-projection-recent-age.ja.md](research/search-projection-recent-age.ja.md)
+を参照してください。
+
 source フェーズのカットオフは**構築コストの上限であり、強制機構ではありません**。
 最新 20,000 行を走査します（壁時計タイムアウトではありません）。その単位は保存エンベロープのバイト数であり、
 projection がインデックスする単位ではありません。`thinking` ブロックは走査には
