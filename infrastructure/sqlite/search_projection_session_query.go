@@ -97,6 +97,9 @@ func queryProjectionSessionHits(
 		         )
 		         OR sum.summary_text LIKE ? ESCAPE '\'
 		       )`)
+	// Exact keyword + LIKE is the shipped session-tier match (#1756).
+	// A porter FTS was measured and not added: LIKE already matches
+	// stemming-as-substring, and the index would charge the family budget.
 	keyword := foldSearchASCII(queryValue)
 	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"
 	args := []any{keyword, likeQuery}

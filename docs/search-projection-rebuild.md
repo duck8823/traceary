@@ -267,6 +267,15 @@ quiet store for reasons other than the index-family budget. Removing the flag
 needs the admin deprecation window (notice in N, removal in N+1). See
 [search-projection-recent-age](research/search-projection-recent-age.md).
 
+The session tier stays exact-keyword + `LIKE`. A unicode61+porter FTS was
+measured and not added (`TestSessionTierKeepsLikePathAndMeasuresPorterFTS`).
+`LIKE '%deploy%'` already matches `deployed`. The comparison index cost
+290,816 bytes on 2,009 short summaries against a 352,256-byte family — the
+same budget that sizes the recent window. LIKE recall is not worse on the
+labeled set; FTS only wins substring precision and diacritic folding. No
+second, unbudgeted index. See
+[search-projection-session-tier-index](research/search-projection-session-tier-index.md).
+
 The source-phase cutoff is a **build-cost bound, not an enforcement mechanism**. It
 walks the newest 20,000 source rows (not a wall-clock timeout) over stored envelope
 bytes, which is not the unit the
