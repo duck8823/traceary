@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **成長する Kimi turn は最終 transcript 1 行を残す (#1697)** — 同じ wire turn ID で fingerprint が変わったあとの Stop は長い本文を先に書き、marker の前の event id を消す。delete 失敗と 2 フィールドの `#1681` marker は fail-open（新しい行は残し、古い行は残す）。scratch: `hook kimi stop` のあと、同じ turn の長い payload では `kind=transcript` が 1 行になり、追記テキストを含む。
 - **spool と generic な Kimi transcript 記録が turn guard を継承する (#1696)** — `hook transcript kimi` と `command=transcript` の spool replay は、`hook kimi stop` と同じ (session, wire turn, fingerprint) ガードを通る。live store（`mode=ro`、2026-08-15）: `source_hook=stop` / `kind=transcript` / `agent=kimi` は 249,042 件（`client` は `hook`）。`hook_deliveries` に Kimi の `stop` 行はないので spool と live はそこでは分けられない。fail-open と成長 turn の記録は変えない。
 
 ## [v0.37.0] - 2026-08-15

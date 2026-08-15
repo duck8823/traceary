@@ -22,6 +22,9 @@ type hydrateCallTrackingEventUC struct {
 func (u *hydrateCallTrackingEventUC) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace, apptypes.LogRedaction) (*model.Event, error) {
 	return nil, nil
 }
+func (u *hydrateCallTrackingEventUC) DeleteTranscript(context.Context, types.EventID) error {
+	return nil
+}
 func (u *hydrateCallTrackingEventUC) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	return nil, nil, nil
 }

@@ -121,6 +121,20 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	return event, nil
 }
 
+func (u *eventUsecase) DeleteTranscript(ctx context.Context, eventID types.EventID) error {
+	if u.eventRepo == nil {
+		return xerrors.Errorf("event repository is not configured")
+	}
+	parsed, err := types.EventIDFrom(eventID.String())
+	if err != nil {
+		return xerrors.Errorf("failed to resolve event ID: %w", err)
+	}
+	if err := u.eventRepo.DeleteTranscript(ctx, parsed); err != nil {
+		return xerrors.Errorf("failed to delete transcript event: %w", err)
+	}
+	return nil
+}
+
 func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	if u.eventRepo == nil {
 		return nil, nil, xerrors.Errorf("event repository is not configured")

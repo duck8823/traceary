@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 
 // eventUsecaseStub implements usecase.EventUsecase for testing.
 type eventLogCall struct {
+	id         types.EventID
 	message    string
 	kind       types.EventKind
 	client     types.Client
@@ -62,10 +64,13 @@ type eventUsecaseStub struct {
 	// (#1681); tests exercising that race invoke Log() from multiple
 	// goroutines and need this stub to record calls safely rather than
 	// racing on the slice append.
-	logMu     sync.Mutex
-	logCall   eventLogCall
-	logCalls  []eventLogCall
-	auditCall struct {
+	logMu               sync.Mutex
+	logSeq              int
+	logCall             eventLogCall
+	logCalls            []eventLogCall
+	deleteTranscriptErr error
+	deleteTranscriptIDs []types.EventID
+	auditCall           struct {
 		command       string
 		input         string
 		output        string
@@ -128,8 +133,36 @@ func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.E
 	s.logCall.workspace = workspace
 	s.logCall.logCfg = logCfg
 	s.logCall.sourceHook = apptypes.SourceHookFromContext(ctx)
+	s.logSeq++
+	id := types.EventID("stub-" + strconv.Itoa(s.logSeq))
+	s.logCall.id = id
 	s.logCalls = append(s.logCalls, s.logCall)
-	return s.logEvent, s.logErr
+	if s.logEvent != nil || s.logErr != nil {
+		return s.logEvent, s.logErr
+	}
+	event, err := model.NewEvent(id, kind, client, agent, sessionID, workspace, message)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to build stub log event: %w", err)
+	}
+	return event, nil
+}
+
+func (s *eventUsecaseStub) DeleteTranscript(_ context.Context, eventID types.EventID) error {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+	s.deleteTranscriptIDs = append(s.deleteTranscriptIDs, eventID)
+	if s.deleteTranscriptErr != nil {
+		return s.deleteTranscriptErr
+	}
+	kept := s.logCalls[:0]
+	for _, call := range s.logCalls {
+		if call.id == eventID {
+			continue
+		}
+		kept = append(kept, call)
+	}
+	s.logCalls = kept
+	return nil
 }
 func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	s.auditCall.command = in.Command

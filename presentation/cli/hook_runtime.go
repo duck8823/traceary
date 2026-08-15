@@ -886,7 +886,8 @@ func (c *RootCLI) runHookTranscript(
 		}
 		return recorder(c, ctx, payload, dbPath)
 	}
-	return c.runHookTranscriptWithBlocks(ctx, input, client, dbPath, nil)
+	recorded, _, err := c.runHookTranscriptWithBlocks(ctx, input, client, dbPath, nil)
+	return recorded, err
 }
 
 // transcriptTurnRecorderFor returns the per-client turn guard that must wrap
@@ -924,12 +925,12 @@ func (c *RootCLI) runHookTranscriptWithBlocks(
 	client string,
 	dbPath string,
 	blocks []apptypes.EventBodyBlock,
-) (bool, error) {
+) (bool, string, error) {
 	if c.storeManagement == nil {
-		return false, xerrors.Errorf("initialize store usecase is not configured")
+		return false, "", xerrors.Errorf("initialize store usecase is not configured")
 	}
 	if c.event == nil {
-		return false, xerrors.Errorf("record log usecase is not configured")
+		return false, "", xerrors.Errorf("record log usecase is not configured")
 	}
 	// Tag for #672: transcript comes from Claude / Codex Stop or
 	// Gemini AfterAgent. Downstream readers can distinguish via
@@ -942,7 +943,7 @@ func (c *RootCLI) runHookTranscriptWithBlocks(
 
 	payload, err := readHookPayload(input)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	ctx = withResolvedHookDelivery(ctx, payload, client)
 	if len(blocks) == 0 {
@@ -952,11 +953,11 @@ func (c *RootCLI) runHookTranscriptWithBlocks(
 			// unsupported client never aborts the host's Stop / SessionEnd
 			// hook. New clients must register an extractor in
 			// `transcriptExtractorFor` before their hook is wired.
-			return false, nil
+			return false, "", nil
 		}
 		extracted, ok := extractor(payload)
 		if !ok || len(extracted) == 0 {
-			return false, nil
+			return false, "", nil
 		}
 		blocks = extracted
 	}
@@ -967,7 +968,7 @@ func (c *RootCLI) runHookTranscriptWithBlocks(
 	// through apptypes.ExtractPlainBody.
 	body, err := apptypes.MarshalEventBodyBlocks(blocks)
 	if err != nil {
-		return false, xerrors.Errorf("failed to serialize transcript blocks: %w", err)
+		return false, "", xerrors.Errorf("failed to serialize transcript blocks: %w", err)
 	}
 	// Transcript bodies can echo secrets the assistant saw earlier in
 	// the turn (API keys from .env, Bearer tokens from header dumps,
@@ -983,30 +984,34 @@ func (c *RootCLI) runHookTranscriptWithBlocks(
 
 	sessionID, err := resolveHookTranscriptSessionIDFunc(payload, client)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	if sessionID == "" {
-		return false, nil
+		return false, "", nil
 	}
 	workspace, err := resolveHookWorkspace(ctx, payload, client, true)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	agent, err := resolveHookAgent(client, payload)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	resolvedDBPath, err := resolveDBPath(dbPath)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	c.applyDatabasePath(resolvedDBPath)
 	if err := c.storeManagement.Initialize(ctx); err != nil {
-		return false, xerrors.Errorf("failed to initialize store: %w", err)
+		return false, "", xerrors.Errorf("failed to initialize store: %w", err)
 	}
-	if _, err := c.event.Log(ctx, body, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace, logCfg); err != nil {
-		return false, xerrors.Errorf("failed to record hook transcript: %w", err)
+	event, err := c.event.Log(ctx, body, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace, logCfg)
+	if err != nil {
+		return false, "", xerrors.Errorf("failed to record hook transcript: %w", err)
 	}
-
-	return true, nil
+	eventID := ""
+	if event != nil {
+		eventID = event.EventID().String()
+	}
+	return true, eventID, nil
 }

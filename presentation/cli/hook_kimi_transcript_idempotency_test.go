@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,8 +12,12 @@ import (
 	"testing"
 
 	"github.com/gofrs/flock"
+	_ "modernc.org/sqlite"
 
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	cli "github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -127,17 +132,13 @@ func TestRootCLI_HookKimiStop_TranscriptTurnIdempotency(t *testing.T) {
 		}
 	})
 
-	t.Run("a turn that grows content between firings records a second event containing the new content", func(t *testing.T) {
+	t.Run("a turn that grows content between firings leaves one event containing the new content", func(t *testing.T) {
 		// Kimi's Stop hook is not a completed-turn boundary: it can re-fire
 		// while a turn is still streaming, so the SAME wire turn ID can gain
 		// blocks between firings (measured live: 2,053 of 52,475 consecutive
 		// same-session pairs grew, 153 of those gained the turn's only
-		// "text" block). Every other fixture in this suite seeds a turn
-		// that is already complete before the first Stop firing, which
-		// bakes the wrong "turn ID alone means unchanged" premise into the
-		// old guard. This reproduces the growth case directly: the first
-		// firing sees only a thinking block, then a text block is appended
-		// under the SAME turnId before the second firing.
+		// "text" block). #1697 records the grown body then deletes the
+		// previous same-turn row so the store keeps one final transcript.
 		t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
 		t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-turn-idempotency-growing")
 		t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
@@ -169,11 +170,89 @@ func TestRootCLI_HookKimiStop_TranscriptTurnIdempotency(t *testing.T) {
 		)
 		runKimiHook(t, "stop", payload, eventStub, sessionStub)
 
+		if got := len(eventStub.logCalls); got != 1 {
+			t.Fatalf("remaining transcript rows after the turn grew = %d, want 1", got)
+		}
+		if !strings.Contains(eventStub.logCalls[0].message, "final answer text") {
+			t.Fatalf("remaining transcript body = %q, want it to contain the newly appended text block", eventStub.logCalls[0].message)
+		}
+		if len(eventStub.deleteTranscriptIDs) != 1 {
+			t.Fatalf("DeleteTranscript calls = %d, want 1", len(eventStub.deleteTranscriptIDs))
+		}
+	})
+
+	t.Run("a two-field legacy marker still records growth but cannot supersede", func(t *testing.T) {
+		stateDir := t.TempDir()
+		t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+		t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-turn-legacy-marker")
+		t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+		homeDir := t.TempDir()
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		seedKimiSession(t, homeDir, sessionID, []string{
+			`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"think","think":"reasoning about the reply"}}}`,
+		})
+
+		eventStub := &eventUsecaseStub{}
+		payload := readKimiFixture(t, "stop.json")
+		runKimiHook(t, "stop", payload, eventStub, &sessionUsecaseStub{})
+		if got := len(eventStub.logCalls); got != 1 {
+			t.Fatalf("transcript log calls after the first firing = %d, want 1", got)
+		}
+		markerPath := kimiTranscriptMarkerPath(stateDir, sessionID)
+		data, err := os.ReadFile(markerPath)
+		if err != nil {
+			t.Fatalf("read marker: %v", err)
+		}
+		fields := strings.Split(strings.TrimSpace(string(data)), "\t")
+		if len(fields) < 2 {
+			t.Fatalf("marker fields = %v, want at least turn and fingerprint", fields)
+		}
+		if err := os.WriteFile(markerPath, []byte(fields[0]+"\t"+fields[1]+"\n"), 0o600); err != nil {
+			t.Fatalf("rewrite two-field marker: %v", err)
+		}
+
+		appendKimiWireRow(t, homeDir, sessionID,
+			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"final answer text"}}}`,
+		)
+		runKimiHook(t, "stop", payload, eventStub, &sessionUsecaseStub{})
 		if got := len(eventStub.logCalls); got != 2 {
-			t.Fatalf("transcript log calls after the turn grew = %d, want 2 (turn ID unchanged but content grew must still record)", got)
+			t.Fatalf("remaining transcript rows after legacy-marker growth = %d, want 2", got)
+		}
+		if len(eventStub.deleteTranscriptIDs) != 0 {
+			t.Fatalf("DeleteTranscript calls = %d, want 0 for a two-field marker", len(eventStub.deleteTranscriptIDs))
+		}
+	})
+
+	t.Run("a failed supersede delete leaves both rows", func(t *testing.T) {
+		t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+		t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-turn-supersede-fail-open")
+		t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+		homeDir := t.TempDir()
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+
+		seedKimiSession(t, homeDir, sessionID, []string{
+			`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"think","think":"reasoning about the reply"}}}`,
+		})
+
+		eventStub := &eventUsecaseStub{}
+		payload := readKimiFixture(t, "stop.json")
+		runKimiHook(t, "stop", payload, eventStub, &sessionUsecaseStub{})
+		eventStub.deleteTranscriptErr = errors.New("simulated transcript delete failure")
+
+		appendKimiWireRow(t, homeDir, sessionID,
+			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"final answer text"}}}`,
+		)
+		runKimiHook(t, "stop", payload, eventStub, &sessionUsecaseStub{})
+		if got := len(eventStub.logCalls); got != 2 {
+			t.Fatalf("remaining transcript rows after failed supersede = %d, want 2", got)
 		}
 		if !strings.Contains(eventStub.logCalls[1].message, "final answer text") {
-			t.Fatalf("second transcript body = %q, want it to contain the newly appended text block", eventStub.logCalls[1].message)
+			t.Fatalf("newer transcript body = %q, want it to contain the appended text", eventStub.logCalls[1].message)
 		}
 	})
 
@@ -524,6 +603,79 @@ func TestRootCLI_HookTranscriptAndSpoolInheritKimiTurnGuard(t *testing.T) {
 			t.Fatalf("after transcript spool replay: log calls = %d, want 1 (guard must inherit)", got)
 		}
 	})
+}
+
+func TestRootCLI_HookKimiStop_SupersedesGrowingTurnOnScratchStore(t *testing.T) {
+	const sessionID = "session_00000000-0000-4000-8000-000000000001"
+
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-turn-supersede-scratch")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	seedKimiSession(t, homeDir, sessionID, []string{
+		`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+		`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"think","think":"reasoning about the reply"}}}`,
+	})
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	eventUC := usecase.NewEventUsecase(eventDS, eventDS)
+	if err := storeUC.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	payload := readKimiFixture(t, "stop.json")
+	fire := func() {
+		t.Helper()
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(storeUC),
+			cli.WithEvent(eventUC),
+			cli.WithDatabasePathSetter(db.SetPath),
+		).Command()
+		rootCmd.SetIn(strings.NewReader(payload))
+		rootCmd.SetOut(&bytes.Buffer{})
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"hook", "kimi", "stop", "--db-path", dbPath})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute(hook kimi stop) error = %v", err)
+		}
+	}
+
+	fire()
+	appendKimiWireRow(t, homeDir, sessionID,
+		`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"final answer text"}}}`,
+	)
+	fire()
+
+	sqldb, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = sqldb.Close() }()
+
+	var count int
+	if err := sqldb.QueryRow(`SELECT COUNT(*) FROM events WHERE kind = 'transcript'`).Scan(&count); err != nil {
+		t.Fatalf("count transcripts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("transcript rows = %d, want 1 after stop then a longer same-turn payload", count)
+	}
+	listed, err := eventUC.List(ctx, apptypes.NewEventListCriteriaBuilder(10).Kind(types.EventKindTranscript).Build())
+	if err != nil {
+		t.Fatalf("List(transcript) error = %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("listed transcripts = %d, want 1", len(listed))
+	}
+	if !strings.Contains(listed[0].Body(), "final answer text") {
+		t.Fatalf("remaining transcript body = %q, want the appended text", listed[0].Body())
+	}
 }
 
 func runHookTranscriptCommand(

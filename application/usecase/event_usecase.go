@@ -19,6 +19,11 @@ type EventUsecase interface {
 	// to re-implement that policy in the presentation layer.
 	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error)
 
+	// DeleteTranscript removes one previously logged transcript event.
+	// Missing or non-transcript ids return nil so a failed supersede can
+	// fail open without aborting the newer write.
+	DeleteTranscript(ctx context.Context, eventID types.EventID) error
+
 	// Audit records a command execution audit event. The AuditInput value
 	// object carries the command, attribution, exit code, and structural
 	// failure flag; auditCfg carries the redaction policy.

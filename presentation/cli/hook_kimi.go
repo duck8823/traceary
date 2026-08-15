@@ -13,6 +13,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 const kimiHookClient = "kimi"
@@ -275,11 +276,11 @@ func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath s
 // through closes that window: the fingerprint and the persisted body are
 // now guaranteed to describe the same content (#1681 HIGH finding).
 //
-// This deliberately does not delete or supersede the earlier, shorter row
-// that a growing turn leaves behind — that needs a delete port this hook
-// does not have. Recording each growth snapshot still collapses ~24
-// same-turn firings to roughly 2-3 rows (turn ID unchanged, fingerprint
-// growing), a ~95% reduction with zero content loss.
+// When the same turn ID later arrives with a different fingerprint, the
+// new row is written first and the previous transcript id from the marker
+// is deleted (#1697). Delete failure leaves both rows (fail-open). A
+// two-field #1681 marker has no event id, so growth still records the
+// longer body but cannot supersede.
 //
 // The check-then-record-then-mark sequence runs inside
 // withKimiTranscriptTurnStateLock so two racing firings for the same
@@ -311,12 +312,14 @@ func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbP
 	blocks, turnID, turnResolved := extractKimiTranscriptTurn(payload)
 	turnID = strings.TrimSpace(turnID)
 	if !turnResolved || sessionID == "" || turnID == "" {
-		return c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, nil)
+		recorded, _, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, nil)
+		return recorded, err
 	}
 	fingerprint, fingerprintErr := kimiTranscriptBlocksFingerprint(blocks)
 	if fingerprintErr != nil {
 		slog.Debug("Kimi transcript fingerprint unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", fingerprintErr)
-		return c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		recorded, _, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		return recorded, err
 	}
 
 	var recorded bool
@@ -327,14 +330,16 @@ func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbP
 			// does not re-request for an already-persisted turn.
 			return nil
 		}
+		eventID := ""
 		var err error
-		recorded, err = c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		recorded, eventID, err = c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
 		if err != nil {
 			recordErr = err
 			return err
 		}
 		if recorded {
-			markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint)
+			c.supersedePreviousKimiTranscriptIfGrown(ctx, sessionID, turnID, fingerprint, eventID)
+			markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint, eventID)
 		}
 		return nil
 	})
@@ -360,9 +365,34 @@ func (c *RootCLI) runHookKimiTranscript(ctx context.Context, payload []byte, dbP
 		// withKimiTranscriptTurnStateLock, so writing one here would race
 		// the very lock this falls back from.
 		slog.Debug("Kimi transcript turn lock unavailable; recording unguarded", "session_id", sessionID, "turn_id", turnID, "error", lockErr)
-		return c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		unguarded, _, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), kimiHookClient, dbPath, blocks)
+		return unguarded, err
 	}
 	return recorded, lockErr
+}
+
+// supersedePreviousKimiTranscriptIfGrown deletes the earlier transcript for
+// the same turn when this firing persisted a different fingerprint. Missing
+// event ids (legacy two-field markers) and delete errors leave the previous
+// row in place so a hook never drops the newer write (#1697).
+func (c *RootCLI) supersedePreviousKimiTranscriptIfGrown(
+	ctx context.Context,
+	sessionID, turnID, fingerprint, newEventID string,
+) {
+	if c.event == nil || newEventID == "" {
+		return
+	}
+	prevTurn, prevFingerprint, prevEventID, ok := loadKimiTranscriptTurnMarker(sessionID)
+	if !ok || prevTurn != turnID || prevFingerprint == fingerprint || prevEventID == "" {
+		return
+	}
+	if err := c.event.DeleteTranscript(ctx, types.EventID(prevEventID)); err != nil {
+		slog.Debug("failed to supersede previous growing Kimi transcript; leaving both rows",
+			"session_id", sessionID,
+			"turn_id", turnID,
+			"previous_event_id", prevEventID,
+			"error", err)
+	}
 }
 
 func (c *RootCLI) captureKimiUsage(
