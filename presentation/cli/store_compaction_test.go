@@ -66,6 +66,12 @@ func TestStoreCompactUsesDedicatedPathBoundComposition(t *testing.T) {
 	if payload["rollback_path"] != path+".rollback-run" {
 		t.Fatalf("rollback_path = %v", payload["rollback_path"])
 	}
+	if _, ok := payload["released_command_body_rows"]; !ok {
+		t.Fatal("released_command_body_rows missing from compact JSON")
+	}
+	if _, ok := payload["released_command_body_bytes"]; !ok {
+		t.Fatal("released_command_body_bytes missing from compact JSON")
+	}
 }
 
 func TestStoreCompactPlanIsUnknown(t *testing.T) {

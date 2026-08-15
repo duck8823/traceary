@@ -77,6 +77,10 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 		return err
 	}
 
+	if _, err := clearDuplicatedCommandExecutedBodies(ctx, db); err != nil {
+		return err
+	}
+
 	if !filter.Cutoff.IsZero() {
 		tx, txErr := db.BeginTx(ctx, nil)
 		if txErr != nil {
@@ -253,6 +257,101 @@ SELECT COUNT(*), COALESCE(SUM(length(CAST(body AS BLOB))), 0)
 		return application.BodyGate{}, fmt.Errorf("count unrefined discardable sessions: %w", err)
 	}
 	return gate, nil
+}
+
+func duplicatedCommandExecutedBodyPredicate(hasCodec bool) string {
+	predicate := `
+kind = 'command_executed'
+AND EXISTS (SELECT 1 FROM command_audits a WHERE a.event_id = events.id)
+AND (length(CAST(body AS BLOB)) > 0`
+	if hasCodec {
+		predicate += `
+	OR COALESCE(body_plaintext_bytes, 0) > 0
+	OR COALESCE(body_encoded_bytes, 0) > 0`
+	}
+	return predicate + `)`
+}
+
+// InspectCommandBodyReclaim measures stored bytes of duplicated
+// command_executed bodies on the source. Compact reports this sum.
+func (SQLiteCompactionBuilder) InspectCommandBodyReclaim(ctx context.Context, source string) (application.CommandBodyReclaim, error) {
+	db, err := openDirectReadOnly(ctx, source)
+	if err != nil {
+		return application.CommandBodyReclaim{}, fmt.Errorf("open source for command body reclaim: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	return measureDuplicatedCommandExecutedBodies(ctx, db)
+}
+
+func measureDuplicatedCommandExecutedBodies(ctx context.Context, db *sql.DB) (application.CommandBodyReclaim, error) {
+	ready, hasCodec, err := commandBodyReclaimReady(ctx, db)
+	if err != nil || !ready {
+		return application.CommandBodyReclaim{}, err
+	}
+	var reclaim application.CommandBodyReclaim
+	if err := db.QueryRowContext(ctx, `
+SELECT COUNT(*), COALESCE(SUM(length(CAST(body AS BLOB))), 0)
+  FROM events
+ WHERE `+duplicatedCommandExecutedBodyPredicate(hasCodec)).Scan(&reclaim.Rows, &reclaim.Bytes); err != nil {
+		return application.CommandBodyReclaim{}, fmt.Errorf("measure duplicated command_executed bodies: %w", err)
+	}
+	return reclaim, nil
+}
+
+func clearDuplicatedCommandExecutedBodies(ctx context.Context, db *sql.DB) (application.CommandBodyReclaim, error) {
+	ready, hasCodec, err := commandBodyReclaimReady(ctx, db)
+	if err != nil || !ready {
+		return application.CommandBodyReclaim{}, err
+	}
+	reclaim, err := measureDuplicatedCommandExecutedBodies(ctx, db)
+	if err != nil || reclaim.Rows == 0 {
+		return reclaim, err
+	}
+	empty, err := encodePayload(nil, payloadCodecIdentity)
+	if err != nil {
+		return application.CommandBodyReclaim{}, fmt.Errorf("encode empty command_executed body: %w", err)
+	}
+	query := `UPDATE events SET body = ? WHERE ` + duplicatedCommandExecutedBodyPredicate(hasCodec)
+	args := []any{storedBodyArg(empty)}
+	if hasCodec {
+		query = `
+UPDATE events
+   SET body = ?,
+       body_codec = ?,
+       body_format_version = ?,
+       body_plaintext_bytes = ?,
+       body_encoded_bytes = ?,
+       body_sha256 = ?
+ WHERE ` + duplicatedCommandExecutedBodyPredicate(hasCodec)
+		args = []any{
+			storedBodyArg(empty),
+			empty.Codec,
+			empty.FormatVersion,
+			empty.PlaintextBytes,
+			empty.StoredBytes,
+			empty.SHA256,
+		}
+	}
+	if _, err := db.ExecContext(ctx, query, args...); err != nil {
+		return application.CommandBodyReclaim{}, fmt.Errorf("clear duplicated command_executed bodies: %w", err)
+	}
+	return reclaim, nil
+}
+
+func commandBodyReclaimReady(ctx context.Context, db *sql.DB) (bool, bool, error) {
+	hasEvents, err := tableExists(ctx, db, "events")
+	if err != nil || !hasEvents {
+		return false, false, err
+	}
+	hasAudits, err := tableExists(ctx, db, "command_audits")
+	if err != nil || !hasAudits {
+		return false, false, err
+	}
+	hasCodec, err := databaseColumnExists(ctx, db, "events", "body_codec")
+	if err != nil {
+		return false, false, err
+	}
+	return true, hasCodec, nil
 }
 
 const unrefinedDiscardableSessionsQuery = `

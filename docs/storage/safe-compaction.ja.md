@@ -81,7 +81,11 @@ operator が解放する手段は、compact 成功 JSON の `rollback_path`
    部分 fold のあと compact すると、その分だけ回収されます。
 3. `traceary store compact --db-path /path/to/traceary.db`を実行します。
    in-place `VACUUM`は実行しません。`--force` は未 refine の破棄対象へ機械要約を
-   書き、エージェントの判断理由が失われることを明示します。
-4. 通常readを検証してからrollback artifactを削除します。失敗時は
-   `compact rollback RUN_ID`を使います。
+   書き、エージェントの判断理由が失われることを明示します。compact は
+   `command_audits` 行がある履歴 `command_executed` body も空にし、
+   `released_command_body_bytes` に stored blob の合計を出します。
+   書き換え後のファイルサイズは `bytes_after` です。
+4. search が drifted なら `traceary store search-projection start` と
+   `resume --until-complete` で rebuild します。通常 read を検証してから
+   rollback artifact を削除します。失敗時は `compact rollback RUN_ID` です。
 5. 中断後は`store compact`を再実行し、candidateや rollback fileを手動renameしません。

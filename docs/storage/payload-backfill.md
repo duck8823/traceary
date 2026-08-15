@@ -33,9 +33,10 @@ mixed identity/zstd corpus as a fully valid store at every batch boundary.
 
 ## Procedure
 
-This dedicated command is gone. Encoding and the retired-index drop happen
-during `traceary store compact`. Take a backup first, fold sessions you want
-to reclaim, then:
+This dedicated command is gone. Encoding, the retired-index drop, and
+clearing leftover `command_executed` bodies that already have a
+`command_audits` row happen during `traceary store compact`. Take a backup
+first, fold sessions you want to reclaim, then:
 
 ```sh
 traceary store backup create ~/traceary-pre-compact.db

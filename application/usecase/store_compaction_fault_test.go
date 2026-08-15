@@ -3,9 +3,11 @@ package usecase
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain"
 )
 
@@ -132,6 +134,55 @@ func (l faultLease) AcquireExclusive(context.Context, string) (func(), error) {
 func compactionRunAt(phase domain.CompactionPhase) domain.CompactionRun {
 	now := time.Now()
 	return domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", SourcePath: "/store", CandidatePath: "/candidate", RollbackPath: "/rollback", SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 1}, Phase: phase, CreatedAt: now, UpdatedAt: now}
+}
+
+type reclaimOrderRecorder struct {
+	faultBuilder
+	leased            *bool
+	inspected         bool
+	inspectedUnleased bool
+	reclaim           application.CommandBodyReclaim
+}
+
+func (b *reclaimOrderRecorder) InspectCommandBodyReclaim(context.Context, string) (application.CommandBodyReclaim, error) {
+	b.inspected = true
+	if b.leased == nil || !*b.leased {
+		b.inspectedUnleased = true
+	}
+	return b.reclaim, nil
+}
+
+type orderLease struct{ leased *bool }
+
+func (l orderLease) AcquireExclusive(context.Context, string) (func(), error) {
+	if l.leased != nil {
+		*l.leased = true
+	}
+	return func() {}, nil
+}
+
+func TestCompactMeasuresCommandBodyReclaimAfterExclusiveLease(t *testing.T) {
+	dir := t.TempDir()
+	source := dir + "/store.db"
+	if err := os.WriteFile(source, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	leased := false
+	recorder := &reclaimOrderRecorder{
+		leased:  &leased,
+		reclaim: application.CommandBodyReclaim{Rows: 2, Bytes: 9},
+	}
+	svc := NewStoreCompactionUsecase(source, &faultJournal{run: compactionRunAt(domain.CompactionCommitted)}, recorder, faultFiles{}, orderLease{leased: &leased})
+	_, _ = svc.Compact(context.Background(), application.CompactInput{Source: source})
+	if !recorder.inspected {
+		t.Fatal("InspectCommandBodyReclaim was not called")
+	}
+	if recorder.inspectedUnleased {
+		t.Fatal("InspectCommandBodyReclaim ran before AcquireExclusive")
+	}
+	if !leased {
+		t.Fatal("AcquireExclusive was not called")
+	}
 }
 
 func TestStoreCompactionApplyFaultMatrix(t *testing.T) {

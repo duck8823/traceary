@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"database/sql"
+
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -359,5 +363,203 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	if avail := gcEventAvailability(t, db, "event-old"); avail != "unavailable_retention" {
 		t.Fatalf("forced body availability = %s, want unavailable_retention", avail)
+	}
+}
+
+const emptyIdentitySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+func TestCompactClearsDuplicatedCommandExecutedBodiesAndKeepsLogOnlyBodies(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	composed := strings.Repeat("command + INPUT + OUTPUT\n", 80)
+	saveHistoricalCommandExecuted(t, events, "cmd-dup", composed, true)
+	saveHistoricalCommandExecuted(t, events, "cmd-log", "log-only body", false)
+
+	svc := newTestCompactionUsecase(t, dbPath)
+	got, err := svc.Compact(context.Background(), application.CompactInput{
+		Source:   dbPath,
+		KeepDays: 90,
+		Now:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if got.ReleasedCommandBodyRows != 1 {
+		t.Fatalf("ReleasedCommandBodyRows = %d, want 1", got.ReleasedCommandBodyRows)
+	}
+	if got.ReleasedCommandBodyBytes <= 0 {
+		t.Fatalf("ReleasedCommandBodyBytes = %d, want measured stored bytes", got.ReleasedCommandBodyBytes)
+	}
+
+	db := openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	assertClearedCommandBody(t, db, "cmd-dup")
+	var logBody string
+	if err := db.QueryRow(`SELECT CAST(body AS TEXT) FROM events WHERE id = 'cmd-log'`).Scan(&logBody); err != nil {
+		t.Fatal(err)
+	}
+	if logBody != "log-only body" {
+		t.Fatalf("log-only body = %q, want preserved", logBody)
+	}
+	var auditCommand string
+	if err := db.QueryRow(`SELECT command_text FROM command_audits WHERE event_id = 'cmd-dup'`).Scan(&auditCommand); err != nil {
+		t.Fatal(err)
+	}
+	if auditCommand != "echo duplicated" {
+		t.Fatalf("audit command = %q, want echo duplicated", auditCommand)
+	}
+}
+
+func TestCompactReportsStoredBlobBytesNotPlaintext(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	plain := strings.Repeat("aaaaaaaaaa", 400)
+	saveHistoricalCommandExecuted(t, events, "cmd-zstd", plain, true)
+
+	db := openRetentionDB(t, dbPath)
+	var stored, plaintext int64
+	if err := db.QueryRow(`
+SELECT length(CAST(body AS BLOB)), COALESCE(body_plaintext_bytes, length(CAST(body AS BLOB)))
+  FROM events WHERE id = 'cmd-zstd'`).Scan(&stored, &plaintext); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if stored <= 0 || plaintext <= stored {
+		t.Fatalf("fixture stored=%d plaintext=%d, want compressed stored < plaintext", stored, plaintext)
+	}
+
+	got, err := newTestCompactionUsecase(t, dbPath).Compact(context.Background(), application.CompactInput{
+		Source:   dbPath,
+		KeepDays: 90,
+		Now:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if got.ReleasedCommandBodyBytes != stored {
+		t.Fatalf("ReleasedCommandBodyBytes = %d, want stored blob %d (not plaintext %d)", got.ReleasedCommandBodyBytes, stored, plaintext)
+	}
+}
+
+func TestVerifyPairAllowsClearedCommandExecutedBodyWithAudit(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	saveHistoricalCommandExecuted(t, events, "cmd-dup", "duplicated body", true)
+	candidate := filepath.Join(filepath.Dir(dbPath), "candidate.db")
+	data, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidate, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := openRetentionDB(t, candidate)
+	dropRetiredSearchFamily(t, db)
+	emptyCommandExecutedBody(t, db, "cmd-dup")
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (sqlite.SQLiteCompactionBuilder{}).VerifyPair(context.Background(), dbPath, candidate); err != nil {
+		t.Fatalf("VerifyPair() error = %v, want permitted empty command_executed body", err)
+	}
+}
+
+func TestVerifyPairRejectsClearedCommandExecutedBodyWithoutAudit(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	saveHistoricalCommandExecuted(t, events, "cmd-log", "log-only body", false)
+	candidate := filepath.Join(filepath.Dir(dbPath), "candidate.db")
+	data, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidate, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := openRetentionDB(t, candidate)
+	dropRetiredSearchFamily(t, db)
+	emptyCommandExecutedBody(t, db, "cmd-log")
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = (sqlite.SQLiteCompactionBuilder{}).VerifyPair(context.Background(), dbPath, candidate)
+	if err == nil {
+		t.Fatal("VerifyPair() error = nil, want rejection of a log-only body clear")
+	}
+	if !strings.Contains(err.Error(), "rewrote body") {
+		t.Fatalf("VerifyPair() error = %v, want rewritten-body rejection", err)
+	}
+}
+
+func newTestCompactionUsecase(t *testing.T, dbPath string) application.StoreCompactionUsecase {
+	t.Helper()
+	return usecase.NewStoreCompactionUsecase(
+		dbPath,
+		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
+		&sqlite.SQLiteCompactionBuilder{},
+		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
+		sqlite.StoreLeaseCoordinator{},
+	)
+}
+
+func saveHistoricalCommandExecuted(t *testing.T, events *sqlite.EventDatasource, id, body string, withAudit bool) {
+	t.Helper()
+	event := newGCEventFixture(t, id, types.EventKindCommandExecuted, body, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	if !withAudit {
+		if err := events.Save(context.Background(), event); err != nil {
+			t.Fatalf("Save(%s) error = %v", id, err)
+		}
+		return
+	}
+	audit, err := model.NewCommandAudit(event.EventID(), "echo duplicated", "in", "out", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit(%s) error = %v", id, err)
+	}
+	if err := events.SaveWithAudit(context.Background(), event, audit); err != nil {
+		t.Fatalf("SaveWithAudit(%s) error = %v", id, err)
+	}
+}
+
+func dropRetiredSearchFamily(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, name := range []string{"event_search_documents", "event_search_fts", "event_search_backfill_state"} {
+		if _, err := db.Exec(`DROP TABLE IF EXISTS ` + name); err != nil {
+			t.Fatalf("drop %s: %v", name, err)
+		}
+	}
+}
+
+func emptyCommandExecutedBody(t *testing.T, db *sql.DB, id string) {
+	t.Helper()
+	if _, err := db.Exec(`
+		UPDATE events
+		   SET body = '',
+		       body_codec = 'identity',
+		       body_format_version = 1,
+		       body_plaintext_bytes = 0,
+		       body_encoded_bytes = 0,
+		       body_sha256 = ?
+		 WHERE id = ?`, emptyIdentitySHA256, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertClearedCommandBody(t *testing.T, db *sql.DB, id string) {
+	t.Helper()
+	var body, codec, sha string
+	var plaintext, encoded int64
+	if err := db.QueryRow(`
+SELECT CAST(body AS TEXT), body_codec, body_plaintext_bytes, body_encoded_bytes, body_sha256
+  FROM events WHERE id = ?`, id).Scan(&body, &codec, &plaintext, &encoded, &sha); err != nil {
+		t.Fatal(err)
+	}
+	if body != "" || codec != "identity" || plaintext != 0 || encoded != 0 || sha != emptyIdentitySHA256 {
+		t.Fatalf("cleared body = body=%q codec=%s plain=%d enc=%d sha=%s", body, codec, plaintext, encoded, sha)
 	}
 }

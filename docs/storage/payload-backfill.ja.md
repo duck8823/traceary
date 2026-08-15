@@ -32,7 +32,8 @@ identity / zstd が混在したコーパスをバッチ境界ごとに常に正�
 
 ## 手順
 
-この専用コマンドは削除済みです。符号化と退役済み index の DROP は
+この専用コマンドは削除済みです。符号化、退役済み index の DROP、および
+`command_audits` 行がある履歴 `command_executed` body の削除は
 `traceary store compact` の途中で行います。先に backup を取り、回収したい
 session を fold してから:
 
