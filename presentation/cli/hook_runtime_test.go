@@ -757,7 +757,7 @@ func TestRootCLI_HookSessionCommand_StartInfersParentFromActiveSubagentState(t *
 		t.Fatalf("MkdirAll(activeDir) error = %v", err)
 	}
 	activeJSON := `{"children":{"toolu_child":{"child_session_id":"parent-session:sub:toolu_child","started_at":"` + time.Now().UTC().Format(time.RFC3339) + `"}}}`
-	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))), []byte(activeJSON), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
 
@@ -814,7 +814,7 @@ func TestRootCLI_HookSessionCommand_StartInfersParentWhenActiveSessionIsSyntheti
 		t.Fatalf("MkdirAll(activeDir) error = %v", err)
 	}
 	activeJSON := `{"children":{"toolu_child":{"child_session_id":"parent-session:sub:toolu_child","started_at":"` + time.Now().UTC().Format(time.RFC3339) + `"}}}`
-	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))), []byte(activeJSON), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
 
@@ -945,7 +945,7 @@ func TestRootCLI_HookSessionCommand_EndUsesStateAndCreatesEndMarker(t *testing.T
 	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key-repo")); !os.IsNotExist(err) {
 		t.Fatalf("workspace state still exists: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "ended", "claude-claude-session")); err != nil {
+	if _, err := os.Stat(filepath.Join(stateDir, "ended", cli.HookSessionBoundStateFileName("claude", types.SessionID("claude-session")))); err != nil {
 		t.Fatalf("Stat(end marker) error = %v", err)
 	}
 	diagnosticsDir := filepath.Join(stateDir, "diagnostics")
@@ -1231,7 +1231,7 @@ func TestRootCLI_HookSessionCommand_StopQueuesMemoryAutoExtract(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key-extract-repo")); err != nil {
 		t.Fatalf("workspace state should survive stop: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "ended", "claude-auto-extract-session")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(stateDir, "ended", cli.HookSessionBoundStateFileName("claude", types.SessionID("auto-extract-session")))); !os.IsNotExist(err) {
 		t.Fatalf("stop must not create an end marker: %v", err)
 	}
 
@@ -1300,7 +1300,7 @@ func TestRootCLI_HookSessionCommand_EndQueuesMemoryAutoExtractWithoutBlocking(t 
 			launchedJobPath = path
 			_, sessionErr := os.Stat(filepath.Join(stateDir, "claude-test-key-extract-fail"))
 			_, workspaceErr := os.Stat(filepath.Join(stateDir, "claude-test-key-extract-fail-repo"))
-			_, markerErr := os.Stat(filepath.Join(stateDir, "ended", "claude-auto-extract-fail-session"))
+			_, markerErr := os.Stat(filepath.Join(stateDir, "ended", cli.HookSessionBoundStateFileName("claude", types.SessionID("auto-extract-fail-session"))))
 			primaryCleanupCompleteAtLaunch = os.IsNotExist(sessionErr) && os.IsNotExist(workspaceErr) && markerErr == nil
 			return nil
 		}),
@@ -1432,7 +1432,7 @@ func TestRootCLI_HookSessionCommand_CodexStopKeepsSessionOpen(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stateDir, "codex-codex-stop-key-repo")); err != nil {
 		t.Fatalf("workspace state should survive codex stop: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "ended", "codex-codex-session")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(stateDir, "ended", cli.HookSessionBoundStateFileName("codex", types.SessionID("codex-session")))); !os.IsNotExist(err) {
 		t.Fatalf("codex stop must not create an end marker: %v", err)
 	}
 }
@@ -1851,7 +1851,7 @@ func TestRootCLI_HookSessionCommand_StopClearsDuplicateEndStateBeforeStoreInitia
 	if err := os.WriteFile(filepath.Join(stateDir, "claude-test-key-repo"), []byte("github.com/duck8823/traceary"), 0o600); err != nil {
 		t.Fatalf("WriteFile(workspace state) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "ended", "claude-claude-session"), []byte("done"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(stateDir, "ended", cli.HookSessionBoundStateFileName("claude", types.SessionID("claude-session"))), []byte("done"), 0o600); err != nil {
 		t.Fatalf("WriteFile(end marker) error = %v", err)
 	}
 
@@ -2878,7 +2878,7 @@ func TestRootCLI_HookSubagentStartCommand_CreatesChildAndActiveState(t *testing.
 	if got, want := sessionStub.startChildCall.agent, types.Agent("claude/code-reviewer"); got != want {
 		t.Fatalf("StartChild agent = %q, want %q", got, want)
 	}
-	activePath := filepath.Join(stateDir, "active-subagents", "claude-parent-session")
+	activePath := filepath.Join(stateDir, "active-subagents", cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session")))
 	data, err := os.ReadFile(activePath)
 	if err != nil {
 		t.Fatalf("ReadFile(active state) error = %v", err)
@@ -2959,7 +2959,7 @@ func TestRootCLI_HookSubagentCommands_CorrelateCodexAgentID(t *testing.T) {
 	if got, want := sessionStub.endCall.sessionID, types.SessionID("codex-parent:sub:agent-019-agent"); got != want {
 		t.Fatalf("End child sessionID = %q, want %q", got, want)
 	}
-	activePath := filepath.Join(stateDir, "active-subagents", "codex-codex-parent")
+	activePath := filepath.Join(stateDir, "active-subagents", cli.HookSessionBoundStateFileName("codex", types.SessionID("codex-parent")))
 	if data, err := os.ReadFile(activePath); err == nil && strings.Contains(string(data), "agent-019-agent") {
 		t.Fatalf("active state still contains stopped Codex agent: %s", data)
 	} else if err != nil && !os.IsNotExist(err) {
@@ -3014,14 +3014,14 @@ func TestRootCLI_HookSubagentStartCommand_UsesExplicitSessionIDAsParentForOverla
 		t.Fatalf("second childID = %q, want %q", got, want)
 	}
 
-	activeState, err := os.ReadFile(filepath.Join(stateDir, "active-subagents", "claude-parent-session"))
+	activeState, err := os.ReadFile(filepath.Join(stateDir, "active-subagents", cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))))
 	if err != nil {
 		t.Fatalf("ReadFile(parent active state) error = %v", err)
 	}
 	if !strings.Contains(string(activeState), `"toolu_1"`) || !strings.Contains(string(activeState), `"toolu_2"`) {
 		t.Fatalf("parent active state = %s, want both siblings", string(activeState))
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "active-subagents", "claude-parent-session:sub:toolu_1")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(stateDir, "active-subagents", cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session:sub:toolu_1")))); !os.IsNotExist(err) {
 		t.Fatalf("nested active state should not exist; stat err=%v", err)
 	}
 }
@@ -3149,7 +3149,7 @@ func TestRootCLI_HookSubagentState_TracksOverlappingTaskChildren(t *testing.T) {
 	if !child1Ended || child2Ended || child3Ended {
 		t.Fatalf("after stopping toolu_1: child1 ended=%v child2 ended=%v child3 ended=%v, want true/false/false", child1Ended, child2Ended, child3Ended)
 	}
-	activeState, err := os.ReadFile(filepath.Join(stateDir, "active-subagents", "claude-parent-session"))
+	activeState, err := os.ReadFile(filepath.Join(stateDir, "active-subagents", cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))))
 	if err != nil {
 		t.Fatalf("ReadFile(active state after first stop) error = %v", err)
 	}
@@ -3287,7 +3287,7 @@ func TestRootCLI_HookSubagentState_PrunesOrphanedActiveChild(t *testing.T) {
 	}
 	staleStartedAt := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339)
 	activeJSON := `{"children":{"toolu_stale":{"child_session_id":"parent-session:sub:toolu_stale","started_at":"` + staleStartedAt + `"}}}`
-	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))), []byte(activeJSON), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
 
@@ -3307,7 +3307,7 @@ func TestRootCLI_HookSubagentState_PrunesOrphanedActiveChild(t *testing.T) {
 	if got, want := eventStub.auditCall.sessionID, types.SessionID("parent-session"); got != want {
 		t.Fatalf("audit sessionID after orphan pruning = %q, want %q", got, want)
 	}
-	if _, err := os.Stat(filepath.Join(activeDir, "claude-parent-session")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session")))); !os.IsNotExist(err) {
 		t.Fatalf("stale active state should be removed; stat err=%v", err)
 	}
 }
@@ -3366,7 +3366,7 @@ func TestRootCLI_HookSubagentStopCommand_UsesLatestActiveChildWhenToolUseIDMissi
 		`"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"` + olderStartedAt + `"},` +
 		`"toolu_2":{"child_session_id":"parent-session:sub:toolu_2","started_at":"` + newerStartedAt + `"}` +
 		`}}`
-	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(activeJSON), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))), []byte(activeJSON), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
 
@@ -3388,7 +3388,7 @@ func TestRootCLI_HookSubagentStopCommand_UsesLatestActiveChildWhenToolUseIDMissi
 	if got, want := sessionStub.endCall.sessionID, types.SessionID("parent-session:sub:toolu_2"); got != want {
 		t.Fatalf("End child sessionID = %q, want %q", got, want)
 	}
-	activeState, err := os.ReadFile(filepath.Join(activeDir, "claude-parent-session"))
+	activeState, err := os.ReadFile(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))))
 	if err != nil {
 		t.Fatalf("ReadFile(active state after missing-id stop) error = %v", err)
 	}
@@ -3413,7 +3413,7 @@ func TestRootCLI_HookAuditCommand_UsesActiveSubagentSession(t *testing.T) {
 		t.Fatalf("WriteFile(session state) error = %v", err)
 	}
 	startedAt := time.Now().UTC().Format(time.RFC3339)
-	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(`{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"`+startedAt+`"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))), []byte(`{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"`+startedAt+`"}}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
 
@@ -3454,7 +3454,7 @@ func TestRootCLI_HookSubagentStopCommand_EndsChildAndClearsActiveState(t *testin
 		t.Fatalf("WriteFile(workspace state) error = %v", err)
 	}
 	startedAt := time.Now().UTC().Format(time.RFC3339)
-	if err := os.WriteFile(filepath.Join(activeDir, "claude-parent-session"), []byte(`{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"`+startedAt+`"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))), []byte(`{"children":{"toolu_1":{"child_session_id":"parent-session:sub:toolu_1","started_at":"`+startedAt+`"}}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile(active state) error = %v", err)
 	}
 	sessionStub := &sessionUsecaseStub{}
@@ -3500,7 +3500,7 @@ func TestRootCLI_HookSubagentStopCommand_EndsChildAndClearsActiveState(t *testin
 	if got, want := job.SourceBoundary, "subagent_stop"; got != want {
 		t.Fatalf("queued source boundary = %q, want %q", got, want)
 	}
-	if _, err := os.Stat(filepath.Join(activeDir, "claude-parent-session")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(activeDir, cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session")))); !os.IsNotExist(err) {
 		t.Fatalf("active state should be cleared after final child stops; stat err=%v", err)
 	}
 }
