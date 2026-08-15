@@ -554,7 +554,7 @@ func TestSearchProjectionCutoffFailureDegradesNotBreaks(t *testing.T) {
 	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
 		// Corpus large enough that a positive ceiling would normally walk for
 		// a cutoff; we force the walk to time out via a cancelled context on
-		// the cutoff helper and assert the reason is folded into evidence.
+		// the cutoff helper (cancelled parent) and assert the reason is folded.
 		{"e1", strings.Repeat("cutoff degrade body ", 500), "2026-06-01T12:00:00Z"},
 		{"e2", strings.Repeat("cutoff degrade body ", 500), "2026-06-01T13:00:00Z"},
 		{"e3", strings.Repeat("cutoff degrade body ", 500), "2026-06-01T14:00:00Z"},
@@ -562,7 +562,7 @@ func TestSearchProjectionCutoffFailureDegradesNotBreaks(t *testing.T) {
 	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 	// Direct unit of the degrade path: a cancelled parent context must stop
-	// the walk (WithTimeout inherits cancel) and return a non-empty reason,
+	// the walk (row-capped query inherits cancel) and return a non-empty reason,
 	// distinct from ErrNoRows (corpus fits → empty reason).
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
@@ -607,6 +607,42 @@ func TestSearchProjectionCutoffFailureDegradesNotBreaks(t *testing.T) {
 	t.Fatal("did not complete")
 }
 
+func TestSearchProjectionRecentCutoffUsesSampleTailWhenRowCapMissesCrossing(t *testing.T) {
+	body := strings.Repeat("x", 10000)
+	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
+		{"e1", body, "2026-06-01T10:00:00Z"},
+		{"e2", body, "2026-06-01T11:00:00Z"},
+		{"e3", body, "2026-06-01T12:00:00Z"},
+		{"e4", body, "2026-06-01T13:00:00Z"},
+	})
+	ctx := context.Background()
+	// sourceCeiling 6000 → walkCeiling 24000. Two newest ≈ 20_000 < 24000;
+	// three newest ≈ 30_000 > 24000.
+	const sourceCeiling int64 = 6000
+	unbounded, unboundedReason := store.deriveSearchProjectionRecentCutoff(ctx, db, sourceCeiling)
+	if unboundedReason != "" {
+		t.Fatalf("unbounded reason=%q", unboundedReason)
+	}
+	if !strings.HasPrefix(unbounded, "2026-06-01T11:00:00") {
+		t.Fatalf("unbounded cutoff=%q, want the third-newest timestamp", unbounded)
+	}
+	searchProjectionCutoffRowCapForTest = 2
+	t.Cleanup(func() { searchProjectionCutoffRowCapForTest = 0 })
+	sampled, sampledReason := store.deriveSearchProjectionRecentCutoff(ctx, db, sourceCeiling)
+	if sampledReason != "" {
+		t.Fatalf("sampled reason=%q, want a cutoff not an unavailable degrade", sampledReason)
+	}
+	if sampled == "" {
+		t.Fatal("sampled cutoff empty; large-store path would fall back to age-only")
+	}
+	if !strings.HasPrefix(sampled, "2026-06-01T12:00:00") {
+		t.Fatalf("sampled cutoff=%q, want the oldest of the two newest rows", sampled)
+	}
+	if sampled == unbounded {
+		t.Fatal("sampled cutoff matched unbounded; fixture does not prove the row cap")
+	}
+}
+
 // TestSearchProjectionCutoffUsesBlobByteLength pins CAST-as-BLOB accounting
 // for legacy NULL plaintext_bytes on non-ASCII text (#1749).
 func TestSearchProjectionCutoffUsesBlobByteLength(t *testing.T) {
@@ -625,7 +661,7 @@ func TestSearchProjectionCutoffUsesBlobByteLength(t *testing.T) {
 	// Ceiling of ~1500 bytes: with byte-accurate counting keeps ~1 doc;
 	// with character counting (300/doc) would keep more.
 	var cutoff string
-	err := db.QueryRowContext(ctx, selectSearchProjectionRecentCutoffSQL, int64(1500)).Scan(&cutoff)
+	err := db.QueryRowContext(ctx, selectSearchProjectionRecentCutoffSQL, searchProjectionCutoffRowCap, int64(1500)).Scan(&cutoff)
 	if err != nil {
 		t.Fatal(err)
 	}

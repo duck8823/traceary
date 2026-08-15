@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **recent-cutoff 導出は 2 秒タイムアウトではなく行数上限 (#1807)** — newest-first prefilter は最大 20,000 行なので、大きいストアでも cutoff が残ります。walk ceiling に届かない sample は age-only に戻さず、sample 内の最古 timestamp を残します。cancel と query error はこれまでどおり degrade です。新しいフラグはありません。`docs/research/search-projection-recent-cutoff.ja.md` を参照。
 - **`fts_logical_bytes` は整数列を桁数ではなく 8 バイトで数える (#1787)** — FTS5 shadow の整数（`segid` / `pgno` / `docsize.id` / 整数の `config.v`）が `length(CAST(<int> AS BLOB))` になっており、それは桁数です。BLOB / TEXT 列は変更なし。`docsize.sz` は BLOB です。`dbstat` にはしません（`physical_bytes` がそれです）。`docs/research/search-projection-fts-logical-bytes.ja.md` を参照。
 - **2 世代再構築ピークは上限せず受け入れる (#1753)** — `--index-family-bytes` は cleanup 後の定常目標です。scratch 測定: family 258,048 → ピーク **405,504**（gen2 予算 225,280）。再構築前回収、予算内予約、第 2 天井フラグは採用しません。停止はこれまでどおり `store search-projection abort` です。`docs/research/search-projection-rebuild-peak.ja.md` を参照。
 - **search-projection の容量導出を再試行可能かつ snapshot 一貫にする (#1751)** — 再導出は `capacity_rederived` として残り、source→eviction の一発フックではなく eviction で再試行します。`dbstat` と `SUM(decoded_bytes)` は 1 つの読み取り snapshot です。再測定の前に FTS reclaim を走らせます。予算超過の complete はこれまでどおり complete のまま（`already_complete`）で、`traceary doctor` が `search-projection-budget` を警告します。prefilter の 4 倍 slack はそのまま、再投影パスは作りません。ファミリ予算は今も測定と報告であり保証ではありません。`docs/research/search-projection-capacity-derivation.ja.md` を参照。
