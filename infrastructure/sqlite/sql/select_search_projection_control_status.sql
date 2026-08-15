@@ -1,4 +1,5 @@
 SELECT
+    COALESCE(s.generation_id, ''),
     s.state,
     CASE WHEN s.state = 'rebuilding' AND i.state = 'rebuilding' THEN 'inventory' ELSE s.phase END,
     s.checkpoint,

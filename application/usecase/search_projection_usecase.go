@@ -37,6 +37,12 @@ type SearchProjectionAbandonStore interface {
 	AbandonSearchProjection(context.Context, time.Time) (apptypes.SearchProjectionAbandonResult, error)
 }
 
+// SearchProjectionObsoleteReplaceStore replaces an observed obsolete generation
+// in one fenced transition. CatchUp must not Abandon then Start.
+type SearchProjectionObsoleteReplaceStore interface {
+	ReplaceObsoleteCapacityGeneration(context.Context, string, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error)
+}
+
 // SearchProjectionVerifyStore gates old-generation reclaim on a real
 // session-tier query against the generation under construction.
 type SearchProjectionVerifyStore interface {
@@ -345,25 +351,25 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	// A version number rather than hashing the budget value is deliberate:
 	// hashing would abandon an operator's deliberate --index-family-bytes.
 	//
-	// Restricted to complete / rebuilding / drifted. A failed generation stays
-	// parked (see the failed branch below): un-parking it here would restart
-	// a deterministic failure on every store open. The operator's explicit
-	// `store search-projection start` picks up the new capacity semantics.
+	// Restricted to complete / rebuilding / drifted, plus the abandoned
+	// corpse left by a crashed two-step replace (#1752). Other failed
+	// classes stay parked (see the failed branch below): un-parking them
+	// here would restart a deterministic failure on every store open.
+	// Operator abandon of a current-semantics generation is not obsolete.
 	if status.CapacitySemanticsVersion < apptypes.SearchProjectionCapacitySemanticsVersion &&
-		(status.State == "complete" || status.State == "rebuilding" || status.State == "drifted") {
+		(status.State == "complete" || status.State == "rebuilding" || status.State == "drifted" ||
+			(status.State == "failed" && status.FailureClass == "abandoned")) {
 		slog.Info("search projection capacity semantics obsolete; replacing generation",
 			"persisted_version", status.CapacitySemanticsVersion,
 			"current_version", apptypes.SearchProjectionCapacitySemanticsVersion,
 			"state", status.State,
+			"generation_id", status.GenerationID,
 		)
-		if status.State == "rebuilding" || (status.State == "drifted" && status.Phase == "cleanup") {
-			if _, abandonErr := u.Abandon(ctx, now.UTC()); abandonErr != nil {
-				return out, xerrors.Errorf("abandon obsolete capacity generation: %w", abandonErr)
-			}
+		replaceStore, ok := u.store.(SearchProjectionObsoleteReplaceStore)
+		if !ok {
+			return out, &apptypes.SearchProjectionNoProgressError{Reason: "projection store does not support obsolete generation replacement"}
 		}
-		// complete / drifted (non-cleanup): StartGeneration accepts any
-		// non-rebuilding state and replaces the generation.
-		generation, startErr := u.StartGeneration(ctx, b, now.UTC())
+		generation, startErr := replaceStore.ReplaceObsoleteCapacityGeneration(ctx, status.GenerationID, b, now.UTC())
 		if startErr != nil {
 			return out, startErr
 		}

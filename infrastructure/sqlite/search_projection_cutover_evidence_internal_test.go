@@ -247,8 +247,9 @@ func TestSearchProjectionCatchUp_ParksDeterministicFailureInsteadOfRestarting(t 
 			}
 			if _, err = raw.ExecContext(ctx, `
 				UPDATE search_projection_state
-				   SET generation_id='gen-failed',state='failed',phase='complete',failure_class=?
-				 WHERE singleton=1`, failureClass); err != nil {
+				   SET generation_id='gen-failed',state='failed',phase='complete',failure_class=?,
+				       capacity_semantics_version=?
+				 WHERE singleton=1`, failureClass, apptypes.SearchProjectionCapacitySemanticsVersion); err != nil {
 				t.Fatal(err)
 			}
 			if _, err = raw.ExecContext(ctx, `
