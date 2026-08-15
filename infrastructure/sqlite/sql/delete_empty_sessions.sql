@@ -1,6 +1,6 @@
 DELETE FROM sessions
 WHERE ended_at IS NOT NULL
-  AND COALESCE(ended_at, started_at) < ?
+  AND ts_norm(COALESCE(ended_at, started_at)) < ts_norm(?)
   AND NOT EXISTS (
       SELECT 1
         FROM events

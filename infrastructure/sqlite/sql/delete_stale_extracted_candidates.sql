@@ -6,4 +6,4 @@ SET status = 'expired',
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE status = 'candidate'
   AND source IN ('extracted', 'extracted-hidden', 'compact-summary')
-  AND updated_at < ?
+  AND ts_norm(updated_at) < ts_norm(?)

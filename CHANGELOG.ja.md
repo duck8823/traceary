@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **残っている本番の age-delete SQL は timestamp を `ts_norm` で比較する (#1720)** — 空 session 削除、expired memory 削除、memory-edge の `valid_to`、stale extracted の decay と preview count は両辺を wrap する。`T00:00:00.5Z` 対 cutoff `T00:00:00Z` は残し、`T00:00:00Z` 対 cutoff `T00:00:00.5Z` は消す。`CollectGarbage`（compact の work-copy 経路）から駆動し、手書きの `DELETE` は使わない。
 - **memory hygiene scan テストが 1ms の wall-clock 予算に依存しない (#1771)** — partial（revision churn）と cannot-progress は fake clock を進め、`MaxDuration` は 1 時間なので `context.WithTimeout` が先に切れない。scratch: 両ケースと `go test ./application/usecase/ -count=50`。
 - **`go test ./presentation/cli/ -race` が export-test seam で data race を出さない (#1698)** — `Set*Func` seam は `atomic.Pointer` スロットなので、serial なテストが差し替えているあいだに parallel なテストが `resolveDBPath` / `userHomeDirFunc` を読んでも定義済みです。production はスロットを書きません。scratch: 並行差し替え対 `resolveDBPath` のテストと、`-race -count=1` を 2 回走らせて `DATA RACE` なし。
 

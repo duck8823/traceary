@@ -1,1 +1,1 @@
-SELECT COUNT(*) FROM events WHERE created_at < ?
+SELECT COUNT(*) FROM events WHERE ts_norm(created_at) < ts_norm(?)
