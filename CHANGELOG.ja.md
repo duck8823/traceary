@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **search-projection の容量導出を再試行可能かつ snapshot 一貫にする (#1751)** — 再導出は `capacity_rederived` として残り、source→eviction の一発フックではなく eviction で再試行します。`dbstat` と `SUM(decoded_bytes)` は 1 つの読み取り snapshot です。再測定の前に FTS reclaim を走らせます。予算超過の complete はこれまでどおり complete のまま（`already_complete`）で、`traceary doctor` が `search-projection-budget` を警告します。prefilter の 4 倍 slack はそのまま、再投影パスは作りません。ファミリ予算は今も測定と報告であり保証ではありません。`docs/research/search-projection-capacity-derivation.ja.md` を参照。
 - **projection cleanup は各テーブルの primary key で行を指す (#1825)** — `SELECT` / `DELETE` はもう共通の `rowid` を使いません。複合キーのテーブルは candidate の `Address*` を使い、`RowsAffected() != 1` はこれまでどおり drift です。2 つの `WITHOUT ROWID` 変換は入れていません（store-sized copy か generation reset になるため）。`docs/research/search-projection-cleanup-address.ja.md` を参照。
 - **search-projection catch-up のディスクフルを routine retry としてログしない (#1836)** — `SQLITE_FULL` は disk と `store search-projection abort` を名指しする別行になります。generation は rebuilding のままなので、空きが出れば次の open で再開できます。retry を止めるのはこれまでどおり abort です。新コマンドはありません。
 - **default budget 変更後に自動開始した search-projection を永久 park しない (#1861)** — generation は `origin`（`automatic` / `operator`）を残します。CatchUp は古い automatic hash を 1 つの fence 付き遷移で置き換え、operator の budget はこれまでどおり触りません。`store search-projection status` は `parked_reason` と `recovery_command` を出します。default 変更だけで `capacity_semantics_version` は上げません（operator generation まで置換してしまうため）。
