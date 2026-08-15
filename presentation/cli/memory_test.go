@@ -13,58 +13,6 @@ import (
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-func TestRootCLI_MemoryRememberCommand(t *testing.T) {
-	t.Setenv("TRACEARY_WORKSPACE", "")
-	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {
-		return "github.com/duck8823/traceary", nil
-	})
-	defer cli.ResetDetectRepoContextFunc()
-
-	stub := &memoryUsecaseStub{
-		rememberDetails: mustMemoryDetails(t, "memory-remembered", "Remember release discipline", types.MemoryStatusAccepted),
-	}
-
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithMemory(stub),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{
-		"memory", "store", "remember",
-		"--db-path", "/tmp/test-traceary.db",
-		"--type", "decision",
-		"--fact", "Remember release discipline",
-		"--evidence", "issue:#462",
-		"--artifact", "pr:#468",
-	})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	if stub.rememberCall.memoryType != types.MemoryTypeDecision {
-		t.Fatalf("memoryType = %s, want decision", stub.rememberCall.memoryType)
-	}
-	workspaceScope, ok := stub.rememberCall.scope.(types.WorkspaceScope)
-	if !ok {
-		t.Fatalf("scope type = %T, want WorkspaceScope", stub.rememberCall.scope)
-	}
-	if workspaceScope.Workspace().String() != "github.com/duck8823/traceary" {
-		t.Fatalf("workspace = %q, want detected repo workspace", workspaceScope.Workspace().String())
-	}
-	if len(stub.rememberCall.evidenceRefs) != 1 || stub.rememberCall.evidenceRefs[0].Kind() != types.EvidenceRefKindIssue || stub.rememberCall.evidenceRefs[0].Value() != "#462" {
-		t.Fatalf("evidenceRefs = %#v, want issue:#462", stub.rememberCall.evidenceRefs)
-	}
-	if len(stub.rememberCall.artifactRefs) != 1 || stub.rememberCall.artifactRefs[0].Kind() != types.ArtifactRefKindPR || stub.rememberCall.artifactRefs[0].Value() != "#468" {
-		t.Fatalf("artifactRefs = %#v, want pr:#468", stub.rememberCall.artifactRefs)
-	}
-	if !strings.Contains(stdout.String(), "EVIDENCE_REFS:") || !strings.Contains(stdout.String(), "ARTIFACT_REFS:") {
-		t.Fatalf("stdout = %q, want evidence/artifact sections", stdout.String())
-	}
-}
-
 func TestRootCLI_MemoryListCommand_DefaultWorkspaceScope(t *testing.T) {
 	t.Setenv("TRACEARY_WORKSPACE", "")
 	cli.SetDetectRepoContextFunc(func(context.Context) (string, error) {

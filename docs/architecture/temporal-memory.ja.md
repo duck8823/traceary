@@ -104,7 +104,7 @@ graph 操作は CLI のみです。旧 MCP server は v0.35.0 (#1871) で削除�
 
 - **depth > 1 の多段トラバース**。実運用でどのチェーンが必要か見えてから実装。
 - **サイクル検出**。opt-in edge はサイクルを作り得るが、許容する。呼び出し側が健全にモデル化する責任を負う旨を docs に記載。
-- **LLM 駆動の edge 抽出**。自動抽出なし。edge は `memory store remember` と同じく意図的に書く。
+- **LLM 駆動の edge 抽出**。自動抽出なし。edge は `memory store propose` と同じく意図的に書く。
 - **グラフ可視化**。replay HTML に edge を描画しない。運用需要が出てから追加。
 - **edge の validity 重複 hygiene 検出器**。edge 履歴がたまってからの future follow-up。
 - **edge の supersedes セマンティクス**。v1 では append-only。関係を「更新」したいときは新しい `valid_from` で新 edge を作る。

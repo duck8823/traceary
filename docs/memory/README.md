@@ -88,7 +88,6 @@ The CLI accepts exactly these `kind` values for `evidence_refs[].kind` (defined 
 
 Use these when a human or agent wants to record a fact deliberately:
 
-- `traceary memory store remember`
 - `traceary memory store propose`
 - `traceary memory store distill`
 - `traceary memory inbox accept`
@@ -373,7 +372,7 @@ That means:
 
 1. keep raw history in the audit layer through hooks or CLI writes
 2. inspect recent work with `traceary tail`, `traceary list`, `traceary search`, or `traceary show`
-3. use `traceary memory store remember` for explicit facts you already trust
+3. use `traceary memory store propose` for explicit facts (they land as candidates)
 4. use `traceary memory admin extract` to generate reviewable candidates from session summaries and compact summaries
 5. use `traceary session handoff` when the next agent or session should start from a compact context bundle
 

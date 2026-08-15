@@ -16,8 +16,6 @@ const (
 	pillarKeep   pillarKind = "keep"
 )
 
-const rememberRemovalTarget = "v0.36.0"
-
 // pillarInventoryEntry is one visible public or admin operator action.
 // Hidden hook plumbing is not listed. RemovalTarget is empty unless this
 // sweep publishes a one-minor notice.
@@ -29,9 +27,10 @@ type pillarInventoryEntry struct {
 	Replacement   string
 }
 
-// pillarInventory is the v0.35 surface sweep (#1692). Every surviving
+// pillarInventory is the visible public/admin surface. Every surviving
 // visible leaf maps to 記録 (record), 記憶 (memory), or a keep-reason.
-// Usage counts are not grounds. The only notice is remember → propose.
+// Usage counts are not grounds. memory store remember was removed in
+// v0.36.0 (#1870) after the v0.35 notice.
 var pillarInventory = []pillarInventoryEntry{
 	{Path: "audit", Pillar: pillarRecord, Reason: "persist command-audit records"},
 	{Path: "log", Pillar: pillarRecord, Reason: "persist a manual event"},
@@ -77,13 +76,6 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "memory inbox restore", Pillar: pillarMemory, Reason: "restore expired memories to candidates"},
 	{Path: "memory inbox review", Pillar: pillarMemory, Reason: "TTY review of the memory review queue"},
 	{Path: "memory store propose", Pillar: pillarMemory, Reason: "write a candidate; the skill-facing remember path"},
-	{
-		Path:          "memory store remember",
-		Pillar:        pillarMemory,
-		Reason:        "duplicate write that accepts immediately and bypasses inbox review; traceary-memory-remember must land as status=candidate",
-		RemovalTarget: rememberRemovalTarget,
-		Replacement:   "traceary memory store propose",
-	},
 	{Path: "memory store distill", Pillar: pillarMemory, Reason: "operator-authored accepted fact from existing candidates"},
 	{Path: "memory decay", Pillar: pillarMemory, Reason: "expire stale auto-extracted candidates; distinct from inbox cleanup reject"},
 	{Path: "memory admin extract", Pillar: pillarMemory, Reason: "extract candidates from a recorded session"},

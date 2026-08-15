@@ -88,7 +88,6 @@ CLI が受け入れる `evidence_refs[].kind` は次の値だけです（実装�
 
 人やエージェントが、残すべき事実を明示的に記録したいときは次を使います。
 
-- `traceary memory store remember`
 - `traceary memory store propose`
 - `traceary memory store distill`
 - `traceary memory inbox accept`
@@ -284,7 +283,7 @@ Durable memory は長く残る文脈なので、抽出または保存する前�
 
 1. hooks や CLI で、まず audit layer に生の履歴を残す
 2. `traceary tail`、`traceary list`、`traceary search`、`traceary show` で最近の流れを確認する
-3. すでに信頼できる事実は `traceary memory store remember` で明示的に残す
+3. 明示したい事実は `traceary memory store propose` で残す（candidate で着地する）
 4. session summary や compact summary から review 用候補を作るときは `traceary memory admin extract` を使う
 5. 次のエージェントや次回 session に引き継ぐときは `traceary session handoff` を使う
 

@@ -104,7 +104,7 @@ Graph operations are CLI-only. The former MCP server was removed in v0.35.0 (#18
 
 - **Multi-hop traversal beyond depth 1.** Land after real usage shows which chains are needed.
 - **Cycle detection.** Opt-in edges can form cycles; we accept them and document that the caller is responsible for sane modelling.
-- **LLM-driven edge extraction.** No auto-extraction. Edges are written intentionally, same posture as `memory store remember`.
+- **LLM-driven edge extraction.** No auto-extraction. Edges are written intentionally, same posture as `memory store propose`.
 - **Graph visualization.** Replay HTML does not render edges yet. Add only after operator demand.
 - **Edge validity overlap hygiene detector.** Future follow-up once edge histories exist.
 - **Edge supersedes semantics.** Edges are append-only in v1; use a new edge with a different `valid_from` to "update" the relationship rather than rewriting the old one.

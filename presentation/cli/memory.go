@@ -106,20 +106,6 @@ func (c *RootCLI) newMemoryShowCommand() *cobra.Command {
 	return cmd
 }
 
-func (c *RootCLI) newMemoryRememberCommand() *cobra.Command {
-	input := memoryWriteCommandInput{}
-	cmd := &cobra.Command{
-		Use:   "remember",
-		Short: Localize("Record an accepted durable memory", "accepted な durable memory を記録する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runMemoryRemember(cmd.Context(), cmd.OutOrStdout(), input)
-		},
-	}
-	configureMemoryWriteFlags(cmd, &input)
-	return cmd
-}
-
 func (c *RootCLI) newMemoryProposeCommand() *cobra.Command {
 	input := memoryWriteCommandInput{}
 	cmd := &cobra.Command{
@@ -256,7 +242,7 @@ func configureMemoryWriteFlags(cmd *cobra.Command, input *memoryWriteCommandInpu
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("session-family scope", "session-family scope"))
 	cmd.Flags().StringVar(&input.memoryType, "type", "", Localize("memory type", "memory type"))
 	cmd.Flags().StringVar(&input.fact, "fact", "", Localize("distilled memory fact", "記録する memory fact"))
-	cmd.Flags().StringVar(&input.confidence, "confidence", "", Localize("accepted confidence (defaults to verified for remember)", "accepted 時の confidence (remember の既定値は verified)"))
+	cmd.Flags().StringVar(&input.confidence, "confidence", "", Localize("accepted confidence (defaults to verified)", "accepted 時の confidence (既定値は verified)"))
 	cmd.Flags().StringVar(&input.source, "source", "", Localize("memory source (defaults to manual)", "memory source (既定値は manual)"))
 	cmd.Flags().StringArrayVar(&input.evidenceRefs, "evidence", nil, Localize("evidence ref as kind:value (repeatable)", "kind:value 形式の evidence ref (複数指定可)"))
 	cmd.Flags().StringArrayVar(&input.artifactRefs, "artifact", nil, Localize("artifact ref as kind:value (repeatable)", "kind:value 形式の artifact ref (複数指定可)"))
@@ -439,24 +425,6 @@ func (c *RootCLI) runMemoryShow(ctx context.Context, output io.Writer, dbPath st
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory details", "durable memory 詳細の出力に失敗しました"), err)
 	}
 	return nil
-}
-
-func (c *RootCLI) runMemoryRemember(ctx context.Context, output io.Writer, input memoryWriteCommandInput) error {
-	if err := validateMemoryWriteInput(input); err != nil {
-		return err
-	}
-	if err := c.initializeMemoryStore(ctx, input.dbPath); err != nil {
-		return err
-	}
-	memoryType, scope, confidence, source, evidenceRefs, artifactRefs, err := c.resolveMemoryWriteParameters(ctx, input)
-	if err != nil {
-		return err
-	}
-	details, err := c.memory.Remember(ctx, memoryType, scope, input.fact, confidence, source, evidenceRefs, artifactRefs)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to record durable memory", "durable memory の記録に失敗しました"), err)
-	}
-	return writeMemoryMutationResult(output, details, input.idOnly, input.asJSON)
 }
 
 func (c *RootCLI) runMemoryPropose(ctx context.Context, output io.Writer, input memoryWriteCommandInput) error {

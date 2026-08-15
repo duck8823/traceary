@@ -45,24 +45,15 @@ func TestPillarInventoryMatchesShippedTree(t *testing.T) {
 	}
 }
 
-func TestPillarInventoryOnlyRemembersHasNotice(t *testing.T) {
+func TestPillarInventoryHasNoCurrentRemovalNotice(t *testing.T) {
 	var noticed []string
 	for _, entry := range pillarInventory {
 		if entry.RemovalTarget == "" {
 			continue
 		}
 		noticed = append(noticed, entry.Path)
-		if entry.Path != "memory store remember" {
-			t.Errorf("unexpected notice on %s", entry.Path)
-		}
-		if entry.RemovalTarget != rememberRemovalTarget {
-			t.Errorf("remember RemovalTarget = %q, want %q", entry.RemovalTarget, rememberRemovalTarget)
-		}
-		if entry.Replacement != "traceary memory store propose" {
-			t.Errorf("remember Replacement = %q", entry.Replacement)
-		}
 	}
-	if diff := cmp.Diff([]string{"memory store remember"}, noticed); diff != "" {
+	if diff := cmp.Diff([]string(nil), noticed); diff != "" {
 		t.Errorf("noticed paths mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -136,7 +127,7 @@ func TestLookupCommandPathRejectsMissing(t *testing.T) {
 	if got := lookupCommandPath(root, "memory store missing"); got != nil {
 		t.Fatalf("missing path = %s, want nil", got.Name())
 	}
-	if got := lookupCommandPath(root, "memory store remember"); got == nil || got.Name() != "remember" {
-		t.Fatalf("remember lookup = %v", got)
+	if got := lookupCommandPath(root, "memory store remember"); got != nil {
+		t.Fatalf("memory store remember lookup = %s, want nil after #1870", got.Name())
 	}
 }

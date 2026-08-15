@@ -412,29 +412,22 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 ### `traceary memory store` — deliberate writes
 
-`memory store` 配下の verb はすべて durable memory row を書き込みます。row が `accepted` で着地するか `candidate` で着地するかは問いません。
+`memory store` 配下の verb はすべて durable memory row を書き込みます。row が `accepted` で着地するか `candidate` で着地するかは問いません。`memory store remember` は v0.36.0 で削除されました。`propose` を使ってください。
 
-#### `traceary memory store remember`
+#### `traceary memory store propose`
 
-**v0.35.0 で非推奨、削除予定は v0.36.0。** `traceary memory store propose` を使ってください。このコマンドは引き続き accepted な durable memory を直接記録します（stdout / `--json` / `--id-only` は変更なし）。inbox review を迂回します。skill が使う書き込みは `propose` です。
+candidate 状態の durable memory を記録します。あとで review できます。
 
 主な flag:
 
 - `--type`
 - `--fact`
 - `--workspace` / `--agent` / `--session-family`
-- `--confidence`
 - `--source`
 - `--evidence`
 - `--artifact`
 - `--id-only`
 - `--json`
-
-#### `traceary memory store propose`
-
-candidate 状態の durable memory を記録します。あとで review できます。
-
-主な flag は `memory store remember` と同じですが、`--confidence` は使われません。
 
 #### `traceary memory store distill`
 
@@ -681,7 +674,7 @@ durable memory の content validity 窓 (`valid_from` / `valid_to`) を設定ま
 | --- | --- |
 | `memory accept <id>` | `memory inbox accept <id>` |
 | `memory reject <id>` | `memory inbox reject <id>` |
-| `memory remember` | `memory store remember` |
+| `memory remember` | `memory store propose`（`memory store remember` は v0.36.0 で削除） |
 | `memory propose` | `memory store propose` |
 | `memory distill` | `memory store distill` |
 | `memory extract` | `memory admin extract` |

@@ -393,7 +393,6 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 		{"list", []string{"memory", "list", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json"}, "list.golden.json"},
 		{"search", []string{"memory", "search", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json", "golden"}, "search.golden.json"},
 		{"show", []string{"memory", "show", "--db-path", "/tmp/test-traceary.db", "--json", "memory-golden-accepted"}, "show.golden.json"},
-		{"remember", []string{"memory", "store", "remember", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--type", "decision", "--fact", "Accepted golden memory", "--json"}, "remember.golden.json"},
 		{"propose", []string{"memory", "store", "propose", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--type", "decision", "--fact", "Candidate golden memory", "--json"}, "propose.golden.json"},
 		{"supersede", []string{"memory", "admin", "supersede", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--type", "decision", "--fact", "Superseded golden memory", "--json", "memory-golden-accepted"}, "supersede.golden.json"},
 		{"expire", []string{"memory", "admin", "expire", "--db-path", "/tmp/test-traceary.db", "--at", "2026-04-15T00:00:00Z", "--json", "memory-golden-accepted"}, "expire.golden.json"},

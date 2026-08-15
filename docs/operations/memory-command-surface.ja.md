@@ -6,7 +6,7 @@
 
 この文書は v0.14 で進めた「memory コマンド面のスリム化」のベースラインです。v0.15.0 時点で、以下に出てくる hidden deprecated alias は削除済みです。このページは旧 flat path から canonical grouped path への歴史的な対応表として残します。
 
-v0.35.0 (#1692): `memory store remember` は `memory store propose` に向けて非推奨です（削除予定 v0.36.0）。以下の v0.14 グルーピングはそれ以外は変更しません。
+v0.36.0 (#1692 / #1870): `memory store remember` は削除されました。`memory store propose` を使ってください。以下の v0.14 グルーピングはそれ以外は変更しません。
 
 ## 目的
 
@@ -102,7 +102,7 @@ memory
 | `memory inbox reject` | `memory inbox reject` | パス変更なし。v0.14 では `--ids` に加えて positional id を受け付け、`--id-only` も追加するため canonical な surface は `memory reject <memory-id>` の strict superset となる (シグネチャの注意は後述) |
 | `memory accept <memory-id>` | `memory inbox accept <memory-id>` | hidden な deprecated alias (シグネチャの注意は後述) |
 | `memory reject <memory-id>` | `memory inbox reject <memory-id>` | hidden な deprecated alias (シグネチャの注意は後述) |
-| `memory remember` | `memory store remember` | hidden な deprecated alias |
+| `memory remember` | `memory store propose` | `memory store remember` は v0.36.0 で削除 |
 | `memory propose` | `memory store propose` | hidden な deprecated alias |
 | `memory distill` | `memory store distill` | hidden な deprecated alias |
 | `memory extract` | `memory admin extract` | hidden な deprecated alias |

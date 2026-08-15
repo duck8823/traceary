@@ -38,7 +38,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **セッション** — `traceary session start`、`traceary session end`、`traceary session run`、`traceary session handoff`（`--compact-only` を含む）、`traceary session list`、`traceary session refine`、`traceary session latest`（`--active` を含む）
 - **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
-- **durable memory store** — `traceary memory store remember`（非推奨、削除予定 v0.36.0）、`traceary memory store propose`、`traceary memory store distill`
+- **durable memory store** — `traceary memory store propose`、`traceary memory store distill`
 - **durable memory decay** — `traceary memory decay`
 - **hooks** — `traceary hooks print`、`traceary hooks install`、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
 - **診断** — `traceary doctor`（alias `traceary status`）、`traceary report`
@@ -85,7 +85,7 @@ v0.35 時点の admin コマンド：
 
 現在非推奨：
 
-- `traceary memory store remember` → `traceary memory store propose`（削除予定 v0.36.0。#1692 / #1870 の owner 決定）。`remember` は即座に `status=accepted` で書き、inbox review を迂回します。`traceary-memory-remember` は `status=candidate` で着地する必要があります。コマンド自体は動き、stdout / `--json` / `--id-only` はこの期間中変わりません。
+- なし。
 
 ### 柱ごとの棚卸し（v0.35）
 
@@ -95,6 +95,7 @@ v0.35 時点の admin コマンド：
 
 過去の削除履歴：
 
+- v0.36.0 で削除（v0.35 の非推奨のあと。#1692 / #1870）: `traceary memory store remember`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。代わりに `traceary memory store propose`（`status=candidate`）を使います。skill `traceary-memory-remember` はすでに `propose` に着地します。
 - v0.36.0 で削除（#1704）: `traceary session active`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。代わりに `traceary session latest --active` を使います（stale の既定は同じ: 24h、`--stale-after`、`--allow-stale`）。`--active` なしの `--stale-after` / `--allow-stale` は拒否します。振る舞いは同じで、綴りだけを既存コマンドに畳みました。
 - v0.35.0 で削除（#1872）: ストアサイズ削減コマンド一式を `traceary store compact` に畳みました。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。削除: `traceary store gc`、`traceary store dedupe` / `content-events`、`traceary store retention plan|apply|restore`（本文 retention。`store retention files` は残します）、`traceary store payload-rehearsal`（`preview|run|resume|scrub|rollback`）、`traceary store payload-backfill`（`preview|run|resume|status`）、`traceary store search-retire`、`traceary store compact plan|apply|resume|status`。代わりに `traceary store compact`（任意の `--force`、`--keep-days`）と `traceary store compact rollback RUN_ID` を使ってください。`traceary store search-projection` は変更しません。旧ファイルは rollback を捨てるまで archive です。
 - v0.35.0 で削除（#1871）: `traceary mcp-server`、`presentation/mcpserver` パッケージ、9 個の MCP tool、および出荷しているすべての host package の MCP server 宣言（Claude / Codex / Gemini / Grok / Kimi / Antigravity）。呼び出しは unknown command（`unknown command "mcp-server"`）として非ゼロ終了し、`DEPRECATED` 通知は出しません。これは one-minor deprecation window の明示的なポリシー例外です。MCP は公開コマンドで、v0.34 の「現在非推奨」registry にも載っていませんでした。削除は #1693 の owner 決定であり、「何も失われない」証拠に基づきます — 歴史的な MCP write は 659,304 イベント中 16 件（0.0024%、最終 write 2026-07-19）、hook capture は shell（`traceary hook …`）のまま、出荷ホストはすべて shell を持ち、skill は CLI 経由です（#1875）。同じ作業には CLI を使ってください（例: `session latest --active` / `session latest` / `session handoff` / `context`、`search`、`list`、`report`、memory inbox/store/admin）。Claude の `hooks.json` は `matcher: mcp__.*` を残し、*他サーバ*の tool call audit を継続します。
