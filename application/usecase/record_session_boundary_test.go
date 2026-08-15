@@ -504,8 +504,6 @@ type sessionRepositoryStub struct {
 	saveBoundaryHook   func(*model.Session, *model.Event) error
 	nextChildOrder     int
 	nextChildOrderErr  error
-	updateSummaryErr   error
-	updatedSummaries   map[types.SessionID]string
 }
 
 func (s *sessionRepositoryStub) FindByID(
@@ -564,17 +562,6 @@ func (s *sessionRepositoryStub) NextChildSpawnOrder(_ context.Context, _ types.S
 		return 1, nil
 	}
 	return s.nextChildOrder, nil
-}
-
-func (s *sessionRepositoryStub) UpdateSummaryIfEmpty(_ context.Context, sessionID types.SessionID, summary string) (bool, error) {
-	if s.updateSummaryErr != nil {
-		return false, s.updateSummaryErr
-	}
-	if s.updatedSummaries == nil {
-		s.updatedSummaries = make(map[types.SessionID]string)
-	}
-	s.updatedSummaries[sessionID] = summary
-	return true, nil
 }
 
 func (s *sessionRepositoryStub) UpdateModelIfEmpty(_ context.Context, _ types.SessionID, modelName string) (bool, error) {
@@ -668,8 +655,8 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		if _, ok := sessionStub.savedBoundary.EndedAt().Value(); !ok {
 			t.Fatalf("session.EndedAt() should be present for end")
 		}
-		if diff := cmp.Diff("test summary", sessionStub.savedBoundary.Summary()); diff != "" {
-			t.Fatalf("Summary() mismatch (-want +got):\n%s", diff)
+		if diff := cmp.Diff("", sessionStub.savedBoundary.Summary()); diff != "" {
+			t.Fatalf("sessions.summary must stay empty; --summary writes a refinement (-want +got):\n%s", diff)
 		}
 		if sessionStub.savedEvent.Kind() != types.EventKindSessionEnded {
 			t.Fatalf("event Kind() = %v, want session_ended", sessionStub.savedEvent.Kind())

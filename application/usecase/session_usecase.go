@@ -57,11 +57,6 @@ type SessionUsecase interface {
 	// Returns an empty Optional when no matching session exists.
 	Latest(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error)
 
-	// SetSummaryIfEmpty stores summary into sessions.summary when the existing
-	// value is NULL or empty. Manually authored summaries are preserved.
-	// Returns true when a row was actually updated.
-	SetSummaryIfEmpty(ctx context.Context, sessionID types.SessionID, summary string) (bool, error)
-
 	// SetModelIfEmpty stores a host-reported model identifier when the session
 	// row still has an empty model. Empty input is a no-op. Never fabricates
 	// a model value.

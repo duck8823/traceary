@@ -414,8 +414,8 @@ func TestSessionDatasource_HookBoundaryRejectsChangedLifecycleSemantics(t *testi
 	if err := db.QueryRow(`SELECT parent_session_id, summary FROM sessions WHERE session_id = 'target'`).Scan(&parentID, &summary); err != nil {
 		t.Fatalf("read target session: %v", err)
 	}
-	if parentID != "parent-a" || summary != "original summary" {
-		t.Fatalf("parent/summary = %q/%q, want immutable parent-a/original summary", parentID, summary)
+	if parentID != "parent-a" || summary != "" {
+		t.Fatalf("parent/summary = %q/%q, want immutable parent-a and unused sessions.summary", parentID, summary)
 	}
 	var targetEvents, targetDeliveries, targetAttempts int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id = 'target'`).Scan(&targetEvents); err != nil {

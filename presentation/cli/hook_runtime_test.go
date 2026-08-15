@@ -2494,9 +2494,7 @@ func TestRootCLI_HookCompactCommand_PreCompactDoesNotSyncSessionSummary(t *testi
 	if got := eventStub.logCall.message; got == "" {
 		t.Fatalf("pre-compact log body must not be empty when pre_compact_context is provided")
 	}
-	if _, ok := sessionStub.setSummaryCalls[types.SessionID("sync-session")]; ok {
-		t.Fatalf("SetSummaryIfEmpty must not be called on pre-compact")
-	}
+
 	if refineStub.calls != 0 {
 		t.Fatalf("Refine calls = %d, want 0 on pre-compact", refineStub.calls)
 	}
@@ -2534,11 +2532,13 @@ func TestRootCLI_HookCompactCommand_PostCompactSyncsSessionSummaryWhenEmpty(t *t
 		),
 	}
 	sessionStub := &sessionUsecaseStub{}
+	refineStub := &sessionRefinementUsecaseStub{}
 
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithEvent(eventStub),
 		cli.WithSession(sessionStub),
+		cli.WithSessionRefinement(refineStub),
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -2548,12 +2548,8 @@ func TestRootCLI_HookCompactCommand_PostCompactSyncsSessionSummaryWhenEmpty(t *t
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute(post-compact) error = %v", err)
 	}
-	got, ok := sessionStub.setSummaryCalls[types.SessionID("sync-session")]
-	if !ok {
-		t.Fatalf("SetSummaryIfEmpty was not called for the active session")
-	}
-	if want := digest; got != want {
-		t.Fatalf("SetSummaryIfEmpty body = %q, want %q", got, want)
+	if refineStub.calls != 1 {
+		t.Fatalf("Refine calls = %d, want 1 (sessions.summary is not written)", refineStub.calls)
 	}
 }
 
@@ -2605,9 +2601,7 @@ func TestRootCLI_HookCompactCommand_PostCompactSkipsSessionSummarySyncForEmptyBo
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute(post-compact) error = %v", err)
 	}
-	if _, ok := sessionStub.setSummaryCalls[types.SessionID("trigger-only")]; ok {
-		t.Fatalf("SetSummaryIfEmpty must not be called when compact_summary is empty (marker-only payload)")
-	}
+
 	if refineStub.calls != 0 {
 		t.Fatalf("Refine calls = %d, want 0 for marker-only payload", refineStub.calls)
 	}
@@ -2726,9 +2720,6 @@ func TestRootCLI_HookCompactCommand_PostCompactMarkerOnlySkipsRefine(t *testing.
 	}
 	if refineStub.calls != 0 {
 		t.Fatalf("Refine calls = %d, want 0 for marker-only payload", refineStub.calls)
-	}
-	if _, ok := sessionStub.setSummaryCalls[types.SessionID("codex-marker-session")]; ok {
-		t.Fatalf("SetSummaryIfEmpty must not be called for marker-only payload")
 	}
 	if got, want := eventStub.logCall.message, "auto"; got != want {
 		t.Fatalf("post-compact log message = %q, want %q", got, want)

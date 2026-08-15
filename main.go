@@ -165,8 +165,10 @@ func run() error {
 	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
 	reportUsecase := usecase.NewReportUsecase(reportDatasource)
 	codexCaptureDiagnosticUsecase := usecase.NewCodexCaptureDiagnosticUsecase(codexCaptureDiagnosticDatasource)
-	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource)
 	sessionRefinementUsecase := usecase.NewSessionRefinementUsecase(sessionDatasource, sessionRefinementDatasource, eventDatasource, types.SystemClock{})
+	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource, usecase.SessionUsecaseDependencies{
+		Refinement: sessionRefinementUsecase,
+	})
 	sessionOrphanRangeUsecase := usecase.NewSessionOrphanRangeUsecase(sessionOrphanRangeDatasource, sessionRefinementDatasource, eventDatasource, types.SystemClock{})
 	orphanConsolidationUsecase := usecase.NewOrphanConsolidationUsecase(sessionOrphanRangeDatasource, sessionRefinementUsecase, types.SystemClock{})
 	consolidationPressureUsecase := usecase.NewConsolidationPressureUsecase(eventDatasource, sessionRefinementDatasource)
