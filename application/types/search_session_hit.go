@@ -49,8 +49,11 @@ func (h SearchSessionHit) StartedAt() time.Time { return h.startedAt }
 type SearchSessionTierState string
 
 const (
-	SearchSessionTierReady         SearchSessionTierState = "ready"
-	SearchSessionTierNotReady      SearchSessionTierState = "not_ready"
+	// SearchSessionTierReady means the published generation was consulted.
+	SearchSessionTierReady SearchSessionTierState = "ready"
+	// SearchSessionTierNotReady means the snapshot refused the session tier.
+	SearchSessionTierNotReady SearchSessionTierState = "not_ready"
+	// SearchSessionTierNotApplicable means the tier was never opened.
 	SearchSessionTierNotApplicable SearchSessionTierState = "not_applicable"
 )
 
