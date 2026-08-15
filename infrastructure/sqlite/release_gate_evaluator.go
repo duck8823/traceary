@@ -206,7 +206,7 @@ SELECT COALESCE(state, ''), COALESCE(recent_amplification_ppm, 0), COALESCE(capa
 		}
 		return out, xerrors.Errorf("failed to read search-index amplification: %w", err)
 	}
-	if state != "complete" || ppm <= 0 || evidence == "" || evidence == "skipped" || evidence == "fallback" || evidence == "unmeasured" {
+	if state != "complete" || ppm <= 0 || evidence != searchProjectionEvidenceMeasured {
 		return out, nil
 	}
 	out.measured = true

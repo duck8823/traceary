@@ -21,7 +21,7 @@ These six rows are evaluated. `skip` is not a miss.
 | Event-emission amplification | `<= 2.0` | events / (`prompt` + `command_executed`) |
 | Whole-store amplification | `<= 3x` | `OperatorCostInspector.Amplification` (resident / retained source bytes) |
 | Recent search-index amplification | `<= 4x` | `search_projection_state.recent_amplification_ppm` when a **complete** generation recorded a measured status; otherwise skipped |
-| `events.body` duplicate share | `< 5%` | uncompressed plaintext bytes versus one copy per `body_sha256` (the classifier uses `<= 0.05`) |
+| `events.body` duplicate share | `< 5%` | uncompressed plaintext bytes versus one copy per `body_sha256` (strict `< 0.05`) |
 | Refinement coverage | `>= 95%` of sessions worth folding | `#1879` `FoldGateInspector` |
 | Wake injection | works on every eligible host, within budget | `#1879` `FoldGateInspector` (unmeasured / skip when no eligible host) |
 

@@ -142,11 +142,35 @@ func TestReleaseGateEvaluator_EachGateCanMiss(t *testing.T) {
 		fx.insertSession("sess", "cli")
 		conn := openCallSiteDB(t, dbPath)
 		if _, err := conn.Exec(`UPDATE search_projection_state
-SET state='complete', recent_amplification_ppm=5000000, capacity_evidence_status='complete'`); err != nil {
+SET state='complete', recent_amplification_ppm=5000000, capacity_evidence_status='measured'`); err != nil {
 			t.Fatalf("seed measured recent-index amplification: %v", err)
 		}
 		assertGateMiss(t, dbPath, now, "recent_index_amplification")
 	})
+}
+
+func TestReleaseGateEvaluator_UnavailableRecentIndexIsSkipped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "recent-skip.db")
+	fx := newReleaseGateFixture(t, dbPath)
+	fx.savePrompt(ctx, "p1", "sess", uniqueBody("skip", 2<<20))
+	fx.insertSession("sess", "claude")
+	fx.refine(ctx, "sess", "p1", "We needed a fixture so an unavailable fallback amplification cannot pass as measured.", false)
+	conn := openCallSiteDB(t, dbPath)
+	if _, err := conn.Exec(`UPDATE search_projection_state
+SET state='complete', recent_amplification_ppm=2160000, capacity_evidence_status='unavailable'`); err != nil {
+		t.Fatalf("seed unavailable recent-index amplification: %v", err)
+	}
+	report, err := sqlite.NewReleaseGateEvaluator(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))).
+		Evaluate(ctx, time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	got := gateByID(report.Gates)["recent_index_amplification"]
+	if got.Status != application.ReleaseGateStatusSkip {
+		t.Fatalf("recent_index = %+v, want skip when evidence is unavailable", got)
+	}
 }
 
 func TestReleaseGateEvaluator_MeasurementsDoNotFail(t *testing.T) {
