@@ -224,6 +224,14 @@ type ProjectionCleanupCandidate struct {
 	ReleasedSourceBytes int64
 	CreatedAtNorm       string
 	Expired             bool
+	// Address1/2/3 and AddressBlob are the table's own primary key.
+	// Integer-PK tables (recent / eviction / exclusion sequence) keep RowID.
+	// Composite-PK tables leave RowID unused. Cleanup must not address
+	// those tables by rowid: WITHOUT ROWID has none (#1825).
+	Address1    string
+	Address2    string
+	Address3    string
+	AddressBlob []byte
 }
 
 type ProjectionWrite struct {

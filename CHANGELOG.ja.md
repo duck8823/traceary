@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **projection cleanup は各テーブルの primary key で行を指す (#1825)** — `SELECT` / `DELETE` はもう共通の `rowid` を使いません。複合キーのテーブルは candidate の `Address*` を使い、`RowsAffected() != 1` はこれまでどおり drift です。2 つの `WITHOUT ROWID` 変換は入れていません（store-sized copy か generation reset になるため）。`docs/research/search-projection-cleanup-address.ja.md` を参照。
 - **search-projection catch-up のディスクフルを routine retry としてログしない (#1836)** — `SQLITE_FULL` は disk と `store search-projection abort` を名指しする別行になります。generation は rebuilding のままなので、空きが出れば次の open で再開できます。retry を止めるのはこれまでどおり abort です。新コマンドはありません。
 - **default budget 変更後に自動開始した search-projection を永久 park しない (#1861)** — generation は `origin`（`automatic` / `operator`）を残します。CatchUp は古い automatic hash を 1 つの fence 付き遷移で置き換え、operator の budget はこれまでどおり触りません。`store search-projection status` は `parked_reason` と `recovery_command` を出します。default 変更だけで `capacity_semantics_version` は上げません（operator generation まで置換してしまうため）。
 - **search-projection の ConfigHash は容量の identity でありバッチ速度ではない (#1754)** — `Rows` / `WallTime` / `LockTime` は hash に入らないので、rebuild 途中で batch-size flag を変えても同じ generation の checkpoint から resume します。`StoredBytes` / `DecodedBytes` / `WriteBytes` は残します。oversize 行を除外するので世代の中身が変わるためです。`--index-family-bytes` と `--recent-age` はこれまでどおり無効化します。automatic catch-up は operator の別の容量 budget を hijack しません。
