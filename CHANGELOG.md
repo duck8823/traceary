@@ -7,6 +7,8 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.38.0] - 2026-08-16
+
 ### Fixed
 - **Content-event dedupe does not CASCADE-delete a command audit (#1862)** — a prompt/transcript that carries `command_audits` stays in the cluster (so proximity does not split) but is never archived or deleted. Apply's last-line guard skips the same rows if a plan is stale. Scratch: attach an audit to the later transcript of a pair, apply, the audit and that event remain; ordinary prompt duplicates still move.
 - **Content-event dedupe repoints session-refinement coverage endpoints (#1777)** — apply rewrites `covers_from` / `covers_to` to the kept twin in the same transaction as the event delete, so `SaveIfAdvances` is not frozen by a missing join. Live store (`sqlite3` `mode=ro`, 2026-08-16): 9 refinements, 0 dangling endpoints. Scratch: `DedupeContentEvents` apply then `SaveIfAdvances` to a later unique turn succeeds.

@@ -7,6 +7,8 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.38.0] - 2026-08-16
+
 ### Fixed
 - **content-event dedupe は command audit を CASCADE 削除しない (#1862)** — `command_audits` が付いた prompt/transcript はクラスタには残る（proximity が割れない）が archive / delete されない。stale plan でも apply の last-line guard が同じ行を飛ばす。scratch: pair の後の transcript に audit を付けて apply しても audit とその event は残り、通常の prompt 重複は動く。
 - **content-event dedupe は session refinement の coverage endpoint を kept twin に付け替える (#1777)** — apply は event delete と同じ transaction で `covers_from` / `covers_to` を書き換え、欠けた join で `SaveIfAdvances` が凍結しない。live store（`sqlite3` `mode=ro`、2026-08-16）: refinement 9 件、dangling endpoint 0。scratch: `DedupeContentEvents` apply のあと、後続の unique turn への `SaveIfAdvances` が成功する。
