@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -44,8 +45,9 @@ var listTimelineBlocksQuery string
 // EventDatasource is the SQLite-backed implementation of the event
 // repository and event query service.
 type EventDatasource struct {
-	db                *Database
-	onListWindowBatch func(batchIndex, batchSize int)
+	db                       *Database
+	onListWindowBatch        func(batchIndex, batchSize int)
+	timelinePayloadQueryHook func(kind string)
 }
 
 // NewEventDatasource creates a new EventDatasource bound to the given
@@ -514,6 +516,14 @@ func (d *EventDatasource) ListTimelineBlocks(
 		}
 	}()
 
+	hasCodec, err := eventHasCodecColumns(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if d.timelinePayloadQueryHook != nil {
+		d.timelinePayloadQueryHook("schema")
+	}
+
 	// The query returns one row per (block, workspace). We preserve the
 	// insertion order of both block_num values (ordered DESC by block_start
 	// in SQL) and their per-workspace rows (ordered DESC by ws_event_count,
@@ -531,20 +541,20 @@ func (d *EventDatasource) ListTimelineBlocks(
 
 	for rows.Next() {
 		var (
-			blockNum        int
-			blockStart      string
-			blockEnd        string
-			blockEventCount int
-			agents          string
-			workspace       string
-			wsEventCount    int
-			kinds           string
-			wsAgents        string
-			promptIDs       [timelineSummaryCandidates]string
-			compactIDs      [timelineSummaryCandidates]string
-			transcriptIDs   [timelineSummaryCandidates]string
+			blockNum          int
+			blockStart        string
+			blockEnd          string
+			blockEventCount   int
+			agents            string
+			workspace         string
+			wsEventCount      int
+			kinds             string
+			wsAgents          string
+			promptIDsJSON     string
+			compactIDsJSON    string
+			transcriptIDsJSON string
 		)
-		scanTargets := []any{
+		if err := rows.Scan(
 			&blockNum,
 			&blockStart,
 			&blockEnd,
@@ -554,24 +564,21 @@ func (d *EventDatasource) ListTimelineBlocks(
 			&wsEventCount,
 			&kinds,
 			&wsAgents,
-		}
-		for _, candidates := range []*[timelineSummaryCandidates]string{&promptIDs, &compactIDs, &transcriptIDs} {
-			for i := range candidates {
-				scanTargets = append(scanTargets, &candidates[i])
-			}
-		}
-		if err := rows.Scan(scanTargets...); err != nil {
+			&promptIDsJSON,
+			&compactIDsJSON,
+			&transcriptIDsJSON,
+		); err != nil {
 			return nil, xerrors.Errorf("failed to scan timeline block: %w", err)
 		}
-		firstPromptBody, err := firstNonBlankCandidate(ctx, db, promptIDs)
+		firstPromptBody, err := d.firstNonBlankCandidate(ctx, db, promptIDsJSON, hasCodec)
 		if err != nil {
 			return nil, err
 		}
-		compactSummaryBody, err := firstNonBlankCandidate(ctx, db, compactIDs)
+		compactSummaryBody, err := d.firstNonBlankCandidate(ctx, db, compactIDsJSON, hasCodec)
 		if err != nil {
 			return nil, err
 		}
-		firstTranscriptBody, err := firstNonBlankCandidate(ctx, db, transcriptIDs)
+		firstTranscriptBody, err := d.firstNonBlankCandidate(ctx, db, transcriptIDsJSON, hasCodec)
 		if err != nil {
 			return nil, err
 		}
@@ -627,26 +634,24 @@ func (d *EventDatasource) ListTimelineBlocks(
 	return blocks, nil
 }
 
-// timelineSummaryCandidates is how deep list_timeline_blocks.sql ranks summary
-// candidates per kind. SQL cannot judge whether an encoded body is blank, so it
-// hands over the leading candidates and Go decides after decoding. Depth 3 also
-// covers the blanks SQLite's TRIM misses (tabs, newlines) in plaintext rows.
-//
-// The depth is a cap, not a guarantee: a kind whose first three candidates are
-// all blank falls through to the next kind rather than to its own fourth
-// candidate, and only the first non-blank one is decoded, so the usual cost is
-// one hydration per kind. Making it exact needs an unbounded candidate list or
-// a blankness signal that survives encoding — tracked separately (#1746).
-const timelineSummaryCandidates = 3
-
-// firstNonBlankCandidate decodes candidates in rank order and returns the first
-// whose plaintext is not blank. An empty id marks the end of the ranked list.
-func firstNonBlankCandidate(ctx context.Context, db *sql.DB, ids [timelineSummaryCandidates]string) (string, error) {
+// firstNonBlankCandidate decodes ranked candidate ids in order and returns the
+// first whose plaintext is not blank. The list is unbounded (#1746): a kind
+// does not fall through to the next kind while it still has later candidates.
+// hasCodec is resolved once per ListTimelineBlocks so N candidates cost one
+// schema check plus N body reads, not 2N.
+func (d *EventDatasource) firstNonBlankCandidate(ctx context.Context, db *sql.DB, idsJSON string, hasCodec bool) (string, error) {
+	ids, err := decodeTimelineCandidateIDs(idsJSON)
+	if err != nil {
+		return "", err
+	}
 	for _, id := range ids {
 		if id == "" {
-			return "", nil
+			continue
 		}
-		plain, err := loadEventPlaintext(ctx, db, id)
+		if d.timelinePayloadQueryHook != nil {
+			d.timelinePayloadQueryHook("body")
+		}
+		plain, err := decodeEventPlaintext(ctx, db, id, hasCodec)
 		if err != nil {
 			return "", err
 		}
@@ -655,6 +660,18 @@ func firstNonBlankCandidate(ctx context.Context, db *sql.DB, ids [timelineSummar
 		}
 	}
 	return "", nil
+}
+
+func decodeTimelineCandidateIDs(idsJSON string) ([]string, error) {
+	trimmed := strings.TrimSpace(idsJSON)
+	if trimmed == "" || trimmed == "[]" {
+		return nil, nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(trimmed), &ids); err != nil {
+		return nil, xerrors.Errorf("decode timeline summary candidates: %w", err)
+	}
+	return ids, nil
 }
 
 // resolveWorkspaceSummary applies the fallback chain

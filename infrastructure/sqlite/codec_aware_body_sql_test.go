@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -541,6 +542,78 @@ func TestTimelineSummary_BlankCandidateDoesNotStealTheSummary(t *testing.T) {
 				t.Fatalf("timeline summary source mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestTimelineSummary_WalksPastTheFormerCandidateCap(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, backfill, path := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+	events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
+
+	// Depth 3 used to fall through to the next kind. Four compressed blanks
+	// ahead of the real prompt is past that cap.
+	for i := 0; i < 4; i++ {
+		insertPlaintextEventAt(t, db, eventSeed{
+			ID: fmt.Sprintf("timeline-blank-%d", i), Kind: "prompt", Body: strings.Repeat(" ", 4096),
+		}, fmt.Sprintf("2026-08-09T00:00:0%dZ", i))
+	}
+	insertPlaintextEventAt(t, db, eventSeed{
+		ID: "timeline-real-beyond-cap", Kind: "prompt", Body: "fourth blank then this",
+	}, "2026-08-09T00:00:04Z")
+	runPayloadBackfill(ctx, t, backfill)
+	for i := 0; i < 4; i++ {
+		assertBodyCodec(t, db, fmt.Sprintf("timeline-blank-%d", i), payloadCodecZstd)
+	}
+
+	blocks, err := events.ListTimelineBlocks(ctx, types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+	if err != nil {
+		t.Fatalf("ListTimelineBlocks: %v", err)
+	}
+	if len(blocks) != 1 || len(blocks[0].WorkspaceBreakdown()) != 1 {
+		t.Fatalf("want one block with one workspace, got %d blocks", len(blocks))
+	}
+	got := blocks[0].WorkspaceBreakdown()[0]
+	if diff := cmp.Diff("fourth blank then this", got.Summary()); diff != "" {
+		t.Fatalf("timeline summary mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(apptypes.TimelineSummarySourcePrompt, got.SummarySource()); diff != "" {
+		t.Fatalf("timeline summary source mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestTimelineSummary_QueryCountPerRowDoesNotRegress(t *testing.T) {
+	ctx := context.Background()
+	db, backfill, path := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+	events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
+	insertPlaintextEventAt(t, db, eventSeed{
+		ID: "timeline-only-real", Kind: "prompt", Body: "the only prompt",
+	}, "2026-08-09T00:00:00Z")
+	runPayloadBackfill(ctx, t, backfill)
+
+	// Main hydrated one candidate as schema+body (2). The walk still decodes
+	// that one body; the schema check is once per ListTimelineBlocks.
+	counts := map[string]int{}
+	events.SetTimelinePayloadQueryHookForTest(func(kind string) { counts[kind]++ })
+	defer events.SetTimelinePayloadQueryHookForTest(nil)
+
+	blocks, err := events.ListTimelineBlocks(ctx, types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
+	if err != nil {
+		t.Fatalf("ListTimelineBlocks: %v", err)
+	}
+	if len(blocks) != 1 || len(blocks[0].WorkspaceBreakdown()) != 1 {
+		t.Fatalf("want one block with one workspace, got %d blocks", len(blocks))
+	}
+	if diff := cmp.Diff("the only prompt", blocks[0].WorkspaceBreakdown()[0].Summary()); diff != "" {
+		t.Fatalf("timeline summary mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, counts["schema"]); diff != "" {
+		t.Fatalf("schema checks per list (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(1, counts["body"]); diff != "" {
+		t.Fatalf("body reads per row (-want +got):\n%s", diff)
 	}
 }
 

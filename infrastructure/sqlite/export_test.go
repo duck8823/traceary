@@ -59,6 +59,12 @@ func (d *Database) SetStatusGenerationReadHookForTest(hook func()) {
 	d.afterStatusGenerationScopeRead = hook
 }
 
+// SetTimelinePayloadQueryHookForTest counts schema/body reads on the
+// timeline walk. Pass nil to clear.
+func (d *EventDatasource) SetTimelinePayloadQueryHookForTest(hook func(kind string)) {
+	d.timelinePayloadQueryHook = hook
+}
+
 // SetGarbageCollectionNowForTest fixes the timestamp persisted by gc discards.
 func (d *StoreManagementDatasource) SetGarbageCollectionNowForTest(now func() time.Time) {
 	d.now = now

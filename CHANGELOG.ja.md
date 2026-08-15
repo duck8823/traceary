@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **timeline の summary candidate walk を exact かつ cheap にする (#1746)** — kind ごとの ranked id は上限なし（`json_group_array`）。Go は decode 後の最初の非 blank を残すので、圧縮された blank が 4 件あっても同じ kind の後続 prompt を隠しません。`body_codec` の schema check は candidate ごとではなく `ListTimelineBlocks` あたり 1 回です。
 - **search projection status の generation 付き field を 1 snapshot にする (#1839)** — `recent_documents` / `summary_sessions` / `keyword_rows` / `fingerprint_rows`、rebuild 側の `recent_source_bytes` と exclusions は、1 つの read-only transaction の中で `active_generation_id` / `generation_id` を 1 度だけ解決します。dbstat の `physical_bytes` はその transaction の外です。
 - **`traceary search --kind` の session-tier 読みは 1 snapshot (#1859)** — #1822 のあと残っていた 2 回呼び出しは、`--kind` が `SearchSessionPage` を 2 回叩いていたことです。kind 付きの呼び出しは常に `not_applicable` で store を開かないので、CLI は kind なし probe だけにします。cutover 後に kind-suppression と not-ready が食い違うことはありません。
 - **session-tier の hits と readiness を同じ snapshot から返す (#1822)** — `SearchSessionPage` が 1 つの read transaction で hits と `ready` / `not_ready` / `not_applicable` を返します。空クエリ、`--kind`、2 ページ目以降は store を開かず `not_applicable` です。`SearchSessionProjectionReady` は廃止し、空ページと後から読んだ generation の readiness を組み合わせられないようにします。`traceary search` の session notice もこの page を使います。
