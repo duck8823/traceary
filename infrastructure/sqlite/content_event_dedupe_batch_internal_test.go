@@ -405,3 +405,59 @@ func TestPlanContentEventDedupe_AttestedDuplicateIsNotArchived(t *testing.T) {
 		t.Errorf("groups = %d, want 0 (attested hook duplicates stay)", len(plan.groups))
 	}
 }
+
+func TestPlanContentEventDedupe_AuditHeldDuplicateIsNotArchived(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	key := newDedupeGroupKey("prompt", "hook", "codex", "s1", "w1", "user_prompt_submit", "same body")
+	members := []dedupeMemberRef{
+		{id: "evt-a", createdAt: base.Format(time.RFC3339Nano), parsedAt: base, parseOK: true},
+		{
+			id: "evt-b", createdAt: base.Add(time.Second).Format(time.RFC3339Nano),
+			parsedAt: base.Add(time.Second), parseOK: true, auditHeld: true,
+		},
+	}
+	plan := planContentEventDedupe(dedupeSurvey{
+		groups: map[dedupeGroupKey][]dedupeMemberRef{key: members},
+		order:  []dedupeGroupKey{key},
+	}, false)
+
+	if len(plan.groups) != 0 {
+		t.Errorf("groups = %d, want 0 (audit-held hook duplicates stay)", len(plan.groups))
+	}
+}
+
+func TestPlanContentEventDedupe_AuditHeldRowKeepsItsClusterIntact(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	key := newDedupeGroupKey("prompt", "hook", "codex", "s1", "w1", "stop", "same body")
+	member := func(id string, offset time.Duration, auditHeld bool) dedupeMemberRef {
+		at := base.Add(offset)
+		return dedupeMemberRef{
+			id: id, createdAt: at.Format(time.RFC3339Nano), parsedAt: at,
+			parseOK: true, auditHeld: auditHeld,
+		}
+	}
+	plan := planContentEventDedupe(dedupeSurvey{
+		groups: map[dedupeGroupKey][]dedupeMemberRef{
+			key: {member("evt-a", 0, false), member("evt-b", 9*time.Second, true), member("evt-c", 18*time.Second, false)},
+		},
+		order: []dedupeGroupKey{key},
+	}, false)
+
+	if len(plan.groups) != 1 {
+		t.Fatalf("groups = %d, want 1 (the audit-held row must still hold the cluster together)", len(plan.groups))
+	}
+	if got := plan.groups[0].keptID; got != "evt-a" {
+		t.Errorf("keptID = %q, want evt-a", got)
+	}
+	got := make([]string, 0, len(plan.groups[0].duplicates))
+	for _, dup := range plan.groups[0].duplicates {
+		got = append(got, dup.id)
+	}
+	if diff := cmp.Diff([]string{"evt-c"}, got); diff != "" {
+		t.Errorf("duplicates (-want +got):\n%s", diff)
+	}
+}
