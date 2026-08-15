@@ -329,6 +329,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Status:  doctorStatusPass,
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
+		report.Checks = append(report.Checks, c.inspectSearchProjectionBudget(ctx))
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
 		report.Checks = append(report.Checks, c.inspectFileRetentionCapacity(ctx, resolvedDBPath, input.archiveRoot, input.backupRoot)...)

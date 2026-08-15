@@ -95,6 +95,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 64 adds origin to the singleton search_projection_state row and updates
 	// that row only. No store-sized scan.
 	64: {64, "000064_search_projection_generation_origin.sql", "e1180e75dd2b4896a03123c1a914e162cacace7e76277e908885859e43608bf8", MigrationConstantInPlace},
+	// 65 adds capacity_rederived to the singleton search_projection_state
+	// row. No store-sized scan.
+	65: {65, "000065_search_projection_capacity_rederived.sql", "0b02dc61ddfa243304a6d20a29f76ab3ccf780e37a5d5ae59c7ce7de152bb9b1", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

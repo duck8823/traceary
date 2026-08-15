@@ -587,3 +587,13 @@ func (u *SearchProjectionUsecase) catchUpHasSourceWork(ctx context.Context) (boo
 func (u *SearchProjectionUsecase) Inspect(ctx context.Context) (apptypes.SearchProjectionStatus, error) {
 	return u.store.SearchProjectionStatus(ctx)
 }
+
+// ControlStatus is the persisted state-machine row, including the completion
+// budget verdict. It does not walk dbstat.
+func (u *SearchProjectionUsecase) ControlStatus(ctx context.Context) (apptypes.SearchProjectionControlStatus, error) {
+	status, err := u.store.SearchProjectionControlStatus(ctx)
+	if err != nil {
+		return status, xerrors.Errorf("inspect projection control status: %w", err)
+	}
+	return status, nil
+}

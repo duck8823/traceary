@@ -159,22 +159,36 @@ so the family size is still observable even when the verdict is not
 ([#1835](https://github.com/duck8823/traceary/issues/1835)).
 
 A generation recorded over budget stays that way. Nothing corrects it in place —
-the next `CatchUp` sees a complete generation and returns `already_complete`. Check
-`traceary store search-projection status` for `index_family_within_budget` and
-`capacity_evidence`. A `0` has several possible causes — the amplification estimate
-was low for this corpus, the permanently resident objects grew (`search_projection_source_sequence`
-gains a row per event and is never reclaimed), or FTS5 has not yet merged away the
-pages of deleted documents. The lever is the same regardless: an explicit
-`traceary store search-projection start` with a smaller `--index-family-bytes`.
+the next `CatchUp` sees a complete generation and returns `already_complete`.
+`traceary doctor` warns on `search-projection-budget` when
+`index_family_within_budget` is `0`. Check `traceary store search-projection status`
+for the same field and `capacity_evidence`. A `0` has several possible causes — the
+amplification estimate was low for this corpus, the permanently resident objects
+grew (`search_projection_source_sequence` gains a row per event and is never
+reclaimed), or FTS5 has not yet merged away the pages of deleted documents. The
+lever is the same regardless: an explicit `traceary store search-projection start`
+with a smaller `--index-family-bytes`.
 
 The figure is `dbstat` allocation, not file size: the file shrinks at
 `store compact`, and FTS5 returns space from deleted documents only as segments
 merge.
 
 **No verdict during a rebuild.** Measurement still happens — `dbstat` is walked at
-`Start` and again at the source→eviction transition — but budget conformance is not
+`Start` and again once the generation is in eviction — but budget conformance is not
 decided, because `Start` keeps the previous generation readable until the new one is
 verified and a rebuild therefore holds two families at once.
+
+The eviction-phase re-derivation is a persisted obligation (`capacity_rederived`).
+A crash between the source→eviction commit and the detached write is retried on the
+next eviction apply. The `dbstat` split, `SUM(decoded_bytes)`, and reserve queries
+share one read-only snapshot so a concurrent hook eviction cannot pair
+physical-before with logical-after. FTS reclaim runs before that re-derivation so
+deleted postings left by source-phase eviction are not sampled as extra amplification.
+The ratio is still a blend of every generation present in the recent tier: FTS pages
+are not generation-scoped. The source-phase prefilter walk uses a 4× slack over the
+Start-time ceiling; an upward re-derivation inside that factor does not need to
+re-project dropped documents. See
+[search-projection-capacity-derivation](research/search-projection-capacity-derivation.md).
 
 Since v0.34 the new generation's retained **source text** is bounded while it is being
 built. Eviction is interleaved with the source walk: every batch compares the

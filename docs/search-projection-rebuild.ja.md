@@ -117,8 +117,9 @@ store では構築中ずっとこの値になります。判定に必要な `dbs
 
 超過として記録された世代はそのまま残ります。その場で是正する仕組みはありません。
 次の `CatchUp` は完了済み世代を見て `already_complete` を返します。
-`traceary store search-projection status` で `index_family_within_budget` と
-`capacity_evidence` を確認してください。`0` の原因は 1 つではありません。そのコーパスに
+`traceary doctor` は `index_family_within_budget` が `0` のとき
+`search-projection-budget` を警告します。`traceary store search-projection status`
+でも同じ欄と `capacity_evidence` を確認してください。`0` の原因は 1 つではありません。そのコーパスに
 対して増幅率の推定が低すぎた場合のほか、恒久常駐オブジェクトの増加
 （`search_projection_source_sequence` はイベントごとに 1 行増え、回収されません）や、
 削除済みドキュメントのページを FTS5 がまだマージしていない場合もあります。いずれの
@@ -129,9 +130,20 @@ store では構築中ずっとこの値になります。判定に必要な `dbs
 `store compact` で縮み、FTS5 は削除ドキュメントの領域をセグメントマージ時にしか
 返しません。
 
-**再構築中は判定しません。** 測定自体は行われます（`Start` と source→eviction 遷移で
+**再構築中は判定しません。** 測定自体は行われます（`Start` と eviction 突入後に
 `dbstat` を走査します）。判定しないのは予算適合性のほうで、`Start` が新世代の検証まで
 前世代を読める状態に残すため、再構築中は一時的に 2 ファミリを保持するからです。
+
+eviction 時の再導出は永続化された義務です（`capacity_rederived`）。source→eviction
+の commit と切り離した書き込みの間で crash しても、次の eviction apply で再試行します。
+`dbstat` 分割、`SUM(decoded_bytes)`、reserve 照会は 1 つの読み取りスナップショットを
+共有するので、並行する hook eviction が physical-before / logical-after を組むことは
+ありません。再導出の前に FTS reclaim を走らせ、source 中の eviction が残した削除
+posting を増幅率に混ぜません。比率は recent ティアに残っている全世代の混合のままです
+（FTS ページは世代単位ではありません）。source の prefilter 走査は Start 時天井の 4 倍
+slack を使うので、その範囲の上方修正では除外済みドキュメントを再投影しません。
+[search-projection-capacity-derivation.ja.md](research/search-projection-capacity-derivation.ja.md)
+を参照してください。
 
 v0.34 以降、新世代が保持する**ソーステキスト**は構築中も上限されます。eviction は
 source 走査と交互に実行されます。各バッチはその世代の累計ソーステキスト量を導出上限と

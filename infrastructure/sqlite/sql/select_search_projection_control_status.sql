@@ -13,7 +13,8 @@ SELECT
     COALESCE(s.cutover_before_evidence_reason, ''),
     COALESCE(s.cutover_after_evidence_status, ''),
     COALESCE(s.cutover_after_evidence_reason, ''),
-    COALESCE(s.origin, 'automatic')
+    COALESCE(s.origin, 'automatic'),
+    s.index_family_within_budget
 FROM search_projection_state AS s
 JOIN search_projection_inventory_state AS i ON i.singleton = s.singleton
 WHERE s.singleton = 1

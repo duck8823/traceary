@@ -473,6 +473,9 @@ type SearchProjectionControlStatus struct {
 	CutoverBeforeEvidence    CapacityEvidence
 	CutoverAfterEvidence     CapacityEvidence
 	Origin                   string
+	// IndexFamilyWithinBudget is the persisted completion verdict: 1 within,
+	// 0 over, -1 unknown. It is not a derived measurement.
+	IndexFamilyWithinBudget int
 }
 
 // SearchProjectionCatchUpResult is one bounded unit of automatic generation
