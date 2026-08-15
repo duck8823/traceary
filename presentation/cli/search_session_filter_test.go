@@ -69,7 +69,7 @@ func TestRootCLI_SearchKindSuppressionAnnouncement(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWarn, string(stderr)); diff != "" {
 				t.Fatalf("stderr (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(2, stub.calls); diff != "" {
+			if diff := cmp.Diff(1, stub.calls); diff != "" {
 				t.Fatalf("kind-filtered search must probe once (-want +got):\n%s", diff)
 			}
 		})
@@ -83,7 +83,7 @@ func TestRootCLI_SearchKindSuppressionNoFalseAnnouncement(t *testing.T) {
 	if diff := cmp.Diff("", string(stderr)); diff != "" {
 		t.Fatalf("empty kind probe must be silent (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(2, stub.calls); diff != "" {
+	if diff := cmp.Diff(1, stub.calls); diff != "" {
 		t.Fatalf("kind-filtered search must probe once (-want +got):\n%s", diff)
 	}
 }
@@ -113,14 +113,17 @@ func TestRootCLI_SearchKindProbeKeepsEveryOtherFilter(t *testing.T) {
 		"needle",
 	}, &eventUsecaseStub{}, stub)
 
-	if diff := cmp.Diff(2, stub.calls); diff != "" {
+	if diff := cmp.Diff(1, stub.calls); diff != "" {
 		t.Fatalf("kind-filtered search must probe once (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(stub.criteria[0].WithoutKind(), stub.criteria[1], cmp.AllowUnexported(apptypes.EventSearchCriteria{}, apptypes.EventPageAnchor{})); diff != "" {
-		t.Fatalf("probe criteria must differ only in kind (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff("", stub.criteria[1].Kind().String()); diff != "" {
+	if diff := cmp.Diff("", stub.criteria[0].Kind().String()); diff != "" {
 		t.Fatalf("probe criteria kind (-want +got):\n%s", diff)
+	}
+	if stub.criteria[0].Workspace().String() != "github.com/duck8823/traceary" {
+		t.Fatalf("probe workspace = %q", stub.criteria[0].Workspace())
+	}
+	if stub.criteria[0].SessionID().String() != "session-scoped" {
+		t.Fatalf("probe session = %q", stub.criteria[0].SessionID())
 	}
 }
 
@@ -141,13 +144,10 @@ func TestRootCLI_SearchKindProbeIgnoresKindFilteredExclusions(t *testing.T) {
 		"search", "--db-path", "/tmp/test-traceary.db", "--kind", "note", "needle",
 	}, &eventUsecaseStub{searchEvents: []*model.Event{event}}, stub)
 
-	if diff := cmp.Diff(2, stub.calls); diff != "" {
+	if diff := cmp.Diff(1, stub.calls); diff != "" {
 		t.Fatalf("kind-filtered search must probe once (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff([]types.SessionID{"session-kind"}, stub.excludes[0]); diff != "" {
-		t.Fatalf("real call must exclude sessions already shown as events (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff([]types.SessionID(nil), stub.excludes[1]); diff != "" {
+	if diff := cmp.Diff([]types.SessionID(nil), stub.excludes[0]); diff != "" {
 		t.Fatalf("probe must carry no exclusion list (-want +got):\n%s", diff)
 	}
 	if !strings.Contains(string(stderr), "--kind") {

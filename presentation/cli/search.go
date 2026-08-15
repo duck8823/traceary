@@ -254,40 +254,33 @@ func (c *RootCLI) searchProjectionSessions(
 	if c.projectionSessionSearch == nil {
 		return []apptypes.SearchSessionHit{}, notices, nil
 	}
+	// --kind never returns session hits (the tier cannot apply kind). Asking
+	// SearchSessionPage with kind set is always not_applicable and does not
+	// open the store. Skip it so the CLI makes one snapshot read, not two.
+	if strings.TrimSpace(criteria.Kind().String()) != "" {
+		// The probe answers exactly one question — "does the session tier match
+		// this query when kind is not applied" — so it is derived from the real
+		// criteria and given no exclusion list. Hits and not-ready come from
+		// that one page; they cannot disagree after a cutover.
+		probe, err := c.projectionSessionSearch.SearchSessionPage(ctx, criteria.WithoutKind(), nil)
+		if err != nil {
+			return nil, notices, xerrors.Errorf("probe projection session hits: %w", err)
+		}
+		notices.kindSuppressed = probe.State() == apptypes.SearchSessionTierReady && len(probe.Hits()) > 0
+		if probe.State() == apptypes.SearchSessionTierNotReady {
+			notices.projectionNotReady = true
+		}
+		return []apptypes.SearchSessionHit{}, notices, nil
+	}
+
 	page, err := c.projectionSessionSearch.SearchSessionPage(ctx, criteria, exclude)
 	if err != nil {
 		return nil, notices, xerrors.Errorf("search projection session hits: %w", err)
 	}
-	hits := page.Hits()
-	// State is the snapshot that produced Hits. Do not re-ask readiness.
 	if page.State() == apptypes.SearchSessionTierNotReady {
 		notices.projectionNotReady = true
 	}
-	if strings.TrimSpace(criteria.Kind().String()) == "" {
-		return hits, notices, nil
-	}
-
-	// The probe answers exactly one question — "does the session tier match this
-	// query when kind is not applied" — so it is derived from the real criteria
-	// (a filter added to EventSearchCriteria later must narrow it too) and given
-	// no exclusion list. The exclusions were computed from a kind-filtered event
-	// page; a search without --kind would return a different page and therefore
-	// a different exclusion set, so reusing them would answer a question nobody
-	// asked. That is also why the notice reports presence rather than a count:
-	// an accurate count would require re-running the event search as well, and
-	// the number is not what tells the user what to do.
-	//
-	// --kind itself is not_applicable, so readiness comes from this probe's
-	// snapshot rather than a third transaction.
-	probe, err := c.projectionSessionSearch.SearchSessionPage(ctx, criteria.WithoutKind(), nil)
-	if err != nil {
-		return nil, notices, xerrors.Errorf("probe projection session hits: %w", err)
-	}
-	notices.kindSuppressed = probe.State() == apptypes.SearchSessionTierReady && len(probe.Hits()) > 0
-	if probe.State() == apptypes.SearchSessionTierNotReady {
-		notices.projectionNotReady = true
-	}
-	return hits, notices, nil
+	return page.Hits(), notices, nil
 }
 
 func sessionIDsFromEvents(events []*model.Event) []types.SessionID {
