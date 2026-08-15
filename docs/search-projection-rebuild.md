@@ -251,6 +251,22 @@ What is also **not** bounded by this budget is the sum across generations. The
 previous generation stays fully resident — that is what keeps search answerable during
 the rebuild — and is reclaimed only in the terminal cleanup phase.
 
+`--recent-age` (default 30 days) is kept. Retention is
+`created_at > max(ageCutoff, byteCutoff)`. Scratch measurement
+(`TestRecentAgeBindingOnScratchCorpora`):
+
+| corpus | byte cutoff | which binds |
+|---|---|---|
+| dense ingest (byte ceiling crossed inside 30d) | 2026-06-20 | **byte** |
+| quiet store (walk never crosses the ceiling) | empty | **age** |
+
+On a store with capacity pressure the byte cutoff is newer, so `--recent-age`
+does not shrink the window further. Age only binds when the recent tier is
+already small. Operators would touch `--recent-age` to drop old rows on a
+quiet store for reasons other than the index-family budget. Removing the flag
+needs the admin deprecation window (notice in N, removal in N+1). See
+[search-projection-recent-age](research/search-projection-recent-age.md).
+
 The source-phase cutoff is a **build-cost bound, not an enforcement mechanism**. It
 walks the newest 20,000 source rows (not a wall-clock timeout) over stored envelope
 bytes, which is not the unit the

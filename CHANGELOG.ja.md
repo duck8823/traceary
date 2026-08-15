@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Changed
+- **`--recent-age` は残す。bind する条件を測定して書いた (#1755)** — retention は `max(age, byte)`。密な scratch では byte（2026-06-20）が 30 日に勝つ。静かな scratch では byte cutoff が空で age が勝つ。容量圧のあるストアではこのフラグは不要。静かなストアではまだ使える。削除には admin の deprecation window が要る。`docs/research/search-projection-recent-age.ja.md` を参照。
+
 ### Fixed
 - **index-family 予算判定はファミリ合計に fallback する (#1835)** — `-1` は不明のままです。3 秒 split が切れても `physical_bytes` が取れるとき、`store search-projection status` はその合計に対する粗い 0/1 を出します。cutover も同じ fallback を persist するので、doctor は complete 世代の判定を見られます。理由のない `-1` はテスト失敗です。`docs/research/search-projection-budget-verdict.ja.md` を参照。
 - **recent-cutoff 導出は 2 秒タイムアウトではなく行数上限 (#1807)** — newest-first prefilter は最大 20,000 行なので、大きいストアでも cutoff が残ります。walk ceiling に届かない sample は age-only に戻さず、sample 内の最古 timestamp を残します。cancel と query error はこれまでどおり degrade です。新しいフラグはありません。`docs/research/search-projection-recent-cutoff.ja.md` を参照。
