@@ -1,5 +1,5 @@
 DELETE FROM memory_edges
-WHERE (valid_to IS NOT NULL AND valid_to < ?)
+WHERE (valid_to IS NOT NULL AND ts_norm(valid_to) < ts_norm(?))
    OR NOT EXISTS (
        SELECT 1
          FROM memories

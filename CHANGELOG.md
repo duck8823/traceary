@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Remaining production age-delete SQL compares timestamps with `ts_norm` (#1720)** — empty-session delete, expired-memory delete, memory-edge `valid_to`, stale extracted decay, and their preview counts wrap both sides. `T00:00:00.5Z` vs cutoff `T00:00:00Z` is kept; `T00:00:00Z` vs cutoff `T00:00:00.5Z` is deleted. Driven through `CollectGarbage` (the compact work-copy path), not a hand-written `DELETE`.
 - **Memory-hygiene scan tests no longer depend on a 1ms wall-clock budget (#1771)** — the partial (revision-churn) and cannot-progress branches drive a fake clock and use a one-hour `MaxDuration` so `context.WithTimeout` cannot expire first. Scratch: both cases plus `go test ./application/usecase/ -count=50`.
 - **`go test ./presentation/cli/ -race` no longer reports a data race on export-test seams (#1698)** — `Set*Func` seams are `atomic.Pointer` slots, so a serial test can replace them while a parallel test still reads `resolveDBPath` / `userHomeDirFunc`. Production never writes the slots. Scratch: a concurrent replace-vs-`resolveDBPath` test plus two `-race -count=1` package runs report no `DATA RACE`.
 

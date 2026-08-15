@@ -1,3 +1,3 @@
 DELETE FROM memories
 WHERE status IN ('expired', 'superseded', 'rejected')
-  AND updated_at < ?
+  AND ts_norm(updated_at) < ts_norm(?)

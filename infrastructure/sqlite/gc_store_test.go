@@ -727,6 +727,63 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyWithProductionMigration
 	assertNoForeignKeyViolations(t, db)
 }
 
+func TestDatasource_CollectGarbage_usesTsNormOnAgeDeleteBoundaries(t *testing.T) {
+	t.Parallel()
+
+	// Lexical RFC3339Nano compares '.' (0x2E) below 'Z' (0x5A), so a
+	// sub-second timestamp sorts before the whole-second form of the same
+	// instant (#1185). collectGarbageInTx still deletes empty sessions and
+	// expired memories; those comparisons must go through ts_norm.
+	whole := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	frac := time.Date(2026, 5, 10, 0, 0, 0, 500000000, time.UTC)
+
+	t.Run("fractional session after whole-second cutoff is kept", func(t *testing.T) {
+		dbPath, store := prepareRetentionFixture(t)
+		db := openRetentionDB(t, dbPath)
+		defer func() { _ = db.Close() }()
+		execRetentionSQL(t, db, `INSERT INTO sessions (session_id, started_at, ended_at, client, agent, repo) VALUES
+			('frac-after', '2026-05-09T00:00:00Z', '2026-05-10T00:00:00.5Z', 'cli', 'codex', 'repo')`)
+		if _, err := store.CollectGarbage(context.Background(), whole, apptypes.GarbageCollectionTargetSessions, false); err != nil {
+			t.Fatalf("CollectGarbage() error = %v", err)
+		}
+		assertRetentionIDs(t, db, "sessions", "session_id", []string{"frac-after"})
+	})
+
+	t.Run("whole-second session before fractional cutoff is deleted", func(t *testing.T) {
+		dbPath, store := prepareRetentionFixture(t)
+		db := openRetentionDB(t, dbPath)
+		defer func() { _ = db.Close() }()
+		execRetentionSQL(t, db, `INSERT INTO sessions (session_id, started_at, ended_at, client, agent, repo) VALUES
+			('whole-before', '2026-05-09T00:00:00Z', '2026-05-10T00:00:00Z', 'cli', 'codex', 'repo')`)
+		if _, err := store.CollectGarbage(context.Background(), frac, apptypes.GarbageCollectionTargetSessions, false); err != nil {
+			t.Fatalf("CollectGarbage() error = %v", err)
+		}
+		assertRetentionIDs(t, db, "sessions", "session_id", nil)
+	})
+
+	t.Run("fractional expired memory after whole-second cutoff is kept", func(t *testing.T) {
+		dbPath, store := prepareRetentionFixture(t)
+		db := openRetentionDB(t, dbPath)
+		defer func() { _ = db.Close() }()
+		insertRetentionMemory(t, db, "mem-frac", "expired", "", "2026-05-10T00:00:00.5Z")
+		if _, err := store.CollectGarbage(context.Background(), whole, apptypes.GarbageCollectionTargetMemories, false); err != nil {
+			t.Fatalf("CollectGarbage() error = %v", err)
+		}
+		assertRetentionIDs(t, db, "memories", "id", []string{"mem-frac"})
+	})
+
+	t.Run("whole-second expired memory before fractional cutoff is deleted", func(t *testing.T) {
+		dbPath, store := prepareRetentionFixture(t)
+		db := openRetentionDB(t, dbPath)
+		defer func() { _ = db.Close() }()
+		insertRetentionMemory(t, db, "mem-whole", "expired", "", "2026-05-10T00:00:00Z")
+		if _, err := store.CollectGarbage(context.Background(), frac, apptypes.GarbageCollectionTargetMemories, false); err != nil {
+			t.Fatalf("CollectGarbage() error = %v", err)
+		}
+		assertRetentionIDs(t, db, "memories", "id", nil)
+	})
+}
+
 func prepareRetentionFixture(t *testing.T) (string, *sqlite.StoreManagementDatasource) {
 	t.Helper()
 
