@@ -998,3 +998,127 @@ func TestStoreManagementDatasource_DedupeContentEvents_LedgerRowKeepsItsClusterI
 		t.Errorf("survivors = %q, want evt-m1,evt-m2 (the ledger row stays, the duplicate goes)", survivors)
 	}
 }
+
+func TestStoreManagementDatasource_DedupeContentEvents_DoesNotCascadeDeleteCommandAudit(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO command_audits(event_id, command_text, input_text, output_text) VALUES ('evt-c2', 'echo', '', '')`,
+	); err != nil {
+		t.Fatalf("attach command audit to transcript: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close() error = %v", err)
+	}
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-audit",
+		Now: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	for _, group := range result.Groups {
+		for _, id := range group.DuplicateEventIDs {
+			if id == "evt-c2" {
+				t.Errorf("audit-held row evt-c2 was selected as a duplicate of %s", group.KeptEventID)
+			}
+		}
+	}
+	if !eventExists(t, dbPath, "evt-c2") {
+		t.Fatal("audit-held transcript evt-c2 was deleted")
+	}
+	if !eventExists(t, dbPath, "evt-c1") {
+		t.Fatal("canonical transcript evt-c1 was deleted")
+	}
+
+	verify, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = verify.Close() }()
+	var audits int
+	if err := verify.QueryRow(`SELECT COUNT(*) FROM command_audits WHERE event_id = 'evt-c2'`).Scan(&audits); err != nil {
+		t.Fatalf("count command_audits: %v", err)
+	}
+	if audits != 1 {
+		t.Fatalf("command_audits for evt-c2 = %d, want 1 (CASCADE must not fire)", audits)
+	}
+	if eventExists(t, dbPath, "evt-a2") || eventExists(t, dbPath, "evt-a3") {
+		t.Fatal("ordinary prompt duplicates must still be archived")
+	}
+}
+
+func TestStoreManagementDatasource_DedupeContentEvents_AuditHeldRowKeepsItsClusterIntact(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	rows := []struct{ id, createdAt string }{
+		{"evt-n1", "2026-04-10T00:00:00Z"},
+		{"evt-n2", "2026-04-10T00:00:09Z"},
+		{"evt-n3", "2026-04-10T00:00:18Z"},
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+			 VALUES (?, 'prompt', 'codex', 's12', 'w1', 'audit middle body', ?, 'user_prompt_submit', 'hook')`,
+			r.id, r.createdAt,
+		); err != nil {
+			t.Fatalf("insert %s error = %v", r.id, err)
+		}
+	}
+	if _, err := db.Exec(
+		`INSERT INTO command_audits(event_id, command_text, input_text, output_text) VALUES ('evt-n2', 'echo', '', '')`,
+	); err != nil {
+		t.Fatalf("attach command audit to middle row: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close() error = %v", err)
+	}
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-run-audit-cluster",
+		Now: time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	if diff := cmp.Diff(map[string][]string{
+		"evt-a1": {"evt-a2", "evt-a3"},
+		"evt-c1": {"evt-c2"},
+		"evt-n1": {"evt-n3"},
+	}, groupByKept(result)); diff != "" {
+		t.Errorf("plan (-want +got):\n%s", diff)
+	}
+
+	verify, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = verify.Close() }()
+	var survivors string
+	if err := verify.QueryRow(
+		`SELECT group_concat(id, ',') FROM (SELECT id FROM events WHERE id LIKE 'evt-n%' ORDER BY id)`,
+	).Scan(&survivors); err != nil {
+		t.Fatalf("read survivors error = %v", err)
+	}
+	if survivors != "evt-n1,evt-n2" {
+		t.Errorf("survivors = %q, want evt-n1,evt-n2 (the audit-held row stays, the duplicate goes)", survivors)
+	}
+	var audits int
+	if err := verify.QueryRow(`SELECT COUNT(*) FROM command_audits WHERE event_id = 'evt-n2'`).Scan(&audits); err != nil {
+		t.Fatalf("count command_audits: %v", err)
+	}
+	if audits != 1 {
+		t.Fatalf("command_audits for evt-n2 = %d, want 1", audits)
+	}
+}

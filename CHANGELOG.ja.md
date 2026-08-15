@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **content-event dedupe は command audit を CASCADE 削除しない (#1862)** — `command_audits` が付いた prompt/transcript はクラスタには残る（proximity が割れない）が archive / delete されない。stale plan でも apply の last-line guard が同じ行を飛ばす。scratch: pair の後の transcript に audit を付けて apply しても audit とその event は残り、通常の prompt 重複は動く。
 - **content-event dedupe は session refinement の coverage endpoint を kept twin に付け替える (#1777)** — apply は event delete と同じ transaction で `covers_from` / `covers_to` を書き換え、欠けた join で `SaveIfAdvances` が凍結しない。live store（`sqlite3` `mode=ro`、2026-08-16）: refinement 9 件、dangling endpoint 0。scratch: `DedupeContentEvents` apply のあと、後続の unique turn への `SaveIfAdvances` が成功する。
 - **hook の session 単位 marker は `a/b` と `a:b` を同一視しない (#1716)** — `ended` / `wake-injected` / `active-subagents` のファイル名は `client-` + `sha256(client + NUL + 生 session id)`。旧 sanitiser の `client-a_b` は hit にならない。scratch: `a/b` を ended にしても `a:b` は already recorded ではない。
 - **Grok Stop / queue は readiness で読んだ turn を永続化し、書き込みなしで `recorded` 終端しない (#1713)** — Stop と transcript worker は `inspectGrokTranscript` が読んだ blocks を `runHookTranscriptWithBlocks` に渡し、wire log を再抽出しない。worker は persist が `recorded=true` のときだけ `recorded` 終端し、fail-soft skip は job を pending のまま残す。immediate Stop は書き込みが無いとき durable worker を schedule する。scratch: `hook grok stop` のあと `updates.jsonl` を消しても、初回読みの本文を持つ `kind=transcript` が 1 行残る。

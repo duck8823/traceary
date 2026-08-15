@@ -55,6 +55,12 @@ type dedupeMemberRef struct {
 	// also references events(id) ON DELETE RESTRICT. Same clustering rule as
 	// retentionHeld: stay visible, never archive.
 	attested bool
+	// auditHeld marks a row that carries a command_audits row. That table
+	// references events(id) ON DELETE CASCADE, and the quarantine archive
+	// copies event columns only — deleting the event would drop the audit
+	// with no restore path (#1862). Same clustering rule: stay visible,
+	// never archive.
+	auditHeld bool
 }
 
 // dedupeGroupKey is the duplicate-identity tuple. It intentionally matches the
@@ -248,7 +254,9 @@ type dedupeSurvey struct {
 // identifyDedupeGroups streams every eligible hook content event and records
 // which identity group each row belongs to, without retaining any body.
 // Eligibility is enforced in SQL (client='hook', kind in prompt/transcript) so
-// command audits and non-hook writes never enter the maintenance path.
+// ordinary command_executed rows and non-hook writes never enter the
+// maintenance path. A prompt/transcript that still carries a command_audits
+// row stays in the scan (so clustering does not split) but is never archived.
 //
 // created_at is parsed in Go (RFC3339Nano) rather than ordered lexically in SQL,
 // because formatTimestamp emits variable-width fractional seconds that are not
@@ -296,6 +304,7 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 	query := `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook,
 	       ` + dedupeRetentionHeldProjection(scope) + `,
 	       ` + dedupeAttestedProjection(scope) + `,
+	       ` + dedupeAuditHeldProjection(scope) + `,
 	       ` + payloadColumns + `
 	            FROM events
 	           WHERE ` + dedupeEligibilityFilter(scope)
@@ -326,11 +335,11 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 		var (
 			id, kind, client, rowAgent, sessionID, workspace, createdAt string
 			sourceHook                                                  sql.NullString
-			retentionHeld, attested                                     int
+			retentionHeld, attested, auditHeld                          int
 			payload                                                     payloadRow
 			storedLength                                                sql.NullInt64
 		)
-		destinations := []any{&id, &kind, &client, &rowAgent, &sessionID, &workspace, &createdAt, &sourceHook, &retentionHeld, &attested}
+		destinations := []any{&id, &kind, &client, &rowAgent, &sessionID, &workspace, &createdAt, &sourceHook, &retentionHeld, &attested, &auditHeld}
 		if hasCodec {
 			destinations = append(destinations, payload.scanDestinations()...)
 		} else {
@@ -365,6 +374,7 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 			parsedAt:      parsed,
 			retentionHeld: retentionHeld != 0,
 			attested:      attested != 0,
+			auditHeld:     auditHeld != 0,
 			parseOK:       parseErr == nil,
 		})
 		survey.scannedBySource[dedupeSourceKey{agent: key.agent, hook: key.sourceHook}]++
@@ -415,6 +425,7 @@ type dedupeEligibilityScope struct {
 	hasBodyAvailability bool
 	hasRetentionLedger  bool
 	hasAttestationLinks bool
+	hasCommandAudits    bool
 }
 
 func resolveDedupeEligibilityScope(ctx context.Context, db *sql.DB) (dedupeEligibilityScope, error) {
@@ -430,10 +441,15 @@ func resolveDedupeEligibilityScope(ctx context.Context, db *sql.DB) (dedupeEligi
 	if err != nil {
 		return dedupeEligibilityScope{}, err
 	}
+	hasCommandAudits, err := databaseTableExists(ctx, db, "command_audits")
+	if err != nil {
+		return dedupeEligibilityScope{}, err
+	}
 	return dedupeEligibilityScope{
 		hasBodyAvailability: hasBodyAvailability,
 		hasRetentionLedger:  hasRetentionLedger,
 		hasAttestationLinks: hasAttestationLinks,
+		hasCommandAudits:    hasCommandAudits,
 	}, nil
 }
 
@@ -486,6 +502,32 @@ func dedupeAttestedProjection(scope dedupeEligibilityScope) string {
 		return "0"
 	}
 	return "EXISTS (SELECT 1 FROM attestation_links a WHERE a.event_id = events.id)"
+}
+
+func dedupeAuditHeldProjection(scope dedupeEligibilityScope) string {
+	if !scope.hasCommandAudits {
+		return "0"
+	}
+	return "EXISTS (SELECT 1 FROM command_audits c WHERE c.event_id = events.id)"
+}
+
+func eventHasCommandAudit(ctx context.Context, tx *sql.Tx, eventID string) (bool, error) {
+	enabled, err := tableExistsInTransaction(ctx, tx, "command_audits")
+	if err != nil {
+		return false, err
+	}
+	if !enabled {
+		return false, nil
+	}
+	var exists int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM command_audits WHERE event_id = ?)`,
+		eventID,
+	).Scan(&exists); err != nil {
+		return false, xerrors.Errorf("inspect command audit for %s: %w", eventID, err)
+	}
+	return exists != 0, nil
 }
 
 func (d *StoreManagementDatasource) countDedupeCandidates(
@@ -626,7 +668,7 @@ func planContentEventDedupe(survey dedupeSurvey, strict bool) dedupePlan {
 func archivableDuplicates(candidates []dedupeMemberRef) []dedupeMemberRef {
 	archivable := make([]dedupeMemberRef, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.retentionHeld || candidate.attested {
+		if candidate.retentionHeld || candidate.attested || candidate.auditHeld {
 			continue
 		}
 		archivable = append(archivable, candidate)
@@ -811,6 +853,16 @@ func (d *StoreManagementDatasource) archiveDedupeBatch(
 		if attested {
 			// RESTRICT would fail the whole batch. The planner already drops
 			// attested ids; this is the last-line guard if a plan is stale.
+			continue
+		}
+		auditHeld, auditErr := eventHasCommandAudit(ctx, tx, target.id)
+		if auditErr != nil {
+			return auditErr
+		}
+		if auditHeld {
+			// CASCADE would drop the audit with no archive row (#1862).
+			// The planner already drops audit-held ids; this is the last-line
+			// guard if a plan is stale.
 			continue
 		}
 		if _, err := tx.ExecContext(
