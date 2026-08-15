@@ -72,14 +72,6 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 			return application.CompactResult{}, fmt.Errorf("compact --force requested but no work-copy cover is bound")
 		}
 	}
-	var reclaim application.CommandBodyReclaim
-	if inspector, ok := u.builder.(application.CommandBodyReclaimInspector); ok {
-		measured, inspectErr := inspector.InspectCommandBodyReclaim(ctx, source)
-		if inspectErr != nil {
-			return application.CompactResult{}, inspectErr
-		}
-		reclaim = measured
-	}
 	before, beforeErr := os.Stat(source)
 	if beforeErr != nil {
 		return application.CompactResult{}, fmt.Errorf("stat compaction source: %w", beforeErr)
@@ -89,6 +81,16 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		return application.CompactResult{}, err
 	}
 	defer release()
+	// Measure after the exclusive lease so released_* matches the work-copy
+	// clear. A pre-lease SUM can miss a writer that lands before the copy.
+	var reclaim application.CommandBodyReclaim
+	if inspector, ok := u.builder.(application.CommandBodyReclaimInspector); ok {
+		measured, inspectErr := inspector.InspectCommandBodyReclaim(ctx, source)
+		if inspectErr != nil {
+			return application.CompactResult{}, inspectErr
+		}
+		reclaim = measured
+	}
 	run, err := u.compactLeased(ctx, source)
 	if err != nil {
 		return application.CompactResult{}, err
