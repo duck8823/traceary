@@ -1236,13 +1236,11 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 			slog.Debug("search projection FTS reclaim failed", "error", reclaimErr)
 		}
 	}
-	// Re-derive the source ceiling once the generation is in eviction, after
-	// reclaim, in its own bounded write fenced on generation_id + phase +
-	// capacity_rederived=0. The transition is no longer the only trigger: a
-	// later eviction apply retries if the first write crashed. Failure leaves
-	// the Start-time ceiling in place. A single eviction batch may therefore
-	// still run against that estimate if re-derivation loses the race.
-	if p.Phase == "eviction" || next == "eviction" {
+	// Re-derive after the generation has left source. The first write can
+	// crash after an eviction→cleanup (or completion) commit; later cleanup
+	// or the completing apply must still see capacity_rederived=0 and retry.
+	// Source batches stay skipped so every source row does not walk dbstat.
+	if p.Phase != "source" || next == "eviction" || p.Completed {
 		d.recordSearchProjectionCapacityRederivation(ctx, db, p.GenerationID, now)
 	}
 	// Cutover evidence is recorded after the completion is durable. Measuring

@@ -72,6 +72,37 @@ func TestSearchProjectionCapacityRederiveRetriesAfterMissedTransition(t *testing
 	}
 }
 
+// TestSearchProjectionCapacityRederiveRetriesAfterCleanupTransition is red
+// if re-derivation is only invoked from eviction-phase applies: a crash
+// after the eviction→cleanup commit leaves capacity_rederived=0 and
+// later cleanup batches would never retry.
+func TestSearchProjectionCapacityRederiveRetriesAfterCleanupTransition(t *testing.T) {
+	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
+		{"e1", strings.Repeat("cleanup retry corpus word ", 80), "2026-06-01T12:00:00Z"},
+	})
+	now := time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
+	b := capacityBudget(64 << 20)
+	driveToEviction(t, store, db, b, now)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `UPDATE search_projection_state SET phase='cleanup', capacity_rederived=0, recent_source_ceiling_bytes=999999 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resumeProjection(ctx, store, b, now); err != nil {
+		t.Fatal(err)
+	}
+	var ceiling int64
+	var rederived int
+	if err := db.QueryRow(`SELECT recent_source_ceiling_bytes,capacity_rederived FROM search_projection_state`).Scan(&ceiling, &rederived); err != nil {
+		t.Fatal(err)
+	}
+	if ceiling == 999999 {
+		t.Fatal("ceiling still Start-time pin after cleanup-phase retry")
+	}
+	if rederived != 1 {
+		t.Fatalf("capacity_rederived=%d, want 1", rederived)
+	}
+}
+
 // TestSearchProjectionCapacityDerivationUsesConsistentSnapshot is red if
 // dbstat and SUM(decoded_bytes) are separate statements: a concurrent delete
 // between them inflates PPM above the consistent snapshot value.
