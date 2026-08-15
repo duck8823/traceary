@@ -1105,6 +1105,186 @@ func TestTieredAuthorityBodyUpdateOfProjectedEventDriftsAndAnswersMutated(t *tes
 	}
 }
 
+// TestTieredAuthorityCodecMetadataUpdateDriftsProjectedEvent is #1737:
+// a codec-column-only UPDATE must drift a complete generation so stale
+// fingerprints cannot silently exclude the row.
+func TestTieredAuthorityCodecMetadataUpdateDriftsProjectedEvent(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	updates := []struct {
+		name string
+		sql  string
+	}{
+		{name: "body_codec", sql: `UPDATE events SET body_codec='identity' WHERE id='projected'`},
+		{name: "body_format_version", sql: `UPDATE events SET body_format_version=1 WHERE id='projected'`},
+		{name: "body_plaintext_bytes", sql: `UPDATE events SET body_plaintext_bytes=6 WHERE id='projected'`},
+		{name: "body_encoded_bytes", sql: `UPDATE events SET body_encoded_bytes=6 WHERE id='projected'`},
+		{name: "body_sha256", sql: `UPDATE events SET body_sha256='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' WHERE id='projected'`},
+	}
+
+	for _, tc := range updates {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			database, _ := newTieredAuthorityFixture(t)
+			insertTieredSearchEvent(t, database, "projected", "needle", base)
+			seedTieredCompleteProjection(t, database, "gen-codec")
+			seedLiteralFingerprints(t, database, "gen-codec", "projected", "needle")
+
+			raw, err := database.open(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = raw.ExecContext(ctx, tc.sql); err != nil {
+				_ = raw.Close()
+				t.Fatal(err)
+			}
+			_ = raw.Close()
+
+			literalState, boundedState := readProjectionStates(t, database)
+			if boundedState != "drifted" {
+				t.Fatalf("bounded state = %q, want drifted after codec-only %s", boundedState, tc.name)
+			}
+			if literalState != "stale" {
+				t.Fatalf("literal state = %q, want stale after codec-only %s", literalState, tc.name)
+			}
+		})
+	}
+}
+
+func TestTieredAuthorityCompleteIdentityCodecUpdateStillAnswers(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	insertTieredSearchEvent(t, database, "projected", "needle", base)
+	seedTieredCompleteProjection(t, database, "gen-codec-full")
+	seedLiteralFingerprints(t, database, "gen-codec-full", "projected", "needle")
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `
+		UPDATE events
+		   SET body_codec='identity',
+		       body_format_version=1,
+		       body_plaintext_bytes=6,
+		       body_encoded_bytes=6,
+		       body_sha256='09881f6ed93360a2f6ad81f435a8ca51ca4575d0f954f197ff8f7d16c6565562'
+		 WHERE id='projected'`); err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	_, boundedState := readProjectionStates(t, database)
+	if boundedState != "drifted" {
+		t.Fatalf("bounded state = %q, want drifted after complete identity codec write", boundedState)
+	}
+
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	got, searchErr := datasource.SearchMetadata(ctx, criteria)
+	if searchErr != nil {
+		t.Fatalf("SearchMetadata() error = %v, want decode after drift", searchErr)
+	}
+	if diff := cmp.Diff([]string{"projected"}, metadataIDs(got)); diff != "" {
+		t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestTieredAuthorityCodecMetadataUpdateBumpsRebuildRevision(t *testing.T) {
+	ctx := context.Background()
+	database, _ := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	insertTieredSearchEvent(t, database, "projected", "needle", base)
+	seedTieredCompleteProjection(t, database, "gen-rebuild")
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	if _, err = raw.ExecContext(ctx, `UPDATE search_projection_state SET state='rebuilding', phase='source' WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	var before int64
+	if err = raw.QueryRowContext(ctx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.ExecContext(ctx, `UPDATE events SET body_codec='identity' WHERE id='projected'`); err != nil {
+		t.Fatal(err)
+	}
+	var after int64
+	if err = raw.QueryRowContext(ctx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after <= before {
+		t.Fatalf("source revision %d -> %d, want bump after codec-only update during rebuild", before, after)
+	}
+}
+
+func TestSearchInvalidatorsWatchEveryDecoderColumn(t *testing.T) {
+	selectSQL := eventPayloadDecoderSelectSQL()
+	for _, column := range eventPayloadDecoderColumns {
+		if !strings.Contains(selectSQL, column) {
+			t.Fatalf("decoder SELECT does not include %s: %s", column, selectSQL)
+		}
+	}
+	if got, want := len((&payloadRow{}).scanDestinations()), len(eventPayloadDecoderColumns); got != want {
+		t.Fatalf("scanDestinations() len = %d, want %d to match eventPayloadDecoderColumns", got, want)
+	}
+
+	ctx := context.Background()
+	database, _ := newTieredAuthorityFixture(t)
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+
+	triggers := []string{
+		"search_projection_complete_event_update",
+		"search_projection_events_update",
+		"literal_search_event_update",
+	}
+	for _, name := range triggers {
+		var sqlText string
+		if err = raw.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?`, name).Scan(&sqlText); err != nil {
+			t.Fatalf("read trigger %s: %v", name, err)
+		}
+		upper := strings.ToUpper(sqlText)
+		of := strings.Index(upper, "UPDATE OF ")
+		on := strings.Index(upper, " ON EVENTS")
+		if of < 0 || on < 0 || on <= of {
+			t.Fatalf("trigger %s has no UPDATE OF … ON events clause: %s", name, sqlText)
+		}
+		watched := "," + strings.ReplaceAll(strings.ToLower(sqlText[of+len("UPDATE OF "):on]), " ", "") + ","
+		for _, column := range eventPayloadDecoderColumns {
+			if !strings.Contains(watched, ","+column+",") {
+				t.Fatalf("trigger %s does not watch decoder column %s: %s", name, column, sqlText)
+			}
+		}
+	}
+}
+
+func TestEventsIDIsImmutable(t *testing.T) {
+	ctx := context.Background()
+	database, _ := newTieredAuthorityFixture(t)
+	insertTieredSearchEvent(t, database, "projected", "needle", time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	_, err = raw.ExecContext(ctx, `UPDATE events SET id='renamed' WHERE id='projected'`)
+	if err == nil {
+		t.Fatal("UPDATE events.id error = nil, want immutable abort")
+	}
+	if !strings.Contains(err.Error(), "events.id is immutable") {
+		t.Fatalf("UPDATE events.id error = %v, want immutable abort", err)
+	}
+}
+
 func TestTieredAuthorityAuditInsertOnProjectedEventDriftsAndAnswers(t *testing.T) {
 	// Case 3: command_audits insert against an already-projected event
 	// (sequence <= high_water) → bounded drifted → search still finds the

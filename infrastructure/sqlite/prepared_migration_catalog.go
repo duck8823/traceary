@@ -89,6 +89,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// (one row per budget-rejected source event, not events), so this stays
 	// constant_in_place rather than a prepared offline rewrite.
 	62: {62, "000062_search_projection_exclusion_row_work.sql", "0c5999e55f7019cbe30235e30696a104b20e2261d8c7a0289fed11dfbc5e1d47", MigrationConstantInPlace},
+	// 63 only drops and recreates three invalidator triggers plus one
+	// events.id immutability guard. No data scan or rewrite.
+	63: {63, "000063_watch_decoder_columns_on_search_invalidators.sql", "3cd33611da576a9b544c214f0e9b49ae6067f422f4c21ffd28f546f3bad25ef2", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

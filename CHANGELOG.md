@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Search-projection invalidators watch every decoder column (#1737)** — a codec-metadata-only update of a projected event now drifts a complete generation and bumps `search_projection_source_revision` during rebuild. `events.id` is immutable at the database instead of being watched. Body / retention / redaction paths that already mention `body` are unchanged.
 - **Structural (empty-query) search is not gated on the literal projection (#1736)** — workspace, session, kind, and time filters run against canonical tables even while the literal generation is rebuilding, failed, or drifted. Invalid offset, limit, and from/to still fail closed. Non-empty queries still fail open onto a decode walk when the generation is unusable.
 
 ## [v0.36.0] - 2026-08-15
