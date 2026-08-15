@@ -13,6 +13,23 @@ import (
 // ResolveDBPath exposes resolveDBPath for tests.
 var ResolveDBPath = resolveDBPath
 
+// PersistTestHookSpoolRecord writes a replayable spool record for tests.
+func PersistTestHookSpoolRecord(command, client, payload string) (string, error) {
+	return persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       command,
+		Client:        client,
+		Payload:       payload,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	})
+}
+
+// DrainTestHookSpoolRecords replays pending spool records through the
+// production drain path.
+func (c *RootCLI) DrainTestHookSpoolRecords(ctx context.Context, limit int) (replayed, failed int) {
+	return c.drainHookSpoolRecords(ctx, limit)
+}
+
 // ExpectedCodexPluginHookCount exposes the current packaged hook cardinality
 // so black-box doctor tests cannot silently drift from the production contract.
 var ExpectedCodexPluginHookCount = expectedCodexPluginHookCount

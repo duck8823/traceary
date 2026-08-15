@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **spool と generic な Kimi transcript 記録が turn guard を継承する (#1696)** — `hook transcript kimi` と `command=transcript` の spool replay は、`hook kimi stop` と同じ (session, wire turn, fingerprint) ガードを通る。live store（`mode=ro`、2026-08-15）: `source_hook=stop` / `kind=transcript` / `agent=kimi` は 249,042 件（`client` は `hook`）。`hook_deliveries` に Kimi の `stop` 行はないので spool と live はそこでは分けられない。fail-open と成長 turn の記録は変えない。
+
 ## [v0.37.0] - 2026-08-15
 
 ### Changed

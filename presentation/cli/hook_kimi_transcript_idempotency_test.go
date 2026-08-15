@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -471,6 +472,104 @@ func TestRootCLI_HookKimiStop_TranscriptTurnIdempotency(t *testing.T) {
 			t.Fatalf("transcript body = %q, want it to contain the wire log text", retryEvent.logCalls[0].message)
 		}
 	})
+}
+
+// TestRootCLI_HookTranscriptAndSpoolInheritKimiTurnGuard is #1696: the
+// generic hook transcript command and spool replay of command=transcript
+// must use the same (session, wire turn, fingerprint) guard as Stop.
+func TestRootCLI_HookTranscriptAndSpoolInheritKimiTurnGuard(t *testing.T) {
+	const sessionID = "session_00000000-0000-4000-8000-000000000001"
+
+	setup := func(t *testing.T, key string) (string, *eventUsecaseStub, *sessionUsecaseStub) {
+		t.Helper()
+		t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+		t.Setenv("TRACEARY_HOOK_STATE_KEY", key)
+		t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+		homeDir := t.TempDir()
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		seedKimiSession(t, homeDir, sessionID, []string{
+			`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+			`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"inherited guard reply"}}}`,
+		})
+		return readKimiFixture(t, "stop.json"), &eventUsecaseStub{}, &sessionUsecaseStub{}
+	}
+
+	t.Run("generic hook transcript kimi does not re-record an already recorded turn", func(t *testing.T) {
+		payload, eventStub, sessionStub := setup(t, "kimi-turn-inherit-generic")
+		runKimiHook(t, "stop", payload, eventStub, sessionStub)
+		if got := len(eventStub.logCalls); got != 1 {
+			t.Fatalf("Stop log calls = %d, want 1", got)
+		}
+		runHookTranscriptCommand(t, "kimi", payload, eventStub, sessionStub)
+		if got := len(eventStub.logCalls); got != 1 {
+			t.Fatalf("after hook transcript kimi: log calls = %d, want 1 (guard must inherit)", got)
+		}
+	})
+
+	t.Run("spool replay of command=transcript does not re-record an already recorded turn", func(t *testing.T) {
+		payload, eventStub, sessionStub := setup(t, "kimi-turn-inherit-spool")
+		root := runKimiHookRoot(t, "stop", payload, eventStub, sessionStub)
+		if got := len(eventStub.logCalls); got != 1 {
+			t.Fatalf("Stop log calls = %d, want 1", got)
+		}
+		if _, err := cli.PersistTestHookSpoolRecord("transcript", "kimi", payload); err != nil {
+			t.Fatalf("persist spool transcript: %v", err)
+		}
+		replayed, failed := root.DrainTestHookSpoolRecords(context.Background(), 5)
+		if replayed != 1 || failed != 0 {
+			t.Fatalf("drain transcript spool: replayed=%d failed=%d, want 1/0", replayed, failed)
+		}
+		if got := len(eventStub.logCalls); got != 1 {
+			t.Fatalf("after transcript spool replay: log calls = %d, want 1 (guard must inherit)", got)
+		}
+	})
+}
+
+func runHookTranscriptCommand(
+	t *testing.T,
+	client string,
+	payload string,
+	eventStub *eventUsecaseStub,
+	sessionStub *sessionUsecaseStub,
+) {
+	t.Helper()
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSession(sessionStub),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "transcript", client})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(hook transcript %s) error = %v", client, err)
+	}
+}
+
+func runKimiHookRoot(
+	t *testing.T,
+	event string,
+	payload string,
+	eventStub *eventUsecaseStub,
+	sessionStub *sessionUsecaseStub,
+) *cli.RootCLI {
+	t.Helper()
+	root := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(eventStub),
+		cli.WithSession(sessionStub),
+	)
+	rootCmd := root.Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetArgs([]string{"hook", "kimi", event})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(hook kimi %s) error = %v", event, err)
+	}
+	return root
 }
 
 // appendKimiWireRow appends one more row to an already-seeded session's
