@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -27,6 +28,29 @@ var eventPayloadDecoderColumns = []string{
 	"body_sha256",
 }
 
+// eventPayloadDecoderSelectSQL is the single SELECT hydrateEventPayload and
+// loadEventPlaintext issue. Column order matches payloadRow.scanDestinations
+// plus the stored-length bound. Adding a decoder dependency means adding it
+// here; TestSearchInvalidatorsWatchEveryDecoderColumn then fails until the
+// invalidators watch it.
+func eventPayloadDecoderSelectSQL() string {
+	body := eventPayloadDecoderColumns[0]
+	var builder strings.Builder
+	builder.WriteString("SELECT CASE WHEN length(CAST(")
+	builder.WriteString(body)
+	builder.WriteString(" AS BLOB)) <= ? THEN ")
+	builder.WriteString(body)
+	builder.WriteString(" END")
+	for _, column := range eventPayloadDecoderColumns[1:] {
+		builder.WriteString(", ")
+		builder.WriteString(column)
+	}
+	builder.WriteString(", length(CAST(")
+	builder.WriteString(body)
+	builder.WriteString(" AS BLOB)) FROM events WHERE id=?")
+	return builder.String()
+}
+
 // hydrateEventPayload is the central logical-body boundary. Metadata-free rows
 // are legacy identity. Physical bytes never escape this adapter.
 func hydrateEventPayload(ctx context.Context, q queryRowContexter, event *model.Event) (*model.Event, error) {
@@ -46,7 +70,7 @@ func hydrateEventPayload(ctx context.Context, q queryRowContexter, event *model.
 	var row payloadRow
 	var storedLength sql.NullInt64
 	destinations := append(row.scanDestinations(), &storedLength)
-	if err := q.QueryRowContext(ctx, `SELECT CASE WHEN length(CAST(body AS BLOB)) <= ? THEN body END, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256, length(CAST(body AS BLOB)) FROM events WHERE id=?`, maxStoredPayloadBytes, event.EventID().String()).Scan(destinations...); err != nil {
+	if err := q.QueryRowContext(ctx, eventPayloadDecoderSelectSQL(), maxStoredPayloadBytes, event.EventID().String()).Scan(destinations...); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, xerrors.Errorf("event payload disappeared: %s", event.EventID())
 		}
@@ -160,7 +184,7 @@ func loadEventPlaintext(ctx context.Context, q queryRowContexter, eventID string
 	var row payloadRow
 	var storedLength sql.NullInt64
 	destinations := append(row.scanDestinations(), &storedLength)
-	if err := q.QueryRowContext(ctx, `SELECT CASE WHEN length(CAST(body AS BLOB)) <= ? THEN body END, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256, length(CAST(body AS BLOB)) FROM events WHERE id=?`, maxStoredPayloadBytes, eventID).Scan(destinations...); err != nil {
+	if err := q.QueryRowContext(ctx, eventPayloadDecoderSelectSQL(), maxStoredPayloadBytes, eventID).Scan(destinations...); err != nil {
 		return nil, xerrors.Errorf("read event payload row: %w", err)
 	}
 	if storedLength.Valid && storedLength.Int64 > maxStoredPayloadBytes {

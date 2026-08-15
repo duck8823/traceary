@@ -1224,6 +1224,16 @@ func TestTieredAuthorityCodecMetadataUpdateBumpsRebuildRevision(t *testing.T) {
 }
 
 func TestSearchInvalidatorsWatchEveryDecoderColumn(t *testing.T) {
+	selectSQL := eventPayloadDecoderSelectSQL()
+	for _, column := range eventPayloadDecoderColumns {
+		if !strings.Contains(selectSQL, column) {
+			t.Fatalf("decoder SELECT does not include %s: %s", column, selectSQL)
+		}
+	}
+	if got, want := len((&payloadRow{}).scanDestinations()), len(eventPayloadDecoderColumns); got != want {
+		t.Fatalf("scanDestinations() len = %d, want %d to match eventPayloadDecoderColumns", got, want)
+	}
+
 	ctx := context.Background()
 	database, _ := newTieredAuthorityFixture(t)
 	raw, err := database.open(ctx)
