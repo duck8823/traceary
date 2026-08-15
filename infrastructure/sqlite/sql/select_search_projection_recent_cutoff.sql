@@ -1,6 +1,8 @@
--- Source-phase prefilter: walk the corpus newest-first and find the first
--- created_at_norm at which the running sum of *prefilter* source bytes exceeds
--- the walk ceiling (caller applies a slack factor — see deriveSearchProjectionRecentCutoff).
+-- Source-phase prefilter: walk the newest N rows (first bind: LIMIT) and
+-- find the first created_at_norm at which the running sum of *prefilter*
+-- source bytes exceeds the walk ceiling (second bind). Caller applies slack
+-- — see deriveSearchProjectionRecentCutoff. N is a work bound so a large
+-- store still gets an answer (#1807). Eviction enforces the exact ceiling.
 --
 -- This is a build-cost bound, not an enforcement mechanism. Eviction enforces
 -- the exact recent_source_ceiling_bytes. The prefilter's byte unit differs from
@@ -14,20 +16,36 @@
 --
 -- The byte expression reuses SelectSnapshot-style COALESCE + CAST-as-BLOB
 -- accounting (length() on TEXT counts characters, not bytes — #1749).
--- No row means the whole corpus fits under the walk ceiling; the caller leaves
--- the cutoff empty.
+-- No row means the sampled window fits under the walk ceiling; the caller
+-- then distinguishes "whole corpus fits" from "sample exhausted".
 SELECT created_at_norm FROM (
-  SELECT e.created_at_norm AS created_at_norm,
-         SUM(CASE WHEN e.body_availability = 'available'
-                  THEN COALESCE(e.body_plaintext_bytes, e.body_stored_bytes, length(CAST(e.body AS BLOB)), 0)
+  SELECT created_at_norm,
+         SUM(CASE WHEN body_availability = 'available'
+                  THEN COALESCE(body_plaintext_bytes, body_stored_bytes, length(CAST(body AS BLOB)), 0)
                   ELSE 0 END
-             + COALESCE(a.command_plaintext_bytes, length(CAST(a.command_text AS BLOB)), 0)
-             + COALESCE(a.input_plaintext_bytes, length(CAST(a.input_text AS BLOB)), 0)
-             + COALESCE(a.output_plaintext_bytes, length(CAST(a.output_text AS BLOB)), 0))
-           OVER (ORDER BY e.created_at_norm DESC, e.id DESC) AS running
-    FROM events e
-    LEFT JOIN command_audits a ON a.event_id = e.id
-   ORDER BY e.created_at_norm DESC, e.id DESC
-) WHERE running > ?
-ORDER BY created_at_norm DESC
-LIMIT 1
+             + COALESCE(command_plaintext_bytes, length(CAST(command_text AS BLOB)), 0)
+             + COALESCE(input_plaintext_bytes, length(CAST(input_text AS BLOB)), 0)
+             + COALESCE(output_plaintext_bytes, length(CAST(output_text AS BLOB)), 0))
+           OVER (ORDER BY created_at_norm DESC, id DESC) AS running
+    FROM (
+      SELECT e.created_at_norm AS created_at_norm,
+             e.id AS id,
+             e.body_availability AS body_availability,
+             e.body_plaintext_bytes AS body_plaintext_bytes,
+             e.body_stored_bytes AS body_stored_bytes,
+             e.body AS body,
+             a.command_plaintext_bytes AS command_plaintext_bytes,
+             a.command_text AS command_text,
+             a.input_plaintext_bytes AS input_plaintext_bytes,
+             a.input_text AS input_text,
+             a.output_plaintext_bytes AS output_plaintext_bytes,
+             a.output_text AS output_text
+        FROM events e
+        LEFT JOIN command_audits a ON a.event_id = e.id
+       ORDER BY e.created_at_norm DESC, e.id DESC
+       LIMIT ?
+    ) newest
+) ranked
+ WHERE running > ?
+ ORDER BY created_at_norm DESC
+ LIMIT 1

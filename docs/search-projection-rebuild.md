@@ -252,12 +252,16 @@ previous generation stays fully resident — that is what keeps search answerabl
 the rebuild — and is reclaimed only in the terminal cleanup phase.
 
 The source-phase cutoff is a **build-cost bound, not an enforcement mechanism**. It
-walks the corpus newest-first over stored envelope bytes, which is not the unit the
+walks the newest 20,000 source rows (not a wall-clock timeout) over stored envelope
+bytes, which is not the unit the
 projection indexes: `thinking` blocks count toward the walk but are stripped from the
 indexed text, so a reasoning-heavy corpus over-counts. The walk therefore runs against
 four times the derived ceiling, so it excludes only what is clearly beyond reach and
-leaves the exact decision to eviction. What it excludes it excludes irreversibly for
-that generation — eviction can drop documents, never re-project them.
+leaves the exact decision to eviction. If those 20,000 newest rows never cross the
+walk ceiling, the cutoff is the oldest of them rather than empty (age-only). What it
+excludes it excludes irreversibly for
+that generation — eviction can drop documents, never re-project them. See
+[search-projection-recent-cutoff](research/search-projection-recent-cutoff.md).
 
 When the permanent tiers alone exhaust the budget and the derived ceiling is 0, the
 cutoff empties the recent tier by building nothing, rather than building the whole age

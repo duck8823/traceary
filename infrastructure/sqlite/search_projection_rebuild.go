@@ -28,6 +28,9 @@ var selectSearchProjectionFamilyTotalSQL string
 //go:embed sql/select_search_projection_recent_cutoff.sql
 var selectSearchProjectionRecentCutoffSQL string
 
+//go:embed sql/select_search_projection_recent_cutoff_sample_tail.sql
+var selectSearchProjectionRecentCutoffSampleTailSQL string
+
 //go:embed sql/select_search_projection_logical_non_recent_bytes.sql
 var selectSearchProjectionLogicalNonRecentBytesSQL string
 
@@ -78,9 +81,24 @@ const searchProjectionFTSMergePages int64 = 16
 // remains durable when a later step fails.
 const searchProjectionFTSReclaimStepCap = 8
 
-// searchProjectionCutoffTimeout bounds the source-phase prefilter walk. A
-// timeout yields age-only retention; eviction still enforces the ceiling.
-const searchProjectionCutoffTimeout = 2 * time.Second
+// searchProjectionCutoffRowCap bounds the source-phase prefilter walk by
+// newest-row count, not wall-clock. A 2s timeout succeeded on small stores
+// (which do not need a cutoff) and failed on large ones (which do). A
+// sampled cutoff that is early only reduces build cost; eviction still
+// enforces the exact ceiling. Tests may override via
+// searchProjectionCutoffRowCapForTest.
+const searchProjectionCutoffRowCap int64 = 20_000
+
+// searchProjectionCutoffRowCapForTest, when > 0, replaces
+// searchProjectionCutoffRowCap for the current process.
+var searchProjectionCutoffRowCapForTest int64
+
+func searchProjectionRecentCutoffRowCap() int64 {
+	if searchProjectionCutoffRowCapForTest > 0 {
+		return searchProjectionCutoffRowCapForTest
+	}
+	return searchProjectionCutoffRowCap
+}
 
 // searchProjectionCutoffSlackFactor loosens the source-phase prefilter walk
 // ceiling relative to the derived source-text ceiling. The prefilter counts
@@ -1680,9 +1698,11 @@ func (d *Database) scopedNonRecentReserve(ctx context.Context, q interface {
 // from decoded_bytes in both directions (thinking blocks inflate the
 // prefilter; audit payloads can go the other way). Eviction enforces the
 // exact ceiling. Empty cutoff with empty reason means the whole corpus fits
-// under the walk ceiling (sql.ErrNoRows). Empty cutoff with a non-empty
-// reason means the prefilter did not run (timeout or error) and the caller
-// must fold the reason into capacity evidence.
+// under the walk ceiling (sample smaller than the row cap). Empty cutoff
+// with a non-empty reason means the prefilter did not run (cancel or error)
+// and the caller must fold the reason into capacity evidence. A row-capped
+// sample that never crosses persists the oldest sampled timestamp so large
+// stores do not fall back to age-only.
 //
 // A ceiling of 0 returns searchProjectionCutoffRetainNothing instead of an
 // empty cutoff. Empty means "everything qualifies", which at ceiling 0 would
@@ -1690,8 +1710,8 @@ func (d *Database) scopedNonRecentReserve(ctx context.Context, q interface {
 // of it — maximum build cost to retain nothing, on exactly the stores already
 // at their limit.
 //
-// Uses WithTimeout on the caller's context so a cancelled store open stops the
-// walk; the timeout is the upper bound.
+// Inherits the caller's context so a cancelled store open stops the walk.
+// The walk itself is row-capped (searchProjectionCutoffRowCap), not timed.
 func (d *Database) deriveSearchProjectionRecentCutoff(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, sourceCeiling int64) (cutoff string, reason string) {
@@ -1702,16 +1722,23 @@ func (d *Database) deriveSearchProjectionRecentCutoff(ctx context.Context, q int
 	// (thinking-heavy Claude Code transcripts) does not irreversibly shrink
 	// the recent window below what the true ceiling allows.
 	walkCeiling := mulDiv(sourceCeiling, searchProjectionCutoffSlackFactor, 1)
-	cutoffCtx, cancel := context.WithTimeout(ctx, searchProjectionCutoffTimeout)
-	defer cancel()
-	err := q.QueryRowContext(cutoffCtx, selectSearchProjectionRecentCutoffSQL, walkCeiling).Scan(&cutoff)
+	rowCap := searchProjectionRecentCutoffRowCap()
+	err := q.QueryRowContext(ctx, selectSearchProjectionRecentCutoffSQL, rowCap, walkCeiling).Scan(&cutoff)
 	if err == nil {
 		return cutoff, ""
 	}
-	if errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", "recent cutoff: " + truncateEvidenceReason(err.Error())
+	}
+	var sampled int64
+	var tail string
+	if err = q.QueryRowContext(ctx, selectSearchProjectionRecentCutoffSampleTailSQL, rowCap).Scan(&sampled, &tail); err != nil {
+		return "", "recent cutoff: " + truncateEvidenceReason(err.Error())
+	}
+	if sampled < rowCap || tail == "" {
 		return "", ""
 	}
-	return "", "recent cutoff: " + truncateEvidenceReason(err.Error())
+	return tail, ""
 }
 
 // foldEvidenceReason appends an additional capacity reason without inventing
