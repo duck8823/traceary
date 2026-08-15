@@ -13,6 +13,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -409,6 +410,65 @@ func TestMigrations_searchProjectionLifecycleBackfillsExactTerminalState(t *test
 			}
 			if got != want {
 				t.Fatalf("lifecycle state=%q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestMigrations_searchProjectionOriginBackfillsOperatorVsAutomatic(t *testing.T) {
+	t.Parallel()
+
+	// The 064 UPDATE hardcodes the then-current default hash. Keep it equal
+	// to DefaultSearchProjectionBudget so a later default change updates both
+	// the pin test and this historical backfill string together.
+	const defaultHashAt064 = "v4:8388608:8388608:8388608:2592000000000000:1535115264"
+	if got := apptypes.DefaultSearchProjectionBudget().ConfigHash(); got != defaultHashAt064 {
+		t.Fatalf("064 backfill hash %q != DefaultSearchProjectionBudget %q", defaultHashAt064, got)
+	}
+
+	for _, tc := range []struct {
+		name string
+		hash string
+		want string
+	}{
+		{name: "064-era default stays automatic", hash: defaultHashAt064, want: "automatic"},
+		{name: "custom hash becomes operator", hash: "v4:1:1:1:1:1", want: "operator"},
+		{name: "empty hash stays automatic", hash: "", want: "automatic"},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			dbPath := filepath.Join(t.TempDir(), "traceary.db")
+			store := newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 64))
+			if err := store.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize(pre-v064) error = %v", err)
+			}
+			db, err := sql.Open("sqlite", "file:"+dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(`UPDATE search_projection_state SET config_hash=? WHERE singleton=1`, tc.hash); err != nil {
+				t.Fatalf("seed hash: %v", err)
+			}
+			if err = db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			store = newStoreManagementDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+			if err = store.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize(v064) error = %v", err)
+			}
+			db, err = sql.Open("sqlite", "file:"+dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			var got string
+			if err = db.QueryRow(`SELECT origin FROM search_projection_state WHERE singleton=1`).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("origin=%q, want %q", got, tc.want)
 			}
 		})
 	}

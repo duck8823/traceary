@@ -43,6 +43,19 @@ type SearchProjectionObsoleteReplaceStore interface {
 	ReplaceObsoleteCapacityGeneration(context.Context, string, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error)
 }
 
+// SearchProjectionAutomaticStartStore starts a catch-up generation marked
+// automatic so a later default-budget change can replace it (#1861).
+type SearchProjectionAutomaticStartStore interface {
+	StartAutomatic(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error)
+}
+
+// SearchProjectionStaleAutomaticReplaceStore replaces an automatic generation
+// whose ConfigHash no longer matches the catch-up budget, in one fenced
+// transition. CatchUp must not Abandon then Start.
+type SearchProjectionStaleAutomaticReplaceStore interface {
+	ReplaceStaleAutomaticGeneration(context.Context, string, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error)
+}
+
 // SearchProjectionVerifyStore gates old-generation reclaim on a real
 // session-tier query against the generation under construction.
 type SearchProjectionVerifyStore interface {
@@ -67,6 +80,29 @@ func (u *SearchProjectionUsecase) StartGeneration(ctx context.Context, b apptype
 		return apptypes.SearchProjectionGeneration{}, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
 	}
 	return u.store.Start(ctx, b, now.UTC())
+}
+
+//nolint:wrapcheck // The application boundary preserves typed store errors.
+func (u *SearchProjectionUsecase) startAutomaticGeneration(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionGeneration, error) {
+	if auto, ok := u.store.(SearchProjectionAutomaticStartStore); ok {
+		if !b.Valid() {
+			return apptypes.SearchProjectionGeneration{}, &apptypes.SearchProjectionNoProgressError{Reason: "invalid generation budget"}
+		}
+		status, err := u.store.SearchProjectionControlStatus(ctx)
+		if err != nil {
+			return apptypes.SearchProjectionGeneration{}, xerrors.Errorf("inspect projection before automatic start: %w", err)
+		}
+		if status.State == "rebuilding" {
+			return apptypes.SearchProjectionGeneration{}, &apptypes.SearchProjectionNoProgressError{Reason: "a generation is already rebuilding"}
+		}
+		generation, err := auto.StartAutomatic(ctx, b, now.UTC())
+		if err != nil {
+			return apptypes.SearchProjectionGeneration{}, err
+		}
+		return generation, nil
+	}
+	// Test fakes without origin still start; they look operator-owned.
+	return u.StartGeneration(ctx, b, now)
 }
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.
@@ -386,13 +422,37 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		out.Completed = true
 		return out, nil
 	}
-	// Operator-owned rebuild with a different budget must not be hijacked.
-	// Only applies when capacity semantics match; obsolete versions are handled
-	// above regardless of ConfigHash.
+	// A hash mismatch is either a stale automatic default (#1861) or an
+	// operator-owned rebuild. Only the automatic case may be replaced.
+	// Obsolete versions are handled above regardless of ConfigHash.
 	if (status.State == "rebuilding" || (status.State == "drifted" && status.Phase == "cleanup")) &&
 		status.ConfigHash != "" && status.ConfigHash != b.ConfigHash() {
+		if status.Origin == apptypes.SearchProjectionOriginAutomatic {
+			replaceStore, ok := u.store.(SearchProjectionStaleAutomaticReplaceStore)
+			if !ok {
+				return out, &apptypes.SearchProjectionNoProgressError{Reason: "projection store does not support stale automatic generation replacement"}
+			}
+			slog.Info("search projection automatic generation budget stale; replacing generation",
+				"persisted_hash", status.ConfigHash,
+				"current_hash", b.ConfigHash(),
+				"generation_id", status.GenerationID,
+			)
+			generation, startErr := replaceStore.ReplaceStaleAutomaticGeneration(ctx, status.GenerationID, b, now.UTC())
+			if startErr != nil {
+				return out, startErr
+			}
+			out.Action = "start"
+			out.GenerationID = generation.GenerationID
+			progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
+			if resumeErr != nil {
+				return u.refreshCatchUpPosition(ctx, out), resumeErr
+			}
+			return u.finishCatchUpProgress(ctx, out, progress)
+		}
 		out.Action = "skipped"
-		out.SkippedReason = "budget does not match generation configuration"
+		out.GenerationID = status.GenerationID
+		out.SkippedReason = "budget does not match generation configuration; run '" +
+			apptypes.SearchProjectionStartCommand + "' to replace the generation"
 		return out, nil
 	}
 	// A failed generation is parked, not retried. Every failure class this store
@@ -425,7 +485,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 			out.SkippedReason = "no source events to project"
 			return out, nil
 		}
-		generation, startErr := u.StartGeneration(ctx, b, now.UTC())
+		generation, startErr := u.startAutomaticGeneration(ctx, b, now.UTC())
 		if startErr != nil {
 			return out, startErr
 		}

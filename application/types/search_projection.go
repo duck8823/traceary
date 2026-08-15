@@ -64,6 +64,15 @@ func DefaultSearchProjectionBudget() SearchProjectionBudget {
 // be replaced even when complete (#1679 / D5).
 const SearchProjectionCapacitySemanticsVersion = 2
 
+// SearchProjectionOrigin names who created the live generation. CatchUp may
+// replace an automatic generation whose ConfigHash no longer matches the
+// current default. It must not replace an operator-owned one (#1861).
+const (
+	SearchProjectionOriginAutomatic = "automatic"
+	SearchProjectionOriginOperator  = "operator"
+	SearchProjectionStartCommand    = "traceary store search-projection start"
+)
+
 type SearchProjectionBudget struct {
 	Rows                      int
 	WallTime, LockTime        time.Duration
@@ -400,6 +409,35 @@ type SearchProjectionStatus struct {
 	// yet.
 	CutoverBeforeEvidence CapacityEvidence `json:"cutover_before_evidence"`
 	CutoverAfterEvidence  CapacityEvidence `json:"cutover_after_evidence"`
+	// Origin is automatic (store-open catch-up) or operator (explicit start).
+	Origin string `json:"origin,omitempty"`
+	// ParkedReason is set when automatic catch-up will not advance this
+	// generation. RecoveryCommand names the operator command that replaces it.
+	ParkedReason    string `json:"parked_reason,omitempty"`
+	RecoveryCommand string `json:"recovery_command,omitempty"`
+}
+
+// ApplyParkedNotice fills ParkedReason and RecoveryCommand from persisted
+// state so `store search-projection status` can answer why catch-up is stuck.
+// defaultConfigHash is the current DefaultSearchProjectionBudget hash.
+func (s *SearchProjectionStatus) ApplyParkedNotice(defaultConfigHash string) {
+	switch {
+	case s.State == "failed":
+		class := s.FailureClass
+		if class == "" {
+			class = "(unclassified)"
+		}
+		s.ParkedReason = "parked after generation failure " + class
+		s.RecoveryCommand = SearchProjectionStartCommand
+	case (s.State == "rebuilding" || (s.State == "drifted" && s.Phase == "cleanup")) &&
+		s.ConfigHash != "" && s.ConfigHash != defaultConfigHash:
+		if s.Origin == SearchProjectionOriginAutomatic {
+			s.ParkedReason = "automatic generation budget is stale; the next store open replaces this generation"
+			return
+		}
+		s.ParkedReason = "budget does not match generation configuration"
+		s.RecoveryCommand = SearchProjectionStartCommand
+	}
 }
 
 type SearchProjectionExclusion struct {
@@ -426,6 +464,7 @@ type SearchProjectionControlStatus struct {
 	CutoverFamilyBytesAfter  int64
 	CutoverBeforeEvidence    CapacityEvidence
 	CutoverAfterEvidence     CapacityEvidence
+	Origin                   string
 }
 
 // SearchProjectionCatchUpResult is one bounded unit of automatic generation

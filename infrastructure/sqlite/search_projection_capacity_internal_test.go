@@ -1246,6 +1246,57 @@ func TestSearchProjectionOperatorTuningNotHijacked(t *testing.T) {
 	if !strings.Contains(result.SkippedReason, "budget does not match") {
 		t.Fatalf("reason=%q, want budget mismatch", result.SkippedReason)
 	}
+	if !strings.Contains(result.SkippedReason, apptypes.SearchProjectionStartCommand) {
+		t.Fatalf("reason=%q, want recovery command", result.SkippedReason)
+	}
+	status, err := store.SearchProjectionStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Origin != apptypes.SearchProjectionOriginOperator {
+		t.Fatalf("origin=%q, want operator", status.Origin)
+	}
+	if status.ParkedReason == "" || status.RecoveryCommand != apptypes.SearchProjectionStartCommand {
+		t.Fatalf("status parked_reason=%q recovery=%q", status.ParkedReason, status.RecoveryCommand)
+	}
+}
+
+// TestSearchProjectionCatchUpReplacesStaleAutomaticDefault is the #1861 gate:
+// an automatically started generation whose ConfigHash is no longer the
+// current default must be replaced, not parked.
+func TestSearchProjectionCatchUpReplacesStaleAutomaticDefault(t *testing.T) {
+	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
+		{"e1", "automatic stale default body", "2026-06-01T12:00:00Z"},
+	})
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	started, err := store.StartAutomatic(ctx, defaultSearchProjectionCatchUpBudget(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, `UPDATE search_projection_state SET config_hash='v4:1:1:1:1:1' WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := usecase.NewSearchProjectionUsecase(store).CatchUp(ctx, defaultSearchProjectionCatchUpBudget(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "start" {
+		t.Fatalf("action=%q reason=%q, want start (stale automatic default)", result.Action, result.SkippedReason)
+	}
+	if result.GenerationID == "" || result.GenerationID == started.GenerationID {
+		t.Fatalf("generation_id=%q, want a replacement for %q", result.GenerationID, started.GenerationID)
+	}
+	var origin, hash string
+	if err = db.QueryRowContext(ctx, `SELECT origin,config_hash FROM search_projection_state WHERE singleton=1`).Scan(&origin, &hash); err != nil {
+		t.Fatal(err)
+	}
+	if origin != apptypes.SearchProjectionOriginAutomatic {
+		t.Fatalf("replacement origin=%q, want automatic", origin)
+	}
+	if hash != defaultSearchProjectionCatchUpBudget().ConfigHash() {
+		t.Fatalf("replacement hash=%q, want current default", hash)
+	}
 }
 
 func midRebuildBudget() apptypes.SearchProjectionBudget {
