@@ -230,9 +230,15 @@ the dominant object is: `search_projection_recent_fts` is the tier nothing reads
 search result.
 
 **Do not size free disk from the configured budget.** A rebuild can require several
-times it, and it can fail for lack of space. Details in
-[#1620](https://github.com/duck8823/traceary/issues/1620); the disk promise itself is
-open work in [#1753](https://github.com/duck8823/traceary/issues/1753).
+times it, and it can fail for lack of space. This is the v0.37 disk promise
+([#1753](https://github.com/duck8823/traceary/issues/1753)): the peak is **accepted**,
+not bounded. Reclaim-first would take search down for the rebuild; reserving the
+measured peak inside `--index-family-bytes` would empty the recent window; a second
+rebuild-ceiling flag is not added. Scratch measurement (12 events): gen1 family
+258,048 → rebuild peak **405,504** against a 225,280 gen2 budget (1.80×). File size
+did not move without `VACUUM`. See
+[search-projection-rebuild-peak](research/search-projection-rebuild-peak.md). The
+large-corpus lower bound above is unchanged ([#1620](https://github.com/duck8823/traceary/issues/1620)).
 
 If free space is tight, the rebuild has a durable off switch. `traceary store
 search-projection abort` parks the generation (`state=failed`,

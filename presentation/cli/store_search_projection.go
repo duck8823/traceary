@@ -102,7 +102,7 @@ func (c *RootCLI) newStoreSearchProjectionRunCommand(name string, start bool) *c
 	// from it as a reserve and the remainder becomes the recent tier's evictable
 	// ceiling; only that remainder is enforced. The family total is re-measured
 	// at completion and reported through index_family_within_budget.
-	cmd.Flags().Int64Var(&recent, "index-family-bytes", defaults.IndexFamilyBytes, "physical byte budget for the bounded search index family, in index bytes rather than source text; enforced by evicting the recent tier (currently write-only) and reported at completion")
+	cmd.Flags().Int64Var(&recent, "index-family-bytes", defaults.IndexFamilyBytes, "steady-state physical byte target for one completed search-index family after cleanup; not a rebuild-peak cap (two generations plus FTS delete postings can exceed it)")
 	if !start {
 		cmd.Flags().BoolVar(&untilComplete, "until-complete", false, "resume bounded batches until complete or a command bound is reached")
 		cmd.Flags().IntVar(&maxBatches, "max-batches", 100, "maximum durable batches in one command")

@@ -61,3 +61,19 @@ func TestStoreCompactHelpNamesForce(t *testing.T) {
 		t.Fatalf("compact short = %q, want it to describe the rewrite", compact.Short)
 	}
 }
+
+func TestSearchProjectionIndexFamilyBytesHelpNamesRebuildPeak(t *testing.T) {
+	t.Parallel()
+	root := NewRootCLI().Command()
+	start := findCommandOrNil(findCommandOrNil(findCommandOrNil(root, "store"), "search-projection"), "start")
+	if start == nil {
+		t.Fatal("store search-projection start is not registered")
+	}
+	flag := start.Flags().Lookup("index-family-bytes")
+	if flag == nil {
+		t.Fatal("--index-family-bytes is missing")
+	}
+	if !strings.Contains(flag.Usage, "rebuild-peak") {
+		t.Fatalf("usage=%q, want it to say the budget is not a rebuild-peak cap", flag.Usage)
+	}
+}
