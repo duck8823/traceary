@@ -150,12 +150,12 @@ guaranteed in advance: when a generation completes, the family is re-measured an
 `index_family_within_budget` records `1` (within), `0` (over) or `-1` (not
 measurable).
 
-`-1` means **unknown**. It never means "within budget", and on a large store it is
-the answer for the entire build: the `dbstat` walk the verdict needs runs under a
-deadline that a multi-GB store does not fit, so `capacity_evidence` reports
-`unavailable` and the verdict is never produced. Measured across all 118 samples of
-one 408,893-event rebuild. `physical_bytes` remains measurable in the same output,
-so the family size is still observable even when the verdict is not
+`-1` means **unknown**. It never means "within budget". When the split `dbstat`
+walk times out but the family **total** (`physical_bytes`) is available,
+`store search-projection status` publishes a coarse `0`/`1` against that total
+and does not persist it. Cutover uses the same fallback so a complete generation
+still records a persisted verdict. If the total is also unavailable the field
+stays `-1` and `physical_evidence.reason` names why
 ([#1835](https://github.com/duck8823/traceary/issues/1835)).
 
 A generation recorded over budget stays that way. Nothing corrects it in place —

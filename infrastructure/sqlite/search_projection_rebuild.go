@@ -1449,16 +1449,50 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	s.MatchProbeMilliseconds = time.Since(probeStarted).Milliseconds()
 	var page int64
 	if db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&page) == nil {
-		if e = db.QueryRowContext(ctx, selectSearchProjectionFamilyTotalSQL).Scan(&s.PhysicalBytes); e == nil {
+		if searchProjectionFamilyTotalUnavailableForTest {
+			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "dbstat", Reason: "family total forced unavailable"}
+		} else if e = db.QueryRowContext(ctx, selectSearchProjectionFamilyTotalSQL).Scan(&s.PhysicalBytes); e == nil {
 			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "complete", Method: "dbstat"}
 		} else {
 			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "pragma", Reason: "dbstat unavailable"}
 			e = nil
 		}
 	}
+	applySearchProjectionBudgetVerdict(&s)
 	s.InspectionMilliseconds = time.Since(started).Milliseconds()
 	s.ApplyParkedNotice(apptypes.DefaultSearchProjectionBudget().ConfigHash())
 	return s, e
+}
+
+// searchProjectionFamilyTotalUnavailableForTest skips the family-total dbstat
+// walk so tests can pin the unknown-verdict reason path.
+var searchProjectionFamilyTotalUnavailableForTest bool
+
+// applySearchProjectionBudgetVerdict publishes a coarse 0/1 from physical
+// family bytes when the persisted split verdict is still unknown. -1 stays
+// unknown and never means within budget; if it remains -1 the operator must
+// see a reason (#1835).
+func applySearchProjectionBudgetVerdict(s *apptypes.SearchProjectionStatus) {
+	if s.IndexFamilyWithinBudget == 0 || s.IndexFamilyWithinBudget == 1 {
+		return
+	}
+	s.IndexFamilyWithinBudget = -1
+	if s.IndexFamilyByteLimit > 0 && s.PhysicalEvidence.Status == "complete" {
+		if s.PhysicalBytes <= s.IndexFamilyByteLimit {
+			s.IndexFamilyWithinBudget = 1
+		} else {
+			s.IndexFamilyWithinBudget = 0
+		}
+		return
+	}
+	if strings.TrimSpace(s.PhysicalEvidence.Reason) != "" {
+		return
+	}
+	s.PhysicalEvidence.Status = searchProjectionEvidenceUnavailable
+	if s.PhysicalEvidence.Method == "" {
+		s.PhysicalEvidence.Method = "dbstat"
+	}
+	s.PhysicalEvidence.Reason = "index-family budget verdict unavailable"
 }
 
 // measureRecentSourceBytesCache compares the eviction cache to SUM(decoded_bytes)
@@ -1502,6 +1536,29 @@ func (d *Database) measureSearchProjectionFamilyBytes(ctx context.Context, q int
 }) (int64, apptypes.CapacityEvidence) {
 	recent, scoped, shared, evidence := d.measureSearchProjectionFamilySplit(ctx, q)
 	return recent + scoped + shared, evidence
+}
+
+// measureSearchProjectionFamilyTotal is the cheaper unsplit dbstat sum
+// SearchProjectionStatus already publishes as physical_bytes. Used as the
+// coarse budget-verdict fallback when the split walk is unavailable (#1835).
+func (d *Database) measureSearchProjectionFamilyTotal(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (int64, apptypes.CapacityEvidence) {
+	// Do not inherit searchProjectionMeasureTimeoutOverride: that override
+	// exists to make the *split* unmeasurable. The total is the cheaper
+	// fallback that still produced a figure when the split timed out (#1835).
+	measureCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), searchProjectionMeasureTimeout)
+	defer cancel()
+	var bytes int64
+	err := q.QueryRowContext(measureCtx, selectSearchProjectionFamilyTotalSQL).Scan(&bytes)
+	if err != nil {
+		return 0, apptypes.CapacityEvidence{
+			Status: searchProjectionEvidenceUnavailable,
+			Method: "dbstat",
+			Reason: truncateEvidenceReason(err.Error()),
+		}
+	}
+	return bytes, apptypes.CapacityEvidence{Status: searchProjectionEvidenceMeasured, Method: "dbstat"}
 }
 
 // measureSearchProjectionFamilySplit returns recent-tier, generation-scoped
@@ -1866,7 +1923,15 @@ func (d *Database) recordSearchProjectionCutoverEvidence(ctx context.Context, db
 	bytes, evidence := d.measureSearchProjectionFamilyBytes(recordCtx, db)
 	withinBudget := -1
 	var budget int64
-	if budgetErr := db.QueryRowContext(recordCtx, `SELECT index_family_byte_limit FROM search_projection_state WHERE singleton=1 AND generation_id=?`, generationID).Scan(&budget); budgetErr == nil && evidence.Status == searchProjectionEvidenceMeasured {
+	budgetErr := db.QueryRowContext(recordCtx, `SELECT index_family_byte_limit FROM search_projection_state WHERE singleton=1 AND generation_id=?`, generationID).Scan(&budget)
+	if evidence.Status != searchProjectionEvidenceMeasured {
+		total, totalEvidence := d.measureSearchProjectionFamilyTotal(ctx, db)
+		if totalEvidence.Status == searchProjectionEvidenceMeasured {
+			bytes = total
+			evidence.Reason = foldEvidenceReason(evidence.Reason, "budget verdict from family total")
+		}
+	}
+	if budgetErr == nil && bytes > 0 && (evidence.Status == searchProjectionEvidenceMeasured || strings.Contains(evidence.Reason, "budget verdict from family total")) {
 		if bytes <= budget {
 			withinBudget = 1
 		} else {

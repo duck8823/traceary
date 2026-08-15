@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **index-family 予算判定はファミリ合計に fallback する (#1835)** — `-1` は不明のままです。3 秒 split が切れても `physical_bytes` が取れるとき、`store search-projection status` はその合計に対する粗い 0/1 を出します。cutover も同じ fallback を persist するので、doctor は complete 世代の判定を見られます。理由のない `-1` はテスト失敗です。`docs/research/search-projection-budget-verdict.ja.md` を参照。
 - **recent-cutoff 導出は 2 秒タイムアウトではなく行数上限 (#1807)** — newest-first prefilter は最大 20,000 行なので、大きいストアでも cutoff が残ります。walk ceiling に届かない sample は age-only に戻さず、sample 内の最古 timestamp を残します。cancel と query error はこれまでどおり degrade です。新しいフラグはありません。`docs/research/search-projection-recent-cutoff.ja.md` を参照。
 - **`fts_logical_bytes` は整数列を桁数ではなく 8 バイトで数える (#1787)** — FTS5 shadow の整数（`segid` / `pgno` / `docsize.id` / 整数の `config.v`）が `length(CAST(<int> AS BLOB))` になっており、それは桁数です。BLOB / TEXT 列は変更なし。`docsize.sz` は BLOB です。`dbstat` にはしません（`physical_bytes` がそれです）。`docs/research/search-projection-fts-logical-bytes.ja.md` を参照。
 - **2 世代再構築ピークは上限せず受け入れる (#1753)** — `--index-family-bytes` は cleanup 後の定常目標です。scratch 測定: family 258,048 → ピーク **405,504**（gen2 予算 225,280）。再構築前回収、予算内予約、第 2 天井フラグは採用しません。停止はこれまでどおり `store search-projection abort` です。`docs/research/search-projection-rebuild-peak.ja.md` を参照。

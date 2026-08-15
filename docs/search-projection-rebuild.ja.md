@@ -108,12 +108,13 @@ b-tree 割当であり、ソーステキストではありません。デフォ�
 世代完了時にファミリを再測定し、`index_family_within_budget` に `1`（以下）、
 `0`（超過）、`-1`（測定不能）を記録します。
 
-`-1` は**不明**を意味します。「予算以下」を意味することは決してありません。大きい
-store では構築中ずっとこの値になります。判定に必要な `dbstat` 走査には期限があり、
-数 GB の store はその中に収まらないため、`capacity_evidence` は `unavailable` を
-報告し、判定は生成されません（408,893 イベントの再構築 118 サンプル全件で実測）。
-同じ出力の `physical_bytes` は測定できるため、判定が出なくてもファミリのサイズ自体は
-観測できます（[#1835](https://github.com/duck8823/traceary/issues/1835)）。
+`-1` は**不明**を意味します。「予算以下」を意味することは決してありません。
+split の `dbstat` が期限切れでもファミリ合計（`physical_bytes`）が取れるときは、
+`store search-projection status` がその合計に対する粗い `0` / `1` を出します
+（persist はしません）。cutover も同じ fallback なので、complete 世代には
+persist された判定が残ります。合計も取れないときだけ `-1` のまま、
+`physical_evidence.reason` が理由を出します
+（[#1835](https://github.com/duck8823/traceary/issues/1835)）。
 
 超過として記録された世代はそのまま残ります。その場で是正する仕組みはありません。
 次の `CatchUp` は完了済み世代を見て `already_complete` を返します。

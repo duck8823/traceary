@@ -131,13 +131,11 @@ func TestSearchProjectionCutoverEvidence_CompletionSurvivesUnmeasurableFamily(t 
 					t.Errorf("%s evidence method (-want +got):\n%s", label, diff)
 				}
 				if !test.wantMeasured {
-					// The distinguishing property: bytes are zero, and the
-					// evidence is what says the zero means "not measured".
-					if got.bytes != 0 {
-						t.Errorf("%s bytes = %d, want 0", label, got.bytes)
-					}
 					if strings.TrimSpace(got.evidence.Reason) == "" {
 						t.Errorf("%s unavailable evidence carries no reason", label)
+					}
+					if label == "after" && got.bytes <= 0 {
+						t.Errorf("after bytes = %d after split timeout, want family-total fallback > 0", got.bytes)
 					}
 				} else if got.evidence.Reason != "" {
 					t.Errorf("%s measured evidence carries a reason: %q", label, got.evidence.Reason)
@@ -147,6 +145,21 @@ func TestSearchProjectionCutoverEvidence_CompletionSurvivesUnmeasurableFamily(t 
 			// an empty one, so its byte count is not asserted as positive.
 			if test.wantMeasured && status.CutoverFamilyBytesAfter <= 0 {
 				t.Errorf("measured family bytes after = %d, want > 0", status.CutoverFamilyBytesAfter)
+			}
+			if !test.wantMeasured {
+				var persisted int
+				raw, err := database.open(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = raw.QueryRow(`SELECT index_family_within_budget FROM search_projection_state`).Scan(&persisted); err != nil {
+					_ = raw.Close()
+					t.Fatal(err)
+				}
+				_ = raw.Close()
+				if persisted != 0 && persisted != 1 {
+					t.Errorf("persisted index_family_within_budget=%d after family-total fallback, want 0 or 1", persisted)
+				}
 			}
 		})
 	}
