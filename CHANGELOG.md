@@ -5,7 +5,7 @@
 This file summarizes what changed in each Traceary release in chronological order.
 It mirrors the same level of detail as the GitHub release notes, but keeps the history in the repository.
 
-## [Unreleased]
+## [v0.36.0] - 2026-08-15
 
 ### Added
 - **Doctor reports this store's measured cost (#1809)** — `traceary doctor --json` includes `operator_cost` (`traceary.operator_cost/v1`) and check `store-operator-cost`: resident bytes per event/session, undiscardable vs foldable source-text, amplification, and a monthly projection from the last 30 days of this store's own rate. Stores ≥ 2 GiB stay metadata-only (resident size only). Not a global monthly claim.
