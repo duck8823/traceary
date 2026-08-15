@@ -19,6 +19,13 @@ type sessionUsecase struct {
 	sessionRepo  model.SessionRepository
 	sessionQuery queryservice.SessionQueryService
 	eventQuery   queryservice.EventQueryService
+	refinement   SessionRefinementUsecase
+}
+
+// SessionUsecaseDependencies is the optional write-port for L2 refinements.
+// session end --summary writes a refinement instead of sessions.summary (#1706).
+type SessionUsecaseDependencies struct {
+	Refinement SessionRefinementUsecase
 }
 
 // NewSessionUsecase creates a SessionUsecase.
@@ -27,13 +34,18 @@ func NewSessionUsecase(
 	sessionRepo model.SessionRepository,
 	sessionQuery queryservice.SessionQueryService,
 	eventQuery queryservice.EventQueryService,
+	optionalDeps ...SessionUsecaseDependencies,
 ) SessionUsecase {
-	return &sessionUsecase{
+	usecase := &sessionUsecase{
 		eventRepo:    eventRepo,
 		sessionRepo:  sessionRepo,
 		sessionQuery: sessionQuery,
 		eventQuery:   eventQuery,
 	}
+	if len(optionalDeps) > 0 {
+		usecase.refinement = optionalDeps[0].Refinement
+	}
+	return usecase
 }
 
 func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
@@ -162,7 +174,7 @@ func (u *sessionUsecase) FinalizeOneShot(
 	if err != nil {
 		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
 	}
-	transition, err := session.FinalizeOneShot(event.CreatedAt(), validatedReason, summary)
+	transition, err := session.FinalizeOneShot(event.CreatedAt(), validatedReason, "")
 	if err != nil {
 		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
 	}
@@ -175,6 +187,9 @@ func (u *sessionUsecase) FinalizeOneShot(
 			return "", nil, reconcileErr
 		}
 		return "", nil, xerrors.Errorf("failed to save one-shot finalization: %w", err)
+	}
+	if err := u.writeEndRefinement(ctx, resolvedSessionID, event.EventID(), summary, "cli:session-finalize"); err != nil {
+		return "", nil, err
 	}
 	return transition, event, nil
 }
@@ -318,7 +333,7 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
 
-	if err := existingSession.End(event.CreatedAt(), summary); err != nil {
+	if err := existingSession.End(event.CreatedAt(), ""); err != nil {
 		// A host retry can arrive after the boundary transaction committed but
 		// before hook state or spool cleanup. Let the repository compare stable
 		// delivery evidence: an exact retry short-circuits before updating the
@@ -331,8 +346,34 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	if err := u.sessionRepo.SaveBoundary(ctx, existingSession, event); err != nil {
 		return nil, xerrors.Errorf("failed to save session end: %w", err)
 	}
+	if err := u.writeEndRefinement(ctx, resolvedSessionID, event.EventID(), summary, "cli:session-end"); err != nil {
+		return nil, err
+	}
 
 	return event, nil
+}
+
+func (u *sessionUsecase) writeEndRefinement(
+	ctx context.Context,
+	sessionID types.SessionID,
+	coversTo types.EventID,
+	summary string,
+	producedBy string,
+) error {
+	trimmed := strings.TrimSpace(summary)
+	if trimmed == "" || u.refinement == nil {
+		return nil
+	}
+	if _, err := u.refinement.Refine(ctx, SessionRefineInput{
+		SessionID:  sessionID,
+		CoversTo:   coversTo,
+		Summary:    trimmed,
+		ProducedBy: producedBy,
+		Degraded:   false,
+	}); err != nil {
+		return xerrors.Errorf("failed to record session refinement: %w", err)
+	}
+	return nil
 }
 
 func (u *sessionUsecase) Label(ctx context.Context, sessionID types.SessionID, label string) error {
@@ -362,25 +403,6 @@ func (u *sessionUsecase) Label(ctx context.Context, sessionID types.SessionID, l
 	}
 
 	return nil
-}
-
-func (u *sessionUsecase) SetSummaryIfEmpty(ctx context.Context, sessionID types.SessionID, summary string) (bool, error) {
-	trimmedSessionID := strings.TrimSpace(sessionID.String())
-	if trimmedSessionID == "" {
-		return false, xerrors.Errorf("session ID must not be empty")
-	}
-	if strings.TrimSpace(summary) == "" {
-		return false, nil
-	}
-	resolvedSessionID, err := types.SessionIDFrom(trimmedSessionID)
-	if err != nil {
-		return false, xerrors.Errorf("failed to resolve session ID: %w", err)
-	}
-	updated, err := u.sessionRepo.UpdateSummaryIfEmpty(ctx, resolvedSessionID, summary)
-	if err != nil {
-		return false, xerrors.Errorf("failed to update session summary: %w", err)
-	}
-	return updated, nil
 }
 
 func (u *sessionUsecase) SetModelIfEmpty(ctx context.Context, sessionID types.SessionID, modelName string) (bool, error) {

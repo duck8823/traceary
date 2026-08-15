@@ -56,7 +56,7 @@ SELECT
   COALESCE(latest.latest_event_at, s.started_at) AS latest_event_at,
   COALESCE(agg.agents, '') AS agents,
   s.label,
-  s.summary,
+  COALESCE(r.summary, '') AS summary,
   COALESCE(s.parent_session_id, '') AS parent_session_id,
   COALESCE(s.spawn_event_id, '') AS spawn_event_id,
   s.subagent_kind,
@@ -74,6 +74,7 @@ SELECT
     ''
   ) AS latest_event_body
 FROM filtered_sessions s
+LEFT JOIN session_refinements r ON r.session_id = s.session_id
 LEFT JOIN event_agg agg ON agg.session_id = s.session_id
 LEFT JOIN latest_events latest ON latest.session_id = s.session_id
 LEFT JOIN events latest_body ON latest_body.id = latest.latest_event_id

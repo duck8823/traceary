@@ -54,7 +54,7 @@
 
 - ホスト側で context window が圧縮されたときに発行。
 - Claude Code (`PostCompact`) は digest 本文を生成する。Gemini CLI (`PreCompress`) は marker のみ — Gemini に post-compress 側の event がないため。Codex CLI 0.144.1 は `PreCompact` / `PostCompact` を公開するが、payload は `trigger` のみで圧縮後サマリー本文を含まない。Traceary はサマリー本文と偽らず、phase 別 marker として記録する。
-- L2 で、`SessionStart` matcher `compact` 経由のセッション再開時に `sessions.summary` の seed として使う。
+- L2 で compact digest を `session_refinements` に書く（`hook:post-compact`）。`sessions.summary` は要約の正本ではない（#1706）。
 
 ### `session_ended`
 

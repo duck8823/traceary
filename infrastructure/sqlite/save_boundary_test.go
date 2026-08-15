@@ -2,12 +2,14 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	_ "modernc.org/sqlite"
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -390,8 +392,9 @@ func TestSessionDatasource_SaveBoundary_End(t *testing.T) {
 }
 
 // TestSessionDatasource_SaveBoundary_EndPreservesPreviouslySyncedSummary
-// asserts that an empty summary at SessionEnd does not clobber a summary
-// previously written by UpdateSummaryIfEmpty (e.g. PreCompact sync — see #811).
+// asserts that an empty summary at SessionEnd does not clobber leftover
+// text already stored in sessions.summary. Readers no longer use that
+// column (#1706); the write path still must not wipe historical rows.
 func TestSessionDatasource_SaveBoundary_EndPreservesPreviouslySyncedSummary(t *testing.T) {
 	t.Parallel()
 
@@ -419,12 +422,15 @@ func TestSessionDatasource_SaveBoundary_EndPreservesPreviouslySyncedSummary(t *t
 	}
 
 	preCompactSummary := "Discussed compact behavior, agreed on PreCompact body sync."
-	updated, err := sessionDS.UpdateSummaryIfEmpty(ctx, sessionID, preCompactSummary)
+	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		t.Fatalf("UpdateSummaryIfEmpty() error = %v", err)
+		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if !updated {
-		t.Fatalf("UpdateSummaryIfEmpty() should report an update on an empty summary")
+	if _, err := conn.ExecContext(ctx, `UPDATE sessions SET summary = ? WHERE session_id = ?`, preCompactSummary, sessionID.String()); err != nil {
+		t.Fatalf("seed leftover sessions.summary: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 
 	// Now end the session with an empty summary (the path runHookSession

@@ -724,15 +724,15 @@ func (c *RootCLI) runHookCompact(
 }
 
 // applyPostCompactDigest stores a host-supplied compact digest as an L2
-// refinement and seeds sessions.summary for timeline / handoff headers
-// until the sessions.summary column is retired. Both writes are best-effort:
-// sessions rows are created by the session-boundary hooks, not by
-// event.Log, so a compact can legitimately arrive for a session that has
-// no row; and the digest is opportunistic material covering a small
-// fraction of events, with the gc fallback covering any range that never
-// got one. Returning the error would re-spool the whole compact delivery
-// for replay and risk a duplicate event, which is a worse trade than
-// losing one opportunistic summary. The warn lines are the observability.
+// refinement. The write is best-effort: sessions rows are created by the
+// session-boundary hooks, not by event.Log, so a compact can legitimately
+// arrive for a session that has no row; and the digest is opportunistic
+// material covering a small fraction of events, with the gc fallback
+// covering any range that never got one. Returning the error would
+// re-spool the whole compact delivery for replay and risk a duplicate
+// event, which is a worse trade than losing one opportunistic summary.
+// The warn lines are the observability. sessions.summary is not written
+// (#1706); list / handoff read session_refinements.
 //
 // coversTo names the event event.Log just returned. No host's compact
 // payload carries a field on the proven delivery-ID allowlist, so a compact
@@ -758,15 +758,6 @@ func (c *RootCLI) applyPostCompactDigest(
 		}); err != nil {
 			slog.Warn(
 				"post-compact session refinement failed",
-				"session_id", sessionID,
-				"error", err,
-			)
-		}
-	}
-	if c.session != nil {
-		if _, err := c.session.SetSummaryIfEmpty(ctx, sessionID, digest); err != nil {
-			slog.Warn(
-				"post-compact session summary sync failed",
 				"session_id", sessionID,
 				"error", err,
 			)

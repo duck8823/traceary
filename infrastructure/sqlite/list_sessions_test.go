@@ -145,6 +145,19 @@ CREATE TRIGGER event_metadata_projection_events_after_insert AFTER INSERT ON eve
     INSERT INTO event_metadata_projection VALUES (NEW.id, NEW.kind, NEW.client, NEW.agent, NEW.session_id, NEW.workspace, NEW.created_at, ts_norm(NEW.created_at));
 END;`),
 		},
+		"000046_create_session_refinements.sql": {
+			Data: []byte(`CREATE TABLE session_refinements (
+    session_id TEXT PRIMARY KEY,
+    generation INTEGER NOT NULL,
+    covers_from_event_id TEXT NOT NULL,
+    covers_to_event_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    keywords TEXT NOT NULL DEFAULT '',
+    produced_by TEXT NOT NULL,
+    produced_at TEXT NOT NULL,
+    degraded INTEGER NOT NULL DEFAULT 0
+);`),
+		},
 	}
 }
 

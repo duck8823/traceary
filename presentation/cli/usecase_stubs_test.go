@@ -255,29 +255,27 @@ func (s *eventUsecaseStub) HydrateCommandAudits(_ context.Context, events []*mod
 
 // sessionUsecaseStub implements usecase.SessionUsecase for testing.
 type sessionUsecaseStub struct {
-	startEvent      *model.Event
-	startErr        error
-	endEvent        *model.Event
-	endErr          error
-	labelErr        error
-	listResult      []apptypes.SessionSummary
-	listErr         error
-	listCriteria    apptypes.SessionListCriteria
-	treeResult      []apptypes.SessionSummary
-	treeErr         error
-	lineageResult   []apptypes.SessionSummary
-	lineageErr      error
-	activeEvent     *model.Event
-	activeErr       error
-	activeCriteria  apptypes.SessionLookupCriteria
-	latestEvent     *model.Event
-	latestErr       error
-	latestCriteria  apptypes.SessionLookupCriteria
-	handoff         types.Optional[apptypes.HandoffSummary]
-	handoffErr      error
-	setSummaryErr   error
-	setSummaryCalls map[types.SessionID]string
-	setModelCalls   map[types.SessionID]string
+	startEvent     *model.Event
+	startErr       error
+	endEvent       *model.Event
+	endErr         error
+	labelErr       error
+	listResult     []apptypes.SessionSummary
+	listErr        error
+	listCriteria   apptypes.SessionListCriteria
+	treeResult     []apptypes.SessionSummary
+	treeErr        error
+	lineageResult  []apptypes.SessionSummary
+	lineageErr     error
+	activeEvent    *model.Event
+	activeErr      error
+	activeCriteria apptypes.SessionLookupCriteria
+	latestEvent    *model.Event
+	latestErr      error
+	latestCriteria apptypes.SessionLookupCriteria
+	handoff        types.Optional[apptypes.HandoffSummary]
+	handoffErr     error
+	setModelCalls  map[types.SessionID]string
 
 	startCall struct {
 		client          types.Client
@@ -438,17 +436,6 @@ func (s *sessionUsecaseStub) Latest(_ context.Context, criteria apptypes.Session
 }
 func (s *sessionUsecaseStub) Handoff(_ context.Context, _ types.SessionID, _ types.Workspace, _ int) (types.Optional[apptypes.HandoffSummary], error) {
 	return s.handoff, s.handoffErr
-}
-
-func (s *sessionUsecaseStub) SetSummaryIfEmpty(_ context.Context, sessionID types.SessionID, summary string) (bool, error) {
-	if s.setSummaryErr != nil {
-		return false, s.setSummaryErr
-	}
-	if s.setSummaryCalls == nil {
-		s.setSummaryCalls = make(map[types.SessionID]string)
-	}
-	s.setSummaryCalls[sessionID] = summary
-	return true, nil
 }
 
 func (s *sessionUsecaseStub) SetModelIfEmpty(_ context.Context, sessionID types.SessionID, modelName string) (bool, error) {
