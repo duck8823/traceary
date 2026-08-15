@@ -109,10 +109,11 @@ func TestSearchProjectionCatchUp_IsBoundedCompleteAndResumable(t *testing.T) {
 	}
 	// Old event is outside recent retention of the projection; event tier may
 	// be empty while the session tier still finds the trail.
-	sessions, err := events.SearchSessionHits(ctx, criteria, nil)
+	page, err := events.SearchSessionPage(ctx, criteria, nil)
 	if err != nil {
-		t.Fatalf("SearchSessionHits() error = %v", err)
+		t.Fatalf("SearchSessionPage() error = %v", err)
 	}
+	sessions := page.Hits()
 	if len(sessions) != 1 {
 		t.Fatalf("session hits = %d (events=%v), want 1 session for old-history-needle", len(sessions), eventIDs(gotEvents))
 	}

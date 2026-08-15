@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **session-tier の hits と readiness を同じ snapshot から返す (#1822)** — `SearchSessionPage` が 1 つの read transaction で hits と `ready` / `not_ready` / `not_applicable` を返します。空クエリ、`--kind`、2 ページ目以降は store を開かず `not_applicable` です。`SearchSessionProjectionReady` は廃止し、空ページと後から読んだ generation の readiness を組み合わせられないようにします。`traceary search` の session notice もこの page を使います。
 - **search-projection の invalidator が decoder の全列を見る (#1737)** — 投影済み event の codec metadata だけの UPDATE は complete generation を drift させ、rebuild 中は `search_projection_source_revision` を進めます。`events.id` は watch せず DB で不変です。`body` を既に含む body / retention / redaction 経路は変わりません。
 - **空クエリの structural search を literal projection の状態で拒否しない (#1736)** — workspace / session / kind / time のフィルタは、literal generation が rebuilding / failed / drifted でも正本テーブルに対して動きます。無効な offset / limit / from-to はこれまでどおり fail-closed です。非空クエリは generation が使えないとき decode walk に fail-open します。
 

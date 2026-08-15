@@ -84,28 +84,14 @@ type EventBoundedQueryService interface {
 	LoadCanonicalBodies(ctx context.Context, eventIDs []types.EventID) (map[types.EventID]string, error)
 }
 
-// ProjectionSessionSearchQuery returns session-tier hits from the bounded
-// search projection. Callers that only need event rows do not depend on this
-// port. Hits are never events: a session row means "the trail is here, open it".
+// ProjectionSessionSearch is the port for surfaces that must tell "no session
+// matched" apart from "the projection could not be consulted at all". Hits
+// and that disposition come from one read snapshot so a generation
+// transition cannot make the reason contradict the page.
+//
+// Hits are never events: a session row means "the trail is here, open it".
 // Sessions already represented by event hits in the same response should be
 // passed in excludeSessionIDs so they are omitted.
-type ProjectionSessionSearchQuery interface {
-	SearchSessionHits(ctx context.Context, criteria apptypes.EventSearchCriteria, excludeSessionIDs []types.SessionID) ([]apptypes.SearchSessionHit, error)
-}
-
-// ProjectionSessionSearchReadiness reports whether the session-tier search
-// projection has a published complete generation.
-type ProjectionSessionSearchReadiness interface {
-	SearchSessionProjectionReady(ctx context.Context) (bool, error)
-}
-
-// ProjectionSessionSearch is the port for surfaces that must tell "no session
-// matched" apart from "the projection could not be consulted at all". Both
-// answers arrive as an empty page without error, so readiness is required
-// rather than probed for: a surface that loses the distinction reports
-// "nothing found" for history that exists, and nothing about that failure is
-// visible to the caller.
 type ProjectionSessionSearch interface {
-	ProjectionSessionSearchQuery
-	ProjectionSessionSearchReadiness
+	SearchSessionPage(ctx context.Context, criteria apptypes.EventSearchCriteria, excludeSessionIDs []types.SessionID) (apptypes.SearchSessionPage, error)
 }
