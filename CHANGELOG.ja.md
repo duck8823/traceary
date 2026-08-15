@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **content-event dedupe は session refinement の coverage endpoint を kept twin に付け替える (#1777)** — apply は event delete と同じ transaction で `covers_from` / `covers_to` を書き換え、欠けた join で `SaveIfAdvances` が凍結しない。live store（`sqlite3` `mode=ro`、2026-08-16）: refinement 9 件、dangling endpoint 0。scratch: `DedupeContentEvents` apply のあと、後続の unique turn への `SaveIfAdvances` が成功する。
 - **hook の session 単位 marker は `a/b` と `a:b` を同一視しない (#1716)** — `ended` / `wake-injected` / `active-subagents` のファイル名は `client-` + `sha256(client + NUL + 生 session id)`。旧 sanitiser の `client-a_b` は hit にならない。scratch: `a/b` を ended にしても `a:b` は already recorded ではない。
 - **Grok Stop / queue は readiness で読んだ turn を永続化し、書き込みなしで `recorded` 終端しない (#1713)** — Stop と transcript worker は `inspectGrokTranscript` が読んだ blocks を `runHookTranscriptWithBlocks` に渡し、wire log を再抽出しない。worker は persist が `recorded=true` のときだけ `recorded` 終端し、fail-soft skip は job を pending のまま残す。immediate Stop は書き込みが無いとき durable worker を schedule する。scratch: `hook grok stop` のあと `updates.jsonl` を消しても、初回読みの本文を持つ `kind=transcript` が 1 行残る。
 - **Log は insert と exact redelivery を報告し、既存の正規 id を返す (#1710)** — `EventUsecase.Log` / `Audit` は `EventWriteResult` を返す。共有の `saveEventTransaction` が persist 結果を in-memory の event に載せるので、redelivery は捨てた構築 id ではなく既存行の id を返す。scratch: 同じ `event_id:` delivery の `Log` 2 回で `events` は 1 行、2 回目の id は 1 回目と一致する。

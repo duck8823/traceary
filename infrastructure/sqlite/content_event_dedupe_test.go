@@ -13,6 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
@@ -256,6 +257,86 @@ func TestStoreManagementDatasource_DedupeContentEvents_ApplyAndIdempotent(t *tes
 	}
 	if dedupeArchiveCount(t, dbPath) != 3 {
 		t.Fatalf("archive count = %d after second apply, want 3", dedupeArchiveCount(t, dbPath))
+	}
+}
+
+func TestStoreManagementDatasource_DedupeContentEvents_RepointsRefinementCoverageEndpoints(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager, _ := seedDedupeFixture(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	raw, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	if _, err := raw.Exec(
+		`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+		 VALUES ('evt-later', 'transcript', 'codex', 's1', 'w1', 'later unique turn', '2026-04-10T00:00:30Z', 'stop', 'hook')`,
+	); err != nil {
+		t.Fatalf("insert later unique transcript: %v", err)
+	}
+
+	database := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	refinementDS := sqlite.NewSessionRefinementDatasource(database)
+	seed, err := model.NewSessionRefinement(
+		types.SessionID("s1"), 1, types.EventID("evt-c1"), types.EventID("evt-c2"),
+		"covers the later duplicate", "", "agent", now, false,
+	)
+	if err != nil {
+		t.Fatalf("NewSessionRefinement() error = %v", err)
+	}
+	written, err := refinementDS.SaveIfAdvances(ctx, seed, 0)
+	if err != nil || !written {
+		t.Fatalf("seed SaveIfAdvances() written=%v err=%v", written, err)
+	}
+
+	if _, err := storeManager.DedupeContentEvents(ctx, apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-repoint-1", Now: now,
+	}); err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	if eventExists(t, dbPath, "evt-c2") {
+		t.Fatal("duplicate coverage endpoint evt-c2 still present after apply")
+	}
+
+	got, err := refinementDS.FindBySessionID(ctx, types.SessionID("s1"))
+	if err != nil {
+		t.Fatalf("FindBySessionID() error = %v", err)
+	}
+	stored, ok := got.Value()
+	if !ok {
+		t.Fatal("refinement missing after dedupe")
+	}
+	if stored.CoversToEventID() != types.EventID("evt-c1") {
+		t.Fatalf("covers_to after dedupe = %q, want kept twin evt-c1", stored.CoversToEventID())
+	}
+
+	next, err := model.NewSessionRefinement(
+		types.SessionID("s1"), 2, types.EventID("evt-c1"), types.EventID("evt-later"),
+		"re-refined after endpoint delete", "", "agent", now.Add(time.Minute), false,
+	)
+	if err != nil {
+		t.Fatalf("NewSessionRefinement(next) error = %v", err)
+	}
+	advanced, err := refinementDS.SaveIfAdvances(ctx, next, 1)
+	if err != nil {
+		t.Fatalf("SaveIfAdvances after dedupe error = %v", err)
+	}
+	if !advanced {
+		t.Fatal("SaveIfAdvances after dedupe = false, want true so the session can be re-refined")
+	}
+	got, err = refinementDS.FindBySessionID(ctx, types.SessionID("s1"))
+	if err != nil {
+		t.Fatalf("FindBySessionID() after re-refine error = %v", err)
+	}
+	stored, ok = got.Value()
+	if !ok {
+		t.Fatal("refinement missing after re-refine")
+	}
+	if stored.Generation() != 2 || stored.CoversToEventID() != types.EventID("evt-later") {
+		t.Fatalf("after re-refine gen=%d to=%q, want 2 / evt-later", stored.Generation(), stored.CoversToEventID())
 	}
 }
 
