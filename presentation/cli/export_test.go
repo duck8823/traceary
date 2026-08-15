@@ -160,6 +160,18 @@ func ResetResolveHookTranscriptSessionIDFunc() {
 	resolveHookTranscriptSessionIDFunc = resolveHookSessionID
 }
 
+// SetAfterInspectGrokTranscriptHook runs fn after inspectGrokTranscript has
+// classified the wire log. Tests use it to remove or rewrite updates.jsonl
+// so a second extract would fail-soft (#1713).
+func SetAfterInspectGrokTranscriptHook(fn func()) {
+	afterInspectGrokTranscriptHook = fn
+}
+
+// ResetAfterInspectGrokTranscriptHook clears the post-inspect test hook.
+func ResetAfterInspectGrokTranscriptHook() {
+	afterInspectGrokTranscriptHook = nil
+}
+
 // SetDetectRepoContextFunc replaces the work-context resolver for tests.
 func SetDetectRepoContextFunc(f func(context.Context) (string, error)) {
 	detectRepoContextFunc = f
