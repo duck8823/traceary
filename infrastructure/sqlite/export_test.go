@@ -52,6 +52,13 @@ func SetAfterVerifiedAttestationSnapshotForTest(fn func(context.Context, *sql.DB
 	afterVerifiedAttestationSnapshot = fn
 }
 
+// SetStatusGenerationReadHookForTest runs after SearchProjectionStatus
+// resolves generation ids and before generation-scoped counters. Pass nil
+// to clear.
+func (d *Database) SetStatusGenerationReadHookForTest(hook func()) {
+	d.afterStatusGenerationScopeRead = hook
+}
+
 // SetGarbageCollectionNowForTest fixes the timestamp persisted by gc discards.
 func (d *StoreManagementDatasource) SetGarbageCollectionNowForTest(now func() time.Time) {
 	d.now = now

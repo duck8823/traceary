@@ -181,6 +181,10 @@ type Database struct {
 	// hold clock has started. Tests use it to spend the hold budget; production
 	// leaves it nil.
 	afterProjectionLockHeld func(context.Context) error
+	// afterStatusGenerationScopeRead runs after SearchProjectionStatus has
+	// resolved generation ids inside its snapshot transaction and before it
+	// reads generation-scoped counters. Tests commit a cutover here.
+	afterStatusGenerationScopeRead func()
 }
 
 // NewImmutableReadDatabase opens one shared immutable connection group for benchmark orchestration.

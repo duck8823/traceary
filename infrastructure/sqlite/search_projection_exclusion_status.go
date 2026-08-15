@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	_ "embed"
 
 	"golang.org/x/xerrors"
@@ -15,19 +14,15 @@ var selectSearchProjectionExclusionsSQL string
 
 const searchProjectionExclusionReportLimit = 20
 
-func measureSearchProjectionExclusions(ctx context.Context, db *sql.DB, status *apptypes.SearchProjectionStatus) error {
-	var generation string
-	if err := db.QueryRowContext(ctx, `SELECT COALESCE(generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&generation); err != nil {
-		return xerrors.Errorf("read projection generation for exclusions: %w", err)
-	}
+func measureSearchProjectionExclusions(ctx context.Context, queryer statusQueryer, generation string, status *apptypes.SearchProjectionStatus) error {
 	if generation == "" {
 		return nil
 	}
 	status.ExclusionGenerationID = generation
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM search_projection_exclusions WHERE generation_id=?`, generation).Scan(&status.ExclusionCount); err != nil {
+	if err := queryer.QueryRowContext(ctx, `SELECT COUNT(*) FROM search_projection_exclusions WHERE generation_id=?`, generation).Scan(&status.ExclusionCount); err != nil {
 		return xerrors.Errorf("count search projection exclusions: %w", err)
 	}
-	rows, err := db.QueryContext(ctx, selectSearchProjectionExclusionsSQL, generation, searchProjectionExclusionReportLimit)
+	rows, err := queryer.QueryContext(ctx, selectSearchProjectionExclusionsSQL, generation, searchProjectionExclusionReportLimit)
 	if err != nil {
 		return xerrors.Errorf("query search projection exclusions: %w", err)
 	}
