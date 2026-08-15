@@ -77,11 +77,16 @@ func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, cr
 }
 
 func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	if criteria.Offset() < 0 {
-		return nil, xerrors.New("offset must be greater than or equal to 0")
+	// Shared criteria sanity (offset, limit, from/to, page window) is not a
+	// projection-coherence check. Structural empty-query searches still refuse
+	// these; they must not refuse because the literal generation is unusable.
+	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
+		return nil, err
 	}
-	// Empty queries are structural-only searches. They never traverse the
-	// literal projection, so they are answered before its state is even read.
+	// Empty queries are structural-only searches. They filter workspace,
+	// session, kind, and time on canonical tables and never read
+	// literal_search_fingerprints or search_projection_source_sequence, so
+	// they are answered before projection state is even consulted.
 	if strings.TrimSpace(criteria.Query()) == "" {
 		candidateIDs, queryErr := queryStructuralEventIDs(ctx, tx, criteria)
 		if queryErr != nil {

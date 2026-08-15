@@ -16,6 +16,7 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
+	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 // seedTieredCompleteProjection freezes a complete generation at the current
@@ -80,6 +81,11 @@ func seedLiteralFingerprints(t *testing.T, database *Database, generation, event
 
 func insertTieredSearchEvent(t *testing.T, database *Database, id, body string, at time.Time) {
 	t.Helper()
+	insertTieredSearchEventInWorkspace(t, database, id, "w", body, at)
+}
+
+func insertTieredSearchEventInWorkspace(t *testing.T, database *Database, id, workspace, body string, at time.Time) {
+	t.Helper()
 	ctx := context.Background()
 	raw, err := database.open(ctx)
 	if err != nil {
@@ -88,8 +94,8 @@ func insertTieredSearchEvent(t *testing.T, database *Database, id, body string, 
 	defer func() { _ = raw.Close() }()
 	if _, err = raw.ExecContext(ctx, `
 		INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at)
-		VALUES (?, 'note', 'codex', 'codex', 's', 'w', ?, ?)`,
-		id, body, at.UTC().Format(time.RFC3339Nano),
+		VALUES (?, 'note', 'codex', 'codex', 's', ?, ?, ?)`,
+		id, workspace, body, at.UTC().Format(time.RFC3339Nano),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -363,6 +369,160 @@ func TestLiteralFingerprintCascadeSurvivesCandidateIndexDrop(t *testing.T) {
 	}
 	if diff := cmp.Diff(0, orphaned); diff != "" {
 		t.Fatalf("cascade left fingerprints behind (-want +got):\n%s", diff)
+	}
+}
+
+// TestTieredAuthorityStructuralSearchIgnoresLiteralProjectionState is #1736:
+// an empty-query (structural) search must succeed while the literal
+// generation is in a state that used to refuse with "incomplete or stale".
+// queryStructuralEventIDs reads events + command_audits only, so it does not
+// need a coherent projection generation.
+func TestTieredAuthorityStructuralSearchIgnoresLiteralProjectionState(t *testing.T) {
+	ctx := context.Background()
+	workspace, err := domtypes.WorkspaceFrom("keep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Workspace(workspace).Build()
+	want := []string{"keep-new", "keep-old"}
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, database *Database)
+	}{
+		{
+			name: "literal projection rebuilding",
+			setup: func(t *testing.T, database *Database) {
+				seedStructuralSearchFixture(t, database, base)
+				forceLiteralProjectionState(t, database, "rebuilding")
+			},
+		},
+		{
+			name: "literal projection stale",
+			setup: func(t *testing.T, database *Database) {
+				seedStructuralSearchFixture(t, database, base)
+				forceLiteralProjectionState(t, database, "stale")
+			},
+		},
+		{
+			name: "literal projection missing",
+			setup: func(t *testing.T, database *Database) {
+				seedStructuralSearchFixture(t, database, base)
+				forceLiteralProjectionState(t, database, "missing")
+			},
+		},
+		{
+			name: "literal generation empty",
+			setup: func(t *testing.T, database *Database) {
+				seedStructuralSearchFixture(t, database, base)
+				raw, openErr := database.open(ctx)
+				if openErr != nil {
+					t.Fatal(openErr)
+				}
+				defer func() { _ = raw.Close() }()
+				if _, execErr := raw.ExecContext(ctx, `UPDATE literal_search_projection_state SET generation_id='' WHERE singleton=1`); execErr != nil {
+					t.Fatal(execErr)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			database, datasource := newTieredAuthorityFixture(t)
+			tc.setup(t, database)
+
+			got, searchErr := datasource.SearchMetadata(ctx, criteria)
+			if searchErr != nil {
+				t.Fatalf("SearchMetadata() error = %v, want structural matches while literal is unusable", searchErr)
+			}
+			if diff := cmp.Diff(want, metadataIDs(got)); diff != "" {
+				t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
+			}
+
+			full, pageErr := datasource.SearchPage(ctx, criteria)
+			if pageErr != nil {
+				t.Fatalf("SearchPage() error = %v, want structural matches while literal is unusable", pageErr)
+			}
+			if diff := cmp.Diff(want, eventIDs(full)); diff != "" {
+				t.Fatalf("SearchPage() IDs mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestTieredAuthorityStructuralSearchRefusesInvalidCriteria is the fail-closed
+// half of #1736: structural searches still reject criteria that are invalid
+// on their own. They must not start returning rows for these.
+func TestTieredAuthorityStructuralSearchRefusesInvalidCriteria(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	from := base.Add(time.Hour)
+	to := base
+
+	tests := []struct {
+		name     string
+		criteria apptypes.EventSearchCriteria
+		wantErr  string
+	}{
+		{
+			name:     "negative offset",
+			criteria: apptypes.NewEventSearchCriteriaBuilder(10).Offset(-1).Build(),
+			wantErr:  "offset must be greater than or equal to 0",
+		},
+		{
+			name:     "non-positive limit",
+			criteria: apptypes.NewEventSearchCriteriaBuilder(0).Build(),
+			wantErr:  "limit must be greater than or equal to 1",
+		},
+		{
+			name:     "from after to",
+			criteria: apptypes.NewEventSearchCriteriaBuilder(10).From(from).To(to).Build(),
+			wantErr:  "from must be earlier than to",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			database, datasource := newTieredAuthorityFixture(t)
+			seedStructuralSearchFixture(t, database, base)
+			forceLiteralProjectionState(t, database, "rebuilding")
+
+			_, searchErr := datasource.SearchMetadata(ctx, tc.criteria)
+			if searchErr == nil {
+				t.Fatal("SearchMetadata() error = nil, want invalid-criteria refusal")
+			}
+			if !strings.Contains(searchErr.Error(), tc.wantErr) {
+				t.Fatalf("SearchMetadata() error = %v, want substring %q", searchErr, tc.wantErr)
+			}
+			if strings.Contains(searchErr.Error(), "incomplete or stale") {
+				t.Fatalf("structural refusal must not mention projection availability: %v", searchErr)
+			}
+		})
+	}
+}
+
+func seedStructuralSearchFixture(t *testing.T, database *Database, base time.Time) {
+	t.Helper()
+	insertTieredSearchEventInWorkspace(t, database, "keep-old", "keep", "alpha", base)
+	insertTieredSearchEventInWorkspace(t, database, "other-ws", "other", "beta", base.Add(time.Second))
+	insertTieredSearchEventInWorkspace(t, database, "keep-new", "keep", "gamma", base.Add(2*time.Second))
+	seedTieredCompleteProjection(t, database, "gen-structural")
+}
+
+func forceLiteralProjectionState(t *testing.T, database *Database, state string) {
+	t.Helper()
+	ctx := context.Background()
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	if _, err = raw.ExecContext(ctx, `UPDATE literal_search_projection_state SET state=? WHERE singleton=1`, state); err != nil {
+		t.Fatal(err)
 	}
 }
 

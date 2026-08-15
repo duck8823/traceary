@@ -5,6 +5,11 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
+## [Unreleased]
+
+### Fixed
+- **空クエリの structural search を literal projection の状態で拒否しない (#1736)** — workspace / session / kind / time のフィルタは、literal generation が rebuilding / failed / drifted でも正本テーブルに対して動きます。無効な offset / limit / from-to はこれまでどおり fail-closed です。非空クエリは generation が使えないとき decode walk に fail-open します。
+
 ## [v0.36.0] - 2026-08-15
 
 ### Added
