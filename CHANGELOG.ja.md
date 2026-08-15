@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **memory hygiene scan テストが 1ms の wall-clock 予算に依存しない (#1771)** — partial（revision churn）と cannot-progress は fake clock を進め、`MaxDuration` は 1 時間なので `context.WithTimeout` が先に切れない。scratch: 両ケースと `go test ./application/usecase/ -count=50`。
 - **`go test ./presentation/cli/ -race` が export-test seam で data race を出さない (#1698)** — `Set*Func` seam は `atomic.Pointer` スロットなので、serial なテストが差し替えているあいだに parallel なテストが `resolveDBPath` / `userHomeDirFunc` を読んでも定義済みです。production はスロットを書きません。scratch: 並行差し替え対 `resolveDBPath` のテストと、`-race -count=1` を 2 回走らせて `DATA RACE` なし。
 
 ## [v0.38.0] - 2026-08-16

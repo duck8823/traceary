@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Memory-hygiene scan tests no longer depend on a 1ms wall-clock budget (#1771)** — the partial (revision-churn) and cannot-progress branches drive a fake clock and use a one-hour `MaxDuration` so `context.WithTimeout` cannot expire first. Scratch: both cases plus `go test ./application/usecase/ -count=50`.
 - **`go test ./presentation/cli/ -race` no longer reports a data race on export-test seams (#1698)** — `Set*Func` seams are `atomic.Pointer` slots, so a serial test can replace them while a parallel test still reads `resolveDBPath` / `userHomeDirFunc`. Production never writes the slots. Scratch: a concurrent replace-vs-`resolveDBPath` test plus two `-race -count=1` package runs report no `DATA RACE`.
 
 ## [v0.38.0] - 2026-08-16

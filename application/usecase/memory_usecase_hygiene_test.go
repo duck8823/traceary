@@ -16,6 +16,11 @@ import (
 	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
+// memoryHygieneDeterministicDuration is far larger than any wall-clock the
+// test process can spend, so context.WithTimeout(budget.MaxDuration()) cannot
+// fire first. Exhaustion is driven by the fake scan clock (#1771).
+const memoryHygieneDeterministicDuration = time.Hour
+
 func memoryHygieneTestBudget(
 	t *testing.T,
 	rows int,
@@ -643,7 +648,9 @@ func TestMemoryHygieneScan_RevisionChurnReturnsPartialOnlyAfterDurationExhausts(
 		MaxScanBytes:   1 << 20,
 		MaxResultBytes: 1 << 20,
 		MaxComparisons: 100,
-		MaxDuration:    time.Millisecond,
+		// Larger than any real wall-clock the test can spend; the stub
+		// advances the fake clock by this amount so exhaustion is deterministic (#1771).
+		MaxDuration: memoryHygieneDeterministicDuration,
 	})
 	if err != nil {
 		t.Fatalf("MemoryHygieneScanBudgetFrom() error = %v", err)
@@ -774,7 +781,7 @@ func TestMemoryHygieneScan_TimeLimitWithoutCursorProgressReturnsTypedError(t *te
 	scope := workspaceScope(t, "github.com/example/repo")
 	query := &stubMemoryQueryService{
 		scanClock:   &memoryHygieneTestClock{now: time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)},
-		scanAdvance: time.Millisecond,
+		scanAdvance: memoryHygieneDeterministicDuration,
 		summaries: []apptypes.MemorySummary{
 			acceptedSummaryAt(t, "mem-a", scope, "git status", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
 		},
@@ -785,7 +792,7 @@ func TestMemoryHygieneScan_TimeLimitWithoutCursorProgressReturnsTypedError(t *te
 		MaxScanBytes:   1 << 20,
 		MaxResultBytes: 1 << 20,
 		MaxComparisons: 1,
-		MaxDuration:    time.Millisecond,
+		MaxDuration:    memoryHygieneDeterministicDuration,
 	})
 	if err != nil {
 		t.Fatalf("MemoryHygieneScanBudgetFrom() error = %v", err)
