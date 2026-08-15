@@ -31,8 +31,6 @@ func init() {
 const defaultTopLimit = 500
 const shortTopSessionIDLength = 12
 
-var topNowFunc = time.Now
-
 // topSnapshotProfile values control the JSON projection for
 // `sessions --snapshot --json`.
 const (

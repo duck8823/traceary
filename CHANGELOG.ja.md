@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **`go test ./presentation/cli/ -race` が export-test seam で data race を出さない (#1698)** — `Set*Func` seam は `atomic.Pointer` スロットなので、serial なテストが差し替えているあいだに parallel なテストが `resolveDBPath` / `userHomeDirFunc` を読んでも定義済みです。production はスロットを書きません。scratch: 並行差し替え対 `resolveDBPath` のテストと、`-race -count=1` を 2 回走らせて `DATA RACE` なし。
+
 ## [v0.38.0] - 2026-08-16
 
 ### Fixed

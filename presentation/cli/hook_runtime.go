@@ -830,14 +830,6 @@ func (c *RootCLI) runHookPrompt(
 	return nil
 }
 
-// resolveHookTranscriptSessionIDFunc resolves the session ID
-// runHookTranscriptWithBlocks records the transcript event against. It
-// defaults to resolveHookSessionID; tests override it to force the
-// "session resolution yielded nothing" fail-soft skip in isolation, so the
-// (recorded, err) contract can be pinned independently of any particular
-// caller's own upstream preconditions (#1681 CRITICAL regression coverage).
-var resolveHookTranscriptSessionIDFunc = resolveHookSessionID
-
 // runHookTranscript records the last assistant-message turn as a
 // `transcript` event. It reads Stop-hook stdin to find
 // the last assistant turn and stores it as a `transcript` event. The

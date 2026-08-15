@@ -441,13 +441,7 @@ func firstAntigravityWorkspacePath(payload []byte) string {
 	return ""
 }
 
-// antigravityProcessCwdFunc resolves the current working directory of a process
-// by PID. Tests replace it so host process lookups stay deterministic.
-var antigravityProcessCwdFunc = defaultAntigravityProcessCwd
 
-// antigravityParentPIDFunc returns the parent PID of the current process. Tests
-// can override it without depending on real process topology.
-var antigravityParentPIDFunc = os.Getppid
 
 // resolveAntigravityFallbackWorkspaceCwd walks the parent process chain and
 // returns the first cwd that looks like a user workspace rather than an
@@ -589,10 +583,6 @@ type antigravityPendingCommand struct {
 // otherwise leak the file forever. Writes opportunistically prune siblings
 // older than this so the antigravity-pending directory does not grow unbounded.
 const antigravityPendingStaleAfter = 24 * time.Hour
-
-// antigravityPendingNowFunc returns the current time used for pending-state TTL
-// pruning. It is a package var so tests can pin a deterministic clock.
-var antigravityPendingNowFunc = time.Now
 
 func antigravityPendingCommandPath(conversationID, stepIdx string) (string, error) {
 	stateDir, err := resolveHookStateDir()

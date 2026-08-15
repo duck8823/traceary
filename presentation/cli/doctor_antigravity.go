@@ -161,10 +161,7 @@ func buildAntigravityCapabilityCheck(state antigravityCapabilityState) doctorChe
 	}
 }
 
-// antigravityBundleExistsFunc reports whether an Antigravity app bundle exists
-// at the given path. It is a package-level var so tests can force a
-// deterministic installed/not-installed state regardless of the host machine.
-var antigravityBundleExistsFunc = func(path string) bool {
+func defaultAntigravityBundleExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }

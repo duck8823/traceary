@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	testDefaultUserHomeDirFunc = func() (string, error) { return testDefaultUserHomeDir, nil }
-	userHomeDirFunc = testDefaultUserHomeDirFunc
+	storeUserHomeDirFunc(testDefaultUserHomeDirFunc)
 
 	if stateDir := strings.TrimSpace(os.Getenv(testHookStateDirEnvKey)); stateDir != "" {
 		testDefaultHookStateDir = stateDir

@@ -168,11 +168,11 @@ func TestBuildAntigravityCLIPluginCheck(t *testing.T) {
 
 func TestInspectAntigravityCLIPluginSkipsWhenHomeUnresolved(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
-	orig := userHomeDirFunc
-	t.Cleanup(func() { userHomeDirFunc = orig })
-	userHomeDirFunc = func() (string, error) {
+	orig := currentUserHomeDirFunc()
+	t.Cleanup(func() { storeUserHomeDirFunc(orig) })
+	storeUserHomeDirFunc(func() (string, error) {
 		return "", errors.New("no home")
-	}
+	})
 
 	check := inspectAntigravityCLIPlugin()
 	if check.Name != "antigravity-cli-plugin" {
@@ -193,9 +193,9 @@ func TestObserveAntigravityCLIPluginUsesCurrentSharedConfigPath(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "plugin.json"), healthyAntigravityPluginJSON)
 	writeFile(t, filepath.Join(dir, "hooks.json"), healthyAntigravityHooksJSON)
 
-	orig := userHomeDirFunc
-	t.Cleanup(func() { userHomeDirFunc = orig })
-	userHomeDirFunc = func() (string, error) { return home, nil }
+	orig := currentUserHomeDirFunc()
+	t.Cleanup(func() { storeUserHomeDirFunc(orig) })
+	storeUserHomeDirFunc(func() (string, error) { return home, nil })
 
 	observation := observeAntigravityCLIPlugin()
 	if observation.Shape != antigravityCLIPluginHealthy {
@@ -217,9 +217,9 @@ func TestObserveAntigravityCLIPluginDoesNotHideStaleTwin(t *testing.T) {
 	writeFile(t, filepath.Join(currentDir, "hooks.json"), healthyAntigravityHooksJSON)
 	writeFile(t, filepath.Join(legacyDir, "hooks", "hooks.json"), staleGeminiHooksJSON)
 
-	orig := userHomeDirFunc
-	t.Cleanup(func() { userHomeDirFunc = orig })
-	userHomeDirFunc = func() (string, error) { return home, nil }
+	orig := currentUserHomeDirFunc()
+	t.Cleanup(func() { storeUserHomeDirFunc(orig) })
+	storeUserHomeDirFunc(func() (string, error) { return home, nil })
 
 	observation := observeAntigravityCLIPlugin()
 	if observation.Shape != antigravityCLIPluginStaleGemini {

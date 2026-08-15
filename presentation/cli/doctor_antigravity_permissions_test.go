@@ -275,9 +275,9 @@ func TestInspectAntigravityHeadlessPermissionsUsesOnlyCLIGlobalSettings(t *testi
 		}
 	}
 
-	originalHomeDirFunc := userHomeDirFunc
-	userHomeDirFunc = func() (string, error) { return home, nil }
-	t.Cleanup(func() { userHomeDirFunc = originalHomeDirFunc })
+	originalHomeDirFunc := currentUserHomeDirFunc()
+	storeUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(func() { storeUserHomeDirFunc(originalHomeDirFunc) })
 
 	got := inspectAntigravityHeadlessPermissions()
 	if got.Executable || len(got.Missing) != len(antigravityRequiredHookPermissions) {

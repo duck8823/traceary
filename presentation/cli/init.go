@@ -13,8 +13,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-var userHomeDirFunc = os.UserHomeDir
-
 const dbPathEnvKey = "TRACEARY_DB_PATH"
 
 func dbPathFlagUsage() string {
