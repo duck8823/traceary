@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -291,8 +292,15 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 	// Re-initialize using the snapshot captured at the top of this
 	// function so a racing SetPath cannot redirect the post-restore
 	// migration to a different database than the one we just placed.
-	if err := d.db.initializeAt(ctx, destinationSnapshot, false); err != nil {
-		return xerrors.Errorf("failed to initialize store after restore: %w", err)
+	if initErr := d.db.initializeAt(ctx, destinationSnapshot, false); initErr != nil {
+		var required *apptypes.OfflineMigrationsRequiredError
+		if errors.As(initErr, &required) {
+			// The backup is already in place. Rolling it back would discard
+			// the only copy of a legacy store that still needs `store init`.
+			slog.Info("restored store requires operator-authorized migrations", "versions", required.Versions)
+			return nil
+		}
+		return xerrors.Errorf("failed to initialize store after restore: %w", initErr)
 	}
 
 	return nil
