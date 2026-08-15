@@ -46,7 +46,7 @@ func saveEventTransaction(
 			return xerrors.Errorf("failed to begin event delivery transaction: %w", err)
 		}
 
-		inserted, published, persistErr := persistEventDelivery(ctx, tx, event, audit, codecMetadata)
+		inserted, persistedID, published, persistErr := persistEventDelivery(ctx, tx, event, audit, codecMetadata)
 		if persistErr == nil && inserted && afterInsert != nil {
 			persistErr = afterInsert(ctx, tx)
 		}
@@ -83,6 +83,7 @@ func saveEventTransaction(
 		if published != nil {
 			publishAttestationAnchorAfterCommit(storePath, *published)
 		}
+		model.ApplyEventPersistResult(event, model.EventPersistResultOf(inserted, types.EventID(persistedID)))
 		return nil
 	}
 	return xerrors.Errorf("hook delivery identity remained unstable after %d attempts", maxDeliveryDecisionAttempts)
@@ -94,9 +95,9 @@ func persistEventDelivery(
 	event *model.Event,
 	audit *model.CommandAudit,
 	codecMetadata bool,
-) (bool, *attestation.AnchorRecord, error) {
+) (bool, string, *attestation.AnchorRecord, error) {
 	if event == nil {
-		return false, nil, xerrors.Errorf("event must not be nil")
+		return false, "", nil, xerrors.Errorf("event must not be nil")
 	}
 
 	evidence, hasDelivery := event.DeliveryEvidence().Value()
@@ -104,21 +105,21 @@ func persistEventDelivery(
 	if hasDelivery {
 		existing, found, err := findHookDeliveryByFingerprint(ctx, tx, event.SessionID(), evidence)
 		if err != nil {
-			return false, nil, err
+			return false, "", nil, err
 		}
 		if found {
 			if err := insertHookDeliveryAttempt(ctx, tx, event, existing.deliveryRecordID, "exact_redelivery"); err != nil {
-				return false, nil, err
+				return false, "", nil, err
 			}
 			if err := insertWorkspaceObservation(ctx, tx, event, existing.observedEventID, existing.deliveryRecordID, "supplemental", "runtime", diagnosticReason(existing.identityStatus), evidence.AttributionFingerprint()); err != nil {
-				return false, nil, err
+				return false, "", nil, err
 			}
-			return false, nil, nil
+			return false, existing.observedEventID, nil, nil
 		}
 
 		_, acceptedFound, err := findAcceptedHookDelivery(ctx, tx, event.SessionID(), evidence.ReportedID())
 		if err != nil {
-			return false, nil, err
+			return false, "", nil, err
 		}
 		identityStatus = "accepted"
 		if acceptedFound {
@@ -126,21 +127,21 @@ func persistEventDelivery(
 		}
 		if err := insertHookDelivery(ctx, tx, event, evidence, identityStatus); err != nil {
 			if isSQLiteUniqueOrPKConflict(err) {
-				return false, nil, errHookDeliveryIdentityRace
+				return false, "", nil, errHookDeliveryIdentityRace
 			}
-			return false, nil, err
+			return false, "", nil, err
 		}
 		if err := insertHookDeliveryAttempt(ctx, tx, event, evidence.DeliveryRecordID(), identityStatus); err != nil {
-			return false, nil, err
+			return false, "", nil, err
 		}
 	}
 
 	if err := insertEventAndAudit(ctx, tx, event, audit, codecMetadata); err != nil {
-		return false, nil, err
+		return false, "", nil, err
 	}
 	published, err := appendAttestationLink(ctx, tx, event, audit)
 	if err != nil {
-		return false, nil, err
+		return false, "", nil, err
 	}
 
 	deliveryRecordID := ""
@@ -150,9 +151,9 @@ func persistEventDelivery(
 		attributionFingerprint = evidence.AttributionFingerprint()
 	}
 	if err := insertWorkspaceObservation(ctx, tx, event, event.EventID().String(), deliveryRecordID, "primary", "runtime", diagnosticReason(identityStatus), attributionFingerprint); err != nil {
-		return false, nil, err
+		return false, "", nil, err
 	}
-	return true, published, nil
+	return true, event.EventID().String(), published, nil
 }
 
 func insertHookDeliveryAttempt(ctx context.Context, tx *sql.Tx, event *model.Event, deliveryRecordID, outcome string) error {

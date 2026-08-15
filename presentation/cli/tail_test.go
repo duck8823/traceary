@@ -24,16 +24,16 @@ type tailEventUsecaseStub struct {
 	onListWindow        func(callIndex int, criteria apptypes.EventListCriteria)
 }
 
-func (s *tailEventUsecaseStub) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace, apptypes.LogRedaction) (*model.Event, error) {
-	return nil, nil
+func (s *tailEventUsecaseStub) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace, apptypes.LogRedaction) (apptypes.EventWriteResult, error) {
+	return apptypes.EventWriteResult{}, nil
 }
 
 func (s *tailEventUsecaseStub) DeleteTranscript(context.Context, types.EventID) error {
 	return nil
 }
 
-func (s *tailEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
-	return nil, nil, nil
+func (s *tailEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (apptypes.EventWriteResult, *model.CommandAudit, error) {
+	return apptypes.EventWriteResult{}, nil, nil
 }
 
 func (s *tailEventUsecaseStub) Search(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error) {

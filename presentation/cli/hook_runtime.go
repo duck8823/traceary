@@ -659,10 +659,11 @@ func (c *RootCLI) runHookCompact(
 				kind = types.EventKind("")
 			}
 		}
-		logged, err := c.event.Log(ctx, body, kind, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
+		wrote, err := c.event.Log(ctx, body, kind, types.Client("hook"), agent, sessionID, workspace, apptypes.LogRedaction{})
 		if err != nil {
 			return xerrors.Errorf("failed to record compact hook event: %w", err)
 		}
+		logged := wrote.Event()
 		// Non-empty compact_summary is the sole discriminator — no
 		// minimum-length heuristic. Marker-only hosts create no refinement.
 		if logged != nil && strings.TrimSpace(compactSummary) != "" {
@@ -734,12 +735,9 @@ func (c *RootCLI) runHookCompact(
 // The warn lines are the observability. sessions.summary is not written
 // (#1706); list / handoff read session_refinements.
 //
-// coversTo names the event event.Log just returned. No host's compact
-// payload carries a field on the proven delivery-ID allowlist, so a compact
-// event never takes the exact-redelivery branch and always inserts. Should a
-// host add one, Log would hand back an event it did not persist and Refine
-// would reject the unknown covers_to before writing — the warn below, and
-// then the gc fallback. See #1710.
+// coversTo names the event Log returned. On exact redelivery that id is
+// the canonical existing row (#1710), so Refine can cover a persisted
+// event. Hosts without a proven delivery ID still insert.
 func (c *RootCLI) applyPostCompactDigest(
 	ctx context.Context,
 	sessionID types.SessionID,
@@ -1005,12 +1003,12 @@ func (c *RootCLI) runHookTranscriptWithBlocks(
 	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return false, "", xerrors.Errorf("failed to initialize store: %w", err)
 	}
-	event, err := c.event.Log(ctx, body, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace, logCfg)
+	wrote, err := c.event.Log(ctx, body, types.EventKindTranscript, types.Client("hook"), agent, sessionID, workspace, logCfg)
 	if err != nil {
 		return false, "", xerrors.Errorf("failed to record hook transcript: %w", err)
 	}
 	eventID := ""
-	if event != nil {
+	if event := wrote.Event(); event != nil {
 		eventID = event.EventID().String()
 	}
 	return true, eventID, nil

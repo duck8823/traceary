@@ -122,7 +122,7 @@ func (s *projectionSessionSearchStub) SearchSessionPage(
 	return apptypes.SearchSessionPageOf(s.hits, apptypes.SearchSessionTierReady), nil
 }
 
-func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {
+func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (apptypes.EventWriteResult, error) {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
 	s.logCall.message = message
@@ -138,13 +138,13 @@ func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.E
 	s.logCall.id = id
 	s.logCalls = append(s.logCalls, s.logCall)
 	if s.logEvent != nil || s.logErr != nil {
-		return s.logEvent, s.logErr
+		return apptypes.EventWriteResultOf(s.logEvent, true), s.logErr
 	}
 	event, err := model.NewEvent(id, kind, client, agent, sessionID, workspace, message)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to build stub log event: %w", err)
+		return apptypes.EventWriteResult{}, xerrors.Errorf("failed to build stub log event: %w", err)
 	}
-	return event, nil
+	return apptypes.EventWriteResultOf(event, true), nil
 }
 
 func (s *eventUsecaseStub) DeleteTranscript(_ context.Context, eventID types.EventID) error {
@@ -164,7 +164,7 @@ func (s *eventUsecaseStub) DeleteTranscript(_ context.Context, eventID types.Eve
 	s.logCalls = kept
 	return nil
 }
-func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (apptypes.EventWriteResult, *model.CommandAudit, error) {
 	s.auditCall.command = in.Command
 	s.auditCall.input = in.Input
 	s.auditCall.output = in.Output
@@ -176,7 +176,7 @@ func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, audi
 	s.auditCall.failed = in.Failed
 	s.auditCall.failureReason = in.FailureReason
 	s.auditCall.auditCfg = auditCfg
-	return s.auditEvent, s.auditAudit, s.auditErr
+	return apptypes.EventWriteResultOf(s.auditEvent, true), s.auditAudit, s.auditErr
 }
 func (s *eventUsecaseStub) Search(_ context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	s.searchCalls++

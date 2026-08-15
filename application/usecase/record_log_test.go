@@ -35,6 +35,23 @@ func (s *eventRepositoryStub) DeleteTranscript(_ context.Context, eventID types.
 	return s.deleteTranscriptErr
 }
 
+func loggedEvent(t *testing.T, wrote apptypes.EventWriteResult, err error) *model.Event {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("Log() error = %v", err)
+	}
+	if wrote.Event() == nil {
+		t.Fatal("Log() event is nil")
+	}
+	return wrote.Event()
+}
+
+func mustLog(t *testing.T, fn func() (apptypes.EventWriteResult, error)) *model.Event {
+	t.Helper()
+	wrote, err := fn()
+	return loggedEvent(t, wrote, err)
+}
+
 func TestEventUsecase_Log(t *testing.T) {
 	t.Parallel()
 
@@ -44,21 +61,17 @@ func TestEventUsecase_Log(t *testing.T) {
 		stub := &eventRepositoryStub{}
 		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Log(context.Background(),
-			"  hello traceary  ",
-			types.EventKind(""),
-			types.Client("cli"),
-			types.Agent("codex"),
-			types.SessionID("session-1"),
-			types.Workspace("duck8823/traceary"),
-			apptypes.LogRedaction{},
-		)
-		if err != nil {
-			t.Fatalf("Log() error = %v", err)
-		}
-		if got == nil {
-			t.Fatalf("Log() event is nil")
-		}
+		got := mustLog(t, func() (apptypes.EventWriteResult, error) {
+			return sut.Log(context.Background(),
+				"  hello traceary  ",
+				types.EventKind(""),
+				types.Client("cli"),
+				types.Agent("codex"),
+				types.SessionID("session-1"),
+				types.Workspace("duck8823/traceary"),
+				apptypes.LogRedaction{},
+			)
+		})
 		if stub.savedEvent == nil {
 			t.Fatalf("Save() event is nil")
 		}
@@ -91,18 +104,17 @@ func TestEventUsecase_Log(t *testing.T) {
 		stub := &eventRepositoryStub{}
 		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Log(context.Background(),
-			"compact summary text",
-			types.EventKind("compact_summary"),
-			types.Client("hook"),
-			types.Agent("claude"),
-			types.SessionID("session-1"),
-			types.Workspace("duck8823/traceary"),
-			apptypes.LogRedaction{},
-		)
-		if err != nil {
-			t.Fatalf("Log() error = %v", err)
-		}
+		got := mustLog(t, func() (apptypes.EventWriteResult, error) {
+			return sut.Log(context.Background(),
+				"compact summary text",
+				types.EventKind("compact_summary"),
+				types.Client("hook"),
+				types.Agent("claude"),
+				types.SessionID("session-1"),
+				types.Workspace("duck8823/traceary"),
+				apptypes.LogRedaction{},
+			)
+		})
 		if diff := cmp.Diff("compact_summary", got.Kind().String()); diff != "" {
 			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
@@ -114,18 +126,17 @@ func TestEventUsecase_Log(t *testing.T) {
 		stub := &eventRepositoryStub{}
 		sut := usecase.NewEventUsecase(stub, nil)
 
-		got, err := sut.Log(context.Background(),
-			"hello",
-			types.EventKind(""),
-			types.Client("cli"),
-			types.Agent("manual"),
-			types.SessionID("session-1"),
-			types.Workspace(""),
-			apptypes.LogRedaction{},
-		)
-		if err != nil {
-			t.Fatalf("Log() error = %v", err)
-		}
+		got := mustLog(t, func() (apptypes.EventWriteResult, error) {
+			return sut.Log(context.Background(),
+				"hello",
+				types.EventKind(""),
+				types.Client("cli"),
+				types.Agent("manual"),
+				types.SessionID("session-1"),
+				types.Workspace(""),
+				apptypes.LogRedaction{},
+			)
+		})
 		if diff := cmp.Diff("note", got.Kind().String()); diff != "" {
 			t.Fatalf("Kind() mismatch (-want +got):\n%s", diff)
 		}
@@ -160,18 +171,17 @@ func TestEventUsecase_Log(t *testing.T) {
 		cfg := apptypes.NewLogRedactionBuilder().
 			ExtraRedactPatterns([]string{`my_custom_secret=\S+`}).
 			Build()
-		got, err := sut.Log(context.Background(),
-			"Authorization: Bearer abc.DEF-123 and my_custom_secret=s3cr3tValue42 follows",
-			types.EventKindTranscript,
-			types.Client("hook"),
-			types.Agent("claude"),
-			types.SessionID("session-1"),
-			types.Workspace("duck8823/traceary"),
-			cfg,
-		)
-		if err != nil {
-			t.Fatalf("Log() error = %v", err)
-		}
+		got := mustLog(t, func() (apptypes.EventWriteResult, error) {
+			return sut.Log(context.Background(),
+				"Authorization: Bearer abc.DEF-123 and my_custom_secret=s3cr3tValue42 follows",
+				types.EventKindTranscript,
+				types.Client("hook"),
+				types.Agent("claude"),
+				types.SessionID("session-1"),
+				types.Workspace("duck8823/traceary"),
+				cfg,
+			)
+		})
 		body := got.Body()
 		if strings.Contains(body, "s3cr3tValue42") {
 			t.Errorf("transcript body leaked operator extra pattern: %q", body)
@@ -196,18 +206,17 @@ func TestEventUsecase_Log(t *testing.T) {
 		// Prompt and compact_summary bodies intentionally keep operator
 		// intent verbatim; the kind-aware gate inside EventUsecase.Log
 		// must not apply redaction to those kinds.
-		got, err := sut.Log(context.Background(),
-			"my_custom_secret=keepme",
-			types.EventKindPrompt,
-			types.Client("hook"),
-			types.Agent("claude"),
-			types.SessionID("session-1"),
-			types.Workspace("duck8823/traceary"),
-			cfg,
-		)
-		if err != nil {
-			t.Fatalf("Log() error = %v", err)
-		}
+		got := mustLog(t, func() (apptypes.EventWriteResult, error) {
+			return sut.Log(context.Background(),
+				"my_custom_secret=keepme",
+				types.EventKindPrompt,
+				types.Client("hook"),
+				types.Agent("claude"),
+				types.SessionID("session-1"),
+				types.Workspace("duck8823/traceary"),
+				cfg,
+			)
+		})
 		if diff := cmp.Diff("my_custom_secret=keepme", got.Body()); diff != "" {
 			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
@@ -249,18 +258,17 @@ func TestEventUsecase_Log_StampsSourceHookFromContext(t *testing.T) {
 	sut := usecase.NewEventUsecase(stub, nil)
 
 	ctx := apptypes.WithSourceHook(context.Background(), "stop")
-	got, err := sut.Log(ctx,
-		"transcript body",
-		types.EventKindTranscript,
-		types.Client("hook"),
-		types.Agent("claude"),
-		types.SessionID("session-1"),
-		types.Workspace("github.com/example/repo"),
-		apptypes.LogRedaction{},
-	)
-	if err != nil {
-		t.Fatalf("Log() error = %v", err)
-	}
+	got := mustLog(t, func() (apptypes.EventWriteResult, error) {
+		return sut.Log(ctx,
+			"transcript body",
+			types.EventKindTranscript,
+			types.Client("hook"),
+			types.Agent("claude"),
+			types.SessionID("session-1"),
+			types.Workspace("github.com/example/repo"),
+			apptypes.LogRedaction{},
+		)
+	})
 	if got.SourceHook() != "stop" {
 		t.Errorf("returned event SourceHook() = %q, want %q", got.SourceHook(), "stop")
 	}
@@ -279,18 +287,17 @@ func TestEventUsecase_Log_LeavesSourceHookEmptyWithoutContext(t *testing.T) {
 	stub := &eventRepositoryStub{}
 	sut := usecase.NewEventUsecase(stub, nil)
 
-	got, err := sut.Log(context.Background(),
-		"manual note",
-		types.EventKindNote,
-		types.Client("cli"),
-		types.Agent("manual"),
-		types.SessionID("session-1"),
-		types.Workspace("github.com/example/repo"),
-		apptypes.LogRedaction{},
-	)
-	if err != nil {
-		t.Fatalf("Log() error = %v", err)
-	}
+	got := mustLog(t, func() (apptypes.EventWriteResult, error) {
+		return sut.Log(context.Background(),
+			"manual note",
+			types.EventKindNote,
+			types.Client("cli"),
+			types.Agent("manual"),
+			types.SessionID("session-1"),
+			types.Workspace("github.com/example/repo"),
+			apptypes.LogRedaction{},
+		)
+	})
 	if got.SourceHook() != "" {
 		t.Errorf("SourceHook() = %q, want empty for non-hook ctx", got.SourceHook())
 	}

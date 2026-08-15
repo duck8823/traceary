@@ -1243,16 +1243,16 @@ func (s *spoolCodexUsageStub) CaptureHeadless(_ context.Context, input usecase.C
 	return usecase.CodexUsageCaptureResult{}, s.err
 }
 
-func (s *spoolEventUsecaseStub) Log(_ context.Context, message string, _ types.EventKind, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ apptypes.LogRedaction) (*model.Event, error) {
+func (s *spoolEventUsecaseStub) Log(_ context.Context, message string, _ types.EventKind, _ types.Client, _ types.Agent, _ types.SessionID, _ types.Workspace, _ apptypes.LogRedaction) (apptypes.EventWriteResult, error) {
 	s.logCalls++
 	s.lastMessage = message
-	return nil, s.logErr
+	return apptypes.EventWriteResult{}, s.logErr
 }
 func (s *spoolEventUsecaseStub) DeleteTranscript(context.Context, types.EventID) error {
 	return nil
 }
-func (s *spoolEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
-	return nil, nil, nil
+func (s *spoolEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (apptypes.EventWriteResult, *model.CommandAudit, error) {
+	return apptypes.EventWriteResult{}, nil, nil
 }
 func (s *spoolEventUsecaseStub) Search(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	return nil, nil

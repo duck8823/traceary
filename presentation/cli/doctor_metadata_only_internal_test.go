@@ -19,14 +19,14 @@ type hydrateCallTrackingEventUC struct {
 	hydrateCalls int
 }
 
-func (u *hydrateCallTrackingEventUC) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace, apptypes.LogRedaction) (*model.Event, error) {
-	return nil, nil
+func (u *hydrateCallTrackingEventUC) Log(context.Context, string, types.EventKind, types.Client, types.Agent, types.SessionID, types.Workspace, apptypes.LogRedaction) (apptypes.EventWriteResult, error) {
+	return apptypes.EventWriteResult{}, nil
 }
 func (u *hydrateCallTrackingEventUC) DeleteTranscript(context.Context, types.EventID) error {
 	return nil
 }
-func (u *hydrateCallTrackingEventUC) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
-	return nil, nil, nil
+func (u *hydrateCallTrackingEventUC) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (apptypes.EventWriteResult, *model.CommandAudit, error) {
+	return apptypes.EventWriteResult{}, nil, nil
 }
 func (u *hydrateCallTrackingEventUC) Search(context.Context, apptypes.EventSearchCriteria) ([]*model.Event, error) {
 	return nil, nil

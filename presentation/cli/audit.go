@@ -205,7 +205,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 		ExtraRedactPatterns(c.extraRedactPatterns).
 		StructuredRules(c.structuredRedactRules).
 		Build()
-	event, commandAudit, err := c.event.Audit(ctx,
+	wrote, commandAudit, err := c.event.Audit(ctx,
 		apptypes.AuditInput{
 			Command:       input.command,
 			Input:         input.input,
@@ -224,6 +224,7 @@ func (c *RootCLI) runAudit(ctx context.Context, output io.Writer, input auditCom
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record command audit", "監査ログ記録に失敗しました"), err)
 	}
+	event := wrote.Event()
 	if input.asJSON {
 		eventDetails, err := apptypes.EventDetailsOf(event, types.Some(commandAudit))
 		if err != nil {

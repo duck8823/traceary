@@ -48,22 +48,22 @@ func NewEventUsecase(
 	}
 }
 
-func (u *eventUsecase) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error) {
+func (u *eventUsecase) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (apptypes.EventWriteResult, error) {
 	if u.eventRepo == nil {
-		return nil, xerrors.Errorf("event repository is not configured")
+		return apptypes.EventWriteResult{}, xerrors.Errorf("event repository is not configured")
 	}
 
 	if _, err := types.AgentFrom(agent.String()); err != nil {
-		return nil, xerrors.Errorf("failed to resolve agent: %w", err)
+		return apptypes.EventWriteResult{}, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
 	if _, err := types.SessionIDFrom(sessionID.String()); err != nil {
-		return nil, xerrors.Errorf("failed to resolve session ID: %w", err)
+		return apptypes.EventWriteResult{}, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	resolvedKind := types.EventKindNote
 	if strings.TrimSpace(kind.String()) != "" {
 		resolved, err := types.EventKindFrom(kind.String())
 		if err != nil {
-			return nil, xerrors.Errorf("failed to resolve event kind: %w", err)
+			return apptypes.EventWriteResult{}, xerrors.Errorf("failed to resolve event kind: %w", err)
 		}
 		resolvedKind = resolved
 	}
@@ -84,7 +84,7 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 	if resolvedKind == types.EventKindTranscript {
 		rules, err := redaction.CompileRules(logCfg.ExtraRedactPatterns(), logCfg.StructuredRules())
 		if err != nil {
-			return nil, xerrors.Errorf("failed to compile redaction rules for transcript: %w", err)
+			return apptypes.EventWriteResult{}, xerrors.Errorf("failed to compile redaction rules for transcript: %w", err)
 		}
 		if redactedBody, ok := redactStructuredBodyBlocks(message, rules); ok {
 			message = redactedBody
@@ -95,7 +95,7 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 
 	eventID, err := newEventID()
 	if err != nil {
-		return nil, xerrors.Errorf("failed to generate event ID: %w", err)
+		return apptypes.EventWriteResult{}, xerrors.Errorf("failed to generate event ID: %w", err)
 	}
 
 	event, err := model.NewEvent(
@@ -108,17 +108,17 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 		message,
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to build log event: %w", err)
+		return apptypes.EventWriteResult{}, xerrors.Errorf("failed to build log event: %w", err)
 	}
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
 	if err := attachHookDelivery(ctx, event); err != nil {
-		return nil, xerrors.Errorf("failed to attach log delivery evidence: %w", err)
+		return apptypes.EventWriteResult{}, xerrors.Errorf("failed to attach log delivery evidence: %w", err)
 	}
 	if err := u.eventRepo.Save(ctx, event); err != nil {
-		return nil, xerrors.Errorf("failed to save log event: %w", err)
+		return apptypes.EventWriteResult{}, xerrors.Errorf("failed to save log event: %w", err)
 	}
 
-	return event, nil
+	return apptypes.EventWriteResultOf(event, event.PersistInserted()), nil
 }
 
 func (u *eventUsecase) DeleteTranscript(ctx context.Context, eventID types.EventID) error {
@@ -135,34 +135,34 @@ func (u *eventUsecase) DeleteTranscript(ctx context.Context, eventID types.Event
 	return nil
 }
 
-func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
+func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (apptypes.EventWriteResult, *model.CommandAudit, error) {
 	if u.eventRepo == nil {
-		return nil, nil, xerrors.Errorf("event repository is not configured")
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("event repository is not configured")
 	}
 
 	if _, err := types.AgentFrom(in.Agent.String()); err != nil {
-		return nil, nil, xerrors.Errorf("failed to resolve agent: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to resolve agent: %w", err)
 	}
 	if _, err := types.SessionIDFrom(in.SessionID.String()); err != nil {
-		return nil, nil, xerrors.Errorf("failed to resolve session ID: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to resolve session ID: %w", err)
 	}
 	eventID, err := newEventID()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("failed to generate event ID: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to generate event ID: %w", err)
 	}
 
 	maxInputBytes, err := resolveAuditPayloadLimit(auditCfg.MaxInputBytes(), maxAuditInputLength)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("failed to resolve input limit: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to resolve input limit: %w", err)
 	}
 	maxOutputBytes, err := resolveAuditPayloadLimit(auditCfg.MaxOutputBytes(), maxAuditOutputLength)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("failed to resolve output limit: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to resolve output limit: %w", err)
 	}
 
 	rules, err := redaction.CompileRules(auditCfg.ExtraRedactPatterns(), auditCfg.StructuredRules())
 	if err != nil {
-		return nil, nil, xerrors.Errorf("failed to compile redaction rules: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to compile redaction rules: %w", err)
 	}
 
 	normalizedCommand := in.Command
@@ -187,12 +187,12 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 		outputPayload.Truncated,
 	)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("failed to build command audit: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to build command audit: %w", err)
 	}
 	commandAudit.SetOriginalPayloadBytes(inputPayload.OriginalBytes, outputPayload.OriginalBytes)
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
 	if err := commandAudit.ClassifyOutcome(in.ExitCode, in.FailureReason, in.Failed); err != nil {
-		return nil, nil, xerrors.Errorf("failed to classify command audit outcome: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to classify command audit outcome: %w", err)
 	}
 
 	// command_executed no longer persists a composed body; command_audits is
@@ -208,18 +208,21 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 		"",
 	)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("failed to build audit event: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to build audit event: %w", err)
 	}
 	event.SetSourceHook(apptypes.SourceHookFromContext(ctx))
 	if err := attachHookDelivery(ctx, event, commandAuditDeliveryFields(commandAudit)...); err != nil {
-		return nil, nil, xerrors.Errorf("failed to attach audit delivery evidence: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to attach audit delivery evidence: %w", err)
 	}
 
 	if err := u.eventRepo.SaveWithAudit(ctx, event, commandAudit); err != nil {
-		return nil, nil, xerrors.Errorf("failed to save audit event: %w", err)
+		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to save audit event: %w", err)
+	}
+	if !event.PersistInserted() {
+		commandAudit.RebindEventID(event.EventID())
 	}
 
-	return event, commandAudit, nil
+	return apptypes.EventWriteResultOf(event, event.PersistInserted()), commandAudit, nil
 }
 
 func (u *eventUsecase) Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {

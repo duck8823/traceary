@@ -17,7 +17,9 @@ type EventUsecase interface {
 	// the implementation applies built-in redactors + the caller's
 	// extra patterns before persisting so no log-ingest surface has
 	// to re-implement that policy in the presentation layer.
-	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (*model.Event, error)
+	// The write result reports whether a row was inserted. On an exact
+	// hook redelivery Event() carries the canonical existing id.
+	Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (apptypes.EventWriteResult, error)
 
 	// DeleteTranscript removes one previously logged transcript event.
 	// Missing or non-transcript ids return nil so a failed supersede can
@@ -26,8 +28,9 @@ type EventUsecase interface {
 
 	// Audit records a command execution audit event. The AuditInput value
 	// object carries the command, attribution, exit code, and structural
-	// failure flag; auditCfg carries the redaction policy.
-	Audit(ctx context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error)
+	// failure flag; auditCfg carries the redaction policy. The write
+	// result reports insert vs exact redelivery, same as Log.
+	Audit(ctx context.Context, in apptypes.AuditInput, auditCfg apptypes.AuditRedaction) (apptypes.EventWriteResult, *model.CommandAudit, error)
 
 	// Search performs full-text search across events.
 	Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error)
