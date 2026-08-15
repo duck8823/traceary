@@ -90,6 +90,17 @@ func CommandAuditOf(
 // EventID returns the linked event ID.
 func (a *CommandAudit) EventID() types.EventID { return a.eventID }
 
+// RebindEventID points this in-memory audit at the canonical persisted
+// event after an exact redelivery discarded the constructed event id.
+func (a *CommandAudit) RebindEventID(eventID types.EventID) {
+	if a == nil {
+		return
+	}
+	if parsed, err := types.EventIDFrom(eventID.String()); err == nil {
+		a.eventID = parsed
+	}
+}
+
 // Command returns the executed command.
 func (a *CommandAudit) Command() string { return a.command }
 

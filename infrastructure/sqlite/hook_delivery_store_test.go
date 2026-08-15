@@ -310,10 +310,16 @@ func TestSessionDatasource_HookBoundaryRedeliveryIsIdempotent(t *testing.T) {
 	sessions := usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS)
 	startCtx := apptypes.WithSourceHook(ctx, "session_start")
 	startCtx = apptypes.WithHookDelivery(startCtx, apptypes.HookDeliveryInputOf("session_id:session-1", "/repo"))
+	var startIDs []types.EventID
 	for i := 0; i < 2; i++ {
-		if _, err := sessions.Start(startCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("session-1"), types.Workspace("/repo"), ""); err != nil {
+		started, err := sessions.Start(startCtx, types.Client("hook"), types.Agent("codex"), types.SessionID("session-1"), types.Workspace("/repo"), "")
+		if err != nil {
 			t.Fatalf("Start(attempt %d) error = %v", i+1, err)
 		}
+		startIDs = append(startIDs, started.EventID())
+	}
+	if startIDs[0] == "" || startIDs[0] != startIDs[1] {
+		t.Fatalf("Start ids = %q / %q, want the same canonical id", startIDs[0], startIDs[1])
 	}
 
 	endCtx := apptypes.WithSourceHook(ctx, "session_end")
@@ -484,6 +490,46 @@ func TestSessionDatasource_HookBoundaryWithoutNativeIDUsesLifecycleGuard(t *test
 	assertSQLiteCount(t, dbPath, "hook_deliveries", 0)
 }
 
+func TestEventUsecase_Log_ExactRedeliveryReturnsCanonicalEventID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	eventDS, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	events := usecase.NewEventUsecase(eventDS, eventDS)
+	deliveryCtx := apptypes.WithSourceHook(ctx, "user_prompt_submit")
+	deliveryCtx = apptypes.WithHookDelivery(deliveryCtx, apptypes.HookDeliveryInputOf("event_id:prompt-1", "/repo"))
+
+	first, err := events.Log(deliveryCtx, "same prompt body", types.EventKindPrompt, types.Client("hook"), types.Agent("codex"), types.SessionID("session-log"), types.Workspace("/repo"), apptypes.LogRedaction{})
+	if err != nil {
+		t.Fatalf("Log(first) error = %v", err)
+	}
+	if !first.Inserted() {
+		t.Fatal("Log(first).Inserted() = false, want true")
+	}
+	if first.Event() == nil || first.EventID().String() == "" {
+		t.Fatal("Log(first) returned an empty event id")
+	}
+
+	retry, err := events.Log(deliveryCtx, "same prompt body", types.EventKindPrompt, types.Client("hook"), types.Agent("codex"), types.SessionID("session-log"), types.Workspace("/repo"), apptypes.LogRedaction{})
+	if err != nil {
+		t.Fatalf("Log(retry) error = %v", err)
+	}
+	if retry.Inserted() {
+		t.Fatal("Log(retry).Inserted() = true, want false for exact redelivery")
+	}
+	if retry.EventID() != first.EventID() {
+		t.Fatalf("Log(retry) id = %q, want canonical %q", retry.EventID(), first.EventID())
+	}
+
+	assertSQLiteCount(t, dbPath, "events", 1)
+	assertSQLiteCount(t, dbPath, "hook_deliveries", 1)
+	assertSQLiteCountWhere(t, dbPath, "hook_delivery_attempts", "outcome = 'exact_redelivery'", 1)
+}
+
 func TestEventDatasource_HookAuditUsesFullSemanticDeliveryFingerprint(t *testing.T) {
 	t.Parallel()
 
@@ -497,9 +543,9 @@ func TestEventDatasource_HookAuditUsesFullSemanticDeliveryFingerprint(t *testing
 	deliveryCtx := apptypes.WithSourceHook(ctx, "post_tool_use")
 	deliveryCtx = apptypes.WithHookDelivery(deliveryCtx, apptypes.HookDeliveryInputOf("tool_use_id:tool-1", "/repo"))
 
-	audit := func(failed bool) {
+	audit := func(failed bool) apptypes.EventWriteResult {
 		t.Helper()
-		if _, _, err := events.Audit(deliveryCtx, apptypes.AuditInput{
+		wrote, _, err := events.Audit(deliveryCtx, apptypes.AuditInput{
 			Command:   "go test ./...",
 			Output:    "same output",
 			Client:    types.Client("hook"),
@@ -508,13 +554,21 @@ func TestEventDatasource_HookAuditUsesFullSemanticDeliveryFingerprint(t *testing
 			Workspace: types.Workspace("/repo"),
 			ExitCode:  types.None[int](),
 			Failed:    failed,
-		}, apptypes.NewAuditRedactionBuilder().Build()); err != nil {
+		}, apptypes.NewAuditRedactionBuilder().Build())
+		if err != nil {
 			t.Fatalf("Audit(failed=%t) error = %v", failed, err)
 		}
+		return wrote
 	}
 
-	audit(false)
-	audit(false)
+	first := audit(false)
+	retry := audit(false)
+	if !first.Inserted() || retry.Inserted() {
+		t.Fatalf("Audit insert/redelivery = %t/%t, want true/false", first.Inserted(), retry.Inserted())
+	}
+	if retry.EventID() != first.EventID() {
+		t.Fatalf("Audit(retry) id = %q, want canonical %q", retry.EventID(), first.EventID())
+	}
 	assertSQLiteCount(t, dbPath, "events", 1)
 	assertSQLiteCount(t, dbPath, "command_audits", 1)
 

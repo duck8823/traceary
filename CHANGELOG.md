@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Log reports insert vs exact redelivery and returns the canonical id (#1710)** — `EventUsecase.Log` / `Audit` return `EventWriteResult`. Shared `saveEventTransaction` stamps the persist outcome on the in-memory event so a redelivered hook gets the existing row's id, not the discarded constructed one. Scratch: two `Log` calls with the same `event_id:` delivery leave one `events` row and the second result's id equals the first.
 - **Growing Kimi turns leave one final transcript row (#1697)** — a later Stop for the same wire turn ID with a new fingerprint appends the longer body, then deletes the previous transcript id from the marker. Delete failure and two-field `#1681` markers fail open (the new row stays; the old row is left). Scratch: `hook kimi stop` then a longer same-turn payload leaves one `kind=transcript` row that contains the appended text.
 - **Spooled and generic Kimi transcript recording inherit the turn guard (#1696)** — `hook transcript kimi` and spool replay of `command=transcript` now go through the same per-(session, wire turn, fingerprint) guard as `hook kimi stop`. Live store (`mode=ro`, 2026-08-15): 249,042 `source_hook=stop` / `kind=transcript` / `agent=kimi` rows (`client` is `hook`). `hook_deliveries` has no Kimi `stop` rows, so spool vs live cannot be split there. Fail-open and growing-turn recording are unchanged.
 

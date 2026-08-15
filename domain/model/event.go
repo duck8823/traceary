@@ -26,6 +26,12 @@ type Event struct {
 	// commandAudit is optional read-side enrichment joined from command_audits.
 	// Write paths keep the audit as a separate aggregate (SaveWithAudit).
 	commandAudit types.Optional[*CommandAudit]
+	// persistKnown / persistInserted are write-side outcome from
+	// saveEventTransaction. They are not stored; readers reconstructing
+	// EventOf leave persistKnown false, which PersistInserted treats as
+	// inserted so stubs and read models stay insert-shaped.
+	persistKnown    bool
+	persistInserted bool
 }
 
 // NewEvent creates a new Event.
@@ -199,6 +205,32 @@ func (e *Event) SetDeliveryEvidence(evidence HookDeliveryEvidence) {
 // DeliveryEvidence returns optional stable hook delivery evidence.
 func (e *Event) DeliveryEvidence() types.Optional[HookDeliveryEvidence] {
 	return e.deliveryEvidence
+}
+
+// RecordPersistOutcome records whether Save inserted a new row and, on an
+// exact redelivery, replaces this in-memory event's ID with the canonical
+// existing id. The constructed ID never named a row in that case (#1710).
+func (e *Event) RecordPersistOutcome(inserted bool, persistedID types.EventID) {
+	if e == nil {
+		return
+	}
+	e.persistKnown = true
+	e.persistInserted = inserted
+	if !inserted {
+		if trimmed, err := types.EventIDFrom(persistedID.String()); err == nil {
+			e.eventID = trimmed
+		}
+	}
+}
+
+// PersistInserted reports whether the last Save inserted this event. When
+// Save has not recorded an outcome (test stubs, reconstructed rows), this
+// is true so callers treat the event as newly written.
+func (e *Event) PersistInserted() bool {
+	if e == nil || !e.persistKnown {
+		return true
+	}
+	return e.persistInserted
 }
 
 // AttachCommandAudit attaches a hydrated command audit for read-side consumers.

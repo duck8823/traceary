@@ -120,10 +120,11 @@ func (c *RootCLI) runLog(ctx context.Context, output io.Writer, input logCommand
 		ExtraRedactPatterns(c.extraRedactPatterns).
 		StructuredRules(c.structuredRedactRules).
 		Build()
-	event, err := c.event.Log(ctx, message, kind, client, agent, sessionID, workspace, logCfg)
+	wrote, err := c.event.Log(ctx, message, kind, client, agent, sessionID, workspace, logCfg)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to record log", "ログ記録に失敗しました"), err)
 	}
+	event := wrote.Event()
 	if input.asJSON {
 		if err := writeEventJSON(output, event); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print record result", "ログ記録結果の出力に失敗しました"), err)

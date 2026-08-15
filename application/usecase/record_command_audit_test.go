@@ -47,7 +47,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 		stub := &commandAuditSaverStub{}
 		sut := usecase.NewEventUsecase(stub, nil)
 
-		event, commandAudit, err := sut.Audit(context.Background(),
+		wrote, commandAudit, err := sut.Audit(context.Background(),
 			apptypes.AuditInput{
 				Command:   "go test ./...",
 				Input:     "stdin",
@@ -64,6 +64,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Audit() error = %v", err)
 		}
+		event := wrote.Event()
 		if event == nil || commandAudit == nil {
 			t.Fatalf("Audit() returned nil values")
 		}
@@ -137,7 +138,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 		longInput := "input-head-" + strings.Repeat("i", 70*1024) + "-input-tail"
 		longOutput := "output-head-" + strings.Repeat("o", 70*1024) + "-output-tail"
 
-		event, commandAudit, err := sut.Audit(context.Background(),
+		wrote, commandAudit, err := sut.Audit(context.Background(),
 			apptypes.AuditInput{
 				Command:   "go test ./...",
 				Input:     longInput,
@@ -154,6 +155,7 @@ func TestEventUsecase_Audit(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Audit() error = %v", err)
 		}
+		event := wrote.Event()
 		if !commandAudit.InputTruncated() {
 			t.Fatalf("InputTruncated() = false, want true")
 		}
