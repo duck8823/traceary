@@ -21,6 +21,9 @@ import (
 //go:embed sql/insert_event.sql
 var insertEventQuery string
 
+//go:embed sql/delete_transcript_event.sql
+var deleteTranscriptEventQuery string
+
 //go:embed sql/insert_command_audit.sql
 var insertCommandAuditQuery string
 
@@ -84,6 +87,29 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 		return err
 	}
 	return saveEventTransaction(ctx, db, event, nil, codecMetadata, nil, storePath)
+}
+
+// DeleteTranscript removes one transcript event. Missing or non-transcript
+// ids succeed so a supersede can fail open.
+func (d *EventDatasource) DeleteTranscript(ctx context.Context, eventID types.EventID) error {
+	parsed, err := types.EventIDFrom(eventID.String())
+	if err != nil {
+		return xerrors.Errorf("event ID must not be empty: %w", err)
+	}
+	storePath := d.db.Path()
+	db, err := d.db.openAt(ctx, storePath)
+	if err != nil {
+		return xerrors.Errorf("failed to open DB for transcript delete: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+	if _, err := db.ExecContext(ctx, deleteTranscriptEventQuery, parsed.String()); err != nil {
+		return xerrors.Errorf("failed to delete transcript event: %w", err)
+	}
+	return nil
 }
 
 // SaveWithAudit persists an event together with its command audit.

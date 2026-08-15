@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Growing Kimi turns leave one final transcript row (#1697)** — a later Stop for the same wire turn ID with a new fingerprint appends the longer body, then deletes the previous transcript id from the marker. Delete failure and two-field `#1681` markers fail open (the new row stays; the old row is left). Scratch: `hook kimi stop` then a longer same-turn payload leaves one `kind=transcript` row that contains the appended text.
 - **Spooled and generic Kimi transcript recording inherit the turn guard (#1696)** — `hook transcript kimi` and spool replay of `command=transcript` now go through the same per-(session, wire turn, fingerprint) guard as `hook kimi stop`. Live store (`mode=ro`, 2026-08-15): 249,042 `source_hook=stop` / `kind=transcript` / `agent=kimi` rows (`client` is `hook`). `hook_deliveries` has no Kimi `stop` rows, so spool vs live cannot be split there. Fail-open and growing-turn recording are unchanged.
 
 ## [v0.37.0] - 2026-08-15

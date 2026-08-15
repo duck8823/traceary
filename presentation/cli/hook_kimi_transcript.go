@@ -287,22 +287,25 @@ const kimiTranscriptTurnMarkerSeparator = "\t"
 
 // encodeKimiTranscriptTurnMarker renders the marker file content for a
 // recorded (turn ID, content fingerprint) pair.
-func encodeKimiTranscriptTurnMarker(turnID, fingerprint string) []byte {
-	return []byte(turnID + kimiTranscriptTurnMarkerSeparator + fingerprint)
+func encodeKimiTranscriptTurnMarker(turnID, fingerprint, eventID string) []byte {
+	return []byte(turnID + kimiTranscriptTurnMarkerSeparator + fingerprint + kimiTranscriptTurnMarkerSeparator + eventID)
 }
 
 // decodeKimiTranscriptTurnMarker parses a marker file's content into its
-// (turn ID, fingerprint) pair. It returns ok=false for anything that is not
-// exactly two nonempty tab-separated fields — including a marker written by
-// the pre-fingerprint format (turn ID only, no separator), which must never
-// be mistaken for a match against a real fingerprint.
-func decodeKimiTranscriptTurnMarker(data []byte) (turnID, fingerprint string, ok bool) {
+// (turn ID, fingerprint, event ID) triple. Two-field markers from #1681
+// still match for idempotency; their event ID is empty so a later growth
+// cannot supersede. Pre-fingerprint single-field markers still fail closed
+// for matching (ok=false).
+func decodeKimiTranscriptTurnMarker(data []byte) (turnID, fingerprint, eventID string, ok bool) {
 	trimmed := strings.TrimSpace(string(data))
-	parts := strings.SplitN(trimmed, kimiTranscriptTurnMarkerSeparator, 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
+	parts := strings.Split(trimmed, kimiTranscriptTurnMarkerSeparator)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", "", false
 	}
-	return parts[0], parts[1], true
+	if len(parts) >= 3 {
+		eventID = parts[2]
+	}
+	return parts[0], parts[1], eventID, true
 }
 
 // kimiTranscriptTurnStatePath returns the marker file path recording the
@@ -400,33 +403,46 @@ func kimiTranscriptTurnAlreadyRecorded(sessionID, turnID, fingerprint string) bo
 		}
 		return false
 	}
-	recordedTurnID, recordedFingerprint, ok := decodeKimiTranscriptTurnMarker(data)
+	recordedTurnID, recordedFingerprint, _, ok := decodeKimiTranscriptTurnMarker(data)
 	if !ok {
 		return false
 	}
 	return recordedTurnID == turnID && recordedFingerprint == fingerprint
 }
 
-// markKimiTranscriptTurnRecorded persists (turnID, fingerprint) as the last
-// recorded transcript turn for sessionID. Callers MUST call this only after
-// confirming a row was actually persisted (runHookTranscriptWithBlocks
-// returned recorded=true) — never merely because the recorder returned a
-// nil error, since it fails soft (nil error, nothing written) on several
-// unrelated conditions. Marking on a skip would silently drop every later
-// redelivery of a turn that was never actually stored (#1681 CRITICAL
-// finding). Failures to write the marker file itself are logged and
-// swallowed: losing the marker only risks one extra duplicate on the next
-// Stop firing, never a lost turn, and a hook must never fail the host's
-// turn over housekeeping state. Callers must hold
-// withKimiTranscriptTurnStateLock for correctness under concurrent
-// firings.
-func markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint string) {
+func loadKimiTranscriptTurnMarker(sessionID string) (turnID, fingerprint, eventID string, ok bool) {
+	path, err := kimiTranscriptTurnStatePath(sessionID)
+	if err != nil {
+		return "", "", "", false
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- fixed name under the hook state directory
+	if err != nil {
+		return "", "", "", false
+	}
+	return decodeKimiTranscriptTurnMarker(data)
+}
+
+// markKimiTranscriptTurnRecorded persists (turnID, fingerprint, eventID)
+// as the last recorded transcript turn for sessionID. Callers MUST call
+// this only after confirming a row was actually persisted
+// (runHookTranscriptWithBlocks returned recorded=true) — never merely
+// because the recorder returned a nil error, since it fails soft (nil
+// error, nothing written) on several unrelated conditions. Marking on a
+// skip would silently drop every later redelivery of a turn that was never
+// actually stored (#1681 CRITICAL finding). The event ID is required so a
+// later same-turn growth can delete the previous row (#1697). Failures to
+// write the marker file itself are logged and swallowed: losing the marker
+// only risks one extra duplicate on the next Stop firing, never a lost
+// turn, and a hook must never fail the host's turn over housekeeping
+// state. Callers must hold withKimiTranscriptTurnStateLock for correctness
+// under concurrent firings.
+func markKimiTranscriptTurnRecorded(sessionID, turnID, fingerprint, eventID string) {
 	path, err := kimiTranscriptTurnStatePath(sessionID)
 	if err != nil {
 		slog.Debug("failed to resolve Kimi transcript turn state path", "session_id", sessionID, "error", err)
 		return
 	}
-	if err := os.WriteFile(path, encodeKimiTranscriptTurnMarker(turnID, fingerprint), 0o600); err != nil {
+	if err := os.WriteFile(path, encodeKimiTranscriptTurnMarker(turnID, fingerprint, eventID), 0o600); err != nil {
 		slog.Debug("failed to write Kimi transcript turn state", "path", path, "error", err)
 	}
 }

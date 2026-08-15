@@ -34,6 +34,10 @@ func (s *commandAuditSaverStub) SaveWithAudit(
 	return s.err
 }
 
+func (s *commandAuditSaverStub) DeleteTranscript(_ context.Context, _ types.EventID) error {
+	return nil
+}
+
 func TestEventUsecase_Audit(t *testing.T) {
 	t.Parallel()
 

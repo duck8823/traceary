@@ -14,8 +14,10 @@ import (
 )
 
 type eventRepositoryStub struct {
-	savedEvent *model.Event
-	err        error
+	savedEvent          *model.Event
+	err                 error
+	deletedTranscriptID types.EventID
+	deleteTranscriptErr error
 }
 
 func (s *eventRepositoryStub) Save(_ context.Context, event *model.Event) error {
@@ -26,6 +28,11 @@ func (s *eventRepositoryStub) Save(_ context.Context, event *model.Event) error 
 func (s *eventRepositoryStub) SaveWithAudit(_ context.Context, event *model.Event, _ *model.CommandAudit) error {
 	s.savedEvent = event
 	return s.err
+}
+
+func (s *eventRepositoryStub) DeleteTranscript(_ context.Context, eventID types.EventID) error {
+	s.deletedTranscriptID = eventID
+	return s.deleteTranscriptErr
 }
 
 func TestEventUsecase_Log(t *testing.T) {
@@ -287,4 +294,32 @@ func TestEventUsecase_Log_LeavesSourceHookEmptyWithoutContext(t *testing.T) {
 	if got.SourceHook() != "" {
 		t.Errorf("SourceHook() = %q, want empty for non-hook ctx", got.SourceHook())
 	}
+}
+
+func TestEventUsecase_DeleteTranscript(t *testing.T) {
+	t.Parallel()
+
+	t.Run("forwards a resolved id to the repository", func(t *testing.T) {
+		t.Parallel()
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+		if err := sut.DeleteTranscript(context.Background(), types.EventID("evt-1")); err != nil {
+			t.Fatalf("DeleteTranscript() error = %v", err)
+		}
+		if stub.deletedTranscriptID.String() != "evt-1" {
+			t.Fatalf("deleted id = %q, want evt-1", stub.deletedTranscriptID)
+		}
+	})
+
+	t.Run("rejects an empty id", func(t *testing.T) {
+		t.Parallel()
+		stub := &eventRepositoryStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+		if err := sut.DeleteTranscript(context.Background(), types.EventID("")); err == nil {
+			t.Fatal("DeleteTranscript() error = nil, want error")
+		}
+		if stub.deletedTranscriptID != "" {
+			t.Fatalf("repository should not be called for an empty id")
+		}
+	})
 }

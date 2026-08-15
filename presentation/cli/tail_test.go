@@ -28,6 +28,10 @@ func (s *tailEventUsecaseStub) Log(context.Context, string, types.EventKind, typ
 	return nil, nil
 }
 
+func (s *tailEventUsecaseStub) DeleteTranscript(context.Context, types.EventID) error {
+	return nil
+}
+
 func (s *tailEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	return nil, nil, nil
 }
@@ -84,7 +88,7 @@ func (s *tailEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCriter
 
 type tailStoreManagementStub struct{}
 
-func (tailStoreManagementStub) Initialize(context.Context) error { return nil }
+func (tailStoreManagementStub) Initialize(context.Context) error           { return nil }
 func (tailStoreManagementStub) InitializeAuthorized(context.Context) error { return nil }
 func (tailStoreManagementStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	return nil, nil

@@ -509,6 +509,86 @@ func newEventForSQLiteTest(
 	)
 }
 
+func TestDatasource_DeleteTranscript(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"000001_init.sql": {
+			Data: []byte(`
+CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    body_availability TEXT NOT NULL DEFAULT 'available',
+    created_at TEXT NOT NULL,
+    source_hook TEXT
+);`),
+		},
+		"000002_add_event_metadata.sql": {
+			Data: []byte(`
+ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
+`),
+		},
+		"000003_create_command_audits.sql": {
+			Data: []byte(`
+CREATE TABLE command_audits (
+    event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    command_text TEXT NOT NULL,
+    command_wrapper TEXT NOT NULL DEFAULT '',
+    command_name TEXT NOT NULL DEFAULT 'unknown',
+    input_text TEXT NOT NULL,
+    output_text TEXT NOT NULL,
+    input_truncated INTEGER NOT NULL DEFAULT 0,
+    output_truncated INTEGER NOT NULL DEFAULT 0,
+    input_original_bytes INTEGER NOT NULL DEFAULT 0,
+    output_original_bytes INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER,
+    failed INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT NOT NULL DEFAULT 'unknown'
+);`),
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	sut, storeManager := newEventDatasource(t, dbPath, migrations)
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	transcript := newEventForSQLiteTest(t, "evt-transcript", "hook", "kimi", "session-1", "ws", "short", time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC))
+	transcript = model.EventOf(transcript.EventID(), types.EventKindTranscript, transcript.Client(), transcript.Agent(), transcript.SessionID(), transcript.Workspace(), transcript.Body(), transcript.CreatedAt())
+	note := newEventForSQLiteTest(t, "evt-note", "cli", "kimi", "session-1", "ws", "keep me", time.Date(2026, 8, 15, 12, 1, 0, 0, time.UTC))
+	if err := sut.Save(context.Background(), transcript); err != nil {
+		t.Fatalf("Save(transcript) error = %v", err)
+	}
+	if err := sut.Save(context.Background(), note); err != nil {
+		t.Fatalf("Save(note) error = %v", err)
+	}
+
+	if err := sut.DeleteTranscript(context.Background(), transcript.EventID()); err != nil {
+		t.Fatalf("DeleteTranscript(transcript) error = %v", err)
+	}
+	if err := sut.DeleteTranscript(context.Background(), note.EventID()); err != nil {
+		t.Fatalf("DeleteTranscript(note) error = %v", err)
+	}
+	if err := sut.DeleteTranscript(context.Background(), types.EventID("missing")); err != nil {
+		t.Fatalf("DeleteTranscript(missing) error = %v", err)
+	}
+
+	got, err := sut.ListRecent(context.Background(), 10, 0, types.EventKind(""), types.Client(""), types.Agent(""), types.SessionID(""), types.Workspace(""), false, time.Time{}, time.Time{}, "")
+	if err != nil {
+		t.Fatalf("ListRecent() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(events) = %d, want 1", len(got))
+	}
+	if got[0].EventID().String() != "evt-note" {
+		t.Fatalf("remaining id = %q, want evt-note", got[0].EventID())
+	}
+}
+
 func TestDatasource_ListWindow_ReturnsAllEventsAcrossBatches(t *testing.T) {
 	t.Parallel()
 

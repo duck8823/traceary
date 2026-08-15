@@ -1248,6 +1248,9 @@ func (s *spoolEventUsecaseStub) Log(_ context.Context, message string, _ types.E
 	s.lastMessage = message
 	return nil, s.logErr
 }
+func (s *spoolEventUsecaseStub) DeleteTranscript(context.Context, types.EventID) error {
+	return nil
+}
 func (s *spoolEventUsecaseStub) Audit(context.Context, apptypes.AuditInput, apptypes.AuditRedaction) (*model.Event, *model.CommandAudit, error) {
 	return nil, nil, nil
 }
