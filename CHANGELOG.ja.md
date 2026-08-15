@@ -5,7 +5,7 @@
 このファイルは、Traceary の各リリースで何が入ったかを時系列で追いやすくするための changelog です。  
 release note と同じ粒度で、版ごとの要点だけをまとめています。
 
-## [Unreleased]
+## [v0.36.0] - 2026-08-15
 
 ### Added
 - **doctor がこのストアの実測コストを出す (#1809)** — `traceary doctor --json` に `operator_cost`（`traceary.operator_cost/v1`）と check `store-operator-cost` を追加。resident の event/session あたり、undiscardable / foldable の source-text、amplification、直近 30 日のレートからの月次予測。2 GiB 以上は metadata-only（resident サイズのみ）。グローバルな月次主張ではない。
