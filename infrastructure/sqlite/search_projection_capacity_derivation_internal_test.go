@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 )
 
 func driveToEviction(t *testing.T, store *Database, db *sql.DB, b apptypes.SearchProjectionBudget, now time.Time) {
@@ -232,6 +233,37 @@ func TestSearchProjectionCutoffSlackCoversFourfoldCeilingRaise(t *testing.T) {
 	raised := startCeiling * searchProjectionCutoffSlackFactor
 	if walk < raised {
 		t.Fatalf("walk ceiling %d < 4× raise %d; prefilter would drop recoverable docs", walk, raised)
+	}
+}
+
+func TestSearchProjectionCapacityRederiveRetriesOnAlreadyCompleteCatchUp(t *testing.T) {
+	store, db := newCapacityTestStore(t, []struct{ id, body, created string }{
+		{"e1", strings.Repeat("complete retry corpus word ", 80), "2026-06-01T12:00:00Z"},
+	})
+	now := time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
+	b := capacityBudget(64 << 20)
+	driveToCompletion(t, store, b, now)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `UPDATE search_projection_state SET capacity_rederived=0, recent_source_ceiling_bytes=999999 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := usecase.NewSearchProjectionUsecase(store).CatchUp(ctx, b, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "already_complete" {
+		t.Fatalf("action=%q, want already_complete", result.Action)
+	}
+	var ceiling int64
+	var rederived int
+	if err := db.QueryRow(`SELECT recent_source_ceiling_bytes,capacity_rederived FROM search_projection_state`).Scan(&ceiling, &rederived); err != nil {
+		t.Fatal(err)
+	}
+	if ceiling == 999999 {
+		t.Fatal("ceiling still Start-time pin after already_complete CatchUp")
+	}
+	if rederived != 1 {
+		t.Fatalf("capacity_rederived=%d, want 1", rederived)
 	}
 }
 

@@ -476,6 +476,7 @@ type SearchProjectionControlStatus struct {
 	// IndexFamilyWithinBudget is the persisted completion verdict: 1 within,
 	// 0 over, -1 unknown. It is not a derived measurement.
 	IndexFamilyWithinBudget int
+	CapacityRederived       int
 }
 
 // SearchProjectionCatchUpResult is one bounded unit of automatic generation

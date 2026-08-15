@@ -1727,16 +1727,28 @@ func foldEvidenceReason(primary, additional string) string {
 	}
 }
 
+// RecordSearchProjectionCapacityRederivation is the store-open retry for a
+// complete generation whose detached re-derive write never landed.
+func (d *Database) RecordSearchProjectionCapacityRederivation(ctx context.Context, generationID string, now time.Time) {
+	if strings.TrimSpace(generationID) == "" {
+		return
+	}
+	db, err := d.open(ctx)
+	if err != nil {
+		slog.Warn("search projection capacity re-derivation skipped; Start-time ceiling remains",
+			"generation_id", generationID,
+			"reason", truncateEvidenceReason(err.Error()),
+		)
+		return
+	}
+	defer func() { _ = db.Close() }()
+	d.recordSearchProjectionCapacityRederivation(ctx, db, generationID, now)
+}
+
 // recordSearchProjectionCapacityRederivation re-measures this generation's
-// family and rewrites the source ceiling after the generation is in eviction.
-// Mirrors recordSearchProjectionCutoverEvidence: own bounded context, fenced
-// write, log-and-leave-Start-ceiling on failure. capacity_rederived=0 is the
-// retry obligation: a crash after the phase commit no longer loses the write.
-//
-// The Start-time ceiling is the previous generation's estimate and can err in
-// either direction; a single eviction batch may run against it if this loses
-// the race with the next open. index_family_within_budget on the completion
-// record surfaces whether the configured budget held.
+// family and rewrites the source ceiling after the generation has left source.
+// Own bounded context, fenced write, log-and-leave-Start-ceiling on failure.
+// capacity_rederived=0 is the retry obligation.
 func (d *Database) recordSearchProjectionCapacityRederivation(ctx context.Context, db *sql.DB, generationID string, now time.Time) {
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.measureTimeout()+searchProjectionEvidenceWriteTimeout)
 	defer cancel()

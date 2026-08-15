@@ -26,6 +26,12 @@ type SearchProjectionStore interface {
 	SearchProjectionControlStatus(context.Context) (apptypes.SearchProjectionControlStatus, error)
 }
 
+// SearchProjectionCapacityRederiveStore retries a missed source-ceiling
+// re-derivation on an already-complete generation (#1751).
+type SearchProjectionCapacityRederiveStore interface {
+	RecordSearchProjectionCapacityRederivation(context.Context, string, time.Time)
+}
+
 type SearchProjectionInventoryStore interface {
 	SelectInventory(context.Context, apptypes.SearchProjectionBudget) (apptypes.SearchProjectionInventorySnapshot, error)
 	ApplyInventoryBatch(context.Context, apptypes.SearchProjectionInventoryPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error)
@@ -418,6 +424,11 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		return u.finishCatchUpProgress(ctx, out, progress)
 	}
 	if status.State == "complete" {
+		if status.CapacityRederived == 0 && status.GenerationID != "" {
+			if rederive, ok := u.store.(SearchProjectionCapacityRederiveStore); ok {
+				rederive.RecordSearchProjectionCapacityRederivation(ctx, status.GenerationID, now.UTC())
+			}
+		}
 		out.Action = "already_complete"
 		out.Completed = true
 		return out, nil
