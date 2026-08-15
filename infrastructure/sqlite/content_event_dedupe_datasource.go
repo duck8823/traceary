@@ -829,6 +829,29 @@ func (d *StoreManagementDatasource) archiveDedupeBatch(
 		if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE id = ?`, target.id); err != nil {
 			return xerrors.Errorf("failed to remove archived duplicate event %s: %w", target.id, err)
 		}
+		// session_refinements has no FK to events. A coverage endpoint that
+		// names this id would otherwise fail SaveIfAdvances forever (NULL
+		// join). The kept twin carries the same content (#1777).
+		if strings.TrimSpace(target.keptID) != "" && target.keptID != target.id {
+			if _, err := tx.ExecContext(
+				ctx,
+				`UPDATE session_refinements
+				    SET covers_from_event_id = ?
+				  WHERE covers_from_event_id = ?`,
+				target.keptID, target.id,
+			); err != nil {
+				return xerrors.Errorf("failed to repoint session refinement covers_from from %s to %s: %w", target.id, target.keptID, err)
+			}
+			if _, err := tx.ExecContext(
+				ctx,
+				`UPDATE session_refinements
+				    SET covers_to_event_id = ?
+				  WHERE covers_to_event_id = ?`,
+				target.keptID, target.id,
+			); err != nil {
+				return xerrors.Errorf("failed to repoint session refinement covers_to from %s to %s: %w", target.id, target.keptID, err)
+			}
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
