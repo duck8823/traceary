@@ -18,12 +18,21 @@ type CompactInput struct {
 
 // CompactResult is the operator-visible outcome of one rewrite.
 type CompactResult struct {
-	Run                 domain.CompactionRun
-	BytesBefore         int64
-	BytesAfter          int64
-	UnrefinedRemaining  int
-	UnrefinedBytes      int64
-	MechanicalSummaries bool
+	Run                      domain.CompactionRun
+	BytesBefore              int64
+	BytesAfter               int64
+	UnrefinedRemaining       int
+	UnrefinedBytes           int64
+	MechanicalSummaries      bool
+	ReleasedCommandBodyRows  int
+	ReleasedCommandBodyBytes int64
+}
+
+// CommandBodyReclaim is the measured set of duplicated command_executed
+// bodies compact will clear. Bytes are stored blob lengths, not plaintext.
+type CommandBodyReclaim struct {
+	Rows  int
+	Bytes int64
 }
 
 // CompactFilter configures the copy-filter inside Build.

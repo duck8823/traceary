@@ -39,14 +39,16 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 				return err
 			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
-				"run_id":               result.Run.ID,
-				"phase":                result.Run.Phase,
-				"bytes_before":         result.BytesBefore,
-				"bytes_after":          result.BytesAfter,
-				"unrefined_remaining":  result.UnrefinedRemaining,
-				"unrefined_bytes":      result.UnrefinedBytes,
-				"mechanical_summaries": result.MechanicalSummaries,
-				"rollback_path":        result.Run.RollbackPath,
+				"run_id":                      result.Run.ID,
+				"phase":                       result.Run.Phase,
+				"bytes_before":                result.BytesBefore,
+				"bytes_after":                 result.BytesAfter,
+				"unrefined_remaining":         result.UnrefinedRemaining,
+				"unrefined_bytes":             result.UnrefinedBytes,
+				"mechanical_summaries":        result.MechanicalSummaries,
+				"released_command_body_rows":  result.ReleasedCommandBodyRows,
+				"released_command_body_bytes": result.ReleasedCommandBodyBytes,
+				"rollback_path":               result.Run.RollbackPath,
 				// Apply-time VerifyPair is not in-use proof. The operator
 				// deletes this file when they accept the rewrite (#1827).
 				"rollback_retained": true,

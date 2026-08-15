@@ -72,6 +72,14 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 			return application.CompactResult{}, fmt.Errorf("compact --force requested but no work-copy cover is bound")
 		}
 	}
+	var reclaim application.CommandBodyReclaim
+	if inspector, ok := u.builder.(application.CommandBodyReclaimInspector); ok {
+		measured, inspectErr := inspector.InspectCommandBodyReclaim(ctx, source)
+		if inspectErr != nil {
+			return application.CompactResult{}, inspectErr
+		}
+		reclaim = measured
+	}
 	before, beforeErr := os.Stat(source)
 	if beforeErr != nil {
 		return application.CompactResult{}, fmt.Errorf("stat compaction source: %w", beforeErr)
@@ -94,12 +102,14 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		remaining, remainingBytes = 0, 0
 	}
 	return application.CompactResult{
-		Run:                 run,
-		BytesBefore:         before.Size(),
-		BytesAfter:          after.Size(),
-		UnrefinedRemaining:  remaining,
-		UnrefinedBytes:      remainingBytes,
-		MechanicalSummaries: in.Force && gate.UnrefinedSessions > 0,
+		Run:                      run,
+		BytesBefore:              before.Size(),
+		BytesAfter:               after.Size(),
+		UnrefinedRemaining:       remaining,
+		UnrefinedBytes:           remainingBytes,
+		MechanicalSummaries:      in.Force && gate.UnrefinedSessions > 0,
+		ReleasedCommandBodyRows:  reclaim.Rows,
+		ReleasedCommandBodyBytes: reclaim.Bytes,
 	}, nil
 }
 

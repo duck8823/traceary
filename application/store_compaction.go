@@ -27,6 +27,12 @@ type CompactBodyGateInspector interface {
 	InspectBodyGate(ctx context.Context, source string, cutoff time.Time) (BodyGate, error)
 }
 
+// CommandBodyReclaimInspector measures duplicated command_executed bodies
+// on the source. Compact reports that stored-byte sum after a successful rewrite.
+type CommandBodyReclaimInspector interface {
+	InspectCommandBodyReclaim(ctx context.Context, source string) (CommandBodyReclaim, error)
+}
+
 // CandidateWorkspace owns prepared candidate inode creation and removal.
 type CandidateWorkspace interface {
 	PrepareCandidate(context.Context, domain.CompactionRun) (domain.StoreFileIdentity, error)

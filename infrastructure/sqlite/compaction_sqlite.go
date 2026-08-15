@@ -196,6 +196,10 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB)
 	if err != nil {
 		return fmt.Errorf("read candidate events: %w", err)
 	}
+	permittedClears, err := permittedCommandBodyClears(ctx, sourceDB)
+	if err != nil {
+		return err
+	}
 	for id, got := range candidateEvents {
 		want, ok := sourceEvents[id]
 		if !ok {
@@ -217,6 +221,9 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB)
 				return fmt.Errorf("candidate available event %s is not decodable: %w", id, decodeErr)
 			}
 			if !bytes.Equal(wantPlain, gotPlain) {
+				if _, cleared := permittedClears[id]; cleared && len(gotPlain) == 0 {
+					continue
+				}
 				return fmt.Errorf("candidate rewrote body of event %s", id)
 			}
 		}
@@ -338,6 +345,30 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 		out[id] = rec
 	}
 	return out, rows.Err()
+}
+
+func permittedCommandBodyClears(ctx context.Context, sourceDB *sql.DB) (map[string]struct{}, error) {
+	ready, hasCodec, err := commandBodyReclaimReady(ctx, sourceDB)
+	if err != nil || !ready {
+		return map[string]struct{}{}, err
+	}
+	rows, err := sourceDB.QueryContext(ctx, `SELECT id FROM events WHERE `+duplicatedCommandExecutedBodyPredicate(hasCodec))
+	if err != nil {
+		return nil, fmt.Errorf("list reclaimable command_executed bodies: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan reclaimable command_executed id: %w", err)
+		}
+		out[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate reclaimable command_executed ids: %w", err)
+	}
+	return out, nil
 }
 
 func permittedDedupeDrops(ctx context.Context, sourceDB *sql.DB) (map[string]string, error) {

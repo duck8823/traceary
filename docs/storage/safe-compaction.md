@@ -93,8 +93,12 @@ gives up `traceary store compact rollback RUN_ID` for that run.
    Compact after a partial fold reclaims what those sessions authorize.
 3. Run `traceary store compact --db-path /path/to/traceary.db`. Never run an
    in-place `VACUUM`. `--force` writes mechanical summaries for unrefined
-   discardable-age sessions and states the loss of agent reasoning.
-4. Verify normal reads before deleting rollback artifacts. Use `compact
-   rollback RUN_ID` if verification fails.
+   discardable-age sessions and states the loss of agent reasoning. Compact
+   also clears leftover `command_executed` bodies that already have a
+   `command_audits` row and reports `released_command_body_bytes` as the
+   stored blob sum. File size after the rewrite is `bytes_after`.
+4. If search is drifted, rebuild with `traceary store search-projection
+   start` and `resume --until-complete`. Verify normal reads before deleting
+   rollback artifacts. Use `compact rollback RUN_ID` if verification fails.
 5. After interruption, rerun `store compact`; never manually rename candidate
    or rollback files.

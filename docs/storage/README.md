@@ -28,7 +28,7 @@ Key columns:
 - `kind`: event kind such as `note`, `command_executed`, `session_started`, `session_ended`, `prompt`, `compact_summary`
 - `agent`: logical actor such as `codex`, `claude`, `gemini`, or `manual`
 - `session_id`: session grouping identifier
-- `body`: human-facing event message for non-audit kinds. For new `command_executed` rows, this column is empty and the retained execution record lives in `command_audits`; rows written before the upgrade still have their historical bodies. The historical reclaim is deferred to #1853.
+- `body`: human-facing event message for non-audit kinds. For `command_executed` rows the retained execution record lives in `command_audits`. New writes leave this column empty. `traceary store compact` clears leftover historical bodies when an audit row exists (`#1853`). `traceary log --kind command_executed` bodies without an audit row are kept.
 - `created_at`: RFC3339 timestamp
 - `client`: ingestion path such as `cli`, `claude`, `codex`, `gemini`, or `mcp`
 - `workspace`: auxiliary work-context identifier when available
@@ -42,7 +42,7 @@ Important indexes:
 
 ### `command_audits`
 
-Structured audit details for `command_executed` events. This is the retained execution record for new writes; rows written before the upgrade may also have a composed copy of command/input/output in `events.body` until the reclaim in #1853.
+Structured audit details for `command_executed` events. This is the retained execution record. `store compact` removes a leftover composed copy from `events.body` when this row exists.
 
 Key columns:
 
