@@ -61,6 +61,9 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 	if err := dropLegacySearchFamilyOn(ctx, db); err != nil {
 		return err
 	}
+	if err := dropUnreadRecentFTSOn(ctx, db); err != nil {
+		return err
+	}
 	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS event_content_dedupe_archive`); err != nil {
 		return fmt.Errorf("drop dedupe archive on work copy: %w", err)
 	}
@@ -101,6 +104,21 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 	}
 	if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		_ = err
+	}
+	return nil
+}
+
+func dropUnreadRecentFTSOn(ctx context.Context, db *sql.DB) error {
+	// DROP the unread recent FTS on the work copy only (#1842). Implicit
+	// open never does this: the table can be multi-GiB.
+	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS search_projection_recent_ai`); err != nil {
+		return fmt.Errorf("drop recent FTS insert trigger on work copy: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS search_projection_recent_ad`); err != nil {
+		return fmt.Errorf("drop recent FTS delete trigger on work copy: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS search_projection_recent_fts`); err != nil {
+		return fmt.Errorf("drop unread recent FTS on work copy: %w", err)
 	}
 	return nil
 }

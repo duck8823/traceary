@@ -600,6 +600,10 @@ func reclaimSearchProjectionFTS(ctx context.Context, db *sql.DB, budget time.Dur
 	if budget <= 0 {
 		return nil
 	}
+	exists, err := sqliteTableExists(ctx, db, "search_projection_recent_fts")
+	if err != nil || !exists {
+		return err
+	}
 	deadline := time.Now().Add(budget)
 	for step := 0; step < searchProjectionFTSReclaimStepCap; step++ {
 		if time.Until(deadline) <= 0 {
@@ -1438,15 +1442,21 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if e = tx.Commit(); e != nil {
 		return s, xerrors.Errorf("commit search projection status snapshot: %w", e)
 	}
-	if e = db.QueryRowContext(ctx, selectSearchProjectionFTSLogicalBytesSQL).Scan(&s.FTSLogicalBytes); e != nil {
-		return s, xerrors.Errorf("measure fts logical bytes: %w", e)
+	ftsExists, ftsErr := sqliteTableExists(ctx, db, "search_projection_recent_fts")
+	if ftsErr != nil {
+		return s, xerrors.Errorf("inspect recent FTS table: %w", ftsErr)
 	}
-	probeStarted := time.Now()
-	var ignored int
-	if probeErr := db.QueryRowContext(ctx, `SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH 'traceary_projection_probe_no_payload_7f42'`).Scan(&ignored); probeErr != nil {
-		return s, xerrors.Errorf("probe search projection fts: %w", probeErr)
+	if ftsExists {
+		if e = db.QueryRowContext(ctx, selectSearchProjectionFTSLogicalBytesSQL).Scan(&s.FTSLogicalBytes); e != nil {
+			return s, xerrors.Errorf("measure fts logical bytes: %w", e)
+		}
+		probeStarted := time.Now()
+		var ignored int
+		if probeErr := db.QueryRowContext(ctx, `SELECT count(*) FROM search_projection_recent_fts WHERE search_projection_recent_fts MATCH 'traceary_projection_probe_no_payload_7f42'`).Scan(&ignored); probeErr != nil {
+			return s, xerrors.Errorf("probe search projection fts: %w", probeErr)
+		}
+		s.MatchProbeMilliseconds = time.Since(probeStarted).Milliseconds()
 	}
-	s.MatchProbeMilliseconds = time.Since(probeStarted).Milliseconds()
 	var page int64
 	if db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&page) == nil {
 		if searchProjectionFamilyTotalUnavailableForTest {

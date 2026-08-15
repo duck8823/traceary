@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Changed
+- **The unread recent FTS is retired (#1842)** — `search_projection_recent_fts` is write-only after `8cae0ab0`. Scratch (120 notes): decode-walk p50 ~3.7–4.4 ms vs a comparison trigram FTS ~26–33 µs. The index does not earn 9 GB of unread postings (#1620). Migration 066 drops the writer triggers (no multi-GiB DROP on open). `store compact` drops the virtual table on the work copy. `--index-family-bytes` still defaults to 1464 MiB and now targets what remains. Fingerprints and the session tier stay. See `docs/research/search-projection-recent-fts.md`.
 - **Session-tier search stays exact-keyword + LIKE (#1756)** — a unicode61+porter FTS was measured and not added. `LIKE '%deploy%'` already matches `deployed`. Scratch (2,009 summaries): LIKE recall 1.00 on the labeled set; compare FTS costs 290,816 bytes against a 352,256-byte family. No second, unbudgeted index. See `docs/research/search-projection-session-tier-index.md`.
 - **`--recent-age` is kept; the committed measurement names when it binds (#1755)** — retention is `max(age, byte)`. Dense scratch: byte (2026-06-20) wins over 30d. Quiet scratch: empty byte cutoff, age wins. Capacity-pressure stores do not need the flag; quiet stores still can. Removal needs the admin deprecation window. See `docs/research/search-projection-recent-age.md`.
 

@@ -73,7 +73,6 @@ var searchProjectionObjects = []string{
 	"search_projection_inventory_compat",
 	"search_projection_inventory_state",
 	"search_projection_recent_documents",
-	"search_projection_recent_fts",
 	"search_projection_session_keywords",
 	"search_projection_session_summaries",
 	"search_projection_source_revision",
