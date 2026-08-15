@@ -400,11 +400,11 @@ func TestMigrations_searchProjectionLifecycleBackfillsExactTerminalState(t *test
 				t.Fatal(err)
 			}
 			// Migration 041 backfills the terminal state. Catch-up then applies
-			// capacity-semantics obsolescence (#1679): an in-flight rebuild at
-			// the DEFAULT version is abandoned so a replacement can start. Other
-			// terminal states keep their lifecycle row for the legacy id.
+			// capacity-semantics obsolescence (#1679 / #1752): an in-flight
+			// rebuild or drift at the DEFAULT version is abandoned so a
+			// replacement can start. Complete and failed keep their row.
 			want := state
-			if state == "rebuilding" {
+			if state == "rebuilding" || state == "drifted" {
 				want = "abandoned"
 			}
 			if got != want {

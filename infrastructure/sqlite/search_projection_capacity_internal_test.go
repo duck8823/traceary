@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -1164,7 +1165,8 @@ func TestSearchProjectionObsoleteReplaceConcurrentCatchUpKeepsOneGeneration(t *t
 	}
 	wg.Wait()
 	for i, catchErr := range errs {
-		if catchErr != nil {
+		var drift *apptypes.SearchProjectionDriftError
+		if catchErr != nil && !errors.As(catchErr, &drift) {
 			t.Fatalf("CatchUp[%d]: %v", i, catchErr)
 		}
 	}
