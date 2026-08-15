@@ -144,10 +144,22 @@ func (c *RootCLI) runHookGrokStop(ctx context.Context, _ io.Writer, input io.Rea
 	}
 	sessionID := hookPayloadString(normalized, "session_id", "")
 	var transcriptErr error
-	if _, ready := extractGrokTranscript(normalized); ready {
-		_, transcriptErr = c.runHookTranscript(ctx, bytes.NewReader(normalized), grokHookClient, dbPath)
+	blocks, ready := extractGrokTranscript(normalized)
+	if ready {
+		// Persist the blocks this readiness check just read. Re-extracting
+		// through runHookTranscript can fail-soft if the wire log is
+		// truncated, rewritten, or removed between the two reads, and the
+		// Stop path used to treat that as "nothing to schedule" (#1713).
+		var recorded bool
+		recorded, _, transcriptErr = c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(normalized), grokHookClient, dbPath, blocks)
 		if transcriptErr != nil {
 			slog.Debug("grok stop transcript failed", "session_id", sessionID, "error", transcriptErr)
+		}
+		if !recorded && hookPayloadString(normalized, "transcript_path", "") != "" {
+			if scheduleErr := c.scheduleHookGrokTranscript(normalized, dbPath); scheduleErr != nil {
+				slog.Debug("grok stop transcript scheduling failed", "session_id", sessionID, "error", scheduleErr)
+				transcriptErr = errors.Join(transcriptErr, scheduleErr)
+			}
 		}
 	} else if hookPayloadString(normalized, "transcript_path", "") != "" {
 		transcriptErr = c.scheduleHookGrokTranscript(normalized, dbPath)
@@ -368,5 +380,22 @@ func inspectGrokTranscript(payload []byte) ([]apptypes.EventBodyBlock, grokTrans
 	if text == "" {
 		return nil, grokTranscriptDelayed
 	}
-	return []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: text}}, grokTranscriptReady
+	blocks := []apptypes.EventBodyBlock{{Type: apptypes.EventBodyBlockTypeText, Text: text}}
+	// Tests replace the wire log after this read to pin that Stop/queue
+	// persist these blocks and do not re-extract (#1713).
+	invokeAfterInspectGrokTranscriptHook()
+	return blocks, grokTranscriptReady
+}
+
+// afterInspectGrokTranscriptHook, when set, runs after inspectGrokTranscript
+// has classified the wire log (and, when ready, assembled the blocks). Tests
+// use it to truncate or remove updates.jsonl between the readiness read and
+// persist so a second extract would fail-soft.
+var afterInspectGrokTranscriptHook func()
+
+func invokeAfterInspectGrokTranscriptHook() {
+	if afterInspectGrokTranscriptHook == nil {
+		return
+	}
+	afterInspectGrokTranscriptHook()
 }

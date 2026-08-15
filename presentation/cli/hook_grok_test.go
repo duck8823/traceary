@@ -11,9 +11,13 @@ import (
 	"testing"
 	"time"
 
+	_ "modernc.org/sqlite"
+
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	cli "github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -659,6 +663,226 @@ func TestRootCLI_HookGrokTranscriptWorkerRejectsJobOutsideQueue(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "outside the queue directory") {
 		t.Fatalf("Execute(outside Grok transcript job) error = %v, want path-boundary rejection", err)
 	}
+}
+
+func TestRootCLI_HookGrokStop_PersistsReadinessBlocksWhenWireLogDisappears(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-stop-persist-blocks")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	transcriptPath := filepath.Join(t.TempDir(), "updates.jsonl")
+	writeGrokAgentTranscript(t, transcriptPath, "prompt-contract-probe-1", "first-read answer")
+	cli.SetAfterInspectGrokTranscriptHook(func() {
+		if err := os.Remove(transcriptPath); err != nil && !os.IsNotExist(err) {
+			t.Errorf("remove Grok wire log after inspect: %v", err)
+		}
+	})
+	t.Cleanup(cli.ResetAfterInspectGrokTranscriptHook)
+
+	payload := grokFixtureWithField(t, "stop.json", "transcriptPath", transcriptPath)
+	dbPath, eventUC, sessionUC, db := mustOpenGrokScratchStore(t)
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))),
+		cli.WithEvent(eventUC),
+		cli.WithSession(sessionUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hook", "grok", "stop", "--db-path", dbPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(hook grok stop) error = %v", err)
+	}
+
+	listed, err := eventUC.List(context.Background(), apptypes.NewEventListCriteriaBuilder(10).Kind(types.EventKindTranscript).Build())
+	if err != nil {
+		t.Fatalf("List(transcript) error = %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("transcript rows = %d, want 1 after Stop persisted the readiness read", len(listed))
+	}
+	if !strings.Contains(listed[0].Body(), "first-read answer") {
+		t.Fatalf("transcript body = %q, want the readiness-read text", listed[0].Body())
+	}
+	if _, err := os.Stat(transcriptPath); !os.IsNotExist(err) {
+		t.Fatalf("wire log should have been removed after inspect: %v", err)
+	}
+}
+
+func TestRootCLI_HookGrokTranscriptWorker_PersistsReadinessBlocksWhenWireLogDisappears(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-worker-persist-blocks")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	transcriptPath := filepath.Join(t.TempDir(), "updates.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"prompt"}},"_meta":{"promptId":"prompt-contract-probe-1"}}}`+"\n",
+	), 0o600); err != nil {
+		t.Fatalf("write initial Grok transcript: %v", err)
+	}
+	dbPath, eventUC, sessionUC, db := mustOpenGrokScratchStore(t)
+	payload := grokFixtureWithField(t, "stop.json", "transcriptPath", transcriptPath)
+	jobPath := ""
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))),
+		cli.WithEvent(eventUC),
+		cli.WithSession(sessionUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+		cli.WithHookGrokTranscriptLauncher(func(path string) error {
+			jobPath = path
+			return nil
+		}),
+	).Command()
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hook", "grok", "stop", "--db-path", dbPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute(hook grok stop) error = %v", err)
+	}
+	if jobPath == "" {
+		t.Fatal("Stop did not enqueue the deferred Grok transcript job")
+	}
+
+	writeGrokAgentTranscript(t, transcriptPath, "prompt-contract-probe-1", "queued first-read answer")
+	cli.SetAfterInspectGrokTranscriptHook(func() {
+		if err := os.WriteFile(transcriptPath, []byte("not-json\n"), 0o600); err != nil {
+			t.Errorf("rewrite Grok wire log after inspect: %v", err)
+		}
+	})
+	t.Cleanup(cli.ResetAfterInspectGrokTranscriptHook)
+
+	worker := cli.NewRootCLI(
+		cli.WithStoreManagement(usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))),
+		cli.WithEvent(eventUC),
+		cli.WithSession(sessionUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	worker.SetOut(&bytes.Buffer{})
+	worker.SetErr(&bytes.Buffer{})
+	worker.SetArgs([]string{"hook", "grok", "transcript-worker", "--job", jobPath})
+	if err := worker.Execute(); err != nil {
+		t.Fatalf("Execute(Grok transcript worker) error = %v", err)
+	}
+
+	listed, err := eventUC.List(context.Background(), apptypes.NewEventListCriteriaBuilder(10).Kind(types.EventKindTranscript).Build())
+	if err != nil {
+		t.Fatalf("List(transcript) error = %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("transcript rows = %d, want 1 after worker persisted the readiness read", len(listed))
+	}
+	if !strings.Contains(listed[0].Body(), "queued first-read answer") {
+		t.Fatalf("transcript body = %q, want the readiness-read text", listed[0].Body())
+	}
+	if _, err := os.Stat(jobPath); !os.IsNotExist(err) {
+		t.Fatalf("completed job still exists: %v", err)
+	}
+}
+
+func TestRootCLI_HookGrokTranscriptWorker_DoesNotFinalizeRecordedWithoutWrite(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-worker-no-write")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	transcriptPath := filepath.Join(t.TempDir(), "updates.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"prompt"}},"_meta":{"promptId":"prompt-contract-probe-1"}}}`+"\n",
+	), 0o600); err != nil {
+		t.Fatalf("write initial Grok transcript: %v", err)
+	}
+	payload := grokFixtureWithField(t, "stop.json", "transcriptPath", transcriptPath)
+	eventStub := &eventUsecaseStub{}
+	jobPath := ""
+	runGrokHook(t, "stop", payload, eventStub, &sessionUsecaseStub{}, cli.WithHookGrokTranscriptLauncher(func(path string) error {
+		jobPath = path
+		return nil
+	}))
+	if jobPath == "" {
+		t.Fatal("Stop did not enqueue transcript job")
+	}
+	writeGrokAgentTranscript(t, transcriptPath, "prompt-contract-probe-1", "ready but unresolved")
+
+	cli.SetResolveHookTranscriptSessionIDFunc(func([]byte, string) (types.SessionID, error) {
+		return "", nil
+	})
+	t.Cleanup(cli.ResetResolveHookTranscriptSessionIDFunc)
+
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(eventStub)).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hook", "grok", "transcript-worker", "--job", jobPath})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute(Grok transcript worker) error = nil, want pending job when nothing was persisted")
+	}
+	if _, err := os.Stat(jobPath); err != nil {
+		t.Fatalf("unpersisted ready job should remain retryable: %v", err)
+	}
+	terminals, err := filepath.Glob(filepath.Join(stateDir, "grok-transcript-terminal", "*.json"))
+	if err != nil {
+		t.Fatalf("list terminal dispositions: %v", err)
+	}
+	for _, path := range terminals {
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read terminal disposition: %v", readErr)
+		}
+		if strings.Contains(string(body), `"disposition": "recorded"`) {
+			t.Fatalf("worker finalized recorded without a store write: %s", body)
+		}
+	}
+	if got := len(eventStub.logCalls); got != 0 {
+		t.Fatalf("transcript log calls = %d, want 0", got)
+	}
+}
+
+func TestRootCLI_HookGrokStop_SchedulesWorkerWhenReadyPersistFailSofts(t *testing.T) {
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-stop-schedule-fail-soft")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+
+	transcriptPath := filepath.Join(t.TempDir(), "updates.jsonl")
+	writeGrokAgentTranscript(t, transcriptPath, "prompt-contract-probe-1", "ready fail-soft")
+	payload := grokFixtureWithField(t, "stop.json", "transcriptPath", transcriptPath)
+	cli.SetResolveHookTranscriptSessionIDFunc(func([]byte, string) (types.SessionID, error) {
+		return "", nil
+	})
+	t.Cleanup(cli.ResetResolveHookTranscriptSessionIDFunc)
+
+	jobPath := ""
+	_, eventStub, _ := runGrokHook(t, "stop", payload, nil, nil, cli.WithHookGrokTranscriptLauncher(func(path string) error {
+		jobPath = path
+		return nil
+	}))
+	if jobPath == "" {
+		t.Fatal("Stop did not schedule the durable worker after a fail-soft persist")
+	}
+	if eventStub.logCall.kind != "" {
+		t.Fatalf("fail-soft Stop recorded %q, want no transcript row", eventStub.logCall.kind)
+	}
+}
+
+func writeGrokAgentTranscript(t *testing.T, path, promptID, text string) {
+	t.Helper()
+	row := `{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"` + text + `"}},"_meta":{"promptId":"` + promptID + `"}}}` + "\n"
+	if err := os.WriteFile(path, []byte(row), 0o600); err != nil {
+		t.Fatalf("write Grok transcript: %v", err)
+	}
+}
+
+func mustOpenGrokScratchStore(t *testing.T) (string, usecase.EventUsecase, usecase.SessionUsecase, *sqliteinfra.Database) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	if err := storeUC.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	return dbPath, usecase.NewEventUsecase(eventDS, eventDS), usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS), db
 }
 
 func runGrokHook(

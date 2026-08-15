@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **Grok Stop / queue は readiness で読んだ turn を永続化し、書き込みなしで `recorded` 終端しない (#1713)** — Stop と transcript worker は `inspectGrokTranscript` が読んだ blocks を `runHookTranscriptWithBlocks` に渡し、wire log を再抽出しない。worker は persist が `recorded=true` のときだけ `recorded` 終端し、fail-soft skip は job を pending のまま残す。immediate Stop は書き込みが無いとき durable worker を schedule する。scratch: `hook grok stop` のあと `updates.jsonl` を消しても、初回読みの本文を持つ `kind=transcript` が 1 行残る。
 - **Log は insert と exact redelivery を報告し、既存の正規 id を返す (#1710)** — `EventUsecase.Log` / `Audit` は `EventWriteResult` を返す。共有の `saveEventTransaction` が persist 結果を in-memory の event に載せるので、redelivery は捨てた構築 id ではなく既存行の id を返す。scratch: 同じ `event_id:` delivery の `Log` 2 回で `events` は 1 行、2 回目の id は 1 回目と一致する。
 - **成長する Kimi turn は最終 transcript 1 行を残す (#1697)** — 同じ wire turn ID で fingerprint が変わったあとの Stop は長い本文を先に書き、marker の前の event id を消す。delete 失敗と 2 フィールドの `#1681` marker は fail-open（新しい行は残し、古い行は残す）。scratch: `hook kimi stop` のあと、同じ turn の長い payload では `kind=transcript` が 1 行になり、追記テキストを含む。
 - **spool と generic な Kimi transcript 記録が turn guard を継承する (#1696)** — `hook transcript kimi` と `command=transcript` の spool replay は、`hook kimi stop` と同じ (session, wire turn, fingerprint) ガードを通る。live store（`mode=ro`、2026-08-15）: `source_hook=stop` / `kind=transcript` / `agent=kimi` は 249,042 件（`client` は `hook`）。`hook_deliveries` に Kimi の `stop` 行はないので spool と live はそこでは分けられない。fail-open と成長 turn の記録は変えない。

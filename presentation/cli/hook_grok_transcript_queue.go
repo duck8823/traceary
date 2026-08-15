@@ -264,11 +264,17 @@ func (c *RootCLI) runHookGrokTranscriptWorker(ctx context.Context, jobPath strin
 	for attempt := 0; attempt < hookGrokTranscriptRetryCount; attempt++ {
 		blocks, disposition := inspectGrokTranscript(payload)
 		if disposition == grokTranscriptReady {
-			if _, err := c.runHookTranscript(ctx, bytes.NewReader(payload), grokHookClient, job.DBPath); err != nil {
+			// Persist the blocks this readiness check just read. A second
+			// extract through runHookTranscript can fail-soft if the wire
+			// log changes; err==nil is not a write (#1713 / #1681).
+			recorded, _, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), grokHookClient, job.DBPath, blocks)
+			if err != nil {
 				return c.failHookGrokTranscriptJob(resolvedJobPath, job, err)
 			}
-			_ = blocks // body ownership remains in runHookTranscript; this branch is state-only.
-			return finalizeHookGrokTranscriptJob(resolvedJobPath, "recorded")
+			if recorded {
+				return finalizeHookGrokTranscriptJob(resolvedJobPath, "recorded")
+			}
+			return c.failHookGrokTranscriptJob(resolvedJobPath, job, xerrors.Errorf("Grok transcript was ready but was not persisted"))
 		}
 		if disposition == grokTranscriptUnavailable || disposition == grokTranscriptMalformed {
 			return finalizeHookGrokTranscriptJob(resolvedJobPath, string(disposition))
