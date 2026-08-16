@@ -351,6 +351,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectContentEventReliability(ctx, input.strict))
 		report.Checks = append(report.Checks, c.inspectRetryLoops(ctx))
 		report.Checks = append(report.Checks, c.inspectSensitiveAccessAuditCoverage(ctx))
+		report.Checks = append(report.Checks, c.inspectBodyCodec(ctx))
 		if c.attestationAnchorInspector != nil {
 			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, true))
 		}
