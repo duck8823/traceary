@@ -150,14 +150,14 @@ func TestPayloadRehearsalRejectsFutureTargetBeforeMigrationWrite(t *testing.T) {
 	if err = db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	before, err := fileDigest(config.TargetPath)
+	before, err := fileDigest(context.Background(), config.TargetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = adapter.Run(context.Background(), config, apptypes.PayloadRehearsalRunCommand{Mode: apptypes.PayloadRehearsalStart}); err == nil {
 		t.Fatal("future target was accepted")
 	}
-	after, err := fileDigest(config.TargetPath)
+	after, err := fileDigest(context.Background(), config.TargetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestPhysicalBackupRejectsCopyCorruptionAndSourceDrift(t *testing.T) {
 				_, _ = file.Write([]byte("corruption"))
 				_ = file.Close()
 			}
-			if _, err := ensurePhysicalBackupWithHook(config.TargetPath, destination, hook); err == nil {
+			if _, err := ensurePhysicalBackupWithHook(context.Background(), config.TargetPath, destination, hook); err == nil {
 				t.Fatal("unstable/corrupt copy was verified")
 			}
 		})

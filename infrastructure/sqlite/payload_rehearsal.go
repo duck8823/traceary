@@ -22,6 +22,18 @@ import (
 	"github.com/duck8823/traceary/domain"
 )
 
+// detachedBudgeted returns a child context that is detached from the parent's
+// cancellation signal (SIGINT/SIGTERM) but preserves its deadline. Recovery
+// paths use this so SIGINT does not abort them while the wall-time budget still
+// applies.
+func detachedBudgeted(parent context.Context) (context.Context, context.CancelFunc) {
+	base := context.WithoutCancel(parent)
+	if deadline, ok := parent.Deadline(); ok {
+		return context.WithDeadline(base, deadline)
+	}
+	return base, func() {}
+}
+
 // Exported sentinel errors are stable safety classifications for CLI/tests.
 var (
 	ErrUnsafeRehearsalTarget      = errors.New("payload rehearsal target is not an independent regular copy")
@@ -352,9 +364,9 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	}
 	var backupDigest string
 	if resume {
-		backupDigest, err = fileDigest(c.BackupPath)
+		backupDigest, err = fileDigest(ctx, c.BackupPath)
 	} else {
-		backupDigest, err = ensurePhysicalBackup(id.canonical, c.BackupPath)
+		backupDigest, err = ensurePhysicalBackup(ctx, id.canonical, c.BackupPath)
 	}
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
@@ -453,7 +465,7 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 			return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("resume requires no pending migration and existing WAL journal mode")
 		}
 		_ = db.Close()
-		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
+		if recoveryErr := restoreVerifiedRehearsalBackup(context.WithoutCancel(ctx), id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
 			return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("journal normalization failed and rollback failed: %w", recoveryErr)
 		}
 		return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, errors.New("rehearsal journal mode does not match preflight")
@@ -464,12 +476,14 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 		}
 		_ = db.Close()
 		if migrationRequired && a.targetPreparation != nil {
-			if _, recoveryErr := a.targetPreparation.RollbackPrepared(context.WithoutCancel(ctx), c); recoveryErr != nil {
+			recoveryCtx, recoveryCancel := detachedBudgeted(ctx)
+			defer recoveryCancel()
+			if _, recoveryErr := a.targetPreparation.RollbackPrepared(recoveryCtx, c); recoveryErr != nil {
 				return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, ErrPreparedMigrationPublish
 			}
 			return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, cause
 		}
-		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
+		if recoveryErr := restoreVerifiedRehearsalBackup(context.WithoutCancel(ctx), id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
 			return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("%v; restore verified backup: %w", cause, recoveryErr)
 		}
 		return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, cause
@@ -913,7 +927,7 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if identityErr != nil || os.SameFile(id.info, backupIdentity.info) {
 		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
-	digest, err := fileDigest(c.BackupPath)
+	digest, err := fileDigest(ctx, c.BackupPath)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact unavailable")
 	}
@@ -948,7 +962,7 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 			return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
 		}
 	}
-	verifiedDigest, verifiedDigestErr := fileDigest(c.BackupPath)
+	verifiedDigest, verifiedDigestErr := fileDigest(ctx, c.BackupPath)
 	if verifiedDigestErr != nil || verifiedDigest != digest {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact changed before restore")
 	}
@@ -994,7 +1008,7 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if restoredIdentityErr != nil || postBackupErr != nil || os.SameFile(restoredIdentity.info, postBackupIdentity.info) {
 		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
-	restored, err := fileDigest(id.canonical)
+	restored, err := fileDigest(ctx, id.canonical)
 	if err != nil || restored != digest {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback digest verification failed")
 	}

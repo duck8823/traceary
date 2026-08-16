@@ -220,6 +220,11 @@ func (u *payloadRehearsalUsecase) Rollback(ctx context.Context, c types.PayloadR
 	if err := validateRehearsal(c); err != nil {
 		return types.PayloadRehearsalMetrics{}, err
 	}
+	if c.WallTimeLimit > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, time.Now().Add(c.WallTimeLimit))
+		defer cancel()
+	}
 	result, err := u.runner.Rollback(ctx, c)
 	if err != nil {
 		return types.PayloadRehearsalMetrics{}, xerrors.Errorf("rollback payload rehearsal: %w", err)

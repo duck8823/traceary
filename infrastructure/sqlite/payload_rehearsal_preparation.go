@@ -29,7 +29,7 @@ func (p PayloadRehearsalPreparation) Preview(ctx context.Context, c apptypes.Pay
 	// consumer finishes (or rolls it back). Check it before inspecting schema;
 	// after publication the schema is already current and cannot signal the gap.
 	if p.Journal != nil {
-		binding, bindingErr := rehearsalPreparationBinding(c)
+		binding, bindingErr := rehearsalPreparationBinding(ctx, c)
 		if bindingErr == nil {
 			journal := p.Journal(c.TargetPath)
 			if journal != nil {
@@ -56,8 +56,8 @@ func (p PayloadRehearsalPreparation) Preview(ctx context.Context, c apptypes.Pay
 }
 
 //nolint:wrapcheck // the binding helper preserves the underlying serialization failure.
-func rehearsalPreparationBinding(c apptypes.PayloadRehearsalConfig) (string, error) {
-	digest, err := fileDigest(c.BackupPath)
+func rehearsalPreparationBinding(ctx context.Context, c apptypes.PayloadRehearsalConfig) (string, error) {
+	digest, err := fileDigest(ctx, c.BackupPath)
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +85,7 @@ func (p PayloadRehearsalPreparation) EnsurePrepared(ctx context.Context, c appty
 	if journal == nil {
 		return application.RehearsalPreparedTarget{}, errors.New("payload rehearsal preparation journal is not configured")
 	}
-	binding, err := rehearsalPreparationBinding(c)
+	binding, err := rehearsalPreparationBinding(ctx, c)
 	if err != nil {
 		return application.RehearsalPreparedTarget{}, err
 	}
@@ -121,7 +121,7 @@ func (p PayloadRehearsalPreparation) RollbackPrepared(ctx context.Context, c app
 	if p.Journal == nil || p.Service == nil {
 		return application.RehearsalRollbackResult{}, errors.New("payload rehearsal preparation is not configured")
 	}
-	binding, err := rehearsalPreparationBinding(c)
+	binding, err := rehearsalPreparationBinding(ctx, c)
 	if err != nil {
 		return application.RehearsalRollbackResult{}, err
 	}
