@@ -307,6 +307,20 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		// reported via directory entry counts and byte sizes only (pending /
 		// stale inflight / dead-letter).
 		report.Checks = append(report.Checks, inspectHookSpoolFilesystemMetadata())
+		// Host package identity (installed plugin/manifest version, native
+		// grok/kimi activation state) reads only host manifests, host plugin
+		// caches, and host CLI probes, so it stays available in the bounded
+		// report; it is independent of the Traceary store.
+		if resolvedProjectDir, projectDirErr := resolveHooksProjectDir(input.projectDir); projectDirErr != nil {
+			report.Checks = append(report.Checks, doctorCheck{
+				Name:    "project-dir",
+				Status:  doctorStatusFail,
+				Message: localizef("failed to resolve project directory: %v", "project directory の解決に失敗しました: %v", projectDirErr),
+			})
+			report.Checks = append(report.Checks, c.inspectPluginVersionChecks(input.currentVersion)...)
+		} else {
+			report.Checks = append(report.Checks, c.hostPackageIdentityChecks(ctx, resolvedClients, resolvedProjectDir, input.currentVersion)...)
+		}
 		return report, nil
 	}
 	if c.payloadCodecInspector != nil {
@@ -377,14 +391,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			// Kimi has no hook install path (the plugin is the distribution
 			// path), so the shared ResolveInstallPath would fail closed; the
 			// plugin state is probed directly from the Kimi home instead.
-			state, probeErr := probeKimiDoctorState(ctx, resolvedProjectDir)
-			if probeErr != nil {
-				// probeKimiDoctorState renders path-free errors only; keep the
-				// remediation generic rather than echoing host internals.
-				report.Checks = append(report.Checks, doctorCheck{Name: "kimi-inspect", Status: doctorStatusWarn, Message: localizef("failed to inspect the Kimi plugin installation: %v", "Kimi plugin の導入状態を検査できませんでした: %v", probeErr), Hint: Localize("reinstall the native Traceary Kimi plugin with scripts/install-kimi-plugin.sh, then rerun doctor", "scripts/install-kimi-plugin.sh で native Traceary Kimi plugin を再インストールしてから doctor を再実行してください")})
-			} else {
-				report.Checks = append(report.Checks, buildKimiDoctorChecks(state, input.currentVersion)...)
-			}
+			nativeChecks, _ := c.nativeHostPackageChecks(ctx, targetClient, resolvedProjectDir, input.currentVersion)
+			report.Checks = append(report.Checks, nativeChecks...)
 			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, "", resolvedProjectDir, input.coverageThreshold))
 			continue
 		}
@@ -416,12 +424,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			continue
 		}
 		if targetClient == "grok" {
-			state, probeErr := probeGrokDoctorState(ctx, resolvedProjectDir)
-			if probeErr != nil {
-				report.Checks = append(report.Checks, doctorCheck{Name: "grok-inspect", Status: doctorStatusWarn, Message: localizef("failed to inspect Grok installation: %v", "Grok installation の検査に失敗しました: %v", probeErr), Hint: Localize("run `grok inspect --json` and retry doctor after resolving the host error", "`grok inspect --json` のエラーを解消してから doctor を再実行してください")})
-			} else {
-				report.Checks = append(report.Checks, buildGrokDoctorChecks(state, input.currentVersion)...)
-			}
+			nativeChecks, _ := c.nativeHostPackageChecks(ctx, targetClient, resolvedProjectDir, input.currentVersion)
+			report.Checks = append(report.Checks, nativeChecks...)
 			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, outputPath, resolvedProjectDir, input.coverageThreshold))
 			continue
 		}

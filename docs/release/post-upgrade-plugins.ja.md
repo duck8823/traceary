@@ -23,6 +23,14 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 
    例の skip は、この機械に意図的に存在しないホストに置き換えてください。導入済みの古い package を隠すために skip を使ってはいけません。この gate は `traceary doctor --client <host> --json --warnings-ok` を実行し、各ホストの canonical plugin check 名と status だけを読みます（Grok は `grok-plugin`、他ホストは `*-plugin-version`）。`warn` または `fail` なら失敗します。prompt・transcript・command・database event の本文は出力しません。
 
+   この gate は live の既定 store path に対して有効です。store が bounded
+   doctor の閾値（2 GiB）以上でも変わりません。host package identity
+   ファミリー（`*-plugin-version` と native な Grok/Kimi plugin check）は
+   host manifest・host plugin cache・host CLI probe だけを読むため、doctor
+   が `mode: "metadata_only_large_store"` を返しても report に残ります。
+   store が大容量であることは、ホストを `--skip` する理由には**なりません**。
+   `--skip` はこの機械に意図的に導入していないホスト専用です。
+
 ## ホスト別の更新・有効化・検証マトリクス
 
 | Host | 更新 | 有効化 | version 検証 | 許可する skip |

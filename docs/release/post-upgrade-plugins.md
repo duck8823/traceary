@@ -23,6 +23,14 @@ After every released binary upgrade:
 
    Replace the sample skips with the hosts intentionally absent from this machine. Do **not** use a skip to hide a stale installed package. The gate runs `traceary doctor --client <host> --json --warnings-ok`, reads only each host's canonical plugin check name/status (`grok-plugin` for Grok; `*-plugin-version` for the other hosts), and fails on `warn` or `fail`; it never emits prompt, transcript, command, or database-event bodies.
 
+   This gate is valid against the live default store path, including a store
+   at or above the 2 GiB bounded-doctor threshold: the host package identity
+   family (`*-plugin-version` and the native Grok/Kimi plugin checks) reads
+   only host manifests, host plugin caches, and host CLI probes, so it stays
+   in the report even when doctor returns `mode: "metadata_only_large_store"`.
+   A large store is **not** a reason to `--skip` a host — `--skip` is reserved
+   for hosts that are intentionally not installed on this machine.
+
 ## Host refresh and verification matrix
 
 | Host | Refresh | Activation | Version verification | Supported skip |
