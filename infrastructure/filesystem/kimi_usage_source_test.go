@@ -32,8 +32,8 @@ func TestKimiUsageSource_LoadReturnsOnlyBodyFreeUsageRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.LatestTurnOrdinal != 2 || len(result.Samples) != 2 {
-		t.Fatalf("result = %+v, want two samples and turn ordinal 2", result)
+	if result.LatestTurnOrdinal != 2 || len(result.Samples) != 2 || result.SkippedNonTurnScope != 0 {
+		t.Fatalf("result = %+v, want two samples, turn ordinal 2, and no skipped scopes", result)
 	}
 	first := result.Samples[0]
 	if first.Model != "kimi-code/k3" || first.Counters.InputOther == nil || *first.Counters.InputOther != 0 ||
@@ -76,8 +76,56 @@ func TestKimiUsageSource_VersionedFixtureIsPrivateFreeAndReadable(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Samples) != 1 || result.LatestTurnOrdinal != 1 {
+	if len(result.Samples) != 1 || result.LatestTurnOrdinal != 1 || result.SkippedNonTurnScope != 0 {
 		t.Fatalf("fixture result = %+v", result)
+	}
+}
+
+func TestKimiUsageSource_LoadSkipsNonTurnScopeAndKeepsTurnSamples(t *testing.T) {
+	root, sessionDir := writeKimiUsageTestSession(t, "provider-session")
+	wire := strings.Join([]string{
+		`{"type":"turn.prompt","prompt":[{"type":"text","text":"private prompt"}]}`,
+		`{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":1,"output":2},"usageScope":"turn","time":1784466740000}`,
+		`{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":9,"output":8},"usageScope":"session","time":1784466740500}`,
+		`{"type":"turn.prompt","prompt":[{"type":"text","text":"another private prompt"}]}`,
+		`{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":3,"output":4},"usageScope":"turn","time":1784466741000}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(sessionDir, "agents", "main", "wire.jsonl"), []byte(wire), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := newKimiUsageSourceWithRoot(root).Load(context.Background(), "provider-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.LatestTurnOrdinal != 2 || len(result.Samples) != 2 || result.SkippedNonTurnScope != 1 {
+		t.Fatalf("result = %+v, want two turn samples, one skipped session scope, turn ordinal 2", result)
+	}
+	if result.Samples[0].Counters.InputOther == nil || *result.Samples[0].Counters.InputOther != 1 ||
+		result.Samples[1].Counters.InputOther == nil || *result.Samples[1].Counters.InputOther != 3 {
+		t.Fatalf("turn samples = %+v", result.Samples)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private") {
+		t.Fatalf("result retained private wire bodies: %s", encoded)
+	}
+}
+
+func TestKimiUsageSource_LoadSucceedsWhenOnlyNonTurnScopeRecordsExist(t *testing.T) {
+	root, sessionDir := writeKimiUsageTestSession(t, "provider-session")
+	row := `{"type":"usage.record","model":"kimi-code/k3","usage":{"output":1},"usageScope":"session","time":1784466740000}`
+	if err := os.WriteFile(filepath.Join(sessionDir, "agents", "main", "wire.jsonl"), []byte(row+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := newKimiUsageSourceWithRoot(root).Load(context.Background(), "provider-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Samples) != 0 || result.SkippedNonTurnScope != 1 {
+		t.Fatalf("result = %+v, want empty samples and one skipped session scope", result)
 	}
 }
 
@@ -104,8 +152,8 @@ func TestKimiUsageSource_LoadRejectsMalformedAuthoritativeUsage(t *testing.T) {
 	for name, row := range map[string]string{
 		"fractional counter": `{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":1.5},"usageScope":"turn","time":1784466740000}`,
 		"negative counter":   `{"type":"usage.record","model":"kimi-code/k3","usage":{"output":-1},"usageScope":"turn","time":1784466740000}`,
-		"wrong scope":        `{"type":"usage.record","model":"kimi-code/k3","usage":{"output":1},"usageScope":"session","time":1784466740000}`,
 		"missing counters":   `{"type":"usage.record","model":"kimi-code/k3","usage":{},"usageScope":"turn","time":1784466740000}`,
+		"missing time":       `{"type":"usage.record","model":"kimi-code/k3","usage":{"output":1},"usageScope":"turn"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			root, sessionDir := writeKimiUsageTestSession(t, "provider-session")
