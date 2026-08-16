@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -683,21 +684,33 @@ var codexManagedEventKeys = map[string][]string{
 	"PreCompact":       []string{"traceary-compact.sh:codex:pre-compact"},
 	"PostCompact":      []string{"traceary-compact.sh:codex:post-compact"},
 	"UserPromptSubmit": []string{"traceary-prompt.sh:codex"},
-	"Stop":             []string{"traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
+	"Stop":             []string{"traceary-usage.sh:codex", "traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
 	"PostToolUse":      []string{"traceary-audit.sh:codex"},
 }
 
 // expectedCodexPluginHookCount returns the number of command hooks in the
-// current packaged Codex contract. Codex app-server currently exposes plugin
-// identity and trust state per command, but not the event or command identity,
-// so exact cardinality is the fail-closed completeness boundary available to
-// doctor before it permits removal of the manual fallback.
+// current packaged Codex contract, derived from codexManagedEventKeys so the
+// cardinality check and the per-command diagnostics in
+// expectedCodexPluginHookCommands stay in sync with a single source of truth.
 func expectedCodexPluginHookCount() int {
 	count := 0
 	for _, keys := range codexManagedEventKeys {
 		count += len(keys)
 	}
 	return count
+}
+
+// expectedCodexPluginHookCommands returns the sorted, stable managed keys for
+// every command hook in the current packaged Codex contract. It is the same
+// data as expectedCodexPluginHookCount, flattened for per-command diffing
+// against what Codex actually reports as trusted (doctor_codex_hook_trust.go).
+func expectedCodexPluginHookCommands() []string {
+	commands := make([]string, 0, expectedCodexPluginHookCount())
+	for _, keys := range codexManagedEventKeys {
+		commands = append(commands, keys...)
+	}
+	sort.Strings(commands)
+	return commands
 }
 
 // missingTracearyManagedCodexEvents returns the subset of Traceary-managed

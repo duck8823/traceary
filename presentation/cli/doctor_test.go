@@ -333,6 +333,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 				"PostCompact": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'compact' 'codex' 'post-compact'"}]}],
 				"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "'traceary' 'hook' 'prompt' 'codex'"}]}],
 				"Stop": [{"hooks": [
+					{"type": "command", "command": "'traceary' 'hook' 'usage' 'codex'"},
 					{"type": "command", "command": "'traceary' 'hook' 'transcript' 'codex'"},
 					{"type": "command", "command": "'traceary' 'hook' 'session' 'codex' 'stop'"}
 				]}],
@@ -383,6 +384,7 @@ func TestRootCLI_DoctorCommand(t *testing.T) {
 				"PostCompact": [{"hooks": [{"name": "traceary-compact-post-compact", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'compact' 'codex' 'post-compact'"}]}],
 				"UserPromptSubmit": [{"hooks": [{"name": "traceary-prompt", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'prompt' 'codex'"}]}],
 				"Stop": [{"hooks": [
+					{"name": "traceary-usage", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'usage' 'codex'"},
 					{"name": "traceary-transcript", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'transcript' 'codex'"},
 					{"name": "traceary-session-stop", "type": "command", "command": "'/tmp/traceary-qa' 'hook' 'session' 'codex' 'stop'"}
 				]}],

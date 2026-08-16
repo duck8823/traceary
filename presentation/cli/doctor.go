@@ -439,7 +439,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 				Status:    codexPluginHookTrustAbsent,
 			}
 			if pluginState.PluginEnabled {
-				trust = codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey)
+				trust = codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey, c.hooksInspector.ExtractManagedKeyFromEntry)
 				report.Checks = append(report.Checks, codexPluginHookTrustCheck(trust))
 				check = c.inspectCodexConfigWithHookTrust(ctx, outputPath, resolvedProjectDir, trust)
 			} else {
