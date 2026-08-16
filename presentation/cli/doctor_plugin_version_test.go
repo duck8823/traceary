@@ -222,6 +222,156 @@ func TestDetectPluginInstallsIncludesAntigravityManifest(t *testing.T) {
 	t.Fatalf("detectPluginInstalls() = %+v, want Antigravity manifest", installs)
 }
 
+func TestDetectPluginInstallsIncludesGrokInstallerRootManifest(t *testing.T) {
+	home := t.TempDir()
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+	manifest := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-be141821", "integrations", "grok-plugin", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"name":"traceary-grok","version":"0.39.0"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	installs := (&RootCLI{}).detectPluginInstalls()
+	for _, install := range installs {
+		if install.Client == "grok" && install.ManifestPath == manifest {
+			return
+		}
+	}
+	t.Fatalf("detectPluginInstalls() = %+v, want Grok installer-root manifest", installs)
+}
+
+func TestDetectPluginInstallsGrokDoesNotDependOnCloneDirName(t *testing.T) {
+	home := t.TempDir()
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+	manifest := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-deadbeef", "integrations", "grok-plugin", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"name":"traceary-grok","version":"0.39.0"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	installs := (&RootCLI{}).detectPluginInstalls()
+	for _, install := range installs {
+		if install.Client == "grok" && install.ManifestPath == manifest {
+			return
+		}
+	}
+	t.Fatalf("detectPluginInstalls() = %+v, want Grok manifest regardless of clone dir name", installs)
+}
+
+func TestDetectPluginInstallsReportsAllGrokClones(t *testing.T) {
+	home := t.TempDir()
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+	manifestA := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-aaaaaaaa", "integrations", "grok-plugin", "plugin.json")
+	manifestB := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-bbbbbbbb", "integrations", "grok-plugin", "plugin.json")
+	for _, manifest := range []string{manifestA, manifestB} {
+		if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(manifest, []byte(`{"name":"traceary-grok","version":"0.39.0"}`), 0o600); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+
+	installs := (&RootCLI{}).detectPluginInstalls()
+	grokCount := 0
+	for _, install := range installs {
+		if install.Client == "grok" {
+			grokCount++
+		}
+	}
+	if grokCount != 2 {
+		t.Fatalf("detectPluginInstalls() grok count = %d, want 2 (%+v)", grokCount, installs)
+	}
+}
+
+func TestDetectPluginInstallsIgnoresLegacyGrokPluginsPath(t *testing.T) {
+	home := t.TempDir()
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+	legacyManifest := filepath.Join(home, ".grok", "plugins", "traceary", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(legacyManifest), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(legacyManifest, []byte(`{"name":"traceary-grok","version":"0.39.0"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	installs := (&RootCLI{}).detectPluginInstalls()
+	for _, install := range installs {
+		if install.Client == "grok" {
+			t.Fatalf("detectPluginInstalls() = %+v, want no grok install from legacy path", installs)
+		}
+	}
+}
+
+func TestInspectPluginVersionChecksGrokInstallerRootPass(t *testing.T) {
+	home := t.TempDir()
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+	manifest := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-be141821", "integrations", "grok-plugin", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"name":"traceary-grok","version":"0.39.0"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	checks := (&RootCLI{}).inspectPluginVersionChecks("0.39.0")
+	for _, check := range checks {
+		if check.Name == "grok-plugin-version" && check.Status == doctorStatusPass {
+			return
+		}
+	}
+	t.Fatalf("inspectPluginVersionChecks() = %+v, want passing grok-plugin-version", checks)
+}
+
+func TestInspectPluginVersionChecksGrokInstallerRootWarnsOnMismatch(t *testing.T) {
+	home := t.TempDir()
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+	manifest := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-be141821", "integrations", "grok-plugin", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"name":"traceary-grok","version":"0.38.0"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	checks := (&RootCLI{}).inspectPluginVersionChecks("0.39.0")
+	for _, check := range checks {
+		if check.Name == "grok-plugin-version" {
+			if check.Status != doctorStatusWarn {
+				t.Fatalf("grok-plugin-version status = %v, want warn", check.Status)
+			}
+			if !strings.Contains(check.FixCommand, "install-grok-plugin.sh") {
+				t.Fatalf("grok-plugin-version FixCommand = %q, want install-grok-plugin.sh", check.FixCommand)
+			}
+			return
+		}
+	}
+	t.Fatalf("inspectPluginVersionChecks() = %+v, want grok-plugin-version warn", checks)
+}
+
+func TestInspectPluginVersionChecksSilentWhenGrokNotInstalled(t *testing.T) {
+	home := t.TempDir()
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+
+	checks := (&RootCLI{}).inspectPluginVersionChecks("0.39.0")
+	for _, check := range checks {
+		if check.Name == "grok-plugin-version" {
+			t.Fatalf("inspectPluginVersionChecks() = %+v, want no grok-plugin-version check when Grok is not installed", checks)
+		}
+	}
+}
+
 func TestNormalizeDoctorVersion(t *testing.T) {
 	tests := map[string]string{
 		"0.9.0 (commit=abc, date=2026, go=1.24)": "0.9.0",
