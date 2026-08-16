@@ -86,6 +86,186 @@ func seedDedupeFixture(t *testing.T) (string, *sqlite.StoreManagementDatasource,
 	return dbPath, storeManager, eventDS
 }
 
+// seedUnreadableBodyDedupeFixture builds a store with one near-simultaneous
+// decodable duplicate pair, one row whose body cannot be decoded, and a second
+// decodable duplicate pair under a different hook. It is deliberately separate
+// from seedDedupeFixture, whose exact ScannedCount/Sources assertions a new row
+// would break.
+func seedUnreadableBodyDedupeFixture(t *testing.T) (string, *sqlite.StoreManagementDatasource) {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	_, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	type row struct {
+		id, kind, body, createdAt, sourceHook string
+	}
+	// Pair 1: near-simultaneous prompt duplicates. Canonical = u1 (earliest).
+	for _, r := range []row{
+		{"evt-u1", "prompt", "hello codex", "2026-05-01T00:00:00Z", "user_prompt_submit"},
+		{"evt-u2", "prompt", "hello codex", "2026-05-01T00:00:03Z", "user_prompt_submit"},
+	} {
+		if _, err := db.Exec(
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+			 VALUES (?, ?, 'codex', 's1', 'w1', ?, ?, ?, 'hook')`,
+			r.id, r.kind, r.body, r.createdAt, r.sourceHook,
+		); err != nil {
+			t.Fatalf("insert %s error = %v", r.id, err)
+		}
+	}
+
+	// evt-x1: a row whose body cannot be decoded. body_codec is set but the
+	// other four payload metadata columns are left NULL, so payloadRow.decode
+	// reports "incomplete metadata" -- a tolerable *PayloadIntegrityError -- at
+	// negligible fixture cost (no oversized blob needed). Same (agent,
+	// source_hook) bucket as pair 1, inserted between the two pairs, so it also
+	// exercises B4 (both surrounding groups still identified) and B6 (scanned
+	// count includes it, candidate count does not).
+	if _, err := db.Exec(
+		`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client, body_codec)
+		 VALUES ('evt-x1', 'prompt', 'codex', 's1', 'w1', 'corrupt', '2026-05-01T00:00:05Z', 'user_prompt_submit', 'hook', 'zstd')`,
+	); err != nil {
+		t.Fatalf("insert evt-x1 error = %v", err)
+	}
+
+	// Pair 2 under a different hook.
+	for _, r := range []row{
+		{"evt-v1", "transcript", "transcript body", "2026-05-01T00:01:00Z", "stop"},
+		{"evt-v2", "transcript", "transcript body", "2026-05-01T00:01:01Z", "stop"},
+	} {
+		if _, err := db.Exec(
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+			 VALUES (?, ?, 'codex', 's1', 'w1', ?, ?, ?, 'hook')`,
+			r.id, r.kind, r.body, r.createdAt, r.sourceHook,
+		); err != nil {
+			t.Fatalf("insert %s error = %v", r.id, err)
+		}
+	}
+
+	var availability string
+	if err := db.QueryRow(`SELECT body_availability FROM events WHERE id = 'evt-x1'`).Scan(&availability); err != nil {
+		t.Fatalf("read evt-x1 body_availability error = %v", err)
+	}
+	if availability != "available" {
+		t.Fatalf("evt-x1 body_availability = %q, want available (so it stays eligible)", availability)
+	}
+
+	return dbPath, storeManager
+}
+
+// B1/B2/B4/B6: one unreadable body between two decodable duplicate groups
+// does not stop identification, the remaining groups are still planned, the
+// unreadable row is reported as its own distinguishable skip entry, and the
+// counts stay honest.
+func TestStoreManagementDatasource_DedupeContentEvents_UnreadableBody_DryRun(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager := seedUnreadableBodyDedupeFixture(t)
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{Agent: "codex"})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents() error = %v", err)
+	}
+
+	// B1 + B4: both surrounding groups are still planned.
+	if diff := cmp.Diff(map[string][]string{
+		"evt-u1": {"evt-u2"},
+		"evt-v1": {"evt-v2"},
+	}, groupByKept(result)); diff != "" {
+		t.Fatalf("plan (-want +got):\n%s", diff)
+	}
+	if result.MovedCount() != 2 {
+		t.Fatalf("MovedCount = %d, want 2", result.MovedCount())
+	}
+
+	// B2: the unreadable row is reported distinguishably, not silently dropped.
+	if len(result.Skipped) != 1 {
+		t.Fatalf("Skipped = %#v, want exactly one entry", result.Skipped)
+	}
+	skip := result.Skipped[0]
+	if diff := cmp.Diff([]string{"evt-x1"}, skip.EventIDs); diff != "" {
+		t.Fatalf("Skipped[0].EventIDs (-want +got):\n%s", diff)
+	}
+	if !strings.HasPrefix(skip.Reason, "skipped: unreadable body") {
+		t.Fatalf("Skipped[0].Reason = %q, want the unreadable-body prefix", skip.Reason)
+	}
+	if skip.Reason == "skipped: malformed or unparseable created_at" {
+		t.Fatalf("Skipped[0].Reason = %q, must not equal the malformed-timestamp constant", skip.Reason)
+	}
+	if !strings.HasSuffix(skip.GroupKey, "body:unreadable") {
+		t.Fatalf("Skipped[0].GroupKey = %q, want suffix body:unreadable", skip.GroupKey)
+	}
+
+	// B6: the unreadable row still counts as scanned, in both the overall total
+	// and its (agent, source_hook) bucket, but never as a candidate.
+	if result.ScannedCount != 5 {
+		t.Fatalf("ScannedCount = %d, want 5 (2 + 1 unreadable + 2)", result.ScannedCount)
+	}
+	var promptSource apptypes.ContentEventDedupeSourceStat
+	found := false
+	for _, source := range result.Sources {
+		if source.SourceHook == "user_prompt_submit" {
+			promptSource, found = source, true
+		}
+	}
+	if !found {
+		t.Fatalf("Sources = %#v, missing user_prompt_submit bucket", result.Sources)
+	}
+	if promptSource.ScannedCount != 3 {
+		t.Fatalf("prompt bucket ScannedCount = %d, want 3 (2 decodable + 1 unreadable)", promptSource.ScannedCount)
+	}
+	if promptSource.CandidateCount != 1 {
+		t.Fatalf("prompt bucket CandidateCount = %d, want 1 (the unreadable row is never a candidate)", promptSource.CandidateCount)
+	}
+
+	// Dry-run must not mutate.
+	if dedupeArchiveCount(t, dbPath) != 0 {
+		t.Fatalf("archive count = %d, want 0 after dry-run", dedupeArchiveCount(t, dbPath))
+	}
+}
+
+// B3: the unreadable row is never archived, on top of the decodable pairs
+// still being applied normally.
+func TestStoreManagementDatasource_DedupeContentEvents_UnreadableBody_Apply(t *testing.T) {
+	t.Parallel()
+	dbPath, storeManager := seedUnreadableBodyDedupeFixture(t)
+	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	result, err := storeManager.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{
+		Agent: "codex", Apply: true, RunID: "dedupe-unreadable-1", Now: now,
+	})
+	if err != nil {
+		t.Fatalf("DedupeContentEvents(apply) error = %v", err)
+	}
+	if result.MovedCount() != 2 {
+		t.Fatalf("MovedCount = %d, want 2", result.MovedCount())
+	}
+	if !eventExists(t, dbPath, "evt-x1") {
+		t.Fatal("unreadable row evt-x1 was removed by apply")
+	}
+	for _, id := range []string{"evt-u2", "evt-v2"} {
+		if eventExists(t, dbPath, id) {
+			t.Fatalf("decodable duplicate %s was not archived", id)
+		}
+	}
+	for _, id := range []string{"evt-u1", "evt-v1"} {
+		if !eventExists(t, dbPath, id) {
+			t.Fatalf("canonical row %s was wrongly removed", id)
+		}
+	}
+	if got := dedupeArchiveCount(t, dbPath); got != 2 {
+		t.Fatalf("archive count = %d, want 2 (the unreadable row is never archived)", got)
+	}
+}
+
 func dedupeArchiveCount(t *testing.T, dbPath string) int {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+dbPath)
