@@ -1035,14 +1035,21 @@ func tableExistsAt(t *testing.T, dbPath, table string) bool {
 
 // TestSessionOrphanRangeDatasource_DiscoveryPlanUsesNormalizedTimestampIndex
 // pins the reason the discovery query reads events.created_at_norm instead of
-// calling ts_norm(created_at). Discovery evaluates the latest-event subquery for
-// every session it scans, so an unindexable ordering there costs a sort per
-// session — exactly the open-ended work #1719 exists to bound.
+// calling ts_norm(created_at). Discovery evaluates the latest-event and
+// earliest-orphaned-event subqueries for every session it scans, so an
+// unindexable ordering there costs a sort per session — exactly the
+// open-ended work #1719 exists to bound.
 //
-// Measured on the same fixture: with ts_norm(e2.created_at) the plan ends in
-// "USE TEMP B-TREE FOR ORDER BY" and the activity probe degrades to
-// "SEARCH e USING COVERING INDEX idx_events_session_created_at (session_id=?)",
-// dropping the timestamp from the seek.
+// Since #1721, the query also produces one global oldest-first order across
+// sessions (earliest_event_norm, session_id) so bounded gc passes fold the
+// ranges deletion is about to touch first. No per-session index can back a
+// cross-session composite order, so exactly one "USE TEMP B-TREE FOR ORDER
+// BY" over the already-filtered candidate set is expected; every per-session
+// correlated subquery must still hit the normalized index.
+//
+// Measured on the same fixture: with ts_norm(e2.created_at) the activity probe
+// degrades to "SEARCH e USING COVERING INDEX idx_events_session_created_at
+// (session_id=?)", dropping the timestamp from the seek.
 func TestSessionOrphanRangeDatasource_DiscoveryPlanUsesNormalizedTimestampIndex(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1063,7 +1070,7 @@ func TestSessionOrphanRangeDatasource_DiscoveryPlanUsesNormalizedTimestampIndex(
 	rows, err := db.QueryContext(
 		ctx,
 		"EXPLAIN QUERY PLAN "+strings.TrimSpace(string(query)),
-		"", cutoff, cutoff, 10,
+		cutoff, cutoff, "", "", 10,
 	)
 	if err != nil {
 		t.Fatalf("explain discovery query: %v", err)
@@ -1087,8 +1094,13 @@ func TestSessionOrphanRangeDatasource_DiscoveryPlanUsesNormalizedTimestampIndex(
 	}
 
 	joined := strings.Join(plan, "\n")
-	if strings.Contains(joined, "TEMP B-TREE") {
-		t.Errorf("query plan sorts instead of using an index:\n%s", joined)
+	if got := strings.Count(joined, "TEMP B-TREE"); got != 1 {
+		t.Errorf("query plan uses %d temp b-tree sorts, want exactly 1 (the outer oldest-first order):\n%s", got, joined)
+	}
+	for _, line := range plan {
+		if strings.HasPrefix(line, "SCAN e") {
+			t.Errorf("query plan scans an events subquery without an index:\n%s", joined)
+		}
 	}
 	if !strings.Contains(joined, "idx_events_session_created_at_norm_id_desc") {
 		t.Errorf("query plan does not use the normalized timestamp index:\n%s", joined)

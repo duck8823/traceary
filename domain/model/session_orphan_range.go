@@ -17,24 +17,30 @@ import (
 // FromEventID is an exclusive lower bound. None means the range starts at the
 // session's first event. ToEventID is inclusive.
 type SessionOrphanRange struct {
-	sessionID   types.SessionID
-	fromEventID types.Optional[types.EventID]
-	toEventID   types.EventID
-	observedAt  time.Time
+	sessionID         types.SessionID
+	fromEventID       types.Optional[types.EventID]
+	toEventID         types.EventID
+	observedAt        time.Time
+	earliestEventTime time.Time
 }
 
-// NewSessionOrphanRange constructs a validated orphan range.
+// NewSessionOrphanRange constructs a validated orphan range. earliestEventTime
+// is the created_at of the range's oldest event; it drives oldest-first
+// discovery ordering and the CollectGarbage safety gate (#1721), and is
+// distinct from observedAt (when the range was recorded or discovered).
 func NewSessionOrphanRange(
 	sessionID types.SessionID,
 	fromEventID types.Optional[types.EventID],
 	toEventID types.EventID,
 	observedAt time.Time,
+	earliestEventTime time.Time,
 ) (*SessionOrphanRange, error) {
 	orphan := &SessionOrphanRange{
-		sessionID:   sessionID,
-		fromEventID: fromEventID,
-		toEventID:   toEventID,
-		observedAt:  observedAt.UTC(),
+		sessionID:         sessionID,
+		fromEventID:       fromEventID,
+		toEventID:         toEventID,
+		observedAt:        observedAt.UTC(),
+		earliestEventTime: earliestEventTime.UTC(),
 	}
 	if err := orphan.validate(); err != nil {
 		return nil, err
@@ -48,8 +54,9 @@ func SessionOrphanRangeOf(
 	fromEventID types.Optional[types.EventID],
 	toEventID types.EventID,
 	observedAt time.Time,
+	earliestEventTime time.Time,
 ) (*SessionOrphanRange, error) {
-	return NewSessionOrphanRange(sessionID, fromEventID, toEventID, observedAt)
+	return NewSessionOrphanRange(sessionID, fromEventID, toEventID, observedAt, earliestEventTime)
 }
 
 func (r *SessionOrphanRange) validate() error {
@@ -68,6 +75,9 @@ func (r *SessionOrphanRange) validate() error {
 	if r.observedAt.IsZero() {
 		return xerrors.Errorf("observed_at is required: %w", ErrInvalidSessionOrphanRange)
 	}
+	if r.earliestEventTime.IsZero() {
+		return xerrors.Errorf("earliest_event_time is required: %w", ErrInvalidSessionOrphanRange)
+	}
 	return nil
 }
 
@@ -83,6 +93,11 @@ func (r *SessionOrphanRange) ToEventID() types.EventID { return r.toEventID }
 
 // ObservedAt returns when the orphan range was recorded or discovered.
 func (r *SessionOrphanRange) ObservedAt() time.Time { return r.observedAt }
+
+// EarliestEventTime returns the created_at of the range's oldest event. It is
+// the ordering key for oldest-first discovery and the CollectGarbage safety
+// gate (#1721).
+func (r *SessionOrphanRange) EarliestEventTime() time.Time { return r.earliestEventTime }
 
 // ErrInvalidSessionOrphanRange indicates an orphan-range invariant was violated.
 var ErrInvalidSessionOrphanRange = xerrors.New("invalid session orphan range")
