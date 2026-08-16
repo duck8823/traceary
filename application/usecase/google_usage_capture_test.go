@@ -78,16 +78,25 @@ func TestGeminiUsageCapture_StampsZeroObservedAtWithWallClock(t *testing.T) {
 			geminiUsageSampleFixture("record-zero", "model-a", time.Time{}, 14, 6, 4, 20),
 		},
 	}
-	result, err := capture.CaptureHeadless(
-		context.Background(),
-		usecase.GeminiUsageCaptureInput{SessionID: "session-1", DeliveryID: "session_run"},
-		loaded,
-	)
+	input := usecase.GeminiUsageCaptureInput{SessionID: "session-1", DeliveryID: "session_run"}
+	result, err := capture.CaptureHeadless(context.Background(), input, loaded)
 	if err != nil || result.Applied != 1 {
 		t.Fatalf("CaptureHeadless() = (%+v, %v)", result, err)
 	}
+	var firstObserved time.Time
 	for _, observation := range repository.observations {
 		assertUnavailableObservationNotEpoch(t, observation)
+		firstObserved = observation.Descriptor().ObservedAt()
+	}
+	time.Sleep(2 * time.Millisecond)
+	replayed, err := capture.CaptureHeadless(context.Background(), input, loaded)
+	if err != nil || replayed.AlreadyApplied != 1 {
+		t.Fatalf("replay = (%+v, %v)", replayed, err)
+	}
+	for _, observation := range repository.observations {
+		if !observation.Descriptor().ObservedAt().Equal(firstObserved) {
+			t.Fatalf("replay observed_at = %s, want %s", observation.Descriptor().ObservedAt(), firstObserved)
+		}
 	}
 }
 

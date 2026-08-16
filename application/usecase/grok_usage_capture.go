@@ -61,7 +61,7 @@ func (u *grokUsageCaptureUsecase) CaptureHeadless(
 	}
 	result := GrokUsageCaptureResult{}
 	if len(loaded.Samples) == 1 {
-		observation, err := grokUsageObservation(input.SessionID, loaded.Samples[0])
+		observation, err := grokUsageObservation(ctx, u.repository, input.SessionID, loaded.Samples[0])
 		if err != nil {
 			return result, xerrors.Errorf("failed to map Grok usage sample: %w", err)
 		}
@@ -252,6 +252,8 @@ func (u *grokUsageCaptureUsecase) recordUnavailable(
 }
 
 func grokUsageObservation(
+	ctx context.Context,
+	repo application.GrokUsageRepository,
 	sessionID types.SessionID,
 	sample application.GrokUsageSample,
 ) (*model.UsageObservation, error) {
@@ -273,7 +275,10 @@ func grokUsageObservation(
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Grok usage source: %w", err)
 	}
-	observedAt := stampHeadlessUsageObservedAt(sample.ObservedAt)
+	observedAt, err := resolveUnavailableObservationTime(ctx, repo, id, sample.ObservedAt)
+	if err != nil {
+		return nil, err
+	}
 	descriptor, err := model.NewUsageObservationDescriptor(
 		id, sessionID, source, types.UsageScopeRun, types.UsageAccountingAdditive, observedAt,
 	)

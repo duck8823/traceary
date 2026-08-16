@@ -35,13 +35,3 @@ func resolveUnavailableObservationTime(
 	}
 	return time.Now().UTC(), nil
 }
-
-// stampHeadlessUsageObservedAt keeps a provider timestamp when it is a real
-// instant and otherwise uses the wall clock. Unix epoch must not land in the
-// ledger: period reports treat it as outside every real interval.
-func stampHeadlessUsageObservedAt(sampleTime time.Time) time.Time {
-	if sampleTime.Unix() > 0 {
-		return sampleTime.UTC()
-	}
-	return time.Now().UTC()
-}
