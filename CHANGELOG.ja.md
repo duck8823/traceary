@@ -7,9 +7,37 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.40.0] - 2026-08-16
+
+### Added
+- **retention plan の除外理由を allowlist の最初に落ちた条件で分類する (#1762)** — 各除外 raw-body 行は `not_transcript` / `already_discarded` / `session_missing` / `session_active` / `within_retention` / `uncovered` の順で 1 つだけ報告する。除外集合は available+active-session または available transcript に限る。plan JSON の並びは lexical ではなく `x-traceary-order`。
+- **終わらない active session の cutoff 前 tail を orphan discovery が見る (#1724)** — `RetentionCutoff` で opt-in する第三 source。24h 以内に活動が続く session は ended/stale にならず、cutoff より古い未 fold イベントが残っても候補にならなかった。fold は cutoff 直前の最後の event で止まり、その後の活動は新しい range になる。
+
 ### Fixed
 - **`content-event-reliability` の duplicate identity を `store dedupe content-events` と揃えた (#1701)** — 診断は retention pruner が空にした行を grouping から除外するようになり、repair 側の `dedupeEligibilityFilter` と一致します。これまでは、retention で空にされた prompt/transcript 行がすべて同じ marker 本文を持つため、repair が一切触らない phantom な duplicate group を診断が 1 つに集約してしまうことがありました。ledger 保持行は引き続き診断の集計対象です（grouping には参加し続けるだけで、repair 側は archive しません）。eligibility と archivability の違いは `docs/storage/README.md` を参照してください。Scratch: 実 SQLite store に真の duplicate pair 1 組と retention で空にされた行数件を用意し、出荷済みの `doctor` と dry-run の両方を掛けて duplicate 件数が一致することを確認しました。
 - **大容量 store の `doctor` が host package identity を引き続き報告する (#1970)** — bounded `metadata_only_large_store` の早期 return に `*-plugin-version` ファミリーと native な Grok/Kimi plugin 有効化チェックが加わりました。host manifest・host plugin cache・host CLI probe だけを読みます。これにより `scripts/verify-post-upgrade-plugin-refresh.sh` は、bounded doctor の閾値（2 GiB）以上の live store に対しても `--skip` なしで post-upgrade gate を実行できます。store は引き続き open しません。
+- **attestation verify が `SQLITE_BUSY` で false-fail しない (#1969)** — busy を undetermined attestation chain に分類しない。
+- **content-event dedupe の識別は読めない body が 1 件あっても続く (#1699)** — 復号できない / unavailable な body は飛ばし、走査全体を止めない。
+- **Grok plugin の版は `~/.grok/installed-plugins/*/integrations/grok-plugin/plugin.json` から読む (#1974)** — 公式の install root を doctor が見落とさない。
+- **dedupe apply 失敗は compact run id を運ぶ (#1702)** — `ContentEventDedupeApplyError` が `RunID` を持つ。compact は一意な `compact-copy-filter-<hex>` を発行する。廃止済みの `store dedupe content-events` apply CLI は復元しない。
+- **transcript-only discard の文書を SQL と揃える (#1797)** — discard 対象は広げない。record 単位の accrual を文書化する。
+- **payload backfill は `ts_norm(started_at) DESC, run_id DESC` で並べる (#1815)** — lexical な `started_at` を使わない。
+- **未知の `events.body_codec` を doctor が見つける (#1760)** — Option 1（報告のみ）。NULL `body_codec` は codec 導入前の identity であり unknown ではない。対応 codec は `decodePayload` と同じ switch。
+- **`HydrateCommandAudits` は O(1) schema + `json_each` (#1730)** — codec / integrity / size の検査は残す。
+- **Gemini managed hook generation を `doctor --fix --client gemini` が更新する (#1971)** — package と managed の generation（5s 対 10s）が upgrade 後に古いまま残らない。
+- **rehearsal の WAL autocheckpoint 無効化を型付きで 1 回だけ再試行する (#1780)** — `{stage:exec|read|value}` と 1 retry。黙って飛ばさない。
+- **payload-rehearsal の rollback 検証は `--wall-time-limit` を残り予算として使う (#1858)** — context cancel を tamper にしない。mutation 後の verify は `context.WithoutCancel`。
+- **retention apply は plan に保存した `cutoff_at` で再検査する (#1763)** — apply が plan より遅い wall-clock cutoff にずれない。
+- **compact `--force` cover は最も古い orphan range から fold する (#1721)** — `ForceCoverSafeToDelete` が all-or-nothing の `Complete()` ゲートを置き換える。残りがすべて cutoff より新しければ `HasMore` でも削除してよい。recorded compact marker が古い ended/stale range を隠さない。
+- **orphan consolidation は 1 pass で read-only handle を 1 本だけ使う (#1722)** — `Database.WithReadScope` と未公開の context `readScope`。Discover + LoadMaterial が候補ごとに接続しない。
+- **dedupe archive は payload codec 列を保持する (#1744)** — migration 67。compact は `event_content_dedupe_archive` を DROP しない。90 日の `archived_at` trim は残す (#1982)。
+- **doctor が期待する Codex hook 数は `usage` Stop を含む 10 (#1975)** — package が本当に 10 本ある。trust rewrite ではなく契約の訂正。
+- **hook memory-extract sidecar を掃除する (#1981)** — doctor は orphan lock / 古い temp を警告し、`FixFunc` は `TryLock` 後にだけ消す。
+- **Claude SessionEnd 診断は `db_path` を記録し、古い marker を GC する (#1972)** — 残り状態の 3 分類。
+- **Grok transcript job は terminal unavailable にせずプロセスを跨いで再試行する (#1973)** — queue の bounded cross-process retry。
+
+### Docs
+- transcript-only discard の範囲と record 単位 accrual (#1797)。
 
 ## [v0.39.0] - 2026-08-16
 
