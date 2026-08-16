@@ -1103,7 +1103,7 @@ Export or import a portable session/memory bundle. See `docs/cli-stability.md` f
 
 ### `traceary memory decay`
 
-Expire or supersede aged durable-memory candidates. Preview-first; use the documented apply flags only after reviewing the scan.
+Expire or supersede aged durable memories. Preview-first; use the documented apply flags only after reviewing the scan.
 
 ## Integration commands
 

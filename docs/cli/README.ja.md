@@ -1094,7 +1094,7 @@ portable な session/memory bundle を export / import します。契約は `do
 
 ### `traceary memory decay`
 
-古い durable-memory candidate を expire / supersede します。まず preview し、scan を確認してから apply フラグを使います。
+古い durable memory を expire / supersede します。まず preview し、scan を確認してから apply フラグを使います。
 
 ## Integration コマンド
 
