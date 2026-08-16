@@ -386,8 +386,8 @@ func TestRawBodyRetention_excludesActiveSessionBodies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRawBodyCandidates() error = %v", err)
 	}
-	if len(snapshot.Candidates) != 0 || len(snapshot.ExcludedActive) != 1 || snapshot.ExcludedActive[0] != "active-event" {
-		t.Fatalf("snapshot candidates=%+v exclusions=%+v", snapshot.Candidates, snapshot.ExcludedActive)
+	if len(snapshot.Candidates) != 0 || len(snapshot.Excluded) != 1 || snapshot.Excluded[0].EventID != "active-event" || snapshot.Excluded[0].Reason != types.RawBodyExclusionReasonSessionActive {
+		t.Fatalf("snapshot candidates=%+v exclusions=%+v", snapshot.Candidates, snapshot.Excluded)
 	}
 }
 
@@ -727,4 +727,100 @@ func nullableInt(value sql.NullInt64) string {
 		return "null"
 	}
 	return strconv.FormatInt(value.Int64, 10)
+}
+
+func TestRawBodyRetention_classifiesExclusionReasons(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	_, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if _, err := db.Exec(`
+		INSERT INTO sessions(session_id, started_at, ended_at, client, agent, workspace) VALUES
+			('excl-session-ended', '2026-05-01T00:00:00Z', '2026-06-02T00:00:00Z', 'cli', 'codex', 'repo'),
+			('excl-session-active', '2026-05-01T00:00:00Z', NULL, 'cli', 'codex', 'repo')
+	`); err != nil {
+		t.Fatalf("insert sessions: %v", err)
+	}
+
+	validTime := "2026-06-01T00:00:00Z"
+
+	// not_transcript: event with kind != 'transcript', age-eligible but excluded by kind check.
+	if _, err := db.Exec(`
+		INSERT INTO events(id, kind, agent, session_id, body, created_at)
+		VALUES ('excl-not-transcript', 'prompt', 'codex', 'excl-session-ended', 'body', ?)
+	`, validTime); err != nil {
+		t.Fatalf("insert not_transcript event: %v", err)
+	}
+
+	// already_discarded: transcript with body_availability already pruned.
+	if _, err := db.Exec(`
+		INSERT INTO events(id, kind, agent, session_id, body, body_availability, created_at)
+		VALUES ('excl-already-discarded', 'transcript', 'codex', 'excl-session-ended', '', 'unavailable_retention', ?)
+	`, validTime); err != nil {
+		t.Fatalf("insert already_discarded event: %v", err)
+	}
+
+	// session_active: transcript with an active session (ended_at IS NULL).
+	if _, err := db.Exec(`
+		INSERT INTO events(id, kind, agent, session_id, body, created_at)
+		VALUES ('excl-session-active', 'transcript', 'codex', 'excl-session-active', 'body', ?)
+	`, validTime); err != nil {
+		t.Fatalf("insert session_active event: %v", err)
+	}
+
+	// within_retention: transcript with an invalid created_at that lexically compares before the
+	// cutoff (ts_norm degrades to raw string) but fails ts_valid, so the selector rejects it.
+	// Uses an ended session so the CASE reaches the ts_valid check.
+	if _, err := db.Exec(`
+		INSERT INTO events(id, kind, agent, session_id, body, created_at)
+		VALUES ('excl-within-retention', 'transcript', 'codex', 'excl-session-ended', 'body', '0000-00-00')
+	`); err != nil {
+		t.Fatalf("insert within_retention event: %v", err)
+	}
+
+	// uncovered: passes all individual allowlist conditions (transcript, available, ended session,
+	// valid timestamp) but has no session_refinement covering it.
+	if _, err := db.Exec(`
+		INSERT INTO events(id, kind, agent, session_id, body, created_at)
+		VALUES ('excl-uncovered', 'transcript', 'codex', 'excl-session-ended', 'body', ?)
+	`, validTime); err != nil {
+		t.Fatalf("insert uncovered event: %v", err)
+	}
+
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	snapshot, err := store.ListRawBodyCandidates(context.Background(), cutoff)
+	if err != nil {
+		t.Fatalf("ListRawBodyCandidates() error = %v", err)
+	}
+
+	if len(snapshot.Candidates) != 0 {
+		t.Fatalf("candidates = %+v, want none", snapshot.Candidates)
+	}
+
+	wantByID := map[string]types.RawBodyExclusionReason{
+		"excl-not-transcript":    types.RawBodyExclusionReasonNotTranscript,
+		"excl-already-discarded": types.RawBodyExclusionReasonAlreadyDiscarded,
+		"excl-session-active":    types.RawBodyExclusionReasonSessionActive,
+		"excl-within-retention":  types.RawBodyExclusionReasonWithinRetention,
+		"excl-uncovered":         types.RawBodyExclusionReasonUncovered,
+	}
+
+	gotByID := make(map[string]types.RawBodyExclusionReason, len(snapshot.Excluded))
+	for _, excl := range snapshot.Excluded {
+		gotByID[excl.EventID] = excl.Reason
+	}
+
+	if diff := cmp.Diff(wantByID, gotByID); diff != "" {
+		t.Fatalf("exclusion reasons mismatch (-want +got):\n%s", diff)
+	}
 }

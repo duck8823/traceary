@@ -1,6 +1,10 @@
 package types
 
-import "time"
+import (
+	"time"
+
+	domtypes "github.com/duck8823/traceary/domain/types"
+)
 
 // RawBodyCandidate identifies one exact persisted event-body version. EncodedBytes
 // is the stored extent; PlaintextBytes remains provenance for recovery and
@@ -13,6 +17,12 @@ type RawBodyCandidate struct {
 	BodySHA256     string
 }
 
+// RawBodyExclusion pairs an event with the first allowlist condition it fails.
+type RawBodyExclusion struct {
+	EventID string
+	Reason  domtypes.RawBodyExclusionReason
+}
+
 // RawBodyRetentionSnapshot is the body-safe result of a read-only planner scan.
 type RawBodyRetentionSnapshot struct {
 	DatabaseIdentity  string
@@ -20,7 +30,7 @@ type RawBodyRetentionSnapshot struct {
 	MigrationDigest   string
 	SnapshotAt        time.Time
 	Candidates        []RawBodyCandidate
-	ExcludedActive    []string
+	Excluded          []RawBodyExclusion
 }
 
 // RawBodyRecoveryBody contains one verified body used only at the executor boundary.

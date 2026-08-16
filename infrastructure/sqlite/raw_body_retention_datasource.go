@@ -98,33 +98,35 @@ func (d *StoreManagementDatasource) ListRawBodyCandidates(ctx context.Context, b
 		return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to iterate raw-body candidates: %w", err)
 	}
 
-	excludedRows, err := tx.QueryContext(ctx, `
-SELECT e.id
-  FROM events AS e
-  JOIN sessions AS s ON s.session_id = e.session_id
- WHERE e.body_availability = 'available'
-   AND ts_norm(e.created_at) < ts_norm(?)
-   AND s.ended_at IS NULL
- ORDER BY e.id`, formatTimestamp(before))
+	exclusionQuery, err := composeDiscardableEventBodiesQuery(listRawBodyExclusionsQuery)
 	if err != nil {
-		return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to query active-session exclusions: %w", err)
+		return apptypes.RawBodyRetentionSnapshot{}, err
+	}
+	cutoff := formatTimestamp(before)
+	excludedRows, err := tx.QueryContext(ctx, exclusionQuery, cutoff, cutoff)
+	if err != nil {
+		return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to query retention exclusions: %w", err)
 	}
 	defer func() { _ = excludedRows.Close() }()
-	excluded := make([]string, 0)
+	excluded := make([]apptypes.RawBodyExclusion, 0)
 	for excludedRows.Next() {
-		var id string
-		if err := excludedRows.Scan(&id); err != nil {
-			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to scan active-session exclusion: %w", err)
+		var id, reasonValue string
+		if err := excludedRows.Scan(&id, &reasonValue); err != nil {
+			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to scan retention exclusion: %w", err)
 		}
-		excluded = append(excluded, id)
+		reason, err := domtypes.RawBodyExclusionReasonFrom(reasonValue)
+		if err != nil {
+			return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("unexpected exclusion reason for event %s: %w", id, err)
+		}
+		excluded = append(excluded, apptypes.RawBodyExclusion{EventID: id, Reason: reason})
 	}
 	if err := excludedRows.Err(); err != nil {
-		return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to iterate active-session exclusions: %w", err)
+		return apptypes.RawBodyRetentionSnapshot{}, xerrors.Errorf("failed to iterate retention exclusions: %w", err)
 	}
 
 	return apptypes.RawBodyRetentionSnapshot{
 		DatabaseIdentity: identity, SQLiteUserVersion: version, MigrationDigest: migrationDigest, SnapshotAt: time.Now().UTC(),
-		Candidates: candidates, ExcludedActive: excluded,
+		Candidates: candidates, Excluded: excluded,
 	}, nil
 }
 
