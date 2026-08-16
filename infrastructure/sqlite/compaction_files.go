@@ -525,7 +525,10 @@ func (f PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.Compa
 		return errors.New("source identity drift after plan")
 	}
 	digest, err := fileDigest(ctx, run.SourcePath)
-	if err != nil || digest != run.SourceDigest {
+	if err != nil {
+		return err
+	}
+	if digest != run.SourceDigest {
 		return errors.New("prepared upgrade source content changed")
 	}
 	available, err := availableBytes(filepath.Dir(run.SourcePath))

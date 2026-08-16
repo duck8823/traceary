@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,6 +45,25 @@ func TestFileDigestReturnsCtxErrOnExpiredDeadline(t *testing.T) {
 	}
 	if err != context.DeadlineExceeded {
 		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+}
+
+func TestEnsurePhysicalBackupPropagatesCanceledDigest(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	dest := filepath.Join(dir, "backup.db")
+	if err := os.WriteFile(source, make([]byte, 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ensurePhysicalBackupWithHook(ctx, source, dest, nil)
+	if err == nil {
+		t.Fatal("expected canceled digest to fail")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled digest classified as %v, want context.Canceled", err)
 	}
 }
 

@@ -963,7 +963,10 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 		}
 	}
 	verifiedDigest, verifiedDigestErr := fileDigest(ctx, c.BackupPath)
-	if verifiedDigestErr != nil || verifiedDigest != digest {
+	if verifiedDigestErr != nil {
+		return apptypes.PayloadRehearsalMetrics{}, verifiedDigestErr
+	}
+	if verifiedDigest != digest {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact changed before restore")
 	}
 	if err = verifySQLiteArtifact(c.BackupPath); err != nil {
@@ -1008,8 +1011,12 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if restoredIdentityErr != nil || postBackupErr != nil || os.SameFile(restoredIdentity.info, postBackupIdentity.info) {
 		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
-	restored, err := fileDigest(ctx, id.canonical)
-	if err != nil || restored != digest {
+	postCtx := context.WithoutCancel(ctx)
+	restored, err := fileDigest(postCtx, id.canonical)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	if restored != digest {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback digest verification failed")
 	}
 	db, err := sql.Open("sqlite", immutableRehearsalDSN(id.canonical))
@@ -1017,19 +1024,19 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	defer func() { _ = db.Close() }()
-	if err = VerifyStoreCompatibility(ctx, db); err != nil {
+	if err = VerifyStoreCompatibility(postCtx, db); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	var integrity string
-	if err = db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
+	if err = db.QueryRowContext(postCtx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback integrity verification failed")
 	}
 	var runTable, activeRuns int
-	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='payload_rehearsal_runs')`).Scan(&runTable); err != nil {
+	if err = db.QueryRowContext(postCtx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='payload_rehearsal_runs')`).Scan(&runTable); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback state verification failed")
 	}
 	if runTable != 0 {
-		if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed','scrubbed')`).Scan(&activeRuns); err != nil || activeRuns != 0 {
+		if err = db.QueryRowContext(postCtx, `SELECT count(*) FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed','scrubbed')`).Scan(&activeRuns); err != nil || activeRuns != 0 {
 			return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback retained rehearsal state")
 		}
 	}

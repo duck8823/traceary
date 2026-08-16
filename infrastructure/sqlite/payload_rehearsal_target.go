@@ -185,11 +185,17 @@ func ensurePhysicalBackupWithHook(ctx context.Context, source, dest string, afte
 		afterCopy()
 	}
 	sourceAfter, err := fileDigest(ctx, source)
-	if err != nil || sourceAfter != sourceDigest {
+	if err != nil {
+		return "", err
+	}
+	if sourceAfter != sourceDigest {
 		return "", errors.New("source changed while creating rollback artifact")
 	}
 	destDigest, err := fileDigest(ctx, dest)
-	if err != nil || destDigest != sourceDigest {
+	if err != nil {
+		return "", err
+	}
+	if destDigest != sourceDigest {
 		return "", errors.New("rollback artifact digest verification failed")
 	}
 	if _, err = secureFileIdentity(dest); err != nil {
@@ -220,7 +226,10 @@ func restoreVerifiedRehearsalBackup(ctx context.Context, target, backup string, 
 		return ErrUnsafeRehearsalTarget
 	}
 	digest, err := fileDigest(ctx, backup)
-	if err != nil || digest != expectedDigest {
+	if err != nil {
+		return err
+	}
+	if digest != expectedDigest {
 		return errors.New("rollback artifact changed before recovery")
 	}
 	if err = verifySQLiteArtifact(backup); err != nil {
@@ -253,8 +262,11 @@ func restoreVerifiedRehearsalBackup(ctx context.Context, target, backup string, 
 	if err = copyFileAtomicVerifiedWithHook(backup, target, expectedDigest, verifyTarget); err != nil {
 		return err
 	}
-	restoredDigest, err := fileDigest(ctx, target)
-	if err != nil || restoredDigest != expectedDigest {
+	restoredDigest, err := fileDigest(context.WithoutCancel(ctx), target)
+	if err != nil {
+		return err
+	}
+	if restoredDigest != expectedDigest {
 		return errors.New("restored rehearsal target digest mismatch")
 	}
 	return verifySQLiteArtifact(target)
