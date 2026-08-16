@@ -443,7 +443,6 @@ func TestDoctorLargeStore_BoundedSetStaysBounded(t *testing.T) {
 		t.Fatalf("report.Mode = %q, want metadata_only_large_store", report.Mode)
 	}
 	forbidden := []string{
-		"claude-config", "codex-config", "gemini-config",
 		"claude-event-coverage", "codex-event-coverage", "gemini-event-coverage",
 		"memory-inbox", "store-growth-budget", "version",
 	}
@@ -455,5 +454,13 @@ func TestDoctorLargeStore_BoundedSetStaysBounded(t *testing.T) {
 	diagnostics := largeStoreCheckByName(report, "large-store-diagnostics")
 	if diagnostics.Status != doctorStatusWarn {
 		t.Fatalf("large-store-diagnostics = %#v, want warn", diagnostics)
+	}
+	if store.initCalled {
+		t.Fatal("large-store doctor initialized SQLite after filesystem host checks")
+	}
+	for _, name := range []string{"gemini-config", "codex-config", "hook-grok-transcript", "hook-memory-extract"} {
+		if got := largeStoreCheckByName(report, name); got.Name == "" {
+			t.Fatalf("bounded report missing filesystem host check %q", name)
+		}
 	}
 }

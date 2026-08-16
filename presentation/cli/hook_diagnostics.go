@@ -80,6 +80,14 @@ type hookCancellationDiagnosticClassification struct {
 }
 
 func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, dbPath, projectDir string) doctorCheck {
+	return c.inspectClaudeHookCancellationDiagnosticsWithLookup(ctx, dbPath, projectDir, c.session)
+}
+
+func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsFilesystem(ctx context.Context, dbPath, projectDir string) doctorCheck {
+	return c.inspectClaudeHookCancellationDiagnosticsWithLookup(ctx, dbPath, projectDir, nil)
+}
+
+func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context.Context, dbPath, projectDir string, sessions hookDiagnosticSessionLookup) doctorCheck {
 	const checkName = "claude-hook-cancellations"
 	workspace := resolveDoctorEventCoverageWorkspace(ctx, projectDir)
 	scan, err := scanHookCancellationDiagnostics("claude", "SessionEnd", workspace)
@@ -101,7 +109,7 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, 
 			),
 		}
 	}
-	classification, err := classifyHookCancellationDiagnostics(ctx, scan.Records, c.session, dbPath)
+	classification, err := classifyHookCancellationDiagnostics(ctx, scan.Records, sessions, dbPath)
 	if err != nil {
 		return doctorCheck{
 			Name:    checkName,

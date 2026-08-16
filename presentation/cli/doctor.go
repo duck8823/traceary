@@ -318,8 +318,12 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 				Message: localizef("failed to resolve project directory: %v", "project directory の解決に失敗しました: %v", projectDirErr),
 			})
 			report.Checks = append(report.Checks, c.inspectPluginVersionChecks(input.currentVersion)...)
+			report.Checks = append(report.Checks, inspectDoctorConfig())
+			report.Checks = append(report.Checks, c.inspectHookMemoryExtractDiagnostics(time.Now().UTC()))
+			report.Checks = append(report.Checks, c.inspectHookGrokTranscriptDiagnostics(time.Now().UTC()))
 		} else {
 			report.Checks = append(report.Checks, c.hostPackageIdentityChecks(ctx, resolvedClients, resolvedProjectDir, input.currentVersion)...)
+			c.appendFilesystemHostDoctorChecks(ctx, report, resolvedClients, resolvedProjectDir, resolvedDBPath)
 		}
 		return report, nil
 	}
