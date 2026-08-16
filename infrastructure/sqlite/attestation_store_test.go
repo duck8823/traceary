@@ -3,8 +3,11 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -120,8 +123,13 @@ func TestVerifyAttestationChain_CommandTextTamperFailsAndOutputDoesNot(t *testin
 	if _, err := db.Exec(`UPDATE command_audits SET command_text = 'rm' WHERE event_id = 'command-tamper'`); err != nil {
 		t.Fatalf("UPDATE command_text: %v", err)
 	}
-	if err := sqlite.VerifyAttestationChain(ctx, db); err == nil {
+	err = sqlite.VerifyAttestationChain(ctx, db)
+	if err == nil {
 		t.Fatal("VerifyAttestationChain() error = nil after command_text UPDATE")
+	}
+	var undetermined *sqlite.AttestationChainUndeterminedError
+	if errors.As(err, &undetermined) {
+		t.Fatalf("VerifyAttestationChain() reported a real chain break as undetermined: %v", err)
 	}
 }
 
@@ -345,6 +353,128 @@ func TestVerifyAttestationChain_ConcurrentAppendDoesNotFalseFail(t *testing.T) {
 	}
 }
 
+func TestVerifyAttestationChain_TransientContentionIsAbsorbed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path, events := newAttestationTestStore(t)
+	seed := model.EventOf(
+		types.EventID("prompt-seed"), types.EventKindPrompt,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-1"), types.Workspace("ws"),
+		"seed",
+		time.Date(2026, 8, 14, 17, 0, 0, 0, time.UTC),
+	)
+	if err := events.Save(ctx, seed); err != nil {
+		t.Fatalf("Save(seed) error = %v", err)
+	}
+
+	release := blockAttestationReads(t, path)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		release()
+	}()
+
+	db := openZeroBusyTimeoutAttestationDB(t, path)
+	defer func() { _ = db.Close() }()
+	if err := sqlite.VerifyAttestationChain(ctx, db); err != nil {
+		t.Fatalf("VerifyAttestationChain() error = %v, want nil once contention clears mid-retry", err)
+	}
+}
+
+func TestVerifyAttestationChain_PersistentContentionIsUndetermined(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path, events := newAttestationTestStore(t)
+	seed := model.EventOf(
+		types.EventID("prompt-seed"), types.EventKindPrompt,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-1"), types.Workspace("ws"),
+		"seed",
+		time.Date(2026, 8, 14, 18, 0, 0, 0, time.UTC),
+	)
+	if err := events.Save(ctx, seed); err != nil {
+		t.Fatalf("Save(seed) error = %v", err)
+	}
+
+	release := blockAttestationReads(t, path)
+	defer release()
+
+	db := openZeroBusyTimeoutAttestationDB(t, path)
+	defer func() { _ = db.Close() }()
+	err := sqlite.VerifyAttestationChain(ctx, db)
+	if err == nil {
+		t.Fatal("VerifyAttestationChain() error = nil, want undetermined under persistent contention")
+	}
+	var undetermined *sqlite.AttestationChainUndeterminedError
+	if !errors.As(err, &undetermined) {
+		t.Fatalf("VerifyAttestationChain() error = %v, want AttestationChainUndeterminedError", err)
+	}
+	for _, chainWord := range []string{"attestation link", "attestation head", "digest"} {
+		if strings.Contains(err.Error(), chainWord) {
+			t.Fatalf("VerifyAttestationChain() undetermined message = %q, must not carry chain wording %q", err.Error(), chainWord)
+		}
+	}
+}
+
+// blockAttestationReads acquires an exclusive file lock on the store so any
+// other connection is denied WAL index access (SQLITE_BUSY family) until
+// release is called. A plain BEGIN EXCLUSIVE in WAL mode does not block
+// readers, so this uses locking_mode=EXCLUSIVE per the design note's primary
+// strategy (#1969 §5); it proved deterministic locally, so the
+// journal_mode=DELETE fallback described there is not needed.
+func blockAttestationReads(t *testing.T, path string) (release func()) {
+	t.Helper()
+	dsn := (&url.URL{
+		Scheme: "file",
+		Path:   filepath.ToSlash(path),
+		RawQuery: url.Values{
+			"_pragma": []string{"journal_mode(WAL)", "locking_mode(EXCLUSIVE)"},
+		}.Encode(),
+	}).String()
+	conn, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open blocking connection: %v", err)
+	}
+	conn.SetMaxOpenConns(1)
+	if _, err := conn.Exec(`BEGIN IMMEDIATE`); err != nil {
+		_ = conn.Close()
+		t.Fatalf("BEGIN IMMEDIATE on blocking connection: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE attestation_head SET seq = seq WHERE singleton = 1`); err != nil {
+		_ = conn.Close()
+		t.Fatalf("touch attestation_head to take the exclusive lock: %v", err)
+	}
+	released := false
+	return func() {
+		if released {
+			return
+		}
+		released = true
+		_, _ = conn.Exec(`ROLLBACK`)
+		_ = conn.Close()
+	}
+}
+
+// openZeroBusyTimeoutAttestationDB opens a verify handle with
+// busy_timeout(0) so SQLite reports SQLITE_BUSY immediately instead of
+// blocking inside the driver, letting the Go-level retry in
+// verifyAttestationChainSnapshot be exercised deterministically.
+func openZeroBusyTimeoutAttestationDB(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	dsn := (&url.URL{
+		Scheme: "file",
+		Path:   filepath.ToSlash(path),
+		RawQuery: url.Values{
+			"_pragma": []string{"journal_mode(WAL)", "busy_timeout(0)", "foreign_keys(1)"},
+		}.Encode(),
+	}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	return db
+}
+
 func newAttestationTestStore(t *testing.T) (string, *sqlite.EventDatasource) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "traceary.db")
@@ -357,11 +487,7 @@ func newAttestationTestStore(t *testing.T) (string, *sqlite.EventDatasource) {
 
 func openAttestationDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	return db
+	return sqlite.OpenStoreForTest(path)
 }
 
 func assertAttestationCount(t *testing.T, db *sql.DB, want int) {

@@ -69,3 +69,8 @@ func (d *EventDatasource) SetTimelinePayloadQueryHookForTest(hook func(kind stri
 func (d *StoreManagementDatasource) SetGarbageCollectionNowForTest(now func() time.Time) {
 	d.now = now
 }
+
+// OpenStoreForTest opens a live store through the same coordinated-lease,
+// WAL, busy_timeout DSN production readers and writers use, so tests do not
+// hand-write a divergent DSN for the store they exercise.
+func OpenStoreForTest(path string) *sql.DB { return openCoordinatedDB(path, sqliteDSN(path)) }
