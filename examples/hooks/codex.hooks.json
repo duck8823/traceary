@@ -65,6 +65,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "'traceary' 'hook' 'usage' 'codex'"
+          },
+          {
+            "type": "command",
             "command": "'traceary' 'hook' 'transcript' 'codex'"
           },
           {

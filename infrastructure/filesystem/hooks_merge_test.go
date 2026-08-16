@@ -457,6 +457,11 @@ func TestExtractTracearyManagedKey(t *testing.T) {
 			want:  "traceary-prompt.sh:claude",
 		},
 		{
+			name:  "direct hook usage",
+			input: "'traceary' 'hook' 'usage' 'codex'",
+			want:  "traceary-usage.sh:codex",
+		},
+		{
 			name:  "direct hook with apostrophe in binary path",
 			input: "'/Users/O'\"'\"'Connor/bin/traceary' 'hook' 'session' 'claude' 'start'",
 			want:  "traceary-session.sh:claude:start",

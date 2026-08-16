@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -26,16 +27,19 @@ const (
 )
 
 type codexPluginHookTrustResult struct {
-	PluginKey string
-	Status    codexPluginHookTrustStatus
-	HookCount int
-	Reason    string
+	PluginKey       string
+	Status          codexPluginHookTrustStatus
+	HookCount       int
+	Reason          string
+	ExtraCommands   []string
+	MissingCommands []string
 }
 
 type codexHookListMetadata struct {
 	PluginID   string `json:"pluginId"`
 	Enabled    bool   `json:"enabled"`
 	TrustState string `json:"trustStatus"`
+	Command    string `json:"command"`
 }
 
 type codexHookErrorInfo struct {
@@ -57,9 +61,15 @@ type codexAppServerEnvelope struct {
 	Error  json.RawMessage        `json:"error"`
 }
 
+// codexManagedKeyExtractorFunc normalizes a hook entry's name/command pair
+// into a stable Traceary-managed key, or "" when the entry is not
+// Traceary-managed. Callers pass application.HooksInspector.ExtractManagedKeyFromEntry
+// so this package does not import the infrastructure layer directly.
+type codexManagedKeyExtractorFunc func(name, command string) string
+
 var codexPluginHookTrustProbeFunc = probeCodexPluginHookTrust
 
-func probeCodexPluginHookTrust(ctx context.Context, projectDir, pluginKey string) codexPluginHookTrustResult {
+func probeCodexPluginHookTrust(ctx context.Context, projectDir, pluginKey string, extractManagedKey codexManagedKeyExtractorFunc) codexPluginHookTrustResult {
 	result := codexPluginHookTrustResult{PluginKey: pluginKey, Status: codexPluginHookTrustUndetectable}
 	if strings.TrimSpace(pluginKey) == "" {
 		result.Status = codexPluginHookTrustAbsent
@@ -149,7 +159,7 @@ func probeCodexPluginHookTrust(ctx context.Context, projectDir, pluginKey string
 		}
 		return result
 	}
-	return classifyCodexPluginHookTrust(pluginKey, *hooksResponse)
+	return classifyCodexPluginHookTrust(pluginKey, *hooksResponse, extractManagedKey)
 }
 
 func jsonRPCErrorPresent(raw json.RawMessage) bool {
@@ -157,7 +167,7 @@ func jsonRPCErrorPresent(raw json.RawMessage) bool {
 	return trimmed != "" && trimmed != "null"
 }
 
-func classifyCodexPluginHookTrust(pluginKey string, response codexHooksListResponse) codexPluginHookTrustResult {
+func classifyCodexPluginHookTrust(pluginKey string, response codexHooksListResponse, extractManagedKey codexManagedKeyExtractorFunc) codexPluginHookTrustResult {
 	result := codexPluginHookTrustResult{PluginKey: pluginKey, Status: codexPluginHookTrustUndetectable}
 	var matched []codexHookListMetadata
 	for _, entry := range response.Data {
@@ -202,6 +212,7 @@ func classifyCodexPluginHookTrust(pluginKey string, response codexHooksListRespo
 	}
 	if result.Status == codexPluginHookTrustTrusted && result.HookCount != expectedCodexPluginHookCount() {
 		result.Status = codexPluginHookTrustIncomplete
+		result.ExtraCommands, result.MissingCommands = diffCodexPluginHookCommands(matched, extractManagedKey)
 		result.Reason = fmt.Sprintf(
 			"Codex returned %d Traceary plugin hook commands; the current package requires exactly %d",
 			result.HookCount,
@@ -209,6 +220,57 @@ func classifyCodexPluginHookTrust(pluginKey string, response codexHooksListRespo
 		)
 	}
 	return result
+}
+
+// diffCodexPluginHookCommands compares the managed keys Codex reports as
+// trusted for the Traceary plugin against expectedCodexPluginHookCommands(),
+// naming which commands are unexpected surplus (for example a stale
+// generation's command Codex still trusts) and which expected commands are
+// absent. Hooks whose command does not normalize to a Traceary-managed key
+// (extractManagedKey returns "") are ignored rather than reported as extra,
+// since they are not attributable to a specific package generation.
+func diffCodexPluginHookCommands(matched []codexHookListMetadata, extractManagedKey codexManagedKeyExtractorFunc) (extra, missing []string) {
+	if extractManagedKey == nil {
+		return nil, nil
+	}
+	actual := map[string]struct{}{}
+	for _, hook := range matched {
+		if key := extractManagedKey("", hook.Command); key != "" {
+			actual[key] = struct{}{}
+		}
+	}
+	expected := map[string]struct{}{}
+	for _, key := range expectedCodexPluginHookCommands() {
+		expected[key] = struct{}{}
+		if _, ok := actual[key]; !ok {
+			missing = append(missing, key)
+		}
+	}
+	for key := range actual {
+		if _, ok := expected[key]; !ok {
+			extra = append(extra, key)
+		}
+	}
+	sort.Strings(extra)
+	sort.Strings(missing)
+	return extra, missing
+}
+
+// formatCodexPluginHookCommandDiff renders the named extra/missing commands
+// from a codexPluginHookTrustIncomplete result as a message suffix, so the
+// doctor warning names the drift instead of only reporting a count mismatch.
+func formatCodexPluginHookCommandDiff(result codexPluginHookTrustResult) string {
+	var parts []string
+	if len(result.ExtraCommands) > 0 {
+		parts = append(parts, fmt.Sprintf("extra: %s", strings.Join(result.ExtraCommands, ", ")))
+	}
+	if len(result.MissingCommands) > 0 {
+		parts = append(parts, fmt.Sprintf("missing: %s", strings.Join(result.MissingCommands, ", ")))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, "; ") + ")"
 }
 
 func codexPluginHookTrustCheck(result codexPluginHookTrustResult) doctorCheck {
@@ -226,13 +288,13 @@ func codexPluginHookTrustCheck(result codexPluginHookTrustResult) doctorCheck {
 		return doctorCheck{
 			Name: name, Status: doctorStatusWarn, FixCommand: "codex",
 			Hint: Localize(
-				"update the Traceary Codex plugin, open `/hooks`, then review and trust every current hook before removing the manual fallback",
-				"Traceary Codex plugin を更新し、`/hooks` を開いて現在の hook をすべて確認・trust してから手動 fallback を削除してください",
+				"update the Traceary Codex plugin, open `/hooks`, then review and trust every current hook before removing the manual fallback; if a surplus command persists after updating, run `codex plugins refresh --purge-trust traceary@traceary-marketplace` to drop the stale generation's trust entries",
+				"Traceary Codex plugin を更新し、`/hooks` を開いて現在の hook をすべて確認・trust してから手動 fallback を削除してください。更新後も余剰 command が残る場合は `codex plugins refresh --purge-trust traceary@traceary-marketplace` で前世代の trust entry を破棄してください",
 			),
 			Message: localizef(
-				"Traceary plugin hook coverage is incomplete: Codex reports %d command(s), but the current package requires exactly %d; manual fallback hooks will be preserved: %s",
-				"Traceary plugin hook の coverage が不完全です。Codex は %d command を報告していますが、現在の package には正確に %d 件必要です。手動 fallback hook は保持されます: %s",
-				result.HookCount, expectedCodexPluginHookCount(), result.PluginKey,
+				"Traceary plugin hook coverage is incomplete: Codex reports %d command(s), but the current package requires exactly %d; manual fallback hooks will be preserved: %s%s",
+				"Traceary plugin hook の coverage が不完全です。Codex は %d command を報告していますが、現在の package には正確に %d 件必要です。手動 fallback hook は保持されます: %s%s",
+				result.HookCount, expectedCodexPluginHookCount(), result.PluginKey, formatCodexPluginHookCommandDiff(result),
 			),
 		}
 	case codexPluginHookTrustUntrusted, codexPluginHookTrustModified, codexPluginHookTrustDisabled:

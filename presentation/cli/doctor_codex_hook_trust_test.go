@@ -6,10 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
+
+var testCodexManagedKeyExtractor = filesystem.NewHooksInspector().ExtractManagedKeyFromEntry
 
 func TestProbeCodexPluginHookTrustUsesHooksList(t *testing.T) {
 	binDir := t.TempDir()
@@ -39,7 +44,7 @@ print(json.dumps({"id": 1, "result": {"data": [{
 	}
 	t.Setenv("PATH", binDir)
 
-	got := probeCodexPluginHookTrust(context.Background(), "/tmp/project", "traceary@market")
+	got := probeCodexPluginHookTrust(context.Background(), "/tmp/project", "traceary@market", testCodexManagedKeyExtractor)
 	if got.Status != codexPluginHookTrustTrusted || got.HookCount != expectedCodexPluginHookCount() {
 		t.Fatalf("probeCodexPluginHookTrust() = %+v, want trusted hook", got)
 	}
@@ -139,11 +144,140 @@ func TestClassifyCodexPluginHookTrust(t *testing.T) {
 			if err := json.Unmarshal([]byte(tt.hooksJSON), &response); err != nil {
 				t.Fatalf("Unmarshal() error = %v", err)
 			}
-			got := classifyCodexPluginHookTrust("traceary@market", response)
+			got := classifyCodexPluginHookTrust("traceary@market", response, testCodexManagedKeyExtractor)
 			if got.Status != tt.wantStatus || got.HookCount != tt.wantCount {
 				t.Fatalf("classifyCodexPluginHookTrust() = status %q count %d, want status %q count %d", got.Status, got.HookCount, tt.wantStatus, tt.wantCount)
 			}
 		})
+	}
+}
+
+// TestClassifyCodexPluginHookTrust_NamesExtraCommand covers the case that
+// motivated this diagnostic: Codex still trusts a command from a previous
+// package generation (here, an old `traceary-compact.sh` phase name no
+// package generation ships anymore) alongside every currently-expected
+// command. Doctor should name the surplus command, not just report a count
+// mismatch.
+func TestClassifyCodexPluginHookTrust_NamesExtraCommand(t *testing.T) {
+	response := codexHooksListResponse{}
+	response.Data = append(response.Data, struct {
+		Hooks    []codexHookListMetadata `json:"hooks"`
+		Warnings []string                `json:"warnings"`
+		Errors   []codexHookErrorInfo    `json:"errors"`
+	}{Hooks: currentCodexHooks("traceary@market")})
+	response.Data[0].Hooks = append(response.Data[0].Hooks, codexHookListMetadata{
+		PluginID:   "traceary@market",
+		Enabled:    true,
+		TrustState: "trusted",
+		Command:    "TRACEARY_BIN='traceary' bash '/scripts/traceary-compact.sh' 'codex' 'legacy-phase'",
+	})
+
+	got := classifyCodexPluginHookTrust("traceary@market", response, testCodexManagedKeyExtractor)
+
+	if got.Status != codexPluginHookTrustIncomplete {
+		t.Fatalf("Status = %q, want %q", got.Status, codexPluginHookTrustIncomplete)
+	}
+	want := []string{"traceary-compact.sh:codex:legacy-phase"}
+	if diff := cmpDiffStrings(got.ExtraCommands, want); diff != "" {
+		t.Fatalf("ExtraCommands mismatch (-got +want):\n%s", diff)
+	}
+	if len(got.MissingCommands) != 0 {
+		t.Fatalf("MissingCommands = %v, want empty", got.MissingCommands)
+	}
+}
+
+// TestClassifyCodexPluginHookTrust_NamesMissingCommand covers an obsolete
+// hook set (fewer commands than the package expects) naming which specific
+// expected command is absent, not just the count.
+func TestClassifyCodexPluginHookTrust_NamesMissingCommand(t *testing.T) {
+	hooks := currentCodexHooks("traceary@market")
+	var withoutUsage []codexHookListMetadata
+	for _, hook := range hooks {
+		if strings.Contains(hook.Command, "'usage'") {
+			continue
+		}
+		withoutUsage = append(withoutUsage, hook)
+	}
+	response := codexHooksListResponse{}
+	response.Data = append(response.Data, struct {
+		Hooks    []codexHookListMetadata `json:"hooks"`
+		Warnings []string                `json:"warnings"`
+		Errors   []codexHookErrorInfo    `json:"errors"`
+	}{Hooks: withoutUsage})
+
+	got := classifyCodexPluginHookTrust("traceary@market", response, testCodexManagedKeyExtractor)
+
+	if got.Status != codexPluginHookTrustIncomplete {
+		t.Fatalf("Status = %q, want %q", got.Status, codexPluginHookTrustIncomplete)
+	}
+	want := []string{"traceary-usage.sh:codex"}
+	if diff := cmpDiffStrings(got.MissingCommands, want); diff != "" {
+		t.Fatalf("MissingCommands mismatch (-got +want):\n%s", diff)
+	}
+	if len(got.ExtraCommands) != 0 {
+		t.Fatalf("ExtraCommands = %v, want empty", got.ExtraCommands)
+	}
+}
+
+// currentCodexHooks builds one enabled+trusted codexHookListMetadata entry
+// per command in the current packaged Codex contract, with literal command
+// text matching what Codex's hooks/list reports for the shipped
+// plugins/traceary/hooks.json (verified against a live `codex app-server`
+// probe during investigation of issue 1975).
+func currentCodexHooks(pluginKey string) []codexHookListMetadata {
+	commands := []string{
+		"'traceary' 'hook' 'session' 'codex' 'start'",
+		"'traceary' 'hook' 'subagent-start' 'codex'",
+		"'traceary' 'hook' 'subagent-stop' 'codex'",
+		"'traceary' 'hook' 'compact' 'codex' 'pre-compact'",
+		"'traceary' 'hook' 'compact' 'codex' 'post-compact'",
+		"'traceary' 'hook' 'prompt' 'codex'",
+		"'traceary' 'hook' 'usage' 'codex'",
+		"'traceary' 'hook' 'transcript' 'codex'",
+		"'traceary' 'hook' 'session' 'codex' 'stop'",
+		"'traceary' 'hook' 'audit' 'codex'",
+	}
+	hooks := make([]codexHookListMetadata, 0, len(commands))
+	for _, command := range commands {
+		hooks = append(hooks, codexHookListMetadata{
+			PluginID:   pluginKey,
+			Enabled:    true,
+			TrustState: "trusted",
+			Command:    command,
+		})
+	}
+	return hooks
+}
+
+func cmpDiffStrings(got, want []string) string {
+	sortedGot := append([]string(nil), got...)
+	sortedWant := append([]string(nil), want...)
+	sort.Strings(sortedGot)
+	sort.Strings(sortedWant)
+	if len(sortedGot) != len(sortedWant) {
+		return fmt.Sprintf("got %v, want %v", sortedGot, sortedWant)
+	}
+	for i := range sortedGot {
+		if sortedGot[i] != sortedWant[i] {
+			return fmt.Sprintf("got %v, want %v", sortedGot, sortedWant)
+		}
+	}
+	return ""
+}
+
+// TestCodexPluginHookTrustCheck_NamesCommandDiff verifies the incomplete
+// message names the specific extra/missing commands (issue 1975) rather than
+// only reporting a bare count mismatch.
+func TestCodexPluginHookTrustCheck_NamesCommandDiff(t *testing.T) {
+	check := codexPluginHookTrustCheck(codexPluginHookTrustResult{
+		PluginKey:       "traceary@market",
+		Status:          codexPluginHookTrustIncomplete,
+		HookCount:       11,
+		ExtraCommands:   []string{"traceary-compact.sh:codex:legacy-phase"},
+		MissingCommands: nil,
+	})
+	if !strings.Contains(check.Message, "extra: traceary-compact.sh:codex:legacy-phase") {
+		t.Fatalf("Message = %q, want it to name the extra command", check.Message)
 	}
 }
 
