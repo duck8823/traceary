@@ -597,6 +597,16 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	if cost.Status != "skip" || report.OperatorCost == nil || report.OperatorCost.ResidentBytes != 2<<30 {
 		t.Fatalf("operator cost = %#v report=%+v", cost, report.OperatorCost)
 	}
+	assertDoctorCheckNamesUnique(t, report)
+	residueFixes := 0
+	for _, fix := range report.Fixes {
+		if fix.Name == "hook-state-residue" {
+			residueFixes++
+		}
+	}
+	if residueFixes > 1 {
+		t.Fatalf("hook-state-residue fix ran %d times, want at most 1", residueFixes)
+	}
 }
 
 func TestRootCLI_DoctorJSONIncludesOperatorCost(t *testing.T) {
@@ -714,6 +724,7 @@ func TestRootCLI_DoctorLargeStoreReportsHookSpoolMetadataWithoutPayloadReads(t *
 	if strings.Contains(spool.Message, secretPayload) || strings.Contains(spool.Hint, secretPayload) {
 		t.Fatalf("large-store doctor leaked spool payload body: %#v", spool)
 	}
+	assertDoctorCheckNamesUnique(t, report)
 }
 
 func TestRootCLI_DoctorCommand_ClaudeHookCancellationDiagnostics(t *testing.T) {
@@ -2246,6 +2257,26 @@ func setTracearyPathToCurrentExecutable(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", dir)
+}
+
+func assertDoctorCheckNamesUnique(t *testing.T, report doctorReport) {
+	t.Helper()
+	seen := make(map[string]int, len(report.Checks))
+	for _, check := range report.Checks {
+		if check.Name == "" {
+			t.Fatal("doctor check has empty name")
+		}
+		seen[check.Name]++
+	}
+	var dupes []string
+	for name, count := range seen {
+		if count > 1 {
+			dupes = append(dupes, name)
+		}
+	}
+	if len(dupes) > 0 {
+		t.Fatalf("duplicate doctor check names %v", dupes)
+	}
 }
 
 func decodeDoctorReport(t *testing.T, data []byte) doctorReport {
