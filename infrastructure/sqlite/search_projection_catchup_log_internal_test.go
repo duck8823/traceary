@@ -165,6 +165,9 @@ func TestLogSearchProjectionCatchUp_OtherErrorsKeepTheGenericLine(t *testing.T) 
 	if handler.records[0].Message != genericCatchUpIncompleteLine {
 		t.Fatalf("message = %q, want the generic incomplete line", handler.records[0].Message)
 	}
+	if handler.records[0].Level != slog.LevelDebug {
+		t.Fatalf("level = %s, want DEBUG", handler.records[0].Level)
+	}
 }
 
 func forceSQLiteFull(t *testing.T) error {

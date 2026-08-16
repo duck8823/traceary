@@ -94,16 +94,16 @@ func searchProjectionSchemaComplete(ctx context.Context, db *sql.DB) (bool, stri
 	}
 	// Additive columns land on an existing table, so presence of
 	// search_projection_state alone does not imply a complete schema.
-	// Check the newest required column: a store at 049-054 has
-	// cutover_index_family but not index_family_byte_limit (#1679).
+	// Check the newest required column: a store at 049-067 has
+	// recent_source_bytes but not cleanup_no_progress_attempts (#2010).
 	var columns int
 	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM pragma_table_info('search_projection_state') WHERE name IN ('index_family_byte_limit','recent_source_bytes')`,
+		`SELECT COUNT(*) FROM pragma_table_info('search_projection_state') WHERE name IN ('index_family_byte_limit','recent_source_bytes','cleanup_no_progress_attempts')`,
 	).Scan(&columns); err != nil {
 		return false, "", xerrors.Errorf("inspect search_projection_state columns: %w", err)
 	}
-	if columns != 2 {
-		return false, "search_projection_state.recent_source_bytes", nil
+	if columns != 3 {
+		return false, "search_projection_state.cleanup_no_progress_attempts", nil
 	}
 	return true, "", nil
 }
@@ -185,7 +185,12 @@ func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, e
 			)
 			return
 		}
-		slog.Error("search projection catch-up incomplete; retrying on next initialization",
+		// Ordinary repeat-incomplete attempts (e.g. wall-time/row-work caps
+		// tripped mid-page) are expected while a large store catches up over
+		// many initializations. Logging these at Error level fires on every
+		// command/hook invocation with no actionable signal, so this stays at
+		// Debug; the two cases above that name a stuck condition remain Error.
+		slog.Debug("search projection catch-up incomplete; retrying on next initialization",
 			"action", result.Action,
 			"state", result.State,
 			"phase", result.Phase,

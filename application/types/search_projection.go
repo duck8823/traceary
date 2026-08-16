@@ -71,6 +71,12 @@ const (
 	SearchProjectionOriginAutomatic = "automatic"
 	SearchProjectionOriginOperator  = "operator"
 	SearchProjectionStartCommand    = "traceary store search-projection start"
+	// SearchProjectionFailureCleanupNoProgress is recorded when automatic
+	// catch-up spends N consecutive cleanup attempts without committing a row.
+	SearchProjectionFailureCleanupNoProgress = "cleanup_no_progress"
+	// SearchProjectionCleanupNoProgressLimit is how many consecutive
+	// zero-progress cleanup catch-up attempts park the generation.
+	SearchProjectionCleanupNoProgressLimit = 3
 )
 
 type SearchProjectionBudget struct {
