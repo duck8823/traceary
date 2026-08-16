@@ -251,7 +251,7 @@ func TestSearchProjectionCutoverEvidence_DoesNotOverwriteAReplacementGeneration(
 // and append a lifecycle row per open, forever.
 func TestSearchProjectionCatchUp_ParksDeterministicFailureInsteadOfRestarting(t *testing.T) {
 	ctx := context.Background()
-	for _, failureClass := range []string{"decoded_bytes", "session_tier_unverified", "abandoned"} {
+	for _, failureClass := range []string{"decoded_bytes", "session_tier_unverified", "abandoned", "cleanup_no_progress"} {
 		t.Run(failureClass, func(t *testing.T) {
 			database, _ := newProjectionEvidenceStore(t)
 			raw, err := database.open(ctx)

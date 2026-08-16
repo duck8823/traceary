@@ -105,6 +105,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// (#1744). Same shape as 36 on events: no backfill, no row rewrite; SQLite
 	// ADD COLUMN is O(1) regardless of table size.
 	67: {67, "000067_add_payload_codec_to_event_content_dedupe_archive.sql", "f9f912f21290e64af38dffc86398f86d08503f8345926a99cf459901fff743c2", MigrationConstantInPlace},
+	// 68 adds cleanup_no_progress_attempts to the singleton
+	// search_projection_state row. No store-sized scan.
+	68: {68, "000068_add_search_projection_cleanup_no_progress_attempts.sql", "21d36ae2a63af21c8bfd4688c362aeb555ddcbdb0555e5703ccdf01aa877a526", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

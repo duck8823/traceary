@@ -179,7 +179,7 @@ func generationID() string {
 	return hex.EncodeToString(b[:])
 }
 
-const searchProjectionStartStateSQL = `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_source_bytes=0,recent_age_seconds=?,index_family_byte_limit=?,recent_byte_limit=?,capacity_semantics_version=?,recent_source_ceiling_bytes=?,recent_amplification_ppm=?,non_recent_family_bytes=?,recent_cutoff_norm=?,capacity_evidence_status=?,capacity_evidence_reason=?,index_family_within_budget=-1,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_before_evidence_status=?,cutover_before_evidence_reason=?,cutover_after_evidence_status='',cutover_after_evidence_reason='',origin=?,capacity_rederived=0,updated_at=? `
+const searchProjectionStartStateSQL = `UPDATE search_projection_state SET generation_id=?,config_hash=?,source_revision=?,high_water=?,checkpoint=0,phase='source',cleanup_scope='old',failure_class='',state='rebuilding',recent_source_bytes=0,recent_age_seconds=?,index_family_byte_limit=?,recent_byte_limit=?,capacity_semantics_version=?,recent_source_ceiling_bytes=?,recent_amplification_ppm=?,non_recent_family_bytes=?,recent_cutoff_norm=?,capacity_evidence_status=?,capacity_evidence_reason=?,index_family_within_budget=-1,cutover_index_family=?,cutover_family_bytes_before=?,cutover_family_bytes_after=0,cutover_before_evidence_status=?,cutover_before_evidence_reason=?,cutover_after_evidence_status='',cutover_after_evidence_reason='',origin=?,capacity_rederived=0,cleanup_no_progress_attempts=0,updated_at=? `
 
 func (d *Database) measureSearchProjectionStart(ctx context.Context, db *sql.DB, b apptypes.SearchProjectionBudget) (capacityDerivation, string, int64, apptypes.CapacityEvidence) {
 	var lastNonRecent int64
@@ -885,12 +885,8 @@ const keywordCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+lengt
 const fingerprintCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(fingerprint)+16`
 const exclusionCleanupLogicalBytesSQL = `length(CAST(generation_id AS BLOB))+length(CAST(event_id AS BLOB))+length(CAST(class AS BLOB))+32`
 
-// selectProjectionCleanupSQL addresses each table by its primary key, not
-// rowid. WITHOUT ROWID tables have no rowid; a shared integer address would
-// fail to compile and stall eviction (#1825).
-const selectProjectionCleanupSQL = `SELECT 'recent',document_id,` + recentCleanupLogicalBytesSQL + `, '','','',X'' FROM search_projection_recent_documents UNION ALL SELECT 'summary',0,` + summaryCleanupLogicalBytesSQL + `, generation_id,session_id,'',X'' FROM search_projection_session_summaries UNION ALL SELECT 'aggregate',0,` + aggregateCleanupLogicalBytesSQL + `, generation_id,session_id,'',X'' FROM search_projection_command_aggregates UNION ALL SELECT 'keyword',0,` + keywordCleanupLogicalBytesSQL + `, generation_id,session_id,keyword,X'' FROM search_projection_session_keywords UNION ALL SELECT 'fingerprint',0,` + fingerprintCleanupLogicalBytesSQL + `, generation_id,event_id,'',fingerprint FROM literal_search_fingerprints UNION ALL SELECT 'exclusion',source_sequence,` + exclusionCleanupLogicalBytesSQL + `, generation_id,'','',X'' FROM search_projection_exclusions`
-
-const selectProjectionCleanupOldSQL = `SELECT 'recent',document_id,` + recentCleanupLogicalBytesSQL + `, '','','',X'' FROM search_projection_recent_documents WHERE generation_id<>? UNION ALL SELECT 'summary',0,` + summaryCleanupLogicalBytesSQL + `, generation_id,session_id,'',X'' FROM search_projection_session_summaries WHERE generation_id<>? UNION ALL SELECT 'aggregate',0,` + aggregateCleanupLogicalBytesSQL + `, generation_id,session_id,'',X'' FROM search_projection_command_aggregates WHERE generation_id<>? UNION ALL SELECT 'keyword',0,` + keywordCleanupLogicalBytesSQL + `, generation_id,session_id,keyword,X'' FROM search_projection_session_keywords WHERE generation_id<>? UNION ALL SELECT 'fingerprint',0,` + fingerprintCleanupLogicalBytesSQL + `, generation_id,event_id,'',fingerprint FROM literal_search_fingerprints WHERE generation_id<>? UNION ALL SELECT 'exclusion',source_sequence,` + exclusionCleanupLogicalBytesSQL + `, generation_id,'','',X'' FROM search_projection_exclusions WHERE generation_id<>?`
+// Cleanup discovery is paged per table in search_projection_cleanup.go so a
+// leftover scan cannot UNION-ALL every old-generation row before LIMIT (#2010).
 
 type projectionExecer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
@@ -928,41 +924,10 @@ func deleteProjectionCleanupRow(ctx context.Context, tx projectionExecer, c appt
 
 //nolint:wrapcheck,errcheck // SQL errors are contextual to this adapter.
 func selectProjectionCleanup(ctx context.Context, db *sql.DB, out apptypes.ProjectionSnapshot, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.ProjectionSnapshot, error) {
-	var q string
-	var args []any
 	if out.Phase == "eviction" {
 		return selectProjectionEviction(ctx, db, out, b, now)
-	} else if out.CleanupAll {
-		q = selectProjectionCleanupSQL + ` LIMIT ?`
-		args = []any{b.Rows + 1}
-	} else {
-		q = selectProjectionCleanupOldSQL + ` LIMIT ?`
-		args = []any{out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, out.Generation.GenerationID, b.Rows + 1}
 	}
-	rows, e := db.QueryContext(ctx, q, args...)
-	if e != nil {
-		return out, e
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var c apptypes.ProjectionCleanupCandidate
-		if out.Phase == "cleanup" {
-			e = rows.Scan(&c.Class, &c.RowID, &c.LogicalBytes, &c.Address1, &c.Address2, &c.Address3, &c.AddressBlob)
-		} else {
-			e = rows.Scan(&c.RowID, &c.LogicalBytes)
-			c.Class = out.Phase
-		}
-		if e != nil {
-			return out, e
-		}
-		out.Cleanup = append(out.Cleanup, c)
-	}
-	if len(out.Cleanup) <= b.Rows {
-		out.CleanupDone = true
-	} else {
-		out.Cleanup = out.Cleanup[:b.Rows]
-	}
-	return out, rows.Err()
+	return selectProjectionCleanupPaged(ctx, db, out, b)
 }
 
 // ApplyBatch acquires the write lock with BEGIN IMMEDIATE under its own
@@ -1237,7 +1202,7 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 	if fenceRecent {
 		fenceRecentInt = 1
 	}
-	r, e := tx.ExecContext(holdCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,recent_source_bytes=recent_source_bytes+?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?)) AND (?=0 OR recent_source_bytes=?)`, p.NextCheckpoint, next, state, recentDelta, p.Completed, state, time.Since(started).Milliseconds(), formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision, fenceRecentInt, p.ExpectedRecentSourceBytes)
+	r, e := tx.ExecContext(holdCtx, `UPDATE search_projection_state SET checkpoint=?,phase=?,state=?,recent_source_bytes=recent_source_bytes+?,active_generation_id=CASE WHEN ? AND ?='complete' THEN generation_id ELSE active_generation_id END,last_batch_milliseconds=?,cleanup_no_progress_attempts=CASE WHEN ? IN ('cleanup','eviction') THEN 0 ELSE cleanup_no_progress_attempts END,updated_at=? WHERE generation_id=? AND source_revision=? AND checkpoint=? AND phase=? AND (? OR EXISTS(SELECT 1 FROM search_projection_source_revision WHERE singleton=1 AND revision=?)) AND (?=0 OR recent_source_bytes=?)`, p.NextCheckpoint, next, state, recentDelta, p.Completed, state, time.Since(started).Milliseconds(), p.Phase, formatTimestamp(now), p.GenerationID, p.ExpectedRevision, p.ExpectedCheckpoint, p.Phase, p.AllowRevisionDrift, p.ExpectedRevision, fenceRecentInt, p.ExpectedRecentSourceBytes)
 	if e != nil {
 		return out, e
 	}

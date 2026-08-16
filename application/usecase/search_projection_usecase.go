@@ -68,6 +68,12 @@ type SearchProjectionVerifyStore interface {
 	VerifySearchProjectionSessionTier(context.Context, string) error
 }
 
+// SearchProjectionCleanupNoProgressStore records consecutive cleanup-phase
+// catch-up attempts that committed no row and parks the generation after N.
+type SearchProjectionCleanupNoProgressStore interface {
+	RecordCleanupNoProgressAttempt(context.Context, string, time.Time) (int, bool, error)
+}
+
 // NewSearchProjectionUsecase constructs the projection workflow.
 func NewSearchProjectionUsecase(store SearchProjectionStore) *SearchProjectionUsecase {
 	return &SearchProjectionUsecase{store: store}
@@ -382,6 +388,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	}
 	out.State = status.State
 	out.Phase = status.Phase
+	out.GenerationID = status.GenerationID
 	out.Checkpoint = status.Checkpoint
 	out.CutoverIndexFamily = status.CutoverIndexFamily
 	out.CutoverFamilyBytesBefore = status.CutoverFamilyBytesBefore
@@ -468,10 +475,12 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	}
 	// A failed generation is parked, not retried. Every failure class this store
 	// can record is deterministic — an oversize row exceeds the same budget on
-	// every open, session_tier_unverified fails the same query, and abandoned is
-	// an operator decision. Auto-starting a replacement would fail identically
-	// and add a lifecycle row per open, forever. If a genuinely transient class
-	// is ever introduced, this is where it gets its exception.
+	// every open, session_tier_unverified fails the same query, abandoned is
+	// an operator decision, and cleanup_no_progress already spent N catch-up
+	// attempts without a durable cleanup row. Auto-starting a replacement
+	// would fail identically and add a lifecycle row per open, forever. If a
+	// genuinely transient class is ever introduced, this is where it gets its
+	// exception.
 	if status.State == "failed" {
 		out.Action = "skipped"
 		// Naming the recovery command matters: neither resume nor abort clears
@@ -513,9 +522,70 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 	// failure. Oversized rows retain the existing explicit failure transition.
 	progress, resumeErr := u.resumeCatchUpBatch(ctx, b, now.UTC())
 	if resumeErr != nil {
-		return u.refreshCatchUpPosition(ctx, out), resumeErr
+		out = u.refreshCatchUpPosition(ctx, out)
+		parked, parkErr := u.maybeParkCleanupNoProgress(ctx, out, progress, resumeErr, now.UTC())
+		if parkErr != nil {
+			return out, parkErr
+		}
+		if parked {
+			out.Action = "skipped"
+			out.SkippedReason = "parked after generation failure " + apptypes.SearchProjectionFailureCleanupNoProgress +
+				"; run 'traceary store search-projection start' to replace the generation"
+			return u.refreshCatchUpPosition(ctx, out), nil
+		}
+		return out, resumeErr
 	}
 	return u.finishCatchUpProgress(ctx, out, progress)
+}
+
+func (u *SearchProjectionUsecase) maybeParkCleanupNoProgress(ctx context.Context, out apptypes.SearchProjectionCatchUpResult, progress apptypes.SearchProjectionProgress, resumeErr error, now time.Time) (bool, error) {
+	if out.Phase != "cleanup" || !isCleanupCatchUpNoProgress(progress, resumeErr) {
+		return false, nil
+	}
+	store, ok := u.store.(SearchProjectionCleanupNoProgressStore)
+	if !ok {
+		return false, nil
+	}
+	generation := out.GenerationID
+	if generation == "" {
+		generation = progress.GenerationID
+	}
+	if generation == "" {
+		return false, nil
+	}
+	recordCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	_, parked, err := store.RecordCleanupNoProgressAttempt(recordCtx, generation, now)
+	if err != nil {
+		return false, xerrors.Errorf("record cleanup no-progress attempt: %w", err)
+	}
+	return parked, nil
+}
+
+func isCleanupCatchUpNoProgress(progress apptypes.SearchProjectionProgress, err error) bool {
+	if err == nil || progress.Written > 0 || progress.Cleaned > 0 {
+		return false
+	}
+	var drift *apptypes.SearchProjectionDriftError
+	if errors.As(err, &drift) {
+		return false
+	}
+	var oversized *apptypes.SearchProjectionOversizeError
+	if errors.As(err, &oversized) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var noProgress *apptypes.SearchProjectionNoProgressError
+	if !errors.As(err, &noProgress) {
+		return false
+	}
+	switch noProgress.Code {
+	case apptypes.SearchProjectionNoProgressLockDurationCap, apptypes.SearchProjectionNoProgressSingleRowLockDurationCap, apptypes.SearchProjectionNoProgressRowWorkCap:
+		return true
+	}
+	return strings.Contains(noProgress.Reason, "wall") || strings.Contains(noProgress.Reason, "exhausted")
 }
 
 // refreshCatchUpPosition re-reads where the projection actually stands before a
@@ -532,6 +602,7 @@ func (u *SearchProjectionUsecase) refreshCatchUpPosition(ctx context.Context, ou
 	}
 	out.State = status.State
 	out.Phase = status.Phase
+	out.GenerationID = status.GenerationID
 	out.Checkpoint = status.Checkpoint
 	return out
 }
