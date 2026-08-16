@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,5 +287,50 @@ func writeHookCancellationDiagnosticForTest(t *testing.T, path string, record ho
 	encoded = append(encoded, '\n')
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
+}
+
+func TestScanHookCancellationDiagnosticsSkipsEmptyMarkers(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Now().UTC()
+	diagDir := filepath.Join(stateDir, "diagnostics")
+	if err := os.MkdirAll(diagDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	emptyAged := filepath.Join(diagDir, "claude-SessionEnd-empty-aged.json")
+	emptyFresh := filepath.Join(diagDir, "claude-SessionEnd-empty-fresh.json")
+	garbage := filepath.Join(diagDir, "claude-SessionEnd-garbage.json")
+	for _, path := range []string{emptyAged, emptyFresh} {
+		if err := os.WriteFile(path, []byte{}, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(garbage, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agedAt := now.Add(-hookStateResidueRetention - time.Hour)
+	if err := os.Chtimes(emptyAged, agedAt, agedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	scan, err := scanHookCancellationDiagnostics("claude", "SessionEnd", "")
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(scan.Records) != 0 {
+		t.Fatalf("records=%d, want 0", len(scan.Records))
+	}
+	if len(scan.Unreadable) != 1 || scan.Unreadable[0] != garbage {
+		t.Fatalf("unreadable=%v, want only nonempty garbage", scan.Unreadable)
+	}
+
+	root := &RootCLI{}
+	check := root.inspectClaudeHookCancellationDiagnosticsWithLookup(context.Background(), "", "", nil)
+	if strings.Contains(check.Message, emptyAged) || strings.Contains(check.Message, emptyFresh) {
+		t.Fatalf("empty markers must not be needs-attention: %q", check.Message)
+	}
+	if !strings.Contains(check.Message, "unreadable nonempty") || !strings.Contains(check.Message, garbage) {
+		t.Fatalf("nonempty unreadable must remain reported: %q", check.Message)
 	}
 }
