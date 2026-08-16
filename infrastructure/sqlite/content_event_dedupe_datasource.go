@@ -530,6 +530,12 @@ func resolveDedupeEligibilityScope(ctx context.Context, db *sql.DB) (dedupeEligi
 // cluster into singletons, silently stranding ordinary duplicates that have
 // nothing to do with retention. What the RESTRICT requires is that the row not
 // be deleted — not that it be invisible.
+//
+// This mirrors contentEventDedupeEligible in
+// presentation/cli/doctor_content_reliability.go, which applies the same
+// availability restriction to the in-memory diagnostic scan; keep the two in
+// agreement so the diagnostic duplicate count and this command's dry-run
+// count match.
 func dedupeEligibilityFilter(scope dedupeEligibilityScope) string {
 	filter := `client = 'hook'
 	             AND kind IN ('prompt', 'transcript')`

@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **`content-event-reliability` duplicate identity now agrees with `store dedupe content-events` (#1701)** — the diagnostic excludes rows the retention pruner has emptied from grouping, matching the repair command's `dedupeEligibilityFilter`. Previously, retention-emptied prompt/transcript rows all carried the same marker body and could hash into one phantom duplicate group the repair command never touched. Ledger-held rows still count toward the diagnostic (they still take part in grouping; the repair command just never archives them) — see `docs/storage/README.md` for the eligibility-vs-archivability distinction. Scratch: a real SQLite store with a genuine duplicate pair plus several retention-emptied rows drives both the shipped `doctor` command and the shipped dry-run, and their duplicate counts agree.
 - **Large-store `doctor` still reports host package identity (#1970)** — the bounded `metadata_only_large_store` early return now includes the `*-plugin-version` family plus the native Grok/Kimi plugin activation checks, produced from host manifests, host plugin caches, and host CLI probes only. `scripts/verify-post-upgrade-plugin-refresh.sh` can therefore run the post-upgrade gate against a live store at or above the 2 GiB bounded-doctor threshold instead of needing `--skip`. The store is still never opened.
 
 ## [v0.39.0] - 2026-08-16

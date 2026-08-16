@@ -109,6 +109,9 @@ func contentEventReliabilityFindingsFromEvents(events []*model.Event, strict boo
 		if event.Kind() != types.EventKindPrompt && event.Kind() != types.EventKindTranscript {
 			continue
 		}
+		if !contentEventDedupeEligible(event) {
+			continue
+		}
 		findings.ScannedContentCount++
 		key := newContentEventDuplicateGroupKey(event)
 		groups[key] = append(groups[key], contentEventDuplicateRecord{
@@ -123,6 +126,23 @@ func contentEventReliabilityFindingsFromEvents(events []*model.Event, strict boo
 		return findings.DuplicateGroups[i].EventIDs[0] < findings.DuplicateGroups[j].EventIDs[0]
 	})
 	return findings
+}
+
+// contentEventDedupeEligible reports whether event can participate in
+// duplicate grouping. Rows the retention pruner has emptied are excluded: the
+// pruner replaces the body with one fixed marker string for every row it
+// touches regardless of client or kind, so unrelated emptied rows would
+// otherwise hash to the same identity and collapse into one phantom group.
+// This mirrors dedupeEligibilityFilter in
+// infrastructure/sqlite/content_event_dedupe_datasource.go, which applies the
+// same "available" restriction at the SQL candidate stage; keep the two in
+// agreement so the diagnostic count and the repair dry-run count match. A nil
+// event is not eligible.
+func contentEventDedupeEligible(event *model.Event) bool {
+	if event == nil {
+		return false
+	}
+	return event.BodyAvailability().IsAvailable()
 }
 
 func newContentEventDuplicateGroupKey(event *model.Event) contentEventDuplicateGroupKey {
