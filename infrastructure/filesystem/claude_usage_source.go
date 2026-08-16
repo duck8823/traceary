@@ -271,9 +271,8 @@ func parseClaudeUsageJSONL(
 			}
 			if existing, found := seenCalls[identity]; found {
 				if !sameClaudeUsageSample(existing, sample) {
-					return application.ClaudeUsageLoadResult{}, xerrors.Errorf(
-						"conflicting duplicate Claude assistant usage",
-					)
+					// Keep first-seen; one drifting re-emit must not abort the batch.
+					result.ConflictingDuplicates++
 				}
 				continue
 			}

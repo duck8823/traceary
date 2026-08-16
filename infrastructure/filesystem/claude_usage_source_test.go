@@ -33,7 +33,7 @@ func TestClaudeUsageSource_DeduplicatesRequestAndMessageIdentityWithoutPrivateBo
 		t.Fatalf("Load(%s) error = %v", filepath.Base(path), err)
 	}
 	if result.Mode != application.ClaudeUsageModeTranscriptCalls ||
-		!result.BoundaryObserved || len(result.Samples) != 2 {
+		!result.BoundaryObserved || len(result.Samples) != 2 || result.ConflictingDuplicates != 0 {
 		t.Fatalf("result = %+v", result)
 	}
 	first := result.Samples[0]
@@ -168,19 +168,34 @@ func TestClaudeUsageSource_ErrorResultRetainsReportedUsageWithoutInferringSucces
 	}
 }
 
-func TestClaudeUsageSource_RejectsConflictingDuplicateAssistantUsage(t *testing.T) {
+func TestClaudeUsageSource_SkipsConflictingDuplicateAssistantUsageAndKeepsFirstSeen(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	home := t.TempDir()
 	sessionID := "session-conflict"
 	writeClaudeUsageFixture(t, home, sessionID, strings.Join([]string{
 		`{"type":"assistant","sessionId":"session-conflict","requestId":"req-1","timestamp":"2026-07-23T01:00:00Z","message":{"id":"msg-1","usage":{"input_tokens":1,"output_tokens":1}}}`,
 		`{"type":"assistant","sessionId":"session-conflict","requestId":"req-1","timestamp":"2026-07-23T01:00:00Z","message":{"id":"msg-1","usage":{"input_tokens":2,"output_tokens":1},"content":"PRIVATE-CONFLICT"}}`,
+		`{"type":"assistant","sessionId":"session-conflict","requestId":"req-2","timestamp":"2026-07-23T01:00:01Z","message":{"id":"msg-2","usage":{"input_tokens":3,"output_tokens":1}}}`,
 	}, "\n")+"\n")
-	_, err := filesystem.NewClaudeUsageSourceForTest(
+	result, err := filesystem.NewClaudeUsageSourceForTest(
 		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
 	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
-	if err == nil || strings.Contains(err.Error(), "PRIVATE-CONFLICT") {
+	if err != nil {
 		t.Fatalf("Load() error = %v", err)
+	}
+	if len(result.Samples) != 2 || result.ConflictingDuplicates != 1 {
+		t.Fatalf("result = %+v, want two samples and one conflicting duplicate", result)
+	}
+	if result.Samples[0].Counters.InputTokens == nil || *result.Samples[0].Counters.InputTokens != 1 {
+		t.Fatalf("first-seen sample was overwritten: %+v", result.Samples[0])
+	}
+	if result.Samples[1].Counters.InputTokens == nil || *result.Samples[1].Counters.InputTokens != 3 {
+		t.Fatalf("second identity sample = %+v", result.Samples[1])
+	}
+	for _, sample := range result.Samples {
+		if strings.Contains(sample.RecordID, "PRIVATE-CONFLICT") {
+			t.Fatalf("conflict body leaked into identity: %+v", sample)
+		}
 	}
 }
 

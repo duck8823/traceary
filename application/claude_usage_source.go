@@ -51,9 +51,10 @@ type ClaudeUsageSample struct {
 // ClaudeUsageLoadResult contains the selected representation and any retained
 // legacy evidence. Empty is a supported explicit outcome.
 type ClaudeUsageLoadResult struct {
-	Mode             ClaudeUsageCaptureMode
-	Samples          []ClaudeUsageSample
-	BoundaryObserved bool
+	Mode                  ClaudeUsageCaptureMode
+	Samples               []ClaudeUsageSample
+	BoundaryObserved      bool
+	ConflictingDuplicates int
 }
 
 // ClaudeUsageRepository persists provider-neutral observations idempotently.

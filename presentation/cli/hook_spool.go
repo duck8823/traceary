@@ -257,12 +257,12 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) 
 		if err := c.replayHookSpoolRecord(ctx, record); err != nil {
 			result.Failed++
 			slog.Debug("hook spool replay failed", "path", claimedPath, "command", record.Command, "client", record.Client, "error", err)
-			// Observed unreplayable classes that still hit this path and
-			// eventually dead-letter after the retry cap (validators stay
-			// strict; do not relax them):
-			//  1. "invalid Kimi usage record metadata" — unreplayable input
-			//  2. "conflicting duplicate Claude assistant usage" — unreplayable
-			//     against current identity rules (not last-write-wins)
+			// Observed last_error classes that still hit this path and
+			// eventually dead-letter after the retry cap:
+			//  1. "invalid Kimi usage record metadata" — still fail-closed
+			//     for broken turn records (non-turn scopes are skipped)
+			//  2. "conflicting duplicate Claude assistant usage" — historical
+			//     last_error; Load now keeps first-seen and continues
 			if requeueErr := requeueHookSpoolRecord(claimedPath, err.Error()); requeueErr != nil {
 				slog.Debug("failed hook spool requeue failed", "path", claimedPath, "error", requeueErr)
 			}
