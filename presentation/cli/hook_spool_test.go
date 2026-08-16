@@ -1011,7 +1011,7 @@ func TestInspectHookSpoolDiagnostics_FixReportsUnreadableRemaining(t *testing.T)
 			t.Fatalf("message=%q, missing %q", message, expected)
 		}
 	}
-	wantMetrics := map[string]int{"replayed": 1, "failed": 0, "remaining": 1, "unreadable": 1}
+	wantMetrics := map[string]int{"replayed": 1, "failed": 0, "remaining": 1, "unreadable": 1, "pruned_dead": 0, "dead_remaining": 0}
 	if !reflect.DeepEqual(result.Metrics, wantMetrics) {
 		t.Fatalf("metrics=%v, want %v", result.Metrics, wantMetrics)
 	}
@@ -1591,6 +1591,65 @@ func TestInspectHookSpoolDiagnostics_ReportsPendingAndTerminalCounts(t *testing.
 	}
 	if !strings.Contains(check.Message, "1 pending") || !strings.Contains(check.Message, "1 terminal") {
 		t.Fatalf("message=%q, want pending and terminal counts", check.Message)
+	}
+}
+
+func TestPruneHookSpoolDeadLetters_RemovesAgedFilesOnlyOnFix(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	aged := filepath.Join(deadDir, "aged.json")
+	fresh := filepath.Join(deadDir, "fresh.json")
+	if err := os.WriteFile(aged, []byte(`{"schema_version":1}`), 0o600); err != nil {
+		t.Fatalf("WriteFile aged: %v", err)
+	}
+	if err := os.WriteFile(fresh, []byte(`{"schema_version":1}`), 0o600); err != nil {
+		t.Fatalf("WriteFile fresh: %v", err)
+	}
+	agedAt := time.Now().UTC().Add(-hookSpoolDeadRetention - time.Hour)
+	if err := os.Chtimes(aged, agedAt, agedAt); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	dryPruned, _, err := pruneHookSpoolDeadLetters(time.Now().UTC(), true)
+	if err != nil {
+		t.Fatalf("dry-run prune: %v", err)
+	}
+	if dryPruned != 1 {
+		t.Fatalf("dry-run pruned=%d, want 1", dryPruned)
+	}
+	if _, err := os.Stat(aged); err != nil {
+		t.Fatalf("dry-run must not delete aged file: %v", err)
+	}
+
+	pruned, remaining, err := pruneHookSpoolDeadLetters(time.Now().UTC(), false)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if pruned != 1 || remaining != 1 {
+		t.Fatalf("pruned=%d remaining=%d, want 1 and 1", pruned, remaining)
+	}
+	if _, err := os.Stat(aged); !os.IsNotExist(err) {
+		t.Fatalf("aged dead-letter must be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh dead-letter must be kept: %v", err)
+	}
+}
+
+func TestHookSpoolDeadOverThreshold(t *testing.T) {
+	t.Parallel()
+	if hookSpoolDeadOverThreshold(hookSpoolFilesystemStats{DeadCount: 1, DeadBytes: 10}) {
+		t.Fatal("one small dead-letter must not warn")
+	}
+	if !hookSpoolDeadOverThreshold(hookSpoolFilesystemStats{DeadCount: hookSpoolDeadWarnCount}) {
+		t.Fatal("count threshold must warn")
+	}
+	if !hookSpoolDeadOverThreshold(hookSpoolFilesystemStats{DeadBytes: hookSpoolDeadWarnBytes}) {
+		t.Fatal("byte threshold must warn")
 	}
 }
 
