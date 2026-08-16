@@ -100,7 +100,7 @@ traceary doctor --client grok --project-dir . --json
 matching release tag から常に利用できます。installer は検証・置換・inventory 表示を行います。
 
 ```sh
-git clone --branch v0.27.0 --depth 1 https://github.com/duck8823/traceary.git
+git clone --depth 1 --branch "v$(traceary -v | awk '{print $2}')" https://github.com/duck8823/traceary.git
 cd traceary
 ./scripts/install-grok-plugin.sh
 ```

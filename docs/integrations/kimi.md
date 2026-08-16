@@ -92,7 +92,7 @@ brew install traceary
    tag that matches your Traceary CLI so the packaged hooks stay compatible):
 
 ```sh
-git clone --depth 1 --branch v0.29.0 https://github.com/duck8823/traceary
+git clone --depth 1 --branch "v$(traceary -v | awk '{print $2}')" https://github.com/duck8823/traceary
 cd traceary
 ./scripts/install-kimi-plugin.sh
 ```
