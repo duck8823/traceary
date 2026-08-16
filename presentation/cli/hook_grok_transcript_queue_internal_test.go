@@ -342,3 +342,29 @@ func TestInspectHookGrokTranscriptDiagnosticsFixFuncDrainsAndGCs(t *testing.T) {
 		t.Fatalf("launched = %v, want exactly one relaunch", launched)
 	}
 }
+
+func TestExpireHookGrokTranscriptJobsFinalizesAgedPendingJobs(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	requestedAt := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	payload := []byte(`{"session_id":"session-old","prompt_id":"prompt-1","transcript_path":"/private/transcript/updates.jsonl"}`)
+	path, _, err := enqueueHookGrokTranscript(payload, "", requestedAt)
+	if err != nil {
+		t.Fatalf("enqueueHookGrokTranscript() error = %v", err)
+	}
+	now := requestedAt.Add(hookGrokTranscriptPendingExpire + time.Hour)
+	removed := expireHookGrokTranscriptJobs(now, 10)
+	if removed != 1 {
+		t.Fatalf("removed=%d, want 1", removed)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("aged pending job must be removed, stat err=%v", err)
+	}
+	jobs, _, err := scanHookGrokTranscriptJobs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 0 {
+		t.Fatalf("jobs=%d, want empty pending queue", len(jobs))
+	}
+}
