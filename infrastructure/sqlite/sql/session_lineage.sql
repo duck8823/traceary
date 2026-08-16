@@ -36,29 +36,38 @@ WITH RECURSIVE
     JOIN lineage ON lineage.session_id = e.session_id
     GROUP BY e.session_id
   ),
-  latest_events AS (
-    SELECT session_id, id AS latest_event_id, created_at AS latest_event_at, kind AS latest_event_kind, latest_event_body
+  latest_event_ids AS (
+    SELECT session_id, id, created_at, kind
     FROM (
       SELECT
         e.session_id,
         e.id,
         e.created_at,
         e.kind,
-        COALESCE(
-          NULLIF(e.body, ''),
-          CASE WHEN COALESCE(a.command_codec, 'identity') = 'identity'
-               THEN a.command_text END,
-          ''
-        ) AS latest_event_body,
         ROW_NUMBER() OVER (
           PARTITION BY e.session_id
-          ORDER BY ts_norm(e.created_at) DESC, e.id DESC
+          ORDER BY e.created_at_norm DESC, e.id DESC
         ) AS rn
       FROM events e
       JOIN lineage ON lineage.session_id = e.session_id
-      LEFT JOIN command_audits a ON a.event_id = e.id
     )
     WHERE rn = 1
+  ),
+  latest_events AS (
+    SELECT
+      lei.session_id,
+      lei.id AS latest_event_id,
+      lei.created_at AS latest_event_at,
+      lei.kind AS latest_event_kind,
+      COALESCE(
+        NULLIF(e.body, ''),
+        CASE WHEN COALESCE(a.command_codec, 'identity') = 'identity'
+             THEN a.command_text END,
+        ''
+      ) AS latest_event_body
+    FROM latest_event_ids lei
+    JOIN events e ON e.id = lei.id
+    LEFT JOIN command_audits a ON a.event_id = e.id
   )
 SELECT
   s.session_id,
