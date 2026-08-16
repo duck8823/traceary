@@ -16,7 +16,13 @@ const (
 	hookStateResidueRetention = 14 * 24 * time.Hour
 	hookStateGCHookBudget     = 20
 	hookStateGCDoctorBudget   = 200
-	hookStateResidueCheckName = "hook-state-residue"
+	// hookStateGCDoctorWall bounds one doctor --fix drain. The hook
+	// invocation path keeps hookStateGCHookBudget and does not loop.
+	hookStateGCDoctorWall = 45 * time.Second
+	// hookStateGCDoctorReservedPerKind keeps diagnostics and ended
+	// markers from starving behind a large per-PID backlog in one batch.
+	hookStateGCDoctorReservedPerKind = 20
+	hookStateResidueCheckName        = "hook-state-residue"
 )
 
 var hookPerPIDStateName = regexp.MustCompile(`^(claude|codex|antigravity|grok|kimi|gemini)-(\d+)(-repo)?$`)
@@ -57,35 +63,27 @@ func inspectHookStateResidueMetadata(now time.Time) doctorCheck {
 			stats.PerPID, stats.StalePerPID, stats.Diagnostics, stats.Ended,
 		),
 		Hint: Localize(
-			"killed host processes leave per-PID state files; SessionEnd diagnostics and ended markers accumulate. Later hooks prune a bounded batch. Run `traceary doctor --fix` to catch up. Does not touch spool/ or spool/dead/.",
-			"異常終了した host は per-PID state を残します。SessionEnd diagnostics と ended marker も蓄積します。後続 hook が bounded batch で掃除し、`traceary doctor --fix` で一括できます。spool/ と spool/dead/ は対象外です。",
+			"killed host processes leave per-PID state files; SessionEnd diagnostics and ended markers accumulate. Later hooks prune a bounded batch. `traceary doctor --fix` drains under a 45s wall; remaining files need another run. Does not touch spool/ or spool/dead/.",
+			"異常終了した host は per-PID state を残します。SessionEnd diagnostics と ended marker も蓄積します。後続 hook が bounded batch で掃除し、`traceary doctor --fix` は 45 秒の壁時計内で続けます。残れば再実行してください。spool/ と spool/dead/ は対象外です。",
 		),
 	}
 	if status == doctorStatusWarn {
 		check.FixCommand = "traceary doctor --fix"
 		check.AutoFixAvailable = true
 		check.FixFunc = func(_ context.Context, dryRun bool) (string, error) {
-			result, err := gcHookStateResidues(now, hookStateGCDoctorBudget, dryRun)
+			result, err := gcHookStateResiduesUntil(now, hookStateGCNow().Add(hookStateGCDoctorWall), hookStateGCDoctorBudget, hookStateGCDoctorReservedPerKind, dryRun, hookStateGCNow)
 			if err != nil {
 				return "", err
 			}
-			return localizef(
-				"pruned hook state residue: removed=%d remaining_stale=%d",
-				"hook state 残渣を prune しました: removed=%d remaining_stale=%d",
-				result.Removed, result.Remaining,
-			), nil
+			return formatHookStateGCFixMessage(result), nil
 		}
 		check.StructuredFixFunc = func(_ context.Context, dryRun bool) (doctorFixResult, error) {
-			result, err := gcHookStateResidues(now, hookStateGCDoctorBudget, dryRun)
+			result, err := gcHookStateResiduesUntil(now, hookStateGCNow().Add(hookStateGCDoctorWall), hookStateGCDoctorBudget, hookStateGCDoctorReservedPerKind, dryRun, hookStateGCNow)
 			if err != nil {
 				return doctorFixResult{}, err
 			}
 			return doctorFixResult{
-				Action: localizef(
-					"pruned hook state residue: removed=%d remaining_stale=%d",
-					"hook state 残渣を prune しました: removed=%d remaining_stale=%d",
-					result.Removed, result.Remaining,
-				),
+				Action:  formatHookStateGCFixMessage(result),
 				Metrics: map[string]int{"removed": result.Removed, "remaining": result.Remaining},
 			}, nil
 		}
@@ -211,6 +209,10 @@ func listAgedFiles(dir string, now time.Time, retention time.Duration, kind hook
 }
 
 func gcHookStateResidues(now time.Time, budget int, dryRun bool) (hookStateGCResult, error) {
+	return gcHookStateResiduesWithReserve(now, budget, 0, dryRun)
+}
+
+func gcHookStateResiduesWithReserve(now time.Time, budget, reservedPerKind int, dryRun bool) (hookStateGCResult, error) {
 	if budget < 1 {
 		budget = hookStateGCHookBudget
 	}
@@ -218,15 +220,15 @@ func gcHookStateResidues(now time.Time, budget int, dryRun bool) (hookStateGCRes
 	if err != nil {
 		return hookStateGCResult{}, err
 	}
-	var result hookStateGCResult
+	stale := 0
 	for _, candidate := range candidates {
-		if !candidate.stale {
-			continue
+		if candidate.stale {
+			stale++
 		}
-		if result.Removed >= budget {
-			result.Remaining++
-			continue
-		}
+	}
+	selected := prioritizeHookStateResidueCandidates(candidates, budget, reservedPerKind)
+	var result hookStateGCResult
+	for _, candidate := range selected {
 		if dryRun {
 			result.Removed++
 			continue
@@ -236,8 +238,133 @@ func gcHookStateResidues(now time.Time, budget int, dryRun bool) (hookStateGCRes
 		}
 		result.Removed++
 	}
+	result.Remaining = stale - result.Removed
+	if result.Remaining < 0 {
+		result.Remaining = 0
+	}
 	return result, nil
 }
+
+// prioritizeHookStateResidueCandidates reserves a quota for diagnostics and
+// ended markers, then fills the rest of the budget from leftover stale
+// candidates in listing order (typically per-PID files). reservedPerKind==0
+// preserves the original listing order used by the hook path.
+func prioritizeHookStateResidueCandidates(candidates []hookResidueCandidate, budget, reservedPerKind int) []hookResidueCandidate {
+	if budget < 1 {
+		return nil
+	}
+	if reservedPerKind < 0 {
+		reservedPerKind = 0
+	}
+	var reserved, leftover []hookResidueCandidate
+	reservedDiag := 0
+	reservedEnded := 0
+	for _, candidate := range candidates {
+		if !candidate.stale {
+			continue
+		}
+		switch {
+		case candidate.kind == hookResidueDiagnostics && reservedDiag < reservedPerKind:
+			reserved = append(reserved, candidate)
+			reservedDiag++
+		case candidate.kind == hookResidueEnded && reservedEnded < reservedPerKind:
+			reserved = append(reserved, candidate)
+			reservedEnded++
+		default:
+			leftover = append(leftover, candidate)
+		}
+	}
+	out := reserved
+	if len(out) > budget {
+		return out[:budget]
+	}
+	for _, candidate := range leftover {
+		if len(out) >= budget {
+			break
+		}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func gcHookStateResiduesUntil(now, deadline time.Time, batchBudget, reservedPerKind int, dryRun bool, clock func() time.Time) (hookStateGCResult, error) {
+	if clock == nil {
+		clock = hookStateGCNow
+	}
+	var total hookStateGCResult
+	for {
+		if !clock().Before(deadline) {
+			remaining, err := countStaleHookStateResidues(now)
+			if err != nil {
+				return total, err
+			}
+			if dryRun {
+				total.Remaining = remaining - total.Removed
+			} else {
+				total.Remaining = remaining
+			}
+			if total.Remaining < 0 {
+				total.Remaining = 0
+			}
+			return total, nil
+		}
+		result, err := gcHookStateResiduesWithReserve(now, batchBudget, reservedPerKind, dryRun)
+		if err != nil {
+			return total, err
+		}
+		if dryRun {
+			// dry-run cannot delete, so looping the same listing would
+			// recount the same files until the deadline. Report one
+			// listing's batch and the leftover stale set.
+			return result, nil
+		}
+		total.Removed += result.Removed
+		if result.Removed == 0 || result.Remaining == 0 {
+			total.Remaining = result.Remaining
+			return total, nil
+		}
+	}
+}
+
+func countStaleHookStateResidues(now time.Time) (int, error) {
+	candidates, err := listHookStateResidueCandidates(now)
+	if err != nil {
+		return 0, err
+	}
+	stale := 0
+	for _, candidate := range candidates {
+		if candidate.stale {
+			stale++
+		}
+	}
+	return stale, nil
+}
+
+func formatHookStateGCFixMessage(result hookStateGCResult) string {
+	if result.Remaining > 0 {
+		return localizef(
+			"pruned hook state residue: removed=%d remaining_stale=%d; run `traceary doctor --fix` again to continue",
+			"hook state 残渣を prune しました: removed=%d remaining_stale=%d。続きは `traceary doctor --fix` を再実行してください",
+			result.Removed, result.Remaining,
+		)
+	}
+	return localizef(
+		"pruned hook state residue: removed=%d remaining_stale=%d",
+		"hook state 残渣を prune しました: removed=%d remaining_stale=%d",
+		result.Removed, result.Remaining,
+	)
+}
+
+func hookStateGCNow() time.Time {
+	if hookStateGCClock != nil {
+		return hookStateGCClock()
+	}
+	return time.Now()
+}
+
+// hookStateGCClock is the wall clock used by doctor --fix loops. Tests
+// replace it; production leaves it nil so time.Now is used.
+var hookStateGCClock func() time.Time
 
 func maybeGCHookStateResidues() {
 	_, _ = gcHookStateResidues(time.Now().UTC(), hookStateGCHookBudget, false)

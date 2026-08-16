@@ -38,6 +38,9 @@ const (
 	hookMemoryExtractDrainBatchLimit = 3
 	// hookMemoryExtractDoctorFixLimit is the larger batch used by doctor --fix.
 	hookMemoryExtractDoctorFixLimit = 50
+	// hookMemoryExtractDoctorWall bounds one doctor --fix drain. The hook
+	// path keeps hookMemoryExtractDrainBatchLimit and does not loop.
+	hookMemoryExtractDoctorWall = 45 * time.Second
 )
 
 type hookMemoryExtractRequest struct {
@@ -545,8 +548,16 @@ func hookMemoryExtractJobReadyForGC(job hookMemoryExtractJob, now time.Time) boo
 // includes both GC'd jobs and swept sidecar files, so the whole pass stays
 // bounded by limit regardless of directory size.
 func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPaths ...string) (launched, removed int) {
+	launched, removed, _ = c.drainHookMemoryExtractQueueRecorded(now, limit, limit, skipPaths...)
+	return launched, removed
+}
+
+func (c *RootCLI) drainHookMemoryExtractQueueRecorded(now time.Time, limit, launchBudget int, skipPaths ...string) (launched, removed int, launchedPaths []string) {
 	if limit <= 0 {
-		return 0, 0
+		return 0, 0, nil
+	}
+	if launchBudget < 0 {
+		launchBudget = 0
 	}
 	skip := make(map[string]struct{}, len(skipPaths))
 	for _, p := range skipPaths {
@@ -582,17 +593,21 @@ func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPath
 				// Still within retention; leave visible for doctor.
 				continue
 			}
+			if launched >= launchBudget {
+				continue
+			}
 			if err := c.launchHookMemoryExtractWorker(job.Path); err != nil {
 				slog.Debug("hook memory extraction drain launch failed", "job", job.Path, "error", err)
 				continue
 			}
 			launched++
+			launchedPaths = append(launchedPaths, job.Path)
 		}
 	}
 	if remaining := limit - (launched + removed); remaining > 0 {
 		removed += sweepHookMemoryExtractSidecars(now, remaining)
 	}
-	return launched, removed
+	return launched, removed, launchedPaths
 }
 
 // sweepHookMemoryExtractSidecars removes files derived from jobs rather than
@@ -709,21 +724,89 @@ func countHookMemoryExtractSidecars(now time.Time) (locks, tmps int) {
 }
 
 func memoryExtractQueueFix(c *RootCLI, dryRun bool) (string, error) {
+	now := hookMemoryExtractNow()
 	pending, _, err := scanHookMemoryExtractJobs()
 	if err != nil {
 		return "", err
 	}
-	locks, tmps := countHookMemoryExtractSidecars(time.Now().UTC())
+	locks, tmps := countHookMemoryExtractSidecars(now)
 	if dryRun {
 		return localizef(
-			"would drain/GC up to %d pending memory extraction job(s) and sweep %d orphan lock(s) and %d aged temp file(s)",
-			"未処理 memory extraction job 最大 %d 件を drain/GC し、orphan lock %d 件と古い temp %d 件を sweep します",
-			min(len(pending), hookMemoryExtractDoctorFixLimit), locks, tmps,
+			"would drain/GC memory extraction queue under a 45s wall (batch %d): %d pending job(s), %d orphan lock(s), %d aged temp file(s)",
+			"45 秒の壁時計内で memory extraction queue を drain/GC します（batch %d）: 未処理 job %d 件、orphan lock %d 件、古い temp %d 件",
+			hookMemoryExtractDoctorFixLimit, len(pending), locks, tmps,
 		), nil
 	}
-	launched, removed := c.drainHookMemoryExtractQueue(time.Now().UTC(), hookMemoryExtractDoctorFixLimit)
-	return localizef("drained memory extraction queue: launched=%d removed=%d", "memory extraction queue を drain しました: launched=%d removed=%d", launched, removed), nil
+	launched, removed, launchedPaths := c.drainHookMemoryExtractQueueUntil(now, hookMemoryExtractNow().Add(hookMemoryExtractDoctorWall), hookMemoryExtractDoctorFixLimit, hookMemoryExtractNow)
+	remaining := countHookMemoryExtractDrainableExcept(now, launchedPaths)
+	if remaining > 0 {
+		return localizef(
+			"drained memory extraction queue: launched=%d removed=%d remaining=%d; run `traceary doctor --fix` again to continue",
+			"memory extraction queue を drain しました: launched=%d removed=%d remaining=%d。続きは `traceary doctor --fix` を再実行してください",
+			launched, removed, remaining,
+		), nil
+	}
+	return localizef(
+		"drained memory extraction queue: launched=%d removed=%d remaining=0",
+		"memory extraction queue を drain しました: launched=%d removed=%d remaining=0",
+		launched, removed,
+	), nil
 }
+
+func (c *RootCLI) drainHookMemoryExtractQueueUntil(now, deadline time.Time, batchLimit int, clock func() time.Time) (launched, removed int, launchedPaths []string) {
+	if clock == nil {
+		clock = hookMemoryExtractNow
+	}
+	var skip []string
+	for {
+		if !clock().Before(deadline) {
+			return launched, removed, launchedPaths
+		}
+		remainingLaunch := batchLimit - launched
+		batchLaunched, batchRemoved, batchPaths := c.drainHookMemoryExtractQueueRecorded(now, batchLimit, remainingLaunch, skip...)
+		skip = append(skip, batchPaths...)
+		launchedPaths = append(launchedPaths, batchPaths...)
+		launched += batchLaunched
+		removed += batchRemoved
+		if batchLaunched+batchRemoved == 0 {
+			return launched, removed, launchedPaths
+		}
+	}
+}
+
+func countHookMemoryExtractDrainableExcept(now time.Time, excludePaths []string) int {
+	exclude := make(map[string]struct{}, len(excludePaths))
+	for _, p := range excludePaths {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			exclude[trimmed] = struct{}{}
+		}
+	}
+	jobs, _, err := scanHookMemoryExtractJobs()
+	n := 0
+	if err == nil {
+		for _, job := range jobs {
+			if _, skip := exclude[job.Path]; skip {
+				continue
+			}
+			if hookMemoryExtractJobReadyForGC(job, now) || !hookMemoryExtractJobIsTerminal(job) {
+				n++
+			}
+		}
+	}
+	locks, tmps := countHookMemoryExtractSidecars(now)
+	return n + locks + tmps
+}
+
+func hookMemoryExtractNow() time.Time {
+	if hookMemoryExtractClock != nil {
+		return hookMemoryExtractClock()
+	}
+	return time.Now().UTC()
+}
+
+// hookMemoryExtractClock is the wall clock used by doctor --fix loops.
+// Tests replace it; production leaves it nil so time.Now.UTC is used.
+var hookMemoryExtractClock func() time.Time
 
 func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck {
 	const name = "hook-memory-extract"
@@ -745,8 +828,8 @@ func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck
 				locks, tmps,
 			),
 			Hint: Localize(
-				"completed jobs left flock sidecars or crash temps. Run `traceary doctor --fix` to sweep a bounded batch.",
-				"完了済み job の flock sidecar か crash temp が残っています。bounded batch で掃除するには `traceary doctor --fix` を実行してください。",
+				"completed jobs left flock sidecars or crash temps. `traceary doctor --fix` sweeps under a 45s wall; remaining files need another run.",
+				"完了済み job の flock sidecar か crash temp が残っています。`traceary doctor --fix` は 45 秒の壁時計内で sweep します。残れば再実行してください。",
 			),
 			FixCommand:       "traceary doctor --fix",
 			AutoFixAvailable: true,
@@ -781,8 +864,8 @@ func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck
 			len(jobs), failed, terminal, len(unreadable), oldestAge.Round(time.Second),
 		),
 		Hint: Localize(
-			"later hooks drain a bounded oldest-first batch across sessions (not only the same session key). Terminal jobs (attempts exhausted) are GC'd after retention. Run `traceary doctor --fix` to force a larger drain, or inspect debug logs if failures remain.",
-			"後続 hook は同一 session に限らず oldest-first の bounded batch で queue 全体を drain します。terminal job（試行上限到達）は retention 後に GC されます。大きめに drain するには `traceary doctor --fix` を使い、失敗が残る場合は debug log を確認してください。",
+			"later hooks drain a bounded oldest-first batch across sessions (not only the same session key). Terminal jobs (attempts exhausted) are GC'd after retention. `traceary doctor --fix` drains under a 45s wall; remaining jobs need another run. Inspect debug logs if failures remain.",
+			"後続 hook は同一 session に限らず oldest-first の bounded batch で queue 全体を drain します。terminal job（試行上限到達）は retention 後に GC されます。`traceary doctor --fix` は 45 秒の壁時計内で drain し、残れば再実行してください。失敗が残る場合は debug log を確認してください。",
 		),
 		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,

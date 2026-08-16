@@ -92,3 +92,92 @@ func TestGCHookStateResiduesRemovesStalePIDAndAgedMarkers(t *testing.T) {
 		t.Fatal("aged ended marker must be removed")
 	}
 }
+
+func TestGCHookStateResiduesUntilDrainsMultipleBatchesBeforeDeadline(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Now().UTC()
+	writeStaleHookPIDFiles(t, stateDir, now, 5)
+
+	deadline := now.Add(time.Hour)
+	result, err := gcHookStateResiduesUntil(now, deadline, 2, 0, false, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("until: %v", err)
+	}
+	if result.Removed != 5 || result.Remaining != 0 {
+		t.Fatalf("removed=%d remaining=%d, want 5/0", result.Removed, result.Remaining)
+	}
+}
+
+func TestGCHookStateResiduesUntilStopsWhenDeadlineHasPassed(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Now().UTC()
+	writeStaleHookPIDFiles(t, stateDir, now, 5)
+
+	deadline := now.Add(-time.Second)
+	result, err := gcHookStateResiduesUntil(now, deadline, 2, 0, false, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("until: %v", err)
+	}
+	if result.Removed != 0 || result.Remaining != 5 {
+		t.Fatalf("removed=%d remaining=%d, want 0/5", result.Removed, result.Remaining)
+	}
+}
+
+func TestPrioritizeHookStateResidueCandidatesReservesDiagnostics(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Now().UTC()
+	pids := writeStaleHookPIDFiles(t, stateDir, now, 3)
+
+	diagDir := filepath.Join(stateDir, "diagnostics")
+	if err := os.MkdirAll(diagDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agedDiag := filepath.Join(diagDir, "old.json")
+	if err := os.WriteFile(agedDiag, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agedAt := now.Add(-hookStateResidueRetention - time.Hour)
+	if err := os.Chtimes(agedDiag, agedAt, agedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := gcHookStateResiduesWithReserve(now, 2, 1, false)
+	if err != nil {
+		t.Fatalf("gc: %v", err)
+	}
+	if result.Removed != 2 || result.Remaining != 2 {
+		t.Fatalf("removed=%d remaining=%d, want 2/2", result.Removed, result.Remaining)
+	}
+	if _, err := os.Stat(agedDiag); !os.IsNotExist(err) {
+		t.Fatal("reserved diagnostic must be removed in the first batch")
+	}
+	removedPID := 0
+	for _, path := range pids {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			removedPID++
+		}
+	}
+	if removedPID != 1 {
+		t.Fatalf("removed PID files=%d, want 1", removedPID)
+	}
+}
+
+func writeStaleHookPIDFiles(t *testing.T, stateDir string, now time.Time, n int) []string {
+	t.Helper()
+	old := now.Add(-hookStatePIDAgeFloor - time.Hour)
+	paths := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		path := filepath.Join(stateDir, "codex-99999"+strconv.Itoa(i))
+		if err := os.WriteFile(path, []byte("sess"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	return paths
+}
