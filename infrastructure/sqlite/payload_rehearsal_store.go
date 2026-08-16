@@ -18,6 +18,53 @@ import (
 
 type rehearsalMutationGuard func() error
 
+// rehearsalAutocheckpointStage identifies which step of the disable+readback
+// sequence produced a typed error so callers can distinguish exec from read
+// from a leftover non-zero value.
+type rehearsalAutocheckpointStage string
+
+const (
+	rehearsalAutocheckpointStageExec  rehearsalAutocheckpointStage = "exec"
+	rehearsalAutocheckpointStageRead  rehearsalAutocheckpointStage = "read"
+	rehearsalAutocheckpointStageValue rehearsalAutocheckpointStage = "value"
+)
+
+// rehearsalAutocheckpointError is returned by disableRehearsalAutocheckpoint.
+// Stage distinguishes exec/read failures (transient, retryable) from a
+// non-zero readback value (structural, not retried).
+type rehearsalAutocheckpointError struct {
+	Stage    rehearsalAutocheckpointStage
+	Observed int
+	Cause    error
+}
+
+func (e *rehearsalAutocheckpointError) Error() string {
+	if e.Stage == rehearsalAutocheckpointStageValue {
+		return fmt.Sprintf("rehearsal WAL autocheckpoint is %d after PRAGMA wal_autocheckpoint=0", e.Observed)
+	}
+	return fmt.Sprintf("cannot disable rehearsal WAL autocheckpoint (%s): %v", e.Stage, e.Cause)
+}
+
+func (e *rehearsalAutocheckpointError) Unwrap() error { return e.Cause }
+
+// disableRehearsalAutocheckpoint issues PRAGMA wal_autocheckpoint=0 then reads
+// it back. It returns a typed *rehearsalAutocheckpointError on any failure so
+// run can distinguish exec/read failures (retryable) from a non-zero value
+// (not retried).
+func disableRehearsalAutocheckpoint(ctx context.Context, conn *sql.Conn) (int, error) {
+	if _, err := conn.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
+		return 0, &rehearsalAutocheckpointError{Stage: rehearsalAutocheckpointStageExec, Cause: err}
+	}
+	var observed int
+	if err := conn.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&observed); err != nil {
+		return 0, &rehearsalAutocheckpointError{Stage: rehearsalAutocheckpointStageRead, Cause: err}
+	}
+	if observed != 0 {
+		return observed, &rehearsalAutocheckpointError{Stage: rehearsalAutocheckpointStageValue, Observed: observed}
+	}
+	return 0, nil
+}
+
 // walBudgetedMutationSession serializes the schema proof, WAL reservation and
 // mutation under one BEGIN IMMEDIATE lock.  Keeping these operations on a
 // dedicated connection closes the check/use window that exists when a WAL
@@ -33,6 +80,12 @@ type walBudgetedMutationSession struct {
 	// mutationElapsed, when configured for schema migration, measures exactly
 	// BEGIN IMMEDIATE acquisition through COMMIT completion.
 	mutationElapsed *time.Duration
+	// acquireConn, if non-nil, overrides s.db.Conn; injected in tests to count
+	// how many connections are opened.
+	acquireConn func(context.Context) (*sql.Conn, error)
+	// readAutocheckpoint, if non-nil, overrides disableRehearsalAutocheckpoint;
+	// injected in tests to simulate exec/read/value failures.
+	readAutocheckpoint func(context.Context, *sql.Conn) (int, error)
 }
 
 //nolint:wrapcheck // callers add the rehearsal operation classification.
@@ -63,19 +116,40 @@ func (s walBudgetedMutationSession) run(ctx context.Context, reservedFrames int6
 	if reservedFrames <= 0 || s.peak == nil || strings.TrimSpace(s.expectedSchemaSHA) == "" || s.lockLimit <= 0 {
 		return ErrUnsafeRehearsalTarget
 	}
-	conn, err := s.db.Conn(ctx)
+	acquireConn := s.acquireConn
+	if acquireConn == nil {
+		acquireConn = s.db.Conn
+	}
+	disableFn := s.readAutocheckpoint
+	if disableFn == nil {
+		disableFn = disableRehearsalAutocheckpoint
+	}
+
+	started := time.Now()
+
+	conn, err := acquireConn(ctx)
 	if err != nil {
 		return err
 	}
+	_, disableErr := disableFn(ctx, conn)
+	if disableErr != nil {
+		var cpErr *rehearsalAutocheckpointError
+		if errors.As(disableErr, &cpErr) && cpErr.Stage != rehearsalAutocheckpointStageValue {
+			// exec or read failure: close this connection and try once more with a
+			// fresh one. A non-zero value on the retry still aborts.
+			_ = conn.Close()
+			conn, err = acquireConn(ctx)
+			if err != nil {
+				return err
+			}
+			_, disableErr = disableFn(ctx, conn)
+		}
+	}
+	if disableErr != nil {
+		_ = conn.Close()
+		return disableErr
+	}
 	defer func() { _ = conn.Close() }()
-	started := time.Now()
-	if _, err = conn.ExecContext(ctx, `PRAGMA wal_autocheckpoint=0`); err != nil {
-		return err
-	}
-	var autoCheckpoint int
-	if err = conn.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&autoCheckpoint); err != nil || autoCheckpoint != 0 {
-		return errors.New("cannot disable rehearsal WAL autocheckpoint")
-	}
 	mutationStarted := time.Now()
 	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		return err
