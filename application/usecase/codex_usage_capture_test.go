@@ -150,6 +150,7 @@ func TestCodexUsageCaptureUsecase_RecordsStableUnavailableBoundary(t *testing.T)
 		if observation.Counters().Availability() != types.UsageAvailabilityUnavailable || observation.Descriptor().Accounting() != types.UsageAccountingExcluded || !present || terminal != types.UsageTerminalUnknown {
 			t.Fatalf("unavailable observation = availability %s accounting %s", observation.Counters().Availability(), observation.Descriptor().Accounting())
 		}
+		assertUnavailableObservationNotEpoch(t, observation)
 	}
 }
 

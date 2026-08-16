@@ -127,7 +127,10 @@ func (u *kimiUsageCaptureUsecase) recordUnavailable(
 	if err != nil {
 		return xerrors.Errorf("invalid Kimi unavailable source: %w", err)
 	}
-	observedAt := time.Unix(0, 0).UTC()
+	observedAt, err := resolveUnavailableObservationTime(ctx, u.repository, id, time.Time{})
+	if err != nil {
+		return err
+	}
 	descriptor, err := model.NewUsageObservationDescriptor(
 		id,
 		input.SessionID,

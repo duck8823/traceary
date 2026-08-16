@@ -459,8 +459,14 @@ func (c *RootCLI) runHookUsage(
 			return xerrors.Errorf("failed to capture Claude usage: %w", err)
 		}
 	case "gemini":
+		var eventTime time.Time
+		if raw, ok := canonicalGeminiHookTimestamp(hookPayloadString(payload, "timestamp", "")); ok {
+			if parsed, parseErr := time.Parse(time.RFC3339Nano, raw); parseErr == nil {
+				eventTime = parsed
+			}
+		}
 		_, err = c.geminiUsage.CaptureInteractiveUnavailable(ctx, usecase.GeminiUsageCaptureInput{
-			SessionID: sessionID, DeliveryID: deliveryID,
+			SessionID: sessionID, DeliveryID: deliveryID, EventTime: eventTime,
 		})
 		if err != nil {
 			return xerrors.Errorf("failed to capture Gemini usage availability: %w", err)

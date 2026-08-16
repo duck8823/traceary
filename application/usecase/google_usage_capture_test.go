@@ -134,6 +134,7 @@ func TestGeminiUsageCapture_RecordsUnavailableRunAndInteractiveCall(t *testing.T
 		if observation.Counters().Availability() != types.UsageAvailabilityUnavailable {
 			t.Fatalf("availability = %q", observation.Counters().Availability())
 		}
+		assertUnavailableObservationNotEpoch(t, observation)
 	}
 	if runCount != 1 || callCount != 1 {
 		t.Fatalf("run = %d call = %d", runCount, callCount)
@@ -246,6 +247,9 @@ func TestAntigravityUsageCapture_RecordsUnavailableStopBoundaryIdempotently(t *t
 	if err != nil || second.AlreadyApplied != 1 || second.Unavailable != 0 ||
 		len(repository.observations) != 1 {
 		t.Fatalf("second = (%+v, %v), observations = %d", second, err, len(repository.observations))
+	}
+	for _, observation := range repository.observations {
+		assertUnavailableObservationNotEpoch(t, observation)
 	}
 }
 
