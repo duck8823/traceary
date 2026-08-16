@@ -1,42 +1,42 @@
 -- Gap-based work block detection with per-workspace breakdown.
 --
+-- newest_events walks created_at_norm newest-first with a scan cap so an
+-- unbounded default window cannot materialize every event (or any body).
+-- Bodies are never selected here; Go decodes ranked candidate ids only.
+--
 -- The CTE chain:
---   ordered_events : filter + LAG over created_at
+--   newest_events  : bounded newest-first metadata (indexed created_at_norm)
+--   ordered_events : LAG over that bounded set only
 --   blocks         : assign block_num using gap threshold
 --   block_summary  : one row per block with aggregates
---   top_blocks    : block_summary ordered DESC + LIMIT N
---   first_prompt   : leading prompt candidate ids per (block, workspace)
---   last_compact   : trailing compact_summary candidate ids per (block, workspace)
---   ws_rows        : one row per (block, workspace) with counts / kinds /
---                    summary candidate ids
---
--- Summary candidates are returned as ranked id lists, never as bodies: an
--- encoded body is a BLOB this query cannot read, so Go decodes in rank order
--- and keeps the first non-blank one (#1685 D6, #1746). TRIM(body) != '' still
--- drops identity whitespace for free. Encoded blanks and tab/newline
--- plaintext survive TRIM, so the list is unbounded — a depth cap would fall
--- through to the next kind instead of the kind's own later candidate.
---
--- The final SELECT returns one row per (block, workspace) for the top N
--- blocks; Go assembles per-block breakdown by grouping on block_num.
---
--- When workspace is filtered, LAG operates only on matching rows (correct).
--- When workspace is empty (all workspaces), cross-workspace gaps are treated
--- as continuous work, which is the intended behavior for overview timelines.
-WITH ordered_events AS (
+--   top_blocks     : block_summary ordered DESC + LIMIT N
+--   first_prompt / last_compact / first_transcript : candidate ids
+--   ws_rows        : one row per (block, workspace)
+WITH newest_events AS (
   SELECT
     e.id,
     e.kind,
     e.agent,
     e.workspace,
-    e.body,
     e.created_at,
-    ts_norm(e.created_at) AS created_at_norm,
-    LAG(e.created_at) OVER (ORDER BY ts_norm(e.created_at), e.id) AS prev_created_at
+    e.created_at_norm
   FROM events e
   WHERE (? = '' OR e.workspace = ?)
-    AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
-    AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
+    AND (? = '' OR e.created_at_norm >= ?)
+    AND (? = '' OR e.created_at_norm < ?)
+  ORDER BY e.created_at_norm DESC, e.id DESC
+  LIMIT ?
+),
+ordered_events AS (
+  SELECT
+    id,
+    kind,
+    agent,
+    workspace,
+    created_at,
+    created_at_norm,
+    LAG(created_at) OVER (ORDER BY created_at_norm, id) AS prev_created_at
+  FROM newest_events
 ),
 blocks AS (
   SELECT
@@ -72,7 +72,6 @@ prompt_ranked AS (
     ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm, id) AS rn
   FROM blocks
   WHERE kind = 'prompt'
-    AND TRIM(body) != ''
 ),
 first_prompt AS (
   SELECT
@@ -94,7 +93,6 @@ compact_ranked AS (
     ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm DESC, id DESC) AS rn
   FROM blocks
   WHERE kind = 'compact_summary'
-    AND TRIM(body) != ''
 ),
 last_compact AS (
   SELECT
@@ -116,7 +114,6 @@ transcript_ranked AS (
     ROW_NUMBER() OVER (PARTITION BY block_num, workspace ORDER BY created_at_norm, id) AS rn
   FROM blocks
   WHERE kind = 'transcript'
-    AND TRIM(body) != ''
 ),
 first_transcript AS (
   SELECT
@@ -163,7 +160,8 @@ SELECT
   COALESCE(wr.ws_agents, '') AS ws_agents,
   COALESCE(wr.first_prompt_ids, '[]') AS first_prompt_ids,
   COALESCE(wr.compact_summary_ids, '[]') AS compact_summary_ids,
-  COALESCE(wr.first_transcript_ids, '[]') AS first_transcript_ids
+  COALESCE(wr.first_transcript_ids, '[]') AS first_transcript_ids,
+  (SELECT COUNT(*) FROM newest_events) AS scanned_event_count
 FROM top_blocks tb
 JOIN ws_rows wr ON wr.block_num = tb.block_num
 ORDER BY tb.block_start DESC, wr.ws_event_count DESC, wr.workspace

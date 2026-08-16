@@ -203,4 +203,73 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 			t.Fatalf("Execute() error = nil, want error for invalid date")
 		}
 	})
+
+	t.Run("prints scan-cap coverage when the newest-first walk is truncated", func(t *testing.T) {
+		t.Parallel()
+
+		block := apptypes.TimelineBlockOf(
+			time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC),
+			2000,
+			[]string{"claude"},
+			[]apptypes.TimelineWorkspaceBreakdown{
+				apptypes.TimelineWorkspaceBreakdownOf(
+					"ws",
+					2000,
+					[]string{"command_executed"},
+					[]string{"claude"},
+					"",
+					apptypes.TimelineSummarySourceKindCounts,
+				),
+			},
+		).WithScanTruncated(true)
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
+				timelineBlocks: []apptypes.TimelineBlock{block},
+			}),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--utc"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if !strings.Contains(stdout.String(), "coverage=partial (scan cap)") {
+			t.Fatalf("output missing scan-cap coverage, got: %s", stdout.String())
+		}
+	})
+
+	t.Run("JSON output does not include scan-cap coverage text", func(t *testing.T) {
+		t.Parallel()
+
+		block := apptypes.TimelineBlockOf(
+			time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC),
+			2000,
+			[]string{"claude"},
+			nil,
+		).WithScanTruncated(true)
+
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{
+				timelineBlocks: []apptypes.TimelineBlock{block},
+			}),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--json"})
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if strings.Contains(stdout.String(), "coverage=partial") {
+			t.Fatalf("JSON output must not print coverage text, got: %s", stdout.String())
+		}
+	})
 }

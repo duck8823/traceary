@@ -86,6 +86,7 @@ type TimelineBlock struct {
 	eventCount         int
 	agents             []string
 	workspaceBreakdown []TimelineWorkspaceBreakdown
+	scanTruncated      bool
 }
 
 // TimelineBlockOf creates a TimelineBlock.
@@ -120,6 +121,16 @@ func (b TimelineBlock) Agents() []string { return slices.Clone(b.agents) }
 // WorkspaceBreakdown returns per-workspace activity inside the block.
 func (b TimelineBlock) WorkspaceBreakdown() []TimelineWorkspaceBreakdown {
 	return slices.Clone(b.workspaceBreakdown)
+}
+
+// ScanTruncated reports whether the newest-first metadata walk hit its scan
+// cap. JSON renderers must ignore this; it is a text-coverage signal only.
+func (b TimelineBlock) ScanTruncated() bool { return b.scanTruncated }
+
+// WithScanTruncated returns a copy marked as truncated by the event scan cap.
+func (b TimelineBlock) WithScanTruncated(truncated bool) TimelineBlock {
+	b.scanTruncated = truncated
+	return b
 }
 
 // Workspaces returns the distinct workspaces involved in the block, derived

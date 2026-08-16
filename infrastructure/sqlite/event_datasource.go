@@ -525,12 +525,14 @@ func (d *EventDatasource) ListTimelineBlocks(
 		toValue = formatTimestamp(to)
 	}
 
+	scanCap := timelineEventScanCap(limit)
 	rows, err := db.QueryContext(
 		ctx,
 		listTimelineBlocksQuery,
 		workspace.String(), workspace.String(),
 		fromValue, fromValue,
 		toValue, toValue,
+		scanCap,
 		gapSeconds,
 		limit,
 	)
@@ -565,6 +567,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 
 	var blockOrder []int
 	blockMap := make(map[int]*blockAccumulator)
+	var scannedEventCount int
 
 	for rows.Next() {
 		var (
@@ -580,6 +583,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 			promptIDsJSON     string
 			compactIDsJSON    string
 			transcriptIDsJSON string
+			rowScannedCount   int
 		)
 		if err := rows.Scan(
 			&blockNum,
@@ -594,9 +598,11 @@ func (d *EventDatasource) ListTimelineBlocks(
 			&promptIDsJSON,
 			&compactIDsJSON,
 			&transcriptIDsJSON,
+			&rowScannedCount,
 		); err != nil {
 			return nil, xerrors.Errorf("failed to scan timeline block: %w", err)
 		}
+		scannedEventCount = rowScannedCount
 		firstPromptBody, err := d.firstNonBlankCandidate(ctx, db, promptIDsJSON, hasCodec)
 		if err != nil {
 			return nil, err
@@ -646,19 +652,41 @@ func (d *EventDatasource) ListTimelineBlocks(
 		return nil, xerrors.Errorf("failed to iterate timeline blocks: %w", err)
 	}
 
+	scanTruncated := scannedEventCount == scanCap
 	blocks := make([]apptypes.TimelineBlock, 0, len(blockOrder))
 	for _, num := range blockOrder {
 		accum := blockMap[num]
-		blocks = append(blocks, apptypes.TimelineBlockOf(
+		block := apptypes.TimelineBlockOf(
 			accum.blockStart,
 			accum.blockEnd,
 			accum.eventCount,
 			accum.agents,
 			accum.breakdown,
-		))
+		)
+		if scanTruncated {
+			block = block.WithScanTruncated(true)
+		}
+		blocks = append(blocks, block)
 	}
 
 	return blocks, nil
+}
+
+// timelineEventScanCap bounds the newest-first metadata walk so an unbounded
+// default window cannot read every event body. It is large enough to fill the
+// requested block quota on typical work, and small enough that a 36 GiB store
+// does not pay a full-table window function.
+func timelineEventScanCap(limit int) int {
+	if limit < 1 {
+		limit = 1
+	}
+	const perBlock = 250
+	const floor = 2000
+	scanCap := limit * perBlock
+	if scanCap < floor {
+		return floor
+	}
+	return scanCap
 }
 
 // firstNonBlankCandidate decodes ranked candidate ids in order and returns the
