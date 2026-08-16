@@ -52,6 +52,10 @@ The retired search index family is dropped on the work copy. Compact no longer
 refuses a source that still carries it. See
 [`search-retirement.md`](../operations/search-retirement.md).
 
+Compact preserves `event_content_dedupe_archive` (the content-event dedupe
+quarantine audit trail) within a 90-day retention window; rows older than that
+are discarded at compact.
+
 On Darwin and Linux, every normal physical
 SQLite connection holds a shared advisory lock on the stable adjacent
 `<database>.traceary.lock` file. Compact holds the

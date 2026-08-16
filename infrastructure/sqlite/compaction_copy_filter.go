@@ -66,8 +66,8 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 	if err := dropUnreadRecentFTSOn(ctx, db); err != nil {
 		return err
 	}
-	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS event_content_dedupe_archive`); err != nil {
-		return fmt.Errorf("drop dedupe archive on work copy: %w", err)
+	if err := trimDedupeArchive(ctx, db, time.Now().UTC()); err != nil {
+		return err
 	}
 
 	hasEvents, err := tableExists(ctx, db, "events")
@@ -161,8 +161,34 @@ func deleteNonCanonicalDuplicateEvents(ctx context.Context, db *sql.DB, datasour
 	if err := datasource.applyDedupeGroups(ctx, db, plan, params); err != nil {
 		return &apptypes.ContentEventDedupeApplyError{RunID: runID, Err: fmt.Errorf("delete work-copy duplicates: %w", err)}
 	}
-	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS event_content_dedupe_archive`); err != nil {
-		return &apptypes.ContentEventDedupeApplyError{RunID: runID, Err: fmt.Errorf("drop work-copy dedupe archive after apply: %w", err)}
+	return nil
+}
+
+// dedupeArchiveRetention bounds how long event_content_dedupe_archive rows
+// survive a compact. There is no dedupe-specific retention constant
+// elsewhere in the codebase; this matches the 90-day window already used as
+// the project's general staleness/retention default (see
+// application/usecase/memory_hygiene.go's defaultStalenessThreshold).
+const dedupeArchiveRetention = 90 * 24 * time.Hour
+
+// trimDedupeArchive deletes event_content_dedupe_archive rows older than
+// dedupeArchiveRetention from the compact work copy, in place. The work copy
+// is already a full byte copy of the source database (see copyRegularFile),
+// so the table and its rows are present before this runs; trimming by
+// archived_at (rather than dropping and recopying) keeps the operation
+// agnostic to the archive's column set, including any future codec columns.
+// A store that predates the archive table is a no-op.
+func trimDedupeArchive(ctx context.Context, db *sql.DB, now time.Time) error {
+	exists, err := tableExists(ctx, db, "event_content_dedupe_archive")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	cutoff := formatTimestamp(now.Add(-dedupeArchiveRetention))
+	if _, err := db.ExecContext(ctx, `DELETE FROM event_content_dedupe_archive WHERE archived_at < ?`, cutoff); err != nil {
+		return fmt.Errorf("trim dedupe archive on work copy: %w", err)
 	}
 	return nil
 }
