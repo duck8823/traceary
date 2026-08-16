@@ -242,11 +242,11 @@ func replayDataFromBundle(bundle apptypes.ReplayBundle, dbPathFlag string) repla
 		converted := make([]replayEvent, 0, len(events))
 		for _, event := range events {
 			converted = append(converted, replayEvent{
-				EventID:    event.EventID().String(),
-				Kind:       event.Kind().String(),
-				CreatedAt:  event.CreatedAt().UTC(),
-				Client:     event.Client().String(),
-				Agent:      event.Agent().String(),
+				EventID:   event.EventID().String(),
+				Kind:      event.Kind().String(),
+				CreatedAt: event.CreatedAt().UTC(),
+				Client:    event.Client().String(),
+				Agent:     event.Agent().String(),
 				// Prefer body; fall back to hydrated command line (#1675).
 				Body:       eventBodyForDisplay(event),
 				SourceHook: event.SourceHook(),

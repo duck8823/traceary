@@ -28,8 +28,8 @@ func TestEventBoundedQuery_HydratesEmptyCommandExecutedBodies(t *testing.T) {
 	}
 
 	const (
-		sessionID    = "session-bounded-cmd"
-		commandLine  = "go test ./infrastructure/sqlite -run TestEventBounded -count=1"
+		sessionID     = "session-bounded-cmd"
+		commandLine   = "go test ./infrastructure/sqlite -run TestEventBounded -count=1"
 		bodyRuneLimit = 12
 	)
 	eventID := mustEventIDForSQLite(t, "event-bounded-cmd")

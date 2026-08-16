@@ -8,16 +8,16 @@ import (
 
 func TestResolveColorMode(t *testing.T) {
 	tests := []struct {
-		name          string
-		flagValue     string
-		flagSet       bool
-		configValue   string
-		wideOrJSON    bool
-		noColor       bool
-		tty           bool
-		wantMode      colorMode
-		wantErr       bool
-		wantErrNeeds  string
+		name         string
+		flagValue    string
+		flagSet      bool
+		configValue  string
+		wideOrJSON   bool
+		noColor      bool
+		tty          bool
+		wantMode     colorMode
+		wantErr      bool
+		wantErrNeeds string
 	}{
 		{
 			name:     "auto defaults to on when stdout is a tty",
@@ -50,12 +50,12 @@ func TestResolveColorMode(t *testing.T) {
 			wantMode:    colorModeOn,
 		},
 		{
-			name:      "explicit flag wins over config never",
-			flagValue: colorValueAlways,
-			flagSet:   true,
+			name:        "explicit flag wins over config never",
+			flagValue:   colorValueAlways,
+			flagSet:     true,
 			configValue: colorValueNever,
-			tty:       false,
-			wantMode:  colorModeOn,
+			tty:         false,
+			wantMode:    colorModeOn,
 		},
 		{
 			name:      "NO_COLOR env beats flag",

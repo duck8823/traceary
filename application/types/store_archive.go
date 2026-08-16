@@ -23,20 +23,20 @@ type StoreArchiveTableCount struct {
 
 // StoreArchiveResult is the outcome of create (and optional delete).
 type StoreArchiveResult struct {
-	DryRun            bool
-	Path              string
-	Tables            []StoreArchiveTableCount
-	TotalRows         int
-	DeletedCount      int
-	Verified          bool
+	DryRun             bool
+	Path               string
+	Tables             []StoreArchiveTableCount
+	TotalRows          int
+	DeletedCount       int
+	Verified           bool
 	DeletedAfterVerify bool
 }
 
 // StoreArchiveRestoreResult is the outcome of restore.
 type StoreArchiveRestoreResult struct {
-	DryRun       bool
-	Inserted     int
-	Skipped      int
-	Conflicts    int
+	DryRun         bool
+	Inserted       int
+	Skipped        int
+	Conflicts      int
 	TotalInArchive int
 }

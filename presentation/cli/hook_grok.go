@@ -386,5 +386,3 @@ func inspectGrokTranscript(payload []byte) ([]apptypes.EventBodyBlock, grokTrans
 	invokeAfterInspectGrokTranscriptHook()
 	return blocks, grokTranscriptReady
 }
-
-

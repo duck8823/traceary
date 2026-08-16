@@ -108,7 +108,9 @@ func (b ReplayBundle) TimelineBlocks() []TimelineBlock { return slices.Clone(b.t
 
 // FailureHotspots returns the failure-hotspot ranking in descending
 // count order. Mutating the returned slice does not affect the bundle.
-func (b ReplayBundle) FailureHotspots() []ReplayFailureHotspot { return slices.Clone(b.failureHotspots) }
+func (b ReplayBundle) FailureHotspots() []ReplayFailureHotspot {
+	return slices.Clone(b.failureHotspots)
+}
 
 // Command returns the normalized command prefix the hotspot clusters
 // around (for example "go" for any `go test` / `go vet` failure).

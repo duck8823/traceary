@@ -23,10 +23,10 @@ const (
 
 // storeArchiveManifest is the v1 on-disk manifest (see docs/storage/archive-manifest.v1.schema.json).
 type storeArchiveManifest struct {
-	SchemaVersion int    `json:"schema_version"`
-	Format        string `json:"format"`
-	CreatedAt     string `json:"created_at"`
-	ToolVersion   string `json:"tool_version"`
+	SchemaVersion int                            `json:"schema_version"`
+	Format        string                         `json:"format"`
+	CreatedAt     string                         `json:"created_at"`
+	ToolVersion   string                         `json:"tool_version"`
 	SourceDB      *storeArchiveSourceFingerprint `json:"source_db_fingerprint,omitempty"`
 	Plan          storeArchivePlan               `json:"plan"`
 	Tables        []storeArchiveTableMeta        `json:"tables"`
@@ -49,13 +49,13 @@ type storeArchivePlan struct {
 }
 
 type storeArchiveTableMeta struct {
-	Name               string   `json:"name"`
-	PrimaryKey         []string `json:"primary_key"`
-	RowCount           int      `json:"row_count"`
-	NDJSONSHA256       string   `json:"ndjson_sha256"`
-	RowIDsSHA256       string   `json:"row_ids_sha256"`
-	CompressedBytes    int      `json:"compressed_bytes"`
-	UncompressedBytes  int      `json:"uncompressed_bytes"`
+	Name              string   `json:"name"`
+	PrimaryKey        []string `json:"primary_key"`
+	RowCount          int      `json:"row_count"`
+	NDJSONSHA256      string   `json:"ndjson_sha256"`
+	RowIDsSHA256      string   `json:"row_ids_sha256"`
+	CompressedBytes   int      `json:"compressed_bytes"`
+	UncompressedBytes int      `json:"uncompressed_bytes"`
 }
 
 type storeArchiveTotals struct {
@@ -387,13 +387,13 @@ func sha256Hex(data []byte) string {
 
 func archiveTableOrder(name string) int {
 	order := map[string]int{
-		"events":                10,
-		"command_audits":        20,
-		"sessions":              30,
-		"memories":              40,
-		"memory_evidence_refs":  50,
-		"memory_artifact_refs":  60,
-		"memory_edges":          70,
+		"events":               10,
+		"command_audits":       20,
+		"sessions":             30,
+		"memories":             40,
+		"memory_evidence_refs": 50,
+		"memory_artifact_refs": 60,
+		"memory_edges":         70,
 	}
 	if n, ok := order[name]; ok {
 		return n

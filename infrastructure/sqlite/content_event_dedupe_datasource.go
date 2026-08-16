@@ -1112,7 +1112,7 @@ func (d *StoreManagementDatasource) PurgeContentEventDedupeRun(
 	)
 	if err := db.QueryRowContext(
 		ctx,
-		`SELECT COUNT(*), SUM(` + dedupeArchiveStoredSizeExpr + `)
+		`SELECT COUNT(*), SUM(`+dedupeArchiveStoredSizeExpr+`)
 		   FROM event_content_dedupe_archive WHERE dedupe_run_id = ?`,
 		trimmed,
 	).Scan(&rowCount, &byteSum); err != nil {
@@ -1158,7 +1158,7 @@ func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
 	}()
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT dedupe_run_id, MAX(archived_at), COUNT(*), SUM(` + dedupeArchiveStoredSizeExpr + `)
+		SELECT dedupe_run_id, MAX(archived_at), COUNT(*), SUM(`+dedupeArchiveStoredSizeExpr+`)
 		  FROM event_content_dedupe_archive
 		 GROUP BY dedupe_run_id`)
 	if err != nil {

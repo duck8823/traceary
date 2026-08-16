@@ -174,15 +174,15 @@ func TestCoalesceAntigravityPluginVersionChecks_skipsIncompleteTwin(t *testing.T
 			Message: "antigravity plugin version matches running traceary version 0.28.0 (healthy)",
 		},
 		{
-			Name:    "antigravity-plugin-version",
-			Status:  doctorStatusWarn,
-			Message: "antigravity plugin manifest has no version: /tmp/broken/plugin.json",
-			Hint:    "reinstall plugin to align",
+			Name:       "antigravity-plugin-version",
+			Status:     doctorStatusWarn,
+			Message:    "antigravity plugin manifest has no version: /tmp/broken/plugin.json",
+			Hint:       "reinstall plugin to align",
 			FixCommand: "agy plugin install",
 		},
 		{
-			Name:   "codex-plugin-version",
-			Status: doctorStatusWarn,
+			Name:    "codex-plugin-version",
+			Status:  doctorStatusWarn,
 			Message: "codex plugin version 0.24.0 does not match",
 		},
 	}

@@ -19,6 +19,8 @@ linters:
           - revive
 
 formatters:
+  enable:
+    - gofmt
   exclusions:
     generated: lax
     paths:

@@ -1878,7 +1878,7 @@ func TestLoadLatestBackfillRun_PicksLaterInstantAcrossLexicalInversion(t *testin
 
 	const (
 		wholeSecond = "2024-01-01T12:00:00Z"   // lexically later, temporally earlier
-		subSecond   = "2024-01-01T12:00:00.5Z"  // lexically earlier, temporally later
+		subSecond   = "2024-01-01T12:00:00.5Z" // lexically earlier, temporally later
 	)
 	insertBackfillRunRow(t, db, "run-A", "completed", wholeSecond)
 	insertBackfillRunRow(t, db, "run-B", "completed", subSecond)

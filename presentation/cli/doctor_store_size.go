@@ -94,7 +94,7 @@ func inspectCompactRollbackCopies(dbPath string) doctorCheck {
 		parts = append(parts, fmt.Sprintf("%s (%s)", copy.path, formatByteSize(copy.size)))
 	}
 	return doctorCheck{
-		Name: name,
+		Name:   name,
 		Status: doctorStatusWarn,
 		Message: localizef(
 			"compact rollback copy still retained (%s total): %s",

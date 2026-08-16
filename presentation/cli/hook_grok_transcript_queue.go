@@ -147,7 +147,7 @@ func (c *RootCLI) inspectHookGrokTranscriptDiagnostics(now time.Time) doctorChec
 			"未処理の Grok transcript job が %d 件、以前失敗した job が %d 件、読めない job が %d 件、partial final-turn disposition が %d 件（unavailable %d 件、malformed %d 件、cancelled %d 件、読めない disposition marker %d 件）あります。最古の経過時間は %s です",
 			len(jobs), failed, len(unreadable), partial, terminalCounts["unavailable"], terminalCounts["malformed"], terminalCounts["cancelled"], terminalUnreadable, oldestAge.Round(time.Second),
 		),
-		Hint: Localize("later hooks drain a bounded oldest-first batch across sessions and GC terminal dispositions past retention. Run `traceary doctor --fix` to force a larger drain, or enable TRACEARY_HOOK_DEBUG for the next turn", "後続 hook は oldest-first の bounded batch で queue 全体を drain し、retention を過ぎた終端 disposition を GC します。大きめに drain するには `traceary doctor --fix` を使い、次の turn で TRACEARY_HOOK_DEBUG を有効にしてください"),
+		Hint:             Localize("later hooks drain a bounded oldest-first batch across sessions and GC terminal dispositions past retention. Run `traceary doctor --fix` to force a larger drain, or enable TRACEARY_HOOK_DEBUG for the next turn", "後続 hook は oldest-first の bounded batch で queue 全体を drain し、retention を過ぎた終端 disposition を GC します。大きめに drain するには `traceary doctor --fix` を使い、次の turn で TRACEARY_HOOK_DEBUG を有効にしてください"),
 		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,
 		FixFunc: func(_ context.Context, dryRun bool) (string, error) {

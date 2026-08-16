@@ -406,8 +406,8 @@ func TestWriteTopSnapshotJSON_AIProfileOmitsBodiesAndCandidateFacts(t *testing.T
 	}
 
 	var payload struct {
-		Profile        string `json:"profile"`
-		Sessions       []struct {
+		Profile  string `json:"profile"`
+		Sessions []struct {
 			LatestEventMessage string `json:"latest_event_message"`
 			LatestEventID      string `json:"latest_event_id"`
 		} `json:"sessions"`

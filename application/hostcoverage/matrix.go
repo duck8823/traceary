@@ -34,8 +34,8 @@ type Localized struct {
 
 // LifecycleEvent is one row of the coverage matrix.
 type LifecycleEvent struct {
-	ID           string     `json:"id"`
-	Verification Localized  `json:"verification"`
+	ID           string    `json:"id"`
+	Verification Localized `json:"verification"`
 }
 
 // EventCell is one host cell for a lifecycle event.
@@ -46,12 +46,12 @@ type EventCell struct {
 
 // Host is one column of the coverage matrix.
 type Host struct {
-	ID                        string               `json:"id"`
-	Package                   string               `json:"package"`
-	Label                     Localized            `json:"label"`
-	DoctorClient              string               `json:"doctor_client"`
-	ExpectsSessionEnrichment  bool                 `json:"expects_session_enrichment"`
-	Events                    map[string]EventCell `json:"events"`
+	ID                       string               `json:"id"`
+	Package                  string               `json:"package"`
+	Label                    Localized            `json:"label"`
+	DoctorClient             string               `json:"doctor_client"`
+	ExpectsSessionEnrichment bool                 `json:"expects_session_enrichment"`
+	Events                   map[string]EventCell `json:"events"`
 }
 
 // Matrix is the full host × lifecycle coverage document.

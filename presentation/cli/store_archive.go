@@ -145,8 +145,8 @@ func (c *RootCLI) runStoreArchiveCreate(ctx context.Context, output io.Writer, i
 		DryRun:            input.dryRun,
 		DeleteAfterVerify: input.deleteAfterVerify,
 		Passphrase:        passphrase,
-		ToolVersion:  toolVersion,
-		SourceDBPath: resolvedDBPath,
+		ToolVersion:       toolVersion,
+		SourceDBPath:      resolvedDBPath,
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("store archive create failed", "store archive create に失敗しました"), err)
@@ -238,4 +238,3 @@ func readPassphraseEnv(envName string) ([]byte, error) {
 	}
 	return []byte(val), nil
 }
-

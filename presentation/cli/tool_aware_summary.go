@@ -23,15 +23,15 @@ var (
 
 // toolAwareSummary is the compact projection for a large host-tool audit body.
 type toolAwareSummary struct {
-	Tool           string
-	Path           string
-	InputRunes     int
-	OutputRunes    int
-	ContentSHA256  string
-	Head           string
-	Tail           string
-	Truncated      bool
-	RetrievalNote  string
+	Tool          string
+	Path          string
+	InputRunes    int
+	OutputRunes   int
+	ContentSHA256 string
+	Head          string
+	Tail          string
+	Truncated     bool
+	RetrievalNote string
 }
 
 // summarizeToolAwareCommandBody projects large Edit/Write/Read/shell audit

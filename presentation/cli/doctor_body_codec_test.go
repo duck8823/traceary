@@ -85,4 +85,3 @@ func TestInspectBodyCodecWarnsOnError(t *testing.T) {
 		t.Fatalf("status mismatch (-want +got):\n%s", diff)
 	}
 }
-
