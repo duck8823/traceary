@@ -790,6 +790,110 @@ func TestRootCLI_DoctorCommand_ClaudeHookCancellationDiagnostics(t *testing.T) {
 			t.Fatalf("claude-hook-cancellations hint = %q, want actionable cancellation hint", check.Hint)
 		}
 	})
+
+	t.Run("marker from another store is unknown, not actionable", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("TRACEARY_LANG", "en")
+		t.Setenv("TRACEARY_HOOK_STATE_KEY", "doctor-other-store-key")
+		setTracearyPathToCurrentExecutable(t)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteClaudeProjectHookSettings(t, projectDir)
+
+		stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(state) error = %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stateDir, "claude-doctor-other-store-key"), []byte("other-store-session"), 0o600); err != nil {
+			t.Fatalf("WriteFile(session state) error = %v", err)
+		}
+
+		// The hook records the marker against a scratch store, distinct from
+		// the store doctor below inspects (the default store under HOME).
+		otherStoreDBPath := filepath.Join(t.TempDir(), "scratch.db")
+		hookCmd := newTestRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithSession(&sessionUsecaseStub{endErr: errors.New("simulated cancellation")}),
+		).Command()
+		hookCmd.SetOut(&bytes.Buffer{})
+		hookCmd.SetErr(&bytes.Buffer{})
+		hookCmd.SetIn(strings.NewReader(fmt.Sprintf(`{"cwd":%q}`, projectDir)))
+		hookCmd.SetArgs([]string{"hook", "session", "claude", "end", "--db-path", otherStoreDBPath})
+		if err := hookCmd.Execute(); err != nil {
+			t.Fatalf("hook Execute() error = %v", err)
+		}
+
+		report, err := executeDoctorJSON(t, []string{"doctor", "--client", "claude", "--project-dir", projectDir, "--json", "--warnings-ok"})
+		if err != nil {
+			t.Fatalf("doctor Execute() error = %v", err)
+		}
+		check := statusByName(report, "claude-hook-cancellations")
+		if got, want := check.Status, "warn"; got != want {
+			t.Fatalf("claude-hook-cancellations status = %q, want %q (message=%q)", got, want, check.Message)
+		}
+		if strings.Contains(check.Message, "actionable") {
+			t.Fatalf("claude-hook-cancellations message = %q, must not report a cross-store marker as actionable", check.Message)
+		}
+		if !strings.Contains(check.Message, "unknown store") {
+			t.Fatalf("claude-hook-cancellations message = %q, want unknown-store wording", check.Message)
+		}
+		if check.AutoFixAvailable {
+			t.Fatalf("claude-hook-cancellations must not offer a fix for a fresh unknown-store marker (not yet aged): %+v", check)
+		}
+	})
+
+	t.Run("fix removes resolved and aged unknown-store markers", func(t *testing.T) {
+		homeDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		t.Setenv("TRACEARY_LANG", "en")
+		setTracearyPathToCurrentExecutable(t)
+		cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+		t.Cleanup(cli.ResetUserHomeDirFunc)
+		writeCompleteClaudeProjectHookSettings(t, projectDir)
+
+		stateDir := filepath.Join(homeDir, ".config", "traceary", "hooks")
+		diagnosticsDir := filepath.Join(stateDir, "diagnostics")
+		if err := os.MkdirAll(diagnosticsDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(diagnostics) error = %v", err)
+		}
+		agedUnknown := fmt.Sprintf(`{
+  "schema_version": 1,
+  "client": "claude",
+  "host_event": "SessionEnd",
+  "hook_command": "cmd",
+  "session_id": "aged-unknown-session",
+  "db_path": "/store/other.db",
+  "status": "started",
+  "started_at": %q
+}
+`, time.Now().UTC().Add(-8*24*time.Hour).Format(time.RFC3339Nano))
+		agedPath := filepath.Join(diagnosticsDir, "claude-SessionEnd-aged-unknown.json")
+		if err := os.WriteFile(agedPath, []byte(agedUnknown), 0o600); err != nil {
+			t.Fatalf("WriteFile(aged unknown marker) error = %v", err)
+		}
+
+		report, err := executeDoctorJSON(t, []string{"doctor", "--fix", "--dry-run", "--client", "claude", "--project-dir", projectDir, "--json", "--warnings-ok"})
+		if err != nil {
+			t.Fatalf("doctor --fix --dry-run Execute() error = %v", err)
+		}
+		check := statusByName(report, "claude-hook-cancellations")
+		if !check.AutoFixAvailable {
+			t.Fatalf("claude-hook-cancellations must offer a fix for an aged unknown-store marker: %+v", check)
+		}
+		if _, err := os.Stat(agedPath); err != nil {
+			t.Fatalf("dry-run must not remove the marker: %v", err)
+		}
+
+		if _, err := executeDoctorJSON(t, []string{"doctor", "--fix", "--client", "claude", "--project-dir", projectDir, "--json", "--warnings-ok"}); err != nil {
+			t.Fatalf("doctor --fix Execute() error = %v", err)
+		}
+		if _, err := os.Stat(agedPath); !os.IsNotExist(err) {
+			t.Fatalf("aged unknown-store marker survived --fix: err=%v", err)
+		}
+	})
 }
 
 func TestRootCLI_DoctorExitCodeMatrixAndJSONSections(t *testing.T) {
