@@ -1073,6 +1073,38 @@ Useful flags:
 
 Restore the pre-compact store from the rollback inode published by a successful rewrite.
 
+### `traceary store archive create|restore|verify`
+
+Create, restore, or verify an offline archive segment. These are public store-administration commands; they do not replace `store compact`.
+
+### `traceary store capacity`
+
+Print a metadata-only capacity report (page/freelist/dbstat evidence). On large stores the inspection is bounded and may report `evidence=cached` or `evidence=bounded`.
+
+### `traceary store retention files plan|apply`
+
+Plan or apply file-retention actions for host-side artifacts. `apply` is operator-consented and is not part of the default hook path.
+
+### `traceary store search-projection start|resume|status|abort|probe`
+
+Manage the search-projection rebuild. `status` is the safe read; `start` / `resume` / `abort` change rebuild state. Catch-up on large stores is paged and may park when it cannot advance.
+
+### `traceary session gc`
+
+Close stale still-open sessions. Admin-tier maintenance under the `session` namespace.
+
+### `traceary session repair-one-shot`
+
+Apply a reviewed one-shot session-repair evidence file (`--evidence-file`). `--apply` writes; without it the command is a dry preview.
+
+### `traceary bundle export|import`
+
+Export or import a portable session/memory bundle. See `docs/cli-stability.md` for the supported contract.
+
+### `traceary memory decay`
+
+Expire or supersede aged durable-memory candidates. Preview-first; use the documented apply flags only after reviewing the scan.
+
 ## Integration commands
 
 > The entire `integration` command subtree (the `integration` parent and the `codex` group) is hidden from `traceary --help` as of v0.20.0 and is scheduled for full removal in v0.21.0. The entries below are kept only as migration notes; the hidden stubs still exit non-zero with a pointer to Codex's official `/plugins` flow.
