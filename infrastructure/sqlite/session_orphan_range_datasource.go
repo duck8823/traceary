@@ -130,9 +130,10 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 			if err := ctx.Err(); err != nil {
 				return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
 			}
-			if len(candidates) >= target {
-				break
-			}
+			// Do not stop at `target` here. Recorded rows are unordered by age
+			// (session_id, to_event_id). Filling the page from them first would
+			// hide older ended/stale ranges and let ForceCoverSafeToDelete see
+			// only newer leftovers (#1721).
 			covered, err := d.refinementCovers(ctx, db, orphan.SessionID(), orphan.ToEventID())
 			if err != nil {
 				return err
@@ -157,51 +158,50 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 		}
 
 		// Source of truth: ended or stale sessions with material past covers_to.
-		// Paginate by a composite (earliest_event_norm, session_id) keyset until
-		// target valid candidates are collected or the scan is exhausted, so
-		// folding proceeds oldest-first (#1721) and the cursor stays unique even
-		// when two sessions share an earliest event time.
-		if len(candidates) < target {
-			cursorNorm := ""
-			cursorSessionID := ""
-			pageSize := limit + 1
-			for len(candidates) < target {
-				if err := ctx.Err(); err != nil {
-					return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+		// Paginate independently of how many recorded shortcuts we already have:
+		// the oldest `target` ended/stale rows plus every recorded shortcut
+		// contain the true oldest `limit` after the merge-sort below.
+		endedCount := 0
+		cursorNorm := ""
+		cursorSessionID := ""
+		pageSize := limit + 1
+		for endedCount < target {
+			if err := ctx.Err(); err != nil {
+				return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+			}
+			page, err := d.listEndedOrStalePage(ctx, db, cutoff, cursorNorm, cursorSessionID, pageSize)
+			if err != nil {
+				return err
+			}
+			if len(page) == 0 {
+				break
+			}
+			// Advance the cursor from the last SQL row even when every row was
+			// filtered out in Go; otherwise a page of non-candidates loops forever.
+			last := page[len(page)-1]
+			cursorNorm = last.earliestEventNorm
+			cursorSessionID = last.sessionID.String()
+			for _, row := range page {
+				if endedCount >= target {
+					break
 				}
-				page, err := d.listEndedOrStalePage(ctx, db, cutoff, cursorNorm, cursorSessionID, pageSize)
+				orphan, ok, err := d.gapPastCoverage(ctx, db, row.sessionID, row.earliestEventTime, now)
 				if err != nil {
 					return err
 				}
-				if len(page) == 0 {
-					break
+				if !ok {
+					continue
 				}
-				// Advance the cursor from the last SQL row even when every row was
-				// filtered out in Go; otherwise a page of non-candidates loops forever.
-				last := page[len(page)-1]
-				cursorNorm = last.earliestEventNorm
-				cursorSessionID = last.sessionID.String()
-				for _, row := range page {
-					if len(candidates) >= target {
-						break
-					}
-					orphan, ok, err := d.gapPastCoverage(ctx, db, row.sessionID, row.earliestEventTime, now)
-					if err != nil {
-						return err
-					}
-					if !ok {
-						continue
-					}
-					key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
-					if _, exists := seen[key]; exists {
-						continue
-					}
-					seen[key] = struct{}{}
-					candidates = append(candidates, orphan)
+				key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
+				if _, exists := seen[key]; exists {
+					continue
 				}
-				if len(page) < pageSize {
-					break
-				}
+				seen[key] = struct{}{}
+				candidates = append(candidates, orphan)
+				endedCount++
+			}
+			if len(page) < pageSize {
+				break
 			}
 		}
 

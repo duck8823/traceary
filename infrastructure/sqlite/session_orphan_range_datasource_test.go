@@ -929,6 +929,48 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesProgressesAcrossPages(t 
 	}
 }
 
+func TestSessionOrphanRangeDatasource_RecordedShortcutsDoNotHideOlderEndedSessions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	now := base.Add(48 * time.Hour)
+	orphanUC := usecase.NewSessionOrphanRangeUsecase(fx.orphans, fx.refine, fx.events, types.SystemClock{})
+
+	// Still-active sessions with compact markers. Their events are newer than
+	// the ended session below. Enough of them would fill a limit-sized page
+	// if recorded shortcuts were allowed to occupy the discovery budget first.
+	for i := 1; i <= 3; i++ {
+		id := fmt.Sprintf("sess-active-%d", i)
+		at := base.Add(time.Duration(i) * time.Hour)
+		_ = seedOrphanSession(ctx, t, fx, id, []eventSeed{
+			{id: id + "-evt", at: at},
+			{id: id + "-compact", at: at.Add(time.Minute)},
+		}, false)
+		if err := orphanUC.RecordAtCompact(ctx, types.SessionID(id), types.EventID(id+"-compact")); err != nil {
+			t.Fatalf("RecordAtCompact(%s) error = %v", id, err)
+		}
+	}
+
+	_ = seedOrphanSession(ctx, t, fx, "sess-old-ended", []eventSeed{
+		{id: "evt-old-ended", at: base},
+	}, true)
+
+	got, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 2)
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() error = %v", err)
+	}
+	if len(got.Ranges) != 2 {
+		t.Fatalf("candidates = %d, want 2", len(got.Ranges))
+	}
+	if got.Ranges[0].SessionID().String() != "sess-old-ended" {
+		t.Fatalf("first candidate = %s, want sess-old-ended (oldest ended range must beat newer recorded shortcuts)", got.Ranges[0].SessionID())
+	}
+	if !got.HasMore {
+		t.Fatal("HasMore = false, want true: recorded shortcuts plus the ended session exceed the limit")
+	}
+}
+
 func TestSessionOrphanRangeDatasource_SessionsWithNoEventsAreNotReturned(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
