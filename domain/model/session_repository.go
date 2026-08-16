@@ -26,4 +26,7 @@ type SessionRepository interface {
 	// value is empty. Host-reported values are never overwritten. Returns true
 	// when a row was updated.
 	UpdateModelIfEmpty(ctx context.Context, sessionID types.SessionID, model string) (bool, error)
+	// FindOpenChildSessionIDs returns the IDs of direct children of
+	// parentSessionID that have not yet ended.
+	FindOpenChildSessionIDs(ctx context.Context, parentSessionID types.SessionID) ([]types.SessionID, error)
 }

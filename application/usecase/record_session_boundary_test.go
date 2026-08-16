@@ -564,6 +564,10 @@ func (s *sessionRepositoryStub) NextChildSpawnOrder(_ context.Context, _ types.S
 	return s.nextChildOrder, nil
 }
 
+func (s *sessionRepositoryStub) FindOpenChildSessionIDs(_ context.Context, _ types.SessionID) ([]types.SessionID, error) {
+	return nil, nil
+}
+
 func (s *sessionRepositoryStub) UpdateModelIfEmpty(_ context.Context, _ types.SessionID, modelName string) (bool, error) {
 	if strings.TrimSpace(modelName) == "" {
 		return false, nil

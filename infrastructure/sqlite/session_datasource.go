@@ -466,6 +466,47 @@ func (d *SessionDatasource) NextChildSpawnOrder(ctx context.Context, parentSessi
 	return order, nil
 }
 
+// FindOpenChildSessionIDs returns the IDs of direct children of
+// parentSessionID that have not yet ended.
+func (d *SessionDatasource) FindOpenChildSessionIDs(ctx context.Context, parentSessionID types.SessionID) ([]types.SessionID, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open DB for open child session lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	rows, err := db.QueryContext(
+		ctx,
+		`SELECT session_id FROM sessions WHERE parent_session_id = ? AND ended_at IS NULL`,
+		parentSessionID.String(),
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query open child sessions: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var childIDs []types.SessionID
+	for rows.Next() {
+		var sessionID string
+		if err := rows.Scan(&sessionID); err != nil {
+			return nil, xerrors.Errorf("failed to scan open child session ID: %w", err)
+		}
+		childIDs = append(childIDs, types.SessionID(sessionID))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate open child session IDs: %w", err)
+	}
+	return childIDs, nil
+}
+
 // UpdateModelIfEmpty writes model into sessions.model when empty.
 func (d *SessionDatasource) UpdateModelIfEmpty(ctx context.Context, sessionID types.SessionID, modelName string) (bool, error) {
 	if strings.TrimSpace(sessionID.String()) == "" {
