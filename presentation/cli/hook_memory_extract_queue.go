@@ -774,10 +774,6 @@ func (c *RootCLI) drainHookMemoryExtractQueueUntil(now, deadline time.Time, batc
 	}
 }
 
-func countHookMemoryExtractDrainable(now time.Time) int {
-	return countHookMemoryExtractDrainableExcept(now, nil)
-}
-
 func countHookMemoryExtractDrainableExcept(now time.Time, excludePaths []string) int {
 	exclude := make(map[string]struct{}, len(excludePaths))
 	for _, p := range excludePaths {
