@@ -235,6 +235,48 @@ func isDroppableExtractionFragment(reasons []string) bool {
 	return false
 }
 
+// shouldDropMemoryCandidate reports whether a candidate fact must be discarded
+// before it can enter the inbox. Unified-diff headers stay droppable only
+// when remember-intent is absent (a user can still pin "+foo"). Structural
+// non-prose — hunk headers, struct tags, heading-only lines, flag
+// definitions — is dropped even for remember-intent so code/doc fragments
+// about the memory feature cannot flood the inbox (#2020).
+func shouldDropMemoryCandidate(fact string, reasons []string, explicitRemember bool) bool {
+	if isStructurallyNonProseFact(fact) {
+		return true
+	}
+	return !explicitRemember && isDroppableExtractionFragment(reasons)
+}
+
+var (
+	hunkHeaderStartPattern = regexp.MustCompile(`^@@ -\d`)
+	goStructTagPattern     = regexp.MustCompile("(?s)\\[\\].*`[^`]*json:\"")
+	markdownHeadingPattern = regexp.MustCompile(`^#{1,6}\s+\S`)
+	flagDefinitionPattern  = regexp.MustCompile("`--[a-z0-9-]+`")
+)
+
+// isStructurallyNonProseFact reports whether the fact is source code, a
+// unified-diff hunk, a markdown heading, or a flag-definition fragment
+// rather than an operator-written durable sentence.
+func isStructurallyNonProseFact(fact string) bool {
+	trimmed := strings.TrimSpace(fact)
+	if trimmed == "" {
+		return false
+	}
+	switch {
+	case hunkHeaderStartPattern.MatchString(trimmed):
+		return true
+	case goStructTagPattern.MatchString(trimmed):
+		return true
+	case markdownHeadingPattern.MatchString(trimmed):
+		return true
+	case flagDefinitionPattern.MatchString(trimmed):
+		return true
+	default:
+		return false
+	}
+}
+
 // isFragmentLikeNoise reports whether the noise reasons mark a mechanical
 // code/diff fragment for the candidate-hygiene diagnostic (fragment_like_count,
 // #1169). This is intentionally broader than the drop set: it also counts

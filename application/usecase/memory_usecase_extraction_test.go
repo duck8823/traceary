@@ -2296,6 +2296,49 @@ func TestMemoryUsecase_Extract_KeepsExplicitRememberVisibleEvenWhenNoisy(t *test
 	}
 }
 
+func TestMemoryUsecase_Extract_DropsRememberIntentCodeFragments(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-nonprose-remember"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.None[time.Time](),
+		"ended",
+		1,
+		0,
+		[]string{"codex"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	promptEvent := mustExtractionEvent(t,
+		"event-nonprose-remember",
+		domtypes.EventKindPrompt,
+		"Remember this: MemoryIDs []string `json:\"memory_ids\" jsonschema:\"candidate durable memory ident`",
+	)
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-nonprose-remember")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(1).
+			CandidateLimit(10).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 0 {
+		t.Fatalf("proposeCalls = %d, want 0 so code fragments never enter the inbox", len(memoryUsecase.proposeCalls))
+	}
+}
+
 // TestMemoryUsecase_ExplainExtraction_ReportsLowQualityReasons verifies that
 // `memory extract --debug-signals` surfaces the deterministic noise reason
 // for each segment so operators can audit why a candidate was hidden (#857).
