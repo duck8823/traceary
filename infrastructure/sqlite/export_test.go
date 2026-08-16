@@ -65,6 +65,14 @@ func (d *EventDatasource) SetTimelinePayloadQueryHookForTest(hook func(kind stri
 	d.timelinePayloadQueryHook = hook
 }
 
+// SetAuditHydrationQueryHookForTest installs a hook called once for the
+// schema probe ("schema") and once for the batch payload SELECT ("payload")
+// inside HydrateCommandAudits. Tests use it to assert O(1) query count for
+// a page of N events. Pass nil to clear.
+func (d *EventDatasource) SetAuditHydrationQueryHookForTest(hook func(kind string)) {
+	d.onAuditHydrationQuery = hook
+}
+
 // SetGarbageCollectionNowForTest fixes the timestamp persisted by gc discards.
 func (d *StoreManagementDatasource) SetGarbageCollectionNowForTest(now func() time.Time) {
 	d.now = now

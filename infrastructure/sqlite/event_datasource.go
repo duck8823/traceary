@@ -51,6 +51,7 @@ type EventDatasource struct {
 	db                       *Database
 	onListWindowBatch        func(batchIndex, batchSize int)
 	timelinePayloadQueryHook func(kind string)
+	onAuditHydrationQuery    func(kind string) // test-only; "schema" or "payload"
 }
 
 // NewEventDatasource creates a new EventDatasource bound to the given

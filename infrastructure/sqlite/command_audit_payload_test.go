@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,6 +189,176 @@ INSERT INTO command_audits(
 		// decode to the full line, not leave the command_name basename.
 		if strings.TrimSpace(fresh[0].Body()) != "" {
 			t.Fatalf("events.body should stay empty after #1675, got %q", fresh[0].Body())
+		}
+	})
+}
+
+// TestHydrateCommandAuditsQueryCount pins the O(1) batch hydration contract:
+// for a page of N events, HydrateCommandAudits must issue exactly 1 schema
+// probe and 1 batch SELECT — not O(N) or O(N × fields) queries.
+func TestHydrateCommandAuditsQueryCount(t *testing.T) {
+	t.Parallel()
+
+	const pageSize = 25
+	const sessionID = "session-qcount"
+
+	t.Run("codec shape emits O(1) queries for N events", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		path := filepath.Join(t.TempDir(), "qcount-codec.db")
+		database := NewDatabase(path, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+		if err := database.initialize(ctx); err != nil {
+			t.Fatalf("initialize: %v", err)
+		}
+		raw, err := database.open(ctx)
+		if err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		defer database.release(raw)
+
+		commandPayload := mustEncodeAuditPayload(t, "ls -la", payloadCodecZstd)
+		for i := range pageSize {
+			eventID := fmt.Sprintf("evt-qcount-codec-%02d", i)
+			if _, err := raw.ExecContext(ctx, `
+INSERT INTO events(id, kind, client, agent, session_id, workspace, body, body_availability, created_at, source_hook)
+VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', 'available', ?, '')`,
+				eventID, sessionID,
+				time.Date(2026, 8, 9, 12, 0, i, 0, time.UTC).Format(time.RFC3339Nano),
+			); err != nil {
+				t.Fatalf("insert event %d: %v", i, err)
+			}
+			if _, err := raw.ExecContext(ctx, `
+INSERT INTO command_audits(
+  event_id, command_text, command_wrapper, command_name, input_text, output_text,
+  input_truncated, output_truncated, input_original_bytes, output_original_bytes,
+  exit_code, failed, failure_reason,
+  command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
+  input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
+  output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256
+) VALUES(
+  ?, ?, '', 'ls', '', '',
+  0, 0, 0, 0,
+  0, 0, 'none',
+  ?, ?, ?, ?, ?,
+  NULL, NULL, NULL, NULL, NULL,
+  NULL, NULL, NULL, NULL, NULL
+)`,
+				eventID, commandPayload.Bytes,
+				commandPayload.Codec, commandPayload.FormatVersion, commandPayload.PlaintextBytes, commandPayload.StoredBytes, commandPayload.SHA256,
+			); err != nil {
+				t.Fatalf("insert command_audit %d: %v", i, err)
+			}
+		}
+
+		datasource := NewEventDatasource(database)
+		listed, err := datasource.ListRecent(ctx, pageSize, 0, types.EventKindCommandExecuted, "", "", sessionID, "", false, time.Time{}, time.Time{}, "")
+		if err != nil {
+			t.Fatalf("ListRecent: %v", err)
+		}
+		if len(listed) != pageSize {
+			t.Fatalf("ListRecent len = %d, want %d", len(listed), pageSize)
+		}
+
+		var queryKinds []string
+		datasource.SetAuditHydrationQueryHookForTest(func(kind string) {
+			queryKinds = append(queryKinds, kind)
+		})
+
+		if err := datasource.HydrateCommandAudits(ctx, listed, queryservice.CommandOnlyPayload()); err != nil {
+			t.Fatalf("HydrateCommandAudits: %v", err)
+		}
+
+		// Exactly 2 queries: one schema probe + one batch SELECT.
+		if len(queryKinds) != 2 {
+			t.Errorf("expected 2 queries (schema + payload), got %d: %v", len(queryKinds), queryKinds)
+		}
+		if len(queryKinds) >= 1 && queryKinds[0] != "schema" {
+			t.Errorf("first query kind = %q, want %q", queryKinds[0], "schema")
+		}
+		if len(queryKinds) >= 2 && queryKinds[1] != "payload" {
+			t.Errorf("second query kind = %q, want %q", queryKinds[1], "payload")
+		}
+
+		// Correctness: all events must have decoded command payloads.
+		for i, ev := range listed {
+			audit, ok := ev.CommandAudit().Value()
+			if !ok || audit == nil {
+				t.Errorf("event[%d]: missing audit after hydration", i)
+				continue
+			}
+			if audit.Command() != "ls -la" {
+				t.Errorf("event[%d]: command = %q, want %q", i, audit.Command(), "ls -la")
+			}
+		}
+	})
+
+	t.Run("legacy shape emits O(1) queries for N events", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		path := filepath.Join(t.TempDir(), "qcount-legacy.db")
+		database := NewDatabase(path, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+		if err := database.initialize(ctx); err != nil {
+			t.Fatalf("initialize: %v", err)
+		}
+		raw, err := database.open(ctx)
+		if err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		defer database.release(raw)
+
+		// Simulate a legacy (pre-codec) store: command_text is plain-text and
+		// all codec metadata columns are NULL.
+		for i := range pageSize {
+			eventID := fmt.Sprintf("evt-qcount-legacy-%02d", i)
+			if _, err := raw.ExecContext(ctx, `
+INSERT INTO events(id, kind, client, agent, session_id, workspace, body, body_availability, created_at, source_hook)
+VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', 'available', ?, '')`,
+				eventID, sessionID,
+				time.Date(2026, 8, 9, 12, 0, i, 0, time.UTC).Format(time.RFC3339Nano),
+			); err != nil {
+				t.Fatalf("insert event %d: %v", i, err)
+			}
+			if _, err := raw.ExecContext(ctx, `
+INSERT INTO command_audits(
+  event_id, command_text, command_wrapper, command_name, input_text, output_text,
+  input_truncated, output_truncated, input_original_bytes, output_original_bytes,
+  exit_code, failed, failure_reason,
+  command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
+  input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
+  output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256
+) VALUES(?, 'ls -la', '', 'ls', '', '', 0, 0, 0, 0, 0, 0, 'none',
+  NULL, NULL, NULL, NULL, NULL,
+  NULL, NULL, NULL, NULL, NULL,
+  NULL, NULL, NULL, NULL, NULL)`,
+				eventID,
+			); err != nil {
+				t.Fatalf("insert command_audit %d: %v", i, err)
+			}
+		}
+
+		datasource := NewEventDatasource(database)
+		listed, err := datasource.ListRecent(ctx, pageSize, 0, types.EventKindCommandExecuted, "", "", sessionID, "", false, time.Time{}, time.Time{}, "")
+		if err != nil {
+			t.Fatalf("ListRecent: %v", err)
+		}
+		if len(listed) != pageSize {
+			t.Fatalf("ListRecent len = %d, want %d", len(listed), pageSize)
+		}
+
+		var queryKinds []string
+		datasource.SetAuditHydrationQueryHookForTest(func(kind string) {
+			queryKinds = append(queryKinds, kind)
+		})
+
+		if err := datasource.HydrateCommandAudits(ctx, listed, queryservice.CommandOnlyPayload()); err != nil {
+			t.Fatalf("HydrateCommandAudits: %v", err)
+		}
+
+		// Exactly 2 queries: one schema probe + one batch SELECT.
+		if len(queryKinds) != 2 {
+			t.Errorf("expected 2 queries (schema + payload), got %d: %v", len(queryKinds), queryKinds)
 		}
 	})
 }
