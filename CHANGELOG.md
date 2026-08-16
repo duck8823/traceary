@@ -7,6 +7,36 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.41.0] - 2026-08-17
+
+### Added
+- **Search-projection catch-up pages cleanup and parks when it cannot advance (#2010)** — stalled catch-up no longer burns the 1s default wall budget on a no-progress cleanup loop. After N empty cleanup pages the generation parks with a recovery command.
+- **Session latest-event ranking and `sessions --snapshot` skip full-body scans (#2011)** — lineage and snapshot reads use indexed metadata rather than walking every event body.
+- **Compact can run when a same-volume replica cannot fit (#2008)** — `store compact` accepts `--work-dir` for an external-volume copy-filter, estimates dest-sized preflight bytes, and can fall back to in-place `incremental_vacuum` when a replica still cannot fit. JSON reports `rollback_retained=false` for the in-place path. Destructive apply on a live multi-GiB store is not a release gate.
+- **Hook-state residue GC (#2017)** — stale per-PID `<host>-<pid>[-repo]` directories and aged SessionEnd diagnostics are removed on a budgeted opportunistic path and via `doctor --fix`.
+- **Hook spool dead-letter prune (#2007)** — `doctor --fix` deletes spool files older than 14 days; doctor warns when the dead-letter pile is large.
+- **Grok transcript leftovers expire after 30 days (#2009)** — drain classifies unavailable/malformed jobs and expires aged pending work instead of replaying it forever.
+- **golangci `gofmt` formatter is required (#2021)** — lint fails on unformatted Go, including `gofmt -s` simplify.
+
+### Fixed
+- **Ending a parent session closes still-open children (#2012)** — child `Session.End()` uses `TerminalReasonSuccess` so the parent boundary is complete.
+- **`stop_hook` usage observations carry wall time (#2013)** — usage timestamps are no longer an empty epoch.
+- **Timeline and replay walks are bounded on `created_at_norm` (#2014)** — a scan cap plus `coverage=partial` (block limit, scan cap, or both) replace unbounded newest-first scans.
+- **`dbstat` inspections are cached and time-bounded (#2015)** — sidecar cache plus a 3s budget so large-store capacity/doctor paths do not open-endedly walk dbstat.
+- **Store-compact reminder is rate-limited (#2016)** — reclaimable-bytes reminder is not re-emitted more than once per 24h.
+- **Large-store `doctor` still emits host hook and config checks (#2006)** — at or above the 2 GiB `metadata_only_large_store` threshold, host-file probes run without opening that SQLite file.
+- **`report` keeps excluded usage observations out of JSON (#2018)** — workspace tallies that cannot be attributed stay text-only (`json:"-"`) with an explicit scan note.
+- **Claude usage counters accept camelCase (#2019)** — `inputTokens` / `outputTokens` / `cache*` parse; host coverage docs record that Grok `Stop` is availability-only.
+- **Remember-intent extraction drops code and heading fragments (#2020)** — structurally non-prose facts (diff hunks, struct tags, markdown headings, `--flags`) are not stored even for remember-intent.
+- **Diagnostic CLI exits no longer wrap as `failed to execute` (#2024)** — `ExitCoder` errors (doctor warn/fail, hook consolidation) keep their operator-facing message. `store search-projection` help is localized.
+
+### Docs
+- Install clone examples pin to the running CLI version (#2023).
+- Public `store archive` / `capacity` / `retention files` / `search-projection`, `session gc` / `repair-one-shot`, `bundle`, and `memory decay` commands are in the bilingual CLI reference (#2004).
+- Landing and integrations README add Grok Build and Kimi Code and align compact/prompt cells with the hook-coverage matrix (#2005).
+- Committed the v0.40 Gemini dogfood `.gemini/settings.json` (10s + usage generation) (#2022).
+
+
 ## [v0.40.0] - 2026-08-16
 
 ### Added
