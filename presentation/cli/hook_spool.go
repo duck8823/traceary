@@ -992,12 +992,8 @@ func requeueHookSpoolDeadLetters(ctx context.Context, now time.Time, dryRun bool
 			requeued++
 			continue
 		}
-		record.AttemptCount = 0
-		record.LastError = ""
-		record.Path = ""
-		if writeErr := writeHookSpoolRecordAtomic(path, record); writeErr != nil {
-			return requeued, skipped, remaining, writeErr
-		}
+		// Rename first so a crash cannot leave a dead file with last_error
+		// cleared (that would make the record unreplayable until prune).
 		random := make([]byte, 8)
 		if _, randErr := rand.Read(random); randErr != nil {
 			return requeued, skipped, remaining, xerrors.Errorf("failed to generate hook spool requeue ID: %w", randErr)
@@ -1010,6 +1006,12 @@ func requeueHookSpoolDeadLetters(ctx context.Context, now time.Time, dryRun bool
 		dest := filepath.Join(dir, name)
 		if renameErr := os.Rename(path, dest); renameErr != nil {
 			return requeued, skipped, remaining, xerrors.Errorf("failed to requeue hook spool dead-letter: %w", renameErr)
+		}
+		record.AttemptCount = 0
+		record.LastError = ""
+		record.Path = ""
+		if writeErr := writeHookSpoolRecordAtomic(dest, record); writeErr != nil {
+			return requeued, skipped, remaining, writeErr
 		}
 		requeued++
 	}
@@ -1062,7 +1064,7 @@ func pruneHookSpoolDeadLetters(now time.Time, dryRun bool) (pruned, remaining in
 
 // inspectHookSpoolFilesystemMetadata builds a doctor check from directory
 // metadata only (entry counts + byte sizes). Safe on the large-store early
-// path: no SQLite open and no payload reads.
+// path: no SQLite open. Fix reads last_error envelope fields only.
 func inspectHookSpoolFilesystemMetadata() doctorCheck {
 	const name = "hook-spool"
 	stats, err := inspectHookSpoolFilesystemStats(time.Now().UTC())
@@ -1085,7 +1087,7 @@ func inspectHookSpoolFilesystemMetadata() doctorCheck {
 	if pendingTotal > 0 || hookSpoolDeadOverThreshold(stats) {
 		status = doctorStatusWarn
 	}
-	return doctorCheck{
+	check := doctorCheck{
 		Name:   name,
 		Status: status,
 		Message: localizef(
@@ -1099,10 +1101,58 @@ func inspectHookSpoolFilesystemMetadata() doctorCheck {
 			formatByteSize(stats.DeadBytes),
 		),
 		Hint: Localize(
-			"metadata-only counts from the hook spool directory (no payload bodies). Pending records drain on later hook invocations or `traceary doctor --fix`. Dead-letter records stay under spool/dead/ until `traceary doctor --fix` requeues transient classes or prunes files older than 14 days.",
-			"hook spool ディレクトリのメタデータのみの件数です（payload body は読みません）。未処理 record は後続 hook または `traceary doctor --fix` で drain されます。dead-letter は spool/dead/ に残り、`traceary doctor --fix` が transient を再キューするか 14 日より古いファイルを prune します。",
+			"metadata-only counts from the hook spool directory (no payload bodies). Pending records drain on later hook invocations. `traceary doctor --fix` requeues transient dead letters and prunes files older than 14 days without opening SQLite.",
+			"hook spool ディレクトリのメタデータのみの件数です（payload body は読みません）。未処理 record は後続 hook で drain されます。`traceary doctor --fix` は SQLite を開かず transient dead-letter を再キューし、14 日より古いファイルを prune します。",
 		),
 	}
+	if status == doctorStatusWarn {
+		check.FixCommand = "traceary doctor --fix"
+		check.AutoFixAvailable = true
+		check.StructuredFixFunc = func(ctx context.Context, dryRun bool) (doctorFixResult, error) {
+			return fixHookSpoolDeadLettersFilesystem(ctx, time.Now().UTC(), dryRun)
+		}
+		check.FixFunc = func(ctx context.Context, dryRun bool) (string, error) {
+			result, err := fixHookSpoolDeadLettersFilesystem(ctx, time.Now().UTC(), dryRun)
+			return result.Action, err
+		}
+	}
+	return check
+}
+
+func fixHookSpoolDeadLettersFilesystem(ctx context.Context, now time.Time, dryRun bool) (doctorFixResult, error) {
+	requeued, skippedNontransient, _, err := requeueHookSpoolDeadLetters(ctx, now, dryRun)
+	if err != nil {
+		return doctorFixResult{}, err
+	}
+	pruned, deadRemaining, err := pruneHookSpoolDeadLetters(now, dryRun)
+	if err != nil {
+		return doctorFixResult{}, err
+	}
+	if dryRun {
+		return doctorFixResult{Action: localizef(
+			"would requeue %d transient dead-letter(s), skip %d non-transient, and prune %d aged dead-letter file(s)",
+			"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、古い dead-letter %d 件を prune します",
+			requeued,
+			skippedNontransient,
+			pruned,
+		)}, nil
+	}
+	return doctorFixResult{
+		Action: localizef(
+			"requeued=%d skipped_nontransient=%d pruned_dead=%d dead_remaining=%d",
+			"requeued=%d skipped_nontransient=%d pruned_dead=%d dead_remaining=%d",
+			requeued,
+			skippedNontransient,
+			pruned,
+			deadRemaining,
+		),
+		Metrics: map[string]int{
+			"requeued":             requeued,
+			"skipped_nontransient": skippedNontransient,
+			"pruned_dead":          pruned,
+			"dead_remaining":       deadRemaining,
+		},
+	}, nil
 }
 
 func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error) {

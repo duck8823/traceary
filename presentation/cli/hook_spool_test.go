@@ -1559,6 +1559,9 @@ func TestInspectHookSpoolFilesystemMetadata_CountsWithoutReadingPayloads(t *test
 	if check.Status != doctorStatusWarn {
 		t.Fatalf("status=%q, want warn", check.Status)
 	}
+	if !check.AutoFixAvailable || check.StructuredFixFunc == nil {
+		t.Fatal("large-store hook-spool check must expose filesystem requeue/prune")
+	}
 	if !strings.Contains(check.Message, "pending=1") || !strings.Contains(check.Message, "dead=1") {
 		t.Fatalf("message=%q, want pending and dead counts", check.Message)
 	}
@@ -1698,6 +1701,54 @@ func TestRequeueHookSpoolDeadLetters_MovesTransientAndKeepsPoison(t *testing.T) 
 	}
 	if pendingJSON != 2 {
 		t.Fatalf("pending JSON count=%d, want 2", pendingJSON)
+	}
+}
+
+func TestInspectHookSpoolFilesystemMetadata_FixRequeuesWithoutDrain(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "audit",
+		Client:        "claude",
+		Payload:       `{"sentinel":"PRIVATE-BODY"}`,
+		CreatedAt:     time.Now().UTC(),
+		AttemptCount:  hookSpoolRetryLimit,
+		LastError:     "failed to ping SQLite DB: context deadline exceeded",
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deadDir, "deadline.json"), append(encoded, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persistHookSpoolRecord(hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	check := inspectHookSpoolFilesystemMetadata()
+	if !check.AutoFixAvailable || check.StructuredFixFunc == nil {
+		t.Fatal("expected filesystem auto-fix")
+	}
+	result, err := check.StructuredFixFunc(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metrics["requeued"] != 1 || strings.Contains(result.Action, "PRIVATE-BODY") {
+		t.Fatalf("result=%+v", result)
+	}
+	if _, err := os.Stat(filepath.Join(deadDir, "deadline.json")); !os.IsNotExist(err) {
+		t.Fatalf("dead letter must be requeued, stat err=%v", err)
 	}
 }
 
