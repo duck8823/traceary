@@ -3,12 +3,23 @@
 [English](store-compact-disk-cost.md)
 
 `traceary store compact` は、source database と `VACUUM INTO` が書き出す
-candidate のために空き容量を必要とします。開始前の preflight は、store
-size の **1.1 倍**（および operation 固有の temporary budget）を予約します。
-これは意図的な worst-case reservation です。SQLite は書き込み前に
-candidate のサイズを報告できないため、安全側に倒して compact 後の store
-が source と同じ大きさになると仮定します。実際の compact 結果はもっと小さく
-なる場合がありますが、その小さい値を事前予約に使うのは安全ではありません。
+candidate のために空き容量を必要とします。このボリュームに source サイズの
+work copy を置けるときは、preflight は従来どおり store size の **1.1 倍**
+を予約します。置けないときは dest サイズ（source から metadata-only の
+回収見積もりを引いた値。下限は source の 10%）だけを予約し、それも足りなければ
+in-place の filter + `PRAGMA incremental_vacuum` に落ちます（rollback inode
+はありません）。
+
+source サイズの work copy を別ディスクへ置くには `--work-dir` を使います。
+
+```text
+traceary store compact --work-dir /volumes/external/traceary-compact
+```
+
+candidate は live store の隣に書かれます（live ボリュームには dest サイズの
+空きが必要です）。rollback は source 隣の `<db>.rollback-<run id>` です。
+in-place 実行だけは `compact_strategy=in_place` で `rollback_retained=false`
+になります。
 
 この予約がディスク容量の全コストではありません。実行が成功した後も、元の
 database は recovery copy として残ります。

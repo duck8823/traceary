@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/duck8823/traceary/application"
@@ -52,7 +53,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	}
 	cutoff := application.CompactCutoff(in.Now, in.KeepDays)
 	if setter, ok := u.builder.(compactFilterSetter); ok {
-		filter := application.CompactFilter{Cutoff: cutoff}
+		filter := application.CompactFilter{Cutoff: cutoff, WorkDir: strings.TrimSpace(in.WorkDir)}
 		if in.Force && u.cover != nil {
 			filter.AfterClone = u.cover
 		}
@@ -91,8 +92,47 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		}
 		reclaim = measured
 	}
+	var estimated int64
+	if inspector, ok := u.builder.(reclaimableBytesInspector); ok {
+		measured, inspectErr := inspector.InspectReclaimableBytes(ctx, source, cutoff)
+		if inspectErr != nil {
+			return application.CompactResult{}, inspectErr
+		}
+		estimated = measured
+	} else {
+		estimated = reclaim.Bytes
+	}
+	strategy := application.CompactStrategyReplica
+	if strings.TrimSpace(in.WorkDir) != "" {
+		strategy = application.CompactStrategyExternal
+	}
 	run, err := u.compactLeased(ctx, source)
 	if err != nil {
+		if isInsufficientCompactionSpace(err) && strategy != application.CompactStrategyInPlace {
+			inPlaceErr := u.compactInPlace(ctx, source, cutoff)
+			if inPlaceErr == nil {
+				after, afterErr := os.Stat(source)
+				if afterErr != nil {
+					return application.CompactResult{}, fmt.Errorf("stat compacted store: %w", afterErr)
+				}
+				remaining, remainingBytes := gate.UnrefinedSessions, gate.UnrefinedBytes
+				if in.Force {
+					remaining, remainingBytes = 0, 0
+				}
+				return application.CompactResult{
+					BytesBefore:               before.Size(),
+					BytesAfter:                after.Size(),
+					UnrefinedRemaining:        remaining,
+					UnrefinedBytes:            remainingBytes,
+					MechanicalSummaries:       in.Force && gate.UnrefinedSessions > 0,
+					ReleasedCommandBodyRows:   reclaim.Rows,
+					ReleasedCommandBodyBytes:  reclaim.Bytes,
+					EstimatedReclaimableBytes: estimated,
+					CompactStrategy:           application.CompactStrategyInPlace,
+				}, nil
+			}
+			return application.CompactResult{}, fmt.Errorf("%w\n\testimated reclaimable bytes: %d\n\tattach another volume and retry with --work-dir, or free dest-sized space on this volume", err, estimated)
+		}
 		return application.CompactResult{}, err
 	}
 	after, afterErr := os.Stat(source)
@@ -104,15 +144,44 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		remaining, remainingBytes = 0, 0
 	}
 	return application.CompactResult{
-		Run:                      run,
-		BytesBefore:              before.Size(),
-		BytesAfter:               after.Size(),
-		UnrefinedRemaining:       remaining,
-		UnrefinedBytes:           remainingBytes,
-		MechanicalSummaries:      in.Force && gate.UnrefinedSessions > 0,
-		ReleasedCommandBodyRows:  reclaim.Rows,
-		ReleasedCommandBodyBytes: reclaim.Bytes,
+		Run:                       run,
+		BytesBefore:               before.Size(),
+		BytesAfter:                after.Size(),
+		UnrefinedRemaining:        remaining,
+		UnrefinedBytes:            remainingBytes,
+		MechanicalSummaries:       in.Force && gate.UnrefinedSessions > 0,
+		ReleasedCommandBodyRows:   reclaim.Rows,
+		ReleasedCommandBodyBytes:  reclaim.Bytes,
+		EstimatedReclaimableBytes: estimated,
+		CompactStrategy:           strategy,
 	}, nil
+}
+
+type reclaimableBytesInspector interface {
+	InspectReclaimableBytes(ctx context.Context, source string, cutoff time.Time) (int64, error)
+}
+
+type inPlaceCompactor interface {
+	CompactInPlace(ctx context.Context, source string, filter application.CompactFilter) error
+}
+
+func (u *storeCompactionUsecase) compactInPlace(ctx context.Context, source string, cutoff time.Time) error {
+	compactor, ok := u.builder.(inPlaceCompactor)
+	if !ok {
+		return fmt.Errorf("in-place compact is not supported by this builder")
+	}
+	filter := application.CompactFilter{Cutoff: cutoff}
+	if u.cover != nil {
+		filter.AfterClone = u.cover
+	}
+	return compactor.CompactInPlace(ctx, source, filter)
+}
+
+func isInsufficientCompactionSpace(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "insufficient free space")
 }
 
 func (u *storeCompactionUsecase) compactLeased(ctx context.Context, source string) (domain.CompactionRun, error) {

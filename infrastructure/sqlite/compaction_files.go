@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain"
 )
 
@@ -446,22 +447,33 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 	if err != nil {
 		return run, err
 	}
-	available, err := availableBytes(filepath.Dir(run.SourcePath))
+	available, err := availableBytes(filepath.Dir(run.CandidatePath))
 	if err != nil {
 		return run, err
 	}
 	temporary := uint64(0)
+	destination := id.Size
 	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
 		if ^uint64(0)-run.Budget.WALByteLimit < run.Budget.TemporaryByteLimit {
 			return run, errors.New("prepared upgrade resource size overflow")
 		}
 		temporary = run.Budget.WALByteLimit + run.Budget.TemporaryByteLimit
 	} else if id.Size > 0 {
-		// Work copy lives beside the source for the copy-filter. Peak disk is
-		// source + work + candidate (~3×); free space must cover work + candidate.
-		temporary = uint64(id.Size)
+		estimate, estimateErr := inspectReclaimableBytes(ctx, run.SourcePath, time.Now().UTC().AddDate(0, 0, -application.DefaultCompactKeepDays))
+		if estimateErr == nil && estimate > 0 && estimate < id.Size {
+			destination = id.Size - estimate
+			if destination < id.Size/10 {
+				destination = id.Size / 10
+			}
+		}
+		if available >= uint64(id.Size) {
+			// Work copy lives beside the source for the copy-filter when the
+			// volume can hold a source-sized replica.
+			temporary = uint64(id.Size)
+			destination = id.Size
+		}
 	}
-	required, margin, err := compactionRequiredBytes(id.Size, temporary)
+	required, margin, err := compactionRequiredBytes(destination, temporary)
 	if err != nil {
 		return run, err
 	}
@@ -484,7 +496,7 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 	} else {
 		leaseCapability = probeStoreLeaseCapability(ctx, run.SourcePath) == nil
 	}
-	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(id.Size), TemporaryBytes: temporary, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
+	run.Resources = domain.CompactionResourcePlan{RequiredBytes: required, DestinationBytes: uint64(destination), TemporaryBytes: temporary, SafetyMarginBytes: margin, AvailableBytes: available, FilesystemDevice: id.Device, LeaseCapability: leaseCapability, ExchangeCapability: exchangeCapability}
 	if !run.Resources.ExchangeCapability {
 		return run, errors.New("atomic exchange capability unavailable")
 	}
