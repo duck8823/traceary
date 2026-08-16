@@ -81,7 +81,7 @@ The `traceary integration codex install` helper was retired in v0.14.0 and the c
 **Kimi Code** ([guide](./docs/integrations/kimi.md))
 
 ```sh
-git clone --depth 1 --branch v0.29.0 https://github.com/duck8823/traceary ~/src/traceary
+git clone --depth 1 --branch "v$(traceary -v | awk '{print $2}')" https://github.com/duck8823/traceary ~/src/traceary
 cd ~/src/traceary
 ./scripts/install-kimi-plugin.sh
 ```
