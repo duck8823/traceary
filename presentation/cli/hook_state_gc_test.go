@@ -95,6 +95,7 @@ func TestGCHookStateResiduesRemovesStalePIDAndAgedMarkers(t *testing.T) {
 }
 
 func TestGCHookStateResiduesRemovesEmptyAgedDiagnostic(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
 	now := time.Now().UTC()

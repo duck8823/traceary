@@ -291,6 +291,7 @@ func writeHookCancellationDiagnosticForTest(t *testing.T, path string, record ho
 }
 
 func TestScanHookCancellationDiagnosticsSkipsEmptyMarkers(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
 	now := time.Now().UTC()
