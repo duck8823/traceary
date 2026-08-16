@@ -3,7 +3,7 @@
 [English](./README.md)
 
 Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存します。
-このガイドでは、何がどこに保存されるのか、現在の schema がどう構成されているのか、`gc` / backup の既定動作が実際に何を意味するのかを整理します。
+このガイドでは、何がどこに保存されるのか、現在の schema がどう構成されているのか、`compact` / backup の既定動作が実際に何を意味するのかを整理します。
 
 ## ローカルファーストの配置
 
@@ -66,7 +66,7 @@ Traceary は確認済みのコマンド構造だけを正規化します。直�
 
 `input_truncated` または `output_truncated` が true の場合、保存済み payload はすでに上限内の head/tail projection であり、新規 row では対応する `*_original_bytes` column に元の byte 数を記録します。検索 index は `command_text` / `input_text` / `output_text` を `events.body` と独立に持つため、合成 body を消しても audit テキストの検索性は失われません。切り詰められた byte は過去 row から復元できません。
 
-`command_audits.event_id` は `ON DELETE CASCADE` なので、`gc` で event を削除すると対応する audit payload も同時に消えます。
+`command_audits.event_id` は `ON DELETE CASCADE` なので、event row を削除すると対応する audit payload も同時に消えます。
 
 ### `sessions`
 
@@ -186,10 +186,22 @@ fold schema より前の store には被覆の証跡が無いため、破棄候�
 
 実務上の意味:
 
-- `gc` は opt-in であり、Traceary が background で自動削除することはありません
-- 被覆済みの transcript 本文だけを破棄したい場合は `--target events` を使ってください
+- `store compact` は operator が手動で実行するもので、Traceary が background で自動的に履歴を破棄することはありません
+- `store compact` が破棄する kind は `transcript` 本文のみです。`prompt` 本文と `command_audits` のテキストは常に残ります
 - 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
 - cold 行の export と **verify-before-delete** は [Archive-before-GC](./archive-before-gc.ja.md)（#1309）を参照。フルファイル backup は [バックアップガイド](../backup/README.ja.md)
+
+## レコードごとのストレージ蓄積
+
+`store compact` が破棄できる部分を除き、各 event row は永続的にストレージを蓄積します。`select_discardable_event_bodies.sql` の allowlist は現時点では `{transcript}` のみです。終了済みかつ被覆済みセッションの `transcript` 本文だけが本文破棄の対象になります。
+
+以下は破棄パスの対象外であり、常に残ります。
+
+- `command_audits.command_text`、`input_text`、`output_text` — `command_executed` event の構造化 audit 記録
+- `prompt` event の本文
+- すべての kind の event skeleton（id、kind、session_id、created_at など）
+
+参照コーパスでの実測値: 約 **2.67 KiB/event** が永続的に蓄積し、約 **0.35 KiB/event** が破棄可能（被覆済みの `transcript` 本文）で、上限の目安は約 **4 KiB/event** です。`store compact` は破棄可能な部分を削減しますが、ストアの総サイズを上限付きにするものではありません。永続的に蓄積する部分は、compact の実行頻度に関係なく event 数に比例して増加します。
 
 ## 履歴 content の可逆的な dedupe
 
