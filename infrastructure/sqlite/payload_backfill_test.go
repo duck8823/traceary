@@ -1819,6 +1819,101 @@ func insertPlaintextEventAtRowID(t *testing.T, db *sql.DB, rowID int64, seed eve
 	}
 }
 
+// insertBackfillRunRow seeds a payload_backfill_runs row directly for
+// loader-ordering tests that bypass the high-level API.
+func insertBackfillRunRow(t *testing.T, db *sql.DB, runID, state, startedAt string) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO payload_backfill_runs(
+			run_id, recipe_version, high_water_rowid, audit_high_water_rowid,
+			cursor_rowid, pass_count, state, worker_token, started_at, updated_at
+		) VALUES (?, 'test-recipe', 0, 0, 0, 0, ?, '', ?, ?)`,
+		runID, state, startedAt, startedAt,
+	); err != nil {
+		t.Fatalf("insert backfill run %s: %v", runID, err)
+	}
+}
+
+// TestLoadActiveBackfillRun_PicksLaterInstantAcrossLexicalInversion verifies
+// that the active-run loader returns the running row when a completed row has
+// a lexically-later started_at. RFC3339Nano '.' (0x2E) < 'Z' (0x5A), so
+// a sub-second timestamp sorts lexically before a whole-second timestamp of
+// a later instant — the #1185 hazard. The fix (ts_norm ORDER BY) is
+// defensive here because the unique partial index already limits active rows
+// to one; this test documents correctness in the presence of the inversion.
+func TestLoadActiveBackfillRun_PicksLaterInstantAcrossLexicalInversion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, _, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	// wholeSecond sorts lexically after subSecond ('Z' > '.'), but subSecond
+	// represents the later instant.
+	const (
+		wholeSecond = "2024-01-01T12:00:00Z"
+		subSecond   = "2024-01-01T12:00:00.5Z"
+	)
+	insertBackfillRunRow(t, db, "run-completed", "completed", wholeSecond)
+	insertBackfillRunRow(t, db, "run-active", "running", subSecond)
+
+	row, err := loadActiveBackfillRun(ctx, db)
+	if err != nil {
+		t.Fatalf("loadActiveBackfillRun: %v", err)
+	}
+	if diff := cmp.Diff("run-active", row.RunID); diff != "" {
+		t.Fatalf("run_id mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestLoadLatestBackfillRun_PicksLaterInstantAcrossLexicalInversion is the
+// red-before-green test for the ts_norm fix on loadLatestBackfillRun. Without
+// ts_norm, ORDER BY started_at DESC returns the whole-second row first because
+// 'Z' (0x5A) > '.' (0x2E) lexically; ts_norm normalises both to fixed-width
+// nanosecond text so the temporally-later sub-second row wins.
+func TestLoadLatestBackfillRun_PicksLaterInstantAcrossLexicalInversion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, _, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	const (
+		wholeSecond = "2024-01-01T12:00:00Z"   // lexically later, temporally earlier
+		subSecond   = "2024-01-01T12:00:00.5Z"  // lexically earlier, temporally later
+	)
+	insertBackfillRunRow(t, db, "run-A", "completed", wholeSecond)
+	insertBackfillRunRow(t, db, "run-B", "completed", subSecond)
+
+	row, err := loadLatestBackfillRun(ctx, db)
+	if err != nil {
+		t.Fatalf("loadLatestBackfillRun: %v", err)
+	}
+	if diff := cmp.Diff("run-B", row.RunID); diff != "" {
+		t.Fatalf("run_id mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestLoadLatestBackfillRun_TieBreakByRunID verifies the run_id DESC tie-break
+// when two rows share an identical started_at value.
+func TestLoadLatestBackfillRun_TieBreakByRunID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, _, _ := openPayloadBackfillFixture(t)
+	defer closePayloadBackfillFixture(t, db)
+
+	const ts = "2024-01-01T12:00:00Z"
+	insertBackfillRunRow(t, db, "run-1", "completed", ts)
+	insertBackfillRunRow(t, db, "run-2", "completed", ts)
+
+	row, err := loadLatestBackfillRun(ctx, db)
+	if err != nil {
+		t.Fatalf("loadLatestBackfillRun: %v", err)
+	}
+	// run_id DESC: "run-2" > "run-1" lexically.
+	if diff := cmp.Diff("run-2", row.RunID); diff != "" {
+		t.Fatalf("run_id tie-break mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func insertPlaintextAuditAtRowID(t *testing.T, db *sql.DB, rowID int64, seed auditSeed) {
 	t.Helper()
 	if _, err := db.Exec(`

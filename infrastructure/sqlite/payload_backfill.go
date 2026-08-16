@@ -927,7 +927,7 @@ func loadActiveBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, err
 		       failure_event_id, failure_reason
 		  FROM payload_backfill_runs
 		 WHERE state IN ('running', 'paused')
-		 ORDER BY started_at DESC
+		 ORDER BY ts_norm(started_at) DESC, run_id DESC
 		 LIMIT 1`))
 }
 
@@ -940,7 +940,7 @@ func loadLatestBackfillRun(ctx context.Context, db *sql.DB) (backfillRunRow, err
 		       partial_metadata_rows, rewritten_rows, plaintext_bytes, stored_bytes,
 		       failure_event_id, failure_reason
 		  FROM payload_backfill_runs
-		 ORDER BY started_at DESC
+		 ORDER BY ts_norm(started_at) DESC, run_id DESC
 		 LIMIT 1`))
 }
 
