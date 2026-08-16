@@ -314,6 +314,31 @@ func TestRootCLI_Report_TextMakesUsageAvailabilityAndCostOriginExplicit(t *testi
 	}
 }
 
+func TestRootCLI_Report_TextDisclosesExcludedUsageWhenAdditiveIsZero(t *testing.T) {
+	t.Parallel()
+	stub := &reportUsecaseStub{result: apptypes.ReportSnapshot{
+		Period:         apptypes.ReportPeriod{Timezone: "UTC", EffectiveFromInclusive: "2026-08-15T00:00:00Z", EffectiveToExclusive: "2026-08-16T00:00:00Z", SnapshotAt: "2026-08-16T00:00:00Z"},
+		Aggregation:    apptypes.ReportAggregation{Coverage: apptypes.ReportCoverageComplete, PageSize: 10},
+		Failures:       apptypes.ReportFailures{ByClient: map[string]int{}, ByReason: map[string]int{}},
+		UsageScanCount: 0,
+		UsageScanNote:  "0 additive (12 excluded: token states unavailable); kimi main_wire rows excluded (double-count protection vs stop_hook)",
+	}}
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"report", "--db-path", "/tmp/test-traceary.db"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "0 additive (12 excluded: token states unavailable)") {
+		t.Fatalf("report text missing excluded disclosure:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "kimi main_wire") {
+		t.Fatalf("report text missing kimi disclosure:\n%s", stdout.String())
+	}
+}
+
 func reportSnapshotForCriteria(criteria apptypes.ReportCriteria) apptypes.ReportSnapshot {
 	interval := criteria.Interval()
 	formatNano := func(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
