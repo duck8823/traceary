@@ -2,7 +2,9 @@ package sqlite
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -76,7 +78,7 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 		return nil
 	}
 
-	if err := deleteNonCanonicalDuplicateEvents(ctx, db); err != nil {
+	if err := deleteNonCanonicalDuplicateEvents(ctx, db, &StoreManagementDatasource{}); err != nil {
 		return err
 	}
 
@@ -138,8 +140,7 @@ func dropLegacySearchFamilyOn(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func deleteNonCanonicalDuplicateEvents(ctx context.Context, db *sql.DB) error {
-	datasource := &StoreManagementDatasource{}
+func deleteNonCanonicalDuplicateEvents(ctx context.Context, db *sql.DB, datasource *StoreManagementDatasource) error {
 	survey, err := datasource.identifyDedupeGroups(ctx, db, "", 0)
 	if err != nil {
 		return fmt.Errorf("identify work-copy duplicates: %w", err)
@@ -148,18 +149,34 @@ func deleteNonCanonicalDuplicateEvents(ctx context.Context, db *sql.DB) error {
 	if len(plan.groups) == 0 {
 		return nil
 	}
+	runID, err := newCompactCopyFilterRunID()
+	if err != nil {
+		return fmt.Errorf("mint compact copy-filter run id: %w", err)
+	}
 	params := apptypes.ContentEventDedupeParams{
 		Apply: true,
-		RunID: "compact-copy-filter",
+		RunID: runID,
 		Now:   time.Now().UTC(),
 	}
 	if err := datasource.applyDedupeGroups(ctx, db, plan, params); err != nil {
-		return fmt.Errorf("delete work-copy duplicates: %w", err)
+		return &apptypes.ContentEventDedupeApplyError{RunID: runID, Err: fmt.Errorf("delete work-copy duplicates: %w", err)}
 	}
 	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS event_content_dedupe_archive`); err != nil {
-		return fmt.Errorf("drop work-copy dedupe archive after apply: %w", err)
+		return &apptypes.ContentEventDedupeApplyError{RunID: runID, Err: fmt.Errorf("drop work-copy dedupe archive after apply: %w", err)}
 	}
 	return nil
+}
+
+// newCompactCopyFilterRunID mints a per-execution id for the copy-filter's
+// internal apply. The previous fixed "compact-copy-filter" literal collided
+// across runs and, on a mid-apply failure, could not distinguish which
+// execution's rows landed in the work copy's (already-discarded) archive.
+func newCompactCopyFilterRunID() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate compact copy-filter run id: %w", err)
+	}
+	return "compact-copy-filter-" + hex.EncodeToString(raw), nil
 }
 
 func encodeAvailableEventBodies(ctx context.Context, db *sql.DB) error {
