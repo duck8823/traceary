@@ -59,8 +59,12 @@ func (c *RootCLI) detectPluginInstalls() []doctorPluginInstall {
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "config", "plugins", "traceary", "plugin.json"), "antigravity", agyHint)...)
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary", "plugin.json"), "antigravity", agyHint)...)
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "extensions", "traceary", "gemini-extension.json"), "gemini", "gemini extensions update traceary")...)
+	// Grok clones the whole repository into a hash-named directory under
+	// installed-plugins and selects the package with a #subdir selector; the
+	// manifest stays at its in-repo path inside that clone, so the glob must
+	// follow the installer root rather than a fixed plugin name.
 	installs = append(installs, detectManifestInstalls(
-		filepath.Join(home, ".grok", "plugins", "traceary", "plugin.json"),
+		filepath.Join(home, ".grok", "installed-plugins", "*", "integrations", "grok-plugin", "plugin.json"),
 		"grok",
 		"./scripts/install-grok-plugin.sh  # from a matching release tag checkout",
 	)...)
