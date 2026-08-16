@@ -173,6 +173,14 @@ func loadEventPlaintext(ctx context.Context, q queryRowContexter, eventID string
 	return decodeEventPlaintext(ctx, q, eventID, hasCodec)
 }
 
+func auditHasCodecColumns(ctx context.Context, q queryRowContexter) (bool, error) {
+	var has int
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('command_audits') WHERE name='command_codec')`).Scan(&has); err != nil {
+		return false, xerrors.Errorf("inspect audit payload metadata: %w", err)
+	}
+	return has != 0, nil
+}
+
 func eventHasCodecColumns(ctx context.Context, q queryRowContexter) (bool, error) {
 	var has int
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('events') WHERE name='body_codec')`).Scan(&has); err != nil {
