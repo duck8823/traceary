@@ -998,6 +998,34 @@ func TestDatasource_LineageAndTreeLatestEventsArePerSession(t *testing.T) {
 	assertSummaryLatest(t, tree, "latest-child", types.EventKindReviewed, "child latest")
 }
 
+func TestDatasource_LineageOfLatestEventAmongManyEventsInOneSession(t *testing.T) {
+	t.Parallel()
+
+	fixture := newListSessionsFixture(t, filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+	ctx := context.Background()
+	if err := fixture.storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	started := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	saveTestSession(ctx, t, fixture.sessionDS, "busy-session", started, types.None[time.Time](), "codex", "duck8823/traceary")
+
+	const eventCount = 500
+	for i := 0; i < eventCount; i++ {
+		saveListTestEvent(ctx, t, fixture.eventDS, fmt.Sprintf("busy-event-%03d", i), types.EventKindNote, "busy-session",
+			fmt.Sprintf("body-%03d", i), started.Add(time.Duration(i)*time.Second))
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	lineage, err := fixture.sessionDS.LineageOf(ctx, types.SessionID("busy-session"))
+	if err != nil {
+		t.Fatalf("LineageOf() error = %v", err)
+	}
+	if time.Now().After(deadline) {
+		t.Fatalf("LineageOf() took longer than the bound expected for a single-row-per-session latest event lookup")
+	}
+	assertSummaryLatest(t, lineage, "busy-session", types.EventKindNote, fmt.Sprintf("body-%03d", eventCount-1))
+}
+
 func assertSummaryLatest(t *testing.T, summaries []apptypes.SessionSummary, sessionID string, wantKind types.EventKind, wantMessage string) {
 	t.Helper()
 	for _, summary := range summaries {
