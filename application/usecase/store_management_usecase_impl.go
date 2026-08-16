@@ -123,6 +123,9 @@ func (u *storeManagementUsecase) DedupeContentEvents(
 
 	result, err := u.storeManager.DedupeContentEvents(ctx, params)
 	if err != nil {
+		if params.Apply {
+			return apptypes.ContentEventDedupeResult{}, &apptypes.ContentEventDedupeApplyError{RunID: params.RunID, Err: err}
+		}
 		return apptypes.ContentEventDedupeResult{}, xerrors.Errorf("failed to dedupe content events: %w", err)
 	}
 	return result, nil

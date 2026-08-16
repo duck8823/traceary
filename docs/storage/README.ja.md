@@ -237,6 +237,8 @@ fold schema より前の store には被覆の証跡が無いため、破棄候�
 
 **rollback。** apply を取り消すには `traceary store dedupe content-events --restore <run-id>` を実行します（run id は `--apply` が出力し、隔離した各行にも記録されます）。run id が出力される前に apply が中断した場合は `--list-runs` で見つけられます。バッチは run id が報告される前に commit されるため、これがないとその行は restore / purge のどちらからも到達できません。念のためのコピーが欲しい場合は、`--apply` の前に `traceary store backup create` を取得してください。
 
+**apply の失敗は run id を失わない。** `Apply:true` が途中で失敗すると、`StoreManagementUsecase.DedupeContentEvents` はその error を `apptypes.ContentEventDedupeApplyError{RunID, Err}` で包みます。すでに commit 済みの batch がどの id で隔離されたかを失わないためで、`errors.As` で取り出せます。dry-run の失敗は run id を名乗りません（採番していないため）。`store compact` 内部の copy-filter apply（`deleteNonCanonicalDuplicateEvents`）も実行ごとに一意な run id を採番し、同じ型で失敗を包みますが、こちらは破棄可能な work copy 上で動作し、成功時には途中の archive も work copy ごと捨てるため、復旧手段は compact の resume / rollback であり、restore コマンドではありません。上記の `store dedupe content-events` CLI 面自体は #1872 で削除済みで、その復活はこの変更の対象外です。
+
 **バイトの回収。** 隔離は duplicate を移動するだけで、領域は解放しません。隔離された行を破棄するのは `--purge <run-id>` だけで、解放されたページをファイルシステムへ返すのはそのあとの `VACUUM` だけです。
 
 **振る舞いテスト。** dry-run の報告と非変更、apply ＋冪等性、restore ＋上書き拒否、malformed timestamp のスキップ、command-audit / 非 hook の除外、retention で空になった行の除外、retention ledger 行が cluster を保つこと、strict と近接スコープ、batch size に依存しないこと、部分 apply からの再開、run 一覧、purge、read surface の除外は `infrastructure/sqlite/content_event_dedupe_test.go` で、cluster を分割しない不変条件は `infrastructure/sqlite/content_event_dedupe_batch_internal_test.go` の純粋関数上で直接、flag 配線と JSON/text 出力は `presentation/cli/store_dedupe_test.go` で、run id の採番は `application/usecase/store_dedupe_test.go` でカバーしています。

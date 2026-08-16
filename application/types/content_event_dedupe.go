@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // ContentEventDedupeParams configures a single content-event dedupe maintenance
 // run (`traceary store dedupe content-events`).
@@ -126,6 +129,29 @@ type ContentEventDedupeRun struct {
 	QuarantinedRows int
 	// BodyBytes is the total quarantined body length held by this run, in bytes.
 	BodyBytes int64
+}
+
+// ContentEventDedupeApplyError wraps a failure from an apply run (Apply:true)
+// so the run id that already-committed batches were archived under is never
+// lost. Apply commits in bounded batches (see ContentEventDedupeParams.BatchSize),
+// so a run that fails partway through has already quarantined rows durably
+// under RunID even though the call returns an error. The result value carrying
+// that outcome is discarded by callers on error, so the run id's only surviving
+// path out of the failure is this error.
+type ContentEventDedupeApplyError struct {
+	// RunID is the id every row committed before the failure was archived
+	// under, and the id RestoreContentEventDedupeRun needs to recover them.
+	RunID string
+	// Err is the underlying failure.
+	Err error
+}
+
+func (e *ContentEventDedupeApplyError) Error() string {
+	return fmt.Sprintf("content-event dedupe apply failed for run %s: %v", e.RunID, e.Err)
+}
+
+func (e *ContentEventDedupeApplyError) Unwrap() error {
+	return e.Err
 }
 
 // ContentEventDedupePurgeResult is the outcome of ending a quarantine run's

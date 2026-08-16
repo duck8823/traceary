@@ -839,6 +839,9 @@ func (d *StoreManagementDatasource) applyDedupeGroups(
 		if err := d.archiveDedupeBatch(ctx, db, batch, params.RunID, archivedAt); err != nil {
 			return err
 		}
+		if d.onAfterDedupeBatchCommit != nil {
+			d.onAfterDedupeBatchCommit()
+		}
 	}
 	return nil
 }
