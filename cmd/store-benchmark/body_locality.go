@@ -47,17 +47,17 @@ type bodyLocalityReport struct {
 }
 
 type bodyLocalityCorpus struct {
-	Kind    string              `json:"kind"`
+	Kind    string               `json:"kind"`
 	Layouts []bodyLocalityLayout `json:"layouts"`
-	Gate    bodyLocalityGate    `json:"gate"`
+	Gate    bodyLocalityGate     `json:"gate"`
 }
 
 type bodyLocalityLayout struct {
-	Name             string                 `json:"name"`
-	DatabaseBytes    int64                  `json:"database_bytes"`
-	EventsTableBytes int64                  `json:"events_table_bytes,omitempty"`
-	EvidenceMethod   string                 `json:"evidence_method"`
-	Cases            []bodyLocalityCase     `json:"cases"`
+	Name             string             `json:"name"`
+	DatabaseBytes    int64              `json:"database_bytes"`
+	EventsTableBytes int64              `json:"events_table_bytes,omitempty"`
+	EvidenceMethod   string             `json:"evidence_method"`
+	Cases            []bodyLocalityCase `json:"cases"`
 }
 
 type bodyLocalityCase struct {

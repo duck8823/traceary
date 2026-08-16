@@ -11,9 +11,9 @@ import (
 )
 
 type memoryEdgeUsecase struct {
-	repository model.MemoryEdgeRepository
+	repository   model.MemoryEdgeRepository
 	queryService model.MemoryEdgeQueryService
-	nowFunc    func() time.Time
+	nowFunc      func() time.Time
 }
 
 // NewMemoryEdgeUsecase constructs a MemoryEdgeUsecase bound to the

@@ -12,8 +12,8 @@ type hooksDocument struct {
 }
 
 type hookMatcher struct {
-	Matcher string     `json:"matcher,omitempty"`
-	Hooks   []hookDef  `json:"hooks"`
+	Matcher string    `json:"matcher,omitempty"`
+	Hooks   []hookDef `json:"hooks"`
 }
 
 type hookDef struct {

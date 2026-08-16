@@ -183,7 +183,7 @@ type ProjectionDocument struct {
 	StoredBytes, DecodedBytes                            int64
 	Deleted                                              bool
 	CommandCount, FailureCount                           int
-	Disposition                                           ProjectionDisposition
+	Disposition                                          ProjectionDisposition
 }
 
 // ProjectionDisposition distinguishes a deliberately unindexed source row
@@ -347,68 +347,68 @@ func (*SearchProjectionDriftError) Error() string {
 }
 
 type SearchProjectionStatus struct {
-	SchemaVersion           string `json:"schema_version"`
-	State                   string `json:"state"`
-	Phase                   string `json:"phase"`
-	ProjectionVersion       int    `json:"projection_version"`
-	FTSDesign               string `json:"fts_design"`
-	ConfigHash              string `json:"config_hash"`
-	SourceRevision          int64  `json:"source_revision"`
-	HighWater               int64  `json:"high_water"`
-	Checkpoint              int64  `json:"checkpoint"`
-	Completed               bool   `json:"completed"`
-	RecentAgeSeconds        int64  `json:"recent_age_seconds"`
+	SchemaVersion     string `json:"schema_version"`
+	State             string `json:"state"`
+	Phase             string `json:"phase"`
+	ProjectionVersion int    `json:"projection_version"`
+	FTSDesign         string `json:"fts_design"`
+	ConfigHash        string `json:"config_hash"`
+	SourceRevision    int64  `json:"source_revision"`
+	HighWater         int64  `json:"high_water"`
+	Checkpoint        int64  `json:"checkpoint"`
+	Completed         bool   `json:"completed"`
+	RecentAgeSeconds  int64  `json:"recent_age_seconds"`
 	// IndexFamilyByteLimit is the configured physical-byte budget for the
 	// bounded search index family (the unit the operator sets).
 	IndexFamilyByteLimit int64 `json:"index_family_byte_limit"`
 	// RecentBytes is source text actually retained in the recent tier — a
 	// different unit from IndexFamilyByteLimit, which is the point of #1679.
-	RecentBytes                 int64            `json:"recent_bytes"`
-	RecentDocuments             int64            `json:"recent_documents"`
+	RecentBytes     int64 `json:"recent_bytes"`
+	RecentDocuments int64 `json:"recent_documents"`
 	// RecentSourceBytes is the persisted cache used by interleaved eviction
 	// (search_projection_state.recent_source_bytes). It is scoped to
 	// generation_id, which during a rebuild is the incoming generation, not
 	// the active one RecentBytes sums.
-	RecentSourceBytes           int64            `json:"recent_source_bytes"`
+	RecentSourceBytes int64 `json:"recent_source_bytes"`
 	// RecentSourceBytesMeasured is SUM(decoded_bytes) for that same
 	// generation_id. Delta is cache minus measured. Status does not rewrite
 	// the cache.
-	RecentSourceBytesMeasured   int64            `json:"recent_source_bytes_measured"`
-	RecentSourceBytesDelta      int64            `json:"recent_source_bytes_delta"`
-	RecentSourceBytesEvidence   CapacityEvidence `json:"recent_source_bytes_evidence"`
-	RecentSourceCeilingBytes    int64            `json:"recent_source_ceiling_bytes"`
-	RecentAmplificationPPM      int64            `json:"recent_amplification_ppm"`
-	NonRecentFamilyBytes        int64            `json:"non_recent_family_bytes"`
-	RecentCutoffNorm            string           `json:"recent_cutoff_norm,omitempty"`
-	CapacitySemanticsVersion    int              `json:"capacity_semantics_version"`
-	CapacityEvidence            CapacityEvidence `json:"capacity_evidence"`
-	IndexFamilyWithinBudget     int              `json:"index_family_within_budget"`
-	SummarySessions             int64            `json:"summary_sessions"`
-	KeywordRows                 int64            `json:"keyword_rows"`
-	SummaryLogicalBytes         int64            `json:"summary_logical_bytes"`
-	KeywordLogicalBytes         int64            `json:"keyword_logical_bytes"`
+	RecentSourceBytesMeasured int64            `json:"recent_source_bytes_measured"`
+	RecentSourceBytesDelta    int64            `json:"recent_source_bytes_delta"`
+	RecentSourceBytesEvidence CapacityEvidence `json:"recent_source_bytes_evidence"`
+	RecentSourceCeilingBytes  int64            `json:"recent_source_ceiling_bytes"`
+	RecentAmplificationPPM    int64            `json:"recent_amplification_ppm"`
+	NonRecentFamilyBytes      int64            `json:"non_recent_family_bytes"`
+	RecentCutoffNorm          string           `json:"recent_cutoff_norm,omitempty"`
+	CapacitySemanticsVersion  int              `json:"capacity_semantics_version"`
+	CapacityEvidence          CapacityEvidence `json:"capacity_evidence"`
+	IndexFamilyWithinBudget   int              `json:"index_family_within_budget"`
+	SummarySessions           int64            `json:"summary_sessions"`
+	KeywordRows               int64            `json:"keyword_rows"`
+	SummaryLogicalBytes       int64            `json:"summary_logical_bytes"`
+	KeywordLogicalBytes       int64            `json:"keyword_logical_bytes"`
 	// FTSLogicalBytes is the logical byte total of the FTS5 shadow tables,
 	// distinct from RecentBytes, which is source-text bytes. Integer
 	// columns count as 8 bytes each, not decimal digit length.
-	FTSLogicalBytes             int64            `json:"fts_logical_bytes"`
-	PhysicalBytes               int64            `json:"physical_bytes"`
-	PhysicalEvidence            CapacityEvidence `json:"physical_evidence"`
-	LastBatchMilliseconds       int64            `json:"last_batch_milliseconds"`
-	InspectionMilliseconds      int64            `json:"inspection_milliseconds"`
-	MatchProbeMilliseconds      int64            `json:"match_probe_milliseconds"`
-	KeywordVersion              int              `json:"keyword_version"`
-	FingerprintVersion          int              `json:"fingerprint_version"`
-	FingerprintRows             int64            `json:"fingerprint_rows"`
-	FingerprintLogicalBytes     int64            `json:"fingerprint_logical_bytes"`
-	LifecycleState              string           `json:"lifecycle_state"`
-	AbandonedAt                 string           `json:"abandoned_at,omitempty"`
+	FTSLogicalBytes         int64            `json:"fts_logical_bytes"`
+	PhysicalBytes           int64            `json:"physical_bytes"`
+	PhysicalEvidence        CapacityEvidence `json:"physical_evidence"`
+	LastBatchMilliseconds   int64            `json:"last_batch_milliseconds"`
+	InspectionMilliseconds  int64            `json:"inspection_milliseconds"`
+	MatchProbeMilliseconds  int64            `json:"match_probe_milliseconds"`
+	KeywordVersion          int              `json:"keyword_version"`
+	FingerprintVersion      int              `json:"fingerprint_version"`
+	FingerprintRows         int64            `json:"fingerprint_rows"`
+	FingerprintLogicalBytes int64            `json:"fingerprint_logical_bytes"`
+	LifecycleState          string           `json:"lifecycle_state"`
+	AbandonedAt             string           `json:"abandoned_at,omitempty"`
 	// FailureClass names why the last generation failed. It is what decides
 	// whether automatic catch-up may start a replacement: a deterministic class
 	// would fail the same way on every open.
-	FailureClass string `json:"failure_class,omitempty"`
-	ExclusionGenerationID string                       `json:"exclusion_generation_id,omitempty"`
-	ExclusionCount        int64                        `json:"exclusion_count"`
-	Exclusions             []SearchProjectionExclusion `json:"exclusions,omitempty"`
+	FailureClass          string                      `json:"failure_class,omitempty"`
+	ExclusionGenerationID string                      `json:"exclusion_generation_id,omitempty"`
+	ExclusionCount        int64                       `json:"exclusion_count"`
+	Exclusions            []SearchProjectionExclusion `json:"exclusions,omitempty"`
 	// CutoverIndexFamily names which physical family CutoverFamilyBytes*
 	// measure. Always "bounded_search_projection" when set — never the
 	// legacy migration-032 event_search_* family (that is #1718).
@@ -456,11 +456,11 @@ func (s *SearchProjectionStatus) ApplyParkedNotice(defaultConfigHash string) {
 }
 
 type SearchProjectionExclusion struct {
-	Sequence int64 `json:"sequence"`
-	EventID string `json:"event_id"`
-	Class string `json:"class"`
-	MeasuredBytes int64 `json:"measured_bytes"`
-	ByteLimit int64 `json:"byte_limit"`
+	Sequence      int64  `json:"sequence"`
+	EventID       string `json:"event_id"`
+	Class         string `json:"class"`
+	MeasuredBytes int64  `json:"measured_bytes"`
+	ByteLimit     int64  `json:"byte_limit"`
 }
 
 // SearchProjectionControlStatus contains only persisted state-machine data.

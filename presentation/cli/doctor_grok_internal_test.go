@@ -403,16 +403,16 @@ func TestProbeGrokDoctorStateUserHookRoutes(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 
 	tests := []struct {
-		name              string
-		writeUserHooks    bool
-		invalidUserHooks  bool
-		nativePlugin      bool
-		inspectUserHooks  bool
-		wantUserHooks     bool
-		wantRoutesStatus  string
-		wantRoutesSubstr  []string
-		wantUserStatus    string
-		wantUserSubstr    []string
+		name             string
+		writeUserHooks   bool
+		invalidUserHooks bool
+		nativePlugin     bool
+		inspectUserHooks bool
+		wantUserHooks    bool
+		wantRoutesStatus string
+		wantRoutesSubstr []string
+		wantUserStatus   string
+		wantUserSubstr   []string
 	}{
 		{
 			name:             "user file absent with native plugin has no duplicate warning",

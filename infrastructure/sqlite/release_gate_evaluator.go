@@ -99,14 +99,14 @@ func (e *ReleaseGateEvaluator) Evaluate(ctx context.Context, now time.Time) (_ a
 }
 
 type emissionStats struct {
-	events     int64
-	canonical  int64
-	measured   bool
-	ratio      float64
-	promptN    int64
-	promptB    int64
-	commandN   int64
-	commandB   int64
+	events    int64
+	canonical int64
+	measured  bool
+	ratio     float64
+	promptN   int64
+	promptB   int64
+	commandN  int64
+	commandB  int64
 }
 
 type duplicateStats struct {

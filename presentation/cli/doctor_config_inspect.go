@@ -678,14 +678,14 @@ var codexManagedEvents = []string{"SessionStart", "SubagentStart", "SubagentStop
 // misclassify user-managed commands that happen to contain "hook" and
 // "codex".
 var codexManagedEventKeys = map[string][]string{
-	"SessionStart":     []string{"traceary-session.sh:codex:start"},
-	"SubagentStart":    []string{"traceary-subagent-start.sh:codex"},
-	"SubagentStop":     []string{"traceary-subagent-stop.sh:codex"},
-	"PreCompact":       []string{"traceary-compact.sh:codex:pre-compact"},
-	"PostCompact":      []string{"traceary-compact.sh:codex:post-compact"},
-	"UserPromptSubmit": []string{"traceary-prompt.sh:codex"},
-	"Stop":             []string{"traceary-usage.sh:codex", "traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
-	"PostToolUse":      []string{"traceary-audit.sh:codex"},
+	"SessionStart":     {"traceary-session.sh:codex:start"},
+	"SubagentStart":    {"traceary-subagent-start.sh:codex"},
+	"SubagentStop":     {"traceary-subagent-stop.sh:codex"},
+	"PreCompact":       {"traceary-compact.sh:codex:pre-compact"},
+	"PostCompact":      {"traceary-compact.sh:codex:post-compact"},
+	"UserPromptSubmit": {"traceary-prompt.sh:codex"},
+	"Stop":             {"traceary-usage.sh:codex", "traceary-transcript.sh:codex", "traceary-session.sh:codex:stop"},
+	"PostToolUse":      {"traceary-audit.sh:codex"},
 }
 
 // expectedCodexPluginHookCount returns the number of command hooks in the

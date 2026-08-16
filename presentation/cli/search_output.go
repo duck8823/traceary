@@ -16,7 +16,7 @@ import (
 // Both keys are always present so an empty tier is distinguishable from a
 // missing field; empty arrays mean the tier was consulted and returned no hits.
 type searchJSONEnvelope struct {
-	Events   []any                    `json:"events"`
+	Events   []any                     `json:"events"`
 	Sessions []searchSessionJSONOutput `json:"sessions"`
 }
 

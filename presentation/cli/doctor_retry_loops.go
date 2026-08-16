@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	retryLoopScanLimit      = 200
-	retryLoopMinCount       = 3
-	retryLoopSampleIDs      = 3
-	retryLoopWindowMax      = 2 * time.Hour
-	retryLoopCheckName      = "retry-loops"
+	retryLoopScanLimit = 200
+	retryLoopMinCount  = 3
+	retryLoopSampleIDs = 3
+	retryLoopWindowMax = 2 * time.Hour
+	retryLoopCheckName = "retry-loops"
 )
 
 // retryLoopInput is one failed command_executed row used by the pure classifier.
@@ -34,23 +34,23 @@ type retryLoopInput struct {
 
 // retryLoopGroup is a conservative cluster of identical failed attempts.
 type retryLoopGroup struct {
-	Key          string
-	Workspace    string
-	Agent        string
-	Command      string
-	ErrorClass   string
-	Count        int
-	FirstAt      time.Time
-	LastAt       time.Time
-	SampleIDs    []string
-	Preflight    string
+	Key        string
+	Workspace  string
+	Agent      string
+	Command    string
+	ErrorClass string
+	Count      int
+	FirstAt    time.Time
+	LastAt     time.Time
+	SampleIDs  []string
+	Preflight  string
 }
 
 var (
-	retryLoopEISDIRPattern = regexp.MustCompile(`(?i)\b(eisdir|is a directory)\b`)
-	retryLoopMissingPattern = regexp.MustCompile(`(?i)\b(enoent|no such file|not found|does not exist)\b`)
+	retryLoopEISDIRPattern    = regexp.MustCompile(`(?i)\b(eisdir|is a directory)\b`)
+	retryLoopMissingPattern   = regexp.MustCompile(`(?i)\b(enoent|no such file|not found|does not exist)\b`)
 	retryLoopOversizedPattern = regexp.MustCompile(`(?i)\b(file (is )?too large|exceeds?.*(token|size|byte)|oversized)\b`)
-	retryLoopSandboxPattern = regexp.MustCompile(`(?i)\b(bypasssandbox|sandbox|outside the workspace|requires access to files outside)\b`)
+	retryLoopSandboxPattern   = regexp.MustCompile(`(?i)\b(bypasssandbox|sandbox|outside the workspace|requires access to files outside)\b`)
 )
 
 // classifyRetryLoopErrorClass maps audit output/command into a stable error class.

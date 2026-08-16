@@ -87,27 +87,27 @@ func TestForceCoverSafeToDelete(t *testing.T) {
 	}{
 		{name: "complete"},
 		{
-			name: "has more but all newer than cutoff",
+			name:    "has more but all newer than cutoff",
 			hasMore: true, earliestUnprocessed: &newer,
 		},
 		{
-			name: "has more and unknown earliest time",
+			name:    "has more and unknown earliest time",
 			hasMore: true, wantErr: true,
 		},
 		{
-			name: "has more and unprocessed older than cutoff",
+			name:    "has more and unprocessed older than cutoff",
 			hasMore: true, earliestUnprocessed: &older, wantErr: true,
 		},
 		{
-			name: "skipped but newer than cutoff",
+			name:    "skipped but newer than cutoff",
 			skipped: 2, earliestSkipped: &newer,
 		},
 		{
-			name: "skipped with unknown earliest time",
+			name:    "skipped with unknown earliest time",
 			skipped: 2, wantErr: true,
 		},
 		{
-			name: "skipped older than cutoff",
+			name:    "skipped older than cutoff",
 			skipped: 2, earliestSkipped: &older, wantErr: true,
 		},
 		{

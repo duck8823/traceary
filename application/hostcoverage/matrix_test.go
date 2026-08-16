@@ -74,4 +74,3 @@ func TestLoad_KimiCoreEventsAreWired(t *testing.T) {
 		t.Fatal("kimi should expect session enrichment once core capture is wired")
 	}
 }
-

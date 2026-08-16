@@ -9,12 +9,12 @@ type RawBodyExclusionReason string
 
 // Exclusion reasons in allowlist-evaluation order (first failing condition wins).
 const (
-	RawBodyExclusionReasonNotTranscript   RawBodyExclusionReason = "not_transcript"
+	RawBodyExclusionReasonNotTranscript    RawBodyExclusionReason = "not_transcript"
 	RawBodyExclusionReasonAlreadyDiscarded RawBodyExclusionReason = "already_discarded"
-	RawBodyExclusionReasonSessionMissing  RawBodyExclusionReason = "session_missing"
-	RawBodyExclusionReasonSessionActive   RawBodyExclusionReason = "session_active"
-	RawBodyExclusionReasonWithinRetention RawBodyExclusionReason = "within_retention"
-	RawBodyExclusionReasonUncovered       RawBodyExclusionReason = "uncovered"
+	RawBodyExclusionReasonSessionMissing   RawBodyExclusionReason = "session_missing"
+	RawBodyExclusionReasonSessionActive    RawBodyExclusionReason = "session_active"
+	RawBodyExclusionReasonWithinRetention  RawBodyExclusionReason = "within_retention"
+	RawBodyExclusionReasonUncovered        RawBodyExclusionReason = "uncovered"
 )
 
 // RawBodyExclusionReasonFrom validates a persisted exclusion-reason value.

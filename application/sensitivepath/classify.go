@@ -94,29 +94,29 @@ const (
 
 // Classification is the separable sensitive-path claim for one audit event.
 type Classification struct {
-	Matched        bool           `json:"matched"`
-	Class          Class          `json:"class,omitempty"`
-	Operation      Operation      `json:"operation,omitempty"`
-	Evidence       Evidence       `json:"evidence,omitempty"`
-	Coverage       Coverage       `json:"coverage,omitempty"`
-	Redaction      RedactionClaim `json:"redaction,omitempty"`
-	MatchedPath    string         `json:"matched_path,omitempty"`
-	IntentOnly     bool           `json:"intent_only"`
-	Summary        string         `json:"summary,omitempty"`
-	CoverageGap    string         `json:"coverage_gap,omitempty"`
+	Matched     bool           `json:"matched"`
+	Class       Class          `json:"class,omitempty"`
+	Operation   Operation      `json:"operation,omitempty"`
+	Evidence    Evidence       `json:"evidence,omitempty"`
+	Coverage    Coverage       `json:"coverage,omitempty"`
+	Redaction   RedactionClaim `json:"redaction,omitempty"`
+	MatchedPath string         `json:"matched_path,omitempty"`
+	IntentOnly  bool           `json:"intent_only"`
+	Summary     string         `json:"summary,omitempty"`
+	CoverageGap string         `json:"coverage_gap,omitempty"`
 }
 
 // Input is the raw material used to classify one audit.
 type Input struct {
-	Command        string
-	Input          string
-	Output         string
-	ToolName       string
-	InputTruncated bool
+	Command         string
+	Input           string
+	Output          string
+	ToolName        string
+	InputTruncated  bool
 	OutputTruncated bool
-	InputRedacted  bool
-	OutputRedacted bool
-	ExtraPatterns  []string
+	InputRedacted   bool
+	OutputRedacted  bool
+	ExtraPatterns   []string
 }
 
 type rule struct {
@@ -149,11 +149,11 @@ func Classify(in Input) Classification {
 
 	if strings.TrimSpace(text) == "" {
 		return Classification{
-			Matched:    false,
-			Coverage:   CoverageUnobservable,
-			Redaction:  redaction,
+			Matched:     false,
+			Coverage:    CoverageUnobservable,
+			Redaction:   redaction,
 			CoverageGap: "empty_payload",
-			Summary:    "no audit payload to classify",
+			Summary:     "no audit payload to classify",
 		}
 	}
 
@@ -186,11 +186,11 @@ func Classify(in Input) Classification {
 
 	if matchedClass == ClassNone {
 		return Classification{
-			Matched:   false,
-			Coverage:  coverage,
-			Redaction: redaction,
+			Matched:     false,
+			Coverage:    coverage,
+			Redaction:   redaction,
 			CoverageGap: gap,
-			Summary:   "no sensitive path pattern matched",
+			Summary:     "no sensitive path pattern matched",
 		}
 	}
 

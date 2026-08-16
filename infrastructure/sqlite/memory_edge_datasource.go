@@ -128,13 +128,13 @@ func scanMemoryEdge(scanner interface {
 	Scan(dest ...any) error
 }) (*model.MemoryEdge, error) {
 	var (
-		idValue         string
-		fromIDValue     string
-		toIDValue       string
-		relationValue   string
-		validFromValue  string
-		validToValue    sql.NullString
-		createdAtValue  string
+		idValue        string
+		fromIDValue    string
+		toIDValue      string
+		relationValue  string
+		validFromValue string
+		validToValue   sql.NullString
+		createdAtValue string
 	)
 	if err := scanner.Scan(
 		&idValue,

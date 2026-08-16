@@ -266,4 +266,3 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 	})
 }
-

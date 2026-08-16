@@ -441,8 +441,6 @@ func firstAntigravityWorkspacePath(payload []byte) string {
 	return ""
 }
 
-
-
 // resolveAntigravityFallbackWorkspaceCwd walks the parent process chain and
 // returns the first cwd that looks like a user workspace rather than an
 // Antigravity/Gemini configuration directory.
