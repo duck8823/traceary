@@ -307,7 +307,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		// reported via directory entry counts and byte sizes only (pending /
 		// stale inflight / dead-letter).
 		report.Checks = append(report.Checks, inspectHookSpoolFilesystemMetadata())
-		report.Checks = append(report.Checks, inspectHookStateResidueMetadata(time.Now().UTC()))
+		// hook-state-residue is owned by appendFilesystemHostDoctorChecks on
+		// this path; appending it here would print and --fix it twice.
 		// Host package identity (installed plugin/manifest version, native
 		// grok/kimi activation state) reads only host manifests, host plugin
 		// caches, and host CLI probes, so it stays available in the bounded
