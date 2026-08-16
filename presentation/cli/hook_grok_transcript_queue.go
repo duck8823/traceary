@@ -42,7 +42,10 @@ const (
 	hookGrokTranscriptDrainBatchLimit = 3
 	// hookGrokTranscriptDoctorFixLimit is the larger batch used by doctor --fix.
 	hookGrokTranscriptDoctorFixLimit = 50
-	hookGrokTranscriptErrorLimit     = 1024
+	// hookGrokTranscriptPendingExpire drops terminal failed/malformed leftovers
+	// so a 27-day pile cannot stay pending forever (#2009).
+	hookGrokTranscriptPendingExpire = 30 * 24 * time.Hour
+	hookGrokTranscriptErrorLimit    = 1024
 )
 
 type hookGrokTranscriptJob struct {
@@ -147,7 +150,7 @@ func (c *RootCLI) inspectHookGrokTranscriptDiagnostics(now time.Time) doctorChec
 			"未処理の Grok transcript job が %d 件、以前失敗した job が %d 件、読めない job が %d 件、partial final-turn disposition が %d 件（unavailable %d 件、malformed %d 件、cancelled %d 件、読めない disposition marker %d 件）あります。最古の経過時間は %s です",
 			len(jobs), failed, len(unreadable), partial, terminalCounts["unavailable"], terminalCounts["malformed"], terminalCounts["cancelled"], terminalUnreadable, oldestAge.Round(time.Second),
 		),
-		Hint: Localize("later hooks drain a bounded oldest-first batch across sessions and GC terminal dispositions past retention. Run `traceary doctor --fix` to force a larger drain, or enable TRACEARY_HOOK_DEBUG for the next turn", "後続 hook は oldest-first の bounded batch で queue 全体を drain し、retention を過ぎた終端 disposition を GC します。大きめに drain するには `traceary doctor --fix` を使い、次の turn で TRACEARY_HOOK_DEBUG を有効にしてください"),
+		Hint:             Localize("later hooks drain a bounded oldest-first batch across sessions and GC terminal dispositions past retention. Run `traceary doctor --fix` to force a larger drain, or enable TRACEARY_HOOK_DEBUG for the next turn", "後続 hook は oldest-first の bounded batch で queue 全体を drain し、retention を過ぎた終端 disposition を GC します。大きめに drain するには `traceary doctor --fix` を使い、次の turn で TRACEARY_HOOK_DEBUG を有効にしてください"),
 		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,
 		FixFunc: func(_ context.Context, dryRun bool) (string, error) {
@@ -174,6 +177,11 @@ func (c *RootCLI) drainHookGrokTranscriptQueue(now time.Time, limit int, skipPat
 		return 0, 0
 	}
 	removed = gcHookGrokTranscriptTerminals(now, limit)
+	if removed >= limit {
+		return 0, removed
+	}
+	expired := expireHookGrokTranscriptJobs(now, limit-removed)
+	removed += expired
 	if removed >= limit {
 		return 0, removed
 	}
@@ -258,6 +266,58 @@ func gcHookGrokTranscriptTerminals(now time.Time, limit int) int {
 
 func hookGrokTranscriptJobIsTerminal(job hookGrokTranscriptJob) bool {
 	return job.Attempts >= hookGrokTranscriptMaxAttempts
+}
+
+func hookGrokTranscriptJobExpired(job hookGrokTranscriptJob, now time.Time) bool {
+	if hookGrokTranscriptJobIsTerminal(job) {
+		return true
+	}
+	if job.RequestedAt.IsZero() {
+		return false
+	}
+	return !job.RequestedAt.Add(hookGrokTranscriptPendingExpire).After(now)
+}
+
+func expireHookGrokTranscriptJobs(now time.Time, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	jobs, unreadable, err := scanHookGrokTranscriptJobs()
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	for _, job := range jobs {
+		if removed >= limit {
+			return removed
+		}
+		if !hookGrokTranscriptJobExpired(job, now) {
+			continue
+		}
+		disposition := "unavailable"
+		if strings.Contains(strings.ToLower(job.LastError), "malformed") {
+			disposition = "malformed"
+		}
+		if err := finalizeHookGrokTranscriptJob(job.Path, disposition); err != nil {
+			slog.Debug("hook Grok transcript expire failed", "job", job.Path, "error", err)
+			continue
+		}
+		removed++
+	}
+	for _, path := range unreadable {
+		if removed >= limit {
+			break
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil || now.Sub(info.ModTime()) < hookGrokTranscriptPendingExpire {
+			continue
+		}
+		if err := finalizeHookGrokTranscriptJob(path, "malformed"); err != nil {
+			_ = os.Remove(path)
+		}
+		removed++
+	}
+	return removed
 }
 
 func hookGrokTranscriptTerminalReadyForGC(terminal hookGrokTranscriptTerminal, now time.Time) bool {
