@@ -61,6 +61,9 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 		Use:    "hook",
 		Short:  "Runtime entrypoints used by packaged Traceary hooks",
 		Hidden: true,
+		PersistentPreRun: func(*cobra.Command, []string) {
+			maybeGCHookStateResidues()
+		},
 	}
 	hookCmd.AddCommand(c.newHookSessionCommand())
 	hookCmd.AddCommand(c.newHookAuditCommand())

@@ -307,6 +307,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		// reported via directory entry counts and byte sizes only (pending /
 		// stale inflight / dead-letter).
 		report.Checks = append(report.Checks, inspectHookSpoolFilesystemMetadata())
+		report.Checks = append(report.Checks, inspectHookStateResidueMetadata(time.Now().UTC()))
 		// Host package identity (installed plugin/manifest version, native
 		// grok/kimi activation state) reads only host manifests, host plugin
 		// caches, and host CLI probes, so it stays available in the bounded
@@ -387,6 +388,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks,
 		c.inspectHookSpoolDiagnosticsFromScan(spoolRecords, spoolUnreadable, spoolErr),
 	)
+	report.Checks = append(report.Checks, inspectHookStateResidueMetadata(time.Now().UTC()))
 	report.Checks = append(report.Checks, c.inspectHookMemoryExtractDiagnostics(time.Now().UTC()))
 	report.Checks = append(report.Checks, c.inspectMemoryInboxSaturation(ctx))
 	report.Checks = append(report.Checks, c.inspectHookGrokTranscriptDiagnostics(time.Now().UTC()))
