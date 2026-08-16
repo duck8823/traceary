@@ -58,8 +58,8 @@ func inspectHookStateResidueMetadata(now time.Time) doctorCheck {
 		Name:   hookStateResidueCheckName,
 		Status: status,
 		Message: localizef(
-			"hook state residue: per_pid=%d stale_pid=%d diagnostics=%d ended=%d",
-			"hook state 残渣: per_pid=%d stale_pid=%d diagnostics=%d ended=%d",
+			"hook state residue: per_pid=%d stale_pid=%d aged_diagnostics=%d aged_ended=%d",
+			"hook state 残渣: per_pid=%d stale_pid=%d aged_diagnostics=%d aged_ended=%d",
 			stats.PerPID, stats.StalePerPID, stats.Diagnostics, stats.Ended,
 		),
 		Hint: Localize(

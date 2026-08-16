@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -90,6 +91,44 @@ func TestGCHookStateResiduesRemovesStalePIDAndAgedMarkers(t *testing.T) {
 	}
 	if _, err := os.Stat(agedEnded); !os.IsNotExist(err) {
 		t.Fatal("aged ended marker must be removed")
+	}
+}
+
+func TestGCHookStateResiduesRemovesEmptyAgedDiagnostic(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Now().UTC()
+	diagDir := filepath.Join(stateDir, "diagnostics")
+	if err := os.MkdirAll(diagDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	emptyAged := filepath.Join(diagDir, "claude-SessionEnd-empty.json")
+	if err := os.WriteFile(emptyAged, []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agedAt := now.Add(-hookStateResidueRetention - time.Hour)
+	if err := os.Chtimes(emptyAged, agedAt, agedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	check := inspectHookStateResidueMetadata(now)
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("status=%q, want warn", check.Status)
+	}
+	if !strings.Contains(check.Message, "aged_diagnostics=1") || !strings.Contains(check.Message, "aged_ended=0") {
+		t.Fatalf("message=%q, want aged population labels", check.Message)
+	}
+
+	result, err := gcHookStateResidues(now, hookStateGCDoctorBudget, false)
+	if err != nil {
+		t.Fatalf("gc: %v", err)
+	}
+	if result.Removed != 1 {
+		t.Fatalf("removed=%d, want 1", result.Removed)
+	}
+	if _, err := os.Stat(emptyAged); !os.IsNotExist(err) {
+		t.Fatal("empty aged diagnostic must be GC-eligible residue")
 	}
 }
 

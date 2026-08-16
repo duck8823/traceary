@@ -127,8 +127,8 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context
 				"読めない diagnostic file を確認してください。読める diagnostic が無いことは、Claude が Traceary 起動前に hook を cancel していない証明にはなりません",
 			),
 			Message: localizef(
-				"found unreadable Claude hook cancellation diagnostic file(s): %s",
-				"読めない Claude hook cancellation diagnostic file があります: %s",
+				"found unreadable nonempty Claude hook cancellation diagnostic file(s): %s",
+				"読めない nonempty の Claude hook cancellation diagnostic file があります: %s",
 				strings.Join(scan.Unreadable, ", "),
 			),
 		}
@@ -204,8 +204,8 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context
 			"この marker は Traceary が Claude SessionEnd まで到達したものの正常完了していないことを示します。file と最近の `traceary list --agent claude` を確認し、stale と判断できたら marker を削除してください。Claude が Traceary 起動前に cancel した場合、marker は書けません。",
 		),
 		Message: localizef(
-			"found %d actionable Claude SessionEnd hook cancellation diagnostic(s), %d resolved, %d unknown-store; latest phase=%s host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
-			"対応が必要な Claude SessionEnd hook cancellation diagnostic が %d 件、解決済みが %d 件、ストア不明が %d 件あります。latest phase=%s host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
+			"found %d unresolved Claude SessionEnd hook cancellation diagnostic(s), %d resolved, %d unknown-store; latest phase=%s host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
+			"未解決の Claude SessionEnd hook cancellation diagnostic が %d 件、解決済みが %d 件、ストア不明が %d 件あります。latest phase=%s host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
 			len(classification.Actionable),
 			len(classification.Resolved),
 			len(classification.Unknown),
@@ -512,7 +512,18 @@ func formatUnreadableHookDiagnosticsSuffix(paths []string) string {
 	if len(paths) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("; unreadable=%s", strings.Join(paths, ","))
+	return fmt.Sprintf("; unreadable_nonempty=%s", strings.Join(paths, ","))
+}
+
+func hookDiagnosticEntrySize(entry os.DirEntry) int64 {
+	if entry == nil {
+		return -1
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return -1
+	}
+	return info.Size()
 }
 
 func scanHookCancellationDiagnostics(client, hostEvent string, workspace types.Workspace) (hookCancellationDiagnosticScan, error) {
@@ -539,7 +550,15 @@ func scanHookCancellationDiagnostics(client, hostEvent string, workspace types.W
 		path := filepath.Join(diagnosticsDir, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
+			if hookDiagnosticEntrySize(entry) == 0 {
+				continue
+			}
 			scan.Unreadable = append(scan.Unreadable, path)
+			continue
+		}
+		if len(data) == 0 {
+			// Crash-while-write 0-byte markers never become readable.
+			// Aged ones are residue GC; none count as "needs attention".
 			continue
 		}
 		var record hookCancellationDiagnostic
