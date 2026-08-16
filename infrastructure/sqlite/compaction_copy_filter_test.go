@@ -834,6 +834,54 @@ func saveHistoricalCommandExecuted(t *testing.T, events *sqlite.EventDatasource,
 	}
 }
 
+func TestInspectReclaimableBytesUsesMetadataProjection(t *testing.T) {
+	t.Parallel()
+	dbPath, events, _ := prepareDiscardGCFixture(t)
+	old := newGCEventFixture(t, "event-old-transcript", types.EventKindTranscript, strings.Repeat("x", 4000), time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	got, err := (sqlite.SQLiteCompactionBuilder{}).InspectReclaimableBytes(
+		context.Background(),
+		dbPath,
+		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("InspectReclaimableBytes: %v", err)
+	}
+	if got < 4000 {
+		t.Fatalf("InspectReclaimableBytes = %d, want at least the discarded transcript bytes", got)
+	}
+}
+
+func TestCompactInPlaceDropsDuplicatedCommandBodies(t *testing.T) {
+	t.Parallel()
+	dbPath, events, _ := prepareDiscardGCFixture(t)
+	saveHistoricalCommandExecuted(t, events, "cmd-a", strings.Repeat("same-body", 200), true)
+	saveHistoricalCommandExecuted(t, events, "cmd-b", strings.Repeat("same-body", 200), true)
+	before, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (sqlite.SQLiteCompactionBuilder{}).CompactInPlace(context.Background(), dbPath, application.CompactFilter{}); err != nil {
+		t.Fatalf("CompactInPlace: %v", err)
+	}
+	after, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Size() <= 0 || before.Size() <= 0 {
+		t.Fatalf("unexpected sizes before=%d after=%d", before.Size(), after.Size())
+	}
+	reclaim, err := (sqlite.SQLiteCompactionBuilder{}).InspectCommandBodyReclaim(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("InspectCommandBodyReclaim: %v", err)
+	}
+	if reclaim.Rows != 0 {
+		t.Fatalf("duplicated command bodies remaining: %+v", reclaim)
+	}
+}
+
 func dropRetiredSearchFamily(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, name := range []string{"event_search_documents", "event_search_fts", "event_search_backfill_state"} {

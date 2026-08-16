@@ -14,18 +14,31 @@ type CompactInput struct {
 	Force    bool
 	KeepDays int
 	Now      time.Time
+	// WorkDir, when set, holds the copy-filter work file on another volume
+	// so the source volume only needs dest-sized free space for VACUUM INTO.
+	WorkDir string
 }
+
+// Compact strategies recorded in CompactResult.CompactStrategy.
+const (
+	CompactStrategyReplica   = "replica"
+	CompactStrategyExternal  = "external"
+	CompactStrategyDestSized = "dest_sized"
+	CompactStrategyInPlace   = "in_place"
+)
 
 // CompactResult is the operator-visible outcome of one rewrite.
 type CompactResult struct {
-	Run                      domain.CompactionRun
-	BytesBefore              int64
-	BytesAfter               int64
-	UnrefinedRemaining       int
-	UnrefinedBytes           int64
-	MechanicalSummaries      bool
-	ReleasedCommandBodyRows  int
-	ReleasedCommandBodyBytes int64
+	Run                       domain.CompactionRun
+	BytesBefore               int64
+	BytesAfter                int64
+	UnrefinedRemaining        int
+	UnrefinedBytes            int64
+	MechanicalSummaries       bool
+	ReleasedCommandBodyRows   int
+	ReleasedCommandBodyBytes  int64
+	EstimatedReclaimableBytes int64
+	CompactStrategy           string
 }
 
 // CommandBodyReclaim is the measured set of duplicated command_executed
@@ -44,6 +57,8 @@ type CompactFilter struct {
 	// folded enough of the oldest backlog to let CollectGarbage proceed even
 	// when unrelated, newer-than-cutoff material is still unfolded (#1721).
 	AfterClone func(ctx context.Context, work string, cutoff time.Time) error
+	// WorkDir stages the source-sized work copy on another volume (#2008).
+	WorkDir string
 }
 
 // BodyGate classifies discardable-age transcript bodies on the source.

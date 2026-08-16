@@ -16,6 +16,7 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 		path     string
 		force    bool
 		keepDays int
+		workDir  string
 	)
 	cmd := &cobra.Command{
 		Use:   "compact",
@@ -30,6 +31,7 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 				Source:   resolved,
 				Force:    force,
 				KeepDays: keepDays,
+				WorkDir:  workDir,
 			})
 			if err != nil {
 				var unrefined application.UnrefinedMaterialError
@@ -48,16 +50,19 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 				"mechanical_summaries":        result.MechanicalSummaries,
 				"released_command_body_rows":  result.ReleasedCommandBodyRows,
 				"released_command_body_bytes": result.ReleasedCommandBodyBytes,
+				"estimated_reclaimable_bytes": result.EstimatedReclaimableBytes,
+				"compact_strategy":            result.CompactStrategy,
 				"rollback_path":               result.Run.RollbackPath,
 				// Apply-time VerifyPair is not in-use proof. The operator
 				// deletes this file when they accept the rewrite (#1827).
-				"rollback_retained": true,
+				"rollback_retained": result.CompactStrategy != application.CompactStrategyInPlace,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&path, "db-path", "", dbPathFlagUsage())
 	cmd.Flags().BoolVar(&force, "force", false, Localize("write mechanical summaries for unrefined discardable sessions and discard those bodies", "未 refine の破棄対象へ機械要約を書いて本文を捨てる"))
 	cmd.Flags().IntVar(&keepDays, "keep-days", application.DefaultCompactKeepDays, Localize("retain bodies newer than this many days", "この日数より新しい本文は保持する"))
+	cmd.Flags().StringVar(&workDir, "work-dir", "", Localize("stage the source-sized work copy on another volume when this volume cannot hold a replica", "このボリュームにレプリカを置けないとき、source サイズの work copy を別ボリュームに置く"))
 	cmd.AddCommand(c.newStoreCompactionRollbackCommand())
 	return cmd
 }

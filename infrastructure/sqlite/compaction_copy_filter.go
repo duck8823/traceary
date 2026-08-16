@@ -333,6 +333,68 @@ AND (length(CAST(body AS BLOB)) > 0`
 	return predicate + `)`
 }
 
+// InspectReclaimableBytes is a bounded metadata-only estimate of bytes
+// compact can drop: discardable projection rows older than cutoff plus
+// free pages. It does not walk event bodies.
+func (SQLiteCompactionBuilder) InspectReclaimableBytes(ctx context.Context, source string, cutoff time.Time) (int64, error) {
+	return inspectReclaimableBytes(ctx, source, cutoff)
+}
+
+func inspectReclaimableBytes(ctx context.Context, source string, cutoff time.Time) (int64, error) {
+	db, err := openDirectReadOnly(ctx, source)
+	if err != nil {
+		return 0, fmt.Errorf("open source for reclaimable estimate: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	var pageSize, freePages int64
+	if err := db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize); err != nil {
+		return 0, fmt.Errorf("read page size for reclaimable estimate: %w", err)
+	}
+	if err := db.QueryRowContext(ctx, `PRAGMA freelist_count`).Scan(&freePages); err != nil {
+		return 0, fmt.Errorf("read freelist for reclaimable estimate: %w", err)
+	}
+	var discarded int64
+	if !cutoff.IsZero() {
+		var exists int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='event_metadata_projection'`).Scan(&exists); err != nil {
+			return 0, fmt.Errorf("inspect metadata projection for reclaimable estimate: %w", err)
+		}
+		if exists > 0 {
+			if err := db.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(body_stored_bytes), 0)
+  FROM event_metadata_projection
+ WHERE created_at_norm < ?
+   AND kind IN ('transcript', 'compact_summary')`, formatTimestamp(cutoff)).Scan(&discarded); err != nil {
+				return 0, fmt.Errorf("sum discardable projection bytes: %w", err)
+			}
+		}
+	}
+	return discarded + pageSize*freePages, nil
+}
+
+// CompactInPlace applies the copy-filter on the leased source and runs
+// incremental_vacuum so a dest replica is not required.
+func (b SQLiteCompactionBuilder) CompactInPlace(ctx context.Context, source string, filter application.CompactFilter) error {
+	if filter.AfterClone != nil {
+		if err := filter.AfterClone(ctx, source, filter.Cutoff); err != nil {
+			return fmt.Errorf("compact force cover: %w", err)
+		}
+	}
+	if err := applyCopyFilters(ctx, source, filter); err != nil {
+		return err
+	}
+	db, err := sql.Open("sqlite", directSQLiteRWDSN(source))
+	if err != nil {
+		return fmt.Errorf("open source for incremental vacuum: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(ctx, `PRAGMA incremental_vacuum`); err != nil {
+		return fmt.Errorf("incremental vacuum: %w", err)
+	}
+	return nil
+}
+
 // InspectCommandBodyReclaim measures stored bytes of duplicated
 // command_executed bodies on the source. Compact reports this sum.
 func (SQLiteCompactionBuilder) InspectCommandBodyReclaim(ctx context.Context, source string) (application.CommandBodyReclaim, error) {

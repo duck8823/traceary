@@ -56,7 +56,11 @@ func (b SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate st
 	if err := sourceDB.Close(); err != nil {
 		return err
 	}
-	work := candidate + ".work"
+	workParent := filepathDir(candidate)
+	if dir := strings.TrimSpace(b.Filter.WorkDir); dir != "" {
+		workParent = dir
+	}
+	work := joinCompactionPath(workParent, filepathBase(candidate)+".work")
 	_ = os.Remove(work)
 	removeSQLiteSidecars(work)
 	if err := copyRegularFile(source, work); err != nil {
@@ -655,4 +659,26 @@ func filepathDir(path string) string {
 		return "."
 	}
 	return path[:idx]
+}
+
+func filepathBase(path string) string {
+	idx := strings.LastIndexAny(path, "/\\")
+	if idx < 0 {
+		return path
+	}
+	return path[idx+1:]
+}
+
+func joinCompactionPath(dir, name string) string {
+	if dir == "" || dir == "." {
+		return name
+	}
+	sep := "/"
+	if strings.Contains(dir, "\\") && !strings.Contains(dir, "/") {
+		sep = "\\"
+	}
+	if strings.HasSuffix(dir, "/") || strings.HasSuffix(dir, "\\") {
+		return dir + name
+	}
+	return dir + sep + name
 }
