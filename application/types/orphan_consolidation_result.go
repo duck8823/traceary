@@ -120,11 +120,15 @@ func (r OrphanConsolidationResult) Failures() OrphanConsolidationFailures { retu
 // can actually act on.
 //
 // This is a statement about this pass, not a proof that nothing unfolded
-// remains anywhere. Discovery sees ended or stale sessions plus recorded
-// markers, so a session that has stayed continuously active for longer than
-// the retention window still holds old unfolded events. Those keep their
-// bodies rather than losing them, but they also never become discardable; that
-// gap predates bounding and is tracked in #1724.
+// remains anywhere. Discovery sees ended or stale sessions, recorded markers,
+// and (when the caller supplies a retention cutoff) sessions that never go
+// ended or stale but still hold material past coverage older than that
+// cutoff. The last of these closes what used to be a standing gap: a session
+// that stayed continuously active for longer than the retention window used
+// to be invisible to every discovery source, so its old material was never
+// folded no matter how old it got. It is now discovered and folded up to,
+// but never past, the supplied cutoff — the still-recent tail is left
+// uncovered and surfaces again on a later pass once it too ages past cutoff.
 //
 // There is deliberately no Complete() beside this. It used to mean "no more
 // candidates and nothing was skipped", and conflating those two facts is the

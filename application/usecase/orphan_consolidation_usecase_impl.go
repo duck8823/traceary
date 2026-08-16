@@ -94,7 +94,7 @@ func (u *orphanConsolidationUsecase) Consolidate(
 
 	started := u.clock.Now()
 	now := started
-	candidates, err := u.orphans.DiscoverCandidates(ctx, input.StaleAfter, now, limit)
+	candidates, err := u.orphans.DiscoverCandidates(ctx, input.StaleAfter, now, input.RetentionCutoff, limit)
 	if err != nil {
 		return apptypes.OrphanConsolidationResult{}, xerrors.Errorf("failed to discover orphan ranges: %w", err)
 	}

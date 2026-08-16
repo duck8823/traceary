@@ -141,7 +141,7 @@ func TestSessionOrphanRangeDatasource_RecordAtCompactAfterUnfoldedRange(t *testi
 		t.Fatalf("RecordAtCompact() error = %v", err)
 	}
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt, 100)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, compactAt, time.Time{}, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -216,7 +216,7 @@ func TestSessionOrphanRangeDatasource_GCFindsEndedSessionWithoutMarker(t *testin
 
 	// No orphan row recorded — discovery must still find the gap past covers_to.
 	now := frac.Add(2 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -307,7 +307,7 @@ func TestSessionOrphanRangeDatasource_RunningSessionLeftAlone(t *testing.T) {
 		{id: "evt-2", at: now.Add(-time.Minute)},
 	}, false)
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -699,7 +699,7 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesOnPreMigration47Store(t 
 	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
 
 	now := base.Add(48 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() on pre-47 store error = %v", err)
 	}
@@ -830,7 +830,7 @@ func TestSessionOrphanRangeDatasource_FractionalSecondBoundaryOrdering(t *testin
 		t.Fatal("evt-frac should be strictly after evt-whole under ts_norm")
 	}
 
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour), 100)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, frac.Add(time.Hour), time.Time{}, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -855,7 +855,7 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesRespectsLimit(t *testing
 		}, true)
 	}
 	now := base.Add(48 * time.Hour)
-	got, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 2)
+	got, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, 2)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -882,7 +882,7 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesProgressesAcrossPages(t 
 	now := base.Add(48 * time.Hour)
 	limit := 3
 
-	first, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, limit)
+	first, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, limit)
 	if err != nil {
 		t.Fatalf("first DiscoverCandidates() error = %v", err)
 	}
@@ -907,7 +907,7 @@ func TestSessionOrphanRangeDatasource_DiscoverCandidatesProgressesAcrossPages(t 
 		t.Fatalf("ProducedCount = %d, want %d", got.ProducedCount(), limit)
 	}
 
-	second, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, limit)
+	second, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, limit)
 	if err != nil {
 		t.Fatalf("second DiscoverCandidates() error = %v", err)
 	}
@@ -956,7 +956,7 @@ func TestSessionOrphanRangeDatasource_RecordedShortcutsDoNotHideOlderEndedSessio
 		{id: "evt-old-ended", at: base},
 	}, true)
 
-	got, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 2)
+	got, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, 2)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -1030,7 +1030,7 @@ func TestSessionOrphanRangeDatasource_SessionsWithNoEventsAreNotReturned(t *test
 	}
 
 	now := base.Add(48 * time.Hour)
-	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, 100)
+	candidates, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, 100)
 	if err != nil {
 		t.Fatalf("DiscoverCandidates() error = %v", err)
 	}
@@ -1313,5 +1313,231 @@ func TestSessionOrphanRangeDatasource_WithoutReadScope_OpensPerCandidateCall(t *
 	// LoadMaterial calls opens its own connection: candidateCount+1 total.
 	if want := candidateCount + 1; opens != want {
 		t.Fatalf("read-only opens = %d, want %d (no shared scope entered)", opens, want)
+	}
+}
+
+// TestSessionOrphanRangeDatasource_ThirdSourceDiscoversActiveSessionsPastRetentionCutoff
+// covers the third orphan-discovery source added by #1724: sessions that
+// never satisfy source 2's ended-or-stale predicate (continuous activity,
+// never ended_at) but hold material past refinement coverage older than the
+// compact retention cutoff. staleAfter (24h) governs whether the session
+// looks "active"; retentionCutoff (independent, and in these fixtures much
+// closer to now) governs whether its material is old enough to fold. The
+// four subtests are the fixture shapes from the design spec's TDD plan: all
+// newer than cutoff, straddling, all older, and a tail past a recorded
+// marker.
+func TestSessionOrphanRangeDatasource_ThirdSourceDiscoversActiveSessionsPastRetentionCutoff(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	base := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	const staleAfter = 24 * time.Hour
+
+	t.Run("all events newer than cutoff is not a candidate", func(t *testing.T) {
+		t.Parallel()
+		fx := newOrphanFixture(t)
+		now := base
+		cutoff := now.Add(-time.Hour)
+		_ = seedOrphanSession(ctx, t, fx, "sess-active-newer", []eventSeed{
+			{id: "evt-1", at: now.Add(-30 * time.Minute)},
+			{id: "evt-2", at: now.Add(-5 * time.Minute)},
+		}, false)
+
+		got, err := fx.orphans.DiscoverCandidates(ctx, staleAfter, now, cutoff, 100)
+		if err != nil {
+			t.Fatalf("DiscoverCandidates() error = %v", err)
+		}
+		for _, r := range got.Ranges {
+			if r.SessionID().String() == "sess-active-newer" {
+				t.Fatal("session with events all newer than the retention cutoff must not be a candidate")
+			}
+		}
+	})
+
+	t.Run("straddling cutoff terminates at the last pre-cutoff event", func(t *testing.T) {
+		t.Parallel()
+		fx := newOrphanFixture(t)
+		now := base
+		cutoff := now.Add(-time.Hour)
+		_ = seedOrphanSession(ctx, t, fx, "sess-active-straddle", []eventSeed{
+			{id: "evt-old-1", at: now.Add(-3 * time.Hour)},
+			{id: "evt-old-2", at: now.Add(-2 * time.Hour)}, // last event strictly before cutoff
+			{id: "evt-new-1", at: now.Add(-30 * time.Minute)},
+		}, false)
+
+		got, err := fx.orphans.DiscoverCandidates(ctx, staleAfter, now, cutoff, 100)
+		if err != nil {
+			t.Fatalf("DiscoverCandidates() error = %v", err)
+		}
+		found := findOrphanRangeForSession(got, "sess-active-straddle")
+		if found == nil {
+			t.Fatal("session straddling the retention cutoff must be a candidate")
+		}
+		if found.ToEventID() != "evt-old-2" {
+			t.Fatalf("ToEventID = %s, want evt-old-2 (last event before cutoff)", found.ToEventID())
+		}
+		if from, ok := found.FromEventID().Value(); ok {
+			t.Fatalf("FromEventID = %v, want None (whole session, no prior coverage)", from)
+		}
+	})
+
+	t.Run("all events older than cutoff but session still active is a candidate", func(t *testing.T) {
+		t.Parallel()
+		fx := newOrphanFixture(t)
+		now := base
+		cutoff := now.Add(-time.Hour)
+		_ = seedOrphanSession(ctx, t, fx, "sess-active-allold", []eventSeed{
+			{id: "evt-1", at: now.Add(-5 * time.Hour)},
+			{id: "evt-2", at: now.Add(-3 * time.Hour)}, // latest activity; still within staleAfter
+		}, false)
+
+		got, err := fx.orphans.DiscoverCandidates(ctx, staleAfter, now, cutoff, 100)
+		if err != nil {
+			t.Fatalf("DiscoverCandidates() error = %v", err)
+		}
+		found := findOrphanRangeForSession(got, "sess-active-allold")
+		if found == nil {
+			t.Fatal("active session with all-older material must be a candidate")
+		}
+		if found.ToEventID() != "evt-2" {
+			t.Fatalf("ToEventID = %s, want evt-2 (latest event, all before cutoff)", found.ToEventID())
+		}
+	})
+
+	t.Run("tail past a recorded marker dedupes into one candidate", func(t *testing.T) {
+		t.Parallel()
+		fx := newOrphanFixture(t)
+		now := base
+		cutoff := now.Add(-time.Hour)
+		sessionID := seedOrphanSession(ctx, t, fx, "sess-active-marker", []eventSeed{
+			{id: "evt-whole", at: now.Add(-5 * time.Hour)},
+			{id: "evt-marker", at: now.Add(-4 * time.Hour)},
+			{id: "evt-tail", at: now.Add(-2 * time.Hour)}, // past the marker, still before cutoff
+		}, false)
+
+		refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+		if _, err := refineUC.Refine(ctx, usecase.SessionRefineInput{
+			SessionID: sessionID, Summary: "to whole", ProducedBy: "agent", CoversTo: "evt-whole",
+		}); err != nil {
+			t.Fatalf("Refine() error = %v", err)
+		}
+		orphanUC := usecase.NewSessionOrphanRangeUsecase(fx.orphans, fx.refine, fx.events, types.SystemClock{})
+		if err := orphanUC.RecordAtCompact(ctx, sessionID, "evt-marker"); err != nil {
+			t.Fatalf("RecordAtCompact() error = %v", err)
+		}
+
+		got, err := fx.orphans.DiscoverCandidates(ctx, staleAfter, now, cutoff, 100)
+		if err != nil {
+			t.Fatalf("DiscoverCandidates() error = %v", err)
+		}
+		var matches []*model.SessionOrphanRange
+		for _, r := range got.Ranges {
+			if r.SessionID() == sessionID {
+				matches = append(matches, r)
+			}
+		}
+		if len(matches) != 1 {
+			t.Fatalf("candidates for session = %d, want 1 (marker and third source must dedupe)", len(matches))
+		}
+		if matches[0].ToEventID() != "evt-tail" {
+			t.Fatalf("ToEventID = %s, want evt-tail: the third source's range extends past the marker's frozen point", matches[0].ToEventID())
+		}
+		from, ok := matches[0].FromEventID().Value()
+		if !ok || from != "evt-whole" {
+			t.Fatalf("FromEventID = %v present=%v, want evt-whole (actual refinement coverage boundary)", from, ok)
+		}
+	})
+}
+
+func findOrphanRangeForSession(candidates model.SessionOrphanCandidates, sessionID string) *model.SessionOrphanRange {
+	for _, r := range candidates.Ranges {
+		if r.SessionID().String() == sessionID {
+			return r
+		}
+	}
+	return nil
+}
+
+// TestSessionOrphanRangeDatasource_ActiveSessionFoldTerminatesAtDefiniteEventNotLatest
+// pins the consolidator/folder half of #1724: folding an active session's
+// pre-cutoff tail must stop at a definite last-observed event, never at
+// "now" or the session's true latest event. A subsequent event landing after
+// the fold must not be silently claimed as covered — it must surface as its
+// own fresh orphan range once it, too, ages past a (later) cutoff.
+func TestSessionOrphanRangeDatasource_ActiveSessionFoldTerminatesAtDefiniteEventNotLatest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	sessionID := seedOrphanSession(ctx, t, fx, "sess-fold-active", []eventSeed{
+		{id: "evt-old-1", at: base.Add(-3 * time.Hour)},
+		{id: "evt-old-2", at: base.Add(-2 * time.Hour)},
+	}, false)
+
+	cutoff := base.Add(-time.Hour)
+	refineUC := usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{})
+	consol := usecase.NewOrphanConsolidationUsecase(fx.orphans, refineUC, fixedEventClock{at: base})
+	got, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{
+		StaleAfter:      24 * time.Hour,
+		RetentionCutoff: cutoff,
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if got.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1", got.ProducedCount())
+	}
+
+	stored, err := fx.refine.FindBySessionID(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FindBySessionID() error = %v", err)
+	}
+	refinement, ok := stored.Value()
+	if !ok {
+		t.Fatal("expected a refinement after folding the pre-cutoff tail")
+	}
+	if refinement.CoversToEventID() != "evt-old-2" {
+		t.Fatalf("CoversTo = %s, want evt-old-2 (last event before cutoff, not now)", refinement.CoversToEventID())
+	}
+
+	// A new event lands after the fold.
+	newEvt, err := model.NewEventWithClock(
+		"evt-new-after-fold", types.EventKindNote, "cli", "codex", sessionID, "ws", "later",
+		fixedEventClock{at: base.Add(-30 * time.Minute)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.events.Save(ctx, newEvt); err != nil {
+		t.Fatal(err)
+	}
+
+	// The folded range's own material must not include the new event.
+	material, err := fx.orphans.LoadMaterial(ctx, sessionID, types.None[types.EventID](), "evt-old-2")
+	if err != nil {
+		t.Fatalf("LoadMaterial() error = %v", err)
+	}
+	if material.EventCount != 3 {
+		t.Fatalf("EventCount = %d, want 3 (session-started boundary plus the two pre-cutoff events; the post-fold event must not be included)", material.EventCount)
+	}
+
+	// Time passes: the new event now also ages past a later cutoff. Discovery
+	// must treat it as a fresh orphan range starting exclusively after the
+	// earlier fold's terminus, not as material the earlier fold already covers.
+	laterNow := base.Add(2 * time.Hour)
+	laterCutoff := laterNow.Add(-time.Hour) // = base+1h, past evt-new-after-fold (base-30m)
+	got2, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, laterNow, laterCutoff, 100)
+	if err != nil {
+		t.Fatalf("second DiscoverCandidates() error = %v", err)
+	}
+	found := findOrphanRangeForSession(got2, "sess-fold-active")
+	if found == nil {
+		t.Fatal("expected a fresh orphan range for the post-fold event once it ages past a later cutoff")
+	}
+	if found.ToEventID() != "evt-new-after-fold" {
+		t.Fatalf("ToEventID = %s, want evt-new-after-fold", found.ToEventID())
+	}
+	from, ok := found.FromEventID().Value()
+	if !ok || from != "evt-old-2" {
+		t.Fatalf("FromEventID = %v present=%v, want evt-old-2 (exclusive: the earlier fold's terminus)", from, ok)
 	}
 }

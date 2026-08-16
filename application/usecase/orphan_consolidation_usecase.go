@@ -24,6 +24,15 @@ type OrphanConsolidationInput struct {
 	// Unlimited ignores Limit and Budget so compact --force can cover every
 	// discardable-age unrefined session in one rewrite.
 	Unlimited bool
+	// RetentionCutoff enables the third orphan-discovery source (#1724):
+	// sessions that never go ended/stale but still hold material past
+	// refinement coverage older than this cutoff. The zero value disables
+	// that source, keeping discovery to the recorded-marker and
+	// ended/stale sources only. Callers that know the compact retention
+	// cutoff (e.g. the --force cover pass) should pass it here so an
+	// always-on session's pre-cutoff tail is folded before CollectGarbage's
+	// DELETE runs.
+	RetentionCutoff time.Time
 }
 
 // OrphanConsolidationUsecase folds unfolded orphan ranges into degraded
