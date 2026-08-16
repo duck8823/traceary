@@ -163,7 +163,11 @@ func writeReportText(output io.Writer, report apptypes.ReportSnapshot) error {
 	if report.ClientFilter != "" {
 		fmt.Fprintf(&b, "Client: %s\n", report.ClientFilter)
 	}
-	fmt.Fprintf(&b, "Scanned: %d sessions, %d events, %d usage observations\n\n", report.SessionScanCount, report.EventScanCount, report.UsageScanCount)
+	usageScan := fmt.Sprintf("%d usage observations", report.UsageScanCount)
+	if report.UsageScanNote != "" {
+		usageScan = report.UsageScanNote
+	}
+	fmt.Fprintf(&b, "Scanned: %d sessions, %d events, %s\n\n", report.SessionScanCount, report.EventScanCount, usageScan)
 	b.WriteString("## sessions\n")
 	if len(report.Sessions) == 0 {
 		b.WriteString("(none)\n")

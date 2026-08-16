@@ -208,6 +208,18 @@ type ReportWindow struct {
 	Commands []ReportCommandRecord
 	Usage    []ReportUsageRecord
 	Extents  ReportSourceExtents
+	// UsageWorkspaceTally is a metadata-only count of finalized observations
+	// for the workspace/client filter (no time bound). Text output uses it
+	// when the windowed usage page is empty.
+	UsageWorkspaceTally ReportUsageWorkspaceTally
+}
+
+// ReportUsageWorkspaceTally counts workspace-scoped usage rows so the text
+// report can distinguish "capture is unwired" from "only excluded evidence".
+type ReportUsageWorkspaceTally struct {
+	Excluded          int
+	Unavailable       int
+	KimiMainWireKnown int
 }
 
 // ReportAggregation describes overall and per-source aggregate completeness.
@@ -373,4 +385,6 @@ type ReportSnapshot struct {
 	EventScanCount   int                       `json:"event_scan_count"`
 	SessionScanCount int                       `json:"session_scan_count"`
 	UsageScanCount   int                       `json:"usage_scan_count"`
+	// UsageScanNote is text-only. It must never be serialized to --json.
+	UsageScanNote string `json:"-"`
 }

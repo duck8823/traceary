@@ -487,3 +487,46 @@ func reportWindow(
 		},
 	}
 }
+
+func TestReportUsecaseGenerate_DisclosesExcludedUsageWhenAdditiveIsZero(t *testing.T) {
+	t.Parallel()
+	criteria := reportCriteria(t, 0)
+	unavailable := types.UnavailableUsageValue()
+	excludedCounters, err := types.UsageCountersOf(
+		unavailable, unavailable, unavailable, unavailable, unavailable, unavailable,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedAt := time.Date(2026, 8, 15, 2, 0, 0, 0, time.UTC)
+	window := reportWindow(t, criteria, nil, nil, nil, false)
+	window.Usage = []apptypes.ReportUsageRecord{{
+		ObservationID: "usage-excluded-only", ObservedAt: observedAt, Engine: "claude",
+		Accounting: types.UsageAccountingExcluded, TerminalCode: types.UsageTerminalUnknown,
+		Counters: excludedCounters, Cost: types.UnavailableUsageCost(),
+	}}
+	usageExtent, err := apptypes.ReportSourceExtentOf([]time.Time{observedAt}, criteria.PageSize(), criteria.ResultCap(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window.Extents.Usage = usageExtent
+	window.UsageWorkspaceTally = apptypes.ReportUsageWorkspaceTally{Excluded: 1, Unavailable: 1, KimiMainWireKnown: 2}
+
+	got, err := usecase.NewReportUsecase(&reportQueryStub{window: window}).Generate(context.Background(), criteria)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if got.UsageScanNote == "" || !strings.Contains(got.UsageScanNote, "0 additive") || !strings.Contains(got.UsageScanNote, "excluded") {
+		t.Fatalf("UsageScanNote = %q, want excluded disclosure", got.UsageScanNote)
+	}
+	if !strings.Contains(got.UsageScanNote, "kimi main_wire") {
+		t.Fatalf("UsageScanNote = %q, want kimi main_wire disclosure", got.UsageScanNote)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "UsageScanNote") || strings.Contains(string(encoded), "0 additive") {
+		t.Fatalf("JSON must omit the text-only usage note: %s", encoded)
+	}
+}

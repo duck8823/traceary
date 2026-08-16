@@ -157,7 +157,49 @@ func buildReportSnapshot(
 		TopCommands: commands, FailureLoops: loops, Usage: usage,
 		EventScanCount: len(window.Events), SessionScanCount: len(window.Sessions),
 		UsageScanCount: len(window.Usage),
+		UsageScanNote:  reportUsageScanNote(usage, window.UsageWorkspaceTally),
 	}, nil
+}
+
+func reportUsageScanNote(usage apptypes.ReportUsageSnapshot, tally apptypes.ReportUsageWorkspaceTally) string {
+	var accounted, excluded, unavailable int
+	for _, row := range usage.Aggregates {
+		accounted += row.Accounted
+		excluded += row.Excluded
+		unavailable += row.Unavailable
+	}
+	if accounted > 0 {
+		return ""
+	}
+	if excluded == 0 && unavailable == 0 {
+		excluded = tally.Excluded
+		unavailable = tally.Unavailable
+	}
+	if excluded == 0 && unavailable == 0 && tally.KimiMainWireKnown == 0 {
+		return ""
+	}
+	note := formatExcludedUsageNote(excluded, unavailable)
+	if tally.KimiMainWireKnown > 0 {
+		note += "; kimi main_wire rows excluded (double-count protection vs stop_hook)"
+	}
+	return note
+}
+
+func formatExcludedUsageNote(excluded, unavailable int) string {
+	switch {
+	case excluded > 0 && unavailable > 0:
+		return "0 additive (" + itoaReport(excluded) + " excluded: token states unavailable)"
+	case excluded > 0:
+		return "0 additive (" + itoaReport(excluded) + " excluded)"
+	case unavailable > 0:
+		return "0 additive (token states unavailable)"
+	default:
+		return "0 additive"
+	}
+}
+
+func itoaReport(value int) string {
+	return strconv.Itoa(value)
 }
 
 type reportUsageKey struct {

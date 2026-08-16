@@ -21,6 +21,9 @@ var listReportSessionsQuery string
 //go:embed sql/list_report_usage.sql
 var listReportUsageQuery string
 
+//go:embed sql/count_report_usage_workspace.sql
+var countReportUsageWorkspaceQuery string
+
 var _ queryservice.ReportQueryService = (*ReportDatasource)(nil)
 
 // ReportDatasource loads all report projections through one SQLite snapshot.
@@ -96,6 +99,10 @@ func (d *ReportDatasource) LoadReportWindow(ctx context.Context, criteria apptyp
 	if err != nil {
 		return apptypes.ReportWindow{}, xerrors.Errorf("failed to load report usage: %w", err)
 	}
+	tally, err := queryReportUsageWorkspaceTally(ctx, tx, criteria)
+	if err != nil {
+		return apptypes.ReportWindow{}, xerrors.Errorf("failed to load report usage workspace tally: %w", err)
+	}
 
 	extents, err := buildReportSourceExtents(
 		criteria,
@@ -112,6 +119,7 @@ func (d *ReportDatasource) LoadReportWindow(ctx context.Context, criteria apptyp
 	}
 	return apptypes.ReportWindow{
 		Sessions: sessions, Events: events, Commands: commands, Usage: usage, Extents: extents,
+		UsageWorkspaceTally: tally,
 	}, nil
 }
 
@@ -254,6 +262,24 @@ func queryReportUsagePage(
 		return nil, xerrors.Errorf("failed to iterate report usage rows: %w", err)
 	}
 	return result, nil
+}
+
+func queryReportUsageWorkspaceTally(
+	ctx context.Context,
+	tx *sql.Tx,
+	criteria apptypes.ReportCriteria,
+) (apptypes.ReportUsageWorkspaceTally, error) {
+	var tally apptypes.ReportUsageWorkspaceTally
+	err := tx.QueryRowContext(
+		ctx,
+		countReportUsageWorkspaceQuery,
+		criteria.Workspace().String(), criteria.Workspace().String(),
+		criteria.Client().String(), criteria.Client().String(),
+	).Scan(&tally.Excluded, &tally.Unavailable, &tally.KimiMainWireKnown)
+	if err != nil {
+		return apptypes.ReportUsageWorkspaceTally{}, xerrors.Errorf("failed to count workspace usage observations: %w", err)
+	}
+	return tally, nil
 }
 
 func scanReportUsageRecord(scanner interface{ Scan(...any) error }) (apptypes.ReportUsageRecord, error) {
