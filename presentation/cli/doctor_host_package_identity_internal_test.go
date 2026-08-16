@@ -80,6 +80,25 @@ func newLargeStoreDoctorRootCLI(store *trackingStoreStub, events *trackingEventS
 // writeLargeStoreFixture creates a sparse >=2 GiB file that is a valid
 // filesystem entry but not a valid SQLite file, exercising the bounded
 // large-store decision path without allocating a multi-GB artifact.
+// setLargeStoreDoctorPath puts a throwaway `traceary` on PATH so the
+// bounded report's path check is pass, not fail. CI runners do not have
+// the binary on PATH; --warnings-ok does not ignore fail.
+func setLargeStoreDoctorPath(t *testing.T) {
+	t.Helper()
+	current, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable() error = %v", err)
+	}
+	dir := t.TempDir()
+	link := filepath.Join(dir, "traceary")
+	if err := os.Symlink(current, link); err != nil {
+		if err := os.WriteFile(link, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("failed to create traceary test executable: %v", err)
+		}
+	}
+	t.Setenv("PATH", dir)
+}
+
 func writeLargeStoreFixture(t *testing.T) string {
 	t.Helper()
 	largeStore := filepath.Join(t.TempDir(), "large-metadata-only.db")
@@ -142,6 +161,7 @@ func TestDoctorLargeStore_HostPackageIdentitySurvivesEarlyReturn(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("TRACEARY_LANG", "en")
+			setLargeStoreDoctorPath(t)
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			SetUserHomeDirFunc(func() (string, error) { return home, nil })
@@ -191,6 +211,7 @@ func TestDoctorLargeStore_HostPackageIdentitySurvivesEarlyReturn(t *testing.T) {
 // it must never write a host file (#1970).
 func TestDoctorLargeStore_FixStaysNonDestructive(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setLargeStoreDoctorPath(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	SetUserHomeDirFunc(func() (string, error) { return home, nil })
@@ -241,6 +262,7 @@ func TestDoctorLargeStore_FixStaysNonDestructive(t *testing.T) {
 // store-backed check (grok-event-coverage) is present (#1970).
 func TestDoctorLargeStore_NativeGrokCheckSurvives(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setLargeStoreDoctorPath(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	SetUserHomeDirFunc(func() (string, error) { return home, nil })
@@ -304,6 +326,7 @@ func TestDoctorLargeStore_NativeGrokCheckSurvives(t *testing.T) {
 // plugin activation checks survive the bounded early return (#1970).
 func TestDoctorLargeStore_NativeKimiCheckSurvives(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setLargeStoreDoctorPath(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	SetUserHomeDirFunc(func() (string, error) { return home, nil })
@@ -390,6 +413,7 @@ func TestDoctorLargeStore_NativeKimiCheckSurvives(t *testing.T) {
 // bounded report (#1970).
 func TestDoctorLargeStore_BoundedSetStaysBounded(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setLargeStoreDoctorPath(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	SetUserHomeDirFunc(func() (string, error) { return home, nil })
