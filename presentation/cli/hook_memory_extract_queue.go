@@ -535,11 +535,15 @@ func hookMemoryExtractJobReadyForGC(job hookMemoryExtractJob, now time.Time) boo
 	return !job.LastAttemptAt.Add(hookMemoryExtractTerminalRetention).After(now)
 }
 
-// drainHookMemoryExtractQueue relaunches pending jobs (oldest first) and
-// garbage-collects terminally failed jobs past the retention window. It never
-// re-extracts inline: each relaunch goes through the detached worker so host
-// hook budgets stay small. skipPaths are ignored (e.g. a job just launched by
-// scheduleHookMemoryExtract). Returns launch and remove counts.
+// drainHookMemoryExtractQueue relaunches pending jobs (oldest first),
+// garbage-collects terminally failed jobs past the retention window, and
+// sweeps orphaned sidecar files (locks with no job sibling, aged write-temps)
+// left behind by completed jobs and crashed workers. It never re-extracts
+// inline: each relaunch goes through the detached worker so host hook
+// budgets stay small. skipPaths are ignored (e.g. a job just launched by
+// scheduleHookMemoryExtract). Returns launch and remove counts; removed
+// includes both GC'd jobs and swept sidecar files, so the whole pass stays
+// bounded by limit regardless of directory size.
 func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPaths ...string) (launched, removed int) {
 	if limit <= 0 {
 		return 0, 0
@@ -551,42 +555,174 @@ func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPath
 		}
 	}
 	jobs, _, err := scanHookMemoryExtractJobs()
-	if err != nil || len(jobs) == 0 {
-		return 0, 0
-	}
-	// scan already returns oldest first.
-	for _, job := range jobs {
-		if launched+removed >= limit {
-			break
-		}
-		if strings.TrimSpace(job.Path) == "" {
-			continue
-		}
-		if _, ok := skip[job.Path]; ok {
-			continue
-		}
-		if hookMemoryExtractJobReadyForGC(job, now) {
-			if err := os.Remove(job.Path); err != nil && !os.IsNotExist(err) {
-				slog.Debug("hook memory extraction terminal GC failed", "job", job.Path, "error", err)
+	if err == nil {
+		// scan already returns oldest first.
+		for _, job := range jobs {
+			if launched+removed >= limit {
+				break
+			}
+			if strings.TrimSpace(job.Path) == "" {
 				continue
 			}
-			// Best-effort cleanup of sidecar files.
-			_ = os.Remove(job.Path + ".lock")
-			_ = os.Remove(job.Path + ".rerun")
-			removed++
-			continue
+			if _, ok := skip[job.Path]; ok {
+				continue
+			}
+			if hookMemoryExtractJobReadyForGC(job, now) {
+				if err := os.Remove(job.Path); err != nil && !os.IsNotExist(err) {
+					slog.Debug("hook memory extraction terminal GC failed", "job", job.Path, "error", err)
+					continue
+				}
+				// Best-effort cleanup of sidecar files.
+				_ = os.Remove(job.Path + ".lock")
+				_ = os.Remove(job.Path + ".rerun")
+				removed++
+				continue
+			}
+			if hookMemoryExtractJobIsTerminal(job) {
+				// Still within retention; leave visible for doctor.
+				continue
+			}
+			if err := c.launchHookMemoryExtractWorker(job.Path); err != nil {
+				slog.Debug("hook memory extraction drain launch failed", "job", job.Path, "error", err)
+				continue
+			}
+			launched++
 		}
-		if hookMemoryExtractJobIsTerminal(job) {
-			// Still within retention; leave visible for doctor.
-			continue
-		}
-		if err := c.launchHookMemoryExtractWorker(job.Path); err != nil {
-			slog.Debug("hook memory extraction drain launch failed", "job", job.Path, "error", err)
-			continue
-		}
-		launched++
+	}
+	if remaining := limit - (launched + removed); remaining > 0 {
+		removed += sweepHookMemoryExtractSidecars(now, remaining)
 	}
 	return launched, removed
+}
+
+// sweepHookMemoryExtractSidecars removes files derived from jobs rather than
+// jobs themselves: (a) ".json.lock" files whose ".json" sibling no longer
+// exists (the common leak — a completed job removes its job.json but not its
+// flock sidecar) and (b) ".memory-extract-*.tmp" write-temps abandoned by a
+// crashed writer. Both are only removed once aged past the terminal
+// retention window, so a lock or temp mid-creation by a concurrent process is
+// never mistaken for an orphan. Bounded by limit so a directory with a large
+// backlog is swept incrementally across passes rather than scanned in full.
+func sweepHookMemoryExtractSidecars(now time.Time, limit int) (removed int) {
+	if limit <= 0 {
+		return 0
+	}
+	dir, err := hookMemoryExtractQueueDir()
+	if err != nil {
+		return 0
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if removed >= limit {
+			break
+		}
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		isLock := strings.HasSuffix(name, ".json.lock")
+		isTmp := strings.HasPrefix(name, ".memory-extract-") && strings.HasSuffix(name, ".tmp")
+		if !isLock && !isTmp {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if !hookMemoryExtractSidecarIsAgedOrphan(path, isLock, now, entry) {
+			continue
+		}
+		if isLock {
+			if !tryRemoveOrphanMemoryExtractLock(path) {
+				continue
+			}
+		} else if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			slog.Debug("hook memory extraction sidecar sweep failed", "path", path, "error", err)
+			continue
+		}
+		removed++
+	}
+	return removed
+}
+
+func hookMemoryExtractSidecarIsAgedOrphan(path string, isLock bool, now time.Time, entry os.DirEntry) bool {
+	if isLock {
+		jsonPath := strings.TrimSuffix(path, ".lock")
+		if _, statErr := os.Stat(jsonPath); statErr == nil || !errors.Is(statErr, os.ErrNotExist) {
+			return false
+		}
+	}
+	info, infoErr := entry.Info()
+	if infoErr != nil {
+		return false
+	}
+	return now.Sub(info.ModTime()) >= hookMemoryExtractTerminalRetention
+}
+
+func tryRemoveOrphanMemoryExtractLock(path string) bool {
+	lock := flock.New(path)
+	ok, err := lock.TryLock()
+	if err != nil || !ok {
+		return false
+	}
+	defer func() { _ = lock.Unlock() }()
+	jsonPath := strings.TrimSuffix(path, ".lock")
+	if _, statErr := os.Stat(jsonPath); statErr == nil || !errors.Is(statErr, os.ErrNotExist) {
+		return false
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		slog.Debug("hook memory extraction sidecar sweep failed", "path", path, "error", err)
+		return false
+	}
+	return true
+}
+
+func countHookMemoryExtractSidecars(now time.Time) (locks, tmps int) {
+	dir, err := hookMemoryExtractQueueDir()
+	if err != nil {
+		return 0, 0
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, 0
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		isLock := strings.HasSuffix(name, ".json.lock")
+		isTmp := strings.HasPrefix(name, ".memory-extract-") && strings.HasSuffix(name, ".tmp")
+		if !isLock && !isTmp {
+			continue
+		}
+		if !hookMemoryExtractSidecarIsAgedOrphan(filepath.Join(dir, name), isLock, now, entry) {
+			continue
+		}
+		if isLock {
+			locks++
+		} else {
+			tmps++
+		}
+	}
+	return locks, tmps
+}
+
+func memoryExtractQueueFix(c *RootCLI, dryRun bool) (string, error) {
+	pending, _, err := scanHookMemoryExtractJobs()
+	if err != nil {
+		return "", err
+	}
+	locks, tmps := countHookMemoryExtractSidecars(time.Now().UTC())
+	if dryRun {
+		return localizef(
+			"would drain/GC up to %d pending memory extraction job(s) and sweep %d orphan lock(s) and %d aged temp file(s)",
+			"未処理 memory extraction job 最大 %d 件を drain/GC し、orphan lock %d 件と古い temp %d 件を sweep します",
+			min(len(pending), hookMemoryExtractDoctorFixLimit), locks, tmps,
+		), nil
+	}
+	launched, removed := c.drainHookMemoryExtractQueue(time.Now().UTC(), hookMemoryExtractDoctorFixLimit)
+	return localizef("drained memory extraction queue: launched=%d removed=%d", "memory extraction queue を drain しました: launched=%d removed=%d", launched, removed), nil
 }
 
 func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck {
@@ -595,8 +731,29 @@ func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck
 	if err != nil {
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect memory extraction queue: %v", "memory extraction queue の検査に失敗しました: %v", err)}
 	}
-	if len(jobs) == 0 && len(unreadable) == 0 {
+	locks, tmps := countHookMemoryExtractSidecars(now)
+	if len(jobs) == 0 && len(unreadable) == 0 && locks == 0 && tmps == 0 {
 		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending hook memory extraction jobs found", "未処理の hook memory extraction job はありません")}
+	}
+	if len(jobs) == 0 && len(unreadable) == 0 {
+		return doctorCheck{
+			Name:   name,
+			Status: doctorStatusWarn,
+			Message: localizef(
+				"found 0 pending memory extraction jobs, %d orphan lock file(s), and %d aged temp file(s)",
+				"未処理 memory extraction job は 0 件ですが、orphan lock が %d 件、古い temp が %d 件あります",
+				locks, tmps,
+			),
+			Hint: Localize(
+				"completed jobs left flock sidecars or crash temps. Run `traceary doctor --fix` to sweep a bounded batch.",
+				"完了済み job の flock sidecar か crash temp が残っています。bounded batch で掃除するには `traceary doctor --fix` を実行してください。",
+			),
+			FixCommand:       "traceary doctor --fix",
+			AutoFixAvailable: true,
+			FixFunc: func(_ context.Context, dryRun bool) (string, error) {
+				return memoryExtractQueueFix(c, dryRun)
+			},
+		}
 	}
 	failed := 0
 	terminal := 0
@@ -630,15 +787,7 @@ func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck
 		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,
 		FixFunc: func(_ context.Context, dryRun bool) (string, error) {
-			pending, _, err := scanHookMemoryExtractJobs()
-			if err != nil {
-				return "", err
-			}
-			if dryRun {
-				return localizef("would drain/GC up to %d pending memory extraction job(s)", "未処理 memory extraction job 最大 %d 件を drain/GC します", min(len(pending), hookMemoryExtractDoctorFixLimit)), nil
-			}
-			launched, removed := c.drainHookMemoryExtractQueue(time.Now().UTC(), hookMemoryExtractDoctorFixLimit)
-			return localizef("drained memory extraction queue: launched=%d removed=%d", "memory extraction queue を drain しました: launched=%d removed=%d", launched, removed), nil
+			return memoryExtractQueueFix(c, dryRun)
 		},
 	}
 }
