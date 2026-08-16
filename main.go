@@ -440,8 +440,14 @@ func writeCLIError(output io.Writer, err error) error {
 	return nil
 }
 
-func compactWorkCover(migrations fs.FS) func(context.Context, string) error {
-	return func(ctx context.Context, work string) error {
+// compactWorkCover runs the --force mechanical cover on the compact work
+// copy. Discovery folds the oldest orphan ranges first (#1721), so a bounded
+// pass is used instead of draining the whole backlog: CollectGarbage only
+// needs every range at or past the cutoff folded, not every range that
+// exists. ForceCoverSafeToDelete checks that condition against what the pass
+// left unprocessed or skipped.
+func compactWorkCover(migrations fs.FS) func(context.Context, string, time.Time) error {
+	return func(ctx context.Context, work string, cutoff time.Time) error {
 		db := sqlite.NewDatabase(work, migrations)
 		sessionDatasource := sqlite.NewSessionDatasource(db)
 		refinementDatasource := sqlite.NewSessionRefinementDatasource(db)
@@ -451,13 +457,13 @@ func compactWorkCover(migrations fs.FS) func(context.Context, string) error {
 		cover := usecase.NewOrphanConsolidationUsecase(orphanDatasource, refine, types.SystemClock{})
 		// One read-only handle for the whole pass: DiscoverCandidates and every
 		// per-candidate LoadMaterial call inherit it instead of each paying
-		// setup+ping+compat on its own (#1722).
+		// setup+ping+compat on its own (#1722). Bounded (not Unlimited): oldest
+		// first so CollectGarbage only needs pre-cutoff ranges folded (#1721).
 		var result apptypes.OrphanConsolidationResult
 		err := orphanDatasource.WithReadScope(ctx, func(scopedCtx context.Context) error {
 			var consolidateErr error
 			result, consolidateErr = cover.Consolidate(scopedCtx, usecase.OrphanConsolidationInput{
 				StaleAfter: 24 * time.Hour,
-				Unlimited:  true,
 			})
 			if consolidateErr != nil {
 				return xerrors.Errorf("consolidate orphan ranges: %w", consolidateErr)
@@ -467,7 +473,11 @@ func compactWorkCover(migrations fs.FS) func(context.Context, string) error {
 		if err != nil {
 			return xerrors.Errorf("compact force cover: %w", err)
 		}
-		if err := application.ForceCoverMustComplete(result.HasMore(), result.Skipped()); err != nil {
+		if err := application.ForceCoverSafeToDelete(
+			result.HasMore(), result.EarliestUnprocessedEventTime(),
+			result.Skipped(), result.EarliestSkippedEventTime(),
+			cutoff,
+		); err != nil {
 			return xerrors.Errorf("compact force cover: %w", err)
 		}
 		return nil

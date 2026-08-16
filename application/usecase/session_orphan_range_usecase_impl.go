@@ -100,7 +100,11 @@ func (u *sessionOrphanRangeUsecase) RecordAtCompact(
 		from = types.Some(coversTo)
 	}
 
-	orphan, err := model.NewSessionOrphanRange(sessionID, from, compactEventID, u.clock.Now())
+	// earliestEventTime is not persisted by Record (see insert_session_orphan_range.sql);
+	// it only matters for objects built during discovery, so a filler value is
+	// fine here.
+	now := u.clock.Now()
+	orphan, err := model.NewSessionOrphanRange(sessionID, from, compactEventID, now, now)
 	if err != nil {
 		return xerrors.Errorf("failed to build orphan range: %w", err)
 	}

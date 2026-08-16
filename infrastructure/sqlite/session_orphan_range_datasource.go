@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"errors"
 	"log/slog"
+	"sort"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -129,9 +130,10 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 			if err := ctx.Err(); err != nil {
 				return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
 			}
-			if len(candidates) >= target {
-				break
-			}
+			// Do not stop at `target` here. Recorded rows are unordered by age
+			// (session_id, to_event_id). Filling the page from them first would
+			// hide older ended/stale ranges and let ForceCoverSafeToDelete see
+			// only newer leftovers (#1721).
 			covered, err := d.refinementCovers(ctx, db, orphan.SessionID(), orphan.ToEventID())
 			if err != nil {
 				return err
@@ -156,48 +158,63 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 		}
 
 		// Source of truth: ended or stale sessions with material past covers_to.
-		// Paginate by session_id keyset until target valid candidates are collected
-		// or the scan is exhausted.
-		if len(candidates) < target {
-			cursor := ""
-			pageSize := limit + 1
-			for len(candidates) < target {
-				if err := ctx.Err(); err != nil {
-					return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+		// Paginate independently of how many recorded shortcuts we already have:
+		// the oldest `target` ended/stale rows plus every recorded shortcut
+		// contain the true oldest `limit` after the merge-sort below.
+		endedCount := 0
+		cursorNorm := ""
+		cursorSessionID := ""
+		pageSize := limit + 1
+		for endedCount < target {
+			if err := ctx.Err(); err != nil {
+				return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+			}
+			page, err := d.listEndedOrStalePage(ctx, db, cutoff, cursorNorm, cursorSessionID, pageSize)
+			if err != nil {
+				return err
+			}
+			if len(page) == 0 {
+				break
+			}
+			// Advance the cursor from the last SQL row even when every row was
+			// filtered out in Go; otherwise a page of non-candidates loops forever.
+			last := page[len(page)-1]
+			cursorNorm = last.earliestEventNorm
+			cursorSessionID = last.sessionID.String()
+			for _, row := range page {
+				if endedCount >= target {
+					break
 				}
-				page, err := d.listEndedOrStalePage(ctx, db, cutoff, cursor, pageSize)
+				orphan, ok, err := d.gapPastCoverage(ctx, db, row.sessionID, row.earliestEventTime, now)
 				if err != nil {
 					return err
 				}
-				if len(page) == 0 {
-					break
+				if !ok {
+					continue
 				}
-				// Advance the cursor from the last SQL row even when every row was
-				// filtered out in Go; otherwise a page of non-candidates loops forever.
-				cursor = page[len(page)-1].String()
-				for _, sessionID := range page {
-					if len(candidates) >= target {
-						break
-					}
-					orphan, ok, err := d.gapPastCoverage(ctx, db, sessionID, now)
-					if err != nil {
-						return err
-					}
-					if !ok {
-						continue
-					}
-					key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
-					if _, exists := seen[key]; exists {
-						continue
-					}
-					seen[key] = struct{}{}
-					candidates = append(candidates, orphan)
+				key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
+				if _, exists := seen[key]; exists {
+					continue
 				}
-				if len(page) < pageSize {
-					break
-				}
+				seen[key] = struct{}{}
+				candidates = append(candidates, orphan)
+				endedCount++
+			}
+			if len(page) < pageSize {
+				break
 			}
 		}
+
+		// Oldest-first across both sources (#1721). The ended/stale source is
+		// already ordered this way; sorting the merged, still-bounded set is
+		// cheap and keeps the recorded shortcut from disturbing the order.
+		sort.SliceStable(candidates, func(i, j int) bool {
+			ti, tj := candidates[i].EarliestEventTime(), candidates[j].EarliestEventTime()
+			if !ti.Equal(tj) {
+				return ti.Before(tj)
+			}
+			return candidates[i].SessionID().String() < candidates[j].SessionID().String()
+		})
 
 		hasMore := len(candidates) > limit
 		if hasMore {
@@ -341,6 +358,9 @@ func (d *SessionOrphanRangeDatasource) listRecorded(ctx context.Context, db *sql
 		if err != nil {
 			return nil, err
 		}
+		if orphan == nil {
+			continue
+		}
 		result = append(result, orphan)
 	}
 	if err := rows.Err(); err != nil {
@@ -349,30 +369,51 @@ func (d *SessionOrphanRangeDatasource) listRecorded(ctx context.Context, db *sql
 	return result, nil
 }
 
+// endedOrStaleCandidate is one row of the oldest-first ended/stale page: the
+// session id and the earliest orphaned event's time, both as returned by the
+// SQL (raw text and its normalized form, used as the next page's cursor).
+type endedOrStaleCandidate struct {
+	sessionID         types.SessionID
+	earliestEventTime time.Time
+	earliestEventNorm string
+}
+
 func (d *SessionOrphanRangeDatasource) listEndedOrStalePage(
 	ctx context.Context,
 	db *sql.DB,
 	cutoff string,
-	afterSessionID string,
+	cursorNorm string,
+	cursorSessionID string,
 	limit int,
-) ([]types.SessionID, error) {
-	rows, err := db.QueryContext(ctx, listEndedOrStaleSessionsForOrphanQuery, afterSessionID, cutoff, cutoff, limit)
+) ([]endedOrStaleCandidate, error) {
+	rows, err := db.QueryContext(
+		ctx, listEndedOrStaleSessionsForOrphanQuery,
+		cutoff, cutoff, cursorNorm, cursorSessionID, limit,
+	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list ended or stale sessions: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var result []types.SessionID
+	var result []endedOrStaleCandidate
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, xerrors.Errorf("failed to scan ended or stale session id: %w", err)
+		var id, earliestRaw string
+		if err := rows.Scan(&id, &earliestRaw); err != nil {
+			return nil, xerrors.Errorf("failed to scan ended or stale session row: %w", err)
 		}
 		sessionID, err := types.SessionIDFrom(id)
 		if err != nil {
 			return nil, xerrors.Errorf("invalid stored session id: %w", err)
 		}
-		result = append(result, sessionID)
+		earliest, err := time.Parse(time.RFC3339Nano, earliestRaw)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid orphan earliest_event_time %q: %w", earliestRaw, err)
+		}
+		result = append(result, endedOrStaleCandidate{
+			sessionID:         sessionID,
+			earliestEventTime: earliest,
+			earliestEventNorm: normalizeRFC3339NanoForCompare(earliestRaw),
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, xerrors.Errorf("failed to iterate ended or stale sessions: %w", err)
@@ -449,6 +490,7 @@ func (d *SessionOrphanRangeDatasource) gapPastCoverage(
 	ctx context.Context,
 	db *sql.DB,
 	sessionID types.SessionID,
+	earliestEventTime time.Time,
 	now time.Time,
 ) (*model.SessionOrphanRange, bool, error) {
 	var latestID string
@@ -477,6 +519,7 @@ SELECT covers_to_event_id
 			types.None[types.EventID](),
 			latest,
 			now.UTC(),
+			earliestEventTime,
 		)
 		if buildErr != nil {
 			return nil, false, xerrors.Errorf("failed to build whole-session orphan range: %w", buildErr)
@@ -510,6 +553,7 @@ SELECT covers_to_event_id
 		types.Some(from),
 		latest,
 		now.UTC(),
+		earliestEventTime,
 	)
 	if err != nil {
 		return nil, false, xerrors.Errorf("failed to build orphan range past coverage: %w", err)
@@ -527,13 +571,24 @@ func scanSessionOrphanRange(row orphanRangeScanner) (*model.SessionOrphanRange, 
 		fromEventID string
 		toEventID   string
 		observedRaw string
+		earliestRaw sql.NullString
 	)
-	if err := row.Scan(&sessionID, &fromEventID, &toEventID, &observedRaw); err != nil {
+	if err := row.Scan(&sessionID, &fromEventID, &toEventID, &observedRaw, &earliestRaw); err != nil {
 		return nil, xerrors.Errorf("failed to scan session orphan range: %w", err)
 	}
 	observedAt, err := time.Parse(time.RFC3339Nano, observedRaw)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid orphan observed_at %q: %w", observedRaw, err)
+	}
+	if !earliestRaw.Valid {
+		// The range's material was removed after the marker was recorded
+		// (e.g. compacted away). Nothing left to fold or delete; drop it
+		// rather than surface a range with an unknown earliest time.
+		return nil, nil
+	}
+	earliestEventTime, err := time.Parse(time.RFC3339Nano, earliestRaw.String)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid orphan earliest_event_time %q: %w", earliestRaw.String, err)
 	}
 	from := types.None[types.EventID]()
 	if fromEventID != "" {
@@ -547,7 +602,7 @@ func scanSessionOrphanRange(row orphanRangeScanner) (*model.SessionOrphanRange, 
 	if err != nil {
 		return nil, xerrors.Errorf("invalid orphan to_event_id: %w", err)
 	}
-	orphan, err := model.SessionOrphanRangeOf(types.SessionID(sessionID), from, to, observedAt)
+	orphan, err := model.SessionOrphanRangeOf(types.SessionID(sessionID), from, to, observedAt, earliestEventTime)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore session orphan range: %w", err)
 	}

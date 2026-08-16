@@ -122,7 +122,7 @@ func (c *steppingOrphanClock) Now() time.Time {
 
 func mustOrphanRange(t *testing.T, sessionID string, to string, at time.Time) *model.SessionOrphanRange {
 	t.Helper()
-	orphan, err := model.NewSessionOrphanRange(types.SessionID(sessionID), types.None[types.EventID](), types.EventID(to), at)
+	orphan, err := model.NewSessionOrphanRange(types.SessionID(sessionID), types.None[types.EventID](), types.EventID(to), at, at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +137,7 @@ func TestOrphanConsolidationUsecase_ProducesDegradedRefinement(t *testing.T) {
 		"sess-1",
 		types.Some(types.EventID("evt-a")),
 		"evt-c",
+		now,
 		now,
 	)
 	if err != nil {
@@ -210,6 +211,7 @@ func TestOrphanConsolidationUsecase_ComposesOntoExistingAgentSummary(t *testing.
 		sessionID,
 		types.Some(types.EventID("evt-100")),
 		"evt-150",
+		now,
 		now,
 	)
 	if err != nil {
@@ -315,6 +317,7 @@ func TestOrphanConsolidationUsecase_CompositionObservesCASReRead(t *testing.T) {
 		types.Some(evt100),
 		evt150,
 		now,
+		now,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -397,7 +400,7 @@ func TestOrphanConsolidationUsecase_AdvancesCoverageForLifecycleOnlyTail(t *test
 	const agentSummary = "Agent folded the session: split the refactor because shared types blocked the UI."
 	existing := mustRefinement(t, sessionID, 1, evt1, evt1, agentSummary)
 
-	orphan, err := model.NewSessionOrphanRange(sessionID, types.Some(evt1), evtEnd, now)
+	orphan, err := model.NewSessionOrphanRange(sessionID, types.Some(evt1), evtEnd, now, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,7 +476,7 @@ func TestOrphanConsolidationUsecase_SkipsLifecycleOnlyWhenNoRefinement(t *testin
 	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
 	sessionID := types.SessionID("sess-empty-lifecycle")
 	evtEnd := types.EventID("evt-end")
-	orphan, err := model.NewSessionOrphanRange(sessionID, types.None[types.EventID](), evtEnd, now)
+	orphan, err := model.NewSessionOrphanRange(sessionID, types.None[types.EventID](), evtEnd, now, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +533,7 @@ func TestOrphanConsolidationUsecase_PreservesHasAgentReasoningOnCompose(t *testi
 	const agentSummary = "Agent decided to split the PR because of shared types."
 	existing := mustRefinement(t, sessionID, 1, evt1, evt100, agentSummary)
 
-	orphan, err := model.NewSessionOrphanRange(sessionID, types.Some(evt100), evt150, now)
+	orphan, err := model.NewSessionOrphanRange(sessionID, types.Some(evt100), evt150, now, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,7 +596,7 @@ func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
-	orphan, err := model.NewSessionOrphanRange("sess-1", types.None[types.EventID](), "evt-z", now)
+	orphan, err := model.NewSessionOrphanRange("sess-1", types.None[types.EventID](), "evt-z", now, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +619,7 @@ func TestOrphanConsolidationUsecase_DryRunCountsWithoutWriting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Consolidate() error = %v", err)
 	}
-	want := apptypes.OrphanConsolidationResultOf(1, 1, apptypes.OrphanConsolidationFailuresOf(nil), false, true)
+	want := apptypes.OrphanConsolidationResultOf(1, 1, apptypes.OrphanConsolidationFailuresOf(nil), false, true, nil, nil)
 	if diff := cmp.Diff(want.ProducedCount(), got.ProducedCount()); diff != "" {
 		t.Fatalf("ProducedCount mismatch (-want +got):\n%s", diff)
 	}
@@ -671,7 +674,7 @@ func TestBuildMechanicalOrphanSummary_TruncatesDeterministically(t *testing.T) {
 	}
 	// buildMechanicalOrphanSummary is package-private; exercise via Consolidate.
 	now := time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)
-	orphan, err := model.NewSessionOrphanRange("sess", types.None[types.EventID](), "evt", now)
+	orphan, err := model.NewSessionOrphanRange("sess", types.None[types.EventID](), "evt", now, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -721,6 +724,7 @@ func TestOrphanConsolidationUsecase_TruncationDoesNotCutAgentText(t *testing.T) 
 		sessionID,
 		types.Some(types.EventID("evt-10")),
 		"evt-20",
+		now,
 		now,
 	)
 	if err != nil {

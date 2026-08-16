@@ -318,7 +318,7 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 		sqlite.StoreLeaseCoordinator{},
 	)
 	migrations := onDiskSQLiteMigrations(t)
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string) error {
+	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) error {
 		database := sqlite.NewDatabase(work, migrations)
 		refine := usecase.NewSessionRefinementUsecase(
 			sqlite.NewSessionDatasource(database),
@@ -333,12 +333,15 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 		)
 		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
 			StaleAfter: 24 * time.Hour,
-			Unlimited:  true,
 		})
 		if err != nil {
 			return fmt.Errorf("compact force cover: %w", err)
 		}
-		if err := application.ForceCoverMustComplete(result.HasMore(), result.Skipped()); err != nil {
+		if err := application.ForceCoverSafeToDelete(
+			result.HasMore(), result.EarliestUnprocessedEventTime(),
+			result.Skipped(), result.EarliestSkippedEventTime(),
+			cutoff,
+		); err != nil {
 			return fmt.Errorf("compact force cover: %w", err)
 		}
 		return nil
@@ -363,6 +366,176 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	if avail := gcEventAvailability(t, db, "event-old"); avail != "unavailable_retention" {
 		t.Fatalf("forced body availability = %s, want unavailable_retention", avail)
+	}
+}
+
+// TestCompactForceCoverProceedsWhenLeftoverIsNewerThanCutoff pins the #1721
+// fix: an already-covered, discardable-age session must still be deleted even
+// though a bounded cover pass leaves part of the orphan backlog unfolded, as
+// long as that leftover is entirely newer than the retention cutoff.
+// Discovery orders oldest-first, so a Limit of 1 folds session-new-a and
+// leaves session-new-b (newer still) as the reported leftover; both are newer
+// than cutoff, so the safe lower bound the cover reports (session-new-a's
+// earliest event time) is newer than cutoff too.
+func TestCompactForceCoverProceedsWhenLeftoverIsNewerThanCutoff(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	old := newGCEventFixture(t, "event-old", types.EventKindTranscript, "why-is-here", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	newA := newGCEventFixture(t, "event-new-a", types.EventKindTranscript, "why-is-here", time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), newA); err != nil {
+		t.Fatal(err)
+	}
+	newB := newGCEventFixture(t, "event-new-b", types.EventKindTranscript, "why-is-here", time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), newB); err != nil {
+		t.Fatal(err)
+	}
+	db := openRetentionDB(t, dbPath)
+	insertGCSession(t, db, "session-covered", true)
+	insertGCSession(t, db, "session-new-a", true)
+	insertGCSession(t, db, "session-new-b", true)
+	insertGCFold(t, db, "session-covered", "event-old", "event-old")
+	if _, err := db.Exec(`UPDATE events SET session_id = 'session-covered' WHERE id = 'event-old'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE events SET session_id = 'session-new-a' WHERE id = 'event-new-a'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE events SET session_id = 'session-new-b' WHERE id = 'event-new-b'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := usecase.NewStoreCompactionUsecase(
+		dbPath,
+		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
+		&sqlite.SQLiteCompactionBuilder{},
+		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
+		sqlite.StoreLeaseCoordinator{},
+	)
+	migrations := onDiskSQLiteMigrations(t)
+	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) error {
+		database := sqlite.NewDatabase(work, migrations)
+		refine := usecase.NewSessionRefinementUsecase(
+			sqlite.NewSessionDatasource(database),
+			sqlite.NewSessionRefinementDatasource(database),
+			sqlite.NewEventDatasource(database),
+			types.SystemClock{},
+		)
+		cover := usecase.NewOrphanConsolidationUsecase(
+			sqlite.NewSessionOrphanRangeDatasource(database),
+			refine,
+			types.SystemClock{},
+		)
+		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
+			StaleAfter: 24 * time.Hour,
+			Limit:      1,
+		})
+		if err != nil {
+			return fmt.Errorf("compact force cover: %w", err)
+		}
+		if err := application.ForceCoverSafeToDelete(
+			result.HasMore(), result.EarliestUnprocessedEventTime(),
+			result.Skipped(), result.EarliestSkippedEventTime(),
+			cutoff,
+		); err != nil {
+			return fmt.Errorf("compact force cover: %w", err)
+		}
+		return nil
+	})
+
+	if _, err := svc.Compact(context.Background(), application.CompactInput{
+		Source:   dbPath,
+		Force:    true,
+		KeepDays: 10,
+		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("Compact() error = %v, want compact to proceed: the unfolded leftover is newer than the cutoff", err)
+	}
+
+	db = openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	if avail := gcEventAvailability(t, db, "event-old"); avail != "unavailable_retention" {
+		t.Fatalf("forced body availability = %s, want unavailable_retention for the already-covered pre-cutoff session", avail)
+	}
+}
+
+// TestCompactForceCoverRefusesWhenLeftoverIsOlderThanCutoff is the regression
+// pinned by #1721: a bounded cover pass that leaves behind a range whose
+// earliest event is older than the retention cutoff must refuse rather than
+// let CollectGarbage discard material no fold has ever seen.
+func TestCompactForceCoverRefusesWhenLeftoverIsOlderThanCutoff(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+
+	seedOrphanSession(ctx, t, fx, "session-old-1", []eventSeed{
+		{id: "evt-old-1", at: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
+	}, true)
+	seedOrphanSession(ctx, t, fx, "session-old-2", []eventSeed{
+		{id: "evt-old-2", at: time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)},
+	}, true)
+
+	svc := usecase.NewStoreCompactionUsecase(
+		fx.dbPath,
+		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
+		&sqlite.SQLiteCompactionBuilder{},
+		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
+		sqlite.StoreLeaseCoordinator{},
+	)
+	migrations := onDiskSQLiteMigrations(t)
+	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) error {
+		database := sqlite.NewDatabase(work, migrations)
+		refine := usecase.NewSessionRefinementUsecase(
+			sqlite.NewSessionDatasource(database),
+			sqlite.NewSessionRefinementDatasource(database),
+			sqlite.NewEventDatasource(database),
+			types.SystemClock{},
+		)
+		cover := usecase.NewOrphanConsolidationUsecase(
+			sqlite.NewSessionOrphanRangeDatasource(database),
+			refine,
+			types.SystemClock{},
+		)
+		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
+			StaleAfter: 24 * time.Hour,
+			Limit:      1,
+		})
+		if err != nil {
+			return fmt.Errorf("compact force cover: %w", err)
+		}
+		if err := application.ForceCoverSafeToDelete(
+			result.HasMore(), result.EarliestUnprocessedEventTime(),
+			result.Skipped(), result.EarliestSkippedEventTime(),
+			cutoff,
+		); err != nil {
+			return fmt.Errorf("compact force cover: %w", err)
+		}
+		return nil
+	})
+
+	_, err := svc.Compact(ctx, application.CompactInput{
+		Source:   fx.dbPath,
+		Force:    true,
+		KeepDays: 10,
+		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
+	})
+	if err == nil {
+		t.Fatal("Compact() error = nil, want refusal: the unfolded leftover (session-old-2) is older than the cutoff")
+	}
+	if !strings.Contains(err.Error(), "may be older than the retention cutoff") {
+		t.Fatalf("Compact() error = %v, want it to name the retention cutoff as the reason", err)
+	}
+
+	db := openRetentionDB(t, fx.dbPath)
+	defer func() { _ = db.Close() }()
+	if avail := gcEventAvailability(t, db, "evt-old-1"); avail == "unavailable_retention" {
+		t.Fatal("evt-old-1 body_availability = unavailable_retention, want unchanged: a refused compact must not have touched the original store")
 	}
 }
 

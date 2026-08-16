@@ -17,6 +17,7 @@ func TestNewSessionOrphanRange_EnforcesInvariants(t *testing.T) {
 		types.Some(types.EventID("evt-from")),
 		"evt-to",
 		now,
+		now,
 	)
 	if err != nil {
 		t.Fatalf("NewSessionOrphanRange() error = %v", err)
@@ -42,9 +43,15 @@ func TestNewSessionOrphanRange_EnforcesInvariants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := model.NewSessionOrphanRange(tt.sessionID, tt.from, tt.to, tt.at); err == nil {
+			if _, err := model.NewSessionOrphanRange(tt.sessionID, tt.from, tt.to, tt.at, now); err == nil {
 				t.Fatal("error = nil, want error")
 			}
 		})
 	}
+	t.Run("zero earliest_event_time", func(t *testing.T) {
+		t.Parallel()
+		if _, err := model.NewSessionOrphanRange("sess", types.None[types.EventID](), "evt-to", now, time.Time{}); err == nil {
+			t.Fatal("error = nil, want error")
+		}
+	})
 }

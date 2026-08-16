@@ -2,6 +2,12 @@
 -- may still have material past their refinement coverage. Same activity window
 -- as session gc.
 --
+-- Ordered oldest-first by the earliest orphaned event's created_at (#1721),
+-- not by session_id: CollectGarbage only needs the ranges it is about to
+-- delete folded, and those are the oldest ones. A composite
+-- (earliest_event_norm, session_id) keyset cursor keeps rows unique under
+-- this order even when two sessions share the same earliest event time.
+--
 -- The coverage filter lives here, not in Go, because the caller applies a
 -- LIMIT: against an unfiltered list a second pass would return the same
 -- already-folded sessions and make no progress forever. Filtering here lets
@@ -13,21 +19,23 @@
 -- session forever.
 --
 -- Canonical event order is (ts_norm(created_at), id): created_at is
--- variable-width RFC3339Nano and is not lexically ordered (#1185). The event
--- side uses the persisted created_at_norm column rather than ts_norm(created_at)
--- so idx_events_session_created_at_norm_id_desc applies: this query runs the
--- latest-event subquery for every session it scans, and a function call there
--- would turn each one into a scan-and-sort of that session's events. Migration
--- 031 backfills and trigger-maintains the column, and migrate_test pins
--- created_at_norm = ts_norm(created_at). sessions has no such column, so
--- started_at still goes through ts_norm.
+-- variable-width RFC3339Nano and is not lexically ordered (#1185). Every
+-- comparison and sort here uses the persisted created_at_norm column rather
+-- than ts_norm(created_at) so idx_events_session_created_at_norm_id_desc
+-- applies. sessions has no such column, so started_at still goes through
+-- ts_norm.
 --
--- Bind: after-cursor session_id, cutoff (started_at), cutoff (last activity), limit.
-SELECT s.session_id
-  FROM sessions AS s
-  LEFT JOIN session_refinements AS r ON r.session_id = s.session_id
- WHERE s.session_id > ?
-   AND (
+-- Bind: cutoff (started_at), cutoff (last activity), cursor earliest_event_norm,
+-- cursor session_id, limit.
+WITH eligible_sessions AS (
+  SELECT s.session_id AS session_id,
+         (SELECT e2.created_at_norm
+            FROM events AS e2
+           WHERE e2.id = r.covers_to_event_id
+             AND e2.session_id = s.session_id) AS covers_to_norm
+    FROM sessions AS s
+    LEFT JOIN session_refinements AS r ON r.session_id = s.session_id
+   WHERE (
          s.ended_at IS NOT NULL
          OR (
               s.ended_at IS NULL
@@ -40,17 +48,38 @@ SELECT s.session_id
                   )
             )
        )
-   AND EXISTS (SELECT 1 FROM events AS e3 WHERE e3.session_id = s.session_id)
-   AND (
-         r.session_id IS NULL
-         OR r.covers_to_event_id IS NULL
-         OR r.covers_to_event_id <> (
-              SELECT e2.id
-                FROM events AS e2
-               WHERE e2.session_id = s.session_id
-               ORDER BY e2.created_at_norm DESC, e2.id DESC
-               LIMIT 1
-            )
-       )
- ORDER BY s.session_id ASC
+     AND EXISTS (SELECT 1 FROM events AS e3 WHERE e3.session_id = s.session_id)
+     AND (
+           r.session_id IS NULL
+           OR r.covers_to_event_id IS NULL
+           OR r.covers_to_event_id <> (
+                SELECT e4.id
+                  FROM events AS e4
+                 WHERE e4.session_id = s.session_id
+                 ORDER BY e4.created_at_norm DESC, e4.id DESC
+                 LIMIT 1
+              )
+         )
+),
+candidates AS (
+  SELECT es.session_id AS session_id,
+         (SELECT e5.created_at
+            FROM events AS e5
+           WHERE e5.session_id = es.session_id
+             AND (es.covers_to_norm IS NULL OR e5.created_at_norm > es.covers_to_norm)
+           ORDER BY e5.created_at_norm ASC, e5.id ASC
+           LIMIT 1) AS earliest_event_time,
+         (SELECT e5.created_at_norm
+            FROM events AS e5
+           WHERE e5.session_id = es.session_id
+             AND (es.covers_to_norm IS NULL OR e5.created_at_norm > es.covers_to_norm)
+           ORDER BY e5.created_at_norm ASC, e5.id ASC
+           LIMIT 1) AS earliest_event_norm
+    FROM eligible_sessions AS es
+)
+SELECT session_id, earliest_event_time
+  FROM candidates
+ WHERE earliest_event_time IS NOT NULL
+   AND (earliest_event_norm, session_id) > (?, ?)
+ ORDER BY earliest_event_norm ASC, session_id ASC
  LIMIT ?

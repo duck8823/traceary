@@ -38,8 +38,12 @@ type CommandBodyReclaim struct {
 // CompactFilter configures the copy-filter inside Build.
 // A zero value is vacuum-only: no body discard, no AfterClone.
 type CompactFilter struct {
-	Cutoff     time.Time
-	AfterClone func(context.Context, string) error
+	Cutoff time.Time
+	// AfterClone runs the --force mechanical cover on the work copy before the
+	// discard/vacuum steps. It receives Cutoff so the cover can decide it has
+	// folded enough of the oldest backlog to let CollectGarbage proceed even
+	// when unrelated, newer-than-cutoff material is still unfolded (#1721).
+	AfterClone func(ctx context.Context, work string, cutoff time.Time) error
 }
 
 // BodyGate classifies discardable-age transcript bodies on the source.
@@ -107,16 +111,40 @@ func formatCompactBytes(n int64) string {
 	}
 }
 
-// ForceCoverMustComplete refuses --force when mechanical cover did not finish.
-// HasMore is leftover discovery; Skipped is Failures.Count(). Either means
-// unrefined material may still be on the work copy, so Compact must not
-// report UnrefinedRemaining=0.
-func ForceCoverMustComplete(hasMore bool, skipped int) error {
+// ForceCoverSafeToDelete refuses --force when mechanical cover left behind
+// material that might still be older than cutoff. hasMore is leftover
+// discovery; earliestUnprocessed is that leftover's earliest event time (nil
+// when hasMore is false, or when the pass could not determine it). skipped is
+// Failures.Count(); earliestSkipped is the same for skipped candidates.
+//
+// This replaces the earlier "cover must be 100% complete" gate (#1795's
+// Complete(), later reconstructed as hasMore==false && skipped==0). That gate
+// refused any leftover regardless of age, which meant a large but
+// newer-than-cutoff backlog blocked deletion indefinitely (#1721). Discovery
+// now orders candidates oldest-first, so the earliest leftover time is a
+// sound bound: deletion is safe once every leftover range is no older than
+// cutoff. An unknown time (nil while the corresponding count is nonzero)
+// fails closed, matching the previous conservatism.
+func ForceCoverSafeToDelete(
+	hasMore bool, earliestUnprocessed *time.Time,
+	skipped int, earliestSkipped *time.Time,
+	cutoff time.Time,
+) error {
 	if hasMore {
-		return fmt.Errorf("compact --force cover is incomplete: more orphan ranges remain")
+		if earliestUnprocessed == nil {
+			return fmt.Errorf("compact --force cover is incomplete: earliest unprocessed orphan range time is unknown")
+		}
+		if earliestUnprocessed.Before(cutoff) {
+			return fmt.Errorf("compact --force cover is incomplete: unprocessed orphan ranges may be older than the retention cutoff")
+		}
 	}
 	if skipped > 0 {
-		return fmt.Errorf("compact --force cover is incomplete: %d orphan range(s) were skipped", skipped)
+		if earliestSkipped == nil {
+			return fmt.Errorf("compact --force cover is incomplete: earliest skipped orphan range time is unknown")
+		}
+		if earliestSkipped.Before(cutoff) {
+			return fmt.Errorf("compact --force cover is incomplete: %d orphan range(s) were skipped and may be older than the retention cutoff", skipped)
+		}
 	}
 	return nil
 }

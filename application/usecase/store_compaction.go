@@ -22,7 +22,7 @@ type storeCompactionUsecase struct {
 	lease         application.StoreCompactionLease
 	now           func() time.Time
 	expectedStore string
-	cover         func(context.Context, string) error
+	cover         func(ctx context.Context, work string, cutoff time.Time) error
 }
 
 type compactFilterSetter interface {
@@ -31,7 +31,7 @@ type compactFilterSetter interface {
 
 // BindCompactionWorkCover attaches the --force mechanical cover used on the
 // work copy. Composition root only; tests omit it.
-func BindCompactionWorkCover(u application.StoreCompactionUsecase, cover func(context.Context, string) error) {
+func BindCompactionWorkCover(u application.StoreCompactionUsecase, cover func(ctx context.Context, work string, cutoff time.Time) error) {
 	if concrete, ok := u.(*storeCompactionUsecase); ok {
 		concrete.cover = cover
 	}

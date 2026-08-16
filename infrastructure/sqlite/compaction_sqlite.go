@@ -67,7 +67,7 @@ func (b SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate st
 		removeSQLiteSidecars(work)
 	}()
 	if b.Filter.AfterClone != nil {
-		if err := b.Filter.AfterClone(ctx, work); err != nil {
+		if err := b.Filter.AfterClone(ctx, work, b.Filter.Cutoff); err != nil {
 			return fmt.Errorf("compact force cover: %w", err)
 		}
 		removeSQLiteSidecars(work)
