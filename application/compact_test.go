@@ -72,28 +72,63 @@ func TestUnrefinedMaterialErrorNamesSkillAndForceCost(t *testing.T) {
 	}
 }
 
-func TestForceCoverMustComplete(t *testing.T) {
+func TestForceCoverSafeToDelete(t *testing.T) {
 	t.Parallel()
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	older := cutoff.Add(-time.Hour)
+	newer := cutoff.Add(time.Hour)
 	for _, tc := range []struct {
-		name    string
-		hasMore bool
-		skipped int
-		wantErr bool
+		name                string
+		hasMore             bool
+		earliestUnprocessed *time.Time
+		skipped             int
+		earliestSkipped     *time.Time
+		wantErr             bool
 	}{
 		{name: "complete"},
-		{name: "has more leftover", hasMore: true, wantErr: true},
-		{name: "skipped ranges", skipped: 2, wantErr: true},
-		{name: "both incomplete signals", hasMore: true, skipped: 1, wantErr: true},
+		{
+			name: "has more but all newer than cutoff",
+			hasMore: true, earliestUnprocessed: &newer,
+		},
+		{
+			name: "has more and unknown earliest time",
+			hasMore: true, wantErr: true,
+		},
+		{
+			name: "has more and unprocessed older than cutoff",
+			hasMore: true, earliestUnprocessed: &older, wantErr: true,
+		},
+		{
+			name: "skipped but newer than cutoff",
+			skipped: 2, earliestSkipped: &newer,
+		},
+		{
+			name: "skipped with unknown earliest time",
+			skipped: 2, wantErr: true,
+		},
+		{
+			name: "skipped older than cutoff",
+			skipped: 2, earliestSkipped: &older, wantErr: true,
+		},
+		{
+			name:                "both incomplete signals but both newer than cutoff",
+			hasMore:             true,
+			earliestUnprocessed: &newer,
+			skipped:             1,
+			earliestSkipped:     &newer,
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := application.ForceCoverMustComplete(tc.hasMore, tc.skipped)
+			err := application.ForceCoverSafeToDelete(
+				tc.hasMore, tc.earliestUnprocessed, tc.skipped, tc.earliestSkipped, cutoff,
+			)
 			if tc.wantErr && err == nil {
-				t.Fatal("ForceCoverMustComplete() error = nil, want incomplete cover")
+				t.Fatal("ForceCoverSafeToDelete() error = nil, want incomplete cover")
 			}
 			if !tc.wantErr && err != nil {
-				t.Fatalf("ForceCoverMustComplete() error = %v", err)
+				t.Fatalf("ForceCoverSafeToDelete() error = %v", err)
 			}
 		})
 	}

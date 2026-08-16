@@ -105,6 +105,15 @@ func (u *orphanConsolidationUsecase) Consolidate(
 	failures := apptypes.OrphanConsolidationFailuresOf(nil)
 	consecutive := 0
 
+	// Candidates are ordered oldest-first (#1721), so the first one this pass
+	// never attempts is the earliest unprocessed event time. lastAttempted
+	// backs the case where the whole page was attempted but discovery has
+	// more beyond it: since ordering is monotone, the last attempted
+	// candidate's time is a safe lower bound for whatever remains unseen.
+	var earliestUnprocessed *time.Time
+	var earliestSkipped *time.Time
+	var lastAttempted *model.SessionOrphanRange
+
 	for _, orphan := range candidates.Ranges {
 		if orphan == nil {
 			continue
@@ -115,10 +124,13 @@ func (u *orphanConsolidationUsecase) Consolidate(
 		}
 		if u.clock.Now().Sub(started) >= budget {
 			hasMore = true
+			t := orphan.EarliestEventTime()
+			earliestUnprocessed = &t
 			break
 		}
 
 		attempted++
+		lastAttempted = orphan
 		wrote, failure := u.processCandidate(ctx, orphan, input.DryRun)
 		if failure == nil {
 			if wrote {
@@ -130,6 +142,9 @@ func (u *orphanConsolidationUsecase) Consolidate(
 		failures = failures.Add(apptypes.OrphanConsolidationFailureOf(
 			orphan.SessionID().String(), failure.Error(),
 		))
+		if t := orphan.EarliestEventTime(); earliestSkipped == nil || t.Before(*earliestSkipped) {
+			earliestSkipped = &t
+		}
 		consecutive++
 		slog.Warn(
 			"skipped orphan range",
@@ -144,7 +159,13 @@ func (u *orphanConsolidationUsecase) Consolidate(
 			)
 		}
 	}
-	return apptypes.OrphanConsolidationResultOf(attempted, produced, failures, hasMore, input.DryRun), nil
+	if earliestUnprocessed == nil && hasMore && lastAttempted != nil {
+		t := lastAttempted.EarliestEventTime()
+		earliestUnprocessed = &t
+	}
+	return apptypes.OrphanConsolidationResultOf(
+		attempted, produced, failures, hasMore, input.DryRun, earliestUnprocessed, earliestSkipped,
+	), nil
 }
 
 // processCandidate performs the single operation one candidate needs: a dry run

@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 const maxOrphanConsolidationFailures = 10
 
 // OrphanConsolidationFailure identifies an orphan range that could not be
@@ -62,21 +64,37 @@ func (f OrphanConsolidationFailures) Truncated() bool { return f.total > len(f.i
 
 // OrphanConsolidationResult is the result of an orphan-range consolidation run.
 type OrphanConsolidationResult struct {
-	attempted int
-	produced  int
-	failures  OrphanConsolidationFailures
-	hasMore   bool
-	dryRun    bool
+	attempted                  int
+	produced                   int
+	failures                   OrphanConsolidationFailures
+	hasMore                    bool
+	dryRun                     bool
+	earliestUnprocessEventTime *time.Time
+	earliestSkippedEventTime   *time.Time
 }
 
 // OrphanConsolidationResultOf creates an OrphanConsolidationResult.
-func OrphanConsolidationResultOf(attempted, produced int, failures OrphanConsolidationFailures, hasMore, dryRun bool) OrphanConsolidationResult {
+//
+// earliestUnprocessedEventTime is the earliest event time among candidates
+// this pass never attempted (nil when hasMore is false, since there is
+// nothing left unprocessed; nil while hasMore is true means the time could
+// not be determined and callers must fail closed, per #1721).
+// earliestSkippedEventTime is the same for candidates that were attempted and
+// failed (nil when nothing was skipped).
+func OrphanConsolidationResultOf(
+	attempted, produced int,
+	failures OrphanConsolidationFailures,
+	hasMore, dryRun bool,
+	earliestUnprocessedEventTime, earliestSkippedEventTime *time.Time,
+) OrphanConsolidationResult {
 	return OrphanConsolidationResult{
-		attempted: attempted,
-		produced:  produced,
-		failures:  failures,
-		hasMore:   hasMore,
-		dryRun:    dryRun,
+		attempted:                  attempted,
+		produced:                   produced,
+		failures:                   failures,
+		hasMore:                    hasMore,
+		dryRun:                     dryRun,
+		earliestUnprocessEventTime: earliestUnprocessedEventTime,
+		earliestSkippedEventTime:   earliestSkippedEventTime,
 	}
 }
 
@@ -116,3 +134,21 @@ func (r OrphanConsolidationResult) HasMore() bool { return r.hasMore }
 
 // DryRun reports whether the run was a dry run.
 func (r OrphanConsolidationResult) DryRun() bool { return r.dryRun }
+
+// EarliestUnprocessedEventTime returns the earliest event time among
+// candidates this pass never attempted, or nil when there were none (HasMore
+// is false) or the time could not be determined. A caller deciding whether
+// deletion up to some cutoff is safe must treat nil while HasMore is true as
+// unknown and refuse (#1721).
+func (r OrphanConsolidationResult) EarliestUnprocessedEventTime() *time.Time {
+	return r.earliestUnprocessEventTime
+}
+
+// EarliestSkippedEventTime returns the earliest event time among candidates
+// that were attempted and failed, or nil when nothing was skipped or the time
+// could not be determined. A caller deciding whether deletion up to some
+// cutoff is safe must treat nil while Skipped() > 0 as unknown and refuse
+// (#1721).
+func (r OrphanConsolidationResult) EarliestSkippedEventTime() *time.Time {
+	return r.earliestSkippedEventTime
+}
