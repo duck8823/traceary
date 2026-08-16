@@ -3,7 +3,7 @@
 [日本語](./README.ja.md)
 
 Traceary stores its local state in a single SQLite database file.
-This guide explains what gets written there, how the schema is organized today, and what the current `gc` / backup defaults mean in practice.
+This guide explains what gets written there, how the schema is organized today, and what the current `compact` / backup defaults mean in practice.
 
 ## Local-first layout
 
@@ -66,7 +66,7 @@ Traceary normalizes only command structure it has verified. Direct executables u
 
 When `input_truncated` or `output_truncated` is true, the stored payload is already a bounded head/tail projection and the corresponding `*_original_bytes` column records the original size for new rows. Search indexes `command_text` / `input_text` / `output_text` independently of `events.body`, so clearing the composed body does not drop searchable audit text. The omitted truncated bytes are not recoverable from historical rows.
 
-Because `command_audits.event_id` uses `ON DELETE CASCADE`, deleting an event through `gc` also deletes its audit payload.
+Because `command_audits.event_id` uses `ON DELETE CASCADE`, event row deletion also deletes the corresponding audit payload.
 
 ### `sessions`
 
@@ -189,10 +189,22 @@ Future discard reasons must use an additive sidecar column, never a new `body_av
 
 Practical implications:
 
-- `gc` is opt-in; Traceary does not delete history automatically in the background
-- use `--target events` to discard covered transcript bodies only
+- `store compact` is operator-initiated; Traceary does not discard history automatically in the background
+- `transcript` bodies are the only kind discarded by `store compact`; `prompt` bodies and `command_audits` text always remain
 - if you care about long-term audit history, take a backup before an aggressive cleanup
 - for cold-row export with **verify-before-delete**, see [Archive-before-GC](./archive-before-gc.md) (#1309); full-file backup remains [Backup guide](../backup/README.md)
+
+## Per-record storage accrual
+
+Each event row accrues storage permanently except for the fraction that `store compact` can discard. The allowlist in `select_discardable_event_bodies.sql` is currently exactly `{transcript}`: only `transcript` bodies from ended, covered sessions are eligible for body discard.
+
+The following are outside the discard path and always remain:
+
+- `command_audits.command_text`, `input_text`, `output_text` — the structured audit record for `command_executed` events
+- `prompt` event bodies
+- event skeletons (id, kind, session_id, created_at, and other metadata columns) for all kinds
+
+Measured composition on the reference corpus: roughly **2.67 KiB/event** accrues permanently and roughly **0.35 KiB/event** is discardable (covered `transcript` bodies), against a roughly **4 KiB/event** ceiling. `store compact` reduces the discardable portion; it does not bound the total store size. The permanently-accruing share grows with the number of events regardless of how often compact runs.
 
 ## Reversible historical content dedupe
 
