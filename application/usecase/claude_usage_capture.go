@@ -170,7 +170,10 @@ func (u *claudeUsageCaptureUsecase) recordUnavailableBoundary(
 	if mode == application.ClaudeUsageModeOneShotStream {
 		scope = types.UsageScopeRun
 	}
-	now := time.Unix(0, 0).UTC()
+	now, err := resolveUnavailableObservationTime(ctx, u.repository, id, time.Time{})
+	if err != nil {
+		return err
+	}
 	descriptor, err := model.NewUsageObservationDescriptor(
 		id, input.SessionID, source, scope, types.UsageAccountingExcluded, now,
 	)

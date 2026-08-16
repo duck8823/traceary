@@ -124,6 +124,7 @@ func TestGrokUsageCapture_RecordsUnavailableRunAndStableHookCall(t *testing.T) {
 			observation.Counters().Availability() != types.UsageAvailabilityUnavailable {
 			t.Fatalf("unavailable observation = %+v", observation)
 		}
+		assertUnavailableObservationNotEpoch(t, observation)
 	}
 	if runCount != 1 || callCount != 1 {
 		t.Fatalf("run = %d call = %d", runCount, callCount)

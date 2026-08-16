@@ -146,6 +146,7 @@ func TestClaudeUsageCaptureUsecase_RecordsStableUnavailableBoundary(t *testing.T
 			observation.Counters().Availability() != types.UsageAvailabilityUnavailable {
 			t.Fatalf("unavailable observation = %+v", observation)
 		}
+		assertUnavailableObservationNotEpoch(t, observation)
 	}
 }
 

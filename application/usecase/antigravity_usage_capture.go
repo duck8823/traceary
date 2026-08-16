@@ -180,7 +180,10 @@ func (u *antigravityUsageCaptureUsecase) CaptureStopUnavailable(
 	if err != nil {
 		return AntigravityUsageCaptureResult{}, xerrors.Errorf("invalid Antigravity Stop usage source: %w", err)
 	}
-	observedAt := time.Unix(0, 0).UTC()
+	observedAt, err := resolveUnavailableObservationTime(ctx, u.repository, id, time.Time{})
+	if err != nil {
+		return AntigravityUsageCaptureResult{}, err
+	}
 	descriptor, err := model.NewUsageObservationDescriptor(
 		id, input.SessionID, source, types.UsageScopeCall, types.UsageAccountingExcluded, observedAt,
 	)

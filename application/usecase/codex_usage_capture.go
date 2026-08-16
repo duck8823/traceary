@@ -172,10 +172,10 @@ func (u *codexUsageCaptureUsecase) recordUnavailableBoundary(
 	if err != nil {
 		return xerrors.Errorf("invalid Codex unavailable source: %w", err)
 	}
-	// A body-free Stop delivery has no authoritative event timestamp. Use one
-	// deterministic sentinel so exact replays are reconciled by the domain
-	// aggregate instead of an adapter-local equality rule.
-	now := time.Unix(0, 0).UTC()
+	now, err := resolveUnavailableObservationTime(ctx, u.repository, id, time.Time{})
+	if err != nil {
+		return err
+	}
 	descriptor, err := model.NewUsageObservationDescriptor(
 		id, input.SessionID, source, types.UsageScopeCall, types.UsageAccountingExcluded, now,
 	)

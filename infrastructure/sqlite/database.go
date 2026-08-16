@@ -493,6 +493,8 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string, allowOffli
 		projectionCatchUp, projectionCatchUpErr := catchUpSearchProjection(ctx, d)
 		logSearchProjectionCatchUp(projectionCatchUp, projectionCatchUpErr)
 	}
+	usageRepairResult, usageRepairErr := catchUpEpochZeroHookUsage(ctx, db, epochZeroHookUsageRepairBatchSize)
+	logEpochZeroHookUsageRepair(usageRepairResult, usageRepairErr)
 	catchUpResult, catchUpErr := catchUpWorkspaceObservations(ctx, db, workspaceObservationCatchUpBatchSize)
 	if catchUpErr != nil {
 		// Catch-up is additive diagnostic coverage. A malformed historical row

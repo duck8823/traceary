@@ -209,7 +209,10 @@ func (u *grokUsageCaptureUsecase) recordUnavailable(
 	if err != nil {
 		return result, xerrors.Errorf("invalid Grok unavailable source: %w", err)
 	}
-	observedAt := time.Unix(0, 0).UTC()
+	observedAt, err := resolveUnavailableObservationTime(ctx, u.repository, id, time.Time{})
+	if err != nil {
+		return result, err
+	}
 	descriptor, err := model.NewUsageObservationDescriptor(
 		id, input.SessionID, source, scope, types.UsageAccountingExcluded, observedAt,
 	)

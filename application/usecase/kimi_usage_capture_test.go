@@ -108,6 +108,9 @@ func TestKimiUsageCapture_RecordsPartialExcludedRowsAndUnavailableBoundary(t *te
 		if descriptor.Accounting() != types.UsageAccountingExcluded || descriptor.Scope() != types.UsageScopeCall {
 			t.Fatalf("descriptor = %+v", descriptor)
 		}
+		if descriptor.Source().Name() == "stop_hook" || descriptor.Source().Name() == "session_end_hook" {
+			assertUnavailableObservationNotEpoch(t, observation)
+		}
 		if descriptor.Source().Name() == "main_wire" {
 			counters := observation.Counters()
 			if value, known := counters.Input().Value(); !known || value != 0 {
@@ -148,6 +151,9 @@ func TestKimiUsageCapture_SeparatesStopAndSessionEndAvailability(t *testing.T) {
 	}
 	if len(repository.observations) != 2 {
 		t.Fatalf("boundary observations = %d, want 2", len(repository.observations))
+	}
+	for _, observation := range repository.observations {
+		assertUnavailableObservationNotEpoch(t, observation)
 	}
 }
 

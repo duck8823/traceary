@@ -19,6 +19,10 @@ type GeminiUsageCaptureInput struct {
 	SessionID        types.SessionID
 	DeliveryID       string
 	FallbackTerminal types.UsageTerminalCode
+	// EventTime is the hook payload's own event timestamp, when the caller has
+	// one. It is used as observed_at/finalized_at instead of the hook wall
+	// clock so that idempotent delivery replays keep the same descriptor.
+	EventTime time.Time
 }
 
 // GeminiUsageCaptureResult exposes idempotent write outcomes.
@@ -122,7 +126,10 @@ func (u *geminiUsageCaptureUsecase) recordUnavailable(
 	if err != nil {
 		return xerrors.Errorf("invalid Gemini unavailable source: %w", err)
 	}
-	observedAt := time.Unix(0, 0).UTC()
+	observedAt, err := resolveUnavailableObservationTime(ctx, u.repository, id, input.EventTime)
+	if err != nil {
+		return err
+	}
 	descriptor, err := model.NewUsageObservationDescriptor(
 		id, input.SessionID, source, scope, types.UsageAccountingExcluded, observedAt,
 	)
