@@ -104,18 +104,22 @@ func (c *RootCLI) attachManagedGenerationCheck(ctx context.Context, check doctor
 		return check
 	}
 	dryRunCommand := fmt.Sprintf("traceary doctor --fix --dry-run --client %s --project-dir %s", client, shellQuote(projectDir))
+	applyCommand := fmt.Sprintf("traceary doctor --fix --client %s --project-dir %s", client, shellQuote(projectDir))
 	check.Status = doctorStatusWarn
 	check.Message = localizef(
-		"%s config has Traceary-managed hooks but their generation is stale (%s). Host budgets or command payloads lag the installed Traceary version; prompt/transcript coverage can silently drop: %s",
-		"%s config に Traceary 管理 hook はありますが generation が古いです (%s)。host budget や command payload がインストール済み Traceary より遅れ、prompt/transcript coverage が黙って欠けることがあります: %s",
+		"%s config has Traceary-managed hooks but the hook generation is stale (%s); the %s package may be current but managed entries in %s were written by an older generation. Run `traceary doctor --fix --client %s` to refresh",
+		"%s config に Traceary 管理 hook はありますが hook の generation が古いです (%s)。%s パッケージは最新でも %s の managed エントリは古い generation で書かれています。`traceary doctor --fix --client %s` で更新してください",
 		client,
 		strings.Join(reasons, "; "),
+		client,
 		outputPath,
+		client,
 	)
 	check.Hint = localizef(
-		"preview the non-destructive refresh with `%s`; it rewrites only Traceary-managed entries (timeouts, commands) and preserves non-Traceary hooks",
-		"`%s` で非破壊 refresh をプレビューしてください。Traceary 管理エントリ（timeout / command）だけを更新し、Traceary 以外の hook は保持します",
+		"auto-fix is available: preview with `%s`, then apply with `%s`; rewrites only Traceary-managed entries (timeouts, commands) and preserves non-Traceary hooks",
+		"自動修復が利用可能: `%s` でプレビューし、`%s` で適用してください。Traceary 管理エントリ（timeout / command）だけを更新し、Traceary 以外の hook は保持します",
 		dryRunCommand,
+		applyCommand,
 	)
 	check.FixCommand = dryRunCommand
 	check.AutoFixAvailable = true
