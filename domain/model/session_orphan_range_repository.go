@@ -31,11 +31,26 @@ type SessionOrphanRangeRepository interface {
 	//      and whose to_event_id is not yet covered by the session refinement
 	//   2. ended or stale sessions with material past covers_to (or the whole
 	//      session when no refinement exists)
-	// staleAfter is the same activity window as session gc (default 24h).
+	//   3. sessions that are neither ended nor stale (an always-on session
+	//      never satisfies source 2's predicate) but hold material past
+	//      covers_to that is older than retentionCutoff. The folded terminus
+	//      is the last-observed event strictly before retentionCutoff, never
+	//      "now" or the session's true latest event: material at or after
+	//      retentionCutoff is left uncovered so a later activity burst starts
+	//      a fresh orphan range instead of being claimed as already folded
+	//      (#1724). A recorded marker (source 1) for the same session is
+	//      skipped in favour of this source when this source also matches,
+	//      the same way source 1 already defers to source 2.
+	// staleAfter is the same activity window as session gc (default 24h); it
+	// bounds sources 1 and 2. retentionCutoff bounds source 3; the zero value
+	// disables source 3 entirely (callers that do not know the compact
+	// retention cutoff keep today's two-source behaviour unchanged).
 	// limit bounds the work one pass performs; it is a query bound, not a
 	// persistence detail. limit must be greater than zero.
 	// This asks a question; it changes nothing.
-	DiscoverCandidates(ctx context.Context, staleAfter time.Duration, now time.Time, limit int) (SessionOrphanCandidates, error)
+	DiscoverCandidates(
+		ctx context.Context, staleAfter time.Duration, now time.Time, retentionCutoff time.Time, limit int,
+	) (SessionOrphanCandidates, error)
 
 	// LoadMaterial returns the mechanical-summary inputs for a range under
 	// canonical event order (ts_norm(created_at), id). Like DiscoverCandidates,

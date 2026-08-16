@@ -13,6 +13,7 @@ import (
 	"database/sql"
 
 	"github.com/duck8823/traceary/application"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -366,6 +367,140 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	if avail := gcEventAvailability(t, db, "event-old"); avail != "unavailable_retention" {
 		t.Fatalf("forced body availability = %s, want unavailable_retention", avail)
+	}
+}
+
+// TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail is the #1724
+// regression pin. A session that stays continuously active (recent activity,
+// ended_at always NULL) satisfies neither of the two discovery sources #1721
+// coordinates with: it is never "ended", and the 24h staleness rule never
+// fires because there is always recent activity.
+//
+// Before the third discovery source existed, such a session's old material
+// was never seen by any consolidation pass, no matter how old it got: repeated
+// force-cover passes here would report ProducedCount() == 0 and leave
+// session_refinements empty for it forever, so the material stayed unfolded
+// for as long as the session kept receiving occasional activity — even though
+// select_discardable_event_bodies.sql's own ended_at IS NOT NULL clause
+// already keeps its transcript bodies from being physically discarded while
+// active. Once the session eventually does end (or goes stale), the whole
+// accumulated backlog surfaces to source 2 at once with no prior folding
+// progress, which is exactly the large, all-at-once blast radius #1721's
+// bounded, oldest-first passes exist to avoid.
+//
+// This test wires the third source's RetentionCutoff through the same real
+// Compact() --force path the other #1721 tests use and asserts folding now
+// happens incrementally for the still-active session, with a terminus bounded
+// to the last event strictly before the retention cutoff — not the session's
+// true latest event.
+func TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
+	t.Parallel()
+	dbPath, events, store := prepareDiscardGCFixture(t)
+	_ = store
+	old := newGCEventFixture(t, "event-old", types.EventKindTranscript, "why-is-here", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	recent := newGCEventFixture(t, "event-recent", types.EventKindTranscript, "still-going", time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), recent); err != nil {
+		t.Fatal(err)
+	}
+
+	db := openRetentionDB(t, dbPath)
+	insertGCSession(t, db, "session-1", false) // never ends
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := usecase.NewStoreCompactionUsecase(
+		dbPath,
+		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
+		&sqlite.SQLiteCompactionBuilder{},
+		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
+		sqlite.StoreLeaseCoordinator{},
+	)
+	migrations := onDiskSQLiteMigrations(t)
+	// compactWorkCover in main.go always pairs a real-clock staleness rule
+	// with a real-now retention cutoff, so the two agree in production. This
+	// test fixes CompactInput.Now to a historical instant to keep the fixture
+	// deterministic, so the cover's own clock must be pinned to that same
+	// instant too — otherwise the 24h staleness rule would race the actual
+	// wall clock and classify session-1 as stale via source 2 (unbounded)
+	// well before the cutoff-bounded source 3 was meant to be exercised.
+	fixedNow := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	var lastResult apptypes.OrphanConsolidationResult
+	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) error {
+		database := sqlite.NewDatabase(work, migrations)
+		refine := usecase.NewSessionRefinementUsecase(
+			sqlite.NewSessionDatasource(database),
+			sqlite.NewSessionRefinementDatasource(database),
+			sqlite.NewEventDatasource(database),
+			fixedEventClock{at: fixedNow},
+		)
+		cover := usecase.NewOrphanConsolidationUsecase(
+			sqlite.NewSessionOrphanRangeDatasource(database),
+			refine,
+			fixedEventClock{at: fixedNow},
+		)
+		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
+			StaleAfter:      24 * time.Hour,
+			RetentionCutoff: cutoff,
+		})
+		if err != nil {
+			return fmt.Errorf("compact force cover: %w", err)
+		}
+		lastResult = result
+		if err := application.ForceCoverSafeToDelete(
+			result.HasMore(), result.EarliestUnprocessedEventTime(),
+			result.Skipped(), result.EarliestSkippedEventTime(),
+			cutoff,
+		); err != nil {
+			return fmt.Errorf("compact force cover: %w", err)
+		}
+		return nil
+	})
+
+	// MechanicalSummaries/UnrefinedRemaining are reported from a separate
+	// legacy body-gate query (unrefinedDiscardableSessionsQuery) that joins on
+	// sessions.ended_at IS NOT NULL and so never counts an always-on session
+	// either; that gate is out of scope for #1724 (see the responsibility
+	// table) and is not asserted on here.
+	if _, err := svc.Compact(context.Background(), application.CompactInput{
+		Source:   dbPath,
+		Force:    true,
+		KeepDays: 10,
+		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("Compact() error = %v, want the never-ending session's pre-cutoff tail to be folded by the third discovery source", err)
+	}
+	if lastResult.ProducedCount() != 1 {
+		t.Fatalf("ProducedCount = %d, want 1: the third discovery source must have folded session-1's pre-cutoff tail", lastResult.ProducedCount())
+	}
+
+	db = openRetentionDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+
+	var coversTo string
+	if err := db.QueryRow(`SELECT covers_to_event_id FROM session_refinements WHERE session_id = 'session-1'`).Scan(&coversTo); err != nil {
+		t.Fatalf("query session_refinements: %v", err)
+	}
+	if coversTo != "event-old" {
+		t.Fatalf("covers_to_event_id = %s, want event-old: the fold must stop at the last pre-cutoff event, not the still-active session's latest event", coversTo)
+	}
+
+	// The transcript discard allowlist itself refuses any session whose
+	// ended_at is NULL (select_discardable_event_bodies.sql), independent of
+	// fold status, so neither event's body_availability changes here — that
+	// guard already keeps an active session's bodies from being physically
+	// discarded. What this test pins is that the fold happened at all, and
+	// that it stopped at the correct pre-cutoff terminus rather than either
+	// skipping the session (the pre-#1724 gap) or claiming coverage over the
+	// still-recent, post-cutoff activity.
+	if avail := gcEventAvailability(t, db, "event-old"); avail != "available" {
+		t.Fatalf("event-old body_availability = %s, want available (an active session's bodies are never discarded)", avail)
+	}
+	if avail := gcEventAvailability(t, db, "event-recent"); avail != "available" {
+		t.Fatalf("event-recent body_availability = %s, want available", avail)
 	}
 }
 

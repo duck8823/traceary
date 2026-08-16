@@ -24,8 +24,14 @@ var listRecordedOrphanRangesQuery string
 //go:embed sql/list_ended_or_stale_sessions_for_orphan.sql
 var listEndedOrStaleSessionsForOrphanQuery string
 
+//go:embed sql/list_active_sessions_for_orphan.sql
+var listActiveSessionsForOrphanQuery string
+
 //go:embed sql/select_latest_event_id_for_session.sql
 var selectLatestEventIDForSessionQuery string
+
+//go:embed sql/select_latest_event_id_for_session_before_cutoff.sql
+var selectLatestEventIDForSessionBeforeCutoffQuery string
 
 //go:embed sql/select_orphan_range_events.sql
 var selectOrphanRangeEventsQuery string
@@ -100,6 +106,7 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 	ctx context.Context,
 	staleAfter time.Duration,
 	now time.Time,
+	retentionCutoff time.Time,
 	limit int,
 ) (model.SessionOrphanCandidates, error) {
 	if staleAfter <= 0 {
@@ -116,6 +123,14 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 		}
 
 		cutoff := formatTimestamp(now.UTC().Add(-staleAfter))
+		// Source 3 (#1724) is opt-in: the zero value means the caller does not
+		// know the compact retention cutoff, so it keeps today's two-source
+		// behaviour rather than guessing a cutoff that could be wrong.
+		retentionCutoffEnabled := !retentionCutoff.IsZero()
+		retentionCutoffNorm := ""
+		if retentionCutoffEnabled {
+			retentionCutoffNorm = formatTimestamp(retentionCutoff.UTC())
+		}
 		seen := map[string]struct{}{}
 		var candidates []*model.SessionOrphanRange
 		target := limit + 1
@@ -148,6 +163,21 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 			if endedOrStale {
 				// Will be rediscovered from covers_to below with the full gap.
 				continue
+			}
+			if retentionCutoffEnabled {
+				// This active session's marker is a frozen shortcut (see the
+				// package doc above); if source 3 also has pre-cutoff material
+				// past coverage for it, source 3 recomputes the authoritative
+				// range from covers_to, so this snapshot is skipped in favour
+				// of it rather than surfaced as a second, possibly stale range
+				// for the same session (#1724).
+				_, hasFuller, err := d.gapPastCoverageBeforeCutoff(ctx, db, orphan.SessionID(), now, now, retentionCutoffNorm)
+				if err != nil {
+					return err
+				}
+				if hasFuller {
+					continue
+				}
 			}
 			key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
 			if _, ok := seen[key]; ok {
@@ -202,6 +232,56 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 			}
 			if len(page) < pageSize {
 				break
+			}
+		}
+
+		// Source 3 (#1724): sessions that never satisfy source 2's
+		// ended-or-stale predicate (always active) but hold material past
+		// covers_to older than the compact retention cutoff. Paginated the
+		// same oldest-first way as source 2, and independently bounded by
+		// target so a large active-session backlog cannot starve the other
+		// sources within one pass.
+		if retentionCutoffEnabled {
+			activeCount := 0
+			activeCursorNorm := ""
+			activeCursorSessionID := ""
+			activePageSize := limit + 1
+			for activeCount < target {
+				if err := ctx.Err(); err != nil {
+					return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+				}
+				page, err := d.listActivePage(ctx, db, cutoff, retentionCutoffNorm, activeCursorNorm, activeCursorSessionID, activePageSize)
+				if err != nil {
+					return err
+				}
+				if len(page) == 0 {
+					break
+				}
+				last := page[len(page)-1]
+				activeCursorNorm = last.earliestEventNorm
+				activeCursorSessionID = last.sessionID.String()
+				for _, row := range page {
+					if activeCount >= target {
+						break
+					}
+					orphan, ok, err := d.gapPastCoverageBeforeCutoff(ctx, db, row.sessionID, row.earliestEventTime, now, retentionCutoffNorm)
+					if err != nil {
+						return err
+					}
+					if !ok {
+						continue
+					}
+					key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
+					if _, exists := seen[key]; exists {
+						continue
+					}
+					seen[key] = struct{}{}
+					candidates = append(candidates, orphan)
+					activeCount++
+				}
+				if len(page) < activePageSize {
+					break
+				}
 			}
 		}
 
@@ -421,6 +501,55 @@ func (d *SessionOrphanRangeDatasource) listEndedOrStalePage(
 	return result, nil
 }
 
+// listActivePage lists one oldest-first page of source-3 candidates (#1724):
+// sessions that never satisfy source 2's ended-or-stale predicate but hold
+// material past covers_to older than retentionCutoffNorm. Shares the
+// endedOrStaleCandidate row shape and keyset-cursor convention with
+// listEndedOrStalePage.
+func (d *SessionOrphanRangeDatasource) listActivePage(
+	ctx context.Context,
+	db *sql.DB,
+	staleCutoff string,
+	retentionCutoffNorm string,
+	cursorNorm string,
+	cursorSessionID string,
+	limit int,
+) ([]endedOrStaleCandidate, error) {
+	rows, err := db.QueryContext(
+		ctx, listActiveSessionsForOrphanQuery,
+		staleCutoff, staleCutoff, retentionCutoffNorm, retentionCutoffNorm, cursorNorm, cursorSessionID, limit,
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list active sessions with pre-cutoff material: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []endedOrStaleCandidate
+	for rows.Next() {
+		var id, earliestRaw string
+		if err := rows.Scan(&id, &earliestRaw); err != nil {
+			return nil, xerrors.Errorf("failed to scan active session row: %w", err)
+		}
+		sessionID, err := types.SessionIDFrom(id)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid stored session id: %w", err)
+		}
+		earliest, err := time.Parse(time.RFC3339Nano, earliestRaw)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid orphan earliest_event_time %q: %w", earliestRaw, err)
+		}
+		result = append(result, endedOrStaleCandidate{
+			sessionID:         sessionID,
+			earliestEventTime: earliest,
+			earliestEventNorm: normalizeRFC3339NanoForCompare(earliestRaw),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("failed to iterate active sessions with pre-cutoff material: %w", err)
+	}
+	return result, nil
+}
+
 func (d *SessionOrphanRangeDatasource) sessionEndedOrStale(
 	ctx context.Context,
 	db *sql.DB,
@@ -486,6 +615,10 @@ SELECT covers_to_event_id
 	return after == 1, nil
 }
 
+// gapPastCoverage builds the orphan range for a session (source 2), folding
+// through the session's true latest event. Safe for ended/stale sessions
+// only: no more activity is coming, so there is no risk of claiming coverage
+// over an event that has not happened yet.
 func (d *SessionOrphanRangeDatasource) gapPastCoverage(
 	ctx context.Context,
 	db *sql.DB,
@@ -501,6 +634,48 @@ func (d *SessionOrphanRangeDatasource) gapPastCoverage(
 	if err != nil {
 		return nil, false, xerrors.Errorf("failed to resolve latest event: %w", err)
 	}
+	return d.buildGapPastCoverage(ctx, db, sessionID, latestID, earliestEventTime, now)
+}
+
+// gapPastCoverageBeforeCutoff is gapPastCoverage's bounded counterpart for
+// source 3 (#1724): the terminus is the last event strictly before cutoff,
+// not the session's true latest event. This is what keeps folding an active
+// session's tail from claiming coverage over events that have not aged past
+// the retention cutoff yet — a later activity burst starts a fresh orphan
+// range instead of falling inside this one. cutoff is the normalized
+// (formatTimestamp) retention cutoff.
+func (d *SessionOrphanRangeDatasource) gapPastCoverageBeforeCutoff(
+	ctx context.Context,
+	db *sql.DB,
+	sessionID types.SessionID,
+	earliestEventTime time.Time,
+	now time.Time,
+	cutoff string,
+) (*model.SessionOrphanRange, bool, error) {
+	var latestID string
+	err := db.QueryRowContext(ctx, selectLatestEventIDForSessionBeforeCutoffQuery, sessionID.String(), cutoff).Scan(&latestID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// No event of this session is older than the cutoff.
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, xerrors.Errorf("failed to resolve latest pre-cutoff event: %w", err)
+	}
+	return d.buildGapPastCoverage(ctx, db, sessionID, latestID, earliestEventTime, now)
+}
+
+// buildGapPastCoverage is the shared tail of gapPastCoverage and
+// gapPastCoverageBeforeCutoff: given a resolved terminus event id, compare it
+// against the session's current refinement coverage and build the orphan
+// range when material remains.
+func (d *SessionOrphanRangeDatasource) buildGapPastCoverage(
+	ctx context.Context,
+	db *sql.DB,
+	sessionID types.SessionID,
+	latestID string,
+	earliestEventTime time.Time,
+	now time.Time,
+) (*model.SessionOrphanRange, bool, error) {
 	latest, err := types.EventIDFrom(latestID)
 	if err != nil {
 		return nil, false, xerrors.Errorf("invalid latest event id: %w", err)
@@ -513,7 +688,7 @@ SELECT covers_to_event_id
  WHERE session_id = ?
 `, sessionID.String()).Scan(&coversTo)
 	if errors.Is(err, sql.ErrNoRows) {
-		// No refinement: the whole session is orphaned.
+		// No refinement: the whole session (up to latest) is orphaned.
 		orphan, buildErr := model.NewSessionOrphanRange(
 			sessionID,
 			types.None[types.EventID](),

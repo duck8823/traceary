@@ -463,7 +463,8 @@ func compactWorkCover(migrations fs.FS) func(context.Context, string, time.Time)
 		err := orphanDatasource.WithReadScope(ctx, func(scopedCtx context.Context) error {
 			var consolidateErr error
 			result, consolidateErr = cover.Consolidate(scopedCtx, usecase.OrphanConsolidationInput{
-				StaleAfter: 24 * time.Hour,
+				StaleAfter:      24 * time.Hour,
+				RetentionCutoff: cutoff,
 			})
 			if consolidateErr != nil {
 				return xerrors.Errorf("consolidate orphan ranges: %w", consolidateErr)

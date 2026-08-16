@@ -36,7 +36,7 @@ func (s *orphanRepoStub) Record(context.Context, *model.SessionOrphanRange) erro
 	return nil
 }
 
-func (s *orphanRepoStub) DiscoverCandidates(_ context.Context, _ time.Duration, _ time.Time, limit int) (model.SessionOrphanCandidates, error) {
+func (s *orphanRepoStub) DiscoverCandidates(_ context.Context, _ time.Duration, _ time.Time, _ time.Time, limit int) (model.SessionOrphanCandidates, error) {
 	s.discoverCall++
 	s.lastLimit = limit
 	if s.discoverErr != nil {
