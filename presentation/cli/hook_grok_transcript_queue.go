@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +26,23 @@ const (
 	hookGrokTranscriptTerminalSchemaVersion = 1
 	hookGrokTranscriptRetryCount            = 20
 	hookGrokTranscriptRetryInterval         = 100 * time.Millisecond
+	// hookGrokTranscriptMaxAttempts is the total worker-run ceiling across
+	// relaunches. Exhausting the in-process delayed window bumps Attempts and
+	// requeues rather than finalizing; only reaching this ceiling (or a
+	// genuinely non-retryable classification) is terminal (#1973).
+	hookGrokTranscriptMaxAttempts = 10
+	// hookGrokTranscriptTerminalRetention is how long a terminal disposition
+	// marker remains visible to doctor before opportunistic GC removes it.
+	hookGrokTranscriptTerminalRetention = 24 * time.Hour
+	// hookGrokTranscriptRequeueBackoff avoids relaunching a job the drain just
+	// attempted moments ago.
+	hookGrokTranscriptRequeueBackoff = 2 * time.Second
+	// hookGrokTranscriptDrainBatchLimit caps how many other-session jobs and
+	// terminal markers a later hook may launch or GC per opportunistic drain.
+	hookGrokTranscriptDrainBatchLimit = 3
+	// hookGrokTranscriptDoctorFixLimit is the larger batch used by doctor --fix.
+	hookGrokTranscriptDoctorFixLimit = 50
+	hookGrokTranscriptErrorLimit     = 1024
 )
 
 type hookGrokTranscriptJob struct {
@@ -34,6 +53,7 @@ type hookGrokTranscriptJob struct {
 	Attempts      int       `json:"attempts,omitempty"`
 	LastAttemptAt time.Time `json:"last_attempt_at,omitempty"`
 	LastError     string    `json:"last_error,omitempty"`
+	Path          string    `json:"-"`
 }
 
 type hookGrokTranscriptTerminal struct {
@@ -73,7 +93,7 @@ func scanHookGrokTranscriptJobs() ([]hookGrokTranscriptJob, []string, error) {
 	return jobs, unreadable, nil
 }
 
-func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
+func (c *RootCLI) inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
 	const name = "hook-grok-transcript"
 	jobs, unreadable, err := scanHookGrokTranscriptJobs()
 	if err != nil {
@@ -98,6 +118,11 @@ func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
 	}
 	terminalCounts := map[string]int{}
 	for _, terminal := range terminals {
+		// A terminal marker past retention is already GC-eligible; it is not
+		// outstanding work an operator needs to act on.
+		if hookGrokTranscriptTerminalReadyForGC(terminal, now) {
+			continue
+		}
 		terminalCounts[terminal.Disposition]++
 	}
 	partial := terminalCounts["unavailable"] + terminalCounts["malformed"] + terminalCounts["cancelled"]
@@ -122,8 +147,121 @@ func inspectHookGrokTranscriptDiagnostics(now time.Time) doctorCheck {
 			"未処理の Grok transcript job が %d 件、以前失敗した job が %d 件、読めない job が %d 件、partial final-turn disposition が %d 件（unavailable %d 件、malformed %d 件、cancelled %d 件、読めない disposition marker %d 件）あります。最古の経過時間は %s です",
 			len(jobs), failed, len(unreadable), partial, terminalCounts["unavailable"], terminalCounts["malformed"], terminalCounts["cancelled"], terminalUnreadable, oldestAge.Round(time.Second),
 		),
-		Hint: Localize("a terminal final-turn disposition is partial coverage and has no retry job; enable TRACEARY_HOOK_DEBUG for the next turn. Remove a pending job only after confirming it is stale", "終端 final-turn disposition は partial coverage であり retry job はありません。次の turn で TRACEARY_HOOK_DEBUG を有効にしてください。未処理 job は不要と確認してからだけ削除してください"),
+		Hint: Localize("later hooks drain a bounded oldest-first batch across sessions and GC terminal dispositions past retention. Run `traceary doctor --fix` to force a larger drain, or enable TRACEARY_HOOK_DEBUG for the next turn", "後続 hook は oldest-first の bounded batch で queue 全体を drain し、retention を過ぎた終端 disposition を GC します。大きめに drain するには `traceary doctor --fix` を使い、次の turn で TRACEARY_HOOK_DEBUG を有効にしてください"),
+		FixCommand:       "traceary doctor --fix",
+		AutoFixAvailable: true,
+		FixFunc: func(_ context.Context, dryRun bool) (string, error) {
+			if dryRun {
+				pending, _, scanErr := scanHookGrokTranscriptJobs()
+				if scanErr != nil {
+					return "", scanErr
+				}
+				return localizef("would drain/GC up to %d pending Grok transcript job(s)/terminal marker(s)", "未処理 Grok transcript job/terminal marker 最大 %d 件を drain/GC します", min(len(pending)+len(terminals), hookGrokTranscriptDoctorFixLimit)), nil
+			}
+			launched, removed := c.drainHookGrokTranscriptQueue(time.Now().UTC(), hookGrokTranscriptDoctorFixLimit)
+			return localizef("drained Grok transcript queue: launched=%d removed=%d", "Grok transcript queue を drain しました: launched=%d removed=%d", launched, removed), nil
+		},
 	}
+}
+
+// drainHookGrokTranscriptQueue relaunches pending jobs (oldest first) that are
+// not within the requeue backoff window, and garbage-collects terminal
+// disposition markers past retention plus their leftover `.lock` sidecars.
+// skipPaths are ignored (e.g. a job just launched by scheduleHookGrokTranscript).
+// Returns launch and removal counts.
+func (c *RootCLI) drainHookGrokTranscriptQueue(now time.Time, limit int, skipPaths ...string) (launched, removed int) {
+	if limit <= 0 {
+		return 0, 0
+	}
+	removed = gcHookGrokTranscriptTerminals(now, limit)
+	if removed >= limit {
+		return 0, removed
+	}
+	skip := make(map[string]struct{}, len(skipPaths))
+	for _, p := range skipPaths {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			skip[trimmed] = struct{}{}
+		}
+	}
+	jobs, _, err := scanHookGrokTranscriptJobs()
+	if err != nil || len(jobs) == 0 {
+		return 0, removed
+	}
+	launcher := c.hookGrokTranscriptLauncher
+	if launcher == nil {
+		launcher = launchDetachedHookGrokTranscriptWorker
+	}
+	// scanHookGrokTranscriptJobs already returns oldest first.
+	for _, job := range jobs {
+		if launched+removed >= limit {
+			break
+		}
+		if strings.TrimSpace(job.Path) == "" {
+			continue
+		}
+		if _, ok := skip[job.Path]; ok {
+			continue
+		}
+		if !job.LastAttemptAt.IsZero() && now.Sub(job.LastAttemptAt) < hookGrokTranscriptRequeueBackoff {
+			continue
+		}
+		if err := launcher(job.Path); err != nil {
+			slog.Debug("hook Grok transcript drain launch failed", "job", job.Path, "error", err)
+			continue
+		}
+		launched++
+	}
+	return launched, removed
+}
+
+func gcHookGrokTranscriptTerminals(now time.Time, limit int) int {
+	dir, err := hookGrokTranscriptTerminalDir()
+	if err != nil {
+		return 0
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		return 0
+	}
+	queueDir, err := hookGrokTranscriptQueueDir()
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	for _, entry := range entries {
+		if removed >= limit {
+			break
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		terminalPath := filepath.Join(dir, entry.Name())
+		terminal, readErr := readHookGrokTranscriptTerminal(terminalPath)
+		if readErr != nil {
+			continue
+		}
+		if !hookGrokTranscriptTerminalReadyForGC(terminal, now) {
+			continue
+		}
+		if err := os.Remove(terminalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Debug("hook Grok transcript terminal GC failed", "terminal", terminalPath, "error", err)
+			continue
+		}
+		_ = os.Remove(filepath.Join(queueDir, entry.Name()+".lock"))
+		removed++
+	}
+	return removed
+}
+
+func hookGrokTranscriptJobIsTerminal(job hookGrokTranscriptJob) bool {
+	return job.Attempts >= hookGrokTranscriptMaxAttempts
+}
+
+func hookGrokTranscriptTerminalReadyForGC(terminal hookGrokTranscriptTerminal, now time.Time) bool {
+	return !terminal.OccurredAt.Add(hookGrokTranscriptTerminalRetention).After(now)
 }
 
 func (c *RootCLI) newHookGrokTranscriptWorkerCommand() *cobra.Command {
@@ -143,19 +281,25 @@ func (c *RootCLI) newHookGrokTranscriptWorkerCommand() *cobra.Command {
 }
 
 func (c *RootCLI) scheduleHookGrokTranscript(payload []byte, dbPath string) error {
-	jobPath, shouldLaunch, err := enqueueHookGrokTranscript(payload, dbPath, time.Now().UTC())
+	now := time.Now().UTC()
+	jobPath, shouldLaunch, err := enqueueHookGrokTranscript(payload, dbPath, now)
 	if err != nil {
 		return err
 	}
-	if !shouldLaunch {
-		return nil
+	if shouldLaunch {
+		launcher := c.hookGrokTranscriptLauncher
+		if launcher == nil {
+			launcher = launchDetachedHookGrokTranscriptWorker
+		}
+		if err := launcher(jobPath); err != nil {
+			return xerrors.Errorf("failed to launch Grok transcript worker: %w", err)
+		}
 	}
-	launcher := c.hookGrokTranscriptLauncher
-	if launcher == nil {
-		launcher = launchDetachedHookGrokTranscriptWorker
-	}
-	if err := launcher(jobPath); err != nil {
-		return xerrors.Errorf("failed to launch Grok transcript worker: %w", err)
+	// Queue-wide drain: relaunch/GC jobs and terminal markers for *other*
+	// sessions. A durable job that never becomes terminal (e.g. its session
+	// ended) otherwise has no later trigger; this is the recovery path.
+	if launched, removed := c.drainHookGrokTranscriptQueue(now, hookGrokTranscriptDrainBatchLimit, jobPath); launched > 0 || removed > 0 {
+		slog.Debug("hook Grok transcript queue drain", "launched", launched, "removed", removed)
 	}
 	return nil
 }
@@ -269,13 +413,16 @@ func (c *RootCLI) runHookGrokTranscriptWorker(ctx context.Context, jobPath strin
 			// log changes; err==nil is not a write (#1713 / #1681).
 			recorded, _, err := c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(payload), grokHookClient, job.DBPath, blocks)
 			if err != nil {
-				return c.failHookGrokTranscriptJob(resolvedJobPath, job, err)
+				return c.requeueHookGrokTranscriptJob(resolvedJobPath, job, err)
 			}
 			if recorded {
 				return finalizeHookGrokTranscriptJob(resolvedJobPath, "recorded")
 			}
-			return c.failHookGrokTranscriptJob(resolvedJobPath, job, xerrors.Errorf("Grok transcript was ready but was not persisted"))
+			return c.requeueHookGrokTranscriptJob(resolvedJobPath, job, xerrors.Errorf("Grok transcript was ready but was not persisted"))
 		}
+		// unavailable/malformed here means the queue path is empty/unopenable
+		// or the wire log itself failed to parse — genuinely non-retryable
+		// classifications, not "still delayed" (#1973).
 		if disposition == grokTranscriptUnavailable || disposition == grokTranscriptMalformed {
 			return finalizeHookGrokTranscriptJob(resolvedJobPath, string(disposition))
 		}
@@ -285,7 +432,10 @@ func (c *RootCLI) runHookGrokTranscriptWorker(ctx context.Context, jobPath strin
 		case <-time.After(hookGrokTranscriptRetryInterval):
 		}
 	}
-	return finalizeHookGrokTranscriptJob(resolvedJobPath, "unavailable")
+	// Exhausted the in-process delayed window without the transcript becoming
+	// ready. This is not evidence of a permanent failure, so requeue instead
+	// of finalizing unavailable; a later drain or Stop relaunches the worker.
+	return c.requeueHookGrokTranscriptJob(resolvedJobPath, job, xerrors.Errorf("Grok transcript remained delayed after %d attempts", hookGrokTranscriptRetryCount))
 }
 
 func finalizeHookGrokTranscriptJob(jobPath, disposition string) error {
@@ -340,6 +490,7 @@ func readHookGrokTranscriptJob(path string) (hookGrokTranscriptJob, error) {
 	if job.SchemaVersion != hookGrokTranscriptJobSchemaVersion || strings.TrimSpace(job.Payload) == "" || job.RequestedAt.IsZero() || job.Attempts < 0 {
 		return hookGrokTranscriptJob{}, xerrors.Errorf("Grok transcript job has an unsupported shape")
 	}
+	job.Path = path
 	return job, nil
 }
 
@@ -484,14 +635,31 @@ func writeHookGrokTranscriptJob(path string, job hookGrokTranscriptJob) error {
 	return nil
 }
 
-func (c *RootCLI) failHookGrokTranscriptJob(path string, job hookGrokTranscriptJob, cause error) error {
+// requeueHookGrokTranscriptJob bumps Attempts and leaves the job pending for a
+// later drain to relaunch, unless the attempt ceiling is now reached, in
+// which case it finalizes the job as terminal unavailable.
+func (c *RootCLI) requeueHookGrokTranscriptJob(path string, job hookGrokTranscriptJob, cause error) error {
 	job.Attempts++
 	job.LastAttemptAt = time.Now().UTC()
-	job.LastError = "transcript unavailable"
+	job.LastError = truncateHookGrokTranscriptError(cause.Error())
+	if hookGrokTranscriptJobIsTerminal(job) {
+		if err := finalizeHookGrokTranscriptJob(path, "unavailable"); err != nil {
+			return errors.Join(cause, err)
+		}
+		return xerrors.Errorf("Grok transcript job exhausted retry attempts: %w", cause)
+	}
 	if err := writeHookGrokTranscriptJob(path, job); err != nil {
 		return errors.Join(cause, err)
 	}
 	return xerrors.Errorf("Grok transcript job remains pending: %w", cause)
+}
+
+func truncateHookGrokTranscriptError(message string) string {
+	message = strings.TrimSpace(message)
+	if len(message) <= hookGrokTranscriptErrorLimit {
+		return message
+	}
+	return fmt.Sprintf("%s...", message[:hookGrokTranscriptErrorLimit-3])
 }
 
 func launchDetachedHookGrokTranscriptWorker(jobPath string) error {

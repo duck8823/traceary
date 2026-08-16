@@ -529,6 +529,78 @@ func TestRootCLI_HookGrokTranscriptWorkerRecordsDelayedFinalTurnExactlyOnce(t *t
 	}
 }
 
+func TestRootCLI_HookGrokTranscriptWorkerRequeuesAfterDelayedWindowThenRecordsOnRelaunch(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", stateDir)
+	t.Setenv("TRACEARY_HOOK_STATE_KEY", "grok-requeue-delayed")
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/duck8823/traceary")
+	transcriptPath := filepath.Join(t.TempDir(), "updates.jsonl")
+	initial := `{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"prompt"}},"_meta":{"promptId":"prompt-contract-probe-1"}}}` + "\n"
+	if err := os.WriteFile(transcriptPath, []byte(initial), 0o600); err != nil {
+		t.Fatalf("write initial transcript: %v", err)
+	}
+	payload := grokFixtureWithField(t, "stop.json", "transcriptPath", transcriptPath)
+	eventStub := &eventUsecaseStub{}
+	jobPath := ""
+	runGrokHook(t, "stop", payload, eventStub, &sessionUsecaseStub{}, cli.WithHookGrokTranscriptLauncher(func(path string) error {
+		jobPath = path
+		return nil
+	}))
+	if jobPath == "" {
+		t.Fatal("Stop did not enqueue transcript job")
+	}
+
+	// The first worker run exhausts the in-process delayed window (the
+	// transcript never becomes ready) and must requeue rather than finalize
+	// unavailable (#1973).
+	worker := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(eventStub)).Command()
+	worker.SetOut(&bytes.Buffer{})
+	worker.SetErr(&bytes.Buffer{})
+	worker.SetArgs([]string{"hook", "grok", "transcript-worker", "--job", jobPath})
+	if err := worker.Execute(); err == nil {
+		t.Fatal("Execute(delayed-exhausted worker) error = nil, want a pending-requeue error")
+	}
+	if _, err := os.Stat(jobPath); err != nil {
+		t.Fatalf("requeued job missing after delayed-window exhaustion: %v", err)
+	}
+	terminals, err := filepath.Glob(filepath.Join(stateDir, "grok-transcript-terminal", "*.json"))
+	if err != nil || len(terminals) != 0 {
+		t.Fatalf("terminal disposition files = %v, %v; want none after a requeue", terminals, err)
+	}
+
+	// The host later appends the final message; a second worker run (as a
+	// later drain/relaunch would trigger) now records it.
+	final := `{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"final answer"}},"_meta":{"promptId":"prompt-contract-probe-1"}}}` + "\n"
+	file, err := os.OpenFile(transcriptPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open transcript: %v", err)
+	}
+	if _, err := file.WriteString(final); err != nil {
+		t.Fatalf("append final transcript: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close transcript: %v", err)
+	}
+
+	worker2 := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(eventStub)).Command()
+	worker2.SetOut(&bytes.Buffer{})
+	worker2.SetErr(&bytes.Buffer{})
+	worker2.SetArgs([]string{"hook", "grok", "transcript-worker", "--job", jobPath})
+	if err := worker2.Execute(); err != nil {
+		t.Fatalf("Execute(relaunched worker) error = %v", err)
+	}
+	if got, want := apptypes.ExtractPlainBody(eventStub.logCall.message), "final answer"; got != want {
+		t.Fatalf("transcript body = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(jobPath); !os.IsNotExist(err) {
+		t.Fatalf("recorded job still exists: %v", err)
+	}
+	terminals, err = filepath.Glob(filepath.Join(stateDir, "grok-transcript-terminal", "*.json"))
+	if err != nil || len(terminals) != 1 {
+		t.Fatalf("terminal disposition files after recording = %v, %v; want one", terminals, err)
+	}
+}
+
 func TestRootCLI_HookGrokStopDoesNotRelaunchTerminalTranscriptDelivery(t *testing.T) {
 	for _, disposition := range []string{"recorded", "unavailable", "malformed", "cancelled"} {
 		t.Run(disposition, func(t *testing.T) {
@@ -541,8 +613,15 @@ func TestRootCLI_HookGrokStopDoesNotRelaunchTerminalTranscriptDelivery(t *testin
 			if disposition == "malformed" {
 				transcript = "not-json\n"
 			}
-			if err := os.WriteFile(transcriptPath, []byte(transcript), 0o600); err != nil {
-				t.Fatalf("write transcript: %v", err)
+			// "unavailable" must stay a genuinely non-retryable, immediate
+			// terminal classification (unopenable path), not a transcript
+			// that simply never reaches a final agent message: exhausting the
+			// in-process delayed window now requeues instead of finalizing
+			// unavailable (#1973).
+			if disposition != "unavailable" {
+				if err := os.WriteFile(transcriptPath, []byte(transcript), 0o600); err != nil {
+					t.Fatalf("write transcript: %v", err)
+				}
 			}
 			payload := grokFixtureWithField(t, "stop.json", "transcriptPath", transcriptPath)
 			jobPath := ""
