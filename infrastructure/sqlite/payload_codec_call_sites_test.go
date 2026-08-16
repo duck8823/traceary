@@ -138,7 +138,13 @@ VALUES ('archive-zstd', ?, ?, ?, 0, 0, 0, 0)`, "go test "+plain, plain, plain); 
 	}
 }
 
-func TestDedupeRestore_UsesCanonicalPayloadCodec(t *testing.T) {
+// TestDedupeRestore_PreservesArchivedPayloadCodec is the dedupe-specific
+// counterpart of the other tests in this file. Every other call site
+// canonicalizes (compresses when beneficial) because it writes a *new*
+// physical row. Dedupe quarantine and restore are a move of an existing row,
+// not a re-encode (#1744): the row's codec at restore must match the codec it
+// carried when archived, not be re-derived from the decoded plaintext.
+func TestDedupeRestore_PreservesArchivedPayloadCodec(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
@@ -147,16 +153,27 @@ func TestDedupeRestore_UsesCanonicalPayloadCodec(t *testing.T) {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 	plain := compressiblePayloadBody()
-	conn := openCallSiteDB(t, dbPath)
-	for _, id := range []string{"dedupe-a1", "dedupe-a2"} {
-		if _, err := conn.Exec(
-			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
-			 VALUES (?, 'prompt', 'codex', 's1', 'w1', ?, ?, 'user_prompt_submit', 'hook')`,
-			id, plain, map[string]string{"dedupe-a1": "2026-04-10T00:00:00Z", "dedupe-a2": "2026-04-10T00:00:03Z"}[id],
-		); err != nil {
-			t.Fatalf("insert %s: %v", id, err)
+	// Kind transcript, not prompt: a prompt event is auto-attested on Save
+	// (appendAttestationLink), and an attested row is never a dedupe
+	// duplicate candidate (archivableDuplicates) -- unrelated to what this
+	// test checks.
+	for i, id := range []string{"dedupe-a1", "dedupe-a2"} {
+		event := model.EventOf(
+			types.EventID(id), types.EventKindTranscript, types.Client("hook"), types.Agent("codex"),
+			types.SessionID("s1"), types.Workspace("w1"), plain,
+			time.Date(2026, 4, 10, 0, 0, i*3, 0, time.UTC),
+		)
+		if err := events.Save(ctx, event); err != nil {
+			t.Fatalf("Save(%s) error = %v", id, err)
 		}
 	}
+
+	conn := openCallSiteDB(t, dbPath)
+	// The write path chose zstd because the body is compressible: the source
+	// row this test archives and restores must actually exercise a
+	// non-identity codec, or preservation and re-derivation would look the
+	// same.
+	assertCallSiteBodyCodec(t, conn, "dedupe-a2", "zstd")
 
 	now := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
 	if _, err := store.DedupeContentEvents(ctx, apptypes.ContentEventDedupeParams{
@@ -164,6 +181,15 @@ func TestDedupeRestore_UsesCanonicalPayloadCodec(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("DedupeContentEvents() error = %v", err)
 	}
+
+	var archivedCodec sql.NullString
+	if err := conn.QueryRow(`SELECT body_codec FROM event_content_dedupe_archive WHERE id = 'dedupe-a2'`).Scan(&archivedCodec); err != nil {
+		t.Fatalf("read archived body_codec: %v", err)
+	}
+	if !archivedCodec.Valid || archivedCodec.String != "zstd" {
+		t.Fatalf("archived body_codec = %+v, want zstd", archivedCodec)
+	}
+
 	if _, err := store.RestoreContentEventDedupeRun(ctx, "dedupe-codec"); err != nil {
 		t.Fatalf("RestoreContentEventDedupeRun() error = %v", err)
 	}
