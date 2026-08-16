@@ -52,6 +52,34 @@ func TestClaudeUsageSource_DeduplicatesRequestAndMessageIdentityWithoutPrivateBo
 	}
 }
 
+func TestClaudeUsageSource_AcceptsCamelCaseUsageCounters(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	sessionID := "session-claude-camel"
+	writeClaudeUsageFixture(t, home, sessionID, strings.Join([]string{
+		`{"type":"assistant","sessionId":"session-claude-camel","requestId":"req-camel","timestamp":"2026-08-16T01:00:00Z","message":{"id":"msg-1","model":"claude-opus-4-1","usage":{"inputTokens":9,"cacheReadInputTokens":2,"cacheCreationInputTokens":1,"outputTokens":4}}}`,
+	}, "\n")+"\n")
+	result, err := filesystem.NewClaudeUsageSourceForTest(
+		func() (string, error) { return home, nil }, 1024*1024, 1024*1024,
+	).Load(context.Background(), application.ClaudeUsageLoadCriteria{SessionID: types.SessionID(sessionID)})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if result.Mode != application.ClaudeUsageModeTranscriptCalls || len(result.Samples) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	sample := result.Samples[0]
+	if sample.Counters.InputTokens == nil || *sample.Counters.InputTokens != 9 {
+		t.Fatalf("input = %+v", sample.Counters.InputTokens)
+	}
+	if sample.Counters.OutputTokens == nil || *sample.Counters.OutputTokens != 4 {
+		t.Fatalf("output = %+v", sample.Counters.OutputTokens)
+	}
+	if sample.Counters.CachedInputTokens == nil || *sample.Counters.CachedInputTokens != 2 {
+		t.Fatalf("cached = %+v", sample.Counters.CachedInputTokens)
+	}
+}
+
 func TestClaudeUsageSource_LegacyResultWinsWhileRetainingCallEvidence(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	home := t.TempDir()

@@ -46,6 +46,17 @@ Relationship to the machine-readable [host contract](./host-contract.json): cont
 
 > **Grok native runtime:** `traceary hooks install --client grok` writes `.grok/hooks/traceary.json` (or `~/.grok/hooks/traceary.json` with `--global`). Core and compact events are stored with `client=hook`, `agent=grok`. `Stop` remains a turn boundary. Subagent capture remains unavailable (no dedicated parent/child hook payload observed on 0.2.101).
 
+### Token usage capture (measured 2026-08-16, live store)
+
+This is not a lifecycle hook. It is the additive `usage_observations` path.
+
+| Host | Additive source | Measured coverage | Decision |
+|---|---|---|---|
+| Codex | `rollout_jsonl` | Healthy / continuous | Keep |
+| Claude | `transcript_calls` (Stop-hook transcript walk) | 25 additive rows vs 666 Claude sessions since Aug 1 | Extractor now also accepts camelCase `inputTokens`/`outputTokens`. Interactive transcripts often omit both snake_case and camelCase usage; those turns stay availability-only. Not a silent zero — `report` discloses excluded/unavailable rows (#2018). |
+| Grok | `headless_stream` only | 3 additive rows, none since 2026-07-23; 287 Grok sessions since Jul 24 | Grok `Stop` does not expose per-turn token counters. `stop_hook` rows are availability-only. Additive usage is limited to headless stream capture. |
+| Kimi | `main_wire` | Last row 2026-08-13 matches last Kimi session | Not a regression. Known-token `main_wire` rows are excluded to avoid double-count vs stop_hook. |
+
 ### Other host hooks Traceary does not wire today
 
 This list excludes hooks that already appear in the lifecycle matrix above.
