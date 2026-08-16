@@ -50,6 +50,16 @@ func NewSessionOrphanRangeDatasource(db *Database) *SessionOrphanRangeDatasource
 
 var _ model.SessionOrphanRangeRepository = (*SessionOrphanRangeDatasource)(nil)
 
+// WithReadScope lets a caller that will run DiscoverCandidates and
+// LoadMaterial together as one orphan-consolidation pass share a single
+// read-only handle instead of paying setup+ping+compat once per candidate.
+// fn receives a context carrying the scope; pass it (or a context derived
+// from it) to the calls that should share the handle. Callers that never
+// enter a scope see the current per-call behaviour on each call.
+func (d *SessionOrphanRangeDatasource) WithReadScope(ctx context.Context, fn func(context.Context) error) error {
+	return d.db.WithReadScope(ctx, fn)
+}
+
 // Record inserts an orphan range. Re-recording the same PK is a no-op.
 func (d *SessionOrphanRangeDatasource) Record(ctx context.Context, orphan *model.SessionOrphanRange) error {
 	if orphan == nil {
@@ -97,109 +107,112 @@ func (d *SessionOrphanRangeDatasource) DiscoverCandidates(
 	if limit <= 0 {
 		return model.SessionOrphanCandidates{}, xerrors.Errorf("limit must be greater than zero")
 	}
-	db, err := d.openForDiscovery(ctx)
-	if err != nil {
-		return model.SessionOrphanCandidates{}, err
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-
-	cutoff := formatTimestamp(now.UTC().Add(-staleAfter))
-	seen := map[string]struct{}{}
-	var candidates []*model.SessionOrphanRange
-	target := limit + 1
-
-	// Front-loaded shortcuts: recorded rows on sessions that are still active.
-	// Ended/stale discovery below is the source of truth for those sessions.
-	recorded, err := d.listRecorded(ctx, db)
-	if err != nil {
-		return model.SessionOrphanCandidates{}, err
-	}
-	for _, orphan := range recorded {
-		if err := ctx.Err(); err != nil {
-			return model.SessionOrphanCandidates{}, xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
-		}
-		if len(candidates) >= target {
-			break
-		}
-		covered, err := d.refinementCovers(ctx, db, orphan.SessionID(), orphan.ToEventID())
+	var result model.SessionOrphanCandidates
+	err := d.db.WithReadScope(ctx, func(ctx context.Context) error {
+		db, err := d.openForDiscovery(ctx)
 		if err != nil {
-			return model.SessionOrphanCandidates{}, err
+			return err
 		}
-		if covered {
-			continue
-		}
-		endedOrStale, err := d.sessionEndedOrStale(ctx, db, orphan.SessionID(), cutoff)
-		if err != nil {
-			return model.SessionOrphanCandidates{}, err
-		}
-		if endedOrStale {
-			// Will be rediscovered from covers_to below with the full gap.
-			continue
-		}
-		key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		candidates = append(candidates, orphan)
-	}
 
-	// Source of truth: ended or stale sessions with material past covers_to.
-	// Paginate by session_id keyset until target valid candidates are collected
-	// or the scan is exhausted.
-	if len(candidates) < target {
-		cursor := ""
-		pageSize := limit + 1
-		for len(candidates) < target {
+		cutoff := formatTimestamp(now.UTC().Add(-staleAfter))
+		seen := map[string]struct{}{}
+		var candidates []*model.SessionOrphanRange
+		target := limit + 1
+
+		// Front-loaded shortcuts: recorded rows on sessions that are still active.
+		// Ended/stale discovery below is the source of truth for those sessions.
+		recorded, err := d.listRecorded(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, orphan := range recorded {
 			if err := ctx.Err(); err != nil {
-				return model.SessionOrphanCandidates{}, xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+				return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
 			}
-			page, err := d.listEndedOrStalePage(ctx, db, cutoff, cursor, pageSize)
-			if err != nil {
-				return model.SessionOrphanCandidates{}, err
-			}
-			if len(page) == 0 {
+			if len(candidates) >= target {
 				break
 			}
-			// Advance the cursor from the last SQL row even when every row was
-			// filtered out in Go; otherwise a page of non-candidates loops forever.
-			cursor = page[len(page)-1].String()
-			for _, sessionID := range page {
-				if len(candidates) >= target {
+			covered, err := d.refinementCovers(ctx, db, orphan.SessionID(), orphan.ToEventID())
+			if err != nil {
+				return err
+			}
+			if covered {
+				continue
+			}
+			endedOrStale, err := d.sessionEndedOrStale(ctx, db, orphan.SessionID(), cutoff)
+			if err != nil {
+				return err
+			}
+			if endedOrStale {
+				// Will be rediscovered from covers_to below with the full gap.
+				continue
+			}
+			key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			candidates = append(candidates, orphan)
+		}
+
+		// Source of truth: ended or stale sessions with material past covers_to.
+		// Paginate by session_id keyset until target valid candidates are collected
+		// or the scan is exhausted.
+		if len(candidates) < target {
+			cursor := ""
+			pageSize := limit + 1
+			for len(candidates) < target {
+				if err := ctx.Err(); err != nil {
+					return xerrors.Errorf("orphan candidate discovery cancelled: %w", err)
+				}
+				page, err := d.listEndedOrStalePage(ctx, db, cutoff, cursor, pageSize)
+				if err != nil {
+					return err
+				}
+				if len(page) == 0 {
 					break
 				}
-				orphan, ok, err := d.gapPastCoverage(ctx, db, sessionID, now)
-				if err != nil {
-					return model.SessionOrphanCandidates{}, err
+				// Advance the cursor from the last SQL row even when every row was
+				// filtered out in Go; otherwise a page of non-candidates loops forever.
+				cursor = page[len(page)-1].String()
+				for _, sessionID := range page {
+					if len(candidates) >= target {
+						break
+					}
+					orphan, ok, err := d.gapPastCoverage(ctx, db, sessionID, now)
+					if err != nil {
+						return err
+					}
+					if !ok {
+						continue
+					}
+					key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
+					if _, exists := seen[key]; exists {
+						continue
+					}
+					seen[key] = struct{}{}
+					candidates = append(candidates, orphan)
 				}
-				if !ok {
-					continue
+				if len(page) < pageSize {
+					break
 				}
-				key := orphan.SessionID().String() + "\x00" + orphan.ToEventID().String()
-				if _, exists := seen[key]; exists {
-					continue
-				}
-				seen[key] = struct{}{}
-				candidates = append(candidates, orphan)
-			}
-			if len(page) < pageSize {
-				break
 			}
 		}
-	}
 
-	hasMore := len(candidates) > limit
-	if hasMore {
-		candidates = candidates[:limit]
+		hasMore := len(candidates) > limit
+		if hasMore {
+			candidates = candidates[:limit]
+		}
+		result = model.SessionOrphanCandidates{
+			Ranges:  candidates,
+			HasMore: hasMore,
+		}
+		return nil
+	})
+	if err != nil {
+		return model.SessionOrphanCandidates{}, err
 	}
-	return model.SessionOrphanCandidates{
-		Ranges:  candidates,
-		HasMore: hasMore,
-	}, nil
+	return result, nil
 }
 
 // LoadMaterial returns mechanical-summary inputs for a range.
@@ -209,79 +222,82 @@ func (d *SessionOrphanRangeDatasource) LoadMaterial(
 	fromExclusive types.Optional[types.EventID],
 	toInclusive types.EventID,
 ) (model.SessionOrphanMaterial, error) {
-	db, err := d.openForDiscovery(ctx)
+	var material model.SessionOrphanMaterial
+	err := d.db.WithReadScope(ctx, func(ctx context.Context) error {
+		db, err := d.openForDiscovery(ctx)
+		if err != nil {
+			return err
+		}
+
+		fromID := ""
+		if from, ok := fromExclusive.Value(); ok {
+			fromID = from.String()
+		}
+		toID := toInclusive.String()
+
+		rows, err := db.QueryContext(ctx, selectOrphanRangeEventsQuery, sessionID.String(), fromID, fromID, toID)
+		if err != nil {
+			return xerrors.Errorf("failed to list orphan range events: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+
+		loaded := model.SessionOrphanMaterial{
+			KindCounts: map[string]int{},
+		}
+		for rows.Next() {
+			var id, kind, createdAtRaw string
+			if err := rows.Scan(&id, &kind, &createdAtRaw); err != nil {
+				return xerrors.Errorf("failed to scan orphan range event: %w", err)
+			}
+			createdAt, err := time.Parse(time.RFC3339Nano, createdAtRaw)
+			if err != nil {
+				return xerrors.Errorf("invalid orphan event created_at %q: %w", createdAtRaw, err)
+			}
+			if loaded.EventCount == 0 {
+				loaded.FirstCreatedAt = createdAt
+			}
+			loaded.LastCreatedAt = createdAt
+			loaded.KindCounts[kind]++
+			loaded.EventCount++
+		}
+		if err := rows.Err(); err != nil {
+			return xerrors.Errorf("failed to iterate orphan range events: %w", err)
+		}
+		if loaded.EventCount == 0 {
+			return xerrors.Errorf(
+				"orphan range %s..%s for session %s has no events: %w",
+				fromID, toID, sessionID, model.ErrInvalidSessionOrphanRange,
+			)
+		}
+
+		cmdRows, err := db.QueryContext(ctx, selectOrphanRangeCommandsQuery, sessionID.String(), fromID, fromID, toID)
+		if err != nil {
+			return xerrors.Errorf("failed to list orphan range commands: %w", err)
+		}
+		defer func() { _ = cmdRows.Close() }()
+		for cmdRows.Next() {
+			var eventID string
+			if err := cmdRows.Scan(&eventID); err != nil {
+				return xerrors.Errorf("failed to scan orphan range command event id: %w", err)
+			}
+			// command_text is codec-managed; decode through the shared boundary so
+			// a zstd-compressed audit never surfaces as binary garbage here.
+			command, err := hydrateAuditPayload(ctx, db, eventID, "command")
+			if err != nil {
+				return xerrors.Errorf("failed to decode orphan range command for %s: %w", eventID, err)
+			}
+			if command.Valid {
+				loaded.Commands = append(loaded.Commands, command.String)
+			}
+		}
+		if err := cmdRows.Err(); err != nil {
+			return xerrors.Errorf("failed to iterate orphan range commands: %w", err)
+		}
+		material = loaded
+		return nil
+	})
 	if err != nil {
 		return model.SessionOrphanMaterial{}, err
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-
-	fromID := ""
-	if from, ok := fromExclusive.Value(); ok {
-		fromID = from.String()
-	}
-	toID := toInclusive.String()
-
-	rows, err := db.QueryContext(ctx, selectOrphanRangeEventsQuery, sessionID.String(), fromID, fromID, toID)
-	if err != nil {
-		return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to list orphan range events: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	material := model.SessionOrphanMaterial{
-		KindCounts: map[string]int{},
-	}
-	for rows.Next() {
-		var id, kind, createdAtRaw string
-		if err := rows.Scan(&id, &kind, &createdAtRaw); err != nil {
-			return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to scan orphan range event: %w", err)
-		}
-		createdAt, err := time.Parse(time.RFC3339Nano, createdAtRaw)
-		if err != nil {
-			return model.SessionOrphanMaterial{}, xerrors.Errorf("invalid orphan event created_at %q: %w", createdAtRaw, err)
-		}
-		if material.EventCount == 0 {
-			material.FirstCreatedAt = createdAt
-		}
-		material.LastCreatedAt = createdAt
-		material.KindCounts[kind]++
-		material.EventCount++
-	}
-	if err := rows.Err(); err != nil {
-		return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to iterate orphan range events: %w", err)
-	}
-	if material.EventCount == 0 {
-		return model.SessionOrphanMaterial{}, xerrors.Errorf(
-			"orphan range %s..%s for session %s has no events: %w",
-			fromID, toID, sessionID, model.ErrInvalidSessionOrphanRange,
-		)
-	}
-
-	cmdRows, err := db.QueryContext(ctx, selectOrphanRangeCommandsQuery, sessionID.String(), fromID, fromID, toID)
-	if err != nil {
-		return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to list orphan range commands: %w", err)
-	}
-	defer func() { _ = cmdRows.Close() }()
-	for cmdRows.Next() {
-		var eventID string
-		if err := cmdRows.Scan(&eventID); err != nil {
-			return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to scan orphan range command event id: %w", err)
-		}
-		// command_text is codec-managed; decode through the shared boundary so
-		// a zstd-compressed audit never surfaces as binary garbage here.
-		command, err := hydrateAuditPayload(ctx, db, eventID, "command")
-		if err != nil {
-			return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to decode orphan range command for %s: %w", eventID, err)
-		}
-		if command.Valid {
-			material.Commands = append(material.Commands, command.String)
-		}
-	}
-	if err := cmdRows.Err(); err != nil {
-		return model.SessionOrphanMaterial{}, xerrors.Errorf("failed to iterate orphan range commands: %w", err)
 	}
 	return material, nil
 }
