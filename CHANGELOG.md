@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Fixed
+- **Large-store `doctor` still reports host package identity (#1970)** — the bounded `metadata_only_large_store` early return now includes the `*-plugin-version` family plus the native Grok/Kimi plugin activation checks, produced from host manifests, host plugin caches, and host CLI probes only. `scripts/verify-post-upgrade-plugin-refresh.sh` can therefore run the post-upgrade gate against a live store at or above the 2 GiB bounded-doctor threshold instead of needing `--skip`. The store is still never opened.
+
 ## [v0.39.0] - 2026-08-16
 
 ### Added

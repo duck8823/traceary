@@ -13,8 +13,16 @@ traceary doctor --json --warnings-ok
 report には `mode: "metadata_only_large_store"` と
 `large-store-diagnostics` の警告が含まれます。これは出力欠落ではなく完了した
 結果です。filesystem metadata だけを使い、SQLite の open、migration、event の
-list、event body や command payload の読み取り、hook spool の検査、credential や
+list、event body や command payload の読み取り、credential や
 identifier sample の出力を行いません。
+
+bounded report には host package identity（`*-plugin-version` ファミリーと
+native な Grok/Kimi plugin 有効化チェック）が引き続き含まれます。これらは
+host manifest・host plugin cache・host CLI probe（`grok inspect --json`、
+`kimi.plugin.json` など）のみを読み、Traceary store は読みません。そのため
+live store が大容量であることは、古い host package を報告しない理由には
+なりません。それ以外の client 単位チェック（config 解決、event coverage、
+hook route）は引き続き bounded report から除外されます。
 
 ## 結果の解釈
 

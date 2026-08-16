@@ -13,8 +13,16 @@ traceary doctor --json --warnings-ok
 The report has `mode: "metadata_only_large_store"` and the
 `large-store-diagnostics` warning. This is a completed result, not missing
 output. It uses filesystem metadata only; it does not open SQLite, run
-migrations, list events, read event bodies or command payloads, inspect hook
-spools, or print credentials or identifier samples.
+migrations, list events, read event bodies or command payloads, or print
+credentials or identifier samples.
+
+The bounded report still includes host package identity: the `*-plugin-version`
+family plus the native Grok/Kimi plugin activation checks. These read only
+host manifests, host plugin caches, and host CLI probes (`grok inspect --json`,
+`kimi.plugin.json`, and similar) — never the Traceary store — so a large live
+store is not a reason a stale host package goes unreported. Every other
+per-client check (config resolution, event coverage, hook routes) stays
+excluded from the bounded report.
 
 ## Interpret the result
 

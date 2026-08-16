@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **大容量 store の `doctor` が host package identity を引き続き報告する (#1970)** — bounded `metadata_only_large_store` の早期 return に `*-plugin-version` ファミリーと native な Grok/Kimi plugin 有効化チェックが加わりました。host manifest・host plugin cache・host CLI probe だけを読みます。これにより `scripts/verify-post-upgrade-plugin-refresh.sh` は、bounded doctor の閾値（2 GiB）以上の live store に対しても `--skip` なしで post-upgrade gate を実行できます。store は引き続き open しません。
+
 ## [v0.39.0] - 2026-08-16
 
 ### Added
