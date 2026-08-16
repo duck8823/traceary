@@ -44,6 +44,9 @@ compact は拒否しません。詳細は
 [`search-retirement.ja.md`](../operations/search-retirement.ja.md) を参照して
 ください。
 
+compact は `event_content_dedupe_archive`（content-event dedupe の隔離監査証跡）
+を 90 日の retention window 内で保持し、それより古い行は compact 時に破棄します。
+
 DarwinとLinuxでは通常のphysical
 SQLite connectionが、隣接するstableな `<database>.traceary.lock` にshared
 advisory lockを保持します。compact はjournalや向きの

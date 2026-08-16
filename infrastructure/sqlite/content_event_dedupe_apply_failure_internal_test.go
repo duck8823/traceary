@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
@@ -217,26 +219,54 @@ func TestDeleteNonCanonicalDuplicateEvents_WrapsFailureWithRunID(t *testing.T) {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	for _, stmt := range []struct{ id, createdAt string }{
-		{"evt-1", "2026-04-10T00:00:00Z"},
-		{"evt-2", "2026-04-10T00:00:01Z"},
-	} {
-		if _, err := db.Exec(
-			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
-			 VALUES (?, 'prompt', 'codex', 's1', 'w1', 'hi', ?, 'user_prompt_submit', 'hook')`,
-			stmt.id, stmt.createdAt,
-		); err != nil {
-			t.Fatalf("insert %s error = %v", stmt.id, err)
+
+	// Two proximity clusters in distinct sessions, sized so partitioning at
+	// the default batch size (1000, apptypes.DefaultContentEventDedupeBatchSize)
+	// splits them into two transactions: cluster "s1" alone (1000 duplicates)
+	// fills the first batch exactly, so adding cluster "s2" (1 duplicate)
+	// overflows it and forces a flush. That gives the hook a real second
+	// BeginTx to fail on when it cancels the context after the first batch
+	// commits — the same wrap path a mid-batch failure exercises elsewhere,
+	// now that compact-copy-filter no longer runs a DROP TABLE after a
+	// successful apply (compact preserves event_content_dedupe_archive).
+	base := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("db.Begin() error = %v", err)
+	}
+	stmt, err := tx.Prepare(
+		`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+		 VALUES (?, 'prompt', 'codex', ?, 'w1', 'hi', ?, 'user_prompt_submit', 'hook')`)
+	if err != nil {
+		t.Fatalf("tx.Prepare() error = %v", err)
+	}
+	for i := 0; i <= 1000; i++ {
+		createdAt := base.Add(time.Duration(i) * time.Second).Format(time.RFC3339)
+		if _, err := stmt.Exec(fmt.Sprintf("evt-s1-%d", i), "s1", createdAt); err != nil {
+			t.Fatalf("insert evt-s1-%d error = %v", i, err)
 		}
+	}
+	for i := 0; i <= 1; i++ {
+		createdAt := base.Add(time.Duration(i) * time.Second).Format(time.RFC3339)
+		if _, err := stmt.Exec(fmt.Sprintf("evt-s2-%d", i), "s2", createdAt); err != nil {
+			t.Fatalf("insert evt-s2-%d error = %v", i, err)
+		}
+	}
+	if err := stmt.Close(); err != nil {
+		t.Fatalf("stmt.Close() error = %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("tx.Commit() error = %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Identification runs to completion (it is read-only, ahead of the
-	// cancellation), the single batch commits, and the hook then cancels the
-	// context — so the DROP TABLE that follows a successful apply is what
-	// fails, exercising the same wrap path a mid-batch failure would.
+	// cancellation). The first batch (cluster "s1", 1000 duplicates) commits
+	// and the hook cancels the context; the second batch (cluster "s2", 1
+	// duplicate) then fails to begin its transaction, exercising the wrap
+	// path.
 	datasource := &StoreManagementDatasource{onAfterDedupeBatchCommit: func() { cancel() }}
 	err = deleteNonCanonicalDuplicateEvents(ctx, db, datasource)
 	if err == nil {
