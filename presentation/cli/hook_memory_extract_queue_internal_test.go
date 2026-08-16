@@ -476,6 +476,49 @@ func TestDrainHookMemoryExtractQueueUntilStopsWhenDeadlineHasPassed(t *testing.T
 	}
 }
 
+func TestDrainHookMemoryExtractQueueUntilDoesNotRelaunchPendingJobs(t *testing.T) {
+	t.Setenv(hookStateDirEnvKey, t.TempDir())
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	const jobCount = 12
+	for i := 0; i < jobCount; i++ {
+		request := hookMemoryExtractRequest{
+			SessionID:      types.SessionID(fmt.Sprintf("pending-%02d", i)),
+			Workspace:      types.Workspace("traceary"),
+			DBPath:         filepath.Join(t.TempDir(), "traceary.db"),
+			SourceBoundary: "session_end",
+		}
+		if _, err := enqueueHookMemoryExtract(request, now.Add(-time.Hour)); err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
+	}
+
+	var mu sync.Mutex
+	launchedPaths := []string{}
+	root := NewRootCLI(WithHookMemoryExtractLauncher(func(jobPath string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		launchedPaths = append(launchedPaths, jobPath)
+		return nil
+	}))
+	deadline := now.Add(time.Hour)
+	launched, removed := root.drainHookMemoryExtractQueueUntil(now, deadline, 5, func() time.Time { return now })
+	if launched != jobCount || removed != 0 {
+		t.Fatalf("launched=%d removed=%d, want %d/0", launched, removed, jobCount)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(launchedPaths) != jobCount {
+		t.Fatalf("launcher called %d times, want %d (must not relaunch pending jobs)", len(launchedPaths), jobCount)
+	}
+	seen := make(map[string]int, len(launchedPaths))
+	for _, path := range launchedPaths {
+		seen[path]++
+		if seen[path] > 1 {
+			t.Fatalf("relaunched %q", path)
+		}
+	}
+}
+
 func TestInspectHookMemoryExtractDiagnostics_FixFuncDrains(t *testing.T) {
 	t.Setenv(hookStateDirEnvKey, t.TempDir())
 	now := time.Now().UTC()

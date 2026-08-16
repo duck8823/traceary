@@ -548,8 +548,13 @@ func hookMemoryExtractJobReadyForGC(job hookMemoryExtractJob, now time.Time) boo
 // includes both GC'd jobs and swept sidecar files, so the whole pass stays
 // bounded by limit regardless of directory size.
 func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPaths ...string) (launched, removed int) {
+	launched, removed, _ = c.drainHookMemoryExtractQueueRecorded(now, limit, skipPaths...)
+	return launched, removed
+}
+
+func (c *RootCLI) drainHookMemoryExtractQueueRecorded(now time.Time, limit int, skipPaths ...string) (launched, removed int, launchedPaths []string) {
 	if limit <= 0 {
-		return 0, 0
+		return 0, 0, nil
 	}
 	skip := make(map[string]struct{}, len(skipPaths))
 	for _, p := range skipPaths {
@@ -590,12 +595,13 @@ func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPath
 				continue
 			}
 			launched++
+			launchedPaths = append(launchedPaths, job.Path)
 		}
 	}
 	if remaining := limit - (launched + removed); remaining > 0 {
 		removed += sweepHookMemoryExtractSidecars(now, remaining)
 	}
-	return launched, removed
+	return launched, removed, launchedPaths
 }
 
 // sweepHookMemoryExtractSidecars removes files derived from jobs rather than
@@ -741,11 +747,13 @@ func (c *RootCLI) drainHookMemoryExtractQueueUntil(now, deadline time.Time, batc
 	if clock == nil {
 		clock = hookMemoryExtractNow
 	}
+	var skip []string
 	for {
 		if !clock().Before(deadline) {
 			return launched, removed
 		}
-		batchLaunched, batchRemoved := c.drainHookMemoryExtractQueue(now, batchLimit)
+		batchLaunched, batchRemoved, launchedPaths := c.drainHookMemoryExtractQueueRecorded(now, batchLimit, skip...)
+		skip = append(skip, launchedPaths...)
 		launched += batchLaunched
 		removed += batchRemoved
 		if batchLaunched+batchRemoved == 0 {
