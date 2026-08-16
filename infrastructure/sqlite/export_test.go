@@ -82,3 +82,18 @@ func (d *StoreManagementDatasource) SetGarbageCollectionNowForTest(now func() ti
 // WAL, busy_timeout DSN production readers and writers use, so tests do not
 // hand-write a divergent DSN for the store they exercise.
 func OpenStoreForTest(path string) *sql.DB { return openCoordinatedDB(path, sqliteDSN(path)) }
+
+// SetReadOnlyOpenHookForTest runs each time openReadOnly or WithReadScope
+// opens a genuinely fresh read-only connection (not a scope/shared-handle
+// reuse). Tests use it to assert O(1) opens across a read-scoped pass. Pass
+// nil to clear.
+func (d *Database) SetReadOnlyOpenHookForTest(hook func()) {
+	d.afterReadOnlyConnectionOpened = hook
+}
+
+// SetCompatibilityCheckHookForTest runs each time checkStoreCompatibility
+// succeeds inside openReadOnly or WithReadScope. Tests use it to assert the
+// guard runs once per scope. Pass nil to clear.
+func (d *Database) SetCompatibilityCheckHookForTest(hook func()) {
+	d.afterCompatibilityCheck = hook
+}

@@ -185,6 +185,69 @@ type Database struct {
 	// resolved generation ids inside its snapshot transaction and before it
 	// reads generation-scoped counters. Tests commit a cutover here.
 	afterStatusGenerationScopeRead func()
+	// afterReadOnlyConnectionOpened runs each time openReadOnly or
+	// WithReadScope opens a genuinely fresh read-only connection (i.e. not a
+	// scope/shared-handle reuse). Tests use it to assert O(1) opens across a
+	// read-scoped pass; production leaves it nil.
+	afterReadOnlyConnectionOpened func()
+	// afterCompatibilityCheck runs each time checkStoreCompatibility succeeds
+	// inside openReadOnly or WithReadScope. Tests use it to assert the guard
+	// runs once per scope; production leaves it nil.
+	afterCompatibilityCheck func()
+}
+
+// readScopeKey is the unexported context key WithReadScope uses to carry its
+// shared read-only handle. Unexported so no package outside sqlite can read
+// or forge a scope value.
+type readScopeKey struct{}
+
+// readScope holds the read-only handle opened for the lifetime of a
+// WithReadScope call.
+type readScope struct {
+	db *sql.DB
+}
+
+// WithReadScope opens one read-only handle for the duration of fn, running
+// the store-compatibility guard exactly once at entry, and closes the handle
+// when fn returns (including on panic, via defer). Datasource methods that
+// call openReadOnly while ctx carries the scope reuse the shared handle
+// instead of opening their own. Nesting is safe: a WithReadScope call made
+// while ctx already carries a scope reuses the outer handle without opening
+// a second connection or re-running the guard. Callers that never enter a
+// scope are unaffected — openReadOnly keeps its current per-call behaviour.
+func (d *Database) WithReadScope(ctx context.Context, fn func(context.Context) error) error {
+	if _, ok := ctx.Value(readScopeKey{}).(*readScope); ok {
+		return fn(ctx)
+	}
+	if d.sharedReadOnly != nil {
+		// The benchmark-only shared immutable connection group already gives
+		// every openReadOnly call the same handle; nothing further to scope.
+		return fn(ctx)
+	}
+
+	dbPath := d.Path()
+	db := openCoordinatedDB(dbPath, sqliteReadOnlyDSN(dbPath))
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return xerrors.Errorf("failed to ping read-only SQLite DB: %w", err)
+	}
+	if err := checkStoreCompatibility(ctx, db); err != nil {
+		_ = db.Close()
+		return err
+	}
+	if d.afterCompatibilityCheck != nil {
+		d.afterCompatibilityCheck()
+	}
+	if d.afterReadOnlyConnectionOpened != nil {
+		d.afterReadOnlyConnectionOpened()
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			slog.Debug("failed to close resource", "error", closeErr)
+		}
+	}()
+
+	return fn(context.WithValue(ctx, readScopeKey{}, &readScope{db: db}))
 }
 
 // NewImmutableReadDatabase opens one shared immutable connection group for benchmark orchestration.
@@ -279,6 +342,9 @@ func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
 // migrate a store, change database content, or change file permissions. SQLite
 // may still create WAL shared-memory sidecars while reading a WAL-mode store.
 func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
+	if scope, ok := ctx.Value(readScopeKey{}).(*readScope); ok {
+		return scope.db, nil
+	}
 	if d.sharedReadOnly != nil {
 		return d.sharedReadOnly, nil
 	}
@@ -296,6 +362,12 @@ func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
 	}
 	if err := checkStoreCompatibility(ctx, db); err != nil {
 		return nil, err
+	}
+	if d.afterCompatibilityCheck != nil {
+		d.afterCompatibilityCheck()
+	}
+	if d.afterReadOnlyConnectionOpened != nil {
+		d.afterReadOnlyConnectionOpened()
 	}
 	return db, nil
 }
