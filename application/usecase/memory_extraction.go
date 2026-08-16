@@ -184,7 +184,7 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		// (#1169): they are never durable memories and previously flooded the
 		// candidate inbox as extracted-hidden rows. Explicit remember-intent is
 		// exempt so a user-driven `remember this: +foo` still lands.
-		if !spec.intent.explicitRemember && isDroppableExtractionFragment(spec.lowQualityReasons) {
+		if shouldDropMemoryCandidate(spec.fact, spec.lowQualityReasons, spec.intent.explicitRemember) {
 			continue
 		}
 		source := spec.source
@@ -266,6 +266,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 	type candidateDecision struct {
 		segmentIndex      int
 		key               string
+		fact              string
 		score             int
 		explicitRemember  bool
 		lowQualityReasons []string
@@ -306,6 +307,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		candidates = append(candidates, candidateDecision{
 			segmentIndex:      segmentIndex,
 			key:               key,
+			fact:              spec.fact,
 			score:             spec.signalScore,
 			explicitRemember:  spec.intent.explicitRemember,
 			lowQualityReasons: slices.Clone(spec.lowQualityReasons),
@@ -366,6 +368,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			candidates = append(candidates, candidateDecision{
 				segmentIndex:      segmentIndex,
 				key:               key,
+				fact:              spec.fact,
 				score:             spec.signalScore,
 				explicitRemember:  spec.intent.explicitRemember,
 				lowQualityReasons: slices.Clone(spec.lowQualityReasons),
@@ -392,7 +395,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 		// removed before they can consume a candidate-limit slot, so this
 		// accounting matches Extract, where the drop precedes the limit break.
 		best := candidates[bestIndex]
-		if !best.explicitRemember && isDroppableExtractionFragment(best.lowQualityReasons) {
+		if shouldDropMemoryCandidate(best.fact, best.lowQualityReasons, best.explicitRemember) {
 			continue
 		}
 		if emittedCandidates >= criteria.CandidateLimit() {
@@ -415,7 +418,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			decision.Reason = "duplicate_in_run"
 			continue
 		}
-		if !candidate.explicitRemember && isDroppableExtractionFragment(candidate.lowQualityReasons) {
+		if shouldDropMemoryCandidate(candidate.fact, candidate.lowQualityReasons, candidate.explicitRemember) {
 			// Mirror the Extract drop (#1169): obvious code/diff fragments are
 			// not persisted at all, so report them as dropped rather than
 			// hidden. Checked before the candidate-limit and score / low-quality

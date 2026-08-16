@@ -248,3 +248,31 @@ func TestIsStandaloneCommand_RejectsProseSentences(t *testing.T) {
 		})
 	}
 }
+
+func TestIsStructurallyNonProseFact(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		fact string
+		want bool
+	}{
+		{name: "dogfood struct tag", fact: "MemoryIDs []string `json:\"memory_ids\" jsonschema:\"candidate durable memory ident`", want: true},
+		{name: "dogfood hunk header", fact: "@@ -135,85 +135,85 @@ Durable memory に紐づく artifact ref です。", want: true},
+		{name: "dogfood markdown heading", fact: "## Durable memory commands", want: true},
+		{name: "dogfood flag definition", fact: "`--preset` (optional): apply a built-in retrieval preset (`resume` / …", want: true},
+		{name: "durable remember-intent prose", fact: "run the compact reminder only once per day", want: false},
+		{name: "plus-foo still not structural", fact: "+foo", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isStructurallyNonProseFact(tc.fact); got != tc.want {
+				t.Fatalf("isStructurallyNonProseFact(%q) = %t, want %t", tc.fact, got, tc.want)
+			}
+			if tc.want && !shouldDropMemoryCandidate(tc.fact, nil, true) {
+				t.Fatalf("remember-intent must still drop non-prose fact %q", tc.fact)
+			}
+		})
+	}
+}
