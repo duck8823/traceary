@@ -241,9 +241,13 @@ func (s *kimiUsageSource) loadKimiUsageWire(
 			turnOrdinal++
 		case "usage.record":
 			usageOrdinal++
-			sample, err := decodeKimiUsageRecord(scanner.Bytes(), providerSessionID, usageOrdinal)
+			sample, skipped, err := decodeKimiUsageRecord(scanner.Bytes(), providerSessionID, usageOrdinal)
 			if err != nil {
 				return application.KimiUsageLoadResult{}, err
+			}
+			if skipped {
+				result.SkippedNonTurnScope++
+				continue
 			}
 			result.Samples = append(result.Samples, sample)
 		}
@@ -262,15 +266,20 @@ func decodeKimiUsageRecord(
 	line []byte,
 	providerSessionID string,
 	ordinal int64,
-) (application.KimiUsageSample, error) {
+) (application.KimiUsageSample, bool, error) {
 	var record kimiUsageWireRecord
 	if err := json.Unmarshal(line, &record); err != nil {
-		return application.KimiUsageSample{}, xerrors.Errorf("invalid Kimi usage record")
+		return application.KimiUsageSample{}, false, xerrors.Errorf("invalid Kimi usage record")
+	}
+	if record.UsageScope != "turn" {
+		// Session-level aggregates (and any other non-turn scope) are
+		// legitimate wire lines; skipping them must not abort the load.
+		return application.KimiUsageSample{}, true, nil
 	}
 	model := strings.TrimSpace(record.Model)
-	if !validKimiUsageIdentity(model) || record.UsageScope != "turn" || record.Time == nil ||
+	if !validKimiUsageIdentity(model) || record.Time == nil ||
 		*record.Time < 0 || *record.Time > kimiUsageMaxTimestamp || record.Usage == nil {
-		return application.KimiUsageSample{}, xerrors.Errorf("invalid Kimi usage record metadata")
+		return application.KimiUsageSample{}, false, xerrors.Errorf("invalid Kimi usage record metadata")
 	}
 	values := []*int64{
 		record.Usage.InputOther,
@@ -285,11 +294,11 @@ func decodeKimiUsageRecord(
 		}
 		present = true
 		if *value < 0 {
-			return application.KimiUsageSample{}, xerrors.Errorf("invalid negative Kimi usage counter")
+			return application.KimiUsageSample{}, false, xerrors.Errorf("invalid negative Kimi usage counter")
 		}
 	}
 	if !present {
-		return application.KimiUsageSample{}, xerrors.Errorf("empty Kimi usage record")
+		return application.KimiUsageSample{}, false, xerrors.Errorf("empty Kimi usage record")
 	}
 	digest := sha256.Sum256([]byte(providerSessionID + "\x00main\x00" + strconv.FormatInt(ordinal, 10)))
 	return application.KimiUsageSample{
@@ -304,7 +313,7 @@ func decodeKimiUsageRecord(
 			InputCacheCreation: record.Usage.InputCacheCreation,
 			Output:             record.Usage.Output,
 		},
-	}, nil
+	}, false, nil
 }
 
 func (s *kimiUsageSource) boundedKimiUsageScanner(reader io.Reader) (*bufio.Scanner, *io.LimitedReader) {

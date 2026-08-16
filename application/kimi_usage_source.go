@@ -29,8 +29,9 @@ type KimiUsageSample struct {
 // KimiUsageLoadResult contains the verified source rows and the latest stable
 // turn ordinal observed without decoding prompt or content bodies.
 type KimiUsageLoadResult struct {
-	Samples           []KimiUsageSample
-	LatestTurnOrdinal int64
+	Samples             []KimiUsageSample
+	LatestTurnOrdinal   int64
+	SkippedNonTurnScope int
 }
 
 // KimiUsageSource loads body-free usage metadata for one provider session.
