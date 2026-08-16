@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"runtime/debug"
 	"syscall"
@@ -205,7 +206,7 @@ func TestWrapCLIExecuteError_SkipsDiagnosticExitCodes(t *testing.T) {
 			t.Fatalf("wrapCLIExecuteError() = %q, want the diagnostic message without the execute wrapper", err.Error())
 		}
 		var exitCoder cliExitCoder
-		if !xerrors.As(err, &exitCoder) || exitCoder.ExitCode() != 2 {
+		if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != 2 {
 			t.Fatalf("wrapped diagnostic lost ExitCode(); err=%v", err)
 		}
 	})
