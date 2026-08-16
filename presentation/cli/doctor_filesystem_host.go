@@ -20,6 +20,7 @@ func (c *RootCLI) appendFilesystemHostDoctorChecks(
 		return
 	}
 	now := time.Now().UTC()
+	report.Checks = append(report.Checks, inspectHookStateResidueMetadata(now))
 	report.Checks = append(report.Checks, inspectDoctorConfig())
 	report.Checks = append(report.Checks, c.inspectHookMemoryExtractDiagnostics(now))
 	report.Checks = append(report.Checks, c.inspectHookGrokTranscriptDiagnostics(now))
