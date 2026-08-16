@@ -23,20 +23,20 @@ import (
 
 var contentReliabilityCountsPattern = regexp.MustCompile(`duplicate_groups=(\d+) duplicate_records=(\d+)`)
 
-// TestRootCLI_DoctorContentReliability_AgreesWithDedupeDryRun pins #1701: the
-// shipped `doctor` content-event-reliability diagnostic and the shipped
-// `store dedupe content-events` dry-run must agree on the same store. Before
-// the fix, retention-emptied rows (all carrying the same marker body) hashed
-// to one phantom identity and inflated the diagnostic's duplicate count past
-// what the repair command would ever touch, since dedupeEligibilityFilter
-// already excludes them at the SQL candidate stage. This drives both the
-// real `doctor` command and the real StoreManagementUsecase.DedupeContentEvents
-// dry-run against one temp SQLite store seeded with one genuine duplicate pair
-// plus several retention-emptied rows that would form a phantom group.
+// TestRootCLI_DoctorContentReliability_AgreesWithDedupeDryRun pins #1701:
+// after the availability-filter identity change, doctor content-event-
+// reliability and StoreManagementUsecase.DedupeContentEvents dry-run must
+// agree on a store that mixes one genuine available duplicate pair with
+// retention-emptied rows that used to hash as a phantom group.
+//
+// This is availability-filter agreement only. It does not claim doctor List
+// hydrate failures or ledger/attested/audit-held rows agree with the
+// SQL-side eligibility filter; those are outside #1701.
 func TestRootCLI_DoctorContentReliability_AgreesWithDedupeDryRun(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutable(t)
 	cli.SetUserHomeDirFunc(func() (string, error) {
 		return homeDir, nil
 	})
