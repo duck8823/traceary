@@ -45,6 +45,7 @@ type RootCLI struct {
 	operatorCostInspector      application.OperatorCostInspector
 	payloadCodecInspector      application.PayloadCodecInspector
 	attestationAnchorInspector application.AttestationAnchorInspector
+	bodyCodecChecker           application.BodyCodecChecker
 	searchProjection           *usecase.SearchProjectionUsecase
 	storeCompactionFactory     func(string) application.StoreCompactionUsecase
 	fileRetention              usecase.FileRetentionUsecase
@@ -243,6 +244,11 @@ func WithPayloadCodecInspector(inspector application.PayloadCodecInspector) Root
 // WithAttestationAnchorInspector injects the store-side attestation sidecar check.
 func WithAttestationAnchorInspector(inspector application.AttestationAnchorInspector) RootCLIOption {
 	return func(c *RootCLI) { c.attestationAnchorInspector = inspector }
+}
+
+// WithBodyCodecChecker injects the body_codec unknown-value scanner.
+func WithBodyCodecChecker(checker application.BodyCodecChecker) RootCLIOption {
+	return func(c *RootCLI) { c.bodyCodecChecker = checker }
 }
 
 // WithSearchProjection injects the explicit derived-projection lifecycle workflow.

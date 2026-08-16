@@ -184,3 +184,9 @@ func isPayloadIntegrityError(err error) bool {
 	var target *PayloadIntegrityError
 	return errors.As(err, &target)
 }
+
+// SupportedBodyCodecs returns the body_codec values this binary can decode.
+// The list is sourced from the same switch as decodePayload.
+func SupportedBodyCodecs() []string {
+	return []string{payloadCodecIdentity, payloadCodecZstd}
+}
