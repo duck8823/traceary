@@ -224,6 +224,8 @@ Session-end, turn-boundary, and subagent-stop hooks commit their primary event f
 
 `traceary doctor` reports the pending count, previously failed count, terminal (attempt-cap exhausted) count, unreadable count, and oldest age through `hook-memory-extract`. It never prints extracted content or the stored criteria. Later hooks drain a bounded oldest-first batch across sessions (not only the same session key), and `traceary doctor --fix` forces a larger drain. Jobs that exhaust the total attempt ceiling become terminal and are garbage-collected after a retention window; persistent non-terminal failures should be investigated through debug logs.
 
+Each drain pass also sweeps sidecar files derived from jobs rather than jobs themselves: `.json.lock` flock sidecars left behind once their job completes (the sibling `.json` is gone) and `.memory-extract-*.tmp` write-temps abandoned by a crashed writer. Both are only removed once older than the same retention window, so a lock or temp still mid-creation is never mistaken for an orphan; the sweep shares the drain's bounded batch size, so a large backlog drains incrementally across passes instead of a full directory scan.
+
 ## Troubleshooting
 
 Run `traceary doctor --client <claude|codex|gemini|antigravity|grok>` when hooks or the local SQLite store do not behave as expected. Antigravity and Grok must be selected explicitly because they are not in the default client list.

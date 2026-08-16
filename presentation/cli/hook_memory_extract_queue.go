@@ -535,11 +535,15 @@ func hookMemoryExtractJobReadyForGC(job hookMemoryExtractJob, now time.Time) boo
 	return !job.LastAttemptAt.Add(hookMemoryExtractTerminalRetention).After(now)
 }
 
-// drainHookMemoryExtractQueue relaunches pending jobs (oldest first) and
-// garbage-collects terminally failed jobs past the retention window. It never
-// re-extracts inline: each relaunch goes through the detached worker so host
-// hook budgets stay small. skipPaths are ignored (e.g. a job just launched by
-// scheduleHookMemoryExtract). Returns launch and remove counts.
+// drainHookMemoryExtractQueue relaunches pending jobs (oldest first),
+// garbage-collects terminally failed jobs past the retention window, and
+// sweeps orphaned sidecar files (locks with no job sibling, aged write-temps)
+// left behind by completed jobs and crashed workers. It never re-extracts
+// inline: each relaunch goes through the detached worker so host hook
+// budgets stay small. skipPaths are ignored (e.g. a job just launched by
+// scheduleHookMemoryExtract). Returns launch and remove counts; removed
+// includes both GC'd jobs and swept sidecar files, so the whole pass stays
+// bounded by limit regardless of directory size.
 func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPaths ...string) (launched, removed int) {
 	if limit <= 0 {
 		return 0, 0
@@ -551,42 +555,101 @@ func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPath
 		}
 	}
 	jobs, _, err := scanHookMemoryExtractJobs()
-	if err != nil || len(jobs) == 0 {
-		return 0, 0
-	}
-	// scan already returns oldest first.
-	for _, job := range jobs {
-		if launched+removed >= limit {
-			break
-		}
-		if strings.TrimSpace(job.Path) == "" {
-			continue
-		}
-		if _, ok := skip[job.Path]; ok {
-			continue
-		}
-		if hookMemoryExtractJobReadyForGC(job, now) {
-			if err := os.Remove(job.Path); err != nil && !os.IsNotExist(err) {
-				slog.Debug("hook memory extraction terminal GC failed", "job", job.Path, "error", err)
+	if err == nil {
+		// scan already returns oldest first.
+		for _, job := range jobs {
+			if launched+removed >= limit {
+				break
+			}
+			if strings.TrimSpace(job.Path) == "" {
 				continue
 			}
-			// Best-effort cleanup of sidecar files.
-			_ = os.Remove(job.Path + ".lock")
-			_ = os.Remove(job.Path + ".rerun")
-			removed++
-			continue
+			if _, ok := skip[job.Path]; ok {
+				continue
+			}
+			if hookMemoryExtractJobReadyForGC(job, now) {
+				if err := os.Remove(job.Path); err != nil && !os.IsNotExist(err) {
+					slog.Debug("hook memory extraction terminal GC failed", "job", job.Path, "error", err)
+					continue
+				}
+				// Best-effort cleanup of sidecar files.
+				_ = os.Remove(job.Path + ".lock")
+				_ = os.Remove(job.Path + ".rerun")
+				removed++
+				continue
+			}
+			if hookMemoryExtractJobIsTerminal(job) {
+				// Still within retention; leave visible for doctor.
+				continue
+			}
+			if err := c.launchHookMemoryExtractWorker(job.Path); err != nil {
+				slog.Debug("hook memory extraction drain launch failed", "job", job.Path, "error", err)
+				continue
+			}
+			launched++
 		}
-		if hookMemoryExtractJobIsTerminal(job) {
-			// Still within retention; leave visible for doctor.
-			continue
-		}
-		if err := c.launchHookMemoryExtractWorker(job.Path); err != nil {
-			slog.Debug("hook memory extraction drain launch failed", "job", job.Path, "error", err)
-			continue
-		}
-		launched++
+	}
+	if remaining := limit - (launched + removed); remaining > 0 {
+		removed += sweepHookMemoryExtractSidecars(now, remaining)
 	}
 	return launched, removed
+}
+
+// sweepHookMemoryExtractSidecars removes files derived from jobs rather than
+// jobs themselves: (a) ".json.lock" files whose ".json" sibling no longer
+// exists (the common leak — a completed job removes its job.json but not its
+// flock sidecar) and (b) ".memory-extract-*.tmp" write-temps abandoned by a
+// crashed writer. Both are only removed once aged past the terminal
+// retention window, so a lock or temp mid-creation by a concurrent process is
+// never mistaken for an orphan. Bounded by limit so a directory with a large
+// backlog is swept incrementally across passes rather than scanned in full.
+func sweepHookMemoryExtractSidecars(now time.Time, limit int) (removed int) {
+	if limit <= 0 {
+		return 0
+	}
+	dir, err := hookMemoryExtractQueueDir()
+	if err != nil {
+		return 0
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if removed >= limit {
+			break
+		}
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		isLock := strings.HasSuffix(name, ".json.lock")
+		isTmp := strings.HasPrefix(name, ".memory-extract-") && strings.HasSuffix(name, ".tmp")
+		if !isLock && !isTmp {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if isLock {
+			jsonPath := strings.TrimSuffix(path, ".lock")
+			if _, statErr := os.Stat(jsonPath); statErr == nil || !errors.Is(statErr, os.ErrNotExist) {
+				// Sibling exists (or is inspectable but not confirmed missing); not orphaned.
+				continue
+			}
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) < hookMemoryExtractTerminalRetention {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			slog.Debug("hook memory extraction sidecar sweep failed", "path", path, "error", err)
+			continue
+		}
+		removed++
+	}
+	return removed
 }
 
 func (c *RootCLI) inspectHookMemoryExtractDiagnostics(now time.Time) doctorCheck {

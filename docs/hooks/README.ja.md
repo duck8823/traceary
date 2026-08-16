@@ -224,6 +224,8 @@ session end、turn boundary、subagent stop の hook は、主要な event を�
 
 `traceary doctor` は `hook-memory-extract` check で、未処理件数、以前失敗した件数、terminal（試行上限到達）件数、読めない件数、最古の経過時間を報告します。抽出内容や保存された条件は表示しません。後続 hook は同一 session に限らず oldest-first の bounded batch で queue 全体を drain し、`traceary doctor --fix` で大きめに drain できます。試行上限に達した job は terminal になり、retention 後に GC されます。terminal 以外の失敗が残る場合は debug log を確認してください。
 
+各 drain pass は、job 本体ではなく job から派生した sidecar file も掃除します: job 完了後に取り残される `.json.lock` flock sidecar（`.json` 本体は既に無い）と、writer が crash して残った `.memory-extract-*.tmp` write-temp です。どちらも同じ retention window を超えて古くなった場合のみ削除するため、作成途中の lock や temp を orphan と誤認することはありません。sweep は drain の bounded batch size を共有するので、大きな backlog でも 1 回のディレクトリ全走査ではなく複数 pass に分けて漸進的に drain されます。
+
 ## トラブルシュート
 
 hooks やローカル SQLite ストアの挙動がおかしいときは `traceary doctor --client <claude|codex|gemini|antigravity|grok>` を実行してください。Antigravity と Grok は既定の client 一覧に含まれないため、明示的な指定が必要です。

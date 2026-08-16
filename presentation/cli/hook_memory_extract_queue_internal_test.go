@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,6 +179,154 @@ func TestDrainHookMemoryExtractQueue_RetainsTerminalWithinRetention(t *testing.T
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("must retain for doctor visibility: %v", err)
+	}
+}
+
+func TestDrainHookMemoryExtractQueue_RemovesOrphanLocksPastRetention(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	queueDir := filepath.Join(stateDir, "memory-extract")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	orphanLock := filepath.Join(queueDir, "orphan.json.lock")
+	if err := os.WriteFile(orphanLock, []byte{}, 0o600); err != nil {
+		t.Fatalf("WriteFile(orphan lock): %v", err)
+	}
+	aged := now.Add(-hookMemoryExtractTerminalRetention - time.Hour)
+	if err := os.Chtimes(orphanLock, aged, aged); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	root := NewRootCLI(WithHookMemoryExtractLauncher(func(string) error {
+		t.Fatal("no job to launch")
+		return nil
+	}))
+	launched, removed := root.drainHookMemoryExtractQueue(now, 5)
+	if launched != 0 || removed != 1 {
+		t.Fatalf("launched=%d removed=%d want 0/1", launched, removed)
+	}
+	if _, err := os.Stat(orphanLock); !os.IsNotExist(err) {
+		t.Fatalf("orphan lock must be removed, stat err=%v", err)
+	}
+}
+
+func TestDrainHookMemoryExtractQueue_RetainsRecentOrphanLock(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	queueDir := filepath.Join(stateDir, "memory-extract")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	orphanLock := filepath.Join(queueDir, "fresh.json.lock")
+	if err := os.WriteFile(orphanLock, []byte{}, 0o600); err != nil {
+		t.Fatalf("WriteFile(orphan lock): %v", err)
+	}
+	recent := now.Add(-time.Minute)
+	if err := os.Chtimes(orphanLock, recent, recent); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	root := &RootCLI{}
+	launched, removed := root.drainHookMemoryExtractQueue(now, 5)
+	if launched != 0 || removed != 0 {
+		t.Fatalf("launched=%d removed=%d want 0/0", launched, removed)
+	}
+	if _, err := os.Stat(orphanLock); err != nil {
+		t.Fatalf("recent orphan lock must survive a mid-creation race: %v", err)
+	}
+}
+
+func TestDrainHookMemoryExtractQueue_SweepsAgedTmpFiles(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	queueDir := filepath.Join(stateDir, "memory-extract")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	tmp := filepath.Join(queueDir, ".memory-extract-crashed123.tmp")
+	if err := os.WriteFile(tmp, []byte("{"), 0o600); err != nil {
+		t.Fatalf("WriteFile(tmp): %v", err)
+	}
+	aged := now.Add(-hookMemoryExtractTerminalRetention - time.Hour)
+	if err := os.Chtimes(tmp, aged, aged); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	root := &RootCLI{}
+	launched, removed := root.drainHookMemoryExtractQueue(now, 5)
+	if launched != 0 || removed != 1 {
+		t.Fatalf("launched=%d removed=%d want 0/1", launched, removed)
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Fatalf("aged tmp must be removed, stat err=%v", err)
+	}
+}
+
+func TestDrainHookMemoryExtractQueue_KeepsLockWithLiveJobSibling(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	request := hookMemoryExtractRequest{
+		SessionID:      types.SessionID("live-sibling"),
+		Workspace:      types.Workspace("traceary"),
+		DBPath:         filepath.Join(t.TempDir(), "traceary.db"),
+		SourceBoundary: "session_end",
+	}
+	path, err := enqueueHookMemoryExtract(request, now.Add(-48*time.Hour))
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	lockPath := path + ".lock"
+	aged := now.Add(-hookMemoryExtractTerminalRetention - time.Hour)
+	if err := os.Chtimes(lockPath, aged, aged); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	root := NewRootCLI(WithHookMemoryExtractLauncher(func(string) error { return nil }))
+	if _, removed := root.drainHookMemoryExtractQueue(now, 5); removed != 0 {
+		t.Fatalf("removed = %d, want 0: pending job's lock has a live sibling", removed)
+	}
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("lock with live job sibling must survive: %v", err)
+	}
+}
+
+func TestDrainHookMemoryExtractQueue_SidecarSweepIsBounded(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	queueDir := filepath.Join(stateDir, "memory-extract")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	aged := now.Add(-hookMemoryExtractTerminalRetention - time.Hour)
+	const orphanCount = 20
+	for i := 0; i < orphanCount; i++ {
+		lockPath := filepath.Join(queueDir, fmt.Sprintf("orphan-%02d.json.lock", i))
+		if err := os.WriteFile(lockPath, []byte{}, 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if err := os.Chtimes(lockPath, aged, aged); err != nil {
+			t.Fatalf("Chtimes: %v", err)
+		}
+	}
+
+	root := &RootCLI{}
+	const limit = 5
+	_, removed := root.drainHookMemoryExtractQueue(now, limit)
+	if removed != limit {
+		t.Fatalf("removed = %d, want bounded to limit=%d", removed, limit)
+	}
+	entries, err := os.ReadDir(queueDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != orphanCount-limit {
+		t.Fatalf("remaining entries = %d, want %d (one pass must not drain the whole directory)", len(entries), orphanCount-limit)
 	}
 }
 
