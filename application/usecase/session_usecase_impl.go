@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -346,11 +347,82 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	if err := u.sessionRepo.SaveBoundary(ctx, existingSession, event); err != nil {
 		return nil, xerrors.Errorf("failed to save session end: %w", err)
 	}
+	// Best-effort: a parent session ending should not leave its open
+	// descendant sub-sessions dangling with ended_at IS NULL, since
+	// `session latest --active` would keep preferring a leaked child for
+	// up to the gc stale window. `session gc` remains the backstop for
+	// anything this misses.
+	u.endOpenDescendants(ctx, resolvedSessionID, event.CreatedAt())
 	if err := u.writeEndRefinement(ctx, resolvedSessionID, event.EventID(), summary, "cli:session-end"); err != nil {
 		return nil, err
 	}
 
 	return event, nil
+}
+
+// endOpenDescendants closes still-open sub-sessions transitively parented by
+// sessionID, now that sessionID itself has ended. Failures are logged rather
+// than surfaced: the parent boundary already committed, and `session gc`
+// closes anything left behind.
+func (u *sessionUsecase) endOpenDescendants(ctx context.Context, sessionID types.SessionID, endedAt time.Time) {
+	queue := []types.SessionID{sessionID}
+	visited := map[types.SessionID]struct{}{sessionID: {}}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		childIDs, err := u.sessionRepo.FindOpenChildSessionIDs(ctx, current)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to find open child sessions for parent-ended close", "session_id", current.String(), "error", err)
+			continue
+		}
+		for _, childID := range childIDs {
+			if _, seen := visited[childID]; seen {
+				continue
+			}
+			visited[childID] = struct{}{}
+			if err := u.endChildSessionForParentEnd(ctx, childID, endedAt); err != nil {
+				slog.WarnContext(ctx, "failed to end child session for parent-ended close", "session_id", childID.String(), "error", err)
+				continue
+			}
+			queue = append(queue, childID)
+		}
+	}
+}
+
+func (u *sessionUsecase) endChildSessionForParentEnd(ctx context.Context, childID types.SessionID, endedAt time.Time) error {
+	existing, err := u.sessionRepo.FindByID(ctx, childID)
+	if err != nil {
+		return xerrors.Errorf("failed to find child session: %w", err)
+	}
+	childSession, ok := existing.Value()
+	if !ok {
+		return nil
+	}
+	if _, ended := childSession.EndedAt().Value(); ended {
+		return nil
+	}
+
+	event, err := u.buildBoundaryEventAt(
+		ctx,
+		types.EventKindSessionEnded,
+		childSession.Client(),
+		childSession.Agent(),
+		childID,
+		childSession.Workspace(),
+		endedAt,
+		childSessionEndDeliveryFields(childSession.ParentSessionID())...,
+	)
+	if err != nil {
+		return xerrors.Errorf("failed to build child session end event: %w", err)
+	}
+	if err := childSession.End(endedAt, ""); err != nil {
+		return xerrors.Errorf("failed to end child session: %w", err)
+	}
+	if err := u.sessionRepo.SaveBoundary(ctx, childSession, event); err != nil {
+		return xerrors.Errorf("failed to save child session end: %w", err)
+	}
+	return nil
 }
 
 func (u *sessionUsecase) writeEndRefinement(
@@ -623,6 +695,14 @@ func childSessionStartDeliveryFields(parentSessionID types.SessionID, spawnEvent
 
 func sessionEndDeliveryFields(summary string) []string {
 	return []string{"session_end", "summary", summary}
+}
+
+func childSessionEndDeliveryFields(parentSessionID types.SessionID) []string {
+	return []string{
+		"child_session_end",
+		"parent_session_id", parentSessionID.String(),
+		"terminal_reason", "parent_ended",
+	}
 }
 
 // inheritAttribution fills empty caller-provided fields from the stored
