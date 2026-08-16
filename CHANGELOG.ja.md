@@ -7,6 +7,36 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.41.0] - 2026-08-17
+
+### Added
+- **search-projection catch-up の cleanup を page し、進まないときは park する (#2010)** — 進まない cleanup ループで既定 1s wall budget を使い切らない。空の cleanup page が N 回続いた generation は recovery command 付きで park する。
+- **session の latest-event 順位と `sessions --snapshot` が全 body を走査しない (#2011)** — lineage / snapshot は indexed metadata を使い、イベント本文を全部読まない。
+- **同一ボリュームに replica が載らないときの compact 経路 (#2008)** — `store compact --work-dir` で外部ボリュームへ copy-filter、dest サイズの preflight、それでも足りなければ in-place `incremental_vacuum`。in-place の JSON は `rollback_retained=false`。数十 GiB の live store への破壊的 apply はリリースゲートにしない。
+- **hook-state 残渣の GC (#2017)** — 死んだ PID の `<host>-<pid>[-repo]` と古い SessionEnd 診断を、予算付きの opportunistic path と `doctor --fix` で消す。
+- **hook spool dead-letter の prune (#2007)** — `doctor --fix` が 14 日より古い spool を削除。堆積が大きいときは doctor が警告する。
+- **Grok transcript の残り物を 30 日で expire (#2009)** — drain が unavailable / malformed を分類し、古い pending を無限 replay しない。
+- **golangci の `gofmt` formatter を必須化 (#2021)** — 未整形の Go（`gofmt -s` 含む）で lint が落ちる。
+
+### Fixed
+- **親 session の End で未終了の子も閉じる (#2012)** — 子は `TerminalReasonSuccess` で終わり、親境界が途中で残らない。
+- **`stop_hook` usage 観測に wall time を刻む (#2013)** — usage timestamp が epoch 空値のまま残らない。
+- **timeline / replay を `created_at_norm` で bounded にする (#2014)** — scan cap と `coverage=partial`（block limit / scan cap / both）で newest-first の無制限走査をやめる。
+- **`dbstat` 検査を cache し時間制限する (#2015)** — sidecar cache と 3s budget。大きいストアの capacity / doctor が dbstat を無制限に歩かない。
+- **store-compact リマインダを rate-limit (#2016)** — reclaimable-bytes の再掲は 24h に 1 回まで。
+- **大きいストアでも `doctor` が host hook / config を出す (#2006)** — 2 GiB の `metadata_only_large_store` 以上では、その SQLite を開かずに host-file probe だけを走らせる。
+- **`report` の除外 usage を JSON に載せない (#2018)** — 帰属できない workspace tally は text のみ（`json:"-"`）で scan note を出す。
+- **Claude usage の camelCase カウンタを受け付ける (#2019)** — `inputTokens` / `outputTokens` / `cache*` をパース。host coverage は Grok `Stop` が availability-only だと書く。
+- **remember-intent でも code / heading 断片を残さない (#2020)** — diff hunk、struct tag、markdown heading、`--flag` などの非散文は candidate にしない。
+- **診断 CLI 終了を `failed to execute` で包まない (#2024)** — `ExitCoder`（doctor warn/fail、hook consolidation）はオペレータ向けメッセージを保つ。`store search-projection` の help を対訳する。
+
+### Docs
+- install の clone 例を実行中 CLI バージョンにピンする (#2023)。
+- 公開コマンド `store archive` / `capacity` / `retention files` / `search-projection`、`session gc` / `repair-one-shot`、`bundle`、`memory decay` を CLI リファレンス（日英）に追加 (#2004)。
+- landing と integrations README に Grok Build / Kimi Code を追加し、compact / prompt セルを hook-coverage 行列に揃える (#2005)。
+- v0.40 の Gemini dogfood で生成した `.gemini/settings.json`（10s + usage）をコミット (#2022)。
+
+
 ## [v0.40.0] - 2026-08-16
 
 ### Added
