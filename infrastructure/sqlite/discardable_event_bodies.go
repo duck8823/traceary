@@ -21,6 +21,9 @@ var discardEventBodiesQuery string
 //go:embed sql/list_raw_body_candidates.sql
 var listRawBodyCandidatesQuery string
 
+//go:embed sql/list_raw_body_exclusions.sql
+var listRawBodyExclusionsQuery string
+
 //go:embed sql/verify_raw_body_candidate_state.sql
 var verifyRawBodyCandidateStateQuery string
 

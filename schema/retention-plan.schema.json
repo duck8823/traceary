@@ -23,8 +23,8 @@
     },
     "reason": {
       "type": "string",
-      "enum": ["age", "count", "logical_bytes", "allocated_bytes", "retain", "debug", "legal_hold", "active_session", "recovery_floor", "unknown_extent", "path_escape", "unverified", "stale"],
-      "x-traceary-order": ["age", "count", "logical_bytes", "allocated_bytes", "retain", "debug", "legal_hold", "active_session", "recovery_floor", "unknown_extent", "path_escape", "unverified", "stale"]
+      "enum": ["age", "count", "logical_bytes", "allocated_bytes", "retain", "debug", "legal_hold", "active_session", "recovery_floor", "unknown_extent", "path_escape", "unverified", "stale", "not_transcript", "already_discarded", "session_missing", "session_active", "within_retention", "uncovered"],
+      "x-traceary-order": ["age", "count", "logical_bytes", "allocated_bytes", "retain", "debug", "legal_hold", "active_session", "recovery_floor", "unknown_extent", "path_escape", "unverified", "stale", "not_transcript", "already_discarded", "session_missing", "session_active", "within_retention", "uncovered"]
     },
     "phase": {
       "type": "string",

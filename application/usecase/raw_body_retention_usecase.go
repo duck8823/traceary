@@ -75,9 +75,9 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 			AllocatedExtent: apptypes.RetentionExtent{Availability: "unknown"}, Reasons: []string{"age"},
 		})
 	}
-	exclusions := make([]apptypes.RetentionPlanExclusion, 0, len(snapshot.ExcludedActive))
-	for _, eventID := range snapshot.ExcludedActive {
-		exclusions = append(exclusions, apptypes.RetentionPlanExclusion{Reason: "active_session", StableIdentity: "event:" + base64.RawURLEncoding.EncodeToString([]byte(eventID))})
+	exclusions := make([]apptypes.RetentionPlanExclusion, 0, len(snapshot.Excluded))
+	for _, excl := range snapshot.Excluded {
+		exclusions = append(exclusions, apptypes.RetentionPlanExclusion{Reason: excl.Reason.String(), StableIdentity: "event:" + base64.RawURLEncoding.EncodeToString([]byte(excl.EventID))})
 	}
 	rootPath, err := filepath.Abs(filepath.Dir(recoveryPath))
 	if err != nil {
@@ -109,7 +109,7 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 			}},
 			Phases: []apptypes.RetentionPlanPhase{{Phase: "body_prune", Batches: nil, OrderedSteps: []string{"verify-plan", "confirm-plan", "verify-recovery", "verify-source", "prune-body", "record-ledger"}}},
 		},
-		Display: apptypes.RetentionPlanDisplay{Summary: strconv.Itoa(len(candidates)) + " raw-body candidates, " + strconv.Itoa(len(exclusions)) + " active-session exclusions"},
+		Display: apptypes.RetentionPlanDisplay{Summary: strconv.Itoa(len(candidates)) + " raw-body candidates, " + strconv.Itoa(len(exclusions)) + " exclusions"},
 	}
 	normalizeRetentionPlan(&plan)
 	identities = identities[:0]
