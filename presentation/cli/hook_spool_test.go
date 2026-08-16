@@ -1594,6 +1594,104 @@ func TestInspectHookSpoolDiagnostics_ReportsPendingAndTerminalCounts(t *testing.
 	}
 }
 
+func TestHookSpoolDeadLetterRequeueable(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"failed to ping SQLite DB: context deadline exceeded":                true,
+		"Kimi usage session index scan cancelled: context deadline exceeded": true,
+		"failed to insert hook delivery ledger row: database is locked":      true,
+		"invalid Kimi usage record metadata":                                 true,
+		"conflicting duplicate Claude assistant usage":                       true,
+		"invalid Claude usage JSON event":                                    false,
+		"":                                                                   false,
+	}
+	for lastError, want := range cases {
+		if got := hookSpoolDeadLetterRequeueable(lastError); got != want {
+			t.Fatalf("hookSpoolDeadLetterRequeueable(%q) = %t, want %t", lastError, got, want)
+		}
+	}
+}
+
+func TestRequeueHookSpoolDeadLetters_MovesTransientAndKeepsPoison(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	writeDead := func(name, lastError string) {
+		t.Helper()
+		record := hookSpoolRecord{
+			SchemaVersion: hookSpoolSchemaVersion,
+			Command:       "usage",
+			Client:        "kimi",
+			Payload:       `{"sentinel":"PRIVATE-BODY"}`,
+			CreatedAt:     time.Now().UTC(),
+			AttemptCount:  hookSpoolRetryLimit,
+			LastError:     lastError,
+		}
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(deadDir, name), append(encoded, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDead("deadline.json", "failed to ping SQLite DB: context deadline exceeded")
+	writeDead("kimi.json", "invalid Kimi usage record metadata")
+	writeDead("poison.json", "invalid Claude usage JSON event")
+
+	requeued, skipped, remaining, err := requeueHookSpoolDeadLetters(context.Background(), time.Now().UTC(), true)
+	if err != nil {
+		t.Fatalf("dry-run requeue: %v", err)
+	}
+	if requeued != 2 || skipped != 1 {
+		t.Fatalf("dry-run requeued=%d skipped=%d remaining=%d", requeued, skipped, remaining)
+	}
+	if entries, err := os.ReadDir(deadDir); err != nil || len(entries) != 3 {
+		t.Fatalf("dry-run must leave dead files, entries=%v err=%v", entries, err)
+	}
+
+	requeued, skipped, remaining, err = requeueHookSpoolDeadLetters(context.Background(), time.Now().UTC(), false)
+	if err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	if requeued != 2 || skipped != 1 || remaining != 1 {
+		t.Fatalf("requeued=%d skipped=%d remaining=%d, want 2, 1, 1", requeued, skipped, remaining)
+	}
+	if _, err := os.Stat(filepath.Join(deadDir, "poison.json")); err != nil {
+		t.Fatalf("poison must stay in dead: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(deadDir, "deadline.json")); !os.IsNotExist(err) {
+		t.Fatalf("deadline dead-letter must leave dead, stat err=%v", err)
+	}
+	pending, err := os.ReadDir(filepath.Join(stateDir, "spool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingJSON := 0
+	for _, entry := range pending {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			pendingJSON++
+			body, readErr := os.ReadFile(filepath.Join(stateDir, "spool", entry.Name()))
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			var record hookSpoolRecord
+			if err := json.Unmarshal(body, &record); err != nil {
+				t.Fatal(err)
+			}
+			if record.AttemptCount != 0 || record.LastError != "" {
+				t.Fatalf("requeued record = %+v, want reset attempt and last_error", record)
+			}
+		}
+	}
+	if pendingJSON != 2 {
+		t.Fatalf("pending JSON count=%d, want 2", pendingJSON)
+	}
+}
+
 func TestPruneHookSpoolDeadLetters_RemovesAgedFilesOnlyOnFix(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
