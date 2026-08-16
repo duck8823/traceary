@@ -357,11 +357,7 @@ func newAttestationTestStore(t *testing.T) (string, *sqlite.EventDatasource) {
 
 func openAttestationDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	return db
+	return sqlite.OpenStoreForTest(path)
 }
 
 func assertAttestationCount(t *testing.T, db *sql.DB, want int) {
