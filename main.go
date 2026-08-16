@@ -23,6 +23,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
@@ -448,9 +449,20 @@ func compactWorkCover(migrations fs.FS) func(context.Context, string) error {
 		orphanDatasource := sqlite.NewSessionOrphanRangeDatasource(db)
 		refine := usecase.NewSessionRefinementUsecase(sessionDatasource, refinementDatasource, eventDatasource, types.SystemClock{})
 		cover := usecase.NewOrphanConsolidationUsecase(orphanDatasource, refine, types.SystemClock{})
-		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
-			StaleAfter: 24 * time.Hour,
-			Unlimited:  true,
+		// One read-only handle for the whole pass: DiscoverCandidates and every
+		// per-candidate LoadMaterial call inherit it instead of each paying
+		// setup+ping+compat on its own (#1722).
+		var result apptypes.OrphanConsolidationResult
+		err := orphanDatasource.WithReadScope(ctx, func(scopedCtx context.Context) error {
+			var consolidateErr error
+			result, consolidateErr = cover.Consolidate(scopedCtx, usecase.OrphanConsolidationInput{
+				StaleAfter: 24 * time.Hour,
+				Unlimited:  true,
+			})
+			if consolidateErr != nil {
+				return xerrors.Errorf("consolidate orphan ranges: %w", consolidateErr)
+			}
+			return nil
 		})
 		if err != nil {
 			return xerrors.Errorf("compact force cover: %w", err)
