@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -92,7 +93,68 @@ func TestRawBodyRetentionPlanStoresEncodedExtentsAndProjectedMarkers(t *testing.
 			if diff := cmp.Diff([]int{44, 9}, executor.candidates); diff != "" {
 				t.Fatalf("apply candidate extents mismatch (-want +got):\n%s", diff)
 			}
+			wantCutoff := createdAt.Add(time.Hour)
+			if !executor.cutoffAtSeen || !executor.cutoffAt.Equal(wantCutoff) {
+				t.Fatalf("apply cutoff = %s (seen=%t), want the plan's persisted cutoff %s, not the apply-time clock", executor.cutoffAt, executor.cutoffAtSeen, wantCutoff)
+			}
 		})
+	}
+}
+
+func TestRawBodyRetentionApply_FallsBackToCreatedAtWhenCutoffAtMissing(t *testing.T) {
+	t.Parallel()
+
+	const (
+		compressedID       = "retention-compressed"
+		legacyID           = "retention-legacy"
+		markerEncodedBytes = 37
+	)
+	compressedBody := strings.Repeat("compressible body ", 4096)
+	legacyBody := "日本語"
+	now := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	recoveryPath := filepath.Join(t.TempDir(), "recovery.archive")
+	candidates := retentionTestCandidates(compressedID, compressedBody, legacyID, legacyBody, createdAt)
+	writeRetentionTestRecovery(t, recoveryPath, candidates, compressedBody, legacyBody)
+	planner := &retentionPlannerStub{markerEncodedBytes: markerEncodedBytes, snapshot: apptypes.RawBodyRetentionSnapshot{
+		DatabaseIdentity: testDigest("db"), SQLiteUserVersion: 53, MigrationDigest: testDigest("migration"), SnapshotAt: now,
+		Candidates: candidates,
+	}}
+	executor := &retentionExecutorStub{}
+	workflow := NewRawBodyRetentionUsecase(planner, executor)
+
+	planData, err := workflow.CreatePlan(context.Background(), createdAt.Add(time.Hour), recoveryPath, now)
+	if err != nil {
+		t.Fatalf("CreatePlan() error = %v", err)
+	}
+	plan, err := decodeRetentionPlan(planData)
+	if err != nil {
+		t.Fatalf("decodeRetentionPlan() error = %v", err)
+	}
+
+	// Simulate a plan written before cutoff_at existed: strip it and re-sign,
+	// as an old plan on disk would already have no such field.
+	plan.CanonicalPayload.CutoffAt = ""
+	canonical, err := canonicalRetentionPayload(plan.CanonicalPayload)
+	if err != nil {
+		t.Fatalf("canonicalRetentionPayload() error = %v", err)
+	}
+	digest := sha256.Sum256(canonical)
+	plan.PlanID = hex.EncodeToString(digest[:])
+	legacyPlanData, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatalf("marshal legacy plan: %v", err)
+	}
+
+	if _, err := workflow.Apply(context.Background(), legacyPlanData, recoveryPath, plan.PlanID, now.Add(time.Hour)); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	// The plan's created_at is the fallback, not its selection cutoff (before)
+	// nor the apply-time clock: it is the only timestamp a pre-migration plan
+	// still carries.
+	wantCutoff := now
+	if !executor.cutoffAtSeen || !executor.cutoffAt.Equal(wantCutoff) {
+		t.Fatalf("apply cutoff = %s (seen=%t), want fallback to created_at %s", executor.cutoffAt, executor.cutoffAtSeen, wantCutoff)
 	}
 }
 
@@ -143,12 +205,18 @@ func (s *retentionPlannerStub) RetentionMarkerEncodedBytes() (int, error) {
 	return s.markerEncodedBytes, nil
 }
 
-type retentionExecutorStub struct{ candidates []int }
+type retentionExecutorStub struct {
+	candidates   []int
+	cutoffAt     time.Time
+	cutoffAtSeen bool
+}
 
-func (s *retentionExecutorStub) ApplyRawBodyPlan(_ context.Context, _ string, _ int, _, _ string, candidates []apptypes.RawBodyCandidate, _ time.Time) (apptypes.RawBodyApplyResult, error) {
+func (s *retentionExecutorStub) ApplyRawBodyPlan(_ context.Context, _ string, _ int, _, _ string, candidates []apptypes.RawBodyCandidate, cutoffAt, _ time.Time) (apptypes.RawBodyApplyResult, error) {
 	for _, candidate := range candidates {
 		s.candidates = append(s.candidates, candidate.EncodedBytes)
 	}
+	s.cutoffAt = cutoffAt
+	s.cutoffAtSeen = true
 	return apptypes.RawBodyApplyResult{}, nil
 }
 

@@ -130,7 +130,9 @@ The JSON plan includes:
 
 Plan JSON never includes event body, command input/output, archive passphrase, credentials, absolute home paths, or file contents.
 
-Canonical hashing follows RFC 8785 JSON canonicalization over a normative `canonical_payload`. The top-level plan has exactly `plan_id`, `canonical_payload`, and optional `display`; apply parses only `canonical_payload`, rejects unknown canonical fields, and ignores `display`. `canonical_payload` contains `schema_version`, `created_at`, `snapshot_at`, `source`, `policy`, `class_results`, `candidates`, `exclusions`, `recovery_requirements`, and `phases`. No other field is excluded from the hash.
+Canonical hashing follows RFC 8785 JSON canonicalization over a normative `canonical_payload`. The top-level plan has exactly `plan_id`, `canonical_payload`, and optional `display`; apply parses only `canonical_payload`, rejects unknown canonical fields, and ignores `display`. `canonical_payload` contains `schema_version`, `created_at`, `snapshot_at`, `source`, `policy`, `class_results`, `candidates`, `exclusions`, `recovery_requirements`, and `phases`, plus an optional `cutoff_at`. No other field is excluded from the hash.
+
+`cutoff_at` is the UTC instant the plan's candidate selection was evaluated against. Apply binds this persisted value into its eligibility recheck instead of the wall clock, so a clock that moves backwards between plan and apply (NTP step, snapshot restore, container skew) cannot make an already-reviewed candidate look ineligible. It is omitted, not encoded as an empty string, for plans written before this field existed; apply falls back to `created_at` for those.
 
 Optional canonical fields are omitted, never encoded sometimes as `null`. All byte values and nanosecond durations are unsigned base-10 strings without leading zeroes (except `"0"`), avoiding RFC 8785/IEEE-754 safe-integer ambiguity. Counts are JSON integers constrained to 0 through 9,007,199,254,740,991. Instants are UTC RFC3339Nano. Root-relative paths use slash separators without `.`, `..`, or empty segments.
 

@@ -127,7 +127,7 @@ func TestRawBodyRetention_applyRetryAndRestore(t *testing.T) {
 		t.Fatalf("candidate count = %d, want 1", len(snapshot.Candidates))
 	}
 	planID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	result, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC))
+	result, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ApplyRawBodyPlan() error = %v", err)
 	}
@@ -152,7 +152,7 @@ func TestRawBodyRetention_applyRetryAndRestore(t *testing.T) {
 		t.Fatalf("Search(retention marker) returned %d pruned events, want 0", len(matches))
 	}
 
-	retry, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 2, 1, 0, 0, 0, time.UTC))
+	retry, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 2, 1, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("retry ApplyRawBodyPlan() error = %v", err)
 	}
@@ -167,7 +167,7 @@ func TestRawBodyRetention_applyRetryAndRestore(t *testing.T) {
 		t.Fatalf("activate session before retry: %v", err)
 	}
 	_ = db.Close()
-	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 2, 2, 0, 0, 0, time.UTC)); err != nil {
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 2, 2, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("retry ApplyRawBodyPlan() error = %v", err)
 	}
 	db, err = sql.Open("sqlite", "file:"+dbPath)
@@ -194,8 +194,115 @@ func TestRawBodyRetention_applyRetryAndRestore(t *testing.T) {
 	if !details.Event().BodyAvailability().IsAvailable() || details.Event().Body() != event.Body() {
 		t.Fatalf("restored event availability=%q body=%q", details.Event().BodyAvailability(), details.Event().Body())
 	}
-	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC)); err == nil {
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC)); err == nil {
 		t.Fatal("ApplyRawBodyPlan() after restore error = nil, want terminal-plan rejection")
+	}
+}
+
+// TestRawBodyRetention_applyRecheckBindsPersistedCutoffNotWallClock covers
+// #1763: the apply-time eligibility recheck binds the plan's persisted
+// cutoff, not the wall clock. A clock that rewinds after the plan was built
+// (NTP step, snapshot restore, container skew) must not make an
+// already-reviewed candidate look ineligible.
+func TestRawBodyRetention_applyRecheckBindsPersistedCutoffNotWallClock(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	events, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	event := rawBodyRetentionEvent(t, "clock-rewind-event", "body", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err := events.Save(context.Background(), event); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	makeRawBodyRetentionEligible(t, dbPath, event.EventID().String())
+
+	planCutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	snapshot, err := store.ListRawBodyCandidates(context.Background(), planCutoff)
+	if err != nil {
+		t.Fatalf("ListRawBodyCandidates() error = %v", err)
+	}
+	if len(snapshot.Candidates) != 1 {
+		t.Fatalf("candidate count = %d, want 1", len(snapshot.Candidates))
+	}
+
+	// The host clock rewinds to 90 days before the plan cutoff before apply
+	// runs (or resumes). The persisted cutoff must still govern the recheck.
+	rewoundClock := planCutoff.AddDate(0, 0, -90)
+	planID := "1111111111111111111111111111111111111111111111111111111111111111"
+	result, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, planCutoff, rewoundClock)
+	if err != nil {
+		t.Fatalf("ApplyRawBodyPlan() error = %v", err)
+	}
+	if result.PrunedCount != 1 || result.AlreadyPruned != 0 {
+		t.Fatalf("apply result = %+v, want the candidate discarded despite the clock rewind", result)
+	}
+	details, err := events.GetDetails(context.Background(), event.EventID())
+	if err != nil {
+		t.Fatalf("GetDetails() error = %v", err)
+	}
+	if details.Event().BodyAvailability() != types.BodyAvailabilityUnavailableRetention {
+		t.Fatalf("availability = %q, want unavailable_retention", details.Event().BodyAvailability())
+	}
+}
+
+// TestRawBodyRetention_resumeAfterInterruptionBindsPersistedCutoff covers
+// #1763's resumability requirement: a partially-applied run that crashes and
+// resumes under a rewound clock must still honor remaining candidates
+// against the persisted cutoff, not reject them as "no longer eligible".
+func TestRawBodyRetention_resumeAfterInterruptionBindsPersistedCutoff(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	events, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := store.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	for index, id := range []string{"resume-a", "resume-b"} {
+		event := rawBodyRetentionEvent(t, id, "payload-"+id, time.Date(2026, 5, 1, index, 0, 0, 0, time.UTC))
+		if err := events.Save(context.Background(), event); err != nil {
+			t.Fatalf("Save(%s) error = %v", id, err)
+		}
+	}
+	makeRawBodyRetentionEligible(t, dbPath, "resume-a", "resume-b")
+
+	planCutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	snapshot, err := store.ListRawBodyCandidates(context.Background(), planCutoff)
+	if err != nil {
+		t.Fatalf("ListRawBodyCandidates() error = %v", err)
+	}
+	if len(snapshot.Candidates) != 2 {
+		t.Fatalf("candidate count = %d, want 2", len(snapshot.Candidates))
+	}
+
+	planID := "2222222222222222222222222222222222222222222222222222222222222222"
+	store.SetRawBodyPrunedHookForTest(func(int) error { return errors.New("injected interruption") })
+	rewoundClock := planCutoff.AddDate(0, 0, -90)
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, planCutoff, rewoundClock); err == nil {
+		t.Fatal("ApplyRawBodyPlan() error = nil, want interruption")
+	}
+	store.SetRawBodyPrunedHookForTest(nil)
+
+	// Resume after the crash under an even further rewound clock. Only the
+	// persisted cutoff, not this resumption's wall clock, governs whether the
+	// remaining candidate is still eligible.
+	resumeClock := rewoundClock.AddDate(0, 0, -30)
+	result, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, planCutoff, resumeClock)
+	if err != nil {
+		t.Fatalf("resume ApplyRawBodyPlan() error = %v", err)
+	}
+	if result.PrunedCount != 1 || result.AlreadyPruned != 1 {
+		t.Fatalf("resume result = %+v, want one newly discarded and one already durable", result)
+	}
+	for _, candidate := range snapshot.Candidates {
+		details, err := events.GetDetails(context.Background(), types.EventID(candidate.EventID))
+		if err != nil {
+			t.Fatalf("GetDetails(%s) error = %v", candidate.EventID, err)
+		}
+		if details.Event().BodyAvailability() != types.BodyAvailabilityUnavailableRetention {
+			t.Fatalf("event %s availability = %q, want unavailable_retention after resume", candidate.EventID, details.Event().BodyAvailability())
+		}
 	}
 }
 
@@ -264,7 +371,7 @@ func TestRawBodyRetention_rejectsStaleCandidateWithoutPruning(t *testing.T) {
 	}
 	_ = db.Close()
 
-	_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", snapshot.Candidates, time.Now().UTC())
+	_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC())
 	if err == nil {
 		t.Fatal("ApplyRawBodyPlan() error = nil, want stale-plan rejection")
 	}
@@ -312,7 +419,7 @@ func TestRawBodyRetention_rejectsReencodedCandidate(t *testing.T) {
 			}
 			_ = db.Close()
 
-			_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", snapshot.Candidates, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC))
+			_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC))
 			if err == nil {
 				t.Fatal("ApplyRawBodyPlan() error = nil, want encoded-extent stale-plan rejection")
 			}
@@ -349,7 +456,7 @@ func TestRawBodyRetention_rejectsSchemaDriftWithoutPruning(t *testing.T) {
 	}
 	_ = db.Close()
 
-	_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", snapshot.Candidates, time.Now().UTC())
+	_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC())
 	if err == nil {
 		t.Fatal("ApplyRawBodyPlan() error = nil, want schema-drift rejection")
 	}
@@ -417,7 +524,7 @@ func TestRawBodyRetention_rejectsSessionActivatedAfterPlan(t *testing.T) {
 	}
 	_ = db.Close()
 
-	_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", snapshot.Candidates, time.Now().UTC())
+	_, err = store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC())
 	if err == nil {
 		t.Fatal("ApplyRawBodyPlan() error = nil, want active-session stale-plan rejection")
 	}
@@ -455,7 +562,7 @@ func TestRawBodyRetention_rejectsPlanWhenRefinementIsRemoved(t *testing.T) {
 		t.Fatalf("delete refinement: %v", err)
 	}
 	_ = db.Close()
-	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "abababababababababababababababababababababababababababababababab", snapshot.Candidates, time.Now().UTC()); err == nil {
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "abababababababababababababababababababababababababababababababab", snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC()); err == nil {
 		t.Fatal("ApplyRawBodyPlan() error = nil, want stale-plan rejection")
 	}
 	details, err := events.GetDetails(context.Background(), event.EventID())
@@ -488,7 +595,7 @@ func TestRawBodyRetention_interruptionResumesFromDurableBatch(t *testing.T) {
 	}
 	planID := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	store.SetRawBodyPrunedHookForTest(func(int) error { return errors.New("injected interruption") })
-	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Now().UTC()); err == nil {
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC()); err == nil {
 		t.Fatal("ApplyRawBodyPlan() error = nil, want interruption")
 	}
 	for index, candidate := range snapshot.Candidates {
@@ -502,7 +609,7 @@ func TestRawBodyRetention_interruptionResumesFromDurableBatch(t *testing.T) {
 		}
 	}
 	store.SetRawBodyPrunedHookForTest(nil)
-	result, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Now().UTC())
+	result, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC())
 	if err != nil {
 		t.Fatalf("retry ApplyRawBodyPlan() error = %v", err)
 	}
@@ -532,7 +639,7 @@ func TestRawBodyRetention_partialExecutionCanBeRestored(t *testing.T) {
 	}
 	planID := "abababababababababababababababababababababababababababababababab"
 	store.SetRawBodyPrunedHookForTest(func(int) error { return errors.New("injected interruption") })
-	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Now().UTC()); err == nil {
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC()); err == nil {
 		t.Fatal("ApplyRawBodyPlan() error = nil, want interruption")
 	}
 	store.SetRawBodyPrunedHookForTest(nil)
@@ -600,7 +707,7 @@ func TestRawBodyRetention_restoreBetweenBatchesStopsFurtherApply(t *testing.T) {
 		_, restoreErr = store.RestoreRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, recovery, time.Now().UTC())
 		return nil
 	})
-	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Now().UTC()); err == nil {
+	if _, err := store.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC()); err == nil {
 		t.Fatal("ApplyRawBodyPlan() error = nil, want restored-state stop")
 	}
 	if restoreErr != nil {
@@ -647,7 +754,7 @@ func TestRawBodyRetention_planIsBoundToCopiedStorePath(t *testing.T) {
 	if err := copiedStore.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(copy) error = %v", err)
 	}
-	if _, err := copiedStore.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", snapshot.Candidates, time.Now().UTC()); err == nil {
+	if _, err := copiedStore.ApplyRawBodyPlan(context.Background(), snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Now().UTC()); err == nil {
 		t.Fatal("ApplyRawBodyPlan(copy) error = nil, want source-path mismatch")
 	}
 }

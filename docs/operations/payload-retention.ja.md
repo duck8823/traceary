@@ -130,7 +130,9 @@ JSON plan は次を含みます。
 
 plan JSON に event body、command input/output、archive passphrase、credential、absolute home path、file content を含めません。
 
-canonical hash は normative `canonical_payload` に RFC 8785 JSON canonicalization を適用します。top-level plan は `plan_id`、`canonical_payload`、任意 `display` だけです。apply は `canonical_payload` だけを解釈し、未知 canonical field を拒否し、`display` を無視します。`canonical_payload` は `schema_version`, `created_at`, `snapshot_at`, `source`, `policy`, `class_results`, `candidates`, `exclusions`, `recovery_requirements`, `phases` を含み、ほかの field を hash から除外しません。
+canonical hash は normative `canonical_payload` に RFC 8785 JSON canonicalization を適用します。top-level plan は `plan_id`、`canonical_payload`、任意 `display` だけです。apply は `canonical_payload` だけを解釈し、未知 canonical field を拒否し、`display` を無視します。`canonical_payload` は `schema_version`, `created_at`, `snapshot_at`, `source`, `policy`, `class_results`, `candidates`, `exclusions`, `recovery_requirements`, `phases` に加え、任意の `cutoff_at` を含み、ほかの field を hash から除外しません。
+
+`cutoff_at` は plan の候補選定を評価した UTC instant です。apply はこの永続化された値を eligibility recheck に束縛し、wall clock は使いません。そのため plan 作成後 apply までの間に clock が巻き戻っても（NTP step、snapshot restore、container の clock skew）、すでにレビュー済みの候補が誤って ineligible と判定されることはありません。この field が存在しない旧 plan では空文字ではなく省略され、apply は `created_at` にフォールバックします。
 
 任意 canonical field は省略し、場合によって `null` にしません。byte と nanosecond duration は leading zero のない unsigned base-10 string（zero は `"0"`）です。count は 0〜9,007,199,254,740,991 の JSON integer、時刻は UTC RFC3339Nano、relative path は `/` separator で `.`/`..`/empty segment を禁止します。
 

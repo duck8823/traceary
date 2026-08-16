@@ -15,6 +15,8 @@ type RawBodyRetentionPlanner interface {
 
 // RawBodyRetentionExecutor applies and restores exact reviewed body identities.
 type RawBodyRetentionExecutor interface {
-	ApplyRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidates []apptypes.RawBodyCandidate, appliedAt time.Time) (apptypes.RawBodyApplyResult, error)
+	// ApplyRawBodyPlan rechecks candidate eligibility against cutoffAt, the
+	// plan's persisted selection boundary, not the wall clock at apply time.
+	ApplyRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, candidates []apptypes.RawBodyCandidate, cutoffAt, appliedAt time.Time) (apptypes.RawBodyApplyResult, error)
 	RestoreRawBodyPlan(ctx context.Context, databaseIdentity string, sqliteUserVersion int, migrationDigest, planID string, bodies []apptypes.RawBodyRecoveryBody, restoredAt time.Time) (apptypes.RawBodyRestoreResult, error)
 }

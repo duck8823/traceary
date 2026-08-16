@@ -183,6 +183,7 @@
         "schema_version": {"const": "retention-plan/v2"},
         "created_at": {"$ref": "#/$defs/instant"},
         "snapshot_at": {"$ref": "#/$defs/instant"},
+        "cutoff_at": {"$ref": "#/$defs/instant"},
         "source": {"$ref": "#/$defs/source"},
         "policy": {"$ref": "#/$defs/policy"},
         "class_results": {"type": "array", "items": {"$ref": "#/$defs/classResult"}},
