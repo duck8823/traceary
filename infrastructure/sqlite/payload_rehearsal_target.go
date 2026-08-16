@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -149,11 +150,11 @@ func immutableRehearsalDSN(path string) string {
 }
 
 // Preview proves a strictly immutable, zero-write inspection.
-func ensurePhysicalBackup(source, dest string) (string, error) {
-	return ensurePhysicalBackupWithHook(source, dest, nil)
+func ensurePhysicalBackup(ctx context.Context, source, dest string) (string, error) {
+	return ensurePhysicalBackupWithHook(ctx, source, dest, nil)
 }
 
-func ensurePhysicalBackupWithHook(source, dest string, afterCopy func()) (string, error) {
+func ensurePhysicalBackupWithHook(ctx context.Context, source, dest string, afterCopy func()) (string, error) {
 	sourceAbs, _ := filepath.Abs(filepath.Clean(source))
 	destAbs, _ := filepath.Abs(filepath.Clean(dest))
 	if sourceAbs == destAbs {
@@ -164,11 +165,11 @@ func ensurePhysicalBackupWithHook(source, dest string, afterCopy func()) (string
 			return "", ErrUnsafeRehearsalTarget
 		}
 	}
-	sourceDigest, err := fileDigest(source)
+	sourceDigest, err := fileDigest(ctx, source)
 	if err != nil {
 		return "", err
 	}
-	if existing, existingErr := fileDigest(dest); existingErr == nil {
+	if existing, existingErr := fileDigest(ctx, dest); existingErr == nil {
 		if existing != sourceDigest {
 			return "", errors.New("existing rollback artifact does not match the copied target")
 		}
@@ -183,12 +184,18 @@ func ensurePhysicalBackupWithHook(source, dest string, afterCopy func()) (string
 	if afterCopy != nil {
 		afterCopy()
 	}
-	sourceAfter, err := fileDigest(source)
-	if err != nil || sourceAfter != sourceDigest {
+	sourceAfter, err := fileDigest(ctx, source)
+	if err != nil {
+		return "", err
+	}
+	if sourceAfter != sourceDigest {
 		return "", errors.New("source changed while creating rollback artifact")
 	}
-	destDigest, err := fileDigest(dest)
-	if err != nil || destDigest != sourceDigest {
+	destDigest, err := fileDigest(ctx, dest)
+	if err != nil {
+		return "", err
+	}
+	if destDigest != sourceDigest {
 		return "", errors.New("rollback artifact digest verification failed")
 	}
 	if _, err = secureFileIdentity(dest); err != nil {
@@ -213,13 +220,16 @@ func verifySQLiteArtifact(path string) error {
 	return nil
 }
 
-func restoreVerifiedRehearsalBackup(target, backup string, expectedTarget, expectedBackup rehearsalIdentity, expectedDigest string) error {
+func restoreVerifiedRehearsalBackup(ctx context.Context, target, backup string, expectedTarget, expectedBackup rehearsalIdentity, expectedDigest string) error {
 	current, err := secureFileIdentity(backup)
 	if err != nil || !os.SameFile(expectedBackup.info, current.info) || expectedBackup.device != current.device || expectedBackup.inode != current.inode {
 		return ErrUnsafeRehearsalTarget
 	}
-	digest, err := fileDigest(backup)
-	if err != nil || digest != expectedDigest {
+	digest, err := fileDigest(ctx, backup)
+	if err != nil {
+		return err
+	}
+	if digest != expectedDigest {
 		return errors.New("rollback artifact changed before recovery")
 	}
 	if err = verifySQLiteArtifact(backup); err != nil {
@@ -252,8 +262,11 @@ func restoreVerifiedRehearsalBackup(target, backup string, expectedTarget, expec
 	if err = copyFileAtomicVerifiedWithHook(backup, target, expectedDigest, verifyTarget); err != nil {
 		return err
 	}
-	restoredDigest, err := fileDigest(target)
-	if err != nil || restoredDigest != expectedDigest {
+	restoredDigest, err := fileDigest(context.WithoutCancel(ctx), target)
+	if err != nil {
+		return err
+	}
+	if restoredDigest != expectedDigest {
 		return errors.New("restored rehearsal target digest mismatch")
 	}
 	return verifySQLiteArtifact(target)
@@ -349,7 +362,9 @@ func copyFileAtomicVerifiedWithHook(source, dest, expectedDigest string, beforeR
 		return err
 	}
 	if expectedDigest != "" {
-		copiedDigest, digestErr := fileDigest(tmp)
+		// The atomic copy step is un-interruptible by design; use a background
+		// context so neither SIGINT nor a wall-time budget abort this check.
+		copiedDigest, digestErr := fileDigest(context.Background(), tmp)
 		if digestErr != nil || copiedDigest != expectedDigest {
 			return errors.New("atomic copy digest verification failed")
 		}
@@ -375,15 +390,33 @@ func copyFileAtomicVerifiedWithHook(source, dest, expectedDigest string, beforeR
 }
 
 //nolint:wrapcheck // caller converts path-sensitive failures to fixed messages.
-func fileDigest(path string) (string, error) {
+func fileDigest(ctx context.Context, path string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
 	h := sha256.New()
-	if _, err = io.Copy(h, f); err != nil {
-		return "", err
+	buf := make([]byte, 32*1024)
+	for {
+		if err = ctx.Err(); err != nil {
+			return "", err
+		}
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			if _, err = h.Write(buf[:n]); err != nil {
+				return "", err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", readErr
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

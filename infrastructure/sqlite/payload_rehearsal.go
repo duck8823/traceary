@@ -22,6 +22,18 @@ import (
 	"github.com/duck8823/traceary/domain"
 )
 
+// detachedBudgeted returns a child context that is detached from the parent's
+// cancellation signal (SIGINT/SIGTERM) but preserves its deadline. Recovery
+// paths use this so SIGINT does not abort them while the wall-time budget still
+// applies.
+func detachedBudgeted(parent context.Context) (context.Context, context.CancelFunc) {
+	base := context.WithoutCancel(parent)
+	if deadline, ok := parent.Deadline(); ok {
+		return context.WithDeadline(base, deadline)
+	}
+	return base, func() {}
+}
+
 // Exported sentinel errors are stable safety classifications for CLI/tests.
 var (
 	ErrUnsafeRehearsalTarget      = errors.New("payload rehearsal target is not an independent regular copy")
@@ -352,9 +364,9 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 	}
 	var backupDigest string
 	if resume {
-		backupDigest, err = fileDigest(c.BackupPath)
+		backupDigest, err = fileDigest(ctx, c.BackupPath)
 	} else {
-		backupDigest, err = ensurePhysicalBackup(id.canonical, c.BackupPath)
+		backupDigest, err = ensurePhysicalBackup(ctx, id.canonical, c.BackupPath)
 	}
 	if err != nil {
 		return nil, apptypes.PayloadRehearsalMetrics{}, err
@@ -453,7 +465,7 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 			return nil, apptypes.PayloadRehearsalMetrics{}, errors.New("resume requires no pending migration and existing WAL journal mode")
 		}
 		_ = db.Close()
-		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
+		if recoveryErr := restoreVerifiedRehearsalBackup(context.WithoutCancel(ctx), id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
 			return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("journal normalization failed and rollback failed: %w", recoveryErr)
 		}
 		return nil, apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, errors.New("rehearsal journal mode does not match preflight")
@@ -464,12 +476,14 @@ func (a *PayloadRehearsalAdapter) Prepare(ctx context.Context, c apptypes.Payloa
 		}
 		_ = db.Close()
 		if migrationRequired && a.targetPreparation != nil {
-			if _, recoveryErr := a.targetPreparation.RollbackPrepared(context.WithoutCancel(ctx), c); recoveryErr != nil {
+			recoveryCtx, recoveryCancel := detachedBudgeted(ctx)
+			defer recoveryCancel()
+			if _, recoveryErr := a.targetPreparation.RollbackPrepared(recoveryCtx, c); recoveryErr != nil {
 				return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, ErrPreparedMigrationPublish
 			}
 			return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, cause
 		}
-		if recoveryErr := restoreVerifiedRehearsalBackup(id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
+		if recoveryErr := restoreVerifiedRehearsalBackup(context.WithoutCancel(ctx), id.canonical, c.BackupPath, id, backupIdentity, backupDigest); recoveryErr != nil {
 			return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest}, xerrors.Errorf("%v; restore verified backup: %w", cause, recoveryErr)
 		}
 		return apptypes.PayloadRehearsalMetrics{RollbackDigest: backupDigest, RollbackVerified: true}, cause
@@ -913,7 +927,7 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if identityErr != nil || os.SameFile(id.info, backupIdentity.info) {
 		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
-	digest, err := fileDigest(c.BackupPath)
+	digest, err := fileDigest(ctx, c.BackupPath)
 	if err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact unavailable")
 	}
@@ -948,8 +962,11 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 			return apptypes.PayloadRehearsalMetrics{}, ErrRehearsalNeedsCleanDB
 		}
 	}
-	verifiedDigest, verifiedDigestErr := fileDigest(c.BackupPath)
-	if verifiedDigestErr != nil || verifiedDigest != digest {
+	verifiedDigest, verifiedDigestErr := fileDigest(ctx, c.BackupPath)
+	if verifiedDigestErr != nil {
+		return apptypes.PayloadRehearsalMetrics{}, verifiedDigestErr
+	}
+	if verifiedDigest != digest {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback artifact changed before restore")
 	}
 	if err = verifySQLiteArtifact(c.BackupPath); err != nil {
@@ -994,8 +1011,12 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 	if restoredIdentityErr != nil || postBackupErr != nil || os.SameFile(restoredIdentity.info, postBackupIdentity.info) {
 		return apptypes.PayloadRehearsalMetrics{}, ErrUnsafeRehearsalTarget
 	}
-	restored, err := fileDigest(id.canonical)
-	if err != nil || restored != digest {
+	postCtx := context.WithoutCancel(ctx)
+	restored, err := fileDigest(postCtx, id.canonical)
+	if err != nil {
+		return apptypes.PayloadRehearsalMetrics{}, err
+	}
+	if restored != digest {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback digest verification failed")
 	}
 	db, err := sql.Open("sqlite", immutableRehearsalDSN(id.canonical))
@@ -1003,19 +1024,19 @@ func (a *PayloadRehearsalAdapter) Rollback(ctx context.Context, c apptypes.Paylo
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	defer func() { _ = db.Close() }()
-	if err = VerifyStoreCompatibility(ctx, db); err != nil {
+	if err = VerifyStoreCompatibility(postCtx, db); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, err
 	}
 	var integrity string
-	if err = db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
+	if err = db.QueryRowContext(postCtx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback integrity verification failed")
 	}
 	var runTable, activeRuns int
-	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='payload_rehearsal_runs')`).Scan(&runTable); err != nil {
+	if err = db.QueryRowContext(postCtx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='payload_rehearsal_runs')`).Scan(&runTable); err != nil {
 		return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback state verification failed")
 	}
 	if runTable != 0 {
-		if err = db.QueryRowContext(ctx, `SELECT count(*) FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed','scrubbed')`).Scan(&activeRuns); err != nil || activeRuns != 0 {
+		if err = db.QueryRowContext(postCtx, `SELECT count(*) FROM payload_rehearsal_runs WHERE state IN ('running','paused','completed','scrubbed')`).Scan(&activeRuns); err != nil || activeRuns != 0 {
 			return apptypes.PayloadRehearsalMetrics{}, errors.New("rollback retained rehearsal state")
 		}
 	}

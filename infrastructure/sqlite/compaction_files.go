@@ -469,7 +469,7 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 		return run, insufficientCompactionSpaceError(required, available, id.Size)
 	}
 	run.SourceIdentity = id
-	digest, err := fileDigest(run.SourcePath)
+	digest, err := fileDigest(ctx, run.SourcePath)
 	if err != nil {
 		return run, errors.New("cannot digest prepared upgrade source")
 	}
@@ -524,8 +524,11 @@ func (f PreparedStoreUpgradeFiles) Recheck(ctx context.Context, run domain.Compa
 	if current != run.SourceIdentity {
 		return errors.New("source identity drift after plan")
 	}
-	digest, err := fileDigest(run.SourcePath)
-	if err != nil || digest != run.SourceDigest {
+	digest, err := fileDigest(ctx, run.SourcePath)
+	if err != nil {
+		return err
+	}
+	if digest != run.SourceDigest {
 		return errors.New("prepared upgrade source content changed")
 	}
 	available, err := availableBytes(filepath.Dir(run.SourcePath))

@@ -37,11 +37,11 @@ func (v PreparedMigrationVerifier) VerifyRollbackTarget(ctx context.Context, tar
 // canonical event/audit equivalence. Schema equality is intentionally not
 // required because the candidate is expected to be newer.
 func (v PreparedMigrationVerifier) VerifyPair(ctx context.Context, source, candidate, planDigest string) (domain.PreparedCandidateEvidence, error) {
-	sourceDigest, err := fileDigest(source)
+	sourceDigest, err := fileDigest(ctx, source)
 	if err != nil {
 		return domain.PreparedCandidateEvidence{}, errors.New("cannot digest prepared migration source")
 	}
-	candidateDigest, err := fileDigest(candidate)
+	candidateDigest, err := fileDigest(ctx, candidate)
 	if err != nil {
 		return domain.PreparedCandidateEvidence{}, errors.New("cannot digest prepared migration candidate")
 	}
