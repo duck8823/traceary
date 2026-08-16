@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -34,10 +35,12 @@ func (c *RootCLI) runStoreCapacity(cmd *cobra.Command, output io.Writer, dbPath 
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	c.applyDatabasePath(resolved)
+	started := time.Now()
 	report, err := c.capacityInspector.InspectCapacity(cmd.Context())
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to inspect store capacity", "ストア容量の検査に失敗しました"), err)
 	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "capacity inspection %s evidence=%s\n", time.Since(started).Round(time.Millisecond), report.Evidence.Status)
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(report); err != nil {

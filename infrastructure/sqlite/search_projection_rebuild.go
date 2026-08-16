@@ -1426,11 +1426,23 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 	if db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&page) == nil {
 		if searchProjectionFamilyTotalUnavailableForTest {
 			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "dbstat", Reason: "family total forced unavailable"}
-		} else if e = db.QueryRowContext(ctx, selectSearchProjectionFamilyTotalSQL).Scan(&s.PhysicalBytes); e == nil {
-			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "complete", Method: "dbstat"}
+		} else if cached, ok := loadMatchingDBStatCache(d.Path()); ok {
+			s.PhysicalBytes = searchProjectionFamilyBytesFromObjects(cached.Objects)
+			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "cached", Method: "dbstat", Reason: "dbstat cache hit for unchanged store file"}
 		} else {
-			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "pragma", Reason: "dbstat unavailable"}
-			e = nil
+			budgetCtx, cancel := context.WithTimeout(ctx, dbstatInspectBudget)
+			scanErr := db.QueryRowContext(budgetCtx, selectSearchProjectionFamilyTotalSQL).Scan(&s.PhysicalBytes)
+			deadlineExceeded := errors.Is(budgetCtx.Err(), context.DeadlineExceeded)
+			cancel()
+			if scanErr == nil {
+				s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "complete", Method: "dbstat"}
+			} else if deadlineExceeded {
+				s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "bounded", Method: "dbstat", Reason: "dbstat wall budget exceeded"}
+				e = nil
+			} else {
+				s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "pragma", Reason: "dbstat unavailable"}
+				e = nil
+			}
 		}
 	}
 	applySearchProjectionBudgetVerdict(&s)
