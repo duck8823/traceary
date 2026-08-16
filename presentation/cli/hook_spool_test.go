@@ -1011,7 +1011,16 @@ func TestInspectHookSpoolDiagnostics_FixReportsUnreadableRemaining(t *testing.T)
 			t.Fatalf("message=%q, missing %q", message, expected)
 		}
 	}
-	wantMetrics := map[string]int{"replayed": 1, "failed": 0, "remaining": 1, "unreadable": 1, "pruned_dead": 0, "dead_remaining": 0}
+	wantMetrics := map[string]int{
+		"requeued":             0,
+		"skipped_nontransient": 0,
+		"replayed":             1,
+		"failed":               0,
+		"remaining":            1,
+		"unreadable":           1,
+		"pruned_dead":          0,
+		"dead_remaining":       0,
+	}
 	if !reflect.DeepEqual(result.Metrics, wantMetrics) {
 		t.Fatalf("metrics=%v, want %v", result.Metrics, wantMetrics)
 	}
