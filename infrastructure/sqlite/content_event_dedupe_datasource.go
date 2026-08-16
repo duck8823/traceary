@@ -33,6 +33,14 @@ const (
 	contentEventDedupeReasonUnreadableBody = "skipped: unreadable body"
 )
 
+// dedupeArchiveStoredSizeExpr is the physical bytes an archived row occupies:
+// body_encoded_bytes when the row carries codec metadata, or the raw body
+// length for a legacy identity row (NULL codec, #1744). Reported bytes must
+// match what a purge actually frees, not the logical (decoded) size -- a
+// compressed row's body_encoded_bytes is smaller than length(body) would
+// suggest if the stored bytes were (wrongly) decoded plaintext.
+const dedupeArchiveStoredSizeExpr = `COALESCE(body_encoded_bytes, length(CAST(body AS BLOB)))`
+
 // dedupeMemberRef is one row's participation in an identity group.
 //
 // The body is deliberately absent. A body is needed for exactly two things: to
@@ -834,9 +842,16 @@ func (d *StoreManagementDatasource) applyDedupeGroups(
 	plan dedupePlan,
 	params apptypes.ContentEventDedupeParams,
 ) error {
+	// Probed once per apply run rather than once per archived row: the shape
+	// of the events table does not change mid-run, so a per-row pragma query
+	// (as loadEventPlaintext issued before this) is pure waste at batch scale.
+	hasCodec, err := databaseColumnExists(ctx, db, "events", "body_codec")
+	if err != nil {
+		return err
+	}
 	archivedAt := formatTimestamp(params.Now)
 	for _, batch := range partitionDedupeTargets(plan, params.BatchSize) {
-		if err := d.archiveDedupeBatch(ctx, db, batch, params.RunID, archivedAt); err != nil {
+		if err := d.archiveDedupeBatch(ctx, db, batch, params.RunID, archivedAt, hasCodec); err != nil {
 			return err
 		}
 		if d.onAfterDedupeBatchCommit != nil {
@@ -902,6 +917,7 @@ func (d *StoreManagementDatasource) archiveDedupeBatch(
 	targets []dedupeArchiveTarget,
 	runID string,
 	archivedAt string,
+	hasCodec bool,
 ) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -920,7 +936,7 @@ func (d *StoreManagementDatasource) archiveDedupeBatch(
 	for _, target := range targets {
 		// A row absent from events was already archived by an interrupted earlier
 		// run; the repair is idempotent, so skip rather than fail.
-		source, found, err := readDedupeArchiveSource(ctx, tx, target.id)
+		source, found, err := readDedupeArchiveSource(ctx, tx, target.id, hasCodec)
 		if err != nil {
 			return err
 		}
@@ -946,17 +962,29 @@ func (d *StoreManagementDatasource) archiveDedupeBatch(
 			// guard if a plan is stale.
 			continue
 		}
-		if _, err := tx.ExecContext(
-			ctx,
-			`INSERT INTO event_content_dedupe_archive
+		insertQuery := `INSERT INTO event_content_dedupe_archive
 			    (id, kind, client, agent, session_id, workspace, body, created_at,
 			     source_hook, kept_event_id, dedupe_run_id, archived_at, group_key, reason)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			     ON CONFLICT(dedupe_run_id, id) DO NOTHING`,
+			     ON CONFLICT(dedupe_run_id, id) DO NOTHING`
+		insertArgs := []any{
 			source.id, source.kind, source.client, source.agent, source.sessionID, source.workspace,
-			source.body, source.createdAt, source.sourceHook,
+			archiveBodyArg(source.payload), source.createdAt, source.sourceHook,
 			target.keptID, runID, archivedAt, target.forensicKey, target.reason,
-		); err != nil {
+		}
+		if hasCodec {
+			insertQuery = `INSERT INTO event_content_dedupe_archive
+			    (id, kind, client, agent, session_id, workspace, body, created_at,
+			     source_hook, kept_event_id, dedupe_run_id, archived_at, group_key, reason,
+			     body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			     ON CONFLICT(dedupe_run_id, id) DO NOTHING`
+			insertArgs = append(insertArgs,
+				source.payload.Codec, source.payload.FormatVersion, source.payload.PlaintextBytes,
+				source.payload.StoredBytes, source.payload.SHA256,
+			)
+		}
+		if _, err := tx.ExecContext(ctx, insertQuery, insertArgs...); err != nil {
 			return xerrors.Errorf("failed to archive duplicate event %s: %w", target.id, err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE id = ?`, target.id); err != nil {
@@ -994,10 +1022,11 @@ func (d *StoreManagementDatasource) archiveDedupeBatch(
 	return nil
 }
 
-// dedupeArchiveSource is an events row as the quarantine archive stores it. body
-// is the *decoded* plaintext, matching what RestoreContentEventDedupeRun expects
-// to re-encode with encodeCanonicalPayload; copying the raw stored column
-// instead would corrupt a codec-encoded payload on restore.
+// dedupeArchiveSource is an events row as the quarantine archive stores it.
+// payload carries the *encoded* (stored) bytes and codec metadata exactly as
+// events held them: quarantine is a move, not a re-encode (#1744), so nothing
+// here decodes the body. Decoding happens only when the archive is restored or
+// displayed.
 type dedupeArchiveSource struct {
 	id         string
 	kind       string
@@ -1007,35 +1036,50 @@ type dedupeArchiveSource struct {
 	workspace  string
 	createdAt  string
 	sourceHook sql.NullString
-	body       string
+	payload    payloadRow
 }
 
 // readDedupeArchiveSource reads one row about to be quarantined. A missing row is
 // reported as not-found rather than as an error so a resumed run can skip rows an
-// earlier interrupted run already archived.
-func readDedupeArchiveSource(ctx context.Context, tx *sql.Tx, eventID string) (dedupeArchiveSource, bool, error) {
+// earlier interrupted run already archived. hasCodec is probed once per apply
+// run by the caller rather than per row.
+func readDedupeArchiveSource(ctx context.Context, tx *sql.Tx, eventID string, hasCodec bool) (dedupeArchiveSource, bool, error) {
 	var source dedupeArchiveSource
-	err := tx.QueryRowContext(
-		ctx,
-		`SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook
-		   FROM events WHERE id = ?`,
-		eventID,
-	).Scan(
+	query := `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook, body`
+	if hasCodec {
+		query += `, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256`
+	}
+	query += ` FROM events WHERE id = ?`
+	destinations := []any{
 		&source.id, &source.kind, &source.client, &source.agent,
-		&source.sessionID, &source.workspace, &source.createdAt, &source.sourceHook,
-	)
+		&source.sessionID, &source.workspace, &source.createdAt, &source.sourceHook, &source.payload.Stored,
+	}
+	if hasCodec {
+		destinations = append(destinations,
+			&source.payload.Codec, &source.payload.FormatVersion, &source.payload.PlaintextBytes,
+			&source.payload.StoredBytes, &source.payload.SHA256,
+		)
+	}
+	err := tx.QueryRowContext(ctx, query, eventID).Scan(destinations...)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return dedupeArchiveSource{}, false, nil
 	case err != nil:
 		return dedupeArchiveSource{}, false, xerrors.Errorf("failed to read duplicate event %s: %w", eventID, err)
 	}
-	plain, err := loadEventPlaintext(ctx, tx, eventID)
-	if err != nil {
-		return dedupeArchiveSource{}, false, xerrors.Errorf("decode duplicate event %s: %w", eventID, err)
-	}
-	source.body = string(plain)
 	return source, true, nil
+}
+
+// archiveBodyArg preserves the column affinity a payload's own codec was
+// stored with when copying it verbatim, whether into the archive or back into
+// events on restore: a legacy row whose codec metadata is entirely NULL binds
+// as identity, matching storedBodyArg's contract for every other writer.
+func archiveBodyArg(payload payloadRow) any {
+	codec := payload.Codec.String
+	if !payload.Codec.Valid {
+		codec = payloadCodecIdentity
+	}
+	return storedBodyArg(encodedPayload{Codec: codec, Bytes: payload.Stored})
 }
 
 // PurgeContentEventDedupeRun drops the rows a dedupe run quarantined, ending that
@@ -1068,7 +1112,7 @@ func (d *StoreManagementDatasource) PurgeContentEventDedupeRun(
 	)
 	if err := db.QueryRowContext(
 		ctx,
-		`SELECT COUNT(*), SUM(length(CAST(body AS BLOB)))
+		`SELECT COUNT(*), SUM(` + dedupeArchiveStoredSizeExpr + `)
 		   FROM event_content_dedupe_archive WHERE dedupe_run_id = ?`,
 		trimmed,
 	).Scan(&rowCount, &byteSum); err != nil {
@@ -1114,7 +1158,7 @@ func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
 	}()
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT dedupe_run_id, MAX(archived_at), COUNT(*), SUM(length(CAST(body AS BLOB)))
+		SELECT dedupe_run_id, MAX(archived_at), COUNT(*), SUM(` + dedupeArchiveStoredSizeExpr + `)
 		  FROM event_content_dedupe_archive
 		 GROUP BY dedupe_run_id`)
 	if err != nil {
@@ -1226,13 +1270,24 @@ func (d *StoreManagementDatasource) RestoreContentEventDedupeRun(
 		}
 	}()
 
-	rows, err := tx.QueryContext(
-		ctx,
-		`SELECT id, kind, client, agent, session_id, workspace, body, created_at, source_hook
+	// Probed once for the whole restore rather than once per row: migrations
+	// are additive and applied in numeric order, so whenever the archive table
+	// carries codec columns (added after events' own, #1744) events does too.
+	hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
+	if err != nil {
+		return apptypes.ContentEventDedupeRestoreResult{}, err
+	}
+
+	selectQuery := `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook, body
 		   FROM event_content_dedupe_archive
-		  WHERE dedupe_run_id = ?`,
-		trimmed,
-	)
+		  WHERE dedupe_run_id = ?`
+	if hasCodec {
+		selectQuery = `SELECT id, kind, client, agent, session_id, workspace, created_at, source_hook, body,
+		       body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256
+		   FROM event_content_dedupe_archive
+		  WHERE dedupe_run_id = ?`
+	}
+	rows, err := tx.QueryContext(ctx, selectQuery, trimmed)
 	if err != nil {
 		return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to query dedupe archive run: %w", err)
 	}
@@ -1244,17 +1299,24 @@ func (d *StoreManagementDatasource) RestoreContentEventDedupeRun(
 		agent      string
 		sessionID  string
 		workspace  string
-		body       string
 		createdAt  string
 		sourceHook sql.NullString
+		payload    payloadRow
 	}
 	var archived []archivedRow
 	for rows.Next() {
 		var r archivedRow
-		if err := rows.Scan(
+		destinations := []any{
 			&r.id, &r.kind, &r.client, &r.agent, &r.sessionID,
-			&r.workspace, &r.body, &r.createdAt, &r.sourceHook,
-		); err != nil {
+			&r.workspace, &r.createdAt, &r.sourceHook, &r.payload.Stored,
+		}
+		if hasCodec {
+			destinations = append(destinations,
+				&r.payload.Codec, &r.payload.FormatVersion, &r.payload.PlaintextBytes,
+				&r.payload.StoredBytes, &r.payload.SHA256,
+			)
+		}
+		if err := rows.Scan(destinations...); err != nil {
 			if closeErr := rows.Close(); closeErr != nil {
 				slog.Debug("failed to close resource", "error", closeErr)
 			}
@@ -1288,20 +1350,21 @@ func (d *StoreManagementDatasource) RestoreContentEventDedupeRun(
 			return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to check existing event %s: %w", r.id, err)
 		}
 
-		hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
-		if err != nil {
-			return apptypes.ContentEventDedupeRestoreResult{}, err
+		// Fail closed the same way loadEventPlaintext does: a corrupted or
+		// oversized archived payload must not be restored. The decoded bytes
+		// exist only to prove integrity -- the row is written back below from
+		// the still-encoded payload, not re-encoded from this plaintext.
+		if _, err := r.payload.decode(maxDecodedPayloadBytes); err != nil {
+			return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf(
+				"decode archived event %s: %w", r.id, annotatePayloadError(err, r.id, "body"))
 		}
-		payload, err := encodeCanonicalPayload([]byte(r.body), hasCodec)
-		if err != nil {
-			return apptypes.ContentEventDedupeRestoreResult{}, err
-		}
+
 		query := insertEventQuery
-		args := []any{r.id, r.kind, r.client, r.agent, r.sessionID, r.workspace, storedBodyArg(payload), r.createdAt, r.sourceHook}
+		args := []any{r.id, r.kind, r.client, r.agent, r.sessionID, r.workspace, archiveBodyArg(r.payload), r.createdAt, r.sourceHook}
 		if hasCodec {
 			query = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook,
 body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-			args = append(args, payload.Codec, payload.FormatVersion, payload.PlaintextBytes, payload.StoredBytes, payload.SHA256)
+			args = append(args, r.payload.Codec, r.payload.FormatVersion, r.payload.PlaintextBytes, r.payload.StoredBytes, r.payload.SHA256)
 		}
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return apptypes.ContentEventDedupeRestoreResult{}, xerrors.Errorf("failed to restore event %s: %w", r.id, err)

@@ -101,6 +101,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 66 only drops two writer triggers. The unread recent FTS virtual
 	// table stays until store compact (052: no multi-GiB DROP on open).
 	66: {66, "000066_drop_recent_fts_writers.sql", "3de6d4706f043d23d6212def8e23344684e5a95444587c361ad7f970062bb892", MigrationConstantInPlace},
+	// 67 only adds five nullable codec columns to event_content_dedupe_archive
+	// (#1744). Same shape as 36 on events: no backfill, no row rewrite; SQLite
+	// ADD COLUMN is O(1) regardless of table size.
+	67: {67, "000067_add_payload_codec_to_event_content_dedupe_archive.sql", "f9f912f21290e64af38dffc86398f86d08503f8345926a99cf459901fff743c2", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.
