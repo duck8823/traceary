@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/xerrors"
 	_ "modernc.org/sqlite"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -21,6 +23,7 @@ import (
 
 type orphanFixture struct {
 	dbPath   string
+	database *sqlite.Database
 	orphans  *sqlite.SessionOrphanRangeDatasource
 	refine   *sqlite.SessionRefinementDatasource
 	sessions *sqlite.SessionDatasource
@@ -37,6 +40,7 @@ func newOrphanFixture(t *testing.T) orphanFixture {
 	}
 	return orphanFixture{
 		dbPath:   dbPath,
+		database: database,
 		orphans:  sqlite.NewSessionOrphanRangeDatasource(database),
 		refine:   sqlite.NewSessionRefinementDatasource(database),
 		sessions: sqlite.NewSessionDatasource(database),
@@ -1156,5 +1160,104 @@ SELECT id,
 	}
 	if seen == 0 {
 		t.Fatal("no events found for the seeded session")
+	}
+}
+
+// TestSessionOrphanRangeDatasource_WithReadScope_SharesOneHandleAcrossManyCandidates
+// is the #1722 integration case: a real consolidation pass over N candidates
+// wrapped in one WithReadScope must open exactly one read-only connection and
+// run the store-compatibility guard exactly once, not once per candidate.
+func TestSessionOrphanRangeDatasource_WithReadScope_SharesOneHandleAcrossManyCandidates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+
+	const candidateCount = 25
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < candidateCount; i++ {
+		sessionID := fmt.Sprintf("sess-scope-%02d", i)
+		seedOrphanSession(ctx, t, fx, sessionID, []eventSeed{
+			{id: sessionID + "-evt-1", at: base.Add(time.Duration(i) * time.Minute)},
+			{id: sessionID + "-evt-2", at: base.Add(time.Duration(i)*time.Minute + 30*time.Second)},
+		}, true)
+	}
+
+	now := base.Add(48 * time.Hour)
+	consol := usecase.NewOrphanConsolidationUsecase(
+		fx.orphans,
+		usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{}),
+		fixedEventClock{at: now},
+	)
+
+	var opens, compatChecks int
+	fx.database.SetReadOnlyOpenHookForTest(func() { opens++ })
+	fx.database.SetCompatibilityCheckHookForTest(func() { compatChecks++ })
+	defer fx.database.SetReadOnlyOpenHookForTest(nil)
+	defer fx.database.SetCompatibilityCheckHookForTest(nil)
+
+	var result apptypes.OrphanConsolidationResult
+	err := fx.orphans.WithReadScope(ctx, func(scopedCtx context.Context) error {
+		var consolidateErr error
+		result, consolidateErr = consol.Consolidate(scopedCtx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
+		if consolidateErr != nil {
+			return xerrors.Errorf("consolidate orphan ranges: %w", consolidateErr)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if result.ProducedCount() != candidateCount {
+		t.Fatalf("ProducedCount = %d, want %d", result.ProducedCount(), candidateCount)
+	}
+	if opens != 1 {
+		t.Fatalf("read-only opens = %d, want 1 for a single read-scoped pass over %d candidates", opens, candidateCount)
+	}
+	if compatChecks != 1 {
+		t.Fatalf("compatibility checks = %d, want 1", compatChecks)
+	}
+}
+
+// TestSessionOrphanRangeDatasource_WithoutReadScope_OpensPerCandidateCall is
+// the regression guard: a caller that never enters WithReadScope must keep
+// today's per-call behaviour (DiscoverCandidates plus one LoadMaterial per
+// candidate, each paying its own open+compat).
+func TestSessionOrphanRangeDatasource_WithoutReadScope_OpensPerCandidateCall(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+
+	const candidateCount = 3
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < candidateCount; i++ {
+		sessionID := fmt.Sprintf("sess-noscope-%02d", i)
+		seedOrphanSession(ctx, t, fx, sessionID, []eventSeed{
+			{id: sessionID + "-evt-1", at: base.Add(time.Duration(i) * time.Minute)},
+			{id: sessionID + "-evt-2", at: base.Add(time.Duration(i)*time.Minute + 30*time.Second)},
+		}, true)
+	}
+
+	now := base.Add(48 * time.Hour)
+	consol := usecase.NewOrphanConsolidationUsecase(
+		fx.orphans,
+		usecase.NewSessionRefinementUsecase(fx.sessions, fx.refine, fx.events, types.SystemClock{}),
+		fixedEventClock{at: now},
+	)
+
+	var opens int
+	fx.database.SetReadOnlyOpenHookForTest(func() { opens++ })
+	defer fx.database.SetReadOnlyOpenHookForTest(nil)
+
+	result, err := consol.Consolidate(ctx, usecase.OrphanConsolidationInput{StaleAfter: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if result.ProducedCount() != candidateCount {
+		t.Fatalf("ProducedCount = %d, want %d", result.ProducedCount(), candidateCount)
+	}
+	// DiscoverCandidates opens once, then each of the candidateCount
+	// LoadMaterial calls opens its own connection: candidateCount+1 total.
+	if want := candidateCount + 1; opens != want {
+		t.Fatalf("read-only opens = %d, want %d (no shared scope entered)", opens, want)
 	}
 }
