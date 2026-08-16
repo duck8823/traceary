@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
@@ -26,9 +27,10 @@ import (
 const contentEventDedupeProximityWindow = 10 * time.Second
 
 const (
-	contentEventDedupeReasonProximity = "near-simultaneous hook duplicate"
-	contentEventDedupeReasonStrict    = "strict exact duplicate"
-	contentEventDedupeReasonMalformed = "skipped: malformed or unparseable created_at"
+	contentEventDedupeReasonProximity      = "near-simultaneous hook duplicate"
+	contentEventDedupeReasonStrict         = "strict exact duplicate"
+	contentEventDedupeReasonMalformed      = "skipped: malformed or unparseable created_at"
+	contentEventDedupeReasonUnreadableBody = "skipped: unreadable body"
 )
 
 // dedupeMemberRef is one row's participation in an identity group.
@@ -110,6 +112,19 @@ func (k dedupeGroupKey) forensicKey() string {
 		k.kind, k.client, k.agent, k.sessionID, k.workspace, hook,
 		"body:" + hex.EncodeToString(k.bodyDigest[:8]),
 	}, "|")
+}
+
+// unreadableDedupeIdentity renders the identity tuple for a row whose body
+// could not be decoded. The body component is a fixed "body:unreadable"
+// literal rather than a digest, deliberately distinguishable from
+// dedupeGroupKey.forensicKey (which always carries a real digest, even for a
+// genuinely empty body) — an unreadable row has no digest to report.
+func unreadableDedupeIdentity(kind, client, agent, sessionID, workspace, sourceHook string) string {
+	hook := sourceHook
+	if hook == "" {
+		hook = "-"
+	}
+	return strings.Join([]string{kind, client, agent, sessionID, workspace, hook, "body:unreadable"}, "|")
 }
 
 // stringInterner collapses the small set of repeated agent/hook/workspace values
@@ -249,6 +264,21 @@ type dedupeSurvey struct {
 	scannedBySource map[dedupeSourceKey]int
 	scannedCount    int
 	totalEligible   int
+	// unreadable holds rows whose body failed to decode with a tolerable
+	// (payload-integrity) error. They never join a group; planContentEventDedupe
+	// reports each as its own skip entry.
+	unreadable []dedupeUnreadableRow
+}
+
+// dedupeUnreadableRow is one scanned row whose body could not be decoded. It
+// carries no body: only the identity columns that were readable, plus a
+// body-free integrity detail for operator diagnosis.
+type dedupeUnreadableRow struct {
+	id         string
+	agent      string
+	sourceHook string
+	identity   string
+	detail     string
 }
 
 // identifyDedupeGroups streams every eligible hook content event and records
@@ -352,7 +382,21 @@ func (d *StoreManagementDatasource) identifyDedupeGroups(
 
 		body, err := decodeDedupeCandidateBody(payload, storedLength, hasCodec, id)
 		if err != nil {
-			return dedupeSurvey{}, err
+			detail, tolerable := dedupeUnreadableBodyReason(err)
+			if !tolerable {
+				return dedupeSurvey{}, err
+			}
+			slog.Warn("content-event dedupe: unreadable body skipped", "event_id", id, "detail", detail)
+			survey.unreadable = append(survey.unreadable, dedupeUnreadableRow{
+				id:         id,
+				agent:      rowAgent,
+				sourceHook: sourceHook.String,
+				identity:   unreadableDedupeIdentity(kind, client, rowAgent, sessionID, workspace, sourceHook.String),
+				detail:     detail,
+			})
+			survey.scannedBySource[dedupeSourceKey{agent: interner.intern(rowAgent), hook: interner.intern(sourceHook.String)}]++
+			survey.scannedCount++
+			continue
 		}
 
 		key := newDedupeGroupKey(
@@ -416,6 +460,20 @@ func decodeDedupeCandidateBody(
 		return "", xerrors.Errorf("decode dedupe candidate %s: %w", eventID, annotatePayloadError(err, eventID, "body"))
 	}
 	return string(plain), nil
+}
+
+// dedupeUnreadableBodyReason classifies a decodeDedupeCandidateBody failure.
+// Only a *PayloadIntegrityError is tolerable: it means the row's payload is
+// corrupt or unsupported, which is a per-row condition. Any other error means
+// the store is not in the shape the scan assumes, so the caller must abort.
+// The returned detail is body-free by construction (codec name plus the
+// integrity reason), safe to surface in ContentEventDedupeSkip.Reason.
+func dedupeUnreadableBodyReason(err error) (string, bool) {
+	var integrity *PayloadIntegrityError
+	if !errors.As(err, &integrity) {
+		return "", false
+	}
+	return fmt.Sprintf("codec=%s reason=%s", integrity.Codec, integrity.Reason), true
 }
 
 // dedupeEligibilityScope records which optional retention schema this store
@@ -652,6 +710,20 @@ func planContentEventDedupe(survey dedupeSurvey, strict bool) dedupePlan {
 			})
 		}
 	}
+
+	// SQL row order is unspecified, so the unreadable rows are sorted by event
+	// id before their skip entries are appended, the same way sortedEventIDs
+	// makes group skips deterministic.
+	unreadable := append([]dedupeUnreadableRow(nil), survey.unreadable...)
+	sort.Slice(unreadable, func(i, j int) bool { return unreadable[i].id < unreadable[j].id })
+	for _, row := range unreadable {
+		plan.skipped = append(plan.skipped, apptypes.ContentEventDedupeSkip{
+			GroupKey: row.identity,
+			EventIDs: []string{row.id},
+			Reason:   contentEventDedupeReasonUnreadableBody + " (" + row.detail + ")",
+		})
+	}
+
 	return plan
 }
 
