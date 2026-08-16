@@ -273,8 +273,9 @@ func grokUsageObservation(
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Grok usage source: %w", err)
 	}
+	observedAt := stampHeadlessUsageObservedAt(sample.ObservedAt)
 	descriptor, err := model.NewUsageObservationDescriptor(
-		id, sessionID, source, types.UsageScopeRun, types.UsageAccountingAdditive, sample.ObservedAt.UTC(),
+		id, sessionID, source, types.UsageScopeRun, types.UsageAccountingAdditive, observedAt,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Grok usage descriptor: %w", err)
@@ -288,7 +289,7 @@ func grokUsageObservation(
 		terminal = types.UsageTerminalUnknown
 	}
 	observation, err := model.NewFinalizedUsageObservation(
-		descriptor, counters, types.UnavailableUsageCost(), terminal, sample.ObservedAt.UTC(),
+		descriptor, counters, types.UnavailableUsageCost(), terminal, observedAt,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Grok usage observation: %w", err)

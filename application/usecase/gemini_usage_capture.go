@@ -186,8 +186,9 @@ func geminiUsageObservation(
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Gemini usage source: %w", err)
 	}
+	observedAt := stampHeadlessUsageObservedAt(sample.ObservedAt)
 	descriptor, err := model.NewUsageObservationDescriptor(
-		id, sessionID, source, types.UsageScopeRun, types.UsageAccountingAdditive, sample.ObservedAt.UTC(),
+		id, sessionID, source, types.UsageScopeRun, types.UsageAccountingAdditive, observedAt,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Gemini usage descriptor: %w", err)
@@ -201,7 +202,7 @@ func geminiUsageObservation(
 		terminal = types.UsageTerminalUnknown
 	}
 	observation, err := model.NewFinalizedUsageObservation(
-		descriptor, counters, types.UnavailableUsageCost(), terminal, sample.ObservedAt.UTC(),
+		descriptor, counters, types.UnavailableUsageCost(), terminal, observedAt,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Gemini usage observation: %w", err)

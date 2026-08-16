@@ -79,8 +79,8 @@ func TestRepairEpochZeroHookUsage_BackfillsFromSessionBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RepairEpochZeroHookUsageObservations() error = %v", err)
 	}
-	if result.Repaired != 4 || result.Skipped != 1 || result.MorePending {
-		t.Fatalf("repair result = %+v, want repaired=4 skipped=1", result)
+	if result.Repaired != 5 || result.Skipped != 1 || result.MorePending {
+		t.Fatalf("repair result = %+v, want repaired=5 skipped=1", result)
 	}
 
 	want := sessionTime.UTC().Format(time.RFC3339Nano)
@@ -89,11 +89,11 @@ func TestRepairEpochZeroHookUsage_BackfillsFromSessionBoundary(t *testing.T) {
 		"antigravity:stop_hook:repaired",
 		"kimi:session_end_hook:repaired",
 		"gemini:after_agent_hook:repaired",
+		"grok:headless_stream:leave",
 	} {
 		assertUsageTimes(t, conn, id, want, want)
 	}
 	epoch := time.Unix(0, 0).UTC().Format(time.RFC3339Nano)
-	assertUsageTimes(t, conn, "grok:headless_stream:leave", epoch, epoch)
 	assertUsageTimes(t, conn, "grok:stop_hook:orphan", epoch, epoch)
 
 	rerun, err := sqlite.RepairEpochZeroHookUsageObservations(ctx, conn, 10)

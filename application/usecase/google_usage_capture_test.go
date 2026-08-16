@@ -69,6 +69,28 @@ func (s *googleUsageRepositoryStub) FindSnapshotHead(
 	return types.None[*model.UsageObservation](), nil
 }
 
+func TestGeminiUsageCapture_StampsZeroObservedAtWithWallClock(t *testing.T) {
+	repository := newGoogleUsageRepositoryStub()
+	capture := usecase.NewGeminiUsageCaptureUsecase(repository)
+	loaded := application.GeminiUsageLoadResult{
+		BoundaryObserved: true,
+		Samples: []application.GeminiUsageSample{
+			geminiUsageSampleFixture("record-zero", "model-a", time.Time{}, 14, 6, 4, 20),
+		},
+	}
+	result, err := capture.CaptureHeadless(
+		context.Background(),
+		usecase.GeminiUsageCaptureInput{SessionID: "session-1", DeliveryID: "session_run"},
+		loaded,
+	)
+	if err != nil || result.Applied != 1 {
+		t.Fatalf("CaptureHeadless() = (%+v, %v)", result, err)
+	}
+	for _, observation := range repository.observations {
+		assertUnavailableObservationNotEpoch(t, observation)
+	}
+}
+
 func TestGeminiUsageCapture_RecordsModelRunsWithoutAggregateDuplicate(t *testing.T) {
 	repository := newGoogleUsageRepositoryStub()
 	capture := usecase.NewGeminiUsageCaptureUsecase(repository)
