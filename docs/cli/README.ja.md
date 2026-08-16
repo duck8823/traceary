@@ -1064,6 +1064,38 @@ preview ではなく、in-place `VACUUM` でもありません。成功後は `t
 
 成功した書き換えが残した rollback inode から、compact 前のストアを戻します。
 
+### `traceary store archive create|restore|verify`
+
+オフライン archive segment の作成・復元・検証です。公開されている store 管理コマンドであり、`store compact` の代替ではありません。
+
+### `traceary store capacity`
+
+メタデータのみの容量レポートです。大きいストアでは検査が bounded で、`evidence=cached` / `evidence=bounded` になることがあります。
+
+### `traceary store retention files plan|apply`
+
+ホスト側 artifact の file-retention を計画または適用します。`apply` は operator 同意が必要で、既定 hook 経路には入りません。
+
+### `traceary store search-projection start|resume|status|abort|probe`
+
+search-projection rebuild を管理します。`status` は読み取り専用、`start` / `resume` / `abort` が状態を変えます。大きいストアの catch-up は page され、進まないときは park します。
+
+### `traceary session gc`
+
+stale な未終了 session を閉じます。`session` 名前空間配下の admin 向け入口です。
+
+### `traceary session repair-one-shot`
+
+レビュー済みの one-shot session-repair 証拠ファイル（`--evidence-file`）を適用します。`--apply` で書き込み、無いときは dry preview です。
+
+### `traceary bundle export|import`
+
+portable な session/memory bundle を export / import します。契約は `docs/cli-stability.md` を参照してください。
+
+### `traceary memory decay`
+
+古い durable memory を expire / supersede します。まず preview し、scan を確認してから apply フラグを使います。
+
 ## Integration コマンド
 
 > `integration` コマンド subtree 全体（`integration` 親と `codex` group）は v0.20.0 時点で `traceary --help` から非表示になり、v0.21.0 で完全削除予定です。以下は移行メモとしてのみ掲載しています。非表示の stub は引き続き非ゼロで終了し、Codex 公式の `/plugins` flow を案内します。
