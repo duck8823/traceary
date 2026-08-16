@@ -39,7 +39,7 @@ func selectProjectionCleanupPaged(ctx context.Context, db *sql.DB, out apptypes.
 				}
 				return out, nil
 			}
-			return out, err
+			return out, xerrors.Errorf("cleanup leftover discovery cancelled: %w", err)
 		}
 		remaining := want - len(out.Cleanup)
 		if remaining <= 0 {
@@ -56,7 +56,7 @@ func selectProjectionCleanupPaged(ctx context.Context, db *sql.DB, out apptypes.
 				}
 				return out, nil
 			}
-			return out, err
+			return out, xerrors.Errorf("query cleanup leftover page: %w", err)
 		}
 		fetched, scanErr := appendProjectionCleanupRows(rows, &out)
 		_ = rows.Close()
@@ -68,7 +68,7 @@ func selectProjectionCleanupPaged(ctx context.Context, db *sql.DB, out apptypes.
 				}
 				return out, nil
 			}
-			return out, scanErr
+			return out, xerrors.Errorf("read cleanup leftover page: %w", scanErr)
 		}
 		if fetched == remaining {
 			scannedAll = false
@@ -144,12 +144,15 @@ func appendProjectionCleanupRows(rows *sql.Rows, out *apptypes.ProjectionSnapsho
 	for rows.Next() {
 		var c apptypes.ProjectionCleanupCandidate
 		if err := rows.Scan(&c.Class, &c.RowID, &c.LogicalBytes, &c.Address1, &c.Address2, &c.Address3, &c.AddressBlob); err != nil {
-			return fetched, err
+			return fetched, xerrors.Errorf("scan cleanup leftover row: %w", err)
 		}
 		out.Cleanup = append(out.Cleanup, c)
 		fetched++
 	}
-	return fetched, rows.Err()
+	if err := rows.Err(); err != nil {
+		return fetched, xerrors.Errorf("iterate cleanup leftover rows: %w", err)
+	}
+	return fetched, nil
 }
 
 // RecordCleanupNoProgressAttempt increments the durable cleanup stall
