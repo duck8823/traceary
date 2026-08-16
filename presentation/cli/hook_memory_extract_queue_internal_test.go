@@ -428,7 +428,7 @@ func TestDrainHookMemoryExtractQueueUntilDrainsMultipleBatchesBeforeDeadline(t *
 
 	root := &RootCLI{}
 	deadline := now.Add(time.Hour)
-	launched, removed := root.drainHookMemoryExtractQueueUntil(now, deadline, 5, func() time.Time { return now })
+	launched, removed, _ := root.drainHookMemoryExtractQueueUntil(now, deadline, 5, func() time.Time { return now })
 	if launched != 0 || removed != orphanCount {
 		t.Fatalf("launched=%d removed=%d, want 0/%d", launched, removed, orphanCount)
 	}
@@ -463,7 +463,7 @@ func TestDrainHookMemoryExtractQueueUntilStopsWhenDeadlineHasPassed(t *testing.T
 
 	root := &RootCLI{}
 	deadline := now.Add(-time.Second)
-	launched, removed := root.drainHookMemoryExtractQueueUntil(now, deadline, 5, func() time.Time { return now })
+	launched, removed, _ := root.drainHookMemoryExtractQueueUntil(now, deadline, 5, func() time.Time { return now })
 	if launched != 0 || removed != 0 {
 		t.Fatalf("launched=%d removed=%d, want 0/0", launched, removed)
 	}
@@ -501,14 +501,15 @@ func TestDrainHookMemoryExtractQueueUntilDoesNotRelaunchPendingJobs(t *testing.T
 		return nil
 	}))
 	deadline := now.Add(time.Hour)
-	launched, removed := root.drainHookMemoryExtractQueueUntil(now, deadline, 5, func() time.Time { return now })
-	if launched != jobCount || removed != 0 {
-		t.Fatalf("launched=%d removed=%d, want %d/0", launched, removed, jobCount)
+	const batch = 5
+	launched, removed, _ := root.drainHookMemoryExtractQueueUntil(now, deadline, batch, func() time.Time { return now })
+	if launched != batch || removed != 0 {
+		t.Fatalf("launched=%d removed=%d, want %d/0 (one doctor launch budget)", launched, removed, batch)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(launchedPaths) != jobCount {
-		t.Fatalf("launcher called %d times, want %d (must not relaunch pending jobs)", len(launchedPaths), jobCount)
+	if len(launchedPaths) != batch {
+		t.Fatalf("launcher called %d times, want %d (must not relaunch or exceed launch budget)", len(launchedPaths), batch)
 	}
 	seen := make(map[string]int, len(launchedPaths))
 	for _, path := range launchedPaths {
@@ -553,6 +554,9 @@ func TestInspectHookMemoryExtractDiagnostics_FixFuncDrains(t *testing.T) {
 	}
 	if !strings.Contains(msg, "launched=1") {
 		t.Fatalf("apply msg = %q", msg)
+	}
+	if !strings.Contains(msg, "remaining=0") {
+		t.Fatalf("apply msg = %q, want remaining=0 (in-flight launches are not leftover)", msg)
 	}
 	if launched != 1 {
 		t.Fatalf("launched = %d", launched)

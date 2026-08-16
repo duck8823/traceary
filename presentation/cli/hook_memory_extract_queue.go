@@ -548,13 +548,16 @@ func hookMemoryExtractJobReadyForGC(job hookMemoryExtractJob, now time.Time) boo
 // includes both GC'd jobs and swept sidecar files, so the whole pass stays
 // bounded by limit regardless of directory size.
 func (c *RootCLI) drainHookMemoryExtractQueue(now time.Time, limit int, skipPaths ...string) (launched, removed int) {
-	launched, removed, _ = c.drainHookMemoryExtractQueueRecorded(now, limit, skipPaths...)
+	launched, removed, _ = c.drainHookMemoryExtractQueueRecorded(now, limit, limit, skipPaths...)
 	return launched, removed
 }
 
-func (c *RootCLI) drainHookMemoryExtractQueueRecorded(now time.Time, limit int, skipPaths ...string) (launched, removed int, launchedPaths []string) {
+func (c *RootCLI) drainHookMemoryExtractQueueRecorded(now time.Time, limit, launchBudget int, skipPaths ...string) (launched, removed int, launchedPaths []string) {
 	if limit <= 0 {
 		return 0, 0, nil
+	}
+	if launchBudget < 0 {
+		launchBudget = 0
 	}
 	skip := make(map[string]struct{}, len(skipPaths))
 	for _, p := range skipPaths {
@@ -588,6 +591,9 @@ func (c *RootCLI) drainHookMemoryExtractQueueRecorded(now time.Time, limit int, 
 			}
 			if hookMemoryExtractJobIsTerminal(job) {
 				// Still within retention; leave visible for doctor.
+				continue
+			}
+			if launched >= launchBudget {
 				continue
 			}
 			if err := c.launchHookMemoryExtractWorker(job.Path); err != nil {
@@ -727,8 +733,8 @@ func memoryExtractQueueFix(c *RootCLI, dryRun bool) (string, error) {
 			hookMemoryExtractDoctorFixLimit, drainable,
 		), nil
 	}
-	launched, removed := c.drainHookMemoryExtractQueueUntil(now, hookMemoryExtractNow().Add(hookMemoryExtractDoctorWall), hookMemoryExtractDoctorFixLimit, hookMemoryExtractNow)
-	remaining := countHookMemoryExtractDrainable(now)
+	launched, removed, launchedPaths := c.drainHookMemoryExtractQueueUntil(now, hookMemoryExtractNow().Add(hookMemoryExtractDoctorWall), hookMemoryExtractDoctorFixLimit, hookMemoryExtractNow)
+	remaining := countHookMemoryExtractDrainableExcept(now, launchedPaths)
 	if remaining > 0 {
 		return localizef(
 			"drained memory extraction queue: launched=%d removed=%d remaining=%d; run `traceary doctor --fix` again to continue",
@@ -743,30 +749,45 @@ func memoryExtractQueueFix(c *RootCLI, dryRun bool) (string, error) {
 	), nil
 }
 
-func (c *RootCLI) drainHookMemoryExtractQueueUntil(now, deadline time.Time, batchLimit int, clock func() time.Time) (launched, removed int) {
+func (c *RootCLI) drainHookMemoryExtractQueueUntil(now, deadline time.Time, batchLimit int, clock func() time.Time) (launched, removed int, launchedPaths []string) {
 	if clock == nil {
 		clock = hookMemoryExtractNow
 	}
 	var skip []string
 	for {
 		if !clock().Before(deadline) {
-			return launched, removed
+			return launched, removed, launchedPaths
 		}
-		batchLaunched, batchRemoved, launchedPaths := c.drainHookMemoryExtractQueueRecorded(now, batchLimit, skip...)
-		skip = append(skip, launchedPaths...)
+		remainingLaunch := batchLimit - launched
+		batchLaunched, batchRemoved, batchPaths := c.drainHookMemoryExtractQueueRecorded(now, batchLimit, remainingLaunch, skip...)
+		skip = append(skip, batchPaths...)
+		launchedPaths = append(launchedPaths, batchPaths...)
 		launched += batchLaunched
 		removed += batchRemoved
 		if batchLaunched+batchRemoved == 0 {
-			return launched, removed
+			return launched, removed, launchedPaths
 		}
 	}
 }
 
 func countHookMemoryExtractDrainable(now time.Time) int {
+	return countHookMemoryExtractDrainableExcept(now, nil)
+}
+
+func countHookMemoryExtractDrainableExcept(now time.Time, excludePaths []string) int {
+	exclude := make(map[string]struct{}, len(excludePaths))
+	for _, p := range excludePaths {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			exclude[trimmed] = struct{}{}
+		}
+	}
 	jobs, _, err := scanHookMemoryExtractJobs()
 	n := 0
 	if err == nil {
 		for _, job := range jobs {
+			if _, skip := exclude[job.Path]; skip {
+				continue
+			}
 			if hookMemoryExtractJobReadyForGC(job, now) || !hookMemoryExtractJobIsTerminal(job) {
 				n++
 			}
