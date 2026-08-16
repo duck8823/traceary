@@ -118,11 +118,24 @@ func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timel
 	if err := writeTimelineText(output, blocks, textOpts); err != nil {
 		return err
 	}
-	if input.limit > 0 && len(blocks) == input.limit {
-		if _, err := fmt.Fprintln(output, Localize(
-			"coverage=partial (block limit)",
-			"coverage=partial (block limit)",
-		)); err != nil {
+	scanTruncated := false
+	for _, block := range blocks {
+		if block.ScanTruncated() {
+			scanTruncated = true
+			break
+		}
+	}
+	coverage := ""
+	switch {
+	case input.limit > 0 && len(blocks) == input.limit && scanTruncated:
+		coverage = "coverage=partial (block limit; scan cap)"
+	case input.limit > 0 && len(blocks) == input.limit:
+		coverage = "coverage=partial (block limit)"
+	case scanTruncated:
+		coverage = "coverage=partial (scan cap)"
+	}
+	if coverage != "" {
+		if _, err := fmt.Fprintln(output, Localize(coverage, coverage)); err != nil {
 			return xerrors.Errorf("failed to print timeline coverage: %w", err)
 		}
 	}

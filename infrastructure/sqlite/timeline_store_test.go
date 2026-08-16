@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
@@ -342,6 +343,31 @@ END;`),
 		}
 		if len(blocks) != 2 {
 			t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+		}
+	})
+
+	t.Run("marks scan truncation when newest-first cap is hit inside one block", func(t *testing.T) {
+		t.Parallel()
+		ds := newDatasource(t)
+		// limit=2 → scan cap 2000. One contiguous block of 2001 events is
+		// fewer than the block limit, so only the scan-cap flag can disclose
+		// that older events were not walked.
+		base := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
+		for i := 0; i < 2001; i++ {
+			saveEvent(t, ds, fmt.Sprintf("scan-%04d", i), "ws", base.Add(time.Duration(i)*time.Second))
+		}
+		blocks, err := ds.ListTimelineBlocks(context.Background(), types.Workspace(""), time.Time{}, time.Time{}, 900, 2)
+		if err != nil {
+			t.Fatalf("ListTimelineBlocks() error = %v", err)
+		}
+		if len(blocks) != 1 {
+			t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+		}
+		if !blocks[0].ScanTruncated() {
+			t.Fatal("ScanTruncated() = false, want true when the newest-first cap is full")
+		}
+		if blocks[0].EventCount() != 2000 {
+			t.Fatalf("EventCount() = %d, want 2000 scanned events", blocks[0].EventCount())
 		}
 	})
 }

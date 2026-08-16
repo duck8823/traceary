@@ -160,7 +160,8 @@ SELECT
   COALESCE(wr.ws_agents, '') AS ws_agents,
   COALESCE(wr.first_prompt_ids, '[]') AS first_prompt_ids,
   COALESCE(wr.compact_summary_ids, '[]') AS compact_summary_ids,
-  COALESCE(wr.first_transcript_ids, '[]') AS first_transcript_ids
+  COALESCE(wr.first_transcript_ids, '[]') AS first_transcript_ids,
+  (SELECT COUNT(*) FROM newest_events) AS scanned_event_count
 FROM top_blocks tb
 JOIN ws_rows wr ON wr.block_num = tb.block_num
 ORDER BY tb.block_start DESC, wr.ws_event_count DESC, wr.workspace

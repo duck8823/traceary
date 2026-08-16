@@ -525,13 +525,14 @@ func (d *EventDatasource) ListTimelineBlocks(
 		toValue = formatTimestamp(to)
 	}
 
+	scanCap := timelineEventScanCap(limit)
 	rows, err := db.QueryContext(
 		ctx,
 		listTimelineBlocksQuery,
 		workspace.String(), workspace.String(),
 		fromValue, fromValue,
 		toValue, toValue,
-		timelineEventScanCap(limit),
+		scanCap,
 		gapSeconds,
 		limit,
 	)
@@ -566,6 +567,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 
 	var blockOrder []int
 	blockMap := make(map[int]*blockAccumulator)
+	var scannedEventCount int
 
 	for rows.Next() {
 		var (
@@ -581,6 +583,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 			promptIDsJSON     string
 			compactIDsJSON    string
 			transcriptIDsJSON string
+			rowScannedCount   int
 		)
 		if err := rows.Scan(
 			&blockNum,
@@ -595,9 +598,11 @@ func (d *EventDatasource) ListTimelineBlocks(
 			&promptIDsJSON,
 			&compactIDsJSON,
 			&transcriptIDsJSON,
+			&rowScannedCount,
 		); err != nil {
 			return nil, xerrors.Errorf("failed to scan timeline block: %w", err)
 		}
+		scannedEventCount = rowScannedCount
 		firstPromptBody, err := d.firstNonBlankCandidate(ctx, db, promptIDsJSON, hasCodec)
 		if err != nil {
 			return nil, err
@@ -647,16 +652,21 @@ func (d *EventDatasource) ListTimelineBlocks(
 		return nil, xerrors.Errorf("failed to iterate timeline blocks: %w", err)
 	}
 
+	scanTruncated := scannedEventCount == scanCap
 	blocks := make([]apptypes.TimelineBlock, 0, len(blockOrder))
 	for _, num := range blockOrder {
 		accum := blockMap[num]
-		blocks = append(blocks, apptypes.TimelineBlockOf(
+		block := apptypes.TimelineBlockOf(
 			accum.blockStart,
 			accum.blockEnd,
 			accum.eventCount,
 			accum.agents,
 			accum.breakdown,
-		))
+		)
+		if scanTruncated {
+			block = block.WithScanTruncated(true)
+		}
+		blocks = append(blocks, block)
 	}
 
 	return blocks, nil
