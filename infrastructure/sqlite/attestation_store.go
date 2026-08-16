@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -11,6 +12,27 @@ import (
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
+
+// attestationVerifyBusyAttempts bounds the retry on SQLite lock contention
+// (initial attempt + 2 retries). See AttestationChainUndeterminedError.
+const attestationVerifyBusyAttempts = 3
+
+// attestationVerifyBusyBackoff holds the fixed delay before each retry,
+// indexed by attempt number (attempt 1 has no prior delay).
+var attestationVerifyBusyBackoff = [attestationVerifyBusyAttempts]time.Duration{
+	0, 25 * time.Millisecond, 50 * time.Millisecond,
+}
+
+// AttestationChainUndeterminedError reports that verification could not
+// obtain a read snapshot (SQLite lock contention). It is not an integrity
+// verdict: the chain is neither proven intact nor proven broken.
+type AttestationChainUndeterminedError struct{ Err error }
+
+func (e *AttestationChainUndeterminedError) Error() string {
+	return "attestation chain verification undetermined: " + e.Err.Error()
+}
+
+func (e *AttestationChainUndeterminedError) Unwrap() error { return e.Err }
 
 // attestationChainSnapshot is the verified head and per-seq link digests
 // from one read-only transaction.
@@ -32,7 +54,35 @@ func VerifyAttestationChain(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
+// verifyAttestationChainSnapshot applies the attempt policy around one
+// snapshot read: retry while the failure is SQLite lock contention, up to
+// attestationVerifyBusyAttempts, honoring ctx cancellation between attempts.
+// Any non-busy error is returned unchanged so a real chain break can never
+// be relabeled as busy. A terminal busy is wrapped as
+// AttestationChainUndeterminedError, which is explicitly not an integrity
+// verdict.
 func verifyAttestationChainSnapshot(ctx context.Context, db *sql.DB) (attestationChainSnapshot, error) {
+	var snapshot attestationChainSnapshot
+	var err error
+	for attempt := 1; attempt <= attestationVerifyBusyAttempts; attempt++ {
+		if attempt > 1 {
+			timer := time.NewTimer(attestationVerifyBusyBackoff[attempt-1])
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return attestationChainSnapshot{}, xerrors.Errorf("attestation verify retry cancelled: %w", ctx.Err())
+			case <-timer.C:
+			}
+		}
+		snapshot, err = verifyAttestationChainSnapshotOnce(ctx, db)
+		if err == nil || !isSQLiteBusy(err) {
+			return snapshot, err
+		}
+	}
+	return attestationChainSnapshot{}, &AttestationChainUndeterminedError{Err: err}
+}
+
+func verifyAttestationChainSnapshotOnce(ctx context.Context, db *sql.DB) (attestationChainSnapshot, error) {
 	if db == nil {
 		return attestationChainSnapshot{}, xerrors.Errorf("attestation verify requires a database")
 	}
