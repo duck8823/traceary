@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -57,15 +58,29 @@ func (i *CapacityInspector) InspectCapacity(ctx context.Context) (_ apptypes.Cap
 		return report, xerrors.Errorf("failed to stat WAL sidecar: %w", statErr)
 	}
 
-	objects, statErr := i.dbstatQuery(ctx, db, report.PageSizeBytes)
-	if statErr != nil {
-		if !isDBStatUnavailable(statErr) {
-			return report, xerrors.Errorf("failed to inspect dbstat allocation: %w", statErr)
-		}
-		report.Evidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "pragma", Reason: "dbstat unavailable; object attribution omitted"}
+	started := time.Now()
+	if cached, ok := loadMatchingDBStatCache(i.db.Path()); ok {
+		report.Evidence = apptypes.CapacityEvidence{Status: "cached", Method: "dbstat", Reason: "dbstat cache hit for unchanged store file; inspected " + time.Since(started).String()}
+		report.Objects = cached.Objects
 	} else {
-		report.Evidence = apptypes.CapacityEvidence{Status: "complete", Method: "dbstat"}
-		report.Objects = objects
+		budgetCtx, cancel := context.WithTimeout(ctx, dbstatInspectBudget)
+		objects, statErr := i.dbstatQuery(budgetCtx, db, report.PageSizeBytes)
+		deadlineExceeded := errors.Is(budgetCtx.Err(), context.DeadlineExceeded)
+		cancel()
+		elapsed := time.Since(started)
+		if statErr != nil {
+			if deadlineExceeded {
+				report.Evidence = apptypes.CapacityEvidence{Status: "bounded", Method: "dbstat", Reason: "dbstat wall budget exceeded after " + elapsed.String()}
+			} else if !isDBStatUnavailable(statErr) {
+				return report, xerrors.Errorf("failed to inspect dbstat allocation: %w", statErr)
+			} else {
+				report.Evidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "pragma", Reason: "dbstat unavailable; object attribution omitted"}
+			}
+		} else {
+			report.Evidence = apptypes.CapacityEvidence{Status: "complete", Method: "dbstat", Reason: "inspected " + elapsed.String()}
+			report.Objects = objects
+			storeDBStatCache(i.db.Path(), objects)
+		}
 	}
 	payloads, payloadEvidence, payloadErr := inspectPayloadClasses(ctx, db)
 	if payloadErr != nil {
