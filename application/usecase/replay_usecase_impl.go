@@ -210,7 +210,9 @@ func (u *replayUsecase) loadFailureHotspots(ctx context.Context, criteria apptyp
 	// Widen the underlying scan so the top-N cluster count is
 	// statistically meaningful; the limit applied in ListRecent is the
 	// number of raw failure events we look at, not the number of
-	// clusters we emit.
+	// clusters we emit. Timeline/hotspot collection stays on the
+	// created_at_norm listing path (ListRecent) with this hard cap so
+	// replay cannot walk the whole store (#2014).
 	const hotspotScanMultiplier = 20
 	scanLimit := limit * hotspotScanMultiplier
 	events, err := u.eventQuery.ListRecent(

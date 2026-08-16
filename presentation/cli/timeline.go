@@ -115,7 +115,18 @@ func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timel
 	}
 
 	textOpts := eventTextFormatOptions{utc: input.utc, location: input.location}
-	return writeTimelineText(output, blocks, textOpts)
+	if err := writeTimelineText(output, blocks, textOpts); err != nil {
+		return err
+	}
+	if input.limit > 0 && len(blocks) == input.limit {
+		if _, err := fmt.Fprintln(output, Localize(
+			"coverage=partial (block limit)",
+			"coverage=partial (block limit)",
+		)); err != nil {
+			return xerrors.Errorf("failed to print timeline coverage: %w", err)
+		}
+	}
+	return nil
 }
 
 func computeKindCounts(kinds []string) map[string]int {

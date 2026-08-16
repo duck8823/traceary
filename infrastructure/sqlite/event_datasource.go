@@ -531,6 +531,7 @@ func (d *EventDatasource) ListTimelineBlocks(
 		workspace.String(), workspace.String(),
 		fromValue, fromValue,
 		toValue, toValue,
+		timelineEventScanCap(limit),
 		gapSeconds,
 		limit,
 	)
@@ -659,6 +660,23 @@ func (d *EventDatasource) ListTimelineBlocks(
 	}
 
 	return blocks, nil
+}
+
+// timelineEventScanCap bounds the newest-first metadata walk so an unbounded
+// default window cannot read every event body. It is large enough to fill the
+// requested block quota on typical work, and small enough that a 36 GiB store
+// does not pay a full-table window function.
+func timelineEventScanCap(limit int) int {
+	if limit < 1 {
+		limit = 1
+	}
+	const perBlock = 250
+	const floor = 2000
+	scanCap := limit * perBlock
+	if scanCap < floor {
+		return floor
+	}
+	return scanCap
 }
 
 // firstNonBlankCandidate decodes ranked candidate ids in order and returns the

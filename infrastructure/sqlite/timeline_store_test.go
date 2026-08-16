@@ -28,13 +28,22 @@ CREATE TABLE events (
     body TEXT NOT NULL,
     body_availability TEXT NOT NULL DEFAULT 'available',
     created_at TEXT NOT NULL,
+    created_at_norm TEXT,
     source_hook TEXT
 );`),
 		},
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';
-ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';`),
+ALTER TABLE events ADD COLUMN workspace TEXT NOT NULL DEFAULT '';
+CREATE INDEX idx_events_created_at_norm_id_desc ON events(created_at_norm DESC, id DESC);
+CREATE TRIGGER events_created_at_norm_after_insert
+AFTER INSERT ON events
+FOR EACH ROW
+WHEN NEW.created_at_norm IS NULL
+BEGIN
+    UPDATE events SET created_at_norm = NEW.created_at WHERE id = NEW.id;
+END;`),
 		},
 	}
 
