@@ -2,7 +2,7 @@
 
 [日本語](./README.ja.md)
 
-Traceary ships native integration packages for Claude Code, Codex, Gemini CLI (legacy), Antigravity, and Grok Build.
+Traceary ships native integration packages for Claude Code, Codex, Gemini CLI (legacy), Antigravity, Grok Build, and Kimi Code.
 
 > **v0.21.1 note:** Gemini CLI is the legacy Google AI agent host. **Antigravity** (`/Applications/Antigravity.app`) is the active successor. As of v0.21.1, Traceary supports Antigravity as a real hook client with a packaged plugin against the documented public hook surface. See the [Antigravity hooks and plugin guide](./antigravity.md).
 
