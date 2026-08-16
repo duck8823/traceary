@@ -7,9 +7,37 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.40.0] - 2026-08-16
+
+### Added
+- **Retention-plan exclusions name the first failing allowlist condition (#1762)** — each excluded raw-body row reports one of `not_transcript` / `already_discarded` / `session_missing` / `session_active` / `within_retention` / `uncovered` in that order. The exclusion set is bounded to available+active-session or available transcripts. Plan JSON is sorted by `x-traceary-order`, not lexically.
+- **Orphan discovery sees never-ending active sessions' pre-cutoff tails (#1724)** — a third source, opt-in via `RetentionCutoff`, finds sessions that stay continuously active (so they never match ended-or-stale) but still hold uncovered events older than the compact cutoff. Folding stops at the last pre-cutoff event; later activity starts a new range.
+
 ### Fixed
 - **`content-event-reliability` duplicate identity now agrees with `store dedupe content-events` (#1701)** — the diagnostic excludes rows the retention pruner has emptied from grouping, matching the repair command's `dedupeEligibilityFilter`. Previously, retention-emptied prompt/transcript rows all carried the same marker body and could hash into one phantom duplicate group the repair command never touched. Ledger-held rows still count toward the diagnostic (they still take part in grouping; the repair command just never archives them) — see `docs/storage/README.md` for the eligibility-vs-archivability distinction. Scratch: a real SQLite store with a genuine duplicate pair plus several retention-emptied rows drives both the shipped `doctor` command and the shipped dry-run, and their duplicate counts agree.
 - **Large-store `doctor` still reports host package identity (#1970)** — the bounded `metadata_only_large_store` early return now includes the `*-plugin-version` family plus the native Grok/Kimi plugin activation checks, produced from host manifests, host plugin caches, and host CLI probes only. `scripts/verify-post-upgrade-plugin-refresh.sh` can therefore run the post-upgrade gate against a live store at or above the 2 GiB bounded-doctor threshold instead of needing `--skip`. The store is still never opened.
+- **Attestation verify does not false-fail on `SQLITE_BUSY` (#1969)** — a busy SQLite error is no longer classified as an undetermined attestation chain.
+- **Content-event dedupe identification continues after one unreadable body (#1699)** — undecodable / unavailable bodies are skipped rather than aborting the scan.
+- **Grok plugin version is read from `~/.grok/installed-plugins/*/integrations/grok-plugin/plugin.json` (#1974)** — doctor no longer misses the official install root.
+- **Dedupe apply failures carry the compact run id (#1702)** — `ContentEventDedupeApplyError` includes `RunID`; compact mints a unique `compact-copy-filter-<hex>` id. The retired `store dedupe content-events` apply CLI is not restored.
+- **Transcript-only discard docs match the SQL (#1797)** — discard stays transcript-only; per-record accrual is documented, not widened.
+- **Payload backfill orders by `ts_norm(started_at) DESC, run_id DESC` (#1815)** — lexical `started_at` is no longer the sort key.
+- **Unknown `events.body_codec` values are a doctor finding (#1760)** — Option 1: report only. NULL `body_codec` is pre-codec identity, not unknown. Supported codecs come from the same switch as `decodePayload`.
+- **`HydrateCommandAudits` is O(1) schema + `json_each` (#1730)** — still checks codec, integrity, and size.
+- **Gemini managed hook generation is refreshed by `doctor --fix --client gemini` (#1971)** — package vs managed generation (5s vs 10s) is no longer left stale after upgrade.
+- **Rehearsal WAL autocheckpoint disable is typed and retried once (#1780)** — `{stage:exec|read|value}` plus one retry instead of a silent skip.
+- **Payload-rehearsal rollback verification honours `--wall-time-limit` as remaining budget (#1858)** — context cancellation is not classified as tamper; post-mutation verify uses `context.WithoutCancel`.
+- **Retention apply rechecks against the plan's persisted `cutoff_at` (#1763)** — apply cannot drift to a later wall-clock cutoff than the plan.
+- **Compact `--force` cover folds oldest orphan ranges first (#1721)** — `ForceCoverSafeToDelete` replaces the all-or-nothing `Complete()` gate. Deletion proceeds when leftover ranges are entirely newer than the cutoff, even with `HasMore`. Recorded compact markers cannot hide older ended/stale ranges.
+- **Orphan consolidation reuses one read-only handle per pass (#1722)** — `Database.WithReadScope` plus an unexported context `readScope` so Discover + LoadMaterial do not open a connection per candidate.
+- **Dedupe archive keeps payload codec columns (#1744)** — migration 67. Compact no longer drops `event_content_dedupe_archive`; a 90-day `archived_at` trim remains (#1982).
+- **Doctor expected Codex hook count is 10, including `usage` Stop (#1975)** — the package really ships ten hooks; this is a contract correction, not a trust rewrite.
+- **Hook memory-extract sidecars are drained (#1981)** — doctor warns on orphan locks / aged temp files and `FixFunc` removes only after `TryLock`.
+- **Claude SessionEnd diagnostics record `db_path` and GC stale markers (#1972)** — 3-way classify of leftover state.
+- **Grok transcript jobs retry across processes instead of going terminal-unavailable (#1973)** — bounded cross-process retry on the queue.
+
+### Docs
+- Transcript-only discard scope and per-record accrual (#1797).
 
 ## [v0.39.0] - 2026-08-16
 
