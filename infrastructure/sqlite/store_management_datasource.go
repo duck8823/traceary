@@ -80,6 +80,10 @@ type StoreManagementDatasource struct {
 	db              *Database
 	onRawBodyPruned func(index int) error
 	now             func() time.Time
+	// onAfterDedupeBatchCommit is a test hook that fires after one content-event
+	// dedupe apply batch commits, so tests can inject a mid-apply failure (e.g.
+	// cancel ctx) between two committed batches without racing a timer.
+	onAfterDedupeBatchCommit func()
 }
 
 // NewStoreManagementDatasource creates a new StoreManagementDatasource

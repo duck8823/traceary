@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,43 @@ func TestStoreManagementUsecase_DedupeContentEvents_ApplyMintsRunIDAndNow(t *tes
 	}
 	if got.Now.IsZero() {
 		t.Fatalf("apply did not mint a timestamp")
+	}
+}
+
+func TestStoreManagementUsecase_DedupeContentEvents_ApplyFailureCarriesRunID(t *testing.T) {
+	t.Parallel()
+	stub := &dedupeStoreManagerStub{dedupeErr: errors.New("boom")}
+	uc := usecase.NewStoreManagementUsecase(stub)
+
+	_, err := uc.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{Apply: true})
+	if err == nil {
+		t.Fatalf("DedupeContentEvents() error = nil, want failure")
+	}
+	var applyErr *apptypes.ContentEventDedupeApplyError
+	if !errors.As(err, &applyErr) {
+		t.Fatalf("errors.As() = false, want *ContentEventDedupeApplyError; got %v", err)
+	}
+	wantRunID := stub.dedupeParams[0].RunID
+	if wantRunID == "" {
+		t.Fatalf("stub observed empty run id")
+	}
+	if applyErr.RunID != wantRunID {
+		t.Fatalf("applyErr.RunID = %q, want %q (the id the store manager actually observed)", applyErr.RunID, wantRunID)
+	}
+}
+
+func TestStoreManagementUsecase_DedupeContentEvents_DryRunFailureIsNotTyped(t *testing.T) {
+	t.Parallel()
+	stub := &dedupeStoreManagerStub{dedupeErr: errors.New("boom")}
+	uc := usecase.NewStoreManagementUsecase(stub)
+
+	_, err := uc.DedupeContentEvents(context.Background(), apptypes.ContentEventDedupeParams{Apply: false})
+	if err == nil {
+		t.Fatalf("DedupeContentEvents() error = nil, want failure")
+	}
+	var applyErr *apptypes.ContentEventDedupeApplyError
+	if errors.As(err, &applyErr) {
+		t.Fatalf("dry-run failure claimed a run id: %#v", applyErr)
 	}
 }
 
