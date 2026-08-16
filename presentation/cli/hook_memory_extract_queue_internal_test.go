@@ -67,6 +67,82 @@ func TestInspectHookMemoryExtractDiagnosticsPassesWithoutJobs(t *testing.T) {
 	}
 }
 
+func TestInspectHookMemoryExtractDiagnosticsWarnsOnOrphanSidecarsOnly(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	queueDir := filepath.Join(stateDir, "memory-extract")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	orphanLock := filepath.Join(queueDir, "orphan.json.lock")
+	if err := os.WriteFile(orphanLock, []byte{}, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	aged := now.Add(-hookMemoryExtractTerminalRetention - time.Hour)
+	if err := os.Chtimes(orphanLock, aged, aged); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	root := &RootCLI{}
+	check := root.inspectHookMemoryExtractDiagnostics(now)
+	if check.Status != doctorStatusWarn || !check.AutoFixAvailable || check.FixFunc == nil {
+		t.Fatalf("check = %+v, want warn with FixFunc", check)
+	}
+	if !strings.Contains(check.Message, "1 orphan lock") {
+		t.Fatalf("message = %q", check.Message)
+	}
+	dry, err := check.FixFunc(context.Background(), true)
+	if err != nil {
+		t.Fatalf("FixFunc(dry-run) error = %v", err)
+	}
+	if !strings.Contains(dry, "1 orphan lock") {
+		t.Fatalf("dry-run = %q", dry)
+	}
+	applied, err := check.FixFunc(context.Background(), false)
+	if err != nil {
+		t.Fatalf("FixFunc() error = %v", err)
+	}
+	if !strings.Contains(applied, "removed=1") {
+		t.Fatalf("applied = %q", applied)
+	}
+	if _, err := os.Stat(orphanLock); !os.IsNotExist(err) {
+		t.Fatalf("orphan lock must be removed by doctor --fix, stat err=%v", err)
+	}
+}
+
+func TestSweepHookMemoryExtractSidecarsSkipsHeldLock(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	queueDir := filepath.Join(stateDir, "memory-extract")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	held := filepath.Join(queueDir, "held.json.lock")
+	if err := os.WriteFile(held, []byte{}, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	aged := now.Add(-hookMemoryExtractTerminalRetention - time.Hour)
+	if err := os.Chtimes(held, aged, aged); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	lock := flock.New(held)
+	ok, err := lock.TryLock()
+	if err != nil || !ok {
+		t.Fatalf("TryLock() ok=%v err=%v", ok, err)
+	}
+	t.Cleanup(func() { _ = lock.Unlock() })
+
+	removed := sweepHookMemoryExtractSidecars(now, 5)
+	if removed != 0 {
+		t.Fatalf("removed = %d, want 0 while lock is held", removed)
+	}
+	if _, err := os.Stat(held); err != nil {
+		t.Fatalf("held lock must survive sweep: %v", err)
+	}
+}
+
 func TestDrainHookMemoryExtractQueue_LaunchesOtherSessionJobs(t *testing.T) {
 	t.Setenv(hookStateDirEnvKey, t.TempDir())
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
