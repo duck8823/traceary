@@ -937,15 +937,15 @@ func TestSessionOrphanRangeDatasource_RecordedShortcutsDoNotHideOlderEndedSessio
 	now := base.Add(48 * time.Hour)
 	orphanUC := usecase.NewSessionOrphanRangeUsecase(fx.orphans, fx.refine, fx.events, types.SystemClock{})
 
-	// Still-active sessions with compact markers. Their events are newer than
-	// the ended session below. Enough of them would fill a limit-sized page
-	// if recorded shortcuts were allowed to occupy the discovery budget first.
+	// Still-active sessions with compact markers. Last activity must fall
+	// inside the 24h stale window so they stay on the recorded path and are
+	// not rediscovered as stale (which would hide this regression).
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("sess-active-%d", i)
-		at := base.Add(time.Duration(i) * time.Hour)
+		at := now.Add(-time.Duration(i) * time.Minute)
 		_ = seedOrphanSession(ctx, t, fx, id, []eventSeed{
 			{id: id + "-evt", at: at},
-			{id: id + "-compact", at: at.Add(time.Minute)},
+			{id: id + "-compact", at: at.Add(time.Second)},
 		}, false)
 		if err := orphanUC.RecordAtCompact(ctx, types.SessionID(id), types.EventID(id+"-compact")); err != nil {
 			t.Fatalf("RecordAtCompact(%s) error = %v", id, err)
