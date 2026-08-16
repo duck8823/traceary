@@ -184,6 +184,44 @@ type testError string
 
 func (e testError) Error() string { return string(e) }
 
+type diagnosticExitError struct {
+	message  string
+	exitCode int
+}
+
+func (e diagnosticExitError) Error() string { return e.message }
+func (e diagnosticExitError) ExitCode() int { return e.exitCode }
+
+func TestWrapCLIExecuteError_SkipsDiagnosticExitCodes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("keeps doctor-style diagnostic message unwrapped", func(t *testing.T) {
+		t.Parallel()
+		err := wrapCLIExecuteError(diagnosticExitError{message: "doctor found warning checks", exitCode: 2})
+		if err == nil {
+			t.Fatal("wrapCLIExecuteError() = nil")
+		}
+		if err.Error() != "doctor found warning checks" {
+			t.Fatalf("wrapCLIExecuteError() = %q, want the diagnostic message without the execute wrapper", err.Error())
+		}
+		var exitCoder cliExitCoder
+		if !xerrors.As(err, &exitCoder) || exitCoder.ExitCode() != 2 {
+			t.Fatalf("wrapped diagnostic lost ExitCode(); err=%v", err)
+		}
+	})
+
+	t.Run("wraps ordinary command failures", func(t *testing.T) {
+		t.Parallel()
+		err := wrapCLIExecuteError(testError("database query failed"))
+		if err == nil {
+			t.Fatal("wrapCLIExecuteError() = nil")
+		}
+		if err.Error() != "failed to execute CLI command: database query failed" {
+			t.Fatalf("wrapCLIExecuteError() = %q", err.Error())
+		}
+	})
+}
+
 func TestIsSilentCLIExitError(t *testing.T) {
 	t.Parallel()
 

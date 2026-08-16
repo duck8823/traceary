@@ -77,3 +77,16 @@ func TestSearchProjectionIndexFamilyBytesHelpNamesRebuildPeak(t *testing.T) {
 		t.Fatalf("usage=%q, want it to say the budget is not a rebuild-peak cap", flag.Usage)
 	}
 }
+
+func TestStoreSearchProjectionShortIsLocalized(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+	resetConfiguredCLILanguageCacheForTest()
+	root := NewRootCLI().Command()
+	projection := findCommandOrNil(findCommandOrNil(root, "store"), "search-projection")
+	if projection == nil {
+		t.Fatal("store search-projection is not registered")
+	}
+	if !strings.Contains(projection.Short, "派生") {
+		t.Fatalf("search-projection short = %q, want Japanese pairing", projection.Short)
+	}
+}

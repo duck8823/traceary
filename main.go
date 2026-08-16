@@ -278,7 +278,7 @@ func run() error {
 	rootCmd.SetContext(commandCtx)
 
 	if err := rootCmd.Execute(); err != nil {
-		return xerrors.Errorf("failed to execute CLI command: %w", err)
+		return wrapCLIExecuteError(err)
 	}
 
 	return nil
@@ -426,6 +426,20 @@ func main() {
 
 func isSilentCLIExitError(err error) bool {
 	return cli.IsBrokenPipeError(err)
+}
+
+// wrapCLIExecuteError keeps Cobra's generic wrapper off diagnostic
+// exit-code errors (doctor warn/fail, hook consolidation). Those already
+// carry the operator-facing message and an ExitCode.
+func wrapCLIExecuteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var exitCoder cliExitCoder
+	if errors.As(err, &exitCoder) {
+		return err
+	}
+	return xerrors.Errorf("failed to execute CLI command: %w", err)
 }
 
 func writeCLIError(output io.Writer, err error) error {
