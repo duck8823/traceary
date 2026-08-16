@@ -35,6 +35,9 @@ func (c *BodyCodecChecker) CheckBodyCodec(ctx context.Context) (_ application.Bo
 	}()
 
 	supported := SupportedBodyCodecs()
+	if len(supported) == 0 {
+		return application.BodyCodecState{}, xerrors.Errorf("binary advertises no supported body codecs")
+	}
 	placeholders := strings.Repeat("?,", len(supported))
 	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, len(supported))
@@ -42,8 +45,10 @@ func (c *BodyCodecChecker) CheckBodyCodec(ctx context.Context) (_ application.Bo
 		args[i] = v
 	}
 
+	// NULL body_codec is the pre-codec identity row, not an unknown value.
+	// decodePayload treats missing metadata as identity.
 	rows, err := db.QueryContext(ctx,
-		"SELECT body_codec, COUNT(*) FROM events WHERE body_codec NOT IN ("+placeholders+") GROUP BY body_codec ORDER BY body_codec",
+		"SELECT body_codec, COUNT(*) FROM events WHERE body_codec IS NOT NULL AND body_codec NOT IN ("+placeholders+") GROUP BY body_codec ORDER BY body_codec",
 		args...)
 	if err != nil {
 		return application.BodyCodecState{}, xerrors.Errorf("query unknown body codecs: %w", err)
