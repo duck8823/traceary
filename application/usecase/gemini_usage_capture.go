@@ -63,7 +63,7 @@ func (u *geminiUsageCaptureUsecase) CaptureHeadless(
 	}
 	result := GeminiUsageCaptureResult{}
 	for _, sample := range loaded.Samples {
-		observation, err := geminiUsageObservation(input.SessionID, sample)
+		observation, err := geminiUsageObservation(ctx, u.repository, input.SessionID, sample)
 		if err != nil {
 			return result, xerrors.Errorf("failed to map Gemini usage sample: %w", err)
 		}
@@ -165,6 +165,8 @@ func (u *geminiUsageCaptureUsecase) recordUnavailable(
 }
 
 func geminiUsageObservation(
+	ctx context.Context,
+	repo application.GeminiUsageRepository,
 	sessionID types.SessionID,
 	sample application.GeminiUsageSample,
 ) (*model.UsageObservation, error) {
@@ -186,8 +188,12 @@ func geminiUsageObservation(
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Gemini usage source: %w", err)
 	}
+	observedAt, err := resolveUnavailableObservationTime(ctx, repo, id, sample.ObservedAt)
+	if err != nil {
+		return nil, err
+	}
 	descriptor, err := model.NewUsageObservationDescriptor(
-		id, sessionID, source, types.UsageScopeRun, types.UsageAccountingAdditive, sample.ObservedAt.UTC(),
+		id, sessionID, source, types.UsageScopeRun, types.UsageAccountingAdditive, observedAt,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Gemini usage descriptor: %w", err)
@@ -201,7 +207,7 @@ func geminiUsageObservation(
 		terminal = types.UsageTerminalUnknown
 	}
 	observation, err := model.NewFinalizedUsageObservation(
-		descriptor, counters, types.UnavailableUsageCost(), terminal, sample.ObservedAt.UTC(),
+		descriptor, counters, types.UnavailableUsageCost(), terminal, observedAt,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("invalid Gemini usage observation: %w", err)

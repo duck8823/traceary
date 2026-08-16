@@ -15,7 +15,7 @@ const epochZeroHookUsageRepairBatchSize = 1000
 const epochZeroHookUsageObservedAt = "1970-01-01T00:00:00.000000000Z"
 
 const epochZeroHookUsageSourceFilter = `
-    source_name IN ('stop_hook', 'session_end_hook', 'after_agent_hook')`
+    source_name IN ('stop_hook', 'session_end_hook', 'after_agent_hook', 'headless_stream')`
 
 const selectEpochZeroHookUsageBatch = `
 SELECT observation.observation_id,
@@ -83,7 +83,7 @@ type EpochZeroHookUsageRepairResult struct {
 }
 
 // RepairEpochZeroHookUsageObservations backfills a bounded batch of
-// stop-hook-family rows whose observed_at is Unix epoch.
+// stop-hook-family and headless_stream rows whose observed_at is Unix epoch.
 func RepairEpochZeroHookUsageObservations(ctx context.Context, db *sql.DB, batchSize int) (EpochZeroHookUsageRepairResult, error) {
 	if batchSize <= 0 {
 		batchSize = epochZeroHookUsageRepairBatchSize

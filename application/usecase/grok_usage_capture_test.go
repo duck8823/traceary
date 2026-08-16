@@ -32,6 +32,7 @@ func TestGrokUsageCapture_RecordsVerifiedRunExactlyOnce(t *testing.T) {
 			observation.Counters().Availability() != types.UsageAvailabilityPartial {
 			t.Fatalf("observation = %+v", observation)
 		}
+		assertUnavailableObservationNotEpoch(t, observation)
 		if value, known := observation.Counters().ReasoningOutput().Value(); !known || value != 20 {
 			t.Fatalf("reasoning = (%d, %t)", value, known)
 		}
