@@ -188,6 +188,10 @@ func (c *RootCLI) runHookSession(
 			return err
 		}
 
+		resolvedDBPath, err := resolveDBPath(dbPath)
+		if err != nil {
+			return err
+		}
 		hookCancellationDiagnosticPath := ""
 		shouldTrackClaudeCancellation := strings.TrimSpace(client) == "claude"
 		if shouldTrackClaudeCancellation {
@@ -197,6 +201,7 @@ func (c *RootCLI) runHookSession(
 				"'traceary' 'hook' 'session' 'claude' 'end'",
 				sessionID,
 				"",
+				resolvedDBPath,
 			); err != nil {
 				slog.Debug("hook session-end cancellation diagnostic failed", "client", client, "session_id", sessionID, "error", err)
 			} else {
@@ -211,14 +216,18 @@ func (c *RootCLI) runHookSession(
 			if err := updateHookCancellationDiagnosticWorkspace(hookCancellationDiagnosticPath, workspace); err != nil {
 				slog.Debug("hook session-end cancellation diagnostic workspace update failed", "client", client, "session_id", sessionID, "path", hookCancellationDiagnosticPath, "error", err)
 			}
-		}
-		resolvedDBPath, err := resolveDBPath(dbPath)
-		if err != nil {
-			return err
+			if err := updateHookCancellationDiagnosticPhase(hookCancellationDiagnosticPath, hookCancellationDiagnosticPhaseWorkspaceResolved); err != nil {
+				slog.Debug("hook session-end cancellation diagnostic phase update failed", "client", client, "session_id", sessionID, "path", hookCancellationDiagnosticPath, "error", err)
+			}
 		}
 		c.applyDatabasePath(resolvedDBPath)
 		if err := c.storeManagement.Initialize(ctx); err != nil {
 			return xerrors.Errorf("failed to initialize store: %w", err)
+		}
+		if shouldTrackClaudeCancellation {
+			if err := updateHookCancellationDiagnosticPhase(hookCancellationDiagnosticPath, hookCancellationDiagnosticPhaseStoreInitialized); err != nil {
+				slog.Debug("hook session-end cancellation diagnostic phase update failed", "client", client, "session_id", sessionID, "path", hookCancellationDiagnosticPath, "error", err)
+			}
 		}
 		if _, err := c.session.End(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil {
 			return xerrors.Errorf("failed to record hook session end: %w", err)

@@ -26,6 +26,19 @@ const (
 	// characters (48 bits) make accidental collisions between distinct sessions
 	// in a single diagnostics directory negligible while staying short.
 	hookCancellationDiagnosticSessionHashLen = 12
+
+	hookCancellationDiagnosticPhaseWorkspaceResolved = "workspace_resolved"
+	hookCancellationDiagnosticPhaseStoreInitialized  = "store_initialized"
+
+	// hookCancellationDiagnosticRetentionWindow bounds how long a marker for a
+	// given (client, host_event) stays eligible for begin-time GC and how old
+	// an Unknown-store marker must be before `doctor --fix` removes it.
+	hookCancellationDiagnosticRetentionWindow = 7 * 24 * time.Hour
+	// hookCancellationDiagnosticRetentionCap bounds how many markers for a
+	// given (client, host_event) survive begin-time GC regardless of age, so
+	// the diagnostics directory cannot grow unbounded even under a tight
+	// begin/kill loop within the retention window.
+	hookCancellationDiagnosticRetentionCap = 20
 )
 
 type hookCancellationDiagnostic struct {
@@ -36,6 +49,8 @@ type hookCancellationDiagnostic struct {
 	HookPath      string    `json:"hook_path,omitempty"`
 	Workspace     string    `json:"workspace,omitempty"`
 	SessionID     string    `json:"session_id,omitempty"`
+	DBPath        string    `json:"db_path,omitempty"`
+	Phase         string    `json:"phase,omitempty"`
 	Status        string    `json:"status"`
 	StartedAt     time.Time `json:"started_at"`
 
@@ -51,12 +66,20 @@ type hookDiagnosticSessionLookup interface {
 	FindEndedSessionIDs(context.Context, []types.SessionID) (map[types.SessionID]struct{}, error)
 }
 
+// hookCancellationDiagnosticClassification splits scanned markers three ways.
+// Resolved: the session ended in the store currently being inspected.
+// Actionable: the session is known-active in that same store.
+// Unknown: the marker references a different store (or predates db_path
+// recording), so its session state cannot be determined here. Unknown is
+// never surfaced as Actionable — a scratch/other --db-path store must not
+// mark every historical marker as needing attention.
 type hookCancellationDiagnosticClassification struct {
 	Actionable []hookCancellationDiagnostic
 	Resolved   []hookCancellationDiagnostic
+	Unknown    []hookCancellationDiagnostic
 }
 
-func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, projectDir string) doctorCheck {
+func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, dbPath, projectDir string) doctorCheck {
 	const checkName = "claude-hook-cancellations"
 	workspace := resolveDoctorEventCoverageWorkspace(ctx, projectDir)
 	scan, err := scanHookCancellationDiagnostics("claude", "SessionEnd", workspace)
@@ -78,7 +101,7 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, 
 			),
 		}
 	}
-	classification, err := classifyHookCancellationDiagnostics(ctx, scan.Records, c.session)
+	classification, err := classifyHookCancellationDiagnostics(ctx, scan.Records, c.session, dbPath)
 	if err != nil {
 		return doctorCheck{
 			Name:    checkName,
@@ -87,7 +110,7 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, 
 		}
 	}
 
-	if len(classification.Actionable) == 0 && len(classification.Resolved) == 0 {
+	if len(classification.Actionable) == 0 && len(classification.Resolved) == 0 && len(classification.Unknown) == 0 {
 		return doctorCheck{
 			Name:   checkName,
 			Status: doctorStatusWarn,
@@ -102,23 +125,69 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, 
 			),
 		}
 	}
-	fix := resolvedHookCancellationDiagnosticFix(classification.Resolved)
+
+	agedUnknown := agedHookCancellationDiagnostics(classification.Unknown, time.Now().UTC().Add(-hookCancellationDiagnosticRetentionWindow))
+	fixRecords := append(append([]hookCancellationDiagnostic{}, classification.Resolved...), agedUnknown...)
 	fixCommand := ""
-	if len(classification.Resolved) > 0 {
+	var fix doctorFixFunc
+	if len(fixRecords) > 0 {
 		fixCommand = fmt.Sprintf("traceary doctor --client claude --project-dir %s --fix --dry-run", shellQuote(projectDir))
+		fix = resolvedHookCancellationDiagnosticFix(fixRecords)
 	}
-	if len(classification.Actionable) == 0 && len(scan.Unreadable) == 0 {
+
+	if len(classification.Actionable) == 0 {
+		if len(fixRecords) > 0 {
+			return doctorCheck{
+				Name:   checkName,
+				Status: doctorStatusWarn,
+				Hint: Localize(
+					"the referenced sessions have ended, or the markers reference another store and have aged past the retention window; preview the safe marker cleanup with the fix command",
+					"参照先 session は終了済みか、marker が別ストアを参照したまま retention window を超えています。fix command で安全な marker cleanup を preview してください",
+				),
+				Message: localizef(
+					"found %d resolved and %d aged unknown-store Claude SessionEnd hook cancellation diagnostic(s) eligible for cleanup%s",
+					"cleanup 可能な解決済み Claude SessionEnd hook cancellation diagnostic が %d 件、別ストア参照で retention window を超えた marker が %d 件あります%s",
+					len(classification.Resolved),
+					len(agedUnknown),
+					formatUnreadableHookDiagnosticsSuffix(scan.Unreadable),
+				),
+				FixCommand:       fixCommand,
+				AutoFixAvailable: true,
+				FixFunc:          fix,
+			}
+		}
+		if len(classification.Unknown) > 0 && len(scan.Unreadable) == 0 {
+			return doctorCheck{
+				Name:   checkName,
+				Status: doctorStatusWarn,
+				Hint: Localize(
+					"these markers reference a different store than the one currently inspected, or predate db_path recording; they are not evidence of an actionable cancellation in this store",
+					"これらの marker は現在検査中のストアとは別のストアを参照しているか、db_path 記録より前のものです。このストアで対応が必要な cancellation の証拠にはなりません",
+				),
+				Message: localizef(
+					"found %d Claude SessionEnd hook cancellation diagnostic(s) of unknown store affinity",
+					"ストアの対応関係が不明な Claude SessionEnd hook cancellation diagnostic が %d 件あります",
+					len(classification.Unknown),
+				),
+			}
+		}
 		return doctorCheck{
-			Name:             checkName,
-			Status:           doctorStatusWarn,
-			Hint:             Localize("the referenced sessions have ended; preview the safe marker cleanup with the fix command", "参照先 session は終了済みです。fix command で安全な marker cleanup を preview してください"),
-			Message:          localizef("found %d resolved Claude SessionEnd hook cancellation diagnostic(s) eligible for cleanup", "cleanup 可能な解決済み Claude SessionEnd hook cancellation diagnostic が %d 件あります", len(classification.Resolved)),
-			FixCommand:       fixCommand,
-			AutoFixAvailable: true,
-			FixFunc:          fix,
+			Name:   checkName,
+			Status: doctorStatusWarn,
+			Hint: Localize(
+				"inspect the unreadable diagnostic file(s); absence of readable diagnostics is not proof that Claude never cancelled a hook before Traceary started",
+				"読めない diagnostic file を確認してください。読める diagnostic が無いことは、Claude が Traceary 起動前に hook を cancel していない証明にはなりません",
+			),
+			Message: localizef(
+				"found %d unknown-store Claude SessionEnd hook cancellation diagnostic(s) and unreadable diagnostic file(s): %s",
+				"ストアの対応関係が不明な Claude SessionEnd hook cancellation diagnostic が %d 件、読めない diagnostic file があります: %s",
+				len(classification.Unknown),
+				strings.Join(scan.Unreadable, ", "),
+			),
 		}
 	}
 
+	latest := classification.Actionable[0]
 	check := doctorCheck{
 		Name:   checkName,
 		Status: doctorStatusWarn,
@@ -126,15 +195,13 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, 
 			"the marker means Traceary reached Claude SessionEnd but did not complete cleanly; inspect the file and recent `traceary list --agent claude` output, then remove the marker after confirming it is stale. If Claude cancels before Traceary starts, no marker can be written.",
 			"この marker は Traceary が Claude SessionEnd まで到達したものの正常完了していないことを示します。file と最近の `traceary list --agent claude` を確認し、stale と判断できたら marker を削除してください。Claude が Traceary 起動前に cancel した場合、marker は書けません。",
 		),
-		Message: localizef("found unreadable Claude hook cancellation diagnostic file(s): %s", "読めない Claude hook cancellation diagnostic file があります: %s", strings.Join(scan.Unreadable, ", ")),
-	}
-	if len(classification.Actionable) > 0 {
-		latest := classification.Actionable[0]
-		check.Message = localizef(
-			"found %d actionable Claude SessionEnd hook cancellation diagnostic(s) and %d resolved marker(s); latest host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
-			"対応が必要な Claude SessionEnd hook cancellation diagnostic が %d 件、解決済み marker が %d 件あります。latest host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
+		Message: localizef(
+			"found %d actionable Claude SessionEnd hook cancellation diagnostic(s), %d resolved, %d unknown-store; latest phase=%s host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
+			"対応が必要な Claude SessionEnd hook cancellation diagnostic が %d 件、解決済みが %d 件、ストア不明が %d 件あります。latest phase=%s host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
 			len(classification.Actionable),
 			len(classification.Resolved),
+			len(classification.Unknown),
+			emptyAsDash(latest.Phase),
 			emptyAsDash(latest.HostEvent),
 			emptyAsDash(latest.HookCommand),
 			emptyAsDash(latest.HookPath),
@@ -143,16 +210,9 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, 
 			formatHookDiagnosticTime(latest.StartedAt),
 			latest.Path,
 			formatUnreadableHookDiagnosticsSuffix(scan.Unreadable),
-		)
-	} else if len(classification.Resolved) > 0 && len(scan.Unreadable) > 0 {
-		check.Message = localizef(
-			"found %d resolved Claude SessionEnd hook cancellation diagnostic(s) eligible for cleanup and unreadable diagnostic file(s): %s",
-			"cleanup 可能な解決済み Claude SessionEnd hook cancellation diagnostic が %d 件、読めない diagnostic file があります: %s",
-			len(classification.Resolved),
-			strings.Join(scan.Unreadable, ", "),
-		)
+		),
 	}
-	if len(classification.Resolved) > 0 {
+	if len(fixRecords) > 0 {
 		check.FixCommand = fixCommand
 		check.AutoFixAvailable = true
 		check.FixFunc = fix
@@ -164,14 +224,33 @@ func classifyHookCancellationDiagnostics(
 	ctx context.Context,
 	records []hookCancellationDiagnostic,
 	sessions hookDiagnosticSessionLookup,
+	currentDBPath string,
 ) (hookCancellationDiagnosticClassification, error) {
 	classification := hookCancellationDiagnosticClassification{}
-	if sessions == nil {
-		classification.Actionable = append(classification.Actionable, records...)
+	currentDBPath = strings.TrimSpace(currentDBPath)
+
+	// A marker only speaks to the store it was written against. Comparing it
+	// to any other store — including "we don't know which store" — is not
+	// evidence either way, so it is never Actionable and never Resolved.
+	sameStore := make([]hookCancellationDiagnostic, 0, len(records))
+	for _, record := range records {
+		recordDBPath := strings.TrimSpace(record.DBPath)
+		if currentDBPath == "" || recordDBPath == "" || recordDBPath != currentDBPath {
+			classification.Unknown = append(classification.Unknown, record)
+			continue
+		}
+		sameStore = append(sameStore, record)
+	}
+	if len(sameStore) == 0 {
 		return classification, nil
 	}
-	ids := make([]types.SessionID, 0, len(records))
-	for _, record := range records {
+
+	if sessions == nil {
+		classification.Actionable = append(classification.Actionable, sameStore...)
+		return classification, nil
+	}
+	ids := make([]types.SessionID, 0, len(sameStore))
+	for _, record := range sameStore {
 		if strings.TrimSpace(record.SessionID) != "" {
 			ids = append(ids, types.SessionID(record.SessionID))
 		}
@@ -180,7 +259,7 @@ func classifyHookCancellationDiagnostics(
 	if err != nil {
 		return hookCancellationDiagnosticClassification{}, xerrors.Errorf("failed to inspect ended sessions: %w", err)
 	}
-	for _, record := range records {
+	for _, record := range sameStore {
 		if strings.TrimSpace(record.SessionID) == "" {
 			classification.Actionable = append(classification.Actionable, record)
 			continue
@@ -192,6 +271,18 @@ func classifyHookCancellationDiagnostics(
 		classification.Actionable = append(classification.Actionable, record)
 	}
 	return classification, nil
+}
+
+// agedHookCancellationDiagnostics returns the subset of records started
+// before cutoff, preserving order.
+func agedHookCancellationDiagnostics(records []hookCancellationDiagnostic, cutoff time.Time) []hookCancellationDiagnostic {
+	aged := make([]hookCancellationDiagnostic, 0, len(records))
+	for _, record := range records {
+		if record.StartedAt.Before(cutoff) {
+			aged = append(aged, record)
+		}
+	}
+	return aged
 }
 
 func resolvedHookCancellationDiagnosticFix(records []hookCancellationDiagnostic) doctorFixFunc {
@@ -212,7 +303,7 @@ func resolvedHookCancellationDiagnosticFix(records []hookCancellationDiagnostic)
 	}
 }
 
-func beginHookCancellationDiagnostic(client, hostEvent, hookCommand string, sessionID types.SessionID, workspace types.Workspace) (string, error) {
+func beginHookCancellationDiagnostic(client, hostEvent, hookCommand string, sessionID types.SessionID, workspace types.Workspace, dbPath string) (string, error) {
 	startedAt := time.Now().UTC()
 	diagnosticsDir, err := hookDiagnosticsDir()
 	if err != nil {
@@ -221,6 +312,7 @@ func beginHookCancellationDiagnostic(client, hostEvent, hookCommand string, sess
 	if err := os.MkdirAll(diagnosticsDir, 0o755); err != nil {
 		return "", xerrors.Errorf("failed to create hook diagnostics directory: %w", err)
 	}
+	gcHookCancellationDiagnostics(client, hostEvent, startedAt)
 
 	hookPath := ""
 	if executablePath, err := os.Executable(); err == nil {
@@ -234,6 +326,7 @@ func beginHookCancellationDiagnostic(client, hostEvent, hookCommand string, sess
 		HookPath:      hookPath,
 		Workspace:     workspace.String(),
 		SessionID:     sessionID.String(),
+		DBPath:        strings.TrimSpace(dbPath),
 		Status:        hookCancellationDiagnosticStatusStarted,
 		StartedAt:     startedAt,
 	}
@@ -251,6 +344,30 @@ func beginHookCancellationDiagnostic(client, hostEvent, hookCommand string, sess
 	return path, nil
 }
 
+// gcHookCancellationDiagnostics removes stale markers for the same
+// (client, host_event) before a new one is written, so a host that keeps
+// killing SessionEnd before it completes cannot grow the diagnostics
+// directory without bound. Markers within the retention window and cap are
+// left alone; scan failures are treated as "nothing to GC" since begin must
+// still write the new marker.
+func gcHookCancellationDiagnostics(client, hostEvent string, now time.Time) {
+	scan, err := scanHookCancellationDiagnostics(client, hostEvent, "")
+	if err != nil {
+		return
+	}
+	cutoff := now.Add(-hookCancellationDiagnosticRetentionWindow)
+	// Reserve one cap slot for the marker this call is about to write, so a
+	// steady stream of begin calls converges on the cap instead of settling
+	// one marker over it.
+	keepWithinCap := hookCancellationDiagnosticRetentionCap - 1
+	for i, record := range scan.Records {
+		if i < keepWithinCap && !record.StartedAt.Before(cutoff) {
+			continue
+		}
+		_ = clearHookCancellationDiagnostic(record.Path)
+	}
+}
+
 func clearHookCancellationDiagnostic(path string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -263,6 +380,22 @@ func clearHookCancellationDiagnostic(path string) error {
 }
 
 func updateHookCancellationDiagnosticWorkspace(path string, workspace types.Workspace) error {
+	return mutateHookCancellationDiagnostic(path, func(record *hookCancellationDiagnostic) {
+		record.Workspace = workspace.String()
+	})
+}
+
+// updateHookCancellationDiagnosticPhase records a cheap breadcrumb of how far
+// SessionEnd progressed before a possible kill: workspace resolution and
+// store initialize are the two points most likely to hang against a large
+// store, so those are the only phases recorded (#1972).
+func updateHookCancellationDiagnosticPhase(path, phase string) error {
+	return mutateHookCancellationDiagnostic(path, func(record *hookCancellationDiagnostic) {
+		record.Phase = phase
+	})
+}
+
+func mutateHookCancellationDiagnostic(path string, mutate func(*hookCancellationDiagnostic)) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil
@@ -278,7 +411,7 @@ func updateHookCancellationDiagnosticWorkspace(path string, workspace types.Work
 	if err := json.Unmarshal(data, &record); err != nil {
 		return xerrors.Errorf("failed to decode hook cancellation diagnostic: %w", err)
 	}
-	record.Workspace = workspace.String()
+	mutate(&record)
 	encoded, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return xerrors.Errorf("failed to encode hook cancellation diagnostic: %w", err)

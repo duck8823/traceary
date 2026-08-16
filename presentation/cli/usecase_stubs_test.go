@@ -284,27 +284,28 @@ func (s *eventUsecaseStub) HydrateCommandAudits(_ context.Context, events []*mod
 
 // sessionUsecaseStub implements usecase.SessionUsecase for testing.
 type sessionUsecaseStub struct {
-	startEvent     *model.Event
-	startErr       error
-	endEvent       *model.Event
-	endErr         error
-	labelErr       error
-	listResult     []apptypes.SessionSummary
-	listErr        error
-	listCriteria   apptypes.SessionListCriteria
-	treeResult     []apptypes.SessionSummary
-	treeErr        error
-	lineageResult  []apptypes.SessionSummary
-	lineageErr     error
-	activeEvent    *model.Event
-	activeErr      error
-	activeCriteria apptypes.SessionLookupCriteria
-	latestEvent    *model.Event
-	latestErr      error
-	latestCriteria apptypes.SessionLookupCriteria
-	handoff        types.Optional[apptypes.HandoffSummary]
-	handoffErr     error
-	setModelCalls  map[types.SessionID]string
+	startEvent      *model.Event
+	startErr        error
+	endEvent        *model.Event
+	endErr          error
+	labelErr        error
+	listResult      []apptypes.SessionSummary
+	listErr         error
+	listCriteria    apptypes.SessionListCriteria
+	treeResult      []apptypes.SessionSummary
+	treeErr         error
+	lineageResult   []apptypes.SessionSummary
+	lineageErr      error
+	activeEvent     *model.Event
+	activeErr       error
+	activeCriteria  apptypes.SessionLookupCriteria
+	latestEvent     *model.Event
+	latestErr       error
+	latestCriteria  apptypes.SessionLookupCriteria
+	handoff         types.Optional[apptypes.HandoffSummary]
+	handoffErr      error
+	setModelCalls   map[types.SessionID]string
+	endedSessionIDs map[types.SessionID]struct{}
 
 	startCall struct {
 		client          types.Client
@@ -429,6 +430,9 @@ func (s *sessionUsecaseStub) List(_ context.Context, criteria apptypes.SessionLi
 	return s.listResult, s.listErr
 }
 func (s *sessionUsecaseStub) FindEndedSessionIDs(_ context.Context, _ []types.SessionID) (map[types.SessionID]struct{}, error) {
+	if s.endedSessionIDs != nil {
+		return s.endedSessionIDs, nil
+	}
 	return map[types.SessionID]struct{}{}, nil
 }
 func (s *sessionUsecaseStub) Tree(_ context.Context, _ types.Workspace, _ types.SessionID, _ int) ([]apptypes.SessionSummary, error) {
