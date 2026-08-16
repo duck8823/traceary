@@ -24,7 +24,28 @@ const retentionPlanSchemaVersion = "retention-plan/v2"
 var (
 	canonicalUnsignedInteger = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
 	lowerHexDigest           = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	// retentionReasonRank matches schema/retention-plan.schema.json x-traceary-order.
+	retentionReasonRank = map[string]int{
+		"age": 0, "count": 1, "logical_bytes": 2, "allocated_bytes": 3,
+		"retain": 4, "debug": 5, "legal_hold": 6, "active_session": 7,
+		"recovery_floor": 8, "unknown_extent": 9, "path_escape": 10,
+		"unverified": 11, "stale": 12, "not_transcript": 13, "already_discarded": 14,
+		"session_missing": 15, "session_active": 16, "within_retention": 17, "uncovered": 18,
+	}
 )
+
+func retentionReasonLess(left, right string) bool {
+	leftRank, leftKnown := retentionReasonRank[left]
+	rightRank, rightKnown := retentionReasonRank[right]
+	switch {
+	case leftKnown && rightKnown && leftRank != rightRank:
+		return leftRank < rightRank
+	case leftKnown != rightKnown:
+		return leftKnown
+	default:
+		return left < right
+	}
+}
 
 func encodeRetentionPlan(plan apptypes.RetentionPlan) ([]byte, error) {
 	normalizeRetentionPlan(&plan)
@@ -343,12 +364,14 @@ func normalizeRetentionPlan(plan *apptypes.RetentionPlan) {
 		return left.CandidateIdentity < right.CandidateIdentity
 	})
 	for index := range plan.CanonicalPayload.Candidates {
-		sort.Strings(plan.CanonicalPayload.Candidates[index].Reasons)
+		reasons := plan.CanonicalPayload.Candidates[index].Reasons
+		sort.Slice(reasons, func(i, j int) bool { return retentionReasonLess(reasons[i], reasons[j]) })
+		plan.CanonicalPayload.Candidates[index].Reasons = reasons
 	}
 	sort.Slice(plan.CanonicalPayload.Exclusions, func(i, j int) bool {
 		left, right := plan.CanonicalPayload.Exclusions[i], plan.CanonicalPayload.Exclusions[j]
 		if left.Reason != right.Reason {
-			return left.Reason < right.Reason
+			return retentionReasonLess(left.Reason, right.Reason)
 		}
 		return left.StableIdentity < right.StableIdentity
 	})

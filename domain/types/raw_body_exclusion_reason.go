@@ -3,7 +3,8 @@ package types
 import "golang.org/x/xerrors"
 
 // RawBodyExclusionReason is the first allowlist condition that an excluded event fails.
-// Evaluation order matches the selector predicate in select_discardable_event_bodies.sql.
+// Evaluation order matches select_discardable_event_bodies.sql:
+// kind, availability, session identity, session ended, ts_valid, coverage.
 type RawBodyExclusionReason string
 
 // Exclusion reasons in allowlist-evaluation order (first failing condition wins).

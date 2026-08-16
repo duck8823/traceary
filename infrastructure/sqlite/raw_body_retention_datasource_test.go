@@ -754,20 +754,30 @@ func TestRawBodyRetention_classifiesExclusionReasons(t *testing.T) {
 
 	validTime := "2026-06-01T00:00:00Z"
 
-	// not_transcript: event with kind != 'transcript', age-eligible but excluded by kind check.
+	// not_transcript: a prompt on an *active* session. Ending the session
+	// must not be implied as the fix; the row stays non-discardable.
 	if _, err := db.Exec(`
 		INSERT INTO events(id, kind, agent, session_id, body, created_at)
-		VALUES ('excl-not-transcript', 'prompt', 'codex', 'excl-session-ended', 'body', ?)
+		VALUES ('excl-not-transcript', 'prompt', 'codex', 'excl-session-active', 'body', ?)
 	`, validTime); err != nil {
 		t.Fatalf("insert not_transcript event: %v", err)
 	}
 
-	// already_discarded: transcript with body_availability already pruned.
+	// already_discarded is intentionally not listed per-row: discarded
+	// bodies were never in the plan, and enumerating them is unbounded.
 	if _, err := db.Exec(`
 		INSERT INTO events(id, kind, agent, session_id, body, body_availability, created_at)
 		VALUES ('excl-already-discarded', 'transcript', 'codex', 'excl-session-ended', '', 'unavailable_retention', ?)
 	`, validTime); err != nil {
 		t.Fatalf("insert already_discarded event: %v", err)
+	}
+
+	// session_missing: available transcript whose session row is gone.
+	if _, err := db.Exec(`
+		INSERT INTO events(id, kind, agent, session_id, body, created_at)
+		VALUES ('excl-session-missing', 'transcript', 'codex', 'excl-session-absent', 'body', ?)
+	`, validTime); err != nil {
+		t.Fatalf("insert session_missing event: %v", err)
 	}
 
 	// session_active: transcript with an active session (ended_at IS NULL).
@@ -808,11 +818,11 @@ func TestRawBodyRetention_classifiesExclusionReasons(t *testing.T) {
 	}
 
 	wantByID := map[string]types.RawBodyExclusionReason{
-		"excl-not-transcript":    types.RawBodyExclusionReasonNotTranscript,
-		"excl-already-discarded": types.RawBodyExclusionReasonAlreadyDiscarded,
-		"excl-session-active":    types.RawBodyExclusionReasonSessionActive,
-		"excl-within-retention":  types.RawBodyExclusionReasonWithinRetention,
-		"excl-uncovered":         types.RawBodyExclusionReasonUncovered,
+		"excl-not-transcript":   types.RawBodyExclusionReasonNotTranscript,
+		"excl-session-missing":  types.RawBodyExclusionReasonSessionMissing,
+		"excl-session-active":   types.RawBodyExclusionReasonSessionActive,
+		"excl-within-retention": types.RawBodyExclusionReasonWithinRetention,
+		"excl-uncovered":        types.RawBodyExclusionReasonUncovered,
 	}
 
 	gotByID := make(map[string]types.RawBodyExclusionReason, len(snapshot.Excluded))
