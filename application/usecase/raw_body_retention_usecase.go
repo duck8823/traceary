@@ -92,6 +92,7 @@ func (u *rawBodyRetentionUsecase) CreatePlan(ctx context.Context, before time.Ti
 		CanonicalPayload: apptypes.RetentionCanonicalPayload{
 			SchemaVersion: retentionPlanSchemaVersion,
 			CreatedAt:     now.UTC().Format(time.RFC3339Nano), SnapshotAt: snapshot.SnapshotAt.UTC().Format(time.RFC3339Nano),
+			CutoffAt: before.UTC().Format(time.RFC3339Nano),
 			Source: apptypes.RetentionPlanSource{
 				DatabaseIdentity: snapshot.DatabaseIdentity, SQLiteUserVersion: snapshot.SQLiteUserVersion,
 				MigrationDigest: snapshot.MigrationDigest,
@@ -134,11 +135,29 @@ func (u *rawBodyRetentionUsecase) Apply(ctx context.Context, planData []byte, re
 		return apptypes.RawBodyApplyResult{}, err
 	}
 	_ = bodies
-	result, err := u.executor.ApplyRawBodyPlan(ctx, plan.CanonicalPayload.Source.DatabaseIdentity, plan.CanonicalPayload.Source.SQLiteUserVersion, plan.CanonicalPayload.Source.MigrationDigest, plan.PlanID, candidates, now.UTC())
+	cutoffAt, err := retentionPlanCutoff(plan)
+	if err != nil {
+		return apptypes.RawBodyApplyResult{}, err
+	}
+	result, err := u.executor.ApplyRawBodyPlan(ctx, plan.CanonicalPayload.Source.DatabaseIdentity, plan.CanonicalPayload.Source.SQLiteUserVersion, plan.CanonicalPayload.Source.MigrationDigest, plan.PlanID, candidates, cutoffAt, now.UTC())
 	if err != nil {
 		return apptypes.RawBodyApplyResult{}, xerrors.Errorf("apply reviewed raw-body plan: %w", err)
 	}
 	return result, nil
+}
+
+// retentionPlanCutoff resolves the plan's persisted selection boundary. Plans
+// written before cutoff_at existed omit it; apply falls back to created_at.
+func retentionPlanCutoff(plan apptypes.RetentionPlan) (time.Time, error) {
+	value := plan.CanonicalPayload.CutoffAt
+	if value == "" {
+		value = plan.CanonicalPayload.CreatedAt
+	}
+	cutoffAt, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, xerrors.Errorf("parse retention plan cutoff: %w", err)
+	}
+	return cutoffAt, nil
 }
 
 func (u *rawBodyRetentionUsecase) Restore(ctx context.Context, planData []byte, recoveryPath, confirmedPlanID string, now time.Time) (apptypes.RawBodyRestoreResult, error) {

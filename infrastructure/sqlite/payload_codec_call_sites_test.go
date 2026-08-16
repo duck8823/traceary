@@ -201,7 +201,7 @@ func TestRawBodyRestore_UsesCanonicalPayloadCodec(t *testing.T) {
 		t.Fatalf("candidate count = %d, want 1", len(snapshot.Candidates))
 	}
 	planID := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	if _, err := store.ApplyRawBodyPlan(ctx, snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)); err != nil {
+	if _, err := store.ApplyRawBodyPlan(ctx, snapshot.DatabaseIdentity, snapshot.SQLiteUserVersion, snapshot.MigrationDigest, planID, snapshot.Candidates, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("ApplyRawBodyPlan() error = %v", err)
 	}
 

@@ -12,6 +12,7 @@ type RetentionCanonicalPayload struct {
 	SchemaVersion        string                   `json:"schema_version"`
 	CreatedAt            string                   `json:"created_at"`
 	SnapshotAt           string                   `json:"snapshot_at"`
+	CutoffAt             string                   `json:"cutoff_at,omitempty"`
 	Source               RetentionPlanSource      `json:"source"`
 	Policy               RetentionPlanPolicy      `json:"policy"`
 	ClassResults         []RetentionClassResult   `json:"class_results"`

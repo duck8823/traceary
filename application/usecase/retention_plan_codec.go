@@ -230,6 +230,22 @@ func validateRetentionPlan(plan apptypes.RetentionPlan) error {
 	if err := validateUTCInstant(payload.SnapshotAt); err != nil {
 		return xerrors.Errorf("invalid retention plan snapshot_at: %w", err)
 	}
+	if payload.CutoffAt != "" {
+		if err := validateUTCInstant(payload.CutoffAt); err != nil {
+			return xerrors.Errorf("invalid retention plan cutoff_at: %w", err)
+		}
+		cutoffAt, err := time.Parse(time.RFC3339Nano, payload.CutoffAt)
+		if err != nil {
+			return xerrors.Errorf("parse retention plan cutoff_at: %w", err)
+		}
+		createdAt, err := time.Parse(time.RFC3339Nano, payload.CreatedAt)
+		if err != nil {
+			return xerrors.Errorf("parse retention plan created_at: %w", err)
+		}
+		if !cutoffAt.Before(createdAt) {
+			return xerrors.Errorf("retention plan cutoff_at must be before created_at")
+		}
+	}
 	if payload.Source.SQLiteUserVersion < 0 || !lowerHexDigest.MatchString(payload.Source.MigrationDigest) {
 		return xerrors.Errorf("retention plan source and timestamps are required")
 	}
