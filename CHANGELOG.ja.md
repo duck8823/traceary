@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **`content-event-reliability` の duplicate identity を `store dedupe content-events` と揃えた (#1701)** — 診断は retention pruner が空にした行を grouping から除外するようになり、repair 側の `dedupeEligibilityFilter` と一致します。これまでは、retention で空にされた prompt/transcript 行がすべて同じ marker 本文を持つため、repair が一切触らない phantom な duplicate group を診断が 1 つに集約してしまうことがありました。ledger 保持行は引き続き診断の集計対象です（grouping には参加し続けるだけで、repair 側は archive しません）。eligibility と archivability の違いは `docs/storage/README.md` を参照してください。Scratch: 実 SQLite store に真の duplicate pair 1 組と retention で空にされた行数件を用意し、出荷済みの `doctor` と dry-run の両方を掛けて duplicate 件数が一致することを確認しました。
 - **大容量 store の `doctor` が host package identity を引き続き報告する (#1970)** — bounded `metadata_only_large_store` の早期 return に `*-plugin-version` ファミリーと native な Grok/Kimi plugin 有効化チェックが加わりました。host manifest・host plugin cache・host CLI probe だけを読みます。これにより `scripts/verify-post-upgrade-plugin-refresh.sh` は、bounded doctor の閾値（2 GiB）以上の live store に対しても `--skip` なしで post-upgrade gate を実行できます。store は引き続き open しません。
 
 ## [v0.39.0] - 2026-08-16

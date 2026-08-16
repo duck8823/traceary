@@ -163,6 +163,76 @@ func TestContentEventReliabilityFindingsNormalizeTrailingWhitespace(t *testing.T
 	}
 }
 
+// TestContentEventReliabilityFindingsExcludeRetentionEmptiedRows pins the
+// #1701 fix: rows the retention pruner has emptied must not participate in
+// grouping, by default or in --strict. Without the eligibility filter these
+// three unrelated-looking rows would hash to the same identity (matching
+// kind/client/agent/session/workspace/source_hook and an identical empty
+// body) and report a phantom duplicate group.
+func TestContentEventReliabilityFindingsExcludeRetentionEmptiedRows(t *testing.T) {
+	base := time.Date(2026, 6, 20, 7, 0, 0, 0, time.UTC)
+	events := []*model.Event{
+		mustUnavailableRetentionEvent(t, "evt-r1", types.EventKindPrompt, "session-1", "workspace-1", "user_prompt_submit", base),
+		mustUnavailableRetentionEvent(t, "evt-r2", types.EventKindPrompt, "session-1", "workspace-1", "user_prompt_submit", base.Add(time.Second)),
+		mustUnavailableRetentionEvent(t, "evt-r3", types.EventKindPrompt, "session-1", "workspace-1", "user_prompt_submit", base.Add(2*time.Second)),
+	}
+
+	defaultFindings := contentEventReliabilityFindingsFromEvents(events, false)
+	if defaultFindings.ScannedContentCount != 0 {
+		t.Fatalf("default ScannedContentCount = %d, want 0", defaultFindings.ScannedContentCount)
+	}
+	if len(defaultFindings.DuplicateGroups) != 0 {
+		t.Fatalf("default DuplicateGroups = %+v, want none", defaultFindings.DuplicateGroups)
+	}
+
+	strictFindings := contentEventReliabilityFindingsFromEvents(events, true)
+	if len(strictFindings.DuplicateGroups) != 0 {
+		t.Fatalf("strict DuplicateGroups = %+v, want none", strictFindings.DuplicateGroups)
+	}
+}
+
+// TestContentEventReliabilityFindingsAvailableEmptyBodyStillGroups verifies
+// the eligibility filter does not over-exclude: an `available` row with an
+// empty body (not retention-emptied) must still be able to duplicate-group.
+func TestContentEventReliabilityFindingsAvailableEmptyBodyStillGroups(t *testing.T) {
+	base := time.Date(2026, 6, 20, 8, 0, 0, 0, time.UTC)
+	events := []*model.Event{
+		mustContentEvent(t, "evt-e1", types.EventKindPrompt, "session-1", "workspace-1", "user_prompt_submit", "", base),
+		mustContentEvent(t, "evt-e2", types.EventKindPrompt, "session-1", "workspace-1", "user_prompt_submit", "", base.Add(time.Second)),
+	}
+
+	findings := contentEventReliabilityFindingsFromEvents(events, false)
+	if findings.ScannedContentCount != 2 {
+		t.Fatalf("ScannedContentCount = %d, want 2", findings.ScannedContentCount)
+	}
+	if len(findings.DuplicateGroups) != 1 || findings.DuplicateGroups[0].Count != 2 {
+		t.Fatalf("DuplicateGroups = %+v, want one group of 2", findings.DuplicateGroups)
+	}
+}
+
+// TestContentEventReliabilityFindingsScannedCountExcludesIneligible pins the
+// denominator behavior: ScannedContentCount only counts eligible rows, and
+// retention-emptied rows neither count nor group even when mixed with
+// eligible duplicates.
+func TestContentEventReliabilityFindingsScannedCountExcludesIneligible(t *testing.T) {
+	base := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
+	events := []*model.Event{
+		mustContentEvent(t, "evt-a", types.EventKindPrompt, "session-1", "workspace-1", "user_prompt_submit", "same body", base),
+		mustContentEvent(t, "evt-b", types.EventKindPrompt, "session-1", "workspace-1", "user_prompt_submit", "same body", base.Add(time.Second)),
+		mustUnavailableRetentionEvent(t, "evt-r1", types.EventKindPrompt, "session-2", "workspace-1", "user_prompt_submit", base),
+		mustUnavailableRetentionEvent(t, "evt-r2", types.EventKindPrompt, "session-2", "workspace-1", "user_prompt_submit", base.Add(time.Second)),
+		mustUnavailableRetentionEvent(t, "evt-r3", types.EventKindPrompt, "session-2", "workspace-1", "user_prompt_submit", base.Add(2*time.Second)),
+	}
+
+	findings := contentEventReliabilityFindingsFromEvents(events, false)
+	if findings.ScannedContentCount != 2 {
+		t.Fatalf("ScannedContentCount = %d, want 2 (retention-emptied rows excluded)", findings.ScannedContentCount)
+	}
+	if len(findings.DuplicateGroups) != 1 || findings.DuplicateGroups[0].Count != 2 {
+		t.Fatalf("DuplicateGroups = %+v, want only the eligible pair", findings.DuplicateGroups)
+	}
+}
+
 func mustContentEvent(t *testing.T, eventID string, kind types.EventKind, sessionID, workspace, sourceHook, body string, createdAt time.Time) *model.Event {
 	t.Helper()
 	return mustEventWithClient(t, eventID, "hook", kind, sessionID, workspace, sourceHook, body, createdAt)
@@ -178,6 +248,26 @@ func mustEventWithClient(t *testing.T, eventID, client string, kind types.EventK
 		types.SessionID(sessionID),
 		types.Workspace(workspace),
 		body,
+		createdAt,
+		sourceHook,
+	)
+}
+
+// mustUnavailableRetentionEvent builds a hook prompt/transcript event whose
+// raw body has been emptied by the retention pruner, mirroring the row shape
+// event_datasource.go produces on read (body="" once body_availability is
+// unavailable_retention).
+func mustUnavailableRetentionEvent(t *testing.T, eventID string, kind types.EventKind, sessionID, workspace, sourceHook string, createdAt time.Time) *model.Event {
+	t.Helper()
+	return model.EventOfWithBodyAvailabilityAndSourceHook(
+		types.EventID(eventID),
+		kind,
+		types.Client("hook"),
+		types.Agent("codex"),
+		types.SessionID(sessionID),
+		types.Workspace(workspace),
+		"",
+		types.BodyAvailabilityUnavailableRetention,
 		createdAt,
 		sourceHook,
 	)
