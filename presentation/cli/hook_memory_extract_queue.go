@@ -725,12 +725,16 @@ func countHookMemoryExtractSidecars(now time.Time) (locks, tmps int) {
 
 func memoryExtractQueueFix(c *RootCLI, dryRun bool) (string, error) {
 	now := hookMemoryExtractNow()
-	drainable := countHookMemoryExtractDrainable(now)
+	pending, _, err := scanHookMemoryExtractJobs()
+	if err != nil {
+		return "", err
+	}
+	locks, tmps := countHookMemoryExtractSidecars(now)
 	if dryRun {
 		return localizef(
-			"would drain/GC memory extraction queue under a 45s wall (batch %d): drainable=%d",
-			"45 秒の壁時計内で memory extraction queue を drain/GC します（batch %d）: drainable=%d",
-			hookMemoryExtractDoctorFixLimit, drainable,
+			"would drain/GC memory extraction queue under a 45s wall (batch %d): %d pending job(s), %d orphan lock(s), %d aged temp file(s)",
+			"45 秒の壁時計内で memory extraction queue を drain/GC します（batch %d）: 未処理 job %d 件、orphan lock %d 件、古い temp %d 件",
+			hookMemoryExtractDoctorFixLimit, len(pending), locks, tmps,
 		), nil
 	}
 	launched, removed, launchedPaths := c.drainHookMemoryExtractQueueUntil(now, hookMemoryExtractNow().Add(hookMemoryExtractDoctorWall), hookMemoryExtractDoctorFixLimit, hookMemoryExtractNow)
