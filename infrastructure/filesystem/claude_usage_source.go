@@ -219,9 +219,13 @@ type claudeAssistantMessage struct {
 
 type claudeRawUsageCounters struct {
 	InputTokens         *int64 `json:"input_tokens"`
+	InputTokensCamel    *int64 `json:"inputTokens"`
 	CacheReadTokens     *int64 `json:"cache_read_input_tokens"`
+	CacheReadCamel      *int64 `json:"cacheReadInputTokens"`
 	CacheCreationTokens *int64 `json:"cache_creation_input_tokens"`
+	CacheCreationCamel  *int64 `json:"cacheCreationInputTokens"`
 	OutputTokens        *int64 `json:"output_tokens"`
+	OutputTokensCamel   *int64 `json:"outputTokens"`
 }
 
 func parseClaudeUsageJSONL(
@@ -403,22 +407,33 @@ func decodeClaudeUsage(raw json.RawMessage) (application.ClaudeUsageCounters, bo
 	if err := json.Unmarshal(raw, &counters); err != nil {
 		return application.ClaudeUsageCounters{}, false, xerrors.Errorf("invalid Claude usage counters")
 	}
-	for _, counter := range []*int64{
-		counters.InputTokens, counters.CacheReadTokens, counters.CacheCreationTokens, counters.OutputTokens,
-	} {
+	input := firstInt64(counters.InputTokens, counters.InputTokensCamel)
+	cacheRead := firstInt64(counters.CacheReadTokens, counters.CacheReadCamel)
+	cacheWrite := firstInt64(counters.CacheCreationTokens, counters.CacheCreationCamel)
+	output := firstInt64(counters.OutputTokens, counters.OutputTokensCamel)
+	for _, counter := range []*int64{input, cacheRead, cacheWrite, output} {
 		if counter != nil && *counter < 0 {
 			return application.ClaudeUsageCounters{}, false, xerrors.Errorf("invalid negative Claude usage counter")
 		}
 	}
-	if counters.InputTokens == nil || counters.OutputTokens == nil {
+	if input == nil || output == nil {
 		return application.ClaudeUsageCounters{}, false, xerrors.Errorf("incomplete Claude usage counters")
 	}
 	return application.ClaudeUsageCounters{
-		InputTokens:           counters.InputTokens,
-		CachedInputTokens:     counters.CacheReadTokens,
-		CacheWriteInputTokens: counters.CacheCreationTokens,
-		OutputTokens:          counters.OutputTokens,
+		InputTokens:           input,
+		CachedInputTokens:     cacheRead,
+		CacheWriteInputTokens: cacheWrite,
+		OutputTokens:          output,
 	}, true, nil
+}
+
+func firstInt64(values ...*int64) *int64 {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 func claudeObservedAt(raw string, available bool, fallback time.Time) (time.Time, error) {

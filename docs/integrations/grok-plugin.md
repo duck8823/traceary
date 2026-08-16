@@ -104,7 +104,7 @@ installed inventory. It intentionally leaves a legacy package named `traceary`
 untouched because that name can belong to another host integration.
 
 ```sh
-git clone --branch v0.27.0 --depth 1 https://github.com/duck8823/traceary.git
+git clone --depth 1 --branch "v$(traceary -v | awk '{print $2}')" https://github.com/duck8823/traceary.git
 cd traceary
 ./scripts/install-grok-plugin.sh
 ```

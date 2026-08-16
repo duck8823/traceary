@@ -46,6 +46,17 @@
 
 > **Grok native runtime:** `traceary hooks install --client grok` は `.grok/hooks/traceary.json`（`--global` では `~/.grok/hooks/traceary.json`）へ書き込みます。core と compact event は `client=hook`、`agent=grok` で保存します。`Stop` は turn 境界のままです。subagent capture は parent/child identifier payload を検証するまで利用不可です。
 
+### トークン usage の取得（2026-08-16 実測、live store）
+
+ライフサイクル hook ではなく、additive な `usage_observations` の経路です。
+
+| Host | Additive 源 | 実測 coverage | 判断 |
+|---|---|---|---|
+| Codex | `rollout_jsonl` | 連続して取得できている | 維持 |
+| Claude | `transcript_calls`（Stop-hook の transcript 走査） | 8/1 以降の Claude session 666 に対し additive 25 行 | extractor は camelCase の `inputTokens`/`outputTokens` も読む。対話 transcript は usage 自体を省略することが多く、その turn は availability-only のまま。bare zero にはせず `report` が excluded/unavailable を開示する（#2018）。 |
+| Grok | `headless_stream` のみ | additive 3 行、2026-07-23 以降なし。7/24 以降の Grok session は 287 | Grok `Stop` は per-turn トークンを出さない。`stop_hook` 行は availability-only。additive は headless stream に限る。 |
+| Kimi | `main_wire` | 最終行 2026-08-13 は最終 Kimi session と一致 | 回帰ではない。known token の `main_wire` は stop_hook との二重計上を避けるため excluded。 |
+
 ### Traceary 未配線のホスト hook
 
 上のライフサイクルマトリクスに既出の hook はここでは省略している。

@@ -83,7 +83,7 @@ brew install traceary
 2. 対応する Traceary の release tag の checkout から、plugin をインストールします（packaged hook の互換性を保つため、Traceary CLI と一致する tag を指定してください）。
 
 ```sh
-git clone --depth 1 --branch v0.29.0 https://github.com/duck8823/traceary
+git clone --depth 1 --branch "v$(traceary -v | awk '{print $2}')" https://github.com/duck8823/traceary
 cd traceary
 ./scripts/install-kimi-plugin.sh
 ```
